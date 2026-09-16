@@ -459,68 +459,17 @@ pub(crate) fn grant_mmio_cap(
     Ok(Some(true))
 }
 
-pub(crate) fn bundlemgrd_set_active_slot(
-    pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
-    bnd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
-    slot: u8,
-) -> bool {
+pub(crate) fn bundlemgrd_set_active_slot(bnd_req: u32, ask: nexus_ipc::SlotPair, slot: u8) -> bool {
     let mut req = [0u8; 5];
     nexus_abi::bundlemgrd::encode_set_active_slot_req(slot, &mut req);
-    let reply_send_clone = match nexus_abi::cap_clone(reply_send) {
-        Ok(slot) => slot,
-        Err(_) => return false,
-    };
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        req.len() as u32,
-    );
-    // A waited exchange (TASK-0324 P8): queue space, then bundlemgrd's answer or its death.
-    if nexus_abi::ipc_send_v1(bnd_req, &hdr, &req, 0, 0).is_err() {
-        return false;
-    }
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // ONE waited exchange on init's private ask inbox (TASK-0054C P2-d): queue space, then
+    // bundlemgrd's answer or its death. The stash that parked foreign frames is gone with the
+    // shared inbox — nothing else answers here.
     let mut buf = [0u8; 16];
-
-    // First: check if we already buffered the expected response.
-    if let Some(n) = pending.take_into_where(&mut buf, |f| {
-        nexus_abi::bundlemgrd::decode_set_active_slot_rsp(f).is_some()
-    }) {
-        return match nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&buf[..n]) {
-            Some((status, rsp_slot)) => {
-                status == nexus_abi::bundlemgrd::STATUS_OK && rsp_slot == slot
-            }
-            None => false,
-        };
-    }
-
-    // Soft-real-time boot: BLOCK on the shared inbox until a frame or the deadline (no busy-poll) —
-    // frees the CPU for windowd's first-frame compose during init's tail (see `updated_boot_attempt`).
-    loop {
-        match nexus_abi::ipc_recv_v1(
-            reply_recv,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if let Some((status, rsp_slot)) =
-                    nexus_abi::bundlemgrd::decode_set_active_slot_rsp(&buf[..n])
-                {
-                    return status == nexus_abi::bundlemgrd::STATUS_OK && rsp_slot == slot;
-                }
-                let _ = pending.push(&buf[..n]);
-            }
-            // Deadline hit (or transient error): give up this cycle.
-            Err(_) => return false,
-        }
-    }
+    nexus_ipc::exchange::call_matching(bnd_req, ask, &req, &mut buf, |f| {
+        nexus_abi::bundlemgrd::decode_set_active_slot_rsp(f)
+    })
+    .is_ok_and(|(status, rsp_slot)| status == nexus_abi::bundlemgrd::STATUS_OK && rsp_slot == slot)
 }
 
 pub(crate) fn decode_init_health_ok_req(frame: &[u8]) -> bool {
@@ -574,164 +523,57 @@ pub(crate) fn encode_init_health_ok_rsp_with_optional_nonce(
     out
 }
 
-pub(crate) fn updated_health_ok(
-    pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
-    upd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
-) -> Result<u8> {
+pub(crate) fn updated_health_ok(upd_req: u32, ask: nexus_ipc::SlotPair) -> Result<u8> {
     let mut req = [0u8; 4];
     let len = nexus_abi::updated::encode_health_ok_req(&mut req)
         .ok_or(InitError::Map("updated health_ok encode failed"))?;
-    let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-    // Avoid deadline-based blocking IPC in bring-up; use explicit nsec()-bounded NONBLOCK loops.
-    loop {
-        match nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], 0, 0) {
-            Ok(_) => break,
-            Err(e) => return Err(InitError::Ipc(e)),
-        }
-    }
-
-    // Receive the HealthOk response before issuing GetStatus on the same reply inbox.
-    // IMPORTANT: reply inbox is shared; stash unrelated replies deterministically.
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // ONE waited exchange on init's private ask inbox (TASK-0054C P2-d). The `init: health recv
+    // other op=` line this used to print was the shared inbox announcing itself; updated is the
+    // only peer that answers here now, and the stash is gone with the sharing.
     let mut buf = [0u8; 16];
-    let mut logged_other = false;
-    loop {
-        if let Some(_n) = pending.take_into_where(&mut buf, |f| {
-            f.len() >= 7
-                && f[0] == nexus_abi::updated::MAGIC0
-                && f[1] == nexus_abi::updated::MAGIC1
-                && f[2] == nexus_abi::updated::VERSION
-                && f[3] == (nexus_abi::updated::OP_HEALTH_OK | 0x80)
-        }) {
-            if buf[4] != nexus_abi::updated::STATUS_OK {
-                return Err(InitError::Map("updated health_ok failed"));
-            }
-            break;
-        }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n >= 7
-                    && buf[0] == nexus_abi::updated::MAGIC0
-                    && buf[1] == nexus_abi::updated::MAGIC1
-                    && buf[2] == nexus_abi::updated::VERSION
-                {
-                    if buf[3] == (nexus_abi::updated::OP_HEALTH_OK | 0x80) {
-                        if buf[4] != nexus_abi::updated::STATUS_OK {
-                            return Err(InitError::Map("updated health_ok failed"));
-                        }
-                        break;
-                    }
-                    if !logged_other {
-                        logged_other = true;
-                        debug_write_bytes(b"init: health recv other op=0x");
-                        debug_write_hex(buf[3] as usize);
-                        debug_write_byte(b'\n');
-                    }
-                }
-                let _ = pending.push(&buf[..n]);
-                continue;
-            }
-            Err(e) => return Err(InitError::Ipc(e)),
-        }
+    let status = nexus_ipc::exchange::call_matching(upd_req, ask, &req[..len], &mut buf, |f| {
+        (f.len() >= 7
+            && f[0] == nexus_abi::updated::MAGIC0
+            && f[1] == nexus_abi::updated::MAGIC1
+            && f[2] == nexus_abi::updated::VERSION
+            && f[3] == (nexus_abi::updated::OP_HEALTH_OK | 0x80))
+            .then(|| f[4])
+    })
+    .map_err(|_| InitError::Map("updated health_ok unreachable"))?;
+    if status != nexus_abi::updated::STATUS_OK {
+        return Err(InitError::Map("updated health_ok failed"));
     }
-
-    updated_get_status(pending, upd_req, reply_send, reply_recv)
+    updated_get_status(upd_req, ask)
 }
 
-fn updated_get_status(
-    pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
-    upd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
-) -> Result<u8> {
+fn updated_get_status(upd_req: u32, ask: nexus_ipc::SlotPair) -> Result<u8> {
     let mut req = [0u8; 4];
     let len = nexus_abi::updated::encode_get_status_req(&mut req)
         .ok_or(InitError::Map("updated status encode failed"))?;
-    let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-    loop {
-        match nexus_abi::ipc_send_v1(upd_req, &hdr, &req[..len], 0, 0) {
-            Ok(_) => break,
-            Err(e) => return Err(InitError::Ipc(e)),
-        }
-    }
-
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 16];
-    loop {
-        if let Some(n) = pending.take_into_where(&mut buf, |f| {
-            f.len() >= 7
+    // ADDITIVE-TAIL DISCIPLINE: this reader consumes exactly ONE byte (the active slot), so it
+    // requires exactly that. Demanding the WHOLE declared payload made every additive growth of
+    // bootctld's status a hard failure here.
+    let (status, payload_len, n) =
+        nexus_ipc::exchange::call_matching(upd_req, ask, &req[..len], &mut buf, |f| {
+            (f.len() >= 7
                 && f[0] == nexus_abi::updated::MAGIC0
                 && f[1] == nexus_abi::updated::MAGIC1
                 && f[2] == nexus_abi::updated::VERSION
-                && f[3] == (nexus_abi::updated::OP_GET_STATUS | 0x80)
-        }) {
-            // Parse exactly as below.
-            let got_n = n;
-            if buf[4] != nexus_abi::updated::STATUS_OK {
-                return Err(InitError::Map("updated status failed"));
-            }
-            // ADDITIVE-TAIL DISCIPLINE: this reader consumes exactly ONE
-            // byte (the active slot), so it must require exactly that.
-            // Demanding the WHOLE declared payload made every additive
-            // growth of bootctld's status a hard failure here.
-            let payload_len = u16::from_le_bytes([buf[5], buf[6]]) as usize;
-            if payload_len < 1 || got_n < 8 {
-                return Err(InitError::Map("updated status payload missing"));
-            }
-            let active = buf[7];
-            return match active {
-                1 => Ok(b'a'),
-                2 => Ok(b'b'),
-                _ => Err(InitError::Map("updated status slot invalid")),
-            };
-        }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let got_n = core::cmp::min(n as usize, buf.len());
-                if got_n >= 7
-                    && buf[0] == nexus_abi::updated::MAGIC0
-                    && buf[1] == nexus_abi::updated::MAGIC1
-                    && buf[2] == nexus_abi::updated::VERSION
-                    && buf[3] == (nexus_abi::updated::OP_GET_STATUS | 0x80)
-                {
-                    if buf[4] != nexus_abi::updated::STATUS_OK {
-                        return Err(InitError::Map("updated status failed"));
-                    }
-                    let payload_len = u16::from_le_bytes([buf[5], buf[6]]) as usize;
-                    if payload_len < 1 || got_n < 8 {
-                        return Err(InitError::Map("updated status payload missing"));
-                    }
-                    let active = buf[7];
-                    return match active {
-                        1 => Ok(b'a'),
-                        2 => Ok(b'b'),
-                        _ => Err(InitError::Map("updated status slot invalid")),
-                    };
-                }
-                let _ = pending.push(&buf[..got_n]);
-                continue;
-            }
-            Err(e) => return Err(InitError::Ipc(e)),
-        }
+                && f[3] == (nexus_abi::updated::OP_GET_STATUS | 0x80))
+                .then(|| (f[4], u16::from_le_bytes([f[5], f[6]]) as usize, f.len()))
+        })
+        .map_err(|_| InitError::Map("updated status unreachable"))?;
+    if status != nexus_abi::updated::STATUS_OK {
+        return Err(InitError::Map("updated status failed"));
+    }
+    if payload_len < 1 || n < 8 {
+        return Err(InitError::Map("updated status payload missing"));
+    }
+    match buf[7] {
+        1 => Ok(b'a'),
+        2 => Ok(b'b'),
+        _ => Err(InitError::Map("updated status slot invalid")),
     }
 }
 

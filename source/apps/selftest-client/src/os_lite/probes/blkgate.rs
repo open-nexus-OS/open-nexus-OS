@@ -108,44 +108,17 @@ fn deny_probe_quiet(op: u8, frame: &mut [u8], nonce: u32) -> bool {
     frame[3] = op;
     frame[4..8].copy_from_slice(&nonce.to_le_bytes());
 
-    let Ok(reply_clone) = nexus_abi::cap_clone(REPLY.send) else {
-        return false;
-    };
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-    if nexus_abi::ipc_send_v1(send_slot, &hdr, frame, 0, 0).is_err() {
-        let _ = nexus_abi::cap_close(reply_clone);
-        return false;
-    }
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // The answer is the blockproto frame carrying OUR op and nonce on the harness' shared
+    // inbox; everything else queued belongs to another probe (TASK-0054C P2-d).
     let mut buf = [0u8; 64];
-    loop {
-        match nexus_abi::ipc_recv_v1(
-            REPLY.recv,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = n as usize;
-                // Ours iff blockproto reply with our nonce (shared inbox).
-                if n >= 9
-                    && buf[0] == MAGIC0
-                    && buf[1] == MAGIC1
-                    && buf[2] == VERSION
-                    && buf[3] == (op | 0x80)
-                    && buf[4..8] == nonce.to_le_bytes()
-                {
-                    return buf[8] == STATUS_DENIED;
-                }
-            }
-            Err(_) => return false,
-        }
-    }
+    nexus_ipc::exchange::call_matching(send_slot, REPLY, frame, &mut buf, |rsp| {
+        (rsp.len() >= 9
+            && rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (op | 0x80)
+            && rsp[4..8] == nonce.to_le_bytes())
+        .then(|| rsp[8] == STATUS_DENIED)
+    })
+    .unwrap_or(false)
 }

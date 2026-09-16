@@ -13,8 +13,8 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use nexus_abi::yield_;
+use nexus_ipc::budget;
 use nexus_ipc::budget::{NonceMismatchBudget, RouteRetryOutcome};
-use nexus_ipc::{budget, reqrep};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use crate::protocol::*;
@@ -78,9 +78,6 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> RngdResult<()> {
     // Route to get our IPC endpoint.
     let server = route_rngd_blocking().ok_or(RngdError::Ipc("route failed"))?;
 
-    // Shared CAP_MOVE reply inbox buffer (nonce-correlated policyd replies).
-    let mut pending_replies: reqrep::ReplyBuffer<16, 512> = reqrep::ReplyBuffer::new();
-
     // RFC-0068: emit rngd's folded bring-up markers as one `rngd N/N` grid line before the loop,
     // so the service is visible as a group (expand with `NEXUS_LOG_EXPAND=rngd`); proof prints raw.
     nexus_abi::service_verdict_flush("rngd");
@@ -92,7 +89,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> RngdResult<()> {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
                 breaker.on_success();
-                let rsp = handle_frame(&mut pending_replies, sender_service_id, frame.as_slice());
+                let rsp = handle_frame(sender_service_id, frame.as_slice());
 
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
@@ -152,11 +149,7 @@ fn route_rngd_blocking() -> Option<KernelServer> {
 /// # Security
 /// - Never log entropy bytes
 /// - Policy check on sender_service_id
-fn handle_frame(
-    pending: &mut reqrep::ReplyBuffer<16, 512>,
-    sender_service_id: u64,
-    frame: &[u8],
-) -> Vec<u8> {
+fn handle_frame(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     // Validate magic and version
     if frame.len() < MIN_FRAME_LEN || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return rsp(OP_GET_ENTROPY, STATUS_MALFORMED, &[]);
@@ -170,16 +163,12 @@ fn handle_frame(
     }
 
     match op {
-        OP_GET_ENTROPY => handle_get_entropy(pending, sender_service_id, frame),
+        OP_GET_ENTROPY => handle_get_entropy(sender_service_id, frame),
         _ => rsp(op, STATUS_MALFORMED, &[]),
     }
 }
 
-fn handle_get_entropy(
-    pending: &mut reqrep::ReplyBuffer<16, 512>,
-    sender_service_id: u64,
-    frame: &[u8],
-) -> Vec<u8> {
+fn handle_get_entropy(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     // GET_ENTROPY request: [MAGIC0, MAGIC1, VERSION, OP, nonce:u32le, n:u16le]
     if frame.len() != GET_ENTROPY_REQ_LEN {
         return rsp(OP_GET_ENTROPY, STATUS_MALFORMED, &[]);
@@ -195,7 +184,7 @@ fn handle_get_entropy(
 
     // Policy check via policyd
     emit_line("rngd: policy check");
-    if !policyd_allows(pending, sender_service_id, CAP_RNG_ENTROPY) {
+    if !policyd_allows(sender_service_id, CAP_RNG_ENTROPY) {
         // Audit: denial is logged by policyd; we just return status
         emit_line("rngd: entropy denied");
         return rsp_with_nonce(OP_GET_ENTROPY, STATUS_DENIED, nonce, &[]);
@@ -235,14 +224,11 @@ fn read_entropy_from_device(n: usize) -> Result<Vec<u8>, rng_virtio::RngError> {
 }
 
 /// Check if the caller has the required capability via policyd.
-fn policyd_allows(
-    _pending: &mut reqrep::ReplyBuffer<16, 512>,
-    subject_id: u64,
-    cap: &[u8],
-) -> bool {
+fn policyd_allows(subject_id: u64, cap: &[u8]) -> bool {
     // RFC-0066: the shared route-based CAP_MOVE policy check
-    // (nexus_ipc::policyd::check_cap_delegated). The ~140-line hand-rolled copy
-    // was removed; the reply-buffer plumbing is retained but now unused.
+    // (`nexus_ipc::policyd::check_cap_delegated`, one `exchange::call_matching`). The ~140-line
+    // hand-rolled copy went with RFC-0066; the reply-buffer plumbing it needed was threaded
+    // through four signatures for nothing until TASK-0054C P2-d removed it.
     matches!(
         nexus_ipc::policyd::check_cap_delegated(subject_id, cap),
         nexus_ipc::policyd::CapDecision::Allow

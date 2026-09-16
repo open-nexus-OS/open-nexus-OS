@@ -28,7 +28,6 @@ use nexus_abi::{
     debug_putc, exec, nsec, service_id_from_name, wait_nohang_with_reason, wait_with_reason,
     yield_, ExitReason, Pid,
 };
-use nexus_ipc::reqrep::{recv_match, ReplyBuffer};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_metrics::client::MetricsClient;
 use nexus_metrics::{DeterministicIdSource, SpanId};
@@ -277,19 +276,13 @@ struct TrackedChild {
 struct State {
     children: Vec<TrackedChild>,
     policy_nonce: u32,
-    pending_policy: ReplyBuffer<8, 16>,
     /// RFC-0080: cap slot of the SHARED atlas VMO (`atlas_vmo` module); RO-cloned per spawn.
     atlas_vmo: Option<u32>,
 }
 
 impl State {
     fn new() -> Self {
-        Self {
-            children: Vec::new(),
-            policy_nonce: 1,
-            pending_policy: ReplyBuffer::new(),
-            atlas_vmo: None,
-        }
+        Self { children: Vec::new(), policy_nonce: 1, atlas_vmo: None }
     }
 
     fn track_child(&mut self, pid: u32, image_id: u8) {
@@ -837,25 +830,32 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         Some(n) => n,
         None => return rsp(op, STATUS_MALFORMED, 0).to_vec(),
     };
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, qn as u32);
     // Init-lite may be busy answering ROUTE_GET queries (policyd-gated) during early bring-up:
-    // the send waits for queue space, the receive for init's answer — no clock (P7-d).
+    // the send waits for queue space, the receive for init's answer — no clock (P7-d). init
+    // answers on execd's control channel, which also carries its route answers, so the answer
+    // is the frame that decodes as an exec check with OUR nonce (TASK-0054C P2-d). The
+    // `ReplyBuffer` that used to sit here could only ever have held a SECOND exec-check answer,
+    // which a single-threaded execd handling one spawn at a time never produces — and it
+    // dropped a route answer rather than parking it, exactly as `route_with_nonce` drops an
+    // exec-check answer in the other direction.
     let ctrl = nexus_service_topology::CTRL_SLOTS;
-    if nexus_ipc::budget::raw::send_blocking(ctrl.send, &hdr, &q[..qn]).is_err() {
+    if nexus_ipc::exchange::send_request(ctrl.send, &q[..qn]).is_err() {
         return rsp(op, STATUS_FAILED, 0).to_vec();
     }
-    // The control channel as the ONE kernel client (TASK-0324 P7): a `recv` that honours the
-    // wait, so init's answer wakes us instead of an instant `WouldBlock`.
-    let Ok(ctl) = nexus_ipc::KernelClient::new_with_slots(ctrl.send, ctrl.recv) else {
-        return rsp(op, STATUS_FAILED, 0).to_vec();
+    let mut rb = [0u8; 16];
+    let answer = loop {
+        let Ok(n) = nexus_ipc::exchange::recv_response(ctrl.recv, &mut rb) else {
+            return rsp(op, STATUS_FAILED, 0).to_vec();
+        };
+        let n = n.min(rb.len());
+        if let Some((got, _)) = nexus_abi::policy::decode_exec_check_rsp(&rb[..n]) {
+            if got == nonce {
+                break n;
+            }
+        }
     };
-    let rb = match recv_match(&ctl, &mut state.pending_policy, nonce as u64, |frame| {
-        nexus_abi::policy::decode_exec_check_rsp(frame).map(|(n, _)| n as u64)
-    }) {
-        Ok(v) => v,
-        Err(_) => return rsp(op, STATUS_FAILED, 0).to_vec(),
-    };
-    let decision = match crate::decode_exec_policy_decision(&rb, nonce) {
+    let rb = &rb[..answer];
+    let decision = match crate::decode_exec_policy_decision(rb, nonce) {
         Some(v) => v,
         None => {
             metrics_counter_inc_best_effort("execd.spawn.deny");
@@ -1008,22 +1008,18 @@ fn fetch_app_payload(app_id: &[u8]) -> Option<u32> {
     };
     let mut arm = [0u8; 4];
     nexus_abi::bundlemgrd::encode_arm_vmo(&mut arm);
-    let hdr =
-        nexus_abi::MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, arm.len() as u32);
-    if nexus_abi::ipc_send_v1(BUNDLE_SEND_SLOT, &hdr, &arm, 0, 0).is_err() {
+    // The moved cap is the destination VMO — data, not an inbox.
+    if nexus_ipc::exchange::send_with_cap(BUNDLE_SEND_SLOT, &arm, clone).is_err() {
         emit_line("execd: FAIL app payload (arm send)");
         close_all(Some(clone));
         return None;
     }
-    let Ok(reply) = nexus_abi::cap_clone(topo::REPLY.send) else {
-        emit_line("execd: FAIL app payload (reply clone)");
-        close_all(None);
-        return None;
-    };
-    let hdr = nexus_abi::MsgHeader::new(reply, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-    if nexus_abi::ipc_send_v1(BUNDLE_SEND_SLOT, &hdr, &frame[..len], 0, 0).is_err() {
+    // The ask is started here and COLLECTED in `await_app_payload` below: bundlemgrd streams
+    // into the armed VMO while execd loads the ELF. A started exchange whose answer is read
+    // later is `send_call`; a send whose answer nobody reads is the defect P2-c removed.
+    if nexus_ipc::exchange::send_call(BUNDLE_SEND_SLOT, topo::REPLY, &frame[..len]).is_err() {
         emit_line("execd: FAIL app payload (send)");
-        close_all(Some(reply));
+        close_all(None);
         return None;
     }
     emit_line("execd: app payload requested");

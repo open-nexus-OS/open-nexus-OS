@@ -12,5 +12,4 @@
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
 pub(crate) mod clients;
-pub(crate) mod reply;
 pub(crate) mod routing;

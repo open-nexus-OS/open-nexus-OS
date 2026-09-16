@@ -22,12 +22,10 @@
 //! ADR: docs/adr/0055-bootctld-single-boot-state-authority.md
 
 use bootctld::wire;
-use nexus_abi::MsgHeader;
 
 /// updated's CAP_MOVE reply inbox as declared (TASK-0324 P4f-3).
 const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.recv;
 const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::updated::REPLY.send;
-/// Per-call wire budget.
 
 /// A decoded bootctld reply: wire status + up to 20 payload bytes
 /// (GET_STATUS grew additive tails: TASK-0036-B projection, TASK-0179
@@ -61,44 +59,32 @@ pub(crate) fn call_with_args(op: u8, args: &[u8]) -> Option<BootctlReply> {
     frame[3] = op;
     frame[4..4 + args.len()].copy_from_slice(args);
     let len = 4 + args.len();
-    let reply_send_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).ok()?;
-    let hdr = MsgHeader::new(reply_send_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-    if nexus_abi::ipc_send_v1(send_slot, &hdr, &frame[..len], 0, 0).is_err() {
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        return None;
-    }
-    // Receive: skip foreign inbox traffic (statefs/logd acks) by magic +
-    // the exact op echo; bounded by the call budget.
-    loop {
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 32];
-        match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n >= 7
-                    && buf[0] == wire::MAGIC0
-                    && buf[1] == wire::MAGIC1
-                    && buf[2] == wire::VERSION
-                    && buf[3] == (op | 0x80)
-                {
-                    let payload_len =
-                        core::cmp::min(u16::from_le_bytes([buf[5], buf[6]]) as usize, 20);
-                    let mut payload = [0u8; 20];
-                    let avail = core::cmp::min(payload_len, n.saturating_sub(7));
-                    payload[..avail].copy_from_slice(&buf[7..7 + avail]);
-                    return Some(BootctlReply { status: buf[4], payload, payload_len: avail });
-                }
-                // Foreign frame: consumed and discarded (our inbox, our mess).
+    // ONE exchange; the inbox is shared with updated's other legs, so the answer is the frame
+    // carrying bootctld's magic and OUR op echo — everything else queued belongs to another leg
+    // (TASK-0054C P2-d).
+    let mut buf = [0u8; 32];
+    nexus_ipc::exchange::call_matching(
+        send_slot,
+        nexus_ipc::SlotPair::new(REPLY_SEND_SLOT, REPLY_RECV_SLOT),
+        &frame[..len],
+        &mut buf,
+        |rsp| {
+            if rsp.len() < 7
+                || rsp[0] != wire::MAGIC0
+                || rsp[1] != wire::MAGIC1
+                || rsp[2] != wire::VERSION
+                || rsp[3] != (op | 0x80)
+            {
+                return None;
             }
-            Err(_) => return None,
-        }
-    }
+            let payload_len = core::cmp::min(u16::from_le_bytes([rsp[5], rsp[6]]) as usize, 20);
+            let mut payload = [0u8; 20];
+            let avail = core::cmp::min(payload_len, rsp.len() - 7);
+            payload[..avail].copy_from_slice(&rsp[7..7 + avail]);
+            Some(BootctlReply { status: rsp[4], payload, payload_len: avail })
+        },
+    )
+    .ok()
 }
 
 /// bootctld's request endpoint: the DECLARED slot, pinned by init before this task runs —

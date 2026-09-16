@@ -150,78 +150,31 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
 fn probe_registry() {
     // The declared legs (TASK-0324 P7-d): bundlemgrd's request endpoint and our reply inbox.
     let send_slot = topo::BUNDLEMGRD.send;
-    let (reply_send_slot, reply_recv_slot) = (topo::REPLY.send, topo::REPLY.recv);
 
     let mut req = [0u8; 4];
     nexus_abi::bundlemgrd::encode_list_apps(&mut req);
 
     // Move a clone of our reply-send cap into the request so bundlemgrd replies to
     // our @reply inbox (CAP_MOVE).
-    let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
-        Ok(c) => c,
-        Err(_) => {
-            emit_line("abilitymgr: registry cap clone fail");
-            return;
+    //
+    // ONE exchange (TASK-0054C P2-d): a waited send (queue space or bundlemgrd's death), then
+    // the frame bundlemgrd's decoder recognises — this inbox is shared with the sessiond leg
+    // below. The `cap_close` that used to run here after a SUCCESSFUL send closed a slot
+    // CAP_MOVE had already handed away: a slot-reuse hazard, and the same bug sat in the
+    // sessiond gate.
+    let mut buf = [0u8; 256];
+    match nexus_ipc::exchange::call_matching(send_slot, topo::REPLY, &req, &mut buf, |rsp| {
+        nexus_abi::bundlemgrd::decode_list_apps_header(rsp)
+    }) {
+        Ok((status, count)) if status == nexus_abi::bundlemgrd::STATUS_OK => {
+            nexus_abi::debug_ts_prefix();
+            emit_prefix(b"abilitymgr: registry ok (n=");
+            emit_u32(count as u32);
+            emit_prefix(b")");
+            emit_newline();
         }
-    };
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        req.len() as u32,
-    );
-
-    // A waited send (queue space or bundlemgrd's death), then a waited receive on our inbox
-    // (its answer or its death, EOF) — no clock (TASK-0324 P7-d).
-    let mut sent = false;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, 0, 0) {
-            Ok(_) => {
-                sent = true;
-                break;
-            }
-            Err(_) => break,
-        }
-    }
-    let _ = nexus_abi::cap_close(reply_send_clone);
-    if !sent {
-        emit_line("abilitymgr: registry send fail");
-        return;
-    }
-
-    // Receive the reply on our @reply inbox (bounded).
-    loop {
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 256];
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if let Some((status, count)) =
-                    nexus_abi::bundlemgrd::decode_list_apps_header(&buf[..n])
-                {
-                    if status == nexus_abi::bundlemgrd::STATUS_OK {
-                        nexus_abi::debug_ts_prefix();
-                        emit_prefix(b"abilitymgr: registry ok (n=");
-                        emit_u32(count as u32);
-                        emit_prefix(b")");
-                        emit_newline();
-                        return;
-                    }
-                }
-                // Unrelated frame on the shared inbox: keep waiting.
-            }
-            Err(_) => {
-                emit_line("abilitymgr: registry recv err");
-                return;
-            }
-        }
+        Ok(_) => emit_line("abilitymgr: registry recv err"),
+        Err(_) => emit_line("abilitymgr: registry send fail"),
     }
 }
 
@@ -263,59 +216,18 @@ fn launch_denied_response() -> alloc::vec::Vec<u8> {
 fn session_gate_active() -> bool {
     // The declared legs (TASK-0324 P7-d): sessiond's request endpoint and our reply inbox.
     let send_slot = topo::SESSIOND.send;
-    let (reply_send_slot, reply_recv_slot) = (topo::REPLY.send, topo::REPLY.recv);
 
     let mut req = [0u8; 4];
     nexus_abi::sessiond::encode_get_state(&mut req);
-    let Ok(reply_send_clone) = nexus_abi::cap_clone(reply_send_slot) else {
-        return false;
-    };
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        req.len() as u32,
-    );
-    // 500ms bound
-
-    let mut sent = false;
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, 0, 0) {
-            Ok(_) => {
-                sent = true;
-                break;
-            }
-            Err(_) => break,
-        }
-    }
-    let _ = nexus_abi::cap_close(reply_send_clone);
-    if !sent {
-        return false;
-    }
-
-    loop {
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 512];
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if let Some((status, state, _idx, _count)) =
-                    nexus_abi::sessiond::decode_get_state_header(&buf[..n])
-                {
-                    return status == nexus_abi::sessiond::STATUS_OK
-                        && state == nexus_abi::sessiond::STATE_ACTIVE;
-                }
-            }
-            Err(_) => return false,
-        }
-    }
+    // The sessiond answer on the same shared inbox (TASK-0054C P2-d); the stale `// 500ms
+    // bound` comment and the send-retry loop went with the exchange.
+    let mut buf = [0u8; 512];
+    nexus_ipc::exchange::call_matching(send_slot, topo::REPLY, &req, &mut buf, |rsp| {
+        nexus_abi::sessiond::decode_get_state_header(rsp)
+    })
+    .is_ok_and(|(status, state, _idx, _count)| {
+        status == nexus_abi::sessiond::STATUS_OK && state == nexus_abi::sessiond::STATE_ACTIVE
+    })
 }
 
 /// execd image id of the shared app-host runtime (execd os_lite

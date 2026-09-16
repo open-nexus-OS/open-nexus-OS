@@ -94,35 +94,19 @@ fn decode_put_ok(frame: &[u8]) -> bool {
         && frame[4] == SF_STATUS_OK
 }
 
-/// One bounded CAP_MOVE request/reply with statefsd on imed's pinned slots.
-/// Clones the reply-send, CAP_MOVEs it with the request, drains the private
-/// reply inbox until the matching `'S','F'` frame or the 500 ms deadline.
+/// ONE waited exchange with statefsd on imed's PRIVATE pinned pair (TASK-0324 P7-d):
+/// statefsd's answer or its death, never a clock. The doc-comment's "500 ms deadline" left
+/// with the deadline itself; the frame filter stays because this pair carries every statefs op
+/// imed issues.
 fn request_reply(req: &[u8]) -> Option<Vec<u8>> {
-    let reply_send = nexus_abi::cap_clone(STATEFS_REPLY_SEND_SLOT).ok()?;
-    let hdr =
-        nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    if nexus_abi::ipc_send_v1(STATEFS_SEND_SLOT, &hdr, req, 0, 0).is_err() {
-        let _ = nexus_abi::cap_close(reply_send);
-        return None;
-    }
-    // The CAP_MOVE consumed the clone; do NOT close it on the success path.
-    loop {
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 1024];
-        match nexus_abi::ipc_recv_v1(
-            STATEFS_REPLY_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n >= 4 && buf[0] == SF_MAGIC0 && buf[1] == SF_MAGIC1 {
-                    return Some(buf[..n].to_vec());
-                }
-            }
-            Err(_) => return None,
-        }
-    }
+    let mut buf = [0u8; 1024];
+    let len = nexus_ipc::exchange::call_matching(
+        STATEFS_SEND_SLOT,
+        nexus_ipc::SlotPair::new(STATEFS_REPLY_SEND_SLOT, STATEFS_REPLY_RECV_SLOT),
+        req,
+        &mut buf,
+        |rsp| (rsp.len() >= 4 && rsp[0] == SF_MAGIC0 && rsp[1] == SF_MAGIC1).then(|| rsp.len()),
+    )
+    .ok()?;
+    Some(buf[..len].to_vec())
 }

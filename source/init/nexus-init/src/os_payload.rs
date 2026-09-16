@@ -411,9 +411,7 @@ where
         state.pol_ctl_exec_req,
         state.pol_ctl_exec_rsp,
         state.upd_req,
-        state.upd_reply_send,
-        state.upd_reply_recv,
-        state.upd_pending,
+        state.ask,
         state.stage_fence,
         state.boot_graph,
     );

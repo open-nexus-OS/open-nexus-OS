@@ -181,15 +181,10 @@ pub(super) fn run() -> Result<(), &'static str> {
     match cap_clone(EVENTS_SEND_CLONE_SLOT) {
         Ok(clone) => {
             let frame = wire::encode_surface_events(nonce);
-            let hdr = nexus_abi::MsgHeader::new(
-                clone,
-                0,
-                0,
-                nexus_abi::ipc_hdr::CAP_MOVE,
-                frame.len() as u32,
-            );
-            // WAIT for queue space — no clock; a dead windowd ends the wait.
-            match nexus_abi::ipc_send_v1(WINDOWD_SEND_SLOT, &hdr, &frame, 0, 0) {
+            // The moved cap is this app's EVENT channel — data, not a reply inbox; windowd
+            // binds it to the surface by nonce and pushes into it (TASK-0054C P2-d). WAIT for
+            // queue space — no clock; a dead windowd ends the wait.
+            match nexus_ipc::exchange::send_with_cap(WINDOWD_SEND_SLOT, &frame, clone) {
                 Ok(_) => {
                     raw_marker("APPHOST: events attached (nonce)");
                     // RFC-0079: relinquish our OWN send cap to our event

@@ -164,29 +164,10 @@ impl StatefsClient {
 
     #[cfg(all(nexus_env = "os", feature = "os-lite"))]
     fn send_and_recv_raw(&self, frame: Vec<u8>, expected_op: u8) -> Result<Vec<u8>, StatefsError> {
-        // OS-lite bring-up: avoid indefinite blocking waits.
-        // Use explicit NONBLOCK + bounded retry with `nsec()` deadlines.
-        let (send_slot, recv_slot) = if let Some(reply) = &self.reply {
-            // Replies land on the shared reply inbox when using CAP_MOVE.
-            let (_reply_send, reply_recv) = reply.slots();
-            (self.client.slots().0, reply_recv)
-        } else {
-            self.client.slots()
-        };
-
-        let moved = if let Some(reply) = &self.reply {
-            let (reply_send_slot, _reply_recv_slot) = reply.slots();
-            nexus_abi::cap_clone(reply_send_slot).map_err(|_| StatefsError::IoError)?
-        } else {
-            0
-        };
-        let flags = if moved != 0 { nexus_abi::ipc_hdr::CAP_MOVE } else { 0 };
-        // Nonce correlation for shared reply inboxes (RFC-0019):
-        // upgrade requests to SF v2 (explicit nonce field) and require it in the reply.
+        // Nonce correlation for shared reply inboxes (RFC-0019): upgrade requests to SF v2
+        // (explicit nonce field) and require it in the reply.
         static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
         let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        let mut frame = frame;
-        // Upgrade v1 request frame to v2 by inserting nonce after the 4-byte header.
         if frame.len() < 4
             || frame[0] != protocol::MAGIC0
             || frame[1] != protocol::MAGIC1
@@ -194,45 +175,51 @@ impl StatefsClient {
         {
             return Err(StatefsError::IoError);
         }
+        // Upgrade v1 request frame to v2 by inserting nonce after the 4-byte header.
         let mut v2 = Vec::with_capacity(frame.len() + 8);
         v2.extend_from_slice(&frame[..4]);
         v2[2] = protocol::VERSION_V2;
         v2.extend_from_slice(&nonce.to_le_bytes());
         v2.extend_from_slice(&frame[4..]);
-        frame = v2;
-        let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, flags, frame.len() as u32);
 
-        // No clock (TASK-0324 P7-d): queue space, then statefsd's answer (or its death).
-        nexus_abi::ipc_send_v1(send_slot, &hdr, &frame, 0, 0).map_err(|_| StatefsError::IoError)?;
-
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        // The answer carries this op AND this nonce; anything else on the inbox belongs to
+        // another exchange and is dropped (TASK-0054C P2-d).
+        let matches = |rsp: &[u8]| -> Option<usize> {
+            (rsp.len() >= 13
+                && rsp[0] == protocol::MAGIC0
+                && rsp[1] == protocol::MAGIC1
+                && rsp[2] == protocol::VERSION_V2
+                && rsp[3] == (expected_op | 0x80)
+                && rsp[5..13] == nonce.to_le_bytes())
+            .then(|| rsp.len())
+        };
         let mut buf = [0u8; 4096];
-        loop {
-            let n = nexus_abi::ipc_recv_v1(
-                recv_slot,
-                &mut rh,
-                &mut buf,
-                nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            )
-            .map_err(|_| StatefsError::IoError)?;
-            let n = core::cmp::min(n as usize, buf.len());
-            // Shared reply inbox: unrelated replies are dropped deterministically.
-            if n < 13
-                || buf[0] != protocol::MAGIC0
-                || buf[1] != protocol::MAGIC1
-                || buf[2] != protocol::VERSION_V2
-                || buf[3] != (expected_op | 0x80)
-            {
-                continue;
+        // No clock (TASK-0324 P7-d): queue space, then statefsd's answer (or its death).
+        let n = match &self.reply {
+            // A reply inbox of our own: the request moves a SEND clone of it, and the wait is
+            // EOF-opted, so a statefsd that dies mid-exchange wakes us.
+            Some(reply) => {
+                let (reply_send, reply_recv) = reply.slots();
+                nexus_ipc::exchange::call_matching(
+                    self.client.slots().0,
+                    nexus_ipc::SlotPair::new(reply_send, reply_recv),
+                    &v2,
+                    &mut buf,
+                    matches,
+                )
             }
-            let nn = &buf[5..13];
-            let mut want = [0u8; 8];
-            want.copy_from_slice(&nonce.to_le_bytes());
-            if nn != want {
-                continue;
+            // No inbox: a `SharedResponse` route — statefsd answers on its own endpoint.
+            None => {
+                let (send_slot, recv_slot) = self.client.slots();
+                nexus_ipc::exchange::send_request(send_slot, &v2).and_then(|()| loop {
+                    let got = nexus_ipc::exchange::recv_response(recv_slot, &mut buf)?;
+                    if let Some(n) = matches(&buf[..got.min(buf.len())]) {
+                        break Ok(n);
+                    }
+                })
             }
-            return Ok(buf[..n].to_vec());
         }
+        .map_err(|_| StatefsError::IoError)?;
+        Ok(buf[..n].to_vec())
     }
 }

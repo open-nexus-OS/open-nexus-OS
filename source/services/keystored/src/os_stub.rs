@@ -23,7 +23,6 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use nexus_abi::yield_;
-use nexus_ipc::reqrep::{recv_match, ReplyBuffer};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use statefs::StatefsError;
 
@@ -185,7 +184,6 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
     let mut logged_capmove = false;
     let mut logged_capmove_req = false;
-    let mut pending_replies: ReplyBuffer<16, 512> = ReplyBuffer::new();
     // ONE request buffer for the service lifetime (bump heap never frees)
     // sized to the declared contract above — the allocating recv helper
     // would silently cap every request at 512 bytes.
@@ -218,13 +216,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         }
                     }
                 }
-                let rsp = handle_frame(
-                    &mut store,
-                    &mut device_keypair,
-                    &mut pending_replies,
-                    sender_service_id,
-                    frame,
-                );
+                let rsp = handle_frame(&mut store, &mut device_keypair, sender_service_id, frame);
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
                 } else {
@@ -332,7 +324,6 @@ const MAX_SIGN_PAYLOAD: usize = 1 * 1024 * 1024;
 fn handle_frame(
     store: &mut KeyStore,
     device_keypair: &mut DeviceKeyPair,
-    pending: &mut ReplyBuffer<16, 512>,
     sender_service_id: u64,
     frame: &[u8],
 ) -> Vec<u8> {
@@ -349,24 +340,24 @@ fn handle_frame(
         return handle_verify(frame);
     }
     if op == OP_SIGN {
-        return handle_sign(pending, sender_service_id, frame);
+        return handle_sign(sender_service_id, frame);
     }
     // Device identity key operations
     if op == OP_DEVICE_KEYGEN {
-        return handle_device_keygen(pending, device_keypair, store, sender_service_id);
+        return handle_device_keygen(device_keypair, store, sender_service_id);
     }
     if op == OP_GET_DEVICE_PUBKEY {
-        return handle_get_device_pubkey(pending, device_keypair, store, sender_service_id);
+        return handle_get_device_pubkey(device_keypair, store, sender_service_id);
     }
     if op == OP_DEVICE_SIGN {
-        return handle_device_sign(pending, device_keypair, store, sender_service_id, frame);
+        return handle_device_sign(device_keypair, store, sender_service_id, frame);
     }
     if op == OP_GET_DEVICE_PRIVKEY {
         return handle_get_device_privkey();
     }
     if op == OP_DEVICE_RELOAD {
         emit_line("keystored: rx reload");
-        return handle_device_reload(pending, device_keypair, store, sender_service_id);
+        return handle_device_reload(device_keypair, store, sender_service_id);
     }
 
     // For PUT/GET/DEL, require minimum frame length
@@ -451,11 +442,7 @@ fn handle_verify(frame: &[u8]) -> Vec<u8> {
     rsp(OP_VERIFY, STATUS_OK, &[if ok { 1 } else { 0 }])
 }
 
-fn handle_sign(
-    pending: &mut ReplyBuffer<16, 512>,
-    sender_service_id: u64,
-    frame: &[u8],
-) -> Vec<u8> {
+fn handle_sign(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
     // SIGN request:
     // [K, S, ver, OP_SIGN, payload_len:u32le, payload...]
     const HEADER_LEN: usize = 4 + 4;
@@ -471,28 +458,12 @@ fn handle_sign(
         return rsp(OP_SIGN, STATUS_MALFORMED, &[]);
     }
 
-    if !crate::policy_os::policyd_allows(pending, sender_service_id, b"crypto.sign") {
+    if !crate::policy_os::policyd_allows(sender_service_id, b"crypto.sign") {
         return rsp(OP_SIGN, STATUS_DENY, &[]);
     }
 
     // NOTE: Device-identity signing is handled via OP_DEVICE_SIGN.
     rsp(OP_SIGN, STATUS_UNSUPPORTED, &[])
-}
-
-fn extract_shared_nonce_u32(frame: &[u8]) -> Option<u64> {
-    // policyd v2 delegated-cap reply:
-    // [P,O,ver=2,OP|0x80, nonce:u32le, status:u8, _reserved:u8]
-    if frame.len() == 10 && frame[0] == b'P' && frame[1] == b'O' && frame[2] == 2 {
-        let nonce = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
-        return Some(nonce as u64);
-    }
-    // rngd GET_ENTROPY reply:
-    // [R,G,1,OP|0x80, STATUS, nonce:u32le, ...]
-    if frame.len() >= 9 && frame[0] == b'R' && frame[1] == b'G' && frame[2] == 1 {
-        let nonce = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-        return Some(nonce as u64);
-    }
-    None
 }
 
 // =============================================================================
@@ -506,13 +477,12 @@ fn extract_shared_nonce_u32(frame: &[u8]) -> Option<u64> {
 /// - Policy-gated via `device.keygen` capability
 /// - Entropy is NOT logged
 fn handle_device_keygen(
-    pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,
     sender_service_id: u64,
 ) -> Vec<u8> {
     // Policy check: caller must have device.keygen capability
-    if !crate::policy_os::policyd_allows(pending, sender_service_id, b"device.keygen") {
+    if !crate::policy_os::policyd_allows(sender_service_id, b"device.keygen") {
         return rsp(OP_DEVICE_KEYGEN, STATUS_DENY, &[]);
     }
 
@@ -534,7 +504,7 @@ fn handle_device_keygen(
     }
 
     // Request entropy from rngd (entropy authority service).
-    let entropy = match request_entropy_from_rngd(pending, 32) {
+    let entropy = match request_entropy_from_rngd(32) {
         Some(bytes) if bytes.len() == 32 => {
             let mut arr = [0u8; 32];
             arr.copy_from_slice(&bytes);
@@ -618,7 +588,6 @@ where
 /// - Policy-gated via `device.pubkey.read` capability
 /// - Only returns public key, NEVER private key
 fn handle_get_device_pubkey(
-    pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,
     sender_service_id: u64,
@@ -629,7 +598,7 @@ fn handle_get_device_pubkey(
         }
     }
     handle_get_device_pubkey_with(device_keypair, sender_service_id, |sid| {
-        crate::policy_os::policyd_allows(pending, sid, b"device.pubkey.read")
+        crate::policy_os::policyd_allows(sid, b"device.pubkey.read")
     })
 }
 
@@ -658,7 +627,6 @@ where
 /// `crypto.sign`); any other payload needs full `crypto.sign`. The private
 /// key never leaves keystored; identity is the kernel IPC sender.
 fn handle_device_sign(
-    pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,
     sender_service_id: u64,
@@ -680,7 +648,7 @@ fn handle_device_sign(
 
     let payload = &frame[HEADER_LEN..expected];
     let allowed = statefs::derive::device_sign_allowed(payload, |cap| {
-        crate::policy_os::policyd_allows(pending, sender_service_id, cap.as_bytes())
+        crate::policy_os::policyd_allows(sender_service_id, cap.as_bytes())
     });
     if !allowed {
         return rsp(OP_DEVICE_SIGN, STATUS_DENY, &[]);
@@ -712,12 +680,11 @@ fn handle_get_device_privkey() -> Vec<u8> {
 /// # Security
 /// - Policy-gated via `device.key.reload` capability
 fn handle_device_reload(
-    pending: &mut ReplyBuffer<16, 512>,
     device_keypair: &mut DeviceKeyPair,
     store: &mut KeyStore,
     sender_service_id: u64,
 ) -> Vec<u8> {
-    if !crate::policy_os::policyd_allows(pending, sender_service_id, b"device.key.reload") {
+    if !crate::policy_os::policyd_allows(sender_service_id, b"device.key.reload") {
         emit_line("keystored: reload denied by policy");
         return rsp(OP_DEVICE_RELOAD, STATUS_DENY, &[]);
     }
@@ -737,7 +704,7 @@ fn handle_device_reload(
 ///
 /// # Security
 /// - Entropy bytes are NOT logged
-fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Option<Vec<u8>> {
+fn request_entropy_from_rngd(n: usize) -> Option<Vec<u8>> {
     if n == 0 || n > 256 {
         return None;
     }
@@ -757,45 +724,30 @@ fn request_entropy_from_rngd(pending: &mut ReplyBuffer<16, 512>, n: usize) -> Op
     // keystored's declared rngd leg and reply inbox (TASK-0324 P4f-2).
     use nexus_service_topology::slots::keystored as topo;
     let rng_send_slot = topo::RNGD.send;
-    let reply_send_slot = topo::REPLY.send;
-    let reply_recv_slot = topo::REPLY.recv;
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).ok()?;
-
-    // Send request with CAP_MOVE reply cap so rngd can reply to us deterministically.
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        req.len() as u32,
-    );
-
-    // Send request — no clock (TASK-0324 P7-d): rngd does a policyd round-trip before
-    // replying; the wait ends with its answer or its death, never with a budget.
-    if nexus_ipc::budget::raw::send_blocking(rng_send_slot, &hdr, &req).is_err() {
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        return None;
-    }
-
-    // The reply inbox as the ONE kernel client (TASK-0324 P7): its `recv` honours the wait
-    // `recv_match_until` hands it, so the reply WAKES us — the private NONBLOCK adapter that
-    // used to sit here turned every wait into an instant `WouldBlock`.
-    let inbox = nexus_ipc::KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).ok()?;
-    let rsp = recv_match(&inbox, pending, nonce as u64, extract_shared_nonce_u32).ok()?;
-
-    // Response: [R, G, 1, OP|0x80, STATUS, nonce:u32le, entropy...]
-    if rsp.len() < 9 || rsp[0] != b'R' || rsp[1] != b'G' || rsp[2] != 1 {
-        return None;
-    }
-    if rsp[3] != (1 | 0x80) || rsp[4] != 0 {
-        return None;
-    }
-    let got_nonce = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
-    if got_nonce != nonce {
-        return None;
-    }
+    // ONE exchange, no clock (TASK-0324 P7-d): rngd does a policyd round-trip before replying;
+    // the wait ends with its answer or its death, never with a budget. keystored's reply inbox
+    // is structurally shared — statefsd, logd, policyd and rngd all answer into it — so the
+    // answer is the frame carrying OUR magic, op and nonce, and everything queued ahead of it
+    // belongs to another leg (TASK-0054C P2-d). The `ReplyBuffer` that used to park those
+    // frames was threaded through eight signatures for this ONE call site and could not park a
+    // foreign protocol anyway: `recv_match` discarded what its extractor did not recognise.
+    // Response: [R, G, 1, OP|0x80, STATUS, nonce:u32le, entropy...] — the header plus at most
+    // `MAX_ENTROPY_BYTES`.
+    let mut buf = [0u8; 9 + 256];
+    let len =
+        nexus_ipc::exchange::call_matching(rng_send_slot, topo::REPLY, &req, &mut buf, |rsp| {
+            (rsp.len() >= 9
+                && rsp[0] == b'R'
+                && rsp[1] == b'G'
+                && rsp[2] == 1
+                && rsp[3] == (1 | 0x80)
+                && rsp[4] == 0
+                && u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]) == nonce)
+                .then(|| rsp.len())
+        })
+        .ok()?;
     // SECURITY: Do NOT log entropy bytes!
-    Some(rsp[9..].to_vec())
+    Some(buf[9..len].to_vec())
 }
 fn rsp(op: u8, status: u8, value: &[u8]) -> Vec<u8> {
     // Response: [K, S, ver, op|0x80, status, val_len:u16le, val...]
@@ -859,8 +811,7 @@ mod tests {
         frame.extend_from_slice(&payload);
 
         let sender_service_id = nexus_abi::service_id_from_name(b"demo.testsvc");
-        let mut pending: ReplyBuffer<16, 512> = ReplyBuffer::new();
-        let out = handle_sign(&mut pending, sender_service_id, &frame);
+        let out = handle_sign(sender_service_id, &frame);
         assert_eq!(rsp_status(out), STATUS_DENY);
     }
 
@@ -871,8 +822,7 @@ mod tests {
         frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_SIGN]);
         frame.extend_from_slice(&payload_len.to_le_bytes());
         let sender_service_id = nexus_abi::service_id_from_name(b"samgrd");
-        let mut pending: ReplyBuffer<16, 512> = ReplyBuffer::new();
-        let out = handle_sign(&mut pending, sender_service_id, &frame);
+        let out = handle_sign(sender_service_id, &frame);
         assert_eq!(rsp_status(out), STATUS_TOO_LARGE);
     }
 

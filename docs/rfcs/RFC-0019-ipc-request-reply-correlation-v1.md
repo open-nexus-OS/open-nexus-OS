@@ -1,6 +1,6 @@
 # RFC-0019: IPC Request/Reply Correlation v1 (Nonces + Shared Reply Inbox)
 
-- Status: Complete (v1 contract implemented; proofs green)
+- Status: Complete — **superseded in part by RFC-0096 (TASK-0054C P2-d, 2026-09-16)**
 - Owners: @runtime
 - Created: 2026-02-05
 - Last Updated: 2026-02-06
@@ -18,6 +18,29 @@
 - **Phase 0 (Contract + host runtime + tests)**: ✅
 - **Phase 1 (logd proof-path determinism)**: ✅ (bounded ACK consumption + LO v2 nonce frames for multiplexed logd RPCs)
 - **Phase 2 (Adopt in statefsd/policyd/execd core flows)**: ✅
+
+## Superseded in part — TASK-0054C P2-d (2026-09-16)
+
+The CONTRACT survives: a reply frame carries a nonce, and a client on a shared inbox accepts
+only the frame that carries its own. The MECHANISM this RFC shipped does not. `nexus_ipc::reqrep`
+(`NonceGen`, `ReplyBuffer`, `FrameStash`, `recv_match`) is deleted; correlation is one predicate
+passed to `nexus_ipc::exchange::call_matching` (RFC-0096 §"Alternatives considered").
+
+Why the buffer went, in the order it was found:
+
+1. **It never did what its header claimed.** `recv_match` parked a frame only when its nonce
+   extractor recognised it; a frame of a FOREIGN protocol was discarded, not stashed. So the
+   "never drop unrelated frames" guarantee held for one protocol family at a time.
+2. **Nothing needs parking.** No service in the fleet spawns a thread, so no two exchanges of
+   one client are ever in flight at once. Every out-of-order reply came from a clock-bounded
+   exchange that ABANDONED its answer, from a fire-and-forget send that moved a reply cap
+   (TASK-0054C P2-c), or from two protocols sharing an inbox — the first two are gone, and the
+   third is what the predicate is for.
+3. **It cost more than it carried.** rngd threaded a `ReplyBuffer` through four signatures for a
+   call site that ignored it, keystored through eight for one, execd held one that was provably
+   always empty, and init's `FrameStash` guarded four protocols on an endpoint whose fifth
+   reader (policyd) failed CLOSED on a frame it did not recognise. init's outbound asks now have
+   their own inbox, so that endpoint carries policyd's answers alone.
 
 Definition:
 

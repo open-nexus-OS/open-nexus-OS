@@ -25,18 +25,14 @@ use crate::os_payload::*;
 /// successfully committed consumption.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn boot_attempt_handshake(
-    pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
     boot_req: Option<u32>,
-    reply_send: u32,
-    reply_recv: u32,
+    ask: nexus_ipc::SlotPair,
     bnd_req: u32,
     init_misc: &mut nexus_event::SpanTally,
     init_fold: bool,
 ) -> crate::boot_graph::BootGraph {
     let mut graph = crate::boot_graph::BootGraph::Normal;
-    match boot_req
-        .map_or(Ok((None, None)), |b| bootctld_boot_attempt(pending, b, reply_send, reply_recv))
-    {
+    match boot_req.map_or(Ok((None, None)), |b| bootctld_boot_attempt(b, ask)) {
         Ok((rolled_back, next_boot)) => {
             // One-shot target consumed WITH the attempt ack (RFC-0087 §4).
             if let Some(target) = next_boot {
@@ -49,7 +45,7 @@ pub(crate) fn boot_attempt_handshake(
                 );
             }
             if let Some(slot) = rolled_back {
-                let ok = bundlemgrd_set_active_slot(pending, bnd_req, reply_send, reply_recv, slot);
+                let ok = bundlemgrd_set_active_slot(bnd_req, ask, slot);
                 if !ok && il(init_misc, init_fold, "init") {
                     debug_write_str("init: rollback deferred");
                     debug_write_byte(b'\n');
@@ -71,10 +67,8 @@ pub(crate) fn boot_attempt_handshake(
 /// ourselves). Reply payload `[rolled_back_slot|0, next_boot|0xff]`; the
 /// one-shot consumption rides the same persisted commit (RFC-0087 §4).
 pub(crate) fn bootctld_boot_attempt(
-    pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
     boot_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
+    ask: nexus_ipc::SlotPair,
 ) -> Result<(Option<u8>, Option<u8>)> {
     let req = [b'B', b'T', 1u8, 5u8]; // wire v1, OP_BOOT_ATTEMPT
     let decode = |frame: &[u8]| -> Option<(u8, u8, u8)> {
@@ -91,39 +85,13 @@ pub(crate) fn bootctld_boot_attempt(
         None
     };
     // ONE waited exchange (TASK-0324 P8): a reply-SEND clone rides the request, the send waits
-    // for queue space, the receive for bootctld's answer or its death (EOF on init's reply
-    // endpoint). The 20 × 500 ms attempt cadence is gone with the clock.
-    let reply_send_clone = nexus_abi::cap_clone(reply_send).map_err(InitError::Abi)?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        req.len() as u32,
-    );
-    if nexus_abi::ipc_send_v1(boot_req, &hdr, &req, 0, 0).is_err() {
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        return Ok((None, None));
-    }
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // for queue space, the receive for bootctld's answer or its death (EOF on init's ask
+    // inbox). The 20 × 500 ms attempt cadence is gone with the clock; the stash that used to
+    // park foreign frames went with the shared inbox (TASK-0054C P2-d).
     let mut buf = [0u8; 16];
-    if let Some(n) = pending.take_into_where(&mut buf, |f| decode(f).is_some()) {
-        return finish_boot_attempt(decode(&buf[..n]));
-    }
-    loop {
-        let n = nexus_abi::ipc_recv_v1(
-            reply_recv,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        )
-        .map_err(InitError::Ipc)? as usize;
-        let n = core::cmp::min(n, buf.len());
-        if decode(&buf[..n]).is_some() {
-            return finish_boot_attempt(decode(&buf[..n]));
-        }
-        let _ = pending.push(&buf[..n]);
+    match nexus_ipc::exchange::call_matching(boot_req, ask, &req, &mut buf, decode) {
+        Ok(answer) => finish_boot_attempt(Some(answer)),
+        Err(_) => Err(InitError::Map("bootctld boot attempt unreachable")),
     }
 }
 

@@ -13,9 +13,27 @@
 //!
 //! The reply channel is the caller's declared, init-minted inbox (`slots::<svc>::REPLY`,
 //! `nexus-service-topology`) or a channel minted on demand from init's factory
-//! (`@mint-pair`, [`mint_reply_channel`]). Exchanges on one channel are sequential — the
-//! frame that arrives is the answer to the request just sent — so no nonce filtering and no
-//! reply buffer exist here.
+//! (`@mint-pair`, [`mint_reply_channel`]).
+//!
+//! The forms, and when each one is right (TASK-0054C P2-c/P2-d — this is the whole client
+//! surface; a service that hand-builds a `MsgHeader` with `CAP_MOVE` is working around a gap
+//! that should be closed HERE instead):
+//!
+//! | form | moves a cap | waits | use it when |
+//! |---|---|---|---|
+//! | [`call_into`] | reply | for the answer | the inbox is PRIVATE and sequential — the frame that arrives IS the answer |
+//! | [`call_matching`] | reply | for the answer | the inbox is structurally SHARED — several services answer into it, so the answer is the frame your predicate recognises |
+//! | [`send_call`] + [`recv_reply`] | reply | later | there is useful work between asking and collecting |
+//! | [`send_with_cap`] | DATA (a VMO, a push channel) | for queue space | the receiver keeps the cap; there is no answer |
+//! | [`send_with_cap_nonblocking`] | DATA | never | same, but the caller RETRIES instead of blocking |
+//! | [`send_nonblocking`] | nothing | never | fire-and-forget: no cap, so no ack can rot on anyone's inbox |
+//! | [`send_request`] + [`recv_response`] | nothing | for queue space / the answer | a `SharedResponse` route: the server answers on its OWN endpoint |
+//!
+//! Nothing here PARKS a frame for a later exchange: no service in the fleet spawns a thread,
+//! so no client ever has two exchanges in flight, and a frame that is not this exchange's
+//! answer belongs to another leg of a shared inbox. `nexus_ipc::reqrep` — the nonce generator,
+//! the reply buffer and the frame stash that used to park them — is deleted (RFC-0019's
+//! contract survives as `call_matching`'s predicate; RFC-0096 records why).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -34,6 +52,21 @@ use crate::{IpcError, Result};
 /// is truncated (`IPC_SYS_TRUNCATE`) — size `out` for the protocol (`IPC_PAYLOAD_MAX` is the
 /// transport cap; a protocol's own bound is smaller and known to its caller).
 pub fn call_into(send_slot: u32, reply: SlotPair, frame: &[u8], out: &mut [u8]) -> Result<usize> {
+    send_call(send_slot, reply, frame)?;
+    recv_reply(reply.recv, out)
+}
+
+/// The first half of [`call_into`]: sends `frame` with a fresh SEND clone of `reply` moved
+/// along and RETURNS, leaving the answer on `reply.recv` for the caller to collect later with
+/// [`recv_reply`] or [`call_matching`]'s predicate loop. For an exchange with useful work in
+/// between — execd loads the ELF while bundlemgrd streams the payload into the armed VMO,
+/// settingsd keeps serving while statefsd commits a put.
+///
+/// The caller MUST read the answer: this still starts an exchange, so the ack is awaited, just
+/// not on the next line. A send whose answer nobody collects is the defect TASK-0054C P2-c
+/// removed — use [`send_nonblocking`] (no cap moves, no answer exists) or [`send_with_cap`]
+/// (the cap is data) when nothing is to be awaited.
+pub fn send_call(send_slot: u32, reply: SlotPair, frame: &[u8]) -> Result<()> {
     let clone = nexus_abi::cap_clone(reply.send).map_err(|_| IpcError::Unsupported)?;
     let hdr =
         nexus_abi::MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
@@ -42,7 +75,7 @@ pub fn call_into(send_slot: u32, reply: SlotPair, frame: &[u8], out: &mut [u8]) 
         let _ = nexus_abi::cap_close(clone);
         return Err(map(e));
     }
-    recv_reply(reply.recv, out)
+    Ok(())
 }
 
 /// Waits on `recv_slot` for one frame with EOF opted in: the frame, or `Disconnected` once the
@@ -107,6 +140,24 @@ pub fn send_with_cap(send_slot: u32, frame: &[u8], moved_cap: u32) -> Result<()>
         frame.len() as u32,
     );
     nexus_abi::ipc_send_v1(send_slot, &hdr, frame, 0, 0).map(|_| ()).map_err(map)
+}
+
+/// [`send_with_cap`] for a registration the caller RETRIES rather than waits out: a full queue
+/// drops the frame and returns, the cap stays the caller's, and the next attempt tries again.
+/// For a subscriber that must not block on the service it subscribes to — windowd registers its
+/// settings watches one per frame from the compositor loop, where waiting for settingsd's queue
+/// would stall the frame the user is looking at.
+pub fn send_with_cap_nonblocking(send_slot: u32, frame: &[u8], moved_cap: u32) -> Result<()> {
+    let hdr = nexus_abi::MsgHeader::new(
+        moved_cap,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        frame.len() as u32,
+    );
+    nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0)
+        .map(|_| ())
+        .map_err(map)
 }
 
 /// Fire-and-forget send of a frame nobody answers: no cap moves with it, so it can never

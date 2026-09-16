@@ -435,39 +435,28 @@ fn read_personalization() -> Option<PersonalizationSetting> {
     use nexus_wire::settingsd as sw;
     let mut req = [0u8; 64];
     let n = sw::encode_get_req("ime.personalization", &mut req)?;
-    let reply_send = nexus_abi::cap_clone(SETTINGS_REPLY_SEND_SLOT).ok()?;
-    let hdr = nexus_abi::MsgHeader::new(reply_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
-    if nexus_abi::ipc_send_v1(SETTINGS_SEND_SLOT, &hdr, &req[..n], 0, 0).is_err() {
-        let _ = nexus_abi::cap_close(reply_send);
-        return None;
-    }
-    // One waited exchange (TASK-0324 P7-d): settingsd's answer or its death — no clock.
-    loop {
-        let mut rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 64];
-        match nexus_abi::ipc_recv_v1(
-            SETTINGS_REPLY_RECV_SLOT,
-            &mut rhdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(nn) => {
-                let nn = core::cmp::min(nn as usize, buf.len());
-                if let Some((status, value)) = sw::decode_response(sw::OP_GET, &buf[..nn]) {
-                    if status != sw::STATUS_OK {
-                        return None;
-                    }
-                    return match value {
-                        "on" => Some(PersonalizationSetting::On),
-                        "forget" => Some(PersonalizationSetting::Forget),
-                        _ => Some(PersonalizationSetting::Off),
-                    };
-                }
-            }
-            Err(_) => return None,
-        }
-    }
+    // ONE waited exchange on imed's PRIVATE settingsd inbox (TASK-0324 P7-d): settingsd's
+    // answer or its death, no clock. The OP filter stays — `set_setting` uses the same private
+    // pair, so a stale OP_SET answer must not be read as this OP_GET's (TASK-0054C P2-d).
+    let mut buf = [0u8; 64];
+    let (status, setting) = nexus_ipc::exchange::call_matching(
+        SETTINGS_SEND_SLOT,
+        nexus_ipc::SlotPair::new(SETTINGS_REPLY_SEND_SLOT, SETTINGS_REPLY_RECV_SLOT),
+        &req[..n],
+        &mut buf,
+        |rsp| {
+            sw::decode_response(sw::OP_GET, rsp).map(|(status, value)| {
+                let setting = match value {
+                    "on" => PersonalizationSetting::On,
+                    "forget" => PersonalizationSetting::Forget,
+                    _ => PersonalizationSetting::Off,
+                };
+                (status, setting)
+            })
+        },
+    )
+    .ok()?;
+    (status == sw::STATUS_OK).then_some(setting)
 }
 
 fn route_blocking(name: &[u8]) -> Option<(u32, u32)> {

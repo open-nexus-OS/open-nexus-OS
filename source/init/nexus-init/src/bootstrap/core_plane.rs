@@ -62,9 +62,6 @@ pub(crate) struct CorePlane {
     /// Wall time of the volume pass (query → stream → map → exec, all
     /// services) — the boot cost of serving services from the volume.
     pub volume_ms: u64,
-    /// init's reply-inbox stash (foreign frames seen during the pass stay
-    /// available to the later boot-attempt handshake).
-    pub pending: nexus_ipc::reqrep::FrameStash<8, 16>,
 }
 
 /// One policy-gated DeviceMmio grant, waited to a 1 s deadline (policyd
@@ -140,7 +137,7 @@ pub(crate) fn bring_up(
     bundlemgrd_pid: u32,
     pol_ctl_route_rsp: u32,
     pol_ctl_exec_rsp: u32,
-    init_reply_send: u32,
+    ask: nexus_ipc::SlotPair,
     stats: &GrantStats,
     init_fold: bool,
     init_wire: &mut nexus_event::SpanTally,
@@ -234,14 +231,11 @@ pub(crate) fn bring_up(
     // TASK-0321 (RFC-0089 §12.3, ADR-0060): the SECOND spawn pass — services
     // on the verified system volume, spawned BEFORE any per-pid endpoint
     // mint so the rest of bootstrap treats them exactly like embedded ones.
-    let mut pending: nexus_ipc::reqrep::FrameStash<8, 16> = nexus_ipc::reqrep::FrameStash::new();
     let volume_span = nexus_abi::Span::begin();
     let volume = crate::bootstrap::volume_spawn::spawn_volume_services(
         ctrls,
-        &mut pending,
         bnd_req,
-        init_reply_send,
-        pol_ctl_route_rsp,
+        ask,
         init_fold,
         stage_fence,
     )?;
@@ -263,6 +257,5 @@ pub(crate) fn bring_up(
         input_slots,
         volume,
         volume_ms,
-        pending,
     })
 }

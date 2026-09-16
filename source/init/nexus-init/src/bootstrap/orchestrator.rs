@@ -65,9 +65,14 @@ where
     let pol_ctl_route_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     let init_pid = nexus_abi::pid().map_err(InitError::Abi)?;
-    // A SEND-only copy for init itself: the transfer derives it (no clone to leak first).
-    let init_reply_send = nexus_abi::cap_transfer(init_pid, pol_ctl_route_rsp, Rights::SEND)
-        .map_err(InitError::Abi)?;
+    // init's OWN ask inbox (TASK-0054C P2-d), separate from the policyd channel above: both
+    // used to be one endpoint, so five protocols answered into one queue and init's policyd
+    // readers failed CLOSED on a frame they did not recognise. SEND-only copy via transfer.
+    let init_ask_rsp =
+        nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
+    let init_ask_send =
+        nexus_abi::cap_transfer(init_pid, init_ask_rsp, Rights::SEND).map_err(InitError::Abi)?;
+    let init_ask = nexus_ipc::SlotPair::new(init_ask_send, init_ask_rsp);
     let pol_ctl_exec_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
 
@@ -216,7 +221,6 @@ where
         input_slots,
         volume: volume_spawned,
         volume_ms,
-        pending: upd_pending,
     } = crate::bootstrap::core_plane::bring_up(
         &mut ctrl_channels,
         selftest_pid,
@@ -224,14 +228,13 @@ where
         bundlemgrd_pid,
         pol_ctl_route_rsp,
         pol_ctl_exec_rsp,
-        init_reply_send,
+        init_ask,
         &grant_stats,
         init_fold,
         &mut init_wire,
         stage_fence,
     )?;
     let pol_route = (pol_ctl_route_req, pol_ctl_route_rsp);
-    let mut upd_pending = upd_pending;
     let vfsd_pid = find_pid(&ctrl_channels, "vfsd").ok_or(InitError::MissingElf)?;
     let packagefsd_pid = find_pid(&ctrl_channels, "packagefsd").ok_or(InitError::MissingElf)?;
     let netstackd_pid = find_pid(&ctrl_channels, "netstackd").ok_or(InitError::MissingElf)?;
@@ -709,10 +712,8 @@ where
     // one-shot next_boot decides which of the fully provisioned services
     // wave 2 + the display/input drivers actually resume (RFC-0087 §4).
     let boot_graph = crate::bootstrap::handshake::boot_attempt_handshake(
-        &mut upd_pending,
         boot_req,
-        init_reply_send,
-        pol_ctl_route_rsp,
+        init_ask,
         bnd_req,
         &mut init_misc,
         init_fold,
@@ -795,10 +796,8 @@ where
         pol_ctl_exec_req,
         pol_ctl_exec_rsp,
         upd_req,
-        upd_reply_send: init_reply_send,
-        upd_reply_recv: pol_ctl_route_rsp,
+        ask: init_ask,
         stage_fence,
         boot_graph,
-        upd_pending,
     })
 }

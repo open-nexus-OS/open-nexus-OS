@@ -11,7 +11,7 @@
 //! STATUS: Experimental
 //! TEST_COVERAGE: QEMU (`ingressd: port open`, `SELFTEST: ingress allow ok`)
 
-use nexus_abi::{IpcError, MsgHeader};
+use nexus_ipc::IpcError;
 
 use super::slots::{NETSTACKD_SEND_SLOT, REPLY_RECV_SLOT, REPLY_SEND_SLOT};
 
@@ -67,31 +67,28 @@ fn status_err(status: u8) -> NetErr {
 /// Sends `req` with a CAP_MOVE reply cap and waits for the `op|0x80` reply.
 fn rpc(req: &[u8], op: u8, out: &mut [u8]) -> Result<usize, NetErr> {
     // One waited exchange (TASK-0324 P7-d): the send waits for queue space, the receive for
-    // netstackd's answer or its death (EOF) — no clock. Foreign inbox frames are skipped.
-    let reply_cap = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| NetErr::Io)?;
-    let hdr = MsgHeader::new(reply_cap, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    if nexus_abi::ipc_send_v1(NETSTACKD_SEND_SLOT, &hdr, req, 0, 0).is_err() {
-        let _ = nexus_abi::cap_close(reply_cap);
-        return Err(NetErr::Io);
-    }
-    loop {
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-        match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut rh,
-            out,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = (n as usize).min(out.len());
-                if n >= 5 && out[0] == MAGIC0 && out[1] == MAGIC1 && out[3] == (op | 0x80) {
-                    return if out[4] == STATUS_OK { Ok(n) } else { Err(status_err(out[4])) };
-                }
-            }
-            Err(IpcError::PeerClosed) => return Err(NetErr::Timeout),
-            Err(_) => return Err(NetErr::Io),
-        }
+    // netstackd's answer or its death (EOF) — no clock. ingressd's reply inbox is shared with
+    // its policyd leg, so the answer is the frame carrying OUR op (TASK-0054C P2-d).
+    let (n, status) = nexus_ipc::exchange::call_matching(
+        NETSTACKD_SEND_SLOT,
+        nexus_ipc::SlotPair::new(REPLY_SEND_SLOT, REPLY_RECV_SLOT),
+        req,
+        out,
+        |rsp| {
+            (rsp.len() >= 5 && rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[3] == (op | 0x80))
+                .then(|| (rsp.len(), rsp[4]))
+        },
+    )
+    .map_err(|e| match e {
+        // The peer is gone, not slow: this used to be reported as `Timeout`, a name that has
+        // been a lie since the deadline left (TASK-0054C P2-d).
+        IpcError::Disconnected => NetErr::Closed,
+        _ => NetErr::Io,
+    })?;
+    if status == STATUS_OK {
+        Ok(n)
+    } else {
+        Err(status_err(status))
     }
 }
 

@@ -179,7 +179,7 @@ PY
 retired() {
   # Rule 1: the spin helpers do not come back (declarations and calls; a comment naming
   # them as history is not a resurrection).
-  grep -rnE "\b(retry_ipc_until|retry_ipc_budgeted|recv_match_bounded|routing_v1_get|wait_for_slots_ready|recv_match_until|deadline_after|send_until|recv_until|recv_matching_until|send_budgeted|recv_budgeted|OsClock|HostClock|send_with_cap_move|send_with_cap_move_wait)\b|fn yield_now\(|Wait::Timeout" \
+  grep -rnE "\b(retry_ipc_until|retry_ipc_budgeted|recv_match_bounded|routing_v1_get|wait_for_slots_ready|recv_match_until|deadline_after|send_until|recv_until|recv_matching_until|send_budgeted|recv_budgeted|OsClock|HostClock|send_with_cap_move|send_with_cap_move_wait|ReplyBuffer|FrameStash|NonceGen|recv_match)\b|fn yield_now\(|Wait::Timeout" \
     --include='*.rs' "$@" 2>/dev/null | grep -v '/tests/' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true
 }
 

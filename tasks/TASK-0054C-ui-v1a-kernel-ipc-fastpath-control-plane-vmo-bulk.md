@@ -354,23 +354,35 @@ waiter's own address space).
     cap-less logd request deleted as a duplicate of `logd_stats_total`; rule 1 retires
     `send_with_cap_move`; LOC baseline shrunk. Zones: libs (`nexus-log`), config, scripts,
     `docs/rfcs` (three contract notes). Blast: every service, init, selftest.
-  - **P2-d ONE correlation model: one inbox, one awaited exchange.** The hand-rolled
-    `cap_clone` + `MsgHeader CAP_MOVE` + `ipc_send_v1` + `ipc_recv_v1/v2` pairs onto
-    `exchange`; the shared-inbox model decided per consumer (below) and
-    `nexus_ipc::reqrep` (`NonceGen`, `ReplyBuffer`, `FrameStash`, `recv_match`) deleted
-    with its `pub mod`; init's outbound legs each get a private inbox minted from the
-    factory init already holds, which also repairs its two fail-closed policyd readers;
-    rule 1 retires the deleted names; RFC-0019 gets a superseded-by note. Also here: the
-    selftest `updated` reply pump's `@reply` pre-drain (it consumes and DISCARDS foreign
-    frames from the harness' shared inbox) with the two parameters that exist only for it,
-    and the one-way statefs write op that closes P2-c's metricsd exception (wire change → RFC
-    seed first). Also: the harness' logd leg is still DECLARED a `SharedResponse` route
-    (`specs_harness.rs`) although P2-c left nothing reading its recv half — the declaration
-    becomes a `ReplyInbox` when the selftest's three hand-rolled logd pairs move onto
-    `exchange`, so the slot change and the call-site change land together. Zones: libs, init, config, scripts. Blast: init, dsoftbusd, keystored, execd,
-    rngd, statefsd, selftest. Measure at P2-c's close: 44 hand-built `ipc_hdr::CAP_MOVE`
-    headers in 28 files outside `nexus-ipc` — that is P2-d's whole surface, and it reaches zero
-    when the last pair moves onto `exchange`.
+  - **P2-d ONE correlation model: one inbox, one awaited exchange.** Every hand-rolled
+    `cap_clone` + `MsgHeader CAP_MOVE` + `ipc_send_v1` + `ipc_recv_v1/v2` client pair onto
+    `exchange`, and `nexus_ipc::reqrep` (`NonceGen`, `ReplyBuffer`, `FrameStash`, `recv_match`)
+    deleted with its `pub mod`. Measured surface at P2-c's close: 44 `ipc_hdr::CAP_MOVE`
+    occurrences in 28 files outside `nexus-ipc`, of which 36 were client sends. **init's
+    outbound asks get their own minted inbox**, which is the one behaviour change in the
+    package: `pol_ctl_route_rsp` carried policyd's verdicts AND init's bootctld/bundlemgrd/
+    updated answers, so its four stashing readers coexisted with two that failed CLOSED on a
+    frame they did not recognise (a route ask → deny, an MMIO cap check → aborted boot). Two
+    forms complete `exchange`'s send matrix for cases the inventory turned up:
+    `send_call` (an exchange whose answer is collected later — execd loads the ELF while
+    bundlemgrd streams, settingsd serves while statefsd commits) and
+    `send_with_cap_nonblocking` (a cap-moving registration the caller RETRIES rather than waits
+    out — windowd must not block its frame loop on settingsd). Rule 1 retires the deleted names
+    with a fixture; RFC-0019's mechanism gets a superseded-by note. Zones: libs
+    (`nexus-service-topology` untouched; `storage` gains a `nexus-ipc` dep), init, config,
+    scripts, `docs/rfcs`. Blast: init, keystored, execd, rngd, abilitymgr, imed, ingressd,
+    inputd, app-host, windowd, updated, settingsd, statefs, storage, selftest.
+  - **P2-e Two reply-inbox defects that need more than a client change.** (1) The one-way
+    statefs write op that closes P2-c's metricsd exception — a wire change, so an RFC seed
+    first. (2) The selftest `updated` reply pump: a 256-frame NONBLOCK pre-drain of the
+    harness' shared `@reply` inbox that CONSUMES and discards other probes' awaited replies,
+    plus its `VecDeque` stash and the `SharedResponse` recv under it. Removing the drain means
+    de-threading `reply_send_slot`/`reply_recv_slot`/`pending` through the whole OTA probe
+    chain (~170 positions across `updated/`, `probes/ota*`, `phases/ota.rs`) — mechanical, but
+    it lands in the four OTA lanes and belongs in its own package. (3) With those gone the
+    harness' logd leg can drop from a `SharedResponse` declaration to a `ReplyInbox`
+    (`specs_harness.rs`, `LOGD` recv → `REPLY.recv`), a slot-map change that must land with
+    its call sites.
   - **P2-c/P2-d inventory (2026-09-16).** 23 `send_with_cap_move(_wait)` callers and 21
     hand-rolled pairs, classified: (1) seven callers move a VMO or a push-channel SEND, not
     a reply cap — `exchange` had no form for them, which is why `ipc_send_v1` kept leaking
@@ -481,8 +493,9 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P1 Measure | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: smp1 214 ok / 41 KSELFTEST / total_ms 1257, `rt=209us n=64`, `sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_miss=5172`; visible pixel 31.76, same numbers → **2 allocations and ~3 copies per message, 0.9 runqueue hops per message (one hart)** — `ipc/stats.rs` (declared at the crate root as `ipc_stats` so its unit test runs on host, like `ipc_eof`), `KSELFTEST: ipc stats (…)` next to the BKL line, `SELFTEST: ipc bench (rt=…us n=64)` in the `ipc_kernel` phase; counts sends, payload allocs, payload copies + bytes (zero-copy line), wake IPIs, handoff misses |
 | P2-a Clocks out of request/reply | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll absolute), smp1 213 ok / 41 KSELFTEST / total_ms 1257 (the retired deadline marker is the −1), visible pixel 31.76; no `apphost: svc reply desync` line in any lane |
 | P2-b Pacing/watchdog waits onto timer pairs; rule 4 absolute | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: check 0 (rule 4 at zero), smp1 213 ok / 41 KSELFTEST / total_ms 1258 with `blk: watchdog on` + both probe markers, visible pixel 31.76; KERNEL: EOF latch consumed on observed emptiness only (approval used) |
-| P2-c ONE send primitive; only awaited replies on a reply inbox | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll rule 1 covers `send_with_cap_move`, structure/slot/init-sync at zero), smp1 EXIT=0 with the marker set IDENTICAL to the last P2-b green run (209 `ok` / 65 KSELFTEST, total_ms 1256, FAILs only the allow-listed dsoftbus pair), visible EXIT=0 pixel proof diff vs splash 31.76. MEASURED on the P1 instrument, same profile: `sends=5401 heap_allocs=10802 copies=17473` against P2-b's `5601 / 11202 / 18903` — **200 fewer messages, 400 fewer kernel heap allocations and 1430 fewer payload copies per boot**, which is exactly the unread acks and the blind drains this package deleted (run-to-run variance exists; one P2-b run read 13249 sends). `rt=242us n=64` |
-| P2-d ONE correlation model (`reqrep` deleted, hand-rolled pairs gone) | Draft |
+| P2-c ONE send primitive; only awaited replies on a reply inbox | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll rule 1 covers `send_with_cap_move`, structure/slot/init-sync at zero), smp1 EXIT=0 with the marker set IDENTICAL to the last P2-b green run (209 `ok` / 65 KSELFTEST, total_ms 1256, FAILs only the allow-listed dsoftbus pair), visible EXIT=0 pixel proof diff vs splash 31.76. MEASURED on the P1 instrument, same profile: `sends=5401 heap_allocs=10802 copies=17473` against P2-b's `5601 / 11202 / 18903` — **CORRECTED 2026-09-16 (P2-d):** this row first claimed 200 fewer messages, 400 fewer allocations and 1430 fewer copies per boot from `5401 / 10802 / 17473` against P2-b's `5601 / 11202 / 18903`. It does not hold. Four smp1 runs read `sends=5601, 13249, 5401, 13961` — bimodal and independent of the package, with byte-identical UART logs between the 5401 and 13961 runs. The stats line counts a WINDOW, so its totals scale with the idle background traffic the window spans. Stable across all four runs: **exactly 2.000 kernel heap allocations per message**, 3.12–3.38 copies per message with the traffic mix. P4 calibrates from the ratios, and the window needs a defined span before any total is asserted. `rt=242us n=64` |
+| P2-d ONE correlation model (`reqrep` deleted, hand-rolled pairs gone) | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (rule 1 covers `ReplyBuffer`/`FrameStash`/`NonceGen`/`recv_match` with its fixture), smp1 EXIT=0 with the marker set IDENTICAL to P2-c (209 `ok` / 65 KSELFTEST, total_ms 1250, FAILs only the allow-listed dsoftbus pair) — init boots on its NEW ask inbox; visible EXIT=0 pixel proof 31.77. 44 `ipc_hdr::CAP_MOVE` occurrences in 28 files → 9, of which 8 are server-side flag reads (P5) and 1 is the documented metricsd exception. Stable measurement: exactly 2.000 kernel heap allocations per message, 3.12 copies per message |
+| P2-e Two reply-inbox defects (one-way statefs write, OTA reply pump) | Draft |
 | P3 Kernel payload | Draft |
 | P4 Kernel call + reply_recv | Draft |
 | P5 Seam flip | Draft |

@@ -18,7 +18,6 @@ use alloc::vec::Vec;
 use nexus_abi::yield_;
 use nexus_ipc::KernelClient;
 
-use super::super::ipc::reply::recv_large;
 use crate::markers::emit_line;
 use nexus_service_topology::slots::selftest_client::REPLY;
 
@@ -54,45 +53,22 @@ pub(crate) fn logd_append_status_v2(
     // Use CAP_MOVE replies (the declared reply inbox) so we don't depend on the dedicated response
     // endpoint.
     let (send_slot, _recv_slot) = logd.slots();
-    let reply_send_clone = nexus_abi::cap_clone(REPLY.send).map_err(|_| {
-        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_REPLY_CLONE_FAIL);
-        ()
-    })?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-    nexus_ipc::budget::raw::send_blocking(send_slot, &hdr, &frame).map_err(|_| {
-        emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_SEND_FAIL);
-        ()
-    })?;
+    // ONE exchange on the harness' shared inbox: the answer carries OUR op and nonce, and the
+    // 64-round spin budget went with the wait (TASK-0054C P2-d).
     let mut rsp_buf = [0u8; 64];
-    // Shared reply inbox: ignore unrelated CAP_MOVE replies.
-    let mut rsp_len: Option<usize> = None;
-    for _ in 0..64 {
-        let n = match recv_large(REPLY.recv, &mut rsp_buf) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let rsp = &rsp_buf[..n];
-        if rsp.len() >= 13
-            && rsp[0] == MAGIC0
-            && rsp[1] == MAGIC1
-            && rsp[2] == VERSION
-            && rsp[3] == (OP_APPEND | 0x80)
+    let Ok(n) = nexus_ipc::exchange::call_matching(send_slot, REPLY, &frame, &mut rsp_buf, |rsp| {
+        if rsp.len() < 13
+            || rsp[0] != MAGIC0
+            || rsp[1] != MAGIC1
+            || rsp[2] != VERSION
+            || rsp[3] != (OP_APPEND | 0x80)
         {
-            let (_status, got_nonce) =
-                nexus_ipc::logd_wire::parse_append_response_v2_prefix(rsp).map_err(|_| ())?;
-            if got_nonce == nonce {
-                rsp_len = Some(n);
-                break;
-            }
+            return None;
         }
-    }
-    let Some(n) = rsp_len else {
+        let (_status, got_nonce) =
+            nexus_ipc::logd_wire::parse_append_response_v2_prefix(rsp).ok()?;
+        (got_nonce == nonce).then(|| rsp.len())
+    }) else {
         emit_line(crate::markers::M_SELFTEST_LOGD_APPEND_RECV_FAIL);
         return Err(());
     };
@@ -178,43 +154,28 @@ pub(crate) fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64,
     frame[3] = nexus_ipc::logd_wire::OP_STATS;
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
     let (send_slot, _recv_slot) = logd.slots();
-    let reply_send_clone = nexus_abi::cap_clone(REPLY.send).map_err(|_| ())?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-    nexus_ipc::budget::raw::send_blocking(send_slot, &hdr, &frame).map_err(|_| ())?;
-    let _ = nexus_abi::cap_close(reply_send_clone);
-
+    // ONE exchange: the stats answer carrying OUR nonce on the harness' shared inbox. The
+    // 128-round spin budget went with the wait, and so did a `cap_close` on the SUCCESS path —
+    // a slot CAP_MOVE had already handed to logd (TASK-0054C P2-d).
     let mut rsp_buf = [0u8; 256];
-    for _ in 0..128 {
-        let n = match recv_large(REPLY.recv, &mut rsp_buf) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let rsp = &rsp_buf[..n];
-        if rsp.len() >= 29
-            && rsp[0] == nexus_ipc::logd_wire::MAGIC0
-            && rsp[1] == nexus_ipc::logd_wire::MAGIC1
-            && rsp[2] == nexus_ipc::logd_wire::VERSION_V2
-            && rsp[3] == (nexus_ipc::logd_wire::OP_STATS | 0x80)
-            && nexus_ipc::logd_wire::extract_nonce_v2(rsp) == Some(nonce)
-        {
-            let (got_nonce, p) =
-                nexus_ipc::logd_wire::parse_stats_response_prefix_v2(rsp).map_err(|_| ())?;
-            if got_nonce != nonce {
-                return Err(());
+    let (status, total) =
+        nexus_ipc::exchange::call_matching(send_slot, REPLY, &frame, &mut rsp_buf, |rsp| {
+            if rsp.len() < 29
+                || rsp[0] != nexus_ipc::logd_wire::MAGIC0
+                || rsp[1] != nexus_ipc::logd_wire::MAGIC1
+                || rsp[2] != nexus_ipc::logd_wire::VERSION_V2
+                || rsp[3] != (nexus_ipc::logd_wire::OP_STATS | 0x80)
+            {
+                return None;
             }
-            if p.status != nexus_ipc::logd_wire::STATUS_OK {
-                return Err(());
-            }
-            return Ok(p.total_records);
-        }
+            let (got_nonce, p) = nexus_ipc::logd_wire::parse_stats_response_prefix_v2(rsp).ok()?;
+            (got_nonce == nonce).then_some((p.status, p.total_records))
+        })
+        .map_err(|_| ())?;
+    if status != nexus_ipc::logd_wire::STATUS_OK {
+        return Err(());
     }
-    Err(())
+    Ok(total)
 }
 
 pub(crate) fn logd_query_contains_since_paged(
@@ -252,52 +213,20 @@ pub(crate) fn logd_query_contains_paged_from(
         frame[22] = 1;
         let frame = &frame[..if persisted { 23 } else { 22 }];
 
-        // Send with CAP_MOVE so replies arrive on the reply inbox.
-        let reply_send_clone = nexus_abi::cap_clone(REPLY.send).map_err(|_| {
-            if !emitted {
-                emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_REPLY_CLONE_FAIL);
-                emitted = true;
-            }
-            ()
-        })?;
-        let hdr = nexus_abi::MsgHeader::new(
-            reply_send_clone,
-            0,
-            0,
-            nexus_abi::ipc_hdr::CAP_MOVE,
-            frame.len() as u32,
-        );
-        nexus_ipc::budget::raw::send_blocking(send_slot, &hdr, frame).map_err(|_| {
-            if !emitted {
-                emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_SEND_FAIL);
-                emitted = true;
-            }
-            ()
-        })?;
-
-        // Allocation-free receive into a stack buffer (bump allocator friendly).
+        // ONE exchange per page: the query answer carrying OUR nonce on the harness' shared
+        // inbox; the 128-round spin budget went with the wait (TASK-0054C P2-d).
         let mut rsp_buf = [0u8; 1024];
-        // Shared reply inbox: ignore unrelated CAP_MOVE replies.
-        let mut rsp_len: Option<usize> = None;
-        for _ in 0..128 {
-            let n = match recv_large(REPLY.recv, &mut rsp_buf) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let rsp = &rsp_buf[..n];
-            if rsp.len() >= 13
-                && rsp[0] == nexus_ipc::logd_wire::MAGIC0
-                && rsp[1] == nexus_ipc::logd_wire::MAGIC1
-                && rsp[2] == nexus_ipc::logd_wire::VERSION_V2
-                && rsp[3] == (nexus_ipc::logd_wire::OP_QUERY | 0x80)
-            {
-                if nexus_ipc::logd_wire::extract_nonce_v2(rsp) == Some(nonce) {
-                    rsp_len = Some(n);
-                    break;
-                }
-            }
-        }
-        let Some(n) = rsp_len else {
+        let Ok(n) =
+            nexus_ipc::exchange::call_matching(send_slot, REPLY, frame, &mut rsp_buf, |rsp| {
+                (rsp.len() >= 13
+                    && rsp[0] == nexus_ipc::logd_wire::MAGIC0
+                    && rsp[1] == nexus_ipc::logd_wire::MAGIC1
+                    && rsp[2] == nexus_ipc::logd_wire::VERSION_V2
+                    && rsp[3] == (nexus_ipc::logd_wire::OP_QUERY | 0x80)
+                    && nexus_ipc::logd_wire::extract_nonce_v2(rsp) == Some(nonce))
+                .then(|| rsp.len())
+            })
+        else {
             if !emitted {
                 emit_line(crate::markers::M_SELFTEST_LOGD_QUERY_RECV_FAIL);
             }

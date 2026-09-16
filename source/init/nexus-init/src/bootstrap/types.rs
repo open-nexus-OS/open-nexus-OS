@@ -98,9 +98,10 @@ pub(crate) struct BootstrapState {
     pub pol_ctl_exec_req: u32,
     pub pol_ctl_exec_rsp: u32,
     pub upd_req: u32,
-    pub upd_reply_send: u32,
-    pub upd_reply_recv: u32,
-    pub upd_pending: nexus_ipc::reqrep::FrameStash<8, 16>,
+    /// init's OWN ask inbox: the reply channel for every request init sends outward
+    /// (bootctld, bundlemgrd, updated). Private and sequential, so the frame that arrives is
+    /// the answer to the request just sent (TASK-0054C P2-d).
+    pub ask: nexus_ipc::SlotPair,
     /// ADR-0062: init's own cap for the ONE boot-stage fence (`MANAGE | WAIT`). Children hold a
     /// WAIT-only copy, so init is the only task that can advance a stage.
     pub stage_fence: u32,

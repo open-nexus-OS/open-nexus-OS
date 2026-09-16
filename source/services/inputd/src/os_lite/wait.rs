@@ -72,14 +72,9 @@ impl LiveRouteRuntime {
         let Some(n) = swire::encode_watch_req("input.", &mut req) else {
             return;
         };
-        let hdr = nexus_abi::MsgHeader::new(
-            topo::WATCH_SEND,
-            0,
-            0,
-            nexus_abi::ipc_hdr::CAP_MOVE,
-            n as u32,
-        );
-        match nexus_abi::ipc_send_v1(topo::SETTINGS_SEND, &hdr, &req[..n], 0, 0) {
+        // The moved cap is the PUSH channel settingsd writes events to — data, not a reply
+        // inbox: nothing is awaited here (TASK-0054C P2-c/P2-d).
+        match nexus_ipc::exchange::send_with_cap(topo::SETTINGS_SEND, &req[..n], topo::WATCH_SEND) {
             Ok(_) => {
                 self.settings_watch_subscribed = true;
                 let _ = nexus_abi::trace_line("inputd: settings watch subscribed");

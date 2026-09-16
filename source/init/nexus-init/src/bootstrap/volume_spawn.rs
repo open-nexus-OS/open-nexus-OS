@@ -86,42 +86,17 @@ impl Fail {
 /// EOF), never a clock (TASK-0324 P7-d). Foreign frames on the inbox are stashed for their
 /// own exchange. `Some(len)` = the wanted reply is in `out`.
 fn request(
-    pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
     bnd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
+    ask: nexus_ipc::SlotPair,
     req: &[u8],
     want_op: u8,
     out: &mut [u8],
 ) -> Option<usize> {
-    let cap = nexus_abi::cap_clone(reply_send).ok()?;
-    let hdr = nexus_abi::MsgHeader::new(cap, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    if nexus_abi::ipc_send_v1(bnd_req, &hdr, req, 0, 0).is_err() {
-        let _ = nexus_abi::cap_close(cap);
-        return None;
-    }
-    let is_want = |f: &[u8]| {
-        f.len() >= 4 && f[0] == wire::MAGIC0 && f[1] == wire::MAGIC1 && f[3] == (want_op | 0x80)
-    };
-    if let Some(n) = pending.take_into_where(out, is_want) {
-        return Some(n);
-    }
-    let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    loop {
-        let n = nexus_abi::ipc_recv_v1(
-            reply_recv,
-            &mut rh,
-            out,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        )
-        .ok()?;
-        let n = core::cmp::min(n as usize, out.len());
-        if is_want(&out[..n]) {
-            return Some(n);
-        }
-        let _ = pending.push(&out[..n]);
-    }
+    nexus_ipc::exchange::call_matching(bnd_req, ask, req, out, |f| {
+        (f.len() >= 4 && f[0] == wire::MAGIC0 && f[1] == wire::MAGIC1 && f[3] == (want_op | 0x80))
+            .then(|| f.len())
+    })
+    .ok()
 }
 
 /// Arms `vmo` as the destination of init's next VMO op (`OP_ARM_VMO`, TASK-0324 P7-d): a
@@ -130,9 +105,7 @@ fn arm_vmo(bnd_req: u32, vmo: u32) -> Option<()> {
     let moved = nexus_abi::cap_clone(vmo).ok()?;
     let mut req = [0u8; 4];
     wire::encode_arm_vmo(&mut req);
-    let hdr =
-        nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    if nexus_abi::ipc_send_v1(bnd_req, &hdr, &req, 0, 0).is_err() {
+    if nexus_ipc::exchange::send_with_cap(bnd_req, &req, moved).is_err() {
         let _ = nexus_abi::cap_close(moved);
         return None;
     }
@@ -168,25 +141,15 @@ fn ro_slice(va: usize, len: usize) -> &'static [u8] {
 
 fn spawn_one(
     name: &'static str,
-    pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
     bnd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
+    ask: nexus_ipc::SlotPair,
 ) -> Result<VolumeSpawned, Fail> {
     // 1. QUERY_BUNDLE → size + launch params (+ sha8/version for the marker).
     let mut req = [0u8; 64];
     let n = wire::encode_query_bundle(name.as_bytes(), &mut req).ok_or(Fail::Query)?;
     let mut rsp = [0u8; 96];
-    let rn = request(
-        pending,
-        bnd_req,
-        reply_send,
-        reply_recv,
-        &req[..n],
-        wire::OP_QUERY_BUNDLE,
-        &mut rsp,
-    )
-    .ok_or(Fail::Query)?;
+    let rn =
+        request(bnd_req, ask, &req[..n], wire::OP_QUERY_BUNDLE, &mut rsp).ok_or(Fail::Query)?;
     let (status, size, stack_pages, global_pointer, sha8, version) =
         wire::decode_query_bundle_rsp(&rsp[..rn]).ok_or(Fail::Query)?;
     match status {
@@ -211,16 +174,8 @@ fn spawn_one(
     let vmo = nexus_abi::vmo_create(total).map_err(|_| Fail::Vmo)?;
     arm_vmo(bnd_req, vmo).ok_or(Fail::Send)?;
     let n = wire::encode_get_bundle_elf(name.as_bytes(), &mut req).ok_or(Fail::Send)?;
-    let rn = request(
-        pending,
-        bnd_req,
-        reply_send,
-        reply_recv,
-        &req[..n],
-        wire::OP_GET_BUNDLE_ELF,
-        &mut rsp,
-    )
-    .ok_or(Fail::Send)?;
+    let rn =
+        request(bnd_req, ask, &req[..n], wire::OP_GET_BUNDLE_ELF, &mut rsp).ok_or(Fail::Send)?;
 
     // 3. The answer: complete AND hashed to the index digest (bundlemgrd's contract).
     let (status, len) =
@@ -261,10 +216,8 @@ fn spawn_one(
 /// did. Returns the spawned set; missing ones were reported and skipped.
 pub(crate) fn spawn_volume_services(
     ctrls: &mut Vec<CtrlChannel>,
-    pending: &mut nexus_ipc::reqrep::FrameStash<8, 16>,
     bnd_req: u32,
-    reply_send: u32,
-    reply_recv: u32,
+    ask: nexus_ipc::SlotPair,
     init_fold: bool,
     stage_fence: u32,
 ) -> Result<Vec<VolumeSpawned>, InitError> {
@@ -280,7 +233,7 @@ pub(crate) fn spawn_volume_services(
             debug_write_str(name);
             debug_write_bytes(b"\n");
         }
-        match spawn_one(name, pending, bnd_req, reply_send, reply_recv) {
+        match spawn_one(name, bnd_req, ask) {
             Ok(v) => {
                 let (ctrl, _send, _recv) =
                     crate::bootstrap::spawn::attach_ctrl_channel(name, v.pid, stage_fence)?;

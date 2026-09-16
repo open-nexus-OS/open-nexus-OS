@@ -20,7 +20,7 @@
 
 - **Phase 0 (this contract + ADR-0064)**: ✅ 2026-09-15 (TASK-0054C P0 — paper)
 - **Phase 1 (first numbers: `KSELFTEST: ipc stats`, `SELFTEST: ipc bench`)**: ✅ 2026-09-15 (TASK-0054C P1 — smp1: `SELFTEST: ipc bench (rt=209us n=64)`, `KSELFTEST: ipc stats (sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_hit=0 handoff_miss=5172)`; visible: rt=209us, sends=5696 heap_allocs=11392 copies=17653 wake_ipis=0 handoff_miss=5145 — 2 allocations and ~3 copies per message, 0.9 runqueue hops per message on one hart)
-- **Phase 2 (ONE client API + ONE server loop in userspace; pairing / deadline / drain forms deleted; gate rule 4)**: 🔄 (TASK-0054C P2-a ✅ clocks, P2-b ✅ pacing on timer pairs + rule 4, P2-c ✅ one send primitive + the awaited-reply invariant, P2-d ⬜ correlation model)
+- **Phase 2 (ONE client API + ONE server loop in userspace; pairing / deadline / drain forms deleted; gate rule 4)**: 🔄 (TASK-0054C P2-a ✅ clocks, P2-b ✅ pacing on timer pairs + rule 4, P2-c ✅ one send primitive + the awaited-reply invariant, P2-d ✅ one correlation model — `nexus_ipc::reqrep` deleted, P2-e ⬜ the two reply-inbox defects that need a wire or chain-wide change)
 - **Phase 3 (inline tier + hard cap + `E2BIG`; zero-allocation proof)**: ⬜ (TASK-0054C P3)
 - **Phase 4 (`ipc_call` / `ipc_reply_recv` + direct handoff + budget marker)**: ⬜ (TASK-0054C P4)
 - **Phase 5 (userspace seam on the new traps; fastpath markers; 8/8 boots)**: ⬜ (TASK-0054C P5)
@@ -179,6 +179,15 @@ Registered in `source/apps/selftest-client/proof-manifest/markers/ipc_kernel.tom
 ## Open questions
 
 - P2 decides whether any reply inbox stays structurally shared (the statefsd audit-append case behind `call_matching`); if yes, the RFC records the one predicate form as the exception.
+- **Answered by P2-d (2026-09-16).** The correlation MECHANISM is one predicate, not a data
+  structure: `nexus_ipc::reqrep` (`NonceGen`, `ReplyBuffer`, `FrameStash`, `recv_match`) is
+  deleted. Parking a foreign frame for a later exchange was never needed — no service in the
+  fleet spawns a thread, so no client ever has two exchanges in flight — and `recv_match` did
+  not even park a foreign PROTOCOL, it discarded it. The client forms are now: `call_into` on a
+  private, sequential inbox; `call_matching` where the inbox is structurally shared;
+  `send_call` where the answer is collected later; `send_with_cap` / `send_with_cap_nonblocking`
+  where the moved cap is data; `send_nonblocking` / `send_request` / `recv_response` where no cap
+  moves. RFC-0019's contract stands; its mechanism is superseded here.
 - **Answered by P2-c (2026-09-16).** Sharing stays, and `call_matching` stays with it, but for a different reason than the draft assumed. The audit-append case is GONE at the source: a fire-and-forget send moves no reply cap any more, so no ack rots on anyone's inbox. What remains shared is structural and declared — one reply inbox per service, several services answering into it (`slots::<svc>::REPLY` with a service's legs hanging off `REPLY.recv`; the harness has six services on one inbox). On such an inbox the answer is the frame carrying this exchange's op (and nonce, where the protocol has one), so `call_matching` is the normative client form there and `call_into` is correct only on a private, sequential inbox. Two forms join it for sends that are not exchanges: `exchange::send_with_cap`, where the moved cap is DATA (a VMO, a push channel) and there is nothing to await, and `exchange::send_nonblocking`, which moves no cap at all.
 - **One exception, recorded rather than hidden.** metricsd's retention writes still move a reply cap whose status nobody reads, because both alternatives are closed: statefsd always answers, so a cap-less write is answered on its shared response queue with a blocking send (the 0049B wedge class), and awaiting the status closes a measured cycle — statefsd's quota gate runs inside its PUT handler and flushes a deny counter through metricsd, waiting for metricsd's answer. The fix is a one-way write op in the statefs protocol (a wire change with its own seed), not a client change.
 - P1 decides the budget numbers; until then the constants are named here without values.

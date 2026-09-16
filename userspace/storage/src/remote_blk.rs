@@ -73,36 +73,19 @@ impl RemoteBlockDevice {
     /// Shared-inbox correlation is the caller's via the nonce inside `frame`; a foreign
     /// frame (another op's late reply) is dropped and the wait resumes.
     fn round_trip(&self, frame: &[u8], rsp: &mut [u8]) -> Result<usize, BlockError> {
-        let moved = nexus_abi::cap_clone(self.reply_send_slot).map_err(|_| BlockError::IoError)?;
-        let hdr = nexus_abi::MsgHeader::new(
-            moved,
-            0,
-            0,
-            nexus_abi::ipc_hdr::CAP_MOVE,
-            frame.len() as u32,
-        );
-        if nexus_abi::ipc_send_v1(self.send_slot, &hdr, frame, 0, 0).is_err() {
-            let _ = nexus_abi::cap_close(moved);
-            return Err(BlockError::IoError);
-        }
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        loop {
-            let n = nexus_abi::ipc_recv_v1(
-                self.reply_recv_slot,
-                &mut rh,
-                rsp,
-                nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-                0,
-            )
-            .map_err(|_| BlockError::IoError)?;
-            let n = core::cmp::min(n as usize, rsp.len());
-            if n >= blockproto::HDR_LEN
-                && rsp[0] == blockproto::MAGIC0
-                && rsp[1] == blockproto::MAGIC1
-            {
-                return Ok(n);
-            }
-        }
+        nexus_ipc::exchange::call_matching(
+            self.send_slot,
+            nexus_ipc::SlotPair::new(self.reply_send_slot, self.reply_recv_slot),
+            frame,
+            rsp,
+            |r| {
+                (r.len() >= blockproto::HDR_LEN
+                    && r[0] == blockproto::MAGIC0
+                    && r[1] == blockproto::MAGIC1)
+                    .then(|| r.len())
+            },
+        )
+        .map_err(|_| BlockError::IoError)
     }
 
     /// TASK-0321 P4b: arms a clone of `vmo` at virtioblkd for this sender
@@ -113,9 +96,9 @@ impl RemoteBlockDevice {
         let mut req = [0u8; 16];
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let n = blockproto::encode_arm_vmo_into(&mut req, nonce, self.part);
-        let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
-        // No clock (TASK-0324 P7-d): queue space or virtioblkd's death.
-        if nexus_abi::ipc_send_v1(self.send_slot, &hdr, &req[..n], 0, 0).is_err() {
+        // The moved cap is the destination VMO — data, not a reply inbox. No clock
+        // (TASK-0324 P7-d): queue space or virtioblkd's death.
+        if nexus_ipc::exchange::send_with_cap(self.send_slot, &req[..n], moved).is_err() {
             let _ = nexus_abi::cap_close(moved);
             return Err(BlockError::IoError);
         }

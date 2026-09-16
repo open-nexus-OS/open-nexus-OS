@@ -340,29 +340,17 @@ fn load_prefs() -> Option<String> {
 /// the frame LEFT — the reply arrives later via [`poll_put_reply`]. A refused
 /// send (full queue / no route) is the caller's backoff signal, never a spin.
 fn try_send_put(blob: &str) -> bool {
-    let (send_slot, reply_send_slot, _) = statefs_slots();
+    let (send_slot, reply_send_slot, reply_recv_slot) = statefs_slots();
     let Ok(req) = sf_proto::encode_put_request(PREFS_KEY, blob.as_bytes()) else {
         return false;
     };
-    let Ok(reply_send_clone) = nexus_abi::cap_clone(reply_send_slot) else {
-        return false;
-    };
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        req.len() as u32,
-    );
-    // Queue space is waited for in the kernel (TASK-0324 P7-d); a refused send is statefsd's
-    // absence, reported to the persister as a failure (backoff, no clock in the wait).
-    match nexus_abi::ipc_send_v1(send_slot, &hdr, &req, 0, 0) {
-        Ok(_) => true,
-        Err(_) => {
-            let _ = nexus_abi::cap_close(reply_send_clone);
-            false
-        }
-    }
+    // The exchange is STARTED here and collected by `poll_put_reply` below, so settingsd keeps
+    // serving while statefsd commits (TASK-0054C P2-d: `send_call` is `call_into` without the
+    // wait — the ack is still read, just not on the next line). Queue space is waited for in
+    // the kernel (TASK-0324 P7-d); a refused send is statefsd's absence, reported to the
+    // persister as a failure (backoff, no clock in the wait).
+    let reply = nexus_ipc::SlotPair::new(reply_send_slot, reply_recv_slot);
+    nexus_ipc::exchange::send_call(send_slot, reply, &req).is_ok()
 }
 
 /// NONBLOCK drain of the shared `@reply` inbox for a statefsd PUT reply.

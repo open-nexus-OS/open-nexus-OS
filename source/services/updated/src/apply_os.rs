@@ -26,7 +26,6 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use nexus_abi::MsgHeader;
 use storage::remote_blk::RemoteBlockDevice;
 use storage::{blockproto, BlockDevice};
 use updates::component_set::{ComponentMeta, ComponentSink, RejectReason};
@@ -112,8 +111,9 @@ pub(crate) fn read_source(path: &str) -> Result<MappedSource, RejectReason> {
             return Err(RejectReason::Io);
         }
     };
-    let hdr = MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
-    if send_waited(send_slot, &hdr, &frame).is_err() {
+    // The moved cap is the splice VMO — data, not a reply inbox: vfsd writes the payload and
+    // then the header into it, and the header IS the completion (TASK-0054C P2-d).
+    if nexus_ipc::exchange::send_with_cap(send_slot, &frame, clone).is_err() {
         let _ = nexus_abi::cap_close(clone);
         let _ = nexus_abi::vmo_destroy(vmo);
         return Err(RejectReason::Io);
@@ -161,37 +161,25 @@ fn stat_size(send_slot: u32, path: &str) -> Result<usize, RejectReason> {
     let mut frame = Vec::with_capacity(1 + path.len());
     frame.push(nexus_vfs_types::fileops::OP_STAT);
     frame.extend_from_slice(path.as_bytes());
-    let reply_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| RejectReason::Io)?;
-    let hdr = MsgHeader::new(reply_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
-    if send_waited(send_slot, &hdr, &frame).is_err() {
-        let _ = nexus_abi::cap_close(reply_clone);
-        return Err(RejectReason::Io);
-    }
-    loop {
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 64];
-        match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n >= 11 && buf[0] == 1 {
-                    let mut size = [0u8; 8];
-                    size.copy_from_slice(&buf[1..9]);
-                    return Ok(u64::from_le_bytes(size) as usize);
-                }
-                if n >= 1 && buf[0] == 0 {
-                    return Err(RejectReason::Path);
-                }
-                // Foreign inbox frame: consumed, skipped.
+    // ONE exchange on updated's reply inbox, which is shared with its bundlemgrd, statefsd,
+    // bootctld, policyd and logd legs — the answer is the frame this decoder recognises
+    // (TASK-0054C P2-d).
+    let mut buf = [0u8; 64];
+    nexus_ipc::exchange::call_matching(
+        send_slot,
+        nexus_ipc::SlotPair::new(REPLY_SEND_SLOT, REPLY_RECV_SLOT),
+        &frame,
+        &mut buf,
+        |rsp| {
+            if rsp.len() >= 11 && rsp[0] == 1 {
+                let mut size = [0u8; 8];
+                size.copy_from_slice(&rsp[1..9]);
+                return Some(Ok(u64::from_le_bytes(size) as usize));
             }
-            Err(_) => return Err(RejectReason::Io),
-        }
-    }
+            (!rsp.is_empty() && rsp[0] == 0).then_some(Err(RejectReason::Path))
+        },
+    )
+    .map_err(|_| RejectReason::Io)?
 }
 
 /// The slot sink: partition-scoped writer over the block plane. Body from
@@ -314,63 +302,43 @@ pub(crate) fn feed_list() -> Result<Vec<String>, RejectReason> {
     frame.push(nexus_vfs_types::fileops::OP_READDIR);
     frame.extend_from_slice(&payload);
 
-    let reply_clone = nexus_abi::cap_clone(REPLY_SEND_SLOT).map_err(|_| RejectReason::Io)?;
-    let hdr = MsgHeader::new(reply_clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
-    if send_waited(send_slot, &hdr, &frame).is_err() {
-        let _ = nexus_abi::cap_close(reply_clone);
-        return Err(RejectReason::Io);
-    }
     // TASK-0140: the FIRST feed call is what mounts the data partition (nxfsd attach + journal
     // replay over the block plane) — the answer is waited for however long that takes; vfsd's
-    // death ends the wait (EOF). No clock (TASK-0324 P7-d).
-    loop {
-        let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 4096];
-        match nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                // TASK-0140 (first live caller of this op): the home-mount
-                // data plane replies with the RAW readdir page — NO opcode
-                // echo (`DataStore::handle` returns the encoded page
-                // directly; only the /packages namespace arm echoes). The
-                // original echo-byte match skipped every real reply until
-                // the deadline. Accept both shapes; a frame that decodes
-                // as neither is foreign inbox traffic (statefs/logd acks)
-                // and is skipped.
-                let body = if n >= 1 && buf[0] == nexus_vfs_types::fileops::OP_READDIR {
-                    &buf[1..n]
-                } else {
-                    &buf[..n]
-                };
-                if let Ok(page) = nexus_vfs_types::decode_readdir_response(body) {
-                    let mut names: Vec<String> = page
-                        .entries
-                        .iter()
-                        .filter(|e| e.name.ends_with(".nxs"))
-                        .map(|e| e.name.clone())
-                        .collect();
-                    names.sort();
-                    return Ok(names);
-                }
-            }
-            Err(_) => return Err(RejectReason::Io),
-        }
-    }
+    // death ends the wait (EOF). No clock (TASK-0324 P7-d). The inbox is shared with updated's
+    // other legs, so the answer is the frame that DECODES as a readdir page (TASK-0054C P2-d).
+    //
+    // TASK-0140 (first live caller of this op): the home-mount data plane replies with the RAW
+    // readdir page — NO opcode echo (`DataStore::handle` returns the encoded page directly;
+    // only the /packages namespace arm echoes). The original echo-byte match skipped every real
+    // reply until the deadline. Accept both shapes.
+    let mut buf = [0u8; 4096];
+    nexus_ipc::exchange::call_matching(
+        send_slot,
+        nexus_ipc::SlotPair::new(REPLY_SEND_SLOT, REPLY_RECV_SLOT),
+        &frame,
+        &mut buf,
+        |rsp| {
+            let body = if !rsp.is_empty() && rsp[0] == nexus_vfs_types::fileops::OP_READDIR {
+                &rsp[1..]
+            } else {
+                rsp
+            };
+            let page = nexus_vfs_types::decode_readdir_response(body).ok()?;
+            let mut names: Vec<String> = page
+                .entries
+                .iter()
+                .filter(|e| e.name.ends_with(".nxs"))
+                .map(|e| e.name.clone())
+                .collect();
+            names.sort();
+            Some(names)
+        },
+    )
+    .map_err(|_| RejectReason::Io)
 }
 
 /// vfsd's request endpoint: the DECLARED slot (`nexus-service-topology`), pinned by init
 /// before this task runs — no runtime route ask (TASK-0324 P7-d).
 fn vfsd_send_slot() -> Option<u32> {
     Some(nexus_service_topology::slots::updated::VFSD.send)
-}
-
-/// A waited send (TASK-0324 P7-d): queue space, or the peer's death — never a clock.
-fn send_waited(slot: u32, hdr: &MsgHeader, frame: &[u8]) -> Result<(), ()> {
-    nexus_abi::ipc_send_v1(slot, hdr, frame, 0, 0).map(|_| ()).map_err(|_| ())
 }

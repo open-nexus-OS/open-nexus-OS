@@ -60,10 +60,10 @@ pub(crate) fn subscribe_session_watch() -> bool {
     };
     let mut req = [0u8; 4];
     wire::encode_watch_req(&mut req);
-    let hdr =
-        nexus_abi::MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
-    match nexus_abi::ipc_send_v1(topo::SESSIOND.send, &hdr, &req, 0, 0) {
-        Ok(_) => true,
+    // The moved cap is the session PUSH channel — data, not a reply inbox; this runs once at
+    // bring-up, so the send waits for queue space (TASK-0054C P2-d).
+    match nexus_ipc::exchange::send_with_cap(topo::SESSIOND.send, &req, clone) {
+        Ok(()) => true,
         Err(_) => {
             let _ = nexus_abi::cap_close(clone);
             false

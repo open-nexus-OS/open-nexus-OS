@@ -159,21 +159,12 @@ impl DisplayServerRuntime {
                     let _ = nexus_abi::cap_close(cap_slot);
                     return false;
                 };
-                let hdr = nexus_abi::MsgHeader::new(
-                    cap_slot,
-                    0,
-                    0,
-                    nexus_abi::ipc_hdr::CAP_MOVE,
-                    n as u32,
-                );
-                match nexus_abi::ipc_send_v1(
-                    send_slot,
-                    &hdr,
-                    &req[..n],
-                    nexus_abi::IPC_SYS_NONBLOCK,
-                    0,
-                ) {
-                    Ok(_) => true,
+                // The moved cap is the PUSH channel settingsd writes events to — data, not a
+                // reply inbox. Best-effort by design: the compositor retries next frame rather
+                // than waiting on settingsd's queue (TASK-0054C P2-d).
+                match nexus_ipc::exchange::send_with_cap_nonblocking(send_slot, &req[..n], cap_slot)
+                {
+                    Ok(()) => true,
                     Err(_) => {
                         let _ = nexus_abi::cap_close(cap_slot);
                         false

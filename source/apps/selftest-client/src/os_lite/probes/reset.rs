@@ -301,104 +301,32 @@ fn bootctl_call(op: u8, arg: Option<u8>) -> Option<(u8, [u8; 2])> {
 /// payload out (GET_STATUS grew an additive tail: synced flag + bsb seq).
 pub(crate) fn bootctl_call_payload(frame: &[u8], op: u8, out: &mut [u8]) -> Option<(u8, usize)> {
     let send_slot = route_bootctld()?;
-    let reply_send_clone = nexus_abi::cap_clone(REPLY.send).ok()?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-    if nexus_abi::ipc_send_v1(send_slot, &hdr, frame, 0, 0).is_err() {
-        let _ = nexus_abi::cap_close(reply_send_clone);
-        return None;
-    }
-    loop {
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        // Sized for the largest bootctld reply (OP_GET_MEASURED: 7 + 61)
-        // with additive-tail headroom — TRUNCATE on a short buffer would
-        // starve a payload reader's prefix check silently.
-        let mut buf = [0u8; 96];
-        match nexus_abi::ipc_recv_v1(
-            REPLY.recv,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n >= 7 && buf[0] == b'B' && buf[1] == b'T' && buf[3] == (op | 0x80) {
-                    let plen = u16::from_le_bytes([buf[5], buf[6]]) as usize;
-                    let avail = n.saturating_sub(7).min(plen).min(out.len());
-                    out[..avail].copy_from_slice(&buf[7..7 + avail]);
-                    return Some((buf[4], avail));
-                }
-                // Foreign inbox frame (logd/statefs acks): consumed, skipped.
-            }
-            Err(_) => return None,
-        }
-    }
+    // Sized for the largest bootctld reply (OP_GET_MEASURED: 7 + 61) with additive-tail
+    // headroom — TRUNCATE on a short buffer would starve a payload reader's prefix check
+    // silently. The answer is the frame carrying bootctld's magic and OUR op on the harness'
+    // shared inbox (TASK-0054C P2-d).
+    let mut buf = [0u8; 96];
+    let (status, plen, n) =
+        nexus_ipc::exchange::call_matching(send_slot, REPLY, frame, &mut buf, |rsp| {
+            (rsp.len() >= 7 && rsp[0] == b'B' && rsp[1] == b'T' && rsp[3] == (op | 0x80))
+                .then(|| (rsp[4], u16::from_le_bytes([rsp[5], rsp[6]]) as usize, rsp.len()))
+        })
+        .ok()?;
+    let avail = n.saturating_sub(7).min(plen).min(out.len());
+    out[..avail].copy_from_slice(&buf[7..7 + avail]);
+    Some((status, avail))
 }
 
+/// [`bootctl_call_payload`] for the two-byte prefix readers. TASK-0054C P2-d deleted the
+/// separate transport this used to have: a 2 s `nsec()` deadline around a non-blocking send
+/// AND a non-blocking receive, which also reused one reply-cap clone across every send retry
+/// (a second CAP_MOVE of a slot the first one had handed away) and never closed it on success.
 pub(crate) fn bootctl_call_raw(frame: &[u8], op: u8) -> Option<(u8, [u8; 2])> {
-    let send_slot = route_bootctld()?;
-    let reply_send_clone = nexus_abi::cap_clone(REPLY.send).ok()?;
-    let hdr = nexus_abi::MsgHeader::new(
-        reply_send_clone,
-        0,
-        0,
-        nexus_abi::ipc_hdr::CAP_MOVE,
-        frame.len() as u32,
-    );
-    let deadline = nexus_abi::nsec().ok()?.saturating_add(2_000_000_000);
-    loop {
-        match nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-            Ok(_) => break,
-            Err(nexus_abi::IpcError::QueueFull) => {
-                if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-                    let _ = nexus_abi::cap_close(reply_send_clone);
-                    return None;
-                }
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => {
-                let _ = nexus_abi::cap_close(reply_send_clone);
-                return None;
-            }
-        }
-    }
-    loop {
-        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            return None;
-        }
-        let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        // Sized for the largest bootctld reply (OP_GET_MEASURED: 7 + 61)
-        // with additive-tail headroom — TRUNCATE on a short buffer would
-        // starve a payload reader's prefix check silently.
-        let mut buf = [0u8; 96];
-        match nexus_abi::ipc_recv_v1(
-            REPLY.recv,
-            &mut rh,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = core::cmp::min(n as usize, buf.len());
-                if n >= 7 && buf[0] == b'B' && buf[1] == b'T' && buf[3] == (op | 0x80) {
-                    let p0 = buf.get(7).copied().unwrap_or(0xff);
-                    let p1 = buf.get(8).copied().unwrap_or(0xff);
-                    return Some((buf[4], [p0, p1]));
-                }
-                // Foreign inbox frame (logd/statefs acks): consumed, skipped.
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => return None,
-        }
-    }
+    let mut payload = [0u8; 2];
+    let (status, avail) = bootctl_call_payload(frame, op, &mut payload)?;
+    let p0 = if avail > 0 { payload[0] } else { 0xff };
+    let p1 = if avail > 1 { payload[1] } else { 0xff };
+    Some((status, [p0, p1]))
 }
 
 fn route_bootctld() -> Option<u32> {

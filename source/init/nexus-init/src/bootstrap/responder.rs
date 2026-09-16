@@ -17,7 +17,6 @@ use crate::bootstrap::route_reply;
 use crate::bootstrap::CtrlChannel;
 use crate::route_table::RouteTable;
 use alloc::vec::Vec;
-use nexus_ipc::reqrep::FrameStash;
 
 /// Run the routing responder loop forever. Only returns via `fatal()` on watchdog expiry.
 pub(crate) fn run_responder_loop(
@@ -29,9 +28,7 @@ pub(crate) fn run_responder_loop(
     pol_ctl_exec_req: u32,
     pol_ctl_exec_rsp: u32,
     upd_req: u32,
-    upd_reply_send: u32,
-    upd_reply_recv: u32,
-    mut upd_pending: FrameStash<8, 16>,
+    ask: nexus_ipc::SlotPair,
     stage_fence: u32,
     boot_graph: crate::boot_graph::BootGraph,
 ) -> ! {
@@ -100,12 +97,7 @@ pub(crate) fn run_responder_loop(
             // Health gate: allow selftest-client to notify init.
             if chan.svc_name == "selftest-client" && decode_init_health_ok_req(&buf[..n]) {
                 let nonce = decode_init_health_ok_req_with_optional_nonce(&buf[..n]).flatten();
-                let status = match updated_health_ok(
-                    &mut upd_pending,
-                    upd_req,
-                    upd_reply_send,
-                    upd_reply_recv,
-                ) {
+                let status = match updated_health_ok(upd_req, ask) {
                     Ok(slot) => {
                         debug_write_str("init: health ok (slot ");
                         debug_write_byte(slot);

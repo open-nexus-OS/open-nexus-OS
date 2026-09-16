@@ -31,25 +31,19 @@ fn mint_pair() -> Option<(u32, u32)> {
 fn osk_call(osk_send: u32, req: &[u8]) -> Result<(u8, [u8; 64], usize), ()> {
     use nexus_abi::imed as wire;
     let (ev_send, ev_recv) = mint_pair().ok_or(())?;
-    let hdr =
-        nexus_abi::MsgHeader::new(ev_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, req.len() as u32);
     // A waited send (queue space or imed's death), then a waited receive on OUR minted
     // reply endpoint (imed holds the moved SEND: its answer or its death, EOF) — no clock
     // (TASK-0324 P7-d; the 800 ms deadline + non-blocking send failed the probe whenever
-    // imed was busy answering settingsd on its focus path).
-    if nexus_abi::ipc_send_v1(osk_send, &hdr, req, 0, 0).is_err() {
-        return Err(());
-    }
-    let mut rhdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // imed was busy answering settingsd on its focus path). The pair is minted per call and
+    // private, so the frame that arrives IS this call's answer (TASK-0054C P2-d).
     let mut buf = [0u8; 96];
-    let len = nexus_abi::ipc_recv_v1(
-        ev_recv,
-        &mut rhdr,
+    let len = nexus_ipc::exchange::call_into(
+        osk_send,
+        nexus_ipc::SlotPair::new(ev_send, ev_recv),
+        req,
         &mut buf,
-        nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-        0,
     )
-    .map_err(|_| ())? as usize;
+    .map_err(|_| ())?;
     let op = *req.get(3).ok_or(())?;
     let (status, text) = wire::decode_osk_reply(op, &buf[..len]).ok_or(())?;
     let mut echo = [0u8; 64];

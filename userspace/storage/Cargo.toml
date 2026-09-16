@@ -9,10 +9,18 @@ description = "Block device abstractions for userspace storage backends"
 [features]
 default = ["std"]
 std = []
-os-lite = ["storage-virtio-blk/os-lite"]
+os-lite = [
+    "storage-virtio-blk/os-lite",
+    "dep:nexus-ipc",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
 
 [dependencies]
 nexus-abi = { path = "../../source/libs/nexus-abi" }
+# TASK-0054C P2-d: the block-plane client speaks the ONE request/reply API
+# (`nexus_ipc::exchange`), not a hand-built CAP_MOVE header.
+nexus-ipc = { path = "../nexus-ipc", optional = true, default-features = false }
 # TASK-0324 P4f-1b: the block-plane client slots are declared in the topology.
 nexus-service-topology = { path = "../../source/libs/nexus-service-topology" }
 storage-virtio-blk = { path = "../../source/drivers/storage/virtio-blk" }

@@ -137,9 +137,10 @@ pub(crate) fn settings_watch_probe() -> Result<(), ()> {
     let Some(n) = wire::encode_watch_req("input.", &mut req) else {
         return fail(WATCH_STEP, 0x03);
     };
-    let hdr = nexus_abi::MsgHeader::new(ev_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
+    // The moved cap is the minted PUSH channel settingsd writes events to — data, not a reply
+    // inbox (TASK-0054C P2-d). Best-effort, as the registration always was.
     let (send_slot, _) = client.slots();
-    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
+    if nexus_ipc::exchange::send_with_cap_nonblocking(send_slot, &req[..n], ev_send).is_err() {
         return fail(WATCH_STEP, 0x04);
     }
     // Flip the keymap and require the pushed event; then restore the default
@@ -176,9 +177,10 @@ pub(crate) fn i18n_switch_probe() -> Result<(), ()> {
     let Some(n) = wire::encode_watch_req("ui.locale", &mut req) else {
         return fail(I18N_STEP, 0x03);
     };
-    let hdr = nexus_abi::MsgHeader::new(ev_send, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, n as u32);
+    // The moved cap is the minted PUSH channel settingsd writes events to — data, not a reply
+    // inbox (TASK-0054C P2-d). Best-effort, as the registration always was.
     let (send_slot, _) = client.slots();
-    if nexus_abi::ipc_send_v1(send_slot, &hdr, &req[..n], nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
+    if nexus_ipc::exchange::send_with_cap_nonblocking(send_slot, &req[..n], ev_send).is_err() {
         return fail(I18N_STEP, 0x04);
     }
     if set_key(&client, "ui.locale", "en-US").is_err() {
