@@ -374,6 +374,31 @@ mod tests {
         assert!(!route_matches(ServiceId::Touchd, ServiceId::Logd, 3, 4));
     }
 
+    /// TASK-0054C P2-e: a service that flushes a metrics counter from INSIDE its own request
+    /// handler must not be able to reach metricsd, or the two wait on each other. statefsd is
+    /// the live case: its quota gate runs inside the PUT handler
+    /// (`abi_seam_os::put_gates` → `QuotaState::admit_put`), a deny flushes
+    /// `quota_denies_total` through `nexus_metrics::DenyCounter`, and that flush WAITS for
+    /// metricsd's answer — while metricsd's retention path is writing to statefsd. Today the
+    /// cycle cannot close for ONE reason only: no `statefsd → metricsd` route is declared, so
+    /// the route ask fails and the counter latches itself off. That is an accident of the
+    /// topology, not a design, so this test makes it a rule: declaring the route is what would
+    /// arm the deadlock, and whoever declares it has to solve the cycle first.
+    #[test]
+    fn test_reject_route_that_would_close_the_metrics_wait_cycle() {
+        for spec in SERVICE_SPECS {
+            if !matches!(spec.id, ServiceId::Statefsd | ServiceId::Policyd | ServiceId::Ingressd) {
+                continue;
+            }
+            assert!(
+                !spec.routes_to.iter().any(|r| r.to == ServiceId::Metricsd),
+                "{:?} flushes a DenyCounter from inside its request handler: a declared route to \
+                 metricsd closes a wait cycle (TASK-0054C P2-e). Make that flush cap-less first.",
+                spec.id
+            );
+        }
+    }
+
     #[test]
     fn declared_slots_are_reachable_through_the_accessors() {
         for spec in SERVICE_SPECS {

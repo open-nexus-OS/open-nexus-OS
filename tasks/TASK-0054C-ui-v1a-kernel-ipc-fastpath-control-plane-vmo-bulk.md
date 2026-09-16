@@ -372,17 +372,40 @@ waiter's own address space).
     (`nexus-service-topology` untouched; `storage` gains a `nexus-ipc` dep), init, config,
     scripts, `docs/rfcs`. Blast: init, keystored, execd, rngd, abilitymgr, imed, ingressd,
     inputd, app-host, windowd, updated, settingsd, statefs, storage, selftest.
-  - **P2-e Two reply-inbox defects that need more than a client change.** (1) The one-way
-    statefs write op that closes P2-c's metricsd exception — a wire change, so an RFC seed
-    first. (2) The selftest `updated` reply pump: a 256-frame NONBLOCK pre-drain of the
-    harness' shared `@reply` inbox that CONSUMES and discards other probes' awaited replies,
-    plus its `VecDeque` stash and the `SharedResponse` recv under it. Removing the drain means
-    de-threading `reply_send_slot`/`reply_recv_slot`/`pending` through the whole OTA probe
-    chain (~170 positions across `updated/`, `probes/ota*`, `phases/ota.rs`) — mechanical, but
-    it lands in the four OTA lanes and belongs in its own package. (3) With those gone the
-    harness' logd leg can drop from a `SharedResponse` declaration to a `ReplyInbox`
-    (`specs_harness.rs`, `LOGD` recv → `REPLY.recv`), a slot-map change that must land with
-    its call sites.
+  - **P2-e A server answers exactly the senders that moved a reply cap.** Seeded as "the
+    one-way statefs write op", rewritten 2026-09-16 after the survey: the idea behind a
+    one-way write is "do not make a client await what it does not need", and the best
+    realization is not a new wire op but the rule logd already follows since P2-c. Applied to
+    **metricsd**, which is where it pays: bundlemgrd's fire-and-forget counters were the only
+    cap-less senders, metricsd answered them on its own response endpoint **with a blocking
+    send**, and NOTHING in the tree reads that endpoint — the acks piled up in an 8-deep queue
+    and the next one would have blocked the metrics sink for good. A live, armed 0049B wedge,
+    found by asking whether the rule was safe to apply. Also here: **statefsd's cap-less reply
+    was flipped from `Wait::NonBlocking` to `Wait::Blocking` by the clock sweep (TASK-0324
+    P7-d, `e70091b2`) while the comment above it kept saying "Drop IMMEDIATELY on a full
+    queue"** — a second armed wedge, in the store every service depends on, restored to what
+    its own comment describes; the send is not a clock, it is a drop. The dead
+    `Option<reply inbox>` in `StatefsClient` and `MetricsClient` is deleted (unreachable in
+    every OS build: `@reply` resolves for every caller, and an unresolvable inbox is now a
+    construction failure). The selftest `updated` reply pump's 256-frame pre-drain of the
+    harness' shared `@reply` inbox — it CONSUMED and discarded other probes' awaited replies —
+    is gone with its `VecDeque` stash and ~170 threaded parameter positions across the OTA
+    probe chain. Zones: libs (`nexus-service-topology` test, `nexus-metrics`), config, scripts.
+  - **P2-e finding: the metricsd exception's cause is LATENT, not active.** P2-c recorded that
+    awaiting statefsd from metricsd deadlocks because statefsd's quota gate waits on metricsd
+    from inside its PUT handler. The chain is real, but it cannot close today for ONE reason:
+    no `statefsd → metricsd` route is declared, so the deny counter's route ask fails and it
+    latches itself off after one attempt. That was an accident of the topology; it is now a
+    rule — `test_reject_route_that_would_close_the_metrics_wait_cycle` fails the build for
+    statefsd, policyd and ingressd, the three services that flush a `DenyCounter` from inside
+    a request handler.
+  - **P2-f (seed) statefsd adopts the reply rule.** Blocked on three cap-less clients that read
+    statefsd's shared response endpoint: the selftest statefs ladder (~50 call sites in 10
+    files, ~15 required markers), dsoftbusd's remote-statefs proxy leg, and the
+    `demo.minidump` child — hand-assembled RISC-V in `userspace/apps/demo-exit0/build.rs`
+    whose `MsgHeader` is zeroed, so moving a cap means writing the `cap_clone` + CAP_MOVE by
+    hand or replacing the payload. Closing it also closes P2-c's metricsd exception and lets
+    the harness' logd and statefsd legs drop from `SharedResponse` to `ReplyInbox`.
   - **P2-c/P2-d inventory (2026-09-16).** 23 `send_with_cap_move(_wait)` callers and 21
     hand-rolled pairs, classified: (1) seven callers move a VMO or a push-channel SEND, not
     a reply cap — `exchange` had no form for them, which is why `ipc_send_v1` kept leaking
@@ -495,7 +518,8 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P2-b Pacing/watchdog waits onto timer pairs; rule 4 absolute | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: check 0 (rule 4 at zero), smp1 213 ok / 41 KSELFTEST / total_ms 1258 with `blk: watchdog on` + both probe markers, visible pixel 31.76; KERNEL: EOF latch consumed on observed emptiness only (approval used) |
 | P2-c ONE send primitive; only awaited replies on a reply inbox | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll rule 1 covers `send_with_cap_move`, structure/slot/init-sync at zero), smp1 EXIT=0 with the marker set IDENTICAL to the last P2-b green run (209 `ok` / 65 KSELFTEST, total_ms 1256, FAILs only the allow-listed dsoftbus pair), visible EXIT=0 pixel proof diff vs splash 31.76. MEASURED on the P1 instrument, same profile: `sends=5401 heap_allocs=10802 copies=17473` against P2-b's `5601 / 11202 / 18903` — **CORRECTED 2026-09-16 (P2-d):** this row first claimed 200 fewer messages, 400 fewer allocations and 1430 fewer copies per boot from `5401 / 10802 / 17473` against P2-b's `5601 / 11202 / 18903`. It does not hold. Four smp1 runs read `sends=5601, 13249, 5401, 13961` — bimodal and independent of the package, with byte-identical UART logs between the 5401 and 13961 runs. The stats line counts a WINDOW, so its totals scale with the idle background traffic the window spans. Stable across all four runs: **exactly 2.000 kernel heap allocations per message**, 3.12–3.38 copies per message with the traffic mix. P4 calibrates from the ratios, and the window needs a defined span before any total is asserted. `rt=242us n=64` |
 | P2-d ONE correlation model (`reqrep` deleted, hand-rolled pairs gone) | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (rule 1 covers `ReplyBuffer`/`FrameStash`/`NonceGen`/`recv_match` with its fixture), smp1 EXIT=0 with the marker set IDENTICAL to P2-c (209 `ok` / 65 KSELFTEST, total_ms 1250, FAILs only the allow-listed dsoftbus pair) — init boots on its NEW ask inbox; visible EXIT=0 pixel proof 31.77. 44 `ipc_hdr::CAP_MOVE` occurrences in 28 files → 9, of which 8 are server-side flag reads (P5) and 1 is the documented metricsd exception. Stable measurement: exactly 2.000 kernel heap allocations per message, 3.12 copies per message |
-| P2-e Two reply-inbox defects (one-way statefs write, OTA reply pump) | Draft |
+| P2-e A server answers exactly the senders that moved a reply cap | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes, incl. all four OTA lanes on the rebuilt reply pump); PROOF: `just check` 0, smp1 EXIT=0 with the marker set IDENTICAL to P2-c/P2-d (209 `ok` / 65 KSELFTEST, total_ms 1255, FAILs only the allow-listed dsoftbus pair) and `metricsd: drop reply (no cap moved)` in the log — the boot's own witness that the cap-less path is real and no longer queues into the wedge; visible EXIT=0 pixel proof 31.76; `cargo test -p nexus-service-topology` 11 passed incl. the new wait-cycle guard |
+| P2-f statefsd adopts the reply rule (3 cap-less clients first) | Draft |
 | P3 Kernel payload | Draft |
 | P4 Kernel call + reply_recv | Draft |
 | P5 Seam flip | Draft |

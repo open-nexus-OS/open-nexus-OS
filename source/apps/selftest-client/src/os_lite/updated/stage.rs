@@ -27,7 +27,6 @@
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
 use nexus_ipc::KernelClient;
@@ -61,13 +60,8 @@ pub(crate) const REJECT_DIGEST: u8 = 3;
 pub(crate) const REJECT_DOWNGRADE: u8 = 7;
 pub(crate) const REJECT_DELTA_BASE: u8 = 11;
 
-pub(crate) fn updated_stage(
-    client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
-) -> core::result::Result<(), ()> {
-    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, FIXTURE_PATH)?;
+pub(crate) fn updated_stage(client: &KernelClient) -> core::result::Result<(), ()> {
+    let rsp = stage_source(client, FIXTURE_PATH)?;
     updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE_SOURCE)?;
     Ok(())
 }
@@ -75,37 +69,24 @@ pub(crate) fn updated_stage(
 /// TASK-0034 (RFC-0090): stage the delta fixture — `updated` reconstructs
 /// the target from the ACTIVE slot's bytes through the full engine
 /// (base binding, COPY reads, readback digest, NXBD-last).
-pub(crate) fn updated_stage_delta(
-    client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
-) -> core::result::Result<(), ()> {
-    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, DELTA_PATH)?;
+pub(crate) fn updated_stage_delta(client: &KernelClient) -> core::result::Result<(), ()> {
+    let rsp = stage_source(client, DELTA_PATH)?;
     updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE_SOURCE)?;
     Ok(())
 }
 
 /// Crown lane (TASK-0179): stage the REAL os-B container — the bytes the
 /// next boot actually runs.
-pub(crate) fn updated_stage_real(
-    client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
-) -> core::result::Result<(), ()> {
-    updated_stage_path(client, reply_send_slot, reply_recv_slot, pending, REAL_PATH)
+pub(crate) fn updated_stage_real(client: &KernelClient) -> core::result::Result<(), ()> {
+    updated_stage_path(client, REAL_PATH)
 }
 
 /// Happy-path stage of ANY container by path (the crown lanes pick theirs).
 pub(crate) fn updated_stage_path(
     client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
     path: &str,
 ) -> core::result::Result<(), ()> {
-    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, path)?;
+    let rsp = stage_source(client, path)?;
     updated_expect_status(&rsp, nexus_abi::updated::OP_STAGE_SOURCE)?;
     Ok(())
 }
@@ -114,13 +95,10 @@ pub(crate) fn updated_stage_path(
 /// reject code. An OK here means a verification gate is not enforced.
 pub(crate) fn updated_stage_deny(
     client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
     path: &str,
     expect_code: u8,
 ) -> core::result::Result<(), ()> {
-    let rsp = stage_source(client, reply_send_slot, reply_recv_slot, pending, path)?;
+    let rsp = stage_source(client, path)?;
     // Response framing: [M0, M1, VER, op|0x80, status, len:u16le, code...]
     if rsp.len() < 8 || rsp[4] != nexus_abi::updated::STATUS_FAILED || rsp[7] != expect_code {
         return Err(());
@@ -130,57 +108,26 @@ pub(crate) fn updated_stage_deny(
 
 /// TASK-0198 Phase 1 deny lane (kept as a named helper: the untrusted
 /// publisher reject is its own proof rung).
-pub(crate) fn updated_stage_untrusted_deny(
-    client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
-) -> core::result::Result<(), ()> {
-    updated_stage_deny(
-        client,
-        reply_send_slot,
-        reply_recv_slot,
-        pending,
-        UNTRUSTED_PATH,
-        REJECT_UNTRUSTED_PUBLISHER,
-    )
+pub(crate) fn updated_stage_untrusted_deny(client: &KernelClient) -> core::result::Result<(), ()> {
+    updated_stage_deny(client, UNTRUSTED_PATH, REJECT_UNTRUSTED_PUBLISHER)
 }
 
-fn stage_source(
-    client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
-    path: &str,
-) -> core::result::Result<Vec<u8>, ()> {
+fn stage_source(client: &KernelClient, path: &str) -> core::result::Result<Vec<u8>, ()> {
     let bytes = path.as_bytes();
     let mut frame = Vec::with_capacity(8 + bytes.len());
     frame.resize(8 + bytes.len(), 0u8);
     let n = nexus_abi::updated::encode_stage_source_req(bytes, &mut frame).ok_or(())?;
     emit_line(crate::markers::M_SELFTEST_UPDATED_STAGE_SEND);
-    updated_send_with_reply(
-        client,
-        reply_send_slot,
-        reply_recv_slot,
-        nexus_abi::updated::OP_STAGE_SOURCE,
-        &frame[..n],
-        pending,
-    )
+    updated_send_with_reply(client, nexus_abi::updated::OP_STAGE_SOURCE, &frame[..n])
 }
 
-pub(crate) fn updated_log_probe(
-    client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
-) -> core::result::Result<(), ()> {
+pub(crate) fn updated_log_probe(client: &KernelClient) -> core::result::Result<(), ()> {
     let mut frame = [0u8; 4];
     frame[0] = nexus_abi::updated::MAGIC0;
     frame[1] = nexus_abi::updated::MAGIC1;
     frame[2] = nexus_abi::updated::VERSION;
     frame[3] = 0x7f;
-    let rsp =
-        updated_send_with_reply(client, reply_send_slot, reply_recv_slot, 0x7f, &frame, pending)?;
+    let rsp = updated_send_with_reply(client, 0x7f, &frame)?;
     updated_expect_status(&rsp, 0x7f)?;
     Ok(())
 }

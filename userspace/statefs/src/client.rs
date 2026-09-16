@@ -40,19 +40,24 @@ const BUSY_RETRY_BUDGET_NS: u64 = 2_000_000_000;
 
 pub struct StatefsClient {
     client: KernelClient,
-    reply: Option<KernelClient>,
+    /// The caller's reply inbox. NOT optional (TASK-0054C P2-e): a statefs client without one
+    /// used to fall back to statefsd's shared response endpoint, and that branch was dead —
+    /// both `new()` callers run inside execd, which always has an `@reply` inbox. An
+    /// unresolvable inbox is now a construction failure, so the fallback cannot come back.
+    reply: KernelClient,
 }
 
 impl StatefsClient {
-    /// Create a new client targeting `statefsd`.
+    /// Create a new client targeting `statefsd`. Fails when this service has no `@reply`
+    /// inbox: without one there is nowhere for statefsd to answer that only this caller reads.
     pub fn new() -> Result<Self, StatefsError> {
         let client = KernelClient::new_for("statefsd").map_err(|_| StatefsError::IoError)?;
-        let reply = KernelClient::new_for("@reply").ok();
+        let reply = KernelClient::new_for("@reply").map_err(|_| StatefsError::IoError)?;
         Ok(Self { client, reply })
     }
 
     /// Create a new client from pre-routed kernel IPC endpoints.
-    pub fn from_clients(client: KernelClient, reply: Option<KernelClient>) -> Self {
+    pub fn from_clients(client: KernelClient, reply: KernelClient) -> Self {
         Self { client, reply }
     }
 
@@ -194,31 +199,17 @@ impl StatefsClient {
             .then(|| rsp.len())
         };
         let mut buf = [0u8; 4096];
-        // No clock (TASK-0324 P7-d): queue space, then statefsd's answer (or its death).
-        let n = match &self.reply {
-            // A reply inbox of our own: the request moves a SEND clone of it, and the wait is
-            // EOF-opted, so a statefsd that dies mid-exchange wakes us.
-            Some(reply) => {
-                let (reply_send, reply_recv) = reply.slots();
-                nexus_ipc::exchange::call_matching(
-                    self.client.slots().0,
-                    nexus_ipc::SlotPair::new(reply_send, reply_recv),
-                    &v2,
-                    &mut buf,
-                    matches,
-                )
-            }
-            // No inbox: a `SharedResponse` route — statefsd answers on its own endpoint.
-            None => {
-                let (send_slot, recv_slot) = self.client.slots();
-                nexus_ipc::exchange::send_request(send_slot, &v2).and_then(|()| loop {
-                    let got = nexus_ipc::exchange::recv_response(recv_slot, &mut buf)?;
-                    if let Some(n) = matches(&buf[..got.min(buf.len())]) {
-                        break Ok(n);
-                    }
-                })
-            }
-        }
+        // No clock (TASK-0324 P7-d): queue space, then statefsd's answer (or its death). The
+        // request moves a SEND clone of OUR inbox and the wait is EOF-opted, so a statefsd that
+        // dies mid-exchange wakes us.
+        let (reply_send, reply_recv) = self.reply.slots();
+        let n = nexus_ipc::exchange::call_matching(
+            self.client.slots().0,
+            nexus_ipc::SlotPair::new(reply_send, reply_recv),
+            &v2,
+            &mut buf,
+            matches,
+        )
         .map_err(|_| StatefsError::IoError)?;
         Ok(buf[..n].to_vec())
     }

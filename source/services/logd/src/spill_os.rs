@@ -350,7 +350,7 @@ fn try_attach() -> Option<(SpillEngine, StatefsClient, u64)> {
     let (state_send, _) = route_blocking(b"statefsd")?;
     let (reply_send, reply_recv) = route_blocking(b"@reply")?;
     let client = KernelClient::new_with_slots(state_send, reply_recv).ok()?;
-    let reply = KernelClient::new_with_slots(reply_send, reply_recv).ok();
+    let reply = KernelClient::new_with_slots(reply_send, reply_recv).ok()?;
     let statefs = StatefsClient::from_clients(client, reply);
 
     let head = match statefs.get(HEAD_KEY) {

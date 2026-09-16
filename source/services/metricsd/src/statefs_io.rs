@@ -8,18 +8,27 @@
 //! replies on statefsd's SHARED response queue until the store wedged deaf
 //! (the 0049B wedge class).
 //!
-//! TASK-0054C P2-c: this is the ONE site the "a reply inbox sees only awaited
-//! replies" invariant does not cover, and neither of the two obvious fixes is
-//! available yet. Sending WITHOUT a reply cap is out: statefsd always answers,
-//! and a cap-less sender is answered on statefsd's shared response queue with a
-//! BLOCKING send — the 0049B wedge, in the store everyone depends on. AWAITING
-//! the status is out too, and measurably so: statefsd's quota gate runs inside
-//! its PUT handler (`abi_seam_os::put_gates` -> `QuotaState::admit_put`), a deny
-//! flushes `quota_denies_total` through `nexus_metrics::DenyCounter`, and that
-//! flush WAITS for metricsd's answer — so a metricsd that waits here deadlocks
-//! against a statefsd that is waiting on metricsd. The real fix is a one-way
-//! write op in the statefs protocol (a PUT/DEL statefsd does not answer), which
-//! is a wire change and belongs to its own package (TASK-0054C P2-d).
+//! TASK-0054C P2-c/P2-e: this is the ONE site the "a reply inbox sees only
+//! awaited replies" invariant does not cover, and both exits are still shut.
+//!
+//! Sending WITHOUT a reply cap is out because statefsd still answers a cap-less
+//! sender on its own shared response queue — unlike logd (P2-c) and metricsd
+//! (P2-e), which answer exactly the senders that moved a cap. statefsd cannot
+//! adopt that rule yet: three live cap-less clients read that queue (the
+//! selftest statefs ladder, dsoftbusd's remote-statefs proxy, and the
+//! hand-assembled `demo.minidump` child payload). They are the work that
+//! unblocks this site.
+//!
+//! AWAITING the status is out because of a wait cycle: statefsd's quota gate
+//! runs inside its PUT handler (`abi_seam_os::put_gates` ->
+//! `QuotaState::admit_put`), a deny flushes `quota_denies_total` through
+//! `nexus_metrics::DenyCounter`, and that flush waits for metricsd's answer.
+//! P2-e measured how close that is: the cycle does NOT close today, for one
+//! reason only — no `statefsd -> metricsd` route is declared, so the flush's
+//! route ask fails and the counter latches itself off after one attempt. That
+//! is an accident of the topology, so it is now a rule:
+//! `test_reject_route_that_would_close_the_metrics_wait_cycle`
+//! (`nexus-service-topology`) fails the build if anyone declares it.
 //! OWNERS: @runtime @observability
 //! STATUS: Functional
 //! API_STABILITY: Internal

@@ -28,9 +28,6 @@
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
-use alloc::vec::Vec;
-
 use nexus_ipc::KernelClient;
 use statefs::protocol as proto;
 
@@ -55,25 +52,19 @@ pub(crate) fn ota_fallback_proof(statefsd: &KernelClient) {
 }
 
 fn boot1_stage_and_switch(statefsd: &KernelClient) -> ! {
-    let mut pending: VecDeque<Vec<u8>> = VecDeque::new();
     let Ok(updated_client) = route_with_retry("updated") else {
         emit_line(crate::markers::M_SELFTEST_OTA_FALLBACK_FAIL);
         park_loud()
     };
-    let (reply_send_slot, reply_recv_slot) = reply_slots();
 
     // The REAL container: the trial boots run these bytes far enough for
     // the loader to verify and jump them — the brick is init's honest
     // fault-fixture park, not a broken image.
-    if updated::updated_stage_real(&updated_client, reply_send_slot, reply_recv_slot, &mut pending)
-        .is_err()
-    {
+    if updated::updated_stage_real(&updated_client).is_err() {
         emit_line(crate::markers::M_SELFTEST_OTA_FALLBACK_STAGE_FAIL);
         park_loud()
     }
-    if updated::updated_switch(&updated_client, reply_send_slot, reply_recv_slot, 2, &mut pending)
-        .is_err()
-    {
+    if updated::updated_switch(&updated_client, 2).is_err() {
         emit_line(crate::markers::M_SELFTEST_OTA_FALLBACK_STAGE_FAIL);
         park_loud()
     }
@@ -87,12 +78,10 @@ fn boot1_stage_and_switch(statefsd: &KernelClient) -> ! {
 }
 
 fn final_boot_verify(statefsd: &KernelClient) {
-    let mut pending: VecDeque<Vec<u8>> = VecDeque::new();
     let Ok(updated_client) = route_with_retry("updated") else {
         emit_line(crate::markers::M_SELFTEST_OTA_FALLBACK_FAIL);
         return;
     };
-    let (reply_send_slot, reply_recv_slot) = reply_slots();
 
     // The rollback observation is part of bootctld's ATTACH — poll the
     // status to a deadline (wait-loop doctrine: bounded, timeout = honest
@@ -103,12 +92,7 @@ fn final_boot_verify(statefsd: &KernelClient) {
     let mut settled = false;
     while nexus_abi::nsec().unwrap_or(u64::MAX) < deadline {
         if matches!(
-            updated::updated_get_status(
-                &updated_client,
-                reply_send_slot,
-                reply_recv_slot,
-                &mut pending,
-            ),
+            updated::updated_get_status(&updated_client,),
             Ok((updated::SlotId::A, None, _tries, _health))
         ) {
             settled = true;
@@ -135,11 +119,6 @@ fn final_boot_verify(statefsd: &KernelClient) {
 }
 
 /// The selftest client's own CAP_MOVE reply inbox (declared by the topology; parity:
-/// `otaflip.rs`).
-fn reply_slots() -> (u32, u32) {
-    let reply = nexus_service_topology::slots::selftest_client::REPLY;
-    (reply.send, reply.recv)
-}
 
 fn sentinel_phase(statefsd: &KernelClient) -> Option<u8> {
     let req = proto::encode_key_only_request(proto::OP_GET, SENTINEL_KEY).ok()?;

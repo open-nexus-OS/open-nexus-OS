@@ -31,7 +31,7 @@ use crate::record::{self, BOOT_RECORD_KEY};
 /// retry (bounded by the caller).
 pub(crate) fn try_attach() -> Option<Authority> {
     let client = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
-    let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
+    let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
     let statefs = StatefsClient::from_clients(client, reply);
     let boot = match statefs.get(BOOT_RECORD_KEY) {
         Ok(bytes) => match record::open_record(&bytes) {

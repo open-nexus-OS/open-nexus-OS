@@ -264,7 +264,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     // starved init's persist path in the 0049C bring-up. The
                     // legitimate nonce-matched client retries; the op byte
                     // stays for forensics.
-                    if server.send(&rsp, Wait::Blocking).is_err() {
+                    //
+                    // TASK-0054C P2-e: this send was flipped to `Wait::Blocking` by the
+                    // clock sweep (TASK-0324 P7-d, e70091b2) and the comment above was
+                    // left standing — for a year the code did the exact opposite of what
+                    // it says, with the 0049B wedge armed in the store every service
+                    // depends on. It is NOT a clock: a non-blocking send here drops a
+                    // reply nobody is waiting for, which is the whole point.
+                    if server.send(&rsp, Wait::NonBlocking).is_err() {
                         emit_line("statefsd: rsp queue stalled (dropping reply)");
                         if let Some(op) = frame.get(3).copied() {
                             emit_op_byte(op);

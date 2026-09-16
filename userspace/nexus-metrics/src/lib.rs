@@ -614,7 +614,7 @@ pub mod client {
     use super::*;
     use core::sync::atomic::{AtomicU32, Ordering};
 
-    use nexus_ipc::{Client as _, KernelClient, Wait};
+    use nexus_ipc::KernelClient;
 
     /// OS metrics/tracing client over kernel IPC.
     ///
@@ -626,8 +626,10 @@ pub mod client {
     /// endpoint is used, nonce-filtered.
     pub struct MetricsClient {
         ipc: KernelClient,
-        /// `(reply_send, reply_recv)` of the caller's `@reply` inbox.
-        reply: Option<(u32, u32)>,
+        /// `(reply_send, reply_recv)` of the caller's `@reply` inbox. NOT optional
+        /// (TASK-0054C P2-e): without one this client used to read metricsd's shared response
+        /// endpoint, and metricsd no longer answers a cap-less sender at all.
+        reply: (u32, u32),
         next_nonce: AtomicU32,
     }
 
@@ -637,10 +639,12 @@ pub mod client {
             Self::new_for("metricsd")
         }
 
-        /// Creates a client for an explicit service name.
+        /// Creates a client for an explicit service name. Fails when this service has no
+        /// `@reply` inbox: metricsd answers on the moved reply cap and nowhere else.
         pub fn new_for(service_name: &str) -> Result<Self, ClientError> {
             let ipc = KernelClient::new_for(service_name).map_err(|_| ClientError::Transport)?;
-            let reply = KernelClient::new_for("@reply").ok().map(|r| r.slots());
+            let reply =
+                KernelClient::new_for("@reply").map_err(|_| ClientError::Transport)?.slots();
             Ok(Self { ipc, reply, next_nonce: AtomicU32::new(1) })
         }
 
@@ -768,18 +772,8 @@ pub mod client {
         }
 
         fn send_and_parse(&self, op: u8, nonce: u32, frame: &[u8]) -> Result<u8, ClientError> {
-            if let Some((reply_send, reply_recv)) = self.reply {
-                return self.send_and_parse_private(op, nonce, frame, reply_send, reply_recv);
-            }
-            // No clock (TASK-0324 P7-d): metricsd's answer or its death ends the wait; a
-            // frame that is not our answer (shared response endpoint) is dropped.
-            self.ipc.send(frame, Wait::Blocking).map_err(|_| ClientError::Transport)?;
-            loop {
-                let rsp = self.ipc.recv(Wait::Blocking).map_err(|_| ClientError::Transport)?;
-                if let Ok(status) = decode_status_response(&rsp, op, nonce) {
-                    return Ok(status);
-                }
-            }
+            let (reply_send, reply_recv) = self.reply;
+            self.send_and_parse_private(op, nonce, frame, reply_send, reply_recv)
         }
 
         /// CAP_MOVE request/reply on the private inbox, nonce-correlated;

@@ -1,9 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Shared reply pump for the `updated` submodule — RFC-0019
-//!   nonce-correlated shared-inbox reply consumer:
-//!     * `updated_send_with_reply` -- nonblocking, deadline-bounded request.
+//! CONTEXT: The `updated` exchange for the OTA probes:
+//!     * `updated_send_with_reply` -- one waited request/response on the dedicated pair.
 //!     * `updated_expect_status`   -- response framing + status validation.
 //! OWNERS: @runtime
 //! STATUS: Functional
@@ -14,10 +13,6 @@
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
-use alloc::vec::Vec;
-
-use nexus_abi::MsgHeader;
 use nexus_ipc::KernelClient;
 
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
@@ -59,152 +54,52 @@ pub(crate) fn updated_expect_status<'a>(
     Ok(&rsp[7..])
 }
 
+/// ONE exchange with `updated` over the harness' DEDICATED updated pair (a `SharedResponse`
+/// route: no cap moves, updated answers on its own endpoint). TASK-0054C P2-e deleted the three
+/// things that sat around it: a 256-frame non-blocking pre-drain of the harness' SHARED `@reply`
+/// inbox that CONSUMED and discarded other probes' awaited replies, a second pre-drain of this
+/// pair, and a `VecDeque` stash for out-of-order answers. Nothing is out of order any more —
+/// probes run sequentially and every exchange waits for its own answer — so a reply for another
+/// op is a late answer to an ask that was abandoned, which no longer happens; it is reported
+/// once and dropped.
 pub(crate) fn updated_send_with_reply(
     client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
     op: u8,
     frame: &[u8],
-    pending: &mut VecDeque<Vec<u8>>,
 ) -> core::result::Result<alloc::vec::Vec<u8>, ()> {
-    if reply_send_slot == 0 || reply_recv_slot == 0 {
-        return Err(());
-    }
-
-    // Drain any stale messages on the shared reply inbox before starting a new exchange.
-    // IMPORTANT: do NOT discard them; buffer them so late/out-of-order replies remain consumable.
-    for _ in 0..256 {
-        let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 512];
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = n as usize;
-                // Only buffer frames that look like an `updated` reply; other noise is ignored.
-                if n >= 4
-                    && buf[0] == nexus_abi::updated::MAGIC0
-                    && buf[1] == nexus_abi::updated::MAGIC1
-                    && buf[2] == nexus_abi::updated::VERSION
-                    && (buf[3] & 0x80) != 0
-                {
-                    if pending.len() >= 16 {
-                        let _ = pending.pop_front();
-                    }
-                    pending.push_back(buf[..n].to_vec());
-                }
-                continue;
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => break,
-            Err(_) => break,
-        }
-    }
-
-    // Also drain the normal updated reply channel (client recv slot). This is a compatibility
-    // fallback for bring-up where CAP_MOVE/@reply delivery can be flaky or unavailable.
-    let (_updated_send_slot, updated_recv_slot) = client.slots();
-    for _ in 0..256 {
-        let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 512];
-        match nexus_abi::ipc_recv_v1(
-            updated_recv_slot,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = n as usize;
-                if n >= 4
-                    && buf[0] == nexus_abi::updated::MAGIC0
-                    && buf[1] == nexus_abi::updated::MAGIC1
-                    && buf[2] == nexus_abi::updated::VERSION
-                    && (buf[3] & 0x80) != 0
-                {
-                    if pending.len() >= 16 {
-                        let _ = pending.pop_front();
-                    }
-                    pending.push_back(buf[..n].to_vec());
-                }
-                continue;
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => break,
-            Err(_) => break,
-        }
-    }
-
-    // Shared reply inbox: replies can arrive out-of-order across ops.
-    if let Some(pos) = pending.iter().position(|rsp| {
-        rsp.len() >= 4
-            && rsp[0] == nexus_abi::updated::MAGIC0
-            && rsp[1] == nexus_abi::updated::MAGIC1
-            && rsp[2] == nexus_abi::updated::VERSION
-            && rsp[3] == (op | 0x80)
-    }) {
-        if let Some(rsp) = pending.remove(pos) {
-            return Ok(rsp);
-        }
-    }
-
-    // Prefer plain request/response for bring-up stability; CAP_MOVE remains available but is
-    // not required to validate the OTA stage/switch/health markers.
-    //
-    // IMPORTANT: Avoid kernel deadline-based blocking IPC in bring-up; we've observed
-    // deadline semantics that can stall indefinitely. Use NONBLOCK + bounded retry.
-    let (updated_send_slot, _updated_recv_slot2) = client.slots();
-    // A waited send (queue space or updated's death), then waited receives (the answer or
-    // updated's death, EOF) — no clock (TASK-0324 P7-d). Other ops' answers are stashed.
-    let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    if nexus_abi::ipc_send_v1(updated_send_slot, &hdr, frame, 0, 0).is_err() {
+    let (updated_send, updated_recv) = client.slots();
+    if nexus_ipc::exchange::send_request(updated_send, frame).is_err() {
         emit_line(crate::markers::M_SELFTEST_UPDATED_SEND_FAIL);
         return Err(());
     }
-    let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
     let mut buf = [0u8; 512];
     let mut logged_noise = false;
     loop {
-        match nexus_abi::ipc_recv_v1(
-            updated_recv_slot,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = n as usize;
-                if n >= 4
-                    && buf[0] == nexus_abi::updated::MAGIC0
-                    && buf[1] == nexus_abi::updated::MAGIC1
-                    && buf[2] == nexus_abi::updated::VERSION
-                    && (buf[3] & 0x80) != 0
-                {
-                    if buf[3] == (op | 0x80) {
-                        return Ok(buf[..n].to_vec());
-                    }
-                    if !logged_noise {
-                        logged_noise = true;
-                        emit_bytes(crate::markers::M_SELFTEST_UPDATED_RSP_OTHER_OP_0X.as_bytes());
-                        emit_hex_u64(buf[3] as u64);
-                        if n >= 5 {
-                            emit_bytes(b" st=0x");
-                            emit_hex_u64(buf[4] as u64);
-                        }
-                        emit_byte(b'\n');
-                    }
-                    if pending.len() >= 16 {
-                        let _ = pending.pop_front();
-                    }
-                    pending.push_back(buf[..n].to_vec());
-                }
+        let Ok(n) = nexus_ipc::exchange::recv_response(updated_recv, &mut buf) else {
+            emit_line(crate::markers::M_SELFTEST_UPDATED_RECV_TIMEOUT);
+            return Err(());
+        };
+        let n = n.min(buf.len());
+        if n < 4
+            || buf[0] != nexus_abi::updated::MAGIC0
+            || buf[1] != nexus_abi::updated::MAGIC1
+            || buf[2] != nexus_abi::updated::VERSION
+            || (buf[3] & 0x80) == 0
+        {
+            continue;
+        }
+        if buf[3] == (op | 0x80) {
+            return Ok(buf[..n].to_vec());
+        }
+        if !logged_noise {
+            logged_noise = true;
+            emit_bytes(crate::markers::M_SELFTEST_UPDATED_RSP_OTHER_OP_0X.as_bytes());
+            emit_hex_u64(buf[3] as u64);
+            if n >= 5 {
+                emit_bytes(b" st=0x");
+                emit_hex_u64(buf[4] as u64);
             }
-            Err(_) => {
-                emit_line(crate::markers::M_SELFTEST_UPDATED_RECV_TIMEOUT);
-                return Err(());
-            }
+            emit_byte(b'\n');
         }
     }
 }

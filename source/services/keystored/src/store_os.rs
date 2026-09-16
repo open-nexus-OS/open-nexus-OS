@@ -194,7 +194,7 @@ impl StatefsStore {
         const REPLY_RECV_SLOT: u32 = topo::REPLY.recv;
         const REPLY_SEND_SLOT: u32 = topo::REPLY.send;
         let client = KernelClient::new_with_slots(STATEFS_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
-        let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok();
+        let reply = KernelClient::new_with_slots(REPLY_SEND_SLOT, REPLY_RECV_SLOT).ok()?;
         let client = StatefsClient::from_clients(client, reply);
         Some(Self { client, seq_cache: statefs::writer::SeqCache::new() })
     }

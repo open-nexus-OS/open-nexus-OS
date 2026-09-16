@@ -23,7 +23,9 @@ use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::route_checked;
 use crate::os_lite::{services, updated};
 
-pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
+// The dispatcher hands every phase the shared context; this one no longer reads it —
+// its `updated` exchanges carry no cross-phase state since TASK-0054C P2-e.
+pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // Policy E2E via policyd (minimal IPC protocol).
     let policyd = match route_checked("policyd") {
         Ok(client) => client,
@@ -52,14 +54,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     emit_hex_u64(upd_recv as u64);
     emit_byte(b'\n');
     emit_line(crate::markers::M_SELFTEST_IPC_ROUTING_UPDATED_OK);
-    if updated::updated_log_probe(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    )
-    .is_ok()
-    {
+    if updated::updated_log_probe(&updated).is_ok() {
         emit_line(crate::markers::M_SELFTEST_UPDATED_PROBE_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_UPDATED_PROBE_FAIL);

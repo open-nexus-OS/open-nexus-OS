@@ -10,8 +10,8 @@
 //!
 //! Extracted in Cut P2-06 of TASK-0023B. Marker order and marker strings are
 //! byte-identical to the pre-cut body. Reply-pump correlation (RFC-0019
-//! nonce-correlated `updated_pending`) is preserved by routing every
-//! `updated::*` call through the same `ctx.updated_pending` queue.
+//! Every `updated::*` call is ONE waited exchange on the harness' dedicated updated pair
+//! (TASK-0054C P2-e): no stash, and no pre-drain of the shared `@reply` inbox.
 //!
 //! `bundlemgrd` and `updated` handles are local to this phase; the policy
 //! slice (later P2-07) re-resolves them via the silent `route_with_retry`.
@@ -43,29 +43,15 @@ fn selftest_quorum_report() -> core::result::Result<(), ()> {
 /// TASK-0140: the page's read surface — status/feed/check answer, the
 /// seeded feed is non-empty, and updated's forwarded active slot matches
 /// a DIRECT authority read (both wires encode a=1/b=2). State-neutral.
-fn updates_surface_verdict(ctx: &mut PhaseCtx, updated_client: &nexus_ipc::KernelClient) -> bool {
-    let Ok((active, _pending, _tries, _healthy)) = updated::updated_get_status(
-        updated_client,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    ) else {
+fn updates_surface_verdict(updated_client: &nexus_ipc::KernelClient) -> bool {
+    let Ok((active, _pending, _tries, _healthy)) = updated::updated_get_status(updated_client)
+    else {
         return false;
     };
-    let Ok(feed) = updated::updated_feed_count(
-        updated_client,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    ) else {
+    let Ok(feed) = updated::updated_feed_count(updated_client) else {
         return false;
     };
-    let Ok(check) = updated::updated_check_count(
-        updated_client,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    ) else {
+    let Ok(check) = updated::updated_check_count(updated_client) else {
         return false;
     };
     if feed == 0 || check == 0 {
@@ -85,7 +71,9 @@ fn updates_surface_verdict(ctx: &mut PhaseCtx, updated_client: &nexus_ipc::Kerne
     }
 }
 
-pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
+// The dispatcher hands every phase the shared context; this one no longer reads it —
+// its `updated` exchanges carry no cross-phase state since TASK-0054C P2-e.
+pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // TASK-0289 B1: the measured-boot surface — probed FIRST, before this
     // phase mutates the authority: the cross-check (measured slot ==
     // active slot) is a statement about THIS BOOT, and the stage/switch
@@ -154,7 +142,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // this surface, so its coherence is the honest "page truth" proof the
     // headless ladder can give without input injection.
     {
-        let verdict = updates_surface_verdict(ctx, &updated);
+        let verdict = updates_surface_verdict(&updated);
         if verdict {
             emit_line(crate::markers::M_SELFTEST_UPDATES_SURFACE_OK);
         } else {
@@ -172,27 +160,14 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
     // Determinism: updated bootctrl state is persisted via statefs and may survive across runs.
     // Normalize to active-slot A before the OTA flow so rollback assertions are stable.
-    if let Ok((_active, pending_slot, _tries_left, _health_ok)) = updated::updated_get_status(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    ) {
+    if let Ok((_active, pending_slot, _tries_left, _health_ok)) =
+        updated::updated_get_status(&updated)
+    {
         if pending_slot.is_some() {
             // Clear a pending state from a prior run (bounded).
             for _ in 0..4 {
-                let _ = updated::updated_boot_attempt(
-                    &updated,
-                    ctx.reply_send_slot,
-                    ctx.reply_recv_slot,
-                    &mut ctx.updated_pending,
-                );
-                if let Ok((_a, p, _t, _h)) = updated::updated_get_status(
-                    &updated,
-                    ctx.reply_send_slot,
-                    ctx.reply_recv_slot,
-                    &mut ctx.updated_pending,
-                ) {
+                let _ = updated::updated_boot_attempt(&updated);
+                if let Ok((_a, p, _t, _h)) = updated::updated_get_status(&updated) {
                     if p.is_none() {
                         break;
                     }
@@ -201,48 +176,26 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
             }
         }
     }
-    normalize_active_to_a(ctx, &updated);
+    normalize_active_to_a(&updated);
     // TASK-0198 Phase 1 deny lane FIRST (state-neutral: a rejected stage
     // mutates nothing): a validly self-signed archive whose publisher is not
     // in the device anchor must come back FAILED with the untrusted-publisher
     // reject — proving the anchor is enforced before the happy path runs.
-    if updated::updated_stage_untrusted_deny(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    )
-    .is_ok()
-    {
+    if updated::updated_stage_untrusted_deny(&updated).is_ok() {
         emit_line(crate::markers::M_SELFTEST_UPDATES_TRUST_REJECT_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_UPDATES_TRUST_REJECT_FAIL);
     }
     // TASK-0179 deny lanes (state-neutral: a rejected stage mutates
     // nothing) — each proves ONE stable reject reason of the apply engine.
-    if updated::updated_stage_deny(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-        updated::TAMPERED_PATH,
-        updated::REJECT_DIGEST,
-    )
-    .is_ok()
+    if updated::updated_stage_deny(&updated, updated::TAMPERED_PATH, updated::REJECT_DIGEST).is_ok()
     {
         emit_line(crate::markers::M_SELFTEST_OTA_TAMPER_DENY_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_TAMPER_DENY_FAIL);
     }
-    if updated::updated_stage_deny(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-        updated::DOWNGRADE_PATH,
-        updated::REJECT_DOWNGRADE,
-    )
-    .is_ok()
+    if updated::updated_stage_deny(&updated, updated::DOWNGRADE_PATH, updated::REJECT_DOWNGRADE)
+        .is_ok()
     {
         emit_line(crate::markers::M_SELFTEST_OTA_DOWNGRADE_DENY_OK);
     } else {
@@ -255,53 +208,24 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // the target into the inactive one, and the unchanged readback gate
     // plus NXBD-last discipline prove the bytes; the cycle below re-stages
     // over it, so the staged state stays the cycle's own.
-    if updated::updated_stage_deny(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-        updated::DELTABASE_PATH,
-        updated::REJECT_DELTA_BASE,
-    )
-    .is_ok()
+    if updated::updated_stage_deny(&updated, updated::DELTABASE_PATH, updated::REJECT_DELTA_BASE)
+        .is_ok()
     {
         emit_line(crate::markers::M_SELFTEST_OTA_DELTA_BASE_DENY_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_DELTA_BASE_DENY_FAIL);
     }
-    if updated::updated_stage_delta(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    )
-    .is_ok()
-    {
+    if updated::updated_stage_delta(&updated).is_ok() {
         emit_line(crate::markers::M_SELFTEST_OTA_DELTA_STAGE_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_DELTA_STAGE_FAIL);
     }
-    if updated::updated_stage(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    )
-    .is_ok()
-    {
+    if updated::updated_stage(&updated).is_ok() {
         emit_line(crate::markers::M_SELFTEST_OTA_STAGE_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_STAGE_FAIL);
     }
-    if updated::updated_switch(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        2,
-        &mut ctx.updated_pending,
-    )
-    .is_ok()
-    {
+    if updated::updated_switch(&updated, 2).is_ok() {
         emit_line(crate::markers::M_SELFTEST_OTA_SWITCH_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_OTA_SWITCH_FAIL);
@@ -321,53 +245,20 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
     // Verify the commit actually landed (health_ok in the authority's
     // status) — a quorum that never completes must be LOUD here.
-    let committed = matches!(
-        updated::updated_get_status(
-            &updated,
-            ctx.reply_send_slot,
-            ctx.reply_recv_slot,
-            &mut ctx.updated_pending,
-        ),
-        Ok((_a, None, _t, true))
-    );
+    let committed = matches!(updated::updated_get_status(&updated,), Ok((_a, None, _t, true)));
     if quorum_direct.is_ok() && committed {
         emit_line(crate::markers::M_SELFTEST_BOOTCTL_QUORUM_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_BOOTCTL_QUORUM_FAIL);
     }
     // Second cycle to force rollback (tries_left=1).
-    if updated::updated_stage(
-        &updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    )
-    .is_ok()
-    {
+    if updated::updated_stage(&updated).is_ok() {
         // Determinism: rollback target is the slot that was active *before* the switch.
-        let expected_rollback = updated::updated_get_status(
-            &updated,
-            ctx.reply_send_slot,
-            ctx.reply_recv_slot,
-            &mut ctx.updated_pending,
-        )
-        .ok()
-        .map(|(active, _pending, _tries_left, _health_ok)| active);
-        if updated::updated_switch(
-            &updated,
-            ctx.reply_send_slot,
-            ctx.reply_recv_slot,
-            1,
-            &mut ctx.updated_pending,
-        )
-        .is_ok()
-        {
-            let got = updated::updated_boot_attempt(
-                &updated,
-                ctx.reply_send_slot,
-                ctx.reply_recv_slot,
-                &mut ctx.updated_pending,
-            );
+        let expected_rollback = updated::updated_get_status(&updated)
+            .ok()
+            .map(|(active, _pending, _tries_left, _health_ok)| active);
+        if updated::updated_switch(&updated, 1).is_ok() {
+            let got = updated::updated_boot_attempt(&updated);
             match (expected_rollback, got) {
                 (Some(expected), Ok(Some(slot))) if slot == expected => {
                     emit_line(crate::markers::M_SELFTEST_OTA_ROLLBACK_OK)
@@ -413,7 +304,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     // TASK-0036-B: leave the persisted state (and thus the projected BSB)
     // on the real bootable slot — see normalize_active_to_a.
-    normalize_active_to_a(ctx, &updated);
+    normalize_active_to_a(&updated);
 
     let _ = (bundlemgrd, updated);
     Ok(())
@@ -424,42 +315,19 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 /// at phase END (TASK-0036-B: the BSB now PROJECTS this state and the
 /// loader OBEYS it on the next boot — leaving the record on the imageless
 /// slot B would send every subsequent boot through the fallback path).
-fn normalize_active_to_a(ctx: &mut PhaseCtx, updated: &nexus_ipc::KernelClient) {
-    if let Ok((active, _pending, _tries_left, _health_ok)) = updated::updated_get_status(
-        updated,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-        &mut ctx.updated_pending,
-    ) {
+fn normalize_active_to_a(updated: &nexus_ipc::KernelClient) {
+    if let Ok((active, _pending, _tries_left, _health_ok)) = updated::updated_get_status(updated) {
         if active == updated::SlotId::B {
             // Flip B -> A (bounded), same tries as the real flow.
             for _ in 0..2 {
-                if updated::updated_stage(
-                    updated,
-                    ctx.reply_send_slot,
-                    ctx.reply_recv_slot,
-                    &mut ctx.updated_pending,
-                )
-                .is_err()
-                {
+                if updated::updated_stage(updated).is_err() {
                     break;
                 }
-                let _ = updated::updated_switch(
-                    updated,
-                    ctx.reply_send_slot,
-                    ctx.reply_recv_slot,
-                    2,
-                    &mut ctx.updated_pending,
-                );
+                let _ = updated::updated_switch(updated, 2);
                 // Quorum v2: both declared reporters must confirm.
                 let _ = selftest_quorum_report();
                 let _ = updated::init_health_ok();
-                if let Ok((a, _p, _t, _h)) = updated::updated_get_status(
-                    updated,
-                    ctx.reply_send_slot,
-                    ctx.reply_recv_slot,
-                    &mut ctx.updated_pending,
-                ) {
+                if let Ok((a, _p, _t, _h)) = updated::updated_get_status(updated) {
                     if a == updated::SlotId::A {
                         break;
                     }

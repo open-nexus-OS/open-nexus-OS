@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Status / boot-attempt helpers for the `updated` submodule —
-//!     * `updated_get_status`   -- decode (active, pending, tries_left, healthy).
+//!     * `updated_get_status`   -- decode (active, tries_left, healthy).
 //!     * `updated_boot_attempt` -- consume one boot attempt and return the slot
 //!       that ran (used to drive A/B health flow).
 //! OWNERS: @runtime
@@ -14,9 +14,6 @@
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
-use alloc::vec::Vec;
-
 use nexus_ipc::KernelClient;
 
 use super::reply_pump::{updated_expect_status, updated_send_with_reply};
@@ -24,20 +21,10 @@ use super::types::SlotId;
 
 pub(crate) fn updated_get_status(
     client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
 ) -> core::result::Result<(SlotId, Option<SlotId>, u8, bool), ()> {
     let mut frame = [0u8; 4];
     let n = nexus_abi::updated::encode_get_status_req(&mut frame).ok_or(())?;
-    let rsp = updated_send_with_reply(
-        client,
-        reply_send_slot,
-        reply_recv_slot,
-        nexus_abi::updated::OP_GET_STATUS,
-        &frame[..n],
-        pending,
-    )?;
+    let rsp = updated_send_with_reply(client, nexus_abi::updated::OP_GET_STATUS, &frame[..n])?;
     let payload = updated_expect_status(&rsp, nexus_abi::updated::OP_GET_STATUS)?;
     // Additive tails are CONTRACT, not corruption (bootctld's status grew
     // twice). Require the prefix this decoder understands and ignore the
@@ -61,63 +48,29 @@ pub(crate) fn updated_get_status(
 
 /// Feed enumeration (RFC-0089 §9, TASK-0140): the candidate COUNT from
 /// OP_FEED_LIST's `[count, (len,name)*]` payload.
-pub(crate) fn updated_feed_count(
-    client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
-) -> core::result::Result<u8, ()> {
+pub(crate) fn updated_feed_count(client: &KernelClient) -> core::result::Result<u8, ()> {
     let mut frame = [0u8; 4];
     let n = nexus_abi::updated::encode_feed_list_req(&mut frame).ok_or(())?;
-    let rsp = updated_send_with_reply(
-        client,
-        reply_send_slot,
-        reply_recv_slot,
-        nexus_abi::updated::OP_FEED_LIST,
-        &frame[..n],
-        pending,
-    )?;
+    let rsp = updated_send_with_reply(client, nexus_abi::updated::OP_FEED_LIST, &frame[..n])?;
     let payload = updated_expect_status(&rsp, nexus_abi::updated::OP_FEED_LIST)?;
     payload.first().copied().ok_or(())
 }
 
 /// Feed check (RFC-0089 §9, TASK-0140): OP_CHECK's `[count, available]`.
-pub(crate) fn updated_check_count(
-    client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
-) -> core::result::Result<u8, ()> {
+pub(crate) fn updated_check_count(client: &KernelClient) -> core::result::Result<u8, ()> {
     let mut frame = [0u8; 4];
     let n = nexus_abi::updated::encode_check_req(&mut frame).ok_or(())?;
-    let rsp = updated_send_with_reply(
-        client,
-        reply_send_slot,
-        reply_recv_slot,
-        nexus_abi::updated::OP_CHECK,
-        &frame[..n],
-        pending,
-    )?;
+    let rsp = updated_send_with_reply(client, nexus_abi::updated::OP_CHECK, &frame[..n])?;
     let payload = updated_expect_status(&rsp, nexus_abi::updated::OP_CHECK)?;
     payload.first().copied().ok_or(())
 }
 
 pub(crate) fn updated_boot_attempt(
     client: &KernelClient,
-    reply_send_slot: u32,
-    reply_recv_slot: u32,
-    pending: &mut VecDeque<Vec<u8>>,
 ) -> core::result::Result<Option<SlotId>, ()> {
     let mut frame = [0u8; 4];
     let n = nexus_abi::updated::encode_boot_attempt_req(&mut frame).ok_or(())?;
-    let rsp = updated_send_with_reply(
-        client,
-        reply_send_slot,
-        reply_recv_slot,
-        nexus_abi::updated::OP_BOOT_ATTEMPT,
-        &frame[..n],
-        pending,
-    )?;
+    let rsp = updated_send_with_reply(client, nexus_abi::updated::OP_BOOT_ATTEMPT, &frame[..n])?;
     let payload = updated_expect_status(&rsp, nexus_abi::updated::OP_BOOT_ATTEMPT)?;
     if payload.len() != 1 {
         return Ok(None);

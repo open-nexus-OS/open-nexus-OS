@@ -6,7 +6,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: Indirect — every QEMU marker that depends on cross-phase
-//!   state (`reply_send_slot`, `reply_recv_slot`, `updated_pending`,
+//!   state (`reply_send_slot`, `reply_recv_slot`,
 //!   `local_ip`, `os2vm`) covers `PhaseCtx` by construction.
 //!
 //! Holds only state read by ≥ 2 phases or directly observable in the QEMU
@@ -30,9 +30,6 @@
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
-use alloc::vec::Vec;
-
 /// Cross-phase state for `os_lite::run()`.
 ///
 /// Allowed (per RFC-0038 Phase-2 minimality rule): cross-phase data + state that
@@ -49,9 +46,6 @@ pub(crate) struct PhaseCtx {
     pub(crate) reply_send_slot: u32,
     /// Receive half of the deterministic @reply slot pair distributed by init-lite.
     pub(crate) reply_recv_slot: u32,
-    /// Pending out-of-order replies observed while pumping the shared `updated`
-    /// inbox (RFC-0019 nonce correlation). Crosses routing → ota.
-    pub(crate) updated_pending: VecDeque<Vec<u8>>,
     /// Local IPv4 (resolved during the `net` phase, consumed by `remote`).
     pub(crate) local_ip: Option<[u8; 4]>,
     /// True iff this is Node A in the 2-VM os2vm harness mode.
@@ -70,7 +64,6 @@ impl PhaseCtx {
         Ok(Self {
             reply_send_slot: reply.send,
             reply_recv_slot: reply.recv,
-            updated_pending: VecDeque::new(),
             local_ip: None,
             os2vm: false,
         })

@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 
 use nexus_abi::nsec;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
-use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
+use nexus_ipc::{KernelClient, KernelServer, Wait};
 use nexus_metrics::{
     decode_request, encode_status_response, DecodeError, Request, OP_COUNTER_INC, OP_GAUGE_SET,
     OP_HIST_OBSERVE, OP_PING, OP_SPAN_END, OP_SPAN_START, STATUS_INVALID_ARGS, STATUS_NOT_FOUND,
@@ -75,7 +75,7 @@ impl RetentionSink {
             let reply =
                 KernelClient::new_with_slots(declared::REPLY.send, declared::REPLY.recv).ok();
             match (client, reply) {
-                (Some(c), Some(r)) => Some(StatefsClient::from_clients(c, Some(r))),
+                (Some(c), Some(r)) => Some(StatefsClient::from_clients(c, r)),
                 _ => None,
             }
         } else {
@@ -216,6 +216,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
     let mut reject_invalid_args_emitted = false;
     let mut reject_over_limit_emitted = false;
     let mut reject_rate_limited_emitted = false;
+    let mut saw_drop_capless = false;
     let mut fallback_now = 0u64;
 
     nexus_abi::service_verdict_flush("metricsd");
@@ -256,8 +257,16 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
                 }
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
-                } else {
-                    let _ = server.send(&rsp, Wait::Blocking);
+                } else if !saw_drop_capless {
+                    // No moved cap: the update is recorded above and the response is dropped
+                    // (TASK-0054C P2-e, the rule logd adopted in P2-c). This was a BLOCKING send
+                    // on metricsd's own response endpoint, which nothing in the tree reads —
+                    // bundlemgrd's fire-and-forget counters are the only cap-less senders and
+                    // they never look at an answer. The acks piled up in that 8-deep queue and
+                    // the next one would have blocked metricsd for good: the 0049B wedge class,
+                    // armed and waiting in the metrics sink.
+                    emit_line("metricsd: drop reply (no cap moved)");
+                    saw_drop_capless = true;
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {}

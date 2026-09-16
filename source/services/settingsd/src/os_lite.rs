@@ -328,7 +328,7 @@ fn load_prefs() -> Option<String> {
     // Named-route slots are persistent and `KernelClient` never closes its
     // slots, so wrapping the cached slots here is drop-safe.
     let client = KernelClient::new_with_slots(send_slot, reply_recv_slot).ok()?;
-    let reply = KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).ok();
+    let reply = KernelClient::new_with_slots(reply_send_slot, reply_recv_slot).ok()?;
     let statefs = StatefsClient::from_clients(client, reply);
     match statefs.get(PREFS_KEY) {
         Ok(value) => String::from_utf8(value).ok(),

@@ -32,7 +32,6 @@
 
 extern crate alloc;
 
-use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
 use nexus_ipc::KernelClient;
@@ -129,19 +128,11 @@ pub(crate) fn ota_bundle_delta_proof(statefsd: &KernelClient) {
 /// engine resumes from the journal (`updated: restage resume (bundles=k/N)`)
 /// and a successful stage is the verdict.
 pub(crate) fn ota_bundle_resume_proof() {
-    let mut pending: VecDeque<Vec<u8>> = VecDeque::new();
     let Ok(updated_client) = route_with_retry("updated") else {
         emit_line(crate::markers::M_SELFTEST_OTA_STAGE_RESUME_FAIL);
         return;
     };
-    let (reply_send_slot, reply_recv_slot) = reply_slots();
-    let staged = updated::updated_stage_path(
-        &updated_client,
-        reply_send_slot,
-        reply_recv_slot,
-        &mut pending,
-        updated::BUNDLE_SET_PATH,
-    );
+    let staged = updated::updated_stage_path(&updated_client, updated::BUNDLE_SET_PATH);
     emit_line(if staged.is_ok() {
         crate::markers::M_SELFTEST_OTA_STAGE_RESUME_OK
     } else {
@@ -158,29 +149,17 @@ fn run_lane(statefsd: &KernelClient, lane: Lane) {
 }
 
 fn boot1_stage_and_switch(statefsd: &KernelClient, lane: Lane) -> ! {
-    let mut pending: VecDeque<Vec<u8>> = VecDeque::new();
     let Ok(updated_client) = route_with_retry("updated") else {
         emit_line(lane.fail());
         park_loud()
     };
-    let (reply_send_slot, reply_recv_slot) = reply_slots();
 
     // The real container — these are the bytes boot 2 executes.
-    if updated::updated_stage_path(
-        &updated_client,
-        reply_send_slot,
-        reply_recv_slot,
-        &mut pending,
-        lane.path(),
-    )
-    .is_err()
-    {
+    if updated::updated_stage_path(&updated_client, lane.path()).is_err() {
         emit_line(lane.stage_fail());
         park_loud()
     }
-    if updated::updated_switch(&updated_client, reply_send_slot, reply_recv_slot, 2, &mut pending)
-        .is_err()
-    {
+    if updated::updated_switch(&updated_client, 2).is_err() {
         emit_line(lane.stage_fail());
         park_loud()
     }
@@ -194,12 +173,10 @@ fn boot1_stage_and_switch(statefsd: &KernelClient, lane: Lane) -> ! {
 }
 
 fn boot2_prove_flip(statefsd: &KernelClient, lane: Lane) {
-    let mut pending: VecDeque<Vec<u8>> = VecDeque::new();
     let Ok(updated_client) = route_with_retry("updated") else {
         emit_line(lane.fail());
         return;
     };
-    let (reply_send_slot, reply_recv_slot) = reply_slots();
 
     // We must be RUNNING on the slot the loader was told to try.
     // The PROOF is "the machine is running slot b". Do NOT also demand a
@@ -212,12 +189,7 @@ fn boot2_prove_flip(statefsd: &KernelClient, lane: Lane) {
     let route_deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(15_000_000_000);
     let mut status = Err(());
     while nexus_abi::nsec().unwrap_or(u64::MAX) < route_deadline {
-        status = updated::updated_get_status(
-            &updated_client,
-            reply_send_slot,
-            reply_recv_slot,
-            &mut pending,
-        );
+        status = updated::updated_get_status(&updated_client);
         if status.is_ok() {
             break;
         }
@@ -254,12 +226,7 @@ fn boot2_prove_flip(statefsd: &KernelClient, lane: Lane) {
     let mut committed = false;
     while nexus_abi::nsec().unwrap_or(u64::MAX) < deadline {
         if matches!(
-            updated::updated_get_status(
-                &updated_client,
-                reply_send_slot,
-                reply_recv_slot,
-                &mut pending,
-            ),
+            updated::updated_get_status(&updated_client,),
             Ok((updated::SlotId::B, None, _tries, true))
         ) {
             committed = true;
@@ -353,12 +320,6 @@ fn emit_rungs(selftest_ok: bool, updated_ok: bool, committed: bool) {
     if let Ok(msg) = core::str::from_utf8(&line[..head.len()]) {
         emit_line(msg);
     }
-}
-
-/// The selftest client's own CAP_MOVE reply inbox (declared by the topology).
-fn reply_slots() -> (u32, u32) {
-    let reply = nexus_service_topology::slots::selftest_client::REPLY;
-    (reply.send, reply.recv)
 }
 
 fn sentinel_phase(statefsd: &KernelClient, lane: Lane) -> Option<u8> {
