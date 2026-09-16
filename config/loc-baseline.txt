@@ -32,7 +32,7 @@
 673	source/services/bundlemgrd/src/os_lite.rs
 1878	source/services/bundlemgrd/src/std_server.rs
 602	source/services/dsoftbusd/src/os/gateway/local_ipc.rs
-609	source/services/dsoftbusd/src/os/gateway/remote_proxy.rs
+603	source/services/dsoftbusd/src/os/gateway/remote_proxy.rs
 1106	source/services/dsoftbusd/src/os/session/cross_vm.rs
 1285	source/services/execd/src/os_lite.rs
 716	source/services/execd/src/std_server.rs
@@ -65,7 +65,7 @@
 735	userspace/dsoftbus/src/host.rs
 764	userspace/dsoftbus/src/mux_v2.rs
 1007	userspace/nexus-gfx/src/command/buffer.rs
-950	userspace/nexus-metrics/src/lib.rs
+944	userspace/nexus-metrics/src/lib.rs
 1177	userspace/nexus-net-os/src/smoltcp_virtio.rs
 664	userspace/nexus-vfs/src/lib.rs
 604	userspace/nxfs/src/fs.rs

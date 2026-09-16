@@ -450,25 +450,19 @@ fn handle_statefs_rw_request(
         }
     };
 
-    if statefsd.send(internal_req.as_slice(), Wait::Blocking).is_err() {
-        let _ = nexus_abi::debug_println("dbg:dsoftbusd: remote statefs send fail");
-        let io_status = sfp::STATUS_IO_ERROR;
-        return (
-            encode_statefs_io_response(op, request_nonce),
-            false,
-            stfs::audit_label_for_status(op, io_status),
-        );
-    }
-
-    // The matching answer, waited for frame by frame (foreign replies on the shared endpoint
-    // are skipped); statefsd's death or a transport error ends the wait — no clock.
-    let mut matched_rsp: Option<Vec<u8>> = None;
-    while let Ok(frame) = statefsd.recv(Wait::Blocking) {
-        if is_matching_statefs_v2_response(op, internal_nonce, frame.as_slice()) {
-            matched_rsp = Some(frame);
-            break;
-        }
-    }
+    // ONE exchange on dsoftbusd's CAP_MOVE reply inbox (TASK-0054C P2-f): the request moves a
+    // SEND clone of that inbox, so statefsd answers THERE — it no longer answers a cap-less
+    // sender on its own response queue at all. The answer is the frame carrying OUR op and
+    // nonce; statefsd's death ends the wait, no clock.
+    let mut buf = [0u8; 4096];
+    let matched_rsp = nexus_ipc::exchange::call_matching(
+        statefsd.slots().0,
+        nexus_service_topology::slots::dsoftbusd::REPLY,
+        internal_req.as_slice(),
+        &mut buf,
+        |rsp| is_matching_statefs_v2_response(op, internal_nonce, rsp).then(|| rsp.to_vec()),
+    )
+    .ok();
     let Some(rsp) = matched_rsp else {
         let _ = nexus_abi::debug_println("dbg:dsoftbusd: remote statefs recv fail");
         let io_status = sfp::STATUS_IO_ERROR;

@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 
 use core::fmt;
 
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_ipc::{KernelServer, Wait};
 
 use statefs::envelope::{EnvelopeKey, PolicyClass, SeqTracker, WriteBudget};
 use statefs::protocol::{self as proto, Request};
@@ -31,7 +31,7 @@ use storage::MemBlockDevice;
 
 use crate::emit_os::{
     emit_access_denied, emit_budget_warn, emit_degrade_ram_backed, emit_envelope_denied,
-    emit_envelope_migration, emit_ipc_error, emit_line, emit_op_byte, emit_statefs_error,
+    emit_envelope_migration, emit_ipc_error, emit_line, emit_statefs_error,
 };
 use crate::hardening;
 
@@ -223,6 +223,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     nexus_abi::service_verdict_flush("statefsd");
     // SMP robustness circuit breaker (see the Err arm below).
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
+    let mut saw_drop_capless = false;
     loop {
         match server.recv_request_with_meta(Wait::Blocking) {
             Ok((frame, sender_service_id, reply)) => {
@@ -252,31 +253,21 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     if reply.reply_and_close(&rsp).is_err() {
                         emit_line("statefsd: reply send fail");
                     }
-                } else {
-                    // Bounded reply send (RFC-0087 exhaustion-is-an-event):
-                    // the shared response queue is drained by nonce-matched
-                    // clients; a client that abandons its reply must never
-                    // wedge the server in a blocking send (that deafness hid
-                    // behind the quiet post-exec window until TASK-0049B's
-                    // end-phase traffic surfaced it). Drop IMMEDIATELY on a
-                    // full queue — a timeout here multiplies into seconds of
-                    // store deafness when several replies rot at once, which
-                    // starved init's persist path in the 0049C bring-up. The
-                    // legitimate nonce-matched client retries; the op byte
-                    // stays for forensics.
+                } else if !saw_drop_capless {
+                    // No moved cap: the request is served above and the response is dropped
+                    // (TASK-0054C P2-f — the rule logd took in P2-c and metricsd in P2-e).
                     //
-                    // TASK-0054C P2-e: this send was flipped to `Wait::Blocking` by the
-                    // clock sweep (TASK-0324 P7-d, e70091b2) and the comment above was
-                    // left standing — for a year the code did the exact opposite of what
-                    // it says, with the 0049B wedge armed in the store every service
-                    // depends on. It is NOT a clock: a non-blocking send here drops a
-                    // reply nobody is waiting for, which is the whole point.
-                    if server.send(&rsp, Wait::NonBlocking).is_err() {
-                        emit_line("statefsd: rsp queue stalled (dropping reply)");
-                        if let Some(op) = frame.get(3).copied() {
-                            emit_op_byte(op);
-                        }
-                    }
+                    // This branch used to answer on statefsd's OWN response queue, which is
+                    // what kept three clients reading a shared queue: the selftest statefs
+                    // ladder, dsoftbusd's remote proxy and the `demo.minidump` payload. All
+                    // three move a reply cap now. The branch was also the 0049B wedge itself —
+                    // a client that abandoned its reply left a frame there, and the send that
+                    // was meant to drop on a full queue had been flipped to blocking by the
+                    // clock sweep (TASK-0324 P7-d) while its comment still said "drop
+                    // IMMEDIATELY". Removing the branch removes the queue, the wedge and the
+                    // comment's lie together.
+                    emit_line("statefsd: drop reply (no cap moved)");
+                    saw_drop_capless = true;
                 }
                 // TASK-0026: between-requests compaction opportunity (the
                 // tick itself defers while transactions are open; the done

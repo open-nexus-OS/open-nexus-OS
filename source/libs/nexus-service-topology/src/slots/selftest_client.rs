@@ -36,8 +36,10 @@ pub const SAMGRD: SlotPair = SlotPair::new(0x0D, 0x0E);
 pub const EXECD: SlotPair = SlotPair::new(0x0F, 0x10);
 /// keystored (device key, signing).
 pub const KEYSTORED: SlotPair = SlotPair::new(0x11, 0x12);
-/// statefsd (CRUD, persistence, encryption).
-pub const STATEFSD: SlotPair = SlotPair::new(0x13, 0x14);
+/// statefsd (CRUD, persistence, encryption). Answers on the harness' CAP_MOVE reply inbox
+/// since TASK-0054C P2-f: statefsd replies only to a sender that moved a reply cap, so slot
+/// 0x14 — a RECV cap on statefsd's own response endpoint — is gone with the sharing.
+pub const STATEFSD: SlotPair = SlotPair::new(0x13, REPLY.recv);
 /// logd (append/query, the `nexus-log` sink).
 pub const LOGD: SlotPair = SlotPair::new(0x15, 0x16);
 /// inputd (answers on the reply inbox).

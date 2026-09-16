@@ -68,8 +68,14 @@ pub mod app_child {
     pub const TIMER: SlotPair = SlotPair::new(TIMER_SEND, TIMER_RECV);
     /// statefs route of the `demo.minidump` payload. Numerically the same slots as
     /// `PAYLOAD_VMO`/`EVENTS_RECV`, which is safe because those are only granted to
-    /// app-host children and this pair only to the exit42 test image.
+    /// app-host children and this pair only to the exit42 test image. `.recv` is the payload's
+    /// PRIVATE reply endpoint since TASK-0054C P2-f — it used to be a RECV clone of statefsd's
+    /// own response queue, which is the sharing that kept statefsd answering cap-less senders.
     pub const MINIDUMP_STATEFS: SlotPair = SlotPair::new(7, 8);
+    /// The SEND half of that private endpoint. The payload MOVES this cap with its single PUT
+    /// (the header is built at compile time — the generated child runs no `cap_clone`), so
+    /// statefsd answers on slot 8 and nowhere else.
+    pub const MINIDUMP_REPLY_SEND: u32 = 9;
 }
 
 /// bootctld (TASK-0324 P4f-1b). Fixed on purpose: init's boot-attempt handshake talks to
@@ -129,8 +135,9 @@ pub mod dsoftbusd {
     pub const BUNDLEMGRD: SlotPair = SlotPair::new(0x0A, REPLY.recv);
     /// Remote packagefs read-only path (TASK-0016) — packagefsd's own response endpoint.
     pub const PACKAGEFSD: SlotPair = SlotPair::new(0x0B, 0x0C);
-    /// Remote statefs proxy (TASK-0017) — statefsd's own response endpoint.
-    pub const STATEFSD: SlotPair = SlotPair::new(0x0D, 0x0E);
+    /// Remote statefs proxy (TASK-0017). Answers on dsoftbusd's CAP_MOVE reply inbox since
+    /// TASK-0054C P2-f — statefsd replies only to a sender that moved a reply cap.
+    pub const STATEFSD: SlotPair = SlotPair::new(0x0D, REPLY.recv);
     /// Structured logs.
     pub const LOGD: SlotPair = SlotPair::new(0x0F, REPLY.recv);
 }

@@ -42,7 +42,10 @@ pub struct RespawnContext {
     /// init's slot for pinched's RESPONSE endpoint (client-owned, survives).
     pub pinch_rsp_parent_slot: Option<u32>,
     /// init's own statefsd pre-minted pair (restart-counter persistence).
-    pub statefs_slots: Option<(u32, u32)>,
+    /// statefsd's request endpoint; the answer rides init's ask inbox.
+    pub statefs_send: Option<u32>,
+    /// init's own ask inbox (TASK-0054C P2-d/P2-f).
+    pub ask: nexus_ipc::SlotPair,
     /// ADR-0062: init's cap for the boot-stage fence. A respawn re-pins it WAIT-only into the
     /// new instance — dropping it would leave a restarted service without the barrier the rest
     /// of the fleet stands on.
@@ -71,10 +74,11 @@ impl RespawnContext {
         volume: alloc::vec::Vec<crate::bootstrap::volume_spawn::VolumeSpawned>,
         selftest_pid: u32,
         pinch_rsp_parent_slot: Option<u32>,
-        statefs_slots: Option<(u32, u32)>,
+        statefs_send: Option<u32>,
+        ask: nexus_ipc::SlotPair,
         stage_fence: u32,
     ) -> Self {
-        Self { images, volume, selftest_pid, pinch_rsp_parent_slot, statefs_slots, stage_fence }
+        Self { images, volume, selftest_pid, pinch_rsp_parent_slot, statefs_send, ask, stage_fence }
     }
 
     /// The bytes + launch params to re-exec `name` from: the embedded table
@@ -92,7 +96,7 @@ impl RespawnContext {
 
 impl Respawner {
     pub(crate) fn new(ctx: RespawnContext) -> Self {
-        let persist = crate::bootstrap::persist::SupervisionPersist::new(ctx.statefs_slots);
+        let persist = crate::bootstrap::persist::SupervisionPersist::new(ctx.statefs_send, ctx.ask);
         Self { ctx, engine: None, persist }
     }
 

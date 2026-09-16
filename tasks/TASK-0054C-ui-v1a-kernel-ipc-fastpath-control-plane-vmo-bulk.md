@@ -399,13 +399,18 @@ waiter's own address space).
     rule — `test_reject_route_that_would_close_the_metrics_wait_cycle` fails the build for
     statefsd, policyd and ingressd, the three services that flush a `DenyCounter` from inside
     a request handler.
-  - **P2-f (seed) statefsd adopts the reply rule.** Blocked on three cap-less clients that read
-    statefsd's shared response endpoint: the selftest statefs ladder (~50 call sites in 10
-    files, ~15 required markers), dsoftbusd's remote-statefs proxy leg, and the
-    `demo.minidump` child — hand-assembled RISC-V in `userspace/apps/demo-exit0/build.rs`
-    whose `MsgHeader` is zeroed, so moving a cap means writing the `cap_clone` + CAP_MOVE by
-    hand or replacing the payload. Closing it also closes P2-c's metricsd exception and lets
-    the harness' logd and statefsd legs drop from `SharedResponse` to `ReplyInbox`.
+  - **P2-f statefsd adopts the reply rule; the invariant has no exception left.** The three
+    blockers turned out smaller than the seed feared. The selftest ladder is ONE helper
+    (`statefs_send_recv_deadline`), not 50 edit sites — its ~30 callers keep their signatures.
+    dsoftbusd's proxy is one function. And the `demo.minidump` payload needs no new
+    instruction at all: its `MsgHeader` is built at COMPILE time, so the moved slot number and
+    the `CAP_MOVE` flag are constants in the generated image; execd grants it a private
+    endpoint the same way it mints the app event and timer channels. Both statefsd route
+    declarations flip `SharedResponse` → `ReplyInbox` (the request endpoint is unchanged —
+    `request_ep` falls through to the server pair — only the RECV moves to the caller's inbox).
+    With that, statefsd answers exactly the senders that moved a reply cap, its shared response
+    queue has no reader and no writer, and **P2-c's metricsd exception is closed**: the
+    retention writes move no cap, so no ack exists. Zones: libs (topology), config, scripts.
   - **P2-c/P2-d inventory (2026-09-16).** 23 `send_with_cap_move(_wait)` callers and 21
     hand-rolled pairs, classified: (1) seven callers move a VMO or a push-channel SEND, not
     a reply cap — `exchange` had no form for them, which is why `ipc_send_v1` kept leaking
@@ -519,7 +524,7 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P2-c ONE send primitive; only awaited replies on a reply inbox | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll rule 1 covers `send_with_cap_move`, structure/slot/init-sync at zero), smp1 EXIT=0 with the marker set IDENTICAL to the last P2-b green run (209 `ok` / 65 KSELFTEST, total_ms 1256, FAILs only the allow-listed dsoftbus pair), visible EXIT=0 pixel proof diff vs splash 31.76. MEASURED on the P1 instrument, same profile: `sends=5401 heap_allocs=10802 copies=17473` against P2-b's `5601 / 11202 / 18903` — **CORRECTED 2026-09-16 (P2-d):** this row first claimed 200 fewer messages, 400 fewer allocations and 1430 fewer copies per boot from `5401 / 10802 / 17473` against P2-b's `5601 / 11202 / 18903`. It does not hold. Four smp1 runs read `sends=5601, 13249, 5401, 13961` — bimodal and independent of the package, with byte-identical UART logs between the 5401 and 13961 runs. The stats line counts a WINDOW, so its totals scale with the idle background traffic the window spans. Stable across all four runs: **exactly 2.000 kernel heap allocations per message**, 3.12–3.38 copies per message with the traffic mix. P4 calibrates from the ratios, and the window needs a defined span before any total is asserted. `rt=242us n=64` |
 | P2-d ONE correlation model (`reqrep` deleted, hand-rolled pairs gone) | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (rule 1 covers `ReplyBuffer`/`FrameStash`/`NonceGen`/`recv_match` with its fixture), smp1 EXIT=0 with the marker set IDENTICAL to P2-c (209 `ok` / 65 KSELFTEST, total_ms 1250, FAILs only the allow-listed dsoftbus pair) — init boots on its NEW ask inbox; visible EXIT=0 pixel proof 31.77. 44 `ipc_hdr::CAP_MOVE` occurrences in 28 files → 9, of which 8 are server-side flag reads (P5) and 1 is the documented metricsd exception. Stable measurement: exactly 2.000 kernel heap allocations per message, 3.12 copies per message |
 | P2-e A server answers exactly the senders that moved a reply cap | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes, incl. all four OTA lanes on the rebuilt reply pump); PROOF: `just check` 0, smp1 EXIT=0 with the marker set IDENTICAL to P2-c/P2-d (209 `ok` / 65 KSELFTEST, total_ms 1255, FAILs only the allow-listed dsoftbus pair) and `metricsd: drop reply (no cap moved)` in the log — the boot's own witness that the cap-less path is real and no longer queues into the wedge; visible EXIT=0 pixel proof 31.76; `cargo test -p nexus-service-topology` 11 passed incl. the new wait-cycle guard |
-| P2-f statefsd adopts the reply rule (3 cap-less clients first) | Draft |
+| P2-f statefsd adopts the reply rule; no exception left | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0, smp1 EXIT=0 with the marker set IDENTICAL to P2-c/d/e (209 `ok` / 65 KSELFTEST, total_ms 1256, FAILs only the allow-listed dsoftbus pair). The boot is the witness for the whole chain in one log: `execd: minidump statefs route granted`, `child: minidump start`, `execd: minidump written` (the hand-assembled payload's PUT with a moved cap) and both `drop reply (no cap moved)` lines. Two cap-less clients the survey missed were found BY the boot: the harness' bootctl persist probe and init's supervision persist |
 | P3 Kernel payload | Draft |
 | P4 Kernel call + reply_recv | Draft |
 | P5 Seam flip | Draft |

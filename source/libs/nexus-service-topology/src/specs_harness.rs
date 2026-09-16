@@ -41,7 +41,7 @@ pub(crate) const SELFTEST_CLIENT: ServiceSpec = ServiceSpec {
         shared(ServiceId::Samgrd, slots::selftest_client::SAMGRD),
         shared(ServiceId::Execd, slots::selftest_client::EXECD),
         shared(ServiceId::Keystored, slots::selftest_client::KEYSTORED),
-        shared(ServiceId::Statefsd, slots::selftest_client::STATEFSD),
+        inbox(ServiceId::Statefsd, slots::selftest_client::STATEFSD),
         shared(ServiceId::Logd, slots::selftest_client::LOGD),
         inbox(ServiceId::Inputd, slots::selftest_client::INPUTD),
         inbox(ServiceId::Netstackd, slots::selftest_client::NETSTACKD),

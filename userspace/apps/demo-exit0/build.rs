@@ -167,6 +167,10 @@ fn build_fault_text(msg: &[u8]) -> Vec<u8> {
     text
 }
 
+/// SEND half of the payload's private reply endpoint, granted by execd
+/// (`slots::app_child::MINIDUMP_REPLY_SEND`). Moved with the PUT.
+const MINIDUMP_REPLY_SEND_SLOT: i32 = 9;
+
 fn build_minidump_text() -> Vec<u8> {
     const SYSCALL_YIELD: i32 = 0;
     const SYSCALL_EXIT: i32 = 11;
@@ -179,6 +183,8 @@ fn build_minidump_text() -> Vec<u8> {
     const RSP_MAX: i32 = 32;
     const STATEFS_SEND_SLOT: i32 = 7;
     const STATEFS_RECV_SLOT: i32 = 8;
+    // The moved reply cap lives in the header (see `build_msg_header`), not in the code.
+    let _ = MINIDUMP_REPLY_SEND_SLOT;
 
     const MSG: &[u8] = b"child: minidump start\n\0";
     const DUMP_NAME: &[u8] = b"demo.minidump";
@@ -398,8 +404,18 @@ fn encode_bne(rs1: u8, rs2: u8, offset: i32) -> u32 {
     encode_branch(0b001, rs1, rs2, offset)
 }
 
+/// `nexus_abi::MsgHeader`: src u32 | dst u32 | ty u16 | flags u16 | len u32.
+///
+/// TASK-0054C P2-f: the PUT moves a reply capability, so statefsd answers on the payload's
+/// PRIVATE endpoint instead of its own shared response queue. The generated child runs NO new
+/// instruction for it — `src` is the granted slot number and `flags` is `CAP_MOVE`, both
+/// constants baked into the image here. CAP_MOVE consumes the slot, which is exactly right for
+/// a payload that sends once and exits.
 fn build_msg_header(len: u32) -> [u8; 16] {
+    const CAP_MOVE: u16 = 1 << 0;
     let mut out = [0u8; 16];
+    out[0..4].copy_from_slice(&(MINIDUMP_REPLY_SEND_SLOT as u32).to_le_bytes());
+    out[10..12].copy_from_slice(&CAP_MOVE.to_le_bytes());
     out[12..16].copy_from_slice(&len.to_le_bytes());
     out
 }

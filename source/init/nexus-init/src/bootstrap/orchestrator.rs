@@ -59,15 +59,12 @@ where
     // which requires knowing the PID. Therefore we create response endpoints up front, spawn
     // services, then create request endpoints (owner=service PID) and distribute caps in a
     // second pass before the first yield.
-    // NOTE: response endpoints are owned by their receiver (typically the requester).
-    // We create them after spawning once the requester PID is known.
-    // Private init-lite -> policyd response channels (init-lite receives replies).
+    // Response endpoints are owned by their receiver, so they are created after spawning once
+    // the requester PID is known. Private init-lite -> policyd response channels first.
     let pol_ctl_route_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     let init_pid = nexus_abi::pid().map_err(InitError::Abi)?;
-    // init's OWN ask inbox (TASK-0054C P2-d), separate from the policyd channel above: both
-    // used to be one endpoint, so five protocols answered into one queue and init's policyd
-    // readers failed CLOSED on a frame they did not recognise. SEND-only copy via transfer.
+    // init's OWN ask inbox (P2-d): one endpoint for five protocols made its policyd readers fail CLOSED.
     let init_ask_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     let init_ask_send =
@@ -780,13 +777,16 @@ where
         let _ = nexus_abi::debug_write(&line[..n]);
     }
 
+    let statefs_req =
+        eps.server_pair(crate::service_topology::ServiceId::Statefsd).map(|(req, _)| req);
     Ok(BootstrapState {
         respawn: crate::bootstrap::respawn::RespawnContext::new(
             images,
             volume_spawned,
             selftest_pid,
             pinch_rsp,
-            eps.server_pair(crate::service_topology::ServiceId::Statefsd),
+            statefs_req,
+            init_ask,
             stage_fence,
         ),
         ctrl_channels,

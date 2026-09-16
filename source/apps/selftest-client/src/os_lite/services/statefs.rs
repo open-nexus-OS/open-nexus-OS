@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 
 use crash::{deterministic_build_id, MinidumpFrame};
 use nexus_abi::Pid;
-use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
+use nexus_ipc::KernelClient;
 use statefs::protocol as statefs_proto;
 use statefs::StatefsError;
 
@@ -50,7 +50,39 @@ pub(crate) fn statefs_send_recv_deadline(
     v2.extend_from_slice(&nonce.to_le_bytes());
     v2.extend_from_slice(&frame[4..]);
 
-    if let Err(err) = client.send(&v2, IpcWait::Blocking) {
+    // ONE exchange on the harness' CAP_MOVE reply inbox (TASK-0054C P2-f): the request moves a
+    // SEND clone of that inbox, so statefsd answers THERE and never on its own shared response
+    // queue. The answer is the frame carrying OUR nonce; a frame of another exchange is dropped
+    // and the wait resumes; statefsd's death ends it (EOF). No clock.
+    let _ = budget_ns;
+    let mut buf = [0u8; 4096];
+    let matched = nexus_ipc::exchange::call_matching(
+        client.slots().0,
+        nexus_service_topology::slots::selftest_client::REPLY,
+        &v2,
+        &mut buf,
+        |rsp| {
+            (rsp.len() >= 13
+                && rsp[0] == statefs_proto::MAGIC0
+                && rsp[1] == statefs_proto::MAGIC1
+                && rsp[2] == statefs_proto::VERSION_V2
+                && rsp[5..13] == nonce.to_le_bytes())
+            .then(|| rsp.len())
+        },
+    );
+    match matched {
+        Ok(n) => Ok(buf[..n].to_vec()),
+        Err(err) => {
+            report_send_error(err);
+            Err(())
+        }
+    }
+}
+
+/// The send-side error taxonomy this exchange has always printed, kept whole: each variant is
+/// a different marker so a red ladder names the transport fault instead of one generic line.
+fn report_send_error(err: nexus_ipc::IpcError) {
+    {
         match err {
             nexus_ipc::IpcError::WouldBlock => {
                 emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_WOULD_BLOCK)
@@ -73,35 +105,6 @@ pub(crate) fn statefs_send_recv_deadline(
             _ => emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_OTHER),
         }
         emit_line(crate::markers::M_SELFTEST_STATEFS_SEND_FAIL);
-        return Err(());
-    }
-    // WAIT for OUR reply with no clock (TASK-0324 P7-b): statefsd answers on its response
-    // endpoint; a frame of another exchange is dropped and the wait resumes; statefsd's
-    // death closes the endpoint and ends the wait with an error.
-    let _ = budget_ns;
-    let (_, recv_slot) = client.slots();
-    let mut buf = [0u8; 4096];
-    loop {
-        let n = match nexus_ipc::exchange::recv_response(recv_slot, &mut buf) {
-            Ok(n) => n,
-            Err(_) => {
-                emit_line(crate::markers::M_SELFTEST_STATEFS_RECV_TIMEOUT);
-                return Err(());
-            }
-        };
-        let rsp = &buf[..n];
-        if rsp.len() < 13
-            || rsp[0] != statefs_proto::MAGIC0
-            || rsp[1] != statefs_proto::MAGIC1
-            || rsp[2] != statefs_proto::VERSION_V2
-        {
-            continue;
-        }
-        let got_nonce =
-            u64::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8], rsp[9], rsp[10], rsp[11], rsp[12]]);
-        if got_nonce == nonce {
-            return Ok(rsp.to_vec());
-        }
     }
 }
 

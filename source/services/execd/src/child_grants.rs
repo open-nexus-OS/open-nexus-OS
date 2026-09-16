@@ -47,9 +47,12 @@ const CHILD_EVENTS_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_
 /// IMG_APPHOST children, this pair only to IMG_EXIT42 children.
 const CHILD_MINIDUMP_STATEFS_SEND_SLOT: u32 =
     nexus_service_topology::slots::app_child::MINIDUMP_STATEFS.send;
-/// RECV half of the minidump payload's statefs route (see above).
+/// RECV half of the minidump payload's PRIVATE reply endpoint (see above).
 const CHILD_MINIDUMP_STATEFS_RECV_SLOT: u32 =
     nexus_service_topology::slots::app_child::MINIDUMP_STATEFS.recv;
+/// SEND half of that endpoint — the cap the payload MOVES with its PUT.
+const CHILD_MINIDUMP_REPLY_SEND_SLOT: u32 =
+    nexus_service_topology::slots::app_child::MINIDUMP_REPLY_SEND;
 /// SEND clone of the child's OWN event channel (it attaches this to windowd
 /// itself, nonce-tagged). After the service SEND slots 11..13 (nexus-sdk-routes).
 const CHILD_EVENTS_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_SEND;
@@ -154,29 +157,41 @@ pub(crate) fn grant_windowd_route(child_pid: u32) {
     }
 }
 /// TASK-0049 reanimation: grants the statefsd route into a `demo.minidump`
-/// child (slots 7/8, payload SSOT `userspace/apps/demo-exit0/build.rs`) so
-/// the payload can PUT its own dump before `exit(42)`. Bring-up note: the
-/// child shares execd's statefsd reply queue for its single PUT — the same
-/// sharing the retired selftest-side grant had; execd issues no statefs
-/// traffic in that window.
+/// child (payload SSOT `userspace/apps/demo-exit0/build.rs`) so the payload
+/// can PUT its own dump before `exit(42)`.
+///
+/// TASK-0054C P2-f: the child used to get a RECV clone of statefsd's OWN response queue and
+/// send cap-less — it was one of the three clients that kept statefsd answering cap-less
+/// senders at all. It now gets a PRIVATE endpoint minted the same way the app event and timer
+/// channels are (`@mint-pair`, mint→grant→close): RECV to wait on, SEND to move with the PUT.
+/// The payload needs no new instructions for it — its message header is built at compile time,
+/// so the moved slot number and the CAP_MOVE flag are constants in the generated image.
 pub(crate) fn grant_minidump_statefs_route(child_pid: u32) {
-    let Some((send_slot, recv_slot)) = route_ctrl(b"statefsd") else {
+    let Some((statefs_send, _)) = route_ctrl(b"statefsd") else {
         let _ = nexus_abi::debug_println("execd: FAIL minidump statefs route");
         return;
     };
     let send_ok = grant_clone(
         child_pid,
-        send_slot,
+        statefs_send,
         nexus_abi::Rights::SEND,
         CHILD_MINIDUMP_STATEFS_SEND_SLOT,
     );
+    let Some((reply_send, reply_recv)) = route_ctrl(b"@mint-pair") else {
+        let _ = nexus_abi::debug_println("execd: FAIL minidump reply mint");
+        return;
+    };
     let recv_ok = grant_clone(
         child_pid,
-        recv_slot,
+        reply_recv,
         nexus_abi::Rights::RECV,
         CHILD_MINIDUMP_STATEFS_RECV_SLOT,
     );
-    if send_ok && recv_ok {
+    let reply_ok =
+        grant_clone(child_pid, reply_send, nexus_abi::Rights::SEND, CHILD_MINIDUMP_REPLY_SEND_SLOT);
+    let _ = nexus_abi::cap_close(reply_send);
+    let _ = nexus_abi::cap_close(reply_recv);
+    if send_ok && recv_ok && reply_ok {
         let _ = nexus_abi::debug_println("execd: minidump statefs route granted");
     } else {
         let _ = nexus_abi::debug_println("execd: FAIL minidump statefs grant");

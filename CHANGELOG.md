@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-16 (TASK-0054C P2-f: statefsd takes the rule too — the invariant has no exception left)
+
+- statefsd answers exactly the senders that moved a reply capability, as logd has since P2-c and metricsd since P2-e. Its shared response queue now has no writer and no reader.
+- The three blockers the P2-e seed named were smaller than feared. The selftest statefs ladder is ONE helper (`statefs_send_recv_deadline`), not fifty edit sites — its ~30 callers keep their signatures. dsoftbusd's remote-statefs proxy is one function. And the `demo.minidump` payload, the one that looked like it needed hand-written RISC-V, needs no new instruction at all: its `MsgHeader` is built at COMPILE time, so the moved slot number and the `CAP_MOVE` flag are constants in the generated image; execd grants it a private endpoint the same way it mints the app event and timer channels.
+- Two more cap-less statefs clients turned up that the survey had missed, and the boot found both: the harness' bootctl persist probe was a second hand-rolled copy of the statefs exchange (it now calls the one helper), and init's supervision persist sent cap-less and read statefsd's shared queue (it now uses the ask inbox P2-d gave it).
+- Both statefsd route declarations flip `SharedResponse` → `ReplyInbox`. The request endpoint is unchanged — init's `request_ep` falls through to the server pair — only the RECV moves to the caller's own inbox.
+- **P2-c's metricsd exception is closed.** The retention writes move no capability, so no ack exists and nothing can rot. "A reply inbox sees only awaited replies" now holds with no exception.
+- Proof: `just test-all` EXIT=0 over 10 lanes; `just check` EXIT=0; `just test-os smp1` EXIT=0 with the marker set IDENTICAL to P2-c, P2-d and P2-e (209 `ok`, 65 KSELFTEST, total_ms 1256, FAILs only the allow-listed dsoftbus pair); `just test-os visible` EXIT=0, pixel proof 31.76. The boot is the witness for the whole chain in one log: `execd: minidump statefs route granted`, `child: minidump start`, `execd: minidump written` — the hand-assembled payload's PUT with a moved cap — and both `drop reply (no cap moved)` lines. Two cap-less clients the survey had missed were found BY the boot (the harness' bootctl persist probe and init's supervision persist) and fixed before this run.
+
 ### Fixed - 2026-09-16 (TASK-0054C P2-e: a server answers exactly the senders that moved a reply cap — two armed wedges)
 
 - This package was seeded as "a one-way statefs write op". The survey that was supposed to confirm the design found something better and two live defects instead. The idea behind a one-way write is "do not make a client await what it does not need", and its best realization is not a new wire op but the rule logd adopted in P2-c.

@@ -156,7 +156,7 @@ pub(crate) const DSOFTBUSD: ServiceSpec = ServiceSpec {
         },
         Route {
             to: ServiceId::Statefsd,
-            kind: RouteKind::SharedResponse,
+            kind: RouteKind::ReplyInbox,
             slots: slots::dsoftbusd::STATEFSD,
         },
         Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox, slots: slots::dsoftbusd::LOGD },

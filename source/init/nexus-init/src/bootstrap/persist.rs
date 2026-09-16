@@ -27,13 +27,14 @@ use statefs::protocol as proto;
 /// init's statefsd wire (pre-minted pair slots) for supervision persistence.
 pub(crate) struct SupervisionPersist {
     send_slot: u32,
-    recv_slot: u32,
+    /// init's own ask inbox: statefsd answers on the cap this exchange moves.
+    ask: nexus_ipc::SlotPair,
     nonce: u64,
 }
 
 impl SupervisionPersist {
-    pub(crate) fn new(slots: Option<(u32, u32)>) -> Option<Self> {
-        slots.map(|(send_slot, recv_slot)| Self { send_slot, recv_slot, nonce: 0x4953_0000 })
+    pub(crate) fn new(statefs_send: Option<u32>, ask: nexus_ipc::SlotPair) -> Option<Self> {
+        statefs_send.map(|send_slot| Self { send_slot, ask, nonce: 0x4953_0000 })
     }
 
     /// Reads the persisted restart counter for `svc` (0 when absent).
@@ -112,44 +113,31 @@ impl SupervisionPersist {
         req[4..12].copy_from_slice(&nonce.to_le_bytes());
         req[12..12 + v1_frame.len() - 4].copy_from_slice(&v1_frame[4..]);
         let req_len = v1_frame.len() + 8;
-        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, req_len as u32);
-        // Time-based bounds (NOT yield counters): with statefsd busy
-        // draining stalled replies, thousands of yields can burn off in
-        // microseconds while the store needs real milliseconds — a counter
-        // bound starved this exact path in the 0049C bring-up boots.
-        loop {
-            match nexus_abi::ipc_send_v1(self.send_slot, &hdr, &req[..req_len], 0, 0) {
-                Ok(_) => break,
-                Err(_) => return None,
-            }
-        }
-        loop {
-            let mut rh = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = heapless_vec::RspBuf::zeroed();
-            match nexus_abi::ipc_recv_v1(
-                self.recv_slot,
-                &mut rh,
-                buf.bytes_mut(),
-                nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(n) => {
-                    buf.set_len(n as usize);
-                    let b = buf.bytes();
-                    if b.len() >= 13
-                        && b[0] == proto::MAGIC0
-                        && b[1] == proto::MAGIC1
-                        && b[2] == proto::VERSION_V2
-                        && u64::from_le_bytes([b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12]])
-                            == nonce
-                    {
-                        return Some(buf);
-                    }
-                    // Foreign nonce/version: not ours — skip (bounded).
-                }
-                Err(_) => return None,
-            }
-        }
+        // ONE exchange on init's own ask inbox (TASK-0054C P2-f): the request moves a SEND
+        // clone of it, so statefsd answers THERE. This used to send cap-less and read
+        // statefsd's shared response queue — one of the three clients that kept statefsd
+        // answering cap-less senders.
+        let mut buf = heapless_vec::RspBuf::zeroed();
+        let matched = nexus_ipc::exchange::call_matching(
+            self.send_slot,
+            self.ask,
+            &req[..req_len],
+            buf.bytes_mut(),
+            |b| {
+                // Ours iff a v2 statefs frame carrying OUR nonce; anything else on the inbox
+                // belongs to another of init's exchanges and is skipped.
+                (b.len() >= 13
+                    && b[0] == proto::MAGIC0
+                    && b[1] == proto::MAGIC1
+                    && b[2] == proto::VERSION_V2
+                    && u64::from_le_bytes([b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12]])
+                        == nonce)
+                    .then(|| b.len())
+            },
+        );
+        let n = matched.ok()?;
+        buf.set_len(n);
+        Some(buf)
     }
 }
 
