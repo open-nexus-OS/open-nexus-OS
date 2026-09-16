@@ -51,11 +51,12 @@ pub(crate) fn ipc_bench_probe() -> core::result::Result<BenchResult, ()> {
         frame[2] = 1; // samgrd os-lite version
         frame[3] = 3; // OP_PING_CAP_MOVE
         frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-        let n =
-            nexus_ipc::exchange::call_into(sam_send, reply, &frame, &mut out).map_err(|_| ())?;
-        if n != 12 || out[0..4] != *b"PONG" || out[4..12] != nonce.to_le_bytes() {
-            return Err(());
-        }
+        // The PONG carrying OUR nonce on the harness' shared inbox (TASK-0054C P2-c).
+        nexus_ipc::exchange::call_matching(sam_send, reply, &frame, &mut out, |rsp| {
+            (rsp.len() == 12 && rsp[0..4] == *b"PONG" && rsp[4..12] == nonce.to_le_bytes())
+                .then_some(())
+        })
+        .map_err(|_| ())?;
     }
     let t1 = nexus_abi::nsec().map_err(|_| ())?;
     let rt_us = t1.saturating_sub(t0) / 1_000 / u64::from(BENCH_ROUNDS);

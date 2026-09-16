@@ -13,7 +13,6 @@ use super::rpc::{next_nonce, rpc_nonce};
 use super::validate::{
     is_valid_udp_payload_len, parse_read_ok_len, parse_status_frame, parse_write_ok_wrote,
 };
-use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::KernelClient;
 
 const MAGIC0: u8 = b'N';
@@ -35,7 +34,6 @@ pub(crate) const STATUS_IO: u8 = 4;
 const STREAM_WOULD_BLOCK_BUDGET: u32 = 8_192;
 
 pub(crate) fn stream_write_all(
-    pending: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -44,7 +42,6 @@ pub(crate) fn stream_write_all(
     reply_send_slot: u32,
 ) -> core::result::Result<(), ()> {
     fn stream_wait_writable(
-        pending: &mut ReplyBuffer<16, 512>,
         nonce_ctr: &mut u64,
         net: &KernelClient,
         sid: SessionId,
@@ -60,7 +57,6 @@ pub(crate) fn stream_write_all(
         req[4..8].copy_from_slice(&sid.as_raw().to_le_bytes());
         req[8..16].copy_from_slice(&nonce.to_le_bytes());
         let rsp = match rpc_nonce(
-            pending,
             net,
             &req,
             OP_WAIT_WRITABLE | 0x80,
@@ -98,14 +94,7 @@ pub(crate) fn stream_write_all(
     let mut would_block_spins: u32 = 0;
     while off < data.len() {
         if would_block_spins == 0 || (would_block_spins & 0xff) == 0 {
-            match stream_wait_writable(
-                pending,
-                nonce_ctr,
-                net,
-                sid,
-                reply_recv_slot,
-                reply_send_slot,
-            ) {
+            match stream_wait_writable(nonce_ctr, net, sid, reply_recv_slot, reply_send_slot) {
                 Ok(true) => {}
                 Ok(false) => {
                     would_block_spins = would_block_spins.wrapping_add(1);
@@ -136,7 +125,6 @@ pub(crate) fn stream_write_all(
         w[10..10 + chunk].copy_from_slice(&data[off..off + chunk]);
         w[10 + chunk..10 + chunk + 8].copy_from_slice(&nonce.to_le_bytes());
         let rsp = match rpc_nonce(
-            pending,
             net,
             &w[..10 + chunk + 8],
             OP_WRITE | 0x80,
@@ -199,7 +187,6 @@ pub(crate) fn stream_write_all(
 }
 
 pub(crate) fn stream_read_exact(
-    pending: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -220,15 +207,8 @@ pub(crate) fn stream_read_exact(
         r[4..8].copy_from_slice(&sid.as_raw().to_le_bytes());
         r[8..10].copy_from_slice(&(want as u16).to_le_bytes());
         r[10..18].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = match rpc_nonce(
-            pending,
-            net,
-            &r,
-            OP_READ | 0x80,
-            nonce,
-            reply_recv_slot,
-            reply_send_slot,
-        ) {
+        let rsp = match rpc_nonce(net, &r, OP_READ | 0x80, nonce, reply_recv_slot, reply_send_slot)
+        {
             Ok(v) => v,
             Err(()) => {
                 // #region agent log
@@ -276,7 +256,6 @@ pub(crate) fn stream_read_exact(
 }
 
 pub(crate) fn udp_bind(
-    pending: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     ip: [u8; 4],
@@ -293,9 +272,8 @@ pub(crate) fn udp_bind(
     req[4..8].copy_from_slice(&ip);
     req[8..10].copy_from_slice(&port.to_le_bytes());
     req[10..18].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &req, OP_UDP_BIND | 0x80, nonce, reply_recv_slot, reply_send_slot)
-            .map_err(|_| ())?;
+    let rsp = rpc_nonce(net, &req, OP_UDP_BIND | 0x80, nonce, reply_recv_slot, reply_send_slot)
+        .map_err(|_| ())?;
     let status = parse_status_frame(&rsp, OP_UDP_BIND | 0x80).map_err(|_| ())?;
     if status != STATUS_OK {
         return Err(());
@@ -304,7 +282,6 @@ pub(crate) fn udp_bind(
 }
 
 pub(crate) fn udp_send_to(
-    pending: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     udp_id: UdpSocketId,
@@ -331,7 +308,6 @@ pub(crate) fn udp_send_to(
     let end = 16 + payload.len();
     send[end..end + 8].copy_from_slice(&nonce.to_le_bytes());
     let rsp = rpc_nonce(
-        pending,
         net,
         &send[..end + 8],
         OP_UDP_SEND_TO | 0x80,
@@ -347,7 +323,6 @@ pub(crate) fn udp_send_to(
 }
 
 pub(crate) fn tcp_listen(
-    pending: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     ip: [u8; 4],
@@ -364,8 +339,7 @@ pub(crate) fn tcp_listen(
     req[4..8].copy_from_slice(&ip);
     req[8..10].copy_from_slice(&port.to_le_bytes());
     req[10..18].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &req, OP_LISTEN | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
+    let rsp = rpc_nonce(net, &req, OP_LISTEN | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
     let status = parse_status_frame(&rsp, OP_LISTEN | 0x80)?;
     if status != STATUS_OK {
         return Err(());
@@ -374,7 +348,6 @@ pub(crate) fn tcp_listen(
 }
 
 pub(crate) fn tcp_connect(
-    pending: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     ip: [u8; 4],
@@ -391,9 +364,8 @@ pub(crate) fn tcp_connect(
     c[4..8].copy_from_slice(&ip);
     c[8..10].copy_from_slice(&port.to_le_bytes());
     c[10..18].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &c, OP_CONNECT | 0x80, nonce, reply_recv_slot, reply_send_slot)
-            .map_err(|_| 0xfd)?;
+    let rsp = rpc_nonce(net, &c, OP_CONNECT | 0x80, nonce, reply_recv_slot, reply_send_slot)
+        .map_err(|_| 0xfd)?;
     let status = parse_status_frame(&rsp, OP_CONNECT | 0x80).map_err(|_| 0xfe)?;
     if status == STATUS_OK {
         return Ok(SessionId::from_raw(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])));
@@ -402,7 +374,6 @@ pub(crate) fn tcp_connect(
 }
 
 pub(crate) fn tcp_accept(
-    pending: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     lid: ListenerId,
@@ -417,8 +388,7 @@ pub(crate) fn tcp_accept(
     a[3] = OP_ACCEPT;
     a[4..8].copy_from_slice(&lid.as_raw().to_le_bytes());
     a[8..16].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &a, OP_ACCEPT | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
+    let rsp = rpc_nonce(net, &a, OP_ACCEPT | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
     let status = parse_status_frame(&rsp, OP_ACCEPT | 0x80)?;
     if status == STATUS_OK {
         return Ok(SessionId::from_raw(u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])));
@@ -430,7 +400,6 @@ pub(crate) fn tcp_accept(
 }
 
 pub(crate) fn tcp_close(
-    pending: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -445,8 +414,7 @@ pub(crate) fn tcp_close(
     c[3] = OP_CLOSE;
     c[4..8].copy_from_slice(&sid.as_raw().to_le_bytes());
     c[8..16].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &c, OP_CLOSE | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
+    let rsp = rpc_nonce(net, &c, OP_CLOSE | 0x80, nonce, reply_recv_slot, reply_send_slot)?;
     let status = parse_status_frame(&rsp, OP_CLOSE | 0x80)?;
     if status == STATUS_OK {
         return Ok(());
@@ -455,7 +423,6 @@ pub(crate) fn tcp_close(
 }
 
 pub(crate) struct CrossVmTransport<'a> {
-    pending: &'a mut ReplyBuffer<16, 512>,
     nonce_ctr: &'a mut u64,
     net: &'a KernelClient,
     reply_recv_slot: u32,
@@ -464,13 +431,12 @@ pub(crate) struct CrossVmTransport<'a> {
 
 impl<'a> CrossVmTransport<'a> {
     pub(crate) fn new(
-        pending: &'a mut ReplyBuffer<16, 512>,
         nonce_ctr: &'a mut u64,
         net: &'a KernelClient,
         reply_recv_slot: u32,
         reply_send_slot: u32,
     ) -> Self {
-        Self { pending, nonce_ctr, net, reply_recv_slot, reply_send_slot }
+        Self { nonce_ctr, net, reply_recv_slot, reply_send_slot }
     }
 
     pub(crate) fn connect(
@@ -478,37 +444,15 @@ impl<'a> CrossVmTransport<'a> {
         ip: [u8; 4],
         port: u16,
     ) -> core::result::Result<SessionId, u8> {
-        tcp_connect(
-            self.pending,
-            self.nonce_ctr,
-            self.net,
-            ip,
-            port,
-            self.reply_recv_slot,
-            self.reply_send_slot,
-        )
+        tcp_connect(self.nonce_ctr, self.net, ip, port, self.reply_recv_slot, self.reply_send_slot)
     }
 
     pub(crate) fn accept(&mut self, lid: ListenerId) -> core::result::Result<SessionId, ()> {
-        tcp_accept(
-            self.pending,
-            self.nonce_ctr,
-            self.net,
-            lid,
-            self.reply_recv_slot,
-            self.reply_send_slot,
-        )
+        tcp_accept(self.nonce_ctr, self.net, lid, self.reply_recv_slot, self.reply_send_slot)
     }
 
     pub(crate) fn close(&mut self, sid: SessionId) -> core::result::Result<(), ()> {
-        tcp_close(
-            self.pending,
-            self.nonce_ctr,
-            self.net,
-            sid,
-            self.reply_recv_slot,
-            self.reply_send_slot,
-        )
+        tcp_close(self.nonce_ctr, self.net, sid, self.reply_recv_slot, self.reply_send_slot)
     }
 
     pub(crate) fn write_all(
@@ -517,7 +461,6 @@ impl<'a> CrossVmTransport<'a> {
         data: &[u8],
     ) -> core::result::Result<(), ()> {
         stream_write_all(
-            self.pending,
             self.nonce_ctr,
             self.net,
             sid,
@@ -533,7 +476,6 @@ impl<'a> CrossVmTransport<'a> {
         out: &mut [u8],
     ) -> core::result::Result<(), ()> {
         stream_read_exact(
-            self.pending,
             self.nonce_ctr,
             self.net,
             sid,

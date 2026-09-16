@@ -14,11 +14,11 @@
 //!   tests/security_v2_host/ (`test_reject_nonloopback_bind_without_intent`)
 //! RFC: docs/rfcs/RFC-0092-service-exposure-contract-ingress-policy-ingressd.md
 
-use nexus_abi::yield_;
 use nexus_ipc::KernelClient;
+use nexus_service_topology::slots::selftest_client::REPLY;
 
 use crate::markers::emit_line;
-use crate::os_lite::ipc::clients::{cached_netstackd_client, cached_reply_client};
+use crate::os_lite::ipc::clients::cached_netstackd_client;
 
 const MAGIC0: u8 = b'N';
 const MAGIC1: u8 = b'S';
@@ -38,34 +38,15 @@ fn bind_status(net: &KernelClient, ip: [u8; 4], port: u16) -> core::result::Resu
     req[3] = OP_UDP_BIND;
     req[4..8].copy_from_slice(&ip);
     req[8..10].copy_from_slice(&port.to_le_bytes());
-    let reply = cached_reply_client().map_err(|_| ())?;
-    let (reply_send_slot, reply_recv_slot) = reply.slots();
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-    net.send_with_cap_move(&req, reply_send_clone).map_err(|_| ())?;
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // The harness answers six services into ONE inbox, so the answer is the frame that
+    // carries OUR op; anything queued ahead of it is dropped (TASK-0054C P2-c). The 3 s
+    // deadline this carried is gone with the spin: the facade's answer or its death ends it.
     let mut buf = [0u8; 64];
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(3_000_000_000);
-    let mut spins: u32 = 0;
-    loop {
-        spins = spins.wrapping_add(1);
-        if spins & 0x3f == 0 && nexus_abi::nsec().map_err(|_| ())? >= deadline {
-            return Err(());
-        }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) if n as usize >= 5 && buf[3] == (OP_UDP_BIND | 0x80) => return Ok(buf[4]),
-            Ok(_) => {}
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-    }
+    nexus_ipc::exchange::call_matching(net.slots().0, REPLY, &req, &mut buf, |rsp| {
+        (rsp.len() >= 5 && rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[3] == (OP_UDP_BIND | 0x80))
+            .then(|| rsp[4])
+    })
+    .map_err(|_| ())
 }
 
 /// Runs the Layer-A proof (single-VM; `local_ip` = the facade's bind address).

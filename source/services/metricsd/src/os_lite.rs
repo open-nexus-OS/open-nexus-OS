@@ -205,11 +205,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
         Some(server) => server,
         None => return Err(MetricsError::Ipc),
     };
-    let _ = nexus_log::configure_sink_logd_slots(
-        declared::LOGD.send,
-        declared::REPLY.send,
-        declared::REPLY.recv,
-    );
+    nexus_log::configure_sink_logd(declared::LOGD.send);
     notifier.notify();
     let _ = nexus_service_entry::ready("metricsd: ready");
 

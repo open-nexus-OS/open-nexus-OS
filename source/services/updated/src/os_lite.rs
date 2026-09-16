@@ -121,12 +121,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
         }
         KernelServer::new_with_slots(RECV_SLOT, SEND_SLOT).map_err(|_| ServerError::Unsupported)?
     };
-    // The logd sink on the declared legs (ask-free, TASK-0324 P7-b).
-    {
-        let logd = nexus_service_topology::slots::updated::LOGD;
-        let reply = nexus_service_topology::slots::updated::REPLY;
-        nexus_log::configure_sink_logd_slots(logd.send, reply.send, reply.recv);
-    }
+    // The logd sink on the declared leg (ask-free, TASK-0324 P7-b).
+    nexus_log::configure_sink_logd(nexus_service_topology::slots::updated::LOGD.send);
     let (recv_slot, send_slot) = server.slots();
     // RFC-0068: routine IPC-plumbing trace → fold in interactive (recall `NEXUS_LOG_EXPAND=updated`), raw in proof.
     if !nexus_abi::service_trace() {

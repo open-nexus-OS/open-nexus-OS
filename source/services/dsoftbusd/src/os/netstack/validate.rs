@@ -34,16 +34,6 @@ pub(crate) fn response_matches(buf: &[u8], expect_rsp_op: u8, nonce: u64) -> boo
 }
 
 #[inline]
-pub(crate) fn extract_netstack_reply_nonce(buf: &[u8]) -> Option<u64> {
-    if buf.len() < 13 || buf[0] != MAGIC0 || buf[1] != MAGIC1 || buf[2] != VERSION {
-        return None;
-    }
-    let mut b = [0u8; 8];
-    b.copy_from_slice(&buf[buf.len() - 8..]);
-    Some(u64::from_le_bytes(b))
-}
-
-#[inline]
 pub(crate) fn parse_status_frame(rsp: &[u8], expected_op: u8) -> core::result::Result<u8, ()> {
     if rsp.len() < 5 {
         return Err(());

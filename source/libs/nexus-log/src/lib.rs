@@ -147,20 +147,27 @@ pub fn debug_static(target: &str, message: &str) {
     debug(target, |line| line.text_ref(StrRef::from(message)));
 }
 
-/// Binds the logd sink to the caller's DECLARED slots (its `slots::<svc>::LOGD` leg and
-/// `REPLY` inbox from `nexus-service-topology`). Declarative and ask-free (TASK-0324 P7-b):
-/// the sink never asks init for a route — an ask has no clock, and the first log line of a
-/// core service is written inside the request init is synchronously waiting on, which made
-/// that ask a deadlock. Unbound (or a leg init has not pinned yet), a line still reaches the
-/// UART; the logd copy is skipped until the slots are live — no probe, no retry cadence.
-pub fn configure_sink_logd_slots(logd_send: u32, reply_send: u32, reply_recv: u32) {
+/// Binds the logd sink to the caller's DECLARED `slots::<svc>::LOGD` leg
+/// (`nexus-service-topology`). Declarative and ask-free (TASK-0324 P7-b): the sink never asks
+/// init for a route — an ask has no clock, and the first log line of a core service is written
+/// inside the request init is synchronously waiting on, which made that ask a deadlock.
+/// Unbound (or a leg init has not pinned yet), a line still reaches the UART; the logd copy is
+/// skipped until the slot is live — no probe, no retry cadence.
+///
+/// The caller's reply inbox is NOT part of this binding (TASK-0054C P2-c). A log line is
+/// fire-and-forget, and a fire-and-forget send that moves a reply cap leaves an ack nobody
+/// reads on an inbox shared with the caller's real exchanges — reply theft in both directions:
+/// the stale ack is returned as the next exchange's answer, and the drain that hid it ate
+/// awaited replies. logd journals the record before it decides where to reply and drops the
+/// response for a sender that moved no cap, so the ack is simply never produced.
+pub fn configure_sink_logd(logd_send: u32) {
     #[cfg(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none"))]
     {
-        sink_logd::configure_slots(logd_send, reply_send, reply_recv);
+        sink_logd::configure_slots(logd_send);
     }
     #[cfg(not(all(feature = "sink-logd", target_arch = "riscv64", target_os = "none")))]
     {
-        let _ = (logd_send, reply_send, reply_recv);
+        let _ = logd_send;
     }
 }
 
@@ -1070,9 +1077,6 @@ mod sink_userspace {
 mod sink_logd {
     use core::sync::atomic::{AtomicU32, Ordering};
 
-    use nexus_abi::{cap_clone, ipc_recv_v1, MsgHeader, IPC_SYS_NONBLOCK, IPC_SYS_TRUNCATE};
-    use nexus_ipc::KernelClient;
-
     use crate::Level;
 
     const MAGIC0: u8 = b'L';
@@ -1083,16 +1087,13 @@ mod sink_logd {
     const MAX_SCOPE: usize = 64;
     const MAX_MSG: usize = 256;
 
-    // Cached slots (0 means unknown).
+    // Cached slot (0 means unknown).
     static LOGD_SEND_SLOT: AtomicU32 = AtomicU32::new(0);
-    static REPLY_SEND_SLOT: AtomicU32 = AtomicU32::new(0);
-    static REPLY_RECV_SLOT: AtomicU32 = AtomicU32::new(0);
 
     pub fn try_append(level: Level, target: &str, line: &[u8]) {
         // Best-effort only: logging must not block or panic.
-        let (logd_send, reply_send, reply_recv) = match ensure_slots(target) {
-            Some(v) => v,
-            None => return,
+        let Some(logd_send) = ensure_slot() else {
+            return;
         };
 
         let mut frame = [0u8; 4 + 1 + 1 + 2 + 2 + MAX_SCOPE + MAX_MSG];
@@ -1122,49 +1123,22 @@ mod sink_logd {
         frame[n..n + msg_len].copy_from_slice(&msg[..msg_len]);
         n += msg_len;
 
-        let moved = match cap_clone(reply_send) {
-            Ok(slot) => slot,
-            Err(_) => return,
-        };
-
-        // Use explicit slots to avoid route queries/allocations per line.
-        let client = match KernelClient::new_with_slots(logd_send, reply_recv) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let _ = client.send_with_cap_move_wait(&frame[..n], moved, nexus_ipc::Wait::NonBlocking);
-
-        // Drain a few replies to avoid filling the reply inbox under high log volume.
-        drain_reply(reply_recv);
+        // The explicit slot avoids a route query per line. No reply cap moves with the line:
+        // logd answers only a sender that moved one, so nothing lands on this service's inbox
+        // and there is nothing to drain.
+        let _ = nexus_ipc::exchange::send_nonblocking(logd_send, &frame[..n]);
     }
 
-    /// Stores the declared slots. Nothing is probed: a leg init has not pinned yet simply
-    /// fails its `cap_clone` at emit time and the line stays UART-only until it is live.
-    pub fn configure_slots(logd_send: u32, reply_send: u32, reply_recv: u32) {
+    /// Stores the declared logd leg. Nothing is probed: a leg init has not pinned yet simply
+    /// fails its send at emit time and the line stays UART-only until it is live.
+    pub fn configure_slots(logd_send: u32) {
         LOGD_SEND_SLOT.store(logd_send, Ordering::Relaxed);
-        REPLY_SEND_SLOT.store(reply_send, Ordering::Relaxed);
-        REPLY_RECV_SLOT.store(reply_recv, Ordering::Relaxed);
     }
 
-    /// The bound slots, or `None` while unbound — never a route ask (TASK-0324 P7-b).
-    fn ensure_slots(_target: &str) -> Option<(u32, u32, u32)> {
+    /// The bound logd leg, or `None` while unbound — never a route ask (TASK-0324 P7-b).
+    fn ensure_slot() -> Option<u32> {
         let send = LOGD_SEND_SLOT.load(Ordering::Relaxed);
-        let rs = REPLY_SEND_SLOT.load(Ordering::Relaxed);
-        let rr = REPLY_RECV_SLOT.load(Ordering::Relaxed);
-        (send != 0 && rs != 0 && rr != 0).then_some((send, rs, rr))
-    }
-
-    fn drain_reply(recv_slot: u32) {
-        let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 64];
-        for _ in 0..4 {
-            match ipc_recv_v1(recv_slot, &mut hdr, &mut buf, IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE, 0)
-            {
-                Ok(_n) => {}
-                Err(nexus_abi::IpcError::QueueEmpty) => break,
-                Err(_) => break,
-            }
-        }
+        (send != 0).then_some(send)
     }
 
     fn strip_prefix_and_nl(line: &[u8]) -> &[u8] {

@@ -38,16 +38,14 @@ pub(crate) fn cap_move_reply_probe() -> core::result::Result<(), ()> {
     frame[2] = 1; // samgrd os-lite version
     frame[3] = 3; // OP_PING_CAP_MOVE
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
+    // The harness answers six services into ONE inbox: the PONG carrying OUR nonce is the
+    // answer, everything queued ahead of it is dropped (TASK-0054C P2-c).
     let mut rsp_buf = [0u8; 16];
-    let n =
-        nexus_ipc::exchange::call_into(sam_send, reply, &frame, &mut rsp_buf).map_err(|_| ())?;
-    let rsp = &rsp_buf[..n.min(rsp_buf.len())];
-    let pong_nonce = rsp.get(4..12).map(|b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
-    if rsp.len() == 12 && rsp[0..4] == *b"PONG" && pong_nonce == Some(nonce) {
-        Ok(())
-    } else {
-        Err(())
-    }
+    nexus_ipc::exchange::call_matching(sam_send, reply, &frame, &mut rsp_buf, |rsp| {
+        (rsp.len() == 12 && rsp[0..4] == *b"PONG" && rsp[4..12] == nonce.to_le_bytes())
+            .then_some(())
+    })
+    .map_err(|_| ())
 }
 
 pub(crate) fn sender_pid_probe() -> core::result::Result<(), ()> {
@@ -66,33 +64,32 @@ pub(crate) fn sender_pid_probe() -> core::result::Result<(), ()> {
     frame[3] = 4; // OP_SENDER_PID
     frame[4..8].copy_from_slice(&me.to_le_bytes());
     frame[8..16].copy_from_slice(&nonce.to_le_bytes());
-    // ONE exchange, no clock (TASK-0324 P7-b): samgrd's answer or its death.
+    // ONE exchange, no clock (TASK-0324 P7-b): samgrd's answer or its death — and on the
+    // harness' shared inbox, the frame carrying OUR op (TASK-0054C P2-c).
     let mut rsp_buf = [0u8; 32];
-    let n = nexus_ipc::exchange::call_into(
+    let (status, got) = nexus_ipc::exchange::call_matching(
         sam_send,
-        nexus_service_topology::SlotPair::new(reply_send_slot, reply_recv_slot),
+        nexus_ipc::SlotPair::new(reply_send_slot, reply_recv_slot),
         &frame,
         &mut rsp_buf,
+        |rsp| {
+            if rsp.len() != 17
+                || rsp[0] != b'S'
+                || rsp[1] != b'M'
+                || rsp[2] != 1
+                || rsp[3] != (4 | 0x80)
+                || rsp[9..17] != nonce.to_le_bytes()
+            {
+                return None;
+            }
+            Some((rsp[4], u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]])))
+        },
     )
     .map_err(|_| ())?;
-    let rsp = &rsp_buf[..n.min(rsp_buf.len())];
-    if rsp.len() != 17 || rsp[0] != b'S' || rsp[1] != b'M' || rsp[2] != 1 {
+    if status != 0 || got != me {
         return Err(());
     }
-    let rsp_nonce =
-        u64::from_le_bytes([rsp[9], rsp[10], rsp[11], rsp[12], rsp[13], rsp[14], rsp[15], rsp[16]]);
-    if rsp_nonce != nonce {
-        return Err(());
-    }
-    if rsp[3] != (4 | 0x80) || rsp[4] != 0 {
-        return Err(());
-    }
-    let got = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
-    if got == me {
-        Ok(())
-    } else {
-        Err(())
-    }
+    Ok(())
 }
 
 pub(crate) fn sender_service_id_probe() -> core::result::Result<(), ()> {

@@ -238,8 +238,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // with a service that, in turn, waits for THIS server — the ask made that a deadlock.
     let server = KernelServer::new_with_slots(topo::SERVER.recv, topo::SERVER.send)
         .map_err(|_| ServerError::Unsupported)?;
-    // The logd sink on the declared legs (ask-free, TASK-0324 P7-b).
-    nexus_log::configure_sink_logd_slots(topo::LOGD.send, topo::REPLY.send, topo::REPLY.recv);
+    // The logd sink on the declared leg (ask-free, TASK-0324 P7-b).
+    nexus_log::configure_sink_logd(topo::LOGD.send);
     let mut state = State::new();
     // RFC-0080: create the shared glyph-atlas VMO ONCE (RO-cloned per spawn).
     state.atlas_vmo = crate::atlas_vmo::create();

@@ -12,7 +12,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use nexus_abi::yield_;
 use nexus_discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1};
-use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::KernelClient;
 use nexus_peer_lru::{PeerEntry, PeerLru};
 
@@ -173,7 +172,6 @@ fn decode_mux_wire_batch(payload: &[u8]) -> core::result::Result<Vec<MuxWireEven
 
 fn send_mux_control_record(
     transport: &mut nexus_noise_xk::Transport,
-    pending_replies: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -194,12 +192,11 @@ fn send_mux_control_record(
     if encrypted != REQ_CIPH {
         return Err(());
     }
-    stream_write_all(pending_replies, nonce_ctr, net, sid, &ciph, reply_recv_slot, reply_send_slot)
+    stream_write_all(nonce_ctr, net, sid, &ciph, reply_recv_slot, reply_send_slot)
 }
 
 fn recv_mux_control_record(
     transport: &mut nexus_noise_xk::Transport,
-    pending_replies: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -207,15 +204,7 @@ fn recv_mux_control_record(
     reply_send_slot: u32,
 ) -> core::result::Result<(u8, Vec<u8>), ()> {
     let mut ciph = [0u8; REQ_CIPH];
-    stream_read_exact(
-        pending_replies,
-        nonce_ctr,
-        net,
-        sid,
-        &mut ciph,
-        reply_recv_slot,
-        reply_send_slot,
-    )?;
+    stream_read_exact(nonce_ctr, net, sid, &mut ciph, reply_recv_slot, reply_send_slot)?;
     let mut plain = [0u8; REQ_PLAIN];
     let decrypted = transport.decrypt(&ciph, &mut plain).map_err(|_| ())?;
     if decrypted != REQ_PLAIN {
@@ -278,7 +267,6 @@ fn mux_priority_backpressure_local_ok(
 fn run_cross_vm_mux_ladder(
     is_initiator: bool,
     transport: &mut nexus_noise_xk::Transport,
-    pending_replies: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -302,7 +290,6 @@ fn run_cross_vm_mux_ladder(
         let open_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
         send_mux_control_record(
             transport,
-            pending_replies,
             nonce_ctr,
             net,
             sid,
@@ -313,7 +300,6 @@ fn run_cross_vm_mux_ladder(
         )?;
         let (open_ack_opcode, open_ack_payload) = recv_mux_control_record(
             transport,
-            pending_replies,
             nonce_ctr,
             net,
             sid,
@@ -347,7 +333,6 @@ fn run_cross_vm_mux_ladder(
         let data_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
         send_mux_control_record(
             transport,
-            pending_replies,
             nonce_ctr,
             net,
             sid,
@@ -358,7 +343,6 @@ fn run_cross_vm_mux_ladder(
         )?;
         let (data_echo_opcode, data_echo_payload) = recv_mux_control_record(
             transport,
-            pending_replies,
             nonce_ctr,
             net,
             sid,
@@ -388,7 +372,6 @@ fn run_cross_vm_mux_ladder(
 
         send_mux_control_record(
             transport,
-            pending_replies,
             nonce_ctr,
             net,
             sid,
@@ -399,7 +382,6 @@ fn run_cross_vm_mux_ladder(
         )?;
         let (final_opcode, _) = recv_mux_control_record(
             transport,
-            pending_replies,
             nonce_ctr,
             net,
             sid,
@@ -412,15 +394,8 @@ fn run_cross_vm_mux_ladder(
         return Ok(());
     }
 
-    let (open_opcode, open_payload) = recv_mux_control_record(
-        transport,
-        pending_replies,
-        nonce_ctr,
-        net,
-        sid,
-        reply_recv_slot,
-        reply_send_slot,
-    )?;
+    let (open_opcode, open_payload) =
+        recv_mux_control_record(transport, nonce_ctr, net, sid, reply_recv_slot, reply_send_slot)?;
     if open_opcode != MUX_OP_OPEN_BATCH {
         return Err(());
     }
@@ -443,7 +418,6 @@ fn run_cross_vm_mux_ladder(
     let open_ack_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
     send_mux_control_record(
         transport,
-        pending_replies,
         nonce_ctr,
         net,
         sid,
@@ -454,15 +428,8 @@ fn run_cross_vm_mux_ladder(
     )?;
     let _ = nexus_abi::debug_println("dsoftbus:mux crossvm session up");
 
-    let (data_opcode, data_payload) = recv_mux_control_record(
-        transport,
-        pending_replies,
-        nonce_ctr,
-        net,
-        sid,
-        reply_recv_slot,
-        reply_send_slot,
-    )?;
+    let (data_opcode, data_payload) =
+        recv_mux_control_record(transport, nonce_ctr, net, sid, reply_recv_slot, reply_send_slot)?;
     if data_opcode != MUX_OP_DATA_BATCH {
         return Err(());
     }
@@ -488,7 +455,6 @@ fn run_cross_vm_mux_ladder(
     let data_echo_payload = encode_mux_wire_batch(&endpoint.drain_outbound())?;
     send_mux_control_record(
         transport,
-        pending_replies,
         nonce_ctr,
         net,
         sid,
@@ -506,21 +472,13 @@ fn run_cross_vm_mux_ladder(
     let _ = nexus_abi::debug_println("SELFTEST: mux crossvm bulk ok");
     let _ = nexus_abi::debug_println("SELFTEST: mux crossvm backpressure ok");
 
-    let (final_opcode, _) = recv_mux_control_record(
-        transport,
-        pending_replies,
-        nonce_ctr,
-        net,
-        sid,
-        reply_recv_slot,
-        reply_send_slot,
-    )?;
+    let (final_opcode, _) =
+        recv_mux_control_record(transport, nonce_ctr, net, sid, reply_recv_slot, reply_send_slot)?;
     if final_opcode != MUX_OP_FINAL_SYNC {
         return Err(());
     }
     send_mux_control_record(
         transport,
-        pending_replies,
         nonce_ctr,
         net,
         sid,
@@ -543,13 +501,11 @@ pub(crate) fn run_cross_vm_main(
         };
 
     let mut nonce_ctr: u64 = 1;
-    let mut pending_replies: ReplyBuffer<16, 512> = ReplyBuffer::new();
 
     let udp_id = {
         let mut out: Option<UdpSocketId> = None;
         for _ in 0..50_000 {
             if let Ok(id) = udp_bind(
-                &mut pending_replies,
                 &mut nonce_ctr,
                 net,
                 local_ip,
@@ -570,7 +526,6 @@ pub(crate) fn run_cross_vm_main(
     let mut peer_ips: Vec<(String, [u8; 4])> = Vec::new();
 
     let lid = tcp_listen(
-        &mut pending_replies,
         &mut nonce_ctr,
         net,
         local_ip,
@@ -628,7 +583,6 @@ pub(crate) fn run_cross_vm_main(
                 };
                 if let Ok(bytes) = encode_announce_v1(&ann) {
                     let ok1 = udp_send_to(
-                        &mut pending_replies,
                         &mut nonce_ctr,
                         net,
                         udp_id,
@@ -640,7 +594,6 @@ pub(crate) fn run_cross_vm_main(
                     )
                     .is_ok();
                     let ok2 = udp_send_to(
-                        &mut pending_replies,
                         &mut nonce_ctr,
                         net,
                         udp_id,
@@ -675,7 +628,6 @@ pub(crate) fn run_cross_vm_main(
                 r[8..10].copy_from_slice(&(256u16).to_le_bytes());
                 r[10..18].copy_from_slice(&nonce.to_le_bytes());
                 if let Ok(rsp) = rpc_nonce(
-                    &mut pending_replies,
                     net,
                     &r,
                     OP_UDP_RECV_FROM | 0x80,
@@ -800,7 +752,6 @@ pub(crate) fn run_cross_vm_main(
                         // #endregion
                     }
                     let mut netio = CrossVmTransport::new(
-                        &mut pending_replies,
                         &mut nonce_ctr,
                         net,
                         DSOFT_REPLY_RECV_SLOT,
@@ -914,7 +865,6 @@ pub(crate) fn run_cross_vm_main(
                         // #endregion
                     }
                     let mut netio = CrossVmTransport::new(
-                        &mut pending_replies,
                         &mut nonce_ctr,
                         net,
                         DSOFT_REPLY_RECV_SLOT,
@@ -969,7 +919,6 @@ pub(crate) fn run_cross_vm_main(
                 let mut msg1 = [0u8; MSG1_LEN];
                 initiator.write_msg1(&mut msg1);
                 let mut netio = CrossVmTransport::new(
-                    &mut pending_replies,
                     &mut nonce_ctr,
                     net,
                     DSOFT_REPLY_RECV_SLOT,
@@ -985,7 +934,6 @@ pub(crate) fn run_cross_vm_main(
 
                 let mut msg2 = [0u8; MSG2_LEN];
                 let mut netio = CrossVmTransport::new(
-                    &mut pending_replies,
                     &mut nonce_ctr,
                     net,
                     DSOFT_REPLY_RECV_SLOT,
@@ -1005,7 +953,6 @@ pub(crate) fn run_cross_vm_main(
                     Err(_) => return Err(()),
                 };
                 let mut netio = CrossVmTransport::new(
-                    &mut pending_replies,
                     &mut nonce_ctr,
                     net,
                     DSOFT_REPLY_RECV_SLOT,
@@ -1019,7 +966,6 @@ pub(crate) fn run_cross_vm_main(
                 let mut responder = XkResponder::new(self_static, peer_expected_pub, self_eph_seed);
                 let mut msg1 = [0u8; MSG1_LEN];
                 let mut netio = CrossVmTransport::new(
-                    &mut pending_replies,
                     &mut nonce_ctr,
                     net,
                     DSOFT_REPLY_RECV_SLOT,
@@ -1037,7 +983,6 @@ pub(crate) fn run_cross_vm_main(
                     return Err(());
                 }
                 let mut netio = CrossVmTransport::new(
-                    &mut pending_replies,
                     &mut nonce_ctr,
                     net,
                     DSOFT_REPLY_RECV_SLOT,
@@ -1052,7 +997,6 @@ pub(crate) fn run_cross_vm_main(
                 }
                 let mut msg3 = [0u8; MSG3_LEN];
                 let mut netio = CrossVmTransport::new(
-                    &mut pending_replies,
                     &mut nonce_ctr,
                     net,
                     DSOFT_REPLY_RECV_SLOT,
@@ -1092,7 +1036,6 @@ pub(crate) fn run_cross_vm_main(
                 let action = on_handshake_failure(&mut fsm);
                 if let Some(old_sid) = action.close_sid {
                     let mut netio = CrossVmTransport::new(
-                        &mut pending_replies,
                         &mut nonce_ctr,
                         net,
                         DSOFT_REPLY_RECV_SLOT,
@@ -1129,7 +1072,6 @@ pub(crate) fn run_cross_vm_main(
     if run_cross_vm_mux_ladder(
         is_initiator,
         &mut transport,
-        &mut pending_replies,
         &mut nonce_ctr,
         net,
         sid,
@@ -1145,7 +1087,6 @@ pub(crate) fn run_cross_vm_main(
     if !is_initiator {
         return crate::os::gateway::remote_proxy::run_remote_proxy_loop(
             &mut transport,
-            &mut pending_replies,
             &mut nonce_ctr,
             net,
             sid,
@@ -1156,7 +1097,6 @@ pub(crate) fn run_cross_vm_main(
 
     crate::os::gateway::local_ipc::run_local_ipc_loop(
         &mut transport,
-        &mut pending_replies,
         &mut nonce_ctr,
         net,
         sid,

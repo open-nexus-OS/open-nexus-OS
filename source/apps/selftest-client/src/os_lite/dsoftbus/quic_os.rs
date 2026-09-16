@@ -20,7 +20,8 @@
 use nexus_abi::yield_;
 use nexus_ipc::KernelClient;
 
-use super::super::ipc::clients::{cached_netstackd_client, cached_reply_client};
+use super::super::ipc::clients::cached_netstackd_client;
+use nexus_service_topology::slots::selftest_client::REPLY;
 
 pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     const MAGIC0: u8 = b'N';
@@ -48,14 +49,16 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     /// the ladder for 47 s once dsoftbusd's own session loop kept netstackd busy.
     const LIVENESS_NS: u64 = 2_000_000_000;
 
-    fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
-        let reply = cached_reply_client().map_err(|_| ())?;
-        let (reply_send_slot, reply_recv_slot) = reply.slots();
-        let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-        client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
-        // The facade's answer, or its death (EOF on our own inbox) — no clock (P7-b).
+    /// One facade exchange: the answer is the frame carrying OUR op on the harness' shared
+    /// inbox (TASK-0054C P2-c) — anything queued ahead of it belongs to another probe and is
+    /// dropped. The facade's answer or its death ends the wait; no clock (P7-b).
+    fn rpc(client: &KernelClient, req: &[u8], op: u8) -> core::result::Result<[u8; 512], ()> {
         let mut buf = [0u8; 512];
-        nexus_ipc::exchange::recv_reply(reply_recv_slot, &mut buf).map_err(|_| ())?;
+        nexus_ipc::exchange::call_matching(client.slots().0, REPLY, req, &mut buf, |rsp| {
+            (rsp.len() >= 5 && rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[3] == (op | 0x80))
+                .then_some(())
+        })
+        .map_err(|_| ())?;
         Ok(buf)
     }
 
@@ -117,7 +120,7 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
     bind_req[3] = OP_UDP_BIND;
     bind_req[4..8].copy_from_slice(&[0, 0, 0, 0]);
     bind_req[8..10].copy_from_slice(&34_569u16.to_le_bytes());
-    let bind_rsp = rpc(&net, &bind_req)?;
+    let bind_rsp = rpc(&net, &bind_req, OP_UDP_BIND)?;
     if bind_rsp[0] != MAGIC0
         || bind_rsp[1] != MAGIC1
         || bind_rsp[2] != VERSION
@@ -180,7 +183,7 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
         req[12..14].copy_from_slice(&dst_port.to_le_bytes());
         req[14..16].copy_from_slice(&(payload.len() as u16).to_le_bytes());
         req[16..16 + payload.len()].copy_from_slice(payload);
-        let rsp = rpc(net, &req[..16 + payload.len()])?;
+        let rsp = rpc(net, &req[..16 + payload.len()], OP_UDP_SEND_TO)?;
         if rsp[0] == MAGIC0
             && rsp[1] == MAGIC1
             && rsp[2] == VERSION
@@ -205,7 +208,7 @@ pub(crate) fn dsoftbus_os_transport_probe() -> core::result::Result<(), ()> {
         req[3] = OP_UDP_RECV_FROM;
         req[4..8].copy_from_slice(&udp_id.to_le_bytes());
         req[8..10].copy_from_slice(&((out.len().min(460)) as u16).to_le_bytes());
-        let rsp = rpc(net, &req)?;
+        let rsp = rpc(net, &req, OP_UDP_RECV_FROM)?;
         if rsp[0] != MAGIC0
             || rsp[1] != MAGIC1
             || rsp[2] != VERSION

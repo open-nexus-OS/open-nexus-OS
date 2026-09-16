@@ -13,15 +13,13 @@ extern crate alloc;
 
 use alloc::format;
 use input_live_protocol::{decode_visible_state, encode_get_visible_state, VisibleState};
-use nexus_abi::{cap_clone, debug_println, yield_};
-use nexus_ipc::{Client as _, Wait};
+use nexus_abi::{debug_println, yield_};
 
 use crate::os_lite::boot_cfg;
 use crate::os_lite::display_observer::{
     display_bootstrap_ready, emit_missing_visible_input_bits, interactive_scene_ready,
     ProofVisibleInputWitness,
 };
-use crate::os_lite::ipc::clients::cached_reply_client;
 use crate::os_lite::ipc::routing::route_with_retry;
 use crate::runtime_mode::RuntimeMode;
 
@@ -126,15 +124,19 @@ pub(crate) fn interactive_live_tick() -> Option<VisibleState> {
 }
 
 fn fetch_live_visible_state() -> Option<VisibleState> {
-    let wait = Wait::Blocking;
     let client = route_with_retry("windowd").ok()?;
-    let reply = cached_reply_client().ok()?;
-    let (reply_send_slot, _) = reply.slots();
-    let reply_send_clone = cap_clone(reply_send_slot).ok()?;
     let request = encode_get_visible_state();
-    client.send_with_cap_move_wait(&request, reply_send_clone, wait).ok()?;
-    let frame = reply.recv(wait).ok()?;
-    decode_visible_state(&frame)
+    // The harness answers six services into ONE inbox: the answer is the frame windowd's
+    // decoder recognises, not the first frame queued (TASK-0054C P2-c).
+    let mut buf = [0u8; 512];
+    nexus_ipc::exchange::call_matching(
+        client.slots().0,
+        nexus_service_topology::slots::selftest_client::REPLY,
+        &request,
+        &mut buf,
+        decode_visible_state,
+    )
+    .ok()
 }
 
 fn observe_live_visible_input_proof() -> Result<VisibleState, BootstrapFailure> {

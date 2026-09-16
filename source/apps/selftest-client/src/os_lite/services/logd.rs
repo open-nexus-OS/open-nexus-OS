@@ -217,28 +217,6 @@ pub(crate) fn logd_stats_total(logd: &KernelClient) -> core::result::Result<u64,
     Err(())
 }
 
-pub(crate) fn logd_query_count(logd: &KernelClient) -> core::result::Result<u64, ()> {
-    static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(2000);
-    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    let mut frame = [0u8; 12];
-    frame[0] = nexus_ipc::logd_wire::MAGIC0;
-    frame[1] = nexus_ipc::logd_wire::MAGIC1;
-    frame[2] = nexus_ipc::logd_wire::VERSION_V2;
-    frame[3] = nexus_ipc::logd_wire::OP_STATS;
-    frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-    nexus_ipc::Client::send(logd, &frame, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
-    let rsp = nexus_ipc::Client::recv(logd, nexus_ipc::Wait::Blocking).map_err(|_| ())?;
-    let (got_nonce, p) =
-        nexus_ipc::logd_wire::parse_stats_response_prefix_v2(&rsp).map_err(|_| ())?;
-    if got_nonce != nonce {
-        return Err(());
-    }
-    if p.status != nexus_ipc::logd_wire::STATUS_OK {
-        return Err(());
-    }
-    Ok(p.total_records)
-}
-
 pub(crate) fn logd_query_contains_since_paged(
     logd: &KernelClient,
     since_nsec: u64,

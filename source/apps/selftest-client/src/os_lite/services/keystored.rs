@@ -16,7 +16,7 @@ extern crate alloc;
 
 use nexus_abi::MsgHeader;
 use nexus_ipc::exchange;
-use nexus_ipc::{KernelClient, Wait as IpcWait};
+use nexus_ipc::KernelClient;
 
 use super::super::ipc::routing::route_with_retry;
 use crate::markers::emit_line;
@@ -137,13 +137,6 @@ pub(crate) fn keystored_cap_move_probe(
     // Use existing keystored v1 GET(miss) but receive reply via CAP_MOVE reply cap.
     emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_BEGIN);
     let keystored = route_with_retry("keystored")?;
-    let reply_send_clone = match nexus_abi::cap_clone(reply_send_slot) {
-        Ok(slot) => slot,
-        Err(_) => {
-            emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_CLONE_FAIL);
-            return Err(());
-        }
-    };
 
     // Keystore GET miss for key "capmove.miss".
     let key = b"capmove.miss";
@@ -156,26 +149,25 @@ pub(crate) fn keystored_cap_move_probe(
     req.extend_from_slice(&0u16.to_le_bytes()); // val_len=0
     req.extend_from_slice(key);
 
-    if keystored.send_with_cap_move_wait(&req, reply_send_clone, IpcWait::Blocking).is_err() {
-        emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_SEND_FAIL);
-        return Err(());
-    }
-
-    // WAIT on the reply inbox for our GET-miss answer — no clock: the answer, or keystored's
+    // ONE exchange on the harness' shared inbox: the moved cap is a SEND clone of that inbox,
+    // and the answer is the frame carrying OUR op — everything queued ahead of it belongs to
+    // another probe and is dropped (TASK-0054C P2-c). No clock: the answer, or keystored's
     // death (EOF: it holds the moved reply cap, we are the inbox owner).
     let mut buf = [0u8; 128];
-    while let Ok(n) = exchange::recv_reply(reply_recv_slot, &mut buf) {
-        let rsp = &buf[..core::cmp::min(n, buf.len())];
+    let inbox = nexus_service_topology::SlotPair::new(reply_send_slot, reply_recv_slot);
+    if exchange::call_matching(keystored.slots().0, inbox, &req, &mut buf, |rsp| {
         // Expect: [K,S,ver,OP_GET|0x80,status,val_len]
-        if rsp.len() >= 7
+        (rsp.len() >= 7
             && rsp[0] == b'K'
             && rsp[1] == b'S'
             && rsp[2] == 1
             && rsp[3] == (2 | 0x80)
-            && rsp[4] == 1
-        {
-            return Ok(());
-        }
+            && rsp[4] == 1)
+            .then_some(())
+    })
+    .is_ok()
+    {
+        return Ok(());
     }
     emit_line(crate::markers::M_SELFTEST_KEYSTORED_CAPMOVE_NO_REPLY);
     Err(())

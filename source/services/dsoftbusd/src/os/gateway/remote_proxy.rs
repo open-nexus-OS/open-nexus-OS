@@ -17,7 +17,6 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
-use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::{Client, KernelClient, Wait};
 use statefs::protocol as sfp;
 
@@ -36,7 +35,6 @@ static STATEFS_PROXY_NONCE: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn run_remote_proxy_loop(
     transport: &mut nexus_noise_xk::Transport,
-    pending_replies: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -81,25 +79,17 @@ pub(crate) fn run_remote_proxy_loop(
     let mut statefs_dep_ok_logged = false;
     let mut pkgfs_served_logged = false;
     let mut statefs_served_logged = false;
+    // The declared reply inbox both proxied service legs wait on (TASK-0054C P2-c).
+    let reply = nexus_service_topology::SlotPair::new(reply_send_slot, reply_recv_slot);
     let _ = nexus_abi::trace_line("dsoftbusd: remote proxy up");
     let mut rx_logged = false;
     let mut proxy_io_retry_logged = false;
-    let mut samgr_rsp_head_logged = false;
-    let mut bundle_rsp_head_logged = false;
     let mut proxy_rsp_write_ok_logged = false;
     let mut proxy_rsp_write_fail_logged = false;
     loop {
         let mut ciph = [0u8; REQ_CIPH];
-        if stream_read_exact(
-            pending_replies,
-            nonce_ctr,
-            net,
-            sid,
-            &mut ciph,
-            reply_recv_slot,
-            reply_send_slot,
-        )
-        .is_err()
+        if stream_read_exact(nonce_ctr, net, sid, &mut ciph, reply_recv_slot, reply_send_slot)
+            .is_err()
         {
             if !proxy_io_retry_logged {
                 proxy_io_retry_logged = true;
@@ -138,38 +128,23 @@ pub(crate) fn run_remote_proxy_loop(
                 if req.len() < 5 || req[0] != b'S' || req[1] != b'M' || req[2] != 1 {
                     status = 1;
                 } else {
-                    // CAP_MOVE reply: move a cloned reply SEND cap so samgrd can respond on it.
-                    let cap = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-                    samgrd.send_with_cap_move_wait(req, cap, Wait::Blocking).map_err(|_| {
-                        let _ = nexus_abi::cap_close(cap);
-                        ()
-                    })?;
-                    // Receive response on our deterministic reply inbox (bounded, non-blocking).
+                    // The answer is the frame that carries samgrd's magic. This inbox is
+                    // shared with dsoftbusd's netstack legs and its logd sink, and taking the
+                    // FIRST frame off it proxied whatever was queued — a stale `NS` reply, a
+                    // logd ack — to the remote peer as the service answer (TASK-0054C P2-c;
+                    // the removed `proxy samgr rsp head ns` diagnostic was this bug's witness).
                     let mut buf = [0u8; 512];
-                    // ONE waited receive on the reply inbox (TASK-0324 P7-d): the answer, or the
-                    // peer's death (EOF) — no clock, no re-poll.
-                    let mut got = false;
-                    if let Ok(n) = nexus_ipc::exchange::recv_reply(reply_recv_slot, &mut buf) {
-                        let n = core::cmp::min(n as usize, buf.len());
-                        if !samgr_rsp_head_logged {
-                            samgr_rsp_head_logged = true;
-                            // #region agent log
-                            let _ = if n >= 2 && buf[0] == b'S' && buf[1] == b'M' {
-                                nexus_abi::debug_println("dbg:dsoftbusd: proxy samgr rsp head sm")
-                            } else if n >= 2 && buf[0] == b'N' && buf[1] == b'S' {
-                                nexus_abi::debug_println("dbg:dsoftbusd: proxy samgr rsp head ns")
-                            } else {
-                                nexus_abi::debug_println(
-                                    "dbg:dsoftbusd: proxy samgr rsp head other",
-                                )
-                            };
-                            // #endregion
-                        }
-                        rsp_payload.extend_from_slice(&buf[..n]);
-                        got = true;
-                    }
-                    if !got {
-                        status = 1;
+                    match nexus_ipc::exchange::call_matching(
+                        samgrd.slots().0,
+                        reply,
+                        req,
+                        &mut buf,
+                        |rsp| {
+                            (rsp.len() >= 2 && rsp[0] == b'S' && rsp[1] == b'M').then(|| rsp.len())
+                        },
+                    ) {
+                        Ok(n) => rsp_payload.extend_from_slice(&buf[..n]),
+                        Err(_) => status = 1,
                     }
                     let _ = nexus_abi::debug_println(
                         "dsoftbusd: remote proxy ok (peer=node-a service=samgrd)",
@@ -177,34 +152,17 @@ pub(crate) fn run_remote_proxy_loop(
                 }
             }
             SVC_BUNDLE_LIST => {
-                let cap = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-                bundlemgrd.send_with_cap_move_wait(req, cap, Wait::Blocking).map_err(|_| {
-                    let _ = nexus_abi::cap_close(cap);
-                    ()
-                })?;
+                // Same shared inbox, same rule: the answer carries bundlemgrd's magic.
                 let mut buf = [0u8; 512];
-                // ONE waited receive on the reply inbox (TASK-0324 P7-d): the answer, or the
-                // peer's death (EOF) — no clock, no re-poll.
-                let mut got = false;
-                if let Ok(n) = nexus_ipc::exchange::recv_reply(reply_recv_slot, &mut buf) {
-                    let n = core::cmp::min(n as usize, buf.len());
-                    if !bundle_rsp_head_logged {
-                        bundle_rsp_head_logged = true;
-                        // #region agent log
-                        let _ = if n >= 2 && buf[0] == b'B' && buf[1] == b'N' {
-                            nexus_abi::debug_println("dbg:dsoftbusd: proxy bundle rsp head bn")
-                        } else if n >= 2 && buf[0] == b'N' && buf[1] == b'S' {
-                            nexus_abi::debug_println("dbg:dsoftbusd: proxy bundle rsp head ns")
-                        } else {
-                            nexus_abi::debug_println("dbg:dsoftbusd: proxy bundle rsp head other")
-                        };
-                        // #endregion
-                    }
-                    rsp_payload.extend_from_slice(&buf[..n]);
-                    got = true;
-                }
-                if !got {
-                    status = 1;
+                match nexus_ipc::exchange::call_matching(
+                    bundlemgrd.slots().0,
+                    reply,
+                    req,
+                    &mut buf,
+                    |rsp| (rsp.len() >= 2 && rsp[0] == b'B' && rsp[1] == b'N').then(|| rsp.len()),
+                ) {
+                    Ok(n) => rsp_payload.extend_from_slice(&buf[..n]),
+                    Err(_) => status = 1,
                 }
                 let _ = nexus_abi::debug_println(
                     "dsoftbusd: remote proxy ok (peer=node-a service=bundlemgrd)",
@@ -264,13 +222,8 @@ pub(crate) fn run_remote_proxy_loop(
                         let _ =
                             nexus_abi::debug_println("dbg:dsoftbusd: remote proxy dep statefsd ok");
                     }
-                    let (statefs_rsp, served_ok, audit_label) = handle_statefs_rw_request(
-                        true,
-                        req,
-                        &statefsd,
-                        reply_send_slot,
-                        reply_recv_slot,
-                    );
+                    let (statefs_rsp, served_ok, audit_label) =
+                        handle_statefs_rw_request(true, req, &statefsd);
                     status = 0;
                     rsp_payload = statefs_rsp;
                     if let Some(label) = audit_label {
@@ -317,16 +270,8 @@ pub(crate) fn run_remote_proxy_loop(
         if n != RSP_CIPH {
             continue;
         }
-        if stream_write_all(
-            pending_replies,
-            nonce_ctr,
-            net,
-            sid,
-            &rsp_ciph,
-            reply_recv_slot,
-            reply_send_slot,
-        )
-        .is_err()
+        if stream_write_all(nonce_ctr, net, sid, &rsp_ciph, reply_recv_slot, reply_send_slot)
+            .is_err()
         {
             if !proxy_rsp_write_fail_logged {
                 proxy_rsp_write_fail_logged = true;
@@ -476,8 +421,6 @@ fn handle_statefs_rw_request(
     authenticated: bool,
     req: &[u8],
     statefsd: &KernelClient,
-    _reply_send_slot: u32,
-    _reply_recv_slot: u32,
 ) -> (Vec<u8>, bool, Option<&'static str>) {
     let op_for_error = stfs::op_from_frame(req).unwrap_or(sfp::OP_SYNC);
     let parsed = match stfs::parse_request(req, authenticated) {

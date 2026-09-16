@@ -11,9 +11,9 @@
 //! TEST_COVERAGE: QEMU marker `SELFTEST: icmp ping ok` via `just test-os`.
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
-use nexus_ipc::KernelClient;
+use nexus_service_topology::slots::selftest_client::REPLY;
 
-use super::super::ipc::clients::{cached_netstackd_client, cached_reply_client};
+use super::super::ipc::clients::cached_netstackd_client;
 
 /// ICMP ping proof via netstackd IPC facade (TASK-0004).
 pub(crate) fn icmp_ping_probe() -> core::result::Result<(), ()> {
@@ -22,16 +22,6 @@ pub(crate) fn icmp_ping_probe() -> core::result::Result<(), ()> {
     const VERSION: u8 = 1;
     const OP_ICMP_PING: u8 = 9;
     const STATUS_OK: u8 = 0;
-
-    fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
-        let reply = cached_reply_client().map_err(|_| ())?;
-        let (reply_send_slot, reply_recv_slot) = reply.slots();
-        let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-        client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
-        // One waited receive (TASK-0324 P7-d): the answer, or netstackd's death.
-        let mut buf = [0u8; 512];
-        nexus_ipc::exchange::recv_reply(reply_recv_slot, &mut buf).map(|_| buf).map_err(|_| ())
-    }
 
     // Connect to netstackd
     let netstackd = cached_netstackd_client().map_err(|_| ())?;
@@ -49,16 +39,20 @@ pub(crate) fn icmp_ping_probe() -> core::result::Result<(), ()> {
     req[4..8].copy_from_slice(&gateway_ip);
     req[8..10].copy_from_slice(&timeout_ms.to_le_bytes());
 
-    let rsp = rpc(&netstackd, &req)?;
-
-    // Validate response: [magic, magic, ver, op|0x80, status, ...]
-    if rsp[0] != MAGIC0 || rsp[1] != MAGIC1 || rsp[2] != VERSION {
-        return Err(());
-    }
-    if rsp[3] != (OP_ICMP_PING | 0x80) {
-        return Err(());
-    }
-    if rsp[4] != STATUS_OK {
+    // The answer is the frame carrying OUR op on the harness' shared inbox (TASK-0054C P2-c);
+    // the wait ends on that frame or on netstackd's death, never on a clock.
+    let mut buf = [0u8; 512];
+    let status =
+        nexus_ipc::exchange::call_matching(netstackd.slots().0, REPLY, &req, &mut buf, |rsp| {
+            (rsp.len() >= 5
+                && rsp[0] == MAGIC0
+                && rsp[1] == MAGIC1
+                && rsp[2] == VERSION
+                && rsp[3] == (OP_ICMP_PING | 0x80))
+                .then(|| rsp[4])
+        })
+        .map_err(|_| ())?;
+    if status != STATUS_OK {
         return Err(());
     }
 

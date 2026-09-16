@@ -16,7 +16,7 @@ use alloc::boxed::Box;
 
 use core::fmt;
 use nexus_abi::{cap_close, debug_putc, nsec, service_id_from_name, yield_};
-use nexus_ipc::{KernelServer, Server as _, Wait};
+use nexus_ipc::{KernelServer, Wait};
 
 use crate::journal::{Journal, RecordId, TimestampNsec};
 use crate::protocol::{
@@ -95,10 +95,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut fallback_ts: u64 = 0;
     let mut last_ts: u64 = 0;
     let mut saw_any_rx = false;
-    let mut saw_drop_nonself = false;
-    let mut saw_allow_selftest = false;
     let mut saw_selftest_append = false;
-    let mut saw_selftest_query = false;
     let mut saw_any_append = false;
     let mut saw_any_append_rsp = false;
     let mut saw_reject_invalid_args = false;
@@ -173,27 +170,16 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         saw_any_append_rsp = true;
                     }
                 }
-                if reply.is_none() && sender_service_id == selftest_sid {
-                    let op = frame.get(3).copied().unwrap_or(0);
-                    if op == OP_APPEND && !saw_selftest_append {
-                        emit_line("logd: selftest append rx");
-                        saw_selftest_append = true;
-                    } else if op == OP_QUERY && !saw_selftest_query {
-                        emit_line("logd: selftest query rx");
-                        let stats = journal.stats();
-                        emit_line_no_nl("logd: used_records=0x");
-                        emit_hex_u64(stats.used_records as u64);
-                        emit_line("");
-                        let rsp_bytes = rsp.as_slice();
-                        if rsp_bytes.len() >= 23 {
-                            let count = u16::from_le_bytes([rsp_bytes[21], rsp_bytes[22]]);
-                            emit_line_no_nl("logd: query rsp count=0x");
-                            emit_hex_u8((count >> 8) as u8);
-                            emit_hex_u8((count & 0xff) as u8);
-                            emit_line("");
-                        }
-                        saw_selftest_query = true;
-                    }
+                // The one witness that a cap-less line reaches the journal: the harness' own
+                // nexus-log sink. Every REQUEST in the tree moves a reply cap, so the QUERY arm
+                // that used to sit here could not fire any more (TASK-0054C P2-c).
+                if reply.is_none()
+                    && sender_service_id == selftest_sid
+                    && !saw_selftest_append
+                    && frame.get(3).copied() == Some(OP_APPEND)
+                {
+                    emit_line("logd: selftest append rx");
+                    saw_selftest_append = true;
                 }
                 // If a reply cap was moved, reply on it and close it.
                 if let Some(reply) = reply {
@@ -206,29 +192,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         emit_line("logd: capmove reply send fail");
                     }
                     let _ = cap_close(cap_slot as u32);
-                } else {
-                    // Only the selftest-client has a dedicated response channel to logd.
-                    // For all other senders, require CAP_MOVE so we don't spam the selftest queue.
-                    if sender_service_id == selftest_sid {
-                        if !saw_allow_selftest {
-                            emit_line("logd: allow selftest replies");
-                            saw_allow_selftest = true;
-                        }
-                        let sent = server.send(rsp.as_slice(), Wait::Blocking);
-                        if sent.is_err() {
-                            emit_line("logd: selftest reply send fail");
-                        }
-                    } else if !saw_drop_nonself {
-                        // Diagnostic marker: prove what identity the kernel reports, and what op we saw.
-                        let op = frame.get(3).copied().unwrap_or(0);
-                        emit_line_no_nl("logd: drop nonself sid=0x");
-                        emit_hex_u64(sender_service_id);
-                        emit_line_no_nl(" op=0x");
-                        emit_hex_u8(op);
-                        emit_line("");
-                        saw_drop_nonself = true;
-                    }
                 }
+                // No moved cap: the record is journalled above and the response is dropped
+                // (TASK-0054C P2-c). A cap-less APPEND is a fire-and-forget log line whose
+                // sender has no inbox for an ack, and answering on logd's own shared response
+                // endpoint would rot replies in a queue nobody reads — the 0049B wedge class,
+                // and a blocking send into it would take logd down with it.
                 // RFC-0068 P4: the shell is on screen — boot settled; render the per-subject
                 // journal verdicts once. Interactive only — proof keeps the raw records.
                 if shell_visible
@@ -774,19 +743,4 @@ fn emit_hex_u8(value: u8) {
     }
     let _ = debug_putc(hex((value >> 4) & 0x0f));
     let _ = debug_putc(hex(value & 0x0f));
-}
-
-fn emit_hex_u64(value: u64) {
-    fn hex(n: u8) -> u8 {
-        if n < 10 {
-            b'0' + n
-        } else {
-            b'a' + (n - 10)
-        }
-    }
-    // Print fixed-width 16 hex digits for stable parsing.
-    for shift in (0..16).rev() {
-        let nib = ((value >> (shift * 4)) & 0x0f) as u8;
-        let _ = debug_putc(hex(nib));
-    }
 }

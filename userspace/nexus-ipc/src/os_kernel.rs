@@ -118,34 +118,6 @@ impl KernelClient {
         (self.send_slot, self.recv_slot)
     }
 
-    /// Sends a frame and moves one capability alongside the message.
-    ///
-    /// `cap_slot_to_move` is a cap slot in the caller that will be consumed by the kernel and
-    /// delivered to the receiver.
-    pub fn send_with_cap_move(&self, frame: &[u8], cap_slot_to_move: u32) -> Result<()> {
-        self.send_with_cap_move_wait(frame, cap_slot_to_move, Wait::NonBlocking)
-    }
-
-    /// Sends a frame and moves one capability alongside the message, with the given wait policy.
-    pub fn send_with_cap_move_wait(
-        &self,
-        frame: &[u8],
-        cap_slot_to_move: u32,
-        wait: Wait,
-    ) -> Result<()> {
-        let flags = wait_flags(wait);
-        let hdr = nexus_abi::MsgHeader::new(
-            cap_slot_to_move,
-            0,
-            0,
-            nexus_abi::ipc_hdr::CAP_MOVE,
-            frame.len() as u32,
-        );
-        nexus_abi::ipc_send_v1(self.send_slot, &hdr, frame, flags, 0)
-            .map(|_| ())
-            .map_err(|e| map_send_err(e, wait))
-    }
-
     /// Receives a response into a caller-provided buffer, returning the frame length.
     ///
     /// Allocation-free counterpart to [`Client::recv`] (which returns a freshly

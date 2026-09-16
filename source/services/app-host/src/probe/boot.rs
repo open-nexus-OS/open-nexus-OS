@@ -337,7 +337,7 @@ pub(super) fn send_wait_cap(
     frame: &[u8],
     cap: u32,
 ) -> Result<(), &'static str> {
-    if client.send_with_cap_move_wait(frame, cap, Wait::Blocking).is_ok() {
+    if nexus_ipc::exchange::send_with_cap(client.slots().0, frame, cap).is_ok() {
         return Ok(());
     }
     let _ = debug_println("apphost: FAIL create send");

@@ -793,29 +793,14 @@ pub mod client {
             reply_send: u32,
             reply_recv: u32,
         ) -> Result<u8, ClientError> {
-            let moved = nexus_abi::cap_clone(reply_send).map_err(|_| ClientError::Transport)?;
-            if self.ipc.send_with_cap_move_wait(frame, moved, Wait::Blocking).is_err() {
-                let _ = nexus_abi::cap_close(moved);
-                return Err(ClientError::Transport);
-            }
             // No clock (TASK-0324 P7-d): the answer on our inbox, or metricsd's death (EOF —
             // it holds the moved cap). Foreign frames (late replies) are dropped.
-            loop {
-                let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-                let mut buf = [0u8; 256];
-                let n = nexus_abi::ipc_recv_v1(
-                    reply_recv,
-                    &mut hdr,
-                    &mut buf,
-                    nexus_abi::IPC_SYS_TRUNCATE | nexus_abi::IPC_SYS_EOF,
-                    0,
-                )
-                .map_err(|_| ClientError::Transport)?;
-                let n = (n as usize).min(buf.len());
-                if let Ok(status) = decode_status_response(&buf[..n], op, nonce) {
-                    return Ok(status);
-                }
-            }
+            let reply = nexus_ipc::SlotPair::new(reply_send, reply_recv);
+            let mut buf = [0u8; 256];
+            nexus_ipc::exchange::call_matching(self.ipc.slots().0, reply, frame, &mut buf, |rsp| {
+                decode_status_response(rsp, op, nonce).ok()
+            })
+            .map_err(|_| ClientError::Transport)
         }
     }
 

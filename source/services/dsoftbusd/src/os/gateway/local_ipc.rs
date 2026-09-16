@@ -15,7 +15,6 @@
 //! ADR: docs/adr/0005-dsoftbus-architecture.md
 
 use alloc::vec::Vec;
-use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::{KernelClient, KernelServer, Server as _, Wait};
 
 use crate::os::gateway::packagefs_ro as pkg;
@@ -43,7 +42,6 @@ pub(crate) const LSTATUS_FAIL: u8 = 1;
 
 fn remote_exchange(
     transport: &mut nexus_noise_xk::Transport,
-    pending_replies: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -62,26 +60,10 @@ fn remote_exchange(
     if n != REQ_CIPH {
         return Err(());
     }
-    stream_write_all(
-        pending_replies,
-        nonce_ctr,
-        net,
-        sid,
-        &ciph,
-        reply_recv_slot,
-        reply_send_slot,
-    )?;
+    stream_write_all(nonce_ctr, net, sid, &ciph, reply_recv_slot, reply_send_slot)?;
 
     let mut rsp_ciph = [0u8; RSP_CIPH];
-    stream_read_exact(
-        pending_replies,
-        nonce_ctr,
-        net,
-        sid,
-        &mut rsp_ciph,
-        reply_recv_slot,
-        reply_send_slot,
-    )?;
+    stream_read_exact(nonce_ctr, net, sid, &mut rsp_ciph, reply_recv_slot, reply_send_slot)?;
     let mut rsp_plain = [0u8; RSP_PLAIN];
     let n = transport.decrypt(&rsp_ciph, &mut rsp_plain).map_err(|_| ())?;
     if n != RSP_PLAIN {
@@ -92,7 +74,6 @@ fn remote_exchange(
 
 pub(crate) fn run_local_ipc_loop(
     transport: &mut nexus_noise_xk::Transport,
-    pending_replies: &mut ReplyBuffer<16, 512>,
     nonce_ctr: &mut u64,
     net: &KernelClient,
     sid: SessionId,
@@ -180,7 +161,6 @@ pub(crate) fn run_local_ipc_loop(
                                     return Err(());
                                 }
                                 stream_write_all(
-                                    pending_replies,
                                     nonce_ctr,
                                     net,
                                     sid,
@@ -191,7 +171,6 @@ pub(crate) fn run_local_ipc_loop(
 
                                 let mut rsp_ciph = [0u8; RSP_CIPH];
                                 stream_read_exact(
-                                    pending_replies,
                                     nonce_ctr,
                                     net,
                                     sid,
@@ -253,7 +232,6 @@ pub(crate) fn run_local_ipc_loop(
                             return Err(());
                         }
                         stream_write_all(
-                            pending_replies,
                             nonce_ctr,
                             net,
                             sid,
@@ -264,7 +242,6 @@ pub(crate) fn run_local_ipc_loop(
 
                         let mut rsp_ciph = [0u8; RSP_CIPH];
                         stream_read_exact(
-                            pending_replies,
                             nonce_ctr,
                             net,
                             sid,
@@ -343,7 +320,6 @@ pub(crate) fn run_local_ipc_loop(
                             let remote_result: core::result::Result<(), ()> = (|| {
                                 let rsp = remote_exchange(
                                     transport,
-                                    pending_replies,
                                     nonce_ctr,
                                     net,
                                     sid,
@@ -424,7 +400,6 @@ pub(crate) fn run_local_ipc_loop(
                         let remote_result: core::result::Result<(), ()> = (|| {
                             let rsp = remote_exchange(
                                 transport,
-                                pending_replies,
                                 nonce_ctr,
                                 net,
                                 sid,
@@ -498,7 +473,6 @@ pub(crate) fn run_local_ipc_loop(
                         let remote_result: core::result::Result<(), ()> = (|| {
                             let rsp = remote_exchange(
                                 transport,
-                                pending_replies,
                                 nonce_ctr,
                                 net,
                                 sid,
@@ -573,7 +547,6 @@ pub(crate) fn run_local_ipc_loop(
                             let remote_result: core::result::Result<(), ()> = (|| {
                                 let rsp = remote_exchange(
                                     transport,
-                                    pending_replies,
                                     nonce_ctr,
                                     net,
                                     sid,

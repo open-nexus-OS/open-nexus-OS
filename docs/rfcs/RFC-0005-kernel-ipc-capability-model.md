@@ -288,8 +288,13 @@ Recommended userspace pattern:
 
 Userspace convenience API note:
 
-- `userspace/nexus-ipc` kernel backend exposes `send_with_cap_move_wait(...)` and
-  `ReplyCap::reply_and_close_wait(...)` so CAP_MOVE can use blocking/timeout waits when needed.
+- `userspace/nexus-ipc` exposes CAP_MOVE through `exchange` and nothing else (TASK-0054C P2-c):
+  `call_into`/`call_matching` move a clone of the caller's reply SEND cap and WAIT for the answer,
+  `send_with_cap` moves a cap that is DATA (a VMO, a push channel) with nothing to await, and
+  `send_nonblocking` moves no cap at all. The convenience helper this note used to name
+  (`send_with_cap_move_wait`) is deleted: a send that moved a reply cap without reading the answer
+  left the ack on an inbox shared with real exchanges, where the next exchange read it as its own.
+  Servers reply through `ReplyCap::reply_and_close(_wait)`.
 - **“Handle ids” carried in IDL are capability slot indices.** On OS builds, a `vmoHandle` value
   is the integer capability slot for a VMO-capability in the sender’s task; it is only meaningful
   if the receiver also has (or is granted) the corresponding capability.

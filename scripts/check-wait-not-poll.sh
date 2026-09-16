@@ -8,11 +8,15 @@
 # `IPC_SYS_NONBLOCK`, `*_nb(`) with `yield_()` AND a wall-clock or attempt bound (`nsec()`,
 # `deadline`, `for _ in 0..N`): that is a poll against a clock, the shape that made a live peer
 # under host load indistinguishable from a dead one. Two rules:
-#   1. The retired spin helpers stay retired (`retry_ipc_until`, `Clock::yield_now`,
-#      `recv_match_bounded`, `routing_v1_get`, `wait_for_slots_ready`) — and since TASK-0054C
-#      P2-a the deleted clock forms of `nexus_ipc` too (`recv_match_until`, `deadline_after`,
-#      `send_until`, `recv_until`, `recv_matching_until`, `send_budgeted`, `recv_budgeted`,
-#      `OsClock`, `HostClock`, `Wait::Timeout`): they have no definition left to call.
+#   1. A deleted IPC form does not come back. The retired spin helpers (`retry_ipc_until`,
+#      `Clock::yield_now`, `recv_match_bounded`, `routing_v1_get`, `wait_for_slots_ready`), the
+#      clock forms TASK-0054C P2-a deleted (`recv_match_until`, `deadline_after`, `send_until`,
+#      `recv_until`, `recv_matching_until`, `send_budgeted`, `recv_budgeted`, `OsClock`,
+#      `HostClock`, `Wait::Timeout`) and the pairing helper P2-c deleted
+#      (`send_with_cap_move`): none has a definition left to call. A request/reply is
+#      `nexus_ipc::exchange::{call_into, call_matching}`; a send whose moved cap is DATA is
+#      `exchange::send_with_cap`; a fire-and-forget frame moves NO cap at all, so no ack can
+#      rot on a reply inbox nobody reads.
 #   2. No function polls against a clock — ZERO, fleet-wide (the ratchet P7-a started reached
 #      0 with P7-d; the baseline file is gone).
 #   3. No clock-bound wait form decides a request/reply — ZERO: `Wait::Timeout(`,
@@ -175,7 +179,7 @@ PY
 retired() {
   # Rule 1: the spin helpers do not come back (declarations and calls; a comment naming
   # them as history is not a resurrection).
-  grep -rnE "\b(retry_ipc_until|retry_ipc_budgeted|recv_match_bounded|routing_v1_get|wait_for_slots_ready|recv_match_until|deadline_after|send_until|recv_until|recv_matching_until|send_budgeted|recv_budgeted|OsClock|HostClock)\b|fn yield_now\(|Wait::Timeout" \
+  grep -rnE "\b(retry_ipc_until|retry_ipc_budgeted|recv_match_bounded|routing_v1_get|wait_for_slots_ready|recv_match_until|deadline_after|send_until|recv_until|recv_matching_until|send_budgeted|recv_budgeted|OsClock|HostClock|send_with_cap_move|send_with_cap_move_wait)\b|fn yield_now\(|Wait::Timeout" \
     --include='*.rs' "$@" 2>/dev/null | grep -v '/tests/' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true
 }
 
@@ -217,8 +221,8 @@ RS
   [ "$got" = "2 $tmp/svc/src/os_lite.rs: poll_reply,raw_poll" ] || {
     echo "[FAIL] wait-not-poll: scanner self-test expected 2 hits (poll_reply,raw_poll), got: $got" >&2; exit 1; }
   [ -z "$(scan "$tmp/clean")" ] || { echo "[FAIL] wait-not-poll: scanner flags a clean wait" >&2; exit 1; }
-  printf '// history: retry_ipc_until once lived here\nfn x() { retry_ipc_until(&c, d, || op()); }\n' > "$tmp/clean/src/retired.rs"
-  [ "$(retired "$tmp/clean" | wc -l)" = "1" ] || { echo "[FAIL] wait-not-poll: retired-symbol rule must catch the call and skip the comment" >&2; exit 1; }
+  printf '// history: retry_ipc_until once lived here\nfn x() { retry_ipc_until(&c, d, || op()); }\nfn y(c: &KernelClient) { let _ = c.send_with_cap_move_wait(f, cap, Wait::Blocking); }\n' > "$tmp/clean/src/retired.rs"
+  [ "$(retired "$tmp/clean" | wc -l)" = "2" ] || { echo "[FAIL] wait-not-poll: retired-symbol rule must catch both retired calls and skip the comment" >&2; exit 1; }
   printf 'fn t(c: &KernelClient) { let _ = c.recv(Wait::Timeout(Duration::from_millis(5))); }\n' > "$tmp/clean/src/timeout.rs"
   [ "$(scan_timeouts "$tmp/clean" | grep -c 'src/timeout.rs$')" = "1" ] || { echo "[FAIL] wait-not-poll: timeout scanner missed the fixture" >&2; exit 1; }
   cat > "$tmp/clean/src/deadline.rs" <<'RS'
@@ -241,7 +245,7 @@ RS
   got=$(scan_deadlines "$tmp/clean")
   [ "$(printf '%s\n' "$got" | grep -c 'deadline.rs:3 ipc_recv_v1 deadline=deadline$')" = "1" ] && [ "$(printf '%s\n' "$got" | grep -c .)" = "1" ] || {
     echo "[FAIL] wait-not-poll: deadline scanner expected exactly the bounded recv, got: $got" >&2; exit 1; }
-  echo "[ok]   wait-not-poll: scanner self-test passed (2 poll shapes caught, drain + test module skipped, retired symbol caught, timeout form caught, raw deadline caught, waited forms clean)"
+  echo "[ok]   wait-not-poll: scanner self-test passed (2 poll shapes caught, drain + test module skipped, retired spin + pairing symbols caught, timeout form caught, raw deadline caught, waited forms clean)"
   exit 0
 fi
 

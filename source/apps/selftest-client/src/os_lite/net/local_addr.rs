@@ -11,10 +11,9 @@
 //! TEST_COVERAGE: Indirect via QEMU `just test-os` (DSoftBus discovery path).
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md, docs/rfcs/RFC-0038-*.md
 
-use nexus_abi::yield_;
-use nexus_ipc::KernelClient;
+use nexus_service_topology::slots::selftest_client::REPLY;
 
-use super::super::ipc::clients::{cached_netstackd_client, cached_reply_client};
+use super::super::ipc::clients::cached_netstackd_client;
 
 pub(crate) fn netstackd_local_addr() -> Option<[u8; 4]> {
     const MAGIC0: u8 = b'N';
@@ -23,41 +22,20 @@ pub(crate) fn netstackd_local_addr() -> Option<[u8; 4]> {
     const OP_LOCAL_ADDR: u8 = 10;
     const STATUS_OK: u8 = 0;
 
-    fn rpc(client: &KernelClient, req: &[u8]) -> core::result::Result<[u8; 512], ()> {
-        let reply = cached_reply_client().map_err(|_| ())?;
-        let (reply_send_slot, reply_recv_slot) = reply.slots();
-        let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-        client.send_with_cap_move(req, reply_send_clone).map_err(|_| ())?;
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 512];
-        for _ in 0..5_000 {
-            match nexus_abi::ipc_recv_v1(
-                reply_recv_slot,
-                &mut hdr,
-                &mut buf,
-                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-                0,
-            ) {
-                Ok(_n) => return Ok(buf),
-                Err(nexus_abi::IpcError::QueueEmpty) => {
-                    let _ = yield_();
-                }
-                Err(_) => return Err(()),
-            }
-        }
-        Err(())
-    }
-
     let net = cached_netstackd_client().ok()?;
     let req = [MAGIC0, MAGIC1, VERSION, OP_LOCAL_ADDR];
-    let rsp = rpc(&net, &req).ok()?;
-    if rsp[0] != MAGIC0
-        || rsp[1] != MAGIC1
-        || rsp[2] != VERSION
-        || rsp[3] != (OP_LOCAL_ADDR | 0x80)
-        || rsp[4] != STATUS_OK
-    {
-        return None;
-    }
-    Some([rsp[5], rsp[6], rsp[7], rsp[8]])
+    // This used to take the FIRST frame off the harness' shared inbox and read bytes 5..9 out
+    // of it, whatever protocol it belonged to; the answer is the frame that carries OUR op
+    // (TASK-0054C P2-c), and the 5 000-spin budget is gone with the poll.
+    let mut buf = [0u8; 512];
+    nexus_ipc::exchange::call_matching(net.slots().0, REPLY, &req, &mut buf, |rsp| {
+        (rsp.len() >= 9
+            && rsp[0] == MAGIC0
+            && rsp[1] == MAGIC1
+            && rsp[2] == VERSION
+            && rsp[3] == (OP_LOCAL_ADDR | 0x80)
+            && rsp[4] == STATUS_OK)
+            .then(|| [rsp[5], rsp[6], rsp[7], rsp[8]])
+    })
+    .ok()
 }

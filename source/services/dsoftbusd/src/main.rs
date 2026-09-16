@@ -26,8 +26,6 @@ mod os;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 fn os_entry() -> core::result::Result<(), ()> {
-    use nexus_ipc::reqrep::ReplyBuffer;
-
     // Boot determinism (soft-real-time start): dsoftbusd is BACKGROUND — self-lower to Idle QoS so it
     // runs after the display/input critical path (Normal) and never starves the first frame.
     #[cfg(nexus_env = "os")]
@@ -37,21 +35,15 @@ fn os_entry() -> core::result::Result<(), ()> {
     // before the task is resumed (TASK-0324 P4) — the 10 000-yield "waiting for slots" probe
     // that used to sit here waited for nothing (P7).
     let net = os::entry::init_netstack_client()?;
-    // The logd sink on the declared legs (ask-free, TASK-0324 P7-b).
-    {
-        let logd = nexus_service_topology::slots::dsoftbusd::LOGD;
-        let reply = nexus_service_topology::slots::dsoftbusd::REPLY;
-        nexus_log::configure_sink_logd_slots(logd.send, reply.send, reply.recv);
-    }
+    // The logd sink on the declared leg (ask-free, TASK-0324 P7-b).
+    nexus_log::configure_sink_logd(nexus_service_topology::slots::dsoftbusd::LOGD.send);
 
     let mut nonce_ctr: u64 = 1;
-    // Shared reply inbox correlation: keep a bounded buffer of unmatched netstackd replies keyed by nonce.
-    // This prevents silent drops when multiple netstackd ops share one reply inbox.
-    let mut pending_replies: ReplyBuffer<16, 512> = ReplyBuffer::new();
+    // Shared reply inbox correlation lives in the ONE netstack RPC (`os::netstack::rpc`): the
+    // answer is the frame carrying this op and this nonce (TASK-0054C P2-c).
 
     // Wait for netstackd to finish IPv4 configuration (DHCP or deterministic static fallback).
-    let local_ip =
-        os::entry::resolve_local_ip_with_wait(&mut pending_replies, &net, &mut nonce_ctr);
+    let local_ip = os::entry::resolve_local_ip_with_wait(&net, &mut nonce_ctr);
     let is_cross_vm = os::entry::is_cross_vm_ip(local_ip);
     if is_cross_vm {
         // Cross-VM mode (TASK-0005 / RFC-0010): real UDP datagrams + TCP sessions across two QEMU instances.
@@ -75,19 +67,13 @@ fn os_entry() -> core::result::Result<(), ()> {
 
     // UDP discovery socket bind (Phase 1): bind to 0.0.0.0:<port>.
     let disc_port: u16 = 37_020;
-    let udp_id = os::entry::bind_discovery_udp_with_wait(
-        &mut pending_replies,
-        &net,
-        &mut nonce_ctr,
-        disc_port,
-    );
+    let udp_id = os::entry::bind_discovery_udp_with_wait(&net, &mut nonce_ctr, disc_port);
 
     let port: u16 = 34_567;
     // A bring-up failure is the network family's known red (HOLD): the daemon HOLDS instead
     // of dying — an unsupervised error exit would fail every proof boot's death accounting
     // for a lane that is on hold by decision (TASK-0324 P7).
     let Ok((lid, transport_selection)) = os::session::single_vm::run_single_vm_dual_node_bringup(
-        &mut pending_replies,
         &net,
         &mut nonce_ctr,
         udp_id,
@@ -97,7 +83,6 @@ fn os_entry() -> core::result::Result<(), ()> {
         os::entry::hold_forever("dsoftbusd: single-vm bring-up rejected (held)");
     };
     os::session::selftest_server::run_selftest_server_loop(
-        &mut pending_replies,
         &net,
         &mut nonce_ctr,
         lid,

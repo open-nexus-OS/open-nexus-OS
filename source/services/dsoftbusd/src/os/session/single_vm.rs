@@ -13,7 +13,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use nexus_abi::yield_;
 use nexus_discovery_packet::{decode_announce_v1, encode_announce_v1, AnnounceV1};
-use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::KernelClient;
 use nexus_noise_xk::{
     StaticKeypair, Transport, XkInitiator, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN,
@@ -39,7 +38,6 @@ fn get_peer_ip(ips: &[(String, [u8; 4])], device_id: &str) -> Option<[u8; 4]> {
 }
 
 fn send_announce(
-    pending: &mut ReplyBuffer<16, 512>,
     net: &KernelClient,
     nonce_ctr: &mut u64,
     udp_id: u32,
@@ -66,7 +64,6 @@ fn send_announce(
     send[16 + bytes.len()..16 + bytes.len() + 8].copy_from_slice(&nonce.to_le_bytes());
     send[8..12].copy_from_slice(&LOCAL_IP);
     let rsp = crate::os::entry::rpc_nonce(
-        pending,
         net,
         &send[..hdr_len + bytes.len() + 8],
         OP_UDP_SEND_TO | 0x80,
@@ -80,7 +77,6 @@ fn send_announce(
 }
 
 pub(crate) fn run_single_vm_dual_node_bringup(
-    pending_replies: &mut ReplyBuffer<16, 512>,
     net: &KernelClient,
     nonce_ctr: &mut u64,
     udp_id: u32,
@@ -109,8 +105,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
             };
 
             let ok_b = match encode_announce_v1(&ann_b).ok() {
-                Some(b) => send_announce(pending_replies, net, nonce_ctr, udp_id, disc_port, &b)
-                    .unwrap_or(false),
+                Some(b) => send_announce(net, nonce_ctr, udp_id, disc_port, &b).unwrap_or(false),
                 None => false,
             };
 
@@ -132,14 +127,8 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         r[4..8].copy_from_slice(&udp_id.to_le_bytes());
         r[8..10].copy_from_slice(&(256u16).to_le_bytes());
         r[10..18].copy_from_slice(&recv_nonce.to_le_bytes());
-        let rsp = crate::os::entry::rpc_nonce(
-            pending_replies,
-            net,
-            &r,
-            OP_UDP_RECV_FROM | 0x80,
-            recv_nonce,
-        )
-        .map_err(|_| ())?;
+        let rsp = crate::os::entry::rpc_nonce(net, &r, OP_UDP_RECV_FROM | 0x80, recv_nonce)
+            .map_err(|_| ())?;
         if rsp[0] == MAGIC0
             && rsp[1] == MAGIC1
             && rsp[2] == VERSION
@@ -183,7 +172,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         let _ = yield_();
     }
 
-    let lid = crate::os::entry::listen_with_retry(pending_replies, net, nonce_ctr, port)?;
+    let lid = crate::os::entry::listen_with_retry(net, nonce_ctr, port)?;
     let _ = nexus_abi::trace_line("dsoftbusd: os transport up (udp+tcp)");
     let transport_selection = crate::os::entry::select_os_transport_for_session();
 
@@ -198,8 +187,7 @@ pub(crate) fn run_single_vm_dual_node_bringup(
     let nonce_b = crate::os::entry::next_nonce(nonce_ctr);
     req_b[6..14].copy_from_slice(&nonce_b.to_le_bytes());
     let rsp_b =
-        crate::os::entry::rpc_nonce(pending_replies, net, &req_b, OP_LISTEN | 0x80, nonce_b)
-            .map_err(|_| ())?;
+        crate::os::entry::rpc_nonce(net, &req_b, OP_LISTEN | 0x80, nonce_b).map_err(|_| ())?;
     if rsp_b[0] != MAGIC0
         || rsp_b[1] != MAGIC1
         || rsp_b[2] != VERSION
@@ -235,9 +223,8 @@ pub(crate) fn run_single_vm_dual_node_bringup(
         let _ = nexus_abi::debug_println("dsoftbusd: connect ip loopback BAD");
     }
 
-    let connect_result =
-        crate::os::entry::tcp_connect(pending_replies, net, nonce_ctr, peer_ip, peer_b.port);
-    let accept_result = crate::os::entry::tcp_accept(pending_replies, net, nonce_ctr, lid_b);
+    let connect_result = crate::os::entry::tcp_connect(net, nonce_ctr, peer_ip, peer_b.port);
+    let accept_result = crate::os::entry::tcp_accept(net, nonce_ctr, lid_b);
     let (sid_a, sid_b) = match (connect_result, accept_result) {
         (Ok(a), Ok(b)) => (a, b),
         _ => {
@@ -266,28 +253,24 @@ pub(crate) fn run_single_vm_dual_node_bringup(
 
     let mut msg1 = [0u8; MSG1_LEN];
     initiator.write_msg1(&mut msg1);
-    if crate::os::entry::dual_stream_write(pending_replies, net, nonce_ctr, sid_a, &msg1).is_err() {
+    if crate::os::entry::dual_stream_write(net, nonce_ctr, sid_a, &msg1).is_err() {
         crate::os::entry::hold_forever("dsoftbusd: dual-node msg1 write FAIL");
     }
 
     let mut msg1_recv = [0u8; MSG1_LEN];
-    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_b, &mut msg1_recv)
-        .is_err()
-    {
+    if crate::os::entry::dual_stream_read(net, nonce_ctr, sid_b, &mut msg1_recv).is_err() {
         crate::os::entry::hold_forever("dsoftbusd: dual-node msg1 read FAIL");
     }
     let mut msg2 = [0u8; MSG2_LEN];
     if responder.read_msg1_write_msg2(&msg1_recv, &mut msg2).is_err() {
         crate::os::entry::hold_forever("dsoftbusd: dual-node msg2 gen FAIL");
     }
-    if crate::os::entry::dual_stream_write(pending_replies, net, nonce_ctr, sid_b, &msg2).is_err() {
+    if crate::os::entry::dual_stream_write(net, nonce_ctr, sid_b, &msg2).is_err() {
         crate::os::entry::hold_forever("dsoftbusd: dual-node msg2 write FAIL");
     }
 
     let mut msg2_recv = [0u8; MSG2_LEN];
-    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_a, &mut msg2_recv)
-        .is_err()
-    {
+    if crate::os::entry::dual_stream_read(net, nonce_ctr, sid_a, &mut msg2_recv).is_err() {
         crate::os::entry::hold_forever("dsoftbusd: dual-node msg2 read FAIL");
     }
     let mut msg3 = [0u8; MSG3_LEN];
@@ -297,14 +280,12 @@ pub(crate) fn run_single_vm_dual_node_bringup(
             crate::os::entry::hold_forever("dsoftbusd: dual-node msg3 gen FAIL");
         }
     };
-    if crate::os::entry::dual_stream_write(pending_replies, net, nonce_ctr, sid_a, &msg3).is_err() {
+    if crate::os::entry::dual_stream_write(net, nonce_ctr, sid_a, &msg3).is_err() {
         crate::os::entry::hold_forever("dsoftbusd: dual-node msg3 write FAIL");
     }
 
     let mut msg3_recv = [0u8; MSG3_LEN];
-    if crate::os::entry::dual_stream_read(pending_replies, net, nonce_ctr, sid_b, &mut msg3_recv)
-        .is_err()
-    {
+    if crate::os::entry::dual_stream_read(net, nonce_ctr, sid_b, &mut msg3_recv).is_err() {
         crate::os::entry::hold_forever("dsoftbusd: dual-node msg3 read FAIL");
     }
     let transport_b = match responder.read_msg3_finish(&msg3_recv) {

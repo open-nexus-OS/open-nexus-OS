@@ -120,11 +120,14 @@ The contract must remain deterministic, bounded, and local-only for v1 to avoid 
   - producer -> `metricsd` via compact versioned byte frames for update operations,
   - `metricsd` -> `logd` via structured records through `nexus-log`.
 - **Sink wiring contract (`nexus-log` -> `logd`)**:
-  - services that receive deterministic init-lite capabilities SHOULD call
-    `configure_sink_logd_slots(logd_send, reply_send, reply_recv)` once at startup,
-  - when configured slots are valid, sink-logd MUST use them without route-control dependence,
-  - when not configured (or invalid), sink-logd MUST fall back to routed discovery (`logd` + `@reply`),
-  - sink-logd MUST NOT hardcode a service-specific direct-slot policy as global default behavior.
+  - a service binds the sink once at startup with `configure_sink_logd(logd_send)` — its DECLARED
+    `slots::<svc>::LOGD` leg from `nexus-service-topology`,
+  - sink-logd MUST NOT ask for a route: an ask has no clock, and a core service's first log line is
+    written inside the request init is synchronously waiting on (TASK-0324 P7-b). Unbound, a line
+    stays UART-only,
+  - a log line is fire-and-forget and MUST move NO reply capability (TASK-0054C P2-c). logd journals
+    the record before it decides where to reply and answers only a sender that moved a cap, so no
+    ack exists to rot on the caller's reply inbox and the sink has nothing to drain.
 - **Metric model**:
   - `Counter(u64)`: monotonic increment only.
   - `Gauge(i64)`: set/replace semantics.

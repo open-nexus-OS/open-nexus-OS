@@ -54,11 +54,11 @@ Reject categories:
 
 ## Deterministic export contract
 
-`metricsd` exports snapshots to `logd` through `nexus-log` sink wiring. Deterministic service startup may configure explicit slots through:
+`metricsd` exports snapshots to `logd` through `nexus-log` sink wiring. A service binds the sink once at startup to its DECLARED logd leg:
 
-- `configure_sink_logd_slots(logd_send, reply_send, reply_recv)`
+- `configure_sink_logd(logd_send)`
 
-Fallback remains routed `logd` + `@reply` discovery when explicit slots are not configured.
+There is no routed fallback: the sink never asks for a route (TASK-0324 P7-b), and unbound it leaves the line UART-only. A log line moves no reply capability, so it leaves no unread ack on the caller's reply inbox (TASK-0054C P2-c).
 
 ## Proof markers (QEMU)
 

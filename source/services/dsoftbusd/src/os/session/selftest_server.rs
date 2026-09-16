@@ -14,7 +14,6 @@ use super::quic_frame::{
     QUIC_OP_PONG,
 };
 use nexus_abi::yield_;
-use nexus_ipc::reqrep::ReplyBuffer;
 use nexus_ipc::KernelClient;
 use nexus_noise_xk::{StaticKeypair, Transport, XkResponder, MSG1_LEN, MSG2_LEN, MSG3_LEN};
 
@@ -147,22 +146,16 @@ fn run_mux_contract_selftest() -> bool {
     backpressure_ok
 }
 
-fn run_quic_udp_selftest_server_loop(
-    pending_replies: &mut ReplyBuffer<16, 512>,
-    net: &KernelClient,
-    nonce_ctr: &mut u64,
-    port: u16,
-) -> ! {
-    let udp_id =
-        match crate::os::entry::udp_bind(pending_replies, net, nonce_ctr, [0, 0, 0, 0], port) {
-            Ok(id) => id,
-            Err(()) => {
-                let _ = nexus_abi::debug_println("dsoftbusd: quic udp bind FAIL");
-                loop {
-                    let _ = yield_();
-                }
+fn run_quic_udp_selftest_server_loop(net: &KernelClient, nonce_ctr: &mut u64, port: u16) -> ! {
+    let udp_id = match crate::os::entry::udp_bind(net, nonce_ctr, [0, 0, 0, 0], port) {
+        Ok(id) => id,
+        Err(()) => {
+            let _ = nexus_abi::debug_println("dsoftbusd: quic udp bind FAIL");
+            loop {
+                let _ = yield_();
             }
-        };
+        }
+    };
 
     let server_static =
         StaticKeypair::from_secret(crate::os::entry::derive_test_secret(0xA0, port));
@@ -179,13 +172,7 @@ fn run_quic_udp_selftest_server_loop(
     let mut msg1 = [0u8; MSG1_LEN];
     let mut got_msg1 = false;
     for _ in 0..50_000 {
-        match crate::os::entry::udp_recv_from(
-            pending_replies,
-            net,
-            nonce_ctr,
-            udp_id,
-            &mut in_frame,
-        ) {
+        match crate::os::entry::udp_recv_from(net, nonce_ctr, udp_id, &mut in_frame) {
             Ok(Some((from_ip, from_port, n))) => {
                 let Some((op, nonce, payload)) = decode_quic_frame(&in_frame, n) else {
                     continue;
@@ -231,7 +218,6 @@ fn run_quic_udp_selftest_server_loop(
         }
     };
     if crate::os::entry::udp_send_to(
-        pending_replies,
         net,
         nonce_ctr,
         udp_id,
@@ -250,13 +236,7 @@ fn run_quic_udp_selftest_server_loop(
     let mut msg3 = [0u8; MSG3_LEN];
     let mut got_msg3 = false;
     for _ in 0..50_000 {
-        match crate::os::entry::udp_recv_from(
-            pending_replies,
-            net,
-            nonce_ctr,
-            udp_id,
-            &mut in_frame,
-        ) {
+        match crate::os::entry::udp_recv_from(net, nonce_ctr, udp_id, &mut in_frame) {
             Ok(Some((from_ip, from_port, n))) => {
                 if from_ip != peer_ip || from_port != peer_port {
                     continue;
@@ -303,13 +283,7 @@ fn run_quic_udp_selftest_server_loop(
 
     let mut got_ping = false;
     for _ in 0..50_000 {
-        match crate::os::entry::udp_recv_from(
-            pending_replies,
-            net,
-            nonce_ctr,
-            udp_id,
-            &mut in_frame,
-        ) {
+        match crate::os::entry::udp_recv_from(net, nonce_ctr, udp_id, &mut in_frame) {
             Ok(Some((from_ip, from_port, n))) => {
                 if from_ip != peer_ip || from_port != peer_port {
                     continue;
@@ -343,7 +317,6 @@ fn run_quic_udp_selftest_server_loop(
         }
     };
     if crate::os::entry::udp_send_to(
-        pending_replies,
         net,
         nonce_ctr,
         udp_id,
@@ -378,7 +351,6 @@ fn run_quic_udp_selftest_server_loop(
 }
 
 pub(crate) fn run_selftest_server_loop(
-    pending_replies: &mut ReplyBuffer<16, 512>,
     net: &KernelClient,
     nonce_ctr: &mut u64,
     lid: u32,
@@ -388,7 +360,7 @@ pub(crate) fn run_selftest_server_loop(
     match transport_selection {
         crate::os::entry::OsTransportSelection::QuicUdp => {
             let _ = lid;
-            run_quic_udp_selftest_server_loop(pending_replies, net, nonce_ctr, port)
+            run_quic_udp_selftest_server_loop(net, nonce_ctr, port)
         }
     }
 }

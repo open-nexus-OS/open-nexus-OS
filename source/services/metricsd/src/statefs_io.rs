@@ -7,6 +7,19 @@
 //! nonblocking before each send — the previous consumer-less sends rotted
 //! replies on statefsd's SHARED response queue until the store wedged deaf
 //! (the 0049B wedge class).
+//!
+//! TASK-0054C P2-c: this is the ONE site the "a reply inbox sees only awaited
+//! replies" invariant does not cover, and neither of the two obvious fixes is
+//! available yet. Sending WITHOUT a reply cap is out: statefsd always answers,
+//! and a cap-less sender is answered on statefsd's shared response queue with a
+//! BLOCKING send — the 0049B wedge, in the store everyone depends on. AWAITING
+//! the status is out too, and measurably so: statefsd's quota gate runs inside
+//! its PUT handler (`abi_seam_os::put_gates` -> `QuotaState::admit_put`), a deny
+//! flushes `quota_denies_total` through `nexus_metrics::DenyCounter`, and that
+//! flush WAITS for metricsd's answer — so a metricsd that waits here deadlocks
+//! against a statefsd that is waiting on metricsd. The real fix is a one-way
+//! write op in the statefs protocol (a PUT/DEL statefsd does not answer), which
+//! is a wire change and belongs to its own package (TASK-0054C P2-d).
 //! OWNERS: @runtime @observability
 //! STATUS: Functional
 //! API_STABILITY: Internal

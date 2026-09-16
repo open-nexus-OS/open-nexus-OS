@@ -29,9 +29,9 @@ use nexus_ipc::KernelClient;
 // as `Corrupted` and failed the device-key persist about once in ten boots.
 #[cfg(all(nexus_env = "os", not(feature = "os-lite")))]
 compile_error!("statefs: the OS build needs the `os-lite` feature (nonce-filtered reply path)");
-
-#[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
-use nexus_ipc::Wait;
+// That refusal made the second, host-style `send_and_recv_raw` arm unreachable in every
+// configuration this tree builds — it could only be selected where the line above already
+// fails the build. TASK-0054C P2-c deleted it: ONE client path, not one plus a trap.
 
 /// Client for statefsd IPC operations.
 /// How long a client keeps retrying a quiesced store (fsck windows are short).
@@ -233,23 +233,6 @@ impl StatefsClient {
                 continue;
             }
             return Ok(buf[..n].to_vec());
-        }
-    }
-
-    #[cfg(not(all(nexus_env = "os", feature = "os-lite")))]
-    fn send_and_recv_raw(&self, frame: Vec<u8>, _expected_op: u8) -> Result<Vec<u8>, StatefsError> {
-        if let Some(reply) = &self.reply {
-            let (reply_send_slot, _reply_recv_slot) = reply.slots();
-            let reply_send_clone =
-                nexus_abi::cap_clone(reply_send_slot).map_err(|_| StatefsError::IoError)?;
-            self.client
-                .send_with_cap_move_wait(&frame, reply_send_clone, Wait::Blocking)
-                .map_err(|_| StatefsError::IoError)?;
-            nexus_ipc::Client::recv(reply, Wait::Blocking).map_err(|_| StatefsError::IoError)
-        } else {
-            nexus_ipc::Client::send(&self.client, &frame, Wait::Blocking)
-                .map_err(|_| StatefsError::IoError)?;
-            nexus_ipc::Client::recv(&self.client, Wait::Blocking).map_err(|_| StatefsError::IoError)
         }
     }
 }

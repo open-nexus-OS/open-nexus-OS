@@ -23,8 +23,9 @@
 //! local to this phase and dropped at end-of-phase. Downstream phases re-resolve
 //! via the silent `route_with_retry` (no marker change).
 //!
-//! `ctx.reply_send_slot` / `ctx.reply_recv_slot` are read for nexus-log sink
-//! configuration (TASK-0006 facade probe); they are not mutated.
+//! The nexus-log sink is bound to the declared logd leg alone (TASK-0054C P2-c): a log line
+//! is fire-and-forget and moves no reply cap, so the harness' shared `@reply` inbox never
+//! sees an ack for it (TASK-0006 facade probe).
 
 use nexus_abi::yield_;
 use nexus_metrics::client::MetricsClient;
@@ -35,7 +36,7 @@ use crate::os_lite::ipc::routing::route_with_retry;
 use crate::os_lite::probes::core_service::{core_service_probe, core_service_probe_policyd};
 use crate::os_lite::services;
 
-pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
+pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     let logd = route_with_retry("logd")?;
 
     // TASK-0014 Phase 0a: logd sink hardening reject matrix.
@@ -116,11 +117,7 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     // TASK-0006: nexus-log -> logd sink proof.
     // This checks that the facade can send to logd (bounded, best-effort) without relying on UART scraping.
-    let _ = nexus_log::configure_sink_logd_slots(
-        nexus_service_topology::slots::selftest_client::LOGD.send,
-        ctx.reply_send_slot,
-        ctx.reply_recv_slot,
-    );
+    nexus_log::configure_sink_logd(nexus_service_topology::slots::selftest_client::LOGD.send);
     nexus_log::info("selftest-client", |line| {
         line.text("nexus-log sink-logd probe");
     });

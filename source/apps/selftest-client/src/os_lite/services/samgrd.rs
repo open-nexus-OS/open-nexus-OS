@@ -209,17 +209,20 @@ pub(crate) fn fetch_sender_service_id_from_samgrd() -> core::result::Result<u64,
     frame[2] = 1;
     frame[3] = 5; // OP_SENDER_SERVICE_ID
     frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-    // ONE exchange, no clock (TASK-0324 P7-b): samgrd's answer or its death.
+    // ONE exchange, no clock (TASK-0324 P7-b): samgrd's answer or its death. The harness
+    // answers six services into ONE inbox, so the answer is the frame carrying OUR op
+    // (TASK-0054C P2-c) — a foreign frame used to be decoded as this one.
     let mut rsp_buf = [0u8; 32];
-    let n = nexus_ipc::exchange::call_into(
+    let n = nexus_ipc::exchange::call_matching(
         sam_send,
-        nexus_service_topology::SlotPair::new(reply_send_slot, reply_recv_slot),
+        nexus_ipc::SlotPair::new(reply_send_slot, reply_recv_slot),
         &frame,
         &mut rsp_buf,
+        |rsp| (rsp.len() == 21 && rsp[3] == (5 | 0x80)).then(|| rsp.len()),
     )
     .map_err(|_| ())?;
     let rsp = &rsp_buf[..n.min(rsp_buf.len())];
-    if rsp.len() != 21 || rsp[3] != (5 | 0x80) || rsp[4] != 0 {
+    if rsp[4] != 0 {
         return Err(());
     }
     let got_nonce = u64::from_le_bytes([

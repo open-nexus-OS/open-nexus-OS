@@ -1027,10 +1027,8 @@ pub(crate) fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
 }
 
 pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
-    // policyd's audit inbox and logd leg as declared (TASK-0324 P4f-2); responses land on the
-    // reply inbox when using CAP_MOVE.
-    const REPLY_RECV_SLOT: u32 = nexus_service_topology::slots::policyd::REPLY.recv;
-    const REPLY_SEND_SLOT: u32 = nexus_service_topology::slots::policyd::REPLY.send;
+    // policyd's logd leg as declared (TASK-0324 P4f-2). No reply inbox: the append moves no
+    // reply cap (TASK-0054C P2-c).
     const LOGD_SEND_SLOT: u32 = nexus_service_topology::slots::policyd::LOGD.send;
 
     const MAGIC0: u8 = b'L';
@@ -1068,41 +1066,17 @@ pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
     frame[len..len + msg.len()].copy_from_slice(msg);
     len += msg.len();
 
-    let moved = match nexus_abi::cap_clone(REPLY_SEND_SLOT) {
-        Ok(slot) => slot,
-        Err(_) => return false,
-    };
-    let hdr = nexus_abi::MsgHeader::new(moved, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, len as u32);
-
-    // TASK-0049C: fire-and-forget with inbox hygiene — the old bounded
-    // ACK-wait was one edge of a cross-service wait TRIANGLE (statefsd
-    // blocks on this policyd check, this audit blocks on logd's ack, logd's
-    // evidence spill blocks on statefsd), which turned unrelated cap checks
-    // into fail-closed denials whenever evidence traffic burst. Drain our
-    // own inbox instead of awaiting the ack; the ack (or any stale reply)
-    // is discarded on the NEXT audit's drain.
+    // TASK-0049C named this the edge of a cross-service wait TRIANGLE (statefsd blocks on a
+    // policyd check, this audit blocked on logd's ack, logd's evidence spill blocks on
+    // statefsd) and answered it by moving a reply cap and never reading the ack — which put
+    // an unread frame on policyd's REPLY inbox and made the NEXT audit drain eight frames
+    // blind. TASK-0054C P2-c cuts the edge at its source instead: no reply cap moves with an
+    // audit record, so logd produces no ack, there is nothing to drain, and the triangle has
+    // no third side. The wait for QUEUE SPACE stays — it is backpressure, not a reply wait,
+    // and logd never blocks while owing an ack (its spill runs between requests, and every
+    // remaining cap-moving sender reads its own answer), so this send always makes progress.
+    // A deferred append is counted, never hidden (`policyd: audit emit deferred`).
     let _ = nonce;
     let _ = STATUS_OK;
-    for _ in 0..8 {
-        let mut ah = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut abuf = [0u8; 64];
-        if nexus_abi::ipc_recv_v1(
-            REPLY_RECV_SLOT,
-            &mut ah,
-            &mut abuf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        )
-        .is_err()
-        {
-            break;
-        }
-    }
-    // TASK-0043 P0 harness finding: a 500 ms send budget here stalled policyd
-    // whenever logd's queue was full (icount profile) — long enough for the
-    // seams' 500 ms delegated cap checks to time out into fail-closed denials
-    // (`SELFTEST: statefs auth put FAIL`). The append is best-effort by
-    // contract (deferred = counted, never hidden): bound the wait to 2 ms so
-    // policyd's hot path never waits on logd.
-    nexus_ipc::budget::raw::send_blocking(LOGD_SEND_SLOT, &hdr, &frame[..len]).is_ok()
+    nexus_ipc::exchange::send_request(LOGD_SEND_SLOT, &frame[..len]).is_ok()
 }

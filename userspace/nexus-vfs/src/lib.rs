@@ -594,15 +594,14 @@ mod os {
             frame.extend_from_slice(&payload);
             // Create the VMO (kept for read-back) + a clone to hand to vfsd.
             let vmo = nexus_abi::vmo_create(cap).map_err(|_| Error::Unsupported)?;
-            let clone = match nexus_abi::cap_clone(vmo) {
-                Ok(clone) => clone,
-                Err(_) => {
-                    let _ = nexus_abi::cap_close(vmo);
-                    return Err(Error::Unsupported);
-                }
+            let Ok(clone) = nexus_abi::cap_clone(vmo) else {
+                let _ = nexus_abi::cap_close(vmo);
+                return Err(Error::Unsupported);
             };
-            // CAP_MOVE consumes `clone` on success; only close it on failure.
-            if let Err(err) = self.ipc.send_with_cap_move_wait(&frame, clone, Wait::Blocking) {
+            // The moved cap is the splice VMO, not a reply inbox: CAP_MOVE consumes `clone` on
+            // success, so it is only closed on failure.
+            let send = nexus_ipc::exchange::send_with_cap(self.ipc.slots().0, &frame, clone);
+            if let Err(err) = send {
                 let _ = nexus_abi::cap_close(clone);
                 let _ = nexus_abi::cap_close(vmo);
                 return Err(map_ipc_error(err));

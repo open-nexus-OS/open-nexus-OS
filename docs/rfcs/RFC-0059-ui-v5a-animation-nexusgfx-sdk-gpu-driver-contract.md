@@ -265,7 +265,7 @@ The framebuffer VMO follows the cap transfer protocol:
 ```text
 1. windowd: vmo_create(1280*800*4) → fb_handle
 2. windowd: cap_clone(fb_handle) → clone                   // create sendable copy
-3. windowd: client.send_with_cap_move_wait(&[opcode], clone, Wait::Blocking)
+3. windowd: exchange::send_with_cap(gpud_send, &[opcode], clone)  // the moved cap is DATA
 4. kernel:   transfers cap ownership windowd → gpud          // zero-copy: same physical pages
 5. gpud:     recv → moved_cap.take() → cap_query(slot) → phys_addr
 6. gpud:     ATTACH_BACKING(resource_id, phys_addr, len)    // GPU can now access VMO

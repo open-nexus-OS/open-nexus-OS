@@ -20,7 +20,7 @@
 
 - **Phase 0 (this contract + ADR-0064)**: ✅ 2026-09-15 (TASK-0054C P0 — paper)
 - **Phase 1 (first numbers: `KSELFTEST: ipc stats`, `SELFTEST: ipc bench`)**: ✅ 2026-09-15 (TASK-0054C P1 — smp1: `SELFTEST: ipc bench (rt=209us n=64)`, `KSELFTEST: ipc stats (sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_hit=0 handoff_miss=5172)`; visible: rt=209us, sends=5696 heap_allocs=11392 copies=17653 wake_ipis=0 handoff_miss=5145 — 2 allocations and ~3 copies per message, 0.9 runqueue hops per message on one hart)
-- **Phase 2 (ONE client API + ONE server loop in userspace; pairing / deadline / drain forms deleted; gate rule 4)**: ⬜ (TASK-0054C P2)
+- **Phase 2 (ONE client API + ONE server loop in userspace; pairing / deadline / drain forms deleted; gate rule 4)**: 🔄 (TASK-0054C P2-a ✅ clocks, P2-b ✅ pacing on timer pairs + rule 4, P2-c ✅ one send primitive + the awaited-reply invariant, P2-d ⬜ correlation model)
 - **Phase 3 (inline tier + hard cap + `E2BIG`; zero-allocation proof)**: ⬜ (TASK-0054C P3)
 - **Phase 4 (`ipc_call` / `ipc_reply_recv` + direct handoff + budget marker)**: ⬜ (TASK-0054C P4)
 - **Phase 5 (userspace seam on the new traps; fastpath markers; 8/8 boots)**: ⬜ (TASK-0054C P5)
@@ -59,7 +59,7 @@ RFC-0005 §"Copy-in/out now, zero/low-copy later" defers "handle-attached messag
 
 Every request/reply in the fleet is two traps per side. The client sends the request with a moved SEND clone of its own reply endpoint, then blocks on that endpoint (`nexus_ipc::exchange`, the ONE exchange since TASK-0324 P7 — clockless, EOF-opted). The server receives, handles, sends the reply, receives again. The reply wakes the client through the generic wake (`pop_recv_waiter` → `tasks.wake` → per-CPU runqueue enqueue → cross-hart IPI when the homes differ). Every non-empty message allocates at least twice in the kernel (`Message.payload: Vec<u8>`). No IPC latency, hop or allocation number exists anywhere in the repo, and no test counts either.
 
-The two-trap shape is also where the last clocks and the last dual structures in request/reply live: `~48` hand-rolled send-then-recv functions and 20 callers of `send_with_cap_move_wait` remain beside `exchange`; app-host still carries a 250 ms deadline and an 8-frame stale-reply drain whose only trigger is that deadline; the wait-not-poll gate cannot see a raw non-zero `deadline_ns` argument. RFC-0093 §7 already says what a wait is — "the reply, or the peer's death" — this RFC gives that sentence an ABI.
+The two-trap shape is also where the last clocks and the last dual structures in request/reply live: `~48` hand-rolled send-then-recv functions and 20 callers of `send_with_cap_move_wait` remain beside `exchange` (measured exactly at P2-c: 23 callers, all migrated and the helper deleted; 44 hand-built `CAP_MOVE` headers in 28 files are left for P2-d); app-host still carries a 250 ms deadline and an 8-frame stale-reply drain whose only trigger is that deadline; the wait-not-poll gate cannot see a raw non-zero `deadline_ns` argument. RFC-0093 §7 already says what a wait is — "the reply, or the peer's death" — this RFC gives that sentence an ABI.
 
 ## Goals
 
@@ -179,6 +179,8 @@ Registered in `source/apps/selftest-client/proof-manifest/markers/ipc_kernel.tom
 ## Open questions
 
 - P2 decides whether any reply inbox stays structurally shared (the statefsd audit-append case behind `call_matching`); if yes, the RFC records the one predicate form as the exception.
+- **Answered by P2-c (2026-09-16).** Sharing stays, and `call_matching` stays with it, but for a different reason than the draft assumed. The audit-append case is GONE at the source: a fire-and-forget send moves no reply cap any more, so no ack rots on anyone's inbox. What remains shared is structural and declared — one reply inbox per service, several services answering into it (`slots::<svc>::REPLY` with a service's legs hanging off `REPLY.recv`; the harness has six services on one inbox). On such an inbox the answer is the frame carrying this exchange's op (and nonce, where the protocol has one), so `call_matching` is the normative client form there and `call_into` is correct only on a private, sequential inbox. Two forms join it for sends that are not exchanges: `exchange::send_with_cap`, where the moved cap is DATA (a VMO, a push channel) and there is nothing to await, and `exchange::send_nonblocking`, which moves no cap at all.
+- **One exception, recorded rather than hidden.** metricsd's retention writes still move a reply cap whose status nobody reads, because both alternatives are closed: statefsd always answers, so a cap-less write is answered on its shared response queue with a blocking send (the 0049B wedge class), and awaiting the status closes a measured cycle — statefsd's quota gate runs inside its PUT handler and flushes a deny counter through metricsd, waiting for metricsd's answer. The fix is a one-way write op in the statefs protocol (a wire change with its own seed), not a client change.
 - P1 decides the budget numbers; until then the constants are named here without values.
 
 ---

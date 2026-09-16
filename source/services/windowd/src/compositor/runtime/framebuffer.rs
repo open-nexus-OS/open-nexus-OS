@@ -307,7 +307,7 @@ impl DisplayServerRuntime {
                 let _ = nexus_abi::cap_close(clone);
                 return;
             };
-            match client.send_with_cap_move_wait(&frame, clone, Wait::Blocking) {
+            match nexus_ipc::exchange::send_with_cap(client.slots().0, &frame, clone) {
                 Ok(()) => true,
                 Err(e) => {
                     log_gpud_cap_error(
@@ -458,7 +458,7 @@ impl DisplayServerRuntime {
             let Some(client) = self.gpud_client.as_ref() else {
                 return false;
             };
-            client.send_with_cap_move_wait(&request, clone, Wait::Blocking)
+            nexus_ipc::exchange::send_with_cap(client.slots().0, &request, clone)
         };
         let recv_result = if send_result.is_ok() {
             let Some(client) = self.gpud_client.as_ref() else {

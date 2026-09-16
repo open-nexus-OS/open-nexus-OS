@@ -51,99 +51,26 @@ pub(crate) fn next_nonce(n: &mut u64) -> u64 {
     crate::os::entry_pure::next_nonce(n)
 }
 
-#[inline]
-fn nonce_matches(buf: &[u8; 512], n: usize, nonce: u64) -> bool {
-    if n < 13 {
-        return false;
-    }
-    let mut b = [0u8; 8];
-    b.copy_from_slice(&buf[n - 8..n]);
-    u64::from_le_bytes(b) == nonce
-}
-
+/// dsoftbusd's own legs into the ONE netstack RPC (`os::netstack::rpc::rpc_nonce`). This file
+/// used to carry a second, divergent copy of that function — same protocol, different budget,
+/// different failure mode; TASK-0054C P2-c deleted the copy, not the caller.
 pub(crate) fn rpc_nonce(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     req: &[u8],
     expect_rsp_op: u8,
     nonce: u64,
 ) -> core::result::Result<[u8; 512], ()> {
-    use nexus_ipc::Wait;
-
-    // netstackd answers every RPC on the caller's CAP_MOVE reply cap and nowhere else, so the
-    // reply always comes back on the declared inbox. The old direct-recv fallback waited on a
-    // response endpoint netstackd never wrote to; TASK-0324 P4f-4 deleted both.
-    let reply_recv_slot = DSOFT_REPLY_RECV_SLOT;
-    let reply_send_clone = nexus_abi::cap_clone(DSOFT_REPLY_SEND_SLOT).map_err(|_| ())?;
-
-    // No clock (TASK-0324 P7-d): queue space or netstackd's death.
-    let sent = net.send_with_cap_move_wait(req, reply_send_clone, Wait::Blocking).is_ok();
-    let _ = nexus_abi::cap_close(reply_send_clone);
-    if !sent {
-        return Err(());
-    }
-
-    // If the reply already arrived out-of-order, return it from the pending buffer first.
-    {
-        let mut tmp = [0u8; 512];
-        if let Some(n) = pending.take_into(nonce, &mut tmp) {
-            if n >= 5
-                && tmp[0] == MAGIC0
-                && tmp[1] == MAGIC1
-                && tmp[2] == VERSION
-                && tmp[3] == expect_rsp_op
-                && nonce_matches(&tmp, n, nonce)
-            {
-                return Ok(tmp);
-            }
-        }
-    }
-
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-    let mut buf = [0u8; 512];
-    let start = nexus_abi::nsec().ok().unwrap_or(0);
-    let deadline = start.saturating_add(500_000_000); // 500ms
-    loop {
-        let now = nexus_abi::nsec().ok().unwrap_or(0);
-        if now >= deadline {
-            break;
-        }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) => {
-                let n = n as usize;
-                if n >= 5
-                    && buf[0] == MAGIC0
-                    && buf[1] == MAGIC1
-                    && buf[2] == VERSION
-                    && buf[3] == expect_rsp_op
-                    && nonce_matches(&buf, n, nonce)
-                {
-                    return Ok(buf);
-                }
-                if n >= 13 && buf[0] == MAGIC0 && buf[1] == MAGIC1 && buf[2] == VERSION {
-                    let mut b = [0u8; 8];
-                    b.copy_from_slice(&buf[n - 8..n]);
-                    let other = u64::from_le_bytes(b);
-                    let _ = pending.push(other, &buf[..n]);
-                }
-            }
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => return Err(()),
-        }
-    }
-    Err(())
+    crate::os::netstack::rpc::rpc_nonce(
+        net,
+        req,
+        expect_rsp_op,
+        nonce,
+        DSOFT_REPLY_RECV_SLOT,
+        DSOFT_REPLY_SEND_SLOT,
+    )
 }
 
 pub(crate) fn get_local_ip(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     iter: u32,
@@ -156,7 +83,7 @@ pub(crate) fn get_local_ip(
     req[2] = VERSION;
     req[3] = OP_LOCAL_ADDR;
     req[4..12].copy_from_slice(&nonce.to_le_bytes());
-    let rsp = match rpc_nonce(pending, net, &req, OP_LOCAL_ADDR | 0x80, nonce) {
+    let rsp = match rpc_nonce(net, &req, OP_LOCAL_ADDR | 0x80, nonce) {
         Ok(r) => r,
         Err(_) => {
             if iter == 30 {
@@ -211,7 +138,6 @@ pub(crate) fn init_netstack_client() -> core::result::Result<nexus_ipc::KernelCl
 }
 
 pub(crate) fn resolve_local_ip_with_wait(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
 ) -> [u8; 4] {
@@ -219,7 +145,7 @@ pub(crate) fn resolve_local_ip_with_wait(
     let mut local_ip = DEFAULT_LOCAL_IP;
     let mut local_ip_resolved = false;
     for i in 0..300u32 {
-        if let Some(ip) = get_local_ip(pending, net, nonce_ctr, i) {
+        if let Some(ip) = get_local_ip(net, nonce_ctr, i) {
             local_ip = ip;
             local_ip_resolved = true;
             break;
@@ -241,13 +167,12 @@ pub(crate) fn resolve_local_ip_with_wait(
 }
 
 pub(crate) fn bind_discovery_udp_with_wait(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     disc_port: u16,
 ) -> u32 {
     let _ = nexus_abi::trace_line("dsoftbusd: udp bind begin");
-    let udp_id = match udp_bind(pending, net, nonce_ctr, [0, 0, 0, 0], disc_port) {
+    let udp_id = match udp_bind(net, nonce_ctr, [0, 0, 0, 0], disc_port) {
         Ok(id) => id,
         Err(()) => {
             let _ = nexus_abi::debug_println("dsoftbusd: udp bind rpc timeout");
@@ -262,7 +187,6 @@ pub(crate) fn bind_discovery_udp_with_wait(
 }
 
 pub(crate) fn udp_bind(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     bind_ip: [u8; 4],
@@ -278,7 +202,7 @@ pub(crate) fn udp_bind(
     for _ in 0..500 {
         let nonce = next_nonce(nonce_ctr);
         req[10..18].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = rpc_nonce(pending, net, &req, OP_UDP_BIND | 0x80, nonce)?;
+        let rsp = rpc_nonce(net, &req, OP_UDP_BIND | 0x80, nonce)?;
         if rsp[0] == MAGIC0
             && rsp[1] == MAGIC1
             && rsp[2] == VERSION
@@ -293,7 +217,6 @@ pub(crate) fn udp_bind(
 }
 
 pub(crate) fn udp_send_to(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     udp_id: u32,
@@ -316,8 +239,7 @@ pub(crate) fn udp_send_to(
     req[16..16 + payload.len()].copy_from_slice(payload);
     let nonce = next_nonce(nonce_ctr);
     req[16 + payload.len()..16 + payload.len() + 8].copy_from_slice(&nonce.to_le_bytes());
-    let rsp =
-        rpc_nonce(pending, net, &req[..16 + payload.len() + 8], OP_UDP_SEND_TO | 0x80, nonce)?;
+    let rsp = rpc_nonce(net, &req[..16 + payload.len() + 8], OP_UDP_SEND_TO | 0x80, nonce)?;
     if rsp[0] == MAGIC0
         && rsp[1] == MAGIC1
         && rsp[2] == VERSION
@@ -331,7 +253,6 @@ pub(crate) fn udp_send_to(
 }
 
 pub(crate) fn udp_recv_from(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     udp_id: u32,
@@ -346,7 +267,7 @@ pub(crate) fn udp_recv_from(
     req[8..10].copy_from_slice(&((out.len().min(460)) as u16).to_le_bytes());
     let nonce = next_nonce(nonce_ctr);
     req[10..18].copy_from_slice(&nonce.to_le_bytes());
-    let rsp = rpc_nonce(pending, net, &req, OP_UDP_RECV_FROM | 0x80, nonce)?;
+    let rsp = rpc_nonce(net, &req, OP_UDP_RECV_FROM | 0x80, nonce)?;
     if rsp[0] != MAGIC0
         || rsp[1] != MAGIC1
         || rsp[2] != VERSION
@@ -372,7 +293,6 @@ pub(crate) fn udp_recv_from(
 }
 
 pub(crate) fn listen_with_retry(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     port: u16,
@@ -388,7 +308,7 @@ pub(crate) fn listen_with_retry(
     for _ in 0..50_000 {
         let nonce = next_nonce(nonce_ctr);
         req[6..14].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = rpc_nonce(pending, net, &req, OP_LISTEN | 0x80, nonce)?;
+        let rsp = rpc_nonce(net, &req, OP_LISTEN | 0x80, nonce)?;
         if rsp[0] == MAGIC0
             && rsp[1] == MAGIC1
             && rsp[2] == VERSION
@@ -436,7 +356,6 @@ pub(crate) fn derive_test_secret(tag: u8, port: u16) -> [u8; 32] {
 }
 
 pub(crate) fn tcp_connect(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     ip: [u8; 4],
@@ -452,7 +371,7 @@ pub(crate) fn tcp_connect(
         c[4..8].copy_from_slice(&ip);
         c[8..10].copy_from_slice(&port.to_le_bytes());
         c[10..18].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = rpc_nonce(pending, net, &c, OP_CONNECT | 0x80, nonce)?;
+        let rsp = rpc_nonce(net, &c, OP_CONNECT | 0x80, nonce)?;
         if rsp[0] == MAGIC0
             && rsp[1] == MAGIC1
             && rsp[2] == VERSION
@@ -472,7 +391,6 @@ pub(crate) fn tcp_connect(
 }
 
 pub(crate) fn tcp_accept(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     lid: u32,
@@ -487,7 +405,7 @@ pub(crate) fn tcp_accept(
         a[3] = OP_ACCEPT;
         a[4..8].copy_from_slice(&lid.to_le_bytes());
         a[8..16].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = rpc_nonce(pending, net, &a, OP_ACCEPT | 0x80, nonce)?;
+        let rsp = rpc_nonce(net, &a, OP_ACCEPT | 0x80, nonce)?;
         if rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[2] == VERSION && rsp[3] == (OP_ACCEPT | 0x80)
         {
             if rsp[4] == STATUS_OK {
@@ -504,7 +422,6 @@ pub(crate) fn tcp_accept(
 }
 
 pub(crate) fn dual_stream_read(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     sid: u32,
@@ -521,7 +438,7 @@ pub(crate) fn dual_stream_read(
         r[4..8].copy_from_slice(&sid.to_le_bytes());
         r[8..10].copy_from_slice(&(len as u16).to_le_bytes());
         r[10..18].copy_from_slice(&nonce.to_le_bytes());
-        let rsp = rpc_nonce(pending, net, &r, OP_READ | 0x80, nonce)?;
+        let rsp = rpc_nonce(net, &r, OP_READ | 0x80, nonce)?;
         if rsp[4] == STATUS_OK {
             let n = u16::from_le_bytes([rsp[5], rsp[6]]) as usize;
             if n == len && 7 + n <= rsp.len() {
@@ -540,7 +457,6 @@ pub(crate) fn dual_stream_read(
 }
 
 pub(crate) fn dual_stream_write(
-    pending: &mut nexus_ipc::reqrep::ReplyBuffer<16, 512>,
     net: &nexus_ipc::KernelClient,
     nonce_ctr: &mut u64,
     sid: u32,
@@ -559,7 +475,7 @@ pub(crate) fn dual_stream_write(
     w[8..10].copy_from_slice(&(data.len() as u16).to_le_bytes());
     w[10..10 + data.len()].copy_from_slice(data);
     w[10 + data.len()..10 + data.len() + 8].copy_from_slice(&nonce.to_le_bytes());
-    let rsp = rpc_nonce(pending, net, &w[..10 + data.len() + 8], OP_WRITE | 0x80, nonce)?;
+    let rsp = rpc_nonce(net, &w[..10 + data.len() + 8], OP_WRITE | 0x80, nonce)?;
     if rsp[4] == STATUS_OK {
         Ok(())
     } else {

@@ -93,6 +93,33 @@ pub fn call_matching<T>(
     }
 }
 
+/// Sends `frame` with `moved_cap` handed to the receiver, where the cap is DATA — a VMO the
+/// server fills, a push channel it will write to, a surface's event channel — and NEVER a
+/// reply inbox: nothing is awaited here, so this send can never leave an unread ack on
+/// someone's reply queue. Blocks for queue space without a clock. On success the cap belongs
+/// to the receiver; on failure it is still the caller's and the caller decides its fate.
+pub fn send_with_cap(send_slot: u32, frame: &[u8], moved_cap: u32) -> Result<()> {
+    let hdr = nexus_abi::MsgHeader::new(
+        moved_cap,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        frame.len() as u32,
+    );
+    nexus_abi::ipc_send_v1(send_slot, &hdr, frame, 0, 0).map(|_| ()).map_err(map)
+}
+
+/// Fire-and-forget send of a frame nobody answers: no cap moves with it, so it can never
+/// leave an unread ack on a reply inbox, and it never waits — a full queue drops the frame
+/// rather than stalling the sender. For traffic that is best-effort by contract (log lines,
+/// audit records), where a blocking send would make an observability leg a liveness edge.
+pub fn send_nonblocking(send_slot: u32, frame: &[u8]) -> Result<()> {
+    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    nexus_abi::ipc_send_v1(send_slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0)
+        .map(|_| ())
+        .map_err(map)
+}
+
 /// Blocking send of a plain request (no reply cap moved — the target answers on its own
 /// response endpoint, a `SharedResponse` route). No deadline: queue space or the peer's death.
 pub fn send_request(send_slot: u32, frame: &[u8]) -> Result<()> {

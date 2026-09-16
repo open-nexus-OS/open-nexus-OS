@@ -335,15 +335,75 @@ waiter's own address space).
     pin_timer_notify`); a device watchdog is a timer, never a recv deadline. Then rule 4
     (`ipc_send_v1`/`ipc_recv_v1`/`ipc_recv_v2` with a non-literal-`0` deadline argument) lands
     at zero with a fixture. Zones: libs (topology), init, drivers, scripts.
-  - **P2-c ONE client API.** The 20 `send_with_cap_move(_wait)` callers and the hand-rolled
-    send-then-recv pairs onto `exchange::call_into`/`call_matching`; `KernelClient::
-    send_with_cap_move(_wait)` deleted; the shared-inbox correlation model (`ReplyBuffer`/
-    `FrameStash`/`recv_match`: dsoftbusd's netstack RPCs, keystored's rngd ask, execd's
-    policy ask, init's control stream) decided per consumer — a private channel per
-    in-flight exchange (`mint_reply_channel`) or one sequential inbox — so every reply
-    inbox sees only awaited replies; `call_matching` kept only for a structurally shared
-    inbox P2-c names; rule 1 retires the deleted names; LOC baseline shrunk. Zones: libs
-    (`nexus-log`), config, scripts. Blast: every service, init, selftest.
+  - **P2-c ONE send primitive; every reply inbox sees only awaited replies.** The inventory
+    (2026-09-16, below) splits the old single P2-c in two: the invariant and the pairing
+    helper here, the correlation model in P2-d. Here: `exchange::send_with_cap` — the ONE
+    form for a send whose moved cap is DATA (a VMO, a push-channel SEND), so no service
+    hand-builds a `MsgHeader` with `CAP_MOVE` again, plus `exchange::send_nonblocking` for a
+    frame nobody answers. Three of the four fire-and-forget sends that moved a REPLY cap
+    nobody reads stop moving it (`nexus-log`'s logd sink + its `drain_reply`, statefsd's
+    `append_logd_audit`, policyd's `append_logd_deterministic` + its 8-frame pre-drain); the
+    fourth, metricsd's retention, is the documented exception below. All 23
+    `send_with_cap_move(_wait)` callers onto `exchange::{call_into, call_matching,
+    send_with_cap}` and `KernelClient::send_with_cap_move(_wait)` deleted; `SlotPair`
+    re-exported from `nexus-ipc`; the bare single-`recv_reply` readers on shared inboxes
+    given their protocol's predicate; dsoftbusd's two divergent `rpc_nonce` bodies unified on
+    `call_matching`, which takes its 500 ms deadline, its 200 000-spin loop, its
+    `Wait::NonBlocking` request send and its `ReplyBuffer` threading (eight files) with them;
+    the `cap_close` of a cap CAP_MOVE already consumed on the SUCCESS path deleted; the last
+    cap-less logd request deleted as a duplicate of `logd_stats_total`; rule 1 retires
+    `send_with_cap_move`; LOC baseline shrunk. Zones: libs (`nexus-log`), config, scripts,
+    `docs/rfcs` (three contract notes). Blast: every service, init, selftest.
+  - **P2-d ONE correlation model: one inbox, one awaited exchange.** The hand-rolled
+    `cap_clone` + `MsgHeader CAP_MOVE` + `ipc_send_v1` + `ipc_recv_v1/v2` pairs onto
+    `exchange`; the shared-inbox model decided per consumer (below) and
+    `nexus_ipc::reqrep` (`NonceGen`, `ReplyBuffer`, `FrameStash`, `recv_match`) deleted
+    with its `pub mod`; init's outbound legs each get a private inbox minted from the
+    factory init already holds, which also repairs its two fail-closed policyd readers;
+    rule 1 retires the deleted names; RFC-0019 gets a superseded-by note. Also here: the
+    selftest `updated` reply pump's `@reply` pre-drain (it consumes and DISCARDS foreign
+    frames from the harness' shared inbox) with the two parameters that exist only for it,
+    and the one-way statefs write op that closes P2-c's metricsd exception (wire change → RFC
+    seed first). Also: the harness' logd leg is still DECLARED a `SharedResponse` route
+    (`specs_harness.rs`) although P2-c left nothing reading its recv half — the declaration
+    becomes a `ReplyInbox` when the selftest's three hand-rolled logd pairs move onto
+    `exchange`, so the slot change and the call-site change land together. Zones: libs, init, config, scripts. Blast: init, dsoftbusd, keystored, execd,
+    rngd, statefsd, selftest. Measure at P2-c's close: 44 hand-built `ipc_hdr::CAP_MOVE`
+    headers in 28 files outside `nexus-ipc` — that is P2-d's whole surface, and it reaches zero
+    when the last pair moves onto `exchange`.
+  - **P2-c/P2-d inventory (2026-09-16).** 23 `send_with_cap_move(_wait)` callers and 21
+    hand-rolled pairs, classified: (1) seven callers move a VMO or a push-channel SEND, not
+    a reply cap — `exchange` had no form for them, which is why `ipc_send_v1` kept leaking
+    into service code; `send_with_cap` is that form. (2) **The invariant is violated in four
+    places**, each a send that moves a reply cap onto a SHARED inbox whose ack nobody reads:
+    `nexus-log`'s sink (bound by six processes), statefsd's audit append (the smell named in
+    `nexus-ipc/src/policyd.rs`), policyd's audit append, metricsd's retention writes. Three
+    are answered by NOT moving the cap — logd journals the record before it decides where to
+    reply and simply drops the response for a sender without one (`logd/src/os_lite.rs`),
+    which is already execd's crash-append form. The fourth, metricsd's retention writes, is the
+    ONE documented exception: statefsd ALWAYS answers, so a cap-less write is answered on its
+    shared response queue with a blocking send (the 0049B wedge) — and awaiting the status
+    deadlocks, measured: statefsd's quota gate runs inside its PUT handler
+    (`abi_seam_os::put_gates` → `QuotaState::admit_put`), a deny flushes `quota_denies_total`
+    through `nexus_metrics::DenyCounter`, and that flush WAITS for metricsd's answer, so a
+    metricsd waiting on statefsd and a statefsd waiting on metricsd close a cycle. The fix is a
+    one-way write op in the statefs protocol — a wire change, hence P2-d with its own seed. (3) Two second-order bugs fall out: `nexus-log`'s
+    `drain_reply` discards up to four frames of ANY kind from an inbox whose exchanges it does
+    not own, and `updated/src/os_lite.rs` already reads a stale logd ack as its bundlemgrd
+    answer (`reply-malformed`) — the invariant is not a future risk, it is a live defect.
+    (4) The rule "logd answers exactly the senders that moved a reply cap" had one hole that only
+    a boot could find: the harness asked logd for its record count with a PLAIN send and read the
+    answer on logd's own shared response endpoint — the only request in the tree that did, and a
+    byte-for-byte duplicate of `logd_stats_total`, which asks the same op over the CAP_MOVE reply
+    inbox. Deleting the duplicate closed it. Reading the code said nobody read that endpoint; the
+    marker ladder said otherwise, in one hung phase.
+    (5) No service in the fleet spawns a thread, so there is no true request concurrency and
+    nothing needs PARKING: every out-of-order reply comes from an abandoned clock-bounded
+    exchange (dsoftbusd only), a fire-and-forget ack, or two protocols sharing one inbox.
+    `recv_match` does not even park a foreign protocol — it discards it (`reqrep.rs`), so the
+    stashes never delivered what their header claims. (6) `ReplyBuffer`/`FrameStash` are
+    already dead weight: rngd threads one through four signatures for a call site that
+    ignores it, keystored through ten for one, execd's is provably always empty.
   - **P2-b findings (2026-09-15):** (1) a waitset reports a timer member READY once without a
     fire — the kernel's EOF latch is set on an endpoint whose only SEND cap is its owner's
     (init closes its minting cap) — so every timer wake is confirmed by `NotifyTimer::drain()`;
@@ -421,7 +481,8 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P1 Measure | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: smp1 214 ok / 41 KSELFTEST / total_ms 1257, `rt=209us n=64`, `sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_miss=5172`; visible pixel 31.76, same numbers → **2 allocations and ~3 copies per message, 0.9 runqueue hops per message (one hart)** — `ipc/stats.rs` (declared at the crate root as `ipc_stats` so its unit test runs on host, like `ipc_eof`), `KSELFTEST: ipc stats (…)` next to the BKL line, `SELFTEST: ipc bench (rt=…us n=64)` in the `ipc_kernel` phase; counts sends, payload allocs, payload copies + bytes (zero-copy line), wake IPIs, handoff misses |
 | P2-a Clocks out of request/reply | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll absolute), smp1 213 ok / 41 KSELFTEST / total_ms 1257 (the retired deadline marker is the −1), visible pixel 31.76; no `apphost: svc reply desync` line in any lane |
 | P2-b Pacing/watchdog waits onto timer pairs; rule 4 absolute | Done 2026-09-15 — `just test-all` EXIT=0 (10 lanes); PROOF: check 0 (rule 4 at zero), smp1 213 ok / 41 KSELFTEST / total_ms 1258 with `blk: watchdog on` + both probe markers, visible pixel 31.76; KERNEL: EOF latch consumed on observed emptiness only (approval used) |
-| P2-c ONE client API (pairing helpers deleted, shared-inbox model decided) | Draft |
+| P2-c ONE send primitive; only awaited replies on a reply inbox | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (wait-not-poll rule 1 covers `send_with_cap_move`, structure/slot/init-sync at zero), smp1 EXIT=0 with the marker set IDENTICAL to the last P2-b green run (209 `ok` / 65 KSELFTEST, total_ms 1256, FAILs only the allow-listed dsoftbus pair), visible EXIT=0 pixel proof diff vs splash 31.76. MEASURED on the P1 instrument, same profile: `sends=5401 heap_allocs=10802 copies=17473` against P2-b's `5601 / 11202 / 18903` — **200 fewer messages, 400 fewer kernel heap allocations and 1430 fewer payload copies per boot**, which is exactly the unread acks and the blind drains this package deleted (run-to-run variance exists; one P2-b run read 13249 sends). `rt=242us n=64` |
+| P2-d ONE correlation model (`reqrep` deleted, hand-rolled pairs gone) | Draft |
 | P3 Kernel payload | Draft |
 | P4 Kernel call + reply_recv | Draft |
 | P5 Seam flip | Draft |

@@ -153,6 +153,11 @@ pub mod reqrep;
 /// verdict so die-on-error loops cannot be written silently.
 pub mod resilience;
 
+/// The reply-channel type every [`exchange`] call takes, re-exported so a caller of the ONE
+/// request/reply API needs only this crate (TASK-0054C P2-c).
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+pub use nexus_service_topology::SlotPair;
+
 #[cfg(all(nexus_env = "host", feature = "std"))]
 mod host;
 #[cfg(all(nexus_env = "host", feature = "std"))]

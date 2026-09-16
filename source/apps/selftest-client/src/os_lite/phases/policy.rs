@@ -129,7 +129,11 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         let _ = yield_();
     }
     // Debug: count records in logd
-    let record_count = services::logd::logd_query_count(&logd).unwrap_or(0);
+    // `logd_stats_total` asks the same OP_STATS over the CAP_MOVE reply inbox. The plain
+    // send this used to make was the LAST request in the tree that expected logd to answer
+    // on its own shared response endpoint, and it was a duplicate of that function
+    // (TASK-0054C P2-c): logd now answers exactly the senders that moved a reply cap.
+    let record_count = services::logd::logd_stats_total(&logd).unwrap_or(0);
     emit_bytes(crate::markers::M_SELFTEST_LOGD_RECORD_COUNT.as_bytes());
     emit_hex_u64(record_count as u64);
     emit_byte(b'\n');

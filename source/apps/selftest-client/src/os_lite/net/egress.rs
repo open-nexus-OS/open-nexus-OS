@@ -15,11 +15,11 @@
 //!   host tests/security_v2_host/
 //! RFC: docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md
 
-use nexus_abi::yield_;
 use nexus_ipc::KernelClient;
+use nexus_service_topology::slots::selftest_client::REPLY;
 
 use crate::markers::emit_line;
-use crate::os_lite::ipc::clients::{cached_netstackd_client, cached_reply_client};
+use crate::os_lite::ipc::clients::cached_netstackd_client;
 use crate::os_lite::ipc::routing::route_with_retry;
 use crate::os_lite::services;
 
@@ -39,35 +39,15 @@ fn connect_status(net: &KernelClient, ip: [u8; 4], port: u16) -> core::result::R
     req[3] = OP_CONNECT;
     req[4..8].copy_from_slice(&ip);
     req[8..10].copy_from_slice(&port.to_le_bytes());
-    let reply = cached_reply_client().map_err(|_| ())?;
-    let (reply_send_slot, reply_recv_slot) = reply.slots();
-    let reply_send_clone = nexus_abi::cap_clone(reply_send_slot).map_err(|_| ())?;
-    net.send_with_cap_move(&req, reply_send_clone).map_err(|_| ())?;
-    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    // The answer is the frame carrying OUR op on the harness' shared inbox; the rest is
+    // dropped (TASK-0054C P2-c). The 3 s dial budget is gone with the spin — a facade that
+    // is mid-dial is alive, and its death is what ends this wait.
     let mut buf = [0u8; 64];
-    // Time-based budget (the facade may be mid-dial or mid-ping for a while).
-    let deadline = nexus_abi::nsec().map_err(|_| ())?.saturating_add(3_000_000_000);
-    let mut spins: u32 = 0;
-    loop {
-        spins = spins.wrapping_add(1);
-        if spins & 0x3f == 0 && nexus_abi::nsec().map_err(|_| ())? >= deadline {
-            return Err(());
-        }
-        match nexus_abi::ipc_recv_v1(
-            reply_recv_slot,
-            &mut hdr,
-            &mut buf,
-            nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
-            0,
-        ) {
-            Ok(n) if n as usize >= 5 && buf[3] == (OP_CONNECT | 0x80) => return Ok(buf[4]),
-            Ok(_) => {}
-            Err(nexus_abi::IpcError::QueueEmpty) => {
-                let _ = yield_();
-            }
-            Err(_) => return Err(()),
-        }
-    }
+    nexus_ipc::exchange::call_matching(net.slots().0, REPLY, &req, &mut buf, |rsp| {
+        (rsp.len() >= 5 && rsp[0] == MAGIC0 && rsp[1] == MAGIC1 && rsp[3] == (OP_CONNECT | 0x80))
+            .then(|| rsp[4])
+    })
+    .map_err(|_| ())
 }
 
 /// Runs the egress proofs (single-VM profile: QEMU user-net gateway 10.0.2.2).

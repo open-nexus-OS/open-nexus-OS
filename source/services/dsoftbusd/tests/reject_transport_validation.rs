@@ -11,7 +11,7 @@
 //!   - Nonce-mismatch response rejection
 //!   - Unexpected opcode response rejection
 //!   - Malformed frame rejection (zero-length, oversized UDP)
-//!   - Status/nonce extraction correctness
+//!   - Status parsing and answer-correlation correctness
 //!   - Payload length boundary validation
 //!
 //! TEST_SCENARIOS:
@@ -19,7 +19,7 @@
 //!   - test_reject_unexpected_response_opcode(): Response with wrong opcode is rejected
 //!   - test_reject_zero_length_status_ok_read_frame(): Zero-length status-ok read frame is rejected
 //!   - test_reject_oversized_udp_payload(): Oversized (>256 byte) UDP payloads are rejected
-//!   - test_parse_helpers_cover_status_and_nonce_extraction(): Status/nonce extraction helpers behave correctly
+//!   - test_parse_helpers_cover_status_and_correlation(): status parsing and the ONE answer predicate behave correctly
 //!
 //! DEPENDENCIES:
 //!   - ../src/os/netstack/validate.rs (via #[path])
@@ -68,7 +68,7 @@ fn test_reject_oversized_udp_payload() {
 }
 
 #[test]
-fn test_parse_helpers_cover_status_and_nonce_extraction() {
+fn test_parse_helpers_cover_status_and_correlation() {
     let nonce = 0x1122334455667788u64;
     let mut rsp = [0u8; 16];
     rsp[0] = b'N';
@@ -82,5 +82,9 @@ fn test_parse_helpers_cover_status_and_nonce_extraction() {
 
     assert_eq!(validate::parse_status_frame(&rsp, 0x85), Ok(0));
     assert_eq!(validate::parse_write_ok_wrote(&rsp), Ok(2));
-    assert_eq!(validate::extract_netstack_reply_nonce(&rsp), Some(nonce));
+    // Correlation is one predicate now (TASK-0054C P2-c): the ONE netstack RPC asks
+    // "is this frame MY answer?", it no longer extracts a foreign nonce to park a frame by.
+    assert!(validate::response_matches(&rsp, 0x85, nonce));
+    assert!(!validate::response_matches(&rsp, 0x85, nonce ^ 1));
+    assert!(!validate::response_matches(&rsp, 0x86, nonce));
 }

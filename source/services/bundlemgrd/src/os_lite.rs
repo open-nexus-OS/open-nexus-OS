@@ -148,12 +148,8 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     let slots = nexus_service_topology::slots::bundlemgrd::SERVER;
     let server = KernelServer::new_with_slots(slots.recv, slots.send)
         .map_err(|_| ServerError::Unsupported)?;
-    // The logd sink on the declared late-grant legs (ask-free; UART-only until pinned).
-    {
-        let logd = nexus_service_topology::slots::bundlemgrd::LOGD;
-        let reply = nexus_service_topology::slots::bundlemgrd::REPLY;
-        nexus_log::configure_sink_logd_slots(logd.send, reply.send, reply.recv);
-    }
+    // The logd sink on the declared late-grant leg (ask-free; UART-only until pinned).
+    nexus_log::configure_sink_logd(nexus_service_topology::slots::bundlemgrd::LOGD.send);
     // TASK-0006: core service wiring proof (structured log via nexus-log -> logd).
     // Emit on first request (not at process start) so init-lite has time to provision logd/@reply routes.
     let mut probe_emitted = false;
@@ -503,12 +499,6 @@ fn append_probe_to_logd() -> bool {
     let Ok(logd) = nexus_ipc::KernelClient::new_with_slots(topo_logd.send, topo_logd.recv) else {
         return false;
     };
-    let (reply_send, reply_recv) = (topo_reply.send, topo_reply.recv);
-    let moved = match nexus_abi::cap_clone(reply_send) {
-        Ok(slot) => slot,
-        Err(_) => return false,
-    };
-
     let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let mut frame = alloc::vec::Vec::with_capacity(12 + 1 + 1 + 2 + 2 + scope.len() + msg.len());
     frame.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
@@ -520,34 +510,26 @@ fn append_probe_to_logd() -> bool {
     frame.extend_from_slice(scope);
     frame.extend_from_slice(msg);
 
-    // Deterministic: require an APPEND ack (bounded). This keeps the shared @reply inbox from filling.
-    if logd.send_with_cap_move_wait(&frame, moved, Wait::NonBlocking).is_err() {
-        let _ = nexus_abi::cap_close(moved);
-        return false;
-    }
-    let _ = nexus_abi::cap_close(moved);
-
-    // WAIT for the APPEND ack with no clock (TASK-0324 P7-b): logd's answer, or its death
-    // (EOF on our own inbox); a foreign frame is dropped and the wait resumes.
+    // ONE exchange: the ack is REQUIRED (this probe's whole point) and is the frame carrying
+    // OUR nonce — the inbox is shared with bundlemgrd's other legs, so everything else queued
+    // is dropped. The `Wait::NonBlocking` request send this replaces turned a momentarily full
+    // logd queue into a silent probe failure (TASK-0054C P2-c). No clock: logd's answer, or
+    // its death (EOF on our own inbox).
     let mut buf = [0u8; 64];
-    while let Ok(n) = nexus_ipc::exchange::recv_reply(reply_recv, &mut buf) {
-        let n = core::cmp::min(n, buf.len());
-        if n >= 13
-            && buf[0] == MAGIC0
-            && buf[1] == MAGIC1
-            && buf[2] == VERSION
-            && buf[3] == (OP_APPEND | 0x80)
+    nexus_ipc::exchange::call_matching(logd.slots().0, topo_reply, &frame, &mut buf, |rsp| {
+        if rsp.len() < 13
+            || rsp[0] != MAGIC0
+            || rsp[1] != MAGIC1
+            || rsp[2] != VERSION
+            || rsp[3] != (OP_APPEND | 0x80)
         {
-            if let Ok((status, got_nonce)) =
-                nexus_ipc::logd_wire::parse_append_response_v2_prefix(&buf[..n])
-            {
-                if got_nonce == nonce {
-                    return status == STATUS_OK;
-                }
-            }
+            return None;
         }
-    }
-    false
+        let (status, got_nonce) =
+            nexus_ipc::logd_wire::parse_append_response_v2_prefix(rsp).ok()?;
+        (got_nonce == nonce).then_some(status == STATUS_OK)
+    })
+    .unwrap_or(false)
 }
 
 pub(crate) fn emit_line(message: &str) {
