@@ -304,6 +304,9 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 // Wake one receiver blocked on this endpoint (if any).
                 if let Ok(Some(waiter)) = ctx.router.pop_recv_waiter(endpoint) {
                     let pid = task::Pid::from_raw(waiter);
+                    // A committed `ipc_call` waiter is finished HERE when the reply fits the
+                    // return registers (TASK-0054C P4a); anything longer stays queued.
+                    super::ipc_call::complete_call_waiter_if_any(ctx, pid, endpoint);
                     let here = crate::smp::cpu_current_id();
                     let cross = ctx.tasks.task(pid).is_some_and(|t| t.home_cpu() != here);
                     crate::ipc_stats::record_recv_wake(cross);

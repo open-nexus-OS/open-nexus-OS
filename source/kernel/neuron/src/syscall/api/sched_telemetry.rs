@@ -93,14 +93,15 @@ pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
             let kheap_used = crate::heap_used_bytes();
             log_info!(
                 target: "ipc",
-                "KSELFTEST: ipc stats (sends={} heap_allocs={} copies={} copy_bytes={} wake_ipis={} handoff_hit=0 handoff_miss={} kheap_used={})",
+                "KSELFTEST: ipc stats (sends={} heap_allocs={} copies={} copy_bytes={} wake_ipis={} handoff_hit=0 handoff_miss={} kheap_used={} calls_in_regs={})",
                 ipc.sends,
                 ipc.payload_allocs,
                 ipc.payload_copies,
                 ipc.payload_copy_bytes,
                 ipc.wake_ipis,
                 ipc.recv_wakes,
-                kheap_used
+                kheap_used,
+                ipc.calls_in_regs
             );
             // TASK-0054C P3a: the payload-size distribution, so the inline tier P3b builds is
             // sized by measurement and not by the guess RFC-0096 wrote down. An average cannot

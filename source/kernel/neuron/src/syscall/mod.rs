@@ -118,6 +118,11 @@ pub const SYSCALL_SYSTEM_RESET: usize = 56;
 /// fabricated. Read-only; the record is public boot evidence (the kernel
 /// prints the same fields on the uart), so no capability gate.
 pub const SYSCALL_BOOT_HANDOFF: usize = 57;
+
+/// TASK-0054C P4a (RFC-0096, ADR-0064): request + reply in ONE trap. No deadline
+/// argument by ABI (RFC-0093 §7) — a call ends on its reply or on the death of the
+/// last peer. A reply of at most `IPC_SHORT_MAX` comes back in a1..a4.
+pub const SYSCALL_IPC_CALL_V1: usize = 58;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

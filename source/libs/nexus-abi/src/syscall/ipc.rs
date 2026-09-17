@@ -103,6 +103,54 @@ pub fn ipc_send_v1_nb(slot: Cap, header: &MsgHeader, payload: &[u8]) -> Result<u
     ipc_send_v1(slot, header, payload, IPC_SYS_NONBLOCK, 0)
 }
 
+/// Request and reply in ONE trap (TASK-0054C P4a, RFC-0096, ADR-0064).
+///
+/// Sends `payload` to `slot` and waits for the answer on the endpoint of the
+/// reply capability `header` moves (`header.flags` must carry CAP_MOVE and
+/// `header.src` the slot to move) — the capability IS the wait target. A reply
+/// of at most [`crate::IPC_SHORT_MAX`] comes home in the return registers and
+/// is written into `out` here, so the exchange costs ONE kernel entry; a longer
+/// reply is copied into `out` by the kernel and costs the same two entries as
+/// before. Either way the return value is the reply's TRUE length, which may
+/// exceed `out.len()` (the copy is truncated, never the report).
+///
+/// NO deadline argument, by ABI (RFC-0093 §7): exactly two things end a call —
+/// the reply, or the death of the last peer ([`IpcError::PeerClosed`]).
+#[cfg(nexus_env = "os")]
+pub fn ipc_call(slot: Cap, header: &MsgHeader, payload: &[u8], out: &mut [u8]) -> Result<usize> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_IPC_CALL_V1: usize = 58;
+        let regs = unsafe {
+            crate::syscall::ecall6_regs(
+                SYSCALL_IPC_CALL_V1,
+                slot as usize,
+                header as *const MsgHeader as usize,
+                payload.as_ptr() as usize,
+                payload.len(),
+                out.as_mut_ptr() as usize,
+                out.len(),
+            )
+        };
+        let len = decode_ipc_send(regs[0])?;
+        // A reply within the register tier was never copied by the kernel: it
+        // rode home in a1..a4 and lands in `out` here, in our own memory.
+        if len <= crate::IPC_SHORT_MAX {
+            let n = core::cmp::min(len, out.len());
+            for (i, chunk) in out[..n].chunks_mut(8).enumerate() {
+                let word = (regs[1 + i] as u64).to_le_bytes();
+                chunk.copy_from_slice(&word[..chunk.len()]);
+            }
+        }
+        Ok(len)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (slot, header, payload, out);
+        Err(IpcError::Unsupported)
+    }
+}
+
 /// Receives an IPC v1 message from the endpoint referenced by `slot` (payload copy-out).
 ///
 /// Returns the number of bytes written into `payload_out`.

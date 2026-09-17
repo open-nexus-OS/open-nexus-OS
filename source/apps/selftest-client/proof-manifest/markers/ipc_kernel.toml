@@ -45,6 +45,15 @@ phase = "ipc_kernel"
 # TASK-0054C P3b (RFC-0096): the hard payload cap has its own errno. A payload
 # over IPC_PAYLOAD_MAX must come back as E2BIG — before P3b it was EINVAL, which
 # userspace could not tell apart from a bad pointer (the ADR-0054 failure class).
+# TASK-0054C P4a: request + reply in ONE trap (syscall 58). The reply rides home
+# in registers a1..a4, so a packing bug shows up as a wrong nonce here, not as a
+# hang — the probe checks the echo, not just that something came back.
+[marker."SELFTEST: ipc call FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc call ok"]
+phase = "ipc_kernel"
+
 [marker."SELFTEST: ipc oversize rejected FAIL"]
 phase = "ipc_kernel"
 

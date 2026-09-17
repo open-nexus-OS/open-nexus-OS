@@ -50,6 +50,17 @@ static WAKE_IPIS: AtomicU64 = AtomicU64::new(0);
 static PAYLOAD_HIST: [AtomicU64; PAYLOAD_BUCKETS] = [const { AtomicU64::new(0) }; PAYLOAD_BUCKETS];
 /// Number of histogram buckets.
 pub const PAYLOAD_BUCKETS: usize = 8;
+/// `ipc_call`s finished in the caller's registers (TASK-0054C P4a): the
+/// fastpath, where the caller never re-enters the kernel to collect its
+/// reply. Counted because "the fastpath exists" and "the fastpath is taken"
+/// are different claims, and only the second one is worth anything.
+static CALLS_IN_REGS: AtomicU64 = AtomicU64::new(0);
+
+/// One `ipc_call` completed in registers.
+#[inline]
+pub fn record_call_in_regs() {
+    CALLS_IN_REGS.fetch_add(1, Ordering::Relaxed);
+}
 
 /// The bucket a payload of `bytes` falls into (see [`PAYLOAD_HIST`]).
 #[inline]
@@ -121,6 +132,8 @@ pub struct IpcStats {
     pub wake_ipis: u64,
     /// Payload-size histogram (see [`PAYLOAD_BUCKETS`]).
     pub payload_hist: [u64; PAYLOAD_BUCKETS],
+    /// `ipc_call`s finished in the caller's registers (TASK-0054C P4a).
+    pub calls_in_regs: u64,
 }
 
 /// Read every counter (relaxed; a snapshot, not a barrier).
@@ -133,6 +146,7 @@ pub fn report() -> IpcStats {
         recv_wakes: RECV_WAKES.load(Ordering::Relaxed),
         wake_ipis: WAKE_IPIS.load(Ordering::Relaxed),
         payload_hist: core::array::from_fn(|i| PAYLOAD_HIST[i].load(Ordering::Relaxed)),
+        calls_in_regs: CALLS_IN_REGS.load(Ordering::Relaxed),
     }
 }
 
@@ -148,6 +162,7 @@ pub fn reset() {
     for b in &PAYLOAD_HIST {
         b.store(0, Ordering::Relaxed);
     }
+    CALLS_IN_REGS.store(0, Ordering::Relaxed);
 }
 
 #[cfg(test)]

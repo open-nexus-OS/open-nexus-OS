@@ -181,6 +181,54 @@ impl Payload {
     }
 }
 
+/// Registers that carry a short reply back out of `ipc_call` (TASK-0054C P4a).
+///
+/// Syscall arguments arrive in a0–a5 and the result leaves in a0, so a1–a5 are
+/// free on return — 40 bytes, more than [`IPC_SHORT_MAX`]. A reply that fits
+/// therefore rides home in the caller's own saved frame: address-space
+/// independent, so the peer can complete the call without a copy-out hook and
+/// without ever writing into another address space. P3a measured that this
+/// covers 72.3 % to 93.1 % of all messages.
+pub const REPLY_REGS: usize = IPC_SHORT_MAX / 8;
+
+/// Packs a reply into the return registers, little-endian, zero-padded.
+/// `None` when it does not fit — that reply stays queued and the caller
+/// collects it with an ordinary receive.
+pub fn pack_reply_regs(bytes: &[u8]) -> Option<[usize; REPLY_REGS]> {
+    if bytes.len() > IPC_SHORT_MAX {
+        return None;
+    }
+    let mut regs = [0usize; REPLY_REGS];
+    for (i, chunk) in bytes.chunks(8).enumerate() {
+        let mut word = [0u8; 8];
+        word[..chunk.len()].copy_from_slice(chunk);
+        regs[i] = u64::from_le_bytes(word) as usize;
+    }
+    Some(regs)
+}
+
+/// Unpacks `len` bytes from the return registers into `out`, returning how many
+/// bytes were written (`out` may be shorter than the reply).
+///
+/// The KERNEL never unpacks — it packs, and userspace reads the registers on
+/// return (`nexus_abi::ipc_call`). This exists so the packing has an inverse to
+/// be tested against; the shipping counterpart lives in `nexus-abi` and the two
+/// are tied by the ABI comment on [`REPLY_REGS`].
+#[cfg(test)]
+pub fn unpack_reply_regs(regs: &[usize; REPLY_REGS], len: usize, out: &mut [u8]) -> usize {
+    let n = core::cmp::min(core::cmp::min(len, IPC_SHORT_MAX), out.len());
+    for (i, reg) in regs.iter().enumerate() {
+        let word = (*reg as u64).to_le_bytes();
+        let start = i * 8;
+        if start >= n {
+            break;
+        }
+        let end = core::cmp::min(start + 8, n);
+        out[start..end].copy_from_slice(&word[..end - start]);
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,6 +332,46 @@ mod tests {
             core::mem::size_of::<Payload>() < IPC_SHORT_MAX + core::mem::size_of::<Vec<u8>>(),
             "the enum must not pay for both tiers at once"
         );
+    }
+
+    #[test]
+    fn a_reply_that_fits_the_registers_survives_the_round_trip() {
+        // The register path is the fastpath's whole point: a short reply gets
+        // home without a copy-out, so the packing must be exact at every edge.
+        for len in [0usize, 1, 7, 8, 9, 31, IPC_SHORT_MAX] {
+            let src: Vec<u8> =
+                (0..len).map(|i| (i as u8).wrapping_mul(7).wrapping_add(3)).collect();
+            let regs = pack_reply_regs(&src).expect("must fit");
+            let mut out = [0u8; IPC_SHORT_MAX];
+            let n = unpack_reply_regs(&regs, len, &mut out);
+            assert_eq!(n, len);
+            assert_eq!(&out[..n], &src[..], "len={len}");
+        }
+    }
+
+    #[test]
+    fn a_reply_past_the_register_tier_does_not_pack() {
+        // It stays queued and the caller receives it — never truncated into
+        // registers, which would be silent corruption.
+        assert!(pack_reply_regs(&vec![1u8; IPC_SHORT_MAX + 1]).is_none());
+        assert!(pack_reply_regs(&vec![1u8; 1024]).is_none());
+    }
+
+    #[test]
+    fn unpacking_into_a_short_buffer_writes_what_fits_and_no_more() {
+        let src = [9u8; IPC_SHORT_MAX];
+        let regs = pack_reply_regs(&src).unwrap();
+        let mut out = [0u8; 5];
+        assert_eq!(unpack_reply_regs(&regs, src.len(), &mut out), 5);
+        assert_eq!(out, [9u8; 5]);
+    }
+
+    #[test]
+    fn the_register_tier_is_exactly_the_inline_tier() {
+        // One decision, not two: the bytes that ride inline in a `Message` are
+        // the bytes that ride home in registers (TASK-0054C P4a).
+        assert_eq!(REPLY_REGS * 8, IPC_SHORT_MAX);
+        assert!(REPLY_REGS <= 5, "a1..a5 are the only free return registers");
     }
 
     #[test]

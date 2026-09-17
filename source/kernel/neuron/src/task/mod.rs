@@ -45,36 +45,8 @@ pub enum TaskState {
     Zombie,
 }
 
-/// Scheduler-visible blocking reason for a task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockReason {
-    IpcRecv {
-        endpoint: ipc::EndpointId,
-        deadline_ns: u64,
-    },
-    IpcSend {
-        endpoint: ipc::EndpointId,
-        deadline_ns: u64,
-    },
-    WaitChild {
-        target: Option<Pid>,
-    },
-    /// Blocked in `waitset_wait` on a set of endpoints (RFC-0033). The task is
-    /// registered as a recv-waiter on *every* member; the first member to deliver
-    /// (or the deadline) wakes it. `ws_id` is the kernel-local waitset id (raw `u32`).
-    Waitset {
-        ws_id: u32,
-        deadline_ns: u64,
-    },
-    /// Blocked in `fence_wait` until the fence's monotonic value reaches `target`
-    /// (RFC-0033). Registered as a fence waiter; `fence_signal` wakes it once
-    /// `value >= target`, or the deadline does. `fence_id` is the raw kernel id.
-    Fence {
-        fence_id: u32,
-        target: u64,
-        deadline_ns: u64,
-    },
-}
+mod block_reason;
+pub use block_reason::BlockReason;
 
 #[must_use = "wake outcomes must be handled explicitly"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +82,8 @@ pub enum WaitError {
 }
 
 mod affinity;
+/// TASK-0054C P4a: the state that lets `ipc_call` be committed and finished by its peer.
+pub mod completion;
 mod exit_reason;
 pub use affinity::{clamp_home_to_affinity, validate_affinity_mask};
 pub use exit_reason::ExitReason;
@@ -292,6 +266,7 @@ pub struct Task {
     qos: QosClass,
     blocked: bool,
     block_reason: Option<BlockReason>,
+    call_state: Option<completion::CallState>, // TASK-0054C P4a
     /// Handle referencing the address space bound to this task.
     pub address_space: Option<AsHandle>,
     /// Optional user-mode guard metadata (diagnostics only; RFC-0004 Phase 1).
@@ -359,6 +334,7 @@ impl Task {
             qos: QosClass::PerfBurst,
             blocked: false,
             block_reason: None,
+            call_state: None,
             address_space: None,
             user_guard_info: None,
             service_id: 0,
@@ -588,6 +564,7 @@ impl TaskTable {
             // Only `wake()` should enqueue them when a selftest needs runnable state.
             blocked: true,
             block_reason: None,
+            call_state: None,
             address_space: None,
             user_guard_info: None,
             service_id: 0,
@@ -830,6 +807,7 @@ impl TaskTable {
             qos: QosClass::Normal,
             blocked: false,
             block_reason: None,
+            call_state: None,
             address_space: Some(child_as),
             user_guard_info: None,
             service_id: 0,

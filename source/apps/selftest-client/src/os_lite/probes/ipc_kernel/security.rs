@@ -71,6 +71,45 @@ pub(crate) fn oversize_reject_probe() -> core::result::Result<(), ()> {
     }
 }
 
+/// Request and reply in ONE trap (TASK-0054C P4a): the same samgrd ping the
+/// cap-move probe does, over `nexus_abi::ipc_call`.
+///
+/// The reply is 12 bytes — inside the register tier — so the kernel finishes
+/// this syscall in our saved frame and we never trap a second time to collect
+/// it. What the marker proves is that the answer arrives INTACT that way: a
+/// packing bug would show up as a wrong nonce, not as a hang.
+pub(crate) fn ipc_call_probe() -> core::result::Result<(), ()> {
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    static NONCE: AtomicU64 = AtomicU64::new(0x4A00);
+    let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+
+    let sam = cached_samgrd_client().map_err(|_| ())?;
+    let (sam_send, _) = sam.slots();
+    let mut frame = [0u8; 12];
+    frame[0] = b'S';
+    frame[1] = b'M';
+    frame[2] = 1; // samgrd os-lite version
+    frame[3] = 3; // OP_PING_CAP_MOVE
+    frame[4..12].copy_from_slice(&nonce.to_le_bytes());
+
+    // The moved capability IS the wait target: a clone of our reply SEND half.
+    let clone = nexus_abi::cap_clone(reply.send).map_err(|_| ())?;
+    let hdr = nexus_abi::MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, 12);
+    let mut out = [0u8; 16];
+    let n = match nexus_abi::ipc_call(sam_send, &hdr, &frame, &mut out) {
+        Ok(n) => n,
+        Err(_) => {
+            let _ = nexus_abi::cap_close(clone);
+            return Err(());
+        }
+    };
+    if n == 12 && out[0..4] == *b"PONG" && out[4..12] == nonce.to_le_bytes() {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 pub(crate) fn sender_pid_probe() -> core::result::Result<(), ()> {
     let me = nexus_abi::pid().map_err(|_| ())?;
     let reply = cached_reply_client().map_err(|_| ())?;

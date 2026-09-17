@@ -75,6 +75,11 @@ impl Endpoint {
         Ok(())
     }
 
+    /// Head payload length without dequeuing (TASK-0054C P4a).
+    pub(super) fn peek_payload_len(&self) -> Option<usize> {
+        self.queue.front().map(|m| m.payload.len())
+    }
+
     pub(super) fn pop(&mut self) -> Result<Message, IpcError> {
         if !self.alive {
             return Err(IpcError::NoSuchEndpoint);
@@ -153,5 +158,15 @@ impl Endpoint {
         let recv: Vec<WaiterId> = self.recv_waiters.drain(..).collect();
         let send: Vec<WaiterId> = self.send_waiters.drain(..).collect();
         Some((recv, send))
+    }
+}
+
+impl super::Router {
+    /// Head payload length without dequeuing: the call fastpath must know
+    /// whether the answer fits the return registers before taking it
+    /// (TASK-0054C P4a). Lives here, with the queue it reads, because
+    /// `ipc/mod.rs` is at its structure-gate ceiling.
+    pub fn peek_payload_len(&self, id: super::EndpointId) -> Option<usize> {
+        self.endpoints.get(id as usize).and_then(|ep| ep.peek_payload_len())
     }
 }

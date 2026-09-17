@@ -219,3 +219,44 @@ pub(crate) unsafe fn ecall6(
     );
     r0
 }
+
+/// Like [`ecall6`] but returns a0..a4 (TASK-0054C P4a): `ipc_call` brings a
+/// short reply home IN those registers, so the wrapper needs all of them, not
+/// just the result word.
+///
+/// # Safety
+/// Same contract as [`ecall6`]: the caller must pass arguments the named
+/// syscall accepts.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+#[allow(unused_assignments)]
+#[inline(always)]
+pub(crate) unsafe fn ecall6_regs(
+    n: usize,
+    a0: usize,
+    a1: usize,
+    a2: usize,
+    a3: usize,
+    a4: usize,
+    a5: usize,
+) -> [usize; 5] {
+    let mut r0 = a0;
+    let mut r1 = a1;
+    let mut r2 = a2;
+    let mut r3 = a3;
+    let mut r4 = a4;
+    let mut r5 = a5;
+    let mut r7 = n;
+    core::arch::asm!(
+        "ecall",
+        inout("a0") r0,
+        inout("a1") r1,
+        inout("a2") r2,
+        inout("a3") r3,
+        inout("a4") r4,
+        inout("a5") r5,
+        inout("a7") r7,
+        clobber_abi("C"),
+        options(nostack)
+    );
+    [r0, r1, r2, r3, r4]
+}
