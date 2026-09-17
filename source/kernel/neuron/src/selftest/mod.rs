@@ -570,13 +570,12 @@ pub fn entry(ctx: &mut Context<'_>) {
 
 fn run_ipc_queue_full_selftest(ctx: &mut Context<'_>) {
     use crate::ipc::header::MessageHeader;
-    use alloc::vec::Vec;
 
     // This is a kernel-side sanity check that endpoint depth limits are enforced.
     // It complements syscall-level unit tests in `syscall/api.rs`.
     let ep = ctx.router.create_endpoint(1, None).unwrap();
     let hdr = MessageHeader::new(0, ep, 0, 0, 0);
-    let msg = crate::ipc::Message::new(hdr, Vec::new(), None);
+    let msg = crate::ipc::Message::new(hdr, crate::ipc::Payload::empty(), None);
     let _ = ctx.router.send(ep, msg.clone());
     match ctx.router.send(ep, msg) {
         Err(crate::ipc::IpcError::QueueFull) => {
@@ -590,21 +589,21 @@ fn run_ipc_queue_full_selftest(ctx: &mut Context<'_>) {
 
 fn run_ipc_bytes_full_selftest(ctx: &mut Context<'_>) {
     use crate::ipc::header::MessageHeader;
-    use alloc::{vec, vec::Vec};
+    use alloc::vec;
 
-    // Endpoint with depth=1 => max_queued_bytes = MAX_FRAME_BYTES (see ipc/mod.rs).
+    // Endpoint with depth=1 => max_queued_bytes = IPC_PAYLOAD_MAX (see ipc/endpoint.rs).
     //
     // NOTE: For syscall-driven traffic, payloads are bounded at entry; this selftest uses a direct
     // router send with an oversized payload to deterministically trigger NoSpace.
-    const MAX_FRAME_BYTES: usize = 8 * 1024;
     let ep = ctx.router.create_endpoint(1, None).unwrap();
-    let oversized = MAX_FRAME_BYTES + 1;
+    let oversized = crate::ipc::IPC_PAYLOAD_MAX + 1;
     let hdr = MessageHeader::new(0, ep, 0, 0, oversized as u32);
-    let msg = crate::ipc::Message::new(hdr, vec![0u8; oversized], None);
+    let msg =
+        crate::ipc::Message::new(hdr, crate::ipc::Payload::from_vec(vec![0u8; oversized]), None);
     match ctx.router.send(ep, msg) {
         Err(crate::ipc::IpcError::NoSpace) => {
             let hdr3 = MessageHeader::new(0, ep, 0, 0, 1);
-            let msg3 = crate::ipc::Message::new(hdr3, Vec::new(), None);
+            let msg3 = crate::ipc::Message::new(hdr3, crate::ipc::Payload::empty(), None);
             match ctx.router.send(ep, msg3) {
                 Ok(()) => log_info!(target: "selftest", "KSELFTEST: ipc bytes full ok"),
                 other => {
@@ -620,7 +619,7 @@ fn run_ipc_bytes_full_selftest(ctx: &mut Context<'_>) {
 
 fn run_ipc_global_bytes_budget_selftest() {
     use crate::ipc::header::MessageHeader;
-    use alloc::{vec, vec::Vec};
+    use alloc::vec;
 
     // Validate global router queued-bytes budget using an isolated local router instance.
     // Global budget=512, but endpoint budget (depth=2) would allow 1024 bytes. The second send
@@ -629,17 +628,17 @@ fn run_ipc_global_bytes_budget_selftest() {
     let ep = local.create_endpoint(2, None).unwrap();
 
     let hdr = MessageHeader::new(0, ep, 0, 0, 512);
-    let msg = crate::ipc::Message::new(hdr, vec![0u8; 512], None);
+    let msg = crate::ipc::Message::new(hdr, crate::ipc::Payload::from_vec(vec![0u8; 512]), None);
     let _ = local.send(ep, msg);
 
     let hdr2 = MessageHeader::new(0, ep, 0, 0, 1);
-    let msg2 = crate::ipc::Message::new(hdr2, vec![0u8; 1], None);
+    let msg2 = crate::ipc::Message::new(hdr2, crate::ipc::Payload::from_slice(&[0u8; 1]), None);
     match local.send(ep, msg2) {
         Err(crate::ipc::IpcError::NoSpace) => {
             // Drain frees bytes; subsequent send should work.
             let _ = local.recv(ep);
             let hdr3 = MessageHeader::new(0, ep, 0, 0, 1);
-            let msg3 = crate::ipc::Message::new(hdr3, Vec::new(), None);
+            let msg3 = crate::ipc::Message::new(hdr3, crate::ipc::Payload::empty(), None);
             match local.send(ep, msg3) {
                 Ok(()) => log_info!(target: "selftest", "KSELFTEST: ipc global bytes budget ok"),
                 other => {
@@ -655,7 +654,7 @@ fn run_ipc_global_bytes_budget_selftest() {
 
 fn run_ipc_owner_bytes_budget_selftest() {
     use crate::ipc::header::MessageHeader;
-    use alloc::{vec, vec::Vec};
+    use alloc::vec;
 
     // Owner budget=512 bytes; global budget is large enough not to interfere.
     let mut local = crate::ipc::Router::new_with_bytes_budgets(0, 4096, 512);
@@ -665,18 +664,18 @@ fn run_ipc_owner_bytes_budget_selftest() {
 
     // Fill owner budget with one 512-byte message on ep1.
     let hdr = MessageHeader::new(0, ep1, 0, 0, 512);
-    let msg = crate::ipc::Message::new(hdr, vec![0u8; 512], None);
+    let msg = crate::ipc::Message::new(hdr, crate::ipc::Payload::from_vec(vec![0u8; 512]), None);
     let _ = local.send(ep1, msg);
 
     // Next send to a different endpoint owned by same PID must fail due to owner cap.
     let hdr2 = MessageHeader::new(0, ep2, 0, 0, 1);
-    let msg2 = crate::ipc::Message::new(hdr2, vec![0u8; 1], None);
+    let msg2 = crate::ipc::Message::new(hdr2, crate::ipc::Payload::from_slice(&[0u8; 1]), None);
     match local.send(ep2, msg2) {
         Err(crate::ipc::IpcError::NoSpace) => {
             // Drain frees bytes; subsequent send should work.
             let _ = local.recv(ep1);
             let hdr3 = MessageHeader::new(0, ep2, 0, 0, 1);
-            let msg3 = crate::ipc::Message::new(hdr3, Vec::new(), None);
+            let msg3 = crate::ipc::Message::new(hdr3, crate::ipc::Payload::empty(), None);
             match local.send(ep2, msg3) {
                 Ok(()) => log_info!(target: "selftest", "KSELFTEST: ipc owner bytes budget ok"),
                 other => {
@@ -693,7 +692,6 @@ fn run_ipc_owner_bytes_budget_selftest() {
 fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
     use crate::ipc::header::MessageHeader;
     use crate::task::BlockReason;
-    use alloc::vec::Vec;
 
     // --- recv waiters FIFO ---
     let ep = ctx.router.create_endpoint(1, None).unwrap();
@@ -710,7 +708,7 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
 
     // Send one message, then wake the next recv waiter and check it is r1.
     let hdr = MessageHeader::new(0, ep, 0, 0, 0);
-    let msg = crate::ipc::Message::new(hdr, Vec::new(), None);
+    let msg = crate::ipc::Message::new(hdr, crate::ipc::Payload::empty(), None);
     let _ = ctx.router.send(ep, msg);
     let fifo_ok = matches!(ctx.router.pop_recv_waiter(ep), Ok(Some(w)) if w == r1.as_raw());
     if fifo_ok {
@@ -723,7 +721,7 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
     let ep2 = ctx.router.create_endpoint(1, None).unwrap();
     // Fill the queue so future sends would block.
     let hdr_fill = MessageHeader::new(0, ep2, 0, 0, 0);
-    let fill = crate::ipc::Message::new(hdr_fill, Vec::new(), None);
+    let fill = crate::ipc::Message::new(hdr_fill, crate::ipc::Payload::empty(), None);
     let _ = ctx.router.send(ep2, fill);
 
     let s1 = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
@@ -750,7 +748,6 @@ fn run_ipc_waiter_fifo_selftests(ctx: &mut Context<'_>) {
 fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
     use crate::ipc::header::MessageHeader;
     use crate::task::BlockReason;
-    use alloc::vec::Vec;
 
     // Create two lightweight dummy tasks (no AS/stack allocation) that we can block/wake.
     let sender_pid = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
@@ -759,7 +756,7 @@ fn run_ipc_send_unblocks_after_recv_selftest(ctx: &mut Context<'_>) {
     // Endpoint with depth=1 and one message already enqueued => "full".
     let ep = ctx.router.create_endpoint(1, None).unwrap();
     let hdr = MessageHeader::new(0, ep, 0, 0, 0);
-    let msg = crate::ipc::Message::new(hdr, Vec::new(), None);
+    let msg = crate::ipc::Message::new(hdr, crate::ipc::Payload::empty(), None);
     let _ = ctx.router.send(ep, msg);
 
     // Simulate sender hitting QueueFull in blocking mode: register waiter + block task.
@@ -1001,14 +998,14 @@ fn run_timer_cap_selftest(ctx: &mut Context<'_>) {
     let fired_ok = match sys_ctx.router.recv(notify_ep) {
         Ok(msg) if msg.payload.len() == 29 => {
             let mut id_bytes = [0u8; 4];
-            id_bytes.copy_from_slice(&msg.payload[1..5]);
+            id_bytes.copy_from_slice(&msg.payload.as_slice()[1..5]);
             let fired_id = u32::from_le_bytes(id_bytes);
             let cap_id = match sys_ctx.tasks.current_caps_mut().get(timer_slot) {
                 Ok(Capability { kind: CapabilityKind::Timer(id), .. }) => id,
                 _ => 0,
             };
             msg.header.ty == crate::trap::OP_TIMER_FIRED as u16
-                && msg.payload.first().copied() == Some(crate::trap::OP_TIMER_FIRED)
+                && msg.payload.as_slice().first().copied() == Some(crate::trap::OP_TIMER_FIRED)
                 && fired_id == cap_id
         }
         _ => false,

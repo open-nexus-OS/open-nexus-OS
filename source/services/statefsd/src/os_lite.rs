@@ -77,7 +77,9 @@ pub fn touch_schemas() {}
 const BLOCK_SIZE: usize = 512;
 const BLOCK_COUNT: u64 = 64;
 const MAX_LIST_RESPONSE_BYTES: usize = 512;
-const IPC_MAX_FRAME_BYTES: usize = 8 * 1024;
+// TASK-0054C P3b/P2-g: the transport cap has ONE owner (`nexus-abi`), so a service
+// cannot drift from the bound the kernel actually enforces.
+const IPC_MAX_FRAME_BYTES: usize = nexus_abi::IPC_PAYLOAD_MAX;
 pub(crate) const MAX_INLINE_VALUE_BYTES: usize = IPC_MAX_FRAME_BYTES - 64;
 
 const CAP_READ: &str = "statefs.read";
@@ -224,14 +226,18 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // SMP robustness circuit breaker (see the Err arm below).
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     let mut saw_drop_capless = false;
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, sender_service_id, reply)) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, sender_service_id, reply)) => {
+                let frame = &recv_frame[..frame_len];
                 breaker.on_success();
                 if window.wants_upgrade() {
                     crate::upgrade_exec::try_upgrade(&mut engine, &mut hard, &mut window);
                 }
-                let rsp = handle_frame(&mut engine, &mut hard, sender_service_id, frame.as_slice());
+                let rsp = handle_frame(&mut engine, &mut hard, sender_service_id, frame);
                 // Once we accept a mutating op, we no longer allow backend
                 // upgrade — and losing the window this way is a TERMINAL
                 // degradation the boot must hear about (RFC-0087), not a

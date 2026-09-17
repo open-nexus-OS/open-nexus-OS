@@ -468,6 +468,83 @@ waiter's own address space).
     (`WOULD_BLOCK` from the facade's non-blocking socket ops, bounded by
     `STEP_DEADLINE_NS`) are the network family's poll and go with blocking/notify socket
     semantics there.
+- **P2-g The server hot path allocates nothing, and the login seam gets a gate.**
+  Opened 2026-09-17 on a user report ("kein handoff nach greeter") against the boot of
+  2026-09-17T10-05-44. The survey moved this package TWICE before a line of fix was written,
+  and both moves are recorded because each one is a measurement that killed a plausible story.
+  - **What the report actually is.** The greeter DOES come up (the pixel proof of the same build
+    shows wallpaper, avatar, password field and the three session buttons). What is missing is
+    the handoff AFTER it: no `apphost: dsl svc session.login`, no `windowd: dsl login detected`,
+    no `windowd: session shell visible`, no `desktop-shell` launch. The login was never pressed,
+    because input died first: at 14.82 s hidrawd reports `inputd send fail backpressure` and from
+    19.5 s on runs at `rx hz=351 ev hz=1088 tx hz=0` — HID events arriving, nothing forwarded.
+  - **Killed story #1: "windowd's shared response endpoint filled".** windowd answers cap-less
+    senders with `server.send(.., Wait::Blocking)` on its OWN shared response endpoint in five
+    branches — the 0049B pattern P2-c/e/f removed from logd, metricsd and statefsd, and one that
+    would stop the COMPOSITOR. (It also shows P2-f's "the invariant has no exception left" was
+    too strong: **28 files** fleet-wide still answer that way.) So the branches were collapsed
+    into ONE counted function (`compositor/reply_route.rs`, which also took `compositor/mod.rs`
+    from 618 to 605 LOC) that announces the fallback at every power of two — the endpoint depth
+    is 8, so `n=8` IS the wedge. Measurement: **`reply(ch=5 cap=0 shared=0)`** in a boot AND under
+    the flood below. The fallback is stone cold. Story dead; the instrument stays, because it is
+    now the thing that would notice if it ever warmed up.
+  - **Killed story #2: "hidrawd cannot drain inputd's acks".** inputd's ack frames are up to 70 B
+    (`VISIBLE_STATE_FRAME_LEN`) and hidrawd drains with a 64-byte stack buffer, which looked like
+    a permanent head-of-line block. It is not: `recv_into` passes `IPC_SYS_TRUNCATE`, so the
+    oversized frame is consumed, not requeued. Story dead by reading the flag, not by guessing.
+  - **The actual cause, with a boot witness.** A QMP pointer flood (900 moves/s for 45 s against
+    a live greeter — the harness already drives QMP for its visible-input proof, so the mouse hand
+    is scriptable) reproduces the report exactly, and the log says why:
+    `heap-watermark svc=inputd` climbs **50 % → 75 % → 90 %**, then
+    `alloc-fail svc=inputd site=alloc size=0x36` and `alloc_error svc=inputd`. **inputd dies of
+    heap exhaustion.** `KernelServer::recv_request_with_meta` returns a fresh `Vec` per request;
+    the os-lite heap never frees; at ~400 HID batches a second, 54 bytes a request walks the
+    384 KiB bump heap to death in under twenty seconds. A dead inputd stops consuming, hidrawd's
+    sends back up, `tx hz=0`, and input is gone fleet-wide — so the greeter can never be clicked
+    through. Same defect class as the hidrawd ingest path fixed in 2026-06
+    ([[os-service-bump-allocator-no-free]]); inputd never got it.
+  - **The fix is the API the tree already documents as preferred.**
+    `recv_request_with_meta_into` takes a caller buffer; windowd's compositor loop already uses
+    it. inputd now owns ONE `[u8; MAX_HID_BATCH_FRAME_LEN]` for the whole loop. And because a
+    bump heap that never frees turns "slow leak" into "dies later", the remaining **13 os-lite
+    server loops** on the allocating form go the same way, with a gate so the allocating variant
+    cannot return to a loop.
+  - **Why no lane caught it.** No lane floods input, and no lane gates the login seam: the proof
+    manifest has no marker for `apphost: dsl svc session.login ok`, `windowd: dsl login detected`
+    or `windowd: session shell visible`. P2-g adds both — the flood as a permanent regression lane
+    and the three markers to the manifest — so the seam the user noticed is gated from here on.
+  - **P2-g result (2026-09-17) — the cause, and the two stories it replaced.** The wedge is
+    inputd dying of heap exhaustion, not a reply-routing wedge. Reproduced by script (900 pointer
+    moves/s for 45 s against a live greeter) and read straight off the boot:
+    `heap-watermark svc=inputd` 50 % → 75 % → 90 %, then `alloc-fail svc=inputd size=0x36` and
+    `alloc_error`. `KernelServer::recv_request_with_meta` returns a fresh `Vec` per request and
+    the os-lite heap never frees; ~400 HID batches a second × 54 bytes walks 384 KiB in under
+    twenty seconds. Counter-proof under an IDENTICAL flood after the fix: **no heap watermark at
+    all, no `alloc-fail`, and `tx hz` tracks `rx hz` to the end (3507/3507 where it had been
+    `tx hz=0`)**. One transient backpressure remains and recovers — which is what backpressure is.
+  - **P2-g result — the rule and its gate.** All 14 os-lite receive loops move to the `_into` API
+    with one buffer hoisted out of the loop; `scripts/check-ipc-bounds.sh` rule 3 fails the build
+    if the allocating receive returns to a service loop, and rule 2 now scans the whole fleet, so
+    three further private copies of the 8 KiB frame cap (statefsd `IPC_MAX_FRAME_BYTES`, keystored
+    `MAX_REQUEST_FRAME`, vfsd `PKGFS_REPLY_BUF`) fold into `nexus_abi::IPC_PAYLOAD_MAX`.
+    `just input-flood` is a lane in `test-all`: every other lane drives input politely, and that
+    politeness is what hid this.
+  - **P2-g result — what was NOT changed, and why.** app-host's `REPLY_BUF = 512` sizes a STACK
+    array at eight call sites: folding it into the transport cap would put 8 KiB on the app-host
+    stack per effect call. RFC-0096 names the 512-byte ceiling as a real hazard, so the end state
+    is ONE reusable heap buffer threaded through the effect handlers — recorded, not bumped blind.
+    vfsd's per-request `vec![0u8; PKGFS_REPLY_BUF]` in the packagefs hop is the same shape at a
+    much lower rate (per `pkg:/` read, not per event); it needs `&mut self` to hoist.
+  - **P2-g result — the login seam is named, not yet required.** The three markers
+    (`apphost: dsl svc session.login ok`, `windowd: dsl login detected`,
+    `windowd: session shell visible`) are registered in the proof manifest with what they prove.
+    Requiring them needs the visible injector to drive a REAL login, and the greeter's login is a
+    Tap on a `Circle`, not an Enter key — so it needs a hit rect the greeter DECLARES, the way the
+    existing injector follows `inputd::visible_contract`. A screenshot-derived coordinate would rot
+    exactly like the seam it is meant to protect. That is the next step, and it is now a step.
+  - Zones: `source/services/inputd` + the other os-lite loops, `source/services/windowd`,
+    proof manifest, `scripts`, `tools`. Blast: every service loop. Lanes: `just check`, the flood
+    lane, smp1, visible, `just test-all`.
 - **P3a Measure the payload distribution; delete the copy that was already redundant.**
   Split out 2026-09-16 by this task's OWN method: P1 established "numbers before assertions",
   and `IPC_SHORT_MAX = 64` is currently a guess. The only number the instrument had was an
@@ -519,14 +596,103 @@ waiter's own address space).
     messages the kernel copied in and then failed to enqueue — the pair of counters reports the
     failed-send count for free, with no new counter. Worth a look when P4 calibrates budgets:
     nothing in the OTA path is supposed to lose a send.
-- **P3b Kernel payload tier** — `ipc/payload.rs` (declared un-gated at the crate root like
-  `ipc_stats`, so its host test actually runs — `mod ipc` is `cfg(target_os = "none")` and its
-  test module never compiles), `IPC_SHORT_MAX` at the size P3a measured (**32**, not 64) / `IPC_PAYLOAD_MAX` in
-  `nexus-abi`, `E2BIG` (a new errno AND decode arms in `nexus-abi`, plus the four exhaustive
-  `IpcError` matches it breaks), the counting-allocator test, `test_reject_oversized_inline`.
-  Watch: `Message` grows by the inline array and is moved on every send, push, pop and
-  error-return, so the tier must pay for itself against `VecDeque<Message>` growth — measure it,
-  do not assume. Zones: kernel, libs. Blast: all IPC. Lanes: `just test-all`.
+- **P3b The payload tier, and ONE size bound with one owner.** Reviewed against the tree
+  2026-09-17 before implementation; the survey moved four things, each recorded with what it is
+  based on.
+  - **The idea.** A short control message must cost the kernel no heap, and the boundary to bulk
+    must be explicit, named, and carry its own errno so bulk cannot drift inline unnoticed.
+  - **(1) The tier.** `Message.payload` is a `Vec<u8>`, so every non-empty message allocates —
+    and P3a measured that 72.3–93.1 % of them are ≤ 32 B. `ipc/payload.rs` holds
+    `Payload::{Inline{len,[u8; IPC_SHORT_MAX]}, Heap(Vec<u8>)}`; `Message` carries it; the copy-in
+    in `sys_ipc_send_v1` writes into the inline array directly instead of a `Vec`, and
+    `record_payload_alloc` fires only on the heap arm. The uses are contained: `len()` (12 sites),
+    `as_ptr()` (the two copy-out sites), `as_slice()` (one), and `Message::new`'s truncate.
+    **Falsifiable prediction, to be checked by the boot:** after this, `heap_allocs` ≈ the >32 B
+    population P3a found — about **1530 per standard boot regardless of window length**, where it
+    is 5549 / 14 077 / 22 115 today.
+  - **(2) ONE bound.** `8 * 1024` is written FOUR times as a private literal
+    (`ipc_msg.rs`, `ipc_recv_v2.rs`, `ipc/endpoint.rs`, `selftest/mod.rs`) and is invisible to
+    userspace. `IPC_SHORT_MAX = 32` and `IPC_PAYLOAD_MAX = 8192` become public `nexus-abi`
+    constants and the four literals go.
+  - **(3) `E2BIG` is ADR-0054 applied to the size bound.** Today an oversize payload returns
+    `AddressSpaceError::InvalidArgs` → `EINVAL`: userspace cannot tell "your message is too big"
+    from "you passed a bad pointer" — the exact failure class ADR-0054 was written for. New
+    `IpcError::TooBig` → `errno(E2BIG=7)` in `core/trap/errno.rs` (whose no-wildcard rule makes
+    the arm mandatory), the decode arm in `nexus-abi`, and the four exhaustive matches it breaks
+    (`execd/os_lite.rs`, `statefsd/emit_os.rs`, `init/helpers.rs`,
+    `selftest-client/.../bundlemgrd.rs`). `nexus_ipc::IpcError` gets NO new variant — it already
+    carries the kernel error as `Kernel(..)`. The recv-side check stays `EINVAL`: an out-buffer
+    larger than any possible message is a caller bug, not an oversize message. The endpoint byte
+    budget keeps returning `NoSpace`.
+  - **(4) The last 512-byte ceiling sits in a backend that compiles nowhere — MEASURED.**
+    RFC-0096 names a "triplicated 512-byte ceiling"; P2 fixed two, the third is `MAX_FRAME = 512`
+    in `userspace/nexus-ipc/src/os_lite.rs`. That file is one of THREE backends exporting the same
+    public names (`os.rs` 315 LOC for `os` without `os-lite`, `os_kernel.rs` 361 LOC for
+    `os-lite + kernel-ipc`, `os_lite.rs` 242 LOC for `os-lite` without `kernel-ipc`). Probe
+    (2026-09-17): a `compile_error!` at the top of `os.rs` AND `os_lite.rs` still builds
+    `just build-os-workspace`, `just diag` (host + os + kernel cfgs), `just build-kernel` AND
+    `cargo build -p init-lite --target riscv64imac-unknown-none-elf` — the shipped init ELF, the
+    one crate whose manifest suggested it might select the lite backend (its graph resolves
+    `nexus-ipc` with `kernel-ipc` too). Both are dead in every build path. 557 LOC of dual
+    structure under the live backend's own names → deleted here, with the ceiling.
+  - **(5) The host test the plan relies on runs NOWHERE — MEASURED.** The plan said "declare
+    `payload.rs` un-gated at the crate root like `ipc_stats`, so its host test actually runs".
+    It compiles, but nothing runs it: `just test-host` is `cargo test --workspace --exclude neuron
+    --exclude neuron-boot`, and no other recipe invokes `cargo test -p neuron`. Run by hand it
+    passes **45 tests** (`ipc_stats`, `ipc_eof`, `va_space_tests`, `vmo_ro`, `waitset`, `sync`) —
+    45 kernel tests that no gate has ever executed. A counting-allocator test added here would be
+    fake-green by construction. So P3b adds `just test-kernel-host` to the `test-all` chain
+    (ci-parity keeps it reachable), and only then land the counting allocator (0 allocations for a
+    ≤ 32 B send, 1 above it) and `test_reject_oversized_inline`.
+  - **(6) Measure, do not assume.** `Message` grows by the inline array and is moved on every
+    send, push, pop and error return. Nothing prints kernel heap use except the OOM handler
+    (`ALLOC.0.lock().used()/.free()`), so the `KSELFTEST: ipc stats` line gains `kheap_used=`, and
+    the package is booted twice on the same profile — instrument first, tier second — so the
+    tier's memory cost is a measured number and not an argument.
+  - **P3b result (2026-09-17) — the tier, measured against its own prediction.** The package was
+    built instrument-first: the `kheap_used=` field landed and booted BEFORE the tier, so the
+    comparison is two runs of the same profile and not a memory of one.
+    | | before | after (smp1) | after (visible) |
+    |---|---|---|---|
+    | `sends` | 5571 | 5523 | 13 507 |
+    | `heap_allocs` | 5571 | **1527** | **1538** |
+    | per message | 1.000 | 0.276 | **0.114** |
+    | histogram > 32 B | 1527 | 1527 | 1538 |
+    | `kheap_used` | 1 964 136 | 1 974 728 | — |
+    The prediction in this ledger was "`heap_allocs` ≈ the > 32 B population, about 1530 per boot
+    regardless of window length". It is not approximately that. Across **all 12 windows of the
+    final `test-all` gate**, in both workload families, `heap_allocs` equals the histogram's
+    > 32 B sum **exactly** — 1527, 1531, 1289, 1538, 2764, 2776, 2777, 2779, 14 010, 1535, 1527,
+    1527 — from two counters that know nothing about each other. That is an identity, not a
+    correlation, and it is the tier's definition made observable: a message allocates if and only
+    if it does not fit inline. Allocations per message land between **0.114 and 0.465** depending
+    on the workload (the OTA bundle lanes carry the ~1 KiB band P3a found), and no longer scale
+    with the boot's length at all.
+  - **P3b result — the price, also measured.** `size_of::<Payload>()` is `IPC_SHORT_MAX + 8` = 40,
+    so `Message` grew 16 bytes, and it is moved on every send, push, pop and error return. On the
+    running system that is **+10 592 bytes of steady kernel heap (+0.54 %)** — 2.65 bytes of
+    standing memory per allocate/free pair removed. A host test pins `size_of::<Payload>()` so a
+    later edit cannot quietly widen it.
+  - **P3b result — `E2BIG` is boot-proven, not asserted.** `SELFTEST: ipc oversize rejected ok`
+    sends `IPC_PAYLOAD_MAX + 1` REAL bytes (a zero-filled `.bss` static, not a short buffer with a
+    long length, so the probe never depends on the kernel's validation ORDER) and accepts only
+    `TooBig`. Success fails the probe too.
+  - **P3b finding — 45 kernel host tests ran in NO gate.** The plan said "declare `payload.rs` at
+    the crate root like `ipc_stats` so its host test actually runs". It compiles, but `just
+    test-host` is `cargo test --workspace --exclude neuron` and nothing else invoked
+    `cargo test -p neuron`; by hand it passed 45 tests nobody watched. A counting-allocator test
+    added under that assumption would have been fake-green by construction. `just test-kernel` now
+    runs them inside `test-all` and CI's kernel job; the count is **52**, including the counting
+    `#[global_allocator]` that proves 0 allocations at `IPC_SHORT_MAX` and exactly 1 one byte
+    above. Verified against a negative control: with the tier disabled the test FAILS.
+  - **P3b finding, not fixed here.** `ipc/mod.rs`'s own `#[cfg(test)]` block — 222 LOC including a
+    2000-step router state-machine fuzz — can never compile: `mod ipc` is `cfg(target_os = "none")`
+    and the target build is not a test build. The Router cannot move to the crate root because
+    `Message` carries a `crate::cap::Capability`. Follow-up: either type-check the target-only
+    tests (`cargo check -p neuron --target riscv64… --tests`) in `lint-kernel`, or lift the
+    Router's pure state machine the way `Payload` was lifted here. Named so it is not lost.
+  - Zones: kernel, libs (`nexus-abi`, `nexus-ipc`), `justfile`/`scripts` (the test recipe).
+    Blast: all IPC. Lanes: `just check`, smp1 ×2 (before / after), visible, `just test-all`.
 - **P4 Kernel call + reply_recv** — `syscall/api/ipc_call.rs`, `task/completion.rs`,
   `BlockReason::IpcCall`, handoff (D3), EOF integration, `nexus-abi` wrappers (`ipc_call`,
   `ipc_reply_recv`), budgets + `KSELFTEST: ipc call budget ok (...)`, kernel host tests
@@ -585,8 +751,9 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P2-d ONE correlation model (`reqrep` deleted, hand-rolled pairs gone) | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 (rule 1 covers `ReplyBuffer`/`FrameStash`/`NonceGen`/`recv_match` with its fixture), smp1 EXIT=0 with the marker set IDENTICAL to P2-c (209 `ok` / 65 KSELFTEST, total_ms 1250, FAILs only the allow-listed dsoftbus pair) — init boots on its NEW ask inbox; visible EXIT=0 pixel proof 31.77. 44 `ipc_hdr::CAP_MOVE` occurrences in 28 files → 9, of which 8 are server-side flag reads (P5) and 1 is the documented metricsd exception. Stable measurement: exactly 2.000 kernel heap allocations per message, 3.12 copies per message |
 | P2-e A server answers exactly the senders that moved a reply cap | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes, incl. all four OTA lanes on the rebuilt reply pump); PROOF: `just check` 0, smp1 EXIT=0 with the marker set IDENTICAL to P2-c/P2-d (209 `ok` / 65 KSELFTEST, total_ms 1255, FAILs only the allow-listed dsoftbus pair) and `metricsd: drop reply (no cap moved)` in the log — the boot's own witness that the cap-less path is real and no longer queues into the wedge; visible EXIT=0 pixel proof 31.76; `cargo test -p nexus-service-topology` 11 passed incl. the new wait-cycle guard |
 | P2-f statefsd adopts the reply rule; no exception left | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0, smp1 EXIT=0 with the marker set IDENTICAL to P2-c/d/e (209 `ok` / 65 KSELFTEST, total_ms 1256, FAILs only the allow-listed dsoftbus pair). The boot is the witness for the whole chain in one log: `execd: minidump statefs route granted`, `child: minidump start`, `execd: minidump written` (the hand-assembled payload's PUT with a moved cap) and both `drop reply (no cap moved)` lines. Two cap-less clients the survey missed were found BY the boot: the harness' bootctl persist probe and init's supervision persist |
+| P2-g The server hot path allocates nothing per request; the input chain survives a real drag | Done 2026-09-17 — opened on a user report. TWO hypotheses killed by measurement first (windowd's shared fallback reads `shared=0`; `recv_into` already truncates). CAUSE: **inputd dies of heap exhaustion** — `recv_request_with_meta` allocates per request on a heap that never frees; at ~400 HID batches/s that is `alloc_error` in under 20 s, and a dead inputd takes the whole input chain (`tx hz=0`). PROOF: same 45 s / 900-per-second QMP flood before and after — `heap-watermark` 50/75/90 % + `alloc-fail` → **no watermark, no alloc-fail, `tx` tracks `rx` (3507/3507)**. All 14 os-lite loops on the `_into` API, gate rule 3 against the allocating receive, `just input-flood` a lane in `test-all` (both its assertions fire on the pre-fix log), three more private frame caps folded, login seam markers registered |
 | P3a Measure the payload distribution; delete the redundant copy | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0, smp1 EXIT=0 with the marker set diffed against the last P2-f boot: 264 → 265 distinct markers, the ONE addition being `KSELFTEST: ipc payload hist`, nothing lost, 213 `ok` markers in both, FAILs only the allow-listed dsoftbus pair; visible EXIT=0 pixel proof 31.76. **13 windows, two workload families:** `le64` is exactly 160 in all eight standard-boot windows (> 32 B population 1529 ± 5), ≤ 32 B is 72.3–93.1 % there and 53.5–63.6 % in the five OTA bundle lanes → **`IPC_SHORT_MAX = 32`**, RFC-0096 amended. The histogram total equals `heap_allocs` in all 13 windows = **one** kernel allocation per payload, from 2.000; `copies / sends` 3.12–3.38 → 2.05–2.64 |
-| P3b Kernel payload tier (inline at 32 B — the measured size — + `E2BIG`) | Draft |
+| P3b The payload tier + ONE size bound with one owner (inline 32 B, `E2BIG`, dead backends deleted, kernel host tests gated) | Done 2026-09-17 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 incl. the new `ipc-bounds` gate, smp1 + visible EXIT=0, pixel proof 31.77. **`heap_allocs / sends` 1.000 → 0.276 (smp1), 0.114 (visible)**, and `heap_allocs` = the histogram's > 32 B population EXACTLY in ALL 12 windows of the gate, both workload families — an identity, not a correlation; kernel allocations no longer scale with the boot. Price **+10 592 B steady kernel heap (+0.54 %)**, measured with the new `kheap_used=` field. `SELFTEST: ipc oversize rejected ok` proves `E2BIG`. 52 kernel host tests now run in a gate (they ran in NONE before), incl. the counting allocator |
 | P4 Kernel call + reply_recv | Draft |
 | P5 Seam flip | Draft |
 | P6 Closure | Draft |

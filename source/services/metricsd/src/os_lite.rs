@@ -220,9 +220,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
     let mut fallback_now = 0u64;
 
     nexus_abi::service_verdict_flush("metricsd");
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, sender_service_id, reply)) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, sender_service_id, reply)) => {
+                let frame = &recv_frame[..frame_len];
                 let now = match nsec() {
                     Ok(v) => v,
                     Err(_) => {
@@ -236,7 +240,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
                     &mut retention,
                     sender_service_id,
                     now,
-                    frame.as_slice(),
+                    frame,
                 );
                 if let Some(status) = reject_status {
                     match status {

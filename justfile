@@ -483,6 +483,17 @@ test-host: inputs
     @echo "==> Running host test suite (exclude kernel)"
     @env RUSTFLAGS='{{host_rustflags}}' cargo +{{toolchain}} test --workspace --exclude neuron --exclude neuron-boot
 
+# The kernel's OWN host tests. `test-host` excludes neuron (it needs nightly
+# features and a cross target for most of its code), which until TASK-0054C P3b
+# meant NOTHING ran the 45 tests the crate does compile on host: the router's
+# state-machine fuzz feeds `ipc_stats`, `ipc_eof`'s reject matrix, `va_space`,
+# `vmo_ro`, `waitset`, `sync`. They exist precisely because the modules that own
+# them are declared un-gated at the crate root so their logic is testable
+# without QEMU — a test that no gate runs is not a proof.
+test-kernel: inputs
+    @echo "==> Running kernel host tests (neuron, host cfg)"
+    @env RUSTFLAGS='{{host_rustflags}}' cargo +{{toolchain}} test -p neuron
+
 # Pack the app bundles (`bundles/<app>/manifest.toml` → `target/bundles/<app>.nxb`).
 # RFC-0065: chat/search ship as real `.nxb` bundles with Cap'n Proto manifests;
 # bundlemgrd enumerates them and abilitymgr resolves the launch ability.
@@ -541,7 +552,7 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot display-ssot wait-not-poll ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot display-ssot wait-not-poll ipc-bounds ci-parity
 
 # TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
 build-truth:
@@ -551,6 +562,18 @@ build-truth:
 # `init: up` only from the responder's `@ready` arm.
 init-sync:
     @./scripts/check-init-sync.sh
+
+# TASK-0054C P2-g: the input chain survives a real drag. Every other lane drives
+# input politely, which hid a per-request allocation that killed inputd in twenty
+# seconds and took the whole input chain with it. Needs QMP (visible profile).
+input-flood:
+    @./scripts/input-flood-lane.sh
+
+# TASK-0054C P3b (RFC-0096): the IPC payload bounds have ONE value on both sides
+# of the ABI. The kernel does not depend on nexus-abi, so the mirror is checked
+# mechanically instead of remembered. See scripts/check-ipc-bounds.sh.
+ipc-bounds:
+    @./scripts/check-ipc-bounds.sh
 
 # TASK-0324 P4 (RFC-0093 §4): capability slots have one home (nexus-service-topology);
 # the remaining positional declarations are a shrinking ratchet.
@@ -671,8 +694,10 @@ test-all:
     just miri-fs
     just build-kernel
     just lint-kernel
+    just test-kernel
     just ci-os-smp1
     just ci-os-visible
+    just input-flood
     just ci-os-reset
     just ci-os-ota
     just ci-os-ota-bundle

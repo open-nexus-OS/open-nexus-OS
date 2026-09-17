@@ -62,6 +62,13 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // shared a fixed child slot by convention — were deleted in TASK-0324 P4f-6; a restored proof
     // belongs on the app-child path with a declared child slot.
 
+    // TASK-0054C P3b: the hard payload cap answers with E2BIG, not EINVAL.
+    if probes::ipc_kernel::oversize_reject_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IPC_OVERSIZE_REJECTED_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IPC_OVERSIZE_REJECTED_FAIL);
+    }
+
     // IPC production-grade smoke: deterministic soak of mixed operations.
     // Keep this strictly bounded and allocation-light (avoid kernel heap exhaustion).
     if probes::ipc_kernel::ipc_soak_probe().is_ok() {

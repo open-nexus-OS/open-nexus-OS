@@ -223,7 +223,7 @@ fn deliver(
     let payload = irq_payload(irq);
     let header =
         ipc::header::MessageHeader::new(0, ep, OP_IRQ_FIRED as u16, 0, payload.len() as u32);
-    let msg = ipc::Message::new(header, alloc::vec::Vec::from(payload), None);
+    let msg = ipc::Message::new(header, ipc::Payload::from_slice(&payload), None);
     if router.send(ep, msg).is_ok() {
         if let Ok(Some(waiter)) = router.pop_recv_waiter(ep) {
             let _ = tasks.wake(task::Pid::from_raw(waiter), scheduler);

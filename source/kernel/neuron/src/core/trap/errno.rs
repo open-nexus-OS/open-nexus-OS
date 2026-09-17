@@ -30,6 +30,10 @@ pub(super) const EFAULT: usize = 14; // MapError::OutOfRange — VA outside the 
                                      // RFC-0085: vm_unmap of an address nothing is mapped at.
 pub(super) const ENOENT: usize = 2; // MapError::NotMapped / VaError::NotFound — no mapping there.
 pub(super) const EBUSY: usize = 16; // RFC-0085: vmo_destroy with live vm_map regions.
+                                    // TASK-0054C P3b: a payload over IPC_PAYLOAD_MAX. Before
+                                    // this it was EINVAL, indistinguishable from a bad pointer —
+                                    // the ADR-0054 failure class, at the IPC size bound.
+pub(super) const E2BIG: usize = 7;
 
 #[allow(dead_code)]
 pub(super) fn encode_error(err: SysError) -> usize {
@@ -89,6 +93,7 @@ pub(super) fn ipc_errno(err: &crate::ipc::IpcError) -> usize {
         crate::ipc::IpcError::PermissionDenied => errno(EPERM),
         crate::ipc::IpcError::TimedOut => errno(ETIMEDOUT),
         crate::ipc::IpcError::NoSpace => errno(ENOSPC),
+        crate::ipc::IpcError::TooBig => errno(E2BIG),
         crate::ipc::IpcError::PeerClosed => errno(EPIPE),
     }
 }

@@ -86,11 +86,11 @@ pub(crate) fn run_local_ipc_loop(
     let server = KernelServer::new_with_slots(declared.recv, declared.send).map_err(|_| ())?;
     let mut ipc_logged = false;
     let mut remote_rpc_fail_logged = false;
+    // ONE request buffer: the os-lite heap never frees (TASK-0054C P2-g).
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        // Use the plain request/response channel semantics (`Client::send`/`Client::recv`),
-        // not the cap-move reply-token style.
-        let frame = match server.recv(Wait::Blocking) {
-            Ok(x) => x,
+        let frame = match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, _sid, _reply)) => &recv_frame[..frame_len],
             Err(_) => {
                 let _ = nexus_abi::yield_();
                 continue;

@@ -110,10 +110,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
     // its push channel with `OP_WATCH`; we keep it, acknowledge, push the current snapshot
     // at once and again on every transition. A push that fails (peer gone) drops the watcher.
     let mut watchers: Vec<u32> = Vec::new();
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, _sender_service_id, reply)) => {
-                if wire::decode_request_op(frame.as_slice()) == Some(wire::OP_WATCH) {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, _sender_service_id, reply)) => {
+                let frame = &recv_frame[..frame_len];
+                if wire::decode_request_op(frame) == Some(wire::OP_WATCH) {
                     let Some(reply) = reply else {
                         // A watch without a moved push cap has nothing to be pushed to.
                         let _ = nexus_abi::debug_println("sessiond: watch without push cap");
@@ -143,7 +147,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
                     continue;
                 }
                 let was_active = state.active_user();
-                let len = handle_request(frame.as_slice(), &registry, &mut state, &mut rsp);
+                let len = handle_request(frame, &registry, &mut state, &mut rsp);
                 let out = &rsp[..len];
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(out);

@@ -55,6 +55,7 @@ mod filter;
 #[cfg(nexus_env = "os")]
 mod loop_telemetry;
 pub(crate) mod material_glass;
+mod reply_route;
 mod runtime;
 mod scene;
 pub(crate) mod shell_window;
@@ -226,7 +227,6 @@ fn dispatch_client_frame(
     mut moved_cap: Option<nexus_ipc::ReplyCap>,
     sender_sid: u64,
 ) {
-    use nexus_ipc::Server as _;
     // RFC-0075: imed pushes arrive on the same server endpoint but speak the
     // `'I','E'` protocol — discriminate by MAGIC before the op switch (the
     // `'I','N'` op space below would misread them). Fire-and-forget: no reply.
@@ -243,11 +243,7 @@ fn dispatch_client_frame(
     }
     if frame_has_op(frame, OP_GET_VISIBLE_STATE) {
         let response = encode_visible_state_frame(runtime.visible_state());
-        if let Some(reply) = moved_cap.take() {
-            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-        } else {
-            let _ = server.send(&response, Wait::Blocking);
-        }
+        reply_route::answer(server, moved_cap.take(), &response, false, OP_GET_VISIBLE_STATE);
     } else if frame_has_op(frame, OP_UPDATE_VISIBLE_STATE) {
         // Frame-aligned coalescing: STAGE the update (latest sample wins,
         // wheel sums); applied ONCE per frame by apply_staged_input. Reply
@@ -294,11 +290,15 @@ fn dispatch_client_frame(
             Some(n) => runtime.send_frame_for_nonce(n, &ack),
             None => false,
         };
-        if !delivered {
-            // Every client owns a nonce-bound channel; a missing one falls
-            // back to the shared response endpoint (bring-up paths).
-            let _ = server.send(&ack, Wait::Blocking);
-        }
+        // Every client owns a nonce-bound channel; a missing one falls back to
+        // the shared response endpoint (bring-up paths).
+        reply_route::answer(
+            server,
+            None,
+            &ack,
+            delivered,
+            nexus_display_proto::client_surface::OP_SURFACE_CREATE,
+        );
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_PRESENT)
     {
         // Ack routing BY SURFACE OWNER: a desktop present acks on the desktop
@@ -310,13 +310,8 @@ fn dispatch_client_frame(
             Some(id) => runtime.send_surface_frame(id, &ack),
             None => false,
         };
-        if delivered {
-            // delivered on the dedicated channel
-        } else if let Some(reply) = moved_cap.take() {
-            let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
-        } else {
-            let _ = server.send(&ack, Wait::Blocking);
-        }
+        let op = frame.get(3).copied().unwrap_or(0);
+        reply_route::answer(server, moved_cap.take(), &ack, delivered, op);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_DESTROY)
     {
         // Same owner routing as present — decode BEFORE the destroy drops the
@@ -332,13 +327,8 @@ fn dispatch_client_frame(
         } else {
             app_idx.map(|i| runtime.send_app_frame(i, &ack)).unwrap_or(false)
         };
-        if delivered {
-            // delivered on the dedicated channel
-        } else if let Some(reply) = moved_cap.take() {
-            let _ = reply.reply_and_close_wait(&ack, Wait::Blocking);
-        } else {
-            let _ = server.send(&ack, Wait::Blocking);
-        }
+        let op = frame.get(3).copied().unwrap_or(0);
+        reply_route::answer(server, moved_cap.take(), &ack, delivered, op);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_LAYERS)
     {
         // R1 layer seam: the app declares its material-tagged glass regions.
@@ -376,11 +366,7 @@ fn dispatch_client_frame(
     } else {
         let op = frame.get(3).copied().unwrap_or(0);
         let response = encode_status(op, STATUS_UNSUPPORTED);
-        if let Some(reply) = moved_cap.take() {
-            let _ = reply.reply_and_close_wait(&response, Wait::Blocking);
-        } else {
-            let _ = server.send(&response, Wait::Blocking);
-        }
+        reply_route::answer(server, moved_cap.take(), &response, false, op);
     }
 }
 

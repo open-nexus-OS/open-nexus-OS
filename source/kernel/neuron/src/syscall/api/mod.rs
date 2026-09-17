@@ -13,7 +13,6 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
 use core::cmp;
 use core::ptr;
 

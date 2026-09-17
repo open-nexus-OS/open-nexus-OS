@@ -161,11 +161,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
     // consecutive errors marks our own endpoint defect.
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
 
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, sender_service_id, reply_cap)) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, sender_service_id, reply_cap)) => {
+                let frame = &recv_frame[..frame_len];
                 breaker.on_success();
-                let frame = frame.as_slice();
+                let frame = frame;
                 // TASK-0049B PR-B3b: supervised-restart probe. Identity is
                 // the kernel-attributed sender id — unforgeable, so the
                 // deny path has no probeable forgery surface by design.

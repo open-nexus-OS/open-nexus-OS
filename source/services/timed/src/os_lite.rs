@@ -75,15 +75,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> TimedResult<()> {
     try_anchor(&mut wall_anchor);
 
     nexus_abi::service_verdict_flush("timed");
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, sender_service_id, reply)) => {
-                let rsp = handle_frame(
-                    &mut registry,
-                    &mut wall_anchor,
-                    sender_service_id,
-                    frame.as_slice(),
-                );
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, sender_service_id, reply)) => {
+                let frame = &recv_frame[..frame_len];
+                let rsp = handle_frame(&mut registry, &mut wall_anchor, sender_service_id, frame);
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);
                 } else {

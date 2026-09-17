@@ -88,6 +88,9 @@ pub fn service_main_loop() -> SettingsdResult<()> {
             "settingsd: FAIL waitset/timer (blocking on the server endpoint alone)",
         );
     }
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
         // Persistence FIRST (drain PUT replies, send a due PUT) — it never blocks a client.
         pump_persist(&mut persister, &registry);
@@ -96,15 +99,14 @@ pub fn service_main_loop() -> SettingsdResult<()> {
         }
         let wait = if waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
         for _ in 0..IPC_BATCH_LIMIT {
-            match server.recv_request_with_meta(wait) {
-                Ok((frame, _sender_service_id, reply)) => {
+            match server.recv_request_with_meta_into(wait, &mut recv_frame) {
+                Ok((frame_len, _sender_service_id, reply)) => {
+                    let frame = &recv_frame[..frame_len];
                     // OP_WATCH (RFC-0078/0083): the moved cap IS the subscription's
                     // push channel — keep it, never reply_and_close it. A fresh
                     // watcher immediately receives its full matching state
                     // (registration burst = the subscriber's boot restore).
-                    if let Some((wire::OP_WATCH, prefix, _)) =
-                        wire::decode_request(frame.as_slice())
-                    {
+                    if let Some((wire::OP_WATCH, prefix, _)) = wire::decode_request(frame) {
                         match reply {
                             Some(chan) if watchers.register(chan.slot(), prefix) => {
                                 let current = current_values(&registry);
@@ -128,7 +130,7 @@ pub fn service_main_loop() -> SettingsdResult<()> {
                         continue;
                     }
                     let len = handle_request(
-                        frame.as_slice(),
+                        frame,
                         &mut registry,
                         &mut rsp,
                         &mut watchers,

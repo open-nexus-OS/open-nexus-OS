@@ -472,32 +472,25 @@ fn append_crash_to_logd(
     // selftest proves persistence by QUERYING logd for the crash record.
     let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
 
-    nexus_ipc::budget::raw::send_blocking(LOGD_SEND_SLOT, &hdr, &frame).map_err(|e| {
-        match e {
-            nexus_ipc::IpcError::Timeout => emit_line("execd: crash logd send timeout"),
-            nexus_ipc::IpcError::Kernel(inner) => {
-                emit_line_no_nl("execd: crash logd send kernel=");
-                emit_line(ipc_error_label(inner));
-                if inner == nexus_abi::IpcError::NoSuchEndpoint {
-                    let mut info =
-                        nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-                    match nexus_abi::cap_query(LOGD_SEND_SLOT, &mut info) {
-                        Ok(()) => {
-                            emit_line_no_nl("execd: crash logd slot kind=");
-                            emit_u64(info.kind_tag as u64);
-                            emit_line("");
-                        }
-                        Err(_) => emit_line("execd: crash logd slot query err"),
+    nexus_ipc::budget::raw::send_blocking(LOGD_SEND_SLOT, &hdr, &frame).map_err(|e| match e {
+        nexus_ipc::IpcError::Timeout => emit_line("execd: crash logd send timeout"),
+        nexus_ipc::IpcError::Kernel(inner) => {
+            emit_line_no_nl("execd: crash logd send kernel=");
+            emit_line(ipc_error_label(inner));
+            if inner == nexus_abi::IpcError::NoSuchEndpoint {
+                let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+                match nexus_abi::cap_query(LOGD_SEND_SLOT, &mut info) {
+                    Ok(()) => {
+                        emit_line_no_nl("execd: crash logd slot kind=");
+                        emit_u64(info.kind_tag as u64);
+                        emit_line("");
                     }
+                    Err(_) => emit_line("execd: crash logd slot query err"),
                 }
             }
-            nexus_ipc::IpcError::NoSpace => emit_line("execd: crash logd send nospace"),
-            other => {
-                let _ = other;
-                emit_line("execd: crash logd send err");
-            }
         }
-        ()
+        nexus_ipc::IpcError::NoSpace => emit_line("execd: crash logd send nospace"),
+        _ => emit_line("execd: crash logd send err"),
     })?;
     Ok(())
 }
@@ -509,6 +502,7 @@ fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
         nexus_abi::IpcError::QueueFull => "QueueFull",
         nexus_abi::IpcError::QueueEmpty => "QueueEmpty",
         nexus_abi::IpcError::NoSpace => "NoSpace",
+        nexus_abi::IpcError::TooBig => "TooBig",
         nexus_abi::IpcError::TimedOut => "TimedOut",
         nexus_abi::IpcError::PeerClosed => "PeerClosed",
         nexus_abi::IpcError::Unsupported => "Unsupported",

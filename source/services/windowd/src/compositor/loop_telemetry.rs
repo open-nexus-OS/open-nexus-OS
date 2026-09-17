@@ -57,13 +57,20 @@ impl LoopTelemetry {
         if presents >= 8 {
             let nacks = runtime.nack_total().wrapping_sub(self.nack_base);
             let fullrq = runtime.nack_full_recompose_total().wrapping_sub(self.fullrq_base);
+            // TASK-0054C P2-g: where the replies of this window went. `shared`
+            // is the fallback onto windowd's own response endpoint — the route
+            // that can wedge the compositor, so it belongs next to the cadence.
+            let (ch, cap, shared) = super::reply_route::counts();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={}",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={})",
                 self.iters,
                 self.applies,
                 presents,
                 nacks,
                 fullrq,
+                ch,
+                cap,
+                shared,
             ));
         }
         self.rebase(now_ns, runtime);

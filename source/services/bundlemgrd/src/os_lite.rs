@@ -160,9 +160,13 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // TASK-0324 P7-d: the VMOs senders armed for their next VMO op.
     let mut armed = crate::armed_vmo::ArmedVmos::new();
     nexus_abi::service_verdict_flush("bundlemgrd");
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, sender_service_id, mut reply)) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, sender_service_id, mut reply)) => {
+                let frame = &recv_frame[..frame_len];
                 if reply.is_some() && !logged_capmove {
                     logged_capmove = true;
                 }
@@ -175,7 +179,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 // TASK-0321 (RFC-0089 §12.3): system-volume ops. GET_BUNDLE_ELF
                 // carries the destination VMO as its single moved cap (the
                 // GET_PAYLOAD pattern); QUERY/STATUS answer on the reply path.
-                let vop = nexus_abi::bundlemgrd::decode_request_op(frame.as_slice());
+                let vop = nexus_abi::bundlemgrd::decode_request_op(frame);
                 if matches!(
                     vop,
                     Some(nexus_abi::bundlemgrd::OP_QUERY_BUNDLE)
@@ -187,7 +191,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                     crate::payload_ops::handle_volume_op(
                         &mut volume,
                         &mut armed,
-                        frame.as_slice(),
+                        frame,
                         sender_service_id,
                         reply,
                         &server,
@@ -210,11 +214,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 if vop == Some(nexus_abi::bundlemgrd::OP_GET_PAYLOAD) {
                     let vmo_slot = armed.take(sender_service_id);
                     let (status, len) = if is_allowed_sender(sender_service_id) {
-                        crate::payload_ops::handle_get_payload(
-                            &mut volume,
-                            frame.as_slice(),
-                            vmo_slot,
-                        )
+                        crate::payload_ops::handle_get_payload(&mut volume, frame, vmo_slot)
                     } else {
                         emit_sender_denied(sender_service_id);
                         if let Some(slot) = vmo_slot {
@@ -237,7 +237,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 // resolves that name against THIS registry instead of taking
                 // "sender id 0" (any unnamed task). Other ops keep the
                 // named-sender gate (GET_PAYLOAD + mutations = core-only).
-                let is_list_apps = nexus_abi::bundlemgrd::decode_request_op(frame.as_slice())
+                let is_list_apps = nexus_abi::bundlemgrd::decode_request_op(frame)
                     == Some(nexus_abi::bundlemgrd::OP_LIST_APPS);
                 if is_list_apps {
                     // The registry lives on the volume: attach (once) before
@@ -251,10 +251,10 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                         apps.iter().map(|a| a.id.as_str()),
                     );
                 let rsp = if is_app_list || is_allowed_sender(sender_service_id) {
-                    handle_frame_vec(frame.as_slice(), apps)
+                    handle_frame_vec(frame, apps)
                 } else {
                     emit_sender_denied(sender_service_id);
-                    denied_frame_response(frame.as_slice())
+                    denied_frame_response(frame)
                 };
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close_wait(&rsp, Wait::Blocking);

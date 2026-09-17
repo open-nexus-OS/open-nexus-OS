@@ -52,8 +52,60 @@
     clippy::too_many_arguments
 )]
 
-#[cfg(target_os = "none")]
+// Un-gated since TASK-0054C P3b: the crate-root modules that exist so their
+// logic is host-testable (`ipc_payload`) need `Vec`, and on a host build `alloc`
+// is simply part of the sysroot. Gating this was what made those modules
+// no_std-only in practice.
 extern crate alloc;
+
+/// Host-test allocator that counts allocations PER THREAD (TASK-0054C P3b).
+///
+/// The inline tier's whole claim is "a control message costs the kernel no
+/// heap". A claim like that is only worth what proves it, so the proof is an
+/// allocation count, not a code reading. Per-thread and not global on purpose:
+/// cargo runs tests in parallel, and a global counter would be measuring the
+/// other tests' allocations. Const-initialised TLS, so the counter itself
+/// cannot allocate on first touch and recurse into this hook.
+#[cfg(test)]
+pub(crate) mod test_alloc {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static ALLOCS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Allocations made by THIS thread so far.
+    pub(crate) fn thread_allocs() -> usize {
+        ALLOCS.try_with(|c| c.get()).unwrap_or(0)
+    }
+
+    pub(crate) struct Counting;
+
+    // SAFETY: every method forwards to `System`, which upholds the GlobalAlloc
+    // contract; the only addition is a non-allocating counter bump.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
+            unsafe { System.alloc_zeroed(layout) }
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let _ = ALLOCS.try_with(|c| c.set(c.get() + 1));
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+}
+
+#[cfg(test)]
+#[global_allocator]
+static COUNTING_ALLOC: test_alloc::Counting = test_alloc::Counting;
 
 #[cfg(target_os = "none")]
 use core::alloc::{GlobalAlloc, Layout};
@@ -235,6 +287,15 @@ unsafe impl GlobalAlloc for SpinLockedHeap {
 #[cfg(target_os = "none")]
 static ALLOC: SpinLockedHeap = SpinLockedHeap(HeapLock::new(Heap::empty()));
 
+/// Kernel heap bytes currently handed out (TASK-0054C P3b). A plain lock +
+/// metadata read, no allocation: the same pair the OOM handler snapshots, made
+/// available at the telemetry fence so a change to `Message`'s size is a
+/// measured number instead of an argument.
+#[cfg(target_os = "none")]
+pub(crate) fn heap_used_bytes() -> usize {
+    ALLOC.0.lock().used()
+}
+
 #[cfg(target_os = "none")]
 fn init_heap() {
     // SAFETY: single-threaded early boot; we only pass a raw pointer + length.
@@ -383,6 +444,11 @@ mod ipc_eof;
 // their record/reset contract runs on host. Fed by the send/recv paths.
 #[path = "ipc/stats.rs"]
 mod ipc_stats;
+// TASK-0054C P3b (RFC-0096): the payload tiers and the two ABI bounds — NOT
+// target-gated, for the same reason and with the same shape as `ipc_stats`:
+// `mod ipc` is riscv/none-only, so anything under it can never be host-tested.
+#[path = "ipc/payload.rs"]
+mod ipc_payload;
 // RFC-0080: the pure read-only-VMO map policy — NOT target-gated so its
 // anti-corruption invariant runs on host. Fed by `sys_map`'s VmoRo arm.
 #[cfg(target_os = "none")]

@@ -18,6 +18,28 @@
 /// Result type returned by ABI helpers.
 pub type Result<T> = core::result::Result<T, IpcError>;
 
+/// Payloads up to this many bytes travel INLINE in the kernel message and cost
+/// zero kernel heap (RFC-0096, TASK-0054C P3b). 32 is measured, not chosen:
+/// P3a's payload histogram over 13 windows found that everything which scales
+/// with a boot's length is at or below 32 bytes, while every larger bucket is
+/// the boot's fixed work (RFC-0096 §Amendment 2026-09-16).
+///
+/// MIRROR: the kernel owns the enforcing copy in
+/// `source/kernel/neuron/src/ipc/payload.rs` (it is the defining side of the
+/// ABI and does not depend on this crate). `scripts/check-ipc-bounds.sh` fails
+/// the build if the two ever differ.
+pub const IPC_SHORT_MAX: usize = 32;
+
+/// Hard transport cap for one IPC payload. A larger payload is refused with
+/// [`IpcError::TooBig`] (`E2BIG`) at every send-side trap — never truncated,
+/// never silently split. Bulk does not travel through the kernel: it rides a
+/// VMO moved with the message (RFC-0096 §"Copies"). Size a receive buffer by
+/// THIS, never by a local guess — a local 512-byte ceiling once turned an
+/// oversize OTA frame into a "bad signature" report.
+///
+/// MIRROR: see [`IPC_SHORT_MAX`].
+pub const IPC_PAYLOAD_MAX: usize = 8 * 1024;
+
 /// Errors surfaced by IPC syscalls.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IpcError {
@@ -36,6 +58,10 @@ pub enum IpcError {
     /// RFC-0079: an EOF-opted recv whose endpoint had a sender and now has none
     /// (errno EPIPE). Surfaced by `nexus-ipc` as `IpcError::Disconnected`.
     PeerClosed,
+    /// The payload exceeds [`IPC_PAYLOAD_MAX`] (errno `E2BIG`). Distinct from
+    /// [`IpcError::NoSpace`], which means the RECEIVER's queue budget is full:
+    /// this one can never succeed by retrying, and the fix is the VMO bulk path.
+    TooBig,
     /// IPC is not supported for this configuration.
     Unsupported,
 }

@@ -614,9 +614,7 @@ pub fn describe_init_error(line: &mut LineBuilder<'_, '_>, err: &InitError) {
             line.text("map:");
             line.text(msg);
         }
-        InitError::MissingElf => {
-            line.text("missing-elf");
-        }
+        InitError::MissingElf => line.text("missing-elf"),
     }
 }
 
@@ -628,6 +626,7 @@ pub(crate) fn ipc_error_label(err: IpcError) -> &'static str {
         IpcError::PermissionDenied => "permission-denied",
         IpcError::TimedOut => "timed-out",
         IpcError::NoSpace => "no-space",
+        IpcError::TooBig => "too-big",
         IpcError::PeerClosed => "peer-closed",
         IpcError::Unsupported => "unsupported",
     }

@@ -160,21 +160,17 @@ mod host;
 #[cfg(all(nexus_env = "host", feature = "std"))]
 pub use host::{loopback_channel, LoopbackClient, LoopbackServer};
 
-#[cfg(all(nexus_env = "os", not(feature = "os-lite")))]
-mod os;
-#[cfg(all(nexus_env = "os", not(feature = "os-lite")))]
-pub use os::{set_default_target, KernelClient, KernelServer};
-
-// OS/no_std kernel syscall backend (IPC v1). Prefer this when explicitly enabled.
+// The OS backend: kernel IPC v1 syscalls. There is exactly ONE (TASK-0054C P3b).
+// Two more used to shadow these same public names — `os.rs` for `os` without
+// `os-lite`, and `os_lite.rs` for `os-lite` without `kernel-ipc`, the last home
+// of the 512-byte frame ceiling RFC-0096 calls out. Neither compiled in ANY
+// build: a `compile_error!` in both still built the OS workspace, `just diag`
+// under all three cfgs, the kernel, and `init-lite` — the shipped init ELF,
+// whose graph resolves `nexus-ipc` with `kernel-ipc` as well. Buffer sizes come
+// from `nexus_abi::IPC_PAYLOAD_MAX` now, never from a local guess.
 #[cfg(all(nexus_env = "os", feature = "os-lite", feature = "kernel-ipc"))]
 mod os_kernel;
 #[cfg(all(nexus_env = "os", feature = "os-lite", feature = "kernel-ipc"))]
 pub use os_kernel::{
     set_default_target, supports_service_routing, KernelClient, KernelServer, ReplyCap,
 };
-
-// no_std OS-lite backend (a lightweight in-kernel IPC), enabled via feature flag
-#[cfg(all(nexus_env = "os", feature = "os-lite", not(feature = "kernel-ipc")))]
-mod os_lite;
-#[cfg(all(nexus_env = "os", feature = "os-lite", not(feature = "kernel-ipc")))]
-pub use os_lite::{set_default_target, LiteClient as KernelClient, LiteServer as KernelServer};

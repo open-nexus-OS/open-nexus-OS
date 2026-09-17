@@ -316,7 +316,7 @@ const MAX_VAL_LEN: usize = 256;
 /// per-message bound (`ipc::endpoint` MAX_FRAME_BYTES = 8 KiB): a service
 /// buffer larger than the transport can carry is not "generous", it makes
 /// the receive call itself fail.
-const MAX_REQUEST_FRAME: usize = 8 * 1024;
+const MAX_REQUEST_FRAME: usize = nexus_abi::IPC_PAYLOAD_MAX;
 /// Verify payload = frame minus the fixed header/key/signature prefix.
 const MAX_VERIFY_PAYLOAD: usize = MAX_REQUEST_FRAME - (4 + 4 + 32 + 64);
 const MAX_SIGN_PAYLOAD: usize = 1 * 1024 * 1024;

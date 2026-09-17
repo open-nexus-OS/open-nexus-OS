@@ -80,22 +80,26 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     // TASK-0288 sweep: transient errors continue; only a consecutive-error
     // run marks our own endpoint defect (fleet-collapse lesson).
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, _sender_service_id, reply)) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, _sender_service_id, reply)) => {
+                let frame = &recv_frame[..frame_len];
                 breaker.on_success();
                 // TASK-0065B session gate: OP_LAUNCH is refused until sessiond
                 // reports an ACTIVE session. Fail-closed (sessiond unreachable
                 // = deny): windowd's greeter gate is UX, THIS is the
                 // authority-side enforcement (host-tested in `handoff`).
-                let out = if is_launch_request(frame.as_slice())
-                    && !launch_target_is_pre_session(frame.as_slice())
+                let out = if is_launch_request(frame)
+                    && !launch_target_is_pre_session(frame)
                     && !session_gate_active()
                 {
                     emit_line("abilitymgr: launch denied (session)");
                     crate::wire::Dispatched { response: launch_denied_response(), event: None }
                 } else {
-                    dispatch(&mut broker, frame.as_slice())
+                    dispatch(&mut broker, frame)
                 };
                 if let Some(event) = out.event {
                     emit_event(&event);

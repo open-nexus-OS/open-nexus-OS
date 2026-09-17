@@ -11,7 +11,6 @@
 //! INVARIANTS: Activate kernel AS before complex init; cooperative scheduling via SYSCALL_YIELD
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
-use alloc::vec::Vec;
 use core::{fmt::Write as _, mem::MaybeUninit};
 
 use crate::ipc;
@@ -309,7 +308,7 @@ impl KernelState {
     fn exercise_ipc(&mut self) {
         // Send a bootstrap message to prove IPC wiring works before tasks run.
         let header = MessageHeader::new(0, 0, 0x100, 0, 0);
-        if self.ipc.send(0, ipc::Message::new(header, Vec::new(), None)).is_ok() {
+        if self.ipc.send(0, ipc::Message::new(header, ipc::Payload::empty(), None)).is_ok() {
             let _ = self.ipc.recv(0);
         }
     }

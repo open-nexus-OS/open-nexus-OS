@@ -24,8 +24,6 @@ pub mod header;
 #[cfg(feature = "ipc_trace_ring")]
 pub mod trace;
 
-use header::MessageHeader;
-
 /// Identifier for a kernel endpoint.
 pub type EndpointId = u32;
 
@@ -51,11 +49,17 @@ pub enum IpcError {
     TimedOut,
     /// Not enough resources to complete the IPC operation (e.g. receiver cap table full).
     NoSpace,
+    /// The payload is larger than [`IPC_PAYLOAD_MAX`] (`E2BIG`). Distinct from
+    /// `NoSpace`, which is the RECEIVER's queue budget: this one cannot succeed
+    /// by retrying, and the answer is the VMO bulk path (RFC-0096).
+    TooBig,
     /// RFC-0079: an EOF-opted receiver's endpoint had a sender and now has none
     /// (the last SEND cap closed). The endpoint is still alive; there will just
     /// never be another message unless a new sender attaches.
     PeerClosed,
 }
+
+pub use crate::ipc_payload::{Payload, IPC_PAYLOAD_MAX};
 
 /// Representation of an endpoint queue.
 mod endpoint;
@@ -63,38 +67,9 @@ mod endpoint;
 mod eof;
 use endpoint::Endpoint;
 
-/// Message combining header and inline payload.
-#[derive(Clone, Debug)]
-pub struct Message {
-    pub header: MessageHeader,
-    pub payload: Vec<u8>,
-    /// Optional capability moved alongside this message (Phase-2 hardening / scalability).
-    pub moved_cap: Option<crate::cap::Capability>,
-    /// Expected endpoint id for CAP_MOVE (when moving an Endpoint cap).
-    ///
-    /// SECURITY/ROBUSTNESS: This is a kernel-internal consistency field used to detect and
-    /// correct mismatches between the moved capability's endpoint id at send-time vs
-    /// receive-time. It MUST NOT be exposed to userspace directly.
-    pub capmove_expected_ep: u32,
-    /// Kernel-derived stable identity of the sender service (BootstrapInfo v2).
-    ///
-    /// This is populated by the syscall layer at send-time, and remains stable even if the sender
-    /// exits before the receiver dequeues the message.
-    pub sender_service_id: u64,
-}
-
-impl Message {
-    /// Creates a message and truncates the payload length to match `header.len`.
-    pub fn new(
-        header: MessageHeader,
-        payload: Vec<u8>,
-        moved_cap: Option<crate::cap::Capability>,
-    ) -> Self {
-        let mut payload = payload;
-        payload.truncate(header.len as usize);
-        Self { header, payload, moved_cap, capmove_expected_ep: 0, sender_service_id: 0 }
-    }
-}
+/// The kernel IPC message (header + tiered payload + moved cap).
+mod message;
+pub use message::Message;
 
 /// Router managing all kernel endpoints.
 pub struct Router {
@@ -494,6 +469,7 @@ pub mod failpoints {
 
 #[cfg(test)]
 mod tests {
+    use super::header::MessageHeader;
     use super::*;
     use alloc::vec;
 
@@ -502,10 +478,11 @@ mod tests {
         let mut router = Router::new(2);
         let header = MessageHeader::new(1, 0, 42, 0, 4);
         let payload = vec![1, 2, 3, 4];
-        router.send(0, Message::new(header, payload.clone(), None)).unwrap();
+        router.send(0, Message::new(header, Payload::from_slice(&payload), None)).unwrap();
         let received = router.recv(0).unwrap();
         assert_eq!(received.header.ty, 42);
-        assert_eq!(received.payload, payload);
+        assert_eq!(received.payload.as_slice(), &payload[..]);
+        assert!(!received.payload.is_heap(), "4 bytes must ride inline");
     }
 
     /// TASK-0324 P7-d: the EOF latch a waitset reads — set by the last-peer scan, cleared by a
@@ -518,7 +495,7 @@ mod tests {
         router.set_eof_pending(ep);
         assert!(router.eof_pending(ep));
         let header = MessageHeader::new(1, 0, 1, 0, 0);
-        router.send(ep, Message::new(header, vec![], None)).unwrap();
+        router.send(ep, Message::new(header, Payload::empty(), None)).unwrap();
         assert!(!router.eof_pending(ep), "a sender wrote: the latch is stale");
         router.set_eof_pending(ep);
         router.clear_eof_pending(ep);
@@ -538,7 +515,7 @@ mod tests {
         assert_eq!(drained, vec![100, 200]);
         let header = MessageHeader::new(1, 0, 1, 0, 0);
         assert_eq!(
-            router.send(ep, Message::new(header, vec![], None)).unwrap_err(),
+            router.send(ep, Message::new(header, Payload::empty(), None)).unwrap_err(),
             IpcError::NoSuchEndpoint
         );
         assert_eq!(router.recv(ep).unwrap_err(), IpcError::NoSuchEndpoint);
@@ -678,14 +655,14 @@ mod tests {
                 1 | 2 => {
                     let len = ((r as usize >> 24) % 32) as u32;
                     let hdr = MessageHeader::new(0, id, 1, 0, len);
-                    let payload = vec![0u8; len as usize];
-                    let msg = Message::new(hdr, payload, None);
+                    let msg =
+                        Message::new(hdr, Payload::from_slice(&vec![0u8; len as usize]), None);
                     let _ = router.send(id, msg);
                 }
                 // send max payload (512) to exercise budgets
                 3 => {
                     let hdr = MessageHeader::new(0, id, 2, 0, 512);
-                    let msg = Message::new(hdr, vec![0u8; 512], None);
+                    let msg = Message::new(hdr, Payload::from_vec(vec![0u8; 512]), None);
                     let _ = router.send(id, msg);
                 }
                 // recv

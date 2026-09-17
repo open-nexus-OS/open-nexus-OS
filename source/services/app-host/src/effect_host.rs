@@ -42,7 +42,7 @@ pub(crate) const ERR_SVC_SHAPE: u32 = 3;
 /// distinct from a failure so a page can render the honest denied state.
 pub(crate) const ERR_SVC_DENIED: u32 = 4;
 
-/// Reply-inbox scratch bound (list responses carry every entry).
+/// Reply-inbox scratch bound. NOT `IPC_PAYLOAD_MAX` (P2-g): it sizes a STACK array at 8 sites.
 pub(crate) const REPLY_BUF: usize = 512;
 /// Reply scratch for `svc.files` directory pages — sized to the shared codec's
 /// response budget (`nexus-vfs-types`), which itself stays under the 8 KiB

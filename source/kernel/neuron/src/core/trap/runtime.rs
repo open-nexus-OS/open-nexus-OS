@@ -456,7 +456,7 @@ pub(crate) fn process_expired_timers(
             0,
             payload.len() as u32,
         );
-        let msg = ipc::Message::new(header, alloc::vec::Vec::from(payload), None);
+        let msg = ipc::Message::new(header, ipc::Payload::from_slice(&payload), None);
         if router.send(state.notify_ep, msg).is_ok() {
             if let Ok(Some(waiter)) = router.pop_recv_waiter(state.notify_ep) {
                 let _ = tasks.wake(task::Pid::from_raw(waiter), scheduler);

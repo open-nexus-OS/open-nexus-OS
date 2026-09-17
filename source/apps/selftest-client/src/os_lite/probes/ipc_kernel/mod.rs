@@ -34,5 +34,7 @@ mod soak;
 
 pub(crate) use bench::{ipc_bench_probe, BenchResult};
 pub(crate) use plumbing::{ipc_payload_roundtrip, nexus_ipc_kernel_loopback_probe, qos_probe};
-pub(crate) use security::{cap_move_reply_probe, sender_pid_probe, sender_service_id_probe};
+pub(crate) use security::{
+    cap_move_reply_probe, oversize_reject_probe, sender_pid_probe, sender_service_id_probe,
+};
 pub(crate) use soak::ipc_soak_probe;

@@ -41,10 +41,10 @@ impl Endpoint {
         // Byte-based DoS hardening: in addition to queue depth, cap the total bytes that can be
         // buffered in an endpoint. This keeps memory use bounded even if messages are large.
         //
-        // NOTE: Payloads are already bounded at syscall entry (MAX_FRAME_BYTES); this compounds
-        // that bound over the queue depth.
-        const MAX_FRAME_BYTES: usize = 8 * 1024;
-        let max_queued_bytes = depth.saturating_mul(MAX_FRAME_BYTES);
+        // NOTE: payloads are already bounded at syscall entry by IPC_PAYLOAD_MAX; this compounds
+        // that bound over the queue depth. Exceeding THIS stays `NoSpace` (the receiver's budget
+        // is full, retry may help), never `TooBig` (the message can never fit) — TASK-0054C P3b.
+        let max_queued_bytes = depth.saturating_mul(super::IPC_PAYLOAD_MAX);
         Self {
             queue: VecDeque::new(),
             depth,

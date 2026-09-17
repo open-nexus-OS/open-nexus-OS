@@ -85,11 +85,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> RngdResult<()> {
     // run marks our own endpoint defect (fleet-collapse lesson).
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     // Main IPC loop
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, sender_service_id, reply)) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, sender_service_id, reply)) => {
+                let frame = &recv_frame[..frame_len];
                 breaker.on_success();
-                let rsp = handle_frame(sender_service_id, frame.as_slice());
+                let rsp = handle_frame(sender_service_id, frame);
 
                 if let Some(reply) = reply {
                     let _ = reply.reply_and_close(&rsp);

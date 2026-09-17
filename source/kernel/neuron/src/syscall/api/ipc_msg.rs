@@ -57,7 +57,6 @@ impl RecvArgsTyped {
     }
 }
 
-pub(super) const MAX_FRAME_BYTES: usize = 8 * 1024;
 pub(super) const IPC_SYS_NONBLOCK: usize = 1 << 0;
 pub(super) const IPC_SYS_TRUNCATE: usize = 1 << 1;
 /// RFC-0079 opt-in: a blocking recv with this flag returns `PeerClosed`
@@ -96,8 +95,10 @@ impl IpcSendV1ArgsTyped {
     #[inline]
     fn check(&self) -> Result<(), Error> {
         ensure_user_slice(self.header_ptr, 16)?;
-        if self.payload_len > MAX_FRAME_BYTES {
-            return Err(AddressSpaceError::InvalidArgs.into());
+        if self.payload_len > crate::ipc::IPC_PAYLOAD_MAX {
+            // E2BIG, not EINVAL: "your message is too big" is not "you passed a bad pointer",
+            // and userspace could not tell them apart before (TASK-0054C P3b, ADR-0054).
+            return Err(Error::Ipc(ipc::IpcError::TooBig));
         }
         if self.payload_len != 0 {
             ensure_user_slice(self.payload_ptr, self.payload_len)?;
@@ -146,8 +147,7 @@ pub(super) fn sys_send(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         ctx.tasks.current_caps_mut().derive_endpoint_ref(typed.slot.0, Rights::SEND)?.endpoint();
     let header =
         MessageHeader::new(typed.slot.0 as u32, endpoint, typed.ty, typed.flags, typed.len);
-    let payload = Vec::new();
-    ctx.router.send(endpoint, ipc::Message::new(header, payload, None))?;
+    ctx.router.send(endpoint, ipc::Message::new(header, ipc::Payload::empty(), None))?;
     Ok(typed.len as usize)
 }
 
@@ -205,20 +205,19 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         return Err(AddressSpaceError::InvalidArgs.into());
     }
 
-    let mut payload = Vec::new();
-    if typed.payload_len != 0 {
-        payload.resize(typed.payload_len, 0);
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                typed.payload_ptr as *const u8,
-                payload.as_mut_ptr(),
-                typed.payload_len,
-            );
-        }
+    // The payload lands in whichever tier fits it: up to IPC_SHORT_MAX it rides inside the
+    // message and the kernel heap is never touched (TASK-0054C P3b). `check()` above proved the
+    // slice and the bound, which is exactly this call's safety contract.
+    let payload = unsafe {
+        ipc::Payload::copy_in_from_user(typed.payload_ptr as *const u8, typed.payload_len)
+    };
+    if payload.is_heap() {
         crate::ipc_stats::record_payload_alloc(typed.payload_len);
+    }
+    if typed.payload_len != 0 {
         crate::ipc_stats::record_payload_copy(typed.payload_len);
     }
-    // The size distribution, once per message: it sizes P3b's inline tier (TASK-0054C P3a).
+    // The size distribution, once per message: it sized this tier (TASK-0054C P3a).
     crate::ipc_stats::record_payload_size(typed.payload_len);
 
     let cap_move_slot = if cap_move { Some(user_hdr.src as usize) } else { None };

@@ -281,11 +281,21 @@ and the harness gates only the stable prefix):
   messages accepted, kernel heap allocations for payloads, payload copies and
   their bytes, receiver wakes that needed a cross-hart IPI, and every receiver
   wake counted as a handoff miss (no direct handoff exists before TASK-0054C P4).
+  `kheap_used` is kernel heap bytes in use at the same fence (TASK-0054C P3b):
+  the inline tier makes `Message` bigger to make most messages allocation-free,
+  so what that trade COSTS is a number in the log, not an argument.
   Zero-copy direction (RFC-0096): the target is 0 heap allocations and exactly
   two register-sized copies per control message, and bulk never through the
   kernel (VMO). Since TASK-0054C P3a `heap_allocs` is ONE per message, not two:
   the send path cloned the payload "in case the attempt fails", but its loop has
-  no `continue` and a failed send hands the whole message back anyway.
+  no `continue` and a failed send hands the whole message back anyway. Since P3b
+  it is far below one: a payload of at most `IPC_SHORT_MAX` rides inline, so
+  `heap_allocs` equals the payload histogram's >32 B population exactly and no
+  longer scales with the boot (0.276 per message on smp1, 0.114 on visible).
+- `SELFTEST: ipc oversize rejected ok` — `ipc_kernel` phase. A payload of
+  `IPC_PAYLOAD_MAX + 1` real bytes must come back as `E2BIG` and as nothing
+  else; success fails the probe too (TASK-0054C P3b). Before P3b the kernel
+  answered `EINVAL`, which userspace could not tell apart from a bad pointer.
 - `KSELFTEST: ipc payload hist (zero=<n> le32=<n> le64=<n> le128=<n> le256=<n>
   le512=<n> le1k=<n> gt1k=<n>)` — `end` phase, same window and same line pair as
   the stats above. The payload-size distribution of accepted sends, one count per

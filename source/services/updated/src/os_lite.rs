@@ -570,21 +570,20 @@ fn keystored_verify(
         return Out::Unavailable("route");
     };
     let mut frame = Vec::with_capacity(4 + 4 + 32 + 64 + message.len());
-    frame.push(KEYSTORE_MAGIC0);
-    frame.push(KEYSTORE_MAGIC1);
-    frame.push(KEYSTORE_VERSION);
-    frame.push(KEYSTORE_OP_VERIFY);
+    const HDR: [u8; 4] = [KEYSTORE_MAGIC0, KEYSTORE_MAGIC1, KEYSTORE_VERSION, KEYSTORE_OP_VERIFY];
+    frame.extend_from_slice(&HDR);
     frame.extend_from_slice(&(message.len() as u32).to_le_bytes());
     frame.extend_from_slice(public_key);
     frame.extend_from_slice(signature);
     frame.extend_from_slice(message);
-    // No clock (TASK-0324 P7-b): keystored answers on its response endpoint or dies.
+    // No clock (TASK-0324 P7-b): keystored answers or dies; ONE reply buffer (P2-g).
     if client.send(&frame, Wait::Blocking).is_err() {
         return Out::Unavailable("send");
     }
+    let mut reply_buf = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     let rsp = loop {
-        let v = match client.recv(Wait::Blocking) {
-            Ok(v) => v,
+        let v = match client.recv_into(Wait::Blocking, &mut reply_buf) {
+            Ok(n) => &reply_buf[..n],
             Err(_) => return Out::Unavailable("recv"),
         };
         if v.len() >= 7

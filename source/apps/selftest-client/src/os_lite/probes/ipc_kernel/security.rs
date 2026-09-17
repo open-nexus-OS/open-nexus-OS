@@ -48,6 +48,29 @@ pub(crate) fn cap_move_reply_probe() -> core::result::Result<(), ()> {
     .map_err(|_| ())
 }
 
+/// The hard payload cap refuses with its OWN errno (TASK-0054C P3b, RFC-0096).
+///
+/// A payload of `IPC_PAYLOAD_MAX + 1` must come back as `TooBig` (`E2BIG`) and
+/// as nothing else. Before P3b the kernel answered `EINVAL`, which userspace
+/// could not tell apart from "you passed a bad pointer" — the failure class
+/// ADR-0054 exists for. The frame is a real static, not a short buffer with a
+/// long length, so the probe proves the REFUSAL and never depends on the order
+/// of the kernel's validation steps.
+pub(crate) fn oversize_reject_probe() -> core::result::Result<(), ()> {
+    /// One byte past the transport cap. Zero-filled so it lands in `.bss` and
+    /// costs the image nothing — the bytes are irrelevant, the LENGTH is the test.
+    static OVERSIZE: [u8; nexus_abi::IPC_PAYLOAD_MAX + 1] = [0u8; nexus_abi::IPC_PAYLOAD_MAX + 1];
+
+    let sam = cached_samgrd_client().map_err(|_| ())?;
+    let (sam_send, _) = sam.slots();
+    match nexus_ipc::exchange::send_request(sam_send, &OVERSIZE) {
+        Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::TooBig)) => Ok(()),
+        // Anything else is a failure, INCLUDING success: an 8 KiB + 1 payload
+        // must never reach a queue.
+        _ => Err(()),
+    }
+}
+
 pub(crate) fn sender_pid_probe() -> core::result::Result<(), ()> {
     let me = nexus_abi::pid().map_err(|_| ())?;
     let reply = cached_reply_client().map_err(|_| ())?;

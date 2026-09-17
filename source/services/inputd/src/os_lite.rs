@@ -90,14 +90,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         let _ = debug_println("inputd: FAIL waitset/timer (blocking on the server endpoint alone)");
     }
     runtime.subscribe_settings_watch();
+    // ONE loop buffer: an allocating recv killed inputd (TASK-0054C P2-g).
+    let mut recv_frame = [0u8; input_live_protocol::MAX_HID_BATCH_FRAME_LEN];
     loop {
         // 1. Requests, in a bounded batch (a blocking one when the waitset is unavailable).
         let wait = if waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
         for _ in 0..IPC_BATCH_LIMIT {
-            match server.recv_request_with_meta(wait) {
-                Ok((frame, _sender_service_id, reply)) => {
-                    serve_request(&mut runtime, &server, &frame, reply);
-                }
+            match server.recv_request_with_meta_into(wait, &mut recv_frame) {
+                Ok((n, _s, r)) => serve_request(&mut runtime, &server, &recv_frame[..n], r),
                 Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => break,
                 Err(_) => return Err("inputd recv failed"),
             }

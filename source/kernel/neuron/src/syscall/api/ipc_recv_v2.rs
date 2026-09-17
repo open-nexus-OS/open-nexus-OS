@@ -61,8 +61,9 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
 
     // Validate pointers up-front (RFC-0004 style provenance).
     ensure_user_slice(header_out_ptr, 16)?;
-    const MAX_FRAME_BYTES: usize = 8 * 1024;
-    if payload_out_max > MAX_FRAME_BYTES {
+    // EINVAL, not E2BIG: an out-buffer larger than any possible message is a caller bug, not an
+    // oversize message (TASK-0054C P3b — E2BIG is the SEND-side answer).
+    if payload_out_max > crate::ipc::IPC_PAYLOAD_MAX {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
     if payload_out_max != 0 {

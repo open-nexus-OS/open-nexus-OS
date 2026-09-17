@@ -42,6 +42,15 @@ phase = "ipc_kernel"
 [marker."SELFTEST: ipc sender service_id FAIL"]
 phase = "ipc_kernel"
 
+# TASK-0054C P3b (RFC-0096): the hard payload cap has its own errno. A payload
+# over IPC_PAYLOAD_MAX must come back as E2BIG — before P3b it was EINVAL, which
+# userspace could not tell apart from a bad pointer (the ADR-0054 failure class).
+[marker."SELFTEST: ipc oversize rejected FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc oversize rejected ok"]
+phase = "ipc_kernel"
+
 [marker."SELFTEST: ipc soak FAIL"]
 phase = "ipc_kernel"
 

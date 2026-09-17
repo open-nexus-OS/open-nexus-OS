@@ -262,7 +262,7 @@ fn ipc_v1_cap_move_blocking_deadline_times_out_and_preserves_cap() {
     // Endpoint depth=1, fill it so subsequent send hits QueueFull.
     let endpoint = router.create_endpoint(1, None).unwrap();
     let hdr0 = crate::ipc::header::MessageHeader::new(0, endpoint, 0, 0, 0);
-    router.send(endpoint, crate::ipc::Message::new(hdr0, alloc::vec::Vec::new(), None)).unwrap();
+    router.send(endpoint, crate::ipc::Message::new(hdr0, ipc::Payload::empty(), None)).unwrap();
 
     // Sender has SEND on endpoint in slot 0.
     {
@@ -336,7 +336,7 @@ fn ipc_v1_cap_move_recv_no_space_requeues_message() {
             endpoint,
             crate::ipc::Message::new(
                 hdr,
-                alloc::vec::Vec::new(),
+                ipc::Payload::empty(),
                 Some(Capability { kind: CapabilityKind::Endpoint(999), rights: Rights::SEND }),
             ),
         )

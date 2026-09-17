@@ -39,7 +39,7 @@ const PKGFS_OPCODE_LIST: u8 = 4;
 
 /// Bulk reply scratch for the packagefsd hop (file payloads + listing pages);
 /// stays under the 8 KiB IPC frame cap.
-const PKGFS_REPLY_BUF: usize = 8 * 1024;
+const PKGFS_REPLY_BUF: usize = nexus_abi::IPC_PAYLOAD_MAX;
 
 const KIND_FILE: u16 = 0;
 
@@ -282,13 +282,17 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     // service. The bump heap never frees, so a per-request window buffer
     // would leak the size of every file ever spliced.
     let mut splice_window = alloc::vec![0u8; 64 * 1024];
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
         // CAP_MOVE-aware receive: app-host children move a one-shot reply cap
         // into the request (their private inbox); direct clients (selftest)
         // send plainly and read the shared response endpoint. Replying on the
         // wrong path silently strands the caller — route per message.
-        match server.recv_request_with_meta(Wait::Blocking) {
-            Ok((frame, sender_service_id, reply_cap)) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, sender_service_id, reply_cap)) => {
+                let frame = &recv_frame[..frame_len];
                 if frame.is_empty() {
                     if let Some(reply_cap) = reply_cap {
                         reply_cap.close();

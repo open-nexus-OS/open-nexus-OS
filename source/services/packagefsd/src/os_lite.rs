@@ -272,9 +272,13 @@ fn run_loop(
     reader: Option<&VolumeReader>,
 ) -> LiteResult<()> {
     let mut response = Vec::with_capacity(256);
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv(Wait::Blocking) {
-            Ok(bytes) => {
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((frame_len, _sid, _reply)) => {
+                let bytes = &recv_frame[..frame_len];
                 if bytes.is_empty() {
                     continue;
                 }

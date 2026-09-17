@@ -137,7 +137,7 @@ jobs:
         run: just deadcode
 
   kernel:
-    name: kernel (just build-kernel + lint-kernel)
+    name: kernel (just build-kernel + lint-kernel + test-kernel)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -161,6 +161,8 @@ jobs:
         run: just build-kernel
       - name: just lint-kernel
         run: just lint-kernel
+      - name: just test-kernel
+        run: just test-kernel
 
   qemu:
     name: qemu selftests (headless profile)

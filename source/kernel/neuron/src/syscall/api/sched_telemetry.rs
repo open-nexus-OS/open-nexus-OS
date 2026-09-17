@@ -86,15 +86,21 @@ pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
             // construction until P4 lands (no direct handoff exists), so every
             // receiver wake is a handoff miss.
             let ipc = crate::ipc_stats::report();
+            // TASK-0054C P3b: kernel heap bytes in use at the same fence. The inline tier makes
+            // `Message` bigger to make most messages allocation-free, and a `Message` is moved on
+            // every send, push, pop and error return — so whether the tier PAYS has to be a
+            // number, not an argument. Nothing else prints this; only the OOM handler read it.
+            let kheap_used = crate::heap_used_bytes();
             log_info!(
                 target: "ipc",
-                "KSELFTEST: ipc stats (sends={} heap_allocs={} copies={} copy_bytes={} wake_ipis={} handoff_hit=0 handoff_miss={})",
+                "KSELFTEST: ipc stats (sends={} heap_allocs={} copies={} copy_bytes={} wake_ipis={} handoff_hit=0 handoff_miss={} kheap_used={})",
                 ipc.sends,
                 ipc.payload_allocs,
                 ipc.payload_copies,
                 ipc.payload_copy_bytes,
                 ipc.wake_ipis,
-                ipc.recv_wakes
+                ipc.recv_wakes,
+                kheap_used
             );
             // TASK-0054C P3a: the payload-size distribution, so the inline tier P3b builds is
             // sized by measurement and not by the guess RFC-0096 wrote down. An average cannot

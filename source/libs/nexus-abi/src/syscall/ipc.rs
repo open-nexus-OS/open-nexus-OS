@@ -27,6 +27,7 @@ fn decode_ipc_send(value: usize) -> Result<usize> {
         match -(value as isize) as usize {
             1 => Err(IpcError::PermissionDenied), // EPERM
             3 => Err(IpcError::NoSuchEndpoint),   // ESRCH
+            7 => Err(IpcError::TooBig),           // E2BIG (payload > IPC_PAYLOAD_MAX)
             11 => Err(IpcError::QueueFull),       // EAGAIN
             28 => Err(IpcError::NoSpace),         // ENOSPC
             110 => Err(IpcError::TimedOut),       // ETIMEDOUT

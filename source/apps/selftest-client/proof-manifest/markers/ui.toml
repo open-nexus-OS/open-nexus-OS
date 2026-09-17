@@ -92,6 +92,27 @@ proves = "observer-only selftest completed service-owned visible present path in
 phase = "end"
 proves = "windowd registered its session push channel at sessiond — the session decision and the login arrive as pushes on a waitset member, never by polling"
 
+# TASK-0054C P2-g: the login → shell seam, NAMED at last. A user reported "no
+# handoff after the greeter" and nothing in this manifest could have caught it:
+# the three markers that prove the seam were not registered anywhere, so the
+# handoff could rot silently until a human tried to log in. Registering them does
+# not yet REQUIRE them — an automated lane has no one to type a password, and the
+# greeter's login is a Tap on a declared button, not an Enter key. Requiring them
+# needs the visible injector to drive a real login against a hit rect the greeter
+# DECLARES (a screenshot-derived coordinate would rot the same way). Named here
+# so the next step is a step, not a rediscovery.
+[marker."apphost: dsl svc session.login ok"]
+phase = "end"
+proves = "the greeter's login reached sessiond and was accepted — the first half of the login seam"
+
+[marker."windowd: dsl login detected (session active)"]
+phase = "end"
+proves = "sessiond PUSHED the ACTIVE state to windowd after an out-of-process login — the compositor learned of the login without polling"
+
+[marker."windowd: session shell visible"]
+phase = "end"
+proves = "the session shell replaced the greeter — the handoff a user reported missing (2026-09-17)"
+
 [marker."windowd: FAIL session watch subscribe"]
 phase = "end"
 
