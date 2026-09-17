@@ -28,8 +28,10 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 /// Messages accepted by the router (`ipc_send_v1` success path).
 static SENDS: AtomicU64 = AtomicU64::new(0);
-/// Kernel heap allocations made for message payloads (the `Vec` the user
-/// bytes land in, plus the clone `Message::new` takes per send attempt).
+/// Kernel heap allocations made for message payloads. ONE per message since
+/// TASK-0054C P3a: the `Vec` the user bytes land in. The second — a clone taken
+/// per send attempt "in case the attempt fails" — was redundant, because
+/// `Router::send_returning_message` already hands the `Message` back on error.
 static PAYLOAD_ALLOCS: AtomicU64 = AtomicU64::new(0);
 /// Payload copies performed by the kernel (any direction), and their bytes.
 static PAYLOAD_COPIES: AtomicU64 = AtomicU64::new(0);
@@ -39,6 +41,40 @@ static PAYLOAD_COPY_BYTES: AtomicU64 = AtomicU64::new(0);
 static RECV_WAKES: AtomicU64 = AtomicU64::new(0);
 /// Of those, wakes whose target lives on another hart (a resched IPI).
 static WAKE_IPIS: AtomicU64 = AtomicU64::new(0);
+/// Payload-size histogram over accepted user sends, one bucket per candidate
+/// inline-tier size (TASK-0054C P3a). RFC-0096 named `IPC_SHORT_MAX = 64` before
+/// anything measured the distribution, and an average cannot choose it: many
+/// 8-byte frames and a few 4 KiB ones average the same as all-44-byte ones.
+/// This says what fraction a given tier would actually cover.
+/// Buckets: 0 | 1..=32 | 33..=64 | 65..=128 | 129..=256 | 257..=512 | 513..=1024 | > 1024.
+static PAYLOAD_HIST: [AtomicU64; PAYLOAD_BUCKETS] = [const { AtomicU64::new(0) }; PAYLOAD_BUCKETS];
+/// Number of histogram buckets.
+pub const PAYLOAD_BUCKETS: usize = 8;
+
+/// The bucket a payload of `bytes` falls into (see [`PAYLOAD_HIST`]).
+#[inline]
+const fn bucket_of(bytes: usize) -> usize {
+    match bytes {
+        0 => 0,
+        1..=32 => 1,
+        33..=64 => 2,
+        65..=128 => 3,
+        129..=256 => 4,
+        257..=512 => 5,
+        513..=1024 => 6,
+        _ => 7,
+    }
+}
+
+/// Records the size of ONE user payload where the kernel COPIES IT IN — the same
+/// point [`record_payload_alloc`] counts, so the histogram total always equals
+/// `heap_allocs` exactly. Both exceed [`SENDS`] by the messages that fail to
+/// enqueue after copy-in (0 in the standard boot profiles, 11 per boot in the
+/// OTA bundle lanes) — that difference is the failed-send count, for free.
+#[inline]
+pub fn record_payload_size(bytes: usize) {
+    PAYLOAD_HIST[bucket_of(bytes)].fetch_add(1, Ordering::Relaxed);
+}
 
 /// One message accepted by the router.
 #[inline]
@@ -83,6 +119,8 @@ pub struct IpcStats {
     pub payload_copy_bytes: u64,
     pub recv_wakes: u64,
     pub wake_ipis: u64,
+    /// Payload-size histogram (see [`PAYLOAD_BUCKETS`]).
+    pub payload_hist: [u64; PAYLOAD_BUCKETS],
 }
 
 /// Read every counter (relaxed; a snapshot, not a barrier).
@@ -94,6 +132,7 @@ pub fn report() -> IpcStats {
         payload_copy_bytes: PAYLOAD_COPY_BYTES.load(Ordering::Relaxed),
         recv_wakes: RECV_WAKES.load(Ordering::Relaxed),
         wake_ipis: WAKE_IPIS.load(Ordering::Relaxed),
+        payload_hist: core::array::from_fn(|i| PAYLOAD_HIST[i].load(Ordering::Relaxed)),
     }
 }
 
@@ -105,6 +144,9 @@ pub fn reset() {
         [&SENDS, &PAYLOAD_ALLOCS, &PAYLOAD_COPIES, &PAYLOAD_COPY_BYTES, &RECV_WAKES, &WAKE_IPIS]
     {
         c.store(0, Ordering::Relaxed);
+    }
+    for b in &PAYLOAD_HIST {
+        b.store(0, Ordering::Relaxed);
     }
 }
 

@@ -20,8 +20,8 @@
 
 - **Phase 0 (this contract + ADR-0064)**: ✅ 2026-09-15 (TASK-0054C P0 — paper)
 - **Phase 1 (first numbers: `KSELFTEST: ipc stats`, `SELFTEST: ipc bench`)**: ✅ 2026-09-15 (TASK-0054C P1 — smp1: `SELFTEST: ipc bench (rt=209us n=64)`, `KSELFTEST: ipc stats (sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_hit=0 handoff_miss=5172)`; visible: rt=209us, sends=5696 heap_allocs=11392 copies=17653 wake_ipis=0 handoff_miss=5145 — 2 allocations and ~3 copies per message, 0.9 runqueue hops per message on one hart)
-- **Phase 2 (ONE client API + ONE server loop in userspace; pairing / deadline / drain forms deleted; gate rule 4)**: 🔄 (TASK-0054C P2-a ✅ clocks, P2-b ✅ pacing on timer pairs + rule 4, P2-c ✅ one send primitive + the awaited-reply invariant, P2-d ✅ one correlation model — `nexus_ipc::reqrep` deleted, P2-e ⬜ the two reply-inbox defects that need a wire or chain-wide change)
-- **Phase 3 (inline tier + hard cap + `E2BIG`; zero-allocation proof)**: ⬜ (TASK-0054C P3)
+- **Phase 2 (ONE client API + ONE server loop in userspace; pairing / deadline / drain forms deleted; gate rule 4)**: ✅ 2026-09-16 (TASK-0054C P2-a ✅ clocks, P2-b ✅ pacing on timer pairs + rule 4, P2-c ✅ one send primitive + the awaited-reply invariant, P2-d ✅ one correlation model — `nexus_ipc::reqrep` deleted, P2-e ✅ a server answers exactly the senders that moved a reply cap — two armed wedges closed, P2-f ✅ statefsd takes the rule too — the invariant has no exception left)
+- **Phase 3 (inline tier + hard cap + `E2BIG`; zero-allocation proof)**: 🔄 (TASK-0054C P3a ✅ 2026-09-16 — the payload distribution measured (`KSELFTEST: ipc payload hist`), `IPC_SHORT_MAX` set to **32** by that measurement, and the redundant send-path clone deleted: 1.000 kernel heap allocations per message, from 2.000; P3b ⬜ the inline tier itself + `E2BIG`)
 - **Phase 4 (`ipc_call` / `ipc_reply_recv` + direct handoff + budget marker)**: ⬜ (TASK-0054C P4)
 - **Phase 5 (userspace seam on the new traps; fastpath markers; 8/8 boots)**: ⬜ (TASK-0054C P5)
 
@@ -36,7 +36,7 @@ This RFC is a **design seed / contract**. Implementation planning and proofs liv
 - **This RFC owns**:
   - the two request/reply syscalls `ipc_call` and `ipc_reply_recv`: argument shape, commit point, completion semantics, error model, rights;
   - the direct-handoff rule (when a wake is a switch, when it is an enqueue) and its counters;
-  - the payload tiers: `IPC_SHORT_MAX = 64` (inline, zero kernel heap) and `IPC_PAYLOAD_MAX = 8192` (`E2BIG` above), as public `nexus-abi` constants;
+  - the payload tiers: `IPC_SHORT_MAX = 32` (inline, zero kernel heap — measured, see the amendment in §Design) and `IPC_PAYLOAD_MAX = 8192` (`E2BIG` above), as public `nexus-abi` constants;
   - the IPC budgets (`IPC_CALL_RT_BUDGET_US`, `IPC_CALL_HANDOFF_MISS_BUDGET`, `IPC_CALL_ALLOCS = 0`), how they are measured (`smp1` + icount, after the bring-up reset window) and the marker vocabulary that proves them;
   - the userspace shape: ONE client exchange (`nexus_ipc::exchange`) and ONE server loop (`nexus_ipc::KernelServer`) on those traps, and the list of forms that no longer exist (pairing helpers, client deadlines, stale-reply drains).
 - **This RFC does NOT own**:
@@ -64,7 +64,7 @@ The two-trap shape is also where the last clocks and the last dual structures in
 ## Goals
 
 - ONE trap per side for request/reply, with the reply handed to the caller without a scheduler hop on the common path.
-- Zero kernel heap for control messages (≤ 64 B) and a hard cap with its own errno so bulk cannot drift inline.
+- Zero kernel heap for control messages (≤ `IPC_SHORT_MAX`) and a hard cap with its own errno so bulk cannot drift inline.
 - Clocklessness by ABI shape: neither trap takes a deadline.
 - Budgets as printed numbers under a deterministic profile, calibrated by measurement before they are asserted.
 - Userspace: one client API, one server loop; every pairing / deadline / drain form deleted and gated.
@@ -80,7 +80,7 @@ The two-trap shape is also where the last clocks and the last dual structures in
 
 - **Determinism**: budgets are measured under `smp1` + icount after the bring-up reset window (`budgets::reset()` pattern) and printed with their numbers; a marker without numbers is not a proof.
 - **No fake success**: `KSELFTEST: ipc call budget ok (…)` only when every asserted number is inside its budget; `SELFTEST: ipc fastpath … ok` only after a real exchange over the new trap.
-- **Bounded resources**: inline stage 64 bytes per task; a parked heap reply is one `Message` bounded by `IPC_PAYLOAD_MAX` and the endpoint byte budgets (RFC-0005); no queue scan on the hot path; the RFC-0079 scan runs only on the would-block branch as today.
+- **Bounded resources**: inline stage `IPC_SHORT_MAX` bytes per task; a parked heap reply is one `Message` bounded by `IPC_PAYLOAD_MAX` and the endpoint byte budgets (RFC-0005); no queue scan on the hot path; the RFC-0079 scan runs only on the would-block branch as today.
 - **Security floor**: identity kernel-stamped on both legs; rights checked as for the traps being composed; the reply cap moved by `ipc_call` must target the endpoint the caller waits on; the peer never writes into another address space.
 - **Commit point**: a trap that has enqueued its request/reply is never re-executed.
 - **No clock**: no deadline argument; `nsec()` never takes part in a request/reply.
@@ -90,15 +90,46 @@ The two-trap shape is also where the last clocks and the last dual structures in
 
 ### Contract / interface (normative)
 
-**Constants (`nexus-abi`, public):** `IPC_SHORT_MAX = 64`, `IPC_PAYLOAD_MAX = 8192`. The kernel-private `MAX_FRAME_BYTES` is deleted; the three enforcement sites use `IPC_PAYLOAD_MAX`. A payload longer than `IPC_PAYLOAD_MAX` fails with `E2BIG` (new errno; `nexus_abi::IpcError::TooBig`) on every send-side trap (`ipc_send_v1`, `ipc_call`, `ipc_reply_recv`). Payloads ≤ `IPC_SHORT_MAX` are stored inline in the kernel message (`Payload::Inline`), longer ones on the heap (`Payload::Heap`); the wire ABI (`MsgHeader`, 16 bytes, `len` = inline payload length) is unchanged.
+**Constants (`nexus-abi`, public):** `IPC_SHORT_MAX = 32`, `IPC_PAYLOAD_MAX = 8192`. The kernel-private `MAX_FRAME_BYTES` is deleted; the three enforcement sites use `IPC_PAYLOAD_MAX`. A payload longer than `IPC_PAYLOAD_MAX` fails with `E2BIG` (new errno; `nexus_abi::IpcError::TooBig`) on every send-side trap (`ipc_send_v1`, `ipc_call`, `ipc_reply_recv`). Payloads ≤ `IPC_SHORT_MAX` are stored inline in the kernel message (`Payload::Inline`), longer ones on the heap (`Payload::Heap`); the wire ABI (`MsgHeader`, 16 bytes, `len` = inline payload length) is unchanged.
+
+**Amendment 2026-09-16 (TASK-0054C P3a) — `IPC_SHORT_MAX` is 32, and this is why.** This RFC
+wrote 64 before anything measured the payload distribution. The measurement (`KSELFTEST: ipc
+payload hist`, eight buckets, one count per payload the kernel copies in) was read over **13
+windows from two workload families** — the standard boot (smp1, headless, visible, reset,
+ota-downgrade, ota-tamper: 5505 to 22 285 payloads) and the OTA bundle lanes (flip, bundle,
+resume, delta, fallback: 7554 to 29 880).
+
+In the standard boot every bucket ABOVE 32 bytes is constant to within a rounding error: `le64`
+is **exactly 160 in all eight windows**, and the whole > 32 B population is 1527–1536. That is
+the boot's fixed work. Everything that scales with the window is ≤ 32 B — 3978 → 20 755, i.e.
+**72.3 % to 93.1 %** of all messages. The OTA bundle lanes shift the fixed part, not the shape:
+`le64` becomes 526–531 and the 513–1024 B band grows to ~1750 messages (bundle streaming), so
+≤ 32 B is 53.5–63.6 % there.
+
+So a 32-byte tier covers every message that scales, in both families. Raising it to 64 does not
+buy a percentage: it buys a FIXED **160 messages per standard boot** (0.7 to 2.9 points) or
+**~530 per OTA bundle boot** (1.8 to 7.0 points), for twice the inline footprint in every
+`Message` — a value moved on every send, push, pop and error return, held in `VecDeque`s across
+384 endpoints. The 513–1024 B band that dominates the OTA lanes is the argument for the VMO bulk
+path below, not for a bigger inline tier. An average could not have decided any of this: the mean
+payload of those same windows runs from 30 to 88 bytes — it tracks how much idle traffic the
+window spans, not what a message looks like. P3b may revisit the constant only with a measurement
+of the same shape.
+
+Two by-products of the same instrument, recorded because P3b and P4 build on them. The histogram
+total equals `heap_allocs` EXACTLY in all 13 windows, which is what "one kernel heap allocation
+per payload" means after P3a deleted the send-path clone (it was 2.000 per message from P1 until
+this package). And both exceed `sends` by exactly 11 in each of the five OTA bundle lanes and by
+0 everywhere else: those 11 are messages the kernel copied in and then failed to enqueue, so the
+pair of counters reports the failed-send count for free.
 
 **`SYSCALL_IPC_CALL_V1 = 58`** — `ipc_call(send_slot, hdr: &MsgHeader, req: &[u8], out: &mut [u8], sys_flags) -> Result<usize>`
 
 - `hdr.flags` MUST carry `CAP_MOVE` and `hdr.src` MUST be a SEND cap to an endpoint `R` on which the calling task holds RECV; otherwise `EINVAL` (`test_reject_call_without_reply_cap`, `test_reject_call_reply_cap_foreign_endpoint`). `sys_flags ∈ {0, IPC_SYS_TRUNCATE}`; every other bit → `EINVAL`. There is no deadline argument.
 - Validation order is RFC-0005 §`SYSCALL_IPC_SEND_V1` (decode / check / execute); `req.len() > IPC_PAYLOAD_MAX` → `E2BIG` before any side effect; `out` is bounds-checked (`ensure_user_slice`) at entry.
 - **Phase 1 (re-entrant).** If the target endpoint's queue is full, the task blocks in `BlockReason::IpcSend` exactly as `ipc_send_v1` does today (moved cap rolled back, trap re-executed on wake).
-- **Phase 2 (commit).** The request is enqueued with the moved cap and the kernel-stamped `sender_service_id`. In the same critical section the task is registered as a receive waiter on `R`, its completion state is recorded (`out` pointer + length, `sys_flags`, a 64-byte inline stage), `sepc` is advanced, and the task blocks in `BlockReason::IpcCall { reply_ep: R }`. From here the trap is never re-executed.
-- **Phase 3 (completion by the peer).** A send to `R` that finds the task in `IpcCall`: payload ≤ 64 B is copied into the inline stage, longer payloads are parked as the message; `x[10]` is set to the payload length (or, when `out` is too short and `IPC_SYS_TRUNCATE` is absent, to `-ENOSPC` with the message left queued on `R`, as RFC-0005 requires for `ipc_recv_v1`); the moved cap (if any) is allocated into the caller's cap table and reported in the caller's `hdr.src` on return. The copy-out into `out` runs in the caller's own trap return under its own SATP (one epilogue hook). If `R`'s last foreign SEND cap disappears while the task waits (RFC-0079 scan), completion is `-EPIPE`.
+- **Phase 2 (commit).** The request is enqueued with the moved cap and the kernel-stamped `sender_service_id`. In the same critical section the task is registered as a receive waiter on `R`, its completion state is recorded (`out` pointer + length, `sys_flags`, an `IPC_SHORT_MAX`-byte inline stage), `sepc` is advanced, and the task blocks in `BlockReason::IpcCall { reply_ep: R }`. From here the trap is never re-executed.
+- **Phase 3 (completion by the peer).** A send to `R` that finds the task in `IpcCall`: payload ≤ `IPC_SHORT_MAX` is copied into the inline stage, longer payloads are parked as the message; `x[10]` is set to the payload length (or, when `out` is too short and `IPC_SYS_TRUNCATE` is absent, to `-ENOSPC` with the message left queued on `R`, as RFC-0005 requires for `ipc_recv_v1`); the moved cap (if any) is allocated into the caller's cap table and reported in the caller's `hdr.src` on return. The copy-out into `out` runs in the caller's own trap return under its own SATP (one epilogue hook). If `R`'s last foreign SEND cap disappears while the task waits (RFC-0079 scan), completion is `-EPIPE`.
 - Return: the reply length; errors `EINVAL`, `EPERM`, `E2BIG`, `EAGAIN`/`ENOSPC` (RFC-0005 backpressure, before the commit point only), `EPIPE` (peer death), `ENOSPC` (reply longer than `out` without TRUNCATE).
 
 **`SYSCALL_IPC_REPLY_RECV_V1 = 59`** — `ipc_reply_recv(reply_slot, reply_hdr: &MsgHeader, reply: &[u8], next: &mut IpcRecvV2Desc) -> Result<usize>`
@@ -109,9 +140,9 @@ The two-trap shape is also where the last clocks and the last dual structures in
 
 **Direct handoff (normative rule).** When a send (any of `ipc_send_v1`, `ipc_call`, `ipc_reply_recv`) completes a waiter that is in `IpcCall`, or in `IpcRecv` entered through `ipc_reply_recv`, and the waiter's affinity mask admits the current hart, the kernel switches to the waiter on this hart without enqueueing it (`handoff_hit`). Otherwise the wake is today's enqueue on the waiter's home CPU + `request_resched` (`handoff_miss`, and `reply_wake_ipi` when an IPI is sent). The sending task keeps its QoS placement; if it is itself blocking (as `ipc_reply_recv` does) the switch costs nothing extra; if it is not (a fire-and-forget `ipc_send_v1` answering a `call`) it is enqueued on its own home CPU and the waiter runs first. The rule is a scheduling shortcut, never a priority change: the waiter runs in its own QoS class.
 
-**Copies (normative — the zero-copy line).** A control message (≤ `IPC_SHORT_MAX`) costs the kernel zero heap allocations and exactly two payload copies: user → the waiter's completion stage on the sending side, stage → user in the waiter's own trap return. The kernel never stages a payload of that tier on the heap. Bulk never travels through the kernel; it follows the VMO contract the fleet already ships in three independent instances (vfsd splice RFC-0072/TASK-0295, bundlemgrd `OP_ARM_VMO`, windowd→gpud attach RFC-0059, execd's shared RO atlas RFC-0080): the consumer allocates and sizes the VMO; the VMO travels as the message's moved cap (never as a handle integer — RFC-0005 §"IDL + filebuffer/VMO hybrid"'s `vmoHandle` field is the paper version, CAP_MOVE the shipped one); the server is the only writer, payload first, header last (the magic is the release fence); the consumer maps read-only (`vm_map`) — `vmo_read` is a copy and is excluded from zero-copy claims (RFC-0047's honesty rule); oversize is `E2BIG`, never truncation. Cap'n Proto readers run in place over such mappings (`updated`'s OTA chain: `read_message_from_flat_slice_no_alloc` over the mapped VMO; `nexus-dsl-ir`'s `.nxir` reader) — capnp is no_std on riscv64 today and `NXPL`'s 16-byte header is 8-byte aligned for it. **No Cap'n Proto framing on the inline tier:** ADR-0038 and ADR-0051 measured it for tiny frames and rejected it (segment table + pointers + word alignment ≥ 24 B before any payload — ~40 % of a 64-byte tier, no copy to avoid); control frames stay packed-LE `nexus-wire` declarations. Two bounds, two owners: `IPC_PAYLOAD_MAX = 8192` is the transport cap; `INLINE_IO_MAX = 4096` (`vfs-types::splice`) is the vfs surface policy. Every `nexus-ipc` receive buffer is sized by `IPC_PAYLOAD_MAX` (P2) — the triplicated 512-byte ceiling (`exchange.rs`, `os_kernel.rs`, `os_lite.rs`) once turned an oversize OTA frame into a "bad signature" report. The P1 counters (`copies`, `copy_bytes`, `heap_allocs`) are the baseline: today a non-empty message costs two allocations and three payload copies (user → heap, heap → heap clone, heap → user).
+**Copies (normative — the zero-copy line).** A control message (≤ `IPC_SHORT_MAX`) costs the kernel zero heap allocations and exactly two payload copies: user → the waiter's completion stage on the sending side, stage → user in the waiter's own trap return. The kernel never stages a payload of that tier on the heap. Bulk never travels through the kernel; it follows the VMO contract the fleet already ships in three independent instances (vfsd splice RFC-0072/TASK-0295, bundlemgrd `OP_ARM_VMO`, windowd→gpud attach RFC-0059, execd's shared RO atlas RFC-0080): the consumer allocates and sizes the VMO; the VMO travels as the message's moved cap (never as a handle integer — RFC-0005 §"IDL + filebuffer/VMO hybrid"'s `vmoHandle` field is the paper version, CAP_MOVE the shipped one); the server is the only writer, payload first, header last (the magic is the release fence); the consumer maps read-only (`vm_map`) — `vmo_read` is a copy and is excluded from zero-copy claims (RFC-0047's honesty rule); oversize is `E2BIG`, never truncation. Cap'n Proto readers run in place over such mappings (`updated`'s OTA chain: `read_message_from_flat_slice_no_alloc` over the mapped VMO; `nexus-dsl-ir`'s `.nxir` reader) — capnp is no_std on riscv64 today and `NXPL`'s 16-byte header is 8-byte aligned for it. **No Cap'n Proto framing on the inline tier:** ADR-0038 and ADR-0051 measured it for tiny frames and rejected it (segment table + pointers + word alignment ≥ 24 B before any payload — three quarters of the 32-byte tier, no copy to avoid); control frames stay packed-LE `nexus-wire` declarations. Two bounds, two owners: `IPC_PAYLOAD_MAX = 8192` is the transport cap; `INLINE_IO_MAX = 4096` (`vfs-types::splice`) is the vfs surface policy. Every `nexus-ipc` receive buffer is sized by `IPC_PAYLOAD_MAX` (P2) — the triplicated 512-byte ceiling (`exchange.rs`, `os_kernel.rs`, `os_lite.rs`) once turned an oversize OTA frame into a "bad signature" report. The P1 counters (`copies`, `copy_bytes`, `heap_allocs`) are the baseline: P1 measured two allocations and three payload copies per non-empty message (user → heap, heap → heap clone, heap → user); P3a deleted the clone — the send path had kept it "in case the attempt fails", but a failed send already hands the whole `Message` back — so the baseline P3b starts from is **one allocation and two copies** (user → heap, heap → user), measured at exactly 1.000 allocations per message over three windows.
 
-**Budgets (`core/trap/budgets.rs`, SSOT):** `IPC_CALL_RT_BUDGET_US` (64-byte ping-pong round trip, `smp1` + icount), `IPC_CALL_HANDOFF_MISS_BUDGET` (misses per N exchanges in the kernel selftest, where both tasks are placed on the same hart), `IPC_CALL_ALLOCS = 0` (kernel heap allocations per ≤ 64 B exchange). Values are calibrated in TASK-0054C P1 on the two-trap path and entered here before P4 asserts them.
+**Budgets (`core/trap/budgets.rs`, SSOT):** `IPC_CALL_RT_BUDGET_US` (`IPC_SHORT_MAX`-byte ping-pong round trip, `smp1` + icount), `IPC_CALL_HANDOFF_MISS_BUDGET` (misses per N exchanges in the kernel selftest, where both tasks are placed on the same hart), `IPC_CALL_ALLOCS = 0` (kernel heap allocations per ≤ `IPC_SHORT_MAX` exchange). Values are calibrated in TASK-0054C P1 on the two-trap path and entered here before P4 asserts them.
 
 **Userspace shape (normative for `source/services`, `source/drivers`, `source/apps`, `source/init`, `userspace`):**
 
@@ -163,17 +194,18 @@ cd /home/jenning/open-nexus-OS && just test-all
 ### Deterministic markers
 
 - `KSELFTEST: ipc stats (sends=<n> heap_allocs=<a> copies=<c> copy_bytes=<b> wake_ipis=<i> handoff_hit=0 handoff_miss=<m>)` (P1; numbers only, no verdict; `handoff_hit` is 0 by construction until P4)
+- `KSELFTEST: ipc payload hist (zero=<n> le32=<n> le64=<n> le128=<n> le256=<n> le512=<n> le1k=<n> gt1k=<n>)` (P3a; numbers only, no verdict; one count per accepted send, same window and same telemetry op as the stats line — it SIZES `IPC_SHORT_MAX`, see the amendment in §Design)
 - `SELFTEST: ipc bench (rt=<n>us n=<N>)` (P1; numbers only — hops per message are read from the stats line's `handoff_miss / sends` ratio, the selftest has no kernel counter syscall)
 - `KSELFTEST: ipc call budget ok (rt=<n>us handoff_miss=<m> alloc=0)` / `… FAIL (…)` (P4)
 - `SELFTEST: ipc fastpath ping ok (rt=<n>us)`, `SELFTEST: ipc fastpath reply ok`, `SELFTEST: ipc bulk-vmo path ok` (P5)
 
-Registered in `source/apps/selftest-client/proof-manifest/markers/ipc_kernel.toml` and the `scripts/qemu-test.sh` headless + smp1 lists; gated on the stable prefix (numbers are evidence, the verdict word is the gate — `harness.toml` rule).
+Registered in `source/apps/selftest-client/proof-manifest/markers/ipc_kernel.toml` (the two `end`-phase stats lines in `markers/end.toml`) and the `scripts/qemu-test.sh` headless + smp1 lists; gated on the stable prefix (numbers are evidence, the verdict word is the gate — `harness.toml` rule).
 
 ## Alternatives considered
 
 - **Keep two traps and only add the inline tier + a hop-free wake** — rejected (ADR-0064): the gap, the deadline argument and the pairing helpers survive.
-- **Complete the caller from the replier's context (cross-AS write)** — rejected: needs a primitive nothing else needs; staging + copy-out on the waiter's own return is one bounded 64-byte copy.
-- **A user-visible "short message" ABI (separate header/syscall for ≤ 64 B)** — rejected: the tier is a kernel storage decision, the wire ABI stays one.
+- **Complete the caller from the replier's context (cross-AS write)** — rejected: needs a primitive nothing else needs; staging + copy-out on the waiter's own return is one bounded `IPC_SHORT_MAX`-byte copy.
+- **A user-visible "short message" ABI (separate header/syscall for ≤ `IPC_SHORT_MAX`)** — rejected: the tier is a kernel storage decision, the wire ABI stays one.
 - **A nonce inside the kernel** — rejected: a reply endpoint is private and sequential; correlation is a symptom of shared inboxes, which P2 removes.
 
 ## Open questions
@@ -198,8 +230,8 @@ Registered in `source/apps/selftest-client/proof-manifest/markers/ipc_kernel.tom
 
 - [x] **Phase 0**: contract + ADR-0064 — proof: this document indexed, ledger P0 Done (2026-09-15)
 - [x] **Phase 1**: numbers — proof: `just test-os smp1` and `just test-os visible` show `KSELFTEST: ipc stats (…)` and `SELFTEST: ipc bench (…)` (2026-09-15: smp1: `SELFTEST: ipc bench (rt=209us n=64)`, `KSELFTEST: ipc stats (sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_hit=0 handoff_miss=5172)`; visible: rt=209us, sends=5696 heap_allocs=11392 copies=17653 wake_ipis=0 handoff_miss=5145 — 2 allocations and ~3 copies per message, 0.9 runqueue hops per message on one hart)
-- [ ] **Phase 2**: one client API + one server loop — proof: `scripts/check-wait-not-poll.sh` at zero with rule 4; grep-gone list empty; `just test-all`
-- [ ] **Phase 3**: inline tier + `E2BIG` — proof: counting-allocator test at zero; `test_reject_oversized_inline`; `just test-all`
+- [x] **Phase 2**: one client API + one server loop — proof: `scripts/check-wait-not-poll.sh` at zero with rule 4; grep-gone list empty; `just test-all` (2026-09-16, P2-a…P2-f)
+- [ ] **Phase 3**: inline tier + `E2BIG` — proof: counting-allocator test at zero; `test_reject_oversized_inline`; `just test-all` (P3a ✅ 2026-09-16: distribution measured, `IPC_SHORT_MAX = 32`, send-path clone deleted — `heap_allocs / sends` 2.000 → 1.000; P3b builds the tier)
 - [ ] **Phase 4**: traps + handoff + budget — proof: `KSELFTEST: ipc call budget ok (…)`, the `test_reject_*` above; `just test-all`
 - [ ] **Phase 5**: seam flip — proof: fastpath markers, 8/8 visible boots
 - [ ] Task linked with stop conditions + proof commands (TASK-0054C).

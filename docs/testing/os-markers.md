@@ -283,7 +283,19 @@ and the harness gates only the stable prefix):
   wake counted as a handoff miss (no direct handoff exists before TASK-0054C P4).
   Zero-copy direction (RFC-0096): the target is 0 heap allocations and exactly
   two register-sized copies per control message, and bulk never through the
-  kernel (VMO).
+  kernel (VMO). Since TASK-0054C P3a `heap_allocs` is ONE per message, not two:
+  the send path cloned the payload "in case the attempt fails", but its loop has
+  no `continue` and a failed send hands the whole message back anyway.
+- `KSELFTEST: ipc payload hist (zero=<n> le32=<n> le64=<n> le128=<n> le256=<n>
+  le512=<n> le1k=<n> gt1k=<n>)` — `end` phase, same window and same line pair as
+  the stats above. The payload-size distribution of accepted sends, one count per
+  message, counted where the kernel copies the payload in — the same point
+  `heap_allocs` counts, so the bucket total always equals `heap_allocs` and both
+  exceed `sends` by the messages that fail to enqueue after copy-in. It exists to
+  SIZE the inline tier (TASK-0054C P3b): RFC-0096 wrote
+  `IPC_SHORT_MAX = 64` before anything measured the distribution, and an average
+  cannot choose a tier — many tiny frames and a few large ones average like
+  all-medium ones. Numbers, no verdict.
 
 SMP-gated markers (enabled only with `REQUIRE_SMP=1` and `SMP>=2`):
 

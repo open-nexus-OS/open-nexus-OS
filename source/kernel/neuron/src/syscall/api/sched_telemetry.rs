@@ -96,6 +96,22 @@ pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
                 ipc.wake_ipis,
                 ipc.recv_wakes
             );
+            // TASK-0054C P3a: the payload-size distribution, so the inline tier P3b builds is
+            // sized by measurement and not by the guess RFC-0096 wrote down. An average cannot
+            // choose it — many tiny frames and a few large ones average like all-medium ones.
+            let h = ipc.payload_hist;
+            log_info!(
+                target: "ipc",
+                "KSELFTEST: ipc payload hist (zero={} le32={} le64={} le128={} le256={} le512={} le1k={} gt1k={})",
+                h[0],
+                h[1],
+                h[2],
+                h[3],
+                h[4],
+                h[5],
+                h[6],
+                h[7]
+            );
             let (ok, wait_us, hold_ms, nr, b) = crate::trap::budgets::budget_report();
             log_info!(
                 target: "smp",

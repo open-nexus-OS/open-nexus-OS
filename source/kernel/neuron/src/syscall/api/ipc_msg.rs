@@ -218,6 +218,8 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         crate::ipc_stats::record_payload_alloc(typed.payload_len);
         crate::ipc_stats::record_payload_copy(typed.payload_len);
     }
+    // The size distribution, once per message: it sizes P3b's inline tier (TASK-0054C P3a).
+    crate::ipc_stats::record_payload_size(typed.payload_len);
 
     let cap_move_slot = if cap_move { Some(user_hdr.src as usize) } else { None };
 
@@ -265,9 +267,10 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         } else {
             None
         };
-        crate::ipc_stats::record_payload_alloc(payload.len()); // the clone below
-        crate::ipc_stats::record_payload_copy(payload.len());
-        let mut msg = ipc::Message::new(header, payload.clone(), moved_cap);
+        // The payload MOVES in (TASK-0054C P3a). It was cloned here "in case the attempt
+        // fails", but this loop has no `continue` and a failed send hands the whole `Message`
+        // back via `Err((IpcError, Message))` — the clone was half of the 2.000 allocations.
+        let mut msg = ipc::Message::new(header, payload, moved_cap);
         if cap_move {
             if let Some(cap) = msg.moved_cap {
                 if let CapabilityKind::Endpoint(id) = cap.kind {
@@ -289,12 +292,8 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
         }
         #[cfg(feature = "debug_uart")]
         {
-            if payload.len() >= 4
-                && payload[0] == b'S'
-                && payload[1] == b'M'
-                && payload[2] == 1
-                && payload[3] == 1
-            {
+            let p = msg.payload.as_slice();
+            if p.len() >= 4 && p[0] == b'S' && p[1] == b'M' && p[2] == 1 && p[3] == 1 {
                 use core::fmt::Write as _;
                 let mut u = crate::uart::raw_writer();
                 let _ = writeln!(u, "IPC-SEND samgr reg ep=0x{:x}", endpoint);

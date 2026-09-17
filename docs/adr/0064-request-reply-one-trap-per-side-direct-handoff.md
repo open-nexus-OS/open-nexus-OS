@@ -46,7 +46,7 @@ and without any clock argument.
   `ipc_reply_recv` (reply + wait for the next request). Each has a **commit point** — the
   request (resp. the reply) is enqueued — after which the trap is never re-executed: the
   kernel advances `sepc`, records the waiter's completion state on the task
-  (`task/completion.rs`: output pointer + length, a 64-byte inline stage, or a parked
+  (`task/completion.rs`: output pointer + length, an `IPC_SHORT_MAX`-byte inline stage, or a parked
   message) and blocks it as a registered receive waiter of the endpoint it waits on. Before
   the commit point (target queue full) the trap blocks exactly like `ipc_send_v1` today,
   with nothing committed and the moved cap rolled back.
@@ -64,7 +64,8 @@ and without any clock argument.
   of the last peer (RFC-0079); a live-but-silent peer is a supervision truth (ADR-0057),
   never a client timer (RFC-0093 §7). `ipc_reply_recv` does not opt into EOF: a server owns
   its endpoint, and "all clients gone" is not an error for it.
-- **Inline tier and hard cap.** Payloads ≤ `IPC_SHORT_MAX = 64` bytes travel inline in the
+- **Inline tier and hard cap.** Payloads ≤ `IPC_SHORT_MAX = 32` bytes (measured 2026-09-16 in
+  TASK-0054C P3a; RFC-0096 carries the numbers) travel inline in the
   kernel message with zero heap allocation; payloads above `IPC_PAYLOAD_MAX = 8192` are
   rejected with `E2BIG`. Both constants are public in `nexus-abi`; bulk stays VMO
   (RFC-0026).
@@ -104,7 +105,7 @@ and without any clock argument.
 - **Complete the caller by writing into its user buffer from the replier's context.**
   Rejected: needs a cross-address-space copy primitive the kernel does not have and that
   nothing else needs; staging in the waiter's completion state and copying out on its own
-  return costs one bounded 64-byte copy and no new primitive.
+  return costs one bounded `IPC_SHORT_MAX`-byte copy and no new primitive.
 - **Make `ipc_call` re-entrant by de-duplicating a re-sent request (sequence tag).**
   Rejected: turns "never re-execute a committed trap" into a per-endpoint dedup table with
   its own bounds and failure modes; the commit point + completion state is the smaller

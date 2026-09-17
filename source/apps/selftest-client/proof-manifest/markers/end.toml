@@ -22,6 +22,12 @@ phase = "end"
 [marker."KSELFTEST: ipc stats ("]
 phase = "end"
 
+# TASK-0054C P3a: the payload-size distribution over the same window. RFC-0096
+# named a 64-byte inline tier before anything measured what fraction of messages
+# it would cover, and an average cannot answer that — this line can.
+[marker."KSELFTEST: ipc payload hist ("]
+phase = "end"
+
 [marker."SELFTEST: e2e bundlemgr ok"]
 phase = "end"
 
