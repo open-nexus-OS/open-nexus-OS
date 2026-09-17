@@ -62,3 +62,48 @@ pub(crate) fn ipc_bench_probe() -> core::result::Result<BenchResult, ()> {
     let rt_us = t1.saturating_sub(t0) / 1_000 / u64::from(BENCH_ROUNDS);
     Ok(BenchResult { rt_us, rounds: BENCH_ROUNDS })
 }
+
+/// The SAME exchange over `ipc_call` — one trap instead of two (TASK-0054C
+/// P4c-1).
+///
+/// Same server, same 12-byte request, same 12-byte reply, same round count, so
+/// the two `rt=` lines are a like-for-like comparison and not two different
+/// measurements wearing the same word. samgrd answers with an ordinary send,
+/// which is precisely what completes a call in the caller's registers, so this
+/// times the fastpath as a service actually drives it.
+///
+/// Printed, never asserted: `core/trap/budgets.rs` gets its values from this
+/// pair of numbers before P4c-2 asserts anything (the P1 rule).
+pub(crate) fn ipc_call_bench_probe() -> core::result::Result<BenchResult, ()> {
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    let sam = cached_samgrd_client().map_err(|_| ())?;
+    let (sam_send, _) = sam.slots();
+    static NONCE: AtomicU64 = AtomicU64::new(0x5C00);
+    let mut out = [0u8; 16];
+    let t0 = nexus_abi::nsec().map_err(|_| ())?;
+    for _ in 0..BENCH_ROUNDS {
+        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+        let mut frame = [0u8; 12];
+        frame[0] = b'S';
+        frame[1] = b'M';
+        frame[2] = 1; // samgrd os-lite version
+        frame[3] = 3; // OP_PING_CAP_MOVE
+        frame[4..12].copy_from_slice(&nonce.to_le_bytes());
+        let cap = nexus_abi::cap_clone(reply.send).map_err(|_| ())?;
+        let hdr = nexus_abi::MsgHeader::new(cap, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, 12);
+        let n = match nexus_abi::ipc_call(sam_send, &hdr, &frame, &mut out) {
+            Ok(n) => n,
+            Err(_) => {
+                let _ = nexus_abi::cap_close(cap);
+                return Err(());
+            }
+        };
+        // Time a real answer, never a lie: the nonce must come back.
+        if n != 12 || out[0..4] != *b"PONG" || out[4..12] != nonce.to_le_bytes() {
+            return Err(());
+        }
+    }
+    let t1 = nexus_abi::nsec().map_err(|_| ())?;
+    let rt_us = t1.saturating_sub(t0) / 1_000 / u64::from(BENCH_ROUNDS);
+    Ok(BenchResult { rt_us, rounds: BENCH_ROUNDS })
+}

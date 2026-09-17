@@ -906,6 +906,7 @@ expected_sequence=(
   "SELFTEST: ipc reply_recv ok"
   "SELFTEST: ipc oversize rejected ok"
   "SELFTEST: ipc bench (rt="
+  "SELFTEST: ipc call bench (rt="
   "KSELFTEST: ipc stats ("
   "KSELFTEST: ipc payload hist ("
   "SELFTEST: vm map roundtrip ok"

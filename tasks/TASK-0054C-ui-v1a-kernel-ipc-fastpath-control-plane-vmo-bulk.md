@@ -745,6 +745,31 @@ waiter's own address space).
     already out, do not send it again". One state, two users, told apart by the block reason — an
     `ipc_call` waiter blocks in `IpcCall` (and is completed in its frame), a `reply_recv` waiter
     blocks in `IpcRecv` (and finishes the receive itself on re-execution).
+  - **P4c review (2026-09-17) — split, because the handoff has to beat a number that does not
+    exist yet.** D3 is the only scheduler change in this task: today a wake is
+    `scheduler.purge` + `enqueue_on_cpu` + an IPI when the waiter's home hart is elsewhere, and a
+    handoff would instead switch to the waiter on this hart and enqueue the SENDER. That is a
+    policy change, so it is the one place where "measure before claiming" is not a style rule but
+    the difference between an optimisation and a regression.
+    - **P4c-1 (numbers first).** The new traps already run; what is missing is their COST next to
+      the old path. The existing `SELFTEST: ipc bench` times 64 two-trap exchanges
+      (`exchange::call_into`) against samgrd's ping. A second bench times 64 `ipc_call`s against
+      the SAME server with the SAME payload — samgrd answers with an ordinary send, which is
+      exactly what completes a call in registers — so the two lines are a like-for-like
+      comparison of one trap against two. Printed, not asserted: the budgets in
+      `core/trap/budgets.rs` get their values from this, the way P1 said they would.
+    - **P4c-1 result (2026-09-17).** Same server, same 12-byte request and reply, same 64
+      rounds, smp1 + icount, over two boots: two traps **208 µs then 204 µs**, one trap **193 µs
+      both times** — the fastpath is **5.4 % to 7.2 %** cheaper per exchange, and it is also the
+      STEADIER of the two, which is its own small argument. `calls_in_regs=65` (64 bench rounds + the correctness probe) says
+      every single one completed in the caller's registers; not one fell back to the queued tier.
+      The modest size of the win is itself the finding: the trap is not what an exchange costs,
+      the scheduling round trip is — which is exactly what P4c-2 targets, and now it has a
+      baseline to beat instead of an assumption.
+    - **P4c-2 (the handoff, if the numbers want it).** Only after P4c-1 says what a call costs
+      today, and only with `handoff_hit` / `handoff_miss` moving from placeholders to real
+      counts. `handoff_hit` has been printed as a hardcoded 0 since P1 — that is honest only
+      while no handoff exists, and it is the first thing P4c-2 must fix.
   - Zones: kernel, `source/libs/nexus-abi`. Blast: all IPC. Lanes: `just check`, `just test-kernel`,
     smp1, visible, `just test-all`.
 - **P5 Seam flip** — `exchange::call_into` → `ipc_call`; `KernelServer` → `reply_recv`
@@ -803,7 +828,8 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P3b The payload tier + ONE size bound with one owner (inline 32 B, `E2BIG`, dead backends deleted, kernel host tests gated) | Done 2026-09-17 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 incl. the new `ipc-bounds` gate, smp1 + visible EXIT=0, pixel proof 31.77. **`heap_allocs / sends` 1.000 → 0.276 (smp1), 0.114 (visible)**, and `heap_allocs` = the histogram's > 32 B population EXACTLY in ALL 12 windows of the gate, both workload families — an identity, not a correlation; kernel allocations no longer scale with the boot. Price **+10 592 B steady kernel heap (+0.54 %)**, measured with the new `kheap_used=` field. `SELFTEST: ipc oversize rejected ok` proves `E2BIG`. 52 kernel host tests now run in a gate (they ran in NONE before), incl. the counting allocator |
 | P4a `ipc_call` + completion state + EOF | Done 2026-09-17 — syscall 58. The reply rides home in REGISTERS (a1–a5 are free, 40 B > `IPC_SHORT_MAX`), so the "one epilogue hook" the plan assumed is not needed at all — the tree has FIVE resume points and a missed one would silently truncate a reply. Phase 1 IS `sys_ipc_send_v1` (no duplicated validation/CAP_MOVE/tier/budget); the commit point is a `CallState` and the peer finishes the syscall in the caller's saved frame. PROOF: `just check` 0, `just test-kernel` 56 passed (register packing host-tested at every edge length before any kernel wiring), smp1 EXIT=0 with `SELFTEST: ipc call ok` (nonce echo checked) and **`calls_in_regs=1`** — a counter that knows nothing about the probe. Splits the gate asked for: `task/block_reason.rs` (task/mod.rs 1292 → 1270), queue peek to `ipc/endpoint.rs` |
 | P4b `ipc_reply_recv` (server half) | Done 2026-09-17 — syscall 59. Composition of the existing send + `recv_v2` with P4a's commit rule between them; P4a's completion hook fires from it unchanged, so client and server are each ONE trap without a third mechanism. The commit state collapsed to ONE field (a re-executed syscall re-reads its own arguments) — a simplification of P4a too. PROOF: `just check` 0, `just test-all` EXIT=0, smp1 EXIT=0 with `SELFTEST: ipc reply_recv ok` — the harness plays both roles against its own endpoint (two queued requests, answer one and receive the other in one trap) and then reads the answer off its reply inbox, so a reply that went nowhere fails instead of passing quietly. No service had to be rewritten to prove the trap |
-| P4c Direct handoff + budget marker | Draft |
+| P4c-1 What a call costs, measured against the two-trap path | Done 2026-09-17 — same server, same 12-byte payload, same 64 rounds, smp1 + icount over two boots: two traps **208 µs / 204 µs**, one trap **193 µs both times** (**−5.4 % to −7.2 %**, and the steadier of the two), `calls_in_regs=65` so every round took the register path. The modest win IS the finding: the trap is not what an exchange costs, the scheduling round trip is — P4c-2 now has a baseline instead of an assumption. `just check` 0, smp1 EXIT=0 |
+| P4c-2 Direct handoff (D3) + budget assert | Draft — the only scheduler change in this task; `handoff_hit` is still a hardcoded 0 and that is the first thing it must fix |
 | P5 Seam flip | Draft |
 | P6 Closure | Draft |
 

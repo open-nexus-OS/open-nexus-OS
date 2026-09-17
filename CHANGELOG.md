@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-17 (TASK-0054C P4c-1: what a call actually costs, measured against the two-trap path)
+
+- **`SELFTEST: ipc call bench (rt=<n>us n=<N>)`** times 64 `ipc_call`s against samgrd's ping — the SAME server, the SAME 12-byte request and reply, and the SAME round count as the existing two-trap `SELFTEST: ipc bench`, so the two lines compare rather than merely coexist. samgrd answers with an ordinary send, which is precisely what completes a call in the caller's registers, so this times the fastpath as a service actually drives it. The probe checks the nonce echo every round: it times a real answer, never a lie.
+- **The numbers (smp1 + icount, over two boots): two traps 208 µs then 204 µs, one trap 193 µs both times — 5.4 % to 7.2 % cheaper per exchange, and the steadier of the two**, with `calls_in_regs=65` (64 bench rounds plus the correctness probe) confirming that every single round completed in registers and not one fell back to the queued tier.
+- **The modest size of that win is itself the finding.** The trap is not what an exchange costs — the scheduling round trip is. That is exactly what the direct handoff (D3) targets, and it now has a measured baseline to beat instead of an assumption. Printed, never asserted: `core/trap/budgets.rs` will take its values from this pair when P4c-2 asserts them, which is the rule P1 set for this whole task.
+- P4c is split for that reason: a scheduler policy change is the one place where "measure before claiming" is not a style rule but the difference between an optimisation and a regression. `handoff_hit` has been a hardcoded 0 in the stats line since P1 — honest only while no handoff exists, and the first thing P4c-2 has to fix.
+- Proof: `just check` EXIT=0; `just test-os smp1` EXIT=0 with both bench lines, `SELFTEST: ipc call ok`, `SELFTEST: ipc reply_recv ok`; `just test-all` EXIT=0.
+
 ### Added - 2026-09-17 (TASK-0054C P4b: `ipc_reply_recv` — reply and the next request in ONE trap)
 
 - **Syscall 59, `ipc_reply_recv(reply_slot, hdr, payload, recv_desc)`.** The server half of the fastpath, and it turned out to be composition rather than new machinery: a reply is already an ordinary send on the moved capability's slot (that is exactly what `reply_and_close` does) and the next request is already `ipc_recv_v2`'s descriptor. So this is those two with P4a's commit rule between them — and because its first half IS the send path, **P4a's completion hook fires from it unchanged**: a client blocked in `ipc_call` gets its answer in registers while this server is still inside its own single trap. Client one trap, server one trap, no third mechanism.

@@ -104,5 +104,17 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         Err(()) => emit_line(crate::markers::M_SELFTEST_IPC_BENCH_FAIL),
     }
 
+    // TASK-0054C P4c-1: the same exchange over `ipc_call` — one trap, not two.
+    match probes::ipc_kernel::ipc_call_bench_probe() {
+        Ok(probes::ipc_kernel::BenchResult { rt_us, rounds }) => {
+            emit_bytes(crate::markers::M_SELFTEST_IPC_CALL_BENCH_RT.as_bytes());
+            emit_u64(rt_us);
+            emit_bytes(b"us n=");
+            emit_u64(u64::from(rounds));
+            emit_line(")");
+        }
+        Err(()) => emit_line(crate::markers::M_SELFTEST_IPC_CALL_BENCH_FAIL),
+    }
+
     Ok(())
 }

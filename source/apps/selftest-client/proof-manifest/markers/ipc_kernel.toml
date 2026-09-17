@@ -58,6 +58,16 @@ phase = "ipc_kernel"
 # plays both roles against its own endpoint, so the proof needs no service change
 # and stays deterministic; it also reads the answer off its reply inbox, so a
 # reply that went nowhere fails instead of passing quietly.
+# TASK-0054C P4c-1: the SAME exchange over `ipc_call` — one trap instead of two.
+# Same server, same payload, same round count as `ipc bench` above, so the two
+# `rt=` lines compare rather than merely coexist. Printed, never asserted: the
+# budgets take their values from this pair before P4c-2 asserts anything.
+[marker."SELFTEST: ipc call bench FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc call bench (rt="]
+phase = "ipc_kernel"
+
 [marker."SELFTEST: ipc reply_recv FAIL"]
 phase = "ipc_kernel"
 
