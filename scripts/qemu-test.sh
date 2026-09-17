@@ -903,6 +903,7 @@ expected_sequence=(
   "SELFTEST: ipc sender pid ok"
   "SELFTEST: ipc sender service_id ok"
   "SELFTEST: ipc call ok"
+  "SELFTEST: ipc reply_recv ok"
   "SELFTEST: ipc oversize rejected ok"
   "SELFTEST: ipc bench (rt="
   "KSELFTEST: ipc stats ("

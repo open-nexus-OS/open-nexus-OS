@@ -35,18 +35,21 @@
 
 use crate::ipc_payload::REPLY_REGS;
 
-/// A committed `ipc_call` waiting for its answer.
+/// A syscall whose OUTBOUND half is already committed.
+///
+/// One field, because a syscall that returns `Reschedule` re-executes the same
+/// instruction with the same registers: the re-run can re-read every argument
+/// it was given. The one thing the arguments cannot say is "the send already
+/// happened" — that is this.
+///
+/// Two users, told apart by the block reason: an `ipc_call` waiter blocks in
+/// `BlockReason::IpcCall` and is completed in its frame by the peer; an
+/// `ipc_reply_recv` waiter blocks in `BlockReason::IpcRecv` and finishes its
+/// own receive when it re-executes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CallState {
-    /// The endpoint the caller waits on — the endpoint of the reply capability
-    /// it moved with the request. A reply arriving anywhere else is not this
-    /// call's answer.
-    pub reply_ep: crate::ipc::EndpointId,
-    /// Where the caller wants a reply that does NOT fit the registers, and how
-    /// much of it it can take.
-    pub out_ptr: usize,
-    /// Caller buffer length for the queued-reply path.
-    pub out_max: usize,
+    /// The endpoint this task now waits on.
+    pub wait_ep: crate::ipc::EndpointId,
 }
 
 /// Finishes a committed `ipc_call` in the caller's saved frame: advance past

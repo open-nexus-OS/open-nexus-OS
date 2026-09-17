@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-17 (TASK-0054C P4b: `ipc_reply_recv` — reply and the next request in ONE trap)
+
+- **Syscall 59, `ipc_reply_recv(reply_slot, hdr, payload, recv_desc)`.** The server half of the fastpath, and it turned out to be composition rather than new machinery: a reply is already an ordinary send on the moved capability's slot (that is exactly what `reply_and_close` does) and the next request is already `ipc_recv_v2`'s descriptor. So this is those two with P4a's commit rule between them — and because its first half IS the send path, **P4a's completion hook fires from it unchanged**: a client blocked in `ipc_call` gets its answer in registers while this server is still inside its own single trap. Client one trap, server one trap, no third mechanism.
+- **The commit state collapsed to one field, which is a simplification of P4a.** A syscall that returns `Reschedule` re-executes the same instruction with the same registers, so the re-run can re-read every argument it was given; `CallState` never needed to carry `out_ptr`/`out_max`. What it must carry is the one thing the arguments cannot say — "the outbound half already happened". One state, two users, told apart by the block reason: an `ipc_call` waiter blocks in `IpcCall` and is completed in its frame by the peer, a `reply_recv` waiter blocks in `IpcRecv` and finishes its own receive on re-execution.
+- **Proven without changing a single service.** `SELFTEST: ipc reply_recv ok`: the harness plays both roles against its own endpoint — it queues TWO requests to itself, the first moving a reply capability, takes the first, and then `ipc_reply_recv` must answer request one AND hand back request two out of the same trap. It then reads the answer off its own reply inbox, so a reply that went nowhere fails the probe instead of passing quietly. Deterministic, single-threaded, and it needs no server rewritten — that is P5's job, not a prerequisite for proving the trap.
+- Proof: `just check` EXIT=0; `just test-os smp1` EXIT=0 with `SELFTEST: ipc call ok`, `SELFTEST: ipc reply_recv ok` and `calls_in_regs=1`; `just test-all` EXIT=0.
+
 ### Added - 2026-09-17 (TASK-0054C P4a: `ipc_call` — request and reply in ONE trap, the reply in registers)
 
 - **Syscall 58, `ipc_call(send_slot, hdr, payload, out)`.** It sends the request and waits for the answer on the endpoint of the reply capability the header moves — the capability IS the wait target, and a call that moves none is refused, because there would be nowhere for an answer to go. No deadline argument, by ABI (RFC-0093 §7): exactly two things end a call, the reply or the death of the last peer.

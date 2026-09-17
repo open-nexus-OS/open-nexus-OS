@@ -69,6 +69,13 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IPC_CALL_FAIL);
     }
 
+    // TASK-0054C P4b: reply + next request in ONE trap.
+    if probes::ipc_kernel::reply_recv_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IPC_REPLY_RECV_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IPC_REPLY_RECV_FAIL);
+    }
+
     // TASK-0054C P3b: the hard payload cap answers with E2BIG, not EINVAL.
     if probes::ipc_kernel::oversize_reject_probe().is_ok() {
         emit_line(crate::markers::M_SELFTEST_IPC_OVERSIZE_REJECTED_OK);

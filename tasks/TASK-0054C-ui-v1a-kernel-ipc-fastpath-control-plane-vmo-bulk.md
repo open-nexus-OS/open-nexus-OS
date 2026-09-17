@@ -731,6 +731,20 @@ waiter's own address space).
     `BlockReason` has four match sites that a new variant breaks (`task/mod.rs:1008`,
     `api/mod.rs:264,327`, `runtime.rs:507`); and a blocked task's frame is never re-saved while it
     is blocked (only an INTERRUPTED task's is), which is what makes the frame write safe.
+  - **P4b review (2026-09-17) — the server half is composition, not new machinery.** A reply is
+    already a plain `ipc_send_v1` on the moved capability's slot (`KernelServer::send_on_cap_wait`),
+    and the next request is already `ipc_recv_v2`'s descriptor. So `ipc_reply_recv(reply_slot,
+    hdr, frame, recv_desc)` is those two, with the SAME commit-point rule between them — and
+    because its first half is the ordinary send path, P4a's completion hook fires from it
+    unchanged: the client's `ipc_call` finishes in registers while the server is still inside its
+    own single trap. Client one trap, server one trap, no third mechanism.
+  - **The commit state collapses to one field, and that is a simplification of P4a.** A syscall
+    that returns `Reschedule` re-executes the same instruction with the SAME registers, so the
+    re-run can simply re-read its own arguments; `CallState` never needed to carry `out_ptr` and
+    `out_max`. What it must carry is the one thing the arguments cannot say: "my outbound half is
+    already out, do not send it again". One state, two users, told apart by the block reason — an
+    `ipc_call` waiter blocks in `IpcCall` (and is completed in its frame), a `reply_recv` waiter
+    blocks in `IpcRecv` (and finishes the receive itself on re-execution).
   - Zones: kernel, `source/libs/nexus-abi`. Blast: all IPC. Lanes: `just check`, `just test-kernel`,
     smp1, visible, `just test-all`.
 - **P5 Seam flip** — `exchange::call_into` → `ipc_call`; `KernelServer` → `reply_recv`
@@ -788,7 +802,7 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P3a Measure the payload distribution; delete the redundant copy | Done 2026-09-16 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0, smp1 EXIT=0 with the marker set diffed against the last P2-f boot: 264 → 265 distinct markers, the ONE addition being `KSELFTEST: ipc payload hist`, nothing lost, 213 `ok` markers in both, FAILs only the allow-listed dsoftbus pair; visible EXIT=0 pixel proof 31.76. **13 windows, two workload families:** `le64` is exactly 160 in all eight standard-boot windows (> 32 B population 1529 ± 5), ≤ 32 B is 72.3–93.1 % there and 53.5–63.6 % in the five OTA bundle lanes → **`IPC_SHORT_MAX = 32`**, RFC-0096 amended. The histogram total equals `heap_allocs` in all 13 windows = **one** kernel allocation per payload, from 2.000; `copies / sends` 3.12–3.38 → 2.05–2.64 |
 | P3b The payload tier + ONE size bound with one owner (inline 32 B, `E2BIG`, dead backends deleted, kernel host tests gated) | Done 2026-09-17 — `just test-all` EXIT=0 (10 lanes); PROOF: `just check` 0 incl. the new `ipc-bounds` gate, smp1 + visible EXIT=0, pixel proof 31.77. **`heap_allocs / sends` 1.000 → 0.276 (smp1), 0.114 (visible)**, and `heap_allocs` = the histogram's > 32 B population EXACTLY in ALL 12 windows of the gate, both workload families — an identity, not a correlation; kernel allocations no longer scale with the boot. Price **+10 592 B steady kernel heap (+0.54 %)**, measured with the new `kheap_used=` field. `SELFTEST: ipc oversize rejected ok` proves `E2BIG`. 52 kernel host tests now run in a gate (they ran in NONE before), incl. the counting allocator |
 | P4a `ipc_call` + completion state + EOF | Done 2026-09-17 — syscall 58. The reply rides home in REGISTERS (a1–a5 are free, 40 B > `IPC_SHORT_MAX`), so the "one epilogue hook" the plan assumed is not needed at all — the tree has FIVE resume points and a missed one would silently truncate a reply. Phase 1 IS `sys_ipc_send_v1` (no duplicated validation/CAP_MOVE/tier/budget); the commit point is a `CallState` and the peer finishes the syscall in the caller's saved frame. PROOF: `just check` 0, `just test-kernel` 56 passed (register packing host-tested at every edge length before any kernel wiring), smp1 EXIT=0 with `SELFTEST: ipc call ok` (nonce echo checked) and **`calls_in_regs=1`** — a counter that knows nothing about the probe. Splits the gate asked for: `task/block_reason.rs` (task/mod.rs 1292 → 1270), queue peek to `ipc/endpoint.rs` |
-| P4b `ipc_reply_recv` (server half) | Draft |
+| P4b `ipc_reply_recv` (server half) | Done 2026-09-17 — syscall 59. Composition of the existing send + `recv_v2` with P4a's commit rule between them; P4a's completion hook fires from it unchanged, so client and server are each ONE trap without a third mechanism. The commit state collapsed to ONE field (a re-executed syscall re-reads its own arguments) — a simplification of P4a too. PROOF: `just check` 0, `just test-all` EXIT=0, smp1 EXIT=0 with `SELFTEST: ipc reply_recv ok` — the harness plays both roles against its own endpoint (two queued requests, answer one and receive the other in one trap) and then reads the answer off its reply inbox, so a reply that went nowhere fails instead of passing quietly. No service had to be rewritten to prove the trap |
 | P4c Direct handoff + budget marker | Draft |
 | P5 Seam flip | Draft |
 | P6 Closure | Draft |

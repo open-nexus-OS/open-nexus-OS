@@ -123,6 +123,10 @@ pub const SYSCALL_BOOT_HANDOFF: usize = 57;
 /// argument by ABI (RFC-0093 §7) — a call ends on its reply or on the death of the
 /// last peer. A reply of at most `IPC_SHORT_MAX` comes back in a1..a4.
 pub const SYSCALL_IPC_CALL_V1: usize = 58;
+
+/// TASK-0054C P4b: reply + wait for the next request in ONE trap. Its reply half is
+/// the ordinary send path, so an `ipc_call` peer is completed in registers from here.
+pub const SYSCALL_IPC_REPLY_RECV_V1: usize = 59;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

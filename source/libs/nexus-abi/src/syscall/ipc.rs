@@ -151,6 +151,70 @@ pub fn ipc_call(slot: Cap, header: &MsgHeader, payload: &[u8], out: &mut [u8]) -
     }
 }
 
+/// Reply to the current request and wait for the next one, in ONE trap
+/// (TASK-0054C P4b, syscall 59).
+///
+/// `reply_slot` is the capability the requester MOVED (one-shot: it is consumed
+/// here, exactly as `reply_and_close` consumed it). The remaining arguments are
+/// the next request's destination, the same shape [`ipc_recv_v2`] uses.
+/// Returns the next request's payload length.
+///
+/// Because the reply half is the ordinary send path, a client blocked in
+/// [`ipc_call`] is completed in its registers from here — client one trap,
+/// server one trap.
+#[cfg(nexus_env = "os")]
+#[allow(clippy::too_many_arguments)]
+pub fn ipc_reply_recv(
+    reply_slot: Cap,
+    reply_header: &MsgHeader,
+    reply_payload: &[u8],
+    header_out: &mut MsgHeader,
+    payload_out: &mut [u8],
+    sender_service_id_out: &mut u64,
+) -> Result<usize> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_IPC_REPLY_RECV_V1: usize = 59;
+        let desc = IpcRecvV2Desc {
+            magic: IPC_RECV_V2_DESC_MAGIC,
+            version: IPC_RECV_V2_DESC_VERSION,
+            slot: 0,
+            _pad0: 0,
+            header_out_ptr: header_out as *mut MsgHeader as u64,
+            payload_out_ptr: payload_out.as_mut_ptr() as u64,
+            payload_out_max: payload_out.len() as u64,
+            sender_service_id_out_ptr: sender_service_id_out as *mut u64 as u64,
+            sys_flags: IPC_SYS_TRUNCATE,
+            _pad1: 0,
+            deadline_ns: 0,
+        };
+        let raw = unsafe {
+            ecall6(
+                SYSCALL_IPC_REPLY_RECV_V1,
+                reply_slot as usize,
+                reply_header as *const MsgHeader as usize,
+                reply_payload.as_ptr() as usize,
+                reply_payload.len(),
+                &desc as *const IpcRecvV2Desc as usize,
+                0,
+            )
+        };
+        decode_ipc_recv(raw)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = (
+            reply_slot,
+            reply_header,
+            reply_payload,
+            header_out,
+            payload_out,
+            sender_service_id_out,
+        );
+        Err(IpcError::Unsupported)
+    }
+}
+
 /// Receives an IPC v1 message from the endpoint referenced by `slot` (payload copy-out).
 ///
 /// Returns the number of bytes written into `payload_out`.

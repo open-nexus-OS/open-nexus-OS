@@ -54,6 +54,16 @@ phase = "ipc_kernel"
 [marker."SELFTEST: ipc call ok"]
 phase = "ipc_kernel"
 
+# TASK-0054C P4b: reply + next request in ONE trap (syscall 59). The harness
+# plays both roles against its own endpoint, so the proof needs no service change
+# and stays deterministic; it also reads the answer off its reply inbox, so a
+# reply that went nowhere fails instead of passing quietly.
+[marker."SELFTEST: ipc reply_recv FAIL"]
+phase = "ipc_kernel"
+
+[marker."SELFTEST: ipc reply_recv ok"]
+phase = "ipc_kernel"
+
 [marker."SELFTEST: ipc oversize rejected FAIL"]
 phase = "ipc_kernel"
 

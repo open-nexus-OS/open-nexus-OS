@@ -51,7 +51,8 @@ pub(super) fn sys_ipc_call(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     // request must NOT be sent again. The answer is on the reply endpoint (or
     // its last peer died); collect it in our own address space.
     if let Some(state) = ctx.tasks.task(pid).and_then(|t| t.call_state()) {
-        return collect_queued_reply(ctx, pid, state);
+        // The arguments are unchanged on a re-execution, so `out` is re-read here.
+        return collect_queued_reply(ctx, pid, state, args.get(4), args.get(5));
     }
 
     let send_slot = args.get(0);
@@ -106,7 +107,7 @@ pub(super) fn sys_ipc_call(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     // Phase 2 — commit. From here the syscall is never re-executed from the
     // start; the peer (or the EOF scan) finishes it.
     if let Some(task) = ctx.tasks.task_mut(pid) {
-        task.set_call_state(CallState { reply_ep, out_ptr, out_max });
+        task.set_call_state(CallState { wait_ep: reply_ep });
     }
     let _ = ctx.router.register_recv_waiter(reply_ep, pid.as_raw());
     ctx.tasks.block_current(BlockReason::IpcCall { reply_ep }, ctx.scheduler);
@@ -127,20 +128,18 @@ fn collect_queued_reply(
     ctx: &mut Context<'_>,
     pid: crate::task::Pid,
     state: CallState,
+    out_ptr: usize,
+    out_max: usize,
 ) -> SysResult<usize> {
-    match ctx.router.recv(state.reply_ep) {
+    match ctx.router.recv(state.wait_ep) {
         Ok(msg) => {
             let total = msg.payload.len();
-            let n = core::cmp::min(total, state.out_max);
+            let n = core::cmp::min(total, out_max);
             if n != 0 {
                 // SAFETY: `out_ptr`/`out_max` were proved a user slice at the
                 // commit point and this task owns that address space.
                 unsafe {
-                    core::ptr::copy_nonoverlapping(
-                        msg.payload.as_ptr(),
-                        state.out_ptr as *mut u8,
-                        n,
-                    );
+                    core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), out_ptr as *mut u8, n);
                 }
                 crate::ipc_stats::record_payload_copy(n);
             }
@@ -202,4 +201,60 @@ pub(super) fn complete_call_waiter_if_any(
         let _ = task.take_call_state();
         crate::task::completion::complete_in_frame(task.frame_mut(), len, regs);
     }
+}
+
+/// `ipc_reply_recv(reply_slot, hdr_ptr, payload_ptr, payload_len, recv_desc_ptr)`
+/// — answer the current request and wait for the next one, in ONE trap
+/// (TASK-0054C P4b, syscall 59).
+///
+/// The server half of the fastpath. A reply is already an ordinary send on the
+/// moved capability's slot and the next request is already `ipc_recv_v2`'s
+/// descriptor, so this is those two with P4a's commit rule between them — and
+/// because the first half IS the send path, P4a's completion hook fires from
+/// here unchanged: a client blocked in `ipc_call` gets its answer in registers
+/// while this server is still inside its own single trap. Client one trap,
+/// server one trap, no third mechanism.
+///
+/// The commit point matters for the same reason it does in `ipc_call`: once the
+/// reply is out, a re-execution must not send it twice. `CallState` says so,
+/// and the receive half re-reads its own descriptor from the unchanged
+/// arguments.
+pub(super) fn sys_ipc_reply_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let pid = ctx.tasks.current_pid();
+    let recv_args = Args::new([args.get(4), 0, 0, 0, 0, 0]);
+
+    // The reply is already out (this is a re-execution after the receive
+    // blocked): go straight to the receive.
+    if ctx.tasks.task(pid).and_then(|t| t.call_state()).is_some() {
+        let result = super::ipc_recv_v2::sys_ipc_recv_v2(ctx, &recv_args);
+        if !matches!(result, Err(Error::Reschedule)) {
+            if let Some(task) = ctx.tasks.task_mut(pid) {
+                let _ = task.take_call_state();
+            }
+        }
+        return result;
+    }
+
+    // Phase 1 — re-entrant: the reply, on the moved capability's slot. A full
+    // client queue blocks in `IpcSend` with nothing committed, exactly as an
+    // ordinary send does.
+    let reply_slot = args.get(0);
+    let send_args = Args::new([reply_slot, args.get(1), args.get(2), args.get(3), 0, 0]);
+    super::ipc_msg::sys_ipc_send_v1(ctx, &send_args)?;
+    // One-shot, like `ReplyCap::reply_and_close`: the answer is delivered, the
+    // capability has no second use.
+    let _ = ctx.tasks.current_caps_mut().take(reply_slot);
+
+    // Phase 2 — commit, then the receive. If it blocks, the re-executed syscall
+    // takes the branch above instead of replying again.
+    if let Some(task) = ctx.tasks.task_mut(pid) {
+        task.set_call_state(CallState { wait_ep: 0 });
+    }
+    let result = super::ipc_recv_v2::sys_ipc_recv_v2(ctx, &recv_args);
+    if !matches!(result, Err(Error::Reschedule)) {
+        if let Some(task) = ctx.tasks.task_mut(pid) {
+            let _ = task.take_call_state();
+        }
+    }
+    result
 }

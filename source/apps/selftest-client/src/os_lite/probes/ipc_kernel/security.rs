@@ -110,6 +110,72 @@ pub(crate) fn ipc_call_probe() -> core::result::Result<(), ()> {
     }
 }
 
+/// Reply and receive in ONE trap (TASK-0054C P4b), proven without changing a
+/// single service.
+///
+/// The harness plays both roles against its OWN bootstrap endpoint, which makes
+/// the proof deterministic and single-threaded: queue TWO requests to itself,
+/// each moving a reply capability; take the first; then `ipc_reply_recv` —
+/// which must answer request one AND hand back request two from the same trap.
+/// The answer is then read off the reply inbox, so a reply that went nowhere
+/// fails the probe instead of passing quietly.
+pub(crate) fn reply_recv_probe() -> core::result::Result<(), ()> {
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    let bootstrap = nexus_abi::BOOTSTRAP_CAP_SLOT;
+
+    // Two requests to ourselves; the first carries the reply capability.
+    let cap = nexus_abi::cap_clone(reply.send).map_err(|_| ())?;
+    let hdr_a = nexus_abi::MsgHeader::new(cap, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, 3);
+    nexus_abi::ipc_send_v1(bootstrap, &hdr_a, b"REQ", 0, 0).map_err(|_| ())?;
+    let hdr_b = nexus_abi::MsgHeader::new(0, 0, 0, 0, 4);
+    nexus_abi::ipc_send_v1(bootstrap, &hdr_b, b"NEXT", 0, 0).map_err(|_| ())?;
+
+    // Take the first request and the reply capability it moved.
+    let mut in_hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut in_buf = [0u8; 16];
+    let mut sid: u64 = 0;
+    let n = nexus_abi::ipc_recv_v2(
+        bootstrap,
+        &mut in_hdr,
+        &mut in_buf,
+        &mut sid,
+        nexus_abi::IPC_SYS_TRUNCATE,
+        0,
+    )
+    .map_err(|_| ())?;
+    if &in_buf[..n as usize] != b"REQ" {
+        return Err(());
+    }
+    let reply_cap = in_hdr.src;
+
+    // ONE trap: answer request one, receive request two.
+    let out_hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 4);
+    let mut next_hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let mut next_buf = [0u8; 16];
+    let mut next_sid: u64 = 0;
+    let got = nexus_abi::ipc_reply_recv(
+        reply_cap,
+        &out_hdr,
+        b"PONG",
+        &mut next_hdr,
+        &mut next_buf,
+        &mut next_sid,
+    )
+    .map_err(|_| ())?;
+    if &next_buf[..got] != b"NEXT" {
+        return Err(());
+    }
+
+    // The answer really travelled: read it off our own reply inbox.
+    let mut ack = [0u8; 16];
+    let acked = nexus_ipc::exchange::recv_reply(reply.recv, &mut ack).map_err(|_| ())?;
+    if &ack[..acked] == b"PONG" {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 pub(crate) fn sender_pid_probe() -> core::result::Result<(), ()> {
     let me = nexus_abi::pid().map_err(|_| ())?;
     let reply = cached_reply_client().map_err(|_| ())?;
