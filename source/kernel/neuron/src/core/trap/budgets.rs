@@ -168,6 +168,53 @@ pub fn record_wake_ipi(ticks: u64) {
     WAKE_IPI_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
+/// Ticks spent in the runqueue half of a receiver wake (purge + enqueue), and
+/// how many (TASK-0054C P4c-2).
+///
+/// D3 proposes replacing this with a DIRECT handoff — switch to the waiter on
+/// this hart instead of enqueueing it. Before changing scheduler policy, the
+/// thing being removed has to be a number: P4c-1 showed the trap is worth
+/// 5–7 % of an exchange, and if the enqueue is far below that, D3 is buying
+/// noise with risk.
+pub static WAKE_ENQ_TICKS_TOTAL: AtomicU64 = AtomicU64::new(0);
+/// Peak ticks for one wake enqueue.
+pub static WAKE_ENQ_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
+/// Wake enqueues measured.
+pub static WAKE_ENQ_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[inline]
+pub fn record_wake_enqueue(ticks: u64) {
+    WAKE_ENQ_MAX_TICKS.fetch_max(ticks, Ordering::Relaxed);
+    WAKE_ENQ_TICKS_TOTAL.fetch_add(ticks, Ordering::Relaxed);
+    WAKE_ENQ_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Times `f` as one wake enqueue. The cfg dance lives here so the wake path
+/// stays four readable lines (`task/mod.rs` is at its structure-gate ceiling).
+#[inline]
+pub fn timed_wake_enqueue<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        let t0 = riscv::register::time::read() as u64;
+        let out = f();
+        record_wake_enqueue((riscv::register::time::read() as u64).saturating_sub(t0));
+        out
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        f()
+    }
+}
+
+/// `(max_ticks, mean_ticks, count)` for the runqueue half of a wake. Ticks, not
+/// microseconds: one enqueue is far below a microsecond, and rounding it to 0 µs
+/// would hide exactly the number this exists to show.
+pub fn wake_enqueue_report() -> (u64, u64, usize) {
+    let n = WAKE_ENQ_COUNT.load(Ordering::Relaxed);
+    let total = WAKE_ENQ_TICKS_TOTAL.load(Ordering::Relaxed);
+    (WAKE_ENQ_MAX_TICKS.load(Ordering::Relaxed), if n == 0 { 0 } else { total / (n as u64) }, n)
+}
+
 /// `(max_us, mean_us, count)` for the cross-core wake IPI.
 pub fn wake_ipi_report() -> (u64, u64, usize) {
     let n = WAKE_IPI_COUNT.load(Ordering::Relaxed);

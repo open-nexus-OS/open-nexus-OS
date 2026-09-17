@@ -90,6 +90,8 @@ pub use exit_reason::ExitReason;
 
 #[cfg(target_os = "none")]
 mod stack_pool;
+/// Waking a blocked task (TASK-0054C P4c-2: the runqueue half is measured here).
+mod wake;
 #[cfg(target_os = "none")]
 use stack_pool::allocate_guarded_stack;
 
@@ -998,72 +1000,6 @@ impl TaskTable {
         // Ensure the scheduler does not keep queued references to this PID.
         scheduler.purge(pid);
         scheduler.finish_current();
-    }
-
-    /// Wakes a blocked task and enqueues it for execution on its home CPU.
-    ///
-    /// Uses per-CPU runqueues to prevent cross-CPU migration during IPC wakeups,
-    /// which would otherwise cause starvation under SMP.
-    pub fn wake(&mut self, pid: Pid, scheduler: &mut Scheduler) -> WakeOutcome {
-        // Bounded bring-up diagnostic (A3/A4): callers ignore wake outcomes;
-        // a silently failing wake stalls IPC for a full heartbeat. Surface
-        // the first few anomalies.
-        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        fn log_wake_anomaly(pid: Pid, what: &str) {
-            static WAKE_ANOMALY_LOGGED: core::sync::atomic::AtomicUsize =
-                core::sync::atomic::AtomicUsize::new(0);
-            if WAKE_ANOMALY_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 6 {
-                log_info!(target: "smp", "KINIT: wake pid={} {}", pid.as_raw(), what);
-            }
-        }
-        let Some(task) = self.task(pid) else {
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-            log_wake_anomaly(pid, "not-found");
-            return WakeOutcome::TaskNotFound;
-        };
-        if !task.blocked {
-            #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-            log_wake_anomaly(pid, "not-blocked");
-            return WakeOutcome::TaskNotBlocked;
-        }
-        // Selftest dummy tasks intentionally carry a zero frame and no AS.
-        // Waking them should validate unblock bookkeeping, but must not
-        // make them runnable for the real scheduler path.
-        if task.address_space.is_none() && task.frame.sepc == 0 {
-            if let Some(task) = self.task_mut(pid) {
-                task.clear_blocked();
-            }
-            return WakeOutcome::WokenNoopSelftest;
-        }
-        let qos = task.qos;
-        // A4/B: route to the task's home CPU, clamped into its affinity mask
-        // and the online set.
-        let home_cpu = clamp_home_to_affinity(
-            task.affinity_mask,
-            task.home_cpu,
-            crate::smp::cpu_online_mask(),
-        );
-        // Avoid duplicates; then enqueue with the stored QoS.
-        scheduler.purge(pid);
-        if matches!(scheduler.enqueue_on_cpu(home_cpu, pid, qos), EnqueueOutcome::Rejected(_)) {
-            return WakeOutcome::EnqueueRejected;
-        }
-        if let Some(task) = self.task_mut(pid) {
-            task.clear_blocked();
-            // Cross-core wake: kick the home CPU out of WFI/user so the task
-            // runs promptly (best-effort IPI; the evidence chain records it).
-            if home_cpu != crate::smp::cpu_current_id() {
-                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                let ipi_t0 = riscv::register::time::read() as u64;
-                let _ = crate::smp::request_resched(home_cpu);
-                #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-                crate::trap::budgets::record_wake_ipi(
-                    (riscv::register::time::read() as u64).saturating_sub(ipi_t0),
-                );
-            }
-            return WakeOutcome::Woken;
-        }
-        WakeOutcome::TaskNotFound
     }
 
     /// Explicit migration (A8 work stealing): rebinds a task's home CPU.

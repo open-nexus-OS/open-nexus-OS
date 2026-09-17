@@ -280,7 +280,12 @@ and the harness gates only the stable prefix):
   (`ipc_stats::reset()` runs with `budgets::reset()` once bring-up completes):
   messages accepted, kernel heap allocations for payloads, payload copies and
   their bytes, receiver wakes that needed a cross-hart IPI, and every receiver
-  wake counted as a handoff miss (no direct handoff exists before TASK-0054C P4).
+  wake counted as a handoff miss. TASK-0054C P4c-2 REMOVED the `handoff_hit=0` field
+  rather than keep printing a number that could not be non-zero — decoration is not
+  telemetry — and put `wake_enq_ticks=<mean>/<max>` in its place: the cost of the
+  runqueue half of a wake, which is exactly what a direct handoff (D3) would remove.
+  Ticks, not microseconds, because one enqueue is far below a microsecond and rounding
+  it to 0 µs would hide the number this exists to show.
   `kheap_used` is kernel heap bytes in use at the same fence (TASK-0054C P3b):
   the inline tier makes `Message` bigger to make most messages allocation-free,
   so what that trade COSTS is a number in the log, not an argument.

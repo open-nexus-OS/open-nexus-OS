@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-17 (TASK-0054C P4c-2: the direct handoff is withdrawn, measured — and a fake telemetry field is gone)
+
+- **D3, the direct handoff, will not be built.** The rule assumed the runqueue hop is a meaningful part of an exchange. It is not, and now there is a number: `KSELFTEST: ipc stats` carries `wake_enq_ticks=<mean>/<max>`, the runqueue half of a receiver wake — **0.40 µs mean, 0.9 µs peak**, so an exchange's two wakes cost **0.80 µs, or 0.41 %** of the 195 µs a call takes. P4c-1 had already banked **11–15 µs (5.6–7.7 %)** by merging two traps into one. The handoff is **19× smaller than the saving already in hand.**
+- **And it is not free.** This scheduler is a per-CPU, per-QoS ring — `enqueue`, `schedule_next`, `yield_current`, `purge` — with no "run this task next" primitive. Adding one means either bypassing the QoS rings, which D3's own last sentence forbids ("never a priority change"), or paying the queue cycle it was meant to remove. So RFC-0096's handoff rule is withdrawn with the numbers beside it and ADR-0064 is Accepted without it. The scheduler is left alone.
+- **`handoff_hit=0` is gone from the stats line rather than kept.** It has been a hardcoded zero since P1 — honest only while no handoff exists, and a field that cannot be non-zero is decoration, not telemetry. `wake_enq_ticks` takes its place, so the premise stays measurable if the cost profile ever changes (more harts, a different scheduler, cross-hart traffic where `wake_ipis` is not 0). Should that happen, the decision is a re-measurement, not a rewrite from memory.
+- Ticks, not microseconds, on purpose: one enqueue is far below a microsecond, and rounding it to `0 µs` would hide exactly the number the field exists to show.
+- The structure gate asked for a split and got a real one: waking a task is its own concern, so `TaskTable::wake` and its neighbours moved to `task/wake.rs` — `task/mod.rs` **1270 → 1206 LOC**.
+- Proof: `just check` EXIT=0; `just test-kernel` 56 passed; `just test-os smp1` EXIT=0 with `wake_enq_ticks=4/9` reproduced across boots, `SELFTEST: ipc call bench (rt=195us)`, `calls_in_regs=65`; `just test-all` EXIT=0.
+
 ### Added - 2026-09-17 (TASK-0054C P4c-1: what a call actually costs, measured against the two-trap path)
 
 - **`SELFTEST: ipc call bench (rt=<n>us n=<N>)`** times 64 `ipc_call`s against samgrd's ping — the SAME server, the SAME 12-byte request and reply, and the SAME round count as the existing two-trap `SELFTEST: ipc bench`, so the two lines compare rather than merely coexist. samgrd answers with an ordinary send, which is precisely what completes a call in the caller's registers, so this times the fastpath as a service actually drives it. The probe checks the nonce echo every round: it times a real answer, never a lie.

@@ -1,9 +1,9 @@
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# ADR-0064: Request/reply is one trap per side with a direct handoff — the reply completes the caller's syscall, and no clock takes part
+# ADR-0064: Request/reply is one trap per side — the reply completes the caller's syscall, and no clock takes part (the direct handoff was measured and withdrawn)
 
-- Status: Proposed (P0 seed 2026-09-15; Accepted when TASK-0054C P4 lands with its `test_reject_*` and the budget marker)
+- Status: Accepted 2026-09-17 (TASK-0054C P4a/P4b landed the two traps with boot proofs; P4c-1 measured what they buy — one trap is 5.6–7.7 % cheaper than two, same server and payload — and P4c-2 measured the runqueue hop at 0.41 % of an exchange and WITHDREW the direct handoff rather than change scheduler policy for it)
 - Date: 2026-09-15
 - Links:
   - Tasks: `tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md` (execution + proof, P0–P6)
@@ -55,11 +55,15 @@ and without any clock argument.
   copy-out into the user buffer happens in the waiter's own trap return, under its own
   address space — one hook in the trap epilogue, never a cross-AS write. The RFC-0079 EOF
   scan completes a waiter the same way with `EPIPE` when its last peer dies.
-- **Direct handoff.** When the answering send finds the waiter in call state and the
-  waiter's affinity admits the current hart, the hart switches to the waiter directly — no
-  runqueue enqueue, no IPI. Otherwise the wake is the ordinary enqueue + resched request.
-  The two outcomes are counted (`handoff_hit` / `handoff_miss`) and the miss count is a
-  budget.
+
+- **Direct handoff — WITHDRAWN 2026-09-17 (TASK-0054C P4c-2), by measurement.** The runqueue half
+  of a wake costs **0.40 µs** (peak 0.9), so an exchange's two wakes are **0.80 µs = 0.41 %** of
+  its 195 µs; merging the two traps into one had already bought **11–15 µs (5.6–7.7 %)**. The
+  handoff is 19× smaller than the saving in hand, and building it would need a "run this task
+  next" primitive this scheduler does not have — which means bypassing the QoS rings, the one
+  thing this decision said a handoff must never do. The traps stay, the scheduler is untouched,
+  and `wake_enq_ticks` in `KSELFTEST: ipc stats` keeps the premise measurable if the cost profile
+  ever changes. See RFC-0096 §Amendment 2026-09-17.
 - **No clock.** Neither syscall takes a deadline. A `call` ends by the reply or by the death
   of the last peer (RFC-0079); a live-but-silent peer is a supervision truth (ADR-0057),
   never a client timer (RFC-0093 §7). `ipc_reply_recv` does not opt into EOF: a server owns

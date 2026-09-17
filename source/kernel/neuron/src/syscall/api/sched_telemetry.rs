@@ -91,9 +91,14 @@ pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
             // every send, push, pop and error return — so whether the tier PAYS has to be a
             // number, not an argument. Nothing else prints this; only the OOM handler read it.
             let kheap_used = crate::heap_used_bytes();
+            // TASK-0054C P4c-2: `handoff_hit` is GONE from this line rather than printed as a
+            // hardcoded 0 — a field that cannot be non-zero is not telemetry, it is decoration.
+            // What replaces it is the cost of the thing D3 would remove: mean/max ticks in the
+            // runqueue half of a wake.
+            let (wake_enq_max, wake_enq_mean, _) = crate::trap::budgets::wake_enqueue_report();
             log_info!(
                 target: "ipc",
-                "KSELFTEST: ipc stats (sends={} heap_allocs={} copies={} copy_bytes={} wake_ipis={} handoff_hit=0 handoff_miss={} kheap_used={} calls_in_regs={})",
+                "KSELFTEST: ipc stats (sends={} heap_allocs={} copies={} copy_bytes={} wake_ipis={} handoff_miss={} kheap_used={} calls_in_regs={} wake_enq_ticks={}/{})",
                 ipc.sends,
                 ipc.payload_allocs,
                 ipc.payload_copies,
@@ -101,7 +106,9 @@ pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
                 ipc.wake_ipis,
                 ipc.recv_wakes,
                 kheap_used,
-                ipc.calls_in_regs
+                ipc.calls_in_regs,
+                wake_enq_mean,
+                wake_enq_max
             );
             // TASK-0054C P3a: the payload-size distribution, so the inline tier P3b builds is
             // sized by measurement and not by the guess RFC-0096 wrote down. An average cannot
