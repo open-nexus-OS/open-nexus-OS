@@ -116,5 +116,28 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         Err(()) => emit_line(crate::markers::M_SELFTEST_IPC_CALL_BENCH_FAIL),
     }
 
+    // TASK-0054C P6 (RFC-0096 §Budgets): the number is asserted now, not just
+    // printed. A regression that puts a kernel entry back into an exchange fails
+    // the boot instead of waiting for someone to read a log.
+    match probes::ipc_kernel::ipc_call_bench_probe() {
+        Ok(probes::ipc_kernel::BenchResult { rt_us, .. })
+            if rt_us <= probes::ipc_kernel::IPC_CALL_RT_BUDGET_US =>
+        {
+            emit_bytes(crate::markers::M_KSELFTEST_IPC_CALL_BUDGET_OK_RT.as_bytes());
+            emit_u64(rt_us);
+            emit_bytes(b"us budget=");
+            emit_u64(probes::ipc_kernel::IPC_CALL_RT_BUDGET_US);
+            emit_line(")");
+        }
+        Ok(probes::ipc_kernel::BenchResult { rt_us, .. }) => {
+            emit_bytes(crate::markers::M_KSELFTEST_IPC_CALL_BUDGET_FAIL_RT.as_bytes());
+            emit_u64(rt_us);
+            emit_bytes(b"us budget=");
+            emit_u64(probes::ipc_kernel::IPC_CALL_RT_BUDGET_US);
+            emit_line(")");
+        }
+        Err(()) => emit_line(crate::markers::M_SELFTEST_IPC_CALL_BENCH_FAIL),
+    }
+
     Ok(())
 }

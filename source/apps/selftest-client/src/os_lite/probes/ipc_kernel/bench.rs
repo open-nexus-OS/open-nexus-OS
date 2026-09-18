@@ -22,6 +22,23 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::super::super::ipc::clients::cached_samgrd_client;
 
+/// The asserted round-trip budget for the fastpath, in microseconds
+/// (TASK-0054C P6, RFC-0096 §Budgets).
+///
+/// Measured 41–43 µs across every profile that runs this phase — smp1, visible,
+/// reset, ota-downgrade, ota-tamper — a 5 % band. The budget is 64: enough
+/// headroom that CI jitter cannot trip it, tight enough that the two-trap path
+/// this replaced (192 µs) fails it three times over. A regression that puts a
+/// kernel entry back into an exchange stops being a number someone has to
+/// notice in a log.
+///
+/// It lives HERE and not in `core/trap/budgets.rs`, which RFC-0096 named,
+/// because the round trip is measured by this probe and nothing in the kernel
+/// can see it; a constant in the kernel would be a mirror with no way to check
+/// itself. The budget the KERNEL owns — zero allocations for a short message —
+/// is asserted by the counting allocator in `just test-kernel`.
+pub(crate) const IPC_CALL_RT_BUDGET_US: u64 = 64;
+
 /// Exchanges per run. Small enough to stay inside samgrd's per-request
 /// budget under icount, large enough that the mean is not one trap's jitter.
 pub(crate) const BENCH_ROUNDS: u32 = 64;

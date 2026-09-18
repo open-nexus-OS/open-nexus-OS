@@ -666,6 +666,10 @@ Validation rules (decode/check/execute, seL4-style):
   user address limit and must not overflow.
 - `payload_len` MUST equal `header.len`.
 - `payload_len` MUST be bounded by `MAX_FRAME_BYTES` (initially 512; may be increased later).
+  **Amended 2026-09-18 (RFC-0096):** the bound is `nexus_abi::IPC_PAYLOAD_MAX = 8192`, public on
+  both sides of the ABI, and exceeding it is `E2BIG` — not `EINVAL`, which userspace could not
+  tell apart from a bad pointer. The kernel-private `MAX_FRAME_BYTES` copies are gone and
+  `scripts/check-ipc-bounds.sh` fails the build if one returns.
 - Rights MUST be enforced via the capability slot (`Rights::SEND`).
 
 Blocking semantics:
@@ -1028,6 +1032,16 @@ security, RISC‑V friendliness, and a future `softbusd` distributed layer.
 - “QueueFull/QueueEmpty” are not exceptional; they are normal flow-control signals.
 
 ### Copy-in/out now, zero/low-copy later (don’t overfit early)
+
+> **Amendment 2026-09-18 (TASK-0054C, RFC-0096).** This deferral is discharged, and by the
+> criteria it set rather than around them. CAP_MOVE shipped with `cap_close`, rollback tests and
+> a router fuzz, so "one handle per message" is no longer hypothetical; `ipc_call` / `ipc_reply_recv`
+> compose the semantics described here rather than adding new ones. What the deferral was cautious
+> about — guessing at a tier before measuring — is exactly how it was done: the payload
+> distribution was measured over 13 windows before `IPC_SHORT_MAX` was chosen (32, not the 64 the
+> new RFC had guessed), and the direct handoff this kernel might have grown was measured and
+> WITHDRAWN. Result: a message costs one kernel allocation instead of two, and none at all when it
+> fits inline; an exchange costs two kernel entries instead of five. See RFC-0096.
 
 - IPC v1 uses copy-in/out for small frames. This is fine for control-plane payload sizes.
 - For “ultra fast”, we rely on the VMO/filebuffer data plane rather than prematurely building a

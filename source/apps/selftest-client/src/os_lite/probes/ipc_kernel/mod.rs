@@ -32,7 +32,7 @@ mod plumbing;
 mod security;
 mod soak;
 
-pub(crate) use bench::{ipc_bench_probe, ipc_call_bench_probe, BenchResult};
+pub(crate) use bench::{ipc_bench_probe, ipc_call_bench_probe, BenchResult, IPC_CALL_RT_BUDGET_US};
 pub(crate) use plumbing::{ipc_payload_roundtrip, nexus_ipc_kernel_loopback_probe, qos_probe};
 pub(crate) use security::{
     cap_move_reply_probe, ipc_call_probe, oversize_reject_probe, reply_recv_probe,

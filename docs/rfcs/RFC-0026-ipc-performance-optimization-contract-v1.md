@@ -1,6 +1,9 @@
 # RFC-0026: IPC performance optimization v1 - deterministic control-plane reuse + zero-copy-aligned data paths
 
-- Status: Complete
+- Status: Complete (extended 2026-09-18 by `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md`,
+  which turns this RFC's control/data-plane split from prose into a kernel constant with its own
+  errno — `IPC_SHORT_MAX` / `IPC_PAYLOAD_MAX` and `E2BIG` — and adds the numbers this one asked for:
+  an exchange went from 208 µs and five kernel entries to 41–43 µs and two, asserted per boot.)
 - Owners: @runtime @kernel-team
 - Created: 2026-02-16
 - Last Updated: 2026-02-12

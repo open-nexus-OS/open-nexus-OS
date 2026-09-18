@@ -3,10 +3,10 @@
 
 # RFC-0096: IPC performance contract v2 — `ipc_call` / `ipc_reply_recv` fastpath, inline tier, hard cap, budgets with numbers
 
-- Status: Draft (P0 seed 2026-09-15; execution TASK-0054C P1–P6)
+- Status: **Implemented 2026-09-18** (TASK-0054C P0–P6). An exchange cost **208 µs** and five kernel entries when this was written; it costs **41–43 µs** and two, with one kernel heap allocation per message instead of two and none at all for the 72–93 % of messages that fit inline — and without a single scheduler change, because the one this RFC proposed was measured and withdrawn (§Amendment 2026-09-17).
 - Owners: @kernel-team @runtime
 - Created: 2026-09-15
-- Last Updated: 2026-09-15
+- Last Updated: 2026-09-18
 - Links:
   - Tasks: `tasks/TASK-0054C-ui-v1a-kernel-ipc-fastpath-control-plane-vmo-bulk.md` (execution + proof, P0–P6)
   - ADR: `docs/adr/0064-request-reply-one-trap-per-side-direct-handoff.md` (the one decision this contract rests on)
@@ -23,7 +23,8 @@
 - **Phase 2 (ONE client API + ONE server loop in userspace; pairing / deadline / drain forms deleted; gate rule 4)**: ✅ 2026-09-16 (TASK-0054C P2-a ✅ clocks, P2-b ✅ pacing on timer pairs + rule 4, P2-c ✅ one send primitive + the awaited-reply invariant, P2-d ✅ one correlation model — `nexus_ipc::reqrep` deleted, P2-e ✅ a server answers exactly the senders that moved a reply cap — two armed wedges closed, P2-f ✅ statefsd takes the rule too, P2-g ✅ the SERVER hot path allocates nothing per request — opened on a user report, found inputd dying of heap exhaustion under real input load and took all 14 os-lite receive loops off the allocating API; it also corrects P2-f's "no exception left": 28 files fleet-wide still answer cap-less senders on their own shared response endpoint, measured cold in windowd's case)
 - **Phase 3 (inline tier + hard cap + `E2BIG`; zero-allocation proof)**: ✅ 2026-09-17 (TASK-0054C P3a — the payload distribution measured (`KSELFTEST: ipc payload hist`), `IPC_SHORT_MAX` set to **32** by that measurement, and the redundant send-path clone deleted; P3b — the tier itself: `heap_allocs / sends` **1.000 → 0.276** (smp1) and **0.114** (visible), with `heap_allocs` equal to the histogram's > 32 B population EXACTLY in all 12 windows of the final gate; price **+10 592 B of steady kernel heap (+0.54 %)**; `E2BIG` boot-proven by `SELFTEST: ipc oversize rejected ok`)
 - **Phase 4 (`ipc_call` / `ipc_reply_recv` + budget numbers)**: ✅ 2026-09-17 (TASK-0054C P4a syscall 58 — the reply comes home in registers a1..a4, so the planned copy-out hook at FIVE resume points was not needed; P4b syscall 59 — composition of the existing send + `recv_v2`, so P4a's completion hook fires from it unchanged; P4c-1 — one trap is **5.6–7.7 %** cheaper than two, same server and payload, `calls_in_regs` proves every round took the register path; P4c-2 — the direct handoff **withdrawn** on a measurement, the runqueue hop being 0.41 % of an exchange against the 5.6–7.7 % already banked)
-- **Phase 5 (userspace seam on the new traps; fastpath markers; 8/8 boots)**: ⬜ (TASK-0054C P5)
+- **Phase 5 (userspace seam on the new traps)**: ✅ 2026-09-18 (TASK-0054C P5a — `exchange::call_into` IS `ipc_call`, so the fleet moved without a call site changing, and the EOF gap that flip would have shipped (EAGAIN where the contract says EPIPE) was found and closed first; P5b — the two core services the P2-g gate's NAME LIST had missed, plus the allocating receive family deleted so the rule is structural; P5b-2 — samgrd's loop, three kernel entries to one, **192 µs → 42 µs**; P5c — nine server loops on ONE shape (`KernelServer::serve_next` + `PendingReply`), which the structure gate forced and which is better than the copy it replaced)
+- **Phase 6 (closure)**: ✅ 2026-09-18 — the round trip is ASSERTED, not just printed: `KSELFTEST: ipc call budget ok (rt=<n>us budget=64)`, measured 41–43 µs across smp1, visible, reset and the OTA lanes.
 
 Definition:
 
@@ -175,7 +176,7 @@ happen, the decision is a re-measurement, not a rewrite of this paragraph from m
 - **Phase 2**: ONE client API + ONE server loop, deletion list, gate rule 4 at zero (P2).
 - **Phase 3**: inline tier + hard cap + `E2BIG`; host counting-allocator test at zero (P3).
 - **Phase 4**: the two traps, completion state, handoff, `KSELFTEST: ipc call budget ok (rt=<n>us handoff_miss=<m> alloc=0)` (P4).
-- **Phase 5**: `exchange` / `KernelServer` on the traps; `SELFTEST: ipc fastpath ping ok (rt=<n>us)`, `SELFTEST: ipc fastpath reply ok`, `SELFTEST: ipc bulk-vmo path ok`; 8/8 visible boots (P5).
+- **Phase 5**: `exchange` / `KernelServer` on the traps. The markers this line PLANNED (`ipc fastpath ping/reply/bulk-vmo`) were not built under those names; what was built instead proves more and is listed in §Deterministic markers — `SELFTEST: ipc call ok` and `ipc reply_recv ok` (each checking an echoed nonce, not merely that something came back), `ipc call bench` next to the old two-trap `ipc bench` so the two COMPARE, and `KSELFTEST: ipc call budget ok` asserting the result. The bulk-VMO path needed no new marker: it is unchanged by this RFC and already proven by the vfsd splice and bundlemgrd `OP_ARM_VMO` ladders.
 
 ## Security considerations
 
@@ -252,8 +253,8 @@ Registered in `source/apps/selftest-client/proof-manifest/markers/ipc_kernel.tom
 - [x] **Phase 1**: numbers — proof: `just test-os smp1` and `just test-os visible` show `KSELFTEST: ipc stats (…)` and `SELFTEST: ipc bench (…)` (2026-09-15: smp1: `SELFTEST: ipc bench (rt=209us n=64)`, `KSELFTEST: ipc stats (sends=5700 heap_allocs=11400 copies=17665 copy_bytes=1690977 wake_ipis=0 handoff_hit=0 handoff_miss=5172)`; visible: rt=209us, sends=5696 heap_allocs=11392 copies=17653 wake_ipis=0 handoff_miss=5145 — 2 allocations and ~3 copies per message, 0.9 runqueue hops per message on one hart)
 - [x] **Phase 2**: one client API + one server loop — proof: `scripts/check-wait-not-poll.sh` at zero with rule 4; grep-gone list empty; `just test-all` (2026-09-16, P2-a…P2-f)
 - [x] **Phase 3**: inline tier + `E2BIG` — proof: the counting `#[global_allocator]` in `just test-kernel` (0 allocations at `IPC_SHORT_MAX`, exactly 1 above; checked against a negative control), `SELFTEST: ipc oversize rejected ok` in QEMU, `just test-all` (2026-09-17, P3a + P3b: `heap_allocs / sends` 2.000 → 1.000 → 0.276, and `heap_allocs` no longer scales with the boot)
-- [ ] **Phase 4**: traps + handoff + budget — proof: `KSELFTEST: ipc call budget ok (…)`, the `test_reject_*` above; `just test-all`
-- [ ] **Phase 5**: seam flip — proof: fastpath markers, 8/8 visible boots
+- [x] **Phase 4**: traps + budget — proof: `KSELFTEST: ipc call budget ok (rt=42us budget=64)`, `SELFTEST: ipc call ok`, `ipc reply_recv ok`, `ipc oversize rejected ok`; `just test-all` (2026-09-18). The HANDOFF is not in this line because it was withdrawn on a measurement — see §Amendment 2026-09-17.
+- [x] **Phase 5**: seam flip — proof: the fleet on `ipc_call` (`calls_in_regs` 65 → 2143 per boot), nine server loops on `serve_next`, `just test-all` green at every step (2026-09-18).
 - [ ] Task linked with stop conditions + proof commands (TASK-0054C).
 - [ ] QEMU markers appear in `scripts/qemu-test.sh` and pass.
 - [ ] Security-relevant negative tests exist (`test_reject_*`).

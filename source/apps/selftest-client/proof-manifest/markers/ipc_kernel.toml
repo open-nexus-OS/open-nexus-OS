@@ -62,6 +62,16 @@ phase = "ipc_kernel"
 # Same server, same payload, same round count as `ipc bench` above, so the two
 # `rt=` lines compare rather than merely coexist. Printed, never asserted: the
 # budgets take their values from this pair before P4c-2 asserts anything.
+# TASK-0054C P6 (RFC-0096 §Budgets): the round trip is ASSERTED, not just
+# printed. Measured 41-43 us across every profile; the budget is 64, which CI
+# jitter cannot trip and which the two-trap path it replaced (192 us) fails
+# three times over.
+[marker."KSELFTEST: ipc call budget FAIL (rt="]
+phase = "ipc_kernel"
+
+[marker."KSELFTEST: ipc call budget ok (rt="]
+phase = "ipc_kernel"
+
 [marker."SELFTEST: ipc call bench FAIL"]
 phase = "ipc_kernel"
 

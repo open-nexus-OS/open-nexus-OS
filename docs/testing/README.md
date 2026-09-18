@@ -116,6 +116,22 @@ The complete just-target catalog (incl. per-TASK proof floors) lives in [os-mark
   interactive boot is a bug in the emitter (`debug_write` instead of `debug_println`, or
   a service that never armed verdict folding), not a harness setting.
 
+- **`just input-flood` — the load lane** (TASK-0054C P2-g, in `test-all`): every other lane
+  drives input politely, and that politeness hid a defect a user found in seconds. inputd
+  allocated one `Vec` per HID batch on a heap that never frees, so ~400 batches a second walked
+  its 384 KiB heap to `alloc_error` in under twenty seconds — and a dead inputd takes the whole
+  input chain with it (`hidrawd: tx hz=0` while events keep arriving), which is why the boot sat
+  on the greeter with a login nobody could click. The lane boots `visible`, floods ~900 pointer
+  moves a second over QMP for 45 s, and asserts what must NOT happen: no `alloc-fail` from any
+  service, and hidrawd still forwarding at the end. Both assertions were checked against the
+  pre-fix log — a lane that cannot fail on the defect it exists for is decoration.
+- **The IPC fastpath budget** (TASK-0054C P6, RFC-0096): `KSELFTEST: ipc call budget ok
+  (rt=<n>us budget=64)` asserts the request/reply round trip every boot, next to the two printed
+  benches (`SELFTEST: ipc bench` over the old two-trap path, `ipc call bench` over `ipc_call`,
+  same server and payload so they COMPARE). Measured 41–43 µs across smp1, visible, reset and the
+  OTA lanes; the path it replaced was 192 µs, so a regression that puts a kernel entry back into
+  an exchange fails the boot rather than waiting to be noticed in a log.
+
 ## Lane resources and where a verdict comes from (ADR-0063)
 
 - **A lane declares what it needs from the machine**, in its profile
