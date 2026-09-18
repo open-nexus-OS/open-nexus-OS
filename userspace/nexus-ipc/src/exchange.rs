@@ -52,8 +52,22 @@ use crate::{IpcError, Result};
 /// is truncated (`IPC_SYS_TRUNCATE`) — size `out` for the protocol (`IPC_PAYLOAD_MAX` is the
 /// transport cap; a protocol's own bound is smaller and known to its caller).
 pub fn call_into(send_slot: u32, reply: SlotPair, frame: &[u8], out: &mut [u8]) -> Result<usize> {
-    send_call(send_slot, reply, frame)?;
-    recv_reply(reply.recv, out)
+    // ONE trap since TASK-0054C P5a: `ipc_call` sends the request and waits on the endpoint of
+    // the capability it moves, and a reply within `IPC_SHORT_MAX` comes home in registers — the
+    // caller never re-enters the kernel to collect it. The two-trap shape below it
+    // (`send_call` + `recv_reply`) stays for the exchange whose answer is collected LATER.
+    let clone = nexus_abi::cap_clone(reply.send).map_err(|_| IpcError::Unsupported)?;
+    let hdr =
+        nexus_abi::MsgHeader::new(clone, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, frame.len() as u32);
+    match nexus_abi::ipc_call(send_slot, &hdr, frame, out) {
+        Ok(n) => Ok(n),
+        Err(e) => {
+            // A refused send rolls the moved capability back into our slot; a failure after the
+            // commit (a dead peer) already consumed it and this close is a harmless no-op.
+            let _ = nexus_abi::cap_close(clone);
+            Err(map(e))
+        }
+    }
 }
 
 /// The first half of [`call_into`]: sends `frame` with a fresh SEND clone of `reply` moved

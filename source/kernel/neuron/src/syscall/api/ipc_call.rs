@@ -148,9 +148,37 @@ fn collect_queued_reply(
             }
             Ok(total)
         }
-        // Woken with nothing to take: the peer is gone (RFC-0079) or the frame
-        // belonged to another reader. Either way this call is over — a call
-        // never waits on a clock, so it must not silently re-block.
+        // Woken with nothing to take. RFC-0096 says exactly two things end a
+        // call: the reply, or the death of the last peer. So decide with the
+        // SAME host-tested predicate the receive path uses — inventing a second
+        // EOF rule here is how the two would drift.
+        Err(ipc::IpcError::QueueEmpty) => {
+            let any_sender =
+                super::eof_scan::foreign_sender_remains(ctx.tasks, ctx.router, state.wait_ep);
+            if any_sender {
+                ctx.router.mark_endpoint_had_sender(state.wait_ep);
+            }
+            let had_sender = ctx.router.endpoint_had_sender(state.wait_ep);
+            if crate::ipc_eof::should_disconnect(true, had_sender, any_sender) {
+                if let Some(task) = ctx.tasks.task_mut(pid) {
+                    let _ = task.take_call_state();
+                }
+                return Err(Error::Ipc(ipc::IpcError::PeerClosed));
+            }
+            // Neither a frame nor an EOF: a spurious wake, or another reader
+            // took the frame first. The call stays COMMITTED and waits again —
+            // a call never ends on anything but its answer or a dead peer.
+            let _ = ctx.router.register_recv_waiter(state.wait_ep, pid.as_raw());
+            ctx.tasks
+                .block_current(BlockReason::IpcCall { reply_ep: state.wait_ep }, ctx.scheduler);
+            if let Some(next) = ctx.scheduler.schedule_next() {
+                ctx.tasks.set_current(next);
+                return Err(Error::Reschedule);
+            }
+            Err(park_hart_or_self_wake(ctx, pid, |ctx| {
+                let _ = ctx.router.remove_recv_waiter(state.wait_ep, pid.as_raw());
+            }))
+        }
         Err(err) => {
             if let Some(task) = ctx.tasks.task_mut(pid) {
                 let _ = task.take_call_state();

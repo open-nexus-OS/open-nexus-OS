@@ -772,6 +772,28 @@ waiter's own address space).
       while no handoff exists, and it is the first thing P4c-2 must fix.
   - Zones: kernel, `source/libs/nexus-abi`. Blast: all IPC. Lanes: `just check`, `just test-kernel`,
     smp1, visible, `just test-all`.
+- **P5a The client seam moves onto `ipc_call` — and the gap the flip would have shipped.**
+  Reviewed against the tree 2026-09-17.
+  - **The flip is one function, twice.** P2 left exactly two client entry points: `call_into`
+    (7 call sites) and `call_matching` (51, in the harness AND in a dozen services whose one
+    declared reply pair carries several protocols). Both are thin wrappers, so the fleet moves to
+    the fastpath without touching a single call site. `call_matching` keeps its contract by
+    keeping its predicate: `ipc_call` returns the FIRST frame on the reply endpoint, the predicate
+    judges it, and only a mismatch falls back to today's receive loop — so the common case is one
+    trap and the uncommon one is exactly as fast as before.
+  - **The gap the survey found (a P4a defect, invisible until now).** RFC-0096 says exactly two
+    things end a call: the reply, or the death of the last peer (EOF → `EPIPE`). P4a wakes on both
+    — an `ipc_call` waiter is a recv-waiter, so `wake_receivers_if_last_peer_gone` drains it — but
+    the re-executed syscall found an empty queue and returned `QueueEmpty` → **`EAGAIN`, not
+    `EPIPE`**. With two probes and no dying peer nothing noticed; flipping the fleet would have
+    shipped it into every service whose server restarts. Fixed here, and NOT with a new decision:
+    the call path consults the same host-tested predicate the receive path uses
+    (`ipc_eof::should_disconnect` via `eof_scan::foreign_sender_remains`). A wake with neither a
+    frame nor an EOF is spurious — another reader took the frame — so the call stays committed and
+    blocks again rather than failing, which is what "a call never ends on a clock" means.
+  - Zones: `userspace/nexus-ipc`, kernel (the EOF arm). Blast: every exchange in the fleet.
+    Lanes: `just check`, `just test-kernel`, smp1 (the bench is the witness: `ipc bench` must fall
+    toward the 193 µs `ipc call bench` already reads), visible, `just test-all`.
 - **P5 Seam flip** — `exchange::call_into` → `ipc_call`; `KernelServer` → `reply_recv`
   (loop form `next = reply_recv(reply)`); the 8 hand-rolled `recv_v2` loops onto
   `KernelServer`; `ReplyCap::reply_and_close_wait` deleted; markers `SELFTEST: ipc fastpath
@@ -830,7 +852,9 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P4b `ipc_reply_recv` (server half) | Done 2026-09-17 — syscall 59. Composition of the existing send + `recv_v2` with P4a's commit rule between them; P4a's completion hook fires from it unchanged, so client and server are each ONE trap without a third mechanism. The commit state collapsed to ONE field (a re-executed syscall re-reads its own arguments) — a simplification of P4a too. PROOF: `just check` 0, `just test-all` EXIT=0, smp1 EXIT=0 with `SELFTEST: ipc reply_recv ok` — the harness plays both roles against its own endpoint (two queued requests, answer one and receive the other in one trap) and then reads the answer off its reply inbox, so a reply that went nowhere fails instead of passing quietly. No service had to be rewritten to prove the trap |
 | P4c-1 What a call costs, measured against the two-trap path | Done 2026-09-17 — same server, same 12-byte payload, same 64 rounds, smp1 + icount over two boots: two traps **208 µs / 204 µs**, one trap **193 µs both times** (**−5.4 % to −7.2 %**, and the steadier of the two), `calls_in_regs=65` so every round took the register path. The modest win IS the finding: the trap is not what an exchange costs, the scheduling round trip is — P4c-2 now has a baseline instead of an assumption. `just check` 0, smp1 EXIT=0 |
 | P4c-2 The handoff, measured and WITHDRAWN | Done 2026-09-17 — `wake_enq_ticks=4/9` (mean 0.40 µs, peak 0.9): an exchange's two wakes are **0.80 µs = 0.41 %** of 195 µs, against the **5.6–7.7 %** P4c-1 already banked — the handoff is **19× smaller than the saving in hand**. And unbuildable as specified: this scheduler has no "run this task next" primitive, so it would need to bypass the QoS rings, which D3's own last sentence forbids. RFC-0096's rule withdrawn with the numbers, ADR-0064 Accepted without it, scheduler untouched. `handoff_hit=0` REMOVED from the stats line (a field that cannot be non-zero is decoration, not telemetry). Split the gate asked for: `task/wake.rs` (task/mod.rs 1270 → 1206) |
-| P5 Seam flip | Draft |
+| P5a Client seam on `ipc_call` (+ the EOF gap it exposed) | Done 2026-09-17 — ONE body flipped and every caller moved with it (what P2's five packages were FOR). PROOF: `ipc bench` (via `call_matching`) **205 → 196 µs**, within a µs of the direct `ipc call bench` (195) because the two are now the same path; **`calls_in_regs` 65 → 2230** per boot — the whole fleet, not two probes; full marker ladder green with every service on the new trap. Gap fixed before it shipped: P4a returned **EAGAIN instead of EPIPE** on peer death — now decided by the SAME host-tested predicate the receive path uses, and a spurious wake re-blocks instead of failing |
+| P5b Server seam on `ipc_reply_recv` | Draft |
+| P5c The 8 hand-rolled `recv_v2` loops + retired forms deleted | Draft |
 | P6 Closure | Draft |
 
 ## End-state rewrite 2026-09-09 — historical, superseded by the 2026-09-15 rewrite above
