@@ -19,6 +19,8 @@
 extern crate alloc;
 
 mod listing;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod volume_reader;
 
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;

@@ -48,15 +48,15 @@ pub(crate) const VFSD: ServiceSpec = ServiceSpec {
     id: ServiceId::Vfsd,
     stage: Stage::Platform,
     exposes_server: true,
-    reply_inbox: false,
+    reply_inbox: true,
     routes_to: &[Route {
         to: ServiceId::Packagefsd,
-        kind: RouteKind::SharedResponse,
+        kind: RouteKind::ReplyInbox,
         slots: slots::vfsd::PACKAGEFSD,
     }],
     announce: false,
     server_slots: slots::vfsd::SERVER,
-    reply_slots: SlotPair::UNDECLARED,
+    reply_slots: slots::vfsd::REPLY,
     extra_slots: &[],
 };
 

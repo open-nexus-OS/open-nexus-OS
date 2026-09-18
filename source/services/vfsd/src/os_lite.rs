@@ -14,19 +14,16 @@ extern crate alloc;
 
 use alloc::collections::BTreeMap;
 use alloc::format;
-use alloc::string::ToString;
-use alloc::vec;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use core::fmt;
 
 use nexus_abi;
-use nexus_ipc::{Client, IpcError, KernelClient, KernelServer, Server, Wait};
-use nexus_vfs_types::{
-    decode_readdir_response, encode_readdir_error, encode_readdir_request, VfsError,
-};
+use nexus_ipc::{IpcError, KernelServer, Server, Wait};
 
-use crate::{NamespaceView, SandboxError};
+use crate::namespace::Namespace;
+use crate::SandboxError;
 
 const OPCODE_STAT: u8 = 4;
 const OPCODE_OPEN: u8 = 1;
@@ -34,14 +31,21 @@ const OPCODE_READ: u8 = 2;
 const OPCODE_CLOSE: u8 = 3;
 const OPCODE_READDIR: u8 = 6;
 
+// packagefsd's op byte space (see its os_lite dispatch). Metadata, listing,
+// the inline tier, and the VMO pass-through (TASK-0033 P2).
+pub(crate) const PKGFS_OPCODE_RESOLVE: u8 = 2;
 /// packagefsd's list opcode (see packagefsd os_lite dispatch).
-const PKGFS_OPCODE_LIST: u8 = 4;
+pub(crate) const PKGFS_OPCODE_LIST: u8 = 4;
+pub(crate) const PKGFS_OPCODE_ARM_VMO: u8 = 5;
+pub(crate) const PKGFS_OPCODE_READ_VMO: u8 = 6;
+pub(crate) const PKGFS_OPCODE_READ: u8 = 7;
 
-/// Bulk reply scratch for the packagefsd hop (file payloads + listing pages);
-/// stays under the 8 KiB IPC frame cap.
+/// Reply scratch for the packagefsd hop (metadata, listing pages, inline
+/// reads). ONE buffer for the service lifetime — the os-lite heap never frees.
+/// It no longer has to hold file payloads: bulk moves through a VMO.
 const PKGFS_REPLY_BUF: usize = nexus_abi::IPC_PAYLOAD_MAX;
 
-const KIND_FILE: u16 = 0;
+pub(crate) const KIND_FILE: u16 = 0;
 
 /// Result type returned by the os-lite backend.
 pub type Result<T> = core::result::Result<T, Error>;
@@ -57,6 +61,8 @@ pub enum Error {
     NotFound,
     /// File handle referenced after it was closed.
     BadHandle,
+    /// The entry is above the inline tier: it has a VMO path and must use it.
+    TooBig,
 }
 
 impl fmt::Display for Error {
@@ -66,6 +72,7 @@ impl fmt::Display for Error {
             Self::InvalidPath => write!(f, "invalid path"),
             Self::NotFound => write!(f, "entry not found"),
             Self::BadHandle => write!(f, "invalid file handle"),
+            Self::TooBig => write!(f, "entry above the inline tier"),
         }
     }
 }
@@ -85,127 +92,20 @@ impl<F: FnOnce() + Send> ReadyNotifier<F> {
     }
 }
 
-pub(crate) struct Namespace {
-    view: NamespaceView,
-}
-
-impl Namespace {
-    fn new() -> Self {
-        Self { view: NamespaceView::new(vec!["pkg:/".to_string()]) }
-    }
-
-    fn packagefs_resolve(&self, path: &str) -> Result<Entry> {
-        // Forward resolution to packagefsd over IPC (real data path).
-        const PKGFS_OPCODE_RESOLVE: u8 = 2;
-        let canonical = self.view.assert_allowed(path).map_err(map_namespace_error)?;
-        let rel = canonical.strip_prefix("pkg:/").ok_or(Error::InvalidPath)?;
-        let client = KernelClient::new_for("packagefsd").map_err(|_| Error::Transport)?;
-        let mut frame = Vec::with_capacity(1 + rel.len());
-        frame.push(PKGFS_OPCODE_RESOLVE);
-        frame.extend_from_slice(rel.as_bytes());
-        client.send(&frame, Wait::Blocking).map_err(|_| Error::Transport)?;
-        // Bulk-capable recv: the default client recv truncates at 512 bytes,
-        // which silently corrupts multi-KB payloads.
-        let mut buf = vec![0u8; PKGFS_REPLY_BUF];
-        let n = client.recv_into(Wait::Blocking, &mut buf).map_err(|_| Error::Transport)?;
-        let rsp = &buf[..n];
-        if rsp.len() < 1 + 8 + 2 || rsp[0] != 1 {
-            return Err(Error::NotFound);
-        }
-        let size =
-            u64::from_le_bytes([rsp[1], rsp[2], rsp[3], rsp[4], rsp[5], rsp[6], rsp[7], rsp[8]]);
-        let kind = u16::from_le_bytes([rsp[9], rsp[10]]);
-        let bytes = rsp[11..].to_vec();
-        Ok(Entry { kind, size, bytes })
-    }
-
-    fn stat(&self, path: &str) -> Result<Entry> {
-        // Prefer real data from packagefsd for pkg:/ paths.
-        if path.starts_with("pkg:/") {
-            return self.packagefs_resolve(path);
-        }
-        Err(Error::InvalidPath)
-    }
-
-    pub(crate) fn open(&self, path: &str) -> Result<FileHandle> {
-        // Prefer real data from packagefsd for pkg:/ paths.
-        let entry = if path.starts_with("pkg:/") {
-            self.packagefs_resolve(path)?
-        } else {
-            return Err(Error::InvalidPath);
-        };
-        if entry.kind != KIND_FILE {
-            return Err(Error::InvalidPath);
-        }
-        Ok(FileHandle { owner_service_id: 0, bytes: entry.bytes })
-    }
-
-    /// Relays a ReadDir request to packagefsd and returns the validated reply
-    /// payload (shared `nexus-vfs-types` codec on both hops). The returned
-    /// payload is sent to the caller verbatim; errors are already encoded.
-    fn read_dir(&self, request_payload: &[u8]) -> (Vec<u8>, Option<usize>) {
-        let request = match nexus_vfs_types::decode_readdir_request(request_payload) {
-            Ok(request) => request,
-            Err(err) => return (encode_readdir_error(err), None),
-        };
-        // Namespace: only pkg:/ paths exist in os-lite; "pkg:/" is the root.
-        let rel = if request.path == "pkg:/" {
-            ".".to_string()
-        } else {
-            let canonical = match self.view.assert_allowed(&request.path) {
-                Ok(canonical) => canonical,
-                Err(_) => {
-                    debug_print("vfsd: access denied\n");
-                    return (encode_readdir_error(VfsError::Access), None);
-                }
-            };
-            match canonical.strip_prefix("pkg:/") {
-                Some(rel) if !rel.is_empty() => rel.to_string(),
-                _ => return (encode_readdir_error(VfsError::Invalid), None),
-            }
-        };
-        let forwarded = match encode_readdir_request(&rel, request.cursor, request.limit) {
-            Ok(payload) => payload,
-            Err(err) => return (encode_readdir_error(err), None),
-        };
-        let client = match KernelClient::new_for("packagefsd") {
-            Ok(client) => client,
-            Err(_) => return (encode_readdir_error(VfsError::Io), None),
-        };
-        let mut frame = Vec::with_capacity(1 + forwarded.len());
-        frame.push(PKGFS_OPCODE_LIST);
-        frame.extend_from_slice(&forwarded);
-        if client.send(&frame, Wait::Blocking).is_err() {
-            return (encode_readdir_error(VfsError::Io), None);
-        }
-        let mut buf = vec![0u8; PKGFS_REPLY_BUF];
-        let n = match client.recv_into(Wait::Blocking, &mut buf) {
-            Ok(n) => n,
-            Err(_) => return (encode_readdir_error(VfsError::Io), None),
-        };
-        buf.truncate(n);
-        // Validate before relaying: a malformed provider page must surface as
-        // EIO here, never reach the app client half-broken.
-        match decode_readdir_response(&buf) {
-            Ok(page) => {
-                let count = page.entries.len();
-                (buf, Some(count))
-            }
-            Err(err) => (encode_readdir_error(err), None),
-        }
-    }
-}
-
+/// One entry's METADATA. Not its bytes: those move through the inline read op
+/// or, above `INLINE_IO_MAX`, through the caller's VMO (RFC-0097 §3).
 #[derive(Clone)]
-struct Entry {
-    kind: u16,
-    size: u64,
-    bytes: Vec<u8>,
+pub(crate) struct Entry {
+    pub(crate) kind: u16,
+    pub(crate) size: u64,
 }
 
+/// An open `pkg:/` file. It holds the PATH, not the content — vfsd used to keep
+/// a `Vec` the size of the file per open handle, on a heap that never frees.
 pub(crate) struct FileHandle {
     owner_service_id: u64,
-    pub(crate) bytes: Vec<u8>,
+    path: String,
+    size: u64,
 }
 
 /// Runs the cooperative vfsd loop and emits a readiness marker once.
@@ -285,6 +185,8 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
     // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
+    // ONE reply scratch for every packagefsd hop, for the same reason.
+    let mut pkg_scratch = alloc::vec![0u8; PKGFS_REPLY_BUF];
     loop {
         // CAP_MOVE-aware receive: app-host children move a one-shot reply cap
         // into the request (their private inbox); direct clients (selftest)
@@ -354,7 +256,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                     OPCODE_STAT => {
                         let path = core::str::from_utf8(&frame[1..]).unwrap_or("");
                         let mut reply = Vec::new();
-                        match namespace.stat(path) {
+                        match namespace.stat(path, &mut pkg_scratch) {
                             Ok(entry) => {
                                 reply.push(1);
                                 reply.extend_from_slice(&entry.size.to_le_bytes());
@@ -370,15 +272,16 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                     OPCODE_OPEN => {
                         let path = core::str::from_utf8(&frame[1..]).unwrap_or("");
                         let mut reply = Vec::new();
-                        match namespace.open(path) {
-                            Ok(handle) => {
+                        match namespace.open(path, &mut pkg_scratch) {
+                            Ok(entry) => {
                                 let fh = next_handle;
                                 next_handle = next_handle.wrapping_add(1).max(1);
                                 handles.insert(
                                     fh,
                                     FileHandle {
                                         owner_service_id: sender_service_id,
-                                        bytes: handle.bytes,
+                                        path: path.to_string(),
+                                        size: entry.size,
                                     },
                                 );
                                 reply.push(1);
@@ -413,12 +316,32 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                             reply.push(2);
                         } else {
                             match handles.get(&fh) {
+                                Some(handle)
+                                    if handle.owner_service_id == sender_service_id
+                                        && handle.size as usize
+                                            > nexus_vfs_types::INLINE_IO_MAX =>
+                                {
+                                    // The entry is above the inline tier: E2BIG,
+                                    // and it belongs on OP_READ_VMO (RFC-0097 §3).
+                                    // `open` already told us the size, so this
+                                    // costs no round trip and never truncates.
+                                    reply.push(2);
+                                }
                                 Some(handle) if handle.owner_service_id == sender_service_id => {
-                                    let start = off.min(handle.bytes.len() as u64) as usize;
-                                    let end =
-                                        start.saturating_add(len as usize).min(handle.bytes.len());
-                                    reply.push(1);
-                                    reply.extend_from_slice(&handle.bytes[start..end]);
+                                    // The handle names the entry; packagefsd serves
+                                    // the bytes.
+                                    match namespace
+                                        .packagefs_read_inline(&handle.path, &mut pkg_scratch)
+                                    {
+                                        Ok(n) => {
+                                            let start = off.min(n as u64) as usize;
+                                            let end = start.saturating_add(len as usize).min(n);
+                                            reply.push(1);
+                                            reply.extend_from_slice(&pkg_scratch[start..end]);
+                                        }
+                                        Err(Error::TooBig) => reply.push(2),
+                                        Err(_) => reply.push(0),
+                                    }
                                 }
                                 Some(_) => {
                                     debug_print("vfsd: access denied\n");
@@ -454,7 +377,7 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         reply
                     }
                     OPCODE_READDIR => {
-                        let (reply, entries) = namespace.read_dir(&frame[1..]);
+                        let (reply, entries) = namespace.read_dir(&frame[1..], &mut pkg_scratch);
                         if let Some(count) = entries {
                             debug_print(&format!(
                                 "vfsd: readdir ok (mount=/packages entries={count})\n"
@@ -495,7 +418,7 @@ pub(crate) fn debug_print(_s: &str) {
 
 // raw UART helper removed in favor of debug_write syscall
 
-fn map_namespace_error(err: SandboxError) -> Error {
+pub(crate) fn map_namespace_error(err: SandboxError) -> Error {
     #[cfg(all(nexus_env = "os", feature = "os-lite"))]
     {
         let _ = err;

@@ -156,26 +156,33 @@ fn test_decode_packagefs_resolve_response_found_and_missing() {
     let missing = [0u8; 11];
     assert_eq!(decode_packagefs_resolve_rsp(&missing), Ok(None));
 
+    // METADATA ONLY (TASK-0033 P2): 11 bytes, and the size is the entry's, not
+    // the frame's. Entry bytes used to ride this reply, which is what capped a
+    // remote read at an IPC frame and killed packagefsd above it.
     let mut found = Vec::new();
     found.push(1);
     found.extend_from_slice(&5u64.to_le_bytes());
     found.extend_from_slice(&0u16.to_le_bytes());
-    found.extend_from_slice(b"hello");
     let parsed = decode_packagefs_resolve_rsp(&found).expect("decode").expect("found");
     assert_eq!(parsed.size, 5);
-    assert_eq!(parsed.bytes, b"hello");
 
     let mut wrong_kind = found.clone();
     wrong_kind[9] = 1;
     wrong_kind[10] = 0;
     assert!(decode_packagefs_resolve_rsp(&wrong_kind).is_err());
 
-    let mut too_large = Vec::new();
-    too_large.push(1);
-    too_large.extend_from_slice(&(PK_MAX_OPEN_FILE_BYTES as u64).to_le_bytes());
-    too_large.extend_from_slice(&0u16.to_le_bytes());
-    too_large.extend_from_slice(&vec![0u8; PK_MAX_OPEN_FILE_BYTES + 1]);
-    assert!(decode_packagefs_resolve_rsp(&too_large).is_err());
+    // An entry FAR above what any frame could have carried decodes fine now:
+    // its bytes never travel here. The `PK_MAX_OPEN_FILE_BYTES` bound moved to
+    // the caller, which refuses to cache more than that before it reads.
+    let mut huge = Vec::new();
+    huge.push(1);
+    huge.extend_from_slice(&(PK_MAX_OPEN_FILE_BYTES as u64 * 64).to_le_bytes());
+    huge.extend_from_slice(&0u16.to_le_bytes());
+    let parsed = decode_packagefs_resolve_rsp(&huge).expect("decode").expect("found");
+    assert_eq!(parsed.size, PK_MAX_OPEN_FILE_BYTES as u64 * 64);
+
+    // Short frames still fail closed.
+    assert!(decode_packagefs_resolve_rsp(&found[..10]).is_err());
 }
 
 #[test]

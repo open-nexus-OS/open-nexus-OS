@@ -2,22 +2,32 @@
 // SPDX-License-Identifier: Apache-2.0
 //! CONTEXT: the VMOs senders armed for their next VMO op (`OP_ARM_VMO`, TASK-0324 P7-d),
 //! keyed by the KERNEL sender identity — never by anything in a payload. Bounded, host-tested.
+//!
+//! A message moves exactly ONE capability, and for a request that wants an answer that one is
+//! the reply cap. So a VMO op is two messages: ARM moves the VMO, the op that follows consumes
+//! it. Every server on that pattern needs the same table, so there is one of it here rather
+//! than a copy per service — bundlemgrd serves payload/ELF/index/file VMOs, packagefsd forwards
+//! `pkg:/` reads through to it (TASK-0033 P2).
+//!
+//! SECURITY: the key is `sender_service_id` as the kernel stamped it. A sender is served only
+//! the VMO IT armed; nothing in a payload can name another sender's.
+//!
 //! OWNERS: @runtime @security
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: unit tests below (`cargo test -p bundlemgrd`)
+//! TEST_COVERAGE: unit tests below (`cargo test -p nexus-ipc`)
 
 /// Senders that may hold an armed VMO at once (the spawner, execd, packagefsd, the harness).
-pub(crate) const CAPACITY: usize = 8;
+pub const CAPACITY: usize = 8;
 
 /// One armed VMO per sender: `(sender_service_id, vmo cap slot)`; `slot == 0` = free.
-pub(crate) struct ArmedVmos {
+pub struct ArmedVmos {
     rows: [(u64, u32); CAPACITY],
 }
 
 /// What an ARM did with the table.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Armed {
+pub enum Armed {
     /// Stored; nothing to release.
     Stored,
     /// Stored; the sender's earlier VMO is returned for the caller to release.
@@ -26,13 +36,21 @@ pub(crate) enum Armed {
     Full(u32),
 }
 
+impl Default for ArmedVmos {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ArmedVmos {
-    pub(crate) const fn new() -> Self {
+    /// An empty table: no sender has armed a VMO.
+    #[must_use]
+    pub const fn new() -> Self {
         Self { rows: [(0, 0); CAPACITY] }
     }
 
     /// Arms `vmo` for `sender`.
-    pub(crate) fn arm(&mut self, sender: u64, vmo: u32) -> Armed {
+    pub fn arm(&mut self, sender: u64, vmo: u32) -> Armed {
         if let Some(row) = self.rows.iter_mut().find(|r| r.1 != 0 && r.0 == sender) {
             let old = row.1;
             row.1 = vmo;
@@ -48,7 +66,7 @@ impl ArmedVmos {
     }
 
     /// Takes the VMO `sender` armed — only its own: another sender's VMO is never served.
-    pub(crate) fn take(&mut self, sender: u64) -> Option<u32> {
+    pub fn take(&mut self, sender: u64) -> Option<u32> {
         let row = self.rows.iter_mut().find(|r| r.1 != 0 && r.0 == sender)?;
         let vmo = row.1;
         *row = (0, 0);

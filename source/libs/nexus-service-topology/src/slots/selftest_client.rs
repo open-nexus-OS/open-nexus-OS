@@ -23,7 +23,7 @@ pub const REPLY: SlotPair = SlotPair::new(0x18, 0x17);
 /// vfsd (`SELFTEST: vfs …`).
 pub const VFSD: SlotPair = SlotPair::new(3, 4);
 /// packagefsd (`pkg:/` reads).
-pub const PACKAGEFSD: SlotPair = SlotPair::new(5, 6);
+pub const PACKAGEFSD: SlotPair = SlotPair::new(5, REPLY.recv);
 /// policyd (allow/deny, ABI filter, audit probes).
 pub const POLICYD: SlotPair = SlotPair::new(7, 8);
 /// bundlemgrd (list, volume status, malformed frame).

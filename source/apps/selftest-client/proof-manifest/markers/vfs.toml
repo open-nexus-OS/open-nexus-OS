@@ -57,10 +57,44 @@ phase = "vfs"
 [marker."SELFTEST: vfs splice roundtrip ok"]
 phase = "vfs"
 
+# TASK-0033 P2 (RFC-0097 §2): the `pkg:/` VMO pass-through. The number is the
+# point — every marker before this one was proven on `pkg:/system/build.prop`,
+# 19 bytes, while 22 of the volume's 115 entries were unreadable and fatal to
+# packagefsd. This one reads an entry from THAT class, so a value at or below
+# 0x1FF5 (8181, the old reply ceiling) would mean the proof moved back.
+[marker."SELFTEST: pkgimg vmo ok (bytes=0x"]
+phase = "vfs"
+proves = "a pkg:/ entry ABOVE the old 8181-byte reply ceiling was read end to end through the caller's VMO — vfsd forwarded it, packagefsd forwarded it, bundlemgrd verified the digest and wrote the bytes and the header"
+
+# The other half of the bound: a VMO too small for the entry gets a TooBig
+# header and nothing else — no truncation, and the service is still serving
+# afterwards (the read that follows this marker proves it).
+[marker."SELFTEST: pkgimg vmo oversize deny ok"]
+phase = "vfs"
+proves = "an undersized caller VMO is refused with E2BIG in the header and packagefsd survives to serve the next request"
+
 [marker."SELFTEST: vfs inline oversize deny ok"]
 phase = "vfs"
 
 [marker."dbg: phase vfs skipped"]
+phase = "vfs"
+
+# Every `SELFTEST: pkgimg vmo FAIL (<why>)` line, declared one by one: the
+# selftest architecture gate forbids marker literals outside the generated
+# constants, and the evidence assembler treats an unknown `SELFTEST:` line as a
+# hard error — so a FAIL that fires must be a DECLARED failure, not a broken
+# trace. The reasons are distinct on purpose: each one names a different way the
+# pass-through can be wrong.
+[marker."SELFTEST: pkgimg vmo FAIL (stat)"]
+phase = "vfs"
+
+[marker."SELFTEST: pkgimg vmo FAIL (entry not above the old ceiling)"]
+phase = "vfs"
+
+[marker."SELFTEST: pkgimg vmo FAIL (undersized vmo not refused)"]
+phase = "vfs"
+
+[marker."SELFTEST: pkgimg vmo FAIL (bulk read)"]
 phase = "vfs"
 
 [marker."SELFTEST: vfs client new FAIL"]

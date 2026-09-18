@@ -3,7 +3,7 @@
 
 # RFC-0097: Payload-VMO header v2 — ONE header codec, and `pkg:/` reads as a VMO pass-through
 
-- Status: **In Progress 2026-09-18** (TASK-0033 P0–P3; P1 landed)
+- Status: **In Progress 2026-09-18** (TASK-0033 P0–P3; P1 + P2 landed)
 - Owners: @runtime
 - Created: 2026-09-18
 - Last Updated: 2026-09-18
@@ -17,7 +17,7 @@
 ## Status at a Glance
 
 - **P1 (one codec)**: ✅ 2026-09-18 — `nexus_wire::payload_vmo` is the SSOT, `NXPL` deleted, every decoder moved, gated by `just payload-vmo`
-- **P2 (`pkg:/` pass-through)**: ⬜ — vfsd → packagefsd → bundlemgrd, no hop copies
+- **P2 (`pkg:/` pass-through)**: ✅ 2026-09-18 — vfsd → packagefsd → bundlemgrd, no hop copies; proven on a 259 424-byte entry
 - **P3 (docs + markers)**: ⬜
 
 "Complete" means the contract is defined and the proof gates are green.
@@ -187,10 +187,25 @@ serving. No hop may write a success header it did not earn.
 
 ### §5 Bounds
 
-- One in-flight forwarded VMO per packagefsd client slot.
+- One in-flight forwarded VMO per packagefsd client slot, keyed by `sender_service_id` as the
+  kernel stamped it (`nexus_ipc::armed_vmo`) — a sender is served only the VMO IT armed.
 - No per-request heap allocation in packagefsd's serve loop — after the pass-through it holds
-  no entry bytes at all (`os-service-bump-allocator-no-free`).
-- The payload must fit the caller's VMO after reserving the 16-byte header (`splice_fits`).
+  no entry bytes at all (`os-service-bump-allocator-no-free`). Its reusable VMO shrinks from
+  "the largest entry on the volume" (7.25 MiB) to the inline tier.
+- The payload must fit the caller's VMO after reserving the 16-byte header (`fits`), and
+  **packagefsd checks that before forwarding**. It is the hop that knows both numbers — the
+  entry's size from the verified index and the VMO's length from the capability it holds — and
+  leaving the check to the writer made the refusal depend on which layer noticed the overrun
+  first (`Io` from the block read, `TooBig` from the hash read-back). That is not a contract;
+  the boot proof caught it (P2).
+
+### §6 Who answers whom
+
+packagefsd answers exactly the senders that moved a reply capability. Its pre-minted RESPONSE
+endpoint had three declared readers — vfsd, dsoftbusd and the harness — on one queue, where any
+of them could take any of the others' answers; forwarding a VMO through it would have been
+worse, because the answer names a capability. All three legs are `RouteKind::ReplyInbox` now
+and that endpoint has no readers left.
 
 ## Proof
 
@@ -202,16 +217,20 @@ Gate `just payload-vmo` (in `just check`) counts the declarations: one magic, on
 table, no retired magic and no retired private status space — with a self-test that proves the
 scanner catches a second declaration. P2 adds packagefsd's forward against a fake bundlemgrd.
 
-QEMU, registered in `proof-manifest/markers/vfs.toml` + `scripts/qemu-test.sh` +
-`tools/nx/chains/markers.txt`:
+QEMU (P2, green — `smp1`, 2026-09-18):
 
-- `bundlemgrd: file vmo ok (bytes=<n>)`
-- `packagefsd: read vmo forwarded`
-- `SELFTEST: pkgimg vmo ok (bytes=<n>)` — where `<n>` is an entry from the class that is
-  unreadable today (`pkg:/settings/payload.nxir`, 259 424 B), read through `OP_READ_VMO`, with
-  sha256 equal to the index digest. **The marker is a lie if `<n>` ≤ 8181.**
-- packagefsd is still alive afterwards, and an undersized VMO returns `TooBig` without
-  killing it.
+- `packagefsd: read vmo forwarded (bytes=259424 n=2)` and
+  `vfsd: vmo splice forwarded ok (bytes=259424)` — the hop lines, counted.
+- `SELFTEST: pkgimg vmo ok (bytes=0x3f560)` — **259 424 bytes**: `pkg:/settings/payload.nxir`,
+  an entry from the class that could not be read at all before, read end to end through the
+  caller's VMO. The selftest refuses to emit it for an entry at or below 8181 bytes, so the
+  marker cannot quietly fall back to proving what `build.prop` proved. Integrity is
+  bundlemgrd's: it writes an OK header only after the entry hashes to its index digest, and
+  `Integrity` otherwise.
+- `SELFTEST: pkgimg vmo oversize deny ok` — a VMO half the entry's size is refused with
+  `TooBig` and nothing is written; packagefsd is still serving, which the successful read
+  after it proves. (Half, not one byte short: `vmo_create` rounds up to a page.)
+- The copying marker `vfsd: vmo splice read ok` is gone from the tree.
 
 The copying marker `vfsd: vmo splice read ok` leaves the contract.
 

@@ -34,7 +34,7 @@ pub(crate) const SELFTEST_CLIENT: ServiceSpec = ServiceSpec {
     reply_inbox: true,
     routes_to: &[
         shared(ServiceId::Vfsd, slots::selftest_client::VFSD),
-        shared(ServiceId::Packagefsd, slots::selftest_client::PACKAGEFSD),
+        inbox(ServiceId::Packagefsd, slots::selftest_client::PACKAGEFSD),
         shared(ServiceId::Policyd, slots::selftest_client::POLICYD),
         shared(ServiceId::Bundlemgrd, slots::selftest_client::BUNDLEMGRD),
         shared(ServiceId::Updated, slots::selftest_client::UPDATED),

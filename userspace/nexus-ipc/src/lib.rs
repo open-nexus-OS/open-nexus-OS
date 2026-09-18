@@ -123,6 +123,9 @@ pub trait Server {
     fn send(&self, frame: &[u8], wait: Wait) -> Result<()>;
 }
 
+/// The VMO a sender armed for its next VMO op, keyed by kernel sender identity
+/// (a message moves one cap, so a VMO op is ARM + op).
+pub mod armed_vmo;
 pub mod audit;
 /// Deadline-bounded waits (transitional, TASK-0324 P7: shrinking to zero — request/reply
 /// goes through `exchange`, which has no clock) and the fleet route ask.

@@ -31,7 +31,6 @@ mod app_sender;
 /// The armed-VMO table of the OS request loop (TASK-0324 P7-d); host-tested, so it exists for
 /// `cargo test` and the OS build — never as dead code in a plain host build.
 #[cfg(any(test, all(nexus_env = "os", feature = "os-lite")))]
-mod armed_vmo;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 // TASK-0321 (RFC-0089 §12.3): the verified system volume (verifier + reader).

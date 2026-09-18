@@ -53,7 +53,6 @@ pub(crate) const PACKAGEFSD_OP_RESOLVE: u8 = 2;
 pub(crate) struct PackagefsEntry {
     pub(crate) kind: u16,
     pub(crate) size: u64,
-    pub(crate) bytes: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,6 +177,11 @@ pub(crate) fn normalize_packagefs_path(path: &str) -> core::result::Result<Strin
     Ok(normalized)
 }
 
+/// Decodes packagefsd's METADATA reply: `[found u8][size u64le][kind u16le]`.
+///
+/// It used to carry the entry's bytes too, which capped a remote read at what
+/// an IPC frame holds and killed packagefsd above it (TASK-0033). Bytes now
+/// come through a VMO, so this is exactly 11 bytes.
 pub(crate) fn decode_packagefs_resolve_rsp(
     rsp: &[u8],
 ) -> core::result::Result<Option<PackagefsEntry>, ()> {
@@ -196,11 +200,7 @@ pub(crate) fn decode_packagefs_resolve_rsp(
     if kind != PACKAGEFS_KIND_FILE {
         return Err(());
     }
-    let bytes = rsp[11..].to_vec();
-    if bytes.len() > PK_MAX_OPEN_FILE_BYTES {
-        return Err(());
-    }
-    Ok(Some(PackagefsEntry { kind, size, bytes }))
+    Ok(Some(PackagefsEntry { kind, size }))
 }
 
 #[allow(dead_code)]
@@ -237,4 +237,93 @@ pub(crate) fn encode_read_rsp(status: u8, data: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&(n as u16).to_le_bytes());
     out.extend_from_slice(&data[..n]);
     out
+}
+
+// ---------------------------------------------------------------------------
+// The packagefsd CLIENT leg (TASK-0033 P2): metadata in a reply, bytes in a VMO.
+//
+// Everything above is the remote PROTOCOL and is host-testable; this half talks
+// to the kernel, so it exists only under the OS cfg — the host tests include
+// this file directly.
+// ---------------------------------------------------------------------------
+#[cfg(nexus_env = "os")]
+pub(crate) mod client {
+    use super::{
+        decode_packagefs_resolve_rsp, encode_packagefs_resolve_req, PackagefsEntry,
+        PK_MAX_OPEN_FILE_BYTES,
+    };
+    use alloc::vec::Vec;
+
+    /// packagefsd: arm the moved VMO as this sender's next read destination.
+    const PACKAGEFSD_OP_ARM_VMO: u8 = 5;
+    /// packagefsd: read one entry into the armed VMO (bundlemgrd writes the bytes).
+    const PACKAGEFSD_OP_READ_VMO: u8 = 6;
+
+    /// The packagefsd leg: request SEND plus dsoftbusd's own CAP_MOVE reply inbox.
+    /// packagefsd answers exactly the senders that moved a reply cap since
+    /// TASK-0033 P2 — its response endpoint had three readers before that, any of
+    /// which could take any answer.
+    const PKGFS_SEND: u32 = nexus_service_topology::slots::dsoftbusd::PACKAGEFSD.send;
+    const PKGFS_REPLY: nexus_service_topology::SlotPair =
+        nexus_service_topology::slots::dsoftbusd::REPLY;
+
+    pub(crate) fn resolve_package_entry(
+        rel_path: &str,
+    ) -> core::result::Result<Option<PackagefsEntry>, ()> {
+        let req = encode_packagefs_resolve_req(rel_path);
+        let mut rsp = [0u8; 16];
+        let n = nexus_ipc::exchange::call_into(PKGFS_SEND, PKGFS_REPLY, &req, &mut rsp).map_err(
+            |_| {
+                // #region agent log
+                let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve failed");
+                // #endregion
+            },
+        )?;
+        decode_packagefs_resolve_rsp(&rsp[..n]).map_err(|_| {
+            // #region agent log
+            let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve rsp malformed");
+            // #endregion
+        })
+    }
+
+    /// Reads one entry's bytes through a VMO (TASK-0033 P2): dsoftbusd creates the
+    /// VMO, packagefsd forwards it to bundlemgrd, and bundlemgrd is the only writer.
+    /// Bounded by `PK_MAX_OPEN_FILE_BYTES` — the remote surface never caches more.
+    pub(crate) fn read_package_entry(
+        rel_path: &str,
+        size: u64,
+    ) -> core::result::Result<Vec<u8>, ()> {
+        let size = usize::try_from(size).map_err(|_| ())?;
+        if size > PK_MAX_OPEN_FILE_BYTES {
+            return Err(());
+        }
+        let hdr_len = nexus_abi::payload_vmo::DATA_OFFSET;
+        let vmo = nexus_abi::vmo_create(hdr_len + size).map_err(|_| ())?;
+        let outcome = (|| -> core::result::Result<Vec<u8>, ()> {
+            let moved = nexus_abi::cap_clone(vmo).map_err(|_| ())?;
+            let arm = [PACKAGEFSD_OP_ARM_VMO];
+            if nexus_ipc::exchange::send_with_cap(PKGFS_SEND, &arm, moved).is_err() {
+                let _ = nexus_abi::cap_close(moved);
+                return Err(());
+            }
+            let mut req = Vec::with_capacity(1 + rel_path.len());
+            req.push(PACKAGEFSD_OP_READ_VMO);
+            req.extend_from_slice(rel_path.as_bytes());
+            let mut rsp = [0u8; 8];
+            let n = nexus_ipc::exchange::call_into(PKGFS_SEND, PKGFS_REPLY, &req, &mut rsp)
+                .map_err(|_| ())?;
+            if n < 6 || u16::from_le_bytes([rsp[0], rsp[1]]) != nexus_abi::status::CODE_OK {
+                return Err(());
+            }
+            let len = u32::from_le_bytes([rsp[2], rsp[3], rsp[4], rsp[5]]) as usize;
+            if len != size {
+                return Err(());
+            }
+            let mut bytes = alloc::vec![0u8; len];
+            nexus_abi::vmo_read(vmo, hdr_len, &mut bytes).map_err(|_| ())?;
+            Ok(bytes)
+        })();
+        let _ = nexus_abi::cap_close(vmo);
+        outcome
+    }
 }

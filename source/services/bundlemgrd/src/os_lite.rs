@@ -158,7 +158,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // volume op (the block plane is only live after init's MMIO grant).
     let mut volume = crate::volume::VolumeState::new();
     // TASK-0324 P7-d: the VMOs senders armed for their next VMO op.
-    let mut armed = crate::armed_vmo::ArmedVmos::new();
+    let mut armed = nexus_ipc::armed_vmo::ArmedVmos::new();
     nexus_abi::service_verdict_flush("bundlemgrd");
     // ONE request buffer: the os-lite heap never frees (TASK-0054C P2-g), transport-capped.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];

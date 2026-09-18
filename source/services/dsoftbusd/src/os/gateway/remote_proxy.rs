@@ -17,7 +17,7 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
-use nexus_ipc::{Client, KernelClient, Wait};
+use nexus_ipc::KernelClient;
 use statefs::protocol as sfp;
 
 use crate::os::gateway::packagefs_ro as pkg;
@@ -169,7 +169,10 @@ pub(crate) fn run_remote_proxy_loop(
                 );
             }
             SVC_PACKAGEFS_RO => {
-                if let Some(packagefsd) = service_clients::cached_client_slots_bounded(
+                // Readiness gate only: the packagefs leg itself runs on the
+                // DECLARED slots (TASK-0033 P2), so this resolves the route
+                // rather than producing the client that serves it.
+                if let Some(_packagefsd) = service_clients::cached_client_slots_bounded(
                     "packagefsd",
                     &service_clients::PACKAGEFSD_SEND_SLOT_CACHE,
                     &service_clients::PACKAGEFSD_RECV_SLOT_CACHE,
@@ -186,7 +189,6 @@ pub(crate) fn run_remote_proxy_loop(
                     let (pkg_rsp, served_ok) = handle_packagefs_ro_request(
                         true,
                         req,
-                        &packagefsd,
                         &mut pkg_handles,
                         &mut next_pkg_handle,
                     );
@@ -293,7 +295,6 @@ pub(crate) fn run_remote_proxy_loop(
 fn handle_packagefs_ro_request(
     authenticated: bool,
     req: &[u8],
-    packagefsd: &KernelClient,
     pkg_handles: &mut BTreeMap<u32, Vec<u8>>,
     next_pkg_handle: &mut u32,
 ) -> (Vec<u8>, bool) {
@@ -312,7 +313,7 @@ fn handle_packagefs_ro_request(
     };
     match parsed {
         pkg::PackagefsRequest::Stat { rel_path } => {
-            match resolve_package_entry(packagefsd, &rel_path) {
+            match pkg::client::resolve_package_entry(&rel_path) {
                 Ok(Some(entry)) => {
                     // #region agent log
                     let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs stat ok");
@@ -334,19 +335,22 @@ fn handle_packagefs_ro_request(
             }
         }
         pkg::PackagefsRequest::Open { rel_path } => {
-            match resolve_package_entry(packagefsd, &rel_path) {
+            match pkg::client::resolve_package_entry(&rel_path) {
                 Ok(Some(entry)) => {
                     if entry.kind != pkg::PACKAGEFS_KIND_FILE {
                         return (pkg::encode_open_rsp(pkg::PK_STATUS_BAD_REQUEST, 0), false);
                     }
-                    if entry.bytes.len() > pkg::PK_MAX_OPEN_FILE_BYTES {
+                    if entry.size as usize > pkg::PK_MAX_OPEN_FILE_BYTES {
                         return (pkg::encode_open_rsp(pkg::PK_STATUS_OVERSIZED, 0), false);
                     }
                     if pkg_handles.len() >= pkg::PK_MAX_HANDLES {
                         return (pkg::encode_open_rsp(pkg::PK_STATUS_LIMIT, 0), false);
                     }
+                    let Ok(bytes) = pkg::client::read_package_entry(&rel_path, entry.size) else {
+                        return (pkg::encode_open_rsp(pkg::PK_STATUS_IO, 0), false);
+                    };
                     let handle = allocate_handle_id(pkg_handles, next_pkg_handle);
-                    pkg_handles.insert(handle, entry.bytes);
+                    pkg_handles.insert(handle, bytes);
                     (pkg::encode_open_rsp(pkg::PK_STATUS_OK, handle), true)
                 }
                 Ok(None) => (pkg::encode_open_rsp(pkg::PK_STATUS_NOT_FOUND, 0), false),
@@ -390,31 +394,6 @@ fn allocate_handle_id(pkg_handles: &BTreeMap<u32, Vec<u8>>, next_pkg_handle: &mu
     }
     *next_pkg_handle = fallback.wrapping_add(1);
     fallback
-}
-
-fn resolve_package_entry(
-    packagefsd: &KernelClient,
-    rel_path: &str,
-) -> core::result::Result<Option<pkg::PackagefsEntry>, ()> {
-    let req = pkg::encode_packagefs_resolve_req(rel_path);
-    packagefsd.send(&req, Wait::Blocking).map_err(|_| {
-        // #region agent log
-        let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve send fail");
-        // #endregion
-        ()
-    })?;
-    let rsp = packagefsd.recv(Wait::Blocking).map_err(|_| {
-        // #region agent log
-        let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve timeout");
-        // #endregion
-        ()
-    })?;
-    pkg::decode_packagefs_resolve_rsp(&rsp).map_err(|_| {
-        // #region agent log
-        let _ = nexus_abi::debug_println("dbg:dsoftbusd: pkgfs resolve rsp malformed");
-        // #endregion
-        ()
-    })
 }
 
 fn handle_statefs_rw_request(

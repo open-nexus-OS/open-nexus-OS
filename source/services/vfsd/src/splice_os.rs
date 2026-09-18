@@ -19,11 +19,11 @@
 extern crate alloc;
 
 use alloc::format;
-use alloc::vec::Vec;
 
 use nexus_vfs_types::VfsError;
 
-use crate::os_lite::{debug_print, is_home_path, vmo_len, Namespace};
+use crate::namespace::Namespace;
+use crate::os_lite::{debug_print, is_home_path, vmo_len};
 
 /// Writes the splice header at VMO offset 0. Call this AFTER the payload write
 /// (release ordering): a client that sees the magic must see complete bytes.
@@ -136,32 +136,45 @@ pub(crate) fn handle_read_vmo(
         let _ = nexus_abi::cap_close(vmo);
         return;
     }
-    let bytes: core::result::Result<Vec<u8>, VfsError> = if path.starts_with("pkg:/") {
-        namespace.open(&path).map(|handle| handle.bytes).map_err(|_| VfsError::NotFound)
-    } else {
-        Err(VfsError::NotFound)
-    };
-    match bytes {
-        Ok(bytes) if bytes.len() <= max_payload => {
-            // Payload FIRST, header LAST — the release fence for the poller.
-            if nexus_abi::vmo_write(vmo, nexus_vfs_types::SPLICE_DATA_OFFSET, &bytes).is_ok() {
-                write_splice_header(vmo, nexus_vfs_types::CODE_OK, bytes.len() as u32);
-                *splice_bytes = splice_bytes.saturating_add(bytes.len() as u64);
+    if !path.starts_with("pkg:/") {
+        write_splice_header(vmo, VfsError::NotFound.code(), 0);
+        let _ = nexus_abi::cap_close(vmo);
+        return;
+    }
+    // THE PASS-THROUGH (TASK-0033 P2, RFC-0097 §2). The caller's VMO goes on to
+    // packagefsd and from there to bundlemgrd, which verifies the entry digest,
+    // writes the bytes, and writes the success header LAST. vfsd reads no byte
+    // of it and writes no success header: this hop is not the authority, and it
+    // used to carry the whole entry through its own bump heap on the way — which
+    // is why 22 of the volume's 115 entries could not be read at all.
+    //
+    // `max_payload` is still computed above so an obviously-too-small VMO is
+    // refused before a capability is moved; the authoritative bound is
+    // bundlemgrd's, against this same VMO.
+    let _ = max_payload;
+    match namespace.packagefs_forward_vmo(&path, vmo) {
+        Ok(()) => {
+            if let Some((_, len)) = read_back_header(vmo) {
+                *splice_bytes = splice_bytes.saturating_add(u64::from(len));
                 debug_print(&format!(
-                    "vfsd: vmo splice read ok (bytes={}, fallbacks={})\n",
-                    bytes.len(),
+                    "vfsd: vmo splice forwarded ok (bytes={len}, fallbacks={})\n",
                     *splice_fallbacks
                 ));
-            } else {
-                *splice_fallbacks += 1;
-                write_splice_header(vmo, VfsError::Io.code(), 0);
             }
         }
-        Ok(_) => {
-            // Bytes exceed the caller's VMO — E2BIG, never a partial read.
-            write_splice_header(vmo, VfsError::TooBig.code(), 0);
+        Err(err) => {
+            *splice_fallbacks += 1;
+            // Only an ERROR header, and only because the hop that should have
+            // written one could not be reached.
+            write_splice_header(vmo, err.code(), 0);
         }
-        Err(err) => write_splice_header(vmo, err.code(), 0),
     }
     let _ = nexus_abi::cap_close(vmo);
+}
+
+/// Reads back the header the authority wrote, for accounting only.
+fn read_back_header(vmo: u32) -> Option<(u16, u32)> {
+    let mut hdr = [0u8; nexus_vfs_types::SPLICE_HEADER_LEN];
+    nexus_abi::vmo_read(vmo, 0, &mut hdr).ok()?;
+    nexus_vfs_types::decode_splice_header(&hdr)
 }

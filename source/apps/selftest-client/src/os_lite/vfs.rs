@@ -11,7 +11,7 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use nexus_ipc::{Client, KernelClient, Wait as IpcWait};
+use nexus_ipc::KernelClient;
 
 use crate::markers::emit_line;
 
@@ -104,6 +104,56 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
     }
     vfs.close(splice_fh).map_err(|_| ())?;
 
+    // TASK-0033 P2 (RFC-0097 §2): the same path with an entry from the class
+    // that could not be read AT ALL before — `pkg:/` used to ship entry bytes
+    // inline in packagefsd's reply, so 22 of the volume's 115 entries were both
+    // unreadable and fatal to the service. Everything above this line is proven
+    // on `build.prop`: 19 bytes.
+    //
+    // MountMode::SystemVolume == 4; the seed registry (recovery / direct-kernel
+    // boots) has no bulk entry to read, and claiming one would be a lie.
+    if mode == 4 {
+        const BULK: &str = "pkg:/settings/payload.nxir";
+        /// The old inline-reply ceiling: `IPC_PAYLOAD_MAX` minus the 11-byte
+        /// metadata header. A "bulk" read at or below this proves nothing.
+        const OLD_CEILING: u64 = 8181;
+        let meta = vfs.stat(BULK).map_err(|_| {
+            emit_line(crate::markers::M_SELFTEST_PKGIMG_VMO_FAIL_STAT);
+        })?;
+        if meta.size() <= OLD_CEILING {
+            emit_line(crate::markers::M_SELFTEST_PKGIMG_VMO_FAIL_ENTRY_NOT_ABOVE_THE_OLD_CEILING);
+            return Err(());
+        }
+        let cap = nexus_vfs_types::SPLICE_DATA_OFFSET + meta.size() as usize;
+        // A VMO too small for the entry must be refused in the header, and the
+        // service must still be serving afterwards — the read below is what
+        // proves it survived. HALF the entry, not one byte less: `vmo_create`
+        // rounds up to a page, so a one-byte shortfall is not a shortfall.
+        let mut sample = [0u8; 64];
+        match vfs.read_vmo_sample(BULK, cap / 2, &mut sample) {
+            Err(nexus_vfs::Error::Vfs(nexus_vfs_types::VfsError::TooBig)) => {
+                emit_line(crate::markers::M_SELFTEST_PKGIMG_VMO_OVERSIZE_DENY_OK);
+            }
+            _ => {
+                emit_line(crate::markers::M_SELFTEST_PKGIMG_VMO_FAIL_UNDERSIZED_VMO_NOT_REFUSED);
+                return Err(());
+            }
+        }
+        match vfs.read_vmo_sample(BULK, cap, &mut sample) {
+            Ok(len) if len as u64 == meta.size() && sample.iter().any(|&b| b != 0) => {
+                crate::markers::emit_bytes(
+                    crate::markers::M_SELFTEST_PKGIMG_VMO_OK_BYTES_0X.as_bytes(),
+                );
+                crate::markers::emit_hex_u64(len as u64);
+                emit_line(")");
+            }
+            _ => {
+                emit_line(crate::markers::M_SELFTEST_PKGIMG_VMO_FAIL_BULK_READ);
+                return Err(());
+            }
+        }
+    }
+
     // traversal deny path (userspace confinement floor)
     if vfs.stat("pkg:/system/../secrets.txt").is_err() {
         emit_line(crate::markers::M_SELFTEST_SANDBOX_DENY_OK);
@@ -131,9 +181,16 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
 
 fn query_pkgimg_mount_mode() -> Option<u8> {
     // packagefsd os-lite control opcode for truthful mount-mode evidence.
+    // It answers exactly the senders that moved a reply cap (TASK-0033 P2), so
+    // this goes through the declared leg and the harness' own reply inbox.
     const OPCODE_MOUNT_STATUS: u8 = 3;
-    let client = KernelClient::new_for("packagefsd").ok()?;
-    client.send(&[OPCODE_MOUNT_STATUS], IpcWait::Blocking).ok()?;
-    let rsp = client.recv(IpcWait::Blocking).ok()?;
-    rsp.first().copied()
+    let slots = nexus_service_topology::slots::selftest_client::PACKAGEFSD;
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    let mut rsp = [0u8; 8];
+    let n =
+        nexus_ipc::exchange::call_into(slots.send, reply, &[OPCODE_MOUNT_STATUS], &mut rsp).ok()?;
+    if n == 0 {
+        return None;
+    }
+    Some(rsp[0])
 }

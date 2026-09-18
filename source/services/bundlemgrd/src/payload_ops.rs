@@ -89,7 +89,7 @@ fn is_init_sender(sender_service_id: u64) -> bool {
 
 pub(crate) fn handle_volume_op(
     volume: &mut crate::volume::VolumeState,
-    armed: &mut crate::armed_vmo::ArmedVmos,
+    armed: &mut nexus_ipc::armed_vmo::ArmedVmos,
     frame: &[u8],
     sender_service_id: u64,
     reply: Option<nexus_ipc::ReplyCap>,
@@ -381,7 +381,7 @@ pub(crate) fn reply_done(
 /// VMO op — kept under the KERNEL sender identity. Denied senders and a full table release
 /// the cap at once (fail-closed; the following op answers `Invalid`).
 pub(crate) fn handle_arm_vmo(
-    armed: &mut crate::armed_vmo::ArmedVmos,
+    armed: &mut nexus_ipc::armed_vmo::ArmedVmos,
     sender_service_id: u64,
     vmo_slot: Option<u32>,
 ) {
@@ -395,11 +395,11 @@ pub(crate) fn handle_arm_vmo(
         return;
     }
     match armed.arm(sender_service_id, vmo) {
-        crate::armed_vmo::Armed::Stored => {}
-        crate::armed_vmo::Armed::Replaced(old) => {
+        nexus_ipc::armed_vmo::Armed::Stored => {}
+        nexus_ipc::armed_vmo::Armed::Replaced(old) => {
             let _ = nexus_abi::cap_close(old);
         }
-        crate::armed_vmo::Armed::Full(vmo) => {
+        nexus_ipc::armed_vmo::Armed::Full(vmo) => {
             emit_line("bundlemgrd: FAIL arm_vmo (table full)");
             let _ = nexus_abi::cap_close(vmo);
         }

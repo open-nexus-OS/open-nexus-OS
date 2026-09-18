@@ -133,8 +133,10 @@ pub mod dsoftbusd {
     pub const SAMGRD: SlotPair = SlotPair::new(9, REPLY.recv);
     /// Bundle queries.
     pub const BUNDLEMGRD: SlotPair = SlotPair::new(0x0A, REPLY.recv);
-    /// Remote packagefs read-only path (TASK-0016) — packagefsd's own response endpoint.
-    pub const PACKAGEFSD: SlotPair = SlotPair::new(0x0B, 0x0C);
+    /// Remote packagefs read-only path (TASK-0016). Answers on dsoftbusd's CAP_MOVE reply
+    /// inbox since TASK-0033 P2 — packagefsd replies only to a sender that moved a reply cap,
+    /// so its response endpoint has no readers left to take the wrong answer.
+    pub const PACKAGEFSD: SlotPair = SlotPair::new(0x0B, REPLY.recv);
     /// Remote statefs proxy (TASK-0017). Answers on dsoftbusd's CAP_MOVE reply inbox since
     /// TASK-0054C P2-f — statefsd replies only to a sender that moved a reply cap.
     pub const STATEFSD: SlotPair = SlotPair::new(0x0D, REPLY.recv);
@@ -519,8 +521,13 @@ pub mod vfsd {
 
     /// vfsd's own server endpoint.
     pub const SERVER: SlotPair = crate::SERVER_SLOTS;
-    /// `pkg:/` resolution — replies on packagefsd's own response endpoint.
-    pub const PACKAGEFSD: SlotPair = SlotPair::new(5, 6);
+    /// The pre-minted CAP_MOVE reply inbox (TASK-0033 P2). vfsd used to read
+    /// packagefsd's own RESPONSE endpoint, which dsoftbusd and the harness read
+    /// too — three readers on one queue, where any of them could take any
+    /// answer. Slot 8 is the request endpoint init mints for execd's children.
+    pub const REPLY: SlotPair = SlotPair::new(7, 9);
+    /// `pkg:/` resolution and reads: request SEND + the reply inbox's RECV.
+    pub const PACKAGEFSD: SlotPair = SlotPair::new(5, REPLY.recv);
 }
 
 /// virtioblkd (TASK-0324 P4f-1b).

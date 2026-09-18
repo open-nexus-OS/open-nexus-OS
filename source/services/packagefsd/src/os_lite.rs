@@ -16,7 +16,6 @@
 extern crate alloc;
 
 use core::fmt;
-use nexus_ipc::Server;
 
 use alloc::collections::BTreeMap;
 use alloc::format;
@@ -26,14 +25,29 @@ use alloc::vec::Vec;
 
 use nexus_ipc::{IpcError, KernelServer, Wait};
 use nexus_vfs_types::{DirEntry, VfsError};
-use storage::pkgimg::PkgImgCaps;
-use storage::pkgimg_bundles::parse_index;
 
 use crate::listing;
+use crate::volume_reader::{load_registry_from_volume, VolumeReader};
 
+// packagefsd's OWN op byte space (not the vfs surface's — vfsd translates).
+/// Metadata for one entry: `[found u8][size u64le][kind u16le]`. NEVER bytes.
 const OPCODE_RESOLVE: u8 = 2;
 const OPCODE_MOUNT_STATUS: u8 = 3;
 const OPCODE_LIST: u8 = 4;
+/// Arms the moved VMO as the destination of this sender's next `OPCODE_READ_VMO`
+/// (TASK-0033 P2). No reply: a message moves one capability, and for this op that
+/// one is the VMO.
+const OPCODE_ARM_VMO: u8 = 5;
+/// Reads one entry into the armed VMO by forwarding it to bundlemgrd
+/// (RFC-0097 §2). Reply `[status u16le][len u32le]`; the VMO carries the same
+/// status in its header, written LAST by whoever wrote the bytes.
+const OPCODE_READ_VMO: u8 = 6;
+/// The inline tier: one whole entry at or below `INLINE_IO_MAX`. Reply
+/// `[status u8][bytes…]`. A larger entry is `TooBig` — it has a VMO path.
+const OPCODE_READ: u8 = 7;
+
+/// The metadata reply for "no such entry": found = 0, size = 0, kind = 0.
+const NOT_FOUND_RESOLVE_RSP: [u8; 11] = [0u8; 11];
 const KIND_FILE: u16 = 0;
 const KIND_DIRECTORY: u16 = 1;
 
@@ -51,7 +65,7 @@ enum MountMode {
 }
 
 /// Bounded index handoff (RFC-0089 §12.2: index ≤ 256 KiB).
-const INDEX_VMO_BYTES: usize = nexus_abi::payload_vmo::DATA_OFFSET + 256 * 1024;
+pub(crate) const INDEX_VMO_BYTES: usize = nexus_abi::payload_vmo::DATA_OFFSET + 256 * 1024;
 
 /// Result type used by the os-lite backend.
 pub type LiteResult<T> = core::result::Result<T, LiteError>;
@@ -90,13 +104,13 @@ impl<F: FnOnce() + Send> ReadyNotifier<F> {
 }
 
 #[derive(Default)]
-struct BundleRegistry {
+pub(crate) struct BundleRegistry {
     bundles: BTreeMap<String, BTreeMap<String, Entry>>, // bundle@version -> path -> entry
-    active: BTreeMap<String, String>,                   // bundle -> version
+    pub(crate) active: BTreeMap<String, String>,        // bundle -> version
 }
 
 impl BundleRegistry {
-    fn publish(&mut self, bundle: &str, version: &str, entries: &[(String, Entry)]) {
+    pub(crate) fn publish(&mut self, bundle: &str, version: &str, entries: &[(String, Entry)]) {
         let key = format!("{bundle}@{version}");
         let record = self.bundles.entry(key).or_default();
         record.clear();
@@ -145,7 +159,7 @@ impl BundleRegistry {
 }
 
 #[derive(Clone)]
-struct Entry {
+pub(crate) struct Entry {
     size: u64,
     kind: u16,
     source: Source,
@@ -160,7 +174,7 @@ enum Source {
 }
 
 impl Entry {
-    fn directory() -> Self {
+    pub(crate) fn directory() -> Self {
         Self { size: 0, kind: KIND_DIRECTORY, source: Source::Inline(Vec::new()) }
     }
 
@@ -168,83 +182,13 @@ impl Entry {
         Self { size: bytes.len() as u64, kind: KIND_FILE, source: Source::Inline(bytes.to_vec()) }
     }
 
-    fn volume_file(size: u64, bundle: &str, path: &str) -> Self {
+    pub(crate) fn volume_file(size: u64, bundle: &str, path: &str) -> Self {
         Self {
             size,
             kind: KIND_FILE,
             source: Source::Volume { bundle: bundle.to_string(), path: path.to_string() },
         }
     }
-}
-
-/// The on-demand file reader: bundlemgrd client + ONE reusable VMO sized
-/// for the largest entry on the volume (the VMO arena never frees, so a
-/// per-request VMO would leak).
-struct VolumeReader {
-    bundle_send: u32,
-    /// The CAP_MOVE reply inbox: every VMO op answers here (TASK-0324 P7-d).
-    inbox: nexus_service_topology::SlotPair,
-    vmo: u32,
-    vmo_len: usize,
-}
-
-impl VolumeReader {
-    /// Fetches one entry's bytes through `GET_FILE_VMO` (header-last poll).
-    fn fetch(&self, bundle: &str, path: &str, size: u64) -> Option<Vec<u8>> {
-        use nexus_abi::bundlemgrd as wire;
-        use nexus_abi::payload_vmo as hdr;
-        let size = usize::try_from(size).ok()?;
-        if !hdr::fits(size, self.vmo_len) {
-            return None;
-        }
-        // Clear the header so a stale OK from the previous fetch can never be
-        // mistaken for this one — `CODE_OK` is 0, so the magic is the only
-        // thing standing between a reused VMO and a false release (RFC-0097).
-        nexus_abi::vmo_write(self.vmo, 0, &hdr::ZEROED_HEADER).ok()?;
-        let mut req = [0u8; 160];
-        let n = wire::encode_get_file_vmo(bundle.as_bytes(), path.as_bytes(), &mut req)?;
-        // ARM the VMO, then ask with a reply cap: bundlemgrd streams, writes the header LAST
-        // and answers — the answer is waited for (or its death), never polled (P7-d).
-        let (status, len) =
-            vmo_op(self.bundle_send, self.inbox, self.vmo, &req[..n], wire::OP_GET_FILE_VMO)?;
-        if status != nexus_abi::status::CODE_OK || len as usize != size {
-            return None;
-        }
-        let len = len as usize;
-        let mut bytes = vec![0u8; len];
-        nexus_abi::vmo_read(self.vmo, hdr::DATA_OFFSET, &mut bytes).ok()?;
-        Some(bytes)
-    }
-}
-
-/// One VMO op against bundlemgrd (TASK-0324 P7-d): `OP_ARM_VMO` with a clone of `vmo` as
-/// the moved cap, then `req` with a reply-SEND clone; the answer `(status, len)` is WAITED
-/// for on the reply inbox — bundlemgrd's reply or its death (EOF). Foreign inbox frames
-/// (another op's late answer) are skipped.
-fn vmo_op(
-    bundle_send: u32,
-    inbox: nexus_service_topology::SlotPair,
-    vmo: u32,
-    req: &[u8],
-    op: u8,
-) -> Option<(u16, u32)> {
-    use nexus_abi::bundlemgrd as wire;
-    let moved = nexus_abi::cap_clone(vmo).ok()?;
-    if nexus_ipc::exchange::send_with_cap(bundle_send, &arm_frame(), moved).is_err() {
-        let _ = nexus_abi::cap_close(moved);
-        return None;
-    }
-    let mut buf = [0u8; 64];
-    nexus_ipc::exchange::call_matching(bundle_send, inbox, req, &mut buf, |rsp| {
-        wire::decode_payload_done_rsp(rsp, op)
-    })
-    .ok()
-}
-
-fn arm_frame() -> [u8; 4] {
-    let mut arm = [0u8; 4];
-    nexus_abi::bundlemgrd::encode_arm_vmo(&mut arm);
-    arm
 }
 
 /// Runs the minimal packagefs daemon, emitting a readiness marker once.
@@ -266,56 +210,136 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Lite
     run_loop(&server, &registry, mount_mode, reader.as_ref())
 }
 
+/// packagefsd's ONE server step, for every op (TASK-0054C P5c shape).
+///
+/// A message moves ONE capability. For `OPCODE_ARM_VMO` that capability is the
+/// caller's VMO — the destination of the read that follows — and there is no
+/// answer. For every other op it is the reply channel, and the answer is parked
+/// to ride out with the next receive.
 fn run_loop(
     server: &KernelServer,
     registry: &BundleRegistry,
     mount_mode: MountMode,
     reader: Option<&VolumeReader>,
 ) -> LiteResult<()> {
-    let mut response = Vec::with_capacity(256);
+    let mut pending = nexus_ipc::PendingReply::new();
     // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
     // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
+    // Inline reads are bounded by the transfer contract (RFC-0072), so one buffer
+    // serves every one of them for the service lifetime. BULK never lands here —
+    // it is forwarded as a VMO and packagefsd sees none of it (RFC-0097 §2).
+    let mut inline = alloc::vec![0u8; nexus_vfs_types::INLINE_IO_MAX];
+    let mut response = Vec::with_capacity(256);
+    let mut armed = nexus_ipc::armed_vmo::ArmedVmos::new();
+    let mut forwarded: u32 = 0;
     loop {
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
-            Ok((frame_len, _sid, _reply)) => {
+        match server.serve_next(&mut pending, Wait::Blocking, &mut recv_frame) {
+            Ok((_hdr, frame_len, sid, moved)) => {
                 let bytes = &recv_frame[..frame_len];
-                if bytes.is_empty() {
+                let Some(&op) = bytes.first() else {
+                    if let Some(cap) = moved {
+                        cap.close();
+                    }
+                    continue;
+                };
+                if op == OPCODE_ARM_VMO {
+                    // The moved capability is the DESTINATION VMO, not a reply
+                    // channel: take the raw slot and keep it for this sender's
+                    // next read. No answer — the read that follows carries it.
+                    let Some(cap) = moved else {
+                        continue;
+                    };
+                    let slot = cap.slot();
+                    core::mem::forget(cap);
+                    match armed.arm(sid, slot) {
+                        nexus_ipc::armed_vmo::Armed::Stored => {}
+                        nexus_ipc::armed_vmo::Armed::Replaced(old)
+                        | nexus_ipc::armed_vmo::Armed::Full(old) => {
+                            let _ = nexus_abi::cap_close(old);
+                        }
+                    }
                     continue;
                 }
-                match bytes[0] {
+                response.clear();
+                match op {
                     OPCODE_RESOLVE => {
+                        // METADATA ONLY. Entry bytes never ride a reply frame:
+                        // that is what made 22 of the volume's 115 entries
+                        // unreadable and fatal (TASK-0033, RFC-0097).
                         let entry = match core::str::from_utf8(&bytes[1..]) {
                             Ok(rel) => registry.resolve(rel),
                             Err(_) => None,
                         };
-                        // Volume-backed bytes are fetched on demand; a fetch
-                        // that fails (digest, transport) is a NotFound — never
-                        // partial bytes.
-                        let resolved = entry.and_then(|entry| match &entry.source {
-                            Source::Inline(bytes) => Some((entry.size, entry.kind, bytes.clone())),
-                            Source::Volume { bundle, path } => reader
-                                .and_then(|r| r.fetch(bundle, path, entry.size))
-                                .map(|bytes| (entry.size, entry.kind, bytes)),
-                        });
-                        response.clear();
-                        if let Some((size, kind, bytes)) = resolved {
-                            response.push(1);
-                            response.extend_from_slice(&size.to_le_bytes());
-                            response.extend_from_slice(&kind.to_le_bytes());
-                            response.extend_from_slice(&bytes);
-                        } else {
-                            response.push(0);
-                            response.extend_from_slice(&0u64.to_le_bytes());
-                            response.extend_from_slice(&0u16.to_le_bytes());
+                        match entry {
+                            Some(entry) => {
+                                response.push(1);
+                                response.extend_from_slice(&entry.size.to_le_bytes());
+                                response.extend_from_slice(&entry.kind.to_le_bytes());
+                            }
+                            None => response.extend_from_slice(&NOT_FOUND_RESOLVE_RSP),
                         }
-                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
-                    OPCODE_MOUNT_STATUS => {
-                        response.clear();
-                        response.push(mount_mode as u8);
-                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
+                    OPCODE_READ => {
+                        // The inline tier: whole entries at or below
+                        // `INLINE_IO_MAX`. A larger entry is `TooBig` — it has a
+                        // VMO path and must use it, never a silent truncation.
+                        let rel = core::str::from_utf8(&bytes[1..]).ok();
+                        let entry = rel.and_then(|rel| registry.resolve(rel));
+                        let read = entry.as_ref().and_then(|entry| {
+                            if entry.kind != KIND_FILE || entry.size as usize > inline.len() {
+                                return None;
+                            }
+                            match &entry.source {
+                                Source::Inline(bytes) => {
+                                    inline[..bytes.len()].copy_from_slice(bytes);
+                                    Some(bytes.len())
+                                }
+                                Source::Volume { bundle, path } => reader.and_then(|r| {
+                                    r.read_inline(bundle, path, entry.size, &mut inline)
+                                }),
+                            }
+                        });
+                        match read {
+                            Some(len) => {
+                                response.push(nexus_abi::status::CODE_OK as u8);
+                                response.extend_from_slice(&inline[..len]);
+                            }
+                            None => {
+                                let oversize =
+                                    entry.map(|e| e.size as usize > inline.len()).unwrap_or(false);
+                                let code =
+                                    if oversize { VfsError::TooBig } else { VfsError::NotFound };
+                                response.push(code.code() as u8);
+                            }
+                        }
                     }
+                    OPCODE_READ_VMO => {
+                        // THE PASS-THROUGH (RFC-0097 §2): the caller's VMO goes
+                        // on to bundlemgrd, which is the only byte writer and
+                        // the only one that may write a success header. Every
+                        // failure BEFORE that point is a header packagefsd
+                        // writes itself, because nobody else can.
+                        let vmo = armed.take(sid);
+                        let (status, len) = read_vmo(reader, registry, &bytes[1..], vmo);
+                        if let Some(vmo) = vmo {
+                            if status != nexus_abi::status::CODE_OK {
+                                let hdr = nexus_abi::payload_vmo::encode_header(status, 0);
+                                let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
+                            } else {
+                                forwarded = forwarded.saturating_add(1);
+                                if forwarded.is_power_of_two() {
+                                    let _ = nexus_abi::debug_println(&format!(
+                                        "packagefsd: read vmo forwarded (bytes={len} n={forwarded})"
+                                    ));
+                                }
+                            }
+                            let _ = nexus_abi::cap_close(vmo);
+                        }
+                        response.extend_from_slice(&status.to_le_bytes());
+                        response.extend_from_slice(&len.to_le_bytes());
+                    }
+                    OPCODE_MOUNT_STATUS => response.push(mount_mode as u8),
                     OPCODE_LIST => {
                         // Payload = shared ReadDir codec (nexus-vfs-types); the
                         // reply payload is relayed verbatim by vfsd.
@@ -333,17 +357,13 @@ fn run_loop(
                             },
                             Err(err) => nexus_vfs_types::encode_readdir_error(err),
                         };
-                        response.clear();
                         response.extend_from_slice(&payload);
-                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
                     }
-                    _ => {
-                        response.clear();
-                        response.push(0);
-                        response.extend_from_slice(&0u64.to_le_bytes());
-                        response.extend_from_slice(&0u16.to_le_bytes());
-                        server.send(&response, Wait::Blocking).map_err(|_| LiteError::Transport)?;
-                    }
+                    _ => response.extend_from_slice(&NOT_FOUND_RESOLVE_RSP),
+                }
+                // P2-c's rule: answer exactly the senders that moved a reply cap.
+                if let Some(cap) = moved {
+                    pending.park(cap, &response);
                 }
             }
             Err(IpcError::Disconnected) => return Err(LiteError::Transport),
@@ -353,6 +373,71 @@ fn run_loop(
             Err(_) => return Err(LiteError::Transport),
         }
     }
+}
+
+/// Resolves the `OP_READ_VMO` payload (a `pkg:/`-relative path) and forwards the
+/// caller's armed VMO to bundlemgrd. Returns the `(status, len)` that both the
+/// reply and the VMO header carry.
+fn read_vmo(
+    reader: Option<&VolumeReader>,
+    registry: &BundleRegistry,
+    payload: &[u8],
+    vmo: Option<u32>,
+) -> (u16, u32) {
+    let Some(vmo) = vmo else {
+        // Nothing was armed, so there is nowhere to put bytes OR a header.
+        return (VfsError::Invalid.code(), 0);
+    };
+    let Ok(rel) = core::str::from_utf8(payload) else {
+        return (VfsError::Invalid.code(), 0);
+    };
+    let Some(entry) = registry.resolve(rel) else {
+        return (VfsError::NotFound.code(), 0);
+    };
+    if entry.kind != KIND_FILE {
+        return (VfsError::IsDir.code(), 0);
+    }
+    // D4: an entry larger than the caller's VMO is refused BEFORE any byte is
+    // written. packagefsd is the hop that knows both numbers — the entry's size
+    // from the verified index, and the VMO's length from the capability it was
+    // handed. Leaving it to the writer means the refusal depends on which layer
+    // notices the overrun first (`Io` from the block read, `TooBig` from the
+    // hash read-back), which is not a contract. bundlemgrd's own bound stays as
+    // the backstop.
+    if !nexus_abi::payload_vmo::fits(entry.size as usize, vmo_len(vmo).unwrap_or(0)) {
+        return (VfsError::TooBig.code(), 0);
+    }
+    match &entry.source {
+        // Seed-registry entries have no volume behind them; they are small by
+        // construction, so packagefsd writes them itself — the only case where
+        // it touches a byte, and it is not volume data.
+        Source::Inline(bytes) => {
+            if nexus_abi::vmo_write(vmo, nexus_abi::payload_vmo::DATA_OFFSET, bytes).is_err() {
+                return (VfsError::Io.code(), 0);
+            }
+            let hdr = nexus_abi::payload_vmo::encode_header(
+                nexus_abi::status::CODE_OK,
+                bytes.len() as u32,
+            );
+            if nexus_abi::vmo_write(vmo, 0, &hdr).is_err() {
+                return (VfsError::Io.code(), 0);
+            }
+            (nexus_abi::status::CODE_OK, bytes.len() as u32)
+        }
+        Source::Volume { bundle, path } => match reader {
+            Some(reader) => reader.forward(bundle, path, vmo),
+            None => (VfsError::Unsupported.code(), 0),
+        },
+    }
+}
+
+/// A VMO capability's byte length (RFC-0040 `cap_query`, `kind_tag` 1 = VMO).
+fn vmo_len(slot: u32) -> Option<usize> {
+    let mut query = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    if nexus_abi::cap_query(slot, &mut query).is_err() || query.kind_tag != 1 {
+        return None;
+    }
+    Some(query.len as usize)
 }
 
 fn seed_registry() -> (BundleRegistry, MountMode) {
@@ -381,93 +466,8 @@ fn seed_registry() -> (BundleRegistry, MountMode) {
     (registry, MountMode::Legacy)
 }
 
-/// TASK-0321 P5: `pkg:/` from the verified system volume. VOLUME_STATUS
-/// (slot + bundle count for the marker), then GET_INDEX into a bounded VMO
-/// (the NXSV-bound index bytes bundlemgrd verified) → registry with file
-/// sizes + kinds; bytes stay on the volume until resolved.
-fn load_registry_from_volume() -> Option<(BundleRegistry, VolumeReader)> {
-    let outcome = load_registry_from_volume_inner();
-    if let Err(step) = &outcome {
-        // Honest fallback reason (the seed registry mounts as Legacy next).
-        let line = format!("packagefsd: volume mount FAIL ({step})\n");
-        debug_print(&line);
-    }
-    outcome.ok()
-}
-
-fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &'static str> {
-    use nexus_abi::bundlemgrd as wire;
-    use nexus_abi::payload_vmo as hdr;
-    // Nonce-correlated route queries: this service's own server route
-    // query (issued at start, answered by init only after bootstrap) leaves
-    // a reply in the ctrl queue that a nonce-less `new_for` consumed as the
-    // answer to "bundlemgrd" — handing us OUR OWN server pair (4,3). The
-    // pre-P5 registry load silently fell back to the seed image that way.
-    // The declared legs (TASK-0324 P7-b/P7-d): bundlemgrd's request endpoint and our reply
-    // inbox, pinned by init before this task runs — no route ask.
-    let bnd = nexus_service_topology::slots::packagefsd::BUNDLEMGRD;
-    let inbox = nexus_service_topology::slots::packagefsd::REPLY;
-
-    // VOLUME_STATUS on the reply path: the moved cap is a SEND clone of our
-    // reply inbox, so the answer arrives on the inbox's RECV side.
-    let mut req = [0u8; 8];
-    let n = wire::encode_volume_status(&mut req).ok_or("encode status")?;
-    let mut buf = [0u8; 64];
-    let (status, slot, verified, bundles) =
-        nexus_ipc::exchange::call_matching(bnd.send, inbox, &req[..n], &mut buf, |rsp| {
-            wire::decode_volume_status_rsp(rsp).map(|(s, sl, v, b, _build8)| (s, sl, v, b))
-        })
-        .map_err(|_| "status answer")?;
-    if status != wire::STATUS_OK || verified != 1 {
-        return Err("volume unverified");
-    }
-
-    // GET_INDEX into an ARMED VMO; bundlemgrd's answer (after the header write) is waited
-    // for — TASK-0324 P7-d, no header poll.
-    let index_vmo = nexus_abi::vmo_create(INDEX_VMO_BYTES).map_err(|_| "index vmo")?;
-    let n = wire::encode_get_index(&mut req).ok_or("encode index")?;
-    let (status, len) =
-        vmo_op(bnd.send, inbox, index_vmo, &req[..n], wire::OP_GET_INDEX).ok_or("index answer")?;
-    if status != nexus_abi::status::CODE_OK || (len as usize) > INDEX_VMO_BYTES - hdr::DATA_OFFSET {
-        return Err("index header");
-    }
-    let index_len = len as usize;
-    let mut head = vec![0u8; index_len];
-    nexus_abi::vmo_read(index_vmo, hdr::DATA_OFFSET, &mut head).map_err(|_| "index read")?;
-    let index = parse_index(&head, &PkgImgCaps::default()).map_err(|_| "index parse")?;
-
-    let mut registry = BundleRegistry::default();
-    let mut groups: BTreeMap<String, Vec<(String, Entry)>> = BTreeMap::new();
-    let mut versions: BTreeMap<String, String> = BTreeMap::new();
-    let mut largest = 0u64;
-    let mut files = 0usize;
-    for e in &index.entries {
-        largest = largest.max(e.data_len);
-        files += 1;
-        let key = format!("{}@{}", e.bundle, e.version);
-        groups
-            .entry(key)
-            .or_insert_with(|| vec![(".".to_string(), Entry::directory())])
-            .push((e.path.clone(), Entry::volume_file(e.data_len, &e.bundle, &e.path)));
-        versions.insert(e.bundle.clone(), e.version.clone());
-    }
-    for (canonical, entries) in groups {
-        let (bundle, version) = canonical.split_once('@').ok_or("index key")?;
-        registry.publish(bundle, version, &entries);
-    }
-    for (b, v) in versions {
-        registry.active.insert(b, v);
-    }
-    // ONE reusable file VMO sized for the largest entry (page-rounded).
-    let largest = usize::try_from(largest).map_err(|_| "entry size")?;
-    let vmo_len = (hdr::DATA_OFFSET + largest).div_ceil(4096) * 4096;
-    let vmo = nexus_abi::vmo_create(vmo_len).map_err(|_| "file vmo")?;
-    emit_mounted(slot, bundles as usize, files);
-    Ok((registry, VolumeReader { bundle_send: bnd.send, inbox, vmo, vmo_len }))
-}
-
 /// `packagefsd: mounted (system volume slot=<s> bundles=N files=M)`.
-fn emit_mounted(slot: u8, bundles: usize, files: usize) {
+pub(crate) fn emit_mounted(slot: u8, bundles: usize, files: usize) {
     let line = format!(
         "packagefsd: mounted (system volume slot={} bundles={} files={})\n",
         slot as char, bundles, files
@@ -475,7 +475,7 @@ fn emit_mounted(slot: u8, bundles: usize, files: usize) {
     debug_print(&line);
 }
 
-fn debug_print(_s: &str) {
+pub(crate) fn debug_print(_s: &str) {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     let _ = nexus_abi::debug_write(_s.as_bytes());
 }

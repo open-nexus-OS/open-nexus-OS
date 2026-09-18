@@ -94,7 +94,25 @@ if [ "$table_count" != "1" ] || [ "$table_files" != "$TABLE" ]; then
   fail=1
 fi
 
+# --- rule 5: the copying `pkg:/` path stays deleted -------------------------
+# vfsd used to hold whole entries twice over: `packagefs_resolve` returned a
+# `Vec` of the file and `FileHandle` kept another per open handle, both on a
+# bump heap that never frees. That is the shape that made 22 of the system
+# volume's 115 entries unreadable and fatal to packagefsd. The splice handler
+# must forward the caller's VMO, never ask the namespace to open bytes for it.
+if grep -qE 'namespace\.open\(' source/services/vfsd/src/splice_os.rs; then
+  echo "[FAIL] payload-vmo: vfsd's splice handler opens entries again instead of forwarding the VMO" >&2
+  fail=1
+fi
+# os-lite only: the host-side `std_server.rs` is a different backend with its
+# own in-memory provider, and holding bytes there is what it is for.
+if grep -nE '^\s*(pub\(crate\) )?bytes: Vec<u8>,' \
+    source/services/vfsd/src/os_lite.rs source/services/vfsd/src/namespace.rs; then
+  echo "[FAIL] payload-vmo: a vfsd os-lite handle/entry carries file bytes again (see above)" >&2
+  fail=1
+fi
+
 if [ "$fail" == "0" ]; then
-  echo "[PASS] payload-vmo: one header codec, one status table, no retired magic or private status space"
+  echo "[PASS] payload-vmo: one header codec, one status table, no retired magic or private status space, no copying pkg:/ path"
 fi
 exit "$fail"

@@ -48,7 +48,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
-    (ServiceId::Vfsd, ServiceId::Packagefsd), // pkg:/ resolution (shared response ep)
+    (ServiceId::Vfsd, ServiceId::Packagefsd), // pkg:/ metadata + reads (reply inbox)
     (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
     (ServiceId::Samgrd, ServiceId::Logd), // structured logs via CAP_MOVE
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE

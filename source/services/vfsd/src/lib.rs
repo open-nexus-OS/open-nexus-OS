@@ -19,6 +19,7 @@
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 extern crate alloc;
 
+mod namespace;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 mod splice_os;

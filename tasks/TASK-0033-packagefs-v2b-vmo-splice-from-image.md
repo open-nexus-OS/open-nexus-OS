@@ -196,8 +196,25 @@ soft dependency); cross-device VMO transport; changing `OP_GET_FILE_VMO`'s proto
   bundle, and every run that did not passed. Registered in `markers/ui.toml` without an
   `emit_when` (it is a real line, not a claim every profile must produce); proven by replaying
   the exact UART that failed.
-- **P2** Pass-through (vfsd/packagefsd/bundlemgrd) + the oversize selftest. Blast: vfs lanes,
-  `vfsd: vmo splice` markers, visible lane (app assets via `pkg:/`).
+- **P2** ✅ **2026-09-18** Pass-through + the oversize selftest. `pkg:/settings/payload.nxir`
+  (259 424 B) is read end to end through the caller's VMO: `packagefsd: read vmo forwarded
+  (bytes=259424 n=2)` → `vfsd: vmo splice forwarded ok (bytes=259424)` →
+  `SELFTEST: pkgimg vmo ok (bytes=0x3f560)`, plus `SELFTEST: pkgimg vmo oversize deny ok`.
+  Beyond D3 as written, three things the work turned up:
+  (a) **the size bound had no owner** — it was discovered while writing, so the code depended on
+  which layer noticed first (`Io` from the block read vs `TooBig` from the hash read-back);
+  packagefsd now refuses before forwarding, being the hop that knows the entry's size and the
+  VMO's length. The boot proof caught this, not review.
+  (b) **packagefsd's response endpoint had three declared readers** (vfsd, dsoftbusd, harness)
+  on one queue — the 0049B/P2-g hazard, and unusable for an answer that names a capability. All
+  three legs are `RouteKind::ReplyInbox` now (a declaration change; init already implemented the
+  kind) and packagefsd answers only senders that moved a reply cap.
+  (c) **`ArmedVmos` was bundlemgrd-private** and packagefsd needs the same table, so it moved to
+  `nexus_ipc::armed_vmo` rather than being copied.
+  Four files crossed the LOC ratchet and were split by responsibility, not baseline-bumped:
+  `packagefsd/volume_reader.rs`, `vfsd/namespace.rs`, `nexus-vfs/os.rs`, and the dsoftbus
+  packagefs leg into `packagefs_ro.rs`. Blast: vfs lanes, `vfsd: vmo splice` markers, visible
+  lane (app assets via `pkg:/`).
 - **P3** Docs + markers (`docs/storage/packagefs.md`, RFC-0072 cross-link, CHANGELOG,
   ledger Done).
 
@@ -206,14 +223,15 @@ soft dependency); cross-device VMO transport; changing `OP_GET_FILE_VMO`'s proto
 Host: header roundtrip + negatives (`test_reject_short_header`, `test_reject_bad_magic`,
 `test_reject_integrity`, `test_reject_oversize_for_vmo`); packagefsd forward unit test against
 a fake bundlemgrd; a grep gate proving exactly one payload-VMO magic in the tree.
-QEMU (registered in `proof-manifest/markers/vfs.toml`, `scripts/qemu-test.sh`, `markers.txt`):
-`bundlemgrd: file vmo ok (bytes=<n>)`, `packagefsd: read vmo forwarded`, and
-`SELFTEST: pkgimg vmo ok (bytes=<n>)` where **`<n>` is an entry from the 22-entry class above
-the old ceiling** (`pkg:/settings/payload.nxir`, 259 424 B) read through `OP_READ_VMO` with
-sha256 == index digest — the marker is a lie if `<n>` ≤ 8181. The copying marker
-`vfsd: vmo splice read ok` leaves the contract. packagefsd survives the read (`packagefsd:
-ready` still the only lifecycle line, no restart) and a deliberately undersized VMO returns
-`TooBig` without killing it.
+QEMU (registered in `proof-manifest/markers/vfs.toml`): `packagefsd: read vmo forwarded
+(bytes=<n>)`, `vfsd: vmo splice forwarded ok (bytes=<n>)`, and `SELFTEST: pkgimg vmo ok
+(bytes=<n>)` where **`<n>` is an entry from the 22-entry class above the old ceiling**
+(`pkg:/settings/payload.nxir`, 259 424 B) read through `OP_READ_VMO` — the selftest refuses to
+emit the marker at all for an entry ≤ 8181 bytes, so it cannot quietly fall back to proving
+what `build.prop` proved. Integrity stays bundlemgrd's: an OK header appears only after the
+entry hashes to its index digest. `SELFTEST: pkgimg vmo oversize deny ok` proves a VMO half the
+entry's size is refused with `TooBig` and that packagefsd is still serving afterwards. The
+copying marker `vfsd: vmo splice read ok` leaves the contract.
 
 ### Touched paths
 
