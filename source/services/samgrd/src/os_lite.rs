@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 
 use core::fmt;
 
-use nexus_abi::{cap_close, debug_putc, yield_};
+use nexus_abi::{debug_putc, yield_};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 /// Result alias surfaced by the lite SAMgr backend.
@@ -76,6 +76,21 @@ const STATUS_NOT_FOUND: u8 = 1;
 const STATUS_MALFORMED: u8 = 2;
 const STATUS_UNSUPPORTED: u8 = 3;
 /// Minimal samgrd bring-up service loop.
+
+/// Park a reply for the next `reply_recv` (TASK-0054C P5b-2). A request that moved no
+/// capability parks nothing — P2-c's rule: only senders that moved one are answered.
+fn stash(
+    pending: &mut Option<(nexus_ipc::ReplyCap, [u8; 32], usize)>,
+    cap: Option<nexus_ipc::ReplyCap>,
+    bytes: &[u8],
+) {
+    if let Some(cap) = cap {
+        let mut buf = [0u8; 32];
+        let n = core::cmp::min(bytes.len(), buf.len());
+        buf[..n].copy_from_slice(&bytes[..n]);
+        *pending = Some((cap, buf, n));
+    }
+}
 pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     notifier.notify();
     let _ = nexus_service_entry::ready("samgrd: ready");
@@ -112,13 +127,24 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
     // allocating recv is a countdown (TASK-0054C P2-g/P5b). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
+    // TASK-0054C P5b-2: the answer to the PREVIOUS request rides out with the wait for the next
+    // one. A served request used to cost three kernel entries — `send_on_cap`, `cap_close`, then
+    // the receive; `reply_recv` does all three. Deferring the reply to the loop top costs the
+    // client nothing: every arm below `continue`s straight here. A cap-less request leaves this
+    // empty, which keeps P2-c's rule intact — only senders that moved a capability are answered.
+    let mut pending: Option<(nexus_ipc::ReplyCap, [u8; 32], usize)> = None;
     loop {
-        match server.recv_request_with_header_into(Wait::Blocking, &mut recv_frame) {
-            Ok((hdr, frame_len, sid, reply)) => {
+        let received = match pending.take() {
+            Some((cap, buf, n)) => {
+                server.reply_and_recv_with_header_into(cap, &buf[..n], &mut recv_frame)
+            }
+            None => server.recv_request_with_header_into(Wait::Blocking, &mut recv_frame),
+        };
+        match received {
+            Ok((hdr, frame_len, sid, mut reply)) => {
                 let frame = &recv_frame[..frame_len];
-                // The moved reply capability IS what the header's CAP_MOVE flag and
-                // `src` slot used to say (TASK-0054C P5b).
-                let reply_slot = reply.as_ref().map(|r| r.slot()).unwrap_or(0);
+                // The moved reply capability IS what the header's CAP_MOVE flag used to say
+                // (TASK-0054C P5b); it is parked and sent by the next `reply_recv` (P5b-2).
                 let has_reply_cap = reply.is_some();
                 breaker.on_success();
                 let sender_service_id = sid as u64;
@@ -152,8 +178,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         if append_probe_to_logd() { STATUS_OK } else { STATUS_UNSUPPORTED };
                     let rsp = [MAGIC0, MAGIC1, VERSION, OP_LOG_PROBE | 0x80, status];
                     if has_reply_cap {
-                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
-                        let _ = cap_close(reply_slot);
+                        stash(&mut pending, reply.take(), &rsp);
                     } else {
                         if server.send(&rsp, Wait::Blocking).is_err() {
                             emit_line("samgrd: send fail");
@@ -175,11 +200,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         let mut rsp = [0u8; 12];
                         rsp[0..4].copy_from_slice(b"PONG");
                         rsp[4..12].copy_from_slice(&frame[4..12]);
-                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
+                        stash(&mut pending, reply.take(), &rsp);
                     } else {
-                        let _ = KernelServer::send_on_cap(reply_slot, b"PONG");
+                        stash(&mut pending, reply.take(), b"PONG");
                     }
-                    let _ = cap_close(reply_slot);
                     continue;
                 }
 
@@ -201,7 +225,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         rsp[4] = STATUS_OK;
                         rsp[5..9].copy_from_slice(&hdr.dst.to_le_bytes());
                         rsp[9..17].copy_from_slice(&frame[8..16]);
-                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
+                        stash(&mut pending, reply.take(), &rsp);
                     } else {
                         let mut rsp = [0u8; 9];
                         rsp[0] = MAGIC0;
@@ -210,9 +234,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         rsp[3] = OP_SENDER_PID | 0x80;
                         rsp[4] = STATUS_OK;
                         rsp[5..9].copy_from_slice(&hdr.dst.to_le_bytes());
-                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
+                        stash(&mut pending, reply.take(), &rsp);
                     }
-                    let _ = cap_close(reply_slot);
                     continue;
                 }
 
@@ -234,7 +257,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         rsp[4] = STATUS_OK;
                         rsp[5..13].copy_from_slice(&sender_service_id.to_le_bytes());
                         rsp[13..21].copy_from_slice(&frame[4..12]);
-                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
+                        stash(&mut pending, reply.take(), &rsp);
                     } else {
                         let mut rsp = [0u8; 13];
                         rsp[0] = MAGIC0;
@@ -243,17 +266,15 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         rsp[3] = OP_SENDER_SERVICE_ID | 0x80;
                         rsp[4] = STATUS_OK;
                         rsp[5..13].copy_from_slice(&sender_service_id.to_le_bytes());
-                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
+                        stash(&mut pending, reply.take(), &rsp);
                     }
-                    let _ = cap_close(reply_slot);
                     continue;
                 }
 
                 let rsp = handle_frame(&mut registry, sender_service_id, frame);
                 // If a reply cap was moved, reply on it and close it.
                 if has_reply_cap {
-                    let _ = KernelServer::send_on_cap(reply_slot, &rsp);
-                    let _ = cap_close(reply_slot);
+                    stash(&mut pending, reply.take(), &rsp);
                 } else {
                     if server.send(&rsp, Wait::Blocking).is_err() {
                         emit_line("samgrd: send fail");

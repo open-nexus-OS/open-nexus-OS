@@ -266,9 +266,14 @@ pub(super) fn sys_ipc_reply_recv(ctx: &mut Context<'_>, args: &Args) -> SysResul
     // Phase 1 — re-entrant: the reply, on the moved capability's slot. A full
     // client queue blocks in `IpcSend` with nothing committed, exactly as an
     // ordinary send does.
+    // The reply half is NON-BLOCKING, like the `send_on_cap` it replaces. A server that waits
+    // out a client's full reply queue is the 0049B wedge this task spent five packages removing
+    // — and here it would stop the server for everyone, not just that client. A reply nobody can
+    // take is dropped, which is the rule statefsd's restored `Wait::NonBlocking` enshrines.
     let reply_slot = args.get(0);
-    let send_args = Args::new([reply_slot, args.get(1), args.get(2), args.get(3), 0, 0]);
-    super::ipc_msg::sys_ipc_send_v1(ctx, &send_args)?;
+    let send_args =
+        Args::new([reply_slot, args.get(1), args.get(2), args.get(3), IPC_SYS_NONBLOCK, 0]);
+    let _ = super::ipc_msg::sys_ipc_send_v1(ctx, &send_args);
     // One-shot, like `ReplyCap::reply_and_close`: the answer is delivered, the
     // capability has no second use.
     let _ = ctx.tasks.current_caps_mut().take(reply_slot);

@@ -168,6 +168,7 @@ pub fn ipc_reply_recv(
     reply_slot: Cap,
     reply_header: &MsgHeader,
     reply_payload: &[u8],
+    recv_slot: Cap,
     header_out: &mut MsgHeader,
     payload_out: &mut [u8],
     sender_service_id_out: &mut u64,
@@ -178,7 +179,10 @@ pub fn ipc_reply_recv(
         let desc = IpcRecvV2Desc {
             magic: IPC_RECV_V2_DESC_MAGIC,
             version: IPC_RECV_V2_DESC_VERSION,
-            slot: 0,
+            // The endpoint to wait on. It is NOT implied by the reply capability:
+            // getting this wrong makes a server answer correctly and then listen
+            // somewhere else entirely (TASK-0054C P5b-2).
+            slot: recv_slot as u32,
             _pad0: 0,
             header_out_ptr: header_out as *mut MsgHeader as u64,
             payload_out_ptr: payload_out.as_mut_ptr() as u64,
@@ -207,6 +211,7 @@ pub fn ipc_reply_recv(
             reply_slot,
             reply_header,
             reply_payload,
+            recv_slot,
             header_out,
             payload_out,
             sender_service_id_out,

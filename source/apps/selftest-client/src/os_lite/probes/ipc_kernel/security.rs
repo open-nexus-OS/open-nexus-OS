@@ -157,6 +157,7 @@ pub(crate) fn reply_recv_probe() -> core::result::Result<(), ()> {
         reply_cap,
         &out_hdr,
         b"PONG",
+        bootstrap,
         &mut next_hdr,
         &mut next_buf,
         &mut next_sid,

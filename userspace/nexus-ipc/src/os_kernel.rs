@@ -239,6 +239,43 @@ impl KernelServer {
         (self.recv_slot, self.send_slot)
     }
 
+    /// Answer the current request and wait for the next one in ONE trap
+    /// (TASK-0054C P5b-2, syscall 59).
+    ///
+    /// Today a served request costs THREE kernel entries: `send_on_cap` for the
+    /// reply, `cap_close` for the one-shot capability, and the next receive.
+    /// This does all three. `reply` is consumed exactly as
+    /// [`ReplyCap::reply_and_close`] consumes it, and the return shape is the
+    /// one [`recv_request_with_header_into`](Self::recv_request_with_header_into)
+    /// gives, so a loop swaps one call for the other.
+    pub fn reply_and_recv_with_header_into(
+        &self,
+        reply: ReplyCap,
+        response: &[u8],
+        out: &mut [u8],
+    ) -> Result<(nexus_abi::MsgHeader, usize, u64, Option<ReplyCap>)> {
+        let reply_hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, response.len() as u32);
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut sid: u64 = 0;
+        let n = nexus_abi::ipc_reply_recv(
+            reply.slot,
+            &reply_hdr,
+            response,
+            self.recv_slot,
+            &mut hdr,
+            out,
+            &mut sid,
+        )
+        .map_err(|e| map_recv_err(e, Wait::Blocking))?;
+        let n = core::cmp::min(n, out.len());
+        let next = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
+            Some(ReplyCap { slot: hdr.src })
+        } else {
+            None
+        };
+        Ok((hdr, n, sid, next))
+    }
+
     /// Like [`recv_request_with_meta_into`](Self::recv_request_with_meta_into) but also hands
     /// back the message HEADER, whose `dst` carries the kernel-attested sender PID.
     ///
