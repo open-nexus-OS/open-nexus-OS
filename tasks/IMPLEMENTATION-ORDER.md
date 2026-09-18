@@ -30,7 +30,7 @@ the board and `CHANGELOG.md`); what remains is what an agent needs to pick the n
 | # | Lane / Task | State | Next |
 |---|---|---|---|
 | 1 | **TASK-0324** Display handoff deterministic by construction (build truth, one wiring structure, stage fence, handoff v2) | **Done 2026-09-15** — P0 build truth + pixel lane, P1 RFC-0093/ADR-0062, P2 `@ready`, P3 routing v2, P4a–f ONE slot topology (191 → 0 positional slots), P5a–c stage fence, P6a–d handoff v2, P7a–d waits without clocks (gate at zero), P8 init without clocks + closure docs, P9 8/8 visible boots; every package `just test-all`-proven | Phase 2 (Sub-80) starts: `0054C → 0033 → 0077B → …` |
-| 2 | **Sub-80 Phase 2** (below) | **Started 2026-09-15** — process: each task is reviewed against the code (idea → best realization, end state), its ledger rewritten, built, proven green, pushed, then the next is planned; TASK-0054C: userspace consolidation complete (P0–P2-f), kernel packages P3–P6 still ahead | order `0054C → 0033 → 0077B → 0077C → 0074 → 0066 → 0067 → 0067B → 0068` |
+| 2 | **Sub-80 Phase 2** (below) | **Started 2026-09-15** — process: each task is reviewed against the code (idea → best realization, end state), its ledger rewritten, built, proven green, pushed, then the next is planned; **TASK-0054C Done 2026-09-18** (P0–P6), **TASK-0033 in review/build** | order `0054C → 0033 → 0077B → 0077C → 0074 → 0066 → 0067 → 0067B → 0068` |
 | 3 | **Network family** (`0024`, `0030`, `0038`, `0040`, NET-W1) | HOLD — joint discussion pending (user wants changes) | not before the discussion |
 
 ---
@@ -69,7 +69,7 @@ Each ledger carries a "Closure 2026-09-09" section with the actual solution and 
 | ✅ TASK-0076B | Visible DSL mount — app-host path (0080C/0080D); `APPHOST: mounted hash=` now gated in the `visible` lane |
 | ✅ TASK-0050B | Recovery console — resolved by decision: none in the end system; `nx recovery` + bootctld targets + `.nxra` (0050/0051/0053) |
 | ✅ TASK-0079 | AOT codegen — retired by decision: the app-host interpreter is the one execution tier; AOT docs/stubs deleted; runtime scale work → TASK-0077C |
-| ⤳ TASK-0033 | **Reopened** (Draft): the `pkg:/` VMO pass-through residual of the TASK-0295 supersession — Phase 2 below |
+| ⤳ TASK-0033 | **In Progress** (reviewed 2026-09-18): the `pkg:/` VMO pass-through residual of the TASK-0295 supersession — Phase 2 below |
 | ⤳ TASK-0044 | QUIC tuning → TASK-0024 (network family) · ⤳ TASK-0069 → 0123–0125 · ⤳ TASK-0071 → 0151–0154 (successors > 0080 own them; user decision 2026-09-09) |
 
 ### Phase 2 — 0054–0079 (after TASK-0324) — ledgers rewritten to end state 2026-09-09
@@ -79,7 +79,7 @@ Order and reason (API/codec/runtime foundations first so nothing is migrated lat
 | # | Task | End-state content (see ledger "End-state rewrite 2026-09-09") | Size | Needs |
 |---|---|---|---|---|
 | 1 | TASK-0054C | IPC performance contract v2 + `ipc_call` / `ipc_reply_recv` fastpath — **Done 2026-09-18**. An exchange cost **208 µs and five kernel entries** and costs **41–43 µs and two**, asserted per boot (`KSELFTEST: ipc call budget ok`). One kernel allocation per message instead of two, none for the 72–93 % that fit inline (`IPC_SHORT_MAX = 32`, measured over 13 windows, not the 64 the RFC had guessed). `E2BIG` replaces `EINVAL` at the hard cap. The userspace consolidation that made the seam flippable in ONE function came first (P2-a…P2-g), and the one scheduler change the contract proposed was measured and WITHDRAWN (the runqueue hop is 0.41 % of an exchange). RFC-0096 Implemented, ADR-0064 Accepted | L | done |
-| 2 | TASK-0033 | `pkg:/` reads = VMO pass-through vfsd → packagefsd → bundlemgrd; ONE payload-VMO header codec (`NXPL` deleted) (RFC-0097) | S | 0324 P4 |
+| 2 | TASK-0033 | `pkg:/` reads = VMO pass-through vfsd → packagefsd → bundlemgrd; ONE payload-VMO header codec (`NXVR`, `NXPL` deleted) (RFC-0097 seeded 2026-09-18). **Not a performance task**: the copying path ships entry bytes inline in the resolve reply, so measured on today's volume **22 of 115 entries are unreadable and fatal** — `E2BIG` on the reply kills packagefsd, or `alloc_error` on its 384 KiB never-freeing heap does. Every proof is green because the only `pkg:/` file any lane reads is `build.prop`, 19 bytes | M | 0324 P4 |
 | 3 | TASK-0077B | Keyed per-instance `$state` (single-use rule deleted), Slider/Select/Stepper binds, async recipes, NX0407/0409 → errors, IR v1.3 | S–M | — |
 | 4 | TASK-0077C | Runtime long-session & large-data contract: emit-generation arena (flat heap over N interactions), subtree re-emit, `heap-16m` workaround deleted; store-window rule documented (recut 2026-09-09: VirtualList/Table/Timeline/NativeWidget retired — paging is QuerySpec + `tail()`) | M | 0077B |
 | 5 | TASK-0074 | Modal semantics in the DSL runtime: `.overlay(modal|transient)`, bounded stack, ESC/backdrop dismissal, focus trap, ONE windowd verb `CONTROL_WIN_MODAL`, toast as transient overlay | M | 0077B; 0324 P4a |
