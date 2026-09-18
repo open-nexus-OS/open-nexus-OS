@@ -13,7 +13,7 @@ use super::*;
 /// so the payload lives for the process), otherwise the embedded
 /// fallback. Marked on both paths (`APPHOST: payload source=…`).
 pub(super) fn resolve_payload() -> Option<&'static [u8]> {
-    use nexus_abi::{bundlemgrd as wire, cap_clone, cap_close, vmo_read};
+    use nexus_abi::{cap_clone, cap_close, vmo_read};
     // Slot presence: execd grants the payload VMO BEFORE it resumes this task (TASK-0324
     // P4e), so the slot is there or the launch is wrong — one probe (cap_clone+close: the
     // established presence pattern), no wait.
@@ -29,16 +29,16 @@ pub(super) fn resolve_payload() -> Option<&'static [u8]> {
     // The header: bundlemgrd wrote it AFTER the payload bytes and ANSWERED execd, and execd
     // resumed this task only after that answer (TASK-0324 P7-d) — one read, fail-closed:
     // an unwritten or bad header is a launch defect, never something to wait for.
-    let mut hdr = [0u8; wire::PAYLOAD_DATA_OFFSET];
+    let mut hdr = [0u8; nexus_abi::payload_vmo::HEADER_LEN];
     if vmo_read(PAYLOAD_VMO_SLOT, 0, &mut hdr).is_err() {
         raw_marker("APPHOST: FAIL payload (header read)");
         return None;
     }
-    let Some((status, len)) = wire::decode_payload_header(&hdr) else {
+    let Some((status, len)) = nexus_abi::payload_vmo::decode_header(&hdr) else {
         raw_marker("APPHOST: FAIL payload (header unwritten)");
         return None;
     };
-    if status != wire::PAYLOAD_STATUS_OK
+    if status != nexus_abi::status::CODE_OK
         || len == 0
         || len as usize > PAYLOAD_MAX_LEN
         || len % 8 != 0
@@ -47,7 +47,8 @@ pub(super) fn resolve_payload() -> Option<&'static [u8]> {
         return None;
     }
     let mut buf = nexus_dsl_ir::read::AlignedBytes::zeroed(len as usize);
-    if vmo_read(PAYLOAD_VMO_SLOT, wire::PAYLOAD_DATA_OFFSET, buf.as_bytes_mut()).is_err() {
+    if vmo_read(PAYLOAD_VMO_SLOT, nexus_abi::payload_vmo::DATA_OFFSET, buf.as_bytes_mut()).is_err()
+    {
         raw_marker("APPHOST: FAIL payload (vmo read)");
         return None;
     }

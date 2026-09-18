@@ -72,7 +72,7 @@ const TIMER: nexus_service_topology::SlotPair = nexus_service_topology::slots::a
 
 /// Fixed child slot holding the payload VMO (execd's
 /// `CHILD_PAYLOAD_SLOT`); bundlemgrd fills it and writes the 16-byte
-/// header LAST (`nexus_abi::bundlemgrd::encode_payload_header`).
+/// header LAST (`nexus_abi::payload_vmo::encode_header`).
 const PAYLOAD_VMO_SLOT: u32 = nexus_service_topology::slots::app_child::PAYLOAD_VMO;
 /// SEND-side clone of OUR OWN event channel (execd grants it alongside the
 /// RECV side): the app-host attaches it to windowd ITSELF, tagged with a

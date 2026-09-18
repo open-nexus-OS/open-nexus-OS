@@ -35,40 +35,41 @@ pub(crate) fn handle_get_payload(
     volume: &mut crate::volume::VolumeState,
     frame: &[u8],
     vmo_slot: Option<u32>,
-) -> (u8, u32) {
+) -> (u16, u32) {
     use nexus_abi::bundlemgrd as wire;
+    use nexus_abi::{payload_vmo as vmo_hdr, status as code};
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_payload (no vmo cap)");
-        return (nexus_abi::bundlemgrd::PAYLOAD_STATUS_NOT_ARMED, 0);
+        return (code::VfsError::Invalid.code(), 0);
     };
-    let outcome = (|| -> (u8, u32) {
+    let outcome = (|| -> (u16, u32) {
         let Some(app_id) = wire::decode_get_payload(frame) else {
-            return (wire::STATUS_MALFORMED, 0);
+            return (code::VfsError::Invalid.code(), 0);
         };
         let vol = match volume.ensure() {
             Ok(v) => v,
-            Err(_) => return (wire::STATUS_UNAVAILABLE, 0),
+            Err(_) => return (code::VfsError::Io.code(), 0),
         };
         if vol.app(app_id).is_none() {
-            return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
+            return (code::VfsError::NotFound.code(), 0);
         }
         // ui-program bundles carry `payload.nxir` (nxb-pack names the payload by
         // kind); a service ELF is never served here.
         let Some(entry) = vol.lookup_entry(app_id, b"payload.nxir") else {
-            return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
+            return (code::VfsError::NotFound.code(), 0);
         };
-        match vol.stream_entry_into_vmo(entry, vmo, wire::PAYLOAD_DATA_OFFSET) {
-            Ok((len, _, _)) => (wire::PAYLOAD_STATUS_OK, len),
-            Err(crate::volume::VolumeFail::Digest) => (wire::PAYLOAD_STATUS_DIGEST, 0),
-            Err(crate::volume::VolumeFail::Bounds) => (wire::PAYLOAD_STATUS_TOO_LARGE, 0),
-            Err(_) => (wire::STATUS_UNAVAILABLE, 0),
+        match vol.stream_entry_into_vmo(entry, vmo, vmo_hdr::DATA_OFFSET) {
+            Ok((len, _, _)) => (code::CODE_OK, len),
+            Err(crate::volume::VolumeFail::Digest) => (code::VfsError::Integrity.code(), 0),
+            Err(crate::volume::VolumeFail::Bounds) => (code::VfsError::TooBig.code(), 0),
+            Err(_) => (code::VfsError::Io.code(), 0),
         }
     })();
     let (status, len) = outcome;
-    let hdr = wire::encode_payload_header(status, len);
+    let hdr = vmo_hdr::encode_header(status, len);
     let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
     let _ = nexus_abi::cap_close(vmo);
-    if status == wire::PAYLOAD_STATUS_OK {
+    if status == code::CODE_OK {
         metrics_counter_inc_best_effort("bundlemgrd.get_payload.ok");
         emit_line("bundlemgrd: payload served");
     } else {
@@ -95,6 +96,7 @@ pub(crate) fn handle_volume_op(
     server: &KernelServer,
 ) {
     use nexus_abi::bundlemgrd as wire;
+    use nexus_abi::status as code;
     let op = wire::decode_request_op(frame).unwrap_or(0);
     if matches!(op, wire::OP_GET_BUNDLE_ELF | wire::OP_GET_INDEX | wire::OP_GET_FILE_VMO) {
         // TASK-0324 P7-d: the destination is the VMO this SENDER armed (`OP_ARM_VMO`); the
@@ -109,7 +111,7 @@ pub(crate) fn handle_volume_op(
             if let Some(slot) = vmo_slot {
                 let _ = nexus_abi::cap_close(slot);
             }
-            (STATUS_UNSUPPORTED, 0)
+            (code::VfsError::Access.code(), 0)
         } else {
             match op {
                 wire::OP_GET_BUNDLE_ELF => handle_get_bundle_elf(volume, frame, vmo_slot),
@@ -198,40 +200,41 @@ fn handle_volume_status(volume: &mut crate::volume::VolumeState, out: &mut [u8; 
 /// Serves one GET_BUNDLE_ELF: verifies the volume (once), streams the
 /// bundle's `payload.elf` into the moved VMO while hashing it against the
 /// index entry digest, then writes the payload header LAST. A digest
-/// mismatch leaves a `PAYLOAD_STATUS_DIGEST` header — the spawner never
+/// mismatch leaves an `Integrity` header — the spawner never
 /// sees an `OK` header over bytes that did not verify.
 fn handle_get_bundle_elf(
     volume: &mut crate::volume::VolumeState,
     frame: &[u8],
     vmo_slot: Option<u32>,
-) -> (u8, u32) {
+) -> (u16, u32) {
     use nexus_abi::bundlemgrd as wire;
+    use nexus_abi::{payload_vmo as vmo_hdr, status as code};
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_bundle_elf (no vmo cap)");
-        return (nexus_abi::bundlemgrd::PAYLOAD_STATUS_NOT_ARMED, 0);
+        return (code::VfsError::Invalid.code(), 0);
     };
-    let (status, len, read_ms, hash_ms) = (|| -> (u8, u32, u32, u32) {
+    let (status, len, read_ms, hash_ms) = (|| -> (u16, u32, u32, u32) {
         let Some(name) = wire::decode_get_bundle_elf(frame) else {
-            return (STATUS_MALFORMED, 0, 0, 0);
+            return (code::VfsError::Invalid.code(), 0, 0, 0);
         };
         let vol = match volume.ensure() {
             Ok(v) => v,
-            Err(_) => return (wire::STATUS_UNAVAILABLE, 0, 0, 0),
+            Err(_) => return (code::VfsError::Io.code(), 0, 0, 0),
         };
         let Some((_row, entry)) = vol.lookup(name) else {
-            return (wire::PAYLOAD_STATUS_UNKNOWN, 0, 0, 0);
+            return (code::VfsError::NotFound.code(), 0, 0, 0);
         };
-        match vol.stream_entry_into_vmo(entry, vmo, wire::PAYLOAD_DATA_OFFSET) {
-            Ok((len, read_ms, hash_ms)) => (wire::PAYLOAD_STATUS_OK, len, read_ms, hash_ms),
-            Err(crate::volume::VolumeFail::Digest) => (wire::PAYLOAD_STATUS_DIGEST, 0, 0, 0),
-            Err(crate::volume::VolumeFail::Bounds) => (wire::PAYLOAD_STATUS_TOO_LARGE, 0, 0, 0),
-            Err(_) => (wire::STATUS_UNAVAILABLE, 0, 0, 0),
+        match vol.stream_entry_into_vmo(entry, vmo, vmo_hdr::DATA_OFFSET) {
+            Ok((len, read_ms, hash_ms)) => (code::CODE_OK, len, read_ms, hash_ms),
+            Err(crate::volume::VolumeFail::Digest) => (code::VfsError::Integrity.code(), 0, 0, 0),
+            Err(crate::volume::VolumeFail::Bounds) => (code::VfsError::TooBig.code(), 0, 0, 0),
+            Err(_) => (code::VfsError::Io.code(), 0, 0, 0),
         }
     })();
-    let hdr = wire::encode_payload_header(status, len);
+    let hdr = vmo_hdr::encode_header(status, len);
     let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
     let _ = nexus_abi::cap_close(vmo);
-    if status == wire::PAYLOAD_STATUS_OK {
+    if status == code::CODE_OK {
         emit_bundle_served(frame, read_ms, hash_ms);
     } else {
         emit_line("bundlemgrd: FAIL get_bundle_elf (status)");
@@ -240,28 +243,28 @@ fn handle_get_bundle_elf(
 }
 
 /// GET_INDEX (TASK-0321 P5): the NXSV-verified index bytes into the moved
-/// VMO at `PAYLOAD_DATA_OFFSET`, header LAST. packagefsd derives `pkg:/`
+/// VMO at the payload-VMO data offset, header LAST. packagefsd derives `pkg:/`
 /// from exactly what bundlemgrd verified.
-fn handle_get_index(volume: &mut crate::volume::VolumeState, vmo_slot: Option<u32>) -> (u8, u32) {
-    use nexus_abi::bundlemgrd as wire;
+fn handle_get_index(volume: &mut crate::volume::VolumeState, vmo_slot: Option<u32>) -> (u16, u32) {
+    use nexus_abi::{payload_vmo as vmo_hdr, status as code};
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_index (no vmo cap)");
-        return (nexus_abi::bundlemgrd::PAYLOAD_STATUS_NOT_ARMED, 0);
+        return (code::VfsError::Invalid.code(), 0);
     };
     let (status, len) = match volume.ensure() {
         Ok(v) => {
-            if nexus_abi::vmo_write(vmo, wire::PAYLOAD_DATA_OFFSET, &v.index_bytes).is_err() {
-                (wire::PAYLOAD_STATUS_TOO_LARGE, 0)
+            if nexus_abi::vmo_write(vmo, vmo_hdr::DATA_OFFSET, &v.index_bytes).is_err() {
+                (code::VfsError::TooBig.code(), 0)
             } else {
-                (wire::PAYLOAD_STATUS_OK, v.index_bytes.len() as u32)
+                (code::CODE_OK, v.index_bytes.len() as u32)
             }
         }
-        Err(_) => (wire::STATUS_UNAVAILABLE, 0),
+        Err(_) => (code::VfsError::Io.code(), 0),
     };
-    let hdr = wire::encode_payload_header(status, len);
+    let hdr = vmo_hdr::encode_header(status, len);
     let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
     let _ = nexus_abi::cap_close(vmo);
-    if status != wire::PAYLOAD_STATUS_OK {
+    if status != code::CODE_OK {
         emit_line("bundlemgrd: FAIL get_index (status)");
     }
     (status, len)
@@ -274,34 +277,35 @@ fn handle_get_file_vmo(
     volume: &mut crate::volume::VolumeState,
     frame: &[u8],
     vmo_slot: Option<u32>,
-) -> (u8, u32) {
+) -> (u16, u32) {
     use nexus_abi::bundlemgrd as wire;
+    use nexus_abi::{payload_vmo as vmo_hdr, status as code};
     let Some(vmo) = vmo_slot else {
         emit_line("bundlemgrd: FAIL get_file (no vmo cap)");
-        return (nexus_abi::bundlemgrd::PAYLOAD_STATUS_NOT_ARMED, 0);
+        return (code::VfsError::Invalid.code(), 0);
     };
-    let (status, len) = (|| -> (u8, u32) {
+    let (status, len) = (|| -> (u16, u32) {
         let Some((bundle, path)) = wire::decode_get_file_vmo(frame) else {
-            return (STATUS_MALFORMED, 0);
+            return (code::VfsError::Invalid.code(), 0);
         };
         let vol = match volume.ensure() {
             Ok(v) => v,
-            Err(_) => return (wire::STATUS_UNAVAILABLE, 0),
+            Err(_) => return (code::VfsError::Io.code(), 0),
         };
         let Some(entry) = vol.lookup_entry(bundle, path) else {
-            return (wire::PAYLOAD_STATUS_UNKNOWN, 0);
+            return (code::VfsError::NotFound.code(), 0);
         };
-        match vol.stream_entry_into_vmo(entry, vmo, wire::PAYLOAD_DATA_OFFSET) {
-            Ok((len, _, _)) => (wire::PAYLOAD_STATUS_OK, len),
-            Err(crate::volume::VolumeFail::Digest) => (wire::PAYLOAD_STATUS_DIGEST, 0),
-            Err(crate::volume::VolumeFail::Bounds) => (wire::PAYLOAD_STATUS_TOO_LARGE, 0),
-            Err(_) => (wire::STATUS_UNAVAILABLE, 0),
+        match vol.stream_entry_into_vmo(entry, vmo, vmo_hdr::DATA_OFFSET) {
+            Ok((len, _, _)) => (code::CODE_OK, len),
+            Err(crate::volume::VolumeFail::Digest) => (code::VfsError::Integrity.code(), 0),
+            Err(crate::volume::VolumeFail::Bounds) => (code::VfsError::TooBig.code(), 0),
+            Err(_) => (code::VfsError::Io.code(), 0),
         }
     })();
-    let hdr = wire::encode_payload_header(status, len);
+    let hdr = vmo_hdr::encode_header(status, len);
     let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
     let _ = nexus_abi::cap_close(vmo);
-    if status != wire::PAYLOAD_STATUS_OK {
+    if status != code::CODE_OK {
         emit_line("bundlemgrd: FAIL get_file (status)");
     }
     (status, len)
@@ -362,7 +366,7 @@ pub(crate) fn reply_done(
     reply: Option<nexus_ipc::ReplyCap>,
     server: &KernelServer,
     op: u8,
-    status: u8,
+    status: u16,
     len: u32,
 ) {
     let rsp = nexus_abi::bundlemgrd::encode_payload_done_rsp(op, status, len);
@@ -375,7 +379,7 @@ pub(crate) fn reply_done(
 
 /// `OP_ARM_VMO` (TASK-0324 P7-d): the moved cap IS the destination VMO of the sender's next
 /// VMO op — kept under the KERNEL sender identity. Denied senders and a full table release
-/// the cap at once (fail-closed; the following op answers `PAYLOAD_STATUS_NOT_ARMED`).
+/// the cap at once (fail-closed; the following op answers `Invalid`).
 pub(crate) fn handle_arm_vmo(
     armed: &mut crate::armed_vmo::ArmedVmos,
     sender_service_id: u64,

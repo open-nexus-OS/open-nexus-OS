@@ -5,20 +5,35 @@
 //! transfer). Bulk file bytes above [`INLINE_IO_MAX`] move as a VMO handle
 //! instead of streaming through IPC frames: the client creates a VMO, CAP_MOVEs
 //! it to vfsd with an [`OP_READ_VMO`] request, and the provider fills it —
-//! writing the payload FIRST and the [`SPLICE_MAGIC`] header LAST (release
-//! ordering), so a client that sees the magic sees complete data. This is the
-//! same header-last handoff execd/bundlemgrd use for payloads; the codec lives
-//! here so vfsd and every client share one byte layout. Inline reads/writes
-//! above the cap are `E2BIG`, never a silent slow path.
+//! writing the payload FIRST and the header LAST (release ordering), so a
+//! client that sees the magic sees complete data. Inline reads/writes above the
+//! cap are `E2BIG`, never a silent slow path.
+//!
+//! The header itself is NOT declared here any more. It is the one payload-VMO
+//! header (`nexus_wire::payload_vmo`, RFC-0097) that bundlemgrd's payload ops
+//! use as well — the same 16 bytes served two protocols under two magics until
+//! TASK-0033 P1. The names below are re-exports, so every VFS client keeps its
+//! `nexus_vfs_types::` paths.
+//!
 //! OWNERS: @runtime
-//! STATUS: Experimental (TASK-0295)
+//! STATUS: Experimental (TASK-0295, unified TASK-0033)
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: header roundtrip + magic/bounds negatives + request codec
+//! TEST_COVERAGE: request codec bounds + the provider-fill/consumer-read contract
+//!   (the header codec's own tests live with the codec)
+//! RFC: docs/rfcs/RFC-0097-payload-vmo-header-v2-pkg-passthrough.md
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::entry::MAX_PATH_LEN;
+
+/// THE payload-VMO header codec (RFC-0097). Re-exported under the historical
+/// splice names so the VFS surface reads the way RFC-0072 describes it.
+pub use nexus_wire::payload_vmo::{
+    decode_header as decode_splice_header, encode_header as encode_splice_header,
+    fits as splice_fits, DATA_OFFSET as SPLICE_DATA_OFFSET, HEADER_LEN as SPLICE_HEADER_LEN,
+    MAGIC as SPLICE_MAGIC,
+};
 
 /// Frame opcode for a VMO-splice read (byte 0 of the request). Sits between
 /// `OP_READDIR = 6` and `OP_MKDIR = 8` in the shared opcode space.
@@ -28,51 +43,6 @@ pub const OP_READ_VMO: u8 = 7;
 /// plane is a VMO handle (RFC-0071/0072). An inline read/write above the cap is
 /// a protocol error (`E2BIG`), announced in RFC-0072 and enforced here.
 pub const INLINE_IO_MAX: usize = 4096;
-
-/// Marks a filled splice header. A freshly created VMO is all-zero, so the
-/// magic being present is the signal that the provider finished writing (it
-/// writes the payload first, then this header — release ordering).
-pub const SPLICE_MAGIC: [u8; 4] = *b"NXVR";
-
-/// Length of the splice header written at VMO offset 0.
-pub const SPLICE_HEADER_LEN: usize = 16;
-
-/// Offset within the VMO where the payload bytes begin (after the header).
-pub const SPLICE_DATA_OFFSET: usize = SPLICE_HEADER_LEN;
-
-/// Encodes the 16-byte splice header: `magic(4) | status u16 LE | rsv(2) |
-/// len u32 LE | rsv(4)`. `status` is an RFC-0072 error code (0 = OK); `len` is
-/// the payload byte count that follows at [`SPLICE_DATA_OFFSET`].
-#[must_use]
-pub fn encode_splice_header(status: u16, len: u32) -> [u8; SPLICE_HEADER_LEN] {
-    let mut hdr = [0u8; SPLICE_HEADER_LEN];
-    hdr[0..4].copy_from_slice(&SPLICE_MAGIC);
-    hdr[4..6].copy_from_slice(&status.to_le_bytes());
-    hdr[8..12].copy_from_slice(&len.to_le_bytes());
-    hdr
-}
-
-/// Decodes a splice header into `(status, len)`. Returns `None` when the magic
-/// is absent — i.e. the provider has not finished writing (poll again).
-#[must_use]
-pub fn decode_splice_header(buf: &[u8]) -> Option<(u16, u32)> {
-    if buf.len() < SPLICE_HEADER_LEN || buf[0..4] != SPLICE_MAGIC {
-        return None;
-    }
-    let status = u16::from_le_bytes([buf[4], buf[5]]);
-    let len = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
-    Some((status, len))
-}
-
-/// Whether a payload of `payload_len` bytes fits in a caller VMO of
-/// `vmo_capacity` bytes (after reserving the [`SPLICE_DATA_OFFSET`] header).
-/// A payload that does not fit is an `E2BIG` — the provider must NOT truncate.
-#[must_use]
-pub fn splice_fits(payload_len: usize, vmo_capacity: usize) -> bool {
-    vmo_capacity
-        .checked_sub(SPLICE_DATA_OFFSET)
-        .is_some_and(|max_payload| payload_len <= max_payload)
-}
 
 /// Encodes an `OP_READ_VMO` request payload (the path bytes; the opcode byte is
 /// prepended by the caller). The read starts at offset 0 and fills up to the
@@ -97,23 +67,6 @@ pub fn decode_read_vmo_request(payload: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn header_roundtrips() {
-        let hdr = encode_splice_header(0, 12345);
-        assert_eq!(decode_splice_header(&hdr), Some((0, 12345)));
-        let err = encode_splice_header(8, 0); // E2BIG, no payload
-        assert_eq!(decode_splice_header(&err), Some((8, 0)));
-    }
-
-    #[test]
-    fn unwritten_header_is_pending() {
-        // A fresh VMO is all-zero: no magic → still pending.
-        let zero = [0u8; SPLICE_HEADER_LEN];
-        assert_eq!(decode_splice_header(&zero), None);
-        // Short buffers never falsely decode.
-        assert_eq!(decode_splice_header(&[b'N', b'X', b'V']), None);
-    }
 
     #[test]
     fn request_roundtrips_and_bounds() {
@@ -160,11 +113,5 @@ mod tests {
         // The provider signals E2BIG with a zero-length payload, never a partial.
         let hdr = encode_splice_header(crate::VfsError::TooBig.code(), 0);
         assert_eq!(decode_splice_header(&hdr), Some((crate::VfsError::TooBig.code(), 0)));
-    }
-
-    #[test]
-    fn splice_fits_rejects_capacity_below_header() {
-        assert!(!splice_fits(0, SPLICE_HEADER_LEN - 1));
-        assert!(splice_fits(0, SPLICE_HEADER_LEN));
     }
 }

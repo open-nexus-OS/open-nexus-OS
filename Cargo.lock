@@ -2422,6 +2422,9 @@ dependencies = [
 [[package]]
 name = "nexus-vfs-types"
 version = "0.1.0"
+dependencies = [
+ "nexus-wire",
+]
 
 [[package]]
 name = "nexus-virtio"

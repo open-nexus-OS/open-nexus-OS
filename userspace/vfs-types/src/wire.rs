@@ -18,7 +18,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::entry::{DirEntry, FileKind, MAX_ENTRIES_PER_PAGE, MAX_NAME_LEN, MAX_PATH_LEN};
-use crate::error::{VfsError, CODE_OK};
+use crate::{VfsError, CODE_OK};
 
 /// Hard byte budget for an encoded response payload. Keeps the full frame
 /// (opcode byte + payload) comfortably inside the 8 KiB IPC frame cap.

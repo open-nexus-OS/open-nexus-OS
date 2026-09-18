@@ -6,6 +6,7 @@ license = "Apache-2.0"
 description = "Shared VFS surface types: stable storage error codes (RFC-0072), directory entries, and the bounded raw wire codec used by vfsd/packagefsd servers and clients."
 
 [dependencies]
+nexus-wire = { path = "../../source/libs/nexus-wire" }
 
 [lints.rust]
 unsafe_code = "forbid"

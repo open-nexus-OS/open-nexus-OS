@@ -3,7 +3,7 @@
 
 # RFC-0097: Payload-VMO header v2 — ONE header codec, and `pkg:/` reads as a VMO pass-through
 
-- Status: **Draft seed 2026-09-18** (TASK-0033 P0–P3)
+- Status: **In Progress 2026-09-18** (TASK-0033 P0–P3; P1 landed)
 - Owners: @runtime
 - Created: 2026-09-18
 - Last Updated: 2026-09-18
@@ -16,7 +16,7 @@
 
 ## Status at a Glance
 
-- **P1 (one codec)**: ⬜ — `nexus_wire::payload_vmo` is the SSOT, `NXPL` deleted, every decoder moved
+- **P1 (one codec)**: ✅ 2026-09-18 — `nexus_wire::payload_vmo` is the SSOT, `NXPL` deleted, every decoder moved, gated by `just payload-vmo`
 - **P2 (`pkg:/` pass-through)**: ⬜ — vfsd → packagefsd → bundlemgrd, no hop copies
 - **P3 (docs + markers)**: ⬜
 
@@ -84,6 +84,13 @@ The SSOT moves to `source/libs/nexus-wire/src/payload_vmo.rs`. `vfs-types::splic
 it so `OP_READ_VMO` clients are unaffected; `nexus-wire::bundlemgrd`'s `PAYLOAD_MAGIC`,
 `PAYLOAD_STATUS_*`, `encode_payload_header` and `decode_payload_header` are **deleted**.
 
+The status TABLE moves with it, to `nexus_wire::status` (`nexus_vfs_types` re-exports it, so
+the VFS surface is unchanged). It has to: the header is written and read by bundlemgrd, execd,
+init and app-host, none of which are VFS clients, and a vocabulary that lives in a crate named
+after one of its consumers is how a second one gets written. Because `nexus-abi` already
+re-exports `nexus-wire`, every consumer reaches both through its existing
+`nexus_abi::` paths — the unification adds no dependency edge anywhere.
+
 ```
 offset  0   4   6   8      12     16
         |NXVR|st |rsv| len  | rsv |
@@ -105,9 +112,38 @@ a fresh VMO is all-zero:
 - **A reused VMO has its header zeroed before it is armed.** Otherwise a stale `OK` from the
   previous operation is a valid completion signal for this one.
 
-The `NXPL` → `NXVR` status mapping for migration: `PAYLOAD_STATUS_OK (1)` → `CODE_OK (0)`,
-`PAYLOAD_STATUS_UNKNOWN (2)` → `NotFound (1)`, `PAYLOAD_STATUS_TOO_LARGE (3)` → `TooBig (8)`,
-and digest failure — which had no code — becomes `Integrity (9)`.
+#### The migration, and the defect it removes
+
+The private space had five values, not three, and bundlemgrd's GENERIC reply statuses were
+written into the same header byte alongside them — two const families, one `u8`, same module:
+
+| retired | value | replacement | value |
+|---|---|---|---|
+| `PAYLOAD_STATUS_OK` | 1 | `CODE_OK` | 0 |
+| `PAYLOAD_STATUS_UNKNOWN` | 2 | `NotFound` | 1 |
+| `PAYLOAD_STATUS_TOO_LARGE` | 3 | `TooBig` | 8 |
+| `PAYLOAD_STATUS_DIGEST` | 4 | `Integrity` | 9 |
+| `PAYLOAD_STATUS_NOT_ARMED` | 5 | `Invalid` | 11 |
+| `STATUS_MALFORMED` (in the payload path) | 1 | `Invalid` | 11 |
+| `STATUS_UNAVAILABLE` (in the payload path) | 5 | `Io` | 13 |
+| a denied payload op | `STATUS_UNSUPPORTED` 2 | `Access` | 2 |
+
+Read the first and sixth rows together: **`STATUS_MALFORMED` and `PAYLOAD_STATUS_OK` were both
+`1`.** A malformed `GET_PAYLOAD` request wrote a header that decodes as SUCCESS, and execd —
+whose only check is `status != PAYLOAD_STATUS_OK` — returned `true` and never emitted its
+`execd: FAIL app payload (status)`. The system survived on a downstream `len == 0` check in
+app-host, which is luck, not a contract. `STATUS_UNAVAILABLE` and `PAYLOAD_STATUS_NOT_ARMED`
+collided the same way at `5`, reporting a dead volume as a client protocol error.
+
+One table with `0 = OK` makes this unrepresentable: every error is non-zero, so no error can
+read as success. That is what `test_reject_status_collision_is_unrepresentable` and
+`test_reject_error_status_reads_as_ok` assert.
+
+The VMO op's DONE-REPLY carries the same table, so it widens with it:
+`[B, N, ver, op|0x80, status:u16le, len:u32le]`, `PAYLOAD_DONE_RSP_LEN` 9 → 10. A reply and
+the header it announces can no longer disagree about what a number means. bundlemgrd's other
+ops (`QUERY_BUNDLE`, `VOLUME_STATUS`) are not payload-VMO ops and keep their own generic
+reply space — now unable to leak into a header, because the types differ.
 
 ### §2 `pkg:/` is a pass-through
 
@@ -158,9 +194,13 @@ serving. No hop may write a success header it did not earn.
 
 ## Proof
 
-Host: header roundtrip and negatives (`test_reject_short_header`, `test_reject_bad_magic`,
-`test_reject_integrity`, `test_reject_oversize_for_vmo`); packagefsd's forward against a fake
-bundlemgrd; a gate proving exactly one payload-VMO magic exists in the tree.
+Host (P1, green): header roundtrip + golden bytes and the negatives
+`test_reject_short_header`, `test_reject_bad_magic` (including the retired `NXPL` magic),
+`test_reject_unwritten_header`, `test_reject_oversize_for_vmo`,
+`test_reject_status_collision_is_unrepresentable`, `test_reject_error_status_reads_as_ok`.
+Gate `just payload-vmo` (in `just check`) counts the declarations: one magic, one status
+table, no retired magic and no retired private status space — with a self-test that proves the
+scanner catches a second declaration. P2 adds packagefsd's forward against a fake bundlemgrd.
 
 QEMU, registered in `proof-manifest/markers/vfs.toml` + `scripts/qemu-test.sh` +
 `tools/nx/chains/markers.txt`:

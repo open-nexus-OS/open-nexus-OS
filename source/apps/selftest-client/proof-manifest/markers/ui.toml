@@ -74,6 +74,17 @@ phase = "end"
 emit_when = { profile = "full" }
 proves = "selftest observed the v2 present state in GPU path"
 
+# Emitted by windowd's compositor runtime (and echoed by the selftest end
+# phase) the first time a REAL input event reaches the v2 path. Not every run
+# drives one — the harness injector only does so in profiles that inject — so
+# this carries no `emit_when`: it is a known, meaningful line, not a claim every
+# profile must produce. Registered TASK-0033 P1: it was emitted but never
+# declared, and evidence assembly is deny-by-default on an unknown `SELFTEST:`
+# line, so any run that DID drive input failed to assemble its bundle.
+[marker."SELFTEST: ui v2 input ok"]
+phase = "end"
+proves = "a real input event reached windowd's v2 input path and the state was applied"
+
 [marker."SELFTEST: ui visible present ok"]
 phase = "end"
 emit_when = { profile = "full" }

@@ -220,7 +220,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                         if let Some(slot) = vmo_slot {
                             let _ = nexus_abi::cap_close(slot);
                         }
-                        (STATUS_UNSUPPORTED, 0)
+                        (nexus_abi::status::VfsError::Access.code(), 0)
                     };
                     crate::payload_ops::reply_done(
                         reply.take(),

@@ -51,7 +51,7 @@ enum MountMode {
 }
 
 /// Bounded index handoff (RFC-0089 §12.2: index ≤ 256 KiB).
-const INDEX_VMO_BYTES: usize = nexus_abi::bundlemgrd::PAYLOAD_DATA_OFFSET + 256 * 1024;
+const INDEX_VMO_BYTES: usize = nexus_abi::payload_vmo::DATA_OFFSET + 256 * 1024;
 
 /// Result type used by the os-lite backend.
 pub type LiteResult<T> = core::result::Result<T, LiteError>;
@@ -192,26 +192,27 @@ impl VolumeReader {
     /// Fetches one entry's bytes through `GET_FILE_VMO` (header-last poll).
     fn fetch(&self, bundle: &str, path: &str, size: u64) -> Option<Vec<u8>> {
         use nexus_abi::bundlemgrd as wire;
+        use nexus_abi::payload_vmo as hdr;
         let size = usize::try_from(size).ok()?;
-        if wire::PAYLOAD_DATA_OFFSET + size > self.vmo_len {
+        if !hdr::fits(size, self.vmo_len) {
             return None;
         }
-        // Clear the header so a stale OK from the previous fetch can never
-        // be mistaken for this one.
-        let zero = [0u8; wire::PAYLOAD_DATA_OFFSET];
-        nexus_abi::vmo_write(self.vmo, 0, &zero).ok()?;
+        // Clear the header so a stale OK from the previous fetch can never be
+        // mistaken for this one — `CODE_OK` is 0, so the magic is the only
+        // thing standing between a reused VMO and a false release (RFC-0097).
+        nexus_abi::vmo_write(self.vmo, 0, &hdr::ZEROED_HEADER).ok()?;
         let mut req = [0u8; 160];
         let n = wire::encode_get_file_vmo(bundle.as_bytes(), path.as_bytes(), &mut req)?;
         // ARM the VMO, then ask with a reply cap: bundlemgrd streams, writes the header LAST
         // and answers — the answer is waited for (or its death), never polled (P7-d).
         let (status, len) =
             vmo_op(self.bundle_send, self.inbox, self.vmo, &req[..n], wire::OP_GET_FILE_VMO)?;
-        if status != wire::PAYLOAD_STATUS_OK || len as usize != size {
+        if status != nexus_abi::status::CODE_OK || len as usize != size {
             return None;
         }
         let len = len as usize;
         let mut bytes = vec![0u8; len];
-        nexus_abi::vmo_read(self.vmo, wire::PAYLOAD_DATA_OFFSET, &mut bytes).ok()?;
+        nexus_abi::vmo_read(self.vmo, hdr::DATA_OFFSET, &mut bytes).ok()?;
         Some(bytes)
     }
 }
@@ -226,7 +227,7 @@ fn vmo_op(
     vmo: u32,
     req: &[u8],
     op: u8,
-) -> Option<(u8, u32)> {
+) -> Option<(u16, u32)> {
     use nexus_abi::bundlemgrd as wire;
     let moved = nexus_abi::cap_clone(vmo).ok()?;
     if nexus_ipc::exchange::send_with_cap(bundle_send, &arm_frame(), moved).is_err() {
@@ -396,6 +397,7 @@ fn load_registry_from_volume() -> Option<(BundleRegistry, VolumeReader)> {
 
 fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &'static str> {
     use nexus_abi::bundlemgrd as wire;
+    use nexus_abi::payload_vmo as hdr;
     // Nonce-correlated route queries: this service's own server route
     // query (issued at start, answered by init only after bootstrap) leaves
     // a reply in the ctrl queue that a nonce-less `new_for` consumed as the
@@ -426,15 +428,12 @@ fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &
     let n = wire::encode_get_index(&mut req).ok_or("encode index")?;
     let (status, len) =
         vmo_op(bnd.send, inbox, index_vmo, &req[..n], wire::OP_GET_INDEX).ok_or("index answer")?;
-    if status != wire::PAYLOAD_STATUS_OK
-        || (len as usize) > INDEX_VMO_BYTES - wire::PAYLOAD_DATA_OFFSET
-    {
+    if status != nexus_abi::status::CODE_OK || (len as usize) > INDEX_VMO_BYTES - hdr::DATA_OFFSET {
         return Err("index header");
     }
     let index_len = len as usize;
     let mut head = vec![0u8; index_len];
-    nexus_abi::vmo_read(index_vmo, wire::PAYLOAD_DATA_OFFSET, &mut head)
-        .map_err(|_| "index read")?;
+    nexus_abi::vmo_read(index_vmo, hdr::DATA_OFFSET, &mut head).map_err(|_| "index read")?;
     let index = parse_index(&head, &PkgImgCaps::default()).map_err(|_| "index parse")?;
 
     let mut registry = BundleRegistry::default();
@@ -461,7 +460,7 @@ fn load_registry_from_volume_inner() -> Result<(BundleRegistry, VolumeReader), &
     }
     // ONE reusable file VMO sized for the largest entry (page-rounded).
     let largest = usize::try_from(largest).map_err(|_| "entry size")?;
-    let vmo_len = (wire::PAYLOAD_DATA_OFFSET + largest).div_ceil(4096) * 4096;
+    let vmo_len = (hdr::DATA_OFFSET + largest).div_ceil(4096) * 4096;
     let vmo = nexus_abi::vmo_create(vmo_len).map_err(|_| "file vmo")?;
     emit_mounted(slot, bundles as usize, files);
     Ok((registry, VolumeReader { bundle_send: bnd.send, inbox, vmo, vmo_len }))

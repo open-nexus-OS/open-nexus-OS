@@ -34,6 +34,7 @@ use crate::bootstrap::CtrlChannel;
 use crate::os_payload::InitError;
 use nexus_abi::bundlemgrd as wire;
 use nexus_abi::page_flags;
+use nexus_abi::payload_vmo as hdr;
 
 const PAGE: usize = 4096;
 
@@ -170,7 +171,7 @@ fn spawn_one(
     // 2. A fresh VMO sized for header + ELF, ARMED at bundlemgrd, then GET_BUNDLE_ELF with a
     //    reply cap: bundlemgrd streams, hashes, writes the header LAST and answers — the
     //    answer IS the completion (TASK-0324 P7-d; no header poll).
-    let total = (wire::PAYLOAD_DATA_OFFSET + size as usize).div_ceil(PAGE) * PAGE;
+    let total = (hdr::DATA_OFFSET + size as usize).div_ceil(PAGE) * PAGE;
     let vmo = nexus_abi::vmo_create(total).map_err(|_| Fail::Vmo)?;
     arm_vmo(bnd_req, vmo).ok_or(Fail::Send)?;
     let n = wire::encode_get_bundle_elf(name.as_bytes(), &mut req).ok_or(Fail::Send)?;
@@ -181,15 +182,15 @@ fn spawn_one(
     let (status, len) =
         wire::decode_payload_done_rsp(&rsp[..rn], wire::OP_GET_BUNDLE_ELF).ok_or(Fail::Header)?;
     let len = match status {
-        wire::PAYLOAD_STATUS_OK if len == size => len as usize,
-        wire::PAYLOAD_STATUS_DIGEST => return Err(Fail::Digest),
+        s if s == nexus_abi::status::CODE_OK && len == size => len as usize,
+        s if s == nexus_abi::status::VfsError::Integrity.code() => return Err(Fail::Digest),
         _ => return Err(Fail::Header),
     };
 
     // 4. Map read-only (kernel-chosen VA) and exec the mapped slice.
     let va = nexus_abi::vm_map(vmo, 0, total, page_flags::USER | page_flags::READ)
         .map_err(|_| Fail::Map)?;
-    let elf = &ro_slice(va, total)[wire::PAYLOAD_DATA_OFFSET..wire::PAYLOAD_DATA_OFFSET + len];
+    let elf = &ro_slice(va, total)[hdr::DATA_OFFSET..hdr::DATA_OFFSET + len];
     let pid = nexus_abi::exec_v2(elf, stack_pages as usize, global_pointer, name)
         .map_err(|_| Fail::Exec)?;
 

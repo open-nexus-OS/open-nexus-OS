@@ -552,7 +552,7 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot display-ssot wait-not-poll ipc-bounds ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot display-ssot wait-not-poll ipc-bounds payload-vmo ci-parity
 
 # TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
 build-truth:
@@ -574,6 +574,14 @@ input-flood:
 # mechanically instead of remembered. See scripts/check-ipc-bounds.sh.
 ipc-bounds:
     @./scripts/check-ipc-bounds.sh
+
+# TASK-0033 P1 (RFC-0097): ONE payload-VMO header and ONE status table. The same
+# 16 bytes carried two magics with two status spaces, and the private one
+# collided with bundlemgrd's generic replies (`STATUS_MALFORMED` ==
+# `PAYLOAD_STATUS_OK` == 1), so an error read as success. A second magic is how
+# that returns. See scripts/check-payload-vmo.sh.
+payload-vmo:
+    @./scripts/check-payload-vmo.sh
 
 # TASK-0324 P4 (RFC-0093 §4): capability slots have one home (nexus-service-topology);
 # the remaining positional declarations are a shrinking ratchet.

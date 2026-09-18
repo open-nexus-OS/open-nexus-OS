@@ -135,19 +135,41 @@ soft dependency); cross-device VMO transport; changing `OP_GET_FILE_VMO`'s proto
   (vfs `OP_READ_VMO`; bundlemgrd `GET_FILE_VMO` where packagefsd is the caller). The conflict is
   only the header codec and who copies — no model change needed.
 - **D2 One codec.** `nexus_wire::payload_vmo` (`MAGIC = "NXVR"`, 16 B, `status u16` = the
-  RFC-0072 code space, `len u32`) becomes the SSOT; `vfs-types::splice` re-exports it;
-  bundlemgrd's `PAYLOAD_MAGIC`/`encode|decode_payload_header`/`PAYLOAD_STATUS_*` are DELETED
-  and every decoder (execd `GET_PAYLOAD`, init bundle-ELF / `GET_INDEX`, packagefsd, app-host)
-  decodes the one header. No new status code is needed — `VfsError::Integrity = 9` already
-  exists; the migration is a magic swap plus a value remap (`PAYLOAD_STATUS_OK 1` → `CODE_OK
-  0`, `UNKNOWN 2` → `NotFound 1`, `TOO_LARGE 3` → `TooBig 8`, digest failure → `Integrity 9`),
-  since both headers are 16 B with the magic at `[0..4]` and `len` at `[8..12]`. Two rules
-  become explicit because `CODE_OK` is `0` and a fresh VMO is all-zero: the header is written
-  in ONE 16-byte `vmo_write`, and a REUSED VMO has its header zeroed before it is armed
-  (packagefsd already does the second — it must survive the migration). Gate: the codec exists
-  in exactly one module (structure test in nexus-wire + a grep gate against a second magic),
-  roundtrip + negative tests, and the boot ladder (`bundlemgrd: bundle served`, `init: spawn
-  from volume`) proves the volume path still boots.
+  RFC-0072 code space, `len u32`) is the SSOT; `vfs-types::splice` re-exports it; bundlemgrd's
+  `PAYLOAD_MAGIC`/`encode|decode_payload_header`/`PAYLOAD_STATUS_*` are DELETED and every
+  decoder (execd `GET_PAYLOAD`, init bundle-ELF / `GET_INDEX`, packagefsd, app-host) decodes
+  the one header. Both headers were already 16 B with the magic at `[0..4]` and `len` at
+  `[8..12]`, so the bytes change only in the magic.
+
+  **Revised by measurement (P1).** The status TABLE moves to `nexus_wire::status` as well
+  (`nexus_vfs_types` re-exports it, so the ~160 `VfsError` sites and 10 dependent crates are
+  untouched). It has to: the header is written and read by bundlemgrd, execd, init and
+  app-host, none of which are VFS clients. Both candidate crates have zero dependencies and
+  `nexus-abi` already re-exports `nexus-wire`, so this direction adds no dependency edge
+  anywhere, while the other would have put a userspace VFS crate under a core ABI crate.
+
+  The private space had FIVE values, not three — and bundlemgrd's generic `STATUS_*` family was
+  written into the same header byte: `PAYLOAD_STATUS_OK 1` → `CODE_OK 0`, `UNKNOWN 2` →
+  `NotFound 1`, `TOO_LARGE 3` → `TooBig 8`, `DIGEST 4` → `Integrity 9`, `NOT_ARMED 5` →
+  `Invalid 11`, plus `STATUS_MALFORMED 1` → `Invalid 11`, `STATUS_UNAVAILABLE 5` → `Io 13` and
+  a denied payload op `STATUS_UNSUPPORTED 2` → `Access 2`. **`STATUS_MALFORMED` and
+  `PAYLOAD_STATUS_OK` were both `1`**, so a malformed request wrote a header that read as
+  SUCCESS and execd's `status != PAYLOAD_STATUS_OK` could never fire — the system was saved
+  only by a downstream `len == 0` check in app-host. One table with `0 = OK` makes that
+  unrepresentable. The VMO op's done-reply carries the same table and widens with it
+  (`PAYLOAD_DONE_RSP_LEN` 9 → 10, `status:u16le`); `QUERY_BUNDLE`/`VOLUME_STATUS` are not
+  payload ops and keep the generic space, which can no longer leak into a header because the
+  types differ.
+
+  Two rules become explicit because `CODE_OK` is `0` and a fresh VMO is all-zero: the header is
+  written in ONE 16-byte `vmo_write` (`encode_header` returns the whole array for that reason),
+  and a REUSED VMO is zeroed with `ZEROED_HEADER` before it is armed (packagefsd already did
+  the second — it survived the migration). Gate: `scripts/check-payload-vmo.sh`
+  (`just payload-vmo`, in `just check`) counts declarations — one magic, one status table, no
+  retired magic, no retired private status space — with a self-test proving it catches a second
+  declaration; plus roundtrip + negative tests, and the boot ladder (`bundlemgrd: bundle
+  served`, `init: spawn from volume`, `packagefsd: mounted`, `APPHOST: payload source=bundle`)
+  proving the volume path still boots.
 - **D3 Pass-through.** New packagefsd op `OP_READ_VMO` (path + CAP_MOVE VMO) forwards to
   bundlemgrd `GET_FILE_VMO`; vfsd's copying `pkg:/` branch (`splice_os.rs:139`) is DELETED and
   replaced by the forward; `packagefs_resolve` is split — `stat`/`open` carry metadata
@@ -164,9 +186,16 @@ soft dependency); cross-device VMO transport; changing `OP_GET_FILE_VMO`'s proto
 
 - **P0** RFC-0097 seed + this ledger + IMPLEMENTATION-ORDER line (approval zone `docs/rfcs`).
   Blast: paper.
-- **P1** Codec unification (`nexus-wire/payload_vmo.rs` new, `vfs-types` re-export, all 7
-  decoder files, `NXPL` deleted + gated). Blast: volume boot, execd app launch, OTA
-  `bundle reused`/flip/fallback lanes, packagefsd mount — `test-all`.
+- **P1** ✅ **2026-09-18** Codec unification (`nexus-wire/{payload_vmo,status}.rs`, `vfs-types`
+  re-exports, all 7 decoder files, `NXPL` + its private status space deleted, done-reply
+  widened, `scripts/check-payload-vmo.sh` in `just check`). Blast: volume boot, execd app
+  launch, OTA `bundle reused`/flip/fallback lanes, packagefsd mount — `test-all`.
+  Incidental, found by the lane and fixed with it: `SELFTEST: ui v2 input ok` was emitted by
+  windowd but declared in no marker manifest, and evidence assembly is deny-by-default on an
+  unknown `SELFTEST:` line — so every run that actually drove input failed to assemble its
+  bundle, and every run that did not passed. Registered in `markers/ui.toml` without an
+  `emit_when` (it is a real line, not a claim every profile must produce); proven by replaying
+  the exact UART that failed.
 - **P2** Pass-through (vfsd/packagefsd/bundlemgrd) + the oversize selftest. Blast: vfs lanes,
   `vfsd: vmo splice` markers, visible lane (app assets via `pkg:/`).
 - **P3** Docs + markers (`docs/storage/packagefs.md`, RFC-0072 cross-link, CHANGELOG,

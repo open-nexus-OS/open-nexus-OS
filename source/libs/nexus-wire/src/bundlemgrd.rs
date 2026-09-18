@@ -107,7 +107,7 @@ crate::frames! {
 /// GET_PAYLOAD; TASK-0324 P7-d). Request: `[B, N, ver, OP_GET_PAYLOAD, id_len:u8,
 /// id...]` with a REPLY capability MOVED alongside; the destination VMO was moved
 /// earlier with [`OP_ARM_VMO`]. bundlemgrd writes the payload bytes at
-/// [`PAYLOAD_DATA_OFFSET`], then the header LAST (header-last = release ordering for
+/// [`crate::payload_vmo::DATA_OFFSET`], then the header LAST (header-last = release ordering for
 /// the single writer), then answers `[…|0x80, status, len:u32le]` on the reply cap —
 /// the consumer WAITS for the answer (or bundlemgrd's death), never polls the header.
 pub const OP_GET_PAYLOAD: u8 = 6;
@@ -116,33 +116,32 @@ pub const OP_GET_PAYLOAD: u8 = 6;
 /// the sender's next VMO op (GET_PAYLOAD / GET_BUNDLE_ELF / GET_INDEX / GET_FILE_VMO)
 /// consumes it. A second ARM replaces the first (the earlier VMO is released). No reply.
 pub const OP_ARM_VMO: u8 = 12;
-/// Reply status of a VMO op whose sender armed no VMO (fail-closed: nothing was written).
-pub const PAYLOAD_STATUS_NOT_ARMED: u8 = 5;
-/// Length of a VMO op's reply: `[B, N, ver, op|0x80, status, len:u32le]`.
-pub const PAYLOAD_DONE_RSP_LEN: usize = 9;
+/// Length of a VMO op's reply: `[B, N, ver, op|0x80, status:u16le, len:u32le]`.
+pub const PAYLOAD_DONE_RSP_LEN: usize = 10;
 
 /// Encodes the ARM_VMO request (the VMO travels as the message's moved cap).
 pub fn encode_arm_vmo(out: &mut [u8; 4]) {
     *out = [MAGIC0, MAGIC1, VERSION, OP_ARM_VMO];
 }
 
-/// Encodes a VMO op's reply, sent AFTER the header write: `[B, N, ver, op|0x80, status,
-/// len:u32le]`. `status` is a `PAYLOAD_STATUS_*` (or a volume status), `len` the payload
-/// length the header carries.
-pub fn encode_payload_done_rsp(op: u8, status: u8, len: u32) -> [u8; PAYLOAD_DONE_RSP_LEN] {
+/// Encodes a VMO op's reply, sent AFTER the header write: `[B, N, ver, op|0x80,
+/// status:u16le, len:u32le]`. `status` is a [`crate::status`] code — the SAME table the
+/// header carries, so a reply and the header it announces can never disagree about what a
+/// number means. `len` is the payload length the header carries.
+pub fn encode_payload_done_rsp(op: u8, status: u16, len: u32) -> [u8; PAYLOAD_DONE_RSP_LEN] {
     let mut out = [0u8; PAYLOAD_DONE_RSP_LEN];
     out[0] = MAGIC0;
     out[1] = MAGIC1;
     out[2] = VERSION;
     out[3] = op | 0x80;
-    out[4] = status;
-    out[5..9].copy_from_slice(&len.to_le_bytes());
+    out[4..6].copy_from_slice(&status.to_le_bytes());
+    out[6..10].copy_from_slice(&len.to_le_bytes());
     out
 }
 
 /// Decodes a VMO op's reply for `op` → `(status, len)`; `None` for any other frame (a
 /// foreign reply on a shared inbox is skipped by the caller, never mis-read).
-pub fn decode_payload_done_rsp(frame: &[u8], op: u8) -> Option<(u8, u32)> {
+pub fn decode_payload_done_rsp(frame: &[u8], op: u8) -> Option<(u16, u32)> {
     if frame.len() != PAYLOAD_DONE_RSP_LEN
         || frame[0] != MAGIC0
         || frame[1] != MAGIC1
@@ -151,40 +150,8 @@ pub fn decode_payload_done_rsp(frame: &[u8], op: u8) -> Option<(u8, u32)> {
     {
         return None;
     }
-    Some((frame[4], u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]])))
-}
-
-/// Payload-VMO header magic (`"NXPL"`), written after the payload bytes.
-pub const PAYLOAD_MAGIC: [u8; 4] = *b"NXPL";
-/// Header length; the payload bytes start here (8-byte aligned for the
-/// canonical `.nxir` capnp contract).
-pub const PAYLOAD_DATA_OFFSET: usize = 16;
-/// Header status: payload written completely.
-pub const PAYLOAD_STATUS_OK: u8 = 1;
-/// Header status: the app id has no ui-program payload.
-pub const PAYLOAD_STATUS_UNKNOWN: u8 = 2;
-/// Header status: the payload exceeds the provided VMO.
-pub const PAYLOAD_STATUS_TOO_LARGE: u8 = 3;
-
-/// Encodes the 16-byte payload-VMO header (`magic, status, len:u32le`).
-///
-/// Not a request/reply frame (no magic0/magic1/version/op prefix) — this is
-/// the shared-memory poll header the GET_PAYLOAD contract writes last.
-pub fn encode_payload_header(status: u8, len: u32) -> [u8; PAYLOAD_DATA_OFFSET] {
-    let mut hdr = [0u8; PAYLOAD_DATA_OFFSET];
-    hdr[..4].copy_from_slice(&PAYLOAD_MAGIC);
-    hdr[4] = status;
-    hdr[8..12].copy_from_slice(&len.to_le_bytes());
-    hdr
-}
-
-/// Decodes a payload-VMO header → `(status, len)`; `None` while the
-/// header has not been written yet (or is not a payload header).
-pub fn decode_payload_header(hdr: &[u8]) -> Option<(u8, u32)> {
-    if hdr.len() < PAYLOAD_DATA_OFFSET || hdr[..4] != PAYLOAD_MAGIC {
-        return None;
-    }
-    Some((hdr[4], u32::from_le_bytes([hdr[8], hdr[9], hdr[10], hdr[11]])))
+    let status = u16::from_le_bytes([frame[4], frame[5]]);
+    Some((status, u32::from_le_bytes([frame[6], frame[7], frame[8], frame[9]])))
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +169,7 @@ pub fn decode_payload_header(hdr: &[u8]) -> Option<(u8, u32)> {
 pub const OP_QUERY_BUNDLE: u8 = 7;
 /// GET_BUNDLE_ELF request `[B, N, ver, OP_GET_BUNDLE_ELF, name_len:u8,
 /// name…]` with the destination VMO capability MOVED alongside; bundlemgrd
-/// writes the bundle's `payload.elf` bytes at [`PAYLOAD_DATA_OFFSET`] after
+/// writes the bundle's `payload.elf` bytes at [`crate::payload_vmo::DATA_OFFSET`] after
 /// verifying their index digest, then the payload header LAST.
 pub const OP_GET_BUNDLE_ELF: u8 = 8;
 /// VOLUME_STATUS request `[B, N, ver, OP_VOLUME_STATUS]` → reply
@@ -215,19 +182,16 @@ pub const STATUS_NOT_FOUND: u8 = 4;
 /// signature/digest failure, block plane down) — deterministic, never a
 /// half answer.
 pub const STATUS_UNAVAILABLE: u8 = 5;
-/// Header status (GET_BUNDLE_ELF): the payload bytes did not hash to the
-/// index digest — nothing usable was written.
-pub const PAYLOAD_STATUS_DIGEST: u8 = 4;
 /// TASK-0321 P5: GET_INDEX request `[B, N, ver, OP_GET_INDEX]` with the
 /// destination VMO MOVED alongside; bundlemgrd writes the NXSV-verified
 /// volume index bytes (superblock + index, ≤ 256 KiB) at
-/// [`PAYLOAD_DATA_OFFSET`], then the payload header LAST. packagefsd builds
+/// [`crate::payload_vmo::DATA_OFFSET`], then the payload header LAST. packagefsd builds
 /// its `pkg:/` view from exactly these bytes (one bundle authority).
 pub const OP_GET_INDEX: u8 = 10;
 /// TASK-0321 P5: GET_FILE_VMO request `[B, N, ver, OP_GET_FILE_VMO,
 /// bundle_len:u8, bundle…, path_len:u8, path…]` with the destination VMO
 /// MOVED alongside; bundlemgrd streams the entry's bytes from the volume
-/// hashed against its index digest, header LAST (`PAYLOAD_STATUS_DIGEST`
+/// hashed against its index digest, header LAST (`Integrity`
 /// on mismatch — never an OK header over unverified bytes).
 pub const OP_GET_FILE_VMO: u8 = 11;
 
@@ -331,11 +295,9 @@ mod tests {
     /// a truncated one never decodes.
     #[test]
     fn payload_done_rsp_round_trip() {
-        let rsp = encode_payload_done_rsp(OP_GET_FILE_VMO, PAYLOAD_STATUS_OK, 81_760);
-        assert_eq!(
-            decode_payload_done_rsp(&rsp, OP_GET_FILE_VMO),
-            Some((PAYLOAD_STATUS_OK, 81_760))
-        );
+        let ok = crate::status::CODE_OK;
+        let rsp = encode_payload_done_rsp(OP_GET_FILE_VMO, ok, 81_760);
+        assert_eq!(decode_payload_done_rsp(&rsp, OP_GET_FILE_VMO), Some((ok, 81_760)));
         assert_eq!(decode_payload_done_rsp(&rsp, OP_GET_PAYLOAD), None, "another op's reply");
         assert_eq!(decode_payload_done_rsp(&rsp[..8], OP_GET_FILE_VMO), None, "truncated");
         let mut req = [0u8; 4];
@@ -343,12 +305,18 @@ mod tests {
         assert_eq!(decode_request_op(&req), Some(OP_ARM_VMO));
     }
 
+    /// The reply and the header it announces speak ONE status table, so no
+    /// error value can be read as success on either (TASK-0033 P1). Before the
+    /// unification `STATUS_MALFORMED` and the header's `OK` were both `1`.
     #[test]
-    fn payload_header_round_trip() {
-        let hdr = encode_payload_header(PAYLOAD_STATUS_OK, 4096);
-        assert_eq!(decode_payload_header(&hdr), Some((PAYLOAD_STATUS_OK, 4096)));
-        // An unwritten (zeroed) header decodes to None — the poll contract.
-        assert_eq!(decode_payload_header(&[0u8; PAYLOAD_DATA_OFFSET]), None);
+    fn test_reject_error_status_reads_as_ok() {
+        use crate::status::{VfsError, CODE_OK};
+        for err in [VfsError::Invalid, VfsError::NotFound, VfsError::TooBig, VfsError::Integrity] {
+            let rsp = encode_payload_done_rsp(OP_GET_PAYLOAD, err.code(), 0);
+            let (status, len) = decode_payload_done_rsp(&rsp, OP_GET_PAYLOAD).expect("decodes");
+            assert_ne!(status, CODE_OK, "{err} must not read as OK");
+            assert_eq!(len, 0);
+        }
     }
 
     #[test]

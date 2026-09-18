@@ -1035,10 +1035,10 @@ fn await_app_payload() -> bool {
             &buf[..n],
             nexus_abi::bundlemgrd::OP_GET_PAYLOAD,
         ) {
-            if status != nexus_abi::bundlemgrd::PAYLOAD_STATUS_OK {
+            if status != nexus_abi::status::CODE_OK {
                 emit_line("execd: FAIL app payload (status)");
             }
-            return status == nexus_abi::bundlemgrd::PAYLOAD_STATUS_OK;
+            return status == nexus_abi::status::CODE_OK;
         }
     }
 }

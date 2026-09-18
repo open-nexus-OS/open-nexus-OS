@@ -1,12 +1,26 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The stable storage error code table (RFC-0072, normative). Every
+//! CONTEXT: The stable storage status code table (RFC-0072, normative). Every
 //! storage-facing response carries one of these as a `u16`; codes are
 //! append-only and shared by all providers — never fork this table.
+//!
+//! It lives here, in the wire SSOT, rather than in the VFS types crate, because
+//! it is not a VFS-only vocabulary: the payload-VMO header (RFC-0097,
+//! [`crate::payload_vmo`]) carries the same codes when bundlemgrd serves a
+//! volume entry to packagefsd, execd, init or app-host — none of which are VFS
+//! clients. `nexus_vfs_types` re-exports it, so the VFS surface is unchanged.
+//!
+//! WHY ONE TABLE AND NOT TWO: the payload-VMO header used to carry a private
+//! `u8` space whose values collided with bundlemgrd's generic reply-status
+//! space in the same module — `STATUS_MALFORMED` and `PAYLOAD_STATUS_OK` were
+//! both `1`, so a malformed request produced a header that read as success
+//! (TASK-0033 P1). One table, one meaning per value, makes that unrepresentable.
+//!
 //! OWNERS: @runtime
 //! STATUS: Stable codes, experimental API
 //! TEST_COVERAGE: roundtrip + unknown-code tests below
+//! RFC: docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md
 
 /// Stable storage error codes (RFC-0072 §Contract). `0` is success.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
