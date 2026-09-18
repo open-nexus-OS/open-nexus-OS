@@ -242,14 +242,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut state = State::new();
     // RFC-0080: create the shared glyph-atlas VMO ONCE (RO-cloned per spawn).
     state.atlas_vmo = crate::atlas_vmo::create();
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX]; // ONE buffer (P5b)
     loop {
-        match server.recv_with_header_meta(Wait::Blocking) {
-            Ok((_hdr, sender_service_id, frame)) => {
-                // RFC-0081: reap children that exited since the last request so a
-                // spawn first reclaims their AS (heap-backed page tables) — the
-                // fix for the app-launch ALLOC-FAIL. Non-blocking, bounded.
+        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+            Ok((n, sender_service_id, _reply)) => {
+                // RFC-0081: reap children that exited since the last request so a spawn first
+                // reclaims their AS — the app-launch ALLOC-FAIL fix. Non-blocking, bounded.
                 reap_ready_children(&mut state);
-                let rsp = handle_frame(&mut state, sender_service_id, frame.as_slice());
+                let rsp = handle_frame(&mut state, sender_service_id, &recv_frame[..n]);
                 let _ = server.send(rsp.as_slice(), Wait::Blocking);
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {

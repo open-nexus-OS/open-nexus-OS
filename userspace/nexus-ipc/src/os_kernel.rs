@@ -239,72 +239,30 @@ impl KernelServer {
         (self.recv_slot, self.send_slot)
     }
 
-    /// Receives a frame and returns it alongside the raw kernel IPC header.
+    /// Like [`recv_request_with_meta_into`](Self::recv_request_with_meta_into) but also hands
+    /// back the message HEADER, whose `dst` carries the kernel-attested sender PID.
     ///
-    /// If the sender used CAP_MOVE, the returned header's `src` contains the allocated cap slot
-    /// in the receiver.
-    pub fn recv_with_header(&self, wait: Wait) -> Result<(nexus_abi::MsgHeader, Vec<u8>)> {
-        let flags = wait_flags(wait);
-        let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut buf = [0u8; 512];
-        let n = nexus_abi::ipc_recv_v1(self.recv_slot, &mut hdr, &mut buf, sys_flags, 0)
-            .map_err(|e| map_recv_err(e, wait))?;
-        let n = n as usize;
-        let mut out = Vec::with_capacity(n);
-        out.extend_from_slice(&buf[..n]);
-        Ok((hdr, out))
-    }
-
-    /// Receives a frame and returns it alongside the raw kernel IPC header and sender service id.
-    ///
-    /// The sender service id is derived by the kernel at `exec_v2` time and attached to each
-    /// message at send-time (cannot be spoofed by the sender).
-    pub fn recv_with_header_meta(
+    /// The allocation-free counterpart of the deleted `recv_with_header_meta`: samgrd echoes
+    /// that PID (`OP_SENDER_PID`) and execd serves on it, and both were paying a `Vec` per
+    /// request on a heap that never frees to get it (TASK-0054C P5b).
+    pub fn recv_request_with_header_into(
         &self,
         wait: Wait,
-    ) -> Result<(nexus_abi::MsgHeader, u64, Vec<u8>)> {
+        out: &mut [u8],
+    ) -> Result<(nexus_abi::MsgHeader, usize, u64, Option<ReplyCap>)> {
         let flags = wait_flags(wait);
         let sys_flags = flags | nexus_abi::IPC_SYS_TRUNCATE;
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut sid: u64 = 0;
-        // ⚠ HARD 512-BYTE REQUEST BOUND. Frames above this are TRUNCATED
-        // (IPC_SYS_TRUNCATE), which a length-checking protocol then reports
-        // as "malformed" — a service can therefore advertise a large
-        // payload limit and still be structurally unable to receive it
-        // (that mismatch masked a real OTA failure as a bad signature).
-        // Any protocol whose requests can exceed 512 bytes MUST use
-        // `recv_request_with_meta_into` with a buffer it sizes itself.
-        let mut buf = [0u8; 512];
-        let n = nexus_abi::ipc_recv_v2(self.recv_slot, &mut hdr, &mut buf, &mut sid, sys_flags, 0)
-            .map_err(|e| map_recv_err(e, wait))?;
-        let n = n as usize;
-        let mut out = Vec::with_capacity(n);
-        out.extend_from_slice(&buf[..n]);
-        Ok((hdr, sid, out))
-    }
-
-    /// Receives a request and (optionally) a one-shot reply capability moved with the message.
-    pub fn recv_request(&self, wait: Wait) -> Result<(Vec<u8>, Option<ReplyCap>)> {
-        let (hdr, frame) = self.recv_with_header(wait)?;
-        if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
-            Ok((frame, Some(ReplyCap { slot: hdr.src })))
+        let n = nexus_abi::ipc_recv_v2(self.recv_slot, &mut hdr, out, &mut sid, sys_flags, 0)
+            .map_err(|e| map_recv_err(e, wait))? as usize;
+        let n = core::cmp::min(n, out.len());
+        let reply = if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
+            Some(ReplyCap { slot: hdr.src })
         } else {
-            Ok((frame, None))
-        }
-    }
-
-    /// Receives a request and returns the kernel-derived sender service id alongside the frame.
-    ///
-    /// If the sender used CAP_MOVE, a one-shot reply capability is returned (to be replied on and
-    /// closed by the callee).
-    pub fn recv_request_with_meta(&self, wait: Wait) -> Result<(Vec<u8>, u64, Option<ReplyCap>)> {
-        let (hdr, sid, frame) = self.recv_with_header_meta(wait)?;
-        if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
-            Ok((frame, sid, Some(ReplyCap { slot: hdr.src })))
-        } else {
-            Ok((frame, sid, None))
-        }
+            None
+        };
+        Ok((hdr, n, sid, reply))
     }
 
     /// Receives a request into a caller-provided buffer and returns:

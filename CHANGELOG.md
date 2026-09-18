@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-09-18 (TASK-0054C P5b: the two core services my own P2-g gate missed — and the allocating receive is gone from the API)
+
+- **The gate had a hole and it cost two core services.** P2-g's rule ("an os-lite server loop allocates nothing per request") was written as a LIST of receive names, and the list missed `recv_with_header_meta`. So **samgrd** — which answers every route ask at boot — and **execd** — which serves every app launch — kept allocating a `Vec` per request on a heap that never frees. Exactly the countdown inputd died of, just at a lower rate. The rule now matches by SHAPE: any `.recv*(` that is not an `_into` form returns a buffer and is caught, whatever it is called.
+- **Both services converted, and the header they needed came with them.** samgrd echoes the kernel-attested sender PID (`OP_SENDER_PID`, the thing `SELFTEST: ipc sender pid ok` proves), which lives in the message header — and the allocation-free receive did not hand the header back. Rather than leave samgrd on the leaking form or lose the attestation, `KernelServer::recv_request_with_header_into` is the allocation-free counterpart of what was deleted. The boot confirms the attestation survived the swap.
+- **The allocating receive family is deleted, not deprecated:** `recv_with_header`, `recv_with_header_meta`, `recv_request` and `recv_request_with_meta` are gone from `KernelServer`. With no callers left, deleting them makes the gate's rule structural — the API a service could misuse no longer exists.
+- Measured: `SELFTEST: ipc bench` **196 → 192 µs** and `ipc call bench` **195 → 192 µs**, now identical, samgrd's loop no longer paying an allocation per request inside the timed exchange.
+- Proof: `just check` EXIT=0 (the widened `ipc-bounds` rule finds the two sites, then passes once they are converted); `just test-os smp1` EXIT=0 with `SELFTEST: ipc sender pid ok` intact; `just test-all` EXIT=0.
+
 ### Changed - 2026-09-17 (TASK-0054C P5a: the whole fleet's exchanges are one trap now — and the gap that flip would have shipped)
 
 - **`exchange::call_into` is `ipc_call`.** P2 spent five packages reducing the fleet's request/reply surface to a single function, and this is what that was for: the flip touches ONE body and every caller moves with it, without a single call site changing. `call_matching` comes along for free — it already asked `call_into` for the first frame and only loops when its predicate rejects one, so the common case is one trap and a mismatch costs exactly what it cost before. The two-trap shape below it (`send_call` + `recv_reply`) stays for the exchange whose answer is collected later.

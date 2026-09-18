@@ -109,16 +109,24 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut logged_capmove = false;
     let mut logged_register = false;
     let mut logged_any = false;
+    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
+    // allocating recv is a countdown (TASK-0054C P2-g/P5b). Transport-capped, never truncates.
+    let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
-        match server.recv_with_header_meta(Wait::Blocking) {
-            Ok((hdr, sid, frame)) => {
+        match server.recv_request_with_header_into(Wait::Blocking, &mut recv_frame) {
+            Ok((hdr, frame_len, sid, reply)) => {
+                let frame = &recv_frame[..frame_len];
+                // The moved reply capability IS what the header's CAP_MOVE flag and
+                // `src` slot used to say (TASK-0054C P5b).
+                let reply_slot = reply.as_ref().map(|r| r.slot()).unwrap_or(0);
+                let has_reply_cap = reply.is_some();
                 breaker.on_success();
                 let sender_service_id = sid as u64;
                 if !logged_any {
                     emit_line("samgrd: rx");
                     logged_any = true;
                 }
-                if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 && !logged_capmove {
+                if has_reply_cap && !logged_capmove {
                     emit_line("samgrd: capmove seen");
                     logged_capmove = true;
                 }
@@ -143,9 +151,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     let status =
                         if append_probe_to_logd() { STATUS_OK } else { STATUS_UNSUPPORTED };
                     let rsp = [MAGIC0, MAGIC1, VERSION, OP_LOG_PROBE | 0x80, status];
-                    if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
-                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
-                        let _ = cap_close(hdr.src as u32);
+                    if has_reply_cap {
+                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
+                        let _ = cap_close(reply_slot);
                     } else {
                         if server.send(&rsp, Wait::Blocking).is_err() {
                             emit_line("samgrd: send fail");
@@ -160,18 +168,18 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     && frame[2] == VERSION
                     && frame[3] == OP_PING_CAP_MOVE
                 {
-                    // Reply on the moved cap slot (allocated into this process as hdr.src).
+                    // Reply on the moved cap slot (allocated into this process as reply_slot).
                     // Always best-effort and non-blocking for bring-up.
                     if frame.len() == 12 {
                         // Optional nonce correlation (RFC-0019 adoption): echo u64 nonce at end.
                         let mut rsp = [0u8; 12];
                         rsp[0..4].copy_from_slice(b"PONG");
                         rsp[4..12].copy_from_slice(&frame[4..12]);
-                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
                     } else {
-                        let _ = KernelServer::send_on_cap(hdr.src, b"PONG");
+                        let _ = KernelServer::send_on_cap(reply_slot, b"PONG");
                     }
-                    let _ = cap_close(hdr.src as u32);
+                    let _ = cap_close(reply_slot);
                     continue;
                 }
 
@@ -181,7 +189,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     && frame[1] == MAGIC1
                     && frame[2] == VERSION
                     && frame[3] == OP_SENDER_PID
-                    && (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0
+                    && has_reply_cap
                 {
                     if frame.len() == 16 {
                         // Optional nonce correlation: request appends u64 nonce; reply echoes it at end.
@@ -193,7 +201,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         rsp[4] = STATUS_OK;
                         rsp[5..9].copy_from_slice(&hdr.dst.to_le_bytes());
                         rsp[9..17].copy_from_slice(&frame[8..16]);
-                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
                     } else {
                         let mut rsp = [0u8; 9];
                         rsp[0] = MAGIC0;
@@ -202,9 +210,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         rsp[3] = OP_SENDER_PID | 0x80;
                         rsp[4] = STATUS_OK;
                         rsp[5..9].copy_from_slice(&hdr.dst.to_le_bytes());
-                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
                     }
-                    let _ = cap_close(hdr.src as u32);
+                    let _ = cap_close(reply_slot);
                     continue;
                 }
 
@@ -214,7 +222,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     && frame[1] == MAGIC1
                     && frame[2] == VERSION
                     && frame[3] == OP_SENDER_SERVICE_ID
-                    && (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0
+                    && has_reply_cap
                 {
                     if frame.len() == 12 {
                         // Optional nonce correlation: request appends u64 nonce; reply echoes it at end.
@@ -226,7 +234,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         rsp[4] = STATUS_OK;
                         rsp[5..13].copy_from_slice(&sender_service_id.to_le_bytes());
                         rsp[13..21].copy_from_slice(&frame[4..12]);
-                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
                     } else {
                         let mut rsp = [0u8; 13];
                         rsp[0] = MAGIC0;
@@ -235,17 +243,17 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         rsp[3] = OP_SENDER_SERVICE_ID | 0x80;
                         rsp[4] = STATUS_OK;
                         rsp[5..13].copy_from_slice(&sender_service_id.to_le_bytes());
-                        let _ = KernelServer::send_on_cap(hdr.src, &rsp);
+                        let _ = KernelServer::send_on_cap(reply_slot, &rsp);
                     }
-                    let _ = cap_close(hdr.src as u32);
+                    let _ = cap_close(reply_slot);
                     continue;
                 }
 
-                let rsp = handle_frame(&mut registry, sender_service_id, frame.as_slice());
+                let rsp = handle_frame(&mut registry, sender_service_id, frame);
                 // If a reply cap was moved, reply on it and close it.
-                if (hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0 {
-                    let _ = KernelServer::send_on_cap(hdr.src, &rsp);
-                    let _ = cap_close(hdr.src as u32);
+                if has_reply_cap {
+                    let _ = KernelServer::send_on_cap(reply_slot, &rsp);
+                    let _ = cap_close(reply_slot);
                 } else {
                     if server.send(&rsp, Wait::Blocking).is_err() {
                         emit_line("samgrd: send fail");

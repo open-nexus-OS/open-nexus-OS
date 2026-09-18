@@ -91,7 +91,12 @@ fi
 # the whole input chain with it (hidrawd `tx hz=0`, no click reaches the greeter).
 # The receive inside a service loop must be the `_into` form with a buffer hoisted
 # out of the loop. See TASK-0054C P2-g.
-hits=$(grep -rnE '(server|client)\.recv(_request(_with_meta)?)?\(' \
+# Matched by SHAPE, not by a list of names: the first cut of this rule spelled out
+# the receives it knew about and missed `recv_with_header_meta`, leaving samgrd and
+# execd — two core services — leaking a `Vec` per request (TASK-0054C P5b). Any
+# `.recv*(` that is not an `_into` form returns a buffer, so it is caught here
+# whatever it is called.
+hits=$(grep -rnE '(server|client)\.recv[a-z_]*\(' \
            source/services source/drivers \
            --include='os_lite.rs' --include='os_stub.rs' --include='local_ipc.rs' \
            2>/dev/null | grep -v '_into' | grep -v '^\s*//' || true)
