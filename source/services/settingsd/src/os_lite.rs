@@ -91,6 +91,7 @@ pub fn service_main_loop() -> SettingsdResult<()> {
     // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
     // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
+    let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
     loop {
         // Persistence FIRST (drain PUT replies, send a due PUT) — it never blocks a client.
         pump_persist(&mut persister, &registry);
@@ -99,8 +100,8 @@ pub fn service_main_loop() -> SettingsdResult<()> {
         }
         let wait = if waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
         for _ in 0..IPC_BATCH_LIMIT {
-            match server.recv_request_with_meta_into(wait, &mut recv_frame) {
-                Ok((frame_len, _sender_service_id, reply)) => {
+            match server.serve_next(&mut pending, wait, &mut recv_frame) {
+                Ok((_hdr, frame_len, _sender_service_id, reply)) => {
                     let frame = &recv_frame[..frame_len];
                     // OP_WATCH (RFC-0078/0083): the moved cap IS the subscription's
                     // push channel — keep it, never reply_and_close it. A fresh
@@ -138,7 +139,7 @@ pub fn service_main_loop() -> SettingsdResult<()> {
                     );
                     let out = &rsp[..len];
                     if let Some(reply) = reply {
-                        let _ = reply.reply_and_close(out);
+                        pending.park(reply, &out);
                     } else {
                         let _ = server.send(out, Wait::Blocking);
                     }

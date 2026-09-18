@@ -181,6 +181,40 @@ pub struct KernelServer {
     send_slot: u32,
 }
 
+/// One parked reply and the buffer it lives in (TASK-0054C P5c).
+///
+/// A server answers the PREVIOUS request together with the wait for the next
+/// one, so the answer has to outlive the iteration that produced it. One buffer
+/// for the service's lifetime, because the os-lite heap never frees. Nothing
+/// parked means the last requester moved no capability — P2-c's rule, carried
+/// through the merge rather than re-stated at every call site.
+pub struct PendingReply {
+    cap: Option<ReplyCap>,
+    buf: Vec<u8>,
+    len: usize,
+}
+
+impl Default for PendingReply {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PendingReply {
+    /// A loop's parked-reply slot, sized by the transport cap so it can never
+    /// truncate an answer the kernel would have carried.
+    pub fn new() -> Self {
+        Self { cap: None, buf: alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX], len: 0 }
+    }
+
+    /// Park `bytes` to be sent with the next receive.
+    pub fn park(&mut self, cap: ReplyCap, bytes: &[u8]) {
+        self.len = core::cmp::min(bytes.len(), self.buf.len());
+        self.buf[..self.len].copy_from_slice(&bytes[..self.len]);
+        self.cap = Some(cap);
+    }
+}
+
 /// Reply capability passed via CAP_MOVE (one-shot).
 pub struct ReplyCap {
     slot: u32,
@@ -237,6 +271,30 @@ impl KernelServer {
     /// This is intended for low-level bring-up services that want to avoid heap allocations.
     pub fn slots(&self) -> (u32, u32) {
         (self.recv_slot, self.send_slot)
+    }
+
+    /// The server loop's ONE step: answer the previous request, if one is parked,
+    /// and wait for the next — in a single trap (TASK-0054C P5c).
+    ///
+    /// Eight service loops had spelled this out identically; a shape repeated
+    /// eight times is a shape with one home. A parked reply means the previous
+    /// requester moved a capability; nothing parked means it did not, and then
+    /// this is an ordinary receive — which is how P2-c's rule ("a server answers
+    /// exactly the senders that moved a reply capability") survives the merge.
+    /// `wait` applies to the RECEIVE half only; a parked reply always goes out
+    /// (its trap carries the receive with it, so there is nothing to defer).
+    pub fn serve_next(
+        &self,
+        pending: &mut PendingReply,
+        wait: Wait,
+        out: &mut [u8],
+    ) -> Result<(nexus_abi::MsgHeader, usize, u64, Option<ReplyCap>)> {
+        match pending.cap.take() {
+            Some(cap) => {
+                self.reply_and_recv_with_header_into(cap, &pending.buf[..pending.len], out)
+            }
+            None => self.recv_request_with_header_into(wait, out),
+        }
     }
 
     /// Answer the current request and wait for the next one in ONE trap

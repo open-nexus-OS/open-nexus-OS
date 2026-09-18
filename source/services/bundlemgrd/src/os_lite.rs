@@ -160,12 +160,12 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // TASK-0324 P7-d: the VMOs senders armed for their next VMO op.
     let mut armed = crate::armed_vmo::ArmedVmos::new();
     nexus_abi::service_verdict_flush("bundlemgrd");
-    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
-    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    // ONE request buffer: the os-lite heap never frees (TASK-0054C P2-g), transport-capped.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
+    let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
     loop {
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
-            Ok((frame_len, sender_service_id, mut reply)) => {
+        match server.serve_next(&mut pending, Wait::Blocking, &mut recv_frame) {
+            Ok((_hdr, frame_len, sender_service_id, mut reply)) => {
                 let frame = &recv_frame[..frame_len];
                 if reply.is_some() && !logged_capmove {
                     logged_capmove = true;
@@ -257,7 +257,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                     denied_frame_response(frame)
                 };
                 if let Some(reply) = reply {
-                    let _ = reply.reply_and_close_wait(&rsp, Wait::Blocking);
+                    pending.park(reply, &rsp);
                 } else {
                     let _ = server.send(&rsp, Wait::Blocking);
                 }

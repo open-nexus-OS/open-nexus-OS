@@ -229,9 +229,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
     // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
+    let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
     loop {
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
-            Ok((frame_len, sender_service_id, reply)) => {
+        match server.serve_next(&mut pending, Wait::Blocking, &mut recv_frame) {
+            Ok((_hdr, frame_len, sender_service_id, reply)) => {
                 let frame = &recv_frame[..frame_len];
                 breaker.on_success();
                 if window.wants_upgrade() {
@@ -256,9 +257,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                     }
                 }
                 if let Some(reply) = reply {
-                    if reply.reply_and_close(&rsp).is_err() {
-                        emit_line("statefsd: reply send fail");
-                    }
+                    pending.park(reply, &rsp);
                 } else if !saw_drop_capless {
                     // No moved cap: the request is served above and the response is dropped
                     // (TASK-0054C P2-f — the rule logd took in P2-c and metricsd in P2-e).

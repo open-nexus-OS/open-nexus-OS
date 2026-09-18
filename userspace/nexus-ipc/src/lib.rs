@@ -172,5 +172,6 @@ pub use host::{loopback_channel, LoopbackClient, LoopbackServer};
 mod os_kernel;
 #[cfg(all(nexus_env = "os", feature = "os-lite", feature = "kernel-ipc"))]
 pub use os_kernel::{
-    set_default_target, supports_service_routing, KernelClient, KernelServer, ReplyCap,
+    set_default_target, supports_service_routing, KernelClient, KernelServer, PendingReply,
+    ReplyCap,
 };

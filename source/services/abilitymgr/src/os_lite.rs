@@ -83,9 +83,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
     // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
+    let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
     loop {
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
-            Ok((frame_len, _sender_service_id, reply)) => {
+        match server.serve_next(&mut pending, Wait::Blocking, &mut recv_frame) {
+            Ok((_hdr, frame_len, _sender_service_id, reply)) => {
                 let frame = &recv_frame[..frame_len];
                 breaker.on_success();
                 // TASK-0065B session gate: OP_LAUNCH is refused until sessiond
@@ -112,7 +113,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                     }
                 }
                 if let Some(reply) = reply {
-                    let _ = reply.reply_and_close(&out.response);
+                    pending.park(reply, &out.response);
                 } else {
                     let _ = server.send(&out.response, Wait::Blocking);
                 }

@@ -113,9 +113,10 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
     // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
     // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
+    let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
     loop {
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
-            Ok((frame_len, _sender_service_id, reply)) => {
+        match server.serve_next(&mut pending, Wait::Blocking, &mut recv_frame) {
+            Ok((_hdr, frame_len, _sender_service_id, reply)) => {
                 let frame = &recv_frame[..frame_len];
                 if wire::decode_request_op(frame) == Some(wire::OP_WATCH) {
                     let Some(reply) = reply else {
@@ -150,7 +151,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
                 let len = handle_request(frame, &registry, &mut state, &mut rsp);
                 let out = &rsp[..len];
                 if let Some(reply) = reply {
-                    let _ = reply.reply_and_close(out);
+                    pending.park(reply, &out);
                 } else {
                     let _ = server.send(out, Wait::Blocking);
                 }

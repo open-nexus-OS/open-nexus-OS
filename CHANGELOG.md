@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-18 (TASK-0054C P5c: nine server loops, one shape — reply and next request in a single trap)
+
+- **The shape samgrd proved in P5b-2 is now every request/reply server's shape:** abilitymgr, bundlemgrd, metricsd, rngd, samgrd, sessiond, settingsd, statefsd and timed answer the PREVIOUS request together with the wait for the next one. A served request cost three kernel entries — `send_on_cap`, `cap_close`, the next receive — and costs one.
+- **And it lives in one place.** The first cut spelled the loop head out in every service; eight identical copies of a shape is a shape with one home, so `KernelServer::serve_next` and `PendingReply` own it. A service now says `PendingReply::new()` once and `pending.park(reply, &rsp)` where it used to reply — two lines, not twelve. The structure gate is what forced this: bundlemgrd was over its ratchet by twelve lines with the copied form and by one with the shared one.
+- **P2-c's rule survives the merge without being restated.** Nothing parked means the last requester moved no capability, so `serve_next` does an ordinary receive — a cap-less sender is still served and not answered, exactly as logd, metricsd and statefsd were taught in P2-c/e/f.
+- The parked buffer is hoisted like every other buffer in these loops (one allocation at startup, sized by the transport cap), so an answer that outlives its iteration still costs nothing per request.
+- Proof: `just check` EXIT=0; `just test-os smp1` EXIT=0 with `SELFTEST: ipc cap move reply ok`, `ipc sender pid ok` and the exchange at **41–43 µs**; `just test-all` EXIT=0.
+- Still on the old shape and named rather than forgotten: inputd (its hot path is cap-LESS HID batches, so `reply_recv` buys it nothing), vfsd and pinched (no cap-moving reply site), keystored, updated, imed, virtioblkd, bootctld, and windowd — whose replies already ride dedicated per-client channels and whose shared fallback P2-g measured at zero.
+
 ### Changed - 2026-09-18 (TASK-0054C P5b-2: samgrd's loop is one trap per request — and an exchange costs 43 µs instead of 192)
 
 - **A served request used to cost THREE kernel entries:** `send_on_cap` for the reply, `cap_close` for the one-shot capability, and the next receive. `ipc_reply_recv` does all three. samgrd now parks its answer and hands it out with the wait for the next request (`KernelServer::reply_and_recv_with_header_into`). Deferring costs the client nothing — every arm `continue`s straight to the loop top — and a cap-less request parks nothing, which keeps P2-c's rule intact: only senders that moved a capability are answered.
