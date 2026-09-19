@@ -57,6 +57,13 @@ VFS surface so packagefs AND nxfs serve the same contract.
 
 ### Proof (OS / QEMU) — required
 
+> **Marker note (TASK-0033, 2026-09-18).** `vfsd: vmo splice read ok` no longer exists. This
+> task spliced `/data` and `pkg:/` through the same marker, but only `/data` actually spliced —
+> the `pkg:/` branch copied the entry through vfsd's heap, which capped it at the IPC frame and
+> killed packagefsd above it. The two paths now say which they are: `vfsd: vmo splice stream ok`
+> (`/data`, vfsd streams) and `vfsd: vmo splice forwarded ok` (`pkg:/`, the VMO is forwarded to
+> bundlemgrd). The proofs below were green and honest for what they touched: 19 bytes.
+
 - `vfsd: vmo splice read ok (bytes=<n>, fallbacks=<m>)`
 - `SELFTEST: vfs splice roundtrip ok`
 - `SELFTEST: vfs inline oversize deny ok`

@@ -1,6 +1,6 @@
 ---
 title: TASK-0033 packagefs v2b: zero-copy `pkg:/` reads — VMO pass-through from bundlemgrd + ONE payload-VMO header codec
-status: In Progress (reviewed 2026-09-18 — end-state rewrite; residual of the TASK-0295 supersession)
+status: Done 2026-09-18 (reviewed + built end-state; residual of the TASK-0295 supersession discharged)
 owner: @runtime
 created: 2025-12-22
 depends-on:
@@ -215,8 +215,13 @@ soft dependency); cross-device VMO transport; changing `OP_GET_FILE_VMO`'s proto
   `packagefsd/volume_reader.rs`, `vfsd/namespace.rs`, `nexus-vfs/os.rs`, and the dsoftbus
   packagefs leg into `packagefs_ro.rs`. Blast: vfs lanes, `vfsd: vmo splice` markers, visible
   lane (app assets via `pkg:/`).
-- **P3** Docs + markers (`docs/storage/packagefs.md`, RFC-0072 cross-link, CHANGELOG,
-  ledger Done).
+- **P3** ✅ **2026-09-18** Docs + closure. `docs/storage/vfs.md` gains a "How bytes move"
+  section (the two tiers, who may write a success header, and what it cost before);
+  `docs/storage/vmo.md`'s consumer list names the ONE header and both `pkg:/` markers;
+  RFC-0072's Phase 3 row records that the read-only provider was the one that never spliced;
+  RFC-0097 Implemented; CHANGELOG. (`docs/storage/packagefs.md` does not exist — the VFS
+  surface is documented in `vfs.md`, so the content landed there rather than in a new file
+  nobody links.)
 
 ### Definition of Done
 
@@ -241,6 +246,23 @@ packagefsd/src/os_lite.rs`, `source/services/bundlemgrd/src/payload_ops.rs`, `so
 execd/src/os_lite.rs`, `source/services/app-host/src/probe/{boot.rs,mod.rs}`, `source/init/
 nexus-init/src/bootstrap/volume_spawn.rs`, selftest `src/os_lite/vfs.rs`, markers triple,
 `docs/rfcs/RFC-0097-*.md`, `docs/storage/packagefs.md`, `CHANGELOG.md`.
+
+### Named follow-ups (recorded, not done here)
+
+- **`hidrawd: chain I2 wire send FAIL (inputd route)`** fires sporadically under the
+  `input-flood` load with `dbg: hidrawd inputd send fail backpressure` beside it, while the
+  I1–I6 chain completes and `fps: … send_fail=60` of ~2280. Ordinary backpressure wearing the
+  word FAIL. It also escapes the no-fake-green gate entirely: `scripts/qemu-test.sh` matches
+  `^(K?SELFTEST): .* FAIL|^gpud: FAIL`, so no service-prefixed FAIL line is gated. Two separate
+  things to decide: the wording, and whether the gate should cover service FAIL lines at all.
+- **`vmo_read` is a copy.** The pass-through removes every copy between the volume and the
+  caller's VMO, but `nexus-vfs`'s `read_vmo` still copies out of it into a `Vec`, which is what
+  caps it at the caller's heap. `read_vmo_sample` (added here) avoids that for evidence; a
+  consumer that wants the bytes should `vm_map` the VMO read-only. No client does yet.
+- **The inline tier is whole-entry, not ranged.** An entry above `INLINE_IO_MAX` is `TooBig`
+  for an inline read even when the caller asked for its first 100 bytes, because
+  `OP_GET_FILE_VMO` streams and verifies the WHOLE entry. A ranged read would need a ranged op
+  at the authority, and the digest question that comes with it — out of scope here by D1.
 
 ### Dependencies (active work only)
 

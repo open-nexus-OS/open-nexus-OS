@@ -15,7 +15,7 @@
 
 - **Phase 1 (ReadDir + stable error codes on the read-only surface)**: ✅ — `TASK-0291` (host tests + `SELFTEST: vfs readdir ok`/`deny ok` + visible-boot evidence, 2026-07-15)
 - **Phase 2 (write ops + writable provider registration, `/data` via nxfsd)**: 🟨 — behavior shipped by `TASK-0293` (Done 2026-07-19: writable `/data`, mkdir/write/rename/remove live + cold-boot persistence boot-proven), but over the private `nexus-vfs-types::fileops` frame codec, **not** the `vfs.capnp` v2 ops this contract specifies. Wire-contract closure (capnp v2 write ops + nxfsd as its own process) is owned by `TASK-0317`.
-- **Phase 3 (VMO handle data plane for large reads/writes)**: ✅ (read path) — `TASK-0295` (`OP_READ_VMO` cross-process CAP_MOVE splice + inline `E2BIG`; `vfsd: vmo splice read ok (bytes=19, fallbacks=0)` + `SELFTEST: vfs splice roundtrip ok` + `SELFTEST: vfs inline oversize deny ok`, 2026-07-15). VMO-backed writes remain a follow-up.
+- **Phase 3 (VMO handle data plane for large reads/writes)**: ✅ (read path) — `TASK-0295` (`OP_READ_VMO` cross-process CAP_MOVE splice + inline `E2BIG`; `SELFTEST: vfs splice roundtrip ok` + `SELFTEST: vfs inline oversize deny ok`, 2026-07-15), completed for `pkg:/` by `TASK-0033` (2026-09-18, RFC-0097): the read-only provider was the one that did NOT splice — it copied the entry through vfsd's heap, so an entry above the IPC frame cap was unreadable and fatal to packagefsd. It is a VMO pass-through to bundlemgrd now, and the header codec this phase introduced is the system's only one. Proof `SELFTEST: pkgimg vmo ok (bytes=0x3f560)` (259 424 B). VMO-backed writes remain a follow-up.
 
 Definition:
 

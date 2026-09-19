@@ -3,7 +3,7 @@
 
 # RFC-0097: Payload-VMO header v2 — ONE header codec, and `pkg:/` reads as a VMO pass-through
 
-- Status: **In Progress 2026-09-18** (TASK-0033 P0–P3; P1 + P2 landed)
+- Status: **Implemented 2026-09-18** (TASK-0033 P0–P3). `pkg:/` served 93 of the system volume's 115 entries when this was written, and asking for one of the other 22 ended packagefsd. The reply-frame ceiling is gone: an entry is bounded by the caller's VMO now, and nothing else. Proven on `pkg:/settings/payload.nxir` — 259 424 bytes, from the previously fatal class.
 - Owners: @runtime
 - Created: 2026-09-18
 - Last Updated: 2026-09-18
@@ -18,9 +18,13 @@
 
 - **P1 (one codec)**: ✅ 2026-09-18 — `nexus_wire::payload_vmo` is the SSOT, `NXPL` deleted, every decoder moved, gated by `just payload-vmo`
 - **P2 (`pkg:/` pass-through)**: ✅ 2026-09-18 — vfsd → packagefsd → bundlemgrd, no hop copies; proven on a 259 424-byte entry
-- **P3 (docs + markers)**: ⬜
+- **P3 (docs + markers)**: ✅ 2026-09-18
 
 "Complete" means the contract is defined and the proof gates are green.
+
+What this RFC did NOT need in the end: a new status code (`VfsError::Integrity` already
+existed), an ADR (no boundary moved), and any change to `OP_GET_FILE_VMO` — the protocol the
+pass-through rides was already right, which is why the work was mostly deletion.
 
 ## Scope boundaries (anti-drift)
 
@@ -230,9 +234,9 @@ QEMU (P2, green — `smp1`, 2026-09-18):
 - `SELFTEST: pkgimg vmo oversize deny ok` — a VMO half the entry's size is refused with
   `TooBig` and nothing is written; packagefsd is still serving, which the successful read
   after it proves. (Half, not one byte short: `vmo_create` rounds up to a page.)
-- The copying marker `vfsd: vmo splice read ok` is gone from the tree.
-
-The copying marker `vfsd: vmo splice read ok` leaves the contract.
+- The copying marker `vfsd: vmo splice read ok` is gone from the tree. It had covered both
+  providers, which hid that only one of them spliced; `/data` says
+  `vfsd: vmo splice stream ok` and `pkg:/` says `vfsd: vmo splice forwarded ok` now.
 
 ## Relationship to RFC-0096
 
