@@ -115,6 +115,15 @@ never a partial mount.
 
 ## Changelog
 
+- **v1.6 (2026-09-19, TASK-0077B)** — **subtractive**: `CallStep.timeoutMs` is retired. A
+  service call carries no client clock; the exchange ends with the reply or with the service's
+  death and nothing else (RFC-0093 §7, RFC-0096). The app-host stopped reading the number in
+  TASK-0054C P2-a, so the language stopped asking for it. `timeoutMs:` on a `svc.*` call is
+  now `NX0412`; `NX0409` (which demanded it) is retired with it.
+  The capnp ordinal `@3` stays occupied by `retiredTimeoutMs` — capnp ordinals must be
+  sequential — and must never be reused. Nothing writes or reads it. This is the first
+  subtractive minor: safe only because everything in-tree builds together and readers gate on
+  the MAJOR alone.
 - **v1.5 (2026-07-27, RFC-0084)** — additive: component **slots**.
   `Component.slots` (declared slot name symbol ids, in DECLARATION order —
   that order IS the index space), `ViewNode.slot :SlotRef` (a placeholder

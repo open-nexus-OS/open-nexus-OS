@@ -19,7 +19,7 @@ struct Registry {
     running_sym: u32,
 }
 impl nexus_dsl_runtime::EffectHost for Registry {
-    fn call(&mut self, svc: &str, method: &str, _args: &[Value], _t: u32) -> Result<Value, u32> {
+    fn call(&mut self, svc: &str, method: &str, _args: &[Value]) -> Result<Value, u32> {
         if (svc, method) == ("bundlemgr", "enumerate") {
             let row = |id: &str, label: &str, icon: &str| {
                 // Mirror the REAL row shape from app-host's effect_host: the

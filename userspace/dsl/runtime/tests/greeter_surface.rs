@@ -33,7 +33,6 @@ fn greeter_login_flow_is_tappable_end_to_end() {
             svc: &str,
             method: &str,
             args: &[nexus_dsl_runtime::Value],
-            _timeout_ms: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             use nexus_dsl_runtime::Value;
             self.calls.push(format!("{svc}.{method}({args:?})"));
@@ -200,7 +199,6 @@ fn greeter_layout_matches_the_handoff_geometry() {
             svc: &str,
             method: &str,
             _args: &[nexus_dsl_runtime::Value],
-            _timeout_ms: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             use nexus_dsl_runtime::Value;
             match (svc, method) {

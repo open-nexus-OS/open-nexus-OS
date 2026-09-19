@@ -84,7 +84,6 @@ fn list_item_buttons_are_tappable() {
             _svc: &str,
             _method: &str,
             _args: &[nexus_dsl_runtime::Value],
-            _timeout_ms: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             Err(0)
         }
@@ -252,7 +251,6 @@ fn shell_app_grid_tiles_launch_and_hover() {
             svc: &str,
             method: &str,
             args: &[nexus_dsl_runtime::Value],
-            _timeout_ms: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             use nexus_dsl_runtime::Value;
             match (svc, method) {
@@ -411,7 +409,6 @@ fn platform_override_arms_select_by_device_env() {
             _svc: &str,
             _method: &str,
             _args: &[nexus_dsl_runtime::Value],
-            _timeout_ms: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             Err(0)
         }
@@ -492,7 +489,6 @@ fn control_center_toggles_reach_settings_set() {
             svc: &str,
             method: &str,
             args: &[nexus_dsl_runtime::Value],
-            _timeout_ms: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             use nexus_dsl_runtime::Value;
             match (svc, method) {
@@ -649,7 +645,6 @@ fn real_shell_control_panel_overlays_top_right() {
             _s: &str,
             _m: &str,
             _a: &[nexus_dsl_runtime::Value],
-            _t: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             Err(0)
         }
@@ -728,7 +723,6 @@ fn real_shell_selects_compact_and_regular_dock_families() {
             _s: &str,
             _m: &str,
             _a: &[nexus_dsl_runtime::Value],
-            _t: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             Err(0)
         }
@@ -769,7 +763,6 @@ fn real_shell_column_grows_on_tablet() {
             _s: &str,
             _m: &str,
             _a: &[nexus_dsl_runtime::Value],
-            _t: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             Err(0)
         }

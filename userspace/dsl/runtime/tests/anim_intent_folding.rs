@@ -17,7 +17,7 @@ use nexus_dsl_runtime::{AnimKind, FixtureEnv, IdentityLocale, Value, View};
 
 struct NoHost;
 impl nexus_dsl_runtime::EffectHost for NoHost {
-    fn call(&mut self, _s: &str, _m: &str, _a: &[Value], _t: u32) -> Result<Value, u32> {
+    fn call(&mut self, _s: &str, _m: &str, _a: &[Value]) -> Result<Value, u32> {
         Err(0)
     }
 }

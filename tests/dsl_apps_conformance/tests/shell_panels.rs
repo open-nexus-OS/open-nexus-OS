@@ -25,7 +25,7 @@ struct SettingsSpy {
 }
 
 impl nexus_dsl_runtime::EffectHost for SettingsSpy {
-    fn call(&mut self, svc: &str, method: &str, args: &[Value], _t: u32) -> Result<Value, u32> {
+    fn call(&mut self, svc: &str, method: &str, args: &[Value]) -> Result<Value, u32> {
         if (svc, method) == ("settings", "set") {
             if let (Some(Value::Str(k)), Some(Value::Str(v))) = (args.first(), args.get(1)) {
                 self.sets.push((k.clone(), v.clone()));

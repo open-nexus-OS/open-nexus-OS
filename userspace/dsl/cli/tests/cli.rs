@@ -174,7 +174,7 @@ fn add_native_scaffolds_companion_and_enables_svc_surface() {
     std::fs::write(app.join("manifest.toml"), "name = \"demoapp\"\n").expect("manifest");
     std::fs::write(
         app.join("ui/pages/Main.nx"),
-        "Store S { v: Str = \"\", }\nEvent E { Go, Got(Str), Bad(Int), }\nreduce E {\n    Go => state.v = state.v,\n    Got(t) => state.v = t,\n    Bad(c) => state.v = state.v,\n}\n@effect on Go {\n    match svc.demoapp.ping(state.v, timeoutMs: 250) {\n        Ok(t) => dispatch(Got(t)),\n        Err(e) => dispatch(Bad(e)),\n    }\n}\nPage Main { Stack { Text($state.v) } }\n",
+        "Store S { v: Str = \"\", }\nEvent E { Go, Got(Str), Bad(Int), }\nreduce E {\n    Go => state.v = state.v,\n    Got(t) => state.v = t,\n    Bad(c) => state.v = state.v,\n}\n@effect on Go {\n    match svc.demoapp.ping(state.v) {\n        Ok(t) => dispatch(Got(t)),\n        Err(e) => dispatch(Bad(e)),\n    }\n}\nPage Main { Stack { Text($state.v) } }\n",
     )
     .expect("page");
 

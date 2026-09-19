@@ -592,18 +592,11 @@ impl EffectHost for AppEffectHost {
         }
     }
 
-    fn call(
-        &mut self,
-        service: &str,
-        method: &str,
-        args: &[Value],
-        timeout_ms: u32,
-    ) -> Result<Value, u32> {
+    fn call(&mut self, service: &str, method: &str, args: &[Value]) -> Result<Value, u32> {
         // No client timer bounds a service call (RFC-0093 §7, TASK-0054C P2-a): the
         // exchange ends with the reply or the service's death. The DSL's `timeoutMs:`
         // knob no longer means anything here; TASK-0077B retires it from the language
         // (NX0409 becomes the error that the argument is not accepted).
-        let _ = timeout_ms;
         match (service, method) {
             ("bundlemgr", "enumerate") => self.enumerate(),
             ("settings", "get") => {

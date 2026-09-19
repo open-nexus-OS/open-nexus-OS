@@ -99,54 +99,54 @@ reduce ImeStripEvent {
 }
 
 @effect on Changed(tag) {
-    match svc.ime.rows(tag, 0, timeoutMs: 250) {
+    match svc.ime.rows(tag, 0) {
         Ok(rows) => dispatch(Rows0(rows)),
         Err(e) => dispatch(SendFailed(e)),
     }
-    match svc.ime.rows(tag, 1, timeoutMs: 250) {
+    match svc.ime.rows(tag, 1) {
         Ok(rows) => dispatch(Rows1(rows)),
         Err(e) => dispatch(SendFailed(e)),
     }
-    match svc.ime.rows(tag, 2, timeoutMs: 250) {
+    match svc.ime.rows(tag, 2) {
         Ok(rows) => dispatch(Rows2(rows)),
         Err(e) => dispatch(SendFailed(e)),
     }
-    match svc.ime.rows(tag, 3, timeoutMs: 250) {
+    match svc.ime.rows(tag, 3) {
         Ok(rows) => dispatch(Rows3(rows)),
         Err(e) => dispatch(SendFailed(e)),
     }
 }
 
 @effect on Key(k) {
-    match svc.ime.key(k, timeoutMs: 100) {
+    match svc.ime.key(k) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
     }
 }
 
 @effect on Action(a) {
-    match svc.ime.action(a, timeoutMs: 100) {
+    match svc.ime.action(a) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
     }
 }
 
 @effect on Select(i) {
-    match svc.ime.select(i, timeoutMs: 100) {
+    match svc.ime.select(i) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
     }
 }
 
 @effect on Dismiss {
-    match svc.settings.set("window.control", "minimize", timeoutMs: 100) {
+    match svc.settings.set("window.control", "minimize") {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
     }
 }
 
 @effect on CycleLayout {
-    match svc.ime.cycle(state.keymap, timeoutMs: 100) {
+    match svc.ime.cycle(state.keymap) {
         Ok(ok) => dispatch(Sent(ok)),
         Err(e) => dispatch(SendFailed(e)),
     }

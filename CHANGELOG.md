@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Removed - 2026-09-19 (TASK-0077B P0: the DSL stops demanding a number nothing reads — `timeoutMs:` retired, IR v1.6)
+
+- **A service call carries no client timeout.** `timeoutMs:` was mandatory-by-lint on every `svc.*` call while the app-host had already stopped reading it (TASK-0054C P2-a left `let _ = timeout_ms;`). The language was nagging authors — NX0409 fired when the argument was MISSING — to keep writing a number that was discarded. `docs/dev/dsl/principles.md` names both failures: §5 (*"convenience-only features are rejected"*) and §1 (*"apps cannot observe HOW a service is implemented, only its contract"*) — a client-side timeout is the app second-guessing the service.
+- **The rule inverted rather than relaxed.** NX0409 is RETIRED and **NX0412** takes its place: passing `timeoutMs:` is now an error. A diagnostic code whose meaning flips is worse than one that ends, so the number is not reused. The exchange ends with the reply or with the service's death, and with nothing else (RFC-0093 §7, RFC-0096).
+- **IR v1.6 is the first SUBTRACTIVE minor.** `CallStep.timeoutMs` is gone; the capnp ordinal `@3` stays occupied by `retiredTimeoutMs` because capnp ordinals must be sequential, and is burned for ever. Safe only because everything in-tree builds together and readers gate on the MAJOR alone — recorded in `docs/dev/dsl/ir.md#changelog`.
+- `EffectHost::call` loses the parameter through every implementation: runtime, transcript host, app-host and ~20 test hosts. 61 call sites across 10 `.nx` files, the `todo` example, the CLI explainer and four doc pages follow.
+- Proof: `just test-host` green (including a new `test_reject_timeout_ms_on_a_service_call` that asserts both halves — the argument is rejected AND the same program without it checks clean), `just check` 11/11, `just test-all` 27 PASS / 0 FAIL.
+
+
 ### Fixed - 2026-09-19 (TASK-0326: gpud's GL capability is decided when GL is first NEEDED, not at a point in start-up)
 
 - **`just start` showed no picture roughly one run in four, and the boot did not wedge — gpud EXITED.** `gpud: FAIL gl draw unavailable on gl device` → `init: service exit name=gpud`. The policy that kills it is right and stays (TASK-0324 P0: a GL device gets the GL render target or nothing, because the 2D plane-row scanout is black on every GL backend). What was wrong is the PROVENANCE of one of its inputs: `virgl_draw_ok` was read as a property of the device, but it is the outcome of a self-test run in `probe()` — before QEMU's GTK window is realized, when virglrenderer has no context yet. RFC-0074 already refuses to trust that moment for the display MODE; the DRAW capability was the other half of the same race, and the half whose answer is fatal.

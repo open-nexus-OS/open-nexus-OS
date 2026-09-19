@@ -26,7 +26,6 @@ impl nexus_dsl_runtime::EffectHost for Registry {
         svc: &str,
         method: &str,
         _a: &[nexus_dsl_runtime::Value],
-        _t: u32,
     ) -> Result<nexus_dsl_runtime::Value, u32> {
         use nexus_dsl_runtime::Value;
         if (svc, method) == ("bundlemgr", "enumerate") {
@@ -187,7 +186,6 @@ fn handler_count_with_and_without_apps() {
             svc: &str,
             method: &str,
             _a: &[nexus_dsl_runtime::Value],
-            _t: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             if (svc, method) == ("bundlemgr", "enumerate") {
                 return Ok(nexus_dsl_runtime::Value::List(vec![]));

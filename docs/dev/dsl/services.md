@@ -31,15 +31,26 @@ Signature diagnostics (stable codes):
 | --- | --- |
 | `NX0207` | `svc.<service>` is not a platform service |
 | `NX0208` | the service exists but has no such method |
-| `NX0302` | wrong argument count (excluding `timeoutMs:`) |
-| `NX0409` | missing explicit `timeoutMs:` (warning in v0.2) |
+| `NX0302` | wrong argument count |
+| `NX0412` | `timeoutMs:` passed on a service call — retired, see below (NX0409 was its inverse and is retired with it) |
 | `NX0407` | a call result is ignored (warning in v0.2) |
+
+### No client timeout on a service call
+
+A service call carries no `timeoutMs:`. The exchange ends with the reply or with
+the service's death, and with nothing else (RFC-0093 §7, RFC-0096) — the
+app-host stopped reading the number in TASK-0054C, and the language stopped
+asking for it in TASK-0077B. Passing one is `NX0412`.
+
+The argument was never a bound on anything: it looked like one, which is worse
+than no number at all. If a call can hang, that is the service's contract to
+fix, not the caller's to paper over.
 
 ## Calling a service
 
 ```nx
 @effect on LoadRequested {
-    match svc.library.list(timeoutMs: 250) {
+    match svc.library.list() {
         Ok(rows) => dispatch(Loaded(rows)),
         Err(e) => dispatch(LoadFailed(e)),
     }

@@ -116,13 +116,7 @@ pub struct QueryPage {
 /// The IO boundary: effects call services only through this.
 pub trait EffectHost {
     /// Returns the call result or a stable error code.
-    fn call(
-        &mut self,
-        service: &str,
-        method: &str,
-        args: &[Value],
-        timeout_ms: u32,
-    ) -> Result<Value, u32>;
+    fn call(&mut self, service: &str, method: &str, args: &[Value]) -> Result<Value, u32>;
 
     /// Executes a query step. Hosts without a query engine keep the default
     /// (a deterministic error — never a silent empty page).
@@ -136,7 +130,7 @@ pub trait EffectHost {
 pub struct NoIo;
 
 impl EffectHost for NoIo {
-    fn call(&mut self, _: &str, _: &str, _: &[Value], _: u32) -> Result<Value, u32> {
+    fn call(&mut self, _: &str, _: &str, _: &[Value]) -> Result<Value, u32> {
         Err(u32::MAX)
     }
 }

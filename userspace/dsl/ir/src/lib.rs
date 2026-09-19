@@ -44,10 +44,13 @@ pub const SCHEMA_MAJOR: u16 = 1;
 /// Minor 5 adds slots (RFC-0084): `Component.slots`, `ViewNode.slot`,
 /// `ComponentRef.slots`. Additive, but honestly one-way: an old reader meeting
 /// a program that USES `slot` gets `NotInSchema` → [`IrError::Malformed`],
+/// Minor 6 retires `CallStep.timeoutMs` (TASK-0077B): a service call has no
+/// client clock. Subtractive, and safe only because everything in-tree builds
+/// together — the ordinal @3 is burned rather than reused.
 /// because `SCHEMA_MAJOR` gates only the major. Everything in-tree builds
 /// together, so this is a documented contract rather than an enforced gate —
 /// a program using `Slot` requires a runtime at minor ≥ 5.
-pub const SCHEMA_MINOR: u16 = 5;
+pub const SCHEMA_MINOR: u16 = 6;
 
 /// Byte length of `programHash` / `sourceDigest` (SHA-256).
 pub const DIGEST_LEN: usize = 32;

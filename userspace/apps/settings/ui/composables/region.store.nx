@@ -104,49 +104,49 @@ reduce RegionEvent {
 }
 
 @effect on SetLocale(tag) {
-    match svc.settings.set("ui.locale", tag, timeoutMs: 250) {
+    match svc.settings.set("ui.locale", tag) {
         Ok(ok) => dispatch(RegionApplied(ok)),
         Err(e) => dispatch(RegionFailed(e)),
     }
 }
 
 @effect on SetCountry(code) {
-    match svc.settings.set("region.country", code, timeoutMs: 250) {
+    match svc.settings.set("region.country", code) {
         Ok(ok) => dispatch(RegionApplied(ok)),
         Err(e) => dispatch(RegionFailed(e)),
     }
 }
 
 @effect on SetKeymap(layout) {
-    match svc.settings.set("input.keymap", layout, timeoutMs: 250) {
+    match svc.settings.set("input.keymap", layout) {
         Ok(ok) => dispatch(RegionApplied(ok)),
         Err(e) => dispatch(RegionFailed(e)),
     }
 }
 
 @effect on SetZone(z) {
-    match svc.settings.set("time.zone", z, timeoutMs: 250) {
+    match svc.settings.set("time.zone", z) {
         Ok(ok) => dispatch(RegionApplied(ok)),
         Err(e) => dispatch(RegionFailed(e)),
     }
 }
 
 @effect on SetHourFmt(f) {
-    match svc.settings.set("time.format", f, timeoutMs: 250) {
+    match svc.settings.set("time.format", f) {
         Ok(ok) => dispatch(RegionApplied(ok)),
         Err(e) => dispatch(RegionFailed(e)),
     }
 }
 
 @effect on SetPersonalization(v) {
-    match svc.settings.set("ime.personalization", v, timeoutMs: 250) {
+    match svc.settings.set("ime.personalization", v) {
         Ok(ok) => dispatch(RegionApplied(ok)),
         Err(e) => dispatch(RegionFailed(e)),
     }
 }
 
 @effect on Forget {
-    match svc.settings.set("ime.personalization", "forget", timeoutMs: 250) {
+    match svc.settings.set("ime.personalization", "forget") {
         Ok(ok) => dispatch(RegionApplied(ok)),
         Err(e) => dispatch(RegionFailed(e)),
     }

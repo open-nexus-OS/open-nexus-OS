@@ -102,13 +102,7 @@ impl TranscriptHost {
 }
 
 impl EffectHost for TranscriptHost {
-    fn call(
-        &mut self,
-        service: &str,
-        method: &str,
-        args: &[Value],
-        _timeout_ms: u32,
-    ) -> Result<Value, u32> {
+    fn call(&mut self, service: &str, method: &str, args: &[Value]) -> Result<Value, u32> {
         let invocation = call_text(service, method, args);
         self.replay_call(&invocation)
     }
@@ -141,14 +135,8 @@ impl<'a> Recorder<'a> {
 }
 
 impl EffectHost for Recorder<'_> {
-    fn call(
-        &mut self,
-        service: &str,
-        method: &str,
-        args: &[Value],
-        timeout_ms: u32,
-    ) -> Result<Value, u32> {
-        let response = self.inner.call(service, method, args, timeout_ms);
+    fn call(&mut self, service: &str, method: &str, args: &[Value]) -> Result<Value, u32> {
+        let response = self.inner.call(service, method, args);
         let rhs = match &response {
             Ok(value) => format!("Ok({})", value_to_text(value)),
             Err(code) => format!("Err({code})"),
@@ -260,18 +248,18 @@ mod tests {
     fn record_then_replay_is_faithful() {
         struct Fixed;
         impl EffectHost for Fixed {
-            fn call(&mut self, _: &str, _: &str, _: &[Value], _: u32) -> Result<Value, u32> {
+            fn call(&mut self, _: &str, _: &str, _: &[Value]) -> Result<Value, u32> {
                 Ok(Value::List(alloc::vec![Value::Str(String::from("Alpha"))]))
             }
         }
         let mut live = Fixed;
         let mut recorder = Recorder::new(&mut live);
         let args = [Value::Str(String::from("q"))];
-        let recorded = recorder.call("library", "list", &args, 250);
+        let recorded = recorder.call("library", "list", &args);
         let text = recorder.transcript();
 
         let mut replay = TranscriptHost::parse(&text).expect("parses");
-        let replayed = replay.call("library", "list", &args, 250);
+        let replayed = replay.call("library", "list", &args);
         assert_eq!(recorded, replayed);
         assert!(replay.is_clean());
     }
@@ -281,7 +269,7 @@ mod tests {
         let text = "# nx-transcript v1\ncall library.list() -> Ok(List[])\n";
         let mut host = TranscriptHost::parse(text).expect("parses");
         // Wrong method: miss recorded, distinguished error returned.
-        let result = host.call("library", "get", &[], 250);
+        let result = host.call("library", "get", &[]);
         assert_eq!(result, Err(ERR_TRANSCRIPT_MISS));
         assert!(!host.is_clean());
         assert_eq!(host.misses.len(), 1);

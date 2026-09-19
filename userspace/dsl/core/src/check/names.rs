@@ -350,10 +350,7 @@ fn check_svc_call(
             format!("`svc.{}` has no method `{}`", service.text, method.text),
         )),
         crate::registry::SvcLookup::Found { arity } => {
-            let positional = args
-                .iter()
-                .filter(|a| a.name.as_ref().map(|n| n.text.as_str()) != Some("timeoutMs"))
-                .count();
+            let positional = args.iter().filter(|a| a.name.is_none()).count();
             if positional != arity {
                 diags.push(Diagnostic::new(
                     DiagCode::WrongArity,

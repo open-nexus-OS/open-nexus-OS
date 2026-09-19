@@ -165,18 +165,29 @@ fn svc_discipline(stmts: &[Stmt], diags: &mut Vec<Diagnostic>) {
     }
 }
 
+/// A service call carries NO client timeout (TASK-0077B P0). The exchange ends
+/// with the reply or with the service's death and nothing else (RFC-0093 §7,
+/// RFC-0096) — the app-host stopped reading the number in TASK-0054C P2-a, so
+/// the language stopped asking for it here. Passing one is an error: a number
+/// that looks like a bound but is not one is worse than no number.
 fn timeout_check(expr: &Expr, diags: &mut Vec<Diagnostic>) {
-    if let Expr::Call { path, args, span } = expr {
-        if path.first().map(|seg| seg.text.as_str()) == Some("svc")
-            && !args
-                .iter()
-                .any(|arg| arg.name.as_ref().map(|n| n.text.as_str()) == Some("timeoutMs"))
-        {
-            diags.push(Diagnostic::new(
-                DiagCode::MissingTimeout,
-                *span,
-                String::from("service calls should pass `timeoutMs:` explicitly"),
-            ));
+    if let Expr::Call { path, args, .. } = expr {
+        if path.first().map(|seg| seg.text.as_str()) != Some("svc") {
+            return;
+        }
+        for arg in args {
+            if let Some(name) = arg.name.as_ref() {
+                if name.text.as_str() == "timeoutMs" {
+                    diags.push(Diagnostic::new(
+                        DiagCode::RetiredTimeout,
+                        name.span,
+                        String::from(
+                            "`timeoutMs:` is retired — a service call has no client clock; \
+                             the reply or the service's death ends it",
+                        ),
+                    ));
+                }
+            }
         }
     }
 }

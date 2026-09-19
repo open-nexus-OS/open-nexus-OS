@@ -24,7 +24,7 @@ struct CountingHost {
     calls: usize,
 }
 impl nexus_dsl_runtime::EffectHost for CountingHost {
-    fn call(&mut self, _: &str, _: &str, _: &[Value], _: u32) -> Result<Value, u32> {
+    fn call(&mut self, _: &str, _: &str, _: &[Value]) -> Result<Value, u32> {
         self.calls += 1;
         Ok(Value::Bool(true))
     }

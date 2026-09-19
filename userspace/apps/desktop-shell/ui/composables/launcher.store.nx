@@ -85,21 +85,21 @@ reduce LauncherEvent {
 }
 
 @effect on Refresh {
-    match svc.bundlemgr.enumerate(state.query, timeoutMs: 250) {
+    match svc.bundlemgr.enumerate(state.query) {
         Ok(apps) => dispatch(Loaded(apps)),
         Err(e) => dispatch(LoadFailed(e)),
     }
 }
 
 @effect on QueryChanged {
-    match svc.bundlemgr.enumerate(state.query, timeoutMs: 250) {
+    match svc.bundlemgr.enumerate(state.query) {
         Ok(apps) => dispatch(Loaded(apps)),
         Err(e) => dispatch(LoadFailed(e)),
     }
 }
 
 @effect on Launch(id) {
-    match svc.ability.launch(id, timeoutMs: 500) {
+    match svc.ability.launch(id) {
         Ok(ok) => dispatch(LaunchDone(ok)),
         Err(e) => dispatch(LaunchFailed(e)),
     }
@@ -112,7 +112,7 @@ reduce LauncherEvent {
 // (docs/dev/dsl/state.md). Dispatching it from a handler would silently turn
 // the initial load off.
 @effect on WindowsMoved {
-    match svc.bundlemgr.enumerate(state.query, timeoutMs: 250) {
+    match svc.bundlemgr.enumerate(state.query) {
         Ok(apps) => dispatch(Loaded(apps)),
         Err(e) => dispatch(LoadFailed(e)),
     }
@@ -123,7 +123,7 @@ reduce LauncherEvent {
 // running, else a normal launch — so the shell never duplicates that state
 // machine.
 @effect on Activate(id) {
-    match svc.shell.activate(id, timeoutMs: 200) {
+    match svc.shell.activate(id) {
         Ok(ok) => dispatch(ActivateDone(ok)),
         Err(e) => dispatch(LaunchFailed(e)),
     }
@@ -133,7 +133,7 @@ reduce LauncherEvent {
 // viewport there (in-process app-host verb — NO PageNext/PagePrev fires for
 // an effect-driven move, so the page cannot double-count).
 @effect on SetPage(i) {
-    match svc.shell.scrollToPage(i, timeoutMs: 50) {
+    match svc.shell.scrollToPage(i) {
         Ok(ok) => dispatch(PageSynced(ok)),
         Err(e) => dispatch(PageSyncFailed(e)),
     }

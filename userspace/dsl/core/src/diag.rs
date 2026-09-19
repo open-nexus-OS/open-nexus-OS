@@ -80,9 +80,12 @@ pub enum DiagCode {
     MissingProfileElse, // NX0406 (Warning)
     UnhandledResult,    // NX0407
     DuplicateRoute,     // NX0408
-    MissingTimeout,     // NX0409
-    QueryShape,         // NX0410 (query outside the v1 shape contract)
-    SlotShape,          // NX0411 (slot declaration/placeholder/binding misuse)
+    // NX0409 (`MissingTimeout`) is RETIRED, not repurposed: it used to mean
+    // "you forgot `timeoutMs:`" and the rule is now the opposite one. A code
+    // whose meaning inverts is worse than a code that ends (TASK-0077B P0).
+    QueryShape,     // NX0410 (query outside the v1 shape contract)
+    SlotShape,      // NX0411 (slot declaration/placeholder/binding misuse)
+    RetiredTimeout, // NX0412 (`timeoutMs:` on a service call — the exchange has no clock)
     // --- lowering (NX05xx)
     LoweringUnsupported, // NX0501 (a construct outside the v0.1 lowering subset)
 }
@@ -127,23 +130,21 @@ impl DiagCode {
             DiagCode::MissingProfileElse => "NX0406",
             DiagCode::UnhandledResult => "NX0407",
             DiagCode::DuplicateRoute => "NX0408",
-            DiagCode::MissingTimeout => "NX0409",
             DiagCode::QueryShape => "NX0410",
             DiagCode::SlotShape => "NX0411",
+            DiagCode::RetiredTimeout => "NX0412",
             DiagCode::LoweringUnsupported => "NX0501",
         }
     }
 
     /// Default severity. Warnings promote to errors under `--deny-warn`.
     ///
-    /// `UnhandledResult`/`MissingTimeout` are warnings in v0.1 and become
-    /// errors when the async-recipe wave lands (TASK-0077B/0078 contract).
+    /// `UnhandledResult` is a warning in v0.1 and becomes an error when the
+    /// async-recipe wave lands (TASK-0077B/0078 contract).
     #[must_use]
     pub fn severity(self) -> Severity {
         match self {
-            DiagCode::MissingProfileElse | DiagCode::UnhandledResult | DiagCode::MissingTimeout => {
-                Severity::Warning
-            }
+            DiagCode::MissingProfileElse | DiagCode::UnhandledResult => Severity::Warning,
             _ => Severity::Error,
         }
     }

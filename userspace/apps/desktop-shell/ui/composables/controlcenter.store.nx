@@ -81,21 +81,21 @@ reduce ControlEvent {
 // outside `tablet|desktop` is refused by settingsd's own validator, which is
 // what validators are for.
 @effect on SyncMode {
-    match svc.settings.set("ui.shell.mode", device.profile, timeoutMs: 250) {
+    match svc.settings.set("ui.shell.mode", device.profile) {
         Ok(ok) => dispatch(Applied(ok)),
         Err(e) => dispatch(ApplyFailed(e)),
     }
 }
 
 @effect on SetTheme(mode) {
-    match svc.settings.set("ui.theme.mode", mode, timeoutMs: 250) {
+    match svc.settings.set("ui.theme.mode", mode) {
         Ok(ok) => dispatch(Applied(ok)),
         Err(e) => dispatch(ApplyFailed(e)),
     }
 }
 
 @effect on SetMode(mode) {
-    match svc.settings.set("ui.shell.mode", mode, timeoutMs: 250) {
+    match svc.settings.set("ui.shell.mode", mode) {
         Ok(ok) => dispatch(Applied(ok)),
         Err(e) => dispatch(ApplyFailed(e)),
     }

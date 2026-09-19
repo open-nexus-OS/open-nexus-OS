@@ -69,14 +69,14 @@ reduce AppearanceEvent {
 }
 
 @effect on SetTheme(mode) {
-    match svc.settings.set("ui.theme.mode", mode, timeoutMs: 250) {
+    match svc.settings.set("ui.theme.mode", mode) {
         Ok(ok) => dispatch(ApApplied(ok)),
         Err(e) => dispatch(ApFailed(e)),
     }
 }
 
 @effect on SetAccent(name) {
-    match svc.settings.set("ui.theme.accent", name, timeoutMs: 250) {
+    match svc.settings.set("ui.theme.accent", name) {
         Ok(ok) => dispatch(ApApplied(ok)),
         Err(e) => dispatch(ApFailed(e)),
     }

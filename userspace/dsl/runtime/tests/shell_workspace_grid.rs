@@ -28,7 +28,6 @@ fn shell_grid_tiles_lay_out_in_a_row() {
             svc: &str,
             method: &str,
             _a: &[nexus_dsl_runtime::Value],
-            _t: u32,
         ) -> Result<nexus_dsl_runtime::Value, u32> {
             use nexus_dsl_runtime::Value;
             if (svc, method) == ("bundlemgr", "enumerate") {

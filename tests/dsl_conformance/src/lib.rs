@@ -107,13 +107,7 @@ impl Script {
 }
 
 impl EffectHost for Script {
-    fn call(
-        &mut self,
-        service: &str,
-        method: &str,
-        _args: &[Value],
-        _timeout_ms: u32,
-    ) -> Result<Value, u32> {
+    fn call(&mut self, service: &str, method: &str, _args: &[Value]) -> Result<Value, u32> {
         let name = format!("{service}.{method}");
         self.calls.push(name.clone());
         let (expected, response) =
@@ -200,7 +194,7 @@ fn to_qval(value: &Value) -> Option<QVal> {
 }
 
 impl EffectHost for EngineHost {
-    fn call(&mut self, _: &str, _: &str, _: &[Value], _: u32) -> Result<Value, u32> {
+    fn call(&mut self, _: &str, _: &str, _: &[Value]) -> Result<Value, u32> {
         Err(u32::MAX)
     }
 

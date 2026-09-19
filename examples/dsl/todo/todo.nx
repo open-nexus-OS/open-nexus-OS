@@ -23,7 +23,7 @@ reduce TodoEvent {
 }
 
 @effect on Refresh {
-    let items = svc.todos.list(timeoutMs: 250);
+    let items = svc.todos.list();
     dispatch(Loaded(items));
 }
 

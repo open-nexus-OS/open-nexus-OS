@@ -100,42 +100,42 @@ reduce UpdatesEvent {
 }
 
 @effect on UpdRefresh {
-    match svc.updates.status(timeoutMs: 400) {
+    match svc.updates.status() {
         Ok(rows) => dispatch(UpdStatusLoaded(rows)),
         Err(e) => dispatch(UpdFailed(e)),
     }
 }
 
 @effect on UpdStatusLoaded(rows) {
-    match svc.updates.feed(timeoutMs: 400) {
+    match svc.updates.feed() {
         Ok(names) => dispatch(UpdFeedLoaded(names)),
         Err(e) => dispatch(UpdFailed(e)),
     }
 }
 
 @effect on UpdFeedLoaded(names) {
-    match svc.updates.check(timeoutMs: 400) {
+    match svc.updates.check() {
         Ok(n) => dispatch(UpdChecked(n)),
         Err(e) => dispatch(UpdFailed(e)),
     }
 }
 
 @effect on UpdStage(name) {
-    match svc.updates.stage(name, timeoutMs: 3000) {
+    match svc.updates.stage(name) {
         Ok(ok) => dispatch(UpdActionDone(ok)),
         Err(e) => dispatch(UpdFailed(e)),
     }
 }
 
 @effect on UpdSwitch {
-    match svc.updates.switch(timeoutMs: 1000) {
+    match svc.updates.switch() {
         Ok(ok) => dispatch(UpdActionDone(ok)),
         Err(e) => dispatch(UpdFailed(e)),
     }
 }
 
 @effect on UpdRollback {
-    match svc.updates.rollback(timeoutMs: 1000) {
+    match svc.updates.rollback() {
         Ok(ok) => dispatch(UpdActionDone(ok)),
         Err(e) => dispatch(UpdFailed(e)),
     }

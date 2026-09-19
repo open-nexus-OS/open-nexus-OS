@@ -225,14 +225,41 @@ reduce E {
     }
 
     #[test]
-    fn canonical_program_checks_with_only_v01_softenings() {
-        // The canonical example uses `let x = svc…()` without timeout — the
-        // v0.1 posture reports MissingTimeout (warning-class code today).
+    fn canonical_program_checks_clean() {
+        // A service call carries no client clock (TASK-0077B P0), so the
+        // canonical example has nothing left to soften: it must check CLEAN.
         let codes = codes_of(USER_LIST_PAGE);
-        assert!(
-            codes.iter().all(|c| *c == DiagCode::MissingTimeout),
-            "unexpected diagnostics: {codes:?}"
-        );
+        assert!(codes.is_empty(), "unexpected diagnostics: {codes:?}");
+    }
+
+    /// The inverted rule: passing the retired argument is an error now. The
+    /// same program WITHOUT it must check clean — the two halves together are
+    /// what make this a rule rather than a nag.
+    #[test]
+    fn test_reject_timeout_ms_on_a_service_call() {
+        const WITH_TIMEOUT: &str = r#"
+Store S {
+    n: Int = 0,
+}
+
+Event E {
+    Go,
+}
+
+reduce E {
+    Go => state.n = 1,
+}
+
+@effect on Go {
+    let users = svc.users.list(timeoutMs: 250);
+}
+
+Page P { Stack { Text("x") } }
+"#;
+        let codes = codes_of(WITH_TIMEOUT);
+        assert!(codes.contains(&DiagCode::RetiredTimeout), "expected NX0412, got: {codes:?}");
+        let without = WITH_TIMEOUT.replace("(timeoutMs: 250)", "()");
+        assert!(codes_of(&without).is_empty(), "clean program must stay clean");
     }
 
     #[test]

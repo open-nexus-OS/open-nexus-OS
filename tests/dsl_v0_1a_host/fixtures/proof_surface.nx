@@ -27,7 +27,7 @@ reduce ProofEvent {
 }
 
 @effect on Refresh {
-    let items = svc.catalog.list(timeoutMs: 250);
+    let items = svc.catalog.list();
     dispatch(Loaded(items));
 }
 

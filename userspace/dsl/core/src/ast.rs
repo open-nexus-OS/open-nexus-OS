@@ -342,8 +342,8 @@ impl Expr {
     }
 }
 
-/// `expr` or `name: expr` (named args, e.g. `timeoutMs = 250` uses `=`? No —
-/// named call args use `name: expr`; `timeoutMs = 250` sugar is rejected).
+/// `expr` or `name: expr`. Named call args use `name: expr`; `name = expr`
+/// sugar is rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallArg {
     pub name: Option<Ident>,

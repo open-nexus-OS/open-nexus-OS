@@ -74,18 +74,18 @@ reduce SessionEvent {
 }
 
 @effect on Load {
-    match svc.session.users(timeoutMs: 250) {
+    match svc.session.users() {
         Ok(users) => dispatch(UsersLoaded(users)),
         Err(e) => dispatch(UsersFailed(e)),
     }
-    match svc.session.active(timeoutMs: 250) {
+    match svc.session.active() {
         Ok(id) => dispatch(ActiveLoaded(id)),
         Err(e) => dispatch(UsersFailed(e)),
     }
 }
 
 @effect on Submit {
-    match svc.session.login(state.selected, state.secret, timeoutMs: 1000) {
+    match svc.session.login(state.selected, state.secret) {
         Ok(ok) => dispatch(LoginOk(ok)),
         Err(e) => dispatch(LoginFailed(e)),
     }

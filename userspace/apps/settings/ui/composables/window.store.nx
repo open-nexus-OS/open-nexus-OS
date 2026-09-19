@@ -112,7 +112,7 @@ reduce WindowEvent {
 }
 
 @effect on WinAct(a) {
-    match svc.settings.set("window.control", a, timeoutMs: 250) {
+    match svc.settings.set("window.control", a) {
         Ok(ok) => dispatch(WinActApplied(ok)),
         Err(e) => dispatch(WinActFailed(e)),
     }

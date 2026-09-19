@@ -54,7 +54,7 @@ fn hex_decode(text: &str) -> Option<Vec<u8>> {
 }
 
 impl EffectHost for TranscriptHost {
-    fn call(&mut self, _: &str, _: &str, _: &[Value], _: u32) -> Result<Value, u32> {
+    fn call(&mut self, _: &str, _: &str, _: &[Value]) -> Result<Value, u32> {
         Err(u32::MAX)
     }
 

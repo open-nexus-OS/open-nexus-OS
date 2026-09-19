@@ -25,7 +25,7 @@ const REPORTED_AS_MISSES: &[(i32, i32)] = &[(1152, 180), (1129, 187), (1237, 237
 
 struct NullHost;
 impl nexus_dsl_runtime::EffectHost for NullHost {
-    fn call(&mut self, _: &str, _: &str, _: &[Value], _: u32) -> Result<Value, u32> {
+    fn call(&mut self, _: &str, _: &str, _: &[Value]) -> Result<Value, u32> {
         Ok(Value::Bool(true))
     }
 }

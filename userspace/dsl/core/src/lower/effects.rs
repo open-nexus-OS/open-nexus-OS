@@ -153,21 +153,11 @@ fn fill_call(
     }
     call.set_service(ctx.sym(&path[1].text));
     call.set_method(ctx.sym(&path[2].text));
-    let mut timeout: u32 = 0;
-    let positional: Vec<&crate::ast::CallArg> = args
-        .iter()
-        .filter(|arg| {
-            if arg.name.as_ref().map(|n| n.text.as_str()) == Some("timeoutMs") {
-                if let Expr::Int { value, .. } = arg.value {
-                    timeout = value.max(0) as u32;
-                }
-                false
-            } else {
-                true
-            }
-        })
-        .collect();
-    call.set_timeout_ms(timeout);
+    // No client timeout rides a service call (TASK-0077B P0): the exchange ends
+    // with the reply or the service's death (RFC-0096). `timeoutMs:` is rejected
+    // in the check phase, so by here every argument is positional.
+    let positional: Vec<&crate::ast::CallArg> =
+        args.iter().filter(|arg| arg.name.is_none()).collect();
     let mut list = call.reborrow().init_args(positional.len() as u32);
     for (i, arg) in positional.iter().enumerate() {
         lower_expr(env, &arg.value, list.reborrow().get(i as u32))?;

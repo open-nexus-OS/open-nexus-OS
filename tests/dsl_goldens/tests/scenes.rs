@@ -54,13 +54,7 @@ struct CountingHost {
 }
 
 impl nexus_dsl_runtime::EffectHost for CountingHost {
-    fn call(
-        &mut self,
-        _service: &str,
-        _method: &str,
-        _args: &[Value],
-        _timeout_ms: u32,
-    ) -> Result<Value, u32> {
+    fn call(&mut self, _service: &str, _method: &str, _args: &[Value]) -> Result<Value, u32> {
         self.calls += 1;
         Ok(Value::List(self.reply.clone()))
     }
@@ -98,14 +92,14 @@ reduce E {
 }
 
 @effect on Load {
-    match svc.library.list(timeoutMs: 250) {
+    match svc.library.list() {
         Ok(rows) => dispatch(Loaded(rows)),
         Err(e) => dispatch(Failed(e)),
     }
 }
 
 @effect on Submit {
-    match svc.library.list(timeoutMs: 250) {
+    match svc.library.list() {
         Ok(rows) => dispatch(Submitted),
         Err(e) => dispatch(Failed(e)),
     }

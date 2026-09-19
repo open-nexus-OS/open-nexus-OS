@@ -76,7 +76,7 @@ Execution belongs in an effect:
 
 ```nx
 @effect on LoadRequested {
-  match svc.db.users.query(query, limit=50, timeoutMs=250) {
+  match svc.db.users.query(query, limit=50) {
     Ok(rows) => dispatch(Loaded(rows)),
     Err(e) => dispatch(LoadFailed(e.code)), // stable code, not to_string()
   }
@@ -111,7 +111,7 @@ reduce(state, event) -> state {
 effect(event) {
   match event {
     SearchChanged(_) | NextPageRequested(_) => {
-      let res = PickerService.query(state.query, timeoutMs=250)
+      let res = PickerService.query(state.query)
       emit(PageLoaded(res))
     }
   }

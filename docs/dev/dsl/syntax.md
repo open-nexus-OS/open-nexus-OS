@@ -58,7 +58,7 @@ load falls out of the **dataflow** instead:
 Event UserListEvent { LoadUsers, UsersLoaded(List<User>) }
 
 @effect on LoadUsers {
-    match svc.users.list(timeoutMs: 250) {
+    match svc.users.list() {
         Ok(users) => dispatch(UsersLoaded(users)),
         Err(e)    => dispatch(LoadFailed(e)),
     }

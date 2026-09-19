@@ -18,7 +18,6 @@ impl nexus_dsl_runtime::EffectHost for NoHost {
         _s: &str,
         _m: &str,
         _a: &[nexus_dsl_runtime::Value],
-        _t: u32,
     ) -> Result<nexus_dsl_runtime::Value, u32> {
         Err(0)
     }

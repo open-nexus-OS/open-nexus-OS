@@ -474,7 +474,7 @@ reduce E {
     Failed(code) => state.busy = false,
 }
 @effect on Kick {
-    match svc.myapp.transcode(state.last, timeoutMs: 500) {
+    match svc.myapp.transcode(state.last) {
         Ok(text) => dispatch(Done(text)),
         Err(e) => dispatch(Failed(e)),
     }

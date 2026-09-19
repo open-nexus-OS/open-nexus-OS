@@ -64,7 +64,7 @@ pub(crate) fn run_plan(
                 for arg in args_list.iter() {
                     args.push(eval_in(ctx, arg)?);
                 }
-                match ctx.host.call(service, method, &args, call.get_timeout_ms()) {
+                match ctx.host.call(service, method, &args) {
                     Ok(result) => {
                         let slot = call.get_result_slot();
                         if slot != u32::MAX {

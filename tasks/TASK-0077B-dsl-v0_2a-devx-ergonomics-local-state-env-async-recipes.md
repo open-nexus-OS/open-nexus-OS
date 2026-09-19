@@ -1,6 +1,6 @@
 ---
 title: TASK-0077B DSL v0.2a DevX: keyed per-instance `$state` + complete two-way bindings + async recipes (host)
-status: Draft (end-state rewrite 2026-09-09; ~2/3 shipped, residual = keyed state spine + 3 bindings + recipes + lint promotion)
+status: In Progress (reviewed 2026-09-19; ~2/3 shipped, residual = keyed state spine + 3 bindings + Stepper + recipes + lint promotion + timeoutMs retirement)
 owner: @ui @runtime
 created: 2026-01-26
 updated: 2026-07-06
@@ -12,6 +12,78 @@ links:
   - Language reference: docs/dev/dsl/{state,syntax,patterns}.md
   - Principles this task serves: docs/dev/dsl/principles.md (encapsulation without magic)
 ---
+
+## Review 2026-09-19 (binding; refines the 2026-09-09 rewrite, which stands)
+
+The 2026-09-09 ground truth re-verified against today's tree — every claim still holds:
+the single-use rule is still a build error (`lower/mod.rs:265`, with an error message that
+names this very work: *"per-instance local state lands with the retained-instance work"*);
+the bind table is still four controls (`lower/views.rs:258-262`); `Stepper` is in neither
+registry though `userspace/ui/widgets/stepper` exists; `tests/dsl_v0_2a_devx_host/` was never
+created; NX0407/NX0409 are lints.
+
+**The five residual items are one idea, which is worth naming before building any of them:
+the language demands ceremony the runtime does not need.** You may not instantiate a stateful
+component twice — because the store is per COMPONENT, not per instance. You must hand-write a
+handler for three of seven value controls — because the bind table stops at four. You cannot
+name `Stepper` at all — though the widget is built. And you are *linted into passing*
+`timeoutMs:` — an argument nothing reads. Each item is that same sentence.
+
+**Two corrections to the 09-09 plan, from measurement:**
+
+- **IR v1.3 is long taken** (TASK-0078B, `QuerySpec`) and the schema is at **v1.5** (component
+  slots, RFC-0084). D1/D4a's "IR v1.3" reads **IR v1.6** throughout.
+- **D4a's premise is now fact, not anticipation.** TASK-0054C P2-a landed:
+  `app-host/effect_host.rs:606` is literally `let _ = timeout_ms;`. Meanwhile
+  `check/lints.rs:173-178` fires NX0409 when `timeoutMs:` is MISSING — the language nags you
+  to add a dead argument. Measured blast radius: **61 occurrences across 10 `.nx` files**, plus
+  `ui_ir.capnp:271` (`timeoutMs @3 :UInt32; # mandatory, > 0`).
+
+**One prerequisite confirmed rather than assumed:** D1's instance identity rests on
+`ForEach.keyExpr` (`ui_ir.capnp:370`), which is already REQUIRED for collections. The keyed
+design has a foundation; it is not inventing one.
+
+### Checked against `docs/dev/dsl/principles.md` (2026-09-19)
+
+The residual items are not leftovers. Each one is the language failing a principle it has
+written down, and the document is in three places STRONGER than this ledger was:
+
+| item | principle | what it actually is |
+|---|---|---|
+| `timeoutMs:` | **§5** *"Convenience-only features are rejected in design review"* · **§1** *"Apps cannot observe HOW a service is implemented, only its contract"* | Not residue but a breach: a number that makes the app second-guess the service's implementation — and a lint that DEMANDS it. |
+| single-use rule | **§1** *"Components own their state completely; there is no global mutable state"* | One store per COMPONENT means two instances would SHARE state. That is global mutable state by the back door; the single-use rule is the guard rail in front of it, not the fix. |
+| bind table at 4 of 7 | **§7** *"a curated catalog with a UNIFORM modifier surface"* | Exactly the non-uniformity §7 rules out. |
+| NX0407 as a lint | **§4** *"violation is an error, NOT a lint suggestion"* | The promotion is already the documented posture. |
+
+Two things the principles add that the plan did not say:
+
+- **§6** (*"collections render through keyed templates whose identity is stable — the runtime
+  can diff, reorder and virtualize WITHOUT user code"*) is D1's acceptance criterion, not just
+  its foundation: per-instance state must survive a reorder with the app author doing nothing.
+- **§5** (*"one state model … no alternates to choose between"*) is the constraint on D1's
+  shape: `Store.keyed` may add an identity dimension, it may NOT add a second store kind with
+  its own mutation path. The existing invariant ("ONE mutation path") is what keeps it legal.
+
+Nothing here reverses a decision. The direction was right; the justification is better, and
+whoever picks this up next should know these are the language keeping its own promises rather
+than a wish list.
+
+**Package order revised** so each package is independently valuable and the risk rises
+monotonically: the proven-dead deletion first, the spine second, completion third.
+
+- **P0** ✅ **2026-09-19** `timeoutMs` retired from the language (D4a). The runtime stopped
+  reading it in TASK-0054C; this removed it from the surface that still demanded it. The rule
+  inverted rather than relaxed: `NX0409` (*"you forgot it"*) is RETIRED and `NX0412` (*"you
+  must not write it"*) takes its place — a diagnostic code whose meaning flips is worse than
+  one that ends. IR **v1.6** is the first SUBTRACTIVE minor: `CallStep.timeoutMs` is gone,
+  with the capnp ordinal `@3` left occupied by `retiredTimeoutMs` (capnp ordinals must be
+  sequential) and burned for ever. `EffectHost::call` lost the parameter through every
+  implementation — runtime, transcript host, app-host and 20-odd test hosts. 61 call sites in
+  10 `.nx` files, the `todo` example, the CLI explainer, four doc pages.
+- **P1** The keyed `$state` spine (D1 + D2): IR v1.6, lowering, runtime, single-use rule gone.
+- **P2** Bind table complete + `Stepper` reachable (D3).
+- **P3** NX0407/NX0409 promoted to errors (D4) + corpus.
+- **P4** Docs + the one proof home (D5 + D6).
 
 ## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
 

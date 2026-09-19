@@ -39,7 +39,7 @@ reduce E {
 }
 
 @effect on LoadRequested {
-    match svc.library.list(timeoutMs: 250) {
+    match svc.library.list() {
         Ok(rows) => dispatch(Loaded(rows)),
         Err(e) => dispatch(LoadFailed(e)),
     }

@@ -39,7 +39,7 @@ reduce CounterEvent {
 }
 
 @effect on SaveRequested {
-    match svc.appState.put("counter.value", $state.value, timeoutMs = 250) {
+    match svc.appState.put("counter.value", $state.value) {
         Ok(_) => dispatch(Saved),
         Err(e) => dispatch(SaveFailed(e.code)),
     }

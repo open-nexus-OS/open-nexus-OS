@@ -268,7 +268,11 @@ struct CallStep {
   service    @0 :UInt32;        # symbol id (svc.<service>)
   method     @1 :UInt32;        # symbol id
   args       @2 :List(Expr);
-  timeoutMs  @3 :UInt32;        # mandatory, > 0
+  # RETIRED (IR v1.6, TASK-0077B): was `timeoutMs`. A service call carries no
+  # client clock — the reply or the service's death ends the exchange
+  # (RFC-0096). Nothing writes or reads it; the ordinal stays occupied because
+  # capnp ordinals must be sequential, and it must never be reused.
+  retiredTimeoutMs @3 :UInt32;
   resultSlot @4 :UInt32;        # local slot receiving Result<T, E>
   onOk       @5 :DispatchStep;
   onErr      @6 :DispatchStep;
