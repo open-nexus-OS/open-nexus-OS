@@ -93,14 +93,27 @@ impl VirtioGpuBackend {
         let draw_ok = self.virgl_draw_ok;
         #[cfg(not(feature = "virgl"))]
         let draw_ok = false;
-        let use_virgl_scanout = match super::scanout_policy::scanout_path(
-            self.gl_device,
-            draw_ok,
-            cfg!(feature = "virgl"),
-        ) {
-            Ok(super::scanout_policy::ScanoutPath::GlRenderTarget) => true,
-            Ok(super::scanout_policy::ScanoutPath::PlaneRow2d) => false,
-            Err(_) => return Err(GfxError::Unsupported),
+        // TASK-0326: GL is NEEDED from here on, and the display is live — so this
+        // is where an UNPROVEN draw is settled. `probe()` only recorded whether
+        // it had been proven yet, and on a backend whose window is realized
+        // asynchronously it often had not been; that says nothing about the
+        // DEVICE. The proof here is the real work, not a second self-test: the
+        // cascade's test objects sit on fixed ids and re-running it collides
+        // with itself (measured: `virgl rt clear fail` on the second pass).
+        let unproven = super::scanout_policy::draw_verdict(self.gl_device, draw_ok, true)
+            == super::scanout_policy::DrawVerdict::Fatal;
+        let use_virgl_scanout = if unproven {
+            true // attempt it; `gl_scanout_init`'s error path is the loud failure
+        } else {
+            match super::scanout_policy::scanout_path(
+                self.gl_device,
+                draw_ok,
+                cfg!(feature = "virgl"),
+            ) {
+                Ok(super::scanout_policy::ScanoutPath::GlRenderTarget) => true,
+                Ok(super::scanout_policy::ScanoutPath::PlaneRow2d) => false,
+                Err(_) => return Err(GfxError::Unsupported),
+            }
         };
         if !use_virgl_scanout {
             let create = protocol::VirtioGpuResourceCreate2d {
@@ -148,6 +161,15 @@ impl VirtioGpuBackend {
                 self.scanout_resource = Some(id);
                 match self.gl_scanout_init() {
                     Ok(()) => {
+                        if unproven {
+                            // The device just did it. That is the proof.
+                            #[cfg(feature = "virgl")]
+                            {
+                                self.virgl_draw_ok = true;
+                            }
+                            let _ =
+                                nexus_abi::debug_println(crate::markers::GPUD_GL_DRAW_PROVEN_LATE);
+                        }
                         let _ = nexus_abi::trace_line("gpud: set_scanout ok");
                         let _ = nexus_abi::trace_line("gpud: scanout ok");
                         let _ = nexus_abi::trace_line("gpud: scanout bgra8888");

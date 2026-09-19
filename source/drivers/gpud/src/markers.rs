@@ -87,6 +87,23 @@ pub const GPUD_FEATURES_LINE: &str = "gpud: features=os-lite\n";
 pub const GPUD_FAIL_GL_DEVICE_NEEDS_VIRGL: &str = "gpud: FAIL virgl device needs virgl feature";
 /// The virgl draw self-test did not pass on a GL device (no GL render target
 /// to scan out) — fatal by the same policy.
+/// A cascade step that did not pass. The capability cascade used to skip its OK
+/// marker and say nothing, so the fatal marker below fired with no breadcrumb
+/// naming the step that failed (TASK-0326).
+pub const GPUD_VIRGL_SUBMIT3D_FAIL: &str = "gpud: virgl submit3d fail";
+/// See [`GPUD_VIRGL_SUBMIT3D_FAIL`].
+pub const GPUD_VIRGL_RT_CLEAR_FAIL: &str = "gpud: virgl rt clear fail";
+/// See [`GPUD_VIRGL_SUBMIT3D_FAIL`].
+pub const GPUD_VIRGL_SHADER_FAIL: &str = "gpud: virgl shader fail";
+/// The GL draw could not be proven AT START-UP, which is not the same as a
+/// device that cannot do it: QEMU's GTK backend is transiently absent until its
+/// window is realized. The decision moves to the moment GL is first needed
+/// (TASK-0326, the rule RFC-0074 already applies to the display mode).
+pub const GPUD_GL_DRAW_DEFERRED: &str =
+    "gpud: gl draw unproven at probe (deciding at first scanout)";
+/// The deferred proof passed when GL was first needed.
+pub const GPUD_GL_DRAW_PROVEN_LATE: &str = "gpud: gl draw proven at first scanout";
+
 pub const GPUD_FAIL_GL_DRAW_UNAVAILABLE: &str = "gpud: FAIL gl draw unavailable on gl device";
 /// `gl_scanout_init` failed on a GL device — fatal, never a 2D retry.
 pub const GPUD_FAIL_GL_SCANOUT_INIT: &str = "gpud: FAIL gl scanout init";

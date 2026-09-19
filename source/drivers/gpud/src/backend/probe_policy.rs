@@ -38,13 +38,19 @@ impl VirtioGpuBackend {
                 // Validate the SUBMIT_3D wire format against virglrenderer.
                 if self.submit3d_selftest().is_ok() {
                     let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SUBMIT3D_OK);
+                } else {
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SUBMIT3D_FAIL);
                 }
                 // Validate the draw-state path (resource → surface → fb → clear).
                 if self.virgl_rt_clear_test().is_ok() {
                     let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_RT_CLEAR_OK);
+                } else {
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_RT_CLEAR_FAIL);
                 }
                 // Validate TGSI shader creation (vertex + fragment).
-                if self.virgl_shader_test().is_ok() {
+                if self.virgl_shader_test().is_err() {
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SHADER_FAIL);
+                } else {
                     let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SHADER_OK);
                     // Full-pipeline draw proof with readback pixel verification.
                     // Solid-red FS over a blue clear: center pixel (BGRA bytes)
@@ -96,7 +102,13 @@ impl VirtioGpuBackend {
                     }
                 }
             } else {
-                self.virgl_capable = false;
+                // `virgl_capable` is NOT cleared here. It records what the DEVICE
+                // offered and we acked during feature negotiation — a fact — and
+                // overwriting it with the outcome of one probe is the same
+                // conflation that made this task necessary. Every consumer gates
+                // on `virgl_draw_ok` (or the context id) as well, so leaving the
+                // negotiated fact intact changes no behaviour except that a later
+                // proof is still possible.
                 let _ = nexus_abi::debug_println(GPUD_CPU_FALLBACK);
             }
         }
@@ -127,8 +139,22 @@ impl VirtioGpuBackend {
                 Err(GpuDriverError::Unsupported)
             }
             Err(super::scanout_policy::ScanoutFatal::GlDrawUnavailable) => {
-                let _ = nexus_abi::debug_println(crate::markers::GPUD_FAIL_GL_DRAW_UNAVAILABLE);
-                Err(GpuDriverError::Unsupported)
+                // `needed_now = false`: nobody has asked for a scanout yet, and
+                // on QEMU's GTK backend the window may not be realized — the
+                // same transient the display mode already refuses to trust
+                // (RFC-0074). The rule decides, in one tested place.
+                use super::scanout_policy::{draw_verdict, DrawVerdict};
+                match draw_verdict(self.gl_device, draw_ok, false) {
+                    DrawVerdict::DeferToFirstNeed => {
+                        let _ = nexus_abi::debug_println(crate::markers::GPUD_GL_DRAW_DEFERRED);
+                        Ok(())
+                    }
+                    _ => {
+                        let _ =
+                            nexus_abi::debug_println(crate::markers::GPUD_FAIL_GL_DRAW_UNAVAILABLE);
+                        Err(GpuDriverError::Unsupported)
+                    }
+                }
             }
         }
     }

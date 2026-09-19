@@ -37,7 +37,10 @@ impl VirtioGpuBackend {
     /// draw pipeline (boot self-tests green) and the framebuffer handoff
     /// (display texture aliasing needs the fb VMO's physical base).
     pub(crate) fn gl_scanout_init(&mut self) -> Result<(), GfxError> {
-        if !self.virgl_capable || !self.virgl_draw_ok || self.virgl_ctx_id == 0 {
+        // `virgl_draw_ok` is deliberately NOT required here (TASK-0326): the
+        // caller decides whether this run is the PROOF of the draw capability,
+        // and requiring the proof to already exist would make it unprovable.
+        if !self.virgl_capable || self.virgl_ctx_id == 0 {
             return Err(GfxError::DeviceNotFound);
         }
         // Batch the whole GL-scanout bring-up (~49 virgl commands, incl. virgl_blur_init's):
