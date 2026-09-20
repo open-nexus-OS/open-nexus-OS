@@ -6,12 +6,14 @@
 // speaker, not a dimmed one — the handoff treats silence as an ACTIVE
 // condition worth seeing across the room.
 //
-// One `muted` field in `ControlStore` backs Control Center, the Sound panel and
-// the top bar, so the three can never disagree (handoff §6: "ein gemeinsamer
-// Lautstärke-Zustand").
+// Muted IS `volume == 0` — one field in `ControlStore` backs Control Center,
+// the Sound panel and the top bar, so the three can never disagree (handoff §6:
+// "ein gemeinsamer Lautstärke-Zustand"). Reading the volume rather than a Bool
+// beside it is what makes that true even when the slider writes the value
+// directly (TASK-0077B P2b).
 
 Component MuteButton {
-    if $state.muted {
+    if $state.volume == 0 {
         Circle { size: 34
             Icon { symbol: "speaker.slash", size: 15 }
                 .fg(onInfo)

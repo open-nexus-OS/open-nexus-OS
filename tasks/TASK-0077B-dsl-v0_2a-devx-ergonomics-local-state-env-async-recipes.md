@@ -1,6 +1,6 @@
 ---
 title: TASK-0077B DSL v0.2a DevX: keyed per-instance `$state` + complete two-way bindings + async recipes (host)
-status: In Progress (reviewed 2026-09-19; ~2/3 shipped, residual = keyed state spine + 3 bindings + Stepper + recipes + lint promotion + timeoutMs retirement)
+status: In Progress (2026-09-20: P0-P2b shipped — timeoutMs retired, keyed per-instance state, the bind rule read off the catalog and carrying its value derivation; residual = P3 lint promotion + P4 docs/proof home)
 owner: @ui @runtime
 created: 2026-01-26
 updated: 2026-07-06
@@ -160,16 +160,76 @@ monotonically: the proven-dead deletion first, the spine second, completion thir
   component is instantiated exactly once … is a build error") — a doc asserting a build error
   that no longer exists.
 
-- **P2b (NEW, not built)** The value-carrying interaction for `Slider`/`Stepper`. **Do not
-  design this without reading the input and compositor contracts first** (`docs/dev/ui/input/`,
-  RFC-0067, the windowd interaction SSOT): windowd routes to the SURFACE and the app hit-tests
-  within it, and there is already a scroll/delta path in the stack. Inventing a second
-  value-delta channel in the DSL runtime is exactly the dual structure to avoid. The shape
-  that fits what exists: the bind handler DERIVES the next value from the interaction, as the
-  Toggle's Bool flip already does — a Slider's from the pointer's position within its track, a
-  Stepper's from which of its two targets was hit — which needs the widget KIND on
-  `HandlerEntry` and the hit box, both already at hand.
-- **P3** NX0407/NX0409 promoted to errors (D4) + corpus.
+- **P2b (BUILT 2026-09-20)** A two-way bind says HOW its interaction produces the next
+  value, and the IR carries that rule. Contracts read first (`docs/dev/ui/input/`, RFC-0067,
+  `source/services/windowd/src/interaction.rs`): windowd resolves intent against the rects its
+  own renderer paints and ships the app a display-space point; inside the surface the app
+  hit-tests with `runtime::interact`. There is exactly ONE pointer trigger on that path —
+  app-host drives `"Tap"` (`probe/interaction.rs:42,74`) — and no pointer-down-held channel at
+  all. A second value-delta channel beside it would be the dual structure; deriving the value
+  from the interaction the stack already delivers is not.
+
+  **The gap is ONE widget, not three.** `Slider` is the only interactive kind whose primary
+  prop is a user-editable value with no bind rule. `Select` is the CLOSED trigger only — its
+  tap opens an app-owned `.overlay()`, so the tap has no value to produce, and `None` is
+  correct. `Stepper` is not a DSL widget at all (`userspace/ui/widgets/stepper` is reachable
+  only from Rust, and by its own design the −/+ glyphs are caller-provided nodes carrying
+  their own handlers) — the 2026-09-09 ground truth said so and the P2 note lost it.
+
+  **It is a live defect, written down in the app.** Four call sites bind a Slider today —
+  `ControlCenterPage.nx:48,51` and `CcBrightnessCard.nx:17` / `CcSoundCard.nx:16` — and the
+  Control Center's brightness and volume sliders have never responded to a touch.
+  `CcBrightnessCard.nx` carries the reason as a comment *("the `Change` trigger carries no
+  payload in this DSL, so a drag has no value to deliver … neither of those has to touch this
+  file when it lands")*, which is also this package's acceptance test: the `.nx` files must
+  come alive without being edited.
+
+  **Shape.** The rule is not a runtime guess from a kind name. `WidgetSpec.bind_trigger`
+  becomes `bind: Option<BindRule>` = trigger + value derivation, the lowering WRITES the
+  derivation into the IR (v1.8: `Handler.bind` carries `BindWrite { target, value }`), and the
+  runtime executes what it is told. This keeps the answer in ONE table: a second table in the
+  runtime registry beside `press_offset` would re-answer "how does binding this widget work?"
+  in a crate that cannot see the first one (`nexus-dsl-core` is a dev-dependency of the runtime
+  — deliberately: the interpreter must run without the compiler). It also makes a compiled
+  `.nxir` self-contained: changing the runtime can no longer silently change what an
+  already-compiled app's slider does.
+
+  `Value::Bool` flip and text entry move onto the same rule, so the runtime has ONE state model
+  for "the interaction supplies the value" instead of a Bool special case plus a `_ => None`
+  that silently swallows every other kind (principles §5). The point a fraction is measured
+  against is the SCROLL-RESOLVED one `interact::hit_scrolled` already computes and throws away
+  — returning it is what keeps the scroll transform in one place.
+
+  Delivered here: tap-to-set (the interaction the stack delivers). DRAG — continuous update
+  while held — needs a pointer-down-held fact that the surface protocol does not carry today;
+  it rides the same `trackFraction` rule when it lands and is named as a follow-up, not
+  faked here.
+
+  **Built.** `WidgetSpec.bind_trigger` → `bind: Option<BindRule>` (trigger + `BindValue`);
+  IR v1.8 (`Handler.bind` = `BindWrite { target, value }`, `@4` retired as `retiredBind`);
+  `runtime/src/bind.rs` = the one pure rule (`next_value(rule, current, interaction)`);
+  `interact::Hit` returns the SCROLL-RESOLVED point so the fraction is measured against the
+  point the painter used; `view.rs` routing split to `view/route.rs` under the ratchet;
+  `focus.rs` focuses only a `Text` bind. Desktop-shell: `muted` deleted (it is `volume == 0`),
+  both readers follow the value, the two slider cards' stale comments replaced.
+
+  **Two defects in the derivation, found by its own tests, both fixed:** measuring over
+  `width` instead of over the TRAVEL made 100 unreachable (a rect is half-open, so the last
+  pixel is `width - 1`); flooring instead of rounding biased the whole scale down a step (the
+  visual centre of a 400px track read 49).
+
+  **A P2 defect this package uncovered:** `SearchBar`'s bind could never fire. P2 moved the
+  LOWERING onto the catalog and left the symbol COLLECTOR (`lower/symbols.rs`) on its own list
+  of names, so the trigger was never interned and `Ctx::sym` fell back to 0. Both now call
+  `registry::bind_rule` — ONE predicate — and the corpus case
+  `every_bindable_control_gets_a_handler_whose_trigger_resolves` proves it for the whole
+  catalog (falsifiability verified: breaking the collector fails it with *"Slider: `Tap` never
+  reached the symbol table"*).
+
+  **Follow-up named, not done:** DRAG (a held pointer on the surface protocol), and a backlight
+  / audio service for the values the sliders now produce.
+- **P3** NX0407 (`UnhandledResult`) promoted to an error (D4; §4: *"violation is an error, NOT a
+  lint suggestion"*) + corpus. NX0409 is no longer part of this: P0 RETIRED it with `timeoutMs`.
 - **P4** Docs + the one proof home (D5 + D6).
 
 ## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
@@ -190,8 +250,15 @@ proof home `tests/dsl_v0_2a_devx_host/` was never created.
 ### Goal (end system)
 
 Per-instance keyed `$state` (a stateful component works inside any keyed collection and keeps
-its state across reorders), two-way bind sugar for all seven value controls, async recipes as
-documented and fixture-proven store shapes, NX0407/NX0409 as build errors, one proof home.
+its state across reorders), two-way bind sugar for every control whose primary prop is a value
+the user edits, async recipes as documented and fixture-proven store shapes, NX0407/NX0409 as
+build errors, one proof home.
+
+*(Amended 2026-09-20, P2b: "all seven value controls" was a count nothing supported. The
+catalog has FIVE interactive kinds with a value-typed primary prop — `TextField`, `SearchBar`,
+`Toggle`, `Checkbox`, `Slider` — all bound after P2b. `Select`'s tap opens an app-owned option
+panel and produces no value; `Stepper` is not a DSL widget. The rule, not a number, is the
+goal.)*
 
 ### Non-goals
 

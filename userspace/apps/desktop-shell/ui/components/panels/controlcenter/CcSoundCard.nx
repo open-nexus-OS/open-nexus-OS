@@ -6,8 +6,9 @@
 // is the point of it being a component: one volume control, one appearance in
 // three places.
 //
-// Unlike brightness, this slider DOES move: mute drives `volume` to 0 and
-// un-mute back to 50, so the fill answers the button beside it.
+// The slider is LIVE both ways: a tap along the track writes `volume`
+// (TASK-0077B P2b), and mute drives it to 0 / un-mute back to 50 — the button
+// beside it reads the same field, so the two cannot contradict.
 
 Component CcSoundCard {
     Stack {

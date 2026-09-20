@@ -115,6 +115,24 @@ never a partial mount.
 
 ## Changelog
 
+- **v1.8 (2026-09-20, TASK-0077B)** — `Handler.bind` carries `BindWrite { target, value }`.
+  A two-way bind now states BOTH halves: the state path it writes, and the `BindValue` rule
+  that turns the interaction into a value — `toggleBool` (the current Bool is inverted),
+  `text` (the interaction carries the string), `trackFraction` (the point's position across
+  the control's own box, as a percent 0..=100).
+
+  Why the rule travels in the IR rather than being re-derived from the widget kind: the
+  compiler already decides it (that is how v1.2's auto-synthesis works), and the widget
+  catalog lives in the compiler, which the runtime deliberately cannot see. A runtime table
+  keyed by kind would be a second answer to one question — and it would mean changing the
+  runtime could silently change what an already-compiled `.nxir` does. Written down, a
+  program is self-contained.
+
+  Until this version a bind said only WHERE to write, so the runtime guessed the HOW from
+  the value's type: a Bool was flipped and everything else quietly did nothing. That is why
+  `Slider`, whose value is a number, could not be bound at all — the honest thing was to
+  synthesize no handler rather than a dead one. It binds from this version on.
+  The capnp ordinal `@4` stays occupied by `retiredBind` — ordinals are burned, never reused.
 - **v1.7 (2026-09-19, TASK-0077B)** — additive: `Store.keyed`. A component's `state:` block is
   PER INSTANCE. The identity is the one this document already specifies above
   (§"Stable node identity"): `ViewNode.nodeId` for a plain node, and
@@ -183,7 +201,8 @@ never a partial mount.
   kind's primary prop is `$state`-bound (`Toggle { checked: $state.on }` ⇒ a
   Tap-bind flipping the Bool; `TextField { value: $state.q }` ⇒ a Change-bind
   writing the text). The write goes through the store's compare-and-mark path
-  — the same single mutation machinery reducers use.
+  — the same single mutation machinery reducers use. *(Superseded by v1.8: the
+  bind carries its value rule beside the target.)*
 - **v1.1 (2026-07-06, TASK-0077)** — additive: `Handler.navigate` (a Str-typed
   route-path expression; `on Tap -> navigate("/detail/7")`). Readers of 1.0
   see an unknown union variant and must treat such handlers as inert.

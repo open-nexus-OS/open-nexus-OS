@@ -362,14 +362,35 @@ struct TokenArg {
 struct Handler {
   trigger @0 :UInt32;           # interaction symbol id (Tap, Change, Submit, ...)
   union {
-    dispatch @1 :DispatchStep;  # dispatch a store event
-    emitProp @2 :EmitProp;      # emit an EventRef prop (components)
-    navigate @3 :Expr;          # v1.1: route path expression (Str-typed)
-    bind @4 :FieldGet;          # v1.2: two-way binding write target — the
-                                # interaction value writes this state path
-                                # (auto-synthesized for `checked:/value:`
-                                # props bound to $state on interactive kinds)
+    dispatch    @1 :DispatchStep; # dispatch a store event
+    emitProp    @2 :EmitProp;     # emit an EventRef prop (components)
+    navigate    @3 :Expr;         # v1.1: route path expression (Str-typed)
+    retiredBind @4 :FieldGet;     # v1.8: RETIRED. A write target alone did not
+                                  # say how the interaction produces the value,
+                                  # so the runtime guessed — and every guess but
+                                  # Bool was "do nothing". Ordinal burned, never
+                                  # reused. Superseded by `bind` below.
+    bind        @5 :BindWrite;    # v1.2/v1.8: two-way binding — the write target
+                                  # PLUS the rule that turns the interaction into
+                                  # a value (auto-synthesized when an interactive
+                                  # kind's primary prop is $state-bound)
   }
+}
+
+# How an interaction produces the next value for a two-way bind. Written by the
+# lowering from the widget catalog (`registry::WidgetSpec::bind`), executed by
+# the runtime — which therefore never needs the widget kind, and an already
+# compiled .nxir keeps its meaning when the runtime changes.
+enum BindValue {
+  toggleBool    @0;  # the interaction flips the current Bool (Toggle, Checkbox)
+  text          @1;  # the interaction carries the new text (TextField, SearchBar)
+  trackFraction @2;  # the point's position ACROSS the control's own box, as a
+                     # percent 0..=100 — the Slider, whose value IS that percent
+}
+
+struct BindWrite {
+  target @0 :FieldGet;          # the state path the value is written to
+  value  @1 :BindValue;         # how the interaction produces that value
 }
 
 struct EmitProp { prop @0 :UInt32; payload @1 :List(Expr); }

@@ -351,4 +351,4 @@ pub use svc_surface::SvcLookup;
 #[cfg(feature = "std")]
 pub(crate) use svc_surface::{app_surface_guard, set_app_surface};
 pub use svc_surface::{svc_method, SvcSig, SVC_SURFACE};
-pub use widgets::{widget_spec, WidgetSpec, WIDGETS};
+pub use widgets::{bind_rule, widget_spec, BindRule, BindValue, WidgetSpec, WIDGETS};

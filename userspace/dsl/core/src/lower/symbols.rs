@@ -116,18 +116,15 @@ pub(super) fn collect_symbols(
                 set.insert(widget.name.text.clone());
                 // Auto-bind triggers: a $state-bound primary prop on an
                 // interactive kind synthesizes a bind handler at lowering —
-                // its trigger symbol must exist.
+                // its trigger symbol must exist, or `Ctx::sym` falls back to 0
+                // and the handler answers to a trigger nothing fires.
+                // Asked of the catalog, exactly as the lowering asks it.
                 for (name, value) in &widget.props {
-                    if matches!(value, Expr::StateRef { .. }) {
-                        match (widget.name.text.as_str(), name.text.as_str()) {
-                            ("Toggle" | "Checkbox", "checked") => {
-                                set.insert(alloc::string::String::from("Tap"));
-                            }
-                            ("TextField", "value") | ("TextArea", "value") => {
-                                set.insert(alloc::string::String::from("Change"));
-                            }
-                            _ => {}
-                        }
+                    if !matches!(value, Expr::StateRef { .. }) {
+                        continue;
+                    }
+                    if let Some(rule) = crate::registry::bind_rule(&widget.name.text, &name.text) {
+                        set.insert(alloc::string::String::from(rule.trigger));
                     }
                 }
                 if let Some(positional) = &widget.positional {

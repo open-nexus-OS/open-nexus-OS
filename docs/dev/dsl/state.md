@@ -66,6 +66,36 @@ It compiles to an **implicit store** (same machinery, no second semantics);
 `$state.field` resolves locally first. Mutations flow through two-way bindings
 and handlers — the one mutation path.
 
+### Two-way binding
+
+Bind a control's **primary prop** to `$state` and the control edits that field.
+Nothing else is declared — no handler, no payload:
+
+```nx
+Toggle { checked: $state.dark, label: @t("dark") }   // a tap flips it
+TextField { value: $state.query, label: @t("find") } // typing writes it
+Slider { value: $state.brightness }.label(@t("brightness")) // a tap sets the percent
+```
+
+Which controls bind, and what the interaction does, is one rule in the widget
+catalog (`registry::WidgetSpec::bind`) that the compiler writes into the IR
+(`ir.md` v1.8). Today: `Toggle`/`Checkbox` invert the Bool on a tap,
+`TextField`/`SearchBar` take the text on a change, and `Slider` takes the
+point's position across its own track as a percent `0..=100` — the value a
+slider *is*. A control whose primary prop is a LABEL the app supplies
+(`Button`, `Chip`, `ListItem`, …) does not bind: there is nothing to write back.
+`Select` shows a value but its tap opens an app-owned option panel, so the tap
+produces no value either.
+
+A slider's tap SETS the value at the point you touch; there is no drag yet (the
+surface delivers taps, not held moves).
+
+**A bind writes the FIELD, not a reducer.** That is the point — no event to
+declare — but it means state a reducer used to keep in step with that field is
+no longer kept in step. Derive such state from the field instead of storing a
+second copy of it: a `muted: Bool` beside a `volume: Int` is one the control
+and the status bar can contradict; `volume == 0` cannot.
+
 **Per instance, since TASK-0077B P1.** A stateful component may be instantiated
 any number of times, including inside a collection: its store is KEYED, holding
 one set of fields per live instance. The identity is the one `ir.md` §"Stable

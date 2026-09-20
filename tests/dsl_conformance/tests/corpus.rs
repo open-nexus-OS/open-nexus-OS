@@ -518,7 +518,7 @@ Page P {
         .handlers()
         .iter()
         .find_map(|(_, h)| match &h.action {
-            nexus_dsl_runtime::interact::HandlerAction::Bind { store, path } => {
+            nexus_dsl_runtime::interact::HandlerAction::Bind { store, path, .. } => {
                 Some((*store, path.clone()))
             }
             _ => None,
@@ -552,27 +552,138 @@ Page P {
 fn the_bind_rule_follows_the_registry_not_a_list() {
     use nexus_dsl_core::registry::{widget_spec, WIDGETS};
 
-    // Every control that declares a bind trigger must also have a primary prop
-    // to write back into, and must be interactive — otherwise the rule would
-    // synthesize a handler for something the user cannot touch.
+    // Every control that declares a bind must also have a primary prop to write
+    // back into, and must be interactive — otherwise the rule would synthesize
+    // a handler for something the user cannot touch.
     for spec in WIDGETS {
-        if spec.bind_trigger.is_some() {
+        if spec.bind.is_some() {
             assert!(spec.interactive, "{} declares a bind but is not interactive", spec.name);
             assert!(spec.primary_prop.is_some(), "{} declares a bind with no prop", spec.name);
         }
     }
 
+    let trigger = |name| widget_spec(name).and_then(|s| s.bind.as_ref()).map(|b| b.trigger);
     // SearchBar was the omission: same shape as TextField, no bind.
-    assert_eq!(widget_spec("SearchBar").and_then(|s| s.bind_trigger), Some("Change"));
-    assert_eq!(widget_spec("TextField").and_then(|s| s.bind_trigger), Some("Change"));
-    assert_eq!(widget_spec("Toggle").and_then(|s| s.bind_trigger), Some("Tap"));
+    assert_eq!(trigger("SearchBar"), Some("Change"));
+    assert_eq!(trigger("TextField"), Some("Change"));
+    assert_eq!(trigger("Toggle"), Some("Tap"));
 
     // A label is not a value: binding one would write back text the app owns.
-    assert_eq!(widget_spec("Button").and_then(|s| s.bind_trigger), None);
-    assert_eq!(widget_spec("ListItem").and_then(|s| s.bind_trigger), None);
+    assert_eq!(trigger("Button"), None);
+    assert_eq!(trigger("ListItem"), None);
 
     // And the phantom is gone.
     assert!(widget_spec("TextArea").is_none(), "TextArea is not a widget of this DSL");
+}
+
+/// TASK-0077B P2b. A bind rule states BOTH halves — when the value is edited
+/// and how the interaction produces it. Half a rule is what made the Control
+/// Center's sliders dead: a trigger with no derivation synthesizes a handler
+/// the runtime cannot execute, and a derivation with no trigger is never
+/// reached. The type makes the pair inseparable; this pins the catalog's
+/// answers so a new control cannot quietly inherit the wrong one.
+#[test]
+fn every_bound_control_says_how_its_value_is_produced() {
+    use nexus_dsl_core::registry::{widget_spec, BindValue, WIDGETS};
+
+    let rule = |name| widget_spec(name).and_then(|s| s.bind.as_ref()).map(|b| (b.trigger, b.value));
+    assert_eq!(rule("Toggle"), Some(("Tap", BindValue::ToggleBool)));
+    assert_eq!(rule("Checkbox"), Some(("Tap", BindValue::ToggleBool)));
+    assert_eq!(rule("TextField"), Some(("Change", BindValue::Text)));
+    assert_eq!(rule("SearchBar"), Some(("Change", BindValue::Text)));
+    // The gap this package closed: a Slider's value IS a percent of its track.
+    assert_eq!(rule("Slider"), Some(("Tap", BindValue::TrackFraction)));
+
+    // `Select` shows a value but its tap OPENS an app-owned option panel — the
+    // tap has no value to produce, so binding it would be a dead handler.
+    assert_eq!(rule("Select"), None);
+    // `Stepper` is not a widget of this DSL at all (the kit crate exists, but
+    // its -/+ glyphs are caller-provided nodes carrying their own handlers).
+    assert!(widget_spec("Stepper").is_none(), "Stepper is not a widget of this DSL");
+
+    // Nothing may declare a derivation the pointer path cannot deliver: the
+    // surface drives exactly one pointer trigger.
+    for spec in WIDGETS {
+        let Some(bind) = &spec.bind else { continue };
+        match bind.value {
+            BindValue::ToggleBool | BindValue::TrackFraction => {
+                assert_eq!(bind.trigger, "Tap", "{} derives from a point", spec.name);
+            }
+            BindValue::Text => assert_eq!(bind.trigger, "Change", "{} takes text", spec.name),
+        }
+    }
+}
+
+/// TASK-0077B P2b. EVERY bindable control's synthesized handler must answer to
+/// the trigger the catalog names — the class of bug, not the one instance.
+///
+/// A synthesized handler's trigger is a SYMBOL, and symbols are collected in a
+/// pass before lowering. Miss one and `Ctx::sym` falls back deterministically
+/// to 0, producing a handler that is present, well-formed, and answers to a
+/// symbol no interaction ever sends. `SearchBar` shipped that way for a
+/// package: P2 moved the lowering onto the catalog and left the collector on a
+/// list of names. Both ask `registry::bind_rule` now; this proves it for every
+/// entry in the catalog, so the next control added cannot repeat it.
+#[test]
+fn every_bindable_control_gets_a_handler_whose_trigger_resolves() {
+    use nexus_dsl_core::registry::WIDGETS;
+    use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
+
+    for spec in WIDGETS {
+        let Some(rule) = &spec.bind else { continue };
+        let prop = spec.primary_prop.expect("a bound control has a primary prop");
+        let kind = spec.name;
+        // The catalog also demands an accessible name on an interactive kind.
+        let label = spec.label_prop.map_or(String::new(), |p| format!(", {p}: \"n\""));
+        let nxir = compile(&format!(
+            r#"
+Store S {{
+    v: Int = 0,
+    t: Str = "",
+    b: Bool = false,
+}}
+Event E {{ Noop, }}
+reduce E {{ Noop => state.v = state.v, }}
+Page P {{
+    Stack {{
+        {kind} {{ {prop}: $state.{field}{label} }}
+            .label("n")
+    }}
+}}
+"#,
+            field = match rule.value {
+                nexus_dsl_core::registry::BindValue::ToggleBool => "b",
+                nexus_dsl_core::registry::BindValue::Text => "t",
+                nexus_dsl_core::registry::BindValue::TrackFraction => "v",
+            },
+        ));
+        let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
+        let locale = IdentityLocale { symbols: &symbols, keys: &[] };
+        let view = View::mount(
+            &nxir,
+            &nexus_dsl_runtime::theme_tokens::BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+        )
+        .unwrap_or_else(|e| panic!("{kind} mounts: {e:?}"));
+
+        let bind = view
+            .handlers()
+            .iter()
+            .find(|(_, h)| {
+                matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. })
+            })
+            .unwrap_or_else(|| panic!("{kind} must auto-bind its `{prop}`"));
+        let expected = symbols
+            .iter()
+            .position(|s| s == rule.trigger)
+            .unwrap_or_else(|| panic!("{kind}: `{}` never reached the symbol table", rule.trigger));
+        assert_eq!(
+            bind.1.trigger as usize, expected,
+            "{kind}'s bind answers to symbol {}, not `{}`",
+            bind.1.trigger, rule.trigger
+        );
+    }
 }
 
 /// The rule reaches the IR: a `SearchBar` bound to `$state` gets its bind
@@ -610,14 +721,26 @@ Page P {
         &locale,
     )
     .expect("mounts");
-    let binds = view
+    let binds: Vec<_> = view
         .handlers()
         .iter()
         .filter(|(_, h)| {
             matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. })
         })
-        .count();
-    assert_eq!(binds, 1, "SearchBar's value must auto-bind");
+        .collect();
+    assert_eq!(binds.len(), 1, "SearchBar's value must auto-bind");
+
+    // A handler is not alive until its TRIGGER resolves. This assertion is the
+    // one P2 was missing: the lowering synthesized the bind off the catalog
+    // while the symbol collector still worked from its own list of names, so
+    // `SearchBar`'s trigger interned nothing and `Ctx::sym` fell back to 0 —
+    // a handler answering to a symbol no interaction ever sends (P2b).
+    let change =
+        symbols.iter().position(|s| s == "Change").expect("`Change` must be in the symbol table");
+    assert_eq!(
+        binds[0].1.trigger as usize, change,
+        "the synthesized bind must answer to the trigger the catalog names"
+    );
 }
 
 /// TASK-0077B P1. The rule that used to live here — "a stateful component is
@@ -693,7 +816,7 @@ Page P {
         .handlers()
         .iter()
         .filter_map(|(_, h)| match &h.action {
-            nexus_dsl_runtime::interact::HandlerAction::Bind { store, path } => {
+            nexus_dsl_runtime::interact::HandlerAction::Bind { store, path, .. } => {
                 Some((*store, h.instance, path.clone()))
             }
             _ => None,

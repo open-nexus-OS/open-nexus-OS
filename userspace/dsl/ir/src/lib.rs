@@ -39,20 +39,26 @@ pub mod validate;
 
 /// Schema major version this crate reads/writes. Readers reject other majors.
 pub const SCHEMA_MAJOR: u16 = 1;
-/// Schema minor version this crate writes. Readers accept any minor of [`SCHEMA_MAJOR`].
-/// Minor 4 adds `UiProgram.window` (WindowIntent) — additive, forward-compatible.
-/// Minor 5 adds slots (RFC-0084): `Component.slots`, `ViewNode.slot`,
-/// `ComponentRef.slots`. Additive, but honestly one-way: an old reader meeting
-/// a program that USES `slot` gets `NotInSchema` → [`IrError::Malformed`],
-/// Minor 7 adds `Store.keyed` (TASK-0077B): per-instance local state, keyed by
-/// the node identity the IR already persists. Additive.
-/// Minor 6 retires `CallStep.timeoutMs` (TASK-0077B): a service call has no
-/// client clock. Subtractive, and safe only because everything in-tree builds
-/// together — the ordinal @3 is burned rather than reused.
-/// because `SCHEMA_MAJOR` gates only the major. Everything in-tree builds
-/// together, so this is a documented contract rather than an enforced gate —
-/// a program using `Slot` requires a runtime at minor ≥ 5.
-pub const SCHEMA_MINOR: u16 = 7;
+/// Schema minor version this crate writes. Readers accept any minor of
+/// [`SCHEMA_MAJOR`], because `SCHEMA_MAJOR` gates only the major — so a minor
+/// is a documented contract rather than an enforced gate, and everything
+/// in-tree builds together.
+///
+/// * Minor 4 — `UiProgram.window` (WindowIntent). Additive.
+/// * Minor 5 — slots (RFC-0084): `Component.slots`, `ViewNode.slot`,
+///   `ComponentRef.slots`. Additive, but honestly one-way: an old reader
+///   meeting a program that USES `slot` gets `NotInSchema` →
+///   [`IrError::Malformed`], so such a program requires a runtime at minor ≥ 5.
+/// * Minor 6 — retires `CallStep.timeoutMs` (TASK-0077B): a service call has no
+///   client clock. Subtractive, and safe only because everything in-tree builds
+///   together — the ordinal @3 is burned rather than reused.
+/// * Minor 7 — `Store.keyed` (TASK-0077B): per-instance local state, keyed by
+///   the node identity the IR already persists. Additive.
+/// * Minor 8 — `Handler.bind` carries `BindWrite { target, value }`
+///   (TASK-0077B): a two-way bind states HOW the interaction produces the
+///   value, so the runtime executes a rule instead of guessing from the widget
+///   kind. `Handler.bind @4` is retired as `retiredBind`, ordinal burned.
+pub const SCHEMA_MINOR: u16 = 8;
 
 /// Byte length of `programHash` / `sourceDigest` (SHA-256).
 pub const DIGEST_LEN: usize = 32;

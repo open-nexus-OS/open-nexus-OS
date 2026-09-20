@@ -11,16 +11,22 @@
 // mirrored copy would be wrong exactly when it mattered. They are read from
 // `device.theme` / `device.profile`, which the host refills on every emit.
 //
-// Brightness, volume and mute are LOCAL UI state — honest placeholders until a
+// Brightness and volume are LOCAL UI state — honest placeholders until a
 // backlight/audio service exists. Nothing here calls `svc.*` for them and no
-// marker claims otherwise. Volume and mute deliberately live in ONE place
-// (design_handoff_panels §6: "ein gemeinsamer Lautstärke-Zustand" for Control
-// Center, the Sound panel and the top bar).
+// marker claims otherwise. Volume lives in ONE place (design_handoff_panels §6:
+// "ein gemeinsamer Lautstärke-Zustand" for Control Center, the Sound panel and
+// the top bar).
+//
+// There is no `muted` field: muted IS `volume == 0`. It used to be a Bool the
+// `SetVolume` reducer kept in step, which worked only while the slider was a
+// readout — once a tap writes `volume` directly (TASK-0077B P2b), a second copy
+// of the same fact is one the button and the top bar can contradict. Deriving
+// it makes "the slider and the button never disagree" structural instead of
+// maintained.
 
 Store ControlStore {
     brightness: Int = 70,
     volume: Int = 50,
-    muted: Bool = false,
     applyError: Int = 0,
 }
 
@@ -40,25 +46,16 @@ reduce ControlEvent {
     SetTheme(mode) => state.applyError = 0,
     SetMode(mode) => state.applyError = 0,
     SetBrightness(v) => state.brightness = v,
-    // Dragging the volume to 0 IS muting, and lifting it off 0 unmutes — the
-    // handoff's rule, so the slider and the button can never contradict.
-    SetVolume(v) => {
-        state.volume = v;
-        if v == 0 {
-            state.muted = true;
-        } else {
-            state.muted = false;
-        }
-    },
+    // Dragging the volume to 0 IS muting — the handoff's rule, now carried by
+    // the value itself rather than by a Bool kept in step beside it.
+    SetVolume(v) => state.volume = v,
     // Un-muting restores 50 rather than the pre-mute value: the reducer has
     // nowhere to stash that value, and a slider that springs back to silence
     // would read as a broken button.
     ToggleMute => {
-        if state.muted {
-            state.muted = false;
+        if state.volume == 0 {
             state.volume = 50;
         } else {
-            state.muted = true;
             state.volume = 0;
         }
     },

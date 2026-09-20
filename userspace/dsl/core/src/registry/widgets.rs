@@ -15,7 +15,25 @@
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Stable (append-only: a widget is added, never renamed)
-//! TEST_COVERAGE: `the_bind_rule_follows_the_registry_not_a_list` (dsl_conformance)
+//! TEST_COVERAGE: `the_bind_rule_follows_the_registry_not_a_list`,
+//!   `a_bound_slider_writes_the_fraction_of_its_track` (dsl_conformance)
+
+pub use nexus_dsl_ir::ui_ir_capnp::BindValue;
+
+/// How a control's primary prop is written back: the interaction that edits it,
+/// and how that interaction produces the new value.
+///
+/// One rule, not two fields that can drift: a trigger without a derivation
+/// synthesizes a handler the runtime cannot execute, and a derivation without a
+/// trigger is never reached. The lowering writes BOTH into the IR
+/// (`Handler.bind` = `BindWrite { target, value }`, schema v1.8), so the runtime
+/// executes the rule and never needs the widget kind.
+pub struct BindRule {
+    /// Interaction symbol that edits the primary prop (`Tap`, `Change`).
+    pub trigger: &'static str,
+    /// How that interaction produces the value.
+    pub value: BindValue,
+}
 
 pub struct WidgetSpec {
     pub name: &'static str,
@@ -26,8 +44,8 @@ pub struct WidgetSpec {
     /// The prop that provides the accessible name if present.
     pub label_prop: Option<&'static str>,
     pub allows_children: bool,
-    /// The interaction that EDITS this control's primary prop, when the prop is
-    /// a value the user changes rather than a label the app supplies.
+    /// How this control's primary prop is EDITED, when the prop is a value the
+    /// user changes rather than a label the app supplies.
     ///
     /// This is what makes the two-way bind rule uniform (`docs/dev/dsl/ir.md`
     /// v1.2: *"auto-synthesized when an interactive kind's primary prop is
@@ -37,10 +55,10 @@ pub struct WidgetSpec {
     ///
     /// `None` for an interactive control whose primary prop is a LABEL
     /// (`Button`, `Chip`, `Toast`, `Banner`, `ListItem`): there is nothing for
-    /// the user to write back. Also `None` where the runtime cannot yet DELIVER
-    /// a new value — see the P2 note in the task ledger; declaring a bind there
-    /// would synthesize a handler nothing can ever fire.
-    pub bind_trigger: Option<&'static str>,
+    /// the user to write back. Also `None` for `Select`, whose tap OPENS an
+    /// app-owned option panel rather than producing a value — declaring a bind
+    /// there would synthesize a handler nothing can ever fire.
+    pub bind: Option<BindRule>,
 }
 
 /// v0.1 widget kinds (grows with the kit; the runtime registry is generated
@@ -52,7 +70,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: true,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Spacer",
@@ -60,7 +78,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Text",
@@ -68,7 +86,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: Some("value"),
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Icon",
@@ -76,7 +94,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Image",
@@ -84,7 +102,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Button",
@@ -92,7 +110,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("label"),
         allows_children: true,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Card",
@@ -100,7 +118,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: true,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "TextField",
@@ -108,7 +126,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("label"),
         allows_children: false,
-        bind_trigger: Some("Change"),
+        bind: Some(BindRule { trigger: "Change", value: BindValue::Text }),
     },
     WidgetSpec {
         name: "Toggle",
@@ -116,7 +134,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("label"),
         allows_children: false,
-        bind_trigger: Some("Tap"),
+        bind: Some(BindRule { trigger: "Tap", value: BindValue::ToggleBool }),
     },
     WidgetSpec {
         name: "List",
@@ -124,7 +142,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: true,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "NativeWidget",
@@ -132,7 +150,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     // Design-system kit exposure (TASK-0073/0074): each maps 1:1 onto its
     // `userspace/ui/widgets/*` builder in the runtime registry.
@@ -142,7 +160,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: Some("label"),
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Chip",
@@ -150,7 +168,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("label"),
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Avatar",
@@ -158,7 +176,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Checkbox",
@@ -166,15 +184,21 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("label"),
         allows_children: false,
-        bind_trigger: Some("Tap"),
+        bind: Some(BindRule { trigger: "Tap", value: BindValue::ToggleBool }),
     },
+    // The slider's value IS a percent of its own track: the kit builder makes
+    // the widget's root node the track itself (zero padding, the fill and the
+    // remainder as flex children weighted `value` vs `100 - value`), so the
+    // point's position across the handler's own box is the value, with no
+    // per-widget geometry constant. `Tap` because that is the pointer trigger
+    // the surface delivers; a drag rides the same rule once one exists.
     WidgetSpec {
         name: "Slider",
         primary_prop: Some("value"),
         interactive: true,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: Some(BindRule { trigger: "Tap", value: BindValue::TrackFraction }),
     },
     WidgetSpec {
         name: "Spinner",
@@ -182,7 +206,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "ProgressBar",
@@ -190,7 +214,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Toast",
@@ -198,7 +222,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("message"),
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Banner",
@@ -206,7 +230,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("title"),
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Skeleton",
@@ -214,7 +238,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "ListItem",
@@ -222,7 +246,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("title"),
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Toolbar",
@@ -230,7 +254,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "SearchBar",
@@ -238,7 +262,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("placeholder"),
         allows_children: false,
-        bind_trigger: Some("Change"),
+        bind: Some(BindRule { trigger: "Change", value: BindValue::Text }),
     },
     // Container primitives: material surfaces that host arbitrary children
     // (icons/text/stacks) and take every modifier. `Panel` = the panel-glass
@@ -252,7 +276,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: true,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Circle",
@@ -260,7 +284,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: true,
-        bind_trigger: None,
+        bind: None,
     },
     // Container primitive: a REAL fixed-column grid (`columns: n` = n equal
     // 1fr tracks, row-major fill, `.gap()` = column gap, `rowGap:` = row gap
@@ -275,7 +299,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: true,
-        bind_trigger: None,
+        bind: None,
     },
     // Navigation/selection leaves the kit always had but the DSL could not
     // name (settings design handoff). `Select` is the CLOSED trigger only —
@@ -289,7 +313,7 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: true,
         label_prop: Some("placeholder"),
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
     WidgetSpec {
         name: "Breadcrumbs",
@@ -297,11 +321,30 @@ pub const WIDGETS: &[WidgetSpec] = &[
         interactive: false,
         label_prop: None,
         allows_children: false,
-        bind_trigger: None,
+        bind: None,
     },
 ];
 
 #[must_use]
 pub fn widget_spec(name: &str) -> Option<&'static WidgetSpec> {
     WIDGETS.iter().find(|spec| spec.name == name)
+}
+
+/// The bind rule `widget.prop` synthesizes — `None` when this prop is not the
+/// control's primary one, or the control has nothing to write back.
+///
+/// THE predicate: the symbol collector (which must intern the trigger name) and
+/// the lowering (which emits the handler) ask this one question, so they cannot
+/// disagree about which props bind. They did: P2 moved the lowering onto the
+/// catalog and left the collector on its own list of names, so `SearchBar`'s
+/// synthesized handler got symbol 0 — a trigger no interaction resolves to, a
+/// handler that could never fire (TASK-0077B P2b).
+///
+/// The caller still checks that the value is `$state`-bound; that is an AST
+/// fact, not a catalog one.
+#[must_use]
+pub fn bind_rule(widget: &str, prop: &str) -> Option<&'static BindRule> {
+    let spec = widget_spec(widget)?;
+    (spec.primary_prop == Some(prop)).then_some(())?;
+    spec.bind.as_ref()
 }

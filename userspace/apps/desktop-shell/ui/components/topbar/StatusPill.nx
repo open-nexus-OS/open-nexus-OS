@@ -20,7 +20,7 @@ Component StatusPill {
             Icon { symbol: "wifi.slash", size: 13 }
                 .fg(onGlassMuted)
         }
-        if $state.muted {
+        if $state.volume == 0 {
             Icon { symbol: "speaker.slash", size: 13 }
                 .fg(onGlassMuted)
         } else {

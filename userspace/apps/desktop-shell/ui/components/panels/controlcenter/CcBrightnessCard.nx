@@ -4,11 +4,12 @@
 // Brightness card (design_handoff_panels §3, row 3): the caption row over a
 // slider paired with the Erscheinungsbild button.
 //
-// The slider RENDERS `brightness` but cannot be dragged: the `Change` trigger
-// carries no payload in this DSL, so a drag has no value to deliver. It is a
-// readout until either a backlight service or a value-carrying trigger exists
-// — and drawing it at its real geometry now means neither of those has to
-// touch this file when it lands.
+// The slider is LIVE: a tap along the track writes `brightness` (TASK-0077B
+// P2b — the bind carries the rule that turns the point into a percent). The
+// prediction this comment used to carry held — the value-carrying interaction
+// landed without touching a line of the markup below. What is still missing is
+// a backlight service to send the value to, and a DRAG: the surface delivers
+// taps, not held moves, so the value jumps to where you touch.
 
 Component CcBrightnessCard {
     Stack {

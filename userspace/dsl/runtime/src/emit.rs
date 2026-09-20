@@ -387,13 +387,17 @@ fn emit_widget<'p>(
                         _ => return Err(RtError::TypeMismatch),
                     }
                 }
-                Ok(Which::Bind(Ok(get))) => {
+                Ok(Which::Bind(Ok(bind))) => {
+                    // v1.8: the bind states its own derivation, so no widget
+                    // kind is consulted here (see `crate::bind`).
+                    let value = bind.get_value().map_err(|_| RtError::Malformed)?;
+                    let get = bind.get_target().map_err(|_| RtError::Malformed)?;
                     let path_list = get.get_path().map_err(|_| RtError::Malformed)?;
                     let mut path = Vec::with_capacity(path_list.len() as usize);
                     for i in 0..path_list.len() {
                         path.push(path_list.get(i));
                     }
-                    Some(HandlerAction::Bind { store: get.get_store(), path })
+                    Some(HandlerAction::Bind { store: get.get_store(), path, value })
                 }
                 // emitProp handlers route through component instances — wired
                 // with the instance/params work (see the task ledger).

@@ -13,6 +13,7 @@ use crate::store::Value;
 use crate::view::View;
 use crate::{DeviceEnv, EffectHost, LocaleSource, RtError};
 use alloc::vec::Vec;
+use nexus_dsl_ir::ui_ir_capnp::BindValue;
 use nexus_layout_types::LayoutNode;
 use nexus_theme_tokens::Tokens;
 
@@ -74,9 +75,16 @@ impl View<'_> {
         let hit = trigger_sym
             .and_then(|sym| interact::hit_scrolled(&self.handlers, boxes, sym, x, y, scroll));
         match hit {
-            Some((box_id, entry)) => {
+            Some(hit) => {
+                let (box_id, entry) = (hit.box_id, hit.entry);
                 let node_path = entry.path.clone();
-                let HandlerAction::Bind { store, path } = entry.action.clone() else {
+                // Only a bind that TAKES TEXT is a text field. The trigger
+                // alone is not enough: it says when, the rule says what
+                // (IR v1.8) — and handing the IME a control that cannot
+                // accept a string is how a keyboard opens over nothing.
+                let HandlerAction::Bind { store, path, value: BindValue::Text } =
+                    entry.action.clone()
+                else {
                     self.focused_text = None;
                     return None;
                 };
@@ -255,7 +263,7 @@ impl View<'_> {
         // dispatch: handler paths are stable across a re-emit but box ids are
         // not, and the wrapper may have moved into a different `if` arm.
         let found = self.handlers.iter().find_map(|(box_id, entry)| {
-            let HandlerAction::Bind { store, path } = &entry.action else {
+            let HandlerAction::Bind { store, path, value: BindValue::Text } = &entry.action else {
                 return None;
             };
             (entry.trigger == sym && *store == focused.store && *path == focused.path)

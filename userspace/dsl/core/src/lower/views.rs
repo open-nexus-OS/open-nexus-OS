@@ -260,18 +260,13 @@ fn lower_widget(
     // than by someone remembering to extend a table here. The list this
     // replaced had `SearchBar` missing and `TextArea` — a widget that does not
     // exist — present.
-    let mut binds: Vec<(u32, &crate::ast::Expr)> = Vec::new();
-    let spec = crate::registry::widget_spec(&widget.name.text);
+    let mut binds: Vec<(u32, crate::registry::BindValue, &crate::ast::Expr)> = Vec::new();
     for (name, value) in &widget.props {
         if !matches!(value, Expr::StateRef { .. }) {
             continue;
         }
-        let Some(spec) = spec else { continue };
-        if spec.primary_prop != Some(name.text.as_str()) {
-            continue;
-        }
-        if let Some(trigger) = spec.bind_trigger {
-            binds.push((ctx.sym(trigger), value));
+        if let Some(rule) = crate::registry::bind_rule(&widget.name.text, &name.text) {
+            binds.push((ctx.sym(rule.trigger), rule.value, value));
         }
     }
 
@@ -305,7 +300,7 @@ fn lower_widget(
                 }
             }
         }
-        for (i, (trigger, state_ref)) in binds.iter().enumerate() {
+        for (i, (trigger, value_rule, state_ref)) in binds.iter().enumerate() {
             let mut hb = handlers.reborrow().get((widget.handlers.len() + i) as u32);
             hb.set_trigger(*trigger);
             let Expr::StateRef { path, span } = state_ref else { continue };
@@ -316,7 +311,11 @@ fn lower_widget(
                 Ok(store) => store,
                 Err(_) => return Err(unsupported(*span, "an unresolvable bound field")),
             };
-            let mut get = hb.init_bind();
+            // v1.8: the bind carries the DERIVATION beside the target, so the
+            // runtime executes a rule instead of guessing from the widget kind.
+            let mut bind = hb.init_bind();
+            bind.set_value(*value_rule);
+            let mut get = bind.init_target();
             get.set_store(store);
             let mut segs = get.init_path(path.len() as u32);
             for (j, seg) in path.iter().enumerate() {

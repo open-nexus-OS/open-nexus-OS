@@ -557,6 +557,83 @@ Page P {
     );
 }
 
+/// TASK-0077B P2b — the gap that made the Control Center's brightness and
+/// volume sliders dead: a `Slider` bound to `$state` synthesized no handler,
+/// because a write target without a derivation is a handler the runtime cannot
+/// execute. The bind now carries its rule (IR v1.8), and a tap across the
+/// track writes the percent the slider's own geometry means.
+///
+/// The app declares NOTHING but the binding — no `on Tap`, no payload, no
+/// service. That is the acceptance condition `CcBrightnessCard.nx` wrote down
+/// for itself: *"neither of those has to touch this file when it lands"*.
+#[test]
+fn a_bound_slider_writes_the_fraction_of_its_track() {
+    use nexus_layout::LayoutEngine;
+    use nexus_layout_types::FxPx;
+
+    let nxir = compile(
+        r#"
+Store S {
+    brightness: Int = 0,
+}
+Event E { Noop, }
+reduce E { Noop => state.brightness = state.brightness, }
+Page P {
+    Stack {
+        Slider { value: $state.brightness }
+            .label("Brightness")
+    }
+}
+"#,
+    );
+    let mut mounted = Mounted::new(&nxir);
+    let engine = LayoutEngine::new();
+    let locale = IdentityLocale { symbols: &mounted.symbols, keys: &mounted.keys };
+
+    // One bind handler, auto-synthesized from the catalog.
+    let slider_box = mounted
+        .view
+        .handlers()
+        .iter()
+        .find(|(_, h)| matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. }))
+        .expect("the slider's value auto-binds")
+        .0;
+
+    // Tap at a fraction of the track and read the store back.
+    // Taps `numerator/denominator` of the way along the track's TRAVEL — the
+    // distance from its first pixel to its last. A rect is half-open, so the
+    // last pixel is `width - 1`; `x + width` belongs to no control.
+    let mut tap_at = |numerator: i32, denominator: i32| {
+        let result = engine
+            .layout(mounted.view.scene(), FxPx::new(400), &ui_v10_goldens::NoText)
+            .expect("lays out");
+        let rect = result.boxes.iter().find(|b| b.node_id == slider_box).expect("box").rect;
+        assert!(rect.width.0 > 0, "the track must have width to measure against");
+        mounted
+            .view
+            .pointer(
+                &BaseTokens,
+                &FixtureEnv::default(),
+                &locale,
+                &mut NoIo,
+                &result.boxes,
+                "Tap",
+                FxPx::new(rect.x.0 + (rect.width.0 - 1) * numerator / denominator),
+                FxPx::new(rect.y.0 + rect.height.0 / 2),
+            )
+            .expect("routes");
+        match mounted.view.runtime.field("S", "brightness") {
+            Some(nexus_dsl_runtime::Value::Int(v)) => *v,
+            other => panic!("brightness is not an Int: {other:?}"),
+        }
+    };
+
+    assert_eq!(tap_at(1, 2), 50, "the midpoint of the track is 50%");
+    assert_eq!(tap_at(1, 4), 25, "a quarter across is 25%");
+    assert_eq!(tap_at(0, 1), 0, "the first pixel is 0%");
+    assert_eq!(tap_at(1, 1), 100, "the last pixel is 100%");
+}
+
 /// RFC-0075 focused-field model: tap focuses the innermost Change-bound
 /// field, insert/backspace edit the FOCUSED value (surviving re-emits by
 /// binding identity), `secure` fields report password and mask the scene,

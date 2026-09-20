@@ -16,6 +16,7 @@
 
 use crate::store::Value;
 use alloc::vec::Vec;
+use nexus_dsl_ir::ui_ir_capnp::BindValue;
 use nexus_layout_types::{FxPx, LayoutNode};
 
 /// A scrolled viewport for hit-testing: `(viewport (x0,y0,x1,y1), dx, dy)`.
@@ -28,10 +29,11 @@ pub enum HandlerAction {
     Dispatch { event: u32, case: u32, payload: Vec<Value> },
     /// Navigate to a route path (evaluated at emit time).
     Navigate { path: alloc::string::String },
-    /// Two-way binding write target: (store index, field symbol path).
-    /// The interaction supplies the value (Tap on a bound Toggle flips the
-    /// Bool; text input writes the new text).
-    Bind { store: u32, path: Vec<u32> },
+    /// Two-way binding write target: (store index, field symbol path) plus the
+    /// rule that turns the interaction into a value (`crate::bind`). The rule
+    /// travels WITH the handler because the compiler decided it — see IR v1.8;
+    /// the runtime never infers it from a widget kind.
+    Bind { store: u32, path: Vec<u32>, value: BindValue },
 }
 
 /// One interactive region.
@@ -108,9 +110,25 @@ pub fn path_to_box_id(scene: &LayoutNode, path: &[u32]) -> Option<usize> {
     Some(id)
 }
 
-/// Finds the innermost handler for `trigger_sym` whose box contains (x, y),
-/// returning its pre-order box id alongside the entry (the id is the hover/
-/// presentation anchor; the entry is the action).
+/// Where an interaction landed.
+///
+/// `box_id` is the hover/presentation anchor, `entry` the action — and `rect`
+/// plus (`x`, `y`) are the handler's box and the point IN THAT BOX'S SPACE,
+/// with the scroll transform already applied. A bind rule that derives its
+/// value from geometry (`crate::bind::BindValue::TrackFraction`) must measure
+/// against exactly the point the painter used, and that transform is resolved
+/// here, once: re-deriving it at the call site would be a second copy of the
+/// scroll math free to disagree with the pixels.
+#[derive(Debug, Clone, Copy)]
+pub struct Hit<'h> {
+    pub box_id: usize,
+    pub entry: &'h HandlerEntry,
+    pub rect: nexus_layout_types::Rect,
+    pub x: FxPx,
+    pub y: FxPx,
+}
+
+/// Finds the innermost handler for `trigger_sym` whose box contains (x, y).
 ///
 /// `boxes` is the flat `LayoutResult::boxes`; deeper nodes have larger
 /// pre-order ids, so the max matching id wins (innermost target).
@@ -121,7 +139,7 @@ pub fn hit<'h>(
     trigger_sym: u32,
     x: FxPx,
     y: FxPx,
-) -> Option<(usize, &'h HandlerEntry)> {
+) -> Option<Hit<'h>> {
     hit_scrolled(handlers, boxes, trigger_sym, x, y, None)
 }
 
@@ -150,10 +168,10 @@ pub fn hit_scrolled<'h>(
     x: FxPx,
     y: FxPx,
     scroll: Option<ScrollView>,
-) -> Option<(usize, &'h HandlerEntry)> {
-    let mut best: Option<(usize, &HandlerEntry)> = None;
-    // (edge distance², box_id, handler) — the runner-up pass, see below.
-    let mut slop_best: Option<(i64, usize, &HandlerEntry)> = None;
+) -> Option<Hit<'h>> {
+    let mut best: Option<Hit<'h>> = None;
+    // (edge distance², hit) — the runner-up pass, see below.
+    let mut slop_best: Option<(i64, Hit<'h>)> = None;
     for (box_id, entry) in handlers {
         if entry.trigger != trigger_sym {
             continue;
@@ -193,9 +211,12 @@ pub fn hit_scrolled<'h>(
             }
         }
         let rect = layout_box.rect;
+        // The point is reported in the BOX'S space (scroll applied), so a
+        // geometry-derived bind value measures what the painter drew.
+        let landed = Hit { box_id: *box_id, entry, rect, x: px, y: py };
         if contains(rect, FxPx::ZERO, px, py) {
-            if best.is_none_or(|(id, _)| *box_id > id) {
-                best = Some((*box_id, entry));
+            if best.is_none_or(|b| *box_id > b.box_id) {
+                best = Some(landed);
             }
             continue;
         }
@@ -203,14 +224,14 @@ pub fn hit_scrolled<'h>(
         let slop = layout_box.hit_slop;
         if slop > FxPx::ZERO && contains(rect, slop, px, py) {
             let d = edge_distance_sq(rect, px, py);
-            if slop_best.is_none_or(|(bd, id, _)| d < bd || (d == bd && *box_id > id)) {
-                slop_best = Some((d, *box_id, entry));
+            if slop_best.is_none_or(|(bd, b)| d < bd || (d == bd && *box_id > b.box_id)) {
+                slop_best = Some((d, landed));
             }
         }
     }
     // An exact hit ALWAYS wins over a slop hit, no matter the tree order:
     // slop must never steal a tap that landed squarely on a neighbour.
-    best.or(slop_best.map(|(_, id, entry)| (id, entry)))
+    best.or(slop_best.map(|(_, hit)| hit))
 }
 
 /// Point-in-rect, optionally grown outward by `slop` on all four sides.
@@ -273,7 +294,7 @@ mod hit_slop_tests {
         x: i32,
         y: i32,
     ) -> Option<usize> {
-        hit_scrolled(handlers, boxes, TAP, FxPx::new(x), FxPx::new(y), None).map(|(id, _)| id)
+        hit_scrolled(handlers, boxes, TAP, FxPx::new(x), FxPx::new(y), None).map(|h| h.box_id)
     }
 
     /// The bug this exists for: a 29x28 status pill in a 36px-tall top bar is
@@ -389,7 +410,7 @@ mod multi_viewport_tests {
         // Sidebar row: identity hit inside its own viewport.
         let hit = |x: i32, y: i32| {
             hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active))
-                .map(|(id, _)| id)
+                .map(|h| h.box_id)
         };
         assert_eq!(hit(50, 120), Some(3), "static sidebar viewport must hit");
         // Scrolled row: model y 130..170, on the surface at 80..120.
@@ -411,7 +432,7 @@ mod multi_viewport_tests {
         let boxes = [clipped(5, 270, 210, 600, 40, (260, 200, 960, 280))];
         let hit = |x: i32, y: i32| {
             hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active))
-                .map(|(id, _)| id)
+                .map(|h| h.box_id)
         };
         // Box model y 210..250 → surface 160..200.
         assert_eq!(hit(300, 170), Some(5), "shifted window hits");
