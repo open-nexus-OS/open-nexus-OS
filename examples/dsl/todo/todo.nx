@@ -3,28 +3,46 @@
 //
 // The canonical list app: async load through an effect, a keyed collection,
 // and a loading branch — the "shape of a program" from the overview.
+//
+// The load handles BOTH paths (principles.md §4). It used to bind the result
+// with `let` and dispatch only the success — which meant a failed call stopped
+// the effect plan silently, leaving `loading` true and this page on its
+// spinner for ever with nothing to show the user (TASK-0077B P3).
 
 Store TodoStore {
     items: List<Str> = ["one", "two", "three"],
     loading: Bool = false,
+    failed: Int = 0,
 }
 
 Event TodoEvent {
     Refresh,
     Loaded(List<Str>),
+    LoadFailed(Int),
 }
 
 reduce TodoEvent {
-    Refresh => state.loading = true,
+    Refresh => {
+        state.loading = true;
+        state.failed = 0;
+    },
     Loaded(items) => {
         state.items = items;
+        state.loading = false;
+        state.failed = 0;
+    },
+    // The error is a stable CODE, never a formatted string (§4).
+    LoadFailed(code) => {
+        state.failed = code;
         state.loading = false;
     },
 }
 
 @effect on Refresh {
-    let items = svc.todos.list();
-    dispatch(Loaded(items));
+    match svc.todos.list() {
+        Ok(items) => dispatch(Loaded(items)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
 }
 
 Page TodoPage {
@@ -32,13 +50,17 @@ Page TodoPage {
         Text(@t("todo.title")).textSize(lg)
         if $state.loading {
             Text(@t("common.loading"))
-        } else {
+        } else if $state.failed == 0 {
             List($state.items) { item in
                 Card {
                     Text(item)
                 }
                 .key(item)
             }
+        } else {
+            // The failure is VISIBLE. Dispatching a failure event and never
+            // rendering it is the same silence one step further along.
+            Text(@t("todo.failed"))
         }
         Button { label: @t("todo.refresh") }
         on Tap -> dispatch(Refresh)

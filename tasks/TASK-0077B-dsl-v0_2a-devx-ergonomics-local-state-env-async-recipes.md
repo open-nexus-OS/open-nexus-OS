@@ -1,6 +1,6 @@
 ---
 title: TASK-0077B DSL v0.2a DevX: keyed per-instance `$state` + complete two-way bindings + async recipes (host)
-status: In Progress (2026-09-20: P0-P2b shipped — timeoutMs retired, keyed per-instance state, the bind rule read off the catalog and carrying its value derivation; residual = P3 lint promotion + P4 docs/proof home)
+status: In Progress (2026-09-20: P0-P3 shipped — timeoutMs retired, keyed per-instance state, the bind rule read off the catalog and carrying its value derivation, §4's both-paths contract enforced; residual = P4 docs/proof home)
 owner: @ui @runtime
 created: 2026-01-26
 updated: 2026-07-06
@@ -228,8 +228,79 @@ monotonically: the proven-dead deletion first, the spine second, completion thir
 
   **Follow-up named, not done:** DRAG (a held pointer on the surface protocol), and a backlight
   / audio service for the values the sliders now produce.
-- **P3** NX0407 (`UnhandledResult`) promoted to an error (D4; §4: *"violation is an error, NOT a
-  lint suggestion"*) + corpus. NX0409 is no longer part of this: P0 RETIRED it with `timeoutMs`.
+- **P3 (BUILT 2026-09-20)** An effect cannot compile with a service result whose `Err` path
+  is undeclared.
+
+  D4 said "promote NX0407 to Error". **Measured against the corpus, that promotion catches
+  NOTHING**: 62 service calls across every app and example, and *zero* bare call statements —
+  the only shape NX0407 sees. Hardening a rule nothing violates, while the real violations stay
+  legal, would leave §4 looking enforced when it is not.
+
+  **What §4 actually says** is *"Effects must handle both `Ok` and `Err` of every service
+  call"* — about the RESULT, not the statement shape. Measured, four shapes compile today while
+  dropping a result or half of one:
+
+  | shape | check | lower | consequence |
+  |---|---|---|---|
+  | `svc.f();` | NX0407 *warning* | ok | error path dropped |
+  | `let r = svc.f();` | — | ok | error path dropped |
+  | `match svc.f() { Ok … }` | — | ok | `Err` silently dropped |
+  | `match svc.f() { Err … }` | — | ok | `Ok` silently dropped |
+
+  And this is not stylistic. `lower/effects.rs` states the runtime semantics: *"a call step
+  binds its result on Ok and continues, dispatches `onErr` and stops on Err"*. With no `onErr`
+  the plan **stops silently** — so `Refresh` sets `loading = true`, the call fails, `Loaded`
+  never dispatches, and the app sits on "Loading…" for ever with no way to know.
+
+  ⭐ **The documentation states the contract and demonstrates its violation two lines apart.**
+  `docs/dev/dsl/syntax.md` prints `let users = svc.users.list(); dispatch(UsersLoaded(users));`
+  and immediately below it: *"Effects … must handle both `Ok` and `Err` of every service
+  call."* `overview.md` teaches the same broken shape. That is why the corpus has zero bare
+  calls and two `let`-bound ones (`examples/dsl/todo/todo.nx:26`,
+  `tests/dsl_v0_1a_host/fixtures/proof_surface.nx:30`) — authors copied what the docs taught.
+
+  **The rule.** In an effect, a service or query call must be the scrutinee of a `match`
+  carrying BOTH an `Ok` and an `Err` arm. Every other position is NX0407, an ERROR. This is the
+  form 60 of the 62 real call sites already use (`Ok(v) => dispatch(X(v)), Err(e) =>
+  dispatch(XFailed(e))`), so the rule ratifies the corpus rather than reshaping it — and the
+  `let`-bound call, the one alternate that silently drops the error, goes in the same package.
+
+  Chaining does not need `let`: a `match` arm holds exactly one `dispatch` (`NX0501` otherwise),
+  so a sequence of calls is a sequence of effects joined by events — which is what the
+  runtime's generation-based latest-wins cancellation already expects.
+
+  **NX0407 is WIDENED, not repurposed.** It has always meant "the service result is unhandled";
+  it saw one shape and now sees all of them, so no program's diagnosis changes meaning. (The
+  NX0409 note above is the other case: a code whose meaning INVERTS must end instead.)
+  NX0409 is not part of this — P0 retired it with `timeoutMs`. NX0406 (`MissingProfileElse`)
+  stays a warning: it is a different rule, not one §4 makes a contract.
+
+  **Built.** `check/lints.rs::effect_discipline` is ONE walk over every expression position in
+  an effect, carrying both contracts; `find_svc_call` (a narrower duplicate of `find_io_call`
+  that never knew about queries) deleted. `diag.rs` severity: only `MissingProfileElse` remains
+  a warning. `cli/explain.rs` explains the consequence, not just the rule.
+
+  Swept in the same package, because every one of them was a copy of the shape the docs taught:
+  `examples/dsl/todo/todo.nx` (and its page now RENDERS the failure — dispatching a failure
+  event and never showing it is the same silence one step along), the proof fixture
+  `tests/dsl_v0_1a_host/fixtures/proof_surface.nx`, `docs/dev/dsl/{overview,syntax}.md`, the
+  compiler crate's own canonical example, and the lexer fixture. `docs/dev/dsl/services.md`
+  gains the rule; `cli.md` stops listing NX0407/NX0409 as warnings.
+
+  ⭐ **A P0 hole closed by the same walk:** the retired-`timeoutMs:` check ran on `let` values
+  and bare statements only — never on a match scrutinee, i.e. never on the form 60 of 62 real
+  call sites use. `timeoutMs: 5` on a normal call was silently accepted and dropped: exactly
+  the "number that looks like a bound but is not one" P0 existed to abolish.
+
+  **Two tests were asserting the defect.** `a_failing_call_stops_the_plan` asserted the stranded
+  spinner as expected behaviour (its own comment pointed at this task) — replaced by
+  `test_reject_a_service_result_whose_paths_are_not_both_handled`, since the premise is no
+  longer writable. A golden test's comment read *"the effect fails under NoIo, so the loading
+  state stays visible"*; it now asserts the recovery instead.
+
+  **Follow-up named, not done:** `NX0406` (`MissingProfileElse`) is the one remaining warning
+  and was left alone deliberately — a missing profile branch falls back to a rendered default,
+  which is a judgement call, not a broken contract.
 - **P4** Docs + the one proof home (D5 + D6).
 
 ## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)

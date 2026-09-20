@@ -378,14 +378,17 @@ Store UserListStore {
     loading: Bool = false,
 }
 @effect on LoadUsers {
-    let users = svc.users.list();
-    dispatch(UsersLoaded(users));
+    match svc.users.list() {
+        Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
 }
 "#;
         let tokens = lex(src).expect("lexes");
         assert!(tokens.iter().any(|t| t.kind == TokenKind::KwStore));
         assert!(tokens.iter().any(|t| t.kind == TokenKind::AtEffect));
         assert!(tokens.iter().any(|t| t.kind == TokenKind::KwSvc));
+        assert!(tokens.iter().any(|t| t.kind == TokenKind::KwMatch));
         assert_eq!(tokens.last().map(|t| t.kind.clone()), Some(TokenKind::Eof));
     }
 

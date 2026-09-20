@@ -73,6 +73,7 @@ Store S {
 Event E {
     Load,
     Loaded(List<Item>),
+    Failed(Int),
 }
 reduce E {
     Load => state.busy = true,
@@ -80,10 +81,13 @@ reduce E {
         state.items = items;
         state.busy = false;
     },
+    Failed(code) => state.busy = false,
 }
 @effect on Load {
-    let items = svc.catalog.list();
-    dispatch(Loaded(items));
+    match svc.catalog.list() {
+        Ok(items) => dispatch(Loaded(items)),
+        Err(e) => dispatch(Failed(e)),
+    }
 }
 "#,
     );
@@ -97,29 +101,57 @@ reduce E {
     assert_eq!(script.calls, vec!["catalog.list"]);
 }
 
+/// TASK-0077B P3. `principles.md` §4: *"Effects must handle both `Ok` and
+/// `Err` of every service call."* An effect plan stops at the first unhandled
+/// failure, so a call without an `Err` arm strands the app: `busy` stays true,
+/// the spinner never clears, and nothing tells the user.
+///
+/// This test replaces `a_failing_call_stops_the_plan`, which asserted exactly
+/// that stranding as expected behaviour — its own comment pointed at this task.
+/// The premise is retired because the shape is no longer writable: every way to
+/// drop a service result is `NX0407`, an error. The handled path is proved at
+/// runtime by `match_on_a_call_result_routes_ok_and_err`.
 #[test]
-fn a_failing_call_stops_the_plan() {
-    let nxir = compile(
-        r#"
+fn test_reject_a_service_result_whose_paths_are_not_both_handled() {
+    const HEAD: &str = r#"
 Store S { busy: Bool = false, count: Int = 0, }
-Event E { Load, Loaded(Int), }
+Event E { Load, Loaded(Int), Failed(Int), }
 reduce E {
     Load => state.busy = true,
     Loaded(n) => { state.count = n; state.busy = false; },
+    Failed(code) => state.busy = false,
 }
-@effect on Load {
-    let n = svc.stats.count("all");
-    dispatch(Loaded(n));
-}
-"#,
+"#;
+    let rejected: &[(&str, &str)] = &[
+        ("bound with `let` and never discriminated", "let n = svc.stats.count(\"all\"); dispatch(Loaded(n));"),
+        ("a bare call statement", "svc.stats.count(\"all\");"),
+        ("a match with no `Err` arm", "match svc.stats.count(\"all\") { Ok(n) => dispatch(Loaded(n)), }"),
+        ("a match with no `Ok` arm", "match svc.stats.count(\"all\") { Err(e) => dispatch(Failed(e)), }"),
+        ("a call hidden in another call's arguments", "match svc.stats.count(svc.stats.name()) { Ok(n) => dispatch(Loaded(n)), Err(e) => dispatch(Failed(e)), }"),
+    ];
+    for (what, body) in rejected {
+        let src = alloc_format(HEAD, body);
+        let file = nexus_dsl_core::parse_file(&src).expect("parses");
+        let (_, diags) = nexus_dsl_core::check_file(&file);
+        assert!(
+            diags.iter().any(|d| d.code == nexus_dsl_core::diag::DiagCode::UnhandledResult),
+            "{what} must be NX0407, got {diags:?}"
+        );
+        assert!(nexus_dsl_core::has_errors(&diags), "{what} must be an ERROR, not advice");
+    }
+
+    // And the one handled form compiles.
+    let src = alloc_format(
+        HEAD,
+        "match svc.stats.count(\"all\") { Ok(n) => dispatch(Loaded(n)), Err(e) => dispatch(Failed(e)), }",
     );
-    let mut h = Harness::mount(&nxir);
-    let mut script = Script::new(vec![("stats.count", Err(7))]);
-    h.dispatch(&mut script, "E", "Load", vec![]);
-    // Err stops the plan: Loaded never dispatched, busy stays true (the
-    // canonical async recipe adds an onErr arm — TASK-0077B).
-    h.assert_field("S", "busy", &Value::Bool(true));
-    h.assert_field("S", "count", &Value::Int(0));
+    let file = nexus_dsl_core::parse_file(&src).expect("parses");
+    let (_, diags) = nexus_dsl_core::check_file(&file);
+    assert!(!nexus_dsl_core::has_errors(&diags), "the handled form must compile: {diags:?}");
+}
+
+fn alloc_format(head: &str, body: &str) -> String {
+    format!("{head}\n@effect on Load {{\n    {body}\n}}\n")
 }
 
 #[test]

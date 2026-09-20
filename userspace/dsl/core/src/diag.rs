@@ -78,7 +78,7 @@ pub enum DiagCode {
     UnboundedFor,       // NX0404
     ReducerImpure,      // NX0405
     MissingProfileElse, // NX0406 (Warning)
-    UnhandledResult,    // NX0407
+    UnhandledResult,    // NX0407 (Error since P3: both Ok and Err, every call)
     DuplicateRoute,     // NX0408
     // NX0409 (`MissingTimeout`) is RETIRED, not repurposed: it used to mean
     // "you forgot `timeoutMs:`" and the rule is now the opposite one. A code
@@ -139,12 +139,24 @@ impl DiagCode {
 
     /// Default severity. Warnings promote to errors under `--deny-warn`.
     ///
-    /// `UnhandledResult` is a warning in v0.1 and becomes an error when the
-    /// async-recipe wave lands (TASK-0077B/0078 contract).
+    /// `UnhandledResult` is an ERROR since TASK-0077B P3: `principles.md` §4
+    /// makes "effects must handle both `Ok` and `Err` of every service call" a
+    /// contract, and §4 itself says a violated contract "is an error, NOT a
+    /// lint suggestion". It is not advice — an unhandled `Err` stops the effect
+    /// plan silently, so the app keeps its spinner for ever.
+    ///
+    /// The code was WIDENED, not repurposed: it has always meant "the service
+    /// result is unhandled" and now sees every shape of that instead of only a
+    /// bare call statement, so no program's diagnosis changes meaning. (Compare
+    /// NX0409 above, where the meaning would have INVERTED and the code ended.)
+    ///
+    /// `MissingProfileElse` stays a warning: a missing profile branch falls
+    /// back to a rendered default, which is a judgement call, not a broken
+    /// contract.
     #[must_use]
     pub fn severity(self) -> Severity {
         match self {
-            DiagCode::MissingProfileElse | DiagCode::UnhandledResult => Severity::Warning,
+            DiagCode::MissingProfileElse => Severity::Warning,
             _ => Severity::Error,
         }
     }

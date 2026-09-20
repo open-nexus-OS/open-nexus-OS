@@ -23,11 +23,13 @@ happen → how state changes → what side effects run*:
 Store UserListStore {
     users: List<User> = [],
     loading: Bool = false,
+    error: Int = 0,
 }
 
 Event UserListEvent {
     LoadUsers,
     UsersLoaded(List<User>),
+    LoadFailed(Int),
 }
 
 reduce UserListEvent {
@@ -36,17 +38,26 @@ reduce UserListEvent {
         state.users = users;
         state.loading = false;
     },
+    LoadFailed(code) => {
+        state.error = code;
+        state.loading = false;
+    },
 }
 
 @effect on LoadUsers {
-    let users = svc.users.list();
-    dispatch(UsersLoaded(users));
+    match svc.users.list() {
+        Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
 }
 ```
 
 Reducers are pure (no IO, no `svc.*`, no time/randomness — compile error otherwise).
 Effects run after commit, own all IO, and must handle both `Ok` and `Err` of every
-service call.
+service call — **`NX0407`, an error, not advice**: an effect plan stops at the first
+unhandled failure, so a call with no `Err` arm leaves `loading` set and the page on
+its spinner with nothing to tell the user. A service call therefore appears in exactly
+one place: as the scrutinee of a `match` with both arms.
 
 ### Initial load: root effects (no lifecycle hook)
 
@@ -55,7 +66,7 @@ effect-trigger model is exactly what `principles.md` §5 forbids. The initial
 load falls out of the **dataflow** instead:
 
 ```nx
-Event UserListEvent { LoadUsers, UsersLoaded(List<User>) }
+Event UserListEvent { LoadUsers, UsersLoaded(List<User>), LoadFailed(Int) }
 
 @effect on LoadUsers {
     match svc.users.list() {

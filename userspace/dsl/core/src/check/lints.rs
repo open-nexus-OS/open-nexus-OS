@@ -1,9 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Opinionated rules (docs/dev/dsl/state.md#linterror-posture-v1):
-//! reducer purity, collection keys, a11y labels, duplicate modifiers,
-//! bounded `for`, profile-branch fallback, svc-result/timeout discipline.
+//! The rules that are CONTRACTS rather than suggestions: reducer purity,
+//! collection keys, a11y labels, duplicate modifiers, bounded `for`, the
+//! service-result and retired-timeout discipline — and the one real warning
+//! left, the profile-branch fallback.
+//!
+//! `docs/dev/dsl/principles.md` §4 is the authority: a violated contract "is an
+//! error, NOT a lint suggestion". The rule this module exists for is §4's own
+//! sentence — *"Effects must handle both `Ok` and `Err` of every service
+//! call"* — written up for app authors in `docs/dev/dsl/services.md`.
+//!
+//! (The old pointer here named `state.md#linterror-posture-v1`, a section that
+//! was consolidated away; the anchor had been dangling since.)
 
 use super::Model;
 use crate::ast::{Expr, ModifierCall, Stmt, ViewNode, WidgetNode};
@@ -19,7 +28,7 @@ pub(super) fn run(file: &crate::ast::File, model: &Model<'_>, diags: &mut Vec<Di
         }
     }
     for effect in &model.effects {
-        svc_discipline(&effect.body, diags);
+        effect_discipline(&effect.body, model, diags);
     }
     for page in &model.pages {
         view_lints(&page.view, diags);
@@ -112,56 +121,131 @@ fn find_io_call(expr: &Expr, model: &Model<'_>) -> Option<crate::diag::Span> {
     }
 }
 
-fn find_svc_call(expr: &Expr) -> Option<crate::diag::Span> {
-    match expr {
-        Expr::Call { path, span, args } => {
-            if path.first().map(|seg| seg.text.as_str()) == Some("svc") {
-                return Some(*span);
-            }
-            args.iter().find_map(|arg| find_svc_call(&arg.value))
-        }
-        Expr::Unary { operand, .. } => find_svc_call(operand),
-        Expr::Binary { lhs, rhs, .. } => find_svc_call(lhs).or_else(|| find_svc_call(rhs)),
-        Expr::List { items, .. } | Expr::EnumLit { args: items, .. } => {
-            items.iter().find_map(find_svc_call)
-        }
-        Expr::I18n { args, .. } => args.iter().find_map(find_svc_call),
-        _ => None,
-    }
-}
-
 // -------------------------------------------------------- effect discipline
 
-/// v0.1 posture (promoted to errors with the async-recipe wave): a service
-/// call without `timeoutMs:` warns; an ignored `Result` (bare call statement)
-/// warns.
-fn svc_discipline(stmts: &[Stmt], diags: &mut Vec<Diagnostic>) {
+/// Effect discipline — ONE walk over every expression position in an effect
+/// body, applying two contracts that both live here because both are about
+/// what a service call may look like.
+///
+/// **§4 (`docs/dev/dsl/principles.md`): "Effects must handle both `Ok` and
+/// `Err` of every service call."** So an IO call must be the SCRUTINEE of a
+/// `match` that declares both arms; every other position is `NX0407`. This is
+/// not a style rule. `lower/effects.rs` states the runtime semantics — *"a call
+/// step binds its result on Ok and continues, dispatches `onErr` and stops on
+/// Err"* — so a call with no `Err` arm STOPS THE PLAN SILENTLY: the `Loaded`
+/// event never dispatches, `loading` is never cleared, and the app sits on a
+/// spinner with no way to know (TASK-0077B P3).
+///
+/// Until P3 the rule saw only a bare call statement, which the whole corpus had
+/// already stopped writing — 62 service calls, zero bare ones — while
+/// `let r = svc.f();` and a one-armed `match` dropped their error path in
+/// silence. The docs taught the `let` form two lines above the sentence it
+/// breaks, which is where the two violations came from.
+///
+/// **P0's retired `timeoutMs:`** rides the same walk. It used to be applied to
+/// `let` values and bare statements only — never to a match scrutinee, i.e.
+/// never to the form 60 of 62 call sites use — so the argument P0 set out to
+/// abolish was still silently accepted on the common path.
+fn effect_discipline(stmts: &[Stmt], model: &Model<'_>, diags: &mut Vec<Diagnostic>) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { value, .. } => timeout_check(value, diags),
-            Stmt::ExprStmt { expr, span } => {
-                if find_svc_call(expr).is_some() {
+            // The ONE handled form: the call is the scrutinee, both paths declared.
+            Stmt::Match { scrutinee, arms, span } if is_io_call(scrutinee, model) => {
+                timeout_check(scrutinee, diags);
+                // An IO call among the ARGUMENTS is a second result nobody handles.
+                if let Some(nested) = nested_io_call(scrutinee, model) {
+                    diags.push(unhandled_here(nested));
+                }
+                let declares = |case: &str| arms.iter().any(|a| a.pattern.case.text == case);
+                let missing = match (declares("Ok"), declares("Err")) {
+                    (true, true) => None,
+                    (true, false) => Some(
+                        "this service call declares no `Err` arm; on failure the effect stops \
+                         silently and the app is never told",
+                    ),
+                    (false, true) => Some(
+                        "this service call declares no `Ok` arm; on success the effect stops \
+                         without using the result",
+                    ),
+                    (false, false) => Some(
+                        "this service call declares neither `Ok` nor `Err`; both paths of the \
+                         result must be handled",
+                    ),
+                };
+                if let Some(message) = missing {
                     diags.push(Diagnostic::new(
                         DiagCode::UnhandledResult,
                         *span,
-                        String::from(
-                            "the service result is ignored; bind it with `let` and handle it",
-                        ),
+                        String::from(message),
                     ));
                 }
-                timeout_check(expr, diags);
-            }
-            Stmt::If { then, els, .. } => {
-                svc_discipline(then, diags);
-                svc_discipline(els, diags);
-            }
-            Stmt::Match { arms, .. } => {
                 for arm in arms {
-                    svc_discipline(&arm.body, diags);
+                    effect_discipline(&arm.body, model, diags);
                 }
             }
-            Stmt::Assign { .. } | Stmt::Dispatch { .. } => {}
+            Stmt::Match { scrutinee, arms, .. } => {
+                check_expr(scrutinee, model, diags);
+                for arm in arms {
+                    effect_discipline(&arm.body, model, diags);
+                }
+            }
+            Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+                check_expr(value, model, diags);
+            }
+            Stmt::ExprStmt { expr, .. } => check_expr(expr, model, diags),
+            Stmt::Dispatch { args, .. } => {
+                for arg in args {
+                    check_expr(arg, model, diags);
+                }
+            }
+            Stmt::If { cond, then, els, .. } => {
+                check_expr(cond, model, diags);
+                effect_discipline(then, model, diags);
+                effect_discipline(els, model, diags);
+            }
         }
+    }
+}
+
+/// An expression position that is NOT a handled match scrutinee: any IO call in
+/// it drops its result.
+fn check_expr(expr: &Expr, model: &Model<'_>, diags: &mut Vec<Diagnostic>) {
+    timeout_check(expr, diags);
+    if let Some(span) = find_io_call(expr, model) {
+        diags.push(unhandled_here(span));
+    }
+}
+
+fn unhandled_here(span: crate::diag::Span) -> Diagnostic {
+    Diagnostic::new(
+        DiagCode::UnhandledResult,
+        span,
+        String::from(
+            "a service result must be handled on BOTH paths: \
+             `match <call> { Ok(v) => dispatch(..), Err(e) => dispatch(..), }` \
+             — otherwise the effect stops silently when the call fails",
+        ),
+    )
+}
+
+/// Whether `expr` IS an IO call (not merely contains one): `svc.*`, or an
+/// execution of a declared `Query`. Same two forms `find_io_call` looks for.
+fn is_io_call(expr: &Expr, model: &Model<'_>) -> bool {
+    match expr {
+        Expr::Call { path, .. } => {
+            path.first().map(|seg| seg.text.as_str()) == Some("svc")
+                || (path.len() == 1 && model.query_by_name.contains_key(path[0].text.as_str()))
+        }
+        _ => false,
+    }
+}
+
+/// An IO call INSIDE `expr` rather than `expr` itself — for a call, one hiding
+/// in its arguments.
+fn nested_io_call(expr: &Expr, model: &Model<'_>) -> Option<crate::diag::Span> {
+    match expr {
+        Expr::Call { args, .. } => args.iter().find_map(|arg| find_io_call(&arg.value, model)),
+        other => find_io_call(other, model),
     }
 }
 

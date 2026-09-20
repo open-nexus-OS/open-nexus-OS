@@ -69,9 +69,10 @@ Exit codes: `0` ok, `1` diagnostics/violations, `2` usage/IO errors.
 
 Every diagnostic carries a **stable code** (`NX####`) and a byte span rendered
 as `file:line:col`. Codes never get renumbered; `nx-dsl explain <code>` is the
-catalog. Warnings (`NX0406` profile fallback, `NX0407` unhandled result,
-`NX0409` missing timeout — the latter two become errors once the async-recipe
-wave lands) pass unless `--deny-warn`.
+catalog. `NX0406` (profile fallback) is the one remaining WARNING and passes
+unless `--deny-warn`; everything else is an error. `NX0407` (unhandled service
+result) became an error in TASK-0077B P3 — `principles.md` §4 makes it a
+contract — and `NX0409` was retired with `timeoutMs:` in P0.
 
 ## Determinism contract
 

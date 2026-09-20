@@ -9,26 +9,42 @@ Store ProofStore {
     items: List<Item> = [],
     filter: Str = "",
     busy: Bool = false,
+    failed: Int = 0,
 }
 
 Event ProofEvent {
     Refresh,
     Loaded(List<Item>),
+    LoadFailed(Int),
     FilterChanged(Str),
 }
 
 reduce ProofEvent {
-    Refresh => state.busy = true,
+    Refresh => {
+        state.busy = true;
+        state.failed = 0;
+    },
     Loaded(items) => {
         state.items = items;
+        state.busy = false;
+        state.failed = 0;
+    },
+    // A stable error CODE, never a formatted string (principles.md §4).
+    LoadFailed(code) => {
+        state.failed = code;
         state.busy = false;
     },
     FilterChanged(text) => state.filter = text,
 }
 
+// Both paths are handled (§4). This used to bind the result with `let` and
+// dispatch only the success, so a failed call stopped the plan silently and
+// left `busy` true for ever (TASK-0077B P3).
 @effect on Refresh {
-    let items = svc.catalog.list();
-    dispatch(Loaded(items));
+    match svc.catalog.list() {
+        Ok(items) => dispatch(Loaded(items)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
 }
 
 Page ProofSurfacePage {
@@ -40,7 +56,7 @@ Page ProofSurfacePage {
         }
         if $state.busy {
             Text(@t("common.loading"))
-        } else {
+        } else if $state.failed == 0 {
             List($state.items) { item in
                 Card {
                     Icon(item.glyph)
@@ -50,6 +66,8 @@ Page ProofSurfacePage {
                 .padding(3)
                 .rounded(md)
             }
+        } else {
+            Text(@t("proof.failed"))
         }
         Button { label: @t("proof.refresh") }
             .bg(accent)

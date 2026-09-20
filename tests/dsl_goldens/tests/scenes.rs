@@ -184,11 +184,27 @@ fn todo_renders_keyed_collection_and_loading_branch() {
     let mut mounted = Mounted::new(&nxir);
     ui_v10_goldens::check_golden("dsl_todo_initial", mounted.view.scene()).unwrap();
 
-    // Refresh flips the loading branch (structure change ⇒ layout damage);
-    // the effect fails under NoIo, so the loading state stays visible.
+    // Refresh flips the loading branch (structure change ⇒ layout damage).
+    // The effect fails under NoIo — and since TASK-0077B P3 the example HANDLES
+    // that: `Err` dispatches `LoadFailed`, which clears `loading` and shows the
+    // failure. This comment used to read "the loading state stays visible",
+    // which was the §4 violation written down as expected behaviour: a call
+    // with no `Err` arm stopped the plan silently and left the spinner for ever.
     let damage = mounted.dispatch("TodoEvent", "Refresh", vec![]);
     assert_eq!(damage, Damage::Layout);
     ui_v10_goldens::check_golden("dsl_todo_loading", mounted.view.scene()).unwrap();
+    // The pixel golden cannot tell these two apart (both labels resolve through
+    // the same identity locale), so assert the STATE the user would see: the
+    // spinner is gone and the failure is on screen with a stable code.
+    assert_eq!(
+        mounted.view.runtime.field("TodoStore", "loading"),
+        Some(&Value::Bool(false)),
+        "a handled failure clears `loading` — the spinner must not survive it"
+    );
+    assert!(
+        !matches!(mounted.view.runtime.field("TodoStore", "failed"), Some(Value::Int(0)) | None),
+        "the failure must be recorded as a stable code, not swallowed"
+    );
 
     // Loaded replaces the items and leaves the branch.
     let damage = mounted.dispatch(

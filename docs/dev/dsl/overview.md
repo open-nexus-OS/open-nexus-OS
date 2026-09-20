@@ -45,11 +45,13 @@ Key properties:
 Store UserListStore {
     users: List<User> = [],
     loading: Bool = false,
+    error: Int = 0,
 }
 
 Event UserListEvent {
     LoadUsers,
     UsersLoaded(List<User>),
+    LoadFailed(Int),
 }
 
 reduce UserListEvent {
@@ -58,11 +60,17 @@ reduce UserListEvent {
         state.users = users;
         state.loading = false;
     },
+    LoadFailed(code) => {
+        state.error = code;
+        state.loading = false;
+    },
 }
 
 @effect on LoadUsers {
-    let users = svc.users.list();
-    dispatch(UsersLoaded(users));
+    match svc.users.list() {
+        Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
 }
 
 Page UserListPage {

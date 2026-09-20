@@ -33,7 +33,33 @@ Signature diagnostics (stable codes):
 | `NX0208` | the service exists but has no such method |
 | `NX0302` | wrong argument count |
 | `NX0412` | `timeoutMs:` passed on a service call — retired, see below (NX0409 was its inverse and is retired with it) |
-| `NX0407` | a call result is ignored (warning in v0.2) |
+| `NX0407` | a call result is not handled on BOTH paths — error, see below |
+
+### Both paths, always (`NX0407`)
+
+A service call must be the **scrutinee of a `match` that declares both `Ok` and
+`Err`**. That is the only place a call may appear:
+
+```nx
+@effect on LoadUsers {
+    match svc.users.list() {
+        Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e)    => dispatch(LoadFailed(e)),
+    }
+}
+```
+
+`principles.md` §4 states it as a contract — *"Effects must handle both `Ok` and
+`Err` of every service call"* — and §4 also says a violated contract is an error,
+not a lint suggestion. The reason is mechanical, not stylistic: an effect plan
+runs its steps in order and **stops at the first unhandled failure**. A call with
+no `Err` arm therefore strands the app — the `Loaded` event never dispatches, a
+`loading` flag set before the call is never cleared, and nothing tells the user.
+
+The error is a stable CODE, never a formatted string. Chaining does not need a
+`let`: a match arm holds exactly one `dispatch`, so a sequence of calls is a
+sequence of effects joined by events — which is also what gives you latest-wins
+cancellation for free.
 
 ### No client timeout on a service call
 

@@ -50,11 +50,13 @@ mod tests {
 Store UserListStore {
     users: List<User> = [],
     loading: Bool = false,
+    error: Int = 0,
 }
 
 Event UserListEvent {
     LoadUsers,
     UsersLoaded(List<User>),
+    LoadFailed(Int),
 }
 
 reduce UserListEvent {
@@ -63,11 +65,17 @@ reduce UserListEvent {
         state.users = users;
         state.loading = false;
     },
+    LoadFailed(code) => {
+        state.error = code;
+        state.loading = false;
+    },
 }
 
 @effect on LoadUsers {
-    let users = svc.users.list();
-    dispatch(UsersLoaded(users));
+    match svc.users.list() {
+        Ok(users) => dispatch(UsersLoaded(users)),
+        Err(e) => dispatch(LoadFailed(e)),
+    }
 }
 
 Page UserListPage {
@@ -251,11 +259,16 @@ reduce E {
 }
 
 @effect on Go {
-    let users = svc.users.list(timeoutMs: 250);
+    match svc.users.list(timeoutMs: 250) {
+        Ok(users) => dispatch(Go),
+        Err(e) => dispatch(Go),
+    }
 }
 
 Page P { Stack { Text("x") } }
 "#;
+        // The scrutinee position, which is the form real call sites use — and
+        // the one P0's rule never looked at until TASK-0077B P3.
         let codes = codes_of(WITH_TIMEOUT);
         assert!(codes.contains(&DiagCode::RetiredTimeout), "expected NX0412, got: {codes:?}");
         let without = WITH_TIMEOUT.replace("(timeoutMs: 250)", "()");
@@ -377,9 +390,20 @@ Routes {
     fn lowering_ignores_declaration_order() {
         // The same program with Store/Event swapped must produce identical IR
         // (canonical ordering — formatting/file order never leaks).
-        let reordered = USER_LIST_PAGE
-            .replace("Store UserListStore {\n    users: List<User> = [],\n    loading: Bool = false,\n}\n\nEvent UserListEvent {\n    LoadUsers,\n    UsersLoaded(List<User>),\n}",
-                     "Event UserListEvent {\n    LoadUsers,\n    UsersLoaded(List<User>),\n}\n\nStore UserListStore {\n    users: List<User> = [],\n    loading: Bool = false,\n}");
+        // Swap the two blocks by their BOUNDARIES, not by their bodies: a
+        // literal copy of the fixture text silently stops swapping the moment
+        // the fixture gains a field, and then this test proves nothing. (It
+        // did — the `assert_ne!` below is what caught it in TASK-0077B P3.)
+        let store_at = USER_LIST_PAGE.find("Store UserListStore").expect("fixture has a Store");
+        let event_at = USER_LIST_PAGE.find("Event UserListEvent").expect("fixture has an Event");
+        let reduce_at = USER_LIST_PAGE.find("reduce UserListEvent").expect("fixture has a reduce");
+        let reordered = format!(
+            "{}{}{}{}",
+            &USER_LIST_PAGE[..store_at],
+            &USER_LIST_PAGE[event_at..reduce_at],
+            &USER_LIST_PAGE[store_at..event_at],
+            &USER_LIST_PAGE[reduce_at..],
+        );
         assert_ne!(reordered, USER_LIST_PAGE, "fixture rewrite must apply");
         // Note: sourceDigest differs (different source text), so compare the
         // program hash computed over the zero-hash bytes minus sourceDigest…

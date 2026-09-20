@@ -47,7 +47,12 @@ pub(crate) fn cmd_explain(args: &[String]) -> ExitCode {
         "NX0404" => "`for` needs a statically bounded iterable; use `List(expr) { item in … }` for data.",
         "NX0405" => "Reducers are pure: no IO, no `svc.*`, no dispatch — use an `@effect`.",
         "NX0406" => "Profile branch without a final `else`: add the default branch. (Warning)",
-        "NX0407" => "A service result is ignored; bind and handle it. (Warning in v0.1)",
+        "NX0407" => {
+            "A service result is unhandled. An effect must handle BOTH paths: \
+             `match svc.x.y(..) { Ok(v) => dispatch(..), Err(e) => dispatch(..), }`. \
+             With no `Err` arm the effect stops silently on failure — the app is never \
+             told, and a `loading` flag set before the call is never cleared."
+        }
         "NX0408" => "The same route path is declared twice.",
         "NX0409" => "RETIRED. It meant `timeoutMs:` was missing; a service call has no client clock now — see NX0412.",
         "NX0412" => "`timeoutMs:` on a service call. The exchange ends with the reply or the service's death, so a client timeout is a number that looks like a bound but is not one (RFC-0096).",
