@@ -1,6 +1,6 @@
 ---
 title: TASK-0077C DSL v0.2c runtime long-session & large-data contract: emit-generation arena + subtree re-emit (pro primitives retired)
-status: Draft (end-state rewrite 2026-09-09 — recut from "pro primitives" after re-evaluation: data virtualization is solved by QuerySpec + tail(); the real ceiling is the never-freeing emit heap)
+status: Draft (scope fixed 2026-09-20 after measuring: MEMORY only, P0-P3. Latency moved to TASK-0145B, boot to TASK-0269B)
 owner: @ui @runtime
 created: 2026-01-26
 updated: 2026-07-06
@@ -15,6 +15,9 @@ links:
   - Widget home: userspace/ui/widgets/* (NOTE: `userspace/ui/kit/` does not exist — stale ref removed)
   - Zero-copy data plane gate: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QuerySpec paging feeding these surfaces: tasks/TASK-0078B
+  - Scope firewall — latency questions found here belong THERE:
+    tasks/TASK-0145B-ui-interaction-latency-budget.md
+  - Scope firewall — boot time belongs THERE: tasks/TASK-0269B-boot-to-first-frame-budget.md
 ---
 
 ## End-state rewrite 2026-09-09 (binding; supersedes the pro-primitives scope below)
@@ -42,6 +45,29 @@ links:
   freezes after a bounded number of interactions — independent of lists. Ownership of that fix
   moves HERE (TASK-0311 updated).
 
+### Measured 2026-09-20 (replaces the numbers quoted from a code comment)
+
+A counting host allocator over the REAL compiled `desktop-shell`, 100 structural dispatches
+(panel open + absorber), gives the three numbers this task rests on:
+
+| | measured |
+|---|---|
+| retained emit output, one generation | **68 270 B** |
+| allocated per structural interaction | **50 765 B** |
+| live drift over 100 dispatches | **0 B** |
+
+Consequences, now arithmetic rather than impression:
+
+- **The ceiling is ~330 interactions.** 16 MiB ÷ 50 KiB. The app-host carries 16 MiB to survive
+  roughly three hundred clicks, against a working set of 68 KiB — a factor of 240.
+- **Drift 0 is the load-bearing finding.** The moment an allocator actually frees, nothing
+  accumulates: every byte of that 50 KiB is garbage, so on the never-freeing bump it leaks in
+  full. An arena does not need to be clever — the precondition is proven, not assumed.
+- **The arena sizes itself: ~256 KiB.** (50 KiB churn + 68 KiB retained) × 2 generations,
+  plus margin — not the megabytes the current heap implies.
+- The code comment in `nexus-service-entry` says "~100-300KiB/click"; the shell's measured
+  cycle is 50 KiB. Neither number is gospel; the probe in P1 is what the budget will cite.
+
 ### Goal (end system)
 
 An app's memory is flat over an unbounded number of interactions and pages: per-generation
@@ -63,7 +89,9 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
   runs, handler tables) lives in the generation arena.
 - Determinism unchanged: same IR + inputs ⇒ identical frames; goldens byte-identical before
   and after.
-- Zero-alloc steady scroll unchanged.
+- Zero-alloc steady scroll unchanged. ⚠️ **This is a CLAIM, not a gate** (verified
+  2026-09-20: `zero_alloc` exists in the tree only for blur). It is carried here as an
+  invariant nobody can check; TASK-0145B P4 either gates it or deletes the sentence.
 
 ### Decisions
 
@@ -79,10 +107,11 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
   honest floor (`heap-4m` + arena) and the 50/75/90 % watermark-workaround markers are removed;
   gate = `just contract-image-budgets` (24 → 14 MB ceiling restored) + the heap-steady test.
   No "keep 16 MiB just in case".
-- **D3 Subtree-scoped re-emit.** `view.rs`: the dep intersection already knows the changed
-  fields; emission re-runs only the smallest enclosing component subtrees whose deps changed
-  and splices them into the retained scene (pre-order ids stable by construction). Fixture:
-  one row change re-emits exactly one subtree (emit counter).
+- **D3 RETIRED from this ledger 2026-09-20 — subtree-scoped re-emit moved to TASK-0145B P3.**
+  Its justification here was memory, and that justification does not survive D1: once emit
+  output lives in a generation arena, churn is FREE. What subtree re-emit actually buys is less
+  work per interaction — latency — which is the other task's subject. Keeping it here would be
+  precisely the scope creep this ledger is being fenced against.
 - **D4 Store-window rule as language contract.** `docs/dev/dsl/patterns.md` "Large data & long
   sessions": `tail()` + QuerySpec `limit` are the virtualization; NX0404 verified to cover a
   `List` over a store list that grows without `tail()`/`limit` — extended only if a gap is
@@ -100,13 +129,22 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
   with numbers after 500 scripted interactions in the visible lane). Blast: visible, smp1.
 - **P3** D2 deletion (heap floor back, watermark markers out, image budget restored).
   Blast: `contract-image-budgets`, every app-host lane.
-- **P4** Subtree re-emit + emit-counter fixture. Blast: goldens, `apphost:` scroll markers.
-- **P5** Docs (`patterns.md`, `runtime.md`, `perf.md` numbers with provenance).
+- **P4 / P5 RETIRED.** P4 (subtree re-emit) → TASK-0145B P3, see D3. P5 (docs) is not a
+  package: the docs sweep belongs to *Done*, as it has in every package of TASK-0077B.
+
+**Four packages, and the fence is part of the task:** a latency, boot, jank or frame-pacing
+question found while building this one goes into TASK-0145B or TASK-0269B as a line, never into
+a package here.
 
 ### Definition of Done
 
-Host: heap-steady test (hwm flat), emit-counter fixture (1 row → 1 subtree), goldens
-unchanged, NX0404 fixture. QEMU (`proof-manifest/markers/ui.toml` visible profile + the visible
+Host: heap-steady test (hwm flat), goldens unchanged, and the NX0404 question answered by a
+FIXTURE rather than an opinion — a `List` over a store list that grows without `tail()`/`limit`
+either trips a lint or it does not. If it does not, that is one documented sentence in
+`state.md`, not a new ledger; `tail()` appears in exactly one file in the whole corpus today
+(`chat.store.nx:51`), so the "store-window rule" is a convention with one user, and inventing
+enforcement before a fixture proves the gap would be the same creep in another direction.
+(The emit-counter fixture moved out with D3.) QEMU (`proof-manifest/markers/ui.toml` visible profile + the visible
 lane's display-truth block + `markers.txt` only if an app-host chain contract exists):
 `apphost: heap steady (gen=<n> hwm=<bytes>)`; the `heap-watermark` markers are gone from the
 contract. Docs: `patterns.md` large-data chapter, `runtime.md`, `perf.md`, ADR.

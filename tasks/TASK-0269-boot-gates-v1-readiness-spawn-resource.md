@@ -4,7 +4,8 @@ status: Done
 owner: @runtime @kernel-team @tools-team
 created: 2026-01-16
 depends-on: []
-follow-up-tasks: []
+follow-up-tasks:
+  - tasks/TASK-0269B-boot-to-first-frame-budget.md  # TASK-0269B — the TIME dimension this ledger never claimed (boot → first frame), seeded 2026-09-20
 links:
   - RFC: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
   - Logging discipline: docs/rfcs/RFC-0003-unified-logging.md

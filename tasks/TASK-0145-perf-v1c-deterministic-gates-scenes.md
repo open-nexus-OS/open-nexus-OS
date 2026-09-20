@@ -4,7 +4,8 @@ status: Draft
 owner: @reliability
 created: 2025-12-25
 depends-on: []
-follow-up-tasks: []
+follow-up-tasks:
+  - tasks/TASK-0145B-ui-interaction-latency-budget.md  # TASK-0145B — the one budget a measurement demands, cut out of this scope 2026-09-20 so it can land
 links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md

@@ -30,7 +30,7 @@ the board and `CHANGELOG.md`); what remains is what an agent needs to pick the n
 | # | Lane / Task | State | Next |
 |---|---|---|---|
 | 1 | **TASK-0324** Display handoff deterministic by construction (build truth, one wiring structure, stage fence, handoff v2) | **Done 2026-09-15** — P0 build truth + pixel lane, P1 RFC-0093/ADR-0062, P2 `@ready`, P3 routing v2, P4a–f ONE slot topology (191 → 0 positional slots), P5a–c stage fence, P6a–d handoff v2, P7a–d waits without clocks (gate at zero), P8 init without clocks + closure docs, P9 8/8 visible boots; every package `just test-all`-proven | Phase 2 (Sub-80) starts: `0054C → 0033 → 0077B → …` |
-| 2 | **Sub-80 Phase 2** (below) | **Started 2026-09-15** — process: each task is reviewed against the code (idea → best realization, end state), its ledger rewritten, built, proven green, pushed, then the next is planned; **TASK-0054C Done 2026-09-18** (P0–P6), **TASK-0033 Done 2026-09-18** (P0–P3) — next: 0077B | order `0054C → 0033 → 0077B → 0077C → 0074 → 0066 → 0067 → 0067B → 0068` |
+| 2 | **Sub-80 Phase 2** (below) | **Started 2026-09-15** — process: each task is reviewed against the code (idea → best realization, end state), its ledger rewritten, built, proven green, pushed, then the next is planned; **TASK-0054C Done 2026-09-18** (P0–P6), **TASK-0033 Done 2026-09-18** (P0–P3), **TASK-0326 Done 2026-09-19**, **TASK-0077B Done 2026-09-20** (P0–P4) — next: 0077C | order `0054C → 0033 → 0077B → 0077C → 0074 → 0066 → 0067 → 0067B → 0068` |
 | 3 | **Network family** (`0024`, `0030`, `0038`, `0040`, NET-W1) | HOLD — joint discussion pending (user wants changes) | not before the discussion |
 
 ---
@@ -81,7 +81,7 @@ Order and reason (API/codec/runtime foundations first so nothing is migrated lat
 | 1 | TASK-0054C | IPC performance contract v2 + `ipc_call` / `ipc_reply_recv` fastpath — **Done 2026-09-18**. An exchange cost **208 µs and five kernel entries** and costs **41–43 µs and two**, asserted per boot (`KSELFTEST: ipc call budget ok`). One kernel allocation per message instead of two, none for the 72–93 % that fit inline (`IPC_SHORT_MAX = 32`, measured over 13 windows, not the 64 the RFC had guessed). `E2BIG` replaces `EINVAL` at the hard cap. The userspace consolidation that made the seam flippable in ONE function came first (P2-a…P2-g), and the one scheduler change the contract proposed was measured and WITHDRAWN (the runqueue hop is 0.41 % of an exchange). RFC-0096 Implemented, ADR-0064 Accepted | L | done |
 | 2 | TASK-0033 | `pkg:/` reads = VMO pass-through vfsd → packagefsd → bundlemgrd; ONE payload-VMO header codec (`NXVR`, `NXPL` deleted) — **Done 2026-09-18** (RFC-0097 Implemented). It was **not a performance task**: `pkg:/` could serve 93 of the volume's 115 entries and a request for one of the other 22 ended packagefsd. Every lane was green because the only `pkg:/` file any proof read was `build.prop`, 19 bytes. Three defects the work uncovered: `STATUS_MALFORMED` and `PAYLOAD_STATUS_OK` were both `1` so an error header read as success; the size bound had no owner and its errno depended on which layer tripped first; packagefsd's response endpoint had three readers on one queue | M | done |
 | 3 | TASK-0077B | Keyed per-instance `$state` (single-use rule deleted), Slider/Select/Stepper binds, async recipes, NX0407/0409 → errors, IR v1.3 | S–M | — |
-| 4 | TASK-0077C | Runtime long-session & large-data contract: emit-generation arena (flat heap over N interactions), subtree re-emit, `heap-16m` workaround deleted; store-window rule documented (recut 2026-09-09: VirtualList/Table/Timeline/NativeWidget retired — paging is QuerySpec + `tail()`) | M | 0077B |
+| 4 | TASK-0077C | **MEMORY only** (scope fixed 2026-09-20 after measuring: shell churns 50 765 B per interaction with 0 live drift ⇒ ~330 interactions before the 16 MiB bump freezes; working set is 68 KiB): emit-generation arena ≈ 256 KiB, `heap-16m` workaround deleted, image budget restored. Subtree re-emit MOVED OUT to 0145B — with the arena, churn is free and re-emit is a latency lever, not a memory one | M | 0077B ✅ |
 | 5 | TASK-0074 | Modal semantics in the DSL runtime: `.overlay(modal|transient)`, bounded stack, ESC/backdrop dismissal, focus trap, ONE windowd verb `CONTROL_WIN_MODAL`, toast as transient overlay | M | 0077B; 0324 P4a |
 | 6 | TASK-0066 | WM zones: halves + occupancy-driven thirds, `zones.rs` replaces `snap.rs`, reflow on mode change, snap state in the window feed (RFC-0086 bits), fail-closed deny, registered markers — verify the snap-release→fullscreen wedge first | M | 0324 P4a/P6 |
 | 7 | TASK-0067 | `clipboardd` = single content-transfer authority (multi-MIME, history 16, focus-gated reads pushed by windowd), `svc.clipboard.*` binding, DnD routing in windowd (RFC-0094, ADR); placeholders deleted; absorbs 0087 + 0122C clipboard bridge | L | 0324 P3/P4; 0054C; 0033; 0066 |
@@ -146,6 +146,12 @@ Genuinely open themes (no daemon/app/marker exists yet — honest floor, reconci
   active), `0256`–`0259`, `0271`, `0272`.
 - **Time / general management:** ✅ `0297`, ✅ `0298`; seeds `0299` (SNTP), `0300` (IME-store encryption).
 - **Renderer / compositor v2:** `0171`, `0199`, `0200`, `0207`, `0208`, `0215`, `0216`.
+- **Runtime quality budgets (seeded 2026-09-20 as TASK-0077C's scope firewall — the UI has no
+  asserted budget while the kernel/IPC paths do):** `0145B` interaction→frame latency (recuts
+  the five Draft perf ledgers `0143`/`0144`/`0145`/`0172`/`0173` instead of becoming a sixth;
+  also inherits subtree re-emit and the unproven "zero-alloc steady scroll" claim), `0269B`
+  boot→first frame (7–11 s observed vs the half-second expectation; only init 1.26 s / volume
+  1.19 s is measured, the rest is unattributed).
 - **Session / accounts / lifecycle continuation:** `0234`, `0235`, `0109`, `0110`, `0223`, `0224`,
   `0126B`, `0159`.
 - **IME (active track, RFC-0075):** `0147`, `0149`, `0150`, `0203`, `0204`.
