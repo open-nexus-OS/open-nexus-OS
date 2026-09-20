@@ -105,6 +105,78 @@ app moving anything, and a row that leaves the collection takes its fields with
 it. (Until then a second instance was a build error, because one store per
 COMPONENT would have made two instances share it.)
 
+## Async recipes
+
+Every async flow in this language is the same four states and one store shape.
+`busy` and `failed` are separate fields on purpose — an **empty** result is not
+a **failure**, and collapsing the two is how an app ends up showing an error for
+a folder that is simply empty:
+
+```nx
+Store S {
+    items: List<Str> = [],
+    busy: Bool = false,
+    failed: Int = 0,
+}
+
+Event E { Load, Loaded(List<Str>), Failed(Int) }
+
+reduce E {
+    Load => { state.busy = true; state.failed = 0; },
+    Loaded(items) => { state.items = items; state.busy = false; state.failed = 0; },
+    Failed(code) => { state.failed = code; state.busy = false; },
+}
+
+@effect on Load {
+    match svc.catalog.list() {
+        Ok(items) => dispatch(Loaded(items)),
+        Err(e) => dispatch(Failed(e)),
+    }
+}
+```
+
+The page reads the three apart in order — spinner, failure, then content — so
+an empty list renders as "nothing here" rather than as an error:
+
+```nx
+if $state.busy {
+    Text(@t("common.loading"))
+} else if $state.failed == 0 {
+    List($state.items) { item in Text(item).key(item) }
+} else {
+    Text(@t("list.failed"))
+}
+```
+
+**Both arms are mandatory** (`NX0407`, see `services.md`): an effect plan stops
+at the first unhandled failure, so a load without an `Err` arm leaves `busy`
+true for ever.
+
+**Retry is re-dispatching the trigger.** `Load` clears `failed` on the way in,
+so a retry cannot show a stale error over fresh results. Wire it to a button:
+
+```nx
+Button { label: @t("common.retry") }
+on Tap -> dispatch(Load)
+```
+
+**Automatic retry cannot be written today, and that is deliberate to state
+rather than work around.** An effect body lowers to a bounded LINEAR plan, so
+`if` inside an effect is `NX0501` — there is no way to consult an attempt
+counter before re-dispatching. An unconditional `Err(e) => dispatch(Load)` is
+not a retry policy: it runs until `MAX_DISPATCH_CASCADE` (64) trips the dispatch
+budget. Automatic bounded retry needs a conditional effect step the v0.1
+lowering subset does not have.
+
+**Search-as-you-type needs no extra machinery** — see
+[Effect cancellation](#effect-cancellation-latest-wins) below: a re-fired
+trigger drops the older plan's pending follow-ups, so stale results never
+overwrite newer ones.
+
+*Proven in `tests/dsl_conformance/tests/async_recipes.rs` (the four states,
+retry, and the rejection that pins the "no automatic retry" claim) and
+`corpus.rs::stale_effect_followups_are_cancelled_when_the_trigger_refires`.*
+
 ## Effect cancellation (latest wins)
 
 Re-firing a trigger **cancels the previous plan's pending follow-ups**: each
@@ -138,6 +210,11 @@ and the platform engine is a deterministic, bounded, pure-Rust store.
 
 ## Changelog
 
+- **2026-09-20 (TASK-0077B P3/P4)** — §Async recipes added: the four-state store shape,
+  retry as a re-dispatch, and the LIMIT that automatic retry needs a conditional effect step
+  the v0.1 lowering subset does not have. The lint posture below is unchanged — it has said
+  *"Effects handle failures (Error)"* since v1; P3 made the compiler match it (`NX0407`).
+  §Two-way binding records the bind surface after P2/P2b.
 - **v1 (2026-07-06)** — canonical shape normalized (direct store fields, top-level
   `Event`/`reduce`/`@effect on`, `@persist` on fields); local `$state` defined as
   implicit stores; lint posture consolidated.

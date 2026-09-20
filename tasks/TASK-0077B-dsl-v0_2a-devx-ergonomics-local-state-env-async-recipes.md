@@ -1,6 +1,6 @@
 ---
 title: TASK-0077B DSL v0.2a DevX: keyed per-instance `$state` + complete two-way bindings + async recipes (host)
-status: In Progress (2026-09-20: P0-P3 shipped — timeoutMs retired, keyed per-instance state, the bind rule read off the catalog and carrying its value derivation, §4's both-paths contract enforced; residual = P4 docs/proof home)
+status: Done 2026-09-20 (P0-P4: timeoutMs retired (IR v1.6), keyed per-instance state (v1.7), the bind rule read off the catalog and carrying its value derivation (v1.8), §4's both-paths contract enforced, async recipes documented + proven with their limit named)
 owner: @ui @runtime
 created: 2026-01-26
 updated: 2026-07-06
@@ -301,7 +301,87 @@ monotonically: the proven-dead deletion first, the spine second, completion thir
   **Follow-up named, not done:** `NX0406` (`MissingProfileElse`) is the one remaining warning
   and was left alone deliberately — a missing profile branch falls back to a rendered default,
   which is a judgement call, not a broken contract.
-- **P4** Docs + the one proof home (D5 + D6).
+- **P4 (BUILT 2026-09-20)** The async story is written down
+  where it belongs, and proven — with its LIMIT named rather than papered over.
+
+  **D5's "one proof home" is a FILE, not a fifth crate.** Measured: of the four subjects D5
+  names, three are already proven in the crate whose KIND matches — keyed state
+  (`dsl_conformance`, P1), the binds (`dsl_conformance` + `dsl_goldens` +
+  `dsl_apps_conformance`, P2/P2b), env variants (`profile_matrix_goldens_are_stable_and_
+  distinct` plus two app-level profile tests). A fifth crate would hold the fourth subject
+  alone while the ledger's own guard — *"cases already in `tests/dsl_conformance` stay there"* —
+  guarantees it starts out as a home for leftovers.
+
+  The version-crate axis is already the wrong one, and the repo shows it: `dsl_v0_1a_host`
+  holds `slots.rs`, the complete acceptance suite for RFC-0084 slots (IR v1.5) — nothing to do
+  with v0.1a. It landed there because it needed a home, not because the name fit. The pattern
+  worth keeping from it is the FILE: one subject, one acceptance file. So the recipes go to
+  `tests/dsl_conformance/tests/async_recipes.rs`, the crate that already owns language +
+  runtime semantics AND has the `Harness`/`Script` service scripting these proofs need
+  (`dsl_v0_1a_host` has no service harness). No root `Cargo.toml` change, so no protection
+  zone, and no fifth crate in every lane's build.
+
+  Discoverability — the real need behind "one proof home" — is served by the DoD below naming
+  where each v0.2a guarantee is proven.
+
+  ⭐ **D6's "retry" recipe cannot be written, and the chapter must say so.** An effect body
+  lowers to a bounded LINEAR plan: `Stmt::If` inside an effect is `NX0501` (measured). So an
+  effect cannot branch on an attempt counter, and an unconditional `Err(e) => dispatch(Load)`
+  loops until `MAX_DISPATCH_CASCADE` (64) trips `RtError::Budget` — a failure bound, not a
+  retry policy. Retry is therefore USER-triggered (a button re-dispatching the trigger);
+  automatic bounded retry needs a conditional effect step the v0.1 subset does not have. Naming
+  that is the honest chapter; writing a recipe that burns the cascade budget would be a
+  fake-green doc.
+
+  **Home for the chapter: `state.md`, not `patterns.md`.** `patterns.md` is about component
+  composition (Components+Props, Builder Specs, Parametric Primitives) — a different question.
+  `state.md` already carries the canonical store example, *"Effect cancellation (latest wins)"*
+  and the lint posture; the recipes are the shape of that same subject.
+
+  ⭐ **A confirmation worth recording:** `state.md`'s lint posture has said *"Effects handle
+  failures (Error) — both `Ok` and `Err` of every `Result`"* all along. P3 did not change the
+  posture; it made the compiler match what this page already declared, and `cli.md` /
+  `services.md` were the stale ones.
+
+  **Built.** `docs/dev/dsl/state.md` §"Async recipes" (the four-state store shape with `busy`
+  and `failed` SEPARATE — an empty result is not a failure —, the page's three-way read, retry
+  as a re-dispatch, and the named limit); `patterns.md` points there instead of growing an
+  off-topic chapter; `testing.md` gains the map D5 was really asking for — which crate owns
+  which KIND of proof, and guarantee-by-guarantee which test proves it.
+  `tests/dsl_conformance/tests/async_recipes.rs` = the acceptance file (4 recipes + the
+  rejection that pins "no automatic retry"); latest-wins is NOT duplicated there — it is
+  already `corpus.rs::stale_effect_followups_are_cancelled_when_the_trigger_refires`, and the
+  chapter links it.
+
+  ⭐ **A doc that names proofs must be checkable, so it is:**
+  `tests/dsl_conformance/tests/doc_proof_map.rs` reads `testing.md` and fails if a named test
+  no longer exists. This repo has the rot on record (DSL fixtures that drifted from the code
+  they mirrored and only confessed under `--no-fail-fast`), and a map claiming coverage that
+  is gone is worse than no map — it stops the next reader from looking.
+
+  ⭐ **My first version of that gate was fake-green, and the falsifiability check caught it.**
+  It decided "is this a reference?" by the CHARACTER CLASS of each segment, so a renamed test
+  containing one capital read as prose and was skipped — precisely the malformed reference the
+  gate exists to catch. It tests the SHAPE of the whole reference now (no whitespace, two or
+  three segments), and renaming a named test fails it.
+
+  ⭐ **Repair before proof: the `input-flood` SIGPIPE flake is fixed, and my recorded cause for
+  it was WRONG.** It aborted this package's `test-all` (exit 141, taking the six lanes behind it
+  with it). After P2 I had written it down as *"my flood writes to the QMP socket as QEMU
+  exits"*. The log says otherwise: `FLOOD done: 16770 pointer moves over 45s` is present, the
+  boot completed, and the script then died before printing its very next line — the
+  `UART=$(ls -dt build/logs/visible--*/uart.log | head -1)` assignment. `head -1` closes the
+  pipe, `ls` takes SIGPIPE, `pipefail` hands 141 to the assignment and `set -e` kills the
+  script silently, after the proof has already passed.
+
+  Demonstrated under bash rather than asserted: with a listing big enough to block `ls` on
+  write, that pipeline returns 141 deterministically and prints nothing — the lane's exact
+  signature. With the lane's own 142 entries it is a RACE, which is why it passes standalone on
+  an idle machine and fires right after a 45-second flood plus a QEMU teardown; and the odds
+  grow with `build/logs/`. Both `pipefail` users of the pattern are fixed
+  (`scripts/input-flood-lane.sh`, and `scripts/contract-image-layout.sh` — the bigger exposure
+  at 594 `manual--*` directories, latent until now): read the whole listing, take the first
+  entry, no pipe to break.
 
 ## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
 

@@ -59,7 +59,15 @@ python3 tools/qmp_input_flood.py "$SOCKET" "$FLOOD_SECONDS" "$FLOOD_RATE" || {
 }
 wait "$lane" || true
 
-UART=$(ls -dt build/logs/visible--*/uart.log 2>/dev/null | head -1)
+# NOT `ls … | head -1`: `head` closes the pipe after one line, `ls` takes
+# SIGPIPE, and under `pipefail` the assignment inherits 141 — which `set -e`
+# turns into a silent death of this script, after the boot has already passed
+# and before any [PASS]/[FAIL] line is printed. That is exactly how this lane
+# failed a `test-all` run twice, and the odds grow with the log directory:
+# measured at 142 `visible--` runs it fired in ~5% of invocations. Reading the
+# whole listing cannot SIGPIPE.
+mapfile -t runs < <(ls -dt build/logs/visible--*/uart.log 2>/dev/null)
+UART=${runs[0]:-}
 [ -n "$UART" ] || { echo "[FAIL] input-flood: no uart log" >&2; exit 1; }
 echo "[info] input-flood: $UART"
 

@@ -28,8 +28,16 @@ run_boot() {
   local pad="$2"
   NEURON_LAYOUT_PAD="$pad" RUN_TIMEOUT=40s timeout 200 just start-vnc \
     >"build/logs/perturb-$tag.log" 2>&1 || true
+  # Not `ls … | head -1` under `pipefail`: `head` closes the pipe, `ls` takes
+  # SIGPIPE, and the assignment inherits 141 — `set -e` then kills this script
+  # silently (see scripts/input-flood-lane.sh, where it cost two `test-all`
+  # runs). This listing is the bigger exposure of the two: `manual--*` is the
+  # busiest log prefix in the tree.
   local log
-  log="$(ls -td build/logs/manual--* | head -1)/uart.log"
+  local -a runs
+  mapfile -t runs < <(ls -td build/logs/manual--* 2>/dev/null)
+  [ "${#runs[@]}" -gt 0 ] || { echo "contract-image-layout: FAIL ($tag) — no manual run log"; exit 1; }
+  log="${runs[0]}/uart.log"
   if ! grep -q "KERNEL: layout ok" "$log"; then
     echo "contract-image-layout: FAIL ($tag) — no 'KERNEL: layout ok' marker"; exit 1
   fi

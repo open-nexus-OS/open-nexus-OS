@@ -6,6 +6,11 @@
 We intentionally avoid “full generics” in v0.x.
 Instead, we recommend three patterns that are familiar to frontend developers while keeping the DSL deterministic and bounded.
 
+This page is about **composition** — how to reuse a piece of UI. The async
+flow patterns (loading / loaded / failed / empty, retry, latest-wins
+cancellation) live with the state model they are made of, in
+[`state.md` §Async recipes](state.md#async-recipes).
+
 ## Pattern 1: Components + Props (the default)
 
 ### Use when
