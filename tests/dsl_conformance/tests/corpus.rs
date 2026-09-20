@@ -542,6 +542,84 @@ Page P {
     assert!(collect_texts(view.scene()).contains(&String::from("details visible")));
 }
 
+/// TASK-0077B P2. The two-way bind is the RULE `docs/dev/dsl/ir.md` v1.2 states
+/// — *"auto-synthesized when an interactive kind's primary prop is
+/// `$state`-bound"* — read off the widget SSOT, not a list of names kept beside
+/// it. The list it replaced had `SearchBar` missing (its `value` is edited by
+/// exactly the text-input path `TextField` uses) and `TextArea` present, which
+/// is not a widget this DSL has.
+#[test]
+fn the_bind_rule_follows_the_registry_not_a_list() {
+    use nexus_dsl_core::registry::{widget_spec, WIDGETS};
+
+    // Every control that declares a bind trigger must also have a primary prop
+    // to write back into, and must be interactive — otherwise the rule would
+    // synthesize a handler for something the user cannot touch.
+    for spec in WIDGETS {
+        if spec.bind_trigger.is_some() {
+            assert!(spec.interactive, "{} declares a bind but is not interactive", spec.name);
+            assert!(spec.primary_prop.is_some(), "{} declares a bind with no prop", spec.name);
+        }
+    }
+
+    // SearchBar was the omission: same shape as TextField, no bind.
+    assert_eq!(widget_spec("SearchBar").and_then(|s| s.bind_trigger), Some("Change"));
+    assert_eq!(widget_spec("TextField").and_then(|s| s.bind_trigger), Some("Change"));
+    assert_eq!(widget_spec("Toggle").and_then(|s| s.bind_trigger), Some("Tap"));
+
+    // A label is not a value: binding one would write back text the app owns.
+    assert_eq!(widget_spec("Button").and_then(|s| s.bind_trigger), None);
+    assert_eq!(widget_spec("ListItem").and_then(|s| s.bind_trigger), None);
+
+    // And the phantom is gone.
+    assert!(widget_spec("TextArea").is_none(), "TextArea is not a widget of this DSL");
+}
+
+/// The rule reaches the IR: a `SearchBar` bound to `$state` gets its bind
+/// handler, which the old name list never produced.
+#[test]
+fn search_bar_binds_like_a_text_field() {
+    use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
+    let nxir = compile(
+        r#"
+Store S {
+    q: Str = "",
+}
+
+Event E {
+    Noop,
+}
+
+reduce E {
+    Noop => state.q = state.q,
+}
+
+Page P {
+    Stack {
+        SearchBar { value: $state.q, placeholder: "find" }
+    }
+}
+"#,
+    );
+    let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
+    let locale = IdentityLocale { symbols: &symbols, keys: &[] };
+    let view = View::mount(
+        &nxir,
+        &nexus_dsl_runtime::theme_tokens::BaseTokens,
+        &FixtureEnv::default(),
+        &locale,
+    )
+    .expect("mounts");
+    let binds = view
+        .handlers()
+        .iter()
+        .filter(|(_, h)| {
+            matches!(h.action, nexus_dsl_runtime::interact::HandlerAction::Bind { .. })
+        })
+        .count();
+    assert_eq!(binds, 1, "SearchBar's value must auto-bind");
+}
+
 /// TASK-0077B P1. The rule that used to live here — "a stateful component is
 /// instantiated exactly once" — was the guard rail in front of a
 /// `principles.md` §1 violation, not the fix: one store per COMPONENT meant two

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-09-19 (TASK-0077B P2: the two-way bind follows its own written rule, instead of a list of names beside it)
+
+- **The rule was already documented and the code did not follow it.** `docs/dev/dsl/ir.md` v1.2 states the bind as *"auto-synthesized at lowering when an interactive kind's PRIMARY prop is `$state`-bound"* — in terms of the widget registry's own fields. Lowering carried a hand-kept list of four widget NAMES instead. It is read off the SSOT now, through a `WidgetSpec.bind_trigger` declared beside `primary_prop`, so a control binds by declaring itself rather than by someone remembering to extend a table.
+- **`SearchBar` binds now.** It was missing from the list and from the task ledger, and it is the one control that needed no new machinery: its `value` is edited by exactly the `text_input` path `TextField` uses.
+- **`TextArea` is gone from the rule.** The old list bound a widget this DSL does not have.
+- **A label is not a value.** `Button`, `Chip`, `Toast`, `Banner` and `ListItem` are interactive but their primary prop is a label the app supplies — `bind_trigger: None`, because there is nothing to write back.
+- **`Slider`, `Select` and `Stepper` are NOT missing table rows, and were not added.** The runtime has no value-carrying interaction for them: `pointer` delivers a trigger at (x, y), `text_input` delivers text, and nothing delivers "the new value". A `Change` bind on a Slider would synthesize a handler that nothing can ever fire. `Select` cannot bind by tapping its trigger at all — its open option panel is an app-owned overlay by its own design. The missing piece is an interaction surface, not a table row, and it is recorded as its own package with the instruction to read the input and compositor contracts first rather than invent a second value-delta channel beside the one the stack already has.
+- The widget catalog moved to `registry/widgets.rs` under the structure ratchet. `docs/dev/dsl/state.md` lost the restriction text P1 had already deleted from the compiler.
+- Proof: `just test-host` green, `just check` 11/11, `just test-all` 27 PASS / 0 FAIL, with two new conformance cases — one asserting the rule's shape against the registry (a bind implies interactive + a primary prop; labels do not bind; the phantom is absent) and one proving a `SearchBar` reaches the IR with its bind handler.
+
+
 ### Added - 2026-09-19 (TASK-0077B P1: a stateful component works anywhere — per-instance `$state`, IR v1.7)
 
 - **A component with a `state:` block could be instantiated exactly ONCE**, or lowering refused the program. The restriction was not the design; it was a guard rail in front of one: the implicit store was per COMPONENT, so two instances would have SHARED their fields — `docs/dev/dsl/principles.md` §1 says *"components own their state completely; there is no global mutable state"*, and a compile error was holding that up, not the data model.

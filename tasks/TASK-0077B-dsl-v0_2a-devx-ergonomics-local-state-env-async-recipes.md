@@ -130,7 +130,45 @@ monotonically: the proven-dead deletion first, the spine second, completion thir
   the middle of it — observed as `SELFTEST: pkgimg vmo packagefsd: read vmo forwarded (…)`,
   which the evidence assembler correctly rejected as a marker that never existed. It is one
   write now. Any marker assembled from several writes has this flaw.
-- **P2** Bind table complete + `Stepper` reachable (D3).
+- **P2** ✅ **2026-09-19** The bind rule follows its own written contract (D3, revised by
+  measurement). `docs/dev/dsl/ir.md` v1.2 already states it: *"auto-synthesized at lowering
+  when an interactive kind's PRIMARY prop is `$state`-bound"* — in terms of the registry's own
+  fields. The implementation was a hand-kept list of four widget NAMES in `lower/views.rs`.
+  The rule is read off the widget SSOT now, via a new `WidgetSpec.bind_trigger` declared
+  beside `primary_prop`, so a control binds by declaring itself.
+
+  **What the measurement corrected in D3.** The ledger said "four of seven" and named
+  `Slider`, `Select`, `Stepper`, `TextArea`. Against the registry:
+  - `TextArea` **is not a widget of this DSL** — the old list bound a phantom.
+  - `SearchBar` was **missing from the ledger entirely**, and it is the one control that binds
+    with no new machinery: its `value` is edited by the same `text_input` path `TextField`
+    uses. It binds now.
+  - `Button`/`Chip`/`Toast`/`Banner`/`ListItem` are interactive but their primary prop is a
+    LABEL, not a value — `bind_trigger: None`, because there is nothing to write back.
+  - **`Slider`, `Select` and `Stepper` are not missing table rows.** The runtime has no
+    value-carrying interaction for them: `pointer` delivers a trigger at (x, y) and
+    `text_input` delivers text; nothing delivers "the new value". A `Change` bind on a Slider
+    would synthesize a handler that NOTHING CAN EVER FIRE — a fake-green marker in the IR.
+    `Select` cannot bind by tapping its trigger at all: its own registry comment says the open
+    option panel is an app-owned `.overlay()`.
+
+  The widget catalog moved to `registry/widgets.rs` under the structure ratchet (a real split:
+  the catalog is what §7 calls "a curated catalog with a uniform modifier surface", and the
+  uniformity now comes FROM it).
+
+  Also fixed here: `docs/dev/dsl/state.md` still carried P1's deleted restriction ("a stateful
+  component is instantiated exactly once … is a build error") — a doc asserting a build error
+  that no longer exists.
+
+- **P2b (NEW, not built)** The value-carrying interaction for `Slider`/`Stepper`. **Do not
+  design this without reading the input and compositor contracts first** (`docs/dev/ui/input/`,
+  RFC-0067, the windowd interaction SSOT): windowd routes to the SURFACE and the app hit-tests
+  within it, and there is already a scroll/delta path in the stack. Inventing a second
+  value-delta channel in the DSL runtime is exactly the dual structure to avoid. The shape
+  that fits what exists: the bind handler DERIVES the next value from the interaction, as the
+  Toggle's Bool flip already does — a Slider's from the pointer's position within its track, a
+  Stepper's from which of its two targets was hit — which needs the widget KIND on
+  `HandlerEntry` and the hit box, both already at hand.
 - **P3** NX0407/NX0409 promoted to errors (D4) + corpus.
 - **P4** Docs + the one proof home (D5 + D6).
 
@@ -220,6 +258,19 @@ after the IR bump. Docs: `state.md`, `patterns.md`, `syntax.md`, `ir.md`, `servi
 `userspace/dsl/{core,ir,runtime}/src/**`, `tools/nexus-idl/schemas/ui_ir.capnp`,
 `userspace/ui/widgets/stepper`, `tests/dsl_v0_2a_devx_host/` (new), `tests/dsl_conformance/`,
 `docs/dev/dsl/{state,patterns,syntax,ir,services,cli}.md`, root `Cargo.toml`.
+
+### Named follow-ups (recorded, not done here)
+
+- **`.key` on a component reference is rejected** (*"apply it inside `Row` or wrap the
+  reference in a `Stack`"*), so the natural way to write a keyed list of a stateful component
+  needs a wrapper. Same §7 uniformity family as the bind table. Found in P1.
+- **The `input-flood` lane can die with SIGPIPE (exit 141) AFTER its own proof succeeded** —
+  observed once in `test-all` while the lane passes standalone. The flood script writes to the
+  QMP socket as QEMU is exiting. It is my own lane from TASK-0054C P2-g; the fix is for the
+  script to tolerate the socket closing under it, not for the gate to ignore 141.
+- **Any marker assembled from several writes can be split** by another service's line landing
+  between them (fixed for `SELFTEST: pkgimg vmo ok` in P1; the `regsoak`/`memset` FAIL markers
+  have the same shape).
 
 ### Dependencies
 

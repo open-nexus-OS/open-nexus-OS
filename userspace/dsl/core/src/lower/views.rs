@@ -253,17 +253,25 @@ fn lower_widget(
 
     // Auto-synthesized two-way bindings: interactive kind + $state-bound
     // primary prop ⇒ a bind handler (docs/dev/dsl/ir.md v1.2).
+    // The rule, not a list of names (TASK-0077B P2): an interactive kind's
+    // PRIMARY prop, bound to `$state`, gets the interaction that edits it —
+    // exactly what `docs/dev/dsl/ir.md` v1.2 says this is. Both facts come
+    // from the widget SSOT, so a new control binds by declaring itself rather
+    // than by someone remembering to extend a table here. The list this
+    // replaced had `SearchBar` missing and `TextArea` — a widget that does not
+    // exist — present.
     let mut binds: Vec<(u32, &crate::ast::Expr)> = Vec::new();
+    let spec = crate::registry::widget_spec(&widget.name.text);
     for (name, value) in &widget.props {
-        if let Expr::StateRef { .. } = value {
-            let trigger = match (widget.name.text.as_str(), name.text.as_str()) {
-                ("Toggle" | "Checkbox", "checked") => Some("Tap"),
-                ("TextField", "value") | ("TextArea", "value") => Some("Change"),
-                _ => None,
-            };
-            if let Some(trigger) = trigger {
-                binds.push((ctx.sym(trigger), value));
-            }
+        if !matches!(value, Expr::StateRef { .. }) {
+            continue;
+        }
+        let Some(spec) = spec else { continue };
+        if spec.primary_prop != Some(name.text.as_str()) {
+            continue;
+        }
+        if let Some(trigger) = spec.bind_trigger {
+            binds.push((ctx.sym(trigger), value));
         }
     }
 

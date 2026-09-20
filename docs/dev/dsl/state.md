@@ -64,10 +64,16 @@ Component Disclosure {
 
 It compiles to an **implicit store** (same machinery, no second semantics);
 `$state.field` resolves locally first. Mutations flow through two-way bindings
-and handlers — the one mutation path. **v1 restriction:** a stateful component
-is instantiated exactly once (a second instance or a use inside a collection is
-a build error) until per-instance keyed storage lands with the retained-
-instance work.
+and handlers — the one mutation path.
+
+**Per instance, since TASK-0077B P1.** A stateful component may be instantiated
+any number of times, including inside a collection: its store is KEYED, holding
+one set of fields per live instance. The identity is the one `ir.md` §"Stable
+node identity" defines — `ViewNode.nodeId`, and `keyed_item_id(nodeId, key)` for
+a collection item — so a row keeps its own state across a REORDER without the
+app moving anything, and a row that leaves the collection takes its fields with
+it. (Until then a second instance was a build error, because one store per
+COMPONENT would have made two instances share it.)
 
 ## Effect cancellation (latest wins)
 
