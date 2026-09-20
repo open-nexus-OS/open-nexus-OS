@@ -9,6 +9,13 @@
 
 use super::*;
 
+/// Max packed WebRender band height (header+footer+content, surface rows) an
+/// app surface may keep RESIDENT in the shared gpud atlas (4000 rows minus the
+/// desktop base's 800 and headroom for a second window). Moved out of the probe
+/// module root (TASK-0077C P2): its only two readers are in this file, and a
+/// paint/atlas constant was never a module-root fact.
+const MAX_BAND_ROWS: u32 = 2000;
+
 impl super::DslApp {
     /// The WebRender scroll band geometry `(header_h, footer_h, content_h)`
     /// in surface rows, or `None` when the page has no scrollable region.
@@ -156,7 +163,7 @@ impl super::DslApp {
             }
         }
         self.band_geometry()
-            .filter(|&(h, f, c)| h + f + c <= super::MAX_BAND_ROWS)
+            .filter(|&(h, f, c)| h + f + c <= MAX_BAND_ROWS)
             .filter(|_| !self.band_statics_intersect_viewport())
     }
 
@@ -195,7 +202,7 @@ impl super::DslApp {
                     .is_some_and(|(_, _, _, a)| a != nexus_layout_types::ScrollAxis::Vertical);
                 if horizontal {
                     super::raw_marker("apphost: horizontal viewport, plain-path fallback");
-                } else if h + f + c > super::MAX_BAND_ROWS {
+                } else if h + f + c > MAX_BAND_ROWS {
                     super::raw_marker("apphost: band too tall, plain-path fallback");
                 } else {
                     super::raw_marker("apphost: statics beside the viewport, plain-path fallback");
@@ -485,6 +492,20 @@ impl super::DslApp {
     /// scroll state: offsets clamp to the new content, the EndReached
     /// latch re-arms. Shared by tap/EndReached layout damage.
     pub(super) fn relayout_retained(&mut self) {
+        // ADR-0065: THIS is the frame phase. Everything allocated from here to
+        // the end of the function comes from the generation arena and is freed
+        // wholesale two frames later — measured at 226 560 B per layout call
+        // against 119 824 B retained, on a heap that never frees.
+        //
+        // The guard sits inside the function rather than at its ten call sites:
+        // one place cannot be forgotten. It also fixes the depth at TWO — the
+        // invariant a caller must respect is that it may not hold a PREVIOUS
+        // layout's memory across more than one `relayout_retained`. Exactly one
+        // caller does hold one (`probe/interaction.rs` keeps `old_boxes` /
+        // `old_texts` to diff the changed row span against), and it holds it
+        // across exactly one.
+        #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+        let _generation = nexus_service_entry::os::frame_generation();
         let engine = nexus_layout::LayoutEngine::new();
         let Ok(layout) = engine.layout_with_viewport(
             self.view.scene(),
@@ -515,6 +536,7 @@ impl super::DslApp {
         if core::mem::take(&mut self.text_dump_pending) {
             super::paint::collect_dump_text_runs(&self.texts, &self.layout.boxes);
         }
+        self.report_frame_arena();
         self.end_fired = false;
         if let Some((clip, content_w, content_h, axis)) = self.scroll_region_axis() {
             let view_w = clip.2 - clip.0;

@@ -189,9 +189,42 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
   Also: `lib.rs` hit the 600-LOC ratchet, so the UART writers moved to `src/debug_write.rs` —
   a real seam (every caller runs where allocation is impossible: the allocator, the panic
   handler, the alloc-error handler), not a dumping ground.
-- **P2** app-host opens the scope around `relayout_retained`, plus the QEMU marker
-  `apphost: heap steady (gen=<n> hwm=<bytes>)` with numbers after scripted interactions in the
-  visible lane. Blast: visible, smp1.
+- **P2** ✅ **2026-09-20** app-host opens the scope inside `relayout_retained` — inside the
+  function, not at its ten call sites, so it cannot be forgotten — and reports the numbers.
+  `apphost: frame arena (layouts=… base=… peak=… of=… spill=…)` states what IS;
+  `apphost: heap steady (…)` is printed ONLY when the base heap did not move between two
+  samples, so it is a detector, not a decoration.
+
+  ⭐ **Measured A/B over a real visible boot** (13 layouts apart, same profile):
+
+  | | base heap per layout | ceiling at 16 MiB |
+  |---|---|---|
+  | without the arena | **75 018 B** | ~223 frames |
+  | with the arena | **28 129 B** | ~596 frames |
+
+  The arena takes **46 889 B per frame** and holds a **flat peak of 47 880 B** from the second
+  layout on, `spill=0` — and the two numbers cross-validate, which is why this is a measurement
+  rather than a hope.
+
+  ⭐⭐ **And it is NOT flat, so P2 does not claim it is.** 28 129 B per frame still leaks
+  outside the scope: the runtime's EMIT (a new scene + handler table per interaction) and the
+  paint path run in `view.pointer_scrolled`/`dispatch`, not in `relayout_retained`. The ceiling
+  moves 223 → 596 frames — a 2.7× improvement and a real one, but a long-lived app still dies,
+  just later. `heap steady` correctly never printed in any boot.
+
+  Scoping emit needs the runtime to separate REDUCE from EMIT, because a reduce writes stores
+  and stores must never enter a generation. That is a package, not a tweak → **P2b**.
+
+  Sizing note: the arena is 1 MiB against a measured boot-scene peak of 47 880 B. That is
+  deliberate headroom, not sloppiness — the peak comes from boot scenes only, and a richer page
+  (Control Center open, a long list) allocates more; `spill` is the signal if one ever exceeds
+  it. Tightening belongs after more scenes are exercised.
+
+- **P2b (NEW, from P2's measurement)** Scope the EMIT phase. Requires separating reduce from
+  emit in `dsl/runtime` so the store writes stay on the base heap while the scene and handler
+  table go to the generation. Gate: `apphost: heap steady` actually prints — which is the
+  marker P2 built and deliberately did not declare, because declaring a marker the system
+  cannot yet produce is the fake-green this tree removes on sight.
 - **P3** D2 deletion (heap floor back, watermark markers out, image budget restored).
   Blast: `contract-image-budgets`, every app-host lane.
 - **P4 / P5 RETIRED.** P4 (subtree re-emit) → TASK-0145B P3, see D3. P5 (docs) is not a

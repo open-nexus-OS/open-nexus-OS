@@ -25,6 +25,10 @@ std = []
 os-lite = [
     "dep:nexus-service-entry",
     "nexus-service-entry/heap-16m",
+    # ADR-0065: the app-host is the one service that rebuilds and discards a
+    # frame on every interaction, so it is the one that carves a frame arena.
+    # `heap-16m` stays for now and goes in P3, once the arena is boot-proven.
+    "nexus-service-entry/frame-arena",
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",

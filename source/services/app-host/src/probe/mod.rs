@@ -20,16 +20,13 @@ mod marker;
 pub(crate) use marker::raw_marker;
 use nexus_display_proto::client_surface as wire;
 
-/// Max packed WebRender band height (header+footer+content, surface rows)
-/// an app surface may keep RESIDENT in the shared gpud atlas (4000 rows
-/// minus the desktop base's 800 and headroom for a second window).
-const MAX_BAND_ROWS: u32 = 2000;
 use nexus_ipc::{Client as _, KernelClient, Wait};
 
 mod anim;
 mod boot;
 mod clock;
 mod env;
+mod frame_arena;
 mod interaction;
 mod layers;
 mod locale;
