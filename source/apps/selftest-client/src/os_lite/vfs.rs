@@ -141,11 +141,41 @@ pub(crate) fn verify_vfs() -> Result<(), ()> {
         }
         match vfs.read_vmo_sample(BULK, cap, &mut sample) {
             Ok(len) if len as u64 == meta.size() && sample.iter().any(|&b| b != 0) => {
-                crate::markers::emit_bytes(
-                    crate::markers::M_SELFTEST_PKGIMG_VMO_OK_BYTES_0X.as_bytes(),
-                );
-                crate::markers::emit_hex_u64(len as u64);
-                emit_line(")");
+                // ONE write, not three. A marker assembled from several
+                // writes can be SPLIT by another service's line landing
+                // between them — the evidence assembler then sees a marker
+                // that never existed and rejects the whole trace. Observed:
+                // `SELFTEST: pkgimg vmo packagefsd: read vmo forwarded (...)`.
+                let mut line = [0u8; 80];
+                let mut n = 0usize;
+                for &b in crate::markers::M_SELFTEST_PKGIMG_VMO_OK_BYTES_0X.as_bytes() {
+                    if n < line.len() {
+                        line[n] = b;
+                        n += 1;
+                    }
+                }
+                const HEX: &[u8; 16] = b"0123456789abcdef";
+                let v = len as u64;
+                for shift in (0..16).rev() {
+                    if n < line.len() {
+                        line[n] = HEX[((v >> (shift * 4)) & 0xF) as usize];
+                        n += 1;
+                    }
+                }
+                if n < line.len() {
+                    line[n] = b')';
+                    n += 1;
+                }
+                // Every byte written above is ASCII, so this cannot fail; if it
+                // somehow did, the honest line is the FAILURE, never an "ok"
+                // without the number that makes it checkable.
+                match core::str::from_utf8(&line[..n]) {
+                    Ok(line) => emit_line(line),
+                    Err(_) => {
+                        emit_line(crate::markers::M_SELFTEST_PKGIMG_VMO_FAIL_BULK_READ);
+                        return Err(());
+                    }
+                }
             }
             _ => {
                 emit_line(crate::markers::M_SELFTEST_PKGIMG_VMO_FAIL_BULK_READ);

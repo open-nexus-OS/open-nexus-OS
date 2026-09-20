@@ -524,7 +524,10 @@ Page P {
             _ => None,
         })
         .expect("bind handler on the local field");
-    let changes = view.runtime.write_binding(store, &path, Value::Bool(true)).expect("writes");
+    let changes = view
+        .runtime
+        .write_binding(store, nexus_dsl_runtime::ROOT_INSTANCE, &path, Value::Bool(true))
+        .expect("writes");
     assert!(!changes.is_empty());
     let damage = {
         let locale = IdentityLocale { symbols: &symbols, keys: &[] };
@@ -539,23 +542,129 @@ Page P {
     assert!(collect_texts(view.scene()).contains(&String::from("details visible")));
 }
 
+/// TASK-0077B P1. The rule that used to live here — "a stateful component is
+/// instantiated exactly once" — was the guard rail in front of a
+/// `principles.md` §1 violation, not the fix: one store per COMPONENT meant two
+/// instances would have SHARED their state.
+///
+/// This is §6's acceptance criterion instead: *"collections render through keyed
+/// templates whose identity is stable — the runtime can diff, reorder and
+/// virtualize WITHOUT user code"*. Two instances keep separate state, and a
+/// REORDER carries each row's state with its key, because the identity
+/// (`keyed_item_id(nodeId, key)`) contains no position.
 #[test]
-fn stateful_component_used_twice_is_rejected() {
-    let src = r#"
-Component C {
-    state: { active: Bool = false, }
-    Stack { Toggle { checked: $state.active, label: "x" } }
+fn keyed_instances_keep_their_own_state_across_a_reorder() {
+    use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, NoIo, Value, View};
+    let nxir = compile(
+        r#"
+Store S {
+    rows: List<Str> = ["a", "b"],
 }
-Page P { Stack { C { } C { } } }
-Store S { n: Int = 0, }
-Event E { X, }
-reduce E { X => state.n = state.n, }
-"#;
-    let file = nexus_dsl_core::parse_file(src).expect("parses");
-    let (model, diags) = nexus_dsl_core::check_file(&file);
-    assert!(!nexus_dsl_core::has_errors(&diags));
-    let canonical = nexus_dsl_core::format_file(&file);
-    assert!(nexus_dsl_core::lower_file(&file, &model, &canonical).is_err());
+
+Event E {
+    Reverse,
+}
+
+reduce E {
+    Reverse => state.rows = ["b", "a"],
+}
+
+Component Row {
+    props: {
+        id: Str,
+    }
+    state: {
+        active: Bool = false,
+    }
+    Stack {
+        Toggle { checked: $state.active, label: "t" }
+        if $state.active {
+            Text($props.id)
+        } else {
+            Text("off")
+        }
+    }
+}
+
+Page P {
+    Stack {
+        List($state.rows) { r in
+            Stack { Row { id: r } }.key(r)
+        }
+    }
+}
+"#,
+    );
+    let symbols = nexus_dsl_runtime::Runtime::mount(&nxir).unwrap().symbols().to_vec();
+    let locale = IdentityLocale { symbols: &symbols, keys: &[] };
+    let mut view = View::mount(
+        &nxir,
+        &nexus_dsl_runtime::theme_tokens::BaseTokens,
+        &FixtureEnv::default(),
+        &locale,
+    )
+    .expect("mounts");
+
+    // Two instances, both at their default. The old lowering refused to build
+    // this program at all.
+    let texts = collect_texts(view.scene());
+    assert_eq!(texts.iter().filter(|t| *t == "off").count(), 2, "{texts:?}");
+
+    // The two bind handlers differ by INSTANCE — that is the whole point.
+    let binds: Vec<(u32, u64, Vec<u32>)> = view
+        .handlers()
+        .iter()
+        .filter_map(|(_, h)| match &h.action {
+            nexus_dsl_runtime::interact::HandlerAction::Bind { store, path } => {
+                Some((*store, h.instance, path.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(binds.len(), 2, "one bind per instance");
+    assert_ne!(binds[0].1, binds[1].1, "instances must not share an identity");
+
+    // Toggle the FIRST row only.
+    let (store, instance_a, path) = binds[0].clone();
+    let changes =
+        view.runtime.write_binding(store, instance_a, &path, Value::Bool(true)).expect("writes");
+    assert!(!changes.is_empty());
+    let reemit = |view: &mut View<'_>, changes: &[nexus_dsl_runtime::ChangedField]| {
+        let locale = IdentityLocale { symbols: &symbols, keys: &[] };
+        let _ = view.dispatch_noop_reemit(
+            &nexus_dsl_runtime::theme_tokens::BaseTokens,
+            &FixtureEnv::default(),
+            &locale,
+            changes,
+        );
+    };
+    reemit(&mut view, &changes);
+
+    // Exactly ONE row is on, and it is row "a": a shared store would have
+    // turned both on.
+    let texts = collect_texts(view.scene());
+    assert!(texts.contains(&String::from("a")), "row a is on: {texts:?}");
+    assert_eq!(texts.iter().filter(|t| *t == "off").count(), 1, "{texts:?}");
+
+    // REORDER. No app code moves any state; the identity does it.
+    let locale2 = IdentityLocale { symbols: &symbols, keys: &[] };
+    let (e, c) = view.runtime.event_case("E", "Reverse").expect("event exists");
+    view.dispatch(
+        &nexus_dsl_runtime::theme_tokens::BaseTokens,
+        &FixtureEnv::default(),
+        &locale2,
+        &mut NoIo,
+        e,
+        c,
+        vec![],
+    )
+    .expect("reverses");
+
+    // Still exactly one row on, and still row "a" — the state followed its KEY,
+    // not its position.
+    let texts = collect_texts(view.scene());
+    assert!(texts.contains(&String::from("a")), "state followed the key: {texts:?}");
+    assert_eq!(texts.iter().filter(|t| *t == "off").count(), 1, "{texts:?}");
 }
 
 #[test]

@@ -9,7 +9,7 @@
 //! never mutate state directly — everything re-enters through the queue.
 
 use crate::reduce::{eval, EvalCtx};
-use crate::store::{StoreState, Value};
+use crate::store::{StoreSlot, Value};
 use crate::{DeviceEnv, EffectHost, LocaleSource, QueryCall, RtError};
 use alloc::{string::String, vec::Vec};
 use nexus_dsl_ir::ui_ir_capnp as ir;
@@ -27,7 +27,9 @@ pub(crate) struct Pending {
 pub(crate) struct EffectCtx<'a> {
     /// The running plan's trigger identity + generation (for cancellation).
     pub origin: (u32, u32, u32),
-    pub stores: &'a [StoreState],
+    pub stores: &'a [StoreSlot],
+    /// The instance whose state this plan reads (TASK-0077B P1).
+    pub instance: u64,
     pub locals: &'a mut [Option<Value>],
     pub device: &'a dyn DeviceEnv,
     pub locale: &'a dyn LocaleSource,
@@ -151,6 +153,7 @@ fn run_query_step(
         let value = {
             let mut eval_ctx = EvalCtx {
                 stores: ctx.stores,
+                instance: ctx.instance,
                 locals: ctx.locals,
                 params: &params,
                 device: ctx.device,
@@ -214,6 +217,7 @@ fn enqueue(
 fn eval_in(ctx: &mut EffectCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<Value, RtError> {
     let mut eval_ctx = EvalCtx {
         stores: ctx.stores,
+        instance: ctx.instance,
         locals: ctx.locals,
         params: &[],
         device: ctx.device,

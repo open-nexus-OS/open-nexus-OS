@@ -45,6 +45,10 @@ pub(super) fn build_state(
             let component = model.components[*comp_idx];
             let mut b = stores.reborrow().get((ctx.store_order.len() + offset) as u32);
             b.set_name(ctx.sym(&alloc::format!("__local_{component_name}")));
+            // Component-local state is PER INSTANCE (TASK-0077B P1). The flag is
+            // a declaration the runtime reads; deriving it from the `__local_`
+            // name prefix would be a guess about a naming convention.
+            b.set_keyed(true);
             let mut fields = b.init_fields(component.state.len() as u32);
             for (j, field) in component.state.iter().enumerate() {
                 let mut fb = fields.reborrow().get(j as u32);

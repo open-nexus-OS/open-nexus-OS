@@ -8,14 +8,18 @@
 //! (overflow = deterministic error, never wraparound); `Fx` math widens
 //! through i128. Everything is total: the tree shape bounds the work.
 
-use crate::store::{StoreState, Value};
+use crate::store::{StoreSlot, Value};
 use crate::{DeviceEnv, LocaleSource, RtError};
 use alloc::{string::String, vec::Vec};
 use nexus_dsl_ir::ui_ir_capnp as ir;
 
 /// Read-only evaluation context.
 pub(crate) struct EvalCtx<'a> {
-    pub stores: &'a [StoreState],
+    pub stores: &'a [StoreSlot],
+    /// Which INSTANCE this expression is being evaluated for. `ROOT_INSTANCE`
+    /// outside a keyed collection; a keyed store resolves through it
+    /// (TASK-0077B P1).
+    pub instance: u64,
     pub locals: &'a mut [Option<Value>],
     pub params: &'a [Value],
     pub device: &'a dyn DeviceEnv,
@@ -50,7 +54,11 @@ pub(crate) fn eval(ctx: &mut EvalCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<
         }
         Which::FieldGet(get) => {
             let get = get.map_err(|_| RtError::Malformed)?;
-            let store = ctx.stores.get(get.get_store() as usize).ok_or(RtError::UnknownField)?;
+            let store = ctx
+                .stores
+                .get(get.get_store() as usize)
+                .ok_or(RtError::UnknownField)?
+                .state(ctx.instance);
             let path = get.get_path().map_err(|_| RtError::Malformed)?;
             if path.is_empty() {
                 return Err(RtError::UnknownField);
@@ -306,7 +314,10 @@ fn binop(op: ir::BinOpKind, lhs: Value, rhs: Value) -> Result<Value, RtError> {
 /// Executes pure statements against one store (the reducer path).
 pub(crate) struct ExecCtx<'a> {
     pub store_index: usize,
-    pub stores: &'a mut [StoreState],
+    /// The instance this reducer writes into: `ROOT_INSTANCE` for a plain
+    /// store, the emitting node's identity for a keyed one (TASK-0077B P1).
+    pub instance: u64,
+    pub stores: &'a mut [StoreSlot],
     pub locals: &'a mut [Option<Value>],
     pub params: &'a [Value],
     pub device: &'a dyn DeviceEnv,
@@ -325,6 +336,7 @@ pub(crate) fn exec(
                 let value = {
                     let mut eval_ctx = EvalCtx {
                         stores: ctx.stores,
+                        instance: ctx.instance,
                         locals: ctx.locals,
                         params: ctx.params,
                         device: ctx.device,
@@ -337,7 +349,12 @@ pub(crate) fn exec(
                 for i in 0..path_list.len() {
                     path.push(path_list.get(i));
                 }
-                let store = ctx.stores.get_mut(ctx.store_index).ok_or(RtError::UnknownField)?;
+                let instance = ctx.instance;
+                let store = ctx
+                    .stores
+                    .get_mut(ctx.store_index)
+                    .ok_or(RtError::UnknownField)?
+                    .state_mut(instance);
                 let op = set.get_op().map_err(|_| RtError::Malformed)?;
                 let final_value = match op {
                     ir::AssignOp::Assign => value,
@@ -359,6 +376,7 @@ pub(crate) fn exec(
                 let value = {
                     let mut eval_ctx = EvalCtx {
                         stores: ctx.stores,
+                        instance: ctx.instance,
                         locals: ctx.locals,
                         params: ctx.params,
                         device: ctx.device,
@@ -374,6 +392,7 @@ pub(crate) fn exec(
                 let cond = {
                     let mut eval_ctx = EvalCtx {
                         stores: ctx.stores,
+                        instance: ctx.instance,
                         locals: ctx.locals,
                         params: ctx.params,
                         device: ctx.device,
@@ -393,6 +412,7 @@ pub(crate) fn exec(
                 let scrutinee = {
                     let mut eval_ctx = EvalCtx {
                         stores: ctx.stores,
+                        instance: ctx.instance,
                         locals: ctx.locals,
                         params: ctx.params,
                         device: ctx.device,

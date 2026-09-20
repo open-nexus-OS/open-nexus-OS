@@ -115,6 +115,13 @@ never a partial mount.
 
 ## Changelog
 
+- **v1.7 (2026-09-19, TASK-0077B)** — additive: `Store.keyed`. A component's `state:` block is
+  PER INSTANCE. The identity is the one this document already specifies above
+  (§"Stable node identity"): `ViewNode.nodeId` for a plain node, and
+  `keyed_item_id(nodeId, key)` for a collection item — which is why the third consequence
+  listed there, *"keyed items keep their local state across reorders"*, is true from this
+  version on rather than only promised. No new identity field was added: the build-time half
+  was already persisted, and this is the runtime half finding its caller.
 - **v1.6 (2026-09-19, TASK-0077B)** — **subtractive**: `CallStep.timeoutMs` is retired. A
   service call carries no client clock; the exchange ends with the reply or with the service's
   death and nothing else (RFC-0093 §7, RFC-0096). The app-host stopped reading the number in

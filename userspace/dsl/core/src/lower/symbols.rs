@@ -6,12 +6,9 @@
 //! [`collect_symbols`] interns every name the program mentions (plus the i18n
 //! keys) BEFORE anything is built — the symbol table is sorted and canonical,
 //! so a name that lowering references but this walk missed would emit a
-//! dangling symbol id. [`count_component_usage`] counts component
-//! instantiations for the "a stateful component is instantiated exactly once"
-//! rule; a use inside a collection template counts as many (dynamic).
+//! dangling symbol id.
 
 use crate::ast::{Decl, File, Stmt, TypeExpr};
-use crate::check::Model;
 use alloc::{collections::BTreeSet, string::String};
 
 pub(super) fn collect_symbols(
@@ -318,56 +315,4 @@ pub(super) fn collect_symbols(
             Decl::Window(_) => {}
         }
     }
-}
-
-/// Counts `componentRef` instantiations of `name` across every view.
-/// A use inside a collection template counts as many (dynamic).
-pub(super) fn count_component_usage(model: &Model<'_>, name: &str) -> usize {
-    fn walk(node: &crate::ast::ViewNode, name: &str, in_collection: bool) -> usize {
-        use crate::ast::ViewNode as V;
-        match node {
-            V::Widget(widget) => {
-                let own = if widget.name.text == name {
-                    if in_collection {
-                        2
-                    } else {
-                        1
-                    }
-                } else {
-                    0
-                };
-                // Slot bodies count too — a stateful component placed in one
-                // would otherwise slip past the instantiated-exactly-once
-                // guard and share a single implicit store across instances.
-                own + widget
-                    .children
-                    .iter()
-                    .chain(widget.slot_bodies.iter().flat_map(|b| b.body.iter()))
-                    .map(|child| walk(child, name, in_collection))
-                    .sum::<usize>()
-            }
-            V::If { arms, els, .. } => arms
-                .iter()
-                .flat_map(|(_, body)| body.iter())
-                .chain(els.iter())
-                .map(|child| walk(child, name, in_collection))
-                .sum(),
-            V::For { body, .. } => body.iter().map(|child| walk(child, name, true)).sum(),
-            V::Collection(collection) => {
-                collection.body.iter().map(|child| walk(child, name, true)).sum()
-            }
-            V::Match { arms, .. } => arms
-                .iter()
-                .flat_map(|arm| arm.body.iter())
-                .map(|child| walk(child, name, in_collection))
-                .sum(),
-            V::Slot { .. } => 0,
-        }
-    }
-    model
-        .pages
-        .iter()
-        .map(|p| walk(&p.view, name, false))
-        .chain(model.components.iter().map(|c| walk(&c.view, name, false)))
-        .sum()
 }

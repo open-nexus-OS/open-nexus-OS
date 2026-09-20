@@ -39,6 +39,10 @@ pub enum HandlerAction {
 pub struct HandlerEntry {
     /// Child-index path from the scene root to the handler's node.
     pub path: Vec<u32>,
+    /// The INSTANCE this handler belongs to (TASK-0077B P1). An interaction
+    /// inside a keyed collection item reduces into that item's own state, not
+    /// into a store shared by every row.
+    pub instance: u64,
     /// Interaction trigger symbol id (`Tap`, `Change`, …).
     pub trigger: u32,
     pub action: HandlerAction,
@@ -255,6 +259,7 @@ mod hit_slop_tests {
             node_id,
             HandlerEntry {
                 path: alloc::vec![],
+                instance: crate::store::ROOT_INSTANCE,
                 trigger: TAP,
                 action: HandlerAction::Dispatch { event: 0, case: 0, payload: alloc::vec![] },
                 press_offset: 0,
@@ -358,6 +363,7 @@ mod multi_viewport_tests {
             node_id,
             HandlerEntry {
                 path: alloc::vec![],
+                instance: crate::store::ROOT_INSTANCE,
                 trigger: TAP,
                 action: HandlerAction::Dispatch { event: 0, case: 0, payload: alloc::vec![] },
                 press_offset: 0,

@@ -31,6 +31,8 @@ pub struct TextFocusSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FocusedText {
     pub(crate) store: u32,
+    /// The instance the focused field's store belongs to (TASK-0077B P1).
+    pub(crate) instance: u64,
     pub(crate) path: Vec<u32>,
     pub(crate) box_id: usize,
     pub(crate) secure: bool,
@@ -81,8 +83,14 @@ impl View<'_> {
                 let secure = subtree_is_secure(&self.scene, box_id);
                 let change_dispatch =
                     trigger_sym.and_then(|sym| self.enclosing_change_dispatch(sym, &node_path));
-                self.focused_text =
-                    Some(FocusedText { store, path, box_id, secure, change_dispatch });
+                self.focused_text = Some(FocusedText {
+                    store,
+                    instance: entry.instance,
+                    path,
+                    box_id,
+                    secure,
+                    change_dispatch,
+                });
                 Some(TextFocusSnapshot { box_id, secure })
             }
             None => {
@@ -155,10 +163,11 @@ impl View<'_> {
         let Some(focused) = self.focused_text.clone() else {
             return Ok(None);
         };
-        let mut value = match self.runtime.read_binding(focused.store, &focused.path) {
-            Some(Value::Str(s)) => s.clone(),
-            _ => alloc::string::String::new(),
-        };
+        let mut value =
+            match self.runtime.read_binding(focused.store, focused.instance, &focused.path) {
+                Some(Value::Str(s)) => s.clone(),
+                _ => alloc::string::String::new(),
+            };
         for ch in text.chars() {
             if value.chars().count() >= TEXT_VALUE_MAX_CHARS {
                 break;
@@ -183,10 +192,11 @@ impl View<'_> {
         let Some(focused) = self.focused_text.clone() else {
             return Ok(None);
         };
-        let mut value = match self.runtime.read_binding(focused.store, &focused.path) {
-            Some(Value::Str(s)) if !s.is_empty() => s.clone(),
-            _ => return Ok(None),
-        };
+        let mut value =
+            match self.runtime.read_binding(focused.store, focused.instance, &focused.path) {
+                Some(Value::Str(s)) if !s.is_empty() => s.clone(),
+                _ => return Ok(None),
+            };
         value.pop();
         self.write_focused(tokens, device, locale, host, &focused, value).map(Some)
     }
@@ -214,8 +224,12 @@ impl View<'_> {
         focused: &FocusedText,
         value: alloc::string::String,
     ) -> Result<Damage, RtError> {
-        let mut changes =
-            self.runtime.write_binding(focused.store, &focused.path, Value::Str(value))?;
+        let mut changes = self.runtime.write_binding(
+            focused.store,
+            focused.instance,
+            &focused.path,
+            Value::Str(value),
+        )?;
         if let Some(d) = &focused.change_dispatch {
             let more =
                 self.runtime.dispatch(device, locale, host, d.event, d.case, d.payload.clone())?;
@@ -249,6 +263,7 @@ impl View<'_> {
         });
         self.focused_text = found.map(|(box_id, node_path)| FocusedText {
             store: focused.store,
+            instance: focused.instance,
             path: focused.path.clone(),
             box_id,
             secure: subtree_is_secure(&self.scene, box_id),

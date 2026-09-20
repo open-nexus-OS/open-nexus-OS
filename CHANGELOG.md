@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-19 (TASK-0077B P1: a stateful component works anywhere — per-instance `$state`, IR v1.7)
+
+- **A component with a `state:` block could be instantiated exactly ONCE**, or lowering refused the program. The restriction was not the design; it was a guard rail in front of one: the implicit store was per COMPONENT, so two instances would have SHARED their fields — `docs/dev/dsl/principles.md` §1 says *"components own their state completely; there is no global mutable state"*, and a compile error was holding that up, not the data model.
+- **The identity was already there, and the IR already promised this.** `ViewNode.nodeId` is persisted and lowering sets it; `nexus_dsl_ir::node_id` documents the scheme as an IR contract including the runtime half (`keyed_item_id(nodeId, key)`); and `docs/dev/dsl/ir.md` lists among its consequences **"keyed items keep their local state across reorders"**. Both helpers had no caller outside their own tests. So no new identity field was added — IR v1.7 adds `Store.keyed` and nothing else, and the runtime half finally has its caller.
+- **One store model, one mutation path.** A keyed store holds one `StoreState` per live instance; a write still goes through `set_path`, compares before writing and marks the same change bitmap. What changed is which set of fields it lands in. The instance travels through the eval/reduce/effect/emit contexts, `HandlerEntry` and the focused-field record, so a tap or a keystroke inside a row reduces into THAT row. `dispatch_in` and `write_binding(store, instance, …)` are the explicit forms; `dispatch` remains the root-instance one.
+- **Storage tracks the live set.** Instances an emit did not produce are dropped, so a row that leaves a collection takes its fields with it instead of leaking them for the life of the program.
+- The corpus case that asserted the restriction is replaced by `keyed_instances_keep_their_own_state_across_a_reorder` — §6's acceptance criterion (*"the runtime can diff, reorder and virtualize WITHOUT user code"*): two rows keep separate state, and reversing the list carries each row's state with its key rather than its position.
+- Fixed in passing, because this lane caught it: `SELFTEST: pkgimg vmo ok (bytes=…)` from TASK-0033 P2 was emitted in three writes, so another service's line could split it — observed as `SELFTEST: pkgimg vmo packagefsd: read vmo forwarded (…)`, which evidence assembly correctly rejected as a marker that never existed. It is one write now.
+- Proof: `just test-host` green, `just check` 11/11, `just test-all` 27 PASS / 0 FAIL.
+
+
 ### Removed - 2026-09-19 (TASK-0077B P0: the DSL stops demanding a number nothing reads — `timeoutMs:` retired, IR v1.6)
 
 - **A service call carries no client timeout.** `timeoutMs:` was mandatory-by-lint on every `svc.*` call while the app-host had already stopped reading it (TASK-0054C P2-a left `let _ = timeout_ms;`). The language was nagging authors — NX0409 fired when the argument was MISSING — to keep writing a number that was discarded. `docs/dev/dsl/principles.md` names both failures: §5 (*"convenience-only features are rejected"*) and §1 (*"apps cannot observe HOW a service is implemented, only its contract"*) — a client-side timeout is the app second-guessing the service.

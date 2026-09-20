@@ -52,7 +52,7 @@ impl Runtime<'_> {
                     continue;
                 }
                 let field_name = self.symbols().get(field.get_name() as usize)?;
-                let value = self.stores().get(si)?.fields.get(fi)?;
+                let value = self.stores().get(si)?.root().fields.get(fi)?;
                 push_str8(&mut body, store_name);
                 push_str8(&mut body, field_name);
                 encode_value(&mut body, value, self.symbols(), 0)?;
@@ -118,7 +118,7 @@ impl Runtime<'_> {
                     return false;
                 }
                 let Some(state) = self.stores_mut().get_mut(si) else { return false };
-                let Some(slot) = state.fields.get_mut(fi) else { return false };
+                let Some(slot) = state.root_mut().fields.get_mut(fi) else { return false };
                 if core::mem::discriminant(slot) != core::mem::discriminant(&value) {
                     return false; // type changed across versions — keep default
                 }

@@ -222,22 +222,25 @@ impl<'p> View<'p> {
         else {
             return Ok(None);
         };
+        // The instance the hit handler belongs to (TASK-0077B P1): a tap inside
+        // a keyed collection item acts on THAT item's state.
+        let instance = entry.instance;
         match entry.action.clone() {
-            HandlerAction::Dispatch { event, case, payload } => {
-                self.dispatch(tokens, device, locale, host, event, case, payload).map(Some)
-            }
+            HandlerAction::Dispatch { event, case, payload } => self
+                .dispatch_in(instance, tokens, device, locale, host, event, case, payload)
+                .map(Some),
             HandlerAction::Navigate { path } => {
                 self.navigate(tokens, device, locale, &path).map(Some)
             }
             HandlerAction::Bind { store, path } => {
                 // Tap on a bound Bool flips it (the Toggle contract); other
                 // value kinds arrive via `text_input`-style entry points.
-                let current = self.runtime.read_binding(store, &path).cloned();
+                let current = self.runtime.read_binding(store, instance, &path).cloned();
                 let next = match current {
                     Some(Value::Bool(b)) => Value::Bool(!b),
                     _ => return Ok(None),
                 };
-                let changes = self.runtime.write_binding(store, &path, next)?;
+                let changes = self.runtime.write_binding(store, instance, &path, next)?;
                 self.apply_changes(tokens, device, locale, &changes).map(Some)
             }
         }
@@ -344,6 +347,7 @@ impl<'p> View<'p> {
         };
         let changes = self.runtime.write_binding(
             store,
+            entry.instance,
             &path,
             Value::Str(alloc::string::String::from(text)),
         )?;
@@ -395,7 +399,7 @@ impl<'p> View<'p> {
                 .runtime
                 .stores()
                 .get(change.store as usize)
-                .and_then(|s| s.field_sym(change.field as usize))
+                .and_then(|s| s.root().field_sym(change.field as usize))
             else {
                 continue;
             };
@@ -424,12 +428,17 @@ impl<'p> View<'p> {
         let component = components.get(self.nav.current().page);
         let view_root = component.get_view().map_err(|_| RtError::Malformed)?;
         let mut locals: Vec<Option<Value>> = vec![None; 64];
+        let mut live_instances: Vec<u64> = Vec::new();
         self.deps.clear();
         let symbols = self.runtime.symbols().to_vec();
         let mut handlers: Vec<HandlerEntry> = Vec::new();
         let mut anim_intents: Vec<(Vec<u32>, AnimIntent)> = Vec::new();
         let mut ctx = EmitCtx {
             stores: self.runtime.stores(),
+            // A component body starts at the root instance; a keyed collection
+            // inside it re-bases per item (TASK-0077B P1).
+            instance: crate::store::ROOT_INSTANCE,
+            live_instances: &mut live_instances,
             locals: &mut locals,
             params: &[],
             device,
@@ -445,6 +454,20 @@ impl<'p> View<'p> {
             slots: None,
         };
         self.scene = emit::emit_view(&mut ctx, view_root)?;
+        // Per-instance state is dropped for instances this emit did NOT
+        // produce (TASK-0077B P1): a row that left the collection takes its
+        // fields with it, so storage tracks the live set instead of growing
+        // with every key ever seen. Nothing is dropped when no keyed
+        // collection emitted, because then every keyed store is still at its
+        // root instance.
+        let live: alloc::collections::BTreeSet<u64> = live_instances
+            .iter()
+            .copied()
+            .chain(core::iter::once(crate::store::ROOT_INSTANCE))
+            .collect();
+        for slot in self.runtime.stores_mut() {
+            slot.retain_instances(&live);
+        }
         // The status-bar rows the compositor reserved. Applied HERE, after
         // every emit, because the scene is rebuilt from scratch each time.
         if self.safe_area_top > nexus_layout_types::FxPx::ZERO {
@@ -528,7 +551,38 @@ impl<'p> View<'p> {
         case: u32,
         payload: Vec<Value>,
     ) -> Result<Damage, RtError> {
-        let changes = self.runtime.dispatch(device, locale, host, event, case, payload)?;
+        self.dispatch_in(
+            crate::store::ROOT_INSTANCE,
+            tokens,
+            device,
+            locale,
+            host,
+            event,
+            case,
+            payload,
+        )
+    }
+
+    /// Dispatch into a specific INSTANCE (TASK-0077B P1) — what an interaction
+    /// inside a keyed collection item uses so the reducer writes that item's
+    /// own state.
+    ///
+    /// # Errors
+    /// As [`Self::dispatch`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_in(
+        &mut self,
+        instance: u64,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        event: u32,
+        case: u32,
+        payload: Vec<Value>,
+    ) -> Result<Damage, RtError> {
+        let changes =
+            self.runtime.dispatch_in(instance, device, locale, host, event, case, payload)?;
         self.apply_changes(tokens, device, locale, &changes)
     }
 }

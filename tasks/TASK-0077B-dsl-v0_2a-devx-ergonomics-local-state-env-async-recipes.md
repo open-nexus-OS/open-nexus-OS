@@ -68,6 +68,33 @@ Nothing here reverses a decision. The direction was right; the justification is 
 whoever picks this up next should know these are the language keeping its own promises rather
 than a wish list.
 
+### D1 corrected 2026-09-19 — the identity already exists, and the IR already promises this
+
+D1 proposed emitting a new `Widget.stateKey`. That would have been a second identity scheme
+beside one the IR already defines, which is exactly the "alternates" §5 forbids. What is
+actually in the tree:
+
+- `ViewNode.nodeId @0 :UInt64` is in the schema, and lowering SETS it
+  (`lower/views.rs:70`, `static_node_id(component, path)`).
+- `nexus_dsl_ir::node_id` documents the whole scheme as an IR CONTRACT — *"the algorithm is
+  part of the IR contract and must never change within a schema major"* — including the
+  runtime half: *"Collection items derive their id at runtime from the parent's id and the
+  evaluated `.key(expr)` value with the same function"* (`keyed_item_id`).
+- `docs/dev/dsl/ir.md` §"Stable node identity" lists the consequences, and the third one is
+  literally **"keyed items keep their local state across reorders."**
+
+So the IR does not need a new field for this — **it already promises it in writing.** The
+build-time half is implemented; the runtime half has no caller (`keyed_item_id` and
+`static_node_id` are used only by their own tests). Nothing was wrong with the design; it was
+left half-built, and D1 was about to build the other half under a different name.
+
+**Revised D1.** The instance identity is `keyed_item_id(template.nodeId, key_bytes)`, derived
+in `emit_for_each_items` where the key is ALREADY evaluated and its uniqueness ALREADY
+enforced (the comment there says *"duplicate keys would silently corrupt instance state"* — it
+was written for this). `Widget.stateKey` is not added. `Store.keyed: Bool` still is, so the
+runtime learns which stores are per-instance from the IR rather than from a `__local_` name
+prefix — a flag is a declaration, a name convention is a guess.
+
 **Package order revised** so each package is independently valuable and the risk rises
 monotonically: the proven-dead deletion first, the spine second, completion third.
 
@@ -80,7 +107,29 @@ monotonically: the proven-dead deletion first, the spine second, completion thir
   sequential) and burned for ever. `EffectHost::call` lost the parameter through every
   implementation — runtime, transcript host, app-host and 20-odd test hosts. 61 call sites in
   10 `.nx` files, the `todo` example, the CLI explainer, four doc pages.
-- **P1** The keyed `$state` spine (D1 + D2): IR v1.6, lowering, runtime, single-use rule gone.
+- **P1** ✅ **2026-09-19** The keyed `$state` spine (D1 + D2). IR **v1.7** adds `Store.keyed`
+  and NOTHING else: the identity is the one the IR already persists. `StoreSlot` holds one
+  `StoreState` per live instance; the instance travels through `EvalCtx`/`ExecCtx`/`EffectCtx`/
+  `EmitCtx`, `HandlerEntry` and `FocusedText`, so a tap or a keystroke inside a row reduces
+  into THAT row. `dispatch_in` / `write_binding(store, instance, ...)` are the explicit forms;
+  `dispatch` stays the root-instance one (214 call sites unchanged, and correct — an event not
+  raised inside a keyed item belongs to the root). Instances that an emit did not produce are
+  dropped, so storage tracks the live set instead of every key ever seen.
+  The single-use rule and `count_component_usage` are deleted; the corpus case that asserted
+  the restriction is REPLACED by `keyed_instances_keep_their_own_state_across_a_reorder`,
+  which is §6's acceptance criterion — two rows keep separate state and a reverse carries each
+  row's state with its KEY, with no app code moving anything.
+
+  Found while building, recorded not fixed: **`.key` on a component reference is rejected**
+  (*"apply it inside `Row` or wrap the reference in a `Stack`"*) — so the natural way to write
+  a keyed list of a stateful component needs a wrapper. That is a §7 uniformity wart of the
+  same family as the bind table, and belongs with P2.
+
+  Also fixed here because the lane caught it: the `SELFTEST: pkgimg vmo ok (bytes=…)` marker
+  added in TASK-0033 P2 was emitted in THREE writes, so another service's line could land in
+  the middle of it — observed as `SELFTEST: pkgimg vmo packagefsd: read vmo forwarded (…)`,
+  which the evidence assembler correctly rejected as a marker that never existed. It is one
+  write now. Any marker assembled from several writes has this flaw.
 - **P2** Bind table complete + `Stepper` reachable (D3).
 - **P3** NX0407/NX0409 promoted to errors (D4) + corpus.
 - **P4** Docs + the one proof home (D5 + D6).

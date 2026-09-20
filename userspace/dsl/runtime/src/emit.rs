@@ -13,7 +13,7 @@ use crate::anim::{AnimIntent, AnimKind};
 use crate::interact::{HandlerAction, HandlerEntry};
 use crate::reduce::{eval, EvalCtx};
 use crate::registry::{self, Mods};
-use crate::store::{StoreState, Value};
+use crate::store::{StoreSlot, Value};
 use crate::{DeviceEnv, LocaleSource, RtError};
 use alloc::{string::String, vec::Vec};
 use nexus_dsl_ir::ui_ir_capnp as ir;
@@ -41,7 +41,15 @@ pub struct Dep {
 /// a `SlotFrame` can hold readers from the message while borrowing the frame
 /// that created it — without depending on capnp reader variance.
 pub(crate) struct EmitCtx<'a, 'p> {
-    pub stores: &'a [StoreState],
+    pub stores: &'a [StoreSlot],
+    /// The instance the node being emitted belongs to: `ROOT_INSTANCE` outside
+    /// a keyed collection, `keyed_item_id(template.nodeId, key)` inside one
+    /// (TASK-0077B P1). Keyed stores resolve through it.
+    pub instance: u64,
+    /// Every instance identity this emit produced. A keyed store drops the
+    /// state of instances that are NOT in here, so a removed row cannot leak
+    /// its fields for the life of the program.
+    pub live_instances: &'a mut Vec<u64>,
     pub locals: &'a mut [Option<Value>],
     pub params: &'a [Value],
     pub device: &'a dyn DeviceEnv,
@@ -66,6 +74,7 @@ impl EmitCtx<'_, '_> {
     fn eval(&mut self, expr: ir::expr::Reader<'_>) -> Result<Value, RtError> {
         let mut ctx = EvalCtx {
             stores: self.stores,
+            instance: self.instance,
             locals: self.locals,
             params: self.params,
             device: self.device,
@@ -234,6 +243,8 @@ pub(crate) fn emit_view<'p>(
             let path = ctx.path.clone();
             let mut inner = EmitCtx {
                 stores: ctx.stores,
+                instance: ctx.instance,
+                live_instances: ctx.live_instances,
                 locals: ctx.locals,
                 params: &params,
                 device: ctx.device,
@@ -289,6 +300,7 @@ fn emit_for_each_items<'p>(
     let mut seen_keys: Vec<Vec<u8>> = Vec::with_capacity(items.len());
     for item in items {
         *ctx.locals.get_mut(slot).ok_or(RtError::MissingLocal)? = Some(item);
+        let outer_instance = ctx.instance;
         if windowed {
             // Keyed identity: evaluate the key and enforce uniqueness
             // (stable ids for the retained tree; duplicate keys would
@@ -299,6 +311,15 @@ fn emit_for_each_items<'p>(
             if seen_keys.contains(&bytes) {
                 return Err(RtError::DuplicateKey);
             }
+            // THE instance identity (TASK-0077B P1). Not a new scheme: this is
+            // the runtime half of the one `nexus_dsl_ir::node_id` already
+            // documents as an IR contract, and that `docs/dev/dsl/ir.md`
+            // already promises — "keyed items keep their local state across
+            // reorders". It is derived from the template's PERSISTED nodeId and
+            // the item's own key, so it survives a reorder by construction: the
+            // identity contains no position.
+            ctx.instance = nexus_dsl_ir::node_id::keyed_item_id(template.get_node_id(), &bytes);
+            ctx.live_instances.push(ctx.instance);
             seen_keys.push(bytes);
         }
         for &seg in prefix {
@@ -306,6 +327,7 @@ fn emit_for_each_items<'p>(
         }
         ctx.path.push(base + out.len() as u32);
         let emitted = emit_view(ctx, template)?;
+        ctx.instance = outer_instance;
         ctx.path.pop();
         for _ in prefix {
             ctx.path.pop();
@@ -380,6 +402,7 @@ fn emit_widget<'p>(
             if let Some(action) = action {
                 ctx.handlers.push(HandlerEntry {
                     path: ctx.path.clone(),
+                    instance: ctx.instance,
                     trigger: handler.get_trigger(),
                     action,
                     press_offset: registry::press_offset(&kind),

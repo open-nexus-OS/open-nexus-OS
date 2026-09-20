@@ -118,6 +118,12 @@ struct FieldDef  { name @0 :UInt32; type @1 :TypeRef; }
 struct Store {
   name   @0 :UInt32;            # symbol id
   fields @1 :List(StoreField);
+  # v1.7: PER-INSTANCE state. A keyed store holds one set of fields per live
+  # instance, addressed by the view node's identity (`ViewNode.nodeId`, and for
+  # a collection item `keyed_item_id(nodeId, key)`). An identity dimension on
+  # the ONE store model — not a second kind of store: the mutation path
+  # (dispatch -> reduce -> commit) is unchanged.
+  keyed  @2 :Bool;
 }
 
 struct StoreField {

@@ -31,7 +31,7 @@ use alloc::{
     vec::Vec,
 };
 use nexus_dsl_ir::{hashing, ui_ir_capnp as ir, DIGEST_LEN, SCHEMA_MAJOR, SCHEMA_MINOR};
-use symbols::{collect_symbols, count_component_usage};
+use symbols::collect_symbols;
 
 /// Default program budgets (v1.0): view nodes, expr nodes, list len, str len,
 /// effect steps, locals, children.
@@ -261,14 +261,14 @@ impl<'a> Ctx<'a> {
                         .and_modify(|entry| *entry = Err(()))
                         .or_insert(Ok(store_idx));
                 }
+                // A stateful component may be instantiated any number of
+                // times (TASK-0077B P1). Its store is KEYED: one set of fields
+                // per live instance, addressed by the node identity the IR
+                // already persists. The restriction that used to sit here was
+                // the guard rail in front of principles.md §1 ("components own
+                // their state completely; no global mutable state") — one store
+                // per COMPONENT meant two instances would have SHARED it.
                 local_stores.push((component.name.text.clone(), store_idx, comp_idx));
-                let usage = count_component_usage(model, &component.name.text);
-                if usage != 1 {
-                    return Err(unsupported(
-                        component.name.span,
-                        "a stateful component instantiated other than exactly once                          (per-instance local state lands with the retained-instance work)",
-                    ));
-                }
             }
         }
 

@@ -106,7 +106,11 @@ fn launcher_search_refilters_through_the_service() {
         let sym = mounted.sym("query");
         (mounted.store_index("LauncherStore"), vec![sym])
     };
-    mounted.view.runtime.write_binding(store, &path, Value::Str("cou".into())).expect("writes");
+    mounted
+        .view
+        .runtime
+        .write_binding(store, nexus_dsl_runtime::ROOT_INSTANCE, &path, Value::Str("cou".into()))
+        .expect("writes");
     mounted.dispatch(&mut host, "LauncherEvent", "QueryChanged", vec![]);
     let t = texts(mounted.view.scene());
     assert!(t.contains(&"Counter".to_string()), "filtered set rendered: {t:?}");
@@ -195,7 +199,12 @@ fn greeter_login_success_and_failure_drive_the_contract_states() {
     mounted
         .view
         .runtime
-        .write_binding(0, &secret_path, Value::Str("secret".into()))
+        .write_binding(
+            0,
+            nexus_dsl_runtime::ROOT_INSTANCE,
+            &secret_path,
+            Value::Str("secret".into()),
+        )
         .expect("writes");
     mounted.dispatch(&mut host, "SessionEvent", "Submit", vec![]);
     assert_eq!(mounted.view.runtime.field("SessionStore", "phase"), Some(&Value::Int(0)));
@@ -206,7 +215,12 @@ fn greeter_login_success_and_failure_drive_the_contract_states() {
     mounted
         .view
         .runtime
-        .write_binding(0, &secret_path, Value::Str("wrong".into()))
+        .write_binding(
+            0,
+            nexus_dsl_runtime::ROOT_INSTANCE,
+            &secret_path,
+            Value::Str("wrong".into()),
+        )
         .expect("writes");
     mounted.dispatch(&mut host, "SessionEvent", "Submit", vec![]);
     assert_eq!(mounted.view.runtime.field("SessionStore", "phase"), Some(&Value::Int(2)));

@@ -44,7 +44,7 @@ pub use i18n::{Catalog, CatalogOverBaked, LocaleChain};
 pub use interact::HandlerEntry;
 pub use nav::{Nav, NavEntry};
 pub use nexus_theme_tokens as theme_tokens;
-pub use store::{StoreState, Value};
+pub use store::{StoreSlot, StoreState, Value, ROOT_INSTANCE};
 pub use view::View;
 
 use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
@@ -149,7 +149,7 @@ pub struct ChangedField {
 pub struct Runtime<'p> {
     reader: ProgramReader<'p>,
     symbols: Vec<String>,
-    stores: Vec<StoreState>,
+    stores: Vec<StoreSlot>,
     locals: Vec<Option<Value>>,
     /// Reusable change accumulator (drained by `dispatch`).
     changed: Vec<ChangedField>,
@@ -199,6 +199,7 @@ impl<'p> Runtime<'p> {
                 let value = if field.has_default() {
                     let mut ctx = reduce::EvalCtx {
                         stores: &stores,
+                        instance: crate::store::ROOT_INSTANCE,
                         locals: &mut locals,
                         params: &[],
                         device: &device,
@@ -216,7 +217,7 @@ impl<'p> Runtime<'p> {
                 };
                 fields.push(value);
             }
-            stores.push(StoreState::new(fields, field_syms));
+            stores.push(StoreSlot::new(StoreState::new(fields, field_syms), store.get_keyed()));
         }
 
         Ok(Self {
@@ -241,13 +242,13 @@ impl<'p> Runtime<'p> {
     }
 
     #[must_use]
-    pub fn stores(&self) -> &[StoreState] {
+    pub fn stores(&self) -> &[StoreSlot] {
         &self.stores
     }
 
     /// Mutable store access for the `@persist` restore path (crate-internal;
     /// hosts restore through [`Runtime::persist_restore`]).
-    pub(crate) fn stores_mut(&mut self) -> &mut [StoreState] {
+    pub(crate) fn stores_mut(&mut self) -> &mut [StoreSlot] {
         &mut self.stores
     }
 
@@ -259,7 +260,10 @@ impl<'p> Runtime<'p> {
     pub fn store_snapshot(&self) -> Vec<Vec<(u32, Value)>> {
         self.stores
             .iter()
-            .map(|s| s.field_syms.iter().copied().zip(s.fields.iter().cloned()).collect())
+            .map(|s| {
+                let r = s.root();
+                r.field_syms.iter().copied().zip(r.fields.iter().cloned()).collect()
+            })
             .collect()
     }
 
@@ -268,7 +272,8 @@ impl<'p> Runtime<'p> {
     /// SYMBOL, so a snapshot from a different program shape restores nothing
     /// it cannot prove — it never misassigns a value to the wrong field.
     pub fn store_restore(&mut self, snapshot: &[Vec<(u32, Value)>]) {
-        for (state, snap) in self.stores.iter_mut().zip(snapshot.iter()) {
+        for (slot_ref, snap) in self.stores.iter_mut().zip(snapshot.iter()) {
+            let state = slot_ref.root_mut();
             for &(sym, ref value) in snap {
                 if let Ok(index) = state.field_index(sym) {
                     if let Some(slot) = state.fields.get_mut(index) {
@@ -288,11 +293,13 @@ impl<'p> Runtime<'p> {
     pub fn write_binding(
         &mut self,
         store: u32,
+        instance: u64,
         path: &[u32],
         value: Value,
     ) -> Result<Vec<ChangedField>, RtError> {
         self.changed.clear();
-        let state = self.stores.get_mut(store as usize).ok_or(RtError::UnknownField)?;
+        let state =
+            self.stores.get_mut(store as usize).ok_or(RtError::UnknownField)?.state_mut(instance);
         state.set_path(path, value)?;
         let changed = &mut self.changed;
         state.take_changes(|field| {
@@ -303,8 +310,8 @@ impl<'p> Runtime<'p> {
 
     /// Reads a bound field's current value (for flip-style interactions).
     #[must_use]
-    pub fn read_binding(&self, store: u32, path: &[u32]) -> Option<&Value> {
-        let state = self.stores.get(store as usize)?;
+    pub fn read_binding(&self, store: u32, instance: u64, path: &[u32]) -> Option<&Value> {
+        let state = self.stores.get(store as usize)?.state(instance);
         let index = state.field_index(*path.first()?).ok()?;
         state.get(index).ok()
     }
@@ -317,7 +324,7 @@ impl<'p> Runtime<'p> {
         let stores = root.get_stores().ok()?;
         for (i, store) in stores.iter().enumerate() {
             if store.get_name() == store_sym {
-                let state = self.stores.get(i)?;
+                let state = self.stores.get(i)?.root();
                 let index = state.field_index(field_sym).ok()?;
                 return state.get(index).ok();
             }
@@ -358,6 +365,27 @@ impl<'p> Runtime<'p> {
         case: u32,
         payload: Vec<Value>,
     ) -> Result<Vec<ChangedField>, RtError> {
+        self.dispatch_in(ROOT_INSTANCE, env, locale, host, event, case, payload)
+    }
+
+    /// Dispatch into a specific INSTANCE (TASK-0077B P1). Keyed stores resolve
+    /// through it; plain stores ignore it, so [`Self::dispatch`] is this with
+    /// `ROOT_INSTANCE` — correct for every event not raised inside a keyed
+    /// collection item.
+    ///
+    /// # Errors
+    /// As [`Self::dispatch`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_in(
+        &mut self,
+        instance: u64,
+        env: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        event: u32,
+        case: u32,
+        payload: Vec<Value>,
+    ) -> Result<Vec<ChangedField>, RtError> {
         self.changed.clear();
         // FIFO: follow-up dispatches run in the order effects produced them
         // (a LIFO Vec::pop would reverse sibling dispatches — observed-order
@@ -377,7 +405,7 @@ impl<'p> Runtime<'p> {
                     continue;
                 }
             }
-            self.dispatch_one(env, locale, host, &pending, &mut queue)?;
+            self.dispatch_one(instance, env, locale, host, &pending, &mut queue)?;
         }
         // Deterministic order + dedup.
         self.changed.sort_by_key(|c| (c.store, c.field));
@@ -387,6 +415,7 @@ impl<'p> Runtime<'p> {
 
     fn dispatch_one(
         &mut self,
+        instance: u64,
         env: &dyn DeviceEnv,
         locale: &dyn LocaleSource,
         host: &mut dyn EffectHost,
@@ -415,6 +444,7 @@ impl<'p> Runtime<'p> {
                 }
                 let store_index = reducer.get_store() as usize;
                 let mut ctx = reduce::ExecCtx {
+                    instance,
                     store_index,
                     stores: &mut self.stores,
                     locals: &mut self.locals,
@@ -446,6 +476,7 @@ impl<'p> Runtime<'p> {
             }
             self.locals.fill(None);
             let mut ctx = effects::EffectCtx {
+                instance,
                 origin: (pending.event, pending.case, generation),
                 stores: &self.stores,
                 locals: &mut self.locals,
