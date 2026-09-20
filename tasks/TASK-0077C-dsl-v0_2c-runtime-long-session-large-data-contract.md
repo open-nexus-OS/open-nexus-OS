@@ -52,19 +52,30 @@ A counting host allocator over the REAL compiled `desktop-shell`, 100 structural
 
 | | measured |
 |---|---|
-| retained emit output, one generation | **68 270 B** |
-| allocated per structural interaction | **50 765 B** |
+| **layout, one call** | **226 560 B allocated**, 119 824 B retained (136 boxes) |
+| emit, structural dispatch | ~100 KiB (non-structural: **59 B**) |
+| retained emit output, one generation | 68 270 B |
 | live drift over 100 dispatches | **0 B** |
+
+⭐ **The second round of measurement moved the arena.** The first pass measured `view.dispatch`
+alone and gave 50 765 B — but app-host also LAYOUTS and re-measures text on every structural
+interaction (`probe/scroll.rs::relayout_retained`), and layout allocates **226 KiB per call**,
+roughly twice what it retains. Layout, not emit, is the cost — and `nexus_layout` runs in
+app-host, not in the DSL runtime. See D1.
 
 Consequences, now arithmetic rather than impression:
 
-- **The ceiling is ~330 interactions.** 16 MiB ÷ 50 KiB. The app-host carries 16 MiB to survive
-  roughly three hundred clicks, against a working set of 68 KiB — a factor of 240.
+- **The ceiling is ~50-85 interactions.** 16 MiB ÷ ~200-330 KiB. Which finally reconciles the
+  code comment's story: 8 MiB ÷ ~200 KiB ≈ 40 clicks, and the comment says 8 MiB "froze after a
+  few dozen clicks". The heap history — 4 → 8 → 16 MiB — is a series of raises each buying a few
+  dozen more, and no finite raise is a fix because the churn is unbounded.
 - **Drift 0 is the load-bearing finding.** The moment an allocator actually frees, nothing
   accumulates: every byte of that 50 KiB is garbage, so on the never-freeing bump it leaks in
   full. An arena does not need to be clever — the precondition is proven, not assumed.
-- **The arena sizes itself: ~256 KiB.** (50 KiB churn + 68 KiB retained) × 2 generations,
-  plus margin — not the megabytes the current heap implies.
+- **Arena sizing is ~2 × (retained boxes + texts + scene) + churn headroom** — measured by the
+  P1 budget probe, not guessed. An earlier estimate of 256 KiB in this ledger was made against
+  the emit-only figure and is WRONG; it is left visible here because it is exactly why the probe
+  exists.
 - The code comment in `nexus-service-entry` says "~100-300KiB/click"; the shell's measured
   cycle is 50 KiB. Neither number is gospel; the probe in P1 is what the budget will cite.
 
@@ -95,14 +106,28 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
 
 ### Decisions
 
-- **D1 Emit-generation arena.** `userspace/dsl/runtime/src/arena.rs`: two fixed-capacity
-  generation buffers (`GEN_ARENA_BYTES`, sized from the largest app scene + margin, asserted by
-  a budget probe); `View::dispatch` emits generation g+1 into the idle buffer, swaps, and the
-  previous buffer is reset wholesale (no per-object free). app-host hands the arena its backing
-  range once (`nexus-service-entry` exposes an arena carve-out, base heap unchanged). Rationale
-  vs a free-list allocator: bump + generation reset is O(1), fragmentation-free and
-  deterministic — the property every OS service relies on; a free-list would import the
-  fragmentation problem into every service for one consumer.
+- **D1 Generation arena, in the SERVICE ALLOCATOR — not in the DSL runtime** (ADR-0065,
+  revised 2026-09-20 by measurement). `nexus-service-entry` gains a second fixed-capacity
+  region beside the base heap plus a SCOPE: inside the scope allocation comes from the arena,
+  outside it from the base heap exactly as today, so a service that never opens a scope is
+  bit-for-bit unaffected. Two generations, because app-host provably needs exactly two — it
+  holds `old_boxes`/`old_texts` to diff against the new ones (`probe/interaction.rs`). Opening
+  *g+1* resets *g-1* wholesale: one pointer, no per-object free.
+
+  app-host opens the scope around the **layout + text phase** (`probe/scroll.rs::
+  relayout_retained`) — the dominant allocator, and verified free of store writes: it reads
+  `view.scene()` and writes `self.layout` / `self.texts`, nothing else. **Durable state never
+  enters a generation**; the rule is not "what is big" but "what outlives one frame".
+
+  *Why not the original placement:* `userspace/dsl/runtime/src/arena.rs` would have recycled
+  the ~100 KiB emit and left the ~226 KiB layout leaking, because the layout engine runs in
+  app-host. *Why not a free-list allocator:* it would import fragmentation and nondeterministic
+  allocation latency into every service — including the boot path — to serve one consumer.
+
+  **The one real hazard, named:** an allocation made inside a scope must not outlive its
+  generation. Contained by keeping the scope to one phase with no store writes, by making it a
+  closed API rather than a mode a caller can leave open, and by P1's proof.
+
 - **D2 Dual structure deleted.** Once D1 is proven, `heap-16m` for app-host returns to the
   honest floor (`heap-4m` + arena) and the 50/75/90 % watermark-workaround markers are removed;
   gate = `just contract-image-budgets` (24 → 14 MB ceiling restored) + the heap-steady test.
@@ -119,14 +144,32 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
 - **D5 Proof home.** `tests/dsl_conformance` (heap/emit counters via the host runtime) + the
   app-host visible lane; no new crate.
 
+### architecture-review verdict (P0, 2026-09-20)
+
+- **Scope** — in: `source/libs/nexus-service-entry` (second region + a closed generation-scope
+  API; approval zone), `source/services/app-host` (opens the scope around `relayout_retained`,
+  heap feature back to the honest floor), `scripts/check-image-budgets.sh`, the proof-manifest
+  marker, `tests/dsl_conformance`. Explicitly OUT: the DSL runtime (measurement says the cost
+  is not there), any change to `dealloc` semantics for unscoped services, subtree re-emit
+  (→ TASK-0145B P3), and every latency/boot question (→ TASK-0145B / TASK-0269B).
+- **Invariant** — nothing allocated inside a generation outlives it, and durable state never
+  enters one. Negative proof: `test_reject_*` that a store write inside a scope is not
+  reachable (the scope is a closed API around a phase that provably performs none), plus a
+  host test that a generation's memory is REUSED after reset — a reset that quietly keeps
+  growing would pass a "hwm flat" test on a big enough heap.
+- **Contract** — ADR-0065, narrowing `nexus-service-entry`'s allocator under an explicit
+  scope. No RFC: no new syscall, wire format or service API; the ABI is untouched.
+
 ### Packages
 
-- **P0** ADR "emit-generation arena in the DSL runtime" (docs/adr, next free number) +
-  `architecture-review`. Blast: paper.
-- **P1** Arena + View integration + heap-steady host test (10 000 dispatches over the chat +
-  settings scenes). Blast: `dsl_conformance`, `dsl_goldens`, `dsl_apps_conformance`.
-- **P2** app-host wiring + QEMU marker `apphost: heap steady (gen=<n> hwm=<bytes>)` (printed
-  with numbers after 500 scripted interactions in the visible lane). Blast: visible, smp1.
+- **P0** ✅ ADR-0065 + `architecture-review` verdict + this revision. Blast: paper.
+- **P1** The scope in `nexus-service-entry` (second region + generation API + budget probe) and
+  a host proof that a generation resets wholesale and nothing survives it. Zone: `source/libs`
+  (approval). Blast: every service links this crate — the proof that an unscoped service is
+  unchanged is part of the package.
+- **P2** app-host opens the scope around `relayout_retained`, plus the QEMU marker
+  `apphost: heap steady (gen=<n> hwm=<bytes>)` with numbers after scripted interactions in the
+  visible lane. Blast: visible, smp1.
 - **P3** D2 deletion (heap floor back, watermark markers out, image budget restored).
   Blast: `contract-image-budgets`, every app-host lane.
 - **P4 / P5 RETIRED.** P4 (subtree re-emit) → TASK-0145B P3, see D3. P5 (docs) is not a
