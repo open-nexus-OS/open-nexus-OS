@@ -163,10 +163,32 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
 ### Packages
 
 - **P0** ✅ ADR-0065 + `architecture-review` verdict + this revision. Blast: paper.
-- **P1** The scope in `nexus-service-entry` (second region + generation API + budget probe) and
-  a host proof that a generation resets wholesale and nothing survives it. Zone: `source/libs`
-  (approval). Blast: every service links this crate — the proof that an unscoped service is
-  unchanged is part of the package.
+- **P1** ✅ **2026-09-20** The scope in `nexus-service-entry`. `src/generation.rs` is the RULE
+  with no allocator, no statics and no cfg gate, so it is proven on the host (7 tests); the
+  OS-only `GlobalAlloc` glue asks it where the next byte goes. `frame-arena` is opt-in, so a
+  service that does not enable it has a zero-sized region. `FrameGeneration` is a Drop guard,
+  not an open/close pair — a scope left open by an early return is the one hazard this design
+  has, and a guard removes it. `arena_stats()` is the probe's read side for P2.
+
+  **The unscoped-service claim, measured instead of asserted** (`logd`, release, riscv64):
+  `.text` 43 734 B and `.bss` 393 264 B **identical** before and after; the ELF differs by
+  −2 160 B in non-loaded debug sections only. ADR-0065 said "bit-for-bit unaffected" — that was
+  never measured and is false of the FILE; it is true of the code and the memory, and the ADR
+  now says so.
+
+  ⭐ **Two corrections the build forced, both recorded in the ADR:**
+  1. **`alloc_zeroed` would have handed back the frame from two frames ago.** The base bump can
+     skip zeroing because it only ever returns untouched `.bss`; the arena reuses memory. It
+     zeroes explicitly now. This is the exact class of bug the "nothing outlives its
+     generation" invariant exists for, and it was one line from shipping.
+  2. **Exhaustion is loud, not fatal.** The first design made an oversized frame an allocation
+     failure, i.e. the service dies mid-frame. A frame that outgrows its generation now SPILLS
+     to the base heap and sets a sticky flag the gate asserts stays false — today's behaviour,
+     made visible. "Silent" was the property worth ending; "survivable" was not.
+
+  Also: `lib.rs` hit the 600-LOC ratchet, so the UART writers moved to `src/debug_write.rs` —
+  a real seam (every caller runs where allocation is impossible: the allocator, the panic
+  handler, the alloc-error handler), not a dumping ground.
 - **P2** app-host opens the scope around `relayout_retained`, plus the QEMU marker
   `apphost: heap steady (gen=<n> hwm=<bytes>)` with numbers after scripted interactions in the
   visible lane. Blast: visible, smp1.

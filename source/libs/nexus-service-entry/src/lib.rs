@@ -15,6 +15,16 @@
 //! INVARIANTS: Provides deterministic panic/log handling and a tiny bump allocator
 //! ADR: docs/adr/0017-service-architecture.md
 
+// The arena RULE, kept free of the allocator so it can be proven on the host
+// (ADR-0065). Under `nexus_env="os"` the `GlobalAlloc` glue below consumes it;
+// on the host only the unit tests do — hence the cfg-conditional allow, in the
+// shape this tree already uses for host-tested SSOT logic
+// (`windowd/src/interaction.rs`). Never a blanket allow.
+#[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
+mod generation;
+
+mod debug_write;
+
 /// Declares the `_start` entry point for OS builds, delegating to `bootstrap`.
 ///
 /// Services should expose an `fn os_entry() -> Result<(), E>` and invoke this macro:
@@ -111,7 +121,10 @@ pub mod os {
     use core::slice;
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    use nexus_abi::{debug_putc, exit};
+    use crate::debug_write::{
+        debug_write_byte, debug_write_bytes, debug_write_dec, debug_write_hex, debug_write_str,
+    };
+    use nexus_abi::exit;
     #[cfg(feature = "alloc-log")]
     use nexus_log;
     use nexus_sync::SpinLock;
@@ -148,10 +161,29 @@ pub mod os {
     };
     static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
+    /// The frame arena (ADR-0065), OPT-IN per service: a service that does not
+    /// enable `frame-arena` does not get the array, so its image and its .bss
+    /// are unchanged to the byte. Only a service that rebuilds and discards a
+    /// frame on every interaction needs it, and today that is the app-host.
+    ///
+    /// Sized from the measurement in TASK-0077C — one layout call allocates
+    /// 226 560 B against 119 824 B retained — with room for the text runs
+    /// beside it. Two halves, so one generation is 512 KiB. The budget probe
+    /// prints the real peak; this is a ceiling to tighten against, not a guess
+    /// to live with.
+    #[cfg(feature = "frame-arena")]
+    const ARENA_SIZE: usize = 1024 * 1024;
+    #[cfg(not(feature = "frame-arena"))]
+    const ARENA_SIZE: usize = 0;
+    static mut ARENA: [u8; ARENA_SIZE] = [0; ARENA_SIZE];
+
     struct Bump {
         start: usize,
         end: usize,
         current: usize,
+        /// The frame arena. Empty and inert unless a service opts in AND opens
+        /// a scope; `place()` then answers `BaseHeap` and nothing changes.
+        gens: crate::generation::Generations,
         /// Reported high-water marks (bitmask 50/75/90%): bump exhaustion
         /// was a silent freeze — one UART line per threshold warns first.
         watermarks: u8,
@@ -159,7 +191,13 @@ pub mod os {
 
     impl Bump {
         const fn empty() -> Self {
-            Self { start: 0, end: 0, current: 0, watermarks: 0 }
+            Self {
+                start: 0,
+                end: 0,
+                current: 0,
+                watermarks: 0,
+                gens: crate::generation::Generations::empty(),
+            }
         }
 
         fn init(&mut self, base: usize, size: usize) {
@@ -167,7 +205,20 @@ pub mod os {
                 self.start = base;
                 self.end = base + size;
                 self.current = base;
+                #[allow(static_mut_refs)]
+                unsafe {
+                    self.gens.init(ARENA.as_mut_ptr() as usize, ARENA_SIZE);
+                }
                 log_alloc_init(base, self.end);
+            }
+        }
+
+        /// The arena's answer for this layout, or `None` when the base heap
+        /// below should serve it (no scope open, no arena, or a spill).
+        fn arena_alloc(&mut self, layout: Layout) -> Option<*mut u8> {
+            match self.gens.place(layout.size(), layout.align()) {
+                crate::generation::Place::Arena(addr) => Some(addr as *mut u8),
+                crate::generation::Place::BaseHeap => None,
             }
         }
 
@@ -267,6 +318,45 @@ pub mod os {
         }
     }
 
+    /// A frame generation, open until this guard drops (ADR-0065).
+    ///
+    /// While it lives, allocations come from the arena instead of the base
+    /// heap, and the generation opened two frames ago is reset. A guard rather
+    /// than an open/close pair on purpose: a scope left open by an early return
+    /// would put a later store write into memory that is about to be reused,
+    /// and that is the one hazard this design has.
+    ///
+    /// A service that did not enable `frame-arena`, or one whose arena is not
+    /// armed, gets a guard that changes nothing.
+    #[must_use = "the generation closes when this guard drops; binding it to `_` closes it at once"]
+    pub struct FrameGeneration {
+        _private: (),
+    }
+
+    /// Opens the next frame generation. See [`FrameGeneration`].
+    pub fn frame_generation() -> FrameGeneration {
+        ALLOCATOR.ensure_init();
+        ALLOCATOR.inner.lock().gens.open();
+        FrameGeneration { _private: () }
+    }
+
+    impl Drop for FrameGeneration {
+        fn drop(&mut self) {
+            ALLOCATOR.inner.lock().gens.close();
+        }
+    }
+
+    /// Arena introspection for the budget probe: `(peak_bytes, spilled, size)`.
+    ///
+    /// `spilled` is the one that matters: it means a frame did not fit and the
+    /// base heap served the remainder — the leak this arena exists to end,
+    /// still happening. The gate asserts it is false.
+    pub fn arena_stats() -> (usize, bool, usize) {
+        ALLOCATOR.ensure_init();
+        let bump = ALLOCATOR.inner.lock();
+        (bump.gens.peak(), bump.gens.spilled(), ARENA_SIZE)
+    }
+
     /// Heap introspection for proofs: (start, current, end).
     pub fn heap_cursor() -> (usize, usize, usize) {
         ALLOCATOR.ensure_init();
@@ -286,6 +376,11 @@ pub mod os {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             ALLOCATOR.ensure_init();
             let mut bump = ALLOCATOR.inner.lock();
+            // The open generation answers first; outside a scope this is a
+            // single branch and the base heap serves exactly as before.
+            if let Some(ptr) = bump.arena_alloc(layout) {
+                return ptr;
+            }
             let heap_start = bump.start;
             let heap_end = bump.end;
             let cur_before = bump.current;
@@ -315,6 +410,15 @@ pub mod os {
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
             ALLOCATOR.ensure_init();
             let mut bump = ALLOCATOR.inner.lock();
+            // The open generation answers first — but it must be ZEROED here.
+            // The base heap below can skip that because a never-freeing bump
+            // only ever hands out untouched `.bss`, which is already zero; the
+            // arena REUSES memory, so without this it would hand back the
+            // frame from two frames ago.
+            if let Some(ptr) = bump.arena_alloc(layout) {
+                ptr::write_bytes(ptr, 0, layout.size());
+                return ptr;
+            }
             let heap_start = bump.start;
             let heap_end = bump.end;
             let cur_before = bump.current;
@@ -442,20 +546,6 @@ pub mod os {
         }
     }
 
-    fn debug_write_bytes(bytes: &[u8]) {
-        for &byte in bytes {
-            let _ = debug_putc(byte);
-        }
-    }
-
-    fn debug_write_byte(byte: u8) {
-        let _ = debug_putc(byte);
-    }
-
-    fn debug_write_str(s: &str) {
-        debug_write_bytes(s.as_bytes());
-    }
-
     #[inline(always)]
     fn service_name() -> &'static str {
         let ptr = SERVICE_NAME_PTR.load(Ordering::Relaxed);
@@ -485,36 +575,6 @@ pub mod os {
     pub fn set_service_name(name: &'static str) {
         SERVICE_NAME_PTR.store(name.as_ptr() as usize, Ordering::Relaxed);
         SERVICE_NAME_LEN.store(name.len(), Ordering::Relaxed);
-    }
-
-    fn debug_write_hex(mut value: usize) {
-        const HEX: &[u8; 16] = b"0123456789abcdef";
-        let mut buf = [0u8; core::mem::size_of::<usize>() * 2];
-        for idx in (0..buf.len()).rev() {
-            buf[idx] = HEX[(value & 0xF) as usize];
-            value >>= 4;
-        }
-        for byte in &buf {
-            let _ = debug_putc(*byte);
-        }
-    }
-
-    fn debug_write_dec(mut value: u64) {
-        let mut buf = [0u8; 20];
-        let mut idx = buf.len();
-        if value == 0 {
-            idx -= 1;
-            buf[idx] = b'0';
-        } else {
-            while value != 0 {
-                idx -= 1;
-                buf[idx] = b'0' + (value % 10) as u8;
-                value /= 10;
-            }
-        }
-        for byte in &buf[idx..] {
-            let _ = debug_putc(*byte);
-        }
     }
 
     fn log_service_error<E>(_err: &E) {

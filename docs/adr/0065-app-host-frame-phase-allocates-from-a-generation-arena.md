@@ -55,8 +55,15 @@ allocator owns that scope.**
 
 - `nexus-service-entry` gains a second, fixed-capacity region — the generation arena — carved
   out beside the base heap, and a scope API. Inside the scope, allocation comes from the
-  arena; outside it, from the base heap exactly as today. Services that never open a scope are
-  bit-for-bit unaffected.
+  arena; outside it, from the base heap exactly as today. The region is **opt-in per service**
+  (`frame-arena`): without it the array is zero-sized, so nothing else pays a byte.
+
+  Measured rather than asserted (2026-09-20, `logd` release for `riscv64imac-unknown-none-elf`,
+  before vs after): **`.text` 43 734 B identical, `.bss` 393 264 B identical**. The ELF file
+  differs by −2 160 B in non-loaded debug sections only, a side effect of splitting the UART
+  writers into their own module. An earlier draft of this ADR claimed "bit-for-bit unaffected";
+  that was not measured and is not true of the file — it is true of the code and the memory,
+  which is what the claim needed to be.
 - The arena holds **two generations**. Opening generation *g+1* makes *g* the retained one and
   resets *g-1* **wholesale** — one pointer, no per-object free. Two, because app-host provably
   needs exactly two: it keeps the previous boxes and texts alive to diff against the new ones
@@ -81,12 +88,17 @@ allocator owns that scope.**
   guessed: ~2 × (retained boxes + texts + scene) plus churn headroom, asserted by a budget
   probe in the task — an early estimate of 256 KiB was made against the emit-only figure and
   was wrong; the layout numbers above are why the probe exists.
-- **New failure mode, deliberately chosen:** a frame phase that allocates more than the arena
-  holds fails at a *known* point with a named error, instead of silently consuming headroom
-  until the service dies at an arbitrary later click. Exhaustion becomes an assertion rather
-  than a freeze.
+- **Exhaustion is loud, not fatal (revised during P1).** A frame that outgrows its generation
+  SPILLS the remainder to the base heap and sets a sticky `spilled` flag the budget probe
+  reports and the gate asserts stays false. The service keeps exactly the behaviour it has
+  today — a base-heap allocation — instead of dying mid-frame, and the condition is visible
+  and gateable rather than silent. An earlier draft made exhaustion a fatal allocation failure;
+  killing a UI on a large frame is not an improvement on leaking slowly, and "silent" was the
+  property worth ending, not "survivable".
 - **New invariant to keep honest:** an allocation made inside a scope must not outlive its
-  generation. This is the one real hazard. It is contained by keeping the scope narrow (one
+  generation. `alloc_zeroed` is the sharp edge and is handled: the base bump can skip zeroing
+  because it only ever hands out untouched `.bss`, but the arena REUSES memory, so it zeroes
+  explicitly — without that it would hand back the frame from two frames ago. This is the one real hazard. It is contained by keeping the scope narrow (one
   phase, no store writes) and by the task's proof, and it is why the scope is a closed API and
   not a free-floating "arena mode" a caller can leave open.
 - Every other service keeps the bump exactly as it is. No service floor changes.
