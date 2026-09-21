@@ -161,7 +161,7 @@ The complete just-target catalog (incl. per-TASK proof floors) lives in [os-mark
 
 ## Test logs
 
-All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (`latest` symlink can be stale — prefer the newest run directory). See [`docs/testing/run-logs.md`](run-logs.md) for the run-directory layout, the `hypothesis.json` decode grid (H1..H5, H4 = build errors, H4b = build warnings, …), and `just logs-gc [keep]` pruning.
+All test/QEMU runs write to `build/logs/<profile>--<timestamp>/` (`latest` symlink can be stale — prefer the newest run directory). The reference board's console is captured the same way by `just board-serial` — `build/logs/board--<timestamp>/uart.log` (`latest-board` symlink), so the marker tools read a board log without knowing the difference (TASK-0327; `docs/board/bpi-f3.md`). See [`docs/testing/run-logs.md`](run-logs.md) for the run-directory layout, the `hypothesis.json` decode grid (H1..H5, H4 = build errors, H4b = build warnings, …), and `just logs-gc [keep]` pruning.
 
 ## Document map
 

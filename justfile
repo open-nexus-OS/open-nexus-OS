@@ -23,6 +23,26 @@ export PATH := env_var("HOME") / ".cargo/bin:" + env_var("PATH")
 default: help
 
 # -----------------------------------------------------------------------------
+# Reference board (TASK-0327, Block 0 of the hardware fast track). Thin
+# wrappers: the behaviour and the exit codes live in scripts/board-*.sh so the
+# proof lane (TASK-0327B) and a human use the same code. docs/board/bpi-f3.md.
+# -----------------------------------------------------------------------------
+board-devices *args:
+    @scripts/board-devices.sh {{args}}
+
+board-inputs:
+    @scripts/fetch-board-inputs.sh
+
+board-serial *args:
+    @scripts/board-serial.sh {{args}}
+
+board-flash *args:
+    @scripts/board-flash.sh {{args}}
+
+board-ack MARKER:
+    @scripts/board-ack.sh {{MARKER}}
+
+# -----------------------------------------------------------------------------
 # DSL toolchain (TASK-0075): builds the nx-dsl backend and runs it directly,
 # or through the `nx dsl` shim (NX_DSL_BACKEND delegation).
 #   just dsl lint ui/pages/Home.nx      just dsl build -o target/dsl app.nx
@@ -48,6 +68,13 @@ help:
     @echo "  just lint                # clippy (host cfg, exclude kernel)"
     @echo "  just miri-strict         # miri (no FS/network) for samgr,bundlemgr"
     @echo "  just miri-fs             # miri with FS isolation disabled"
+    @echo
+    @echo "[Reference board (TASK-0327; docs/board/bpi-f3.md)]"
+    @echo "  just board-devices       # is the board connected, and in which mode (stock / download)? + serial adapter"
+    @echo "  just board-inputs        # fetch + verify the pinned vendor boot pieces (~250 MB once)"
+    @echo "  just board-serial [PORT] # debug UART console, logged to build/logs/board--<ts>/uart.log"
+    @echo "  just board-flash [--stage-only] # boot ROM → SPL → U-Boot in RAM (+ flash the boot vehicle to eMMC)"
+    @echo "  just board-ack MARKER=x  # a human check becomes a 'board-visual: x' marker in the board log"
     @echo
     @echo "[Kernel Developers]"
     @echo "  just build-kernel        # cross-compile kernel (riscv)"

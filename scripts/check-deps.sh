@@ -320,6 +320,13 @@ else
          "scripts/install-board-access.sh   (then log out and in)"
   fi
 
+  if scripts/fetch-board-inputs.sh --check >/dev/null 2>&1; then
+    ok "vendor boot pieces fetched and pinned (just board-flash)"
+  else
+    soft "vendor boot pieces not fetched — 'just board-flash' has nothing to stage" \
+         "just board-inputs   (~250 MB download, once)"
+  fi
+
   if command -v lsusb >/dev/null 2>&1; then
     boards="$(lsusb 2>/dev/null | grep -i ' 361c:' || true)"
     if [ -n "$boards" ]; then

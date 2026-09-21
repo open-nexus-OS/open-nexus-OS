@@ -1,6 +1,6 @@
 ---
 title: TASK-0327 Board developer tooling: one command installs the flash/serial tools on Ubuntu, Arch and Fedora + `just board-*`
-status: In Progress (T0 Paper + T1 Packages/permissions/doctor Done 2026-09-21 — `make doctor` green on the desk box, board seen as 361c:0008; T2 Recipes next)
+status: In Progress (T0, T1 Done; T2 Recipes built 2026-09-21 — fetch pipeline + recipes proven on the desk box; gate open: the board's download mode (`--stage-only`) needs a hand on the FDL key)
 owner: @devx @runtime
 created: 2026-09-21
 depends-on: []
@@ -140,7 +140,27 @@ download mode, `just board-serial` shows the stock system's console (adapter req
   serial group substituted + `usermod -aG`; idempotent; `--check`), `check-deps.sh` "Board tools"
   section, Makefile steps 1/7…7/7 (6/7 = board access, `BOARD=0` skips), README. Gate: `--print-packages`
   ×3 families, `make doctor` on the desk box shows the board line.
-- **T2 Recipes + provenance + docs** — `scripts/board-devices.sh`, `board-serial.sh`, `board-flash.sh`,
+- **T2 Recipes + provenance + docs — built 2026-09-21.** `scripts/board-devices.sh` (mode
+  `stock|download|other|none`, `--mode`, `--serial`; exit 3 without a board), `board-serial.sh`
+  (picocom 115200 8N1, log tee'd to `build/logs/board--<ts>/uart.log` + `latest-board`; `--capture`
+  for the lane), `board-ack.sh` (refuses names the manifest does not declare — the `board-visual:`
+  names arrive with `TASK-0327B`'s `markers/board.toml`, so today it can only refuse), `board-flash.sh`
+  (follows the vendor's own `fastboot.yaml` step for step: `getvar version-brom` decides whether to
+  stage; `--stage-only` writes nothing and prints `getvar all`; the write path flashes the vendor
+  BOOT VEHICLE only — GPT + bootinfo/fsbl/env/opensbi/uboot — with a prompt and a banner naming the
+  chain), `fetch-board-inputs.sh` (vendor archive pinned by SHA-256, the eight pieces pinned each,
+  python `zipfile` — no `unzip` on the box — cache under `vendor/.cache/`, all gitignored),
+  `fetch-inputs.sh --board`, `just board-*` + help, `docs/board/bpi-f3.md`,
+  `resources/board/bpi-f3/PROVENANCE.md`. **Measured from the vendor pieces (closes the YELLOW):**
+  the vendor's universal partition table itself uses `factory/bootinfo_sd.bin` for eMMC; layout
+  `bootinfo` 0K/512 hidden, `fsbl` 128K/256K, `env` 384K/64K, `opensbi` 1M/1M, `uboot` 2M/2M,
+  `bootfs` 4M/256M, `rootfs` 260M/rest; `fw_dynamic.itb` loads at `0x0`, the vendor U-Boot at
+  `0x0020_0000`, its FIT carries one DTB per vendor board variant (`k1-x_deb1`, …) — R1 material.
+  Proven on the desk box: fetch from cache 0.8 s, second run a no-op, `--check --board` green,
+  doctor row green, every recipe's precondition honest (stock mode → `board-flash` exit 3, no
+  adapter → `board-serial` exit 3). **Open:** the `--stage-only` run against the boot ROM (R13:
+  timing of `continue`, the `getvar all` set) needs the board in download mode — the FDL key.
+  Former text: `scripts/board-devices.sh`, `board-serial.sh`, `board-flash.sh`,
   `board-ack.sh`, `fetch-inputs.sh --board` (pins + license files under `resources/board/bpi-f3/`,
   gitignored payloads), `docs/board/bpi-f3.md`. Gate: end to end against the connected board (R13
   measured here: `bootinfo_sd` vs `bootinfo_emmc`, stage sizes/timing, `continue` wait), serial log
@@ -165,8 +185,8 @@ download mode, `just board-serial` shows the stock system's console (adapter req
 - **RED (blocks T2's serial proof):** no USB-UART adapter is connected to the desk box; the board's
   3-pin UART0 header is 3.3 V TTL, 115200 8N1. The flash half (fastboot over the USB2 OTG port) does
   not need it; the marker ladder does.
-- **YELLOW:** `bootinfo_sd.bin` vs `bootinfo_emmc.bin` for an eMMC install — two sources disagree;
-  measured in T2 against the vendor json before the recipe hardcodes either. The download key is
+- **GREEN (was YELLOW, measured 2026-09-21):** the vendor's `partition_universal.json` uses `bootinfo_sd.bin`
+  for eMMC too; the recipe follows the json, `bootinfo_emmc.bin` is kept only for Block 1's R1. The download key is
   labelled `FDL` on the board; an installed system does not enter download mode on its own.
 - **YELLOW:** distro `android-udev` rule sets do not carry `361c`; our rule is not optional.
 - **GREEN:** `fastboot` from `android-tools` speaks the boot-ROM's protocol (the vendor's "flashserver"

@@ -80,3 +80,6 @@ tmp*.rs
 .tmp/
 __pycache__/
 resources/fonts/noto/*.otf
+
+# TASK-0327: pinned vendor boot pieces for the reference board (fetched, never committed)
+resources/board/*/vendor/

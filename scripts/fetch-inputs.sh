@@ -18,6 +18,8 @@
 #   scripts/fetch-inputs.sh --submodules     # submodules only
 #   scripts/fetch-inputs.sh --fonts          # pinned fonts only
 #   scripts/fetch-inputs.sh --check          # report only, exit 3 if incomplete
+#   scripts/fetch-inputs.sh --board          # ALSO the pinned vendor boot pieces for the
+#                                            # reference board (~250 MB once; opt-in, TASK-0327)
 #   scripts/fetch-inputs.sh --list-submodules  # print the paths, one per line
 #
 # Exit codes:
@@ -51,12 +53,14 @@ declare -A SUBMODULE_PROBE=(
 
 DO_SUBMODULES=1
 DO_FONTS=1
+DO_BOARD=0
 CHECK_ONLY=0
 
 for arg in "$@"; do
   case "$arg" in
     --submodules) DO_FONTS=0 ;;
     --fonts)      DO_SUBMODULES=0 ;;
+    --board)      DO_BOARD=1 ;;
     --check)      CHECK_ONLY=1 ;;
     --list-submodules)
       printf '%s\n' "${BUILD_SUBMODULES[@]}"
@@ -108,6 +112,17 @@ if [ "$DO_FONTS" = 1 ]; then
     fi
   else
     scripts/fetch-fonts.sh
+  fi
+fi
+
+# The board's vendor boot pieces are an INPUT of `just board-flash`, not of the
+# build: opt-in, so `make initial-setup` never downloads 250 MB for a box that
+# will never see the board. `--check --board` reports them like the rest.
+if [ "$DO_BOARD" = 1 ]; then
+  if [ "$CHECK_ONLY" = 1 ]; then
+    scripts/fetch-board-inputs.sh --check || missing=1
+  else
+    scripts/fetch-board-inputs.sh
   fi
 fi
 
