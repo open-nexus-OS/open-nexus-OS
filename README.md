@@ -83,7 +83,10 @@ idempotent, so run it afterwards either way.)
 the `clippy`/`rustfmt`/`rust-src`/`llvm-tools-preview`/`miri` components),
 `cargo-deny` and `cargo-nextest`, fetches the declared build inputs (three
 submodules + pinned Noto fonts), wires `scripts/fmt-clippy-deny.sh` as your
-`pre-commit` hook, and finishes with `make doctor`.
+`pre-commit` hook, installs the board tools (`fastboot`, a serial terminal,
+`mkimage`, `dtc`, `sgdisk`) plus the udev rule and serial-group membership that
+let `just board-*` reach the reference board without sudo, and finishes with
+`make doctor`.
 
 Useful flags:
 
@@ -92,6 +95,7 @@ Useful flags:
 | `YES=1` | non-interactive (no sudo prompt) |
 | `GUI=0` | skip GTK/EGL/virgl — headless lanes only, `just start` will not work |
 | `PODMAN=0` | skip the rootless-podman checks; use `make build MODE=host` |
+| `BOARD=0` | skip the board flash/serial tools + udev rule — no reference board on this host |
 
 Then try a build and a boot:
 
@@ -110,8 +114,10 @@ Verifies **capabilities**, not package names — binaries on `PATH`, Python ≥ 
 the pinned toolchain/target/components, `llvm-objcopy`, that QEMU knows the
 `virt` machine and the `gtk` + `egl-headless` display backends (which is what
 `just start` actually needs), that the submodules and pinned fonts are present,
-and that podman runs rootless. Every failure prints the exact command that fixes
-it. No sudo, runs in seconds.
+that podman runs rootless, and that the board tools, udev rule and serial group
+are in place (with an informational line when a board or a USB-UART adapter is
+actually connected). Every failure prints the exact command that fixes it. No
+sudo, runs in seconds.
 
 `just start` opens a real virgl window (`-display gtk,gl=on`). On Debian/Ubuntu
 the GTK and OpenGL display backends live in packages separate from the RISC-V

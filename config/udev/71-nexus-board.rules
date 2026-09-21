@@ -1,0 +1,26 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: host access to the reference board over USB without sudo
+#          (TASK-0327, Block 0 of the hardware fast track). The board's SoC
+#          (SpaceMiT K1) uses USB vendor id 361c in every mode we know:
+#            0008  the stock system's gadget (adb)        — what `lsusb` shows today
+#            1001  boot-ROM download mode / U-Boot fastboot — what `just board-flash` needs
+#          Matching the vendor id alone covers both and any mode we have not
+#          seen yet; nothing else on a developer box uses 361c.
+#
+#          `uaccess` hands the device to the logged-in seat user (systemd-logind,
+#          all three supported distros); the GROUP line covers sessions without
+#          a seat (ssh). __NEXUS_SERIAL_GROUP__ is substituted at install time
+#          by scripts/install-board-access.sh with the distro's serial group
+#          (dialout on Debian/Ubuntu/Fedora, uucp on Arch) — the same group that
+#          owns the USB-UART adapter's /dev/ttyUSB*, so ONE membership grants
+#          both the flash port and the console.
+#          ID_MM_DEVICE_IGNORE keeps a modem manager from probing the port.
+# OWNERS:  @tools-team
+# STATUS:  Functional
+# API_STABILITY: Stable (installed copy: /etc/udev/rules.d/71-nexus-board.rules)
+# TEST_COVERAGE: scripts/check-deps.sh ("Board tools" section)
+# DEPENDS_ON: systemd-udev
+
+SUBSYSTEM=="usb", ATTR{idVendor}=="361c", MODE="0660", GROUP="__NEXUS_SERIAL_GROUP__", TAG+="uaccess", ENV{ID_MM_DEVICE_IGNORE}="1"

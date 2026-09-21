@@ -39,7 +39,7 @@ SMP, a real browser with a real network — interleaved, because they depend on 
 
 | # | Lane | State | Next |
 |---|---|---|---|
-| 0 | **Block 0 — Tooling** (one command installs the flash/serial tools on Ubuntu, Arch, Fedora) | **In Progress** — T0 Paper done 2026-09-21 (`TASK-0327` end state + host measurement; `0327B` seeded; `0081` duplicate → `0209`) | T1 Packages |
+| 0 | **Block 0 — Tooling** (one command installs the flash/serial tools on Ubuntu, Arch, Fedora) | **In Progress** — T0 ✅; T1 built 2026-09-21 (`BOARD` lists ×3, `install-board-access.sh` + udev rule, doctor section, Makefile 7 steps) — gate = `make doctor` green on the desk box after the install runs there | T1 gate → T2 Recipes |
 | 1 | **Block 1 — First picture** (the OS boots from eMMC over the target boot chain and shows the desktop on the HDMI monitor) | ledgers to recut at B1.0 | after Block 0 |
 | 2 | **Block 2 — USB input** (keyboard + mouse over USB; proven in QEMU first) | ⬜ `TASK-0328` seeded | after Block 1 |
 | 3 | **Block 3 — Sub-80 remainder** (`0074 → 0066 → 0067 → 0067B → 0068`) | ledgers are end-state | after Block 2 |

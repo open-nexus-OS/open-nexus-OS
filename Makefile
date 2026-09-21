@@ -34,30 +34,37 @@ SELINUX_LABEL := $(shell command -v selinuxenabled >/dev/null 2>&1 && selinuxena
 #   YES=1      non-interactive (no sudo prompt, no y/N)
 #   GUI=0      skip GTK/EGL/virgl — headless only, `just start` will not work
 #   PODMAN=0   skip the rootless-podman checks (use `make build MODE=host`)
+#   BOARD=0    skip the board flash/serial tools + udev rule (no reference board)
 initial-setup:
-	@echo "==> [1/6] Checking workspace location"
+	@echo "==> [1/7] Checking workspace location"
 	@# Rootless podman maps this tree into a user namespace and cargo writes
 	@# target/ as the invoking user: both need a user-owned path under $$HOME.
 	@./scripts/check-deps.sh --workspace-only
-	@echo "==> [2/6] Installing host packages"
-	@./scripts/install-deps.sh $(if $(YES),--yes,) $(if $(filter 0,$(GUI)),--no-gui,)
-	@echo "==> [3/6] Fetching declared build inputs (submodules + pinned fonts)"
+	@echo "==> [2/7] Installing host packages"
+	@./scripts/install-deps.sh $(if $(YES),--yes,) $(if $(filter 0,$(GUI)),--no-gui,) $(if $(filter 0,$(BOARD)),--no-board,)
+	@echo "==> [3/7] Fetching declared build inputs (submodules + pinned fonts)"
 	@./scripts/fetch-inputs.sh
-	@echo "==> [4/6] Checking podman rootless support"
+	@echo "==> [4/7] Checking podman rootless support"
 ifeq ($(PODMAN),0)
 	@echo "[skip] PODMAN=0 — use 'make build MODE=host'"
 else
 	@./scripts/check-rootless.sh
 endif
-	@echo "==> [5/6] Wiring the pre-commit gate as a git hook"
+	@echo "==> [5/7] Wiring the pre-commit gate as a git hook"
 	@if [ -e .git/hooks/pre-commit ]; then \
 	  echo "[skip] .git/hooks/pre-commit already exists — leaving it alone"; \
 	else \
 	  ln -sf ../../scripts/fmt-clippy-deny.sh .git/hooks/pre-commit && \
 	  echo "[ok] .git/hooks/pre-commit -> scripts/fmt-clippy-deny.sh"; \
 	fi
-	@echo "==> [6/6] Verifying the result"
-	@GUI=$(if $(filter 0,$(GUI)),0,1) PODMAN=$(if $(filter 0,$(PODMAN)),0,1) ./scripts/check-deps.sh
+	@echo "==> [6/7] Board access (udev rule for the reference board + serial group)"
+ifeq ($(BOARD),0)
+	@echo "[skip] BOARD=0 — 'just board-*' will not work on this host"
+else
+	@./scripts/install-board-access.sh $(if $(YES),--yes,)
+endif
+	@echo "==> [7/7] Verifying the result"
+	@GUI=$(if $(filter 0,$(GUI)),0,1) PODMAN=$(if $(filter 0,$(PODMAN)),0,1) BOARD=$(if $(filter 0,$(BOARD)),0,1) ./scripts/check-deps.sh
 	@echo ""
 	@echo "Optional: ./tools/qemu/build-modern.sh builds a QEMU with force-modern"
 	@echo "virtio-mmio defaults. Not required — the canonical harness passes"

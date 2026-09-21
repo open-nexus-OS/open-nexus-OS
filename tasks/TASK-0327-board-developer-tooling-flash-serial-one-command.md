@@ -124,8 +124,10 @@ its `BOARD=0` flag.
 - `docs/board/bpi-f3.md` — the boot-ROM sequence, download-mode entry, USB ids, serial pins, the
   partition set, the vendor-archive provenance, and the pitfalls measured in T2.
 
-**Gates:** `make doctor` green on all three families in the existing per-family container smoke
-(`scripts/`, the way `install-deps.sh` is already proven) with the new section; on the desk box:
+**Gates:** `NEXUS_FORCE_FAMILY=debian|fedora|arch scripts/install-deps.sh --print-packages` resolves the
+`BOARD` tables on any host (the script's own stated test coverage — there is no per-family container
+smoke in the tree; measured 2026-09-21), `bash -n` on every script, `make doctor` green on the desk box
+with the new section; on the desk box:
 `just board-devices` finds `361c:0008`, `fastboot devices` lists the board once it is put into
 download mode, `just board-serial` shows the stock system's console (adapter required — see RED).
 
@@ -133,9 +135,11 @@ download mode, `just board-serial` shows the stock system's console (adapter req
 
 - **T0 Paper (this)** — ledger to end state, host measurement above, hygiene: the second `TASK-0081`
   file moved to `TASK-0209`; `TASK-0327B` seeded.
-- **T1 Packages + permissions + doctor** — `install-deps.sh` `BOARD` lists (+ `--no-board`), udev rule +
-  group, `check-deps.sh` section, Makefile step 7/7, README quickstart line. Gate: container smoke ×3,
-  `make doctor` on the desk box shows the board line.
+- **T1 Packages + permissions + doctor** — `install-deps.sh` `BOARD` lists (+ `--no-board`),
+  `scripts/install-board-access.sh` (udev rule from `config/udev/71-nexus-board.rules` with the family's
+  serial group substituted + `usermod -aG`; idempotent; `--check`), `check-deps.sh` "Board tools"
+  section, Makefile steps 1/7…7/7 (6/7 = board access, `BOARD=0` skips), README. Gate: `--print-packages`
+  ×3 families, `make doctor` on the desk box shows the board line.
 - **T2 Recipes + provenance + docs** — `scripts/board-devices.sh`, `board-serial.sh`, `board-flash.sh`,
   `board-ack.sh`, `fetch-inputs.sh --board` (pins + license files under `resources/board/bpi-f3/`,
   gitignored payloads), `docs/board/bpi-f3.md`. Gate: end to end against the connected board (R13

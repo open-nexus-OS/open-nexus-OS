@@ -23,6 +23,7 @@
 # Env:
 #   GUI=0      skip the GTK/OpenGL display checks (headless host)
 #   PODMAN=0   skip the rootless-podman checks (host-only workflow)
+#   BOARD=0    skip the board flash/serial tool checks (no reference board here)
 #
 # Exit codes:
 #   0  everything required is present
@@ -37,6 +38,7 @@ NIGHTLY="nightly-2025-01-15"     # keep in sync with rust-toolchain.toml
 RV_TARGET="riscv64imac-unknown-none-elf"
 WANT_GUI="${GUI:-1}"
 WANT_PODMAN="${PODMAN:-1}"
+WANT_BOARD="${BOARD:-1}"
 
 WORKSPACE_ONLY=0
 QUIET=0
@@ -74,22 +76,40 @@ head_() { [ "$QUIET" = 1 ] || printf '\n\033[1m%s\033[0m\n' "$*"; }
 # /opt or /srv fails deep inside a podman run with an unhelpful error, so catch
 # it here.
 head_ "Workspace"
-if [ -z "${HOME:-}" ]; then
-  bad "\$HOME is not set" "run this as a normal login user"
+# The requirement is about the CHECKOUT (under the developer's home, owned by
+# them), not about how the command was typed. Under `sudo make initial-setup`
+# $HOME is /root and `id -un` is root, so a naive comparison reports a correct
+# checkout as misplaced and proposes chowning it to root. Resolve the invoking
+# user first (SUDO_USER → passwd) and judge the checkout against THEIR home.
+me="${SUDO_USER:-$(id -un)}"
+me_home="$(getent passwd "$me" 2>/dev/null | cut -d: -f6)"
+[ -n "$me_home" ] || me_home="${HOME:-}"
+if [ -z "$me_home" ]; then
+  bad "cannot determine the home directory of $me" "run this as a normal login user"
 else
   case "$REPO_ROOT/" in
-    "$HOME"/*) ok "checkout is under \$HOME ($REPO_ROOT)" ;;
-    *) bad "checkout is at $REPO_ROOT, which is NOT under \$HOME ($HOME)" \
-           "move it (e.g. ~/open-nexus-OS) — rootless podman + cargo caches need user-owned paths" ;;
+    "$me_home"/*) ok "checkout is under $me's home ($REPO_ROOT)" ;;
+    *) bad "checkout is at $REPO_ROOT, which is NOT under $me's home ($me_home)" \
+           "move it (e.g. $me_home/open-nexus-OS) — rootless podman + cargo caches need user-owned paths" ;;
   esac
 fi
 
 owner="$(stat -c '%U' "$REPO_ROOT" 2>/dev/null || echo '?')"
-if [ "$owner" = "$(id -un)" ]; then
-  ok "checkout is owned by $(id -un)"
+if [ "$owner" = "$me" ]; then
+  ok "checkout is owned by $me"
 else
-  bad "checkout is owned by '$owner', not $(id -un)" \
-      "sudo chown -R $(id -un): $REPO_ROOT"
+  bad "checkout is owned by '$owner', not $me" \
+      "sudo chown -R $me: $REPO_ROOT"
+fi
+
+# The setup itself must run AS that user, not as root: rustup installs into
+# ~/.cargo of whoever runs it, cargo writes target/ and its caches as that
+# user, and podman's rootless mode is a per-user property. The scripts call
+# sudo themselves for the few steps that need it (packages, udev rule, group).
+if [ "$(id -u)" -eq 0 ]; then
+  bad "running as root${SUDO_USER:+ (sudo from $SUDO_USER)} — rustup/cargo/podman state would be created for root, not for $me" \
+      "run it without sudo:  cd $REPO_ROOT && make initial-setup   (the scripts ask for sudo where they need it)"
+  exit 1
 fi
 
 if [ "$WORKSPACE_ONLY" = 1 ]; then
@@ -263,6 +283,59 @@ else
   else
     bad "no /etc/subuid or /etc/subgid entry for $(id -un)" \
         "sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $(id -un) && podman system migrate"
+  fi
+fi
+
+# --------- 7. board tools (TASK-0327) ----------------------------------------
+# Capabilities again, not packages: the binaries `just board-*` execs, the udev
+# rule that makes the board usable without sudo, and the serial group that owns
+# the USB-UART adapter. The two "connected" lines are informational — a box
+# without a board plugged in is not broken.
+head_ "Board tools (just board-* — flash over USB, console over the debug UART)"
+if [ "$WANT_BOARD" = 0 ]; then
+  ok "board checks skipped (BOARD=0) — no reference board on this host"
+else
+  need_bin fastboot "just board-flash (boot-ROM download mode + U-Boot fastboot)" "scripts/install-deps.sh  (android-tools / fastboot)"
+  need_bin mkimage  "FIT images for the board boot chain (Block 1)" "scripts/install-deps.sh  (u-boot-tools / uboot-tools)"
+  need_bin dtc      "the board device tree (Block 1)" "scripts/install-deps.sh  (device-tree-compiler / dtc)"
+  need_bin sgdisk   "verifying the flashed image's GPT" "scripts/install-deps.sh  (gdisk / gptfdisk)"
+  serial_tool=""
+  for t in picocom tio minicom; do
+    if command -v "$t" >/dev/null 2>&1; then serial_tool="$t"; break; fi
+  done
+  if [ -n "$serial_tool" ]; then
+    ok "serial terminal: $serial_tool (just board-serial)"
+  else
+    soft "no serial terminal (picocom/tio/minicom) — 'just board-serial' cannot open the debug UART" \
+         "scripts/install-deps.sh  (picocom)"
+  fi
+
+  if scripts/install-board-access.sh --check >/dev/null 2>&1; then
+    ok "udev rule + serial group set up (board reachable without sudo)"
+  else
+    # --check distinguishes "rule missing" from "group not effective yet";
+    # surface its own wording rather than guessing here.
+    detail="$(scripts/install-board-access.sh --check 2>&1 | sed -n 's/^.*\[warn\] //p' | head -1)"
+    soft "board access incomplete: ${detail:-udev rule or serial group missing}" \
+         "scripts/install-board-access.sh   (then log out and in)"
+  fi
+
+  if command -v lsusb >/dev/null 2>&1; then
+    boards="$(lsusb 2>/dev/null | grep -i ' 361c:' || true)"
+    if [ -n "$boards" ]; then
+      case "$boards" in
+        *361c:1001*) ok "board connected in download/fastboot mode (361c:1001)" ;;
+        *361c:0008*) ok "board connected, stock system gadget (361c:0008) — hold the download key at reset for fastboot" ;;
+        *)           ok "board connected (vendor 361c): $(printf '%s' "$boards" | head -1 | sed 's/.*ID //')" ;;
+      esac
+    else
+      [ "$QUIET" = 1 ] || printf '  \033[1;34m[info]\033[0m no board connected (vendor 361c not on the USB bus)\n'
+    fi
+  fi
+  if compgen -G "/dev/serial/by-id/*" >/dev/null; then
+    ok "serial adapter: $(ls /dev/serial/by-id/ | head -1)"
+  else
+    [ "$QUIET" = 1 ] || printf '  \033[1;34m[info]\033[0m no USB-UART adapter connected (/dev/serial/by-id empty) — needed for the console, not for flashing\n'
   fi
 fi
 

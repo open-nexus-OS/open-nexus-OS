@@ -21,6 +21,7 @@
 #   scripts/install-deps.sh --yes        # non-interactive (CI / scripted setup)
 #   scripts/install-deps.sh --check      # only report what's missing, no install
 #   scripts/install-deps.sh --no-gui     # skip GTK/EGL/virgl (headless hosts)
+#   scripts/install-deps.sh --no-board   # skip the board flash/serial tools (TASK-0327)
 #   scripts/install-deps.sh --print-packages   # resolve + print, install nothing
 #
 # Env:
@@ -42,15 +43,17 @@ ASSUME_YES=0
 CHECK_ONLY=0
 PRINT_ONLY=0
 WANT_GUI=1
+WANT_BOARD=1
 
 for arg in "$@"; do
   case "$arg" in
     --yes|-y)         ASSUME_YES=1 ;;
     --check)          CHECK_ONLY=1 ;;
     --no-gui)         WANT_GUI=0 ;;
+    --no-board)       WANT_BOARD=0 ;;
     --print-packages) PRINT_ONLY=1 ;;
     -h|--help)
-      sed -n '18,32p' "$0"
+      sed -n '18,33p' "$0"
       exit 0
       ;;
     *) echo "[error] unknown flag: $arg" >&2; exit 1 ;;
@@ -113,6 +116,16 @@ log "detected distro family: $family (ID=${DISTRO:-unknown})"
 # CORE deliberately omits `just`, `ripgrep`, `cargo-deny` and `cargo-nextest`
 # where a distro may not ship them — ensure_cargo_tool() below installs any of
 # those from crates.io as the universal fallback.
+#
+# BOARD (TASK-0327) is what talks to the reference board: `fastboot` speaks the
+# SoC boot ROM's download protocol and U-Boot's flashing mode (the vendor's
+# flasher is a modified fastboot; the plain one works), a serial terminal for
+# the 3-pin debug UART, `mkimage` (FIT images) and `dtc` (the board dts) for
+# Block 1, `sgdisk` to verify the image's GPT, `lsusb` to see the board at all.
+# Installed by default because a box that cannot reach the board is the
+# exception now, not the rule; --no-board skips it. Like GUI it only warns.
+# The permission half (udev rule + serial group) is scripts/install-board-
+# access.sh — the one place that touches /etc — so this script stays packages.
 case "$family" in
   debian)
     CORE=(
@@ -129,6 +142,12 @@ case "$family" in
     # --no-install-recommends would otherwise leave out.
     GUI=(qemu-system-gui qemu-system-modules-opengl)
     OPTIONAL=(gdb meson ninja-build flatbuffers-compiler)
+    # Debian ≥ 12 / Ubuntu ≥ 24.04 ship `fastboot` + `adb` as their own
+    # packages; the android-tools-* names are the older split.
+    BOARD=(
+      "fastboot|android-tools-fastboot" "adb|android-tools-adb"
+      picocom u-boot-tools device-tree-compiler gdisk usbutils xz-utils
+    )
     ;;
   fedora)
     CORE=(
@@ -144,6 +163,7 @@ case "$family" in
          qemu-device-display-virtio-gpu-gl qemu-device-display-virtio-gpu-pci-gl
          virglrenderer mesa-dri-drivers)
     OPTIONAL=(gdb meson ninja-build "flatbuffers-compiler|flatbuffers-devel")
+    BOARD=(android-tools picocom uboot-tools dtc gdisk usbutils xz)
     ;;
   arch)
     CORE=(
@@ -159,6 +179,7 @@ case "$family" in
          qemu-hw-display-virtio-gpu-gl qemu-hw-display-virtio-gpu-pci-gl
          virglrenderer mesa)
     OPTIONAL=(gdb meson ninja flatbuffers)
+    BOARD=(android-tools picocom uboot-tools dtc gptfdisk usbutils xz)
     ;;
 esac
 
@@ -272,6 +293,11 @@ else
   log "GUI packages skipped (--no-gui): 'just start' will only work headless."
 fi
 resolve_group extra "${OPTIONAL[@]}"
+if [ "$WANT_BOARD" = 1 ]; then
+  resolve_group extra "${BOARD[@]}"
+else
+  log "board tools skipped (--no-board): 'just board-*' will not work on this host."
+fi
 
 for entry in "${unresolved_extra[@]+"${unresolved_extra[@]}"}"; do
   warn "no package found for '${entry//|/ or }' — skipping (non-essential)"
