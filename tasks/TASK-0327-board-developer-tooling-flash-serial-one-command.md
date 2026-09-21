@@ -1,6 +1,6 @@
 ---
 title: TASK-0327 Board developer tooling: one command installs the flash/serial tools on Ubuntu, Arch and Fedora + `just board-*`
-status: In Progress (T0, T1 Done; T2 Recipes built 2026-09-21 — fetch pipeline + recipes proven on the desk box; gate open: the board's download mode (`--stage-only`) needs a hand on the FDL key)
+status: In Progress (T0, T1, T2 Done 2026-09-21 — `--stage-only` measured against the desk board's boot ROM; T3 = TASK-0327B waits for a booting board, Block 1)
 owner: @devx @runtime
 created: 2026-09-21
 depends-on: []
@@ -160,12 +160,30 @@ download mode, `just board-serial` shows the stock system's console (adapter req
   doctor row green, every recipe's precondition honest (stock mode → `board-flash` exit 3, no
   adapter → `board-serial` exit 3). **Open:** the `--stage-only` run against the boot ROM (R13:
   timing of `continue`, the `getvar all` set) needs the board in download mode — the FDL key.
-  Former text: `scripts/board-devices.sh`, `board-serial.sh`, `board-flash.sh`,
+  **Gate met 2026-09-21 — R13 measured against the boot ROM** (`just board-flash --stage-only`, board put
+  into download mode by hand): `361c:1001` enumerates as "DFU USB download gadget" (boot ROM) and later as
+  "U-Boot USB download gadget"; `fastboot devices` shows `dfu-device DFU download` / `???????????? Android
+  Fastboot`; `version-brom: 1.0`; `stage FSBL.bin` 197 KB in 28 ms, `continue`, DDR trained + re-enumeration
+  inside the 1 s sleep, `stage u-boot.itb` 1936 KB in 51 ms, `continue` — 4.5 s end to end, nothing written.
+  Neither stage implements `getvar all`; the vendor U-Boot answers `product k1-x`, `version 0.4`,
+  `version-bootloader U-Boot 2022.10spacemit-gdcdcab9e9-dirty`, `serialno 7cc8e2bef8fb` (= the adb gadget's),
+  `blk-size universal` (the vendor recipe's `partition_{blk-size}.json` ⇒ `partition_universal.json`, which
+  the script now asserts before writing), `mtd-size NULL` (no SPI flash), `max-download-size 0x10000000`
+  (256 MiB per `flash` payload — our volumes are ≤ 128 MiB), `current-slot a`; every `partition-size:*`
+  query fails with "invalid partition or device" — the eMMC has never been flashed. **The second `--stage-only`
+  run against the U-Boot already in RAM exposed the trap:** `getvar version-brom` is answered by the vendor
+  U-Boot too, so the script staged the SPL again and U-Boot's `continue` booted the board away (no `361c`
+  device for minutes; power cycle). The discriminator is the USB product string ("DFU USB download gadget"
+  vs "U-Boot USB download gadget"): `board-devices --mode` reports `download` vs `fastboot`, `board-flash`
+  stages only in `download` mode and verifies `fastboot` mode after staging — **re-proven after a power
+  cycle:** run 1 against the boot ROM staged (27 ms / 51 ms, 5.2 s total) and `board-devices --mode` read
+  `fastboot` afterwards; run 2 skipped the staging and printed the same variables in 0.46 s; `fastboot
+  reboot` returned the board to its stock system. Former text: `scripts/board-devices.sh`, `board-serial.sh`, `board-flash.sh`,
   `board-ack.sh`, `fetch-inputs.sh --board` (pins + license files under `resources/board/bpi-f3/`,
   gitignored payloads), `docs/board/bpi-f3.md`. Gate: end to end against the connected board (R13
   measured here: `bootinfo_sd` vs `bootinfo_emmc`, stage sizes/timing, `continue` wait), serial log
   parsed by `verify-uart`.
-- **T3 Board lane** — `TASK-0327B`.
+- **T3 Board lane** — `TASK-0327B` (needs a booting board: after Block 1; the `board-visual:` declarations land there).
 
 ## Constraints / invariants (hard requirements)
 

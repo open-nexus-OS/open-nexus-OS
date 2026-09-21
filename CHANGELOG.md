@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-21 (TASK-0327 T0–T2: the reference board is reachable from a fresh box with one command)
+
+- **Block 0 of the hardware fast track** (`tasks/IMPLEMENTATION-ORDER.md`, rewritten the same day). `make initial-setup`
+  now installs the board tools on Ubuntu/Debian, Fedora and Arch (`fastboot`/`adb`, a serial terminal, `mkimage`,
+  `dtc`, `sgdisk`, `lsusb`; `BOARD=0` skips), installs the udev rule `config/udev/71-nexus-board.rules` for the
+  SoC's USB vendor id `361c` and puts the user into the distro's serial group (`scripts/install-board-access.sh`,
+  idempotent), and `make doctor` grew a "Board tools" section that checks capabilities and says whether a board or
+  a USB-UART adapter is connected. `check-deps.sh` judges the checkout against the invoking user's home and refuses
+  to set up rustup/cargo/podman state as root (`sudo make initial-setup` used to propose chowning the checkout).
+- **`just board-devices / board-inputs / board-serial / board-flash / board-ack`** over `scripts/board-*.sh` with
+  exit-code contracts. `board-flash` follows the vendor flasher's own recipe (`fastboot.yaml`): `getvar
+  version-brom` decides whether to stage, `stage FSBL.bin` → `continue` → `stage u-boot.itb` → `continue`, then
+  partitions by the vendor json; `--stage-only` writes nothing. The write path flashes the vendor boot vehicle only
+  (GPT + bootinfo/fsbl/env/opensbi/uboot) and names the chain it flashed; our volumes join it with Block 1
+  (TASK-0260B). `board-serial` records the debug UART like a QEMU run (`build/logs/board--<ts>/uart.log`).
+- **Pinned vendor boot pieces** (`scripts/fetch-board-inputs.sh`, `just board-inputs`, opt-in
+  `fetch-inputs.sh --board`): the vendor release archive by SHA-256 and each of the eight pieces by its own pin,
+  extracted with python's `zipfile`, cached, gitignored; `resources/board/bpi-f3/PROVENANCE.md` records versions,
+  hashes and licenses. `docs/board/bpi-f3.md` is the board page.
+- **Measured on the desk board (2026-09-21):** boot ROM `version-brom: 1.0`; SPL staged in 28 ms, DDR trained and
+  re-enumerated within a second, U-Boot (1.9 MB) staged in 51 ms; the vendor U-Boot answers `product k1-x`,
+  `version-bootloader U-Boot 2022.10spacemit-gdcdcab9e9-dirty`, `blk-size universal` (→ `partition_universal.json`),
+  `max-download-size 0x10000000`, `mtd-size NULL`, `current-slot a`; neither stage implements `getvar all`, the
+  never-flashed eMMC answers "invalid partition" to every partition query, and `getvar version-brom` is
+  answered by BOTH stages — staging into a running U-Boot boots the board away, so the two modes are told apart
+  by the USB product string (`board-devices --mode`: `download` vs `fastboot`). The vendor partition table uses
+  `bootinfo_sd.bin` for eMMC too. OpenSBI loads at `0x0`, U-Boot at `0x0020_0000` (RAM is 0-based on the board).
+
 ### Fixed - 2026-09-21 (TASK-0077C Done: the app-host's memory is flat over a session — ADR-0065)
 
 - **The ceiling was arithmetic.** Every structural interaction rebuilt a frame — 226 KiB per layout, ~100 KiB per emit — onto a service heap that never frees, so 16 MiB bought 50–85 interactions and the heap history (4 → 8 → 16 MiB) was a series of raises each buying a few dozen more. Measured, not quoted: live drift over 100 dispatches is 0 B — all of it is garbage.

@@ -42,10 +42,10 @@ The vendor's own recipe (`fastboot.yaml` inside the release archive) and three i
 write-ups agree on the sequence `scripts/board-flash.sh` implements:
 
 ```
-fastboot getvar version-brom            # answered only by the boot ROM → staging needed
+lsusb                                   # "DFU USB download gadget" = boot ROM → staging needed; "U-Boot USB download gadget" = already staged
 fastboot stage factory/FSBL.bin ; fastboot continue    # SPL: DDR training, then waits again
 fastboot stage u-boot.itb        ; fastboot continue    # vendor U-Boot in RAM = flashing mode
-fastboot getvar all                                     # what --stage-only stops at (writes nothing)
+fastboot getvar product / blk-size / max-download-size …  # what --stage-only stops at (writes nothing; no `getvar all` exists)
 fastboot flash gpt      partition_universal.json
 fastboot flash bootinfo factory/bootinfo_sd.bin         # the universal table uses the SD header for eMMC too
 fastboot flash fsbl     factory/FSBL.bin
@@ -67,10 +67,10 @@ Vendor pieces: `just board-inputs` (→ `scripts/fetch-board-inputs.sh`) fetches
 
 | Recipe | Does |
 |---|---|
-| `just board-devices` | board mode (`stock` / `download` / none) + serial adapter; exit 3 when no board |
+| `just board-devices` | board mode (`stock` / `download` = boot ROM / `fastboot` = U-Boot in RAM / none) + serial adapter; exit 3 when no board |
 | `just board-inputs` | fetch + verify the pinned vendor boot pieces (~250 MB download, once) |
 | `just board-serial [PORT]` | picocom on the adapter at 115200 8N1, log tee'd to `build/logs/board--<ts>/uart.log` (`build/logs/latest-board`) — the same file shape the QEMU marker tools read |
-| `just board-flash --stage-only` | boot ROM → SPL → U-Boot in RAM, prints `getvar all`, writes nothing (the safe first contact) |
+| `just board-flash --stage-only` | boot ROM → SPL → U-Boot in RAM, prints the board's variables, writes nothing (the safe first contact) |
 | `just board-flash` | the above, then the vendor boot vehicle to eMMC (asks first) |
 | `just board-ack MARKER=<name>` | append `board-visual: <name>` to the current board log — a human check becomes a marker the manifest can require (`TASK-0327B`) |
 
@@ -86,6 +86,24 @@ Vendor pieces: `just board-inputs` (→ `scripts/fetch-board-inputs.sh`) fetches
   nxboot will occupy (ADR-0066).
 - SPL links at `0xc080_1000` (SRAM `0xc080_0000`, 4 KiB header); DDR controller at
   `0xc000_0000`.
+
+## Measured against the boot ROM (2026-09-21, `just board-flash --stage-only`)
+
+| Step | Observed |
+|---|---|
+| download mode | `lsusb`: `361c:1001 DFU USB download gadget`; `fastboot devices`: `dfu-device DFU download`; `getvar version-brom` → `1.0` |
+| `stage factory/FSBL.bin` (197 KB) | 28 ms; `continue` 7 ms; DDR training + USB re-enumeration inside 1 s |
+| `stage u-boot.itb` (1936 KB) | 51 ms; `continue`; the board re-enumerates as `361c:1001 U-Boot USB download gadget`, `fastboot devices`: `???????????? Android Fastboot` |
+| whole `--stage-only` | 4.5 s, nothing written |
+| U-Boot variables | `product k1-x` · `version 0.4` · `version-bootloader U-Boot 2022.10spacemit-gdcdcab9e9-dirty` · `serialno 7cc8e2bef8fb` (same as the adb gadget) · `blk-size universal` · `mtd-size NULL` · `max-download-size 0x10000000` · `current-slot a` · `is-userspace no` |
+| not implemented | `getvar all` (both stages), `slot-count`, `secure`, `unlocked`; every `partition-size:*` → "invalid partition or device" = the eMMC has never been flashed |
+| **the trap** | `getvar version-brom` is NOT a discriminator: the vendor U-Boot answers it too. A second `--stage-only` run against the U-Boot already in RAM therefore staged the SPL again; U-Boot's `continue` then "resumed boot" and the board **vanished from USB** (no `361c` device for minutes) — power cycle needed. `board-devices --mode` now tells `download` (product string "DFU USB download gadget") from `fastboot` ("U-Boot USB download gadget"), and `board-flash` stages only in `download` mode and verifies the mode after staging (re-proven after a power cycle: boot-ROM run 5.2 s, second run skips staging in 0.5 s) |
+
+`blk-size` is what the vendor recipe uses to pick `partition_{blk-size}.json`; `board-flash` asserts
+`k1-x` + `universal` before it writes. `max-download-size` bounds one `flash` payload at 256 MiB
+(our volumes are ≤ 128 MiB). Leaving the board in U-Boot's fastboot mode is harmless; `fastboot
+reboot` boots the microSD system again — its adb gadget (`361c:0008`) reappears after ~65 s (measured), so
+a lane waiting for it must allow that long.
 
 ## Pitfalls
 

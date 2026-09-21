@@ -64,11 +64,13 @@ command -v fastboot >/dev/null 2>&1 || { err "fastboot missing — scripts/insta
   err "vendor boot pieces not fetched — run: just board-inputs"; exit 1; }
 
 mode="$("$ROOT/scripts/board-devices.sh" --mode || true)"
-if [ "$mode" != "download" ]; then
-  err "board is not in download/fastboot mode (seen: ${mode:-none})."
-  err "Hold the download key (FDL) while resetting the board, or type 'fastboot usb 0' at its U-Boot prompt; then re-run."
-  exit 3
-fi
+case "$mode" in
+  download) ;;                       # boot ROM: staging needed
+  fastboot) SKIP_STAGE=1 ;;          # U-Boot already in RAM: staging would boot the board away
+  *) err "board is not in download/fastboot mode (seen: ${mode:-none})."
+     err "Hold the download key (FDL) while resetting the board, or type 'fastboot usb 0' at its U-Boot prompt; then re-run."
+     exit 3 ;;
+esac
 
 # `fastboot` talks to the first device; a second one would make this ambiguous.
 n="$(fastboot devices 2>/dev/null | grep -c . || true)"
@@ -80,23 +82,38 @@ fb() { # log + run one fastboot command; any failure is fatal
 }
 
 if [ "$SKIP_STAGE" != 1 ]; then
-  # A boot ROM answers `version-brom`; a U-Boot already in fastboot mode does
-  # not — the vendor recipe uses exactly this to skip the staging steps.
-  if fastboot getvar version-brom >/dev/null 2>&1; then
-    log "boot ROM answered (version-brom) — staging the SPL, then U-Boot, into RAM"
-    fb stage "$VENDOR/factory/FSBL.bin"
-    fb continue
-    sleep 1                      # the SPL trains DDR and re-enumerates
-    fb stage "$VENDOR/u-boot.itb"
-    fb continue
-    sleep 2                      # U-Boot re-enumerates in fastboot mode
-  else
-    log "no boot-ROM answer — assuming the board already runs U-Boot's fastboot mode"
+  # The USB product string decided this (board-devices --mode), not
+  # `getvar version-brom`: the vendor U-Boot answers that variable too, and a
+  # `stage` + `continue` against it made the board boot away mid-recipe
+  # (measured 2026-09-21). `version-brom` is printed for the record only.
+  brom="$(timeout 3 fastboot getvar version-brom 2>&1 | sed -n 's/^version-brom: //p' | head -1)"
+  log "boot ROM (version-brom ${brom:-?}) — staging the SPL, then U-Boot, into RAM"
+  fb stage "$VENDOR/factory/FSBL.bin"
+  fb continue
+  sleep 1                      # the SPL trains DDR and re-enumerates
+  fb stage "$VENDOR/u-boot.itb"
+  fb continue
+  sleep 2                      # U-Boot re-enumerates in fastboot mode
+  if [ "$("$ROOT/scripts/board-devices.sh" --mode || true)" != "fastboot" ]; then
+    err "U-Boot did not come up in fastboot mode after staging (board-devices sees: $("$ROOT/scripts/board-devices.sh" --mode || echo none))"
+    exit 2
   fi
+else
+  log "U-Boot fastboot mode already up — staging skipped"
 fi
 
+# Neither the boot ROM nor the vendor U-Boot implements `getvar all` (measured
+# 2026-09-21: "Variable not implemented"); these are the variables that answer.
+# `blk-size` names the partition table the vendor recipe would pick
+# (`partition_{blk-size}.json`) — we flash `partition_universal.json`, so it
+# must say `universal`; `max-download-size` bounds a single `flash` payload.
 log "board variables (U-Boot fastboot):"
-fastboot getvar all 2>&1 | sed 's/^/    /' || true
+blk_size=""; product=""
+for v in product version-bootloader serialno blk-size mtd-size max-download-size current-slot; do
+  val="$(timeout 5 fastboot getvar "$v" 2>&1 | head -1 | sed -n "s/^$v: //p")"
+  printf '    %-18s %s\n' "$v" "${val:-<not implemented>}"
+  case "$v" in blk-size) blk_size="$val" ;; product) product="$val" ;; esac
+done
 
 if [ "$STAGE_ONLY" = 1 ]; then
   log "--stage-only: nothing written. The board sits in U-Boot fastboot mode until reset."
@@ -111,6 +128,10 @@ PARTS=(
   "opensbi   fw_dynamic.itb"
   "uboot     u-boot.itb"
 )
+if [ "$product" != "k1-x" ] || [ "$blk_size" != "universal" ]; then
+  err "refusing to flash: product='${product:-?}' blk-size='${blk_size:-?}' — this recipe is for product k1-x with the universal block layout"
+  exit 2
+fi
 echo
 log "ABOUT TO WRITE THE eMMC: GPT from partition_universal.json + ${#PARTS[@]} bootloader partitions"
 log "chain flashed = VENDOR boot vehicle (SPL → OpenSBI → vendor U-Boot); our OS volumes come with TASK-0260B"

@@ -6,8 +6,14 @@
 #          precondition every other `just board-*` recipe checks (TASK-0327).
 #          The SoC (SpaceMiT K1) shows USB vendor id 361c in every mode:
 #            361c:0008  the stock system's gadget (adb) — a booted system
-#            361c:1001  boot-ROM download mode, and U-Boot's fastboot mode
-#          plus whatever USB-UART adapter carries the debug console
+#            361c:1001  boot-ROM download mode ("DFU USB download gadget")
+#            361c:1001  U-Boot's fastboot mode ("U-Boot USB download gadget")
+#          The last two share the product id; the product STRING tells them
+#          apart, and that matters: staging the SPL into a U-Boot that is
+#          already running makes it "continue" into a boot — measured
+#          2026-09-21, the board vanished mid-recipe. `fastboot getvar
+#          version-brom` does not discriminate (U-Boot answers it too).
+#          Plus whatever USB-UART adapter carries the debug console
 #          (/dev/serial/by-id/* — a 3.3 V TTL adapter on the 3-pin UART0 header).
 # OWNERS:  @tools-team
 # STATUS:  Functional
@@ -17,7 +23,8 @@
 #
 # Usage:
 #   scripts/board-devices.sh            # human report
-#   scripts/board-devices.sh --mode     # print one word: stock | download | other | none
+#   scripts/board-devices.sh --mode     # print one word: stock | download | fastboot | other | none
+#                                       #   download = boot ROM (needs staging), fastboot = U-Boot in RAM
 #   scripts/board-devices.sh --serial   # print the console port path (or nothing)
 #
 # Exit codes:
@@ -65,9 +72,10 @@ line="$(lsusb 2>/dev/null | grep -i " ID ${BOARD_VID}:" | head -1 || true)"
 mode="none"
 if [ -n "$line" ]; then
   case "$line" in
-    *"${BOARD_VID}:${PID_DOWNLOAD}"*) mode="download" ;;
-    *"${BOARD_VID}:${PID_STOCK}"*)    mode="stock" ;;
-    *)                                mode="other" ;;
+    *"${BOARD_VID}:${PID_DOWNLOAD}"*[Uu]-[Bb]oot*) mode="fastboot" ;;
+    *"${BOARD_VID}:${PID_DOWNLOAD}"*)              mode="download" ;;
+    *"${BOARD_VID}:${PID_STOCK}"*)                 mode="stock" ;;
+    *)                                             mode="other" ;;
   esac
 fi
 
@@ -78,8 +86,10 @@ if [ "$MODE_ONLY" = 1 ]; then
 fi
 
 case "$mode" in
-  download) echo "[board] download/fastboot mode: $line"
-            echo "        → just board-flash can talk to it now" ;;
+  download) echo "[board] boot-ROM download mode: $line"
+            echo "        → just board-flash stages the SPL + U-Boot into RAM first" ;;
+  fastboot) echo "[board] U-Boot fastboot mode (already staged): $line"
+            echo "        → just board-flash skips the staging; 'fastboot reboot' leaves it" ;;
   stock)    echo "[board] stock system running (adb gadget): $line"
             echo "        → for flashing: hold the download key (FDL) while resetting, or 'fastboot usb 0' at the U-Boot prompt" ;;
   other)    echo "[board] vendor $BOARD_VID in an unknown mode: $line" ;;
