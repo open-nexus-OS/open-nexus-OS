@@ -11,6 +11,8 @@ links:
   - Kernel accounting truth: tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md
   - Kernel pressure/OOM: tasks/TASK-0287-kernel-memory-pressure-v1-hard-limits-oom-handoff.md
 ---
+> **Link 2026-09-21:** the RED gate (bounded kernel ops / revoke under the BKL) is scheduled: target picture S in `tasks/IMPLEMENTATION-ORDER.md` — `TASK-0306` Phase 3 (scheduler off the BKL) then `TASK-0330B` (IPC router + waitsets off the BKL) is the package after which this track's candidates may be extracted.
+
 
 ## Purpose
 

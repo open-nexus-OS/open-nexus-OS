@@ -20,6 +20,8 @@ links:
   - Security standards: docs/standards/SECURITY_STANDARDS.md
   - Build standards: docs/standards/BUILD_STANDARDS.md
 ---
+> **Link 2026-09-21:** managed runtimes and tools ride on the `std` target + component runtime of `tasks/TASK-0332-std-target-libc-cpp-toolchain-port-riscv64gc-unknown-nexus.md` (target picture W in `tasks/IMPLEMENTATION-ORDER.md`). Host developer tooling for the board is `TASK-0327`, not this track.
+
 
 ## Goal (track-level)
 

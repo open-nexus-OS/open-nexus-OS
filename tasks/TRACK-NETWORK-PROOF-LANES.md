@@ -11,6 +11,12 @@ links:
   - Marker contract: source/apps/selftest-client/proof-manifest/markers/net.toml
   - Profile manifest: source/apps/selftest-client/proof-manifest/profiles/harness.toml
 ---
+> **Dissolved 2026-09-21 (hardware fast track).** W1/W2/W3h are now
+> `tasks/TASK-0331-network-proof-lanes-on-a-real-network-discovery-quic-runner-truth.md` (package N5
+> in `tasks/IMPLEMENTATION-ORDER.md`): with the board on a real network (N1/N2) the missing peer
+> becomes real (board ↔ QEMU/host). The network family `0024 → 0030 → 0038 → 0040` follows it; the
+> HOLD lifts at N2 (Ethernet lease). The analysis below stays as the record of the defect.
+
 
 ## Why this track exists
 

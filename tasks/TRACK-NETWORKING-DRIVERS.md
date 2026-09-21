@@ -11,6 +11,13 @@ links:
   - Networking step 3: tasks/TASK-0005-networking-cross-vm-dsoftbus-remote-proxy.md
   - Device/MMIO access: tasks/TASK-0010-device-mmio-access-model.md
 ---
+> **Dissolved 2026-09-21 (hardware fast track).** The real-NIC work is `tasks/TASK-0248-*.md`
+> (recut: SDIO host + WiFi module driver core, `0248B` Ethernet MAC + PHY) and `tasks/TASK-0249-*.md`
+> (recut: `wifid`/`ethd` + netstackd on the real NIC) — target picture N in
+> `tasks/IMPLEMENTATION-ORDER.md`. CAND-NETDRV-001 (virtio-net frontend) is Done by `TASK-0003`;
+> CAND-NETDRV-010 (zero-copy packet buffers) is parked in the order file as a follow-up of 0249.
+> This file stays as the contract reference; no task is extracted from it any more.
+
 
 ## Goal (track-level)
 

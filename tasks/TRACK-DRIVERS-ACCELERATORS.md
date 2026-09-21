@@ -23,6 +23,13 @@ links:
   - Extracted (DMA buffer ownership prototype): tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
   - Extracted (NexusInfer ownership + CPU executor): tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md
 ---
+> **Dissolved 2026-09-21 (hardware fast track).** The GPU service candidate (CAND-DRV-010) is now
+> `tasks/TASK-0329-gpu-device-driver-img-b-series-gpud-backend-firmware-mmu-submission.md` (target
+> picture G in `tasks/IMPLEMENTATION-ORDER.md`, with 0280/0169B/0170B/0171/0215/0216 recut as the
+> userspace half); CAND-DRV-000 was already `TASK-0280`. The audio, camera/ISP and NPU candidates
+> are parked in the order file ("From the dissolved tracks"); `TRACK-NEXUSINFER-SDK` keeps the NPU
+> vision. This file stays as the contract reference; no task is extracted from it any more.
+
 
 ## Goal (track-level)
 

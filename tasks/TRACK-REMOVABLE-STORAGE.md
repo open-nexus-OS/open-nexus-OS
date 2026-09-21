@@ -16,6 +16,8 @@ links:
   - Device access model (MMIO caps): tasks/TASK-0010-device-mmio-access-model.md
   - DriverKit ABI policy: docs/adr/0018-driverkit-abi-versioning-and-stability.md
 ---
+> **Link 2026-09-21:** CAND-REM-030 (xHCI + MSC + SCSI) was extracted as `tasks/TASK-0328-usb-host-stack-v1-xhci-hub-enumeration-class-clients.md` (Block 2 of `tasks/IMPLEMENTATION-ORDER.md`: host stack + HID first; mass storage returns here as a class client after Block 2).
+
 
 ## Goal (track-level)
 

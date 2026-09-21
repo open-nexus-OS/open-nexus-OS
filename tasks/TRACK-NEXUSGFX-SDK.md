@@ -31,6 +31,8 @@ links:
   - Perf hooks + HUD: tasks/TASK-0144-perf-v1b-instrumentation-hud-nx-perf.md
   - Perf regression gates: tasks/TASK-0145-perf-v1c-deterministic-gates-scenes.md
 ---
+> **Link 2026-09-21:** the GPU backend this SDK needs is target picture G in `tasks/IMPLEMENTATION-ORDER.md` (`TASK-0329` thin side, `TASK-0280` v2 API, 0169B/0170B/0171 driver, 0215/0216 whole desktop, `0329B` app surfaces); the SDK's app-facing phases start after G4/G5.
+
 
 ## Goal (track-level)
 
