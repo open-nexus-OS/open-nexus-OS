@@ -1,8 +1,9 @@
 ---
-title: "TASK-0081 App-Plattform-Anatomie: App-Layout (i18n/assets/native), Boot-TOML (Login/Shell), SDK-Kuratierung, Companion-Services, App-Exports, Widget-Libraries"
+title: "TASK-0209 App-Plattform-Anatomie: App-Layout (i18n/assets/native), Boot-TOML (Login/Shell), SDK-Kuratierung, Companion-Services, App-Exports, Widget-Libraries"
 status: Draft
 owner: "@ui @runtime"
 created: 2026-07-07
+renumbered: 2026-09-21 — was the second file claiming TASK-0081 (the MIME-registry ledger keeps the number); moved to the free 0209 by the hardware fast track's Block 0 hygiene step
 depends-on:
   - tasks/TASK-0080D-dsl-app-runtime-lifecycle-surface-contract.md   # App-Runtime-Prozess + Transport
   - tasks/TASK-0080B-systemui-dsl-bootstrap-shell-launcher-host.md   # Shell/Greeter in DSL
@@ -245,5 +246,5 @@ liste-tauglich designen), Widget-Library-Auflösung, SDK-SSOT-Liste
   Folgeschritt, wenn mehrere Versionen existieren können).
 - 3/3 neue Tests (deterministisch/Governance/missing); Konformanz+Shell-
   Suiten + Generator-Consumer grün. project-layout.md dokumentiert.
-- 0081-REST: assets/i18n-Wiring (AssetRef-Pipeline), C1-Rest (Typ-Codegen/
+- 0209-REST (was 0081-REST): assets/i18n-Wiring (AssetRef-Pipeline), C1-Rest (Typ-Codegen/
   Manifest-Segment/Spawn), C2-Kanalhälfte.

@@ -5,7 +5,7 @@ owner: "@ui @runtime"
 created: 2026-07-07
 links:
   - Masterplan-Track: tasks/TRACK-DSL-V1-DEVX.md
-  - App-Plattform-Anatomie (Diskussionsergebnis): tasks/TASK-0081-app-platform-anatomy.md
+  - App-Plattform-Anatomie (Diskussionsergebnis): tasks/TASK-0209-app-platform-anatomy.md
 ---
 
 # Offene Punkte — vollständiger Stand vor Phase 7
@@ -103,7 +103,7 @@ hier abgehakt UND im jeweiligen Ledger geschlossen.
       `DSL: demo window retired (mount-only)`); Fenster-Pfad wartet auf den
       0080C-Shell-Mount.
 
-## App-Plattform (Diskussionsergebnis 2026-07-07 → TASK-0081)
+## App-Plattform (Diskussionsergebnis 2026-07-07 → TASK-0209, renumbered 2026-09-21)
 
 - [ ] App-Anatomie-Ziel-Layout (manifest.toml + ui/ + i18n/ + assets/ +
       native/ in `userspace/apps/<name>/`; bundles/-Konsolidierung).
