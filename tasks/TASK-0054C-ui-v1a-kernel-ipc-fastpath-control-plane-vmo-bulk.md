@@ -858,6 +858,20 @@ replies until `@ready`" is deleted — routing v2 never parks on readiness.)
 | P5c Nine server loops on ONE shape (`serve_next` + `PendingReply`) | Done 2026-09-18 — abilitymgr, bundlemgrd, metricsd, rngd, samgrd, sessiond, settingsd, statefsd, timed: reply + next request in ONE trap (was three kernel entries). The first cut copied the loop head into every service; the structure gate forced the better answer — eight identical copies is a shape with one home, so `KernelServer::serve_next`/`PendingReply` own it and a service spends TWO lines, not twelve. P2-c's rule survives unrestated: nothing parked = the sender moved no cap = an ordinary receive. `just check` 0, smp1 EXIT=0, exchange at 41–43 µs. Named as remaining: inputd (hot path is cap-LESS), vfsd/pinched (no cap-moving reply), keystored, updated, imed, virtioblkd, bootctld, windowd (dedicated channels; shared fallback measured at zero in P2-g) |
 | P6 Closure | Done 2026-09-18 — the round trip is ASSERTED (`KSELFTEST: ipc call budget ok (rt=42us budget=64)`, measured 41–43 µs across every profile, against 192 µs for the path it replaced). RFC-0096 Implemented; RFC-0005's copy-in/out deferral discharged BY its own criteria (measure before choosing — 13 windows before `IPC_SHORT_MAX`, and the handoff withdrawn) and its "initially 512" bound amended to `IPC_PAYLOAD_MAX` + `E2BIG`; RFC-0026 noted as extended; `docs/testing/README.md` carries the two new lanes. The DoD's planned `ipc fastpath ping/reply/bulk-vmo` markers were NOT built under those names — what replaced them proves more and is named in the RFC |
 
+**Observed after Done (2026-09-21, during TASK-0077C's `test-all`):** one boot in ~125 icount
+boots on disk printed `KSELFTEST: ipc call budget FAIL (rt=74us budget=64)` — and in that same
+boot the TWO-trap `ipc bench` read 69 µs instead of 42, i.e. the whole guest ran ~1.7× slower
+through the window, not the call path (both means shift together; `n=64`). It happened in the
+boot the `input-flood` lane spawns right after `ci-os-visible`, so host contention is the
+likely cause, unproven. Two things follow, neither done here: (1) the budget is a 64-round mean
+against a 1.5× band, so a lane-wide slowdown trips it although the exchange did not change —
+a min-of-N or a ratio against the two-trap bench in the same boot would measure the exchange
+and not the host; (2) `scripts/input-flood-lane.sh` tolerates the inner ladder's exit code
+(`wait "$lane" || true`, because `RUN_TIMEOUT` ends it), which also swallows the FAIL-marker
+gate: the lane printed `[PASS]` over a boot with a FAIL marker in it. Both are 0054C's, not
+0077C's; recorded here so the next reader of a 74 does not re-derive it.
+
+
 ## End-state rewrite 2026-09-09 — historical, superseded by the 2026-09-15 rewrite above
 
 **Ground truth 2026-09-09:** zero fastpath code (`source/kernel/neuron/src/ipc/` = `mod.rs`

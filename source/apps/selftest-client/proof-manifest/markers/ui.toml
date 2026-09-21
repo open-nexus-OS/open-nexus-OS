@@ -224,3 +224,20 @@ proves = "bounded inputd merge/config/route core was initialized"
 [marker."inputd: keymap=de"]
 phase = "end"
 proves = "canonical inputd startup path selected deterministic de keymap"
+
+# The app-host's base heap does not move between two frame samples — the
+# property TASK-0077C exists to produce (ADR-0065: frame output in a
+# generation arena, durable state freed by size class). Printed by the frame
+# probe ONLY when two consecutive samples report the same base-heap cursor; it
+# is a detector, not a decoration, and it could not be produced — and so was
+# not declared — until the free lists landed. Emitted by every profile that
+# spawns the shell (headless and its OTA lanes included), so it carries no
+# `emit_when`: a declaration here only suppresses surprise, and a visible-only
+# clause made the line "unexpected" in `ota-flip` (2026-09-21). The REQUIRE
+# lives in the harness, next to the mounted-hash contract in
+# scripts/qemu-test.sh, for the lane that drives frames. A frame that outgrows
+# its generation prints `SELFTEST: frame arena spill FAIL`, which the FAIL gate
+# catches.
+[marker."apphost: heap steady"]
+phase = "end"
+proves = "the app-host base heap is flat across frames: frame output recycles in the generation arena and durable state frees by size class (ADR-0065)"

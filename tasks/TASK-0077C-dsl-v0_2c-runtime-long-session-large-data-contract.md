@@ -1,6 +1,6 @@
 ---
 title: TASK-0077C DSL v0.2c runtime long-session & large-data contract: emit-generation arena + subtree re-emit (pro primitives retired)
-status: Draft (scope fixed 2026-09-20 after measuring: MEMORY only, P0-P3. Latency moved to TASK-0145B, boot to TASK-0269B)
+status: Done 2026-09-21 (P0–P3: ADR-0065; generation arena in the service allocator, two regions; emission pure and enforced by a poisoning harness; durable state frees by size class; heap-16m + watermarks deleted, 4 MiB floor, 14 MB budget; `apphost: heap steady` boot-proven)
 owner: @ui @runtime
 created: 2026-01-26
 updated: 2026-07-06
@@ -286,20 +286,60 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
   Deliberately NOT done here: reusing the reduce path's transient `Vec`s (correct on the base
   heap, ~100 B/dispatch) — it does not change the category, and the category is the point.
 
-- **P3 RECUT 2026-09-21 — durable-state churn: app-host's base heap has to FREE.** The old P3
-  ("delete `heap-16m`, restore the 14 MB budget") assumed the arena would make the heap flat.
-  It made the FRAME flat; the residue is durable state overwritten on a bump. D1's rejection of
-  "a free-list allocator for services" stands for what it rejected — a GENERAL allocator on
-  every service's floor, including the boot path. This is narrower: a per-service, opt-in,
-  size-class free-list (segregated fits, fixed classes, no coalescing — O(1), deterministic,
-  the shape real OS allocators use for small objects) behind the SAME `GlobalAlloc`, for the
-  one service that overwrites durable state thousands of times per session. Gate: `apphost:
-  heap steady` — the detector P2b built and did not declare — prints, and the harness's
-  outside-scope bytes stop growing over 64 frames. D2 (delete `heap-16m`, restore the budget)
-  rides on it, not before it. Needs ADR-0065 amended and `scripts/**` for the budget table.
+- **P3 ✅ 2026-09-21 — durable state frees, and the heap is flat.** `nexus-service-entry`
+  gains opt-in size-class free lists (`small-object-free-list`; `src/freelist.rs` is the rule,
+  proven on the host: LIFO reuse at the SAME address, no cross-class reuse, links survive
+  poisoning). Eight classes 16–2048 B, 16-aligned blocks, O(1), no coalescing — a session's
+  working set is bounded by its peak per class. `dealloc` checks the arena FIRST (a
+  generation's block is reclaimed by its reset and must never be parked), then returns a small
+  durable block to its class; `alloc_zeroed` zeroes a reused block. The `GlobalAlloc` glue moved
+  to `os/global_alloc.rs` (lib.rs was at 643 LOC), with the fixed order arena → class → bump.
 
-- **P3** D2 deletion (heap floor back, watermark markers out, image budget restored).
-  Blast: `contract-image-budgets`, every app-host lane.
+  **Boot-proven (visible, poison on, 4 MiB floor):** base heap **105 880 → 105 880 B** between
+  the first two samples — `apphost: heap steady` printed for the first time, and in the last
+  run twice; `free=333` parked blocks in reuse; `spill=0`; `alloc-fail` 0; USER-PF 216 = the
+  deliberate `fault-probe` selftest, identical to before. Per layout: 75 018 B (no arena) →
+  28 129 (P2) → 432 (P2b) → **~0 after warm-up**.
+
+  **Where the REQUIRE lives (found by the first full `test-all`, 2026-09-21):** the marker is
+  emitted by EVERY profile that spawns the shell — headless and its OTA lanes included — and a
+  manifest `emit_when = { profile = "visible" }` does not require anything, it only suppresses
+  surprise, so the clause made the line "unexpected" in `ota-flip` and failed the chain. The
+  declaration now carries no `emit_when` (the `APPHOST: mounted hash=` precedent) and the
+  visible lane requires it in `scripts/qemu-test.sh`, next to the mounted-hash contract: a
+  boot that never prints `heap steady` is a boot whose heap still moves per frame.
+
+  ⭐ **The residual, attributed rather than assumed.** A carve diagnostic (`alloc-carve
+  gen=… size=… class=…`, printed only after the first frame generation) placed every
+  post-frame bump carve on the generation axis: three large one-off carves at gen=1 (16, 8,
+  4 KiB — one buffer doubling three times, boot warm-up) and exactly TWO 64-byte class blocks
+  at gen≈10 and ≈22, between the probe's samples (gen 8/16/24), so not the probe. Across five
+  boots of different lengths the count is constant — 5 carves, 28.8 KB — and the base heap
+  stands still after them. That is warm-up, not a leak. `carve=<class>/<large>` deltas now
+  ride in the probe line, so a future regression names its kind.
+
+- **D2 ✅** `heap-16m` → `heap-4m` for app-host; the 50/75/90 % `heap-watermark` code and its
+  markers deleted from the allocator; `scripts/check-image-budgets.sh` app-host ceiling 24 →
+  **14 MB** (measured 7.39 MB, 50 %), the note rewritten from workaround to fix. No "keep
+  16 MiB just in case".
+
+- **D4 ✅** Fixture `a_list_over_a_store_list_is_accepted_and_the_bound_is_the_stores_job`:
+  NX0404 covers a `for` over a literal, and a `List` over a store list compiles unbounded —
+  by design, because the bound is not a view-side fact. `state.md` §"Large data" says where
+  it lives (`tail()` after every append, QuerySpec `limit` per page). No lint invented.
+
+- **Proof under INTERACTION load — what is proven where, stated precisely.** Host:
+  `arena_invariant.rs` drives the real apps (desktop-shell, stash, greeter text focus) for 64
+  structural frames each under a poisoning two-generation allocator; nothing outlives its
+  generation. OS: boot + idle frames, the mechanisms above. **Not proven on the OS: hundreds
+  of scripted structural interactions in one boot.** `tools/qmp_click_storm.py` exists for it
+  (200 Control-Center open/close clicks over QMP), but the visible profile's harness injector
+  holds QEMU's single QMP client from t+120 s to the lane's end at t+222 s — measured with
+  timestamps, five attempts, no window. An OS interaction lane needs a profile that runs the
+  storm INSTEAD of the harness injector; that is lane infrastructure (TASK-0145B's territory,
+  where an interaction driver is needed for the latency budget anyway) and is recorded there.
+
+
 - **P4 / P5 RETIRED.** P4 (subtree re-emit) → TASK-0145B P3, see D3. P5 (docs) is not a
   package: the docs sweep belongs to *Done*, as it has in every package of TASK-0077B.
 

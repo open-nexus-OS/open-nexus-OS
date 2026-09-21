@@ -39,7 +39,7 @@ KERNEL_MM="source/kernel/neuron/src/mm/mod.rs"
 #   service      budget      measured 2026-07-31   note
 declare -A BUDGETS=(
     [init-lite]=$((24 * 1024 * 1024))   # 17.0 MB — carries the embed chain
-    [app-host]=$((24 * 1024 * 1024))    # 18.8 MB — see the heap note below
+    [app-host]=$((14 * 1024 * 1024))    #  6.8 MB — see the heap note below
     [windowd]=$((14 * 1024 * 1024))     #  8.9 MB — see the atlas note below
     [execd]=$((10 * 1024 * 1024))       #  6.8 MB — embeds app-host
     [gpud]=$((2 * 1024 * 1024))         #  0.9 MB
@@ -56,16 +56,16 @@ declare -A NOT_A_SERVICE=(
     [nxboot]="the first-stage loader — pre-OS, own 256 KiB budget checked below (ADR-0059)"
 )
 
-# app-host note (TASK-0311 round 3, raised 2026-07-31 for commit 45780c77):
-# 16.8 MB of the 18.8 MB image is the FIXED 16 MiB bump heap
-# (`nexus-service-entry/heap-16m`), raised 8->16 MiB because every structural
-# DSL interaction re-emits scene + layout + texts onto a never-freeing bump
-# (~100-300 KiB/click) — 8 MiB froze after a few dozen clicks. That half does
-# NOT grow with code; only the ~2 MB text half does, which is what the 24 MB
-# ceiling actually budgets. Watermark markers (50/75/90%) make the heap's own
-# ceiling visible at runtime. The honest fix is the emit-generation arena
-# tracked in TASK-0311; this budget is headroom, not a licence — a second heap
-# doubling (32 MiB) trips this gate immediately, which is the point.
+# app-host note (TASK-0077C, 2026-09-21): back on the 4 MiB heap floor. The
+# 24 MB ceiling of 2026-07-31 budgeted a 16 MiB bump heap raised 4->8->16 MiB
+# because every structural DSL interaction rebuilt a frame onto memory that
+# never freed — each raise bought a few dozen more clicks. ADR-0065 ended
+# that: frame output lives in a 1 MiB generation arena (recycled wholesale,
+# two generations), durable state frees by size class, and a real boot shows
+# the base heap flat (`apphost: heap steady`). The 50/75/90% watermark lines
+# are gone with the ceiling they warned of. What this budget guards now is
+# the ~2 MB text half plus the arena; a heap raise trips it, which is the
+# point — the answer to a growing heap is no longer a bigger heap.
 #
 # windowd note (TASK-0305): ~4.4 MB of its image is the shared glyph atlas,
 # linked in via `nexus-text-baked`'s `embedded-atlas` feature — HALF the image.

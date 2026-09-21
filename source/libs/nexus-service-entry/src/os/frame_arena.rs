@@ -44,6 +44,7 @@ pub struct FrameGeneration {
 pub fn frame_generation(region: Region) -> FrameGeneration {
     ALLOCATOR.ensure_init();
     let reset = ALLOCATOR.inner.lock().gens[region.index()].open();
+    super::global_alloc::note_generation();
     #[cfg(feature = "frame-arena-poison")]
     if reset.1 != 0 {
         // SAFETY: the range is the half this allocator owns and just
@@ -80,4 +81,24 @@ pub fn arena_stats() -> (usize, bool, usize) {
     let peak = bump.gens.iter().map(crate::generation::Generations::peak).sum();
     let spilled = bump.gens.iter().any(crate::generation::Generations::spilled);
     (peak, spilled, ARENA_SIZE)
+}
+
+/// Blocks parked on the durable-state free lists — reclaimable memory the
+/// probe reports beside the arena's numbers. `0` where the feature is off.
+pub fn free_list_stats() -> usize {
+    #[cfg(feature = "small-object-free-list")]
+    {
+        ALLOCATOR.ensure_init();
+        ALLOCATOR.inner.lock().lists.free_blocks()
+    }
+    #[cfg(not(feature = "small-object-free-list"))]
+    {
+        0
+    }
+}
+
+/// Generations opened since boot, across both regions — the clock the carve
+/// diagnostic and the probe share, so a carve can be placed on the frame axis.
+pub fn generation_count() -> usize {
+    super::global_alloc::generation_count()
 }

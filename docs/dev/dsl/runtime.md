@@ -129,6 +129,14 @@ generation.
 - A reducer never runs inside a scope; store writes are on the ordinary heap by
   construction, because the scope opens in `View::emit`, after the reduce.
 
+**And durable state frees.** What the arena cannot hold — store values, the
+dispatch queue, anything that outlives a frame — still churned on a heap that
+never freed: 432 B per layout on a real boot, a ceiling of ~39 000 interactions.
+So the app-host's base heap frees by size class (`small-object-free-list`,
+ADR-0065): eight classes from 16 to 2048 bytes, LIFO reuse, O(1), no coalescing
+— a session's working set is bounded by its peak per class, and the heap is
+back on the 4 MiB floor the 8 and 16 MiB raises had left.
+
 This is enforced, not trusted: `tests/dsl_apps_conformance/tests/arena_invariant.rs`
 runs the real apps for 64 frames under a POISONING two-generation allocator and
 aborts on any stale read, and the OS build fills a reset generation with `0xDE`

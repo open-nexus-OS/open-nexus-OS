@@ -969,3 +969,40 @@ Page P { Stack { Text("p") } }
     assert_eq!(h2.runtime.persist_restore(&snap), 0);
     h2.assert_field("S", "count", &Value::Str("none".into()));
 }
+
+/// TASK-0077C D4 — the store-window rule, and exactly what the compiler does
+/// and does not enforce about it. `NX0404` requires a `for` to iterate a
+/// LITERAL list. A `List` widget over a STORE list is accepted with no bound
+/// at all — measured here rather than assumed — because whether that list is
+/// bounded is not a view-side fact: the store bounds it (`tail(list, n)` after
+/// every append, a QuerySpec `limit` on every page) or nothing does. The rule
+/// therefore lives in the store and is documented in `state.md`; a lint on the
+/// `List` would either reject every bounded-by-query list in the tree or be a
+/// guess. This fixture pins the accepted shape so a future lint has to argue
+/// with it.
+#[test]
+fn a_list_over_a_store_list_is_accepted_and_the_bound_is_the_stores_job() {
+    let src = r#"
+Store S {
+    items: List<Str> = [],
+}
+Event E { Append(Str), }
+reduce E {
+    Append(s) => state.items = state.items + [s],
+}
+Page P {
+    Stack {
+        List($state.items) { item in
+            Text(item).key(item)
+        }
+    }
+}
+"#;
+    let file = nexus_dsl_core::parse_file(src).expect("parses");
+    let (_, diags) = nexus_dsl_core::check_file(&file);
+    assert!(
+        !diags.iter().any(|d| d.code == nexus_dsl_core::diag::DiagCode::UnboundedFor),
+        "a List over a store list is not a `for`; NX0404 does not (and should not) fire: {diags:?}"
+    );
+    assert!(!nexus_dsl_core::has_errors(&diags), "the shape compiles: {diags:?}");
+}

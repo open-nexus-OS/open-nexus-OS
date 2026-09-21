@@ -92,6 +92,15 @@ exist. GPU/present-path optimisation beyond what the budget proves necessary.
   subtree re-emit actually buys is less work per interaction, i.e. this budget. **Gate:** the
   emit-counter fixture (one row changes ⇒ exactly one subtree re-emitted) AND a measured
   improvement against P2's number.
+- **P3b** OS structural-interaction lane — handed over from TASK-0077C on 2026-09-21. The
+  click storm exists (`tools/qmp_click_storm.py`: open/close the Control Center over QMP,
+  two structural frames per pair, verdict read off `apphost: frame arena (… base=…)`), but
+  it cannot run today: QEMU accepts ONE QMP client and the visible profile's own injector
+  holds it from t+120 s to the end of the ladder (measured, five attempts), and without
+  `QEMU_INPUT_AUTOINJECT` there is no socket at all. This budget needs a driver anyway, so
+  the lane lands here: a profile whose injector IS the storm (or hands the socket over),
+  asserting `base` unchanged across ≥ 200 structural interactions. **Gate:** the lane runs
+  in `test-all` and fails on a moving base.
 - **P4** The scroll claim: either a zero-alloc-steady-scroll gate, or the sentence comes out of
   TASK-0077C's invariants. **Gate:** whichever it is, no unproven claim survives this package.
 

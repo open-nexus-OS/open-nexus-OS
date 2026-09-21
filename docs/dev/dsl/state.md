@@ -177,6 +177,25 @@ overwrite newer ones.
 retry, and the rejection that pins the "no automatic retry" claim) and
 `corpus.rs::stale_effect_followups_are_cancelled_when_the_trigger_refires`.*
 
+## Large data: the store bounds the list, not the view
+
+A `List($state.items)` renders whatever the store holds, and the compiler does
+not — cannot — bound it: `NX0404` requires a `for` to iterate a literal list,
+but whether a store list stays bounded is decided where it is written. Two
+tools, and one of them must be in play for any list that grows:
+
+- **`tail(list, n)`** in the reducer that appends — the resident window
+  (`chat.store.nx`: `state.messages = tail(state.messages + rows, 64)`);
+- a **QuerySpec `limit`** on every page a query effect loads (`db-queries.md`,
+  keyset paging), which caps what one append can add.
+
+Paint is visibility-indexed and scroll is a paint-only offset, so the cost of a
+frame is the screen, not the list — but the store's memory is the list, and on
+the app-host's heap that is the ceiling. `tests/dsl_conformance::corpus::
+a_list_over_a_store_list_is_accepted_and_the_bound_is_the_stores_job` pins that
+the compiler accepts the unbounded shape, so nobody mistakes the absence of a
+lint for a guarantee.
+
 ## Effect cancellation (latest wins)
 
 Re-firing a trigger **cancels the previous plan's pending follow-ups**: each

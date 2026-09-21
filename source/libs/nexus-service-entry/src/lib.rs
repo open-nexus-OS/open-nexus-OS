@@ -22,6 +22,11 @@
 // (`windowd/src/interaction.rs`). Never a blanket allow.
 #[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
 mod generation;
+// The durable-state half of ADR-0065 exists only where a service opted in;
+// a service without the feature never compiles it (cfg-gate, never allow).
+#[cfg(any(test, feature = "small-object-free-list"))]
+#[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
+mod freelist;
 
 mod cursor_tripwire;
 mod debug_write;
@@ -115,14 +120,12 @@ pub fn stage(_stage: nexus_service_topology::Stage) {}
 pub mod os {
     extern crate alloc;
 
-    use core::alloc::{GlobalAlloc, Layout};
+    use core::alloc::Layout;
     use core::any::type_name;
     use core::panic::PanicInfo;
-    use core::ptr;
     use core::slice;
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    use crate::cursor_tripwire::check_cursor_monotone;
     use crate::debug_write::{
         debug_write_byte, debug_write_bytes, debug_write_dec, debug_write_hex, debug_write_str,
     };
@@ -138,13 +141,14 @@ pub mod os {
     // Bring-up sizing: bounded heaps (kernel early-linear-map budget). Most
     // services: 384KiB; proof clients 512/768KiB. windowd 2MiB (input bursts
     // + greeter bake overflowed 1MiB). Shell app-host history: 4MiB (profile
-    // remounts page-faulted 2MiB), then 8MiB (theme = drop-first remount with
-    // an open overlay panel faulted at exactly base+4MiB). 16MiB (app-host):
-    // every structural DSL interaction re-emits scene + layout + texts onto
-    // this never-freeing bump (~100-300KiB/click, settings-sized page) —
-    // 8MiB froze after a few dozen clicks. Honest fix (emit-generation
-    // arena) recorded in TASK-0311; the watermark markers below make the
-    // remaining ceiling visible before it freezes.
+    // remounts page-faulted 2MiB), then 8MiB, then 16MiB — each raise bought
+    // a few dozen more clicks, because every structural interaction rebuilt a
+    // frame onto a bump that never frees. That story ended with ADR-0065
+    // (TASK-0077C): frame output lives in the generation arena below and
+    // durable state frees by size class, so app-host is back on the 4MiB
+    // floor and its heap is flat over a session — proven by the boot marker
+    // `apphost: heap steady`. The 50/75/90% watermark lines that warned of
+    // the old ceiling are gone with it.
     const HEAP_SIZE: usize = if cfg!(feature = "heap-16m") {
         16 * 1024 * 1024
     } else if cfg!(feature = "heap-8m") {
@@ -189,9 +193,10 @@ pub mod os {
         /// service opts in AND opens a scope; `place()` then answers
         /// `BaseHeap` and nothing changes.
         gens: [crate::generation::Generations; crate::generation::Region::COUNT],
-        /// Reported high-water marks (bitmask 50/75/90%): bump exhaustion
-        /// was a silent freeze — one UART line per threshold warns first.
-        watermarks: u8,
+        /// Size-class free lists for DURABLE state (ADR-0065, TASK-0077C P3).
+        /// Opt-in per service; a service without the feature has no field.
+        #[cfg(feature = "small-object-free-list")]
+        lists: crate::freelist::FreeLists,
     }
 
     impl Bump {
@@ -200,8 +205,9 @@ pub mod os {
                 start: 0,
                 end: 0,
                 current: 0,
-                watermarks: 0,
                 gens: [crate::generation::Generations::empty(); crate::generation::Region::COUNT],
+                #[cfg(feature = "small-object-free-list")]
+                lists: crate::freelist::FreeLists::empty(),
             }
         }
 
@@ -221,6 +227,51 @@ pub mod os {
                 }
                 log_alloc_init(base, self.end);
             }
+        }
+
+        /// Whether `addr` lies in the frame arena — such a block is reclaimed by
+        /// its generation's reset and must never be pushed onto a free list.
+        fn in_arena(addr: usize) -> bool {
+            let base = core::ptr::addr_of!(ARENA) as usize;
+            ARENA_SIZE != 0 && addr >= base && addr < base + ARENA_SIZE
+        }
+
+        /// The class-rounded layout a small request is carved with, so the
+        /// block can serve ANY later request of its class (`crate::freelist`).
+        #[cfg(feature = "small-object-free-list")]
+        fn class_layout(layout: Layout) -> (Option<usize>, Layout) {
+            match crate::freelist::class_for(layout.size(), layout.align()) {
+                Some(class) => (
+                    Some(class),
+                    // SAFETY: every class size is a non-zero multiple of the
+                    // (power-of-two) block alignment.
+                    unsafe {
+                        Layout::from_size_align_unchecked(
+                            crate::freelist::CLASS_SIZES[class],
+                            crate::freelist::BLOCK_ALIGN,
+                        )
+                    },
+                ),
+                None => (None, layout),
+            }
+        }
+
+        #[cfg(not(feature = "small-object-free-list"))]
+        fn class_layout(layout: Layout) -> (Option<usize>, Layout) {
+            (None, layout)
+        }
+
+        /// A block a free list can hand back for this layout, if one is parked.
+        #[cfg(feature = "small-object-free-list")]
+        fn reuse(&mut self, class: Option<usize>) -> Option<*mut u8> {
+            // SAFETY: only `dealloc` pushes, only with blocks this allocator
+            // carved for that class and that nothing references any more.
+            class.and_then(|c| unsafe { self.lists.pop(c) }).map(|addr| addr as *mut u8)
+        }
+
+        #[cfg(not(feature = "small-object-free-list"))]
+        fn reuse(&mut self, _class: Option<usize>) -> Option<*mut u8> {
+            None
         }
 
         /// The arena's answer for this layout, or `None` when the base heap
@@ -259,31 +310,8 @@ pub mod os {
                 self.end,
                 result as usize,
             );
-            self.note_watermark();
             result
         }
-
-        fn note_watermark(&mut self) {
-            let total = self.end.saturating_sub(self.start);
-            let used = self.current.saturating_sub(self.start);
-            for (bit, pct) in [(1u8, 50usize), (2, 75), (4, 90)] {
-                if total > 0 && self.watermarks & bit == 0 && used >= total / 100 * pct {
-                    self.watermarks |= bit;
-                    log_heap_watermark(pct, used, total);
-                }
-            }
-        }
-    }
-
-    /// Crossed-watermark UART line (alloc-free: runs inside the allocator).
-    fn log_heap_watermark(pct: usize, used: usize, total: usize) {
-        debug_write_bytes(b"heap-watermark svc=");
-        debug_write_str(service_name());
-        for (label, v) in [(b" pct=" as &[u8], pct), (b" used=0x", used), (b" of=0x", total)] {
-            debug_write_bytes(label);
-            debug_write_hex(v);
-        }
-        debug_write_byte(b'\n');
     }
 
     struct LockedBump {
@@ -314,7 +342,11 @@ pub mod os {
 
     static ALLOCATOR: LockedBump = LockedBump::new();
     mod frame_arena;
-    pub use frame_arena::{arena_stats, close_frame_generation, frame_generation, FrameGeneration};
+    pub use frame_arena::{
+        arena_stats, close_frame_generation, frame_generation, free_list_stats, generation_count,
+        FrameGeneration,
+    };
+    pub use global_alloc::carve_stats;
 
     /// Heap introspection for proofs: (start, current, end).
     pub fn heap_cursor() -> (usize, usize, usize) {
@@ -329,114 +361,7 @@ pub mod os {
     static SERVICE_NAME_PTR: AtomicUsize = AtomicUsize::new(0);
     static SERVICE_NAME_LEN: AtomicUsize = AtomicUsize::new(0);
 
-    struct GlobalAllocator;
-
-    unsafe impl GlobalAlloc for GlobalAllocator {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            ALLOCATOR.ensure_init();
-            let mut bump = ALLOCATOR.inner.lock();
-            // The open generation answers first; outside a scope this is a
-            // single branch and the base heap serves exactly as before.
-            if let Some(ptr) = bump.arena_alloc(layout) {
-                return ptr;
-            }
-            let heap_start = bump.start;
-            let heap_end = bump.end;
-            let cur_before = bump.current;
-            let mut ptr = bump.alloc(layout);
-            let cur_after = bump.current;
-            if ptr.is_null() && layout.size() == 0 {
-                ptr = bump.current as *mut u8;
-            }
-            let exhausted = ptr.is_null() && layout.size() != 0;
-            drop(bump);
-            check_cursor_monotone(cur_after);
-            if exhausted {
-                log_alloc_failure(
-                    "alloc",
-                    layout.size(),
-                    layout.align(),
-                    heap_start,
-                    heap_end,
-                    cur_before,
-                    cur_after,
-                );
-                return ptr;
-            }
-            ptr
-        }
-
-        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-            ALLOCATOR.ensure_init();
-            let mut bump = ALLOCATOR.inner.lock();
-            // The open generation answers first — but it must be ZEROED here.
-            // The base heap below can skip that because a never-freeing bump
-            // only ever hands out untouched `.bss`, which is already zero; the
-            // arena REUSES memory, so without this it would hand back the
-            // frame from two frames ago.
-            if let Some(ptr) = bump.arena_alloc(layout) {
-                ptr::write_bytes(ptr, 0, layout.size());
-                return ptr;
-            }
-            let heap_start = bump.start;
-            let heap_end = bump.end;
-            let cur_before = bump.current;
-            let mut ptr = bump.alloc(layout);
-            let cur_after = bump.current;
-            if ptr.is_null() && layout.size() == 0 {
-                ptr = bump.current as *mut u8;
-            }
-            let exhausted = ptr.is_null() && layout.size() != 0;
-            drop(bump);
-            check_cursor_monotone(cur_after);
-            if exhausted {
-                log_alloc_failure(
-                    "alloc_zeroed",
-                    layout.size(),
-                    layout.align(),
-                    heap_start,
-                    heap_end,
-                    cur_before,
-                    cur_after,
-                );
-                log_alloc_zeroed(layout.size(), layout.align(), ptr as usize);
-                return ptr;
-            }
-
-            if !ptr.is_null() && layout.size() != 0 {
-                let addr = ptr as usize;
-                let end = addr.checked_add(layout.size()).unwrap_or(usize::MAX);
-                if addr < heap_start || end > heap_end {
-                    log_alloc_corruption(
-                        addr,
-                        layout.size(),
-                        heap_start,
-                        heap_end,
-                        cur_before,
-                        cur_after,
-                    );
-                    panic!("alloc_zeroed returned pointer outside heap range");
-                }
-                // Task #14 root cause lived here: a debug shim moved ptr/size
-                // into s5/s6 around this write WITHOUT declaring the clobber.
-                // Depending on register allocation (i.e. on the binary
-                // layout), it destroyed live caller values — the wild follow-up
-                // stores reset the bump cursor and overlapped live
-                // allocations ("impossible" empty/à-la-carte corruption in
-                // f32/alloc-heavy code). Plain write_bytes is all this needs.
-                ptr::write_bytes(ptr, 0, layout.size());
-            }
-            log_alloc_zeroed(layout.size(), layout.align(), ptr as usize);
-            ptr
-        }
-
-        unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
-            // bump allocator does not support deallocation; memory is leaked intentionally
-        }
-    }
-
-    #[global_allocator]
-    static GLOBAL: GlobalAllocator = GlobalAllocator;
+    mod global_alloc;
 
     #[alloc_error_handler]
     fn alloc_error(layout: Layout) -> ! {

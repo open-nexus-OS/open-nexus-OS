@@ -24,12 +24,16 @@ default = ["std"]
 std = []
 os-lite = [
     "dep:nexus-service-entry",
-    "nexus-service-entry/heap-16m",
-    # ADR-0065: the app-host is the one service that rebuilds and discards a
-    # frame on every interaction, so it is the one that carves a frame arena.
-    # `heap-16m` stays for now and goes in P3, once the arena is boot-proven.
+    # ADR-0065 / TASK-0077C: the app-host is the one service that rebuilds and
+    # discards a frame on every interaction and overwrites durable state for a
+    # whole session. Frame output lives in the generation arena, durable state
+    # frees by size class, and the heap is back on the 4 MiB floor — the 8 and
+    # 16 MiB raises only ever bought a few dozen more clicks. Proven by the
+    # boot marker `apphost: heap steady`.
+    "nexus-service-entry/heap-4m",
     "nexus-service-entry/frame-arena",
     "nexus-service-entry/frame-arena-poison",
+    "nexus-service-entry/small-object-free-list",
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",

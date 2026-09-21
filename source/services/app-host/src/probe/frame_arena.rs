@@ -41,6 +41,7 @@ impl super::DslApp {
         const ARENA_SAMPLE: usize = 4;
         static LAYOUTS: AtomicUsize = AtomicUsize::new(0);
         static LAST_BASE: AtomicUsize = AtomicUsize::new(usize::MAX);
+        static LAST_CARVE: (AtomicUsize, AtomicUsize) = (AtomicUsize::new(0), AtomicUsize::new(0));
 
         // Sample the FIRST layout too: a boot short enough to produce fewer
         // than `ARENA_SAMPLE` layouts would otherwise print nothing at all,
@@ -52,15 +53,31 @@ impl super::DslApp {
         let (start, current, _) = nexus_service_entry::os::heap_cursor();
         let base = current.saturating_sub(start);
         let (peak, spilled, size) = nexus_service_entry::os::arena_stats();
+        let free = nexus_service_entry::os::free_list_stats();
+        // Which KIND of growth moved the base heap since the last sample:
+        // class blocks (a class's working set grew) or large/over-aligned
+        // requests (never on a list). A flat heap shows 0/0.
+        let (class_total, large_total) = nexus_service_entry::os::carve_stats();
+        let gen = nexus_service_entry::os::generation_count();
+        let class_delta = class_total - LAST_CARVE.0.swap(class_total, Ordering::Relaxed);
+        let large_delta = large_total - LAST_CARVE.1.swap(large_total, Ordering::Relaxed);
         let mut m = alloc::string::String::new();
         let _ = core::fmt::write(
             &mut m,
             format_args!(
-                "apphost: frame arena (layouts={n} base={base} peak={peak} of={size} spill={})",
+                "apphost: frame arena (layouts={n} gen={gen} base={base} peak={peak} of={size} \
+                 spill={} free={free} carve={class_delta}/{large_delta})",
                 usize::from(spilled)
             ),
         );
         raw_marker(&m);
+        // A spill means a frame outgrew its generation and the remainder went
+        // to the never-freeing base heap — the leak this arena exists to end,
+        // back. Said as a FAIL, in the shape the lane's no-fake-green gate
+        // greps for, so the run is red without a script knowing this marker.
+        if spilled {
+            raw_marker("SELFTEST: frame arena spill FAIL (a frame outgrew its generation)");
+        }
         let previous = LAST_BASE.swap(base, Ordering::Relaxed);
         if previous == base {
             let mut m = alloc::string::String::new();

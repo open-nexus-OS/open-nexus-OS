@@ -20,6 +20,9 @@ frame-arena = []
 # ADR-0065 tripwire: fill a reset generation with 0xDE so a stale reader fails
 # loudly. One memset of the USED bytes per frame; app-host keeps it on.
 frame-arena-poison = []
+# ADR-0065 / TASK-0077C P3: size-class free lists for durable state, so a
+# service that overwrites store values for a whole session has a bounded heap.
+small-object-free-list = []
 
 [dependencies]
 nexus-abi = { path = "../nexus-abi" }

@@ -131,6 +131,22 @@ allocator owns that scope.**
   at ~39 000 interactions. The follow-on (TASK-0077C P3) is a per-service, opt-in, size-class
   free list for app-host's base heap. This ADR's rejection of "a free-list allocator" is about
   a GENERAL one on every service's floor; it does not speak against that.
+- **Durable state frees, by size class (amended 2026-09-21, TASK-0077C P3).** The residue
+  above is answered where it lives: `nexus-service-entry` gains opt-in size-class free lists
+  (`small-object-free-list`) — eight classes from 16 to 2048 bytes, 16-aligned blocks, LIFO
+  reuse through an intrusive link in the freed block, no splitting, no coalescing, no search.
+  `dealloc` checks the arena FIRST (a generation's blocks are reclaimed by its reset and must
+  never be parked, or the list would hand out memory the next reset overwrites), then returns
+  a small durable block to its class; `alloc` consults the class before the bump and carves
+  new small blocks class-rounded so any later request of the class can take them;
+  `alloc_zeroed` zeroes a reused block, as it does an arena one. Larger or over-aligned
+  requests stay on the bump. Every operation is O(1) and a function of the request sequence
+  alone — the property this ADR's rejection of a GENERAL free list was protecting — and a
+  session's working set becomes bounded by its peak per class. With `frame-arena-poison` a
+  freed block is filled with `0xDE` after its link, so a use-after-free of durable state is as
+  loud as a use-after-reset. The rule is proven on the host in `freelist.rs`; the wiring is
+  proven by the boot marker `apphost: heap steady`, which this ADR's first two rounds could not
+  produce and did not declare.
 - Every other service keeps the bump exactly as it is. No service floor changes.
 - `nexus-service-entry` is an approval zone; this ADR is the record that the change is a
   narrowing of one allocator's behaviour under an explicit scope, not a new allocator.

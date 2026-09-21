@@ -7,7 +7,7 @@
 //! OWNERS: @runtime
 //! STATUS: Production
 //! API_STABILITY: Internal (`pub(super)`)
-//! TEST_COVERAGE: Exercised by every OS service boot (alloc watermarks, `!alloc-*` probes)
+//! TEST_COVERAGE: Exercised by every OS service boot (`!alloc-*` probes)
 
 use super::*;
 use core::sync::atomic::{AtomicU8, Ordering};

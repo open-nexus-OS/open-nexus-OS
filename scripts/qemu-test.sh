@@ -2515,6 +2515,17 @@ if [[ "${REQUIRE_PIXEL_PROOF:-0}" == "1" ]]; then
     echo "[error] CONTRACT VIOLATION: pixel proof requested but app-host never printed 'APPHOST: mounted hash=' (DSL shell not mounted)" >&2
     exit 1
   fi
+  # TASK-0077C (ADR-0065) memory truth: the shell's base heap must stop moving once
+  # its frames recycle in the generation arena. app-host prints `apphost: heap
+  # steady (…)` only when two consecutive samples report the same base cursor; a
+  # boot that never prints it is a boot whose heap still grows per frame. Gated
+  # here — not by an `emit_when` in the manifest, which only suppresses surprise —
+  # because this is the lane that drives frames.
+  if ! grep -aFq "apphost: heap steady" "$UART_LOG"; then
+    echo "[error] CONTRACT VIOLATION: pixel proof requested but app-host never printed 'apphost: heap steady' (base heap still moving per frame — ADR-0065)" >&2
+    grep -aF "apphost: frame arena" "$UART_LOG" | tail -3 >&2
+    exit 1
+  fi
 fi
 
 # TASK-0056B visible-input fake-green guard: the visible-input marker summarizes

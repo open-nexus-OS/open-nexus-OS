@@ -35,7 +35,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Text, IME, I18N & Accessibility | 4 / 8 | 50% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
-| DSL, App Platform & SDK | 3 / 14 | 21% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
+| DSL, App Platform & SDK | 5 / 14 | 36% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
 | DevX, Config & Tooling | 3 / 9 | 33% | — | CLI/dev tooling, config/schema plumbing, and repo hygiene. |
 
 ---
@@ -197,7 +197,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### DSL, App Platform & SDK
 
-- Progress: `3 / 14` done (`21%`)
+- Progress: `5 / 14` done (`36%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0077B`, `TASK-0077C`, `TASK-0078`, `TASK-0078B`, `TASK-0079`, `TASK-0122B`, `TASK-0163`..`TASK-0166`, `TASK-0169B`, `TASK-0274`, `TASK-0280B`, `TASK-0284B`
 
@@ -335,6 +335,8 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0054D | Kernel MM perf floor | Done | Reconciled 2026-09-09: RFC-0085 kernel-owned VA (0310) + shared RO atlas VMO (0302); reuse counters remain with TASK-0290 |
 | ✅ TASK-0050B | Recovery bringup console | Done | Resolved by decision 2026-09-09: no console in the end system — `nx recovery` + bootctld targets + `.nxra` (0050/0051/0053) |
 | ✅ TASK-0079 | DSL v0.3a AOT codegen | Done | Retired by decision 2026-09-09: the app-host interpreter is the one execution tier; AOT docs/stubs deleted; runtime scale contract → TASK-0077C |
+| ✅ TASK-0077B | DSL v0.2b: interaction contract (keyed `$state`, bind rule, value-carrying interaction) | Done | 2026-09-20 — Sub-80 Phase 2 #4 (P0–P4, IR v1.6–v1.8; `timeoutMs` retired) |
+| ✅ TASK-0077C | DSL v0.2c: runtime long-session / large-data contract | Done | 2026-09-21 — Sub-80 Phase 2 #5 (P0–P3, ADR-0065: generation arena + size-class free lists, `apphost: heap steady` boot-proven) |
 
 `TASK-0065` / UI v6b app lifecycle + notifications + navigation — **DONE (2026-06-23)**. RFC-0065 + ADR-0036/0037; `bundlemgrd` registry **generated from real `bundles/<app>/manifest.toml`** at build time (no hardcoded list; phantom `notes` removed; `windowd: apps ok (n=2)` chat/search); `abilitymgr` real service + lifecycle broker + **manifest-caps launch authority** (fail-closed `STATUS_DENIED`; `abilitymgr: caps ok app=<id>`); policyd `BundleQuery` gating + greppable `!route-deny`/`!cap-deny`; real `.nxb` bundles + Cap'n Proto manifests; per-app-surface model (ADR-0037); `search-app` (no_std) owns its data, windowd hosts it. 25 abilitymgr + 2 nxb-pack + 126 windowd + 10 search-app tests, riscv-checked. **Descoped to follow-ups:** apps as spawned processes w/ own surfaces → DSL App Runtime **`TASK-0080D`** (execd only runs asm stubs today; needs a userspace app runtime + surface handoff) + `TASK-0234`/`0235` + SystemUI DSL phases.
 `TASK-0065B` / Session v1: sessiond session authority + login greeter + SystemUI shell selection — **DONE (2026-07-02)**. `sessiond` = the session authority (host-tested `Greeter → Active` state machine, `Locked`/`OP_LOCK` reserved; manifest user registry `users.toml` with optional `auto_login`; wire protocol `nexus_abi::sessiond` GET_STATE/LOGIN, golden-frame-tested). Login greeter in windowd: blurred+dimmed wallpaper baked into Plane 1 (separable box blur, no atlas cost), round SDF avatar + Lucide `circle-user` + name, hover, click → `OP_LOGIN` → session shell via SystemUI `resolve_product` (the user's `product` selects the shell — profiles.md contract; greeter appearance from `manifests/greeter/default/greeter.toml`). Pre-session gating at BOTH layers: windowd suppresses all shell affordances (host-tested `resolve_click_session`) AND `abilitymgr` refuses `OP_LAUNCH` fail-closed via injected `SessionGate` + live sessiond query (`abilitymgr: launch denied (session)`). Never bricks: bounded probe → `windowd: session unavailable (auto shell)` (proven via an OS_SKIP=sessiond boot). Proof injector logs in like a user; ladder + `docs/dev/ui/shell/session.md` shipped; windowd heap → 2MiB (`heap-2m`). Boot-verified over virgl (greeter → click → desktop). Follow-ups: credential auth behind OP_LOGIN, lock/unlock UI, session switching, multi-user avatar grid.
@@ -363,7 +365,7 @@ above is the authority; this is a reading aid):
 | Task | Purpose | State |
 |------|---------|-------|
 | TASK-0054B / TASK-0054D | kernel/UI perf floor, MM perf floor | ✅ Done (reconciled 2026-09-09) |
-| TASK-0054C | kernel IPC perf contract + `call` fastpath | Draft — Sub-80 Phase 2 #1 |
+| TASK-0054C | kernel IPC perf contract + `call` fastpath | ✅ Done 2026-09-18 (Sub-80 Phase 2 #1: `ipc_call`/`ipc_reply_recv`, RFC-0096, ADR-0064) |
 | TASK-0055B / 0055C / 0055D | visible scanout bootstrap, visible present + first frame, dev display presets | ✅ Done (`0322` guest ingestion open) |
 | TASK-0056B / 0056C | visible input v0, present/input perf polish | ✅ Done |
 | TASK-0060B / 0062B | glass materials + backdrop cache, animation frame budget | ✅ Done |
