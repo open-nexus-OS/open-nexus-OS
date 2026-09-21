@@ -22,6 +22,58 @@ use alloc::{vec, vec::Vec};
 use nexus_layout_types::LayoutNode;
 use nexus_theme_tokens::Tokens;
 
+/// A scope the host wants held for the duration of EMISSION (TASK-0077C P2b).
+///
+/// The runtime does not know what this is for and must not: from here it is
+/// "the host would like to be told when a scene is being built". The app-host
+/// routes emission into a generation arena whose memory is recycled two frames
+/// later (ADR-0065); the host test harness routes it into a POISONING arena to
+/// prove nothing reads recycled memory; every other host and test uses nothing.
+///
+/// Set ONCE after mount, held by the one funnel every emitting entry point
+/// reaches (`View::emit`). A scope argument threaded through six entry points
+/// would be an alternate surface for a fact that never varies per call
+/// (`principles.md` §5).
+///
+/// **The contract that makes it safe — and that the harness enforces:** while
+/// the scope is held, emission touches NOTHING that outlives the frame. Store
+/// mutations, focus revalidation and the live-instance sweep run after the
+/// guard has dropped, and every retained output (`deps`, `handlers`,
+/// `animations`, the scene) is a FRESH value each frame — a buffer kept across
+/// frames with `clear()` would be written in generation g+1 and reset
+/// underneath its owner in g+2.
+pub trait FrameScope {
+    /// Called before emission begins; the returned guard is dropped after.
+    fn enter(&self) -> FrameScopeGuard;
+}
+
+/// What a [`FrameScope`] hands back. Dropping it ends the scope.
+pub struct FrameScopeGuard {
+    on_exit: Option<fn()>,
+}
+
+impl FrameScopeGuard {
+    /// A guard that runs `on_exit` when emission finishes.
+    #[must_use]
+    pub fn new(on_exit: fn()) -> Self {
+        Self { on_exit: Some(on_exit) }
+    }
+
+    /// A guard that does nothing.
+    #[must_use]
+    pub fn inert() -> Self {
+        Self { on_exit: None }
+    }
+}
+
+impl Drop for FrameScopeGuard {
+    fn drop(&mut self) {
+        if let Some(on_exit) = self.on_exit.take() {
+            on_exit();
+        }
+    }
+}
+
 pub struct View<'p> {
     pub runtime: Runtime<'p>,
     pub(crate) scene: LayoutNode,
@@ -44,6 +96,8 @@ pub struct View<'p> {
     initial_effects: Vec<(u32, u32)>,
     /// Guards the initial-load effects to run exactly once.
     initial_effects_fired: bool,
+    /// The host's emission scope (TASK-0077C P2b), set once after mount.
+    frame_scope: Option<&'static dyn FrameScope>,
     /// Platform SAFE AREA: surface rows at the top that belong to the shell
     /// status bar. Re-applied to the scene root on every emit, so a re-emit
     /// (navigate, theme swap, size-class re-select) can never lose it.
@@ -86,6 +140,7 @@ impl<'p> View<'p> {
             keys,
             initial_effects,
             initial_effects_fired: false,
+            frame_scope: None,
             safe_area_top: nexus_layout_types::FxPx::ZERO,
         };
         view.emit(tokens, device, locale).map_err(MountError::Rt)?;
@@ -157,6 +212,12 @@ impl<'p> View<'p> {
     #[must_use]
     pub fn deps(&self) -> &[Dep] {
         &self.deps
+    }
+
+    /// Installs the host's emission scope (TASK-0077C P2b). Called once after
+    /// mount; a `View` without one emits onto the ordinary heap.
+    pub fn set_frame_scope(&mut self, scope: &'static dyn FrameScope) {
+        self.frame_scope = Some(scope);
     }
 
     /// Interactive regions of the current scene.
@@ -235,50 +296,96 @@ impl<'p> View<'p> {
     }
 
     /// Re-emits the scene from committed state.
+    ///
+    /// Two halves with a hard line between them (TASK-0077C P2b, ADR-0065):
+    ///
+    /// 1. **The frame**, inside the host's [`FrameScope`]: build the scene and
+    ///    resolve handlers and motion intents against it. Everything allocated
+    ///    here may live in a generation arena and be recycled two frames later,
+    ///    so every output is a FRESH value — never a buffer kept from the last
+    ///    frame with `clear()`. A kept buffer is written in generation g+1 and
+    ///    reset underneath its owner in g+2; the poisoning harness in
+    ///    `dsl_apps_conformance::arena_invariant` aborts on exactly that.
+    /// 2. **After the scope**: everything that OUTLIVES the frame — the
+    ///    live-instance sweep over the stores, and the text-focus record with
+    ///    its cloned path and payload — allocates on the ordinary heap. (The
+    ///    focus record is rebuilt on every emit, so it would in fact never
+    ///    reach two generations old; it is kept out on principle, so that a
+    ///    future holder of it is not the one to discover the arena.)
     fn emit(
         &mut self,
         tokens: &dyn Tokens,
         device: &dyn DeviceEnv,
         locale: &dyn LocaleSource,
     ) -> Result<(), RtError> {
-        let bytes_reader = self.runtime.reader();
-        let root = bytes_reader.root().map_err(|_| RtError::Malformed)?;
-        let components = root.get_components().map_err(|_| RtError::Malformed)?;
-        let component = components.get(self.nav.current().page);
-        let view_root = component.get_view().map_err(|_| RtError::Malformed)?;
-        let mut locals: Vec<Option<Value>> = vec![None; 64];
-        let mut live_instances: Vec<u64> = Vec::new();
-        self.deps.clear();
-        let symbols = self.runtime.symbols().to_vec();
-        let mut handlers: Vec<HandlerEntry> = Vec::new();
-        let mut anim_intents: Vec<(Vec<u32>, AnimIntent)> = Vec::new();
-        let mut ctx = EmitCtx {
-            stores: self.runtime.stores(),
-            // A component body starts at the root instance; a keyed collection
-            // inside it re-bases per item (TASK-0077B P1).
-            instance: crate::store::ROOT_INSTANCE,
-            live_instances: &mut live_instances,
-            locals: &mut locals,
-            params: &[],
-            device,
-            locale,
-            tokens,
-            symbols: &symbols,
-            deps: &mut self.deps,
-            handlers: &mut handlers,
-            anim_intents: &mut anim_intents,
-            path: Vec::new(),
-            components,
-            // The entry page has no caller, so no slot frame.
-            slots: None,
+        let (scene, deps, handlers, animations, live_instances) = {
+            let _scope = self.frame_scope.map(FrameScope::enter);
+            let bytes_reader = self.runtime.reader();
+            let root = bytes_reader.root().map_err(|_| RtError::Malformed)?;
+            let components = root.get_components().map_err(|_| RtError::Malformed)?;
+            let component = components.get(self.nav.current().page);
+            let view_root = component.get_view().map_err(|_| RtError::Malformed)?;
+            let mut locals: Vec<Option<Value>> = vec![None; 64];
+            let mut live_instances: Vec<u64> = Vec::new();
+            let symbols = self.runtime.symbols().to_vec();
+            // Fresh per frame — see the contract above.
+            let mut deps: Vec<Dep> = Vec::new();
+            let mut raw_handlers: Vec<HandlerEntry> = Vec::new();
+            let mut anim_intents: Vec<(Vec<u32>, AnimIntent)> = Vec::new();
+            let mut ctx = EmitCtx {
+                stores: self.runtime.stores(),
+                // A component body starts at the root instance; a keyed
+                // collection inside it re-bases per item (TASK-0077B P1).
+                instance: crate::store::ROOT_INSTANCE,
+                live_instances: &mut live_instances,
+                locals: &mut locals,
+                params: &[],
+                device,
+                locale,
+                tokens,
+                symbols: &symbols,
+                deps: &mut deps,
+                handlers: &mut raw_handlers,
+                anim_intents: &mut anim_intents,
+                path: Vec::new(),
+                components,
+                // The entry page has no caller, so no slot frame.
+                slots: None,
+            };
+            let mut scene = emit::emit_view(&mut ctx, view_root)?;
+            drop(ctx);
+            // The status-bar rows the compositor reserved. Applied on every
+            // emit, because the scene is rebuilt from scratch each time.
+            if self.safe_area_top > nexus_layout_types::FxPx::ZERO {
+                let _ = scene.inset_top(self.safe_area_top);
+            }
+            // Resolve handler and motion-intent paths to pre-order box ids
+            // against the NEW scene (one box id per animated node, so the host
+            // can key its `AnimationDriver` by `node_id`).
+            let mut handlers: Vec<(usize, HandlerEntry)> = Vec::with_capacity(raw_handlers.len());
+            for entry in raw_handlers {
+                if let Some(box_id) = interact::path_to_box_id(&scene, &entry.path) {
+                    handlers.push((box_id, entry));
+                }
+            }
+            let mut animations: Vec<(usize, AnimIntent)> = Vec::with_capacity(anim_intents.len());
+            for (path, intent) in anim_intents {
+                if let Some(box_id) = interact::path_to_box_id(&scene, &path) {
+                    animations.push((box_id, intent));
+                }
+            }
+            (scene, deps, handlers, animations, live_instances)
         };
-        self.scene = emit::emit_view(&mut ctx, view_root)?;
+        self.scene = scene;
+        self.deps = deps;
+        self.handlers = handlers;
+        self.animations = animations;
         // Per-instance state is dropped for instances this emit did NOT
         // produce (TASK-0077B P1): a row that left the collection takes its
         // fields with it, so storage tracks the live set instead of growing
         // with every key ever seen. Nothing is dropped when no keyed
         // collection emitted, because then every keyed store is still at its
-        // root instance.
+        // root instance. This touches the STORES, so it runs after the scope.
         let live: alloc::collections::BTreeSet<u64> = live_instances
             .iter()
             .copied()
@@ -287,26 +394,8 @@ impl<'p> View<'p> {
         for slot in self.runtime.stores_mut() {
             slot.retain_instances(&live);
         }
-        // The status-bar rows the compositor reserved. Applied HERE, after
-        // every emit, because the scene is rebuilt from scratch each time.
-        if self.safe_area_top > nexus_layout_types::FxPx::ZERO {
-            let _ = self.scene.inset_top(self.safe_area_top);
-        }
-        // Resolve handler paths to pre-order box ids against the new scene.
-        self.handlers.clear();
-        for entry in handlers {
-            if let Some(box_id) = interact::path_to_box_id(&self.scene, &entry.path) {
-                self.handlers.push((box_id, entry));
-            }
-        }
-        // Resolve motion-intent paths the same way (one box id per animated
-        // node) so the host can key its `AnimationDriver` by `node_id`.
-        self.animations.clear();
-        for (path, intent) in anim_intents {
-            if let Some(box_id) = interact::path_to_box_id(&self.scene, &path) {
-                self.animations.push((box_id, intent));
-            }
-        }
+        // The focus record outlives many frames and clones a path and a
+        // payload out of the new handlers — on the ordinary heap, here.
         self.revalidate_text_focus();
         Ok(())
     }

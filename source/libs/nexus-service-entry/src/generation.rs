@@ -29,6 +29,34 @@
 //! TEST_COVERAGE: the unit tests below (host)
 //! ADR: docs/adr/0065-app-host-frame-phase-allocates-from-a-generation-arena.md
 
+/// Which phase's arena a scope belongs to (ADR-0065, TASK-0077C P2b).
+///
+/// Emit and layout are separate PAIRS on purpose: their retained outputs have
+/// independent lifetimes — a scene is read by its own layout and by the next
+/// hit-test, boxes are read by the next frame's row diff — so each phase resets
+/// on its own schedule and a paint-only frame (emit, no layout) cannot reset
+/// the boxes it still paints from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Region {
+    /// The DSL runtime's emission: scene, handlers, animation intents.
+    Emit,
+    /// Layout boxes and text runs.
+    Layout,
+}
+
+impl Region {
+    /// Index into the per-region state.
+    pub(crate) const fn index(self) -> usize {
+        match self {
+            Region::Emit => 0,
+            Region::Layout => 1,
+        }
+    }
+
+    /// How many regions there are — one arena is split evenly between them.
+    pub(crate) const COUNT: usize = 2;
+}
+
 /// Where an allocation should come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Place {
@@ -44,6 +72,7 @@ pub(crate) enum Place {
 /// Invariant: the half that is NOT open is the retained one and is never
 /// written. Opening flips, and resets the half being opened — which is the
 /// generation from two frames ago, already dead.
+#[derive(Clone, Copy)]
 pub(crate) struct Generations {
     /// Base of each half; `0` until [`Generations::init`].
     base: [usize; 2],
@@ -96,14 +125,19 @@ impl Generations {
     /// Starts the next generation: flip, and reset the half being opened.
     ///
     /// That half held the frame from two frames ago. Resetting is ONE store —
-    /// no per-object free, which is the whole point.
-    pub(crate) fn open(&mut self) {
+    /// no per-object free, which is the whole point. Returns the range the
+    /// reset gave up — `(base, bytes_that_were_used)` — so a poisoning build
+    /// can fill exactly that and make any stale reader fail loudly instead of
+    /// silently reading last-but-one frame's bytes. `(0, 0)` when disabled.
+    pub(crate) fn open(&mut self) -> (usize, usize) {
         if !self.enabled() {
-            return;
+            return (0, 0);
         }
         self.active ^= 1;
+        let reset = (self.base[self.active], self.used[self.active]);
         self.used[self.active] = 0;
         self.open = true;
+        reset
     }
 
     /// Ends the scope. The half stays intact — it is the retained generation
@@ -242,6 +276,40 @@ mod tests {
     /// An allocation that does not fit SPILLS to the base heap — loudly, via
     /// the sticky flag the gate reads — rather than killing the service
     /// mid-frame. Slow and visible beats dead.
+    /// The property a paint-only frame rests on: opening a generation in ONE
+    /// region must not touch the other. Emit without layout (a colour change)
+    /// keeps painting from the boxes the layout region still holds; if the
+    /// emit's open reset them, the next paint would read recycled memory.
+    /// Built the way the OS glue builds it — one pair per `Region`, indexed.
+    #[test]
+    fn regions_reset_independently() {
+        const PAIR: usize = 2048;
+        const HALF: usize = PAIR / 2;
+        let mut pairs = [Generations::empty(); Region::COUNT];
+        for (i, pair) in pairs.iter_mut().enumerate() {
+            pair.init(0x1000 + i * PAIR, PAIR);
+        }
+        let layout_base = 0x1000 + Region::Layout.index() * PAIR;
+        // A layout frame places boxes.
+        pairs[Region::Layout.index()].open();
+        let Place::Arena(boxes) = pairs[Region::Layout.index()].place(256, 8) else {
+            panic!("arena expected")
+        };
+        pairs[Region::Layout.index()].close();
+        // Three emit-only frames in a row: three opens in the EMIT region.
+        for _ in 0..3 {
+            pairs[Region::Emit.index()].open();
+            let _ = pairs[Region::Emit.index()].place(64, 8);
+            pairs[Region::Emit.index()].close();
+        }
+        // The layout region did not move: its next open resets the OTHER half,
+        // and the boxes' half is still the retained one.
+        let reset = pairs[Region::Layout.index()].open();
+        let boxes_half = layout_base + ((boxes - layout_base) / HALF) * HALF;
+        assert_ne!(reset.0, boxes_half, "an emit-only frame must never reset the boxes");
+        assert_eq!(pairs[Region::Layout.index()].peak(), 256, "layout's peak is its own");
+    }
+
     #[test]
     fn test_reject_an_allocation_larger_than_a_generation() {
         let mut g = gens();

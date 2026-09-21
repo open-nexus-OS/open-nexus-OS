@@ -47,7 +47,7 @@ pub use interact::HandlerEntry;
 pub use nav::{Nav, NavEntry};
 pub use nexus_theme_tokens as theme_tokens;
 pub use store::{StoreSlot, StoreState, Value, ROOT_INSTANCE};
-pub use view::View;
+pub use view::{FrameScope, FrameScopeGuard, View};
 
 use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
 use effects::Pending;

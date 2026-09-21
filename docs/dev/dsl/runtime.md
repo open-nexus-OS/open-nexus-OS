@@ -100,6 +100,42 @@ re-run. Consequences for app authors:
 - Duplicate or reordered snapshots are free: every apply compares before
   acting; the snapshot generation is a dedupe token, not a protocol you see.
 
+## Memory over a session: the frame arena (ADR-0065)
+
+An app-host rebuilds a frame on every structural interaction and throws it away —
+measured against the real desktop-shell: 226 KiB per layout call, ~100 KiB per
+structural emit, and **0 B of live drift** over 100 dispatches. On a service heap
+that never frees, all of it leaks, and a 16 MiB heap buys 50–85 interactions.
+
+So the two frame phases run inside **generation arenas**: the runtime's emission
+in one region, layout + text runs in another, each with two generations used
+alternately. Opening generation g+1 resets g-1 with a single store. Two, because
+that is exactly what the consumers need — the previous frame's boxes are read by
+the next frame's row diff, the scene by its own layout and the next hit-test.
+The regions are separate so a paint-only frame (emit, no layout) cannot reset
+the boxes it still paints from.
+
+**The rule that makes it safe, and that you must keep when touching `View::emit`
+or `relayout_retained`:** nothing allocated inside a frame phase may outlive its
+generation.
+
+- Every retained output — the scene, `deps`, `handlers`, `animations`, the
+  layout result, the text runs — is a **fresh value each frame**. Never keep a
+  buffer across frames with `clear()`: it is written in generation g+1 and reset
+  underneath its owner in g+2, and the failure looks like a `Vec` with a
+  capacity of `0xDEDE…`.
+- Nothing durable is built inside the scope. The live-instance sweep over the
+  stores and the text-focus record run after the emit guard has dropped.
+- A reducer never runs inside a scope; store writes are on the ordinary heap by
+  construction, because the scope opens in `View::emit`, after the reduce.
+
+This is enforced, not trusted: `tests/dsl_apps_conformance/tests/arena_invariant.rs`
+runs the real apps for 64 frames under a POISONING two-generation allocator and
+aborts on any stale read, and the OS build fills a reset generation with `0xDE`
+(`frame-arena-poison`) so a violation fails loudly in a boot instead of corrupting
+silently. The boot log reports `apphost: frame arena (layouts=… base=… peak=… of=…
+spill=…)`; `spill=1` means a frame outgrew its generation and the leak is back.
+
 ## Persistence tiers
 
 1. Session state (default) — in-memory per app instance.

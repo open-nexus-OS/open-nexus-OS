@@ -56,6 +56,13 @@ impl DslApp {
             let locale = IdentityLocale { symbols: &symbols, keys: &keys };
             View::mount(nxir, tokens, &device, &locale).ok()?
         };
+        // ADR-0065 / TASK-0077C P2b: route EMISSION into its own generation
+        // arena. Set once, here — it never varies per call, so it is a field
+        // and not an argument on six entry points. `View::emit` holds it only
+        // while the scene is built; the live-instance sweep and the focus
+        // record run after it, on the ordinary heap.
+        #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+        view.set_frame_scope(&EMIT_ARENA);
         if let Some(snapshot) = store_snapshot {
             view.runtime.store_restore(snapshot);
         }
@@ -137,5 +144,26 @@ impl DslApp {
         // `.transition` nodes (the first present's frame pulse plays them).
         app.anim_sync();
         Some(app)
+    }
+}
+
+/// The emit-phase arena scope handed to the DSL runtime (ADR-0065).
+///
+/// A zero-sized singleton: exactly one app-host view tree per process, exactly
+/// one emit region. The runtime only needs something that lives long enough.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+struct EmitArena;
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+static EMIT_ARENA: EmitArena = EmitArena;
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+impl nexus_dsl_runtime::FrameScope for EmitArena {
+    fn enter(&self) -> nexus_dsl_runtime::FrameScopeGuard {
+        use nexus_service_entry::os::{close_frame_generation, frame_generation, Region};
+        // The allocator's own guard would close on drop; the runtime owns the
+        // lifetime instead, so leak that guard and close explicitly.
+        core::mem::forget(frame_generation(Region::Emit));
+        nexus_dsl_runtime::FrameScopeGuard::new(|| close_frame_generation(Region::Emit))
     }
 }

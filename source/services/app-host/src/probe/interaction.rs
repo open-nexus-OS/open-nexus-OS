@@ -326,20 +326,12 @@ impl super::DslApp {
         self.row_scratch.resize(w as usize * 4, 0);
         // Box geometry moves under the pointer; the next MOVE re-resolves.
         self.hovered = None;
-        // Scroll extents changed with the geometry: re-arm + re-clamp
-        // after the fresh layout below (relayout path does the same).
-        self.end_fired = false;
-        let engine = nexus_layout::LayoutEngine::new();
-        if let Ok(layout) = engine.layout_with_viewport(
-            self.view.scene(),
-            nexus_layout_types::FxPx::new(w as i32),
-            Some(nexus_layout_types::FxPx::new(h as i32)),
-            &nexus_text_baked::measure_text::BakedTextMeasure,
-        ) {
-            self.layout = layout;
-            self.texts.clear();
-            collect_texts(self.view.scene(), &mut 0, &mut self.texts);
-        }
+        // ONE layout phase (TASK-0077C P2b): this used to repeat the layout
+        // call and the text collection by hand — "relayout path does the
+        // same", its own comment said — which left the resize frame outside
+        // the generation arena and kept `texts` across frames with `clear()`.
+        // The shared phase re-arms and re-clamps scroll extents as well.
+        self.relayout_retained();
     }
 
     /// RFC-0075 tap-to-focus: resolve widget text focus at the tap point

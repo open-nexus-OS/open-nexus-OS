@@ -68,9 +68,20 @@ allocator owns that scope.**
   resets *g-1* **wholesale** — one pointer, no per-object free. Two, because app-host provably
   needs exactly two: it keeps the previous boxes and texts alive to diff against the new ones
   (`probe/interaction.rs` takes `old_boxes`/`old_texts` before `relayout_retained`).
-- The scope wraps the **layout + text phase** (`relayout_retained`), which is the dominant cost
-  and is free of store writes — it reads `view.scene()` and writes `self.layout` / `self.texts`
-  and nothing else.
+- **Two regions, each its own pair of generations** (amended 2026-09-21, TASK-0077C P2b): the
+  layout + text phase (`relayout_retained`) opens `Region::Layout`; the DSL runtime's emission
+  (`View::emit`) opens `Region::Emit` through a `FrameScope` the app-host installs once after
+  mount. They are separate on purpose. Their retained outputs have independent lifetimes — a
+  scene is read by its own layout and by the next hit-test, boxes by the next frame's row diff
+  — so each resets on its own schedule, and a paint-only frame (emit without layout) cannot
+  reset the boxes it still paints from. Sharing one pair would have forced the reduce and the
+  emit apart at the runtime's API; separate pairs make that unnecessary.
+- **Emission is pure with respect to durable state, and that is a contract, not a hope.**
+  Inside the emit scope the runtime builds the scene and resolves handlers and motion intents
+  against it, and every retained output is a FRESH value each frame. The live-instance sweep
+  over the stores and the text-focus record (which clones a path and a payload) run after the
+  guard has dropped, on the ordinary heap. A retained buffer kept across frames with `clear()`
+  is forbidden: it is written in generation g+1 and reset underneath its owner in g+2.
 - **Durable state never enters a generation.** Stores, the mounted program, the IR, the view's
   own retained scene: base heap. The rule is not "what is big" but "what outlives one frame".
 - A generation is never reset while anything still reads it. Since generations are reset only
@@ -95,12 +106,31 @@ allocator owns that scope.**
   and gateable rather than silent. An earlier draft made exhaustion a fatal allocation failure;
   killing a UI on a large frame is not an improvement on leaking slowly, and "silent" was the
   property worth ending, not "survivable".
+- **The invariant is ENFORCED, not trusted — twice.** On the host,
+  `tests/dsl_apps_conformance/tests/arena_invariant.rs` replaces the global allocator with a
+  two-generation arena that POISONS a reset generation and every block freed inside one, then
+  drives the real apps (desktop-shell, stash, greeter text focus) for 64 frames each. On the
+  first attempt at scoping emission it aborted in `drop_in_place<HandlerEntry>` with
+  "`unchecked_mul` cannot overflow" — a poisoned `Vec` capacity, from `self.handlers.clear()`
+  reusing a buffer across frames; that, not a store write, was the `alloc-fail
+  size=0x20000004d` in the boot log. On the OS, `frame-arena-poison` fills the bytes a reset
+  generation gave up with `0xDE` (one memset of the USED bytes, ~48-78 KiB), so a stale
+  reader fails at once instead of reading the frame from two frames ago. App-host keeps it on.
 - **New invariant to keep honest:** an allocation made inside a scope must not outlive its
   generation. `alloc_zeroed` is the sharp edge and is handled: the base bump can skip zeroing
   because it only ever hands out untouched `.bss`, but the arena REUSES memory, so it zeroes
   explicitly — without that it would hand back the frame from two frames ago. This is the one real hazard. It is contained by keeping the scope narrow (one
   phase, no store writes) and by the task's proof, and it is why the scope is a closed API and
   not a free-floating "arena mode" a caller can leave open.
+- **What the arena does and does not buy, measured (2026-09-21, visible boot, poison on):**
+  the frame is flat — arena peak 76 733 B across both regions, spill 0, no allocation fault —
+  and the base heap still advances **432 B per layout** (28 129 with layout alone scoped,
+  75 018 with no arena). The residue is the REDUCE path: per-dispatch transients and, above
+  all, durable state overwritten on a heap that never frees. That is outside this ADR's
+  subject by design — durable state must never enter a generation — and it bounds a session
+  at ~39 000 interactions. The follow-on (TASK-0077C P3) is a per-service, opt-in, size-class
+  free list for app-host's base heap. This ADR's rejection of "a free-list allocator" is about
+  a GENERAL one on every service's floor; it does not speak against that.
 - Every other service keeps the bump exactly as it is. No service floor changes.
 - `nexus-service-entry` is an approval zone; this ADR is the record that the change is a
   narrowing of one allocator's behaviour under an explicit scope, not a new allocator.

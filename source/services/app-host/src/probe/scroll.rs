@@ -505,7 +505,8 @@ impl super::DslApp {
         // `old_texts` to diff the changed row span against), and it holds it
         // across exactly one.
         #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-        let _generation = nexus_service_entry::os::frame_generation();
+        let _generation =
+            nexus_service_entry::os::frame_generation(nexus_service_entry::os::Region::Layout);
         let engine = nexus_layout::LayoutEngine::new();
         let Ok(layout) = engine.layout_with_viewport(
             self.view.scene(),
@@ -516,8 +517,13 @@ impl super::DslApp {
             return;
         };
         self.layout = layout;
-        self.texts.clear();
-        collect_texts(self.view.scene(), &mut 0, &mut self.texts);
+        // FRESH, not `clear()`+refill: a buffer kept across frames would be
+        // written in generation g+1 and reset underneath it in g+2 (ADR-0065;
+        // the poisoning harness in dsl_apps_conformance aborts on exactly that
+        // shape in the runtime, and the OS poison feature makes it loud here).
+        let mut texts = alloc::vec::Vec::new();
+        collect_texts(self.view.scene(), &mut 0, &mut texts);
+        self.texts = texts;
         // Store-window proof: with `tail(messages, 256)` the resident text
         // run count stays bounded no matter how many pages are loaded —
         // without the cap this grew unbounded and OOM'd the bump heap.

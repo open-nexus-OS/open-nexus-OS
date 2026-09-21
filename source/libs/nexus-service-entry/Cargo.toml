@@ -17,6 +17,9 @@ heap-16m = []
 # ADR-0065: the frame arena is OPT-IN. Without it the region is zero-sized, so a
 # service's .bss and image are unchanged to the byte and the scope API is inert.
 frame-arena = []
+# ADR-0065 tripwire: fill a reset generation with 0xDE so a stale reader fails
+# loudly. One memset of the USED bytes per frame; app-host keeps it on.
+frame-arena-poison = []
 
 [dependencies]
 nexus-abi = { path = "../nexus-abi" }

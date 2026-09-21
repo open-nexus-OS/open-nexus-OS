@@ -220,11 +220,84 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
   (Control Center open, a long list) allocates more; `spill` is the signal if one ever exceeds
   it. Tightening belongs after more scenes are exercised.
 
-- **P2b (NEW, from P2's measurement)** Scope the EMIT phase. Requires separating reduce from
-  emit in `dsl/runtime` so the store writes stay on the base heap while the scene and handler
-  table go to the generation. Gate: `apphost: heap steady` actually prints — which is the
-  marker P2 built and deliberately did not declare, because declaring a marker the system
-  cannot yet produce is the fake-green this tree removes on sight.
+- **P2b ✅ 2026-09-21 — SOLVED, after the first attempt was backed out for the wrong reason.**
+  Scope the EMIT phase so the remaining 28 129 B per frame stops leaking.
+
+  **What the backout got wrong.** The 2026-09-20 attempt booted, cut base-heap growth 66×, and
+  printed `alloc-fail size=0x20000004d` — and I attributed that to "emit writes stores"
+  (`state_mut`, `retain_instances`) and withdrew. `state_mut` is called by NOTHING in the emit
+  path; the read path `state()` falls back to `proto` and allocates nothing. The attribution
+  was a guess dressed as a finding.
+
+  **What it actually was — found by a detector, not by reading.**
+  `tests/dsl_apps_conformance/tests/arena_invariant.rs` replaces the global allocator with a
+  two-generation arena that POISONS a reset generation and every block freed inside one, then
+  drives the real apps for 64 frames each. Against the unfixed emit it aborted in
+  `drop_in_place<[(usize, HandlerEntry)]>` → `Vec<u32>` → *"`unchecked_mul` cannot overflow"*:
+  a poisoned capacity. `self.handlers.clear()` (and `deps`, `animations`) KEPT their buffers
+  across frames — written in generation g+1, reset underneath the owner in g+2. The classic
+  arena bug, invisible on a bump that never poisons and unreproducible on an ordinary heap.
+
+  **The fix is a contract, not a patch.** `View::emit` has two halves with a hard line: the
+  frame (inside the host's `FrameScope`: build the scene, resolve handlers and intents, every
+  output a FRESH value) and, after the guard drops, everything durable (the live-instance sweep,
+  the focus record with its cloned path and payload). App-host's `texts` became fresh per
+  layout; the resize path's hand-rolled duplicate of the layout phase — outside any scope,
+  `clear()`-reusing `texts`, its own comment admitting "relayout path does the same" — was
+  deleted in favour of the ONE `relayout_retained`.
+
+  **Two regions.** Emit and layout got independent generation pairs (`Region::Emit` /
+  `Region::Layout`): a scene is read by its own layout and the next hit-test, boxes by the next
+  frame's row diff, so each resets on its own schedule and a paint-only frame cannot reset the
+  boxes it still paints from. The runtime got a `FrameScope` trait set ONCE after mount — no
+  parameter through twelve call sites, no reduce-only twins of six entry points (`principles.md`
+  §5), and the runtime never learns what an arena is.
+
+  **Enforced twice.** The host harness is the gate (verified falsifiable: red on the unfixed
+  emit, green after; and its own canary had a bug — `all()` over an empty text is vacuously
+  true — caught by the differential run `ARENA_OFF=1`, which is why that switch exists). On
+  the OS, `frame-arena-poison` fills the bytes a reset generation gave up with `0xDE`, one
+  memset of the USED bytes per frame, kept on in app-host as a tripwire like the cursor one.
+
+  Honest limit: the harness cannot distinguish whether the focus revalidation needs to be
+  outside the scope — it is rebuilt on every emit, so its clone never reaches two generations.
+  It stays out on principle (durable state is never built inside a frame scope), documented as
+  such in the code.
+
+  ⭐ **Defect found on the way, NOT this task's:** driving `settings` with `WindowEvent::WinMenu`
+  for 34 frames returns `RtError::Malformed` from `dispatch` — on a PLAIN heap too
+  (`ARENA_OFF=1`), while `budget_probe` does one and passes. A runtime or settings-app defect
+  after ~17 open/close cycles (a bounded list? nav history?). Recorded here so it is not lost;
+  the harness leaves `settings` out with a comment naming this.
+
+  **Boot-proven 2026-09-21** (visible profile, poison ON): `alloc-fail` **0**; arena peak flat
+  at **76 733 B** across both regions, `spill=0`; base heap 123 472 → 128 224 B over 11 layouts
+  = **432 B per layout** (P2: 28 129; no arena: 75 018). The FRAME is flat.
+
+  **And 432 B per layout is not zero, so `heap steady` does not print, and is not declared.**
+  Measured on the host with the same harness (bytes outside every scope, per dispatch):
+  52–59 B for a dispatch that changes nothing visible, 200–256 B for a structural one. That is
+  the REDUCE path — the dispatch queue and the changed-field list built fresh per dispatch, and
+  above all the store overwrite: writing a new `Value::Str` into a field leaves the old one's
+  bytes on a heap that never frees. None of it belongs in a frame arena; durable state must
+  not. Ceiling at 432 B/frame: ~39 000 interactions — a shell ticking its clock once a second
+  still dies after ~11 hours. That is not "unbounded", and this ledger does not pretend it is.
+
+  Deliberately NOT done here: reusing the reduce path's transient `Vec`s (correct on the base
+  heap, ~100 B/dispatch) — it does not change the category, and the category is the point.
+
+- **P3 RECUT 2026-09-21 — durable-state churn: app-host's base heap has to FREE.** The old P3
+  ("delete `heap-16m`, restore the 14 MB budget") assumed the arena would make the heap flat.
+  It made the FRAME flat; the residue is durable state overwritten on a bump. D1's rejection of
+  "a free-list allocator for services" stands for what it rejected — a GENERAL allocator on
+  every service's floor, including the boot path. This is narrower: a per-service, opt-in,
+  size-class free-list (segregated fits, fixed classes, no coalescing — O(1), deterministic,
+  the shape real OS allocators use for small objects) behind the SAME `GlobalAlloc`, for the
+  one service that overwrites durable state thousands of times per session. Gate: `apphost:
+  heap steady` — the detector P2b built and did not declare — prints, and the harness's
+  outside-scope bytes stop growing over 64 frames. D2 (delete `heap-16m`, restore the budget)
+  rides on it, not before it. Needs ADR-0065 amended and `scripts/**` for the budget table.
+
 - **P3** D2 deletion (heap floor back, watermark markers out, image budget restored).
   Blast: `contract-image-budgets`, every app-host lane.
 - **P4 / P5 RETIRED.** P4 (subtree re-emit) → TASK-0145B P3, see D3. P5 (docs) is not a

@@ -29,6 +29,7 @@ os-lite = [
     # frame on every interaction, so it is the one that carves a frame arena.
     # `heap-16m` stays for now and goes in P3, once the arena is boot-proven.
     "nexus-service-entry/frame-arena",
+    "nexus-service-entry/frame-arena-poison",
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",

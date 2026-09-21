@@ -23,6 +23,7 @@
 #[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
 mod generation;
 
+mod cursor_tripwire;
 mod debug_write;
 
 /// Declares the `_start` entry point for OS builds, delegating to `bootstrap`.
@@ -121,9 +122,11 @@ pub mod os {
     use core::slice;
     use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+    use crate::cursor_tripwire::check_cursor_monotone;
     use crate::debug_write::{
         debug_write_byte, debug_write_bytes, debug_write_dec, debug_write_hex, debug_write_str,
     };
+    pub use crate::generation::Region;
     use nexus_abi::exit;
     #[cfg(feature = "alloc-log")]
     use nexus_log;
@@ -181,9 +184,11 @@ pub mod os {
         start: usize,
         end: usize,
         current: usize,
-        /// The frame arena. Empty and inert unless a service opts in AND opens
-        /// a scope; `place()` then answers `BaseHeap` and nothing changes.
-        gens: crate::generation::Generations,
+        /// The frame arena, ONE PAIR PER REGION (TASK-0077C P2b): emit and
+        /// layout reset on their own schedules. Empty and inert unless a
+        /// service opts in AND opens a scope; `place()` then answers
+        /// `BaseHeap` and nothing changes.
+        gens: [crate::generation::Generations; crate::generation::Region::COUNT],
         /// Reported high-water marks (bitmask 50/75/90%): bump exhaustion
         /// was a silent freeze — one UART line per threshold warns first.
         watermarks: u8,
@@ -196,7 +201,7 @@ pub mod os {
                 end: 0,
                 current: 0,
                 watermarks: 0,
-                gens: crate::generation::Generations::empty(),
+                gens: [crate::generation::Generations::empty(); crate::generation::Region::COUNT],
             }
         }
 
@@ -205,9 +210,14 @@ pub mod os {
                 self.start = base;
                 self.end = base + size;
                 self.current = base;
+                // Split the region evenly between the phases.
                 #[allow(static_mut_refs)]
                 unsafe {
-                    self.gens.init(ARENA.as_mut_ptr() as usize, ARENA_SIZE);
+                    let per = ARENA_SIZE / crate::generation::Region::COUNT;
+                    let base = ARENA.as_mut_ptr() as usize;
+                    for (i, pair) in self.gens.iter_mut().enumerate() {
+                        pair.init(base + i * per, per);
+                    }
                 }
                 log_alloc_init(base, self.end);
             }
@@ -216,10 +226,16 @@ pub mod os {
         /// The arena's answer for this layout, or `None` when the base heap
         /// below should serve it (no scope open, no arena, or a spill).
         fn arena_alloc(&mut self, layout: Layout) -> Option<*mut u8> {
-            match self.gens.place(layout.size(), layout.align()) {
-                crate::generation::Place::Arena(addr) => Some(addr as *mut u8),
-                crate::generation::Place::BaseHeap => None,
+            // Whichever region has a scope open answers; at most one does, and
+            // outside every scope this is two predictable branches.
+            for pair in &mut self.gens {
+                if let crate::generation::Place::Arena(addr) =
+                    pair.place(layout.size(), layout.align())
+                {
+                    return Some(addr as *mut u8);
+                }
             }
+            None
         }
 
         fn alloc(&mut self, layout: Layout) -> *mut u8 {
@@ -297,65 +313,8 @@ pub mod os {
     }
 
     static ALLOCATOR: LockedBump = LockedBump::new();
-    /// Task #14 tripwire: the bump cursor is MONOTONE by construction. A
-    /// cursor that moves backwards means the allocator state was overwritten
-    /// (e.g. a stack cliff into .bss) — the root of overlapping allocations
-    /// and "impossible" data corruption. Checked on every alloc; violation
-    /// is reported once, loudly.
-    static LAST_CURSOR: AtomicUsize = AtomicUsize::new(0);
-    static CURSOR_REGRESSED: AtomicBool = AtomicBool::new(false);
-
-    fn check_cursor_monotone(cur_after: usize) {
-        let prev = LAST_CURSOR.swap(cur_after, Ordering::AcqRel);
-        if cur_after < prev && !CURSOR_REGRESSED.swap(true, Ordering::AcqRel) {
-            debug_write_bytes(b"!alloc-cursor-regressed svc=");
-            debug_write_str(service_name());
-            debug_write_bytes(b" prev=0x");
-            debug_write_hex(prev);
-            debug_write_bytes(b" now=0x");
-            debug_write_hex(cur_after);
-            debug_write_byte(b'\n');
-        }
-    }
-
-    /// A frame generation, open until this guard drops (ADR-0065).
-    ///
-    /// While it lives, allocations come from the arena instead of the base
-    /// heap, and the generation opened two frames ago is reset. A guard rather
-    /// than an open/close pair on purpose: a scope left open by an early return
-    /// would put a later store write into memory that is about to be reused,
-    /// and that is the one hazard this design has.
-    ///
-    /// A service that did not enable `frame-arena`, or one whose arena is not
-    /// armed, gets a guard that changes nothing.
-    #[must_use = "the generation closes when this guard drops; binding it to `_` closes it at once"]
-    pub struct FrameGeneration {
-        _private: (),
-    }
-
-    /// Opens the next frame generation. See [`FrameGeneration`].
-    pub fn frame_generation() -> FrameGeneration {
-        ALLOCATOR.ensure_init();
-        ALLOCATOR.inner.lock().gens.open();
-        FrameGeneration { _private: () }
-    }
-
-    impl Drop for FrameGeneration {
-        fn drop(&mut self) {
-            ALLOCATOR.inner.lock().gens.close();
-        }
-    }
-
-    /// Arena introspection for the budget probe: `(peak_bytes, spilled, size)`.
-    ///
-    /// `spilled` is the one that matters: it means a frame did not fit and the
-    /// base heap served the remainder — the leak this arena exists to end,
-    /// still happening. The gate asserts it is false.
-    pub fn arena_stats() -> (usize, bool, usize) {
-        ALLOCATOR.ensure_init();
-        let bump = ALLOCATOR.inner.lock();
-        (bump.gens.peak(), bump.gens.spilled(), ARENA_SIZE)
-    }
+    mod frame_arena;
+    pub use frame_arena::{arena_stats, close_frame_generation, frame_generation, FrameGeneration};
 
     /// Heap introspection for proofs: (start, current, end).
     pub fn heap_cursor() -> (usize, usize, usize) {
@@ -547,7 +506,7 @@ pub mod os {
     }
 
     #[inline(always)]
-    fn service_name() -> &'static str {
+    pub(crate) fn service_name() -> &'static str {
         let ptr = SERVICE_NAME_PTR.load(Ordering::Relaxed);
         let len = SERVICE_NAME_LEN.load(Ordering::Relaxed);
         if ptr == 0 || len == 0 {
