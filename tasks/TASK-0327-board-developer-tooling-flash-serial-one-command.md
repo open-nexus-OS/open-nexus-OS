@@ -1,6 +1,6 @@
 ---
 title: TASK-0327 Board developer tooling: one command installs the flash/serial tools on Ubuntu, Arch and Fedora + `just board-*`
-status: In Progress (P0 Paper 2026-09-21 — end-state rewrite + host measurement; T1 next)
+status: In Progress (T0 Paper + T1 Packages/permissions/doctor Done 2026-09-21 — `make doctor` green on the desk box, board seen as 361c:0008; T2 Recipes next)
 owner: @devx @runtime
 created: 2026-09-21
 depends-on: []
@@ -135,7 +135,7 @@ download mode, `just board-serial` shows the stock system's console (adapter req
 
 - **T0 Paper (this)** — ledger to end state, host measurement above, hygiene: the second `TASK-0081`
   file moved to `TASK-0209`; `TASK-0327B` seeded.
-- **T1 Packages + permissions + doctor** — `install-deps.sh` `BOARD` lists (+ `--no-board`),
+- **T1 Packages + permissions + doctor — Done 2026-09-21** (`make initial-setup` as the user, then `make doctor`: fastboot/mkimage/dtc/sgdisk/picocom present, rule installed with group `uucp`, membership effective, board `361c:0008` seen; the run also found that `sudo make initial-setup` made the workspace check judge against root's home and propose chowning the checkout to root — the check now resolves `SUDO_USER` and refuses to create rustup/cargo/podman state as root) — `install-deps.sh` `BOARD` lists (+ `--no-board`),
   `scripts/install-board-access.sh` (udev rule from `config/udev/71-nexus-board.rules` with the family's
   serial group substituted + `usermod -aG`; idempotent; `--check`), `check-deps.sh` "Board tools"
   section, Makefile steps 1/7…7/7 (6/7 = board access, `BOARD=0` skips), README. Gate: `--print-packages`

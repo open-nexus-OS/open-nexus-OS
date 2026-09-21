@@ -74,6 +74,16 @@ The checkout **must live under `$HOME`** — rootless podman maps this tree into
 user namespace and cargo writes `target/` as you, so both need a user-owned
 path. `make initial-setup` refuses to run anywhere else.
 
+**Run it as yourself, not with `sudo`.** The setup needs root for exactly three
+things — installing packages, the board's udev rule, your serial-group
+membership — and the scripts ask for your password at those points. Under
+`sudo make initial-setup` everything else (rustup in `~/.cargo`, cargo's
+`target/`, rootless podman) would be created for root instead of you, so
+`make doctor` refuses to continue and says why. The prompt needs a real
+terminal: an editor/agent shell without a TTY fails with "sudo needs a password
+but this shell has no terminal" — run `sudo -v` in a terminal first, or run
+the whole command there.
+
 (If you would rather not install `make` by hand, `./scripts/install-deps.sh`
 does the same package step with nothing but bash — `make initial-setup` is
 idempotent, so run it afterwards either way.)
