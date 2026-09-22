@@ -54,6 +54,17 @@ phase = "ipc_kernel"
 [marker."SELFTEST: ipc call ok"]
 phase = "ipc_kernel"
 
+# RFC-0098 C3 (TASK-0245 DoD): a task binds or re-arms only the PLIC line its device
+# capability carries — a line nobody granted the harness is refused with EPERM. The positive
+# half is every driver's own bind marker (`gpud: gpu irq bound`, `virtioblkd: irq endpoint
+# bound`, `hidrawd: irq endpoint bound`).
+[marker."SELFTEST: irq bind deny ok"]
+phase = "ipc_kernel"
+proves = "irq_bind and irq_complete refuse a PLIC line no device capability of the caller carries"
+
+[marker."SELFTEST: irq bind deny FAIL"]
+phase = "ipc_kernel"
+
 # TASK-0054C P4b: reply + next request in ONE trap (syscall 59). The harness
 # plays both roles against its own endpoint, so the proof needs no service change
 # and stays deterministic; it also reads the answer off its reply inbox, so a

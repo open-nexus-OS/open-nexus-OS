@@ -280,6 +280,17 @@ impl CapTable {
         }
     }
 
+    /// True when some slot holds a device capability carrying PLIC line `irq`
+    /// (RFC-0098 C3: the line a task may bind or complete is the one its device
+    /// capability carries — never a number it names).
+    pub fn holds_device_irq(&self, irq: u32) -> bool {
+        irq != 0
+            && self.slots.iter().flatten().any(|cap| {
+                matches!(cap.kind, CapabilityKind::DeviceMmio { irq: line, .. } if line == irq)
+                    && cap.rights.contains(Rights::MAP)
+            })
+    }
+
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
         self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)

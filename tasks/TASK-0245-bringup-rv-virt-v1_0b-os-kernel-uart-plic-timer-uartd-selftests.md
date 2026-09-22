@@ -1,6 +1,6 @@
 ---
 title: TASK-0245 Board support v1b (OS): the kernel's platform comes from the FDT — UART, PLIC, timer, memory ranges, hart list; kernel + nxboot position-independent; init discovers devices from the FDT
-status: In Progress (P1–P3 Done, P4 built 2026-09-22 — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
+status: Done (2026-09-22 — P1–P4 + DoD sweep; QEMU proof complete, the board's serial proof follows with TASK-0327B; recut 2026-09-22 to the end state — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
 owner: @kernel-team
 created: 2025-12-29
 updated: 2026-09-22
@@ -207,3 +207,11 @@ display-mode authority move (TASK-0251).
 `just check`; two-load-address boot proven; the kernel has no fw_cfg code; init discovers
 virtio devices from the tree with IRQs from `interrupts`; docs (`docs/architecture/01-neuron-kernel.md`
 platform section, RFC-0098 Phase 1 ✅, CHANGELOG).
+
+**Sweep 2026-09-22:** all of the above ✅ on QEMU (P1–P4). Added in the sweep: `irq_bind` and
+`irq_complete` accept only a line the caller's device capability carries
+(`CapTable::holds_device_irq`; negative proof `SELFTEST: irq bind deny ok` in the ipc_kernel
+phase, required in every profile; the positive half is every driver's own bind marker);
+`docs/architecture/01-neuron-kernel.md` boot flow + HAL rewritten around the tree with a
+"Platform from the device tree" section. RFC-0098 Phase 1 is 🟨: this task ✅, 0245B open.
+The board's serial shows these markers only after B1.6 (nxboot as FIT payload) — TASK-0327B.

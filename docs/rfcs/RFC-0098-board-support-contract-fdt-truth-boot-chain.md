@@ -23,7 +23,7 @@
 ## Status at a Glance
 
 - **Phase 0 (FDT library, `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)**: ✅ 2026-09-22 — TASK-0244
-- **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: ⬜ — TASK-0245, 0245B
+- **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: 🟨 — TASK-0245 ✅ 2026-09-22 (QEMU: every profile prints the platform, image and discovery markers; the board's serial proof arrives with TASK-0327B once B1.6 boots it); TASK-0245B (SoC clocks/resets/pinmux/power) open
 - **Phase 2 (physical memory from the FDT, page-frame allocator)**: ⬜ — TASK-0286 (M1)
 - **Phase 3 (one block owner, SDHCI, nxboot reader)**: ⬜ — TASK-0246, 0246B
 - **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: ⬜ — TASK-0260, 0260B

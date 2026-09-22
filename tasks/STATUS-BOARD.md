@@ -30,7 +30,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Security, Policy & Identity | 10 / 35 | 29% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 14 / 36 | 39% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
 | Updates, Packaging & Recovery | 12 / 21 | 57% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
-| Bringup, Hardware & Drivers | 2 / 13 | 15% | `TASK-0244`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
+| Bringup, Hardware & Drivers | 3 / 13 | 23% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
 | Windowing, UI & Graphics | 31 / 80 | 39% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 4 / 8 | 50% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |

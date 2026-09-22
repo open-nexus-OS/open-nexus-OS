@@ -54,13 +54,52 @@ implemented by `scripts/qemu-test.sh` (marker strings are a gating surface).
 
 ## Boot Flow
 
-1. `_start` is provided by `boot.rs`. It clears `.bss`, installs the
-   trap vector and jumps into `kmain::kmain`.
-2. `kmain` instantiates the HAL (`VirtMachine`), scheduler, capability
-   table, IPC router, address space and syscall table, then initializes
-   SMP state (`cpu_online_mask`) and attempts secondary hart bring-up via SBI HSM.
-3. The UART banner `NEURON` is emitted via the boot UART, proving that
-   early MMIO is working.
+1. `_start` (`neuron-boot/src/main.rs`) applies the image's own
+   `R_RISCV_RELATIVE` table — the kernel is a static PIE linked at 0 and runs
+   wherever the previous stage loaded it (nxboot's window, or the firmware
+   entry on a direct `-kernel` boot) — sets `sp`/`gp` and enters
+   `early_boot_init(hartid, dtb)`: BSS is zeroed, the firmware registers are
+   recorded (`core/boot_fdt.rs`) and the platform is built from the device tree
+   (`hal/platform.rs`) before the first log line.
+2. `kmain` activates the kernel address space (identity map of the image, the
+   UART/PLIC windows and the tree, read-only), resolves boot mode + display
+   request from `/chosen/nexus,*` (`diag/boot_mode.rs`), prints the platform,
+   image and handoff markers, instantiates scheduler, capability table, IPC
+   router and syscall table, then brings up SMP state and the secondary harts
+   via SBI HSM.
+3. The `NEURON` banner is emitted on the console the tree named, proving that
+   the platform read is right before any driver exists.
+
+## Platform from the device tree (RFC-0098)
+
+The device tree handed over in `a1` is the ONE hardware truth; nothing in the
+kernel names an address, an interrupt line or a frequency of its own.
+
+- **`hal/platform.rs`** — lock-free statics filled once by `init_from_fdt`,
+  paging off: the console from `/chosen/stdout-path` (`reg`, `reg-shift`,
+  `reg-io-width` — the byte-stride `ns16550a` and a 4-byte-stride part are one
+  driver), the PLIC base + `riscv,ndev` + the S-mode context of every hart from
+  `interrupts-extended`, the timebase from `/cpus`, the timer source from the
+  boot hart's ISA (`stimecmp` when Sstc is listed, SBI `set_timer` otherwise;
+  CLINT MMIO is never touched from S-mode). Tick↔ns conversions are exact
+  64-bit factors derived from the timebase. Markers:
+  `KSELFTEST: platform from fdt ok (uart=… plic=… ndev=… tb=…Hz harts=… timer=…)`,
+  `KINIT: timer sstc|sbi`.
+- **`core/boot_fdt.rs`** — records `a1` before paging, maps the tree's pages
+  read-only, exposes it to the kernel (`bytes()`) and injects a read-only
+  alias (`VmoRo`) into init's slot 2 (`nexus_abi::INIT_DEVICE_TREE_SLOT`),
+  from which init discovers devices and hands the tree to services.
+- **`core/boot_image.rs`** — the image's own range and the fixup-table check:
+  `KSELFTEST: kernel image ok (base=… len=… relocs=…)`.
+- **`core/boot_handoff.rs`** — the measured-boot record from
+  `/chosen/nexus,boot-record` (ADR-0059 v1 bytes, carried by nxboot).
+- **Device capabilities carry their line** — `DeviceMmio { base, len, irq }`
+  is minted by init from a node's `reg` + `interrupts`; `cap_query` reports the
+  line, and `irq_bind`/`irq_complete` accept only a line the caller's device
+  capability carries.
+- **Gate** — `scripts/check-no-platform-literals.sh` (in `just check`) fails on
+  any QEMU-virt address, slot-index interrupt arithmetic or timebase constant
+  outside the tree, its goldens and tests.
 
 ## Syscall Surface
 
@@ -369,9 +408,11 @@ so invariants stay enforceable.
 
 ## HAL Snapshot
 
-The HAL targets RISC-V `virt` and exposes traits for timers, UART, MMIO,
-IRQ control and TLB invalidation. `VirtMachine` bundles the concrete
-implementations used by the kernel.
+The HAL exposes traits for timers, UART, MMIO, IRQ control and TLB
+invalidation; `hal::platform::Machine` bundles the implementations, every one
+of them reading its numbers from the statics the device tree filled (see
+"Platform from the device tree"). There is no per-machine HAL: QEMU `virt` and
+the reference board differ only in their trees.
 
 ## Testing Strategy
 

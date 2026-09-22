@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Changed - 2026-09-22 (TASK-0245 P1–P4: the kernel's platform comes from the device tree; kernel and nxboot are position-independent; the kernel reads no fw_cfg; init discovers devices from the tree)
+### Changed - 2026-09-22 (TASK-0245 Done: the kernel's platform comes from the device tree; kernel and nxboot are position-independent; the kernel reads no fw_cfg; init discovers devices from the tree)
 
 - **`hal/platform.rs` replaces `hal/virt.rs`** (P1): console base/`reg-shift`/`reg-io-width` from
   `/chosen/stdout-path`, PLIC base + S-mode contexts from `interrupts-extended`, the timer through
@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The `input-flood` lane now floods only after the run's `SELFTEST: ipc bench (` and without the
   ladder's early stop, so the icount-calibrated IPC budget is measured undisturbed and the flood
   can no longer be cut short by the VM stopping (TASK-0054C's prescription).
+- **IRQ authority is the device capability** (DoD sweep): `irq_bind`/`irq_complete` refuse a PLIC
+  line the caller's device capability does not carry (`SELFTEST: irq bind deny ok`, required in
+  every profile). `docs/architecture/01-neuron-kernel.md` describes the platform-from-the-tree
+  boot flow; RFC-0098 Phase 1 is complete for TASK-0245 (0245B open).
 
 ### Added - 2026-09-22 (TASK-0244 Done: the device tree is the one hardware truth — `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)
 

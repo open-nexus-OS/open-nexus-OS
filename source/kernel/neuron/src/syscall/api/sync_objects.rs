@@ -90,6 +90,10 @@ pub(super) fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     let endpoint_slot = args.get(1);
     let irq =
         crate::hal::plic::IrqId::new(irq_raw).ok_or(Error::Capability(CapError::InvalidSlot))?;
+    // RFC-0098 C3: a task binds only the line its device capability carries.
+    if !ctx.tasks.current_caps_mut().holds_device_irq(irq_raw) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     let endpoint = match ctx.tasks.current_caps_mut().get(endpoint_slot)?.kind {
         CapabilityKind::Endpoint(id) => id,
         _ => return Err(Error::Capability(CapError::InvalidSlot)),
@@ -101,10 +105,14 @@ pub(super) fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
 /// Acknowledges a delivered IRQ so the PLIC re-arms it. The driver calls this
 /// after it has drained the device (cleared the interrupt condition). Args:
 /// (irq_source_id).
-pub(super) fn sys_irq_complete(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+pub(super) fn sys_irq_complete(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let irq_raw = args.get(0) as u32;
     let irq =
         crate::hal::plic::IrqId::new(irq_raw).ok_or(Error::Capability(CapError::InvalidSlot))?;
+    // Re-arming a line is the same authority as binding it.
+    if !ctx.tasks.current_caps_mut().holds_device_irq(irq_raw) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     crate::irq::complete(irq);
     Ok(0)
 }

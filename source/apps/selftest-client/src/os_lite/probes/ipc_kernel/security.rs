@@ -6,6 +6,8 @@
 //!     * `cap_move_reply_probe`    -- CAP_MOVE round-trip via samgrd ping.
 //!     * `sender_pid_probe`        -- kernel-attested sender PID matches `pid()`.
 //!     * `sender_service_id_probe` -- kernel-attested sender service_id matches.
+//!     * `irq_bind_deny_probe`     -- a PLIC line no device capability of ours carries
+//!                                    is refused by irq_bind AND irq_complete (RFC-0098 C3).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -229,5 +231,22 @@ pub(crate) fn sender_service_id_probe() -> core::result::Result<(), ()> {
         Ok(())
     } else {
         Err(())
+    }
+}
+
+/// RFC-0098 C3 (TASK-0245): the line a task may bind or re-arm is the one its device
+/// capability carries. The harness holds exactly one device window (the net transport,
+/// line 1 on QEMU virt); line 63 is a valid PLIC source nobody granted it, so both
+/// syscalls must refuse with EPERM (`CapabilityDenied`) — not EINVAL, not success.
+pub(crate) fn irq_bind_deny_probe() -> core::result::Result<(), ()> {
+    const UNGRANTED_LINE: u32 = 63;
+    let ep = nexus_service_topology::CTRL_SLOTS.recv;
+    match nexus_abi::irq_bind(UNGRANTED_LINE, ep) {
+        Err(nexus_abi::AbiError::CapabilityDenied) => {}
+        _ => return Err(()),
+    }
+    match nexus_abi::irq_complete(UNGRANTED_LINE) {
+        Err(nexus_abi::AbiError::CapabilityDenied) => Ok(()),
+        _ => Err(()),
     }
 }

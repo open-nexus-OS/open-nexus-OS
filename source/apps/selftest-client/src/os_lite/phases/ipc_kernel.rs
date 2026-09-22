@@ -69,6 +69,13 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IPC_CALL_FAIL);
     }
 
+    // RFC-0098 C3 (TASK-0245): a PLIC line no device capability of ours carries is refused.
+    if probes::ipc_kernel::irq_bind_deny_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IRQ_BIND_DENY_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IRQ_BIND_DENY_FAIL);
+    }
+
     // TASK-0054C P4b: reply + next request in ONE trap.
     if probes::ipc_kernel::reply_recv_probe().is_ok() {
         emit_line(crate::markers::M_SELFTEST_IPC_REPLY_RECV_OK);
