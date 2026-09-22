@@ -2103,6 +2103,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-fdt"
+version = "0.1.0"
+
+[[package]]
 name = "nexus-gfx"
 version = "0.1.0"
 dependencies = [

@@ -40,7 +40,7 @@ SMP, a real browser with a real network — interleaved, because they depend on 
 | # | Lane | State | Next |
 |---|---|---|---|
 | 0 | **Block 0 — Tooling** (one command installs the flash/serial tools on Ubuntu, Arch, Fedora) | **T0–T2 ✅ 2026-09-21** (`make doctor` green, `just board-*`, pinned vendor boot pieces, `--stage-only` measured against the boot ROM: SPL 28 ms, U-Boot 51 ms, `blk-size universal`) — T3 (`0327B`, the proof lane) needs a booting board | **Block 1 P0** |
-| 1 | **Block 1 — First picture** (the OS boots from eMMC over the target boot chain and shows the desktop on the HDMI monitor) | **In Progress** — B1.0 Paper + measure ✅ 2026-09-22 (stock system read over adb: `docs/board/measurements/2026-09-22-stock-system/`; RFC-0098, ADR-0066/0067 seeded; 0244/0245/0246/0250/0251/0260/0286 recut, 0245B/0246B/0260B seeded) | **B1.1 `nexus-fdt`** |
+| 1 | **Block 1 — First picture** (the OS boots from eMMC over the target boot chain and shows the desktop on the HDMI monitor) | **In Progress** — B1.0 ✅ 2026-09-22 (measured over adb, RFC-0098 + ADR-0066/0067, ledgers recut); B1.1 `nexus-fdt` P0–P2 built (both goldens parse, 18 tests, `no_std`), P3 = nxboot + kernel consumers next | **B1.1 P3** |
 | 2 | **Block 2 — USB input** (keyboard + mouse over USB; proven in QEMU first) | ⬜ `TASK-0328` seeded | after Block 1 |
 | 3 | **Block 3 — Sub-80 remainder** (`0074 → 0066 → 0067 → 0067B → 0068`) | ledgers are end-state | after Block 2 |
 | 4 | **Target pictures M/G/S/N/W** (memory, GPU, SMP, network, web) | 24 packages, interleaved | after Block 3 |

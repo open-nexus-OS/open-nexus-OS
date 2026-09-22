@@ -1,0 +1,10 @@
+[package]
+name = "nexus-fdt"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Bounded, allocation-free flattened-device-tree reader (+ /chosen writer) — the one hardware truth for nxboot, the kernel and init (RFC-0098)"
+
+[dependencies]
+
+[dev-dependencies]

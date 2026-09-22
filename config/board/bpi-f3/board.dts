@@ -1,0 +1,387 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Open Nexus OS Contributors
+//
+// CONTEXT: the reference board's device tree as OUR boot chain hands it to the
+// kernel (RFC-0098 C1). Written by hand from two sources and nothing else:
+//   * the mainline SoC description (k1.dtsi, "GPL-2.0 OR MIT", used under MIT)
+//     for the SoC-level nodes it has (cpus, plic, clint, uart, syscons, sdhci,
+//     dwc3, emac, pinctrl);
+//   * the facts measured on the desk board on 2026-09-22
+//     (docs/board/measurements/2026-09-22-stock-system/README.md) for what
+//     mainline does not describe yet (display controller, HDMI encoder, GPU,
+//     EHCI, the OTG gadget, the power controller) — compatibles as the hardware
+//     reports them, registers and interrupt lines as measured.
+// It contains only the nodes Open Nexus OS consumes. Clock, reset and power
+// bindings are NOT expressed as phandles here: `nexus-soc` (TASK-0245B) binds
+// them by node, from its own table with register provenance.
+//
+// Compiled by `dtc -p 512` (headroom for nxboot's /chosen writes) into the FIT
+// (ADR-0066) and, for the host tests of `nexus-fdt`, into
+// source/libs/nexus-fdt/tests/goldens/bpi-f3.dtb.
+
+/dts-v1/;
+
+/ {
+	compatible = "bananapi,bpi-f3", "spacemit,k1";
+	model = "Open Nexus OS reference board (bpi-f3, spacemit k1)";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	aliases {
+		serial0 = &uart0;
+		mmc0 = &sdhci0;
+		mmc1 = &sdhci1;
+		mmc2 = &sdhci2;
+		ethernet0 = &emac0;
+		ethernet1 = &emac1;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		// nexus,boot-profile / nexus,boot-slot / nexus,boot-record /
+		// nexus,display-mode are written here by nxboot at boot (RFC-0098 C2).
+	};
+
+	// Measured: two banks, a 2 GiB hole between them (4 GiB board).
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x00000000 0x0 0x80000000>;
+	};
+
+	memory@100000000 {
+		device_type = "memory";
+		reg = <0x1 0x00000000 0x0 0x80000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		// OpenSBI (fw_dynamic, loaded at 0 by the SPL). Measured: the stock
+		// system keeps 0..0x80000 reserved.
+		opensbi@0 {
+			reg = <0x0 0x00000000 0x0 0x00080000>;
+			no-map;
+		};
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		timebase-frequency = <24000000>;
+
+		cpu-map {
+			cluster0 {
+				core0 { cpu = <&cpu0>; };
+				core1 { cpu = <&cpu1>; };
+				core2 { cpu = <&cpu2>; };
+				core3 { cpu = <&cpu3>; };
+			};
+			cluster1 {
+				core0 { cpu = <&cpu4>; };
+				core1 { cpu = <&cpu5>; };
+				core2 { cpu = <&cpu6>; };
+				core3 { cpu = <&cpu7>; };
+			};
+		};
+
+		cpu0: cpu@0 {
+			compatible = "spacemit,x60", "riscv";
+			device_type = "cpu";
+			reg = <0>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom", "zicboz", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "zba", "zbb", "zbc", "zbs", "sscofpmf", "sstc", "svinval", "svnapot", "svpbmt";
+			riscv,cbom-block-size = <64>;
+			riscv,cboz-block-size = <64>;
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			cpu0_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		cpu1: cpu@1 {
+			compatible = "spacemit,x60", "riscv";
+			device_type = "cpu";
+			reg = <1>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom", "zicboz", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "zba", "zbb", "zbc", "zbs", "sscofpmf", "sstc", "svinval", "svnapot", "svpbmt";
+			riscv,cbom-block-size = <64>;
+			riscv,cboz-block-size = <64>;
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			cpu1_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		cpu2: cpu@2 {
+			compatible = "spacemit,x60", "riscv";
+			device_type = "cpu";
+			reg = <2>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom", "zicboz", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "zba", "zbb", "zbc", "zbs", "sscofpmf", "sstc", "svinval", "svnapot", "svpbmt";
+			riscv,cbom-block-size = <64>;
+			riscv,cboz-block-size = <64>;
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			cpu2_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		cpu3: cpu@3 {
+			compatible = "spacemit,x60", "riscv";
+			device_type = "cpu";
+			reg = <3>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom", "zicboz", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "zba", "zbb", "zbc", "zbs", "sscofpmf", "sstc", "svinval", "svnapot", "svpbmt";
+			riscv,cbom-block-size = <64>;
+			riscv,cboz-block-size = <64>;
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			cpu3_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		cpu4: cpu@4 {
+			compatible = "spacemit,x60", "riscv";
+			device_type = "cpu";
+			reg = <4>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom", "zicboz", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "zba", "zbb", "zbc", "zbs", "sscofpmf", "sstc", "svinval", "svnapot", "svpbmt";
+			riscv,cbom-block-size = <64>;
+			riscv,cboz-block-size = <64>;
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			cpu4_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		cpu5: cpu@5 {
+			compatible = "spacemit,x60", "riscv";
+			device_type = "cpu";
+			reg = <5>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom", "zicboz", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "zba", "zbb", "zbc", "zbs", "sscofpmf", "sstc", "svinval", "svnapot", "svpbmt";
+			riscv,cbom-block-size = <64>;
+			riscv,cboz-block-size = <64>;
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			cpu5_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		cpu6: cpu@6 {
+			compatible = "spacemit,x60", "riscv";
+			device_type = "cpu";
+			reg = <6>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom", "zicboz", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "zba", "zbb", "zbc", "zbs", "sscofpmf", "sstc", "svinval", "svnapot", "svpbmt";
+			riscv,cbom-block-size = <64>;
+			riscv,cboz-block-size = <64>;
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			cpu6_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#interrupt-cells = <1>;
+			};
+		};
+
+		cpu7: cpu@7 {
+			compatible = "spacemit,x60", "riscv";
+			device_type = "cpu";
+			reg = <7>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "f", "d", "c", "v", "zicbom", "zicboz", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "zba", "zbb", "zbc", "zbs", "sscofpmf", "sstc", "svinval", "svnapot", "svpbmt";
+			riscv,cbom-block-size = <64>;
+			riscv,cboz-block-size = <64>;
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			cpu7_intc: interrupt-controller {
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				#interrupt-cells = <1>;
+			};
+		};
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		interrupt-parent = <&plic>;
+
+		plic: interrupt-controller@e0000000 {
+			compatible = "spacemit,k1-plic", "sifive,plic-1.0.0", "riscv,plic0";
+			reg = <0x0 0xe0000000 0x0 0x4000000>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			#address-cells = <0>;
+			riscv,ndev = <159>;
+			interrupts-extended = <&cpu0_intc 11>, <&cpu0_intc 9>,
+					      <&cpu1_intc 11>, <&cpu1_intc 9>,
+					      <&cpu2_intc 11>, <&cpu2_intc 9>,
+					      <&cpu3_intc 11>, <&cpu3_intc 9>,
+					      <&cpu4_intc 11>, <&cpu4_intc 9>,
+					      <&cpu5_intc 11>, <&cpu5_intc 9>,
+					      <&cpu6_intc 11>, <&cpu6_intc 9>,
+					      <&cpu7_intc 11>, <&cpu7_intc 9>;
+		};
+
+		// M-mode only (OpenSBI's); documented so nobody maps it from S-mode.
+		clint@e4000000 {
+			compatible = "spacemit,k1-clint", "sifive,clint0";
+			reg = <0x0 0xe4000000 0x0 0x10000>;
+		};
+
+		// The clock/reset/power syscon windows (mainline names). nexus-soc's
+		// table is keyed by these nodes.
+		syscon_apbc: syscon@d4015000 {
+			compatible = "spacemit,k1-syscon-apbc";
+			reg = <0x0 0xd4015000 0x0 0x1000>;
+		};
+		syscon_mpmu: syscon@d4050000 {
+			compatible = "spacemit,k1-syscon-mpmu";
+			reg = <0x0 0xd4050000 0x0 0x209c>;
+		};
+		pll: clock-controller@d4090000 {
+			compatible = "spacemit,k1-pll";
+			reg = <0x0 0xd4090000 0x0 0x1000>;
+		};
+		syscon_apmu: syscon@d4282800 {
+			compatible = "spacemit,k1-syscon-apmu";
+			reg = <0x0 0xd4282800 0x0 0x400>;
+		};
+		syscon_apbc2: syscon@f0610000 {
+			compatible = "spacemit,k1-syscon-apbc2";
+			reg = <0x0 0xf0610000 0x0 0x20>;
+		};
+
+		pinctrl: pinctrl@d401e000 {
+			compatible = "spacemit,k1-pinctrl";
+			reg = <0x0 0xd401e000 0x0 0x1000>;
+		};
+
+		// The debug console: 16550-class registers at a 4-byte stride.
+		uart0: serial@d4017000 {
+			compatible = "spacemit,k1-uart", "intel,xscale-uart";
+			reg = <0x0 0xd4017000 0x0 0x100>;
+			reg-shift = <2>;
+			reg-io-width = <4>;
+			interrupts = <42>;
+			status = "okay";
+		};
+
+		sdhci0: mmc@d4280000 {
+			compatible = "spacemit,k1-sdhci";
+			reg = <0x0 0xd4280000 0x0 0x200>;
+			interrupts = <99>;
+			bus-width = <4>;
+			status = "okay";
+		};
+
+		sdhci1: mmc@d4280800 {
+			compatible = "spacemit,k1-sdhci";
+			reg = <0x0 0xd4280800 0x0 0x200>;
+			interrupts = <100>;
+			bus-width = <4>;
+			non-removable;
+			status = "okay";
+		};
+
+		// The system disk (eMMC, HS400 capable, 8-bit).
+		sdhci2: mmc@d4281000 {
+			compatible = "spacemit,k1-sdhci";
+			reg = <0x0 0xd4281000 0x0 0x200>;
+			interrupts = <101>;
+			bus-width = <8>;
+			non-removable;
+			status = "okay";
+		};
+
+		// Display pipeline (measured; not in mainline yet).
+		dpu: display@c0440000 {
+			compatible = "spacemit,dpu-online2";
+			reg = <0x0 0xc0440000 0x0 0x2a000>;
+			interrupts = <139>, <138>;
+			interrupt-names = "online", "offline";
+			status = "okay";
+		};
+
+		hdmi: hdmi@c0400500 {
+			compatible = "spacemit,hdmi";
+			reg = <0x0 0xc0400500 0x0 0x200>;
+			interrupts = <136>;
+			status = "okay";
+		};
+
+		// USB: the DWC3 host (xHCI), the EHCI host, the OTG gadget.
+		usb3: usb@c0a00000 {
+			compatible = "spacemit,k1-dwc3", "snps,dwc3";
+			reg = <0x0 0xc0a00000 0x0 0x10000>;
+			interrupts = <125>;
+			dr_mode = "host";
+			status = "okay";
+		};
+
+		ehci1: usb@c0980100 {
+			compatible = "spacemit,mv-ehci";
+			reg = <0x0 0xc0980100 0x0 0x4000>;
+			interrupts = <118>;
+			status = "okay";
+		};
+
+		udc: usb@c0900100 {
+			compatible = "spacemit,mv-udc";
+			reg = <0x0 0xc0900100 0x0 0x4000>;
+			interrupts = <105>;
+			status = "okay";
+		};
+
+		emac0: ethernet@cac80000 {
+			compatible = "spacemit,k1-emac";
+			reg = <0x0 0xcac80000 0x0 0x420>;
+			interrupts = <131>;
+			status = "okay";
+		};
+
+		emac1: ethernet@cac81000 {
+			compatible = "spacemit,k1-emac";
+			reg = <0x0 0xcac81000 0x0 0x420>;
+			interrupts = <133>;
+			status = "okay";
+		};
+
+		gpu: gpu@cac00000 {
+			compatible = "img,rgx";
+			reg = <0x0 0xcac00000 0x0 0x80000>;
+			interrupts = <75>;
+			status = "okay";
+		};
+
+		rtc: rtc@d4010000 {
+			compatible = "spacemit,k1-rtc";
+			reg = <0x0 0xd4010000 0x0 0x100>;
+			status = "disabled";
+		};
+	};
+};

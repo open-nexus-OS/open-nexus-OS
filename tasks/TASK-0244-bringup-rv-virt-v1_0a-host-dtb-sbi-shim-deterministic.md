@@ -1,6 +1,6 @@
 ---
 title: TASK-0244 Board support v1a (host-first): `nexus-fdt` — the flattened device tree is the one hardware truth
-status: Draft (recut 2026-09-22 to the end state — Block 1 B1.1 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0a: DTB parser + SBI shim", Draft since 2025-12-29 with no code)
+status: In Progress (P0–P2 built 2026-09-22: `source/libs/nexus-fdt` parses both goldens — QEMU virt dump + `config/board/bpi-f3/board.dts` — with 10 golden + 8 `test_reject_*` tests, `no_std` cross-build green; P3 = consumers wired next. Recut 2026-09-22 from "Hardware Bring-up (RISC-V virt) v1.0a: DTB parser + SBI shim", Draft since 2025-12-29 with no code)
 owner: @kernel-team @runtime
 created: 2025-12-29
 updated: 2026-09-22
@@ -79,6 +79,22 @@ beyond what `interrupt-parent`/`clocks` need, a DTS writer, ACPI, runtime hot-pl
   `reset-controller`, `power-controller`, `rtc`, PMIC i2c) with the measured `reg`/`interrupts`.
 - **P1 Parser** — structure/strings walk, cells/ranges, the query API, goldens, `test_reject_*`.
 - **P2 Chosen writer** — in-place `/chosen/nexus,*` with headroom; round-trip test.
+- **P0–P2 built 2026-09-22.** `config/board/bpi-f3/board.dts` authored (root `bananapi,bpi-f3`,
+  `spacemit,k1`; 8 harts + `cpu-map`, two memory banks, OpenSBI reserved, `/chosen` with
+  `stdout-path = serial0`, PLIC with 16 `interrupts-extended` slots, clint (documentary), the
+  syscon windows, uart0 with `reg-shift 2`, three SDHCI hosts (IRQ 99/100/101, eMMC 8-bit),
+  DPU + HDMI, DWC3/EHCI/UDC, two GMACs, GPU `img,rgx`, RTC disabled), compiled with `dtc -p 512`
+  into `tests/goldens/bpi-f3.dtb`; `tests/goldens/virt.dtb` dumped with the launcher's machine
+  options. Crate: `header.rs` (bounds), `node.rs` (walk, props, `reg` with parent cells + one-level
+  `ranges`, `interrupts` via `#interrupt-cells`, phandles, paths/aliases), `platform.rs` (banks,
+  reserved, cpus/cpu-map/ISA, PLIC S-contexts, stdout, `/chosen` `nexus,*`), `chosen.rs` (in-place
+  writer; `dtc -p` padding inside `totalsize` counts as headroom, strings block must stay last).
+  Proof: 10 golden tests (timebase 10 vs 24 MHz, 4 vs 8 harts, cluster of hart 5 = 1, PLIC
+  `0x0c00_0000`/`0xe000_0000` with S-contexts `(hart, 2·hart+1)` READ not derived, console via
+  alias with `reg-shift`, virtio-mmio IRQ 1 at `0x1000_1000` as a property, eMMC IRQ 101, DPU
+  139/138, GPU regs, chosen round-trip incl. remove+insert and same-length overwrite, refusal
+  without headroom leaves the buffer byte-identical) + 8 `test_reject_*`; clippy `-D warnings`,
+  pinned fmt, `riscv64imac-unknown-none-elf` build. 1 477 LOC, largest file 424.
 - **P3 Consumers wired** — nxboot reads `a1` through the crate (and writes `/chosen` on QEMU
   from fw_cfg, ADR-0066), the kernel parses it at `kmain` and prints
   `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=…)` (asserted in every QEMU
