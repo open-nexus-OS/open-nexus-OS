@@ -20,9 +20,29 @@ core::arch::global_asm!(
     .globl _start
     .align 4
 _start:
-    la   sp, __stack_top
+    /* Static PIE (RFC-0098 C6): the link base is 0, so the address this code
+     * runs at IS the fixup delta. Walk the R_RISCV_RELATIVE table and add it
+     * to every absolute word in the image. `lla` is PC-relative by
+     * construction; a0/a1 (hart id, device tree) are never touched. Entries
+     * of any other type are skipped here and named by the kernel's image
+     * report (`KSELFTEST: kernel image FAIL (reloc type …)`). */
+    lla  t0, __image_start
+    lla  t1, __rela_dyn_start
+    lla  t2, __rela_dyn_end
+1:  bgeu t1, t2, 2f
+    ld   t3, 0(t1)         /* r_offset */
+    ld   t4, 8(t1)         /* r_info: type in the low 32 bits, symbol 0 */
+    ld   t5, 16(t1)        /* r_addend */
+    addi t1, t1, 24
+    li   t6, 3             /* R_RISCV_RELATIVE */
+    bne  t4, t6, 1b
+    add  t3, t3, t0
+    add  t5, t5, t0
+    sd   t5, 0(t3)
+    j    1b
+2:  la   sp, __stack_top
     /* RISC-V ABI: initialize gp for small-data accesses (Rust may rely on it).
-     * Use PC-relative addressing (kernel is linked above 2GiB). */
+     * PC-relative: the image runs wherever it was loaded. */
     .option push
     .option norelax
     la   gp, __global_pointer$

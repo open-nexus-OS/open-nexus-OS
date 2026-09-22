@@ -1,25 +1,24 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Measured-boot handoff consumption (ADR-0059 ABI v1; TASK-0289
-//! A3). `nxboot` writes one CRC'd record page at a fixed address ABOVE
-//! every kernel-managed range before jumping here; this module captures it
-//! ONCE, pre-SATP (the page is deliberately unmapped afterwards — nothing
-//! in the kernel can touch it again), and keeps a validated copy for the
-//! userland surface (bootctld, TASK-0289 B1). The record carries
-//! MEASUREMENT (what booted, qemu-soft-root), never policy. Layout parity
-//! with `userspace/bootfmt/src/handoff.rs` is contractual (ADR-0059); the
+//! CONTEXT: Measured-boot handoff consumption (ADR-0059 ABI v1 as amended by
+//! RFC-0098 C2; TASK-0289 A3, TASK-0245 P2). `nxboot` encodes one CRC'd
+//! 60-byte record and carries it in `/chosen/nexus,boot-record` of the tree it
+//! hands the kernel (`a1`); there is no fixed page any more — loader and
+//! kernel are position-independent and no address is contracted between
+//! them. This module reads the record ONCE from the tree the boot wrapper
+//! recorded, on the boot hart, and keeps a validated copy for the userland
+//! surface (bootctld, TASK-0289 B1). The record carries MEASUREMENT (what
+//! booted, qemu-soft-root), never policy. Layout parity with
+//! `userspace/bootfmt/src/handoff.rs` is contractual (ADR-0059); the
 //! `KSELFTEST: boot handoff ok (measured)` rung in the QEMU ladder is the
 //! cross-implementation proof — drift breaks it loudly.
 //! OWNERS: @kernel-team @security
-//! STATUS: Experimental (TASK-0289 Phase A)
-//! PUBLIC API: capture_early(), emit_marker(), get()
+//! STATUS: Functional
+//! PUBLIC API: capture_early(), emit_marker(), get(), raw()
 //! TEST_COVERAGE: QEMU marker ladder (loader writes, kernel validates)
 //! ADR: docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
 
-/// Fixed page address (ADR-0059, frozen after the TASK-0289-A memory-map
-/// audit). Parity const: `bootfmt::handoff::ADDR`.
-pub const HANDOFF_ADDR: usize = 0x9300_0000;
 const MAGIC: &[u8; 8] = b"NXHO0001";
 const VERSION: u16 = 1;
 /// CRC32 covers bytes [0..56); the CRC itself sits at [56..60).
@@ -27,16 +26,6 @@ const VERSION: u16 = 1;
 /// this many bytes out, and userspace decodes them with `bootfmt`.
 pub const RECORD_LEN: usize = 60;
 const CRC_OFF: usize = 56;
-
-// ADR-0059 assertion: the page lies outside EVERY kernel-managed range —
-// above the user VMO arena (which ends below it) and inside guest RAM
-// (0x9400_0000 = the contracted `qemu-launcher.sh -m 320M` end) — so it
-// can never be recycled into a user VMO or clobbered by the kernel.
-const _: () = assert!(
-    HANDOFF_ADDR >= crate::mm::USER_VMO_ARENA_BASE + crate::mm::USER_VMO_ARENA_LEN,
-    "handoff page must sit above the user VMO arena (ADR-0059)"
-);
-const _: () = assert!(HANDOFF_ADDR + 4096 <= 0x9400_0000, "handoff page must lie inside guest RAM");
 
 /// Validated measured-boot record (field-for-field the ADR-0059 v1 page).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,12 +43,12 @@ pub struct BootHandoff {
 }
 
 enum Capture {
-    /// No magic at the page — an honest direct-kernel dev boot.
+    /// No record in `/chosen` — an honest direct-kernel dev boot.
     Absent,
-    /// Magic present but CRC/version/fields invalid — corrupt, never
-    /// surfaced as a measured claim.
+    /// A record is present but CRC/version/fields are invalid — corrupt,
+    /// never surfaced as a measured claim.
     Invalid,
-    /// Validated record + the raw page bytes it decoded from (kept
+    /// Validated record + the raw bytes it decoded from (kept
     /// verbatim so the userland surface re-decodes with the SAME
     /// host-tested `bootfmt` codec instead of a third parity twin).
     Present(BootHandoff, [u8; RECORD_LEN]),
@@ -67,19 +56,26 @@ enum Capture {
 
 static mut CAPTURED: Capture = Capture::Absent;
 
-/// Captures the record. MUST run on the boot hart BEFORE the kernel
-/// address space is activated (`KernelState::new`) — the page is bare-mode
-/// reachable only; after SATP it is deliberately unmapped.
+/// Captures the record from `/chosen/nexus,boot-record` of the tree the boot
+/// wrapper recorded. Runs on the boot hart before any other hart is up.
 ///
 /// # Safety
-/// Single-threaded early boot only (no other hart runs kernel code yet);
-/// reads a fixed physical page that only the loader ever writes.
+/// Single-threaded early boot only (no other hart runs kernel code yet):
+/// writes the capture static once.
 pub unsafe fn capture_early() {
-    let mut raw = [0u8; RECORD_LEN];
-    for (i, slot) in raw.iter_mut().enumerate() {
-        *slot = unsafe { core::ptr::read_volatile((HANDOFF_ADDR + i) as *const u8) };
-    }
-    let capture = decode(&raw);
+    let capture = match crate::boot_fdt::bytes()
+        .and_then(|b| nexus_fdt::Fdt::new(b).ok())
+        .and_then(|f| f.chosen().ok())
+        .and_then(|c| c.nexus_bytes("boot-record"))
+    {
+        None => Capture::Absent,
+        Some(bytes) if bytes.len() < RECORD_LEN => Capture::Invalid,
+        Some(bytes) => {
+            let mut raw = [0u8; RECORD_LEN];
+            raw.copy_from_slice(&bytes[..RECORD_LEN]);
+            decode(&raw)
+        }
+    };
     unsafe { core::ptr::addr_of_mut!(CAPTURED).write(capture) };
 }
 

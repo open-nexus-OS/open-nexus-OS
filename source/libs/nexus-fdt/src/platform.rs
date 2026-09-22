@@ -222,6 +222,13 @@ impl<'a> Chosen<'a> {
         self.node.prop_u64(key.as_str())
     }
 
+    /// `nexus,<name>` as raw bytes (the measured boot record travels this way,
+    /// RFC-0098 C2 / ADR-0059 v1 layout).
+    pub fn nexus_bytes(&self, name: &str) -> Option<&'a [u8]> {
+        let mut key = NexusKey::new(name)?;
+        self.node.prop(key.as_str())
+    }
+
     pub fn node(&self) -> Node<'a> {
         self.node
     }

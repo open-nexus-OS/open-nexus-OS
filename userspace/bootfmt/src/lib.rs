@@ -14,8 +14,8 @@
 //! loader links the verify half only (pure Ed25519, no RNG).
 //! OWNERS: @reliability @security @runtime
 //! PUBLIC API: nxbd::{Nxbd, encode/decode/sign/verify}, bsb::{Bsb,
-//!   encode/decode/pick, factory}, handoff::{Handoff, encode_page/decode}
-//!   (the ADR-0059 measured-boot page, written by nxboot, probed by neuron),
+//!   encode/decode/pick, factory}, handoff::{Handoff, encode_record/decode}
+//!   (the ADR-0059 measured-boot record, carried by nxboot in /chosen, read by neuron),
 //!   nxsv::{Nxsv, encode/decode/sign/verify} (RFC-0089 §12.2 system-volume
 //!   descriptor — same shape as nxbd, own magic, verified by bundlemgrd)
 //! TEST_COVERAGE: unit tests below (goldens, roundtrips, tamper, torn
@@ -67,6 +67,11 @@ pub mod nxbd {
     pub const SIGNED_LEN: usize = 448;
     pub const MAGIC: &[u8; 8] = b"NXBD0001";
     pub const VERSION: u16 = 1;
+    /// `load_addr` of a position-independent boot image (RFC-0098 C6, TASK-0245
+    /// P2): the loader chooses the window and fixes the image up there. It is
+    /// the ONLY value `nxboot` boots; any fixed address is a descriptor reject
+    /// (the verify-path fixtures rely on that to stay unbootable).
+    pub const LOAD_ADDR_RELOCATABLE: u64 = u64::MAX;
 
     /// Decoded descriptor fields (signature carried separately).
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +81,7 @@ pub mod nxbd {
         pub image_sha256: [u8; 32],
         /// ASCII build id, NUL-padded (printed on uart at boot).
         pub build_id: [u8; 32],
+        /// [`LOAD_ADDR_RELOCATABLE`] for every image built since TASK-0245 P2.
         pub load_addr: u64,
         /// First 8 bytes of the signer's public key (anchor lookup hint).
         pub pubkey_id: [u8; 8],
@@ -356,7 +362,7 @@ mod tests {
             image_size: 19_000_000,
             image_sha256: [0xAB; 32],
             build_id: Nxbd::build_id_from("dev-2026-08-25"),
-            load_addr: 0x8020_0000,
+            load_addr: nxbd::LOAD_ADDR_RELOCATABLE,
             pubkey_id: id,
         }
     }

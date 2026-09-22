@@ -1,20 +1,22 @@
 /* Copyright 2026 Open Nexus OS Contributors
  * SPDX-License-Identifier: Apache-2.0
  *
- * CONTEXT: nxboot bare-metal link script (ADR-0059 memory contract).
- * The firmware loads the -kernel payload at 0x8020_0000; nxboot is LINKED
- * for its high home 0x9200_0000 (ADR-0059, frozen after the memory-map audit) and self-relocates there in early asm so
- * it can later load the verified boot image to 0x8020_0000 without
- * overlapping itself. The 256 KiB budget is a HARD ASSERT here and is
- * additionally gated in scripts/check-image-budgets.sh once the boot flip
- * lands (TASK-0289 A4).
+ * CONTEXT: nxboot bare-metal link script (ADR-0059 as amended by RFC-0098
+ * C6, TASK-0245 P2). The loader is a static PIE linked at 0: it runs at
+ * whatever address the firmware loads it (the -kernel payload on QEMU, the
+ * FIT payload on the board) after `_start` applies the R_RISCV_RELATIVE
+ * table between `__rela_dyn_start` and `__rela_dyn_end`; it never moves.
+ * The kernel window is chosen from the device tree at run time (the lowest
+ * free 2 MiB-aligned window of the first bank that avoids the reserved
+ * ranges, this image and the tree). The 256 KiB budget is a HARD ASSERT
+ * here and is additionally gated in scripts/check-image-budgets.sh.
  */
 
 ENTRY(_start)
 
 SECTIONS
 {
-  . = 0x92000000;
+  . = 0;
   __image_start = .;
 
   .text ALIGN(16) : {
@@ -28,14 +30,28 @@ SECTIONS
     *(.srodata .srodata.*)
   }
 
+  /* The fixup table `_start` walks, plus the read-only furniture of a PIE link. */
+  . = ALIGN(8);
+  .rela.dyn : {
+    __rela_dyn_start = .;
+    *(.rela.dyn)
+    *(.rela.*)
+    __rela_dyn_end = .;
+  }
+  .dynsym   : { *(.dynsym) }
+  .dynstr   : { *(.dynstr) }
+  .gnu.hash : { *(.gnu.hash) }
+  .hash     : { *(.hash) }
+
   . = ALIGN(16);
   .data : {
     /* RISC-V psABI small-data anchor (PC-relative `la gp, ...`). */
     __global_pointer$ = . + 0x800;
     *(.sdata .sdata.*)
     *(.data .data.*)
+    *(.got .got.*)
   }
-  /* 8-aligned: the relocation loop copies doublewords. */
+  .dynamic : { *(.dynamic) }
   . = ALIGN(8);
   __load_end = .;
 

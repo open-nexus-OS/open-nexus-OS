@@ -56,7 +56,7 @@ fn signed_nxbd_verifies_against_the_baked_anchor_and_tamper_fails() {
         image_size: 1024,
         image_sha256: [0x11; 32],
         build_id: bootfmt::nxbd::Nxbd::build_id_from("a1-test"),
-        load_addr: 0x8020_0000,
+        load_addr: bootfmt::nxbd::LOAD_ADDR_RELOCATABLE,
         pubkey_id: id,
     };
     let sector = bootfmt::nxbd::sign(&desc, &seed);

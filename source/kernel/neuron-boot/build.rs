@@ -23,6 +23,16 @@ fn main() {
     // Use canonicalize to ensure only a single absolute path reaches the linker
     let abs_script = linker_script.canonicalize().expect("kernel.ld must exist");
     println!("cargo:rustc-link-arg=-T{}", abs_script.display());
+    // Static PIE (RFC-0098 C6, TASK-0245 P2): the image is linked at 0 and
+    // fixes itself up at whatever address the previous stage loads it. Code
+    // stays medany/PC-relative; the linker only turns the absolute words in
+    // data (vtables, pointer statics, jump tables) into R_RISCV_RELATIVE
+    // entries, which `_start` applies. `-z notext` permits those entries in
+    // read-only sections (paging is off when they are patched); no dynamic
+    // linker exists, and RELRO would only add a segment nobody honours.
+    for arg in ["-pie", "--no-dynamic-linker", "-znotext", "-znorelro"] {
+        println!("cargo:rustc-link-arg={arg}");
+    }
 
     let repo_root = manifest_dir
         .parent()

@@ -385,6 +385,9 @@ mod bootstrap;
 #[path = "core/boot_fdt.rs"]
 pub mod boot_fdt;
 #[cfg(target_os = "none")]
+#[path = "core/boot_image.rs"]
+pub mod boot_image;
+#[cfg(target_os = "none")]
 mod cap;
 #[cfg(target_os = "none")]
 #[path = "core/cpu_main.rs"]

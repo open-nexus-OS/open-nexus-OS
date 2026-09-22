@@ -194,7 +194,7 @@ pub(crate) fn make_nxbd(
         image_size: kernel.len() as u64,
         image_sha256: sha256(kernel),
         build_id: bootfmt::nxbd::Nxbd::build_id_from(build_id),
-        load_addr: 0x8020_0000,
+        load_addr: bootfmt::nxbd::LOAD_ADDR_RELOCATABLE,
         pubkey_id,
     };
     Ok(bootfmt::nxbd::sign(&desc, os_seed))

@@ -37,6 +37,16 @@ create. The board has **4 GiB in two banks at physical 0 and 4 GiB** (`memory@0`
 are not cache-coherent (Zicbom/Svpbmt in the ISA, `swiotlb` in the stock kernel). None of the
 windows can survive; relocating them by the FDT would be an interim.
 
+**Measured 2026-09-22 (TASK-0245 P2, for this ledger's P0):** the kernel identity-maps every
+physical range it owns (its image, the windows, MMIO) as GLOBAL pages — 106 raw-pointer casts
+of physical addresses in 32 kernel files rely on `VA == PA`. User VAs live below
+`USER_VADDR_LIMIT` (2 GiB). On the board, RAM starts at physical 0, so an identity-mapped kernel
+and its windows would sit INSIDE the user VA range: the identity map cannot survive either. M1's
+P0 decides the kernel direct map at a VA offset (a `phys_to_virt` seam replacing the 106 casts;
+RFC-0098 C4 amendment) together with the allocator — the two are one change, because every
+consumer of a physical address is touched once. P2 left the kernel position-independent
+(load address any; VA still == PA) so the seam is the only thing left to move.
+
 ## Goal
 
 A page-frame allocator owns every FDT memory bank minus reserved ranges and the kernel's own

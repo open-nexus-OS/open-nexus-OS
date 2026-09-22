@@ -1,6 +1,6 @@
 ---
 title: TASK-0245 Board support v1b (OS): the kernel's platform comes from the FDT — UART, PLIC, timer, memory ranges, hart list; kernel + nxboot position-independent; init discovers devices from the FDT
-status: In Progress (P1 Done 2026-09-22, chain 27/27 — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
+status: In Progress (P1 Done, P2 built 2026-09-22 — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
 owner: @kernel-team
 created: 2025-12-29
 updated: 2026-09-22
@@ -65,10 +65,12 @@ display-mode authority move (TASK-0251).
   its S-mode context ids from `interrupts-extended`; the timer uses `stimecmp` when the ISA
   says so, else SBI `set_timer`; `TICKS_PER_US` becomes a runtime value (budgets in
   `core/trap/budgets.rs` are expressed in µs and converted once).
-- **Position-independent kernel and nxboot**: `-C relocation-model=pic`, an early relocation
-  loop over `R_RISCV_RELATIVE`, the link address a symbol not a machine constant; `mm/
-  kernel_layout.rs` computes the kernel's own physical range from the load address and excludes
-  it from the allocator's banks.
+- **Position-independent kernel and nxboot**: static PIEs (link base 0, `-pie` link; codegen
+  stays medany so code is PC-relative), an early fixup loop over `R_RISCV_RELATIVE`, the link
+  address a symbol not a machine constant; nxboot chooses the kernel window from the tree
+  (lowest free 2 MiB-aligned window of the first bank) and the measured record travels in
+  `/chosen`; `core/boot_image.rs` knows the kernel's own physical range from the load address
+  and M1 excludes it from the allocator's banks.
 - `/chosen/nexus,boot-profile` and `nexus,display-mode` replace the fw_cfg reads behind
   syscalls 45/50 (50 itself dies in TASK-0251); the kernel has no fw_cfg code left.
 - Init: the kernel maps the DTB read-only into init (a `device.fdt` capability, slot in
@@ -107,8 +109,34 @@ display-mode authority move (TASK-0251).
   inner boot (`input-flood`'s visible boot) read `ipc call budget FAIL (rt=77us)` with the two-trap
   bench at 68 µs, the plain `visible` boot three minutes earlier at 42/42 on the same binary: the
   known 0054C wall-clock flake (second occurrence, first on 2026-09-21 before P1 existed).
-- **P2 Position-independent kernel + nxboot** — boots at two different load addresses on QEMU
-  (`-kernel` placement vs a moved FIT-style load) — the proof that no address is baked.
+- **P2 Position-independent kernel + nxboot — built 2026-09-22.** Both are static PIEs linked
+  at 0 (`-pie --no-dynamic-linker -z notext -z norelro` from their `build.rs`; codegen stays
+  medany/static, so code is PC-relative and the linker turns only the absolute words in data
+  into `R_RISCV_RELATIVE` — the kernel's table holds 974 entries and no other type); `_start`
+  of each applies its table with `lla`-based PC-relative addressing before touching a static.
+  nxboot no longer copies itself to a home: it runs where the firmware loads it, reads the tree
+  FIRST (`platform::init`: console from `stdout-path` with `reg-shift`/`reg-io-width`; the
+  loader's UART, virtio window and fw_cfg literals are deleted — transports by `virtio,mmio`,
+  fw_cfg by `qemu,fw-cfg-mmio`), and chooses the kernel window: the lowest 2 MiB-aligned
+  `LOAD_MAX` window of the lowest bank clear of `/reserved-memory`, the memreserve block, the
+  tree and its own image (`0x8040_0000` on virt, above the loader; `0x0060_0000` on the board
+  above OpenSBI + rcpu). `nxboot: jump slot=a base=0x…`. NXBD `load_addr` becomes
+  `LOAD_ADDR_RELOCATABLE` (`u64::MAX`), the only value the loader boots — the fixtures' fixed
+  address stays a reject. The measured handoff record travels as `/chosen/nexus,boot-record`
+  (60 bytes, ADR-0059 v1 layout); the fixed page, `bootfmt::handoff::{ADDR, PAGE}` and the
+  kernel's `HANDOFF_ADDR` asserts are deleted. Kernel `core/boot_image.rs` prints
+  `KSELFTEST: kernel image ok (base=0x… len=0x… relocs=N)` (FAIL names an unsupported type),
+  REQUIREd in every profile. **Proof (2026-09-22):** the same kernel booted at two addresses —
+  smp1 through nxboot: `nxboot: jump slot=a base=0x80400000`,
+  `KSELFTEST: kernel image ok (base=0x80400000 len=0x11e5b80 relocs=982)`, `boot handoff ok
+  (measured)` read from `/chosen`; `NEXUS_DIRECT_KERNEL=1` headless: `kernel image ok
+  (base=0x80200000 … relocs=982)`, `boot handoff absent (direct kernel)`, `init: ready`. The
+  direct lane then stalls in userspace (no `/chosen` profile: nxboot is the only fw_cfg reader
+  since TASK-0244) and its ladder requires the nxboot rungs — the dev path is not a proof lane;
+  the marker line is the second-address evidence. Measured for M1 (TASK-0286): 106 `VA == PA` pointer casts in 32 files;
+  RAM at physical 0 on the board puts an identity-mapped kernel inside the user VA range, so
+  M1's P0 decides the kernel direct map at a VA offset (not P2's: it is one change with the
+  allocator). ADR-0059 amended, RFC-0089 §5/§7 and RFC-0098 C2 rows updated.
 - **P3 `/chosen` syscalls + fw_cfg deletion from the kernel** (nxboot writes `/chosen` on
   QEMU from fw_cfg — TASK-0244 P3).
 - **P4 Init discovery from the FDT VMO** — `helpers.rs`/`route_provision.rs` rewritten, slot

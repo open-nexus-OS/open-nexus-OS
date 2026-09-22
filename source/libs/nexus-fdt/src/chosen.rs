@@ -60,6 +60,12 @@ impl<'a> ChosenWriter<'a> {
         self.set(key.as_str(), &value.to_be_bytes())
     }
 
+    /// Set `/chosen/nexus,<name>` to raw bytes (bounded only by the headroom).
+    pub fn set_nexus_bytes(&mut self, name: &str, value: &[u8]) -> Result<(), Error> {
+        let mut key = NexusKey::new(name).ok_or(Error::NoHeadroom)?;
+        self.set(key.as_str(), value)
+    }
+
     /// The tree as it stands now (headroom excluded).
     pub fn as_fdt(&self) -> Result<Fdt<'_>, Error> {
         Fdt::new(self.buf)

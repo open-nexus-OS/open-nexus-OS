@@ -109,7 +109,7 @@ nxboot writes (in-place, with headroom reserved at FIT build time):
 | `nexus,boot-profile` | selftest/lane profile name | fw_cfg `opt/org.open-nexus/selftest-profile` (read by nxboot ONLY) | BSB target / default |
 | `nexus,boot-slot` | `a` / `b`, the slot nxboot chose | its own selection (RFC-0089) | same |
 | `nexus,display-mode` | a REQUEST (`WxH`), never the authority | fw_cfg `display-mode` | absent (EDID decides) |
-| `nexus,boot-record` | address of the measured handoff record | nxboot | nxboot |
+| `nexus,boot-record` | the measured handoff record itself (60 bytes, ADR-0059 v1 layout) | nxboot | nxboot |
 
 The kernel's syscalls 45 (`BOOT_MODE`) and 50 (`BOOT_DISPLAY_MODE`) read `/chosen`; every
 fw_cfg read in the kernel is deleted (Phase 1). 50 is deleted in Phase 5 when gpud owns the

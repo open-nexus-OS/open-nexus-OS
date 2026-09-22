@@ -284,7 +284,8 @@ One 512-byte sector at slot-partition sector 0; the image payload begins at sect
 [16..24)  image_size u64
 [24..56)  image_sha256 [32]
 [56..88)  build_id [32] (ascii, NUL-padded)
-[88..96)  load_addr u64
+[88..96)  load_addr u64   (since TASK-0245 P2 / RFC-0098 C6: LOAD_ADDR_RELOCATABLE = 0xffff_ffff_ffff_ffff,
+           the image is position-independent and the loader chooses the window; any other value is a reject)
 [96..104) pubkey_id [8]
 [104..448) reserved (must be 0)
 [448..512) ed25519_sig over bytes [0..448)
@@ -357,9 +358,10 @@ alloc-free/bounded GPT walk. Behavior per boot:
    build-baked, nxra pattern), streamed sha256, `rollback_index ≥ rollback_min_index`.
    Any failure: `nxboot: verify FAIL (slot=<s> <reason>)` + fallback to the other slot
    (same checks); both slots failing ⇒ loud panic + reset.
-4. Write the measured-boot handoff page (ADR-0059: magic, slot, image_sha256,
-   rollback_index, bsb_seq, tries_decremented, crc) and jump to `load_addr` with the
-   firmware-provided hart/DTB registers restored.
+4. Encode the measured-boot record (ADR-0059: magic, slot, image_sha256,
+   rollback_index, bsb_seq, tries_decremented, crc), carry it as `/chosen/nexus,boot-record`
+   in the loader's copy of the device tree (RFC-0098 C2), and jump to the window the loader
+   chose from that tree (RFC-0098 C6) with the hart id and the copy in a0/a1.
 
 Markers (normative): `nxboot: bsb ok (slot=<s> seq=<n>)`,
 `nxboot: tries <n>-><n-1> (slot=<s> trial)`,

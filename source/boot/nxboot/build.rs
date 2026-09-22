@@ -5,7 +5,7 @@
 //! loader (`BAKED_OS_KEYS`, RFC-0088 BAKED_TRUST pattern; any parse error
 //! FAILS THE BUILD so a half-parsed trust list can never yield a permissive
 //! anchor) and wires the bare-metal linker script for the riscv/none target
-//! (ADR-0059: link home 0x9200_0000, ≤256 KiB budget asserted in linker.ld).
+//! (a static PIE, RFC-0098 C6; the ≤256 KiB budget is asserted in linker.ld).
 //! OWNERS: @security @runtime
 //! STATUS: Functional
 //! TEST_COVERAGE: parser rejects covered by tests/trust_bake.rs (shared fn)
@@ -30,6 +30,12 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("none") {
         let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("linker.ld");
         println!("cargo:rustc-link-arg-bins=-T{}", script.display());
+        // Static PIE (RFC-0098 C6, TASK-0245 P2): linked at 0, fixed up by
+        // `_start` wherever the firmware loads it. Code stays PC-relative;
+        // only absolute words in data become R_RISCV_RELATIVE entries.
+        for arg in ["-pie", "--no-dynamic-linker", "-znotext", "-znorelro"] {
+            println!("cargo:rustc-link-arg-bins={arg}");
+        }
         println!("cargo:rerun-if-changed={}", script.display());
     }
 }

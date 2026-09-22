@@ -44,7 +44,7 @@ fn signed_nxbd(kernel: &[u8], build: &str, rollback_index: u32, seed: &[u8; 32])
             image_size: kernel.len() as u64,
             image_sha256: sha256(kernel),
             build_id: bootfmt::nxbd::Nxbd::build_id_from(build),
-            load_addr: 0x8020_0000,
+            load_addr: bootfmt::nxbd::LOAD_ADDR_RELOCATABLE,
             pubkey_id,
         },
         seed,
@@ -254,6 +254,8 @@ fn torn_bsb_pair_never_guesses_a_slot() {
     assert_eq!(got.expect_err("no guessing"), FlowError::BsbInvalid);
 }
 
+/// A descriptor demanding a FIXED address is not bootable by a loader that
+/// places a position-independent image (RFC-0098 C6).
 #[test]
 fn wrong_load_addr_is_a_descriptor_reject() {
     let mut fx = factory_fixture();

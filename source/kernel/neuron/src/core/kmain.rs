@@ -126,6 +126,7 @@ impl KernelState {
         // RFC-0098 C3 (TASK-0244 P3): the platform's values come from the tree in a1,
         // mapped read-only by `map_kernel_segments`; print what was read (or why not).
         crate::boot_fdt::report();
+        crate::boot_image::report();
 
         // Now proceed with task table and the rest of bring-up under the active SATP.
         let mut tasks = TaskTable::new();
@@ -322,12 +323,11 @@ impl KernelState {
 /// CRITICAL: Activate kernel address space before complex init; idle loop uses SYSCALL_YIELD.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn kmain() -> ! {
-    // ADR-0059: the measured-boot handoff page sits outside every kernel-
-    // managed range, so it is only reachable BEFORE the kernel address
-    // space is activated (inside KernelState::new) — capture it first
-    // thing, bare-mode, on the boot hart. The verdict marker is emitted
-    // here too so `KSELFTEST: boot handoff ok (measured)` precedes every
-    // other KSELFTEST rung (the harness enforces strict KSELFTEST order).
+    // ADR-0059 as amended by RFC-0098 C2: the measured-boot record travels in
+    // `/chosen/nexus,boot-record` of the tree recorded at `_start`; capture it
+    // first thing on the boot hart. The verdict marker is emitted here too so
+    // `KSELFTEST: boot handoff ok (measured)` precedes every other KSELFTEST
+    // rung (the harness enforces strict KSELFTEST order).
     unsafe { crate::boot_handoff::capture_early() };
     crate::boot_handoff::emit_marker();
     #[cfg(feature = "boot_timing")]

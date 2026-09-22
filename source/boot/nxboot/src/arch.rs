@@ -1,16 +1,18 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The ONE unsafe-bearing nxboot module (ADR-0059): entry asm with
-//! self-relocation (payload lands at 0x8020_0000, link home is 0x9200_0000),
-//! bss/stack bring-up, polled 16550 uart, volatile MMIO accessors for the
-//! virtio reader, the bounded bump allocator, the handoff-page write, the
-//! icache-fenced jump into the verified image and the SBI reset. Everything
-//! protocol-shaped lives OUTSIDE this file in `#![deny(unsafe_code)]` land
-//! and reaches memory only through these bounded helpers.
+//! CONTEXT: The ONE unsafe-bearing nxboot module (ADR-0059): entry asm that
+//! applies the image's own R_RISCV_RELATIVE table (a static PIE, RFC-0098
+//! C6 — the loader runs wherever the firmware put it and never moves),
+//! bss/stack bring-up, the polled 16550-class console whose registers the
+//! device tree named (`platform::init`), volatile MMIO accessors for the
+//! virtio reader, the bounded bump allocator, the icache-fenced jump into
+//! the verified image and the SBI reset. Everything protocol-shaped lives
+//! OUTSIDE this file in `#![deny(unsafe_code)]` land and reaches memory
+//! only through these bounded helpers. No address is a constant here.
 //! OWNERS: @security @runtime
-//! STATUS: Experimental (TASK-0289 Phase A)
-//! TEST_COVERAGE: none (target-only; behavior proven via QEMU markers at A4)
+//! STATUS: Functional
+//! TEST_COVERAGE: none (target-only; behavior proven via QEMU markers)
 //! ADR: docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
 
 #![allow(unsafe_code)]
@@ -18,11 +20,11 @@
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-// Entry: normalize the boot hart to hart 0 (lottery), self-relocate to the
-// link home, then bring up gp/sp/bss and enter Rust. Runs position-independent (PC-relative `la` only) until the
-// computed absolute jump to the relocated copy. a0 (hartid) / a1 (DTB) are
-// never touched. `.option norelax` guards the gp setup against linker
-// relaxation rewriting it into a gp-relative bootstrap.
+// Entry: normalize the boot hart to hart 0 (lottery), apply the fixup table
+// for the address we run at, then bring up gp/sp/bss and enter Rust. Every
+// address is PC-relative (`la`/`lla` under the static code model); a0
+// (hartid) / a1 (DTB) are never touched. `.option norelax` guards the gp
+// setup against linker relaxation rewriting it into a gp-relative bootstrap.
 core::arch::global_asm!(
     r#"
     .section .text._start, "ax", @progbits
@@ -50,27 +52,24 @@ _start:
 9:  wfi
     j    9b
 0:
-    # PC-relative base (where we actually run) vs. the link home (ADR-0059).
-    la   t0, __image_start
-    li   t1, 0x92000000
-    beq  t0, t1, 2f
-    # Copy the loadable bytes home (doubleword strides, 8-aligned bounds).
-    la   t2, __load_end
-1:  bgeu t0, t2, 11f
-    ld   t3, 0(t0)
-    sd   t3, 0(t1)
-    addi t0, t0, 8
-    addi t1, t1, 8
+    # Static PIE: the link base is 0, so where we run IS the fixup delta.
+    # Add it to every absolute word the linker listed (R_RISCV_RELATIVE,
+    # type 3); any other entry type is skipped — the image has none by
+    # construction (PC-relative code), and the kernel names its own.
+    lla  t0, __image_start
+    lla  t1, __rela_dyn_start
+    lla  t2, __rela_dyn_end
+1:  bgeu t1, t2, 2f
+    ld   t3, 0(t1)
+    ld   t4, 8(t1)
+    ld   t5, 16(t1)
+    addi t1, t1, 24
+    li   t6, 3
+    bne  t4, t6, 1b
+    add  t3, t3, t0
+    add  t5, t5, t0
+    sd   t5, 0(t3)
     j    1b
-11: fence.i
-    # Absolute jump to the relocated continuation: home + (label - base).
-    la   t4, 2f
-    la   t5, __image_start
-    sub  t4, t4, t5
-    li   t6, 0x92000000
-    add  t4, t4, t6
-    jr   t4
-    # Executing at the link home from here on.
 2:  .option push
     .option norelax
     la   gp, __global_pointer$
@@ -95,19 +94,63 @@ extern "C" fn nxboot_main(hartid: usize, dtb: usize) -> ! {
     crate::boot::run(hartid, dtb)
 }
 
-const UART0_BASE: usize = 0x1000_0000;
-const UART_LSR: usize = 0x5;
+// ---- console: the UART the tree named (RFC-0098 C3) ----------------------
+
+/// Console registers: base, `reg-shift`, `reg-io-width` — set once by
+/// `platform::init` from `/chosen/stdout-path`. Zero base = no console yet:
+/// bytes are dropped, never written to a guessed address.
+static UART_BASE: AtomicUsize = AtomicUsize::new(0);
+static UART_SHIFT: AtomicUsize = AtomicUsize::new(0);
+static UART_WIDTH: AtomicUsize = AtomicUsize::new(1);
+const UART_TX: usize = 0;
+const UART_LSR: usize = 5;
 const LSR_TX_IDLE: u8 = 1 << 5;
 
-/// Polled byte-wise uart write (pre-OS: no interrupts, no ownership
+/// Name the console (a 16550-class UART at `base`, registers `1 << shift`
+/// bytes apart, `width` bytes wide). Both the byte-stride `ns16550a` and the
+/// board's 4-byte-stride part are this one driver.
+pub fn set_console(base: usize, shift: usize, width: usize) {
+    UART_SHIFT.store(shift, Ordering::Relaxed);
+    UART_WIDTH.store(if width == 4 { 4 } else { 1 }, Ordering::Relaxed);
+    UART_BASE.store(base, Ordering::Release);
+}
+
+fn uart_reg(base: usize, reg: usize) -> usize {
+    base + (reg << UART_SHIFT.load(Ordering::Relaxed))
+}
+
+fn uart_read(base: usize, reg: usize) -> u8 {
+    let addr = uart_reg(base, reg);
+    unsafe {
+        if UART_WIDTH.load(Ordering::Relaxed) == 4 {
+            (core::ptr::read_volatile(addr as *const u32) & 0xff) as u8
+        } else {
+            core::ptr::read_volatile(addr as *const u8)
+        }
+    }
+}
+
+fn uart_write(base: usize, reg: usize, value: u8) {
+    let addr = uart_reg(base, reg);
+    unsafe {
+        if UART_WIDTH.load(Ordering::Relaxed) == 4 {
+            core::ptr::write_volatile(addr as *mut u32, u32::from(value));
+        } else {
+            core::ptr::write_volatile(addr as *mut u8, value);
+        }
+    }
+}
+
+/// Polled byte-wise console write (pre-OS: no interrupts, no ownership
 /// conflicts — the loader runs strictly before any driver exists).
 pub fn uart_puts(msg: &str) {
+    let base = UART_BASE.load(Ordering::Acquire);
+    if base == 0 {
+        return;
+    }
     for byte in msg.bytes() {
-        unsafe {
-            let lsr = (UART0_BASE + UART_LSR) as *const u8;
-            while core::ptr::read_volatile(lsr) & LSR_TX_IDLE == 0 {}
-            core::ptr::write_volatile(UART0_BASE as *mut u8, byte);
-        }
+        while uart_read(base, UART_LSR) & LSR_TX_IDLE == 0 {}
+        uart_write(base, UART_TX, byte);
     }
 }
 
@@ -178,18 +221,27 @@ pub fn req_page_addr() -> usize {
     core::ptr::addr_of!(REQ_PAGE) as usize
 }
 
-// ---- load region / handoff / jump ---------------------------------------
+// ---- image range / load region / jump -----------------------------------
 
-/// Where the verified image is assembled (kernel entry contract) and the
-/// cap on how much a descriptor may claim (slot budget, RFC-0089 §2).
-pub const LOAD_BASE: usize = 0x8020_0000;
+/// The cap on how much a descriptor may claim (slot budget, RFC-0089 §2) =
+/// the size of the kernel window the loader looks for.
 pub const LOAD_MAX: usize = 56 * 1024 * 1024;
 
-/// The destination window for the image copy. Exclusive to the loader:
-/// pre-OS there is no other owner of this RAM (SBI is PMP-protected below
-/// 0x8020_0000; the loader itself lives at 0x9200_0000).
-pub fn load_region() -> &'static mut [u8] {
-    unsafe { core::slice::from_raw_parts_mut(LOAD_BASE as *mut u8, LOAD_MAX) }
+/// This image's own physical range `[start, end)` (text through the loader
+/// stack), PC-relative from the linker symbols — the window search excludes it.
+pub fn image_range() -> (usize, usize) {
+    extern "C" {
+        static __image_start: u8;
+        static __image_end: u8;
+    }
+    unsafe { (&__image_start as *const u8 as usize, &__image_end as *const u8 as usize) }
+}
+
+/// The destination window for the image copy, chosen by `platform::kernel_window`
+/// from the device tree: inside the first memory bank, clear of the reserved
+/// ranges, this image and the tree. Exclusive to the loader pre-OS.
+pub fn load_region(base: usize, len: usize) -> &'static mut [u8] {
+    unsafe { core::slice::from_raw_parts_mut(base as *mut u8, len) }
 }
 
 /// A read-only view of physical RAM the firmware handed us — the device tree in
@@ -197,15 +249,6 @@ pub fn load_region() -> &'static mut [u8] {
 /// the caller has validated `addr`/`len` against the tree's own header first.
 pub fn phys_slice(addr: usize, len: usize) -> &'static [u8] {
     unsafe { core::slice::from_raw_parts(addr as *const u8, len) }
-}
-
-/// Writes the measured-boot page to its ADR-0059 address (volatile — the
-/// kernel reads it after the jump, outside this program's dataflow).
-pub fn write_handoff(page: &[u8; bootfmt::handoff::PAGE]) {
-    let base = bootfmt::handoff::ADDR;
-    for (i, &byte) in page.iter().enumerate() {
-        unsafe { core::ptr::write_volatile((base + i) as *mut u8, byte) };
-    }
 }
 
 /// Publishes the copied image to the instruction stream and jumps with the

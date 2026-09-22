@@ -49,11 +49,11 @@ struct ContainerSpec<'a> {
     /// Flip one payload byte AFTER signing (digest deny lane).
     tamper: bool,
     /// NXBD `load_addr`. The small verify-path fixtures deliberately carry
-    /// an INVALID address: they are staged into a real slot partition, so
+    /// a FIXED address (0): they are staged into a real slot partition, so
     /// if a lane ever left one selected the loader MUST refuse it loudly
     /// (`nxboot: verify FAIL (slot=<s> nxbd)` → fallback) instead of
     /// jumping into 256 KiB of pattern bytes. Only `os-B.nxs` — the real
-    /// kernel the crown lane flips to — carries the true entry address.
+    /// kernel the crown lane flips to — is marked position-independent.
     load_addr: u64,
     /// RFC-0090 (TASK-0034): `Some(base)` emits a `boot-image-delta`
     /// container (kind 3) whose payload is the `.nxdelta` stream
@@ -67,8 +67,9 @@ struct ContainerSpec<'a> {
     extra: Vec<volume::Component>,
 }
 
-/// The kernel entry contract (RFC-0089 §5 / ADR-0059).
-const REAL_LOAD_ADDR: u64 = 0x8020_0000;
+/// The kernel is position-independent (RFC-0098 C6, TASK-0245 P2): this is
+/// the one descriptor value nxboot boots; the loader chooses the window.
+const REAL_LOAD_ADDR: u64 = bootfmt::nxbd::LOAD_ADDR_RELOCATABLE;
 /// Deliberately not a load address (see `ContainerSpec::load_addr`).
 const UNBOOTABLE_LOAD_ADDR: u64 = 0;
 

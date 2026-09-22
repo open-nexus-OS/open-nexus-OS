@@ -134,7 +134,10 @@ fn nxboot_writes_chosen_in_headroom_and_the_kernel_reads_it_back() {
 
     w.set_nexus_str("boot-profile", "headless").unwrap();
     w.set_nexus_str("boot-slot", "a").unwrap();
-    w.set_nexus_u64("boot-record", 0x8000_1234).unwrap();
+    w.set_nexus_u64("boot-count", 0x8000_1234).unwrap();
+    // The measured boot record travels as bytes (ADR-0059 v1: 60 bytes incl. CRC).
+    let record: [u8; 60] = core::array::from_fn(|i| i as u8 ^ 0x5a);
+    w.set_nexus_bytes("boot-record", &record).unwrap();
     // Overwrite with a different length: remove + insert.
     w.set_nexus_str("boot-profile", "visible").unwrap();
     // Same length: in-place.
@@ -144,7 +147,9 @@ fn nxboot_writes_chosen_in_headroom_and_the_kernel_reads_it_back() {
     let chosen = fdt.chosen().unwrap();
     assert_eq!(chosen.nexus_str("boot-profile"), Some("visible"));
     assert_eq!(chosen.nexus_str("boot-slot"), Some("b"));
-    assert_eq!(chosen.nexus_u64("boot-record"), Some(0x8000_1234));
+    assert_eq!(chosen.nexus_u64("boot-count"), Some(0x8000_1234));
+    assert_eq!(chosen.nexus_bytes("boot-record"), Some(&record[..]));
+    assert_eq!(chosen.nexus_bytes("boot-count").map(<[u8]>::len), Some(8));
     assert_eq!(chosen.stdout_path(), Some("serial0:115200n8"));
     // Nothing else moved: the rest of the tree still parses to the same values.
     assert_eq!(fdt.cpus().unwrap().count(), 8);

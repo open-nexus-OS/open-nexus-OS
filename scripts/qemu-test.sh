@@ -2848,6 +2848,12 @@ if [[ "$(count_lines "KSELFTEST: platform from fdt ok (")" -lt 1 ]]; then
   echo "[error] platform-from-fdt proof missing: KSELFTEST: platform from fdt ok (" >&2
   exit 1
 fi
+# TASK-0245 P2 (RFC-0098 C6): the kernel is a position-independent image and prints the
+# base it runs at (nxboot's window, or the firmware entry on a direct-kernel boot).
+if [[ "$(count_lines "KSELFTEST: kernel image ok (")" -lt 1 ]]; then
+  echo "[error] kernel-image proof missing: KSELFTEST: kernel image ok (" >&2
+  exit 1
+fi
 # nxboot owns /chosen: when the loader is in the chain it must have written and
 # read back the tree copy the kernel then parsed (direct-kernel boots skip it).
 if [[ "${NEXUS_DIRECT_KERNEL:-0}" != "1" ]] && [[ "$(count_lines "nxboot: fdt ok (")" -lt 1 ]]; then

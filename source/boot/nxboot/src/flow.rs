@@ -26,8 +26,10 @@ use crate::trust;
 pub const SECTOR: usize = 512;
 /// Image payload begins at slot sector 8 (RFC-0089 §5; sector 0 = NXBD).
 pub const IMAGE_START_SECTOR: u64 = 8;
-/// The only load address this boot chain supports (kernel entry contract).
-pub const EXPECTED_LOAD_ADDR: u64 = 0x8020_0000;
+/// The only `load_addr` this boot chain boots: a position-independent image
+/// (RFC-0098 C6, TASK-0245 P2) — the loader chooses the window, the image
+/// fixes itself up there. A descriptor demanding a fixed address is refused.
+pub const EXPECTED_LOAD_ADDR: u64 = bootfmt::nxbd::LOAD_ADDR_RELOCATABLE;
 
 /// Stable verify-FAIL reason vocabulary (RFC-0089 §7):
 /// `nxbd | sig | digest | rollback <n> < min <m> | io`.

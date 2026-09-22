@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: nxboot binary shell (TASK-0289 Phase A). On the bare-metal
-//! riscv target this is the complete first-stage loader: virtio probe →
+//! riscv target this is the complete first-stage loader: tree + console +
+//! kernel window (RFC-0098) → virtio probe →
 //! `flow::run` (BSB → select/actuate → GPT → NXBD verify → digest →
 //! fallback) → measured handoff page → icache-fenced jump. Every terminal
 //! failure prints a deterministic `nxboot: PANIC (...)` marker and SBI-
@@ -102,10 +103,16 @@ mod boot {
     /// export in `arch`) with the firmware registers (a0 = hartid,
     /// a1 = DTB) intact.
     pub fn run(hartid: usize, dtb: usize) -> ! {
-        let Some(mut disk) = VirtioDisk::probe() else {
+        // RFC-0098 C1: the tree first — the console, the memory map and the
+        // transports all come from it; nothing below knows an address.
+        let tree = crate::platform::init(dtb);
+        let Some((base, len)) = crate::platform::kernel_window(&tree) else {
+            panic_reset("no kernel window in the first memory bank");
+        };
+        let Some(mut disk) = VirtioDisk::probe(crate::platform::virtio_mmio_bases(&tree)) else {
             panic_reset("no virtio-blk transport");
         };
-        let dest = arch::load_region();
+        let dest = arch::load_region(base, len);
         match flow::run(&mut disk, dest, &mut |e| emit(&e)) {
             Ok(loaded) => {
                 let handoff = bootfmt::handoff::Handoff {
@@ -115,13 +122,19 @@ mod boot {
                     image_sha256: loaded.desc.image_sha256,
                     bsb_seq: loaded.bsb_seq,
                 };
-                arch::write_handoff(&bootfmt::handoff::encode_page(&handoff));
                 // RFC-0098 C2: the kernel receives OUR copy of the tree, with the
-                // loader's decisions in /chosen/nexus,* (and, on QEMU, the lane's
-                // fw_cfg knobs re-expressed there — the kernel never reads fw_cfg).
-                let dtb = crate::platform::prepare_dtb(dtb, slot_ch(loaded.slot));
-                arch::uart_puts(&format!("nxboot: jump slot={}\n", slot_ch(loaded.slot)));
-                arch::jump_kernel(loaded.desc.load_addr, hartid, dtb)
+                // loader's decisions in /chosen/nexus,* — the slot, the measured
+                // record (ADR-0059 v1 bytes) and, on QEMU, the lane's fw_cfg knobs
+                // re-expressed there (the kernel never reads fw_cfg).
+                let record = bootfmt::handoff::encode_record(&handoff);
+                let dtb = crate::platform::prepare_dtb(&tree, slot_ch(loaded.slot), &record);
+                // RFC-0098 C6: the image is position-independent; it runs where
+                // this loader put it and fixes itself up there.
+                arch::uart_puts(&format!(
+                    "nxboot: jump slot={} base=0x{base:x}\n",
+                    slot_ch(loaded.slot)
+                ));
+                arch::jump_kernel(base as u64, hartid, dtb)
             }
             Err(FlowError::BsbInvalid) => panic_reset("bsb invalid on both blocks"),
             Err(FlowError::Disk) => panic_reset("disk io"),

@@ -33,7 +33,7 @@ proves = "nxboot parsed the device tree it received, wrote /chosen/nexus,* into 
 
 [marker."nxboot: jump slot=a"]
 phase = "bringup"
-proves = "loader wrote the measured handoff page and chained into the verified image"
+proves = "loader carried the measured handoff record in /chosen and chained into the verified image at the window it chose from the tree (base=… on the line)"
 
 [marker."KSELFTEST: boot handoff ok (measured)"]
 phase = "bringup"
@@ -550,6 +550,18 @@ phase = "bringup"
 proves = "the kernel read the console, PLIC, timebase and hart count from the device tree handed over in a1"
 
 [marker."KSELFTEST: platform from fdt FAIL ("]
+phase = "bringup"
+
+# RFC-0098 C6 (TASK-0245 P2): the kernel is a position-independent image — linked at 0,
+# fixed up by its own entry code for wherever the previous stage put it (nxboot: the lowest
+# free 2 MiB-aligned window of the first bank, 0x8040_0000 on virt; a direct `-kernel` boot:
+# 0x8020_0000). The marker prints the base it runs at and the fixups its table held; the
+# FAIL twin names a relocation type the entry code does not apply.
+[marker."KSELFTEST: kernel image ok ("]
+phase = "bringup"
+proves = "the kernel runs at the address the previous stage chose, every R_RISCV_RELATIVE fixup applied by its own entry code"
+
+[marker."KSELFTEST: kernel image FAIL ("]
 phase = "bringup"
 
 [marker."KSELFTEST: smp online ok"]

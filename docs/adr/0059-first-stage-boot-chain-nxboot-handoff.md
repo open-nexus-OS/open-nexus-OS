@@ -1,6 +1,16 @@
 # ADR-0059: First-stage boot chain — `nxboot` loader position, self-relocation, measured-boot handoff ABI
 
-- Status: Accepted
+- Status: Accepted — **amended 2026-09-22** (TASK-0245 P2, RFC-0098 C2/C6): the three
+  addresses this ADR froze are gone. `nxboot` is a static PIE that runs where the
+  firmware loads it (no home, no self-relocation copy); the boot image is a static PIE
+  that `nxboot` places in the lowest free 2 MiB-aligned window of the first memory bank
+  (`0x8040_0000` on QEMU `virt`, above the loader; NXBD `load_addr` =
+  `LOAD_ADDR_RELOCATABLE`, the only value the loader boots); the measured-boot record
+  (the same 60 bytes, v1 layout below, without the page padding) travels as
+  `/chosen/nexus,boot-record` in the tree `nxboot` hands over — the "DTB handoff"
+  alternative rejected below is now the design, because `nxboot` owns `/chosen` since
+  ADR-0066. Everything else (chain position, verify-before-jump, the record's
+  meaning, the absent/invalid labels, the budget) stands.
 - Date: 2026-08-25
 - Links:
   - RFCs: `docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md`
@@ -130,6 +140,7 @@ measured slot against the authority's active slot before emitting
   QEMU-portable.
 - **Loader in M-mode replacing the firmware**: rejected — reinvents SBI (HSM, SRST,
   DBCN) for zero trust gain in the QEMU-soft-root era.
-- **DTB/cmdline handoff instead of a fixed page**: rejected — mutating the DTB in a
-  bare-metal loader adds a parser/writer for marginal benefit; a CRC'd fixed page is
-  bounded and testable.
+- **DTB/cmdline handoff instead of a fixed page**: rejected in 2026-08 — mutating the
+  DTB in a bare-metal loader adds a parser/writer for marginal benefit. **Reversed
+  2026-09-22**: the parser/writer exists for its own reasons (`nexus-fdt`, RFC-0098 C2),
+  and a fixed page is a machine address a position-independent chain cannot carry.

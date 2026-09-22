@@ -1,3 +1,14 @@
+/* Copyright 2024 Open Nexus OS Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * CONTEXT: the kernel's link script. The image is a static PIE (RFC-0098 C6,
+ * TASK-0245 P2): linked at 0, loaded wherever the previous stage puts it
+ * (nxboot: the lowest free 2 MiB-aligned window of the first memory bank;
+ * a direct `-kernel` boot: the firmware's supervisor entry), and fixed up by
+ * its own `_start` from the R_RISCV_RELATIVE table between
+ * `__rela_dyn_start` and `__rela_dyn_end`. Code is PC-relative (medany);
+ * nothing in this file is a machine address.
+ */
 ENTRY(_start)
 
 PHDRS
@@ -8,8 +19,8 @@ PHDRS
 
 SECTIONS
 {
-  /*  Standard RISC-V kernel load address (2MB after firmware @ 0x80000000) */
-  . = 0x80200000;
+  . = 0;
+  __image_start = .;
 
   /* Markers for text range (used for runtime exec-range checks) */
   __text_start = .;
@@ -21,7 +32,21 @@ SECTIONS
   __text_end = .;
 
   . = ALIGN(16);
-  .rodata ALIGN(16) : { *(.rodata .rodata.*) } : text
+  .rodata ALIGN(16) : { *(.rodata .rodata.*) *(.srodata .srodata.*) } : text
+
+  /* The fixup table the entry code walks, plus the dynamic-section furniture a
+   * PIE link emits (read-only; never consulted at run time). */
+  . = ALIGN(8);
+  .rela.dyn : {
+    __rela_dyn_start = .;
+    *(.rela.dyn)
+    *(.rela.*)
+    __rela_dyn_end = .;
+  } : text
+  .dynsym   : { *(.dynsym) } : text
+  .dynstr   : { *(.dynstr) } : text
+  .gnu.hash : { *(.gnu.hash) } : text
+  .hash     : { *(.hash) } : text
 
   . = ALIGN(16);
   .data ALIGN(16) : {
@@ -31,7 +56,9 @@ SECTIONS
     __global_pointer$ = . + 0x800;
     *(.sdata .sdata.*)
     *(.data .data.*)
+    *(.got .got.*)
   } : data
+  .dynamic : { *(.dynamic) } : data
 
   . = ALIGN(4096);
   .bss (NOLOAD) : {
@@ -63,8 +90,6 @@ SECTIONS
     __bss_end = .;
   } : data
 
-  /* (no standalone selftest stack section) */
-
   /* Dedicated kernel stack region (OS target).
    * NOTE: the boot hart's U-mode trap frames + full syscall dispatch run on
    * this stack, and the last .bss symbols (incl. the heap allocator struct)
@@ -74,4 +99,5 @@ SECTIONS
   __stack_bottom = .;
   . += 0x10000; /* 64 KiB */
   __stack_top = .;
+  __image_end = .;
 }

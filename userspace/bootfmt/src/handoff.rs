@@ -1,13 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Measured-boot handoff page codec (ADR-0059 ABI v1). `nxboot`
-//! writes ONE 4 KiB page at `HANDOFF_ADDR` before jumping to the verified
-//! boot image; the kernel probes the magic + CRC and exposes the record
+//! CONTEXT: Measured-boot handoff record codec (ADR-0059 ABI v1, amended by
+//! RFC-0098 C2). `nxboot` encodes ONE 60-byte CRC'd record and carries it to
+//! the kernel as `/chosen/nexus,boot-record` in the tree it hands over (there
+//! is no fixed page since TASK-0245 P2 — the image is position-independent and
+//! so is the loader); the kernel validates magic + CRC and exposes the record
 //! read-only (bootctld is the userland surface owner). The record carries
 //! MEASUREMENT (what booted), never policy, and is immutable after handoff.
 //! OWNERS: @reliability @security @kernel-team
-//! PUBLIC API: Handoff, encode_page, decode
+//! PUBLIC API: Handoff, encode_record, decode
 //! TEST_COVERAGE: golden layout, roundtrip, CRC tamper, absent magic
 //! ADR: docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
 
@@ -16,14 +18,8 @@ use super::{crc32_ieee, FmtError};
 
 pub const MAGIC: &[u8; 8] = b"NXHO0001";
 pub const VERSION: u16 = 1;
-/// The handoff record occupies one page; bytes [60..4096) are reserved (0).
-pub const PAGE: usize = 4096;
-/// Fixed guest-RAM address of the page (ADR-0059 memory contract, frozen
-/// after the TASK-0289-A memory-map audit: above EVERY kernel-managed
-/// range — user VMO arena ends 0x9180_0000, RAM ends 0x9400_0000 — so the
-/// record can never be recycled into a user VMO; the kernel asserts this
-/// at consumption time).
-pub const ADDR: usize = 0x9300_0000;
+/// The record is exactly this long: fields [0..56) and the CRC at [56..60).
+pub const RECORD: usize = 60;
 /// CRC32 covers bytes [0..56); the CRC itself sits at [56..60).
 const CRC_OFF: usize = 56;
 
@@ -42,9 +38,9 @@ pub struct Handoff {
     pub bsb_seq: u64,
 }
 
-/// Encodes the record into a full zero-padded page.
-pub fn encode_page(h: &Handoff) -> [u8; PAGE] {
-    let mut out = [0u8; PAGE];
+/// Encodes the record (the bytes nxboot writes into `/chosen/nexus,boot-record`).
+pub fn encode_record(h: &Handoff) -> [u8; RECORD] {
+    let mut out = [0u8; RECORD];
     out[0..8].copy_from_slice(MAGIC);
     out[8..10].copy_from_slice(&VERSION.to_le_bytes());
     out[10] = match h.boot_slot {
@@ -60,9 +56,9 @@ pub fn encode_page(h: &Handoff) -> [u8; PAGE] {
     out
 }
 
-/// Bounded decode: needs at least the first 60 bytes of the page. A missing
-/// magic is `Malformed` (the honest "direct kernel boot, no loader" case);
-/// a present magic with a bad CRC is `Crc` (torn or corrupt record).
+/// Bounded decode: needs at least the 60 record bytes. A missing magic is
+/// `Malformed` (the honest "direct kernel boot, no loader" case); a present
+/// magic with a bad CRC is `Crc` (torn or corrupt record).
 pub fn decode(bytes: &[u8]) -> Result<Handoff, FmtError> {
     if bytes.len() < CRC_OFF + 4 || &bytes[0..8] != MAGIC {
         return Err(FmtError::Malformed);
@@ -111,32 +107,33 @@ mod tests {
 
     #[test]
     fn golden_layout_and_roundtrip() {
-        let page = encode_page(&sample());
+        let page = encode_record(&sample());
         assert_eq!(&page[0..8], MAGIC);
         assert_eq!(page[10], 1, "slot b wire byte");
         assert_eq!(page[11], 1, "tries_decremented wire byte");
         assert_eq!(&page[12..16], &3u32.to_le_bytes());
         assert_eq!(&page[48..56], &42u64.to_le_bytes());
-        assert!(page[60..].iter().all(|&b| b == 0), "reserved tail must be zero");
         assert_eq!(decode(&page).expect("decode"), sample());
-        // Decoding the minimal 60-byte prefix must work (kernel probe path).
-        assert_eq!(decode(&page[..60]).expect("prefix decode"), sample());
+        // A longer carrier (a padded property) decodes the same record.
+        let mut padded = [0u8; 64];
+        padded[..RECORD].copy_from_slice(&page);
+        assert_eq!(decode(&padded).expect("padded decode"), sample());
     }
 
     #[test]
     fn rejects_tamper_and_absence() {
-        let mut page = encode_page(&sample());
+        let mut page = encode_record(&sample());
         page[12] ^= 1;
         assert_eq!(decode(&page), Err(FmtError::Crc));
         // Absent magic = direct kernel boot: Malformed, never a fake record.
-        let zeroed = [0u8; PAGE];
+        let zeroed = [0u8; RECORD];
         assert_eq!(decode(&zeroed), Err(FmtError::Malformed));
         assert_eq!(decode(&[0u8; 12]), Err(FmtError::Malformed));
     }
 
     #[test]
     fn rejects_bad_version_slot_and_bool() {
-        let good = encode_page(&sample());
+        let good = encode_record(&sample());
         // Version bump must be rejected (fail closed on unknown ABI).
         let mut page = good;
         page[8] = 2;

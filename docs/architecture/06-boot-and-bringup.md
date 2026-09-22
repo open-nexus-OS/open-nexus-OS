@@ -22,12 +22,16 @@ This makes QEMU usable in CI and keeps feedback loops tight.
 At a high level the stack looks like:
 
 0. **First-stage loader** (`nxboot`, `source/boot/nxboot` — ADR-0059, TASK-0289)
-   - The VMM `-kernel` payload since the A4 boot flip. Self-relocates to
-     0x9200_0000, reads the BSB double block from the GPT disk, selects the
-     boot slot (trial decrement BEFORE load), verifies the slot's NXBD
-     signature against the build-baked `policies/os-trust.toml` anchor plus
-     the rollback floor and the streamed image sha256, writes the measured
-     handoff page at 0x9300_0000 and chains into the verified image.
+   - The VMM `-kernel` payload since the A4 boot flip; a static PIE that runs
+     where the firmware loads it (RFC-0098 C6). Reads the device tree first
+     (console, memory map, transports), chooses the kernel window (the lowest
+     free 2 MiB-aligned window of the first bank — 0x8040_0000 on `virt`),
+     reads the BSB double block from the GPT disk, selects the boot slot
+     (trial decrement BEFORE load), verifies the slot's NXBD signature against
+     the build-baked `policies/os-trust.toml` anchor plus the rollback floor
+     and the streamed image sha256, carries the measured handoff record in
+     `/chosen/nexus,boot-record` of its copy of the tree and chains into the
+     verified image, itself a static PIE that fixes itself up at that window.
    - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: jump
      slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
      `nxboot: PANIC (…)` + SBI reset — never a silent boot of unverified

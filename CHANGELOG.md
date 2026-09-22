@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-22 (TASK-0245 P1–P2: the kernel's platform comes from the device tree; kernel and nxboot are position-independent)
+
+- **`hal/platform.rs` replaces `hal/virt.rs`** (P1): console base/`reg-shift`/`reg-io-width` from
+  `/chosen/stdout-path`, PLIC base + S-mode contexts from `interrupts-extended`, the timer through
+  `stimecmp` when the ISA lists Sstc (SBI `set_timer` otherwise; the CLINT MMIO writer is gone),
+  tick constants derived from `timebase-frequency` — every profile prints
+  `KSELFTEST: platform from fdt ok (…)` and `KINIT: timer sstc`.
+- **Static PIEs** (P2, RFC-0098 C6): kernel and nxboot are linked at 0 and fix themselves up
+  (`R_RISCV_RELATIVE`, applied in `_start`) wherever the previous stage puts them. nxboot no
+  longer copies itself to a fixed home; it reads the tree first (console, memory map, `virtio,mmio`
+  transports, `qemu,fw-cfg-mmio`) and places the kernel in the lowest free 2 MiB-aligned window of
+  the first bank (`0x8040_0000` on virt: `nxboot: jump slot=a base=0x…`,
+  `KSELFTEST: kernel image ok (base=… relocs=…)`); a direct `-kernel` boot runs the same image at
+  `0x8020_0000`. NXBD `load_addr` is `LOAD_ADDR_RELOCATABLE`, the only value the loader boots.
+- **The measured handoff record travels in `/chosen/nexus,boot-record`** (60 bytes, ADR-0059 v1
+  layout); the fixed page at `0x9300_0000` and its constants are deleted on both sides.
+  ADR-0059 amended; RFC-0089 §5/§7 and RFC-0098 C2 updated.
+
 ### Added - 2026-09-22 (TASK-0244 Done: the device tree is the one hardware truth — `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)
 
 - **`source/libs/nexus-fdt`**: a `no_std`, allocation-free, bounded reader of the flattened device
