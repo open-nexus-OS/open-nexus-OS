@@ -177,6 +177,31 @@ pub(crate) fn discover_virtio() -> Result<VirtioDevices> {
     Ok(found)
 }
 
+/// Every SoC-glue provider the tree lists (RFC-0106), with the window init grants
+/// to `socd`: `(kind, window)` — the kind is nexus-soc's, so the slot index the
+/// grant lands in is the one socd maps. At most one window per kind; a provider
+/// without a page-aligned `reg` is skipped (the tree, not a guess, is wrong then).
+pub(crate) fn providers() -> impl Iterator<Item = (nexus_soc::ProviderKind, DeviceWindow)> {
+    let mut found: [Option<DeviceWindow>; 6] = [None; 6];
+    if let Some(fdt) = tree() {
+        for node in fdt.all_nodes() {
+            let Some(kind) = nexus_soc::ProviderKind::of(node) else { continue };
+            if found[kind as usize].is_none() {
+                found[kind as usize] = window_of(node);
+            }
+        }
+    }
+    const KINDS: [nexus_soc::ProviderKind; 6] = [
+        nexus_soc::ProviderKind::Apbc,
+        nexus_soc::ProviderKind::Apmu,
+        nexus_soc::ProviderKind::Mpmu,
+        nexus_soc::ProviderKind::Apbc2,
+        nexus_soc::ProviderKind::Pll,
+        nexus_soc::ProviderKind::Pinctrl,
+    ];
+    KINDS.into_iter().zip(found).filter_map(|(k, w)| w.map(|w| (k, w)))
+}
+
 /// The real-time clock by compatible (QEMU virt: `google,goldfish-rtc`; the
 /// board's RTC arrives with TASK-0245B).
 pub(crate) fn rtc() -> Option<DeviceWindow> {

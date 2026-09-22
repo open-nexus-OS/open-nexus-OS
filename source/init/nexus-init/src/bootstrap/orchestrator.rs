@@ -238,6 +238,7 @@ where
     let _keystored_pid = find_pid(&ctrl_channels, "keystored").ok_or(InitError::MissingElf)?;
     let _statefsd_pid = find_pid(&ctrl_channels, "statefsd").ok_or(InitError::MissingElf)?;
     let rngd_pid = find_pid(&ctrl_channels, "rngd").ok_or(InitError::MissingElf)?;
+    let socd_pid = find_pid(&ctrl_channels, "socd").ok_or(InitError::MissingElf)?;
     let timed_pid = find_pid(&ctrl_channels, "timed").ok_or(InitError::MissingElf)?;
     let imed_pid = find_pid(&ctrl_channels, "imed").ok_or(InitError::MissingElf)?;
     let hidrawd_pid = find_pid(&ctrl_channels, "hidrawd").ok_or(InitError::MissingElf)?;
@@ -328,6 +329,10 @@ where
     // - rng_rsp owned by selftest-client (server can send direct replies to selftest without CAP_MOVE)
     let rng_req = mint(rngd_pid, 8)?;
     let rng_rsp = mint(selftest_pid, 8)?;
+    // socd <-> clients (RFC-0106): the same shape — the request endpoint is socd's, the
+    // response endpoint the harness's (its NotNeeded proof is the first consumer).
+    let soc_req = mint(socd_pid, 8)?;
+    let soc_rsp = mint(selftest_pid, 8)?;
     let timed_req = mint(timed_pid, 8)?;
     let timed_rsp = mint(selftest_pid, 8)?;
     let imed_req = mint(imed_pid, 8)?;
@@ -498,6 +503,8 @@ where
         state_rsp,
         rng_req,
         rng_rsp,
+        soc_req,
+        soc_rsp,
         timed_req,
         timed_rsp,
         imed_req,
@@ -638,6 +645,15 @@ where
         "device.mmio.net",
         net,
         DEVICE_MMIO_CAP_SLOT,
+    )?;
+
+    // RFC-0106: the SoC glue owner — the tree alias and every provider window by compatible.
+    crate::bootstrap::soc_glue::provision(
+        socd_pid,
+        &grant_stats,
+        pol_route,
+        &mut init_wire,
+        init_fold,
     )?;
 
     // The device tree, read-only, to selftest-client: the harness reads its runtime

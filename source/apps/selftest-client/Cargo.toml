@@ -85,6 +85,7 @@ nexus-abi = { path = "../../../source/libs/nexus-abi", optional = true }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 # RFC-0098 C2: the harness reads its boot mode/profile from /chosen of the tree init pins.
 nexus-fdt = { path = "../../libs/nexus-fdt" }
+nexus-wire = { path = "../../libs/nexus-wire" }
 nexus-workpool = { path = "../../../source/libs/nexus-workpool", optional = true }
 pinched = { path = "../../../source/services/pinched", optional = true, default-features = false }
 nexus-svg = { path = "../../../userspace/ui/svg", optional = true, default-features = false }

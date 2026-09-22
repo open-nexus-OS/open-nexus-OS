@@ -49,10 +49,13 @@ netstackd = ["device.mmio.net", "ipc.core", "policy.delegate"]
 # (the sender is already kernel-attributed). Its RFC-0091 profile below is the
 # only one the grammar lets bind `address = "any"`.
 ingressd = ["ipc.core", "policy.delegate"]
-virtioblkd = ["device.mmio.blk", "ipc.core"]
+virtioblkd = ["device.mmio.blk", "ipc.core", "soc.glue"]
 rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
+# RFC-0106: the ONE holder of the syscon/pinctrl windows; `policy.delegate` because
+# it asks policyd whether a requester holds `soc.glue` before touching a register.
+socd = ["device.mmio.syscon", "ipc.core", "policy.delegate"]
 "hidrawd" = ["device.mmio.input", "ipc.core"]
-"gpud" = ["device.mmio.gpu", "ipc.core"]
+"gpud" = ["device.mmio.gpu", "ipc.core", "soc.glue"]
 # RFC-0065/0066: the ability lifecycle broker may route, query the bundle registry,
 # and spawn apps (the "only abilitymgr spawns apps" invariant). windowd queries the
 # registry for the dynamic Apps menu. Without `ipc.core` here, their route requests
@@ -80,7 +83,7 @@ pinched = ["ipc.core"]
 # `statefs.crash` (TASK-0051B): the demo.minidump child's PUT maps to this
 # subject (canonical_policy_subject_for_statefs) and the artifact probe GETs
 # `/state/crash/` — the prefix now has its own capability.
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage", "policy.abi_mode", "net.expose"]
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "soc.glue", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage", "policy.abi_mode", "net.expose"]
 "demo.testsvc" = []
 
 # RFC-0091 profile v2 (schema SSOT: userspace/policy/src/schema.rs; both

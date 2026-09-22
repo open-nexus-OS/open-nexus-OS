@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Added - 2026-09-22 (TASK-0245B P1: `nexus-soc` — the SoC glue model, and the board tree binds its consumers)
+### Added - 2026-09-22 (TASK-0245B P1–P2: `nexus-soc` — the SoC glue model, the board tree binds its consumers, `socd` owns the windows)
 
 - **`source/libs/nexus-soc`** (RFC-0106): the K1 clock/reset tables (23 clocks, 18 resets, every
   entry with register, fields, polarity, stock value and provenance; ids = the dual-licensed binding
@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`config/board/bpi-f3/board.dts`** binds every consumer the standard way; the binding headers
   live in `config/board/include/dt-bindings`; `scripts/build-board-dtb.sh` (cpp + `dtc -p 512`) is
   the one way the tree is compiled; the golden DTB is rebuilt from it.
+- **`socd`** (P2, RFC-0106): the ONE writer of the syscon/pinctrl windows — a driver-kit service in
+  the recovery core; consumers send `BRING_UP <node path>` over `nexus_wire::soc` and get a verdict
+  (`OK` with counts, `NOT_NEEDED` on a tree without providers, `DENIED` without `soc.glue`,
+  `UNSUPPORTED` for an unmeasured power domain, `FAILED` with register and value). Init pins the
+  tree alias and grants every provider window by compatible into `SYSCON_MMIO_SLOTS`; policy class
+  `device.mmio.syscon` for socd, `soc.glue` for its callers. QEMU virt proves the honest path:
+  `socd: ready (no soc glue in this tree)` and `SELFTEST: soc glue not needed ok`, required in
+  every profile.
 
 ### Changed - 2026-09-22 (TASK-0245 Done: the kernel's platform comes from the device tree; kernel and nxboot are position-independent; the kernel reads no fw_cfg; init discovers devices from the tree)
 

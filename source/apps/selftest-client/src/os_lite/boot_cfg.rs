@@ -25,9 +25,6 @@ use crate::runtime_mode::{parse_runtime_mode, parse_runtime_profile, RuntimeMode
 static TREE_VA: AtomicUsize = AtomicUsize::new(0);
 static TREE_LEN: AtomicUsize = AtomicUsize::new(0);
 
-const FDT_MAGIC: u32 = 0xd00d_feed;
-const MAX_DTB_LEN: usize = 1024 * 1024;
-const PAGE: usize = 4096;
 const RUNTIME_CFG_RETRY_YIELDS: usize = 8_192;
 
 /// Master gate for the interactive display-bootstrap OBSERVER/driver path (`end.rs`:
@@ -77,29 +74,14 @@ fn tree_bytes() -> Option<&'static [u8]> {
     let va = TREE_VA.load(Ordering::Acquire);
     if va != 0 {
         let len = TREE_LEN.load(Ordering::Acquire);
-        // SAFETY: mapped read-only below for at least `len` bytes; never unmapped.
+        // SAFETY: the slice `nexus_abi::device_tree::map_read_only` returned, remembered.
         return Some(unsafe { core::slice::from_raw_parts(va as *const u8, len) });
     }
     let slot = nexus_service_topology::slots::selftest_client::DEVICE_TREE;
-    let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-    nexus_abi::cap_query(slot, &mut info).ok()?;
-    let pages = usize::try_from(info.len).ok()?;
-    if pages == 0 || pages % PAGE != 0 || pages > MAX_DTB_LEN + PAGE {
-        return None;
-    }
-    let flags =
-        nexus_abi::page_flags::VALID | nexus_abi::page_flags::READ | nexus_abi::page_flags::USER;
-    let va = nexus_abi::vm_map(slot, 0, pages, flags).ok()?;
-    // SAFETY: `pages` bytes are mapped at `va`, read-only; the header bounds the tree.
-    let head = unsafe { core::slice::from_raw_parts(va as *const u8, 8) };
-    let magic = u32::from_be_bytes([head[0], head[1], head[2], head[3]]);
-    let total = u32::from_be_bytes([head[4], head[5], head[6], head[7]]) as usize;
-    if magic != FDT_MAGIC || total < 40 || total > pages {
-        return None;
-    }
-    TREE_LEN.store(total, Ordering::Release);
-    TREE_VA.store(va, Ordering::Release);
-    Some(unsafe { core::slice::from_raw_parts(va as *const u8, total) })
+    let bytes = nexus_abi::device_tree::map_read_only(slot)?;
+    TREE_LEN.store(bytes.len(), Ordering::Release);
+    TREE_VA.store(bytes.as_ptr() as usize, Ordering::Release);
+    Some(bytes)
 }
 
 fn retry_runtime_config<T>(mut read: impl FnMut() -> Option<T>) -> Option<T> {

@@ -99,6 +99,7 @@ pub const SUPERVISION: &[(ServiceId, Criticality, RestartPolicy)] = &[
     // Standard tier.
     (ServiceId::Updated, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Rngd, Criticality::Standard, RestartPolicy::OnFailure),
+    (ServiceId::Socd, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Timed, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Imed, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Netstackd, Criticality::Standard, RestartPolicy::OnFailure),

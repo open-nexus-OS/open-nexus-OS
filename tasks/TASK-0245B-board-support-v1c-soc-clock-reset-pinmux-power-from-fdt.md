@@ -1,6 +1,6 @@
 ---
 title: TASK-0245B Board support v1c: `nexus-soc` + `socd` — clock gates, resets, pinmux and power domains from the FDT syscon nodes, ONE owner for every board driver
-status: In Progress (P0 done, P1 built 2026-09-22 — library + tree bindings host-proven against the measured register state; was "seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0245")
+status: In Progress (P0–P1 done, P2 built 2026-09-22 — socd, the soc protocol, policy and init grants; was "seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0245")
 owner: @runtime @kernel-team
 created: 2026-09-22
 updated: 2026-09-22
@@ -144,11 +144,29 @@ node up / this clock's rate".
   P0's table: the SDH mux sits at bits 5..7 and the divider at 8..10 (the stock `0x52` decodes
   to mux 2 = the 375 MHz branch only that way), and the display main clock's gate lives in the
   second LCD register (its FC bit in the first).
-- **P2 — `socd` + protocol + policy + init.** Service, `soc` wire protocol, policy class and
-  per-consumer rules, init spawn + grants by compatible, client API; QEMU proof
-  `socd: ready (no soc glue in this tree)` in every profile and a selftest probe that
-  `bring_up` of a node without providers answers `NotNeeded`; the first real consumer is
-  TASK-0246's SDHCI on the board (`socd: bring-up sdh@d4281000 ok`).
+- **P2 — `socd` + protocol + policy + init — built 2026-09-22.** `source/drivers/soc/socd`
+  (driver-kit service, `ServiceId::Socd = 31`, stage Platform, in the recovery CORE graph,
+  spawned right after rngd): `verdict.rs` is the pure request → reply function (tree + provider
+  windows + `Bus`), `os_lite.rs` the loop (policy first: `soc.glue` of the kernel-attributed
+  sender via policyd, deny-by-default; then the verdict; a marker per bring-up), `bus.rs` the one
+  `unsafe` module. Wire `nexus_wire::soc` v1: `BRING_UP {nonce, path}` → `{status, nonce,
+  domains, resets, clocks, pads, fault_addr, fault_value}` (every verdict of a well-formed request
+  in the full shape; `NOT_NEEDED` when the tree binds nothing, `UNSUPPORTED` for an unmeasured
+  power domain), `CLOCK_RATE {nonce, path, name}` → `{status, nonce, hz}`. Topology: slots
+  `socd::{SERVER, REPLY, POLICYD, LOGD, DEVICE_TREE}`, fleet `SYSCON_MMIO_SLOTS` (six, indexed
+  by `ProviderKind`, reserved fleet-wide), the harness pair `selftest_client::SOCD`; routes
+  Socd→Policyd/Logd, SelftestClient→Socd. Policy: `socd = [device.mmio.syscon, ipc.core,
+  policy.delegate]`, `soc.glue` for the harness, virtioblkd and gpud (the coming consumers).
+  Init: pre-minted server pair, the tree alias pinned into socd's `DeviceTree` slot, every
+  provider window the tree lists granted by compatible into the slot of its kind
+  (`device_tree::providers()`), supervision Standard/OnFailure. `nexus_abi::device_tree::
+  map_read_only` is the one mapper (socd + harness). **Proof (host):** `tests/contract.rs` —
+  virt's tree → `NOT_NEEDED` with no register touched; the board's eMMC from the measured state
+  → `OK (1 domain, 2 resets, 2 clocks)` without a write, from cold → `OK` after four writes; a
+  requester without `soc.glue` → `DENIED`; unknown node / malformed frame / HDMI's unmeasured
+  domain → their statuses. Markers: `init: start|up socd`, `socd: ready (no soc glue in this
+  tree)` | `socd: ready (providers=N)`, `SELFTEST: soc glue not needed ok` — required in every
+  profile.
 - **P3 — Power domains + the display/USB/GPU sets.** Measurement recipe on the stock system,
   domains 2/7, HDMI DDC and USB pads; consumed by TASK-0251/0328/0329.
 

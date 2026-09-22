@@ -21,6 +21,7 @@ pub(crate) mod metricsd;
 pub(crate) mod policyd;
 pub(crate) mod rngd;
 pub(crate) mod samgrd;
+pub(crate) mod socd;
 pub(crate) mod statefs;
 pub(crate) mod statefs_enc;
 pub(crate) mod statefs_hardening;

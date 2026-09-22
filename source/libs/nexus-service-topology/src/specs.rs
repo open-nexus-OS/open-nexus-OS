@@ -60,6 +60,7 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
     crate::specs_ui::INPUTD,
     crate::specs_ui::WINDOWD,
     crate::specs_security::RNGD,
+    crate::specs_storage::SOCD,
     crate::specs_app::TIMED,
     crate::specs_ui::IMED,
     crate::specs_storage::VFSD,

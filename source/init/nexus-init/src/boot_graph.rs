@@ -69,6 +69,8 @@ const CORE: &[&str] = &[
     "samgrd",
     "keystored",
     "rngd",
+    // RFC-0106: the SoC glue owner — every board driver in the recovery graph needs it.
+    "socd",
     "bundlemgrd",
     "packagefsd",
     "vfsd",

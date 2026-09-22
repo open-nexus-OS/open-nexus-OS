@@ -31,5 +31,6 @@ pub mod policyd;
 pub mod routing;
 pub mod sessiond;
 pub mod settingsd;
+pub mod soc;
 pub mod status;
 pub mod updated;

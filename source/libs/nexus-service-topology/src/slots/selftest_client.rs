@@ -72,6 +72,8 @@ pub const BOOTCTLD: SlotPair = SlotPair::new(0x2D, REPLY.recv);
 pub const VIRTIOBLKD: SlotPair = SlotPair::new(0x2E, REPLY.recv);
 /// The read-only device tree the harness reads its boot mode/profile from (`/chosen`).
 pub const DEVICE_TREE: u32 = 0x31;
+/// socd (RFC-0106): the harness proves that a tree without SoC glue answers `NotNeeded`.
+pub const SOCD: SlotPair = SlotPair::new(0x39, 0x3A);
 /// Timer-notify endpoint (TASK-0054C P2-b): the harness's FAIL witness for an event that
 /// must arrive, and its settle before a verdict — never a recv deadline.
 pub const TIMER: SlotPair = SlotPair::new(0x36, 0x35);

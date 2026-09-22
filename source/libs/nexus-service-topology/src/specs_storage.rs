@@ -123,6 +123,28 @@ pub(crate) const VIRTIOBLKD: ServiceSpec = ServiceSpec {
     ],
 };
 
+/// The declaration of `socd` (RFC-0106): the SoC glue owner. Its server pair is
+/// pre-minted (the harness's client side is distributed at boot); it asks policyd
+/// whether a requester holds `soc.glue`; the tree alias lands in its declared
+/// slot; the six provider windows land in `SYSCON_MMIO_SLOTS` by kind.
+pub(crate) const SOCD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Socd,
+    stage: Stage::Platform,
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[
+        Route { to: ServiceId::Policyd, kind: RouteKind::ReplyInbox, slots: slots::socd::POLICYD },
+        Route { to: ServiceId::Logd, kind: RouteKind::ReplyInbox, slots: slots::socd::LOGD },
+    ],
+    announce: false,
+    server_slots: slots::socd::SERVER,
+    reply_slots: slots::socd::REPLY,
+    extra_slots: &[NamedSlotBinding {
+        name: NamedSlot::DeviceTree,
+        slot: slots::socd::DEVICE_TREE,
+    }],
+};
+
 // Batch 4 (amended by TASK-0049C): logd persists evidence-class records
 // to statefsd (spill txns via its CAP_MOVE reply inbox — never the
 // shared response queue).

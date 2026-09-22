@@ -400,6 +400,23 @@ pub mod recv_wake_probe {
     pub const REPLY_SEND: u32 = 6;
 }
 
+/// `socd` (RFC-0106): the SoC glue owner. Its six window slots are the fleet
+/// constant `SYSCON_MMIO_SLOTS`.
+pub mod socd {
+    use super::SlotPair;
+
+    /// socd's own server endpoint (consumers send BRING_UP / CLOCK_RATE here).
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+    /// The shared CAP_MOVE reply inbox.
+    pub const REPLY: SlotPair = SlotPair::new(6, 5);
+    /// Delegated policy checks (`soc.glue` of the requester).
+    pub const POLICYD: SlotPair = SlotPair::new(7, REPLY.recv);
+    /// Log sink (optional target).
+    pub const LOGD: SlotPair = SlotPair::new(8, REPLY.recv);
+    /// The read-only device tree (the alias the kernel gave init).
+    pub const DEVICE_TREE: u32 = 0x66;
+}
+
 /// rngd (TASK-0324 P4f-1a). Its policyd leg used to land on 7 or 8 depending on whether logd
 /// was in the image (the logd transfer came first); declared, it is 8 either way.
 pub mod rngd {

@@ -13,7 +13,7 @@
 
 - **Phase 0 (paper + measurement, the table with provenance)**: ✅ 2026-09-22 — TASK-0245B P0
 - **Phase 1 (`nexus-soc` library, tree bindings, specifier resolution)**: ✅ 2026-09-22 — TASK-0245B P1 (host-proven against the measured APMU state)
-- **Phase 2 (`socd`, protocol, policy class, init grants, first consumer)**: ⬜ — TASK-0245B P2 + TASK-0246
+- **Phase 2 (`socd`, protocol, policy class, init grants, first consumer)**: 🟨 — socd + protocol + policy + init grants ✅ 2026-09-22 (TASK-0245B P2, QEMU: `socd: ready (no soc glue in this tree)`, `SELFTEST: soc glue not needed ok` in every profile); the first real consumer is TASK-0246's SDHCI on the board
 - **Phase 3 (power domains, display/USB/GPU sets)**: ⬜ — TASK-0245B P3 with TASK-0251/0328/0329
 
 Definition: "Complete" = the contract below is implemented and the proof gates are green on

@@ -48,6 +48,7 @@ pub(crate) fn populate_samgrd_registry(send_cap: u32, recv_cap: u32, table: &Rou
         ServiceId::Keystored,
         ServiceId::Statefsd,
         ServiceId::Rngd,
+        ServiceId::Socd,
         ServiceId::Timed,
         ServiceId::Windowd,
         ServiceId::Inputd,

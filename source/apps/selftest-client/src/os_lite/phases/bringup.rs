@@ -171,6 +171,8 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
     // RNG and device identity key selftests (run early to keep QEMU marker deadlines short).
     probes::rng::rng_entropy_selftest();
+    // RFC-0106: the SoC glue owner answers NotNeeded on a tree without providers.
+    probes::soc::soc_glue_selftest();
     probes::rng::rng_entropy_oversized_selftest();
     let device_pubkey = probes::device_key::device_key_selftest();
     // statefs (basic put/get/list + unauthorized access)

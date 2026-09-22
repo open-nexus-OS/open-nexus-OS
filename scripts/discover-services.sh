@@ -68,6 +68,7 @@ for pkg in data.get('packages', []):
 ORDER = [
     'keystored',
     'rngd',
+    'socd',
     'policyd',
     'logd',
     'metricsd',

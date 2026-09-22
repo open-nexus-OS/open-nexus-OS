@@ -301,6 +301,12 @@ phase = "bringup"
 [marker."init: up rngd"]
 phase = "bringup"
 
+[marker."init: start socd"]
+phase = "bringup"
+
+[marker."init: up socd"]
+phase = "bringup"
+
 [marker."init: start policyd"]
 phase = "bringup"
 
@@ -439,6 +445,33 @@ proves = "TASK-0253 inputd OS service entry validated the bounded live-input con
 phase = "bringup"
 
 [marker."rngd: ready"]
+phase = "bringup"
+
+# RFC-0106 (TASK-0245B P2): the SoC glue owner names what the tree holds — on QEMU virt no
+# provider at all, on the board the six syscon/pinctrl windows init granted by compatible.
+[marker."socd: ready ("]
+phase = "bringup"
+proves = "socd mapped the tree and every provider window the tree lists, or found none"
+
+# The harness asks socd to bring up its net transport; on a tree without providers the
+# only honest verdict is NotNeeded (an OK would be fake, a DENIED a policy hole).
+[marker."SELFTEST: soc glue not needed ok"]
+phase = "bringup"
+proves = "socd answered NotNeeded for a node the tree binds nothing for, after policyd allowed the harness"
+
+[marker."SELFTEST: soc glue not needed FAIL (no slots)"]
+phase = "bringup"
+
+[marker."SELFTEST: soc glue not needed FAIL (send)"]
+phase = "bringup"
+
+[marker."SELFTEST: soc glue not needed FAIL (recv)"]
+phase = "bringup"
+
+[marker."SELFTEST: soc glue not needed FAIL (wrong op)"]
+phase = "bringup"
+
+[marker."SELFTEST: soc glue not needed FAIL (status=0x"]
 phase = "bringup"
 
 [marker."policyd: ready"]

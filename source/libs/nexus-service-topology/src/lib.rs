@@ -91,6 +91,12 @@ pub const BLK_PLANE_REPLY: SlotPair = SlotPair::new(0xF2, 0xF1);
 /// in init and a literal array in hidrawd that had to agree by hand.
 pub const INPUT_MMIO_SLOTS: [u32; 3] = [50, 51, 52];
 
+/// The syscon/pinctrl window slots of the SoC glue owner (RFC-0106): one per provider kind,
+/// indexed by `nexus_soc::ProviderKind as usize` — init grants a window into the slot of the
+/// node's kind (by compatible), `socd` maps the slot of each kind it finds in the tree. A tree
+/// without providers (QEMU virt) leaves all six empty.
+pub const SYSCON_MMIO_SLOTS: [u32; 6] = [0x60, 0x61, 0x62, 0x63, 0x64, 0x65];
+
 /// A capability a service receives that is neither its server pair nor a route.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NamedSlot {
@@ -316,6 +322,7 @@ mod tests {
         let mut reserved: Vec<u32> = Vec::new();
         reserved.extend([CTRL_SLOTS.send, CTRL_SLOTS.recv, DEVICE_MMIO_SLOT, STAGE_FENCE_SLOT]);
         reserved.extend(INPUT_MMIO_SLOTS);
+        reserved.extend(SYSCON_MMIO_SLOTS);
         reserved.extend([BLK_PLANE_REQ_SLOT, BLK_PLANE_REPLY.recv, BLK_PLANE_REPLY.send]);
         for spec in SERVICE_SPECS {
             let mut declared: Vec<(u32, &str)> = Vec::new();

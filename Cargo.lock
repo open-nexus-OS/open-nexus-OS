@@ -2170,6 +2170,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-log",
  "nexus-service-topology",
+ "nexus-soc",
  "nexus-sync",
  "nexus-vfs",
  "packagefsd",
@@ -3981,6 +3982,7 @@ dependencies = [
  "nexus-vfs",
  "nexus-vfs-types",
  "nexus-vmo",
+ "nexus-wire",
  "nexus-workpool",
  "nxra",
  "packagefsd",
@@ -4180,6 +4182,20 @@ dependencies = [
  "rustc_version",
  "sha2",
  "subtle",
+]
+
+[[package]]
+name = "socd"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-fdt",
+ "nexus-hal",
+ "nexus-ipc",
+ "nexus-service-entry",
+ "nexus-service-topology",
+ "nexus-soc",
+ "nexus-wire",
 ]
 
 [[package]]

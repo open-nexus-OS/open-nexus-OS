@@ -62,6 +62,10 @@ pub(crate) struct Endpoints {
     pub rng_req: u32,
     /// rngd server response endpoint.
     pub rng_rsp: u32,
+    /// socd server request endpoint (RFC-0106).
+    pub soc_req: u32,
+    /// socd server response endpoint (owned by the harness, the direct-reply peer).
+    pub soc_rsp: u32,
     /// timed server request endpoint.
     pub timed_req: u32,
     /// timed server response endpoint.
@@ -164,6 +168,7 @@ impl Endpoints {
             // route (`crash.attach.*`) had never been provisioned.
             ServiceId::Policyd => Some((self.pol_req, self.pol_rsp)),
             ServiceId::Rngd => Some((self.rng_req, self.rng_rsp)),
+            ServiceId::Socd => Some((self.soc_req, self.soc_rsp)),
             ServiceId::Timed => Some((self.timed_req, self.timed_rsp)),
             ServiceId::Imed => Some((self.imed_req, self.imed_rsp)),
             ServiceId::Vfsd => Some((self.vfs_req, self.vfs_rsp)),

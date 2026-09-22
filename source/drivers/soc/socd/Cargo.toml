@@ -1,0 +1,41 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "socd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The SoC glue owner (RFC-0106): the one writer of the syscon and pinctrl windows — brings a consumer node up (power domain, resets, clocks, pads) on request, built from nexus-soc"
+
+[features]
+default = []
+os-lite = [
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "dep:nexus-service-entry",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
+
+[package.metadata.nexus-service]
+kind = "service"
+stack_pages = 8
+features = ["os-lite"]
+
+[dependencies]
+nexus-abi = { path = "../../../libs/nexus-abi", optional = true }
+nexus-fdt = { path = "../../../libs/nexus-fdt" }
+nexus-hal = { path = "../../../libs/nexus-hal" }
+nexus-ipc = { path = "../../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-service-entry = { path = "../../../libs/nexus-service-entry", optional = true }
+nexus-service-topology = { path = "../../../libs/nexus-service-topology" }
+nexus-soc = { path = "../../../libs/nexus-soc" }
+nexus-wire = { path = "../../../libs/nexus-wire" }
+
+[[bin]]
+name = "socd"
+path = "src/main.rs"
+test = false
+bench = false
+doctest = false

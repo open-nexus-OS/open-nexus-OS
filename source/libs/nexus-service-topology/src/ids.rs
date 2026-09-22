@@ -80,15 +80,18 @@ pub enum ServiceId {
     /// Inbound gateway (RFC-0092 / TASK-0052): the ONE service that binds
     /// NIC-facing ports; fronts declared `[[expose]]` intents.
     Ingressd = 30,
+    /// SoC glue owner (RFC-0106 / TASK-0245B): the ONE writer of the syscon and
+    /// pinctrl windows; consumers ask for their node by path.
+    Socd = 31,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=29`, so the array spans `0..=29`; index 0 is unused).
-    pub const COUNT: usize = 31;
+    /// (discriminants are `1..=31`, so the array spans `0..=31`; index 0 is unused).
+    pub const COUNT: usize = 32;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 30] = [
+    pub const ALL: [ServiceId; 31] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -119,6 +122,7 @@ impl ServiceId {
         Self::Bootctld,
         Self::Virtioblkd,
         Self::Ingressd,
+        Self::Socd,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -154,6 +158,7 @@ impl ServiceId {
             b"bootctld" => Self::Bootctld,
             b"virtioblkd" => Self::Virtioblkd,
             b"ingressd" => Self::Ingressd,
+            b"socd" => Self::Socd,
             _ => return None,
         })
     }
@@ -191,6 +196,7 @@ impl ServiceId {
             Self::Bootctld => "bootctld",
             Self::Virtioblkd => "virtioblkd",
             Self::Ingressd => "ingressd",
+            Self::Socd => "socd",
         }
     }
 }

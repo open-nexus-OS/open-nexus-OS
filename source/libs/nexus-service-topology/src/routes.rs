@@ -48,6 +48,8 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
+    (ServiceId::Socd, ServiceId::Policyd), // `soc.glue` of the requester (RFC-0106)
+    (ServiceId::Socd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Vfsd, ServiceId::Packagefsd), // pkg:/ metadata + reads (reply inbox)
     (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
     (ServiceId::Samgrd, ServiceId::Logd), // structured logs via CAP_MOVE
@@ -96,6 +98,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::SelftestClient, ServiceId::Netstackd),
     (ServiceId::SelftestClient, ServiceId::Dsoftbusd),
     (ServiceId::SelftestClient, ServiceId::Rngd),
+    (ServiceId::SelftestClient, ServiceId::Socd), // NotNeeded on a tree without glue
     (ServiceId::SelftestClient, ServiceId::Timed),
     (ServiceId::SelftestClient, ServiceId::Metricsd),
     (ServiceId::SelftestClient, ServiceId::Pinched),
