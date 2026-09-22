@@ -1413,14 +1413,14 @@ fn test_reject_mmio_outside_window() {
     let timer = MockTimer::default();
 
     // Set up a DeviceMmio capability with a small window (2 pages = 0x2000 bytes).
-    const MMIO_BASE: usize = 0x1000_0000;
+    const MMIO_BASE: usize = 0x4000_0000;
     const MMIO_LEN: usize = 0x2000; // 2 pages
     {
         let caps = tasks.bootstrap_mut().caps_mut();
         caps.set(
             48,
             Capability {
-                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN, irq: 0 },
                 rights: Rights::MAP,
             },
         )
@@ -1459,14 +1459,14 @@ fn test_reject_mmio_insufficient_rights() {
     let timer = MockTimer::default();
 
     // Set up a DeviceMmio capability WITHOUT Rights::MAP (only SEND, which is meaningless).
-    const MMIO_BASE: usize = 0x1000_0000;
+    const MMIO_BASE: usize = 0x4000_0000;
     const MMIO_LEN: usize = 0x2000;
     {
         let caps = tasks.bootstrap_mut().caps_mut();
         caps.set(
             48,
             Capability {
-                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN, irq: 0 },
                 rights: Rights::SEND, // Wrong rights for MMIO
             },
         )
@@ -1500,14 +1500,14 @@ fn test_reject_mmio_exec() {
     let mut as_manager = AddressSpaceManager::new();
     let timer = MockTimer::default();
 
-    const MMIO_BASE: usize = 0x1000_0000;
+    const MMIO_BASE: usize = 0x4000_0000;
     const MMIO_LEN: usize = 0x1000;
     {
         let caps = tasks.bootstrap_mut().caps_mut();
         caps.set(
             48,
             Capability {
-                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN, irq: 0 },
                 rights: Rights::MAP,
             },
         )
@@ -1546,14 +1546,14 @@ fn test_reject_mmio_unaligned_len() {
     let mut as_manager = AddressSpaceManager::new();
     let timer = MockTimer::default();
 
-    const MMIO_BASE: usize = 0x1000_0000;
+    const MMIO_BASE: usize = 0x4000_0000;
     const MMIO_LEN: usize = 0x1000;
     {
         let caps = tasks.bootstrap_mut().caps_mut();
         caps.set(
             48,
             Capability {
-                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN, irq: 0 },
                 rights: Rights::MAP,
             },
         )
@@ -1584,14 +1584,14 @@ fn test_reject_mmio_unaligned_offset() {
     let mut as_manager = AddressSpaceManager::new();
     let timer = MockTimer::default();
 
-    const MMIO_BASE: usize = 0x1000_0000;
+    const MMIO_BASE: usize = 0x4000_0000;
     const MMIO_LEN: usize = 0x2000;
     {
         let caps = tasks.bootstrap_mut().caps_mut();
         caps.set(
             48,
             Capability {
-                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN, irq: 0 },
                 rights: Rights::MAP,
             },
         )
@@ -1624,14 +1624,14 @@ fn test_mmio_auto_maps_are_distinct() {
     let mut as_manager = AddressSpaceManager::new();
     let timer = MockTimer::default();
 
-    const MMIO_BASE: usize = 0x1000_0000;
+    const MMIO_BASE: usize = 0x4000_0000;
     const MMIO_LEN: usize = 0x2000;
     {
         let caps = tasks.bootstrap_mut().caps_mut();
         caps.set(
             48,
             Capability {
-                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN },
+                kind: CapabilityKind::DeviceMmio { base: MMIO_BASE, len: MMIO_LEN, irq: 0 },
                 rights: Rights::MAP,
             },
         )

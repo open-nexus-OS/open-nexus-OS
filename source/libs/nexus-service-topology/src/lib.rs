@@ -141,8 +141,9 @@ pub enum NamedSlot {
     ProbeReplySend,
     /// recv-wake probe (execd): RECV half of the reply endpoint.
     ProbeReplyRecv,
-    /// The QEMU firmware-config MMIO window (the proof harness's boot profile channel).
-    FwCfg,
+    /// The device tree, read-only (RFC-0098 C3): the harness reads its boot mode and
+    /// profile from `/chosen/nexus,*` there.
+    DeviceTree,
 }
 
 /// One named slot binding of a service.

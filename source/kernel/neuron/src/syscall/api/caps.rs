@@ -217,8 +217,8 @@ pub(super) fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     let slot = SlotIndex::decode(args.get(0));
     let out_ptr = args.get(1);
     // out layout (LE):
-    // - u32 kind_tag (1=vmo, 2=device_mmio)
-    // - u32 reserved
+    // - u32 kind_tag (1=vmo, 2=device_mmio, 3=vmo_ro)
+    // - u32 irq (device_mmio: the PLIC line from the tree, 0 = none; else 0)
     // - u64 base
     // - u64 len
     const OUT_LEN: usize = 24;
@@ -226,15 +226,16 @@ pub(super) fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
 
     // Capability gate: require MAP rights to introspect address-bearing caps.
     let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;
-    let (kind_tag, base, len) = match cap.kind {
-        CapabilityKind::Vmo { base, len } => (1u32, base as u64, len as u64),
-        CapabilityKind::DeviceMmio { base, len } => (2u32, base as u64, len as u64),
+    let (kind_tag, irq, base, len) = match cap.kind {
+        CapabilityKind::Vmo { base, len } => (1u32, 0u32, base as u64, len as u64),
+        CapabilityKind::DeviceMmio { base, len, irq } => (2u32, irq, base as u64, len as u64),
+        CapabilityKind::VmoRo { base, len } => (3u32, 0u32, base as u64, len as u64),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
 
     let mut out = [0u8; OUT_LEN];
     out[0..4].copy_from_slice(&kind_tag.to_le_bytes());
-    out[4..8].copy_from_slice(&0u32.to_le_bytes());
+    out[4..8].copy_from_slice(&irq.to_le_bytes());
     out[8..16].copy_from_slice(&base.to_le_bytes());
     out[16..24].copy_from_slice(&len.to_le_bytes());
     unsafe {

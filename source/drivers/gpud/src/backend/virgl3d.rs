@@ -184,7 +184,7 @@ impl VirtioGpuBackend {
         let backing_va =
             nexus_abi::vm_map(vmo, 0, backing_len, flags).map_err(|_| GfxError::MmioFault)?;
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
-        let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
         nexus_abi::cap_query(vmo, &mut info).map_err(|_| GfxError::MmioFault)?;
 
         let attach = VirtioGpuResourceAttachBacking {

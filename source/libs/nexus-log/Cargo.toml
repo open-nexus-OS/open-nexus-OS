@@ -7,7 +7,6 @@ license.workspace = true
 [features]
 default = []
 sink-userspace = ["dep:nexus-abi"]
-sink-kernel = []
 sink-logd = ["sink-userspace", "dep:nexus-ipc"]
 userspace-linker-bounds = []
 

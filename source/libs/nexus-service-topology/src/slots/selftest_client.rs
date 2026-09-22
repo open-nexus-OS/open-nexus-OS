@@ -70,8 +70,8 @@ pub const BOOTCTLD: SlotPair = SlotPair::new(0x2D, REPLY.recv);
 /// virtioblkd's request endpoint for the deny probes — NOT a block-plane grant: the
 /// probes prove that a sender without one is refused.
 pub const VIRTIOBLKD: SlotPair = SlotPair::new(0x2E, REPLY.recv);
-/// The QEMU firmware-config window the harness reads its boot profile from.
-pub const FW_CFG: u32 = 0x31;
+/// The read-only device tree the harness reads its boot mode/profile from (`/chosen`).
+pub const DEVICE_TREE: u32 = 0x31;
 /// Timer-notify endpoint (TASK-0054C P2-b): the harness's FAIL witness for an event that
 /// must arrive, and its settle before a verdict — never a recv deadline.
 pub const TIMER: SlotPair = SlotPair::new(0x36, 0x35);

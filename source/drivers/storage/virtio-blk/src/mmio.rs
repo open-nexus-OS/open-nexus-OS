@@ -103,7 +103,7 @@ fn emit_line(msg: &str) {
 }
 
 fn cap_query_base_len(slot: u32) -> Result<(u64, u64), VirtioError> {
-    let mut info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    let mut info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
     cap_query(slot, &mut info).map_err(|_| VirtioError::Unsupported)?;
     Ok((info.base, info.len))
 }
@@ -127,9 +127,6 @@ const STATUS_OFF: usize = 2048;
 /// virtio-mmio transport window on the `virt` machine — used to derive
 /// the PLIC line from the granted MMIO cap (transport index + 1), the
 /// same mapping hidrawd's input devices use (slots 2/3 → IRQ 3/4).
-const VIRTIO_MMIO_BASE: u64 = 0x1000_1000;
-const VIRTIO_MMIO_STRIDE: u64 = 0x1000;
-const VIRTIO_MMIO_SLOTS: u64 = 8;
 
 /// Device-visible queue memory behind the pure ring (volatile writes;
 /// used-side reads are untrusted device input, validated by the ring).
@@ -205,7 +202,9 @@ pub struct VirtioBlkMmio {
 
 impl VirtioBlkMmio {
     pub fn new(mmio_cap_slot: u32) -> Result<Self, VirtioError> {
-        let (mmio_pa, _len) = cap_query_base_len(mmio_cap_slot)?;
+        // The window is reached through the kernel-chosen map only; its physical
+        // base is nobody's business here (RFC-0098 C3: the line comes with the cap).
+        let _ = cap_query_base_len(mmio_cap_slot)?;
         let mmio_va = nexus_abi::mmio_map_auto(mmio_cap_slot, 0, 0x1000)
             .map_err(|_| VirtioError::Unsupported)?;
         let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
@@ -291,20 +290,14 @@ impl VirtioBlkMmio {
 
         let capacity_sectors = dev.capacity_sectors();
 
-        // IRQ completion (TASK-0314): the PLIC line derives from the granted
-        // transport window (index + 1 — the hidrawd mapping). The notify
-        // ENDPOINT is the owner's to provision: endpoint creation is
+        // IRQ completion (TASK-0314): the PLIC line travels inside the granted
+        // capability (RFC-0098 C3 — init read it from the node's `interrupts`).
+        // The notify ENDPOINT is the owner's to provision: endpoint creation is
         // init-factory-gated (RFC-0005 hardening), so embedded owners run
         // the honest poll fallback until the TASK-0315 block server binds a
         // properly wired endpoint via `bind_irq_endpoint`.
-        let mut irq_num = 0u32;
+        let irq_num = nexus_abi::device_irq(mmio_cap_slot);
         let irq_ep = 0u32;
-        if mmio_pa >= VIRTIO_MMIO_BASE
-            && mmio_pa < VIRTIO_MMIO_BASE + VIRTIO_MMIO_SLOTS * VIRTIO_MMIO_STRIDE
-        {
-            let index = (mmio_pa - VIRTIO_MMIO_BASE) / VIRTIO_MMIO_STRIDE;
-            irq_num = index as u32 + 1;
-        }
 
         let blk = Self {
             dev,

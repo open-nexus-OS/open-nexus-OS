@@ -883,7 +883,16 @@ ratio against the two-trap bench in the same boot — the exchange's cost, not t
 **Second occurrence 2026-09-22 (TASK-0245 P1's `test-all`):** the `input-flood` inner boot again —
 `rt=77us` with the two-trap bench at 68 µs (both ≈ 1.6–1.8× the 42/42 of the plain `visible` boot
 three minutes earlier, same binary); the lane printed `[PASS]` over it as described. Same class,
-same two consequences.
+same two consequences. **Third occurrence 2026-09-22 (TASK-0245 P4's `test-all`):** `rt=69us`,
+two-trap 68 µs, again the `input-flood` inner boot — and this time the slow boot pushed the flood
+past the inner lane's `RUN_TIMEOUT`, so the QMP socket reset under the flood script and the lane
+itself failed (`the flood itself failed`), aborting `test-all` at lane 20. Three of five chains
+today hit this boot; the fix is the budget ratio above plus a flood start keyed to the boot's
+own progress, not wall-clock. **The second half landed with TASK-0245 P4 (2026-09-22):** the
+flood lane no longer early-stops its inner boot and floods only after that run's
+`SELFTEST: ipc bench (`; P4's `init: devices from fdt ok (… input_irqs=3,4,0 …)` proved the
+interrupt lines unchanged, so the 2-of-2 red was this class, not a binding change. The
+budget-as-ratio remains this ledger's.
 
 
 ## End-state rewrite 2026-09-09 — historical, superseded by the 2026-09-15 rewrite above

@@ -211,11 +211,7 @@ where
         vblk_rsp,
         pol_ctl_route_req,
         pol_ctl_exec_req,
-        net_slot,
-        rng_slot,
-        blk_slots,
-        gpu_slot,
-        input_slots,
+        devices,
         volume: volume_spawned,
         volume_ms,
     } = crate::bootstrap::core_plane::bring_up(
@@ -599,17 +595,18 @@ where
     endpoints::close_wired_eps(&eps);
     crate::bootstrap::resume::resume_core(&ctrl_channels);
 
-    // ADR-0044: blk_slots[0] = the ONE disk (granted to virtioblkd in the
-    // CORE-plane stage); blk_slots[1] = the retired second device (TASK-0315:
-    // `/data` is a partition on the one disk).
-    let data_blk_slot = blk_slots[1];
+    // RFC-0098 C3: every grant below carries a window + PLIC line read from the
+    // device's tree node (ADR-0044: blk[0] = the ONE disk, granted in the CORE-plane
+    // stage; a second blk device is nobody's — `/data` is a partition on the one disk).
+    let net = devices.net.ok_or(InitError::Map("virtio-net not in the device tree"))?;
+    let rng = devices.rng.ok_or(InitError::Map("virtio-rng not in the device tree"))?;
     crate::bootstrap::core_plane::grant_mmio_with_wait(
         &grant_stats,
         pol_route,
         netstackd_pid,
         "netstackd",
         "device.mmio.net",
-        net_slot,
+        net,
         DEVICE_MMIO_CAP_SLOT,
     )?;
     crate::bootstrap::core_plane::grant_mmio_with_wait(
@@ -618,19 +615,19 @@ where
         rngd_pid,
         "rngd",
         "device.mmio.rng",
-        rng_slot,
+        rng,
         DEVICE_MMIO_CAP_SLOT,
     )?;
     // RFC-0076: RTC window → timed (own anchor read; no rtcd). Best-effort.
     grant_rtc_mmio_to_timed(timed_pid, pol_ctl_route_req, pol_ctl_route_rsp)?;
-    let gpu_slot = gpu_slot.ok_or(InitError::Map("virtio-gpu slot not found"))?;
+    let gpu = devices.gpu.ok_or(InitError::Map("virtio-gpu not in the device tree"))?;
     crate::bootstrap::core_plane::grant_mmio_with_wait(
         &grant_stats,
         pol_route,
         gpud_pid,
         "gpud",
         "device.mmio.gpu",
-        gpu_slot,
+        gpu,
         DEVICE_MMIO_CAP_SLOT,
     )?;
     crate::bootstrap::core_plane::grant_mmio_with_wait(
@@ -639,48 +636,39 @@ where
         selftest_pid,
         "selftest-client",
         "device.mmio.net",
-        net_slot,
+        net,
         DEVICE_MMIO_CAP_SLOT,
     )?;
 
-    // fw_cfg: hand the QEMU firmware-config MMIO window to selftest-client so it can read its
-    // runtime boot-config (selftest mode/profile, set by the launcher via `-fw_cfg`) WITHOUT a
-    // rebuild — the same binary boots in `proof` mode under the harness and `interactive-full`
-    // under `just start`. This is a host-config channel, not a policy-gated device, so it is
-    // minted + pinned directly (no policyd round-trip) into the slot the topology declares for it
-    // (`slots::selftest_client::FW_CFG`, read by `boot_cfg`). Non-fatal: if the mint/transfer fails the client's `mmio_map`
-    // degrades gracefully (runtime_mode → None → the legacy `full` profile + verdict mode off).
+    // The device tree, read-only, to selftest-client: the harness reads its runtime
+    // boot-config (`/chosen/nexus,boot-mode` / `boot-profile`, written by nxboot from
+    // the launcher's knobs) WITHOUT a rebuild — the same binary boots in `proof` mode
+    // under the harness and `interactive-full` under `just start`. Not a device: the
+    // alias the kernel gave init is pinned directly (no policyd round-trip) into the
+    // slot the topology declares (`NamedSlot::DeviceTree`). Non-fatal: without it the
+    // client's `runtime_mode` is None → the legacy `full` profile + verdict mode off.
     {
-        const FW_CFG_BASE: usize = 0x1010_0000; // QEMU virt VIRT_FW_CFG window base.
-        const FW_CFG_LEN: usize = 0x1000; // One page (regs live at offset 0/8).
-        match nexus_abi::device_mmio_cap_create(FW_CFG_BASE, FW_CFG_LEN, usize::MAX) {
-            // The slot is the harness's declared `NamedSlot::FwCfg` (TASK-0324 P4f-5); a failed pin
-            // is reported by the pin itself.
-            Ok(cap) => {
-                let pinned = crate::bootstrap::declared_slots::pin_named(
-                    selftest_pid,
-                    ServiceId::SelftestClient,
-                    crate::service_topology::NamedSlot::FwCfg,
-                    cap,
-                    Rights::MAP,
-                );
-                if pinned.is_some() && iw(&mut init_wire, init_fold, "init:selftest-client") {
-                    debug_write_bytes(b"init: fw_cfg grant ok svc=selftest-client\n");
-                }
-            }
-            Err(_) => debug_write_bytes(b"init: fw_cfg cap_create FAIL svc=selftest-client\n"),
+        let pinned = crate::bootstrap::declared_slots::pin_named(
+            selftest_pid,
+            ServiceId::SelftestClient,
+            crate::service_topology::NamedSlot::DeviceTree,
+            nexus_abi::INIT_DEVICE_TREE_SLOT,
+            Rights::MAP,
+        );
+        if pinned.is_some() && iw(&mut init_wire, init_fold, "init:selftest-client") {
+            debug_write_bytes(b"init: device tree grant ok svc=selftest-client\n");
         }
     }
 
-    for (idx, input_slot) in input_slots.iter().copied().enumerate() {
-        if let Some(input_slot) = input_slot {
+    for (idx, input) in devices.input.iter().copied().enumerate() {
+        if let Some(input) = input {
             crate::bootstrap::core_plane::grant_mmio_with_wait(
                 &grant_stats,
                 pol_route,
                 hidrawd_pid,
                 "hidrawd",
                 "device.mmio.input",
-                input_slot,
+                input,
                 INPUT_MMIO_CAP_SLOT_BASE + u32::try_from(idx).unwrap_or(0),
             )?;
         }
@@ -689,10 +677,6 @@ where
     // TASK-0315: statefsd is a blockproto CLIENT — the double MMIO grant
     // (the ADR-0044 one-owner violation) is gone; virtioblkd above is the
     // only holder.
-    // TASK-0315: `/data` is a partition on the ONE disk — vfsd's DataStore
-    // is a blockproto client now; the second-device grant is gone with the
-    // second device itself.
-    let _ = data_blk_slot;
     // Boot elapsed after the MMIO-grant phase (spawn + resume + early wiring
     // + grants); the gap to `total_ms` is the co-run cap-wiring phase.
     let grants_done_ms = boot_span.elapsed_ms();

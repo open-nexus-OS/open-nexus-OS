@@ -22,10 +22,9 @@
 
 use crate::bootstrap::helpers::debug_write_bytes;
 
-/// fw_cfg file the launcher sets the runtime profile in (parity:
-/// selftest-client `boot_cfg.rs`).
-const PROFILE_FILE: &[u8] = b"opt/org.open-nexus/selftest-profile";
-const FAULT_PROFILE: &[u8] = b"ota-fallback";
+/// The lane's runtime profile as nxboot wrote it into `/chosen/nexus,boot-profile`
+/// (RFC-0098 C2; parity: selftest-client `boot_cfg.rs`).
+const FAULT_PROFILE: &str = "ota-fallback";
 
 /// Parks this boot if it is an armed fault-fixture trial. Returns
 /// (normally) in every other case; never returns when parked.
@@ -38,21 +37,9 @@ pub(crate) fn park_if_armed() {
     if record[10] != 1 || record[11] != 1 {
         return;
     }
-    // The knob: the harness-set runtime profile. init creates its own
-    // fw_cfg window cap (same host-config channel the selftest reads;
-    // not a policy-gated device).
-    let Ok(cap) = nexus_abi::device_mmio_cap_create(
-        nexus_abi::fwcfg::FW_CFG_MMIO_BASE,
-        nexus_abi::fwcfg::FW_CFG_MMIO_LEN,
-        usize::MAX,
-    ) else {
-        return;
-    };
-    let mut buf = [0u8; 16];
-    let Some(n) = nexus_abi::fwcfg::read_named_file(cap, PROFILE_FILE, &mut buf) else {
-        return;
-    };
-    if &buf[..n] != FAULT_PROFILE {
+    // The knob: the harness-set runtime profile, read from the tree the kernel
+    // exposes to init (the same channel the selftest reads).
+    if crate::bootstrap::device_tree::chosen_str("boot-profile") != Some(FAULT_PROFILE) {
         return;
     }
     debug_write_bytes(b"init: health withheld (fault fixture)\n");

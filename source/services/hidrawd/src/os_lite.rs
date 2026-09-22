@@ -115,7 +115,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             const IRQ_NOTIFY_SLOT: Cap = nexus_service_topology::CTRL_SLOTS.recv;
             let mut bound_any = false;
             for device in &live_devices {
-                if irq_bind(device.irq, IRQ_NOTIFY_SLOT).is_ok() {
+                if device.irq != 0 && irq_bind(device.irq, IRQ_NOTIFY_SLOT).is_ok() {
                     bound_any = true;
                 }
             }
@@ -377,8 +377,9 @@ fn open_live_devices(missing_slots_logged: &mut [bool; INPUT_CAP_SLOTS.len()]) -
             confirmed_class: None,
             abs_max_x,
             abs_max_y,
-            // cap-slot index `idx` => virtio-mmio slot 2+idx => PLIC source 3+idx.
-            irq: 3 + idx as u32,
+            // RFC-0098 C3: the line the granted capability carries (init read it
+            // from the node's `interrupts`); 0 = none, never derived from an address.
+            irq: nexus_abi::device_irq(slot),
         });
     }
     devices
@@ -408,9 +409,8 @@ struct LiveDevice {
     confirmed_class: Option<LiveDeviceClass>,
     abs_max_x: i32,
     abs_max_y: i32,
-    /// PLIC interrupt source for this device. QEMU virt wires virtio-mmio slot N
-    /// (0x10001000 + N*0x1000) to source `1 + N`; the input devices are granted at
-    /// mmio slots 2/3 (cap-slot index 0/1), i.e. sources 3/4.
+    /// PLIC interrupt source for this device, as carried by its MMIO capability
+    /// (RFC-0098 C3). 0 = the tree lists none.
     irq: u32,
 }
 

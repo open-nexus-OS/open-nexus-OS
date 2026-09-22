@@ -56,16 +56,9 @@ pub(super) fn dump_user_stack_for_task(task: &task::Task, spaces: &AddressSpaceM
         Err(_) => return,
     };
     let page_table = space.page_table();
-    const UART_BASE: usize = 0x1000_0000;
-    const UART_TX: usize = 0x0;
-    const UART_LSR: usize = 0x5;
-    const LSR_TX_IDLE: u8 = 1 << 5;
     unsafe {
-        let write_byte = |b: u8| {
-            while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {
-            }
-            core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
-        };
+        // The console the tree named (RFC-0098 C3), lock-free: this runs inside a fault.
+        let write_byte = crate::hal::platform::console_write_byte;
         for index in 0..STACK_WORDS {
             for &b in b"[USER-PF] stack +" {
                 write_byte(b);
@@ -110,10 +103,6 @@ const INTERRUPT_FLAG: usize = usize::MAX - (usize::MAX >> 1);
 /// The saved-frame + user-stack snapshot of the faulting task (moved out of
 /// the handler for the module-size ratchet; folded in interactive boots).
 pub(super) fn dump_task_frame_snapshot(sp: usize) {
-    const UART_BASE: usize = 0x1000_0000;
-    const UART_TX: usize = 0x0;
-    const UART_LSR: usize = 0x5;
-    const LSR_TX_IDLE: u8 = 1 << 5;
     if let Ok(handles) = runtime_kernel_handles_diagnostic() {
         unsafe {
             let tasks = handles.tasks.as_ref();
@@ -123,13 +112,7 @@ pub(super) fn dump_task_frame_snapshot(sp: usize) {
                 dump_user_stack_for_task(task, spaces, sp);
                 let tf = task.frame();
                 let write_field = |label: &[u8], value: usize| {
-                    let write_byte = |b: u8| {
-                        while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8)
-                            & LSR_TX_IDLE
-                            == 0
-                        {}
-                        core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
-                    };
+                    let write_byte = crate::hal::platform::console_write_byte;
                     for &b in b"[USER-PF] task " {
                         write_byte(b);
                     }

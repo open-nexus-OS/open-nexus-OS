@@ -76,6 +76,8 @@ vfsd = { path = "../../services/vfsd", optional = true, default-features = false
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-sync = { path = "../../libs/nexus-sync", optional = true }
 nexus-abi = { path = "../../libs/nexus-abi" }
+# RFC-0098 C3: init discovers devices from the tree the kernel exposes read-only.
+nexus-fdt = { path = "../../libs/nexus-fdt" }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 # TASK-0049B: one-shot supervision probe payload (exit0) for the sweep proof.
 demo-exit0 = { path = "../../../userspace/apps/demo-exit0" }

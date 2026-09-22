@@ -32,6 +32,11 @@ At a high level the stack looks like:
      and the streamed image sha256, carries the measured handoff record in
      `/chosen/nexus,boot-record` of its copy of the tree and chains into the
      verified image, itself a static PIE that fixes itself up at that window.
+   - The kernel reads its platform (console, PLIC, timer, memory banks) from
+     the tree in `a1` and injects a read-only alias of it into init's slot 2;
+     init discovers the virtio transports and the RTC from it and every device
+     capability it grants carries the node's window AND interrupt line
+     (`init: devices from fdt ok (…)`, RFC-0098 C3).
    - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: jump
      slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
      `nxboot: PANIC (…)` + SBI reset — never a silent boot of unverified

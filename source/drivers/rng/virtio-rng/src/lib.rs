@@ -437,9 +437,9 @@ pub fn read_entropy_via_virtio_mmio(
                 | nexus_abi::page_flags::WRITE;
             Q_VA_S = vm_map(q_vmo, 0, 4096, flags).map_err(|_| RngError::MapFailed)?;
             BUF_VA_S = vm_map(buf_vmo, 0, 4096, flags).map_err(|_| RngError::MapFailed)?;
-            let mut q_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+            let mut q_info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
             cap_query(q_vmo, &mut q_info).map_err(|_| RngError::MapFailed)?;
-            let mut b_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+            let mut b_info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
             cap_query(buf_vmo, &mut b_info).map_err(|_| RngError::MapFailed)?;
             Q_VMO = q_vmo;
             BUF_VMO = buf_vmo;

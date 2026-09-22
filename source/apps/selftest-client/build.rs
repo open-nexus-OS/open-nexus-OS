@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proof-manifest/markers");
     println!("cargo:rerun-if-changed=proof-manifest/profiles");
     // Legacy fallback: `os_lite::profile` still accepts a compile-time
-    // `SELFTEST_PROFILE` when no runtime `fw_cfg` override is present.
+    // `SELFTEST_PROFILE` when no runtime `/chosen` profile override is present.
     println!("cargo:rerun-if-env-changed=SELFTEST_PROFILE");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);

@@ -17,6 +17,8 @@
 
 #![allow(unsafe_code)]
 
+extern crate alloc;
+
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -242,6 +244,27 @@ pub fn image_range() -> (usize, usize) {
 /// ranges, this image and the tree. Exclusive to the loader pre-OS.
 pub fn load_region(base: usize, len: usize) -> &'static mut [u8] {
     unsafe { core::slice::from_raw_parts_mut(base as *mut u8, len) }
+}
+
+/// A zeroed, page-aligned buffer from the loader's arena for the tree copy the
+/// kernel receives: the kernel exposes it to init as pages (RFC-0098 C3), so
+/// it must start on one. Never freed (one-shot program).
+pub fn alloc_pages(len: usize) -> &'static mut [u8] {
+    let bytes = len.div_ceil(4096) * 4096;
+    let layout = match Layout::from_size_align(bytes, 4096) {
+        Ok(l) => l,
+        Err(_) => alloc_error_reset(),
+    };
+    let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) };
+    if ptr.is_null() {
+        alloc_error_reset();
+    }
+    unsafe { core::slice::from_raw_parts_mut(ptr, bytes) }
+}
+
+fn alloc_error_reset() -> ! {
+    uart_puts("nxboot: PANIC (alloc arena exhausted)\n");
+    system_reset()
 }
 
 /// A read-only view of physical RAM the firmware handed us — the device tree in

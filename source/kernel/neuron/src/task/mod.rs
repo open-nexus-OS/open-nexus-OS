@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use crate::{
-    cap::{CapError, CapTable, Capability, CapabilityKind, Rights},
+    cap::{CapError, CapTable, CapabilityKind, Rights},
     ipc::{self, Router},
     mm::{AddressSpaceError, AddressSpaceManager, AsHandle},
     sched::{EnqueueOutcome, QosClass, Scheduler},
@@ -719,29 +719,25 @@ impl TaskTable {
         let mut child_caps = CapTable::new();
         child_caps.set(slot, bootstrap_cap)?;
 
-        // RFC-0005 Phase 2 hardening: endpoint creation authority is held via an explicit
-        // EndpointFactory capability. During bring-up, the bootstrap task (PID 0) carries this cap
-        // in a fixed slot (2) and we inject a derived copy into its direct userspace child (init-lite).
-        //
-        // This avoids brittle PID/parent gating and avoids relying on external helpers to do
-        // cap_transfer at exactly the right time during boot.
+        // RFC-0005 Phase 2 hardening: endpoint creation authority is an explicit
+        // EndpointFactory capability; the bootstrap task (PID 0) carries it in slot 2 and
+        // its direct userspace child (init-lite) receives a derived copy in slot 1 — no
+        // PID gating, no cap_transfer timed from outside. RFC-0098 C3 (TASK-0245 P4): the
+        // same child receives the device tree, read-only, in slot 2
+        // (`nexus_abi::INIT_DEVICE_TREE_SLOT`, see `boot_fdt::init_alias`).
         if parent == Pid::KERNEL && address_space.is_some() {
             const FACTORY_PARENT_SLOT: usize = 2;
             const FACTORY_CHILD_SLOT: usize = 1;
+            const DEVICE_TREE_CHILD_SLOT: usize = 2;
             if let Ok(factory_cap) = parent_task.caps.get(FACTORY_PARENT_SLOT) {
                 if factory_cap.kind == CapabilityKind::EndpointFactory
                     && factory_cap.rights.contains(Rights::MANAGE)
                 {
-                    // Deterministic bring-up: init-lite expects the EndpointFactory in slot 1.
-                    // Slot 0 is already populated by the bootstrap endpoint capability.
-                    let _ = child_caps.set(
-                        FACTORY_CHILD_SLOT,
-                        Capability {
-                            kind: CapabilityKind::EndpointFactory,
-                            rights: Rights::MANAGE,
-                        },
-                    );
+                    let _ = child_caps.set(FACTORY_CHILD_SLOT, factory_cap);
                 }
+            }
+            if let Some(alias) = crate::boot_fdt::init_alias() {
+                let _ = child_caps.set(DEVICE_TREE_CHILD_SLOT, alias);
             }
         }
 

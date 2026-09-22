@@ -61,7 +61,7 @@ pub(crate) const SELFTEST_CLIENT: ServiceSpec = ServiceSpec {
     server_slots: SlotPair::UNDECLARED,
     reply_slots: slots::selftest_client::REPLY,
     extra_slots: &[
-        NamedSlotBinding { name: NamedSlot::FwCfg, slot: slots::selftest_client::FW_CFG },
+        NamedSlotBinding { name: NamedSlot::DeviceTree, slot: slots::selftest_client::DEVICE_TREE },
         NamedSlotBinding {
             name: NamedSlot::TimerNotifyRecv,
             slot: slots::selftest_client::TIMER.recv,

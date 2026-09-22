@@ -77,6 +77,29 @@ pub fn boot_hart() -> usize {
     BOOT_HART.load(Ordering::Relaxed)
 }
 
+/// The tree's physical address and `totalsize` (None = no valid tree recorded).
+pub fn phys() -> Option<(usize, usize)> {
+    let base = DTB_PHYS.load(Ordering::Relaxed);
+    let len = DTB_LEN.load(Ordering::Relaxed);
+    (base != 0 && len != 0).then_some((base, len))
+}
+
+/// The read-only alias of the tree the kernel injects into init's cap table
+/// (`nexus_abi::INIT_DEVICE_TREE_SLOT`, RFC-0098 C3): init discovers devices from it
+/// and hands it to the harness. The loader's copy is page-aligned (nxboot allocates
+/// it so); a tree that is not cannot be exposed as pages, and init goes without —
+/// loudly, never with a guess.
+pub fn init_alias() -> Option<crate::cap::Capability> {
+    use crate::cap::{Capability, CapabilityKind, Rights};
+    let (base, len) = phys()?;
+    if base % PAGE != 0 {
+        log_error!(target: "boot", "device tree at {:#x} is not page-aligned: init receives no device.fdt", base);
+        return None;
+    }
+    let pages = len.div_ceil(PAGE) * PAGE;
+    Some(Capability { kind: CapabilityKind::VmoRo { base, len: pages }, rights: Rights::MAP })
+}
+
 /// The tree as bytes: at its physical address while paging is off, through the
 /// identity map [`range`] once the kernel address space is active.
 pub fn bytes() -> Option<&'static [u8]> {

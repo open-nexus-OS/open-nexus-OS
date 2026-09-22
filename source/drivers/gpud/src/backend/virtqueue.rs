@@ -207,9 +207,9 @@ impl CtrlQueue {
             .map_err(|_| GpuDriverError::MmioFault)?;
         let resp_va_base = nexus_abi::vm_map(resp_vmo, 0, resp_pool_len, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
-        let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-        let mut cmd_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
-        let mut resp_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        let mut q_info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+        let mut cmd_info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+        let mut resp_info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
         nexus_abi::cap_query(q_vmo, &mut q_info).map_err(|_| GpuDriverError::MmioFault)?;
         nexus_abi::cap_query(cmd_vmo, &mut cmd_info).map_err(|_| GpuDriverError::MmioFault)?;
         nexus_abi::cap_query(resp_vmo, &mut resp_info).map_err(|_| GpuDriverError::MmioFault)?;

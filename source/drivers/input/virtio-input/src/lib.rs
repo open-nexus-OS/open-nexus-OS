@@ -569,9 +569,9 @@ impl<const N: usize> QueueState<N> {
             vm_map(queue_vmo, 0, 4096, flags).map_err(|_| VirtioInputError::MapFailed)?;
         let buffer_va =
             vm_map(buffer_vmo, 0, 4096, flags).map_err(|_| VirtioInputError::MapFailed)?;
-        let mut queue_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        let mut queue_info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
         cap_query(queue_vmo, &mut queue_info).map_err(|_| VirtioInputError::MapFailed)?;
-        let mut buffer_info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        let mut buffer_info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
         cap_query(buffer_vmo, &mut buffer_info).map_err(|_| VirtioInputError::MapFailed)?;
 
         unsafe {

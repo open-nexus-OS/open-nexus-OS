@@ -68,12 +68,6 @@ const GPU_MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
 const GPU_MMIO_LEN: usize = 0x1000;
 const GPUD_RECV_SLOT: u32 = nexus_service_topology::slots::gpud::SERVER.recv;
 const GPUD_SEND_SLOT: u32 = nexus_service_topology::slots::gpud::SERVER.send;
-/// virtio-mmio GPU PLIC interrupt source. The GPU sits at MMIO 0x1000_8000 on the
-/// QEMU virt machine = virtio-mmio slot 7 (0x1000_1000 + 7·0x1000), and QEMU wires
-/// slot N to PLIC source N+1 → source 8. Same convention as virtio-input (slots
-/// 2/3 → IRQ 3/4 in hidrawd). Drives the reactive GPU ring-buffer completion wait.
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-const GPU_IRQ_SOURCE: u32 = 8;
 /// Endpoint cap slot the GPU IRQ is routed to: gpud's idle control-reply endpoint
 /// (slot 2 — the same idle endpoint hidrawd reuses for input IRQs). Deliberately
 /// NOT the windowd↔gpud server endpoint (slot 3): binding a notification source
@@ -133,7 +127,9 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // virtio-gpu IRQ covers both the control and cursor queues.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     let gpu_irq_reactive = {
-        let bound = backend.bind_gpu_irq(GPU_IRQ_SOURCE, GPU_IRQ_NOTIFY_SLOT);
+        // The line the granted capability carries (RFC-0098 C3); 0 = none.
+        let irq = nexus_abi::device_irq(GPU_MMIO_CAP_SLOT);
+        let bound = irq != 0 && backend.bind_gpu_irq(irq, GPU_IRQ_NOTIFY_SLOT);
         if bound {
             let _ = debug_println("gpud: gpu irq bound");
         } else {

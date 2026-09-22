@@ -104,85 +104,6 @@ pub(crate) static POLICY_NONCE: AtomicU32 = AtomicU32::new(1);
 // Deterministic DeviceMmio slot (per-service cap table).
 pub(crate) const DEVICE_MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
 pub(crate) const INPUT_MMIO_CAP_SLOT_BASE: u32 = nexus_service_topology::INPUT_MMIO_SLOTS[0];
-// QEMU `virt` virtio-mmio layout (per-device windows).
-pub(crate) const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
-pub(crate) const VIRTIO_MMIO_STRIDE: usize = 0x1000;
-
-pub(crate) fn virtio_mmio_window(slot: usize) -> (usize, usize) {
-    (VIRTIO_MMIO_BASE + slot * VIRTIO_MMIO_STRIDE, VIRTIO_MMIO_STRIDE)
-}
-
-pub(crate) fn probe_virtio_mmio_slots(
-) -> Result<(usize, usize, [Option<usize>; 2], Option<usize>, [Option<usize>; 3])> {
-    // Map the supported virtio-mmio window to discover device slots, then mint
-    // per-device caps. Scanning past the platform window faults in guest bring-up.
-    const MAX_SLOTS: usize = 8;
-    const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976; // "virt"
-    const VIRTIO_DEVICE_ID_NET: u32 = 1;
-    const VIRTIO_DEVICE_ID_RNG: u32 = 4;
-    const VIRTIO_DEVICE_ID_BLK: u32 = 2;
-    const VIRTIO_DEVICE_ID_GPU: u32 = 16;
-    const VIRTIO_DEVICE_ID_INPUT: u32 = 18;
-
-    let full_len = VIRTIO_MMIO_STRIDE * MAX_SLOTS;
-    let cap = nexus_abi::device_mmio_cap_create(VIRTIO_MMIO_BASE, full_len, usize::MAX)
-        .map_err(InitError::Abi)?;
-    // RFC-0085: ONE kernel-chosen map of the whole probe window — the eight
-    // per-slot maps at the shared fixed 0x2000_e000 va (and the
-    // AlreadyExists dance around them) are gone.
-    let probe_va = nexus_abi::mmio_map_auto(cap, 0, full_len).map_err(InitError::Abi)?;
-
-    let mut net_slot: Option<usize> = None;
-    let mut rng_slot: Option<usize> = None;
-    // Two virtio-blk devices (ADR-0044): [0] = statefs `/state`, [1] = nxfs
-    // `/data`. Captured in slot-scan order (deterministic per QEMU command).
-    let mut blk_slots: [Option<usize>; 2] = [None, None];
-    let mut gpu_slot: Option<usize> = None;
-    let mut input_slots: [Option<usize>; 3] = [None, None, None];
-    for slot in 0..MAX_SLOTS {
-        let off = slot * VIRTIO_MMIO_STRIDE;
-        let va = probe_va + off;
-        let magic = unsafe { core::ptr::read_volatile((va + 0x000) as *const u32) };
-        if magic != VIRTIO_MMIO_MAGIC {
-            continue;
-        }
-        let device_id = unsafe { core::ptr::read_volatile((va + 0x008) as *const u32) };
-        if device_id == VIRTIO_DEVICE_ID_NET {
-            net_slot = Some(slot);
-        } else if device_id == VIRTIO_DEVICE_ID_RNG {
-            rng_slot = Some(slot);
-        } else if device_id == VIRTIO_DEVICE_ID_BLK {
-            for blk_slot in &mut blk_slots {
-                if blk_slot.is_none() {
-                    *blk_slot = Some(slot);
-                    break;
-                }
-            }
-        } else if device_id == VIRTIO_DEVICE_ID_GPU {
-            gpu_slot = Some(slot);
-        } else if device_id == VIRTIO_DEVICE_ID_INPUT {
-            for input_slot in &mut input_slots {
-                if input_slot.is_none() {
-                    *input_slot = Some(slot);
-                    break;
-                }
-            }
-        }
-        if net_slot.is_some()
-            && rng_slot.is_some()
-            && blk_slots.iter().all(Option::is_some)
-            && gpu_slot.is_some()
-            && input_slots.iter().all(Option::is_some)
-        {
-            break;
-        }
-    }
-    let _ = nexus_abi::cap_close(cap);
-    let net_slot = net_slot.ok_or(InitError::Map("virtio-net slot not found"))?;
-    let rng_slot = rng_slot.ok_or(InitError::Map("virtio-rng slot not found"))?;
-    Ok((net_slot, rng_slot, blk_slots, gpu_slot, input_slots))
-}
-
 pub(crate) fn debug_write_byte(byte: u8) {
     let _ = nexus_abi::debug_putc(byte);
 }
@@ -337,12 +258,16 @@ impl<'a> ServiceNameGuard<'a> {
     }
 }
 
+/// One policy-gated DeviceMmio grant: the window `base`/`len` and the PLIC line `irq`
+/// come from the device's tree node (RFC-0098 C3) and travel inside the capability.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn grant_mmio_cap(
     pid: u32,
     svc_name: &str,
     cap_name: &str,
     base: usize,
     len: usize,
+    irq: u32,
     pol_send: u32,
     pol_recv: u32,
     expected_slot: u32,
@@ -385,7 +310,7 @@ pub(crate) fn grant_mmio_cap(
         debug_write_byte(b'\n');
     }
 
-    let cap = match nexus_abi::device_mmio_cap_create(base, len, usize::MAX) {
+    let cap = match nexus_abi::device_mmio_cap_create(base, len, irq, usize::MAX) {
         Ok(slot) => {
             if probes_enabled() {
                 debug_write_bytes(b"init: mmio cap_create ok svc=");

@@ -564,6 +564,14 @@ proves = "the kernel runs at the address the previous stage chose, every R_RISCV
 [marker."KSELFTEST: kernel image FAIL ("]
 phase = "bringup"
 
+# RFC-0098 C3 (TASK-0245 P4): init discovers devices from the read-only tree the kernel
+# hands it — every virtio window and its PLIC line, the RTC by compatible. The line prints
+# the transports found and the disk's/GPU's interrupt (QEMU: 0x1..0x8 by slot, read from
+# `interrupts`, never derived). Required in every profile.
+[marker."init: devices from fdt ok ("]
+phase = "bringup"
+proves = "init read every device window and interrupt line it grants from the device tree"
+
 [marker."KSELFTEST: smp online ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }

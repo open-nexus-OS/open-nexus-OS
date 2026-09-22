@@ -1,6 +1,6 @@
 ---
 title: TASK-0245 Board support v1b (OS): the kernel's platform comes from the FDT — UART, PLIC, timer, memory ranges, hart list; kernel + nxboot position-independent; init discovers devices from the FDT
-status: In Progress (P1–P2 Done, P3 built 2026-09-22 — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
+status: In Progress (P1–P3 Done, P4 built 2026-09-22 — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
 owner: @kernel-team
 created: 2025-12-29
 updated: 2026-09-22
@@ -145,9 +145,43 @@ display-mode authority move (TASK-0251).
   the mode words and `WxH` parsing. Not P3's: init still grants selftest-client the fw_cfg window
   by a literal (`orchestrator.rs`) and selftest-client reads its profile there — P4 replaces both
   with the `device.fdt` VMO.
-- **P4 Init discovery from the FDT VMO** — `helpers.rs`/`route_provision.rs` rewritten, slot
-  + policy for `device.fdt`, IRQs from the tree; the literal gate lands and `just check`
-  carries it.
+- **P4 Init discovery from the FDT VMO — built 2026-09-22.** The kernel injects a `VmoRo`
+  alias of the (page-aligned, nxboot-allocated) tree into init's slot 2
+  (`nexus_abi::INIT_DEVICE_TREE_SLOT`); `bootstrap/device_tree.rs` maps it once and yields the
+  `virtio,mmio` transports (classified by device id through a short-lived window each, lowest
+  address first) and the RTC by compatible; `helpers.rs`'s window scan and `route_provision.rs`'s
+  RTC literal are deleted. **The PLIC line travels inside the device capability:**
+  `DeviceMmio { base, len, irq }`, `device_mmio_cap_create(base, len, irq, slot)`, `cap_query`
+  reports `irq` (and read-only aliases as kind 3) — virtio-blk, gpud and hidrawd take their line
+  from the capability; the `index + 1` / `3 + idx` / `GPU_IRQ_SOURCE = 8` arithmetic is gone.
+  The harness reads `/chosen/nexus,boot-mode|boot-profile` through the same alias
+  (`NamedSlot::DeviceTree` replaces `FwCfg`; init's fault fixture reads the profile from its own
+  view); `nexus_abi::fwcfg`, the fw_cfg grant, the dead `sink-kernel` arm of nexus-log and the
+  last UART constants (kernel fault dumper, init's early writer via `debug_putc`) are deleted.
+  Gate: `scripts/check-no-platform-literals.sh` (self-tested scanner over `source/`,
+  `userspace/`, `tools/nx/src`; comments, tests and goldens excluded) in `just check`. Marker
+  `init: devices from fdt ok (virtio=N blk_irq=… gpu_irq=… rtc=…)` required in every profile.
+  Not done here (follow-up in this ledger's DoD sweep): `sys_irq_bind` still accepts any line a
+  task names — binding should require a device capability carrying that line. Measured while
+  writing the `cap_query` test (`syscall/api/tests_devcap.rs`): the whole `syscall` module is
+  `cfg(target_os = "none")`, so every kernel API test file is host-INERT (58 host tests run, none
+  of them API tests) — the query is proven by the boot instead (`gpud: gpu irq bound`,
+  `hidrawd: irq endpoint bound`, the disk's IRQ in `init: devices from fdt ok`); un-gating the
+  API tests is the orchestrator track's known host-testability item. **Proof (2026-09-22):**
+  smp1 + visible green with `init: devices from fdt ok (virtio=8 blk_irq=5 gpu_irq=8
+  rtc=0x101000)`, `virtioblkd: irq endpoint bound`, `gpud: gpu irq bound` / `gpu irq wake`,
+  `hidrawd: irq endpoint bound (reactive input)`, `timed: walltime anchored`,
+  `init: device tree grant ok svc=selftest-client`; `just check` 12/12 with the literal gate.
+  **Measured in the `input-flood` lane (2 of 2 red under P4, 1 of 3 before):** the marker's
+  `input_irqs=3,4,0` equal the lines hidrawd's old `3 + idx` arithmetic bound for the two live
+  input devices, and `blk_irq=5` / `gpu_irq=8` equal the old `index + 1` / constant — P4 changed
+  NO interrupt binding on QEMU virt; a first hypothesis (the tablet newly reactive) is refuted by
+  this line. The two reds are the TASK-0054C class (the inner boot 1.6× slower, bench 68/82 µs,
+  budget 65–69 µs) with a new consequence: the ladder's early stop ended the VM under the 45 s
+  flood and reset the QMP socket. Fix in `scripts/input-flood-lane.sh` (0054C's own
+  prescription): no early stop for the inner boot, the flood starts once THIS run's
+  `SELFTEST: ipc bench (` has printed, `RUN_TIMEOUT` 320 s — the lane alone: bench 42 µs,
+  `[PASS] input-flood`.
 
 ## Constraints / invariants
 

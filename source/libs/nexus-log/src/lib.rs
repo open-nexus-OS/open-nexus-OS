@@ -201,9 +201,6 @@ pub fn log(meta: LineMeta<'_>, f: impl FnOnce(&mut LineBuilder)) {
         // Hold the cross-hart record lock for the whole `[LEVEL target] …\n`
         // span so concurrent harts never interleave bytes at the shared UART
         // (kernel sink only; userspace logs don't touch the raw MMIO).
-        #[cfg(all(not(feature = "sink-userspace"), feature = "sink-kernel"))]
-        let _record_guard = sink::record_lock::acquire(console);
-
         sink.write_byte(b'[');
         sink.write_str(meta.level.label());
         sink.write_byte(b' ');
@@ -1238,127 +1235,12 @@ fn userspace_putc(byte: u8) {
 #[cfg(not(all(feature = "sink-userspace", target_arch = "riscv64", target_os = "none")))]
 fn userspace_putc(_byte: u8) {}
 
-#[cfg(feature = "sink-kernel")]
-mod sink_kernel {
-    use core::fmt;
-
-    use super::{Level, Topic};
-
-    pub struct Sink<'meta> {
-        #[allow(unused)]
-        level: Level,
-        #[allow(unused)]
-        target: &'meta str,
-        #[allow(unused)]
-        topic: Topic,
-        console: bool,
-    }
-
-    impl<'meta> Sink<'meta> {
-        #[allow(dead_code)]
-        pub fn new(level: Level, target: &'meta str, topic: Topic, console: bool) -> Self {
-            Self { level, target, topic, console }
-        }
-
-        pub fn write_byte(&mut self, byte: u8) {
-            if !self.console {
-                return;
-            }
-            unsafe {
-                const UART_BASE: usize = 0x1000_0000;
-                const UART_TX: usize = 0x0;
-                const UART_LSR: usize = 0x5;
-                const LSR_TX_IDLE: u8 = 1 << 5;
-
-                while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE
-                    == 0
-                {}
-                core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, byte);
-            }
-        }
-
-        pub fn write_bytes(&mut self, bytes: &[u8]) {
-            for &b in bytes {
-                self.write_byte(b);
-            }
-        }
-    }
-
-    impl fmt::Write for Sink<'_> {
-        fn write_str(&mut self, s: &str) -> fmt::Result {
-            self.write_bytes(s.as_bytes());
-            Ok(())
-        }
-    }
-
-    /// Cross-hart record atomicity for the shared 16550 UART.
-    ///
-    /// The kernel sink writes each record byte-by-byte to one MMIO TX register.
-    /// Under SMP (MTTCG, real parallelism) two harts emitting concurrently
-    /// interleave their bytes, corrupting whole marker lines — which broke the
-    /// `KSELFTEST: bkl budget ok` grep gate and the nexus-evidence trace parser.
-    /// A record acquires this lock for its full `[LEVEL target] …\n` span so
-    /// records never interleave.
-    ///
-    /// It is a **bounded-try** lock, never a blocking one: kernel logging is
-    /// reentrant (a trap/IRQ handler can log while the interrupted context on
-    /// the SAME hart holds the lock), and a blocking spinlock would deadlock
-    /// there. So `acquire` spins up to a generous bound (long enough to outlast
-    /// any in-flight record on another hart) and, if it can't get in, proceeds
-    /// WITHOUT the lock rather than hang. Common cross-hart contention is
-    /// serialized (atomic records); the rare reentrant/over-contended case falls
-    /// back to today's unlocked behavior — strictly never worse, never a hang.
-    pub(super) mod record_lock {
-        use core::sync::atomic::{AtomicBool, Ordering};
-
-        static LOCK: AtomicBool = AtomicBool::new(false);
-
-        pub struct Guard {
-            held: bool,
-        }
-
-        /// Bounded-try acquire. `active` is the `console` flag — no lock needed
-        /// when this record isn't going to the UART.
-        pub fn acquire(active: bool) -> Guard {
-            if !active {
-                return Guard { held: false };
-            }
-            // A record is tens of bytes, each a TX-idle spin of a few hundred
-            // cycles (~tens of thousands total); this bound comfortably outlasts
-            // one record on another hart while still guaranteeing forward
-            // progress (no deadlock) and never pathologically slowing logging.
-            const SPIN_BOUND: u32 = 2_000_000;
-            let mut spins: u32 = 0;
-            while LOCK
-                .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
-                core::hint::spin_loop();
-                spins += 1;
-                if spins >= SPIN_BOUND {
-                    return Guard { held: false };
-                }
-            }
-            Guard { held: true }
-        }
-
-        impl Drop for Guard {
-            fn drop(&mut self) {
-                if self.held {
-                    LOCK.store(false, Ordering::Release);
-                }
-            }
-        }
-    }
-}
-
 #[cfg(feature = "sink-userspace")]
 use sink_userspace as sink;
 
-#[cfg(all(not(feature = "sink-userspace"), feature = "sink-kernel"))]
-use sink_kernel as sink;
-
-#[cfg(all(not(feature = "sink-userspace"), not(feature = "sink-kernel")))]
+#[cfg(not(feature = "sink-userspace"))]
 mod sink {
-    compile_error!("nexus-log requires enabling either `sink-userspace` or `sink-kernel`.");
+    compile_error!(
+        "nexus-log requires enabling `sink-userspace` (the kernel has its own console)."
+    );
 }

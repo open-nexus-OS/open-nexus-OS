@@ -60,16 +60,22 @@ pub(super) struct DeviceCapCreateArgsTyped {
     base: usize,
     len: usize,
     slot_raw: usize,
+    /// The device's PLIC line from the tree's `interrupts` (0 = none).
+    irq: usize,
 }
 
 impl DeviceCapCreateArgsTyped {
     #[inline]
     pub(super) fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self { base: args.get(0), len: args.get(1), slot_raw: args.get(2) })
+        Ok(Self { base: args.get(0), len: args.get(1), slot_raw: args.get(2), irq: args.get(3) })
     }
     #[inline]
     pub(super) fn check(&self) -> Result<(), Error> {
         if self.len == 0 {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
+        // A line the PLIC cannot have is a corrupt tree, not a device.
+        if self.irq > crate::hal::plic::MAX_IRQ as usize {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
         if (self.base & (PAGE_SIZE - 1)) != 0 || (self.len & (PAGE_SIZE - 1)) != 0 {
@@ -144,7 +150,11 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
     }
 
     let cap = Capability {
-        kind: CapabilityKind::DeviceMmio { base: typed.base, len: typed.len },
+        kind: CapabilityKind::DeviceMmio {
+            base: typed.base,
+            len: typed.len,
+            irq: typed.irq as u32,
+        },
         rights: Rights::MAP,
     };
     let slot = if typed.slot_raw == usize::MAX {

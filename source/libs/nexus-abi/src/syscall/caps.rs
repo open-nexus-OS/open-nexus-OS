@@ -17,6 +17,11 @@ pub const BOOTSTRAP_CAP_SLOT: u32 = 0;
 /// Capability slot of init-lite's endpoint factory: the kernel injects a derived copy into the
 /// bootstrap task's direct child here (neuron `FACTORY_CHILD_SLOT`).
 pub const INIT_ENDPOINT_FACTORY_SLOT: u32 = 1;
+/// Capability slot of init-lite's read-only device tree (RFC-0098 C3, TASK-0245 P4): the
+/// kernel injects a `VmoRo` alias of the tree it was handed in `a1` (neuron
+/// `DEVICE_TREE_CHILD_SLOT`); init maps it, discovers devices from it and hands the same
+/// alias to services that read their own node.
+pub const INIT_DEVICE_TREE_SLOT: u32 = 2;
 /// Binds an external interrupt source (PLIC) to an endpoint the caller owns, so
 /// the kernel routes that device IRQ to `endpoint_cap` and wakes a blocked
 /// receiver — the reactive alternative to polling the device. The driver then

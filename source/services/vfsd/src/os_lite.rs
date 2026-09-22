@@ -159,7 +159,7 @@ fn data_unavailable(opcode: u8) -> Vec<u8> {
 /// Queries a VMO capability's byte length (RFC-0040 `cap_query`, `kind_tag` 1 =
 /// VMO). `None` when the slot is not a VMO the caller granted.
 pub(crate) fn vmo_len(slot: u32) -> Option<usize> {
-    let mut query = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    let mut query = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(slot, &mut query).is_err() || query.kind_tag != 1 {
         return None;
     }

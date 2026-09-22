@@ -99,7 +99,7 @@ fn align4(x: usize) -> usize {
 }
 
 fn cap_query_base_len(slot: u32) -> Result<(u64, u64), NetError> {
-    let mut info = CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    let mut info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
     cap_query(slot, &mut info).map_err(|_| NetError::Internal("cap_query failed"))?;
     Ok((info.base, info.len))
 }

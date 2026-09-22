@@ -53,6 +53,8 @@ mod vmo_pool;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_devcap;
 
 use caps::*;
 use exec::*;

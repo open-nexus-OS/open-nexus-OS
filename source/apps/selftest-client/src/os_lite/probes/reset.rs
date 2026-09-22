@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Real system-reset + boot-target cycle proof (TASK-0050
-//! PR-3..5). Reset-lane only (`fw_cfg selftest-profile=reset`, read RAW).
+//! PR-3..5). Reset-lane only (runtime profile `reset` via `/chosen/nexus,boot-profile`, read RAW).
 //! THREE boots in one uart stream, phased by a statefs sentinel VALUE:
 //! boot 1 (normal) arms `next_boot=recovery` + sentinel `p1` → SBI
 //! reboot; boot 2 comes up on the RECOVERY graph (core-only resume set —

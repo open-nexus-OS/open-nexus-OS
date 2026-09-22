@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Changed - 2026-09-22 (TASK-0245 P1–P3: the kernel's platform comes from the device tree; kernel and nxboot are position-independent; the kernel reads no fw_cfg)
+### Changed - 2026-09-22 (TASK-0245 P1–P4: the kernel's platform comes from the device tree; kernel and nxboot are position-independent; the kernel reads no fw_cfg; init discovers devices from the tree)
 
 - **`hal/platform.rs` replaces `hal/virt.rs`** (P1): console base/`reg-shift`/`reg-io-width` from
   `/chosen/stdout-path`, PLIC base + S-mode contexts from `interrupts-extended`, the timer through
@@ -26,8 +26,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ADR-0059 amended; RFC-0089 §5/§7 and RFC-0098 C2 updated.
 - **Syscalls 45/50 read `/chosen`** (P3): nxboot re-expresses the lane's `selftest-mode` as
   `nexus,boot-mode` next to `nexus,display-mode`; the kernel resolves marker folding and the display
-  request from the tree, and its fw_cfg reader + fw_cfg identity window are deleted (init's fw_cfg
-  grant to selftest-client is P4's).
+  request from the tree, and its fw_cfg reader + fw_cfg identity window are deleted.
+- **Init discovers devices from the tree** (P4, RFC-0098 C3): the kernel injects a read-only alias
+  of the tree into init's slot 2; init walks `virtio,mmio` nodes and the RTC by compatible, and every
+  device capability it mints carries the node's `reg` AND `interrupts` — `cap_query` now reports the
+  PLIC line, and virtio-blk, gpud and hidrawd take their interrupt from the capability instead of
+  slot arithmetic. The harness reads its boot mode/profile from `/chosen` through the same alias
+  (`NamedSlot::DeviceTree`); the fw_cfg module in `nexus-abi`, the dead kernel sink in `nexus-log`
+  and the last UART constants (kernel fault dumper, init's early writer) are gone.
+  `scripts/check-no-platform-literals.sh` in `just check` keeps them gone;
+  `init: devices from fdt ok (…)` is required in every profile (on QEMU virt the lines it prints
+  equal the ones the drivers used to compute — the tree confirms the arithmetic it replaces).
+  The `input-flood` lane now floods only after the run's `SELFTEST: ipc bench (` and without the
+  ladder's early stop, so the icount-calibrated IPC budget is measured undisturbed and the flood
+  can no longer be cut short by the VM stopping (TASK-0054C's prescription).
 
 ### Added - 2026-09-22 (TASK-0244 Done: the device tree is the one hardware truth — `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)
 

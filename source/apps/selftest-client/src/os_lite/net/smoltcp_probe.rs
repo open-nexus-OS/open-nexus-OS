@@ -347,7 +347,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     };
-    let mut q_info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    let mut q_info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(q_vmo, &mut q_info).is_err() {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_QQUERY_FAIL);
         return Err(());
@@ -415,7 +415,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     };
-    let mut bq = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+    let mut bq = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
     if nexus_abi::cap_query(buf_vmo, &mut bq).is_err() {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_BQUERY_FAIL);
         return Err(());

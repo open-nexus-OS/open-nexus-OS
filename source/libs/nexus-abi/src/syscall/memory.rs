@@ -228,10 +228,12 @@ pub fn mmio_map_auto(_handle: Handle, _offset: usize, _len: usize) -> SysResult<
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CapQuery {
-    /// 1 = VMO, 2 = DeviceMmio.
+    /// 1 = VMO, 2 = DeviceMmio, 3 = read-only VMO alias.
     pub kind_tag: u32,
-    /// Reserved for future expansion (must be zero).
-    pub reserved: u32,
+    /// DeviceMmio: the device's PLIC line from the device tree's `interrupts`
+    /// (0 = none) — the one place a driver learns its interrupt (RFC-0098 C3).
+    /// 0 for every other kind.
+    pub irq: u32,
     /// Physical base address for the capability's window.
     pub base: u64,
     /// Length in bytes of the capability's window.
@@ -255,21 +257,41 @@ pub fn cap_query(_cap: Cap, _out: &mut CapQuery) -> SysResult<()> {
     }
 }
 
-/// Creates a DeviceMmio capability in the caller's cap table (init-only).
+/// The PLIC line a device capability carries (RFC-0098 C3: init took it from the
+/// node's `interrupts`); 0 when the slot is not a device or lists no line.
+#[cfg(nexus_env = "os")]
+#[must_use]
+pub fn device_irq(slot: Cap) -> u32 {
+    let mut info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+    match cap_query(slot, &mut info) {
+        Ok(()) if info.kind_tag == 2 => info.irq,
+        _ => 0,
+    }
+}
+
+/// Creates a DeviceMmio capability in the caller's cap table (init-only): the window
+/// `base`/`len` and the device's PLIC line `irq` (0 = none), both from the device tree's
+/// node (`reg`, `interrupts` — RFC-0098 C3).
 ///
 /// If `slot_raw` is `usize::MAX`, the kernel allocates a fresh slot; otherwise, the cap is placed
 /// into the requested slot (must be empty).
 #[cfg(nexus_env = "os")]
-pub fn device_mmio_cap_create(_base: usize, _len: usize, _slot_raw: usize) -> SysResult<Cap> {
+pub fn device_mmio_cap_create(
+    _base: usize,
+    _len: usize,
+    _irq: u32,
+    _slot_raw: usize,
+) -> SysResult<Cap> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_DEVICE_CAP_CREATE: usize = 30;
-        let raw = unsafe { ecall3(SYSCALL_DEVICE_CAP_CREATE, _base, _len, _slot_raw) };
+        let raw =
+            unsafe { ecall4(SYSCALL_DEVICE_CAP_CREATE, _base, _len, _slot_raw, _irq as usize) };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
-        let _ = (_base, _len, _slot_raw);
+        let _ = (_base, _len, _irq, _slot_raw);
         Err(AbiError::Unsupported)
     }
 }

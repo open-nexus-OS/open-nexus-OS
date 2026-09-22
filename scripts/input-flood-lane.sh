@@ -30,7 +30,13 @@ SOCKET=build/qemu.qmp
 fail=0
 
 rm -f "$SOCKET"
-RUN_TIMEOUT=${RUN_TIMEOUT:-150s} QEMU_INPUT_AUTOINJECT=1 just test-os visible &
+# No early stop (RUN_UNTIL_MARKER=0): the ladder's end marker must not end the VM
+# under a running flood — measured 2026-09-22 (TASK-0245 P4): once the tablet's
+# interrupt line came from the device tree (reactive, no longer polled) the
+# injector's proof step finished later in the ladder, the early stop fired mid-flood
+# and the QMP socket reset under the flood script. The VM lives to RUN_TIMEOUT.
+before=$(date +%s)
+RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-320s} QEMU_INPUT_AUTOINJECT=1 just test-os visible &
 lane=$!
 
 # Wait for the SOCKET, never for a marker in `build/logs/latest` — that symlink
@@ -51,6 +57,32 @@ for _ in $(seq 1 180); do
   pgrep -f qmp_visible_input_inject.py > /dev/null 2>&1 || break
   sleep 1
 done
+
+# This run's log directory: the newest `visible--` dir created after the launch
+# (never `build/logs/latest`, which still points at the previous run while this
+# one builds). The flood starts only once the ladder's IPC round-trip benchmark
+# has printed: that budget is calibrated on an undisturbed icount boot, and a
+# 900 ev/s interrupt flood on the one hart is exactly the load it must not see
+# (TASK-0054C records the class). Keyed to the boot's own progress, not the clock.
+UART=""
+for _ in $(seq 1 200); do
+  for d in $(ls -dt build/logs/visible--*/ 2>/dev/null); do
+    if [ "$(stat -c %Y "$d")" -ge "$before" ] && [ -f "$d/uart.log" ]; then
+      UART="$d/uart.log"
+      break
+    fi
+  done
+  if [ -n "$UART" ] && grep -aq "SELFTEST: ipc bench (" "$UART"; then
+    break
+  fi
+  UART=""
+  sleep 1
+done
+if [ -z "$UART" ]; then
+  echo "[FAIL] input-flood: the ladder never reached its IPC benchmark (no flood window)" >&2
+  wait "$lane" || true
+  exit 1
+fi
 sleep 2
 
 python3 tools/qmp_input_flood.py "$SOCKET" "$FLOOD_SECONDS" "$FLOOD_RATE" || {
@@ -66,9 +98,7 @@ wait "$lane" || true
 # failed a `test-all` run twice, and the odds grow with the log directory:
 # measured at 142 `visible--` runs it fired in ~5% of invocations. Reading the
 # whole listing cannot SIGPIPE.
-mapfile -t runs < <(ls -dt build/logs/visible--*/uart.log 2>/dev/null)
-UART=${runs[0]:-}
-[ -n "$UART" ] || { echo "[FAIL] input-flood: no uart log" >&2; exit 1; }
+[ -f "$UART" ] || { echo "[FAIL] input-flood: no uart log" >&2; exit 1; }
 echo "[info] input-flood: $UART"
 
 if grep -qE 'alloc-fail|alloc_error' "$UART"; then

@@ -18,10 +18,10 @@
 //! ### Where the profile selection comes from
 //!
 //! `selftest-client` now resolves its active profile from a runtime boot-config
-//! surface in QEMU `fw_cfg` when present:
+//! surface as `/chosen/nexus,boot-profile` (nxboot writes it from QEMU `fw_cfg`) when present:
 //!
 //! ```text
-//! -fw_cfg name=opt/org.open-nexus/selftest-profile,string=bringup
+//! -fw_cfg name=opt/org.open-nexus/selftest-profile,string=bringup   (nxboot → /chosen/nexus,boot-profile)
 //! ```
 //!
 //! This keeps the `make build -> make run` artifact chain valid because the
@@ -90,7 +90,7 @@ impl Profile {
     ///
     /// Resolution order:
     /// 1. proof mode → legacy/`default` (the full ladder; keeps `verify-uart` byte-stable)
-    /// 2. runtime `fw_cfg` profile override (interactive boots only)
+    /// 2. runtime profile override from `/chosen/nexus,boot-profile` (interactive boots only)
     /// 3. runtime mode (`full` for `interactive-full`, `bringup` for `interactive-minimal`)
     /// 4. legacy build-time `SELFTEST_PROFILE`
     /// 5. caller-provided `default`
@@ -169,12 +169,12 @@ impl Profile {
         // Proof boots ALWAYS run the full ladder. The proof harness keys its marker
         // expectation (`verify-uart list-markers --profile=<harness>`) on the HARNESS profile,
         // NOT this runtime knob, so scoping the runtime here would desync the two and fail
-        // verification. The runtime `fw_cfg` profile therefore only scopes INTERACTIVE boots;
+        // verification. The runtime `/chosen` profile therefore only scopes INTERACTIVE boots;
         // until the observer consumes the runtime profile (Phase 4) proof stays byte-stable.
         if matches!(runtime_mode, Some(RuntimeMode::Proof)) {
             return legacy_profile.unwrap_or(default);
         }
-        // Interactive (or unknown) boots: an explicit `fw_cfg` profile wins for ad-hoc scoping…
+        // Interactive (or unknown) boots: an explicit runtime profile wins for ad-hoc scoping…
         if let Some(profile) = runtime_profile {
             return match profile {
                 RuntimeProfile::Full => Profile::Full,
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn proof_mode_pins_to_full_ignoring_runtime_profile() {
-        // The proof harness may pass a narrow `fw_cfg` profile (its default is `bringup`), but in
+        // The proof harness may pass a narrow runtime profile (its default is `bringup`), but in
         // proof mode the runtime MUST still run the full ladder so the marker stream stays
         // byte-stable against the harness-keyed `verify-uart` expectation.
         assert_eq!(

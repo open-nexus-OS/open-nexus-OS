@@ -2854,6 +2854,11 @@ if [[ "$(count_lines "KSELFTEST: kernel image ok (")" -lt 1 ]]; then
   echo "[error] kernel-image proof missing: KSELFTEST: kernel image ok (" >&2
   exit 1
 fi
+# TASK-0245 P4 (RFC-0098 C3): init's device windows and interrupt lines come from the tree.
+if [[ "$(count_lines "init: devices from fdt ok (")" -lt 1 ]]; then
+  echo "[error] init device-discovery proof missing: init: devices from fdt ok (" >&2
+  exit 1
+fi
 # nxboot owns /chosen: when the loader is in the chain it must have written and
 # read back the tree copy the kernel then parsed (direct-kernel boots skip it).
 if [[ "${NEXUS_DIRECT_KERNEL:-0}" != "1" ]] && [[ "$(count_lines "nxboot: fdt ok (")" -lt 1 ]]; then

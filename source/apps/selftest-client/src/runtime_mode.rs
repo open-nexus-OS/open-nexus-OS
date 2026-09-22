@@ -24,7 +24,7 @@ pub(crate) enum RuntimeProfile {
     Net,
     None,
     /// TASK-0050 reset lane: full ladder + the reset-proof trigger in
-    /// bringup (sentinel discipline; the trigger is read RAW from fw_cfg —
+    /// bringup (sentinel discipline; the trigger is read RAW from `/chosen` —
     /// proof boots keep the full phase scope regardless).
     Reset,
     /// TASK-0179 crown lane: the two-boot OTA flip (stage the real os-B,

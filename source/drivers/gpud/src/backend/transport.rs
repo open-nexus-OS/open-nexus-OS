@@ -215,7 +215,7 @@ impl VirtioGpuBackend {
             GfxError::MmioFault
         })?;
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
-        let mut info = nexus_abi::CapQuery { kind_tag: 0, reserved: 0, base: 0, len: 0 };
+        let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
         nexus_abi::cap_query(backing_vmo, &mut info).map_err(|_e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_CAP_QUERY_FAIL);
             GfxError::MmioFault

@@ -24,8 +24,6 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
-
 use nexus_fdt::{ChosenWriter, Fdt};
 
 use crate::arch;
@@ -146,11 +144,11 @@ pub fn virtio_mmio_bases(t: &Tree) -> impl Iterator<Item = usize> + '_ {
 /// the QEMU lane knobs), return the copy's address for `a1`.
 pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8]) -> usize {
     let src = arch::phys_slice(t.phys, t.len);
-    let mut buf: Vec<u8> = Vec::with_capacity(t.len + CHOSEN_HEADROOM);
-    buf.extend_from_slice(src);
-    buf.resize(t.len + CHOSEN_HEADROOM, 0);
+    // Page-aligned: the kernel hands this very copy to init as read-only pages.
+    let buf: &'static mut [u8] = arch::alloc_pages(t.len + CHOSEN_HEADROOM);
+    buf[..t.len].copy_from_slice(src);
 
-    let mut w = match ChosenWriter::new(&mut buf) {
+    let mut w = match ChosenWriter::new(buf) {
         Ok(w) => w,
         Err(e) => fail(error_str(e)),
     };
@@ -184,16 +182,14 @@ pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8]) -> usize {
 
     // Read the copy back through the parser: the marker carries values the
     // kernel will read from this very buffer.
-    let (harts, tb) = match Fdt::new(&buf).and_then(|f| f.cpus()) {
+    let (harts, tb) = match Fdt::new(buf).and_then(|f| f.cpus()) {
         Ok(cpus) => (cpus.count(), cpus.timebase_hz),
         Err(e) => fail(error_str(e)),
     };
     arch::uart_puts(&alloc::format!("nxboot: fdt ok (harts={harts} tb={tb}Hz slot={slot})\n"));
-    let ptr = buf.as_ptr() as usize;
-    // The buffer must outlive this program: it lives in the loader's bump arena,
-    // which nothing frees, and the kernel maps it read-only from `a1`.
-    core::mem::forget(buf);
-    ptr
+    // The buffer outlives this program: it lives in the loader's bump arena, which
+    // nothing frees, and the kernel maps it read-only from `a1`.
+    buf.as_ptr() as usize
 }
 
 fn fail(reason: &str) -> ! {

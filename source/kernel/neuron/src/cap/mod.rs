@@ -50,12 +50,15 @@ pub enum CapabilityKind {
     /// to share the glyph atlas across app-hosts without letting any of them
     /// corrupt the pages the others read.
     VmoRo { base: usize, len: usize },
-    /// Device MMIO window (physical base + length), mapped into userspace only via a dedicated
-    /// syscall that enforces USER|RW and never EXEC.
+    /// Device MMIO window (physical base + length) plus the device's PLIC line (`irq`, 0 =
+    /// none), mapped into userspace only via a dedicated syscall that enforces USER|RW and
+    /// never EXEC. The window and the line come from the device tree (RFC-0098 C3): init
+    /// mints the capability from the node's `reg` + `interrupts`, the driver queries it
+    /// (`cap_query`) — no driver derives an interrupt number from an address.
     ///
-    /// Rationale: userspace virtio frontends on QEMU `virt` require MMIO access; this capability
-    /// keeps the exposed range fixed and bounded (no ambient physical mappings).
-    DeviceMmio { base: usize, len: usize },
+    /// Rationale: userspace drivers require MMIO access; this capability keeps the exposed
+    /// range fixed and bounded (no ambient physical mappings).
+    DeviceMmio { base: usize, len: usize, irq: u32 },
     /// Interrupt binding.
     Irq(u32),
     /// Kernel timer capability bound to a per-hart timer table entry.

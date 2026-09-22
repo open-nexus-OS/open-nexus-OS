@@ -207,24 +207,27 @@ pub(crate) fn provision_windowd_ability_route(
     }
 }
 
-/// RFC-0076: policy-gated grant of the goldfish-RTC MMIO window (fixed
-/// platform device, dtb-verified `rtc@101000`) to timed — the time authority
-/// reads its own wall-clock anchor. ONE waited policy exchange (TASK-0324 P8): a
-/// denied/failed/unanswered grant leaves walltime honestly UNAVAILABLE, never fatal.
+/// RFC-0076: policy-gated grant of the RTC MMIO window (the node the tree lists by
+/// compatible, RFC-0098 C3) to timed — the time authority reads its own wall-clock
+/// anchor. ONE waited policy exchange (TASK-0324 P8): a denied/failed/unanswered grant,
+/// or a tree without an RTC, leaves walltime honestly UNAVAILABLE, never fatal.
 pub(crate) fn grant_rtc_mmio_to_timed(
     timed_pid: u32,
     pol_ctl_route_req: u32,
     pol_ctl_route_rsp: u32,
 ) -> crate::os_payload::Result<()> {
     use crate::os_payload::{grant_mmio_cap, DEVICE_MMIO_CAP_SLOT};
-    const RTC_MMIO_BASE: usize = 0x0010_1000;
-    const RTC_MMIO_LEN: usize = 0x1000;
+    let Some(rtc) = crate::bootstrap::device_tree::rtc() else {
+        debug_write_bytes(b"init: rtc not in the device tree (walltime unavailable)\n");
+        return Ok(());
+    };
     if grant_mmio_cap(
         timed_pid,
         "timed",
         "device.mmio.rtc",
-        RTC_MMIO_BASE,
-        RTC_MMIO_LEN,
+        rtc.base,
+        rtc.len,
+        rtc.irq,
         pol_ctl_route_req,
         pol_ctl_route_rsp,
         DEVICE_MMIO_CAP_SLOT,

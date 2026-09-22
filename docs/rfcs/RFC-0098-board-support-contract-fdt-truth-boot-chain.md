@@ -114,8 +114,11 @@ nxboot writes (in-place, with headroom reserved at FIT build time):
 
 The kernel's syscalls 45 (`BOOT_MODE`) and 50 (`BOOT_DISPLAY_MODE`) read `/chosen`; every
 fw_cfg read in the kernel is deleted (Phase 1). 50 is deleted in Phase 5 when gpud owns the
-mode. Init and services read the FDT through a read-only VMO the kernel exposes (`device.fdt`
-grant, `nexus-service-topology` slot), never through a syscall per value.
+mode. Init and services read the FDT through a read-only VMO the kernel exposes (init: the
+`VmoRo` alias the kernel injects at `nexus_abi::INIT_DEVICE_TREE_SLOT`; services: the same alias
+pinned into their declared `NamedSlot::DeviceTree`), never through a syscall per value. Since
+TASK-0245 P4 the harness reads its boot mode/profile there and init discovers virtio transports
+and the RTC there (`init: devices from fdt ok (…)`, required in every profile).
 
 ### C3 — What the kernel derives, and how
 
@@ -128,7 +131,7 @@ grant, `nexus-service-topology` slot), never through a syscall per value.
 | PLIC | compatible `riscv,plic0` / `sifive,plic-1.0.0` / `spacemit,k1-plic`: `reg`, `riscv,ndev`, `interrupts-extended` → S-mode context per hart | `0x0c00_0000`, 53 sources | `0xe000_0000`, 159 sources |
 | console | `/chosen/stdout-path` → node: `ns16550a` (1-byte stride) or `spacemit,pxa-uart` / `intel,xscale-uart` / `snps,dw-apb-uart` (4-byte stride) | `0x1000_0000` | `0xd401_7000` |
 | memory | every `/memory@*` `reg`, minus `/reserved-memory` and the kernel's own image | one bank at `0x8000_0000` | two banks at `0x0` and `0x1_0000_0000` |
-| devices for init | every node with a `compatible` init knows (virtio-mmio by `device_id`, SDHCI, DPU/HDMI, USB, GMAC, GPU, RTC) with `reg` + `interrupts` | virtio window | the SoC nodes |
+| devices for init | every node with a `compatible` init knows (virtio-mmio by `device_id`, SDHCI, DPU/HDMI, USB, GMAC, GPU, RTC) with `reg` + `interrupts`; the PLIC line travels INSIDE the device capability (`cap_query` → `irq`), no driver derives it from an address | `virtio,mmio` nodes, `google,goldfish-rtc` | the SoC nodes |
 
 CLINT MMIO is never touched from S-mode. The kernel and nxboot are linked position-independent
 and relocate themselves on entry (`R_RISCV_RELATIVE`); the load address comes from the FIT

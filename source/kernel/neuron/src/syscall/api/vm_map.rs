@@ -111,7 +111,7 @@ pub(super) fn sys_mmio_map_auto(ctx: &mut Context<'_>, args: &Args) -> SysResult
     }
     let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;
     let (base, cap_len) = match cap.kind {
-        CapabilityKind::DeviceMmio { base, len } => (base, len),
+        CapabilityKind::DeviceMmio { base, len, .. } => (base, len),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
     let span_end = offset.checked_add(len).ok_or(AddressSpaceError::InvalidArgs)?;

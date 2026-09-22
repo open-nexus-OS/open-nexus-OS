@@ -149,7 +149,6 @@ pub mod syscall;
 // `nexus_abi::sched::…`, `nexus_abi::page_flags::…` all keep resolving.
 pub use syscall::*;
 
-pub mod fwcfg;
 #[cfg(nexus_env = "os")]
 pub mod slot_probe;
 

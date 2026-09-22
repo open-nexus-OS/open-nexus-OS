@@ -6,7 +6,7 @@
 //! nothing that needs a volume service: policyd's server pair, control
 //! channels (fixed slots 5..8) and priority wiring, bundlemgrd's server
 //! pair + block-plane client, virtioblkd's server pair + IRQ endpoint,
-//! the deny-by-default MMIO proof, the virtio slot probe and the ONE
+//! the deny-by-default MMIO proof, device discovery from the tree and the ONE
 //! policy-gated grant the plane needs (`device.mmio.blk` → virtioblkd).
 //! Then the volume pass runs — so every later stage (endpoint mints,
 //! driver grants, wiring, resume) sees volume-spawned services exactly
@@ -23,10 +23,9 @@
 use alloc::vec::Vec;
 use core::cell::Cell;
 
+use crate::bootstrap::device_tree::{self, DeviceWindow, VirtioDevices};
 use crate::bootstrap::diag::iw;
-use crate::bootstrap::helpers::{
-    grant_mmio_cap, probe_virtio_mmio_slots, virtio_mmio_window, DEVICE_MMIO_CAP_SLOT,
-};
+use crate::bootstrap::helpers::{grant_mmio_cap, DEVICE_MMIO_CAP_SLOT};
 use crate::bootstrap::volume_spawn::VolumeSpawned;
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::*;
@@ -42,7 +41,7 @@ pub(crate) struct GrantStats {
 
 /// What the stage hands the orchestrator: the early-minted endpoints (they
 /// join the `Endpoints` bundle unchanged), policyd's control request
-/// endpoints, the virtio slot probe, the volume-spawned set and the cost
+/// endpoints, the devices the tree lists, the volume-spawned set and the cost
 /// of spawning it.
 pub(crate) struct CorePlane {
     pub pol_req: u32,
@@ -53,11 +52,8 @@ pub(crate) struct CorePlane {
     pub vblk_rsp: u32,
     pub pol_ctl_route_req: u32,
     pub pol_ctl_exec_req: u32,
-    pub net_slot: usize,
-    pub rng_slot: usize,
-    pub blk_slots: [Option<usize>; 2],
-    pub gpu_slot: Option<usize>,
-    pub input_slots: [Option<usize>; 3],
+    /// The virtio transports the tree lists, classified (RFC-0098 C3).
+    pub devices: VirtioDevices,
     pub volume: Vec<VolumeSpawned>,
     /// Wall time of the volume pass (query → stream → map → exec, all
     /// services) — the boot cost of serving services from the volume.
@@ -72,10 +68,9 @@ pub(crate) fn grant_mmio_with_wait(
     pid: u32,
     svc_name: &str,
     cap_name: &str,
-    slot: usize,
+    dev: DeviceWindow,
     cap_slot: u32,
 ) -> Result<()> {
-    let (mmio_base, mmio_len) = virtio_mmio_window(slot);
     let grant_span = nexus_abi::Span::begin();
     // ONE waited policy exchange (TASK-0324 P8): policyd's verdict or its death — no retry
     // cadence, no clock. `None` is a refused/absent authority: fail-closed, named.
@@ -83,8 +78,9 @@ pub(crate) fn grant_mmio_with_wait(
         pid,
         svc_name,
         cap_name,
-        mmio_base,
-        mmio_len,
+        dev.base,
+        dev.len,
+        dev.irq,
         pol_route.0,
         pol_route.1,
         cap_slot,
@@ -210,20 +206,22 @@ pub(crate) fn bring_up(
 
     let pol_route = (pol_ctl_route_req, pol_ctl_route_rsp);
     mmio_policy_deny_probe(pol_route)?;
-    let (net_slot, rng_slot, blk_slots, gpu_slot, input_slots) = probe_virtio_mmio_slots()?;
+    // RFC-0098 C3: every window and interrupt line below comes from the tree.
+    let devices = device_tree::discover_virtio()?;
+    device_tree::report(&devices);
 
     // The ONE grant the plane needs: the disk → virtioblkd (ADR-0044 one
     // owner; every other client is a blockproto client). From here the
     // block plane is live and bundlemgrd can attach the measured volume.
     if let Some(virtioblkd_pid) = ctrls.iter().find(|c| c.svc_name == "virtioblkd").map(|c| c.pid) {
-        let blk_slot = blk_slots[0].ok_or(InitError::Map("virtio-blk slot not found"))?;
+        let blk = devices.blk[0].ok_or(InitError::Map("virtio-blk not in the device tree"))?;
         grant_mmio_with_wait(
             stats,
             pol_route,
             virtioblkd_pid,
             "virtioblkd",
             "device.mmio.blk",
-            blk_slot,
+            blk,
             DEVICE_MMIO_CAP_SLOT,
         )?;
     }
@@ -250,11 +248,7 @@ pub(crate) fn bring_up(
         vblk_rsp,
         pol_ctl_route_req,
         pol_ctl_exec_req,
-        net_slot,
-        rng_slot,
-        blk_slots,
-        gpu_slot,
-        input_slots,
+        devices,
         volume,
         volume_ms,
     })
