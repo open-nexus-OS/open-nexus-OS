@@ -1,6 +1,6 @@
 ---
 title: TASK-0245B Board support v1c: `nexus-soc` + `socd` — clock gates, resets, pinmux and power domains from the FDT syscon nodes, ONE owner for every board driver
-status: In Progress (P0 done 2026-09-22 — measured on the board, table with provenance, RFC-0106 seeded; was "seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0245")
+status: In Progress (P0 done, P1 built 2026-09-22 — library + tree bindings host-proven against the measured register state; was "seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0245")
 owner: @runtime @kernel-team
 created: 2026-09-22
 updated: 2026-09-22
@@ -49,12 +49,12 @@ stock system's state, `regmap-apmu.txt`):
 
 | window / register | offset | gate (set = on) | reset (APMU: set = released) | mux / div / FC | stock value |
 |---|---|---|---|---|---|
-| APMU `SDH0_CLK_RES_CTRL` | 0x054 | sdh_axi BIT3, sdh0 BIT4 | sdh_axi BIT0, sdh0 BIT1 | mux 8..10, div 5..7, FC BIT11 | `0x0000411b` |
-| APMU `SDH1_CLK_RES_CTRL` | 0x058 | sdh1 BIT4 | sdh1 BIT1 | mux 8..10, div 5..7, FC BIT11 | `0x00000052` |
-| APMU `SDH2_CLK_RES_CTRL` | 0x0e0 | sdh2 BIT4 | sdh2 BIT1 | mux 8..10 (0 = pll1_d6 409.6, 1 = pll1_d4 614.4, 2 = pll2_d8 375, 3 = pll1_d3 819.2, 4 = pll1_d11 223.4, 5 = pll1_d13 189, 6 = pll1_d23 106.8 MHz), div 5..7, FC BIT11 | `0x00000052` |
+| APMU `SDH0_CLK_RES_CTRL` | 0x054 | sdh_axi BIT3, sdh0 BIT4 | sdh_axi BIT0, sdh0 BIT1 | mux 5..7, div 8..10, FC BIT11 | `0x0000411b` |
+| APMU `SDH1_CLK_RES_CTRL` | 0x058 | sdh1 BIT4 | sdh1 BIT1 | mux 5..7, div 8..10, FC BIT11 | `0x00000052` |
+| APMU `SDH2_CLK_RES_CTRL` | 0x0e0 | sdh2 BIT4 | sdh2 BIT1 | mux 5..7 (0 = pll1_d6 409.6, 1 = pll1_d4 614.4, 2 = pll2_d8 375, 3 = pll1_d3 819.2, 4 = pll1_d11 223.4, 5 = pll1_d13 189, 6 = pll1_d23 106.8 MHz), div 8..10 (`rate = parent / (div + 1)`), FC BIT11 — stock `0x52` = mux 2, div 0 = the 375 MHz `clk_summary` reads | `0x00000052` |
 | APMU `USB_CLK_RES_CTRL` | 0x05c | usb_axi BIT1, usb_p1 BIT5, usb30 BIT8 | usb_axi BIT0, usbp1_axi BIT4, usb30 ahb BIT9 / vcc BIT10 / phy BIT11 | — | `0x00000f33` |
 | APMU `LCD_CLK_RES_CTRL1` | 0x044 | dpu_hclk BIT5, dpu_esc BIT2, dpu_bit BIT16 | dpu_esc BIT3, dpu_hclk BIT4, mipi BIT15, v2d BIT27 | esc mux 0..1; bit mux 20..22 div 17..19 FC BIT31; px div 21..23 FC BIT30 | `0x08805180` |
-| APMU `LCD_CLK_RES_CTRL2` | 0x04c | dpu_mclk BIT0 (gate in CTRL1), px gate BIT16 (CTRL1) | dpu_mclk BIT9 | mclk mux 5..7 div 1..4 FC BIT29; px mux 17..20 | `0x01040104` |
+| APMU `LCD_CLK_RES_CTRL2` | 0x04c | dpu_mclk BIT0, px BIT16 (both in THIS register; their FC bits 29/30 live in CTRL1) | dpu_mclk BIT9 | mclk mux 5..7 div 1..4; px mux 21..23 div 17..20 | `0x01040104` |
 | APMU `HDMI_CLK_RES_CTRL` | 0x1b8 | hmclk BIT0 | hdmi BIT9 | mux 5..7 (pll1_d6/d5/d4/d8), div 1..4, FC BIT29 | `0x01040321` |
 | APMU `GPU_CLK_RES_CTRL` | 0x0cc | gpu BIT4 | gpu BIT1 | mux 18..20, div 12..14, FC BIT15 | `0x00000012` |
 | APMU `EMAC{0,1}_CLK_RES_CTRL` | 0x3e4 / 0x3ec | bus BIT0, ptp BIT15 | emac BIT1 | — | `0x0000a007` |
@@ -120,9 +120,30 @@ node up / this clock's rate".
 
 - **P0 — Paper + measurement (done 2026-09-22).** The tables above; RFC-0106 seeded; the
   measurement files; the decision for one owner.
-- **P1 — Library + tree.** `nexus-soc` with the K1 tables for SDH/UART/AIB/USB/EMAC/HDMI/DPU/GPU
-  clocks and resets and the pad format; `nexus-fdt` specifier resolution; `board.dts` bindings +
-  binding headers + pin groups; goldens rebuilt; host tests incl. the measured-state tests.
+- **P1 — Library + tree — built 2026-09-22.** `source/libs/nexus-soc` (`no_std`,
+  `forbid(unsafe_code)`): `table/k1.rs` (23 clocks, 18 resets — SDH×3 + AXI, UART0, AIB, USB×3,
+  EMAC×4, HDMI, DPU×5, GPU, pmua_aclk; every entry with the register, fields, polarity and the
+  stock value; the mainline ids from the binding header), `plan.rs` (node + providers → ≤24
+  ordered steps: domain, resets released, gates on; a domain other than BUS is refused until P3),
+  `ops.rs` (executor over `nexus_hal::Bus`: RMW with read-back, mux/div with the FC set-and-poll
+  bounded at 1000 reads, `rate()` from the parent table, `is_on()`), `pad.rs` (the pad word),
+  `provider.rs` (kinds by compatible, windows from the tree). `nexus-fdt` gained
+  `Node::specifiers(prop, "#…-cells")` / `specifier_named(...)` (phandle + cells lists, stops at a
+  dangling phandle or a short tail; 2 `test_reject_*`). `config/board/bpi-f3/board.dts`: providers
+  carry their cells, every consumer names clocks/resets/domains/pads with the header's ids
+  (`config/board/include/dt-bindings/clock/spacemit,k1-syscon.h`, the mainline header used under
+  BSD-2-Clause; `power/spacemit,k1-pmu.h` ours), pad groups for uart0, mmc1 (+uhs), gmac0
+  (+clk_ref) from the MIT dtsi; `scripts/build-board-dtb.sh` (cpp + `dtc -p 512`) builds the
+  golden. **Proof (host):** `tests/k1.rs` replays `regmap-apmu.txt`: the eMMC, DWC3, EHCI, OTG and
+  EMAC0 plans write NOTHING against the stock state (the SPL left them on); from a cold file the
+  eMMC plan writes exactly `0x054 |= BIT0`, `0x0e0 |= BIT1`, `0x054 |= BIT3`, `0x0e0 |= BIT4`
+  in that order; rates read back as the clock tree lists them (sdh1/sdh2 375 MHz, pmua_aclk
+  307.2 MHz, gpu 614.4 MHz); HDMI's gate on and the display controller's off; a mux change
+  sets and polls the FC bit; a stuck FC bit and a write that does not read back are faults with
+  register and value; QEMU virt's tree yields an empty plan (`NotNeeded`). One correction to
+  P0's table: the SDH mux sits at bits 5..7 and the divider at 8..10 (the stock `0x52` decodes
+  to mux 2 = the 375 MHz branch only that way), and the display main clock's gate lives in the
+  second LCD register (its FC bit in the first).
 - **P2 — `socd` + protocol + policy + init.** Service, `soc` wire protocol, policy class and
   per-consumer rules, init spawn + grants by compatible, client API; QEMU proof
   `socd: ready (no soc glue in this tree)` in every profile and a selftest probe that

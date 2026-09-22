@@ -39,7 +39,7 @@ mod platform;
 
 pub use chosen::ChosenWriter;
 pub use header::{Error, Fdt, ReservedEntry};
-pub use node::{Node, Prop, Reg, StrList};
+pub use node::{Node, Prop, Reg, Specifier, StrList};
 pub use platform::{Chosen, Cpu, CpuMap, Cpus, MemoryBank, ReservedRange};
 
 /// The token values of the structure block (DTB spec §5.4.1).

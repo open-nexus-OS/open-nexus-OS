@@ -11,15 +11,25 @@
 //     mainline does not describe yet (display controller, HDMI encoder, GPU,
 //     EHCI, the OTG gadget, the power controller) — compatibles as the hardware
 //     reports them, registers and interrupt lines as measured.
-// It contains only the nodes Open Nexus OS consumes. Clock, reset and power
-// bindings are NOT expressed as phandles here: `nexus-soc` (TASK-0245B) binds
-// them by node, from its own table with register provenance.
+// It contains only the nodes Open Nexus OS consumes. Clock, reset, power-domain
+// and pad bindings are expressed the standard way (TASK-0245B, RFC-0106): the
+// providers carry their `#…-cells`, every consumer names its clocks/resets/
+// domains/pads with the ids of config/board/include/dt-bindings (the mainline
+// binding header, used under BSD-2-Clause; our own power-domain ids); `socd`
+// resolves them through the `nexus-soc` tables, which hold register offsets
+// with provenance and never an address.
 //
-// Compiled by `dtc -p 512` (headroom for nxboot's /chosen writes) into the FIT
-// (ADR-0066) and, for the host tests of `nexus-fdt`, into
-// source/libs/nexus-fdt/tests/goldens/bpi-f3.dtb.
+// Compiled by scripts/build-board-dtb.sh (cpp for the headers, `dtc -p 512` for
+// nxboot's /chosen headroom) into the FIT (ADR-0066) and, for the host tests of
+// `nexus-fdt` and `nexus-soc`, into source/libs/nexus-fdt/tests/goldens/bpi-f3.dtb.
 
 /dts-v1/;
+
+#include <dt-bindings/clock/spacemit,k1-syscon.h>
+#include <dt-bindings/power/spacemit,k1-pmu.h>
+
+/* A pad-group entry: the pad number and its mux function (mainline convention). */
+#define K1_PADCONF(pin, func) (((pin) << 16) | (func))
 
 / {
 	compatible = "bananapi,bpi-f3", "spacemit,k1";
@@ -253,32 +263,121 @@
 			reg = <0x0 0xe4000000 0x0 0x10000>;
 		};
 
-		// The clock/reset/power syscon windows (mainline names). nexus-soc's
-		// table is keyed by these nodes.
+		// The clock/reset/power syscon windows (mainline names); the providers
+		// `socd` owns (RFC-0106). Ids per dt-bindings/clock/spacemit,k1-syscon.h.
 		syscon_apbc: syscon@d4015000 {
 			compatible = "spacemit,k1-syscon-apbc";
 			reg = <0x0 0xd4015000 0x0 0x1000>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
 		};
 		syscon_mpmu: syscon@d4050000 {
 			compatible = "spacemit,k1-syscon-mpmu";
 			reg = <0x0 0xd4050000 0x0 0x209c>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			#power-domain-cells = <1>;
 		};
 		pll: clock-controller@d4090000 {
 			compatible = "spacemit,k1-pll";
 			reg = <0x0 0xd4090000 0x0 0x1000>;
+			#clock-cells = <1>;
 		};
 		syscon_apmu: syscon@d4282800 {
 			compatible = "spacemit,k1-syscon-apmu";
 			reg = <0x0 0xd4282800 0x0 0x400>;
+			#clock-cells = <1>;
+			#reset-cells = <1>;
+			#power-domain-cells = <1>;
 		};
 		syscon_apbc2: syscon@f0610000 {
 			compatible = "spacemit,k1-syscon-apbc2";
 			reg = <0x0 0xf0610000 0x0 0x20>;
+			#reset-cells = <1>;
 		};
 
 		pinctrl: pinctrl@d401e000 {
 			compatible = "spacemit,k1-pinctrl";
 			reg = <0x0 0xd401e000 0x0 0x1000>;
+			clocks = <&syscon_apbc CLK_AIB>, <&syscon_apbc CLK_AIB_BUS>;
+			clock-names = "func", "bus";
+			resets = <&syscon_apbc RESET_AIB>;
+
+			// Pad groups (mainline k1-pinctrl.dtsi, GPL-2.0 OR MIT, used under
+			// MIT): only the ones our consumers reference.
+			uart0_2_cfg: uart0-2-cfg {
+				uart0-2-pins {
+					pinmux = <K1_PADCONF(68, 2)>,	/* uart0_txd */
+						 <K1_PADCONF(69, 2)>;	/* uart0_rxd */
+					bias-pull-up = <0>;
+					drive-strength = <32>;
+				};
+			};
+
+			mmc1_cfg: mmc1-cfg {
+				mmc1-data-cmd-pins {
+					pinmux = <K1_PADCONF(104, 0)>,	/* mmc1_d3 */
+						 <K1_PADCONF(105, 0)>,	/* mmc1_d2 */
+						 <K1_PADCONF(106, 0)>,	/* mmc1_d1 */
+						 <K1_PADCONF(107, 0)>,	/* mmc1_d0 */
+						 <K1_PADCONF(108, 0)>;	/* mmc1_cmd */
+					bias-pull-up = <1>;
+					drive-strength = <19>;
+					power-source = <3300>;
+				};
+				mmc1-clk-pins {
+					pinmux = <K1_PADCONF(109, 0)>;	/* mmc1_clk */
+					bias-pull-down = <1>;
+					drive-strength = <19>;
+					power-source = <3300>;
+				};
+			};
+
+			mmc1_uhs_cfg: mmc1-uhs-cfg {
+				mmc1-data-cmd-pins {
+					pinmux = <K1_PADCONF(104, 0)>,
+						 <K1_PADCONF(105, 0)>,
+						 <K1_PADCONF(106, 0)>,
+						 <K1_PADCONF(107, 0)>,
+						 <K1_PADCONF(108, 0)>;
+					bias-pull-up = <1>;
+					drive-strength = <42>;
+					power-source = <1800>;
+				};
+				mmc1-clk-pins {
+					pinmux = <K1_PADCONF(109, 0)>;
+					bias-pull-down = <1>;
+					drive-strength = <42>;
+					power-source = <1800>;
+				};
+			};
+
+			gmac0_cfg: gmac0-cfg {
+				gmac0-pins {
+					pinmux = <K1_PADCONF(0, 1)>,	/* gmac0_rxdv */
+						 <K1_PADCONF(1, 1)>,	/* gmac0_rx_d0 */
+						 <K1_PADCONF(2, 1)>,	/* gmac0_rx_d1 */
+						 <K1_PADCONF(3, 1)>,	/* gmac0_rx_clk */
+						 <K1_PADCONF(4, 1)>,	/* gmac0_rx_d2 */
+						 <K1_PADCONF(5, 1)>,	/* gmac0_rx_d3 */
+						 <K1_PADCONF(6, 1)>,	/* gmac0_tx_d0 */
+						 <K1_PADCONF(7, 1)>,	/* gmac0_tx_d1 */
+						 <K1_PADCONF(8, 1)>,	/* gmac0_tx */
+						 <K1_PADCONF(9, 1)>,	/* gmac0_tx_d2 */
+						 <K1_PADCONF(10, 1)>,	/* gmac0_tx_d3 */
+						 <K1_PADCONF(11, 1)>,	/* gmac0_tx_en */
+						 <K1_PADCONF(12, 1)>;	/* gmac0_mdc */
+					bias-pull-up = <0>;
+					drive-strength = <21>;
+				};
+			};
+			gmac0_clk_ref_cfg: gmac0-clk-ref-cfg {
+				gmac0-clk-ref-pins {
+					pinmux = <K1_PADCONF(45, 1)>;	/* gmac0_clk_ref */
+					bias-pull-up = <0>;
+					drive-strength = <21>;
+				};
+			};
 		};
 
 		// The debug console: 16550-class registers at a 4-byte stride.
@@ -288,6 +387,11 @@
 			reg-shift = <2>;
 			reg-io-width = <4>;
 			interrupts = <42>;
+			clocks = <&syscon_apbc CLK_UART0>, <&syscon_apbc CLK_UART0_BUS>;
+			clock-names = "core", "bus";
+			resets = <&syscon_apbc RESET_UART0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart0_2_cfg>;
 			status = "okay";
 		};
 
@@ -295,6 +399,14 @@
 			compatible = "spacemit,k1-sdhci";
 			reg = <0x0 0xd4280000 0x0 0x200>;
 			interrupts = <99>;
+			clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH0>;
+			clock-names = "core", "io";
+			resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH0>;
+			reset-names = "axi", "sdh";
+			power-domains = <&syscon_apmu K1_PD_BUS>;
+			pinctrl-names = "default", "uhs";
+			pinctrl-0 = <&mmc1_cfg>;
+			pinctrl-1 = <&mmc1_uhs_cfg>;
 			bus-width = <4>;
 			status = "okay";
 		};
@@ -303,6 +415,11 @@
 			compatible = "spacemit,k1-sdhci";
 			reg = <0x0 0xd4280800 0x0 0x200>;
 			interrupts = <100>;
+			clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH1>;
+			clock-names = "core", "io";
+			resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH1>;
+			reset-names = "axi", "sdh";
+			power-domains = <&syscon_apmu K1_PD_BUS>;
 			bus-width = <4>;
 			non-removable;
 			status = "okay";
@@ -313,6 +430,11 @@
 			compatible = "spacemit,k1-sdhci";
 			reg = <0x0 0xd4281000 0x0 0x200>;
 			interrupts = <101>;
+			clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH2>;
+			clock-names = "core", "io";
+			resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH2>;
+			reset-names = "axi", "sdh";
+			power-domains = <&syscon_apmu K1_PD_BUS>;
 			bus-width = <8>;
 			non-removable;
 			status = "okay";
@@ -324,6 +446,14 @@
 			reg = <0x0 0xc0440000 0x0 0x2a000>;
 			interrupts = <139>, <138>;
 			interrupt-names = "online", "offline";
+			clocks = <&syscon_apmu CLK_DPU_MCLK>, <&syscon_apmu CLK_DPU_HCLK>,
+				 <&syscon_apmu CLK_DPU_ESC>, <&syscon_apmu CLK_DPU_BIT>,
+				 <&syscon_apmu CLK_DPU_PXCLK>;
+			clock-names = "mclk", "hclk", "esc", "bit", "px";
+			resets = <&syscon_apmu RESET_DPU_MCLK>, <&syscon_apmu RESET_DPU_HCLK>,
+				 <&syscon_apmu RESET_DPU_ESC>;
+			reset-names = "mclk", "hclk", "esc";
+			power-domains = <&syscon_apmu K1_PD_HDMI>;
 			status = "okay";
 		};
 
@@ -331,6 +461,10 @@
 			compatible = "spacemit,hdmi";
 			reg = <0x0 0xc0400500 0x0 0x200>;
 			interrupts = <136>;
+			clocks = <&syscon_apmu CLK_HDMI>;
+			clock-names = "hmclk";
+			resets = <&syscon_apmu RESET_HDMI>;
+			power-domains = <&syscon_apmu K1_PD_HDMI>;
 			status = "okay";
 		};
 
@@ -339,6 +473,12 @@
 			compatible = "spacemit,k1-dwc3", "snps,dwc3";
 			reg = <0x0 0xc0a00000 0x0 0x10000>;
 			interrupts = <125>;
+			clocks = <&syscon_apmu CLK_USB30>;
+			clock-names = "usbdrd30";
+			resets = <&syscon_apmu RESET_USB30_AHB>, <&syscon_apmu RESET_USB30_VCC>,
+				 <&syscon_apmu RESET_USB30_PHY>;
+			reset-names = "ahb", "vcc", "phy";
+			power-domains = <&syscon_apmu K1_PD_BUS>;
 			dr_mode = "host";
 			status = "okay";
 		};
@@ -347,6 +487,9 @@
 			compatible = "spacemit,mv-ehci";
 			reg = <0x0 0xc0980100 0x0 0x4000>;
 			interrupts = <118>;
+			clocks = <&syscon_apmu CLK_USB_P1>;
+			resets = <&syscon_apmu RESET_USBP1_AXI>;
+			power-domains = <&syscon_apmu K1_PD_BUS>;
 			status = "okay";
 		};
 
@@ -354,6 +497,9 @@
 			compatible = "spacemit,mv-udc";
 			reg = <0x0 0xc0900100 0x0 0x4000>;
 			interrupts = <105>;
+			clocks = <&syscon_apmu CLK_USB_AXI>;
+			resets = <&syscon_apmu RESET_USB_AXI>;
+			power-domains = <&syscon_apmu K1_PD_BUS>;
 			status = "okay";
 		};
 
@@ -361,6 +507,12 @@
 			compatible = "spacemit,k1-emac";
 			reg = <0x0 0xcac80000 0x0 0x420>;
 			interrupts = <131>;
+			clocks = <&syscon_apmu CLK_EMAC0_BUS>, <&syscon_apmu CLK_EMAC0_PTP>;
+			clock-names = "bus", "ptp";
+			resets = <&syscon_apmu RESET_EMAC0>;
+			power-domains = <&syscon_apmu K1_PD_BUS>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&gmac0_cfg>, <&gmac0_clk_ref_cfg>;
 			status = "okay";
 		};
 
@@ -368,6 +520,10 @@
 			compatible = "spacemit,k1-emac";
 			reg = <0x0 0xcac81000 0x0 0x420>;
 			interrupts = <133>;
+			clocks = <&syscon_apmu CLK_EMAC1_BUS>, <&syscon_apmu CLK_EMAC1_PTP>;
+			clock-names = "bus", "ptp";
+			resets = <&syscon_apmu RESET_EMAC1>;
+			power-domains = <&syscon_apmu K1_PD_BUS>;
 			status = "okay";
 		};
 
@@ -375,6 +531,10 @@
 			compatible = "img,rgx";
 			reg = <0x0 0xcac00000 0x0 0x80000>;
 			interrupts = <75>;
+			clocks = <&syscon_apmu CLK_GPU>;
+			clock-names = "gpu";
+			resets = <&syscon_apmu RESET_GPU>;
+			power-domains = <&syscon_apmu K1_PD_GPU>;
 			status = "okay";
 		};
 

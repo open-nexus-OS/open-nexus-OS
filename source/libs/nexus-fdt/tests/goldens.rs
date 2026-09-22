@@ -177,3 +177,38 @@ fn virt_chosen_writes_work_once_headroom_exists() {
     assert_eq!(fdt.chosen().unwrap().nexus_str("display-mode"), Some("1280x800"));
     assert_eq!(fdt.stdout().unwrap().reg(0).unwrap().unwrap().addr, 0x1000_0000);
 }
+
+/// RFC-0106: consumers bind to providers the standard way; the ids are the
+/// binding header's (config/board/include/dt-bindings), the providers the syscons.
+#[test]
+fn consumers_resolve_their_clocks_resets_domains_and_pads_to_providers() {
+    let board = Fdt::new(BOARD).unwrap();
+    let emmc = board.node_at_path("/soc/mmc@d4281000").unwrap();
+    let clocks: Vec<_> = emmc.specifiers("clocks", "#clock-cells").collect();
+    assert_eq!(clocks.len(), 2);
+    assert_eq!(clocks[0].provider.name(), "syscon@d4282800");
+    assert_eq!((clocks[0].args(), clocks[0].arg(0)), (1, Some(10)), "CLK_SDH_AXI");
+    assert_eq!(clocks[1].arg(0), Some(13), "CLK_SDH2");
+    let io = emmc.specifier_named("clocks", "#clock-cells", "clock-names", "io").unwrap();
+    assert_eq!(io.arg(0), Some(13));
+    let resets: Vec<_> = emmc.specifiers("resets", "#reset-cells").map(|s| s.arg(0)).collect();
+    assert_eq!(resets, vec![Some(2), Some(5)], "RESET_SDH_AXI, RESET_SDH2");
+    let pd = emmc.specifiers("power-domains", "#power-domain-cells").next().unwrap();
+    assert_eq!((pd.provider.name(), pd.arg(0)), ("syscon@d4282800", Some(0)), "K1_PD_BUS");
+    // A pad group is a phandle with no cells.
+    let sd = board.node_at_path("/soc/mmc@d4280000").unwrap();
+    let pads: Vec<_> = sd.specifiers("pinctrl-0", "#pinctrl-cells").collect();
+    assert_eq!(pads.len(), 1);
+    assert_eq!((pads[0].provider.name(), pads[0].args()), ("mmc1-cfg", 0));
+    assert!(emmc.specifiers("pinctrl-0", "#pinctrl-cells").next().is_none(), "eMMC pads are fixed");
+    // The display controller names five clocks; the GPU its domain.
+    let dpu = board.find_compatible(&["spacemit,dpu-online2"]).next().unwrap();
+    assert_eq!(dpu.specifiers("clocks", "#clock-cells").count(), 5);
+    let gpu = board.find_compatible(&["img,rgx"]).next().unwrap();
+    let gpu_pd = gpu.specifiers("power-domains", "#power-domain-cells").next().unwrap();
+    assert_eq!(gpu_pd.arg(0), Some(2), "K1_PD_GPU");
+    // QEMU virt binds nothing.
+    let virt = Fdt::new(VIRT).unwrap();
+    let blk = virt.find_compatible(&["virtio,mmio"]).next().unwrap();
+    assert!(blk.specifiers("clocks", "#clock-cells").next().is_none());
+}

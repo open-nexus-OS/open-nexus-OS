@@ -1,0 +1,16 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-soc"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "SoC glue model (RFC-0106): clock gates, resets, power domains and pads of a board's syscon providers, resolved from the device tree and executed over a Bus with read-back — the host-tested core of socd"
+
+[dependencies]
+nexus-fdt = { path = "../nexus-fdt" }
+nexus-hal = { path = "../nexus-hal" }
+
+[lib]
+doctest = false

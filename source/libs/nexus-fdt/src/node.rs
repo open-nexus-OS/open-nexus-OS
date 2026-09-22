@@ -166,6 +166,34 @@ impl<'a> Walker<'a> {
     }
 }
 
+/// One entry of a phandle-specifier list: the provider node and the cells that
+/// followed the phandle (a clock/reset/domain id, or nothing for a pad group).
+#[derive(Clone, Copy)]
+pub struct Specifier<'a> {
+    pub provider: Node<'a>,
+    cells: &'a [u8],
+}
+
+impl Specifier<'_> {
+    /// The `i`-th cell after the phandle.
+    pub fn arg(&self, i: usize) -> Option<u32> {
+        let off = i.checked_mul(4)?;
+        (self.cells.len() >= off + 4).then(|| {
+            u32::from_be_bytes([
+                self.cells[off],
+                self.cells[off + 1],
+                self.cells[off + 2],
+                self.cells[off + 3],
+            ])
+        })
+    }
+
+    /// How many cells followed the phandle.
+    pub fn args(&self) -> usize {
+        self.cells.len() / 4
+    }
+}
+
 impl<'a> Node<'a> {
     /// The node's name including its unit address (`serial@10000000`).
     pub fn name(&self) -> &'a str {
@@ -372,6 +400,50 @@ impl<'a> Node<'a> {
             }
         }
         Ok(addr)
+    }
+
+    /// The entries of a phandle-specifier list — `clocks`, `resets`,
+    /// `power-domains`, `pinctrl-0` (RFC-0106): each is a phandle followed by the
+    /// provider's `#<cells_prop>` cells (0 when the provider has no such property,
+    /// as a pad group has none). Stops at the first phandle without a node or a
+    /// tail shorter than the provider's cell count — never a wild read.
+    pub fn specifiers(
+        &self,
+        prop: &str,
+        cells_prop: &'a str,
+    ) -> impl Iterator<Item = Specifier<'a>> + 'a {
+        let fdt = self.fdt;
+        let v = self.prop(prop).unwrap_or(&[]);
+        let mut off = 0usize;
+        core::iter::from_fn(move || {
+            if v.len() < off + 4 {
+                return None;
+            }
+            let ph = u32::from_be_bytes([v[off], v[off + 1], v[off + 2], v[off + 3]]);
+            let provider = fdt.node_by_phandle(ph)?;
+            let cells = provider.prop_u32(cells_prop).unwrap_or(0) as usize;
+            let bytes = cells.checked_mul(4)?;
+            let start = off + 4;
+            let end = start.checked_add(bytes)?;
+            if v.len() < end {
+                return None;
+            }
+            off = end;
+            Some(Specifier { provider, cells: &v[start..end] })
+        })
+    }
+
+    /// The entry of `prop` whose position in `names_prop` (`clock-names`,
+    /// `reset-names`) carries `name`.
+    pub fn specifier_named(
+        &self,
+        prop: &str,
+        cells_prop: &'a str,
+        names_prop: &str,
+        name: &str,
+    ) -> Option<Specifier<'a>> {
+        let index = self.prop_strs(names_prop).position(|n| n == name)?;
+        self.specifiers(prop, cells_prop).nth(index)
     }
 
     /// The interrupt lines, as `#interrupt-cells`-sized groups of the

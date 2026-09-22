@@ -2368,6 +2368,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-soc"
+version = "0.1.0"
+dependencies = [
+ "nexus-fdt",
+ "nexus-hal",
+]
+
+[[package]]
 name = "nexus-style"
 version = "0.1.0"
 dependencies = [

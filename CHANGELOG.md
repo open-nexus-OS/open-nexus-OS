@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-22 (TASK-0245B P1: `nexus-soc` — the SoC glue model, and the board tree binds its consumers)
+
+- **`source/libs/nexus-soc`** (RFC-0106): the K1 clock/reset tables (23 clocks, 18 resets, every
+  entry with register, fields, polarity, stock value and provenance; ids = the dual-licensed binding
+  header used under BSD-2-Clause), a planner (node + providers → ordered steps: domain, resets
+  released, gates on) and an executor over `nexus_hal::Bus` (read-modify-write with read-back,
+  mux/div with the self-clearing frequency-change bit polled under a bound, rates from the parent
+  table). Host tests replay the board's measured APMU window: the eMMC/USB/EMAC plans write nothing
+  against the stock state, the cold plan writes exactly the documented bits, rates match the clock
+  tree, faults name register and value.
+- **`nexus-fdt`**: phandle-specifier lists (`clocks`, `resets`, `power-domains`, `pinctrl-0`)
+  resolve to `(provider, cells)` through the provider's `#…-cells`; dangling phandles and short
+  tails end the list (`test_reject_*`).
+- **`config/board/bpi-f3/board.dts`** binds every consumer the standard way; the binding headers
+  live in `config/board/include/dt-bindings`; `scripts/build-board-dtb.sh` (cpp + `dtc -p 512`) is
+  the one way the tree is compiled; the golden DTB is rebuilt from it.
+
 ### Changed - 2026-09-22 (TASK-0245 Done: the kernel's platform comes from the device tree; kernel and nxboot are position-independent; the kernel reads no fw_cfg; init discovers devices from the tree)
 
 - **`hal/platform.rs` replaces `hal/virt.rs`** (P1): console base/`reg-shift`/`reg-io-width` from

@@ -121,3 +121,42 @@ fn test_reject_deeper_than_max_depth_ends_iteration() {
     let n = fdt.all_nodes().count();
     assert!(n > 0 && n < 400, "walk ended, no overflow: {n} nodes");
 }
+
+const BOARD_TREE: &[u8] = include_bytes!("goldens/bpi-f3.dtb");
+
+/// Find the eMMC `clocks` value (`<phandle 10 phandle 13>`) in the flat tree.
+fn emmc_clocks_offset(buf: &[u8]) -> (usize, u32) {
+    let fdt = Fdt::new(buf).unwrap();
+    let apmu = fdt.node_at_path("/soc/syscon@d4282800").unwrap().phandle().unwrap();
+    let mut pat = Vec::new();
+    for w in [apmu, 10, apmu, 13] {
+        pat.extend_from_slice(&w.to_be_bytes());
+    }
+    let off = buf.windows(pat.len()).position(|w| w == pat.as_slice()).expect("clocks value");
+    (off, apmu)
+}
+
+#[test]
+fn test_reject_specifier_with_dangling_phandle() {
+    let mut buf = BOARD_TREE.to_vec();
+    let (off, _) = emmc_clocks_offset(&buf);
+    buf[off..off + 4].copy_from_slice(&0xdead_beefu32.to_be_bytes());
+    let fdt = Fdt::new(&buf).unwrap();
+    let emmc = fdt.node_at_path("/soc/mmc@d4281000").unwrap();
+    // The first entry points nowhere: the list ends there, nothing is guessed.
+    assert_eq!(emmc.specifiers("clocks", "#clock-cells").count(), 0);
+}
+
+#[test]
+fn test_reject_specifier_cells_beyond_the_property() {
+    let mut buf = BOARD_TREE.to_vec();
+    // Make the provider claim 64 cells per entry: every entry is now truncated.
+    let fdt = Fdt::new(&buf).unwrap();
+    let apmu = fdt.node_at_path("/soc/syscon@d4282800").unwrap();
+    let cells_bytes = apmu.prop("#clock-cells").unwrap();
+    let cells_off = cells_bytes.as_ptr() as usize - buf.as_ptr() as usize;
+    buf[cells_off..cells_off + 4].copy_from_slice(&64u32.to_be_bytes());
+    let fdt = Fdt::new(&buf).unwrap();
+    let emmc = fdt.node_at_path("/soc/mmc@d4281000").unwrap();
+    assert_eq!(emmc.specifiers("clocks", "#clock-cells").count(), 0);
+}
