@@ -76,19 +76,20 @@ pub fn read_time() -> u64 {
     }
 }
 
-/// Programs the CLINT timer compare register.
+/// Writes a CSR by number — `stimecmp` (Sstc, 0x14d) is younger than the pinned
+/// assembler's mnemonic table. S-mode arms its own timer here; the CLINT is
+/// M-mode's and is never touched from the kernel (RFC-0098 C3).
 #[inline]
-#[allow(dead_code)]
-pub fn set_timer(deadline: u64) {
+pub fn write_csr_stimecmp(csr: u16, value: u64) {
     #[cfg(target_arch = "riscv64")]
     unsafe {
-        const CLINT_BASE: usize = 0x0200_0000;
-        const MTIMECMP: *mut u64 = (CLINT_BASE + 0x4000) as *mut u64;
-        core::ptr::write_volatile(MTIMECMP, deadline);
+        debug_assert_eq!(csr, 0x14d);
+        let _ = csr;
+        core::arch::asm!("csrw 0x14d, {0}", in(reg) value, options(nomem, nostack));
     }
     #[cfg(not(target_arch = "riscv64"))]
     {
-        let _ = deadline;
+        let _ = (csr, value);
     }
 }
 

@@ -7,12 +7,12 @@
 //! API_STABILITY: Stable
 //! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: Timer, Uart, IrqCtl, Tlb
-//! DEPENDS_ON: per-machine impls under hal::<machine> (e.g., virt)
+//! DEPENDS_ON: hal::platform (built from the device tree, RFC-0098), hal::plic
 //! INVARIANTS: No allocation in IRQ paths; stable contracts across builds
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
+pub mod platform;
 pub mod plic;
-pub mod virt;
 
 /// Abstraction for a monotonic timer.
 pub trait Timer {

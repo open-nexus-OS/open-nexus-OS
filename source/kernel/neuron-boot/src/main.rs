@@ -31,30 +31,6 @@ _start:
 "#
 );
 
-#[inline]
-fn uart_write_line(msg: &str) {
-    const UART0_BASE: usize = 0x1000_0000;
-    const UART_TX: usize = 0x0;
-    const UART_LSR: usize = 0x5;
-    const LSR_TX_IDLE: u8 = 1 << 5;
-    unsafe {
-        for &b in msg.as_bytes() {
-            while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0
-            {
-            }
-            core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b);
-            if b == b'\n' {
-                while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE
-                    == 0
-                {}
-                core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\r');
-            }
-        }
-        while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
-        core::ptr::write_volatile((UART0_BASE + UART_TX) as *mut u8, b'\n');
-    }
-}
-
 /// `_start` sets only `sp` and `gp` before jumping here, so the firmware's
 /// registers survive as the C-ABI arguments: `a0` = boot hart id, `a1` = the
 /// device tree (RFC-0098 C1 — the one hardware truth).
@@ -64,10 +40,8 @@ pub extern "C" fn start_rust(hartid: usize, dtb: usize) -> ! {
     // SAFETY: Early boot runs before the Rust runtime. The kernel guarantees
     // that only a single core executes this path, so calling the raw
     // initialisation routine is sound here.
-    unsafe { neuron::early_boot_init() };
-    // After BSS is zeroed (the record lives there), before paging (physical read
-    // of the tree's header).
-    neuron::record_boot_regs(hartid, dtb);
-    uart_write_line("W0: calling kmain");
+    // The kernel builds its console from the tree before its first log line
+    // (RFC-0098 C3); this wrapper prints nothing itself — it knows no address.
+    unsafe { neuron::early_boot_init(hartid, dtb) };
     kmain()
 }

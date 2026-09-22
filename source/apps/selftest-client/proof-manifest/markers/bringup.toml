@@ -622,6 +622,12 @@ phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "live preemption tick on a secondary hart (first S_TIMER trap, event-anchored; unordered presence check)"
 
+# RFC-0098 C3 (TASK-0245): the timer source is chosen by the tree — `stimecmp` when the
+# boot hart's ISA lists Sstc (QEMU `-cpu max`, the board), SBI set_timer otherwise.
+[marker."KINIT: timer sstc"]
+phase = "bringup"
+proves = "the kernel arms its per-hart timer through stimecmp because the device tree listed Sstc"
+
 [marker."KINIT: timer sbi"]
 phase = "bringup"
 proves = "active per-hart timer mechanism is SBI set_timer (SSTC follow-up pending)"

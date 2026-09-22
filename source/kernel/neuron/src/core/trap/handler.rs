@@ -399,7 +399,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             // re-arm the heartbeat and resume the interrupted context untouched.
             #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
             {
-                let next = riscv::register::time::read() as u64 + DEFAULT_TICK_CYCLES;
+                let next = riscv::register::time::read() as u64 + default_tick_cycles();
                 sbi::set_timer(next);
             }
         }

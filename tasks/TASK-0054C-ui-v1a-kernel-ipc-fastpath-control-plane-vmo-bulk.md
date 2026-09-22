@@ -870,6 +870,20 @@ and not the host; (2) `scripts/input-flood-lane.sh` tolerates the inner ladder's
 (`wait "$lane" || true`, because `RUN_TIMEOUT` ends it), which also swallows the FAIL-marker
 gate: the lane printed `[PASS]` over a boot with a FAIL marker in it. Both are 0054C's, not
 0077C's; recorded here so the next reader of a 74 does not re-derive it.
+**Measured 2026-09-22 (four runs of `just test-os smp`, the MTTCG 2-hart lane):** the
+`ipc call budget` reads 195–344 µs there — on an UNCHANGED tree, with a runaway host process
+(`codewhale`, 100 % of one core for six days) AND after it was killed (idle host, 195 µs); the
+two-trap bench reads 203–269 µs in the same boots, and `per-hart ticks` / `timer budget` /
+`bkl budget` pass. So the 64 µs budget, calibrated on the icount profiles (smp1, visible, reset,
+ota-*: 41–43 µs), never held on the MTTCG 2-hart lane, where the exchange crosses harts through a
+wake IPI (mean ≈ 20 µs) and MTTCG's own scheduling; the lane is not part of `just test-all`, which
+is why nothing noticed. Two consequences, still 0054C's: (1) the budget must be per profile or a
+ratio against the two-trap bench in the same boot — the exchange's cost, not the host's;
+(2) `input-flood`'s swallowed-gate hole (above) hides the same class. Recorded; not fixed here.
+**Second occurrence 2026-09-22 (TASK-0245 P1's `test-all`):** the `input-flood` inner boot again —
+`rt=77us` with the two-trap bench at 68 µs (both ≈ 1.6–1.8× the 42/42 of the plain `visible` boot
+three minutes earlier, same binary); the lane printed `[PASS]` over it as described. Same class,
+same two consequences.
 
 
 ## End-state rewrite 2026-09-09 — historical, superseded by the 2026-09-15 rewrite above

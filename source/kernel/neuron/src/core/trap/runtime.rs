@@ -4,7 +4,7 @@
 //! CONTEXT: Trap runtime state split out of the former single-file trap.rs:
 //! TRAP_RUNTIME slot + KernelHandles, the kernel big lock (BKL) with the
 //! KernelGuard RAII accessor (A2 lock model), install_runtime/trap-domain
-//! plumbing, SBI timer utilities (timer_arm, DEFAULT_TICK_CYCLES), trap-vector
+//! plumbing, SBI timer utilities (timer_arm, default_tick_cycles), trap-vector
 //! install and reactive timer/IPC-deadline delivery (process_expired_timers,
 //! wake_expired_ipc_deadlines).
 //! OWNERS: @kernel-team
@@ -265,7 +265,11 @@ pub(super) fn runtime_default_domain() -> TrapDomainId {
 
 /// Default tick in cycles (10 ms for 10 MHz mtimer on QEMU virt).
 #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
-pub const DEFAULT_TICK_CYCLES: u64 = 100_000;
+/// The preemption tick in timer ticks: 10 ms of the tree's timebase (RFC-0098 C3;
+/// was the literal `100_000` cycles — 10 ms only at 10 MHz).
+pub fn default_tick_cycles() -> u64 {
+    crate::hal::platform::default_tick_cycles()
+}
 
 /// Arm S-mode timer via SBI for `now + delta_cycles`.
 #[inline]
@@ -273,7 +277,7 @@ pub const DEFAULT_TICK_CYCLES: u64 = 100_000;
 #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
 pub fn timer_arm(delta_cycles: u64) {
     let now = riscv::register::time::read() as u64;
-    sbi::set_timer(now.wrapping_add(delta_cycles));
+    crate::hal::platform::arm_timer_ticks(now.wrapping_add(delta_cycles));
 }
 
 #[allow(dead_code)]
@@ -475,7 +479,7 @@ pub(crate) fn process_expired_timers(
     if let Some(d) = earliest_blocked_deadline(tasks, now) {
         next = Some(next.map_or(d, |n| n.min(d)));
     }
-    let fallback_ns = now.saturating_add(DEFAULT_TICK_CYCLES.saturating_mul(100));
+    let fallback_ns = now.saturating_add(default_tick_cycles().saturating_mul(100));
     arm_wakeup(timer, next.unwrap_or(fallback_ns));
 }
 

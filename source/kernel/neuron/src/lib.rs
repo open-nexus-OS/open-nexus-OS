@@ -490,17 +490,11 @@ mod panic;
 ///
 /// Must be invoked exactly once on the boot CPU before any other kernel code
 /// runs. Callers must ensure the stack is valid and interrupts are masked.
+/// `hartid`/`dtb` are the firmware registers (`a0`/`a1`): the tree is recorded
+/// and the platform built from it before the first log line (RFC-0098 C3).
 #[cfg(target_os = "none")]
-pub unsafe fn early_boot_init() {
-    boot::early_boot_init();
-}
-
-/// Record the firmware registers (`a0` = boot hart, `a1` = device tree) — after
-/// `early_boot_init` zeroed BSS and before `kmain` builds the kernel address space
-/// that maps the tree (RFC-0098 C3). Paging must still be off.
-#[cfg(target_os = "none")]
-pub fn record_boot_regs(hartid: usize, dtb: usize) {
-    boot_fdt::record(hartid, dtb);
+pub unsafe fn early_boot_init(hartid: usize, dtb: usize) {
+    boot::early_boot_init(hartid, dtb);
 }
 
 /// Entry point for the kernel runtime. Assumes early boot setup was performed
@@ -513,10 +507,7 @@ pub fn kmain() -> ! {
 /// Host build stub: the kernel is not runnable on non-`none` targets, but we still want the crate
 /// to compile as part of `cargo test --workspace` without warnings.
 #[cfg(not(target_os = "none"))]
-pub unsafe fn early_boot_init() {}
-
-#[cfg(not(target_os = "none"))]
-pub fn record_boot_regs(_hartid: usize, _dtb: usize) {}
+pub unsafe fn early_boot_init(_hartid: usize, _dtb: usize) {}
 
 #[cfg(not(target_os = "none"))]
 pub fn kmain() -> ! {

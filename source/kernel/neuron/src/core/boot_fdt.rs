@@ -77,9 +77,9 @@ pub fn boot_hart() -> usize {
     BOOT_HART.load(Ordering::Relaxed)
 }
 
-/// The tree as bytes. Valid only once the kernel address space that mapped
-/// [`range`] is active.
-fn slice() -> Option<&'static [u8]> {
+/// The tree as bytes: at its physical address while paging is off, through the
+/// identity map [`range`] once the kernel address space is active.
+pub fn bytes() -> Option<&'static [u8]> {
     let base = DTB_PHYS.load(Ordering::Relaxed);
     let len = DTB_LEN.load(Ordering::Relaxed);
     if base == 0 || len == 0 {
@@ -94,7 +94,7 @@ fn slice() -> Option<&'static [u8]> {
 /// Parse the tree and print the platform values it carries, or why it could not
 /// be parsed. Called once from `kmain` after the kernel address space is active.
 pub fn report() {
-    let Some(bytes) = slice() else {
+    let Some(bytes) = bytes() else {
         log_info!(target: "selftest", "KSELFTEST: platform from fdt FAIL (no tree: a1=0x{:x})",
             DTB_PHYS.load(Ordering::Relaxed));
         return;
@@ -119,8 +119,11 @@ pub fn report() {
             let chosen = fdt.chosen().ok();
             let nexus = |k: &str| chosen.and_then(|c| c.nexus_str(k)).unwrap_or("-");
             log_info!(target: "selftest",
-                "KSELFTEST: platform from fdt ok (uart=0x{:x} plic=0x{:x} tb={}Hz harts={} banks={} boot_hart={} chosen.slot={} chosen.profile={} chosen.display={})",
-                uart, plic, cpus.timebase_hz, cpus.count(), banks, boot_hart(),
+                "KSELFTEST: platform from fdt ok (uart=0x{:x} plic=0x{:x} ndev={} tb={}Hz harts={} banks={} boot_hart={} timer={} ticks_per_us={} chosen.slot={} chosen.profile={} chosen.display={})",
+                uart, plic, crate::hal::platform::plic_ndev(), cpus.timebase_hz,
+                crate::hal::platform::hart_count(), banks, boot_hart(),
+                if crate::hal::platform::timer_uses_sstc() { "sstc" } else { "sbi" },
+                crate::hal::platform::ticks_per_us(),
                 nexus("boot-slot"), nexus("boot-profile"), nexus("display-mode"));
         }
         _ => {

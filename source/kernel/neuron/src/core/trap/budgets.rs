@@ -34,8 +34,10 @@ pub const BKL_GT10MS_BUDGET: usize = 4;
 /// 3ms) are phased/lock-free; remaining scheduler/teardown ops peak at ~3ms.
 pub const ECALL_HOLD_BUDGET_MS: u64 = 10;
 
-/// mtime ticks per µs on the virt machine (10 MHz).
-pub const TICKS_PER_US: u64 = 10;
+/// Timer ticks per µs, from the tree's timebase (10 on QEMU virt, 24 on the board).
+pub fn ticks_per_us() -> u64 {
+    crate::hal::platform::ticks_per_us()
+}
 
 /// Per-boot maxima + a 4-bucket wait histogram (<=100µs, <=1ms, <=10ms,
 /// >10ms). Written on EVERY BKL acquire/ecall (relaxed atomics — accounting,
@@ -220,8 +222,8 @@ pub fn wake_ipi_report() -> (u64, u64, usize) {
     let n = WAKE_IPI_COUNT.load(Ordering::Relaxed);
     let total = WAKE_IPI_TICKS_TOTAL.load(Ordering::Relaxed);
     (
-        WAKE_IPI_MAX_TICKS.load(Ordering::Relaxed) / TICKS_PER_US,
-        if n == 0 { 0 } else { total / (n as u64) / TICKS_PER_US },
+        WAKE_IPI_MAX_TICKS.load(Ordering::Relaxed) / ticks_per_us(),
+        if n == 0 { 0 } else { total / (n as u64) / ticks_per_us() },
         n,
     )
 }
@@ -245,22 +247,22 @@ pub fn record_sweep(ticks: u64, tasks: usize, wakes: usize, wake_ticks: u64) {
 pub fn sweep_report() -> (u64, usize, usize, u64, usize, usize, u64) {
     let calls = SWEEP_CALLS.load(Ordering::Relaxed);
     let total = SWEEP_TICKS_TOTAL.load(Ordering::Relaxed);
-    let mean_us = if calls == 0 { 0 } else { total / (calls as u64) / TICKS_PER_US };
+    let mean_us = if calls == 0 { 0 } else { total / (calls as u64) / ticks_per_us() };
     (
-        SWEEP_MAX_TICKS.load(Ordering::Relaxed) / TICKS_PER_US,
+        SWEEP_MAX_TICKS.load(Ordering::Relaxed) / ticks_per_us(),
         SWEEP_MAX_TASKS.load(Ordering::Relaxed),
         calls,
         mean_us,
         SWEEP_SKIPPED.load(Ordering::Relaxed),
         SWEEP_MAX_WAKES.load(Ordering::Relaxed),
-        SWEEP_MAX_WAKE_TICKS.load(Ordering::Relaxed) / TICKS_PER_US,
+        SWEEP_MAX_WAKE_TICKS.load(Ordering::Relaxed) / ticks_per_us(),
     )
 }
 
 /// Gate evaluation: `(ok, max_wait_us, max_hold_ms, max_hold_nr, buckets)`.
 pub fn budget_report() -> (bool, u64, u64, u64, [usize; 4]) {
-    let wait_us = BKL_WAIT_MAX_TICKS.load(Ordering::Relaxed) / TICKS_PER_US;
-    let hold_ms = ECALL_HOLD_MAX_TICKS.load(Ordering::Relaxed) / (TICKS_PER_US * 1_000);
+    let wait_us = BKL_WAIT_MAX_TICKS.load(Ordering::Relaxed) / ticks_per_us();
+    let hold_ms = ECALL_HOLD_MAX_TICKS.load(Ordering::Relaxed) / (ticks_per_us() * 1_000);
     let nr = ECALL_HOLD_MAX_NR.load(Ordering::Relaxed);
     let buckets = [
         BKL_WAIT_BUCKETS[0].load(Ordering::Relaxed),

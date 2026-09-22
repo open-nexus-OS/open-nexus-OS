@@ -161,7 +161,7 @@ fn send_recv_roundtrip() {
     let kernel_as = as_manager.create().unwrap();
     as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
     tasks.bootstrap_mut().address_space = Some(kernel_as);
-    let timer = crate::hal::virt::VirtMachine::new();
+    let timer = crate::hal::platform::Machine::new();
     let mut ctx =
         Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, timer.timer());
     let mut table = SyscallTable::new();
@@ -675,7 +675,7 @@ fn spawn_and_transfer_syscalls() {
     let kernel_as = as_manager.create().unwrap();
     as_manager.attach(kernel_as, task::Pid::KERNEL).unwrap();
     tasks.bootstrap_mut().address_space = Some(kernel_as);
-    let timer = crate::hal::virt::VirtMachine::new();
+    let timer = crate::hal::platform::Machine::new();
     let mut ctx =
         Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, timer.timer());
     let mut table = SyscallTable::new();

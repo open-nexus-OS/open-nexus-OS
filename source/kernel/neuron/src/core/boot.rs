@@ -6,7 +6,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: No tests (boot path proven via QEMU marker contract)
-//! PUBLIC API: early_boot_init()
+//! PUBLIC API: early_boot_init(hartid, dtb)
 //! DEPENDS_ON: arch::riscv::clear_bss, trap::install_trap_vector, init_heap
 //! INVARIANTS: Single-invocation; interrupts masked; minimal diagnostics on OS path
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
@@ -24,13 +24,22 @@ extern "C" {
 /// This must only be invoked once on the boot CPU before any Rust code that
 /// relies on initialised memory or traps executes. Callers must ensure the
 /// stack is valid and interrupts are masked until setup completes.
-pub fn early_boot_init() {
+pub fn early_boot_init(hartid: usize, dtb: usize) {
     // SAFETY: called once during early boot, before interrupts/threads.
     unsafe {
         zero_bss();
     }
+    // RFC-0098 C3: the platform — console, PLIC, timebase — is built from the
+    // tree in a1 BEFORE the first byte is logged; paging is off, so the tree is
+    // read at its physical address. Without a valid tree there is no console and
+    // the first log line below is dropped: silence on the harness, never a guess.
+    crate::boot_fdt::record(hartid, dtb);
+    let platform = crate::hal::platform::init_from_fdt(crate::boot_fdt::bytes());
     // Stage-policy: no heavy diagnostics in early boot on OS path.
     log_info!(target: "boot", "boot: ok");
+    if let Err(e) = platform {
+        log_info!(target: "boot", "boot: platform from fdt FAILED ({:?})", e);
+    }
 
     // SAFETY: privileged context, trap vector install once.
     unsafe {
@@ -38,7 +47,7 @@ pub fn early_boot_init() {
         // Arm first tick only when timer IRQs are enabled; default bring-up runs without timer
         // preemption to simplify early sequencing.
         #[cfg(feature = "timer_irq")]
-        crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);
+        crate::trap::timer_arm(crate::trap::default_tick_cycles());
     }
     log_info!(target: "boot", "traps: ok");
 

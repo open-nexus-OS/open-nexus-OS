@@ -1,6 +1,6 @@
 ---
 title: TASK-0245 Board support v1b (OS): the kernel's platform comes from the FDT — UART, PLIC, timer, memory ranges, hart list; kernel + nxboot position-independent; init discovers devices from the FDT
-status: Draft (recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
+status: In Progress (P1 Done 2026-09-22, chain 27/27 — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
 owner: @kernel-team
 created: 2025-12-29
 updated: 2026-09-22
@@ -82,7 +82,31 @@ display-mode authority move (TASK-0251).
 ## Packages
 
 - **P0** — this recut; measured table above.
-- **P1 Platform struct + UART/PLIC/timer from the FDT** — QEMU green with the dumped dtb.
+- **P1 Platform struct + UART/PLIC/timer from the FDT — built 2026-09-22.** `hal/platform.rs`
+  (lock-free statics filled once by `init_from_fdt`, paging off, before the first log line:
+  `early_boot_init(hartid, dtb)` zeroes BSS → records the tree → builds the platform → logs);
+  `hal/virt.rs` deleted. Console: base/`reg-shift`/`reg-io-width` from the `stdout-path` node
+  (byte-stride `ns16550a` and the board's 4-byte-stride part are one driver); bytes before init
+  are dropped, never written to a guess; `diag/uart.rs` holds no address. PLIC: base and the
+  S-mode context of every cpu READ from `interrupts-extended` (`2·hart+1` is gone), enable
+  bitmaps cleared up to `riscv,ndev`. Timer: `stimecmp` (CSR 0x14d) when the ISA lists Sstc,
+  SBI `set_timer` otherwise (`KINIT: timer sstc|sbi`); the CLINT MMIO writer is deleted;
+  `DEFAULT_TICK_CYCLES` → `default_tick_cycles()` = 10 ms of the tree's timebase;
+  `TICKS_PER_US` → `ticks_per_us()`; tick↔ns conversions exact and 64-bit via gcd-reduced
+  factors (100/1 at 10 MHz, 125/3 at 24 MHz; the u128 form measured no different but was
+  replaced on principle). Identity windows for UART/PLIC from the tree (`kernel_layout.rs`),
+  the UART VA check in `address_space.rs` likewise; neuron-boot prints nothing itself.
+  **Proof:** smp1 green — `KSELFTEST: platform from fdt ok (uart=0x10000000 plic=0xc000000
+  ndev=95 tb=10000000Hz harts=1 … timer=sstc ticks_per_us=10 …)`, `KINIT: timer sstc`; kernel
+  host tests (56) incl. the conversion tests; `just lint-kernel` clean. The MTTCG smp lane ran
+  green on `per-hart ticks ok` / `runtime timer budget ok` / `bkl budget ok` under Sstc on two
+  harts, but its `ipc call budget` read 243–344 µs — and **so did the unchanged HEAD in the same
+  hour** (a runaway host process at 100 % CPU for six days; recorded in TASK-0054C): a host-load
+  reading, not a P1 regression. **Chain 2026-09-22 (idle host):** `just check` 11/11, `just
+  test-host` green, `just test-all` 27 PASS / 0 FAIL — every profile prints the FDT marker. One
+  inner boot (`input-flood`'s visible boot) read `ipc call budget FAIL (rt=77us)` with the two-trap
+  bench at 68 µs, the plain `visible` boot three minutes earlier at 42/42 on the same binary: the
+  known 0054C wall-clock flake (second occurrence, first on 2026-09-21 before P1 existed).
 - **P2 Position-independent kernel + nxboot** — boots at two different load addresses on QEMU
   (`-kernel` placement vs a moved FIT-style load) — the proof that no address is baked.
 - **P3 `/chosen` syscalls + fw_cfg deletion from the kernel** (nxboot writes `/chosen` on

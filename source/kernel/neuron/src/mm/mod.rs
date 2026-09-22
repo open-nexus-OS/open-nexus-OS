@@ -7,7 +7,7 @@
 //! API_STABILITY: Stable
 //! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: address_space::{AddressSpaceManager, AsHandle}, page_table::{PageTable, PageFlags}
-//! DEPENDS_ON: arch::riscv, hal::virt (for logging), core alloc
+//! DEPENDS_ON: arch::riscv, hal::platform (for logging), core alloc
 //! INVARIANTS: W^X policy; canonical Sv39 ranges; stable PAGE_SIZE
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 

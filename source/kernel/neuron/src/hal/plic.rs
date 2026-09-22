@@ -1,8 +1,8 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: SiFive PLIC driver for the QEMU `virt` machine — per-hart supervisor
-//! contexts (A6: ctx = 2*hart+1); v1 binding policy routes device interrupts to
+//! CONTEXT: PLIC driver — base and per-hart supervisor contexts READ from the
+//! device tree (RFC-0098 C3; `hal::platform`); v1 binding policy routes device interrupts to
 //! the boot hart's context, delivered reactively to userspace drivers.
 //! OWNERS: @kernel-hal-team
 //! STATUS: Functional
@@ -16,23 +16,34 @@
 use core::ptr::{read_volatile, write_volatile};
 
 /// QEMU `virt` PLIC MMIO base.
-const PLIC_BASE: usize = 0x0c00_0000;
+/// The controller's base comes from the device tree (RFC-0098 C3); read per
+/// access from the platform statics — 0 before `init_from_fdt`, which no PLIC
+/// path reaches (drivers bind after init).
+fn plic_base() -> usize {
+    crate::hal::platform::plic_base()
+}
 /// Per-source priority registers (4 bytes each, source 1..=N at base + 4*source).
-const PLIC_PRIORITY: usize = PLIC_BASE;
+const PLIC_PRIORITY: usize = 0;
 /// Per-context interrupt-enable bitmaps (0x80 bytes per context).
-const PLIC_ENABLE_BASE: usize = PLIC_BASE + 0x2000;
+const PLIC_ENABLE_BASE: usize = 0x2000;
 /// Per-context priority threshold (0x1000 bytes per context).
-const PLIC_THRESHOLD_BASE: usize = PLIC_BASE + 0x20_0000;
+const PLIC_THRESHOLD_BASE: usize = 0x20_0000;
 /// Per-context claim/complete register (same offset, 0x1000 bytes per context).
-const PLIC_CLAIM_BASE: usize = PLIC_BASE + 0x20_0004;
+const PLIC_CLAIM_BASE: usize = 0x20_0004;
 const PLIC_CONTEXT_STRIDE: usize = 0x1000;
 const PLIC_ENABLE_STRIDE: usize = 0x80;
 
-/// Supervisor context of a hart on QEMU `virt`: hart N M-mode = ctx 2N,
-/// hart N S-mode = ctx 2N+1. The kernel runs in S-mode.
-const fn s_context(cpu_index: usize) -> usize {
-    2 * cpu_index + 1
+/// Supervisor context of a cpu index, READ from the tree's `interrupts-extended`
+/// (RFC-0098 C3) — QEMU virt and the board both happen to be `2·hart+1`, but the
+/// kernel no longer assumes it. A cpu the tree lists no S-context for gets no
+/// interrupts: its context index is out of the controller's range, so every
+/// register write below lands in a no-op window instead of another hart's.
+fn s_context(cpu_index: usize) -> usize {
+    crate::hal::platform::plic_s_context(cpu_index).unwrap_or(NO_CONTEXT)
 }
+
+/// A context index past any controller's 15872-context space.
+const NO_CONTEXT: usize = 0xffff;
 
 /// The executing hart's supervisor context (A6).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -98,10 +109,14 @@ pub fn plic_init() {
                 continue;
             }
             let ctx = s_context(cpu_idx);
-            write_reg(PLIC_THRESHOLD_BASE + ctx * PLIC_CONTEXT_STRIDE, 0);
+            write_reg(plic_base() + PLIC_THRESHOLD_BASE + ctx * PLIC_CONTEXT_STRIDE, 0);
             // Clear the S-context enable bitmap (sources 0..=MAX_IRQ).
-            let enable = PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE;
-            for word in 0..((MAX_IRQ as usize / 32) + 1) {
+            let enable = plic_base() + PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE;
+            // Clear every enable word the controller has (`riscv,ndev` from the
+            // tree; the compile-time MAX_IRQ is the kernel's binding cap, not
+            // the controller's width).
+            let ndev = crate::hal::platform::plic_ndev() as usize;
+            for word in 0..=(ndev / 32) {
                 write_reg(enable + word * 4, 0);
             }
         }
@@ -112,7 +127,7 @@ pub fn plic_init() {
 /// context registers were initialised and are addressable).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn selftest_ctx_threshold(cpu: crate::types::CpuId) -> u32 {
-    read_reg(PLIC_THRESHOLD_BASE + s_context(cpu.as_index()) * PLIC_CONTEXT_STRIDE)
+    read_reg(plic_base() + PLIC_THRESHOLD_BASE + s_context(cpu.as_index()) * PLIC_CONTEXT_STRIDE)
 }
 
 /// Structural selftest read: whether `irq` is enabled in a context's bitmap
@@ -120,7 +135,10 @@ pub fn selftest_ctx_threshold(cpu: crate::types::CpuId) -> u32 {
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn selftest_source_enabled(irq: IrqId, cpu: crate::types::CpuId) -> bool {
     let src = irq.raw() as usize;
-    let enable = PLIC_ENABLE_BASE + s_context(cpu.as_index()) * PLIC_ENABLE_STRIDE + (src / 32) * 4;
+    let enable = plic_base()
+        + PLIC_ENABLE_BASE
+        + s_context(cpu.as_index()) * PLIC_ENABLE_STRIDE
+        + (src / 32) * 4;
     read_reg(enable) & (1u32 << (src % 32)) != 0
 }
 
@@ -132,9 +150,9 @@ pub fn enable_source(irq: IrqId, cpu: crate::types::CpuId) {
     {
         let src = irq.raw() as usize;
         // Priority must be > threshold (0) to be delivered.
-        write_reg(PLIC_PRIORITY + src * 4, 1);
+        write_reg(plic_base() + PLIC_PRIORITY + src * 4, 1);
         let ctx = s_context(cpu.as_index());
-        let enable = PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE + (src / 32) * 4;
+        let enable = plic_base() + PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE + (src / 32) * 4;
         let bit = 1u32 << (src % 32);
         write_reg(enable, read_reg(enable) | bit);
     }
@@ -149,7 +167,7 @@ pub fn disable_source(irq: IrqId, cpu: crate::types::CpuId) {
     {
         let src = irq.raw() as usize;
         let ctx = s_context(cpu.as_index());
-        let enable = PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE + (src / 32) * 4;
+        let enable = plic_base() + PLIC_ENABLE_BASE + ctx * PLIC_ENABLE_STRIDE + (src / 32) * 4;
         let bit = 1u32 << (src % 32);
         write_reg(enable, read_reg(enable) & !bit);
     }
@@ -167,7 +185,8 @@ pub fn claim() -> Option<IrqId> {
     {
         // A6: claim from the EXECUTING hart's context — only sources enabled
         // for this context can be pending here.
-        let raw = read_reg(PLIC_CLAIM_BASE + current_s_context() * PLIC_CONTEXT_STRIDE);
+        let raw =
+            read_reg(plic_base() + PLIC_CLAIM_BASE + current_s_context() * PLIC_CONTEXT_STRIDE);
         IrqId::new(raw)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -186,7 +205,7 @@ pub fn complete(irq: IrqId, cpu: crate::types::CpuId) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         let ctx = s_context(cpu.as_index());
-        write_reg(PLIC_CLAIM_BASE + ctx * PLIC_CONTEXT_STRIDE, irq.raw());
+        write_reg(plic_base() + PLIC_CLAIM_BASE + ctx * PLIC_CONTEXT_STRIDE, irq.raw());
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     let _ = (irq, cpu);
@@ -197,7 +216,10 @@ pub fn complete(irq: IrqId, cpu: crate::types::CpuId) {
 pub fn complete_current(irq: IrqId) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        write_reg(PLIC_CLAIM_BASE + current_s_context() * PLIC_CONTEXT_STRIDE, irq.raw());
+        write_reg(
+            plic_base() + PLIC_CLAIM_BASE + current_s_context() * PLIC_CONTEXT_STRIDE,
+            irq.raw(),
+        );
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     let _ = irq;

@@ -459,9 +459,9 @@ pub(crate) fn lockfree_syscall(nr: usize, _args: &Args) -> Option<SysResult<usiz
         // Only nsec (writes nothing) stays lock-free.
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         SYSCALL_NSEC => {
-            // virt mtime runs at 10MHz (budgets::TICKS_PER_US) — ns = ticks*100.
+            // ns from the tree's timebase (RFC-0098 C3), exact for any rate.
             let ticks = riscv::register::time::read() as u64;
-            Some(Ok((ticks * (1_000 / crate::trap::budgets::TICKS_PER_US)) as usize))
+            Some(Ok(crate::hal::platform::ticks_to_ns(ticks) as usize))
         }
         _ => None,
     }

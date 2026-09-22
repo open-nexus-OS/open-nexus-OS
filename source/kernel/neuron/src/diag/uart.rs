@@ -1,42 +1,33 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Minimal UART support for boot diagnostics
-//! OWNERS: @kernel-hal-team
+//! CONTEXT: the kernel console — formatted writes over the UART the device tree
+//! named (`/chosen/stdout-path`, RFC-0098 C3). The register base, stride and
+//! width live in `hal::platform`, read per byte from lock-free statics, so the
+//! first log line after `init_from_fdt` and the raw path inside a trap handler
+//! use the same three numbers. No address is guessed: before the platform is
+//! initialised every byte is dropped.
+//! OWNERS: @kernel-team
 //! STATUS: Functional
-//! API_STABILITY: Unstable
-//! TEST_COVERAGE: No tests (exercised by QEMU smoke + panic/trap paths)
-//! PUBLIC API: KernelUart::lock(), raw_writer(), write_raw_mmio()
-//! DEPENDS_ON: spin/dbg_mutex (build), MMIO registers
-//! INVARIANTS: Lock-free raw writer for trap/panic; best-effort emission only
-//! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
+//! API_STABILITY: Internal
+//! TEST_COVERAGE: every QEMU marker is a byte through this file
 
 use core::fmt::{self, Write};
+
 #[cfg(not(debug_assertions))]
 use spin::Mutex;
-
-/// Address of the first UART on the `virt` machine.
-const UART0_BASE: usize = 0x1000_0000;
-const UART_TX: usize = 0x0;
-const UART_LSR: usize = 0x5;
-const LSR_TX_IDLE: u8 = 1 << 5;
 
 #[cfg(debug_assertions)]
 type UartLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
 #[cfg(not(debug_assertions))]
 type UartLock<T> = Mutex<T>;
-
 #[cfg(debug_assertions)]
 type UartGuard<'a> = crate::sync::dbg_mutex::DbgMutexGuard<'a, KernelUart>;
 #[cfg(not(debug_assertions))]
 type UartGuard<'a> = spin::MutexGuard<'a, KernelUart>;
 
-/// Global UART writer used for boot logs.
-///
-/// NOTE: We deliberately do not store the MMIO base address inside the struct.
-/// The OS loader path and early paging bring-up must be able to log even if
-/// `.data` initializers are not available yet; using a constant base avoids
-/// relying on runtime `.data` copying.
+/// Global UART writer used for boot logs. Holds no address: the platform
+/// statics are the one place the console's registers are known.
 static UART0: UartLock<KernelUart> = UartLock::new(KernelUart);
 
 /// UART implementation capable of formatted writes.
@@ -48,31 +39,19 @@ impl KernelUart {
     pub fn lock() -> UartGuard<'static> {
         UART0.lock()
     }
-
-    fn write_raw(&self, offset: usize, value: u8) {
-        write_raw_mmio(offset, value);
-    }
 }
 
-// Raw, lock-free UART emission for trap/panic contexts where the mutex may already be held.
-#[inline]
-fn write_raw_mmio(offset: usize, value: u8) {
-    let addr = (UART0_BASE + offset) as *mut u8;
-    unsafe {
-        while core::ptr::read_volatile((UART0_BASE + UART_LSR) as *const u8) & LSR_TX_IDLE == 0 {}
-        core::ptr::write_volatile(addr, value);
-    }
-}
-
+/// Raw, lock-free UART emission for trap/panic contexts where the mutex may
+/// already be held.
 pub struct RawUart;
 
 impl Write for RawUart {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for &byte in s.as_bytes() {
             if byte == b'\n' {
-                write_raw_mmio(UART_TX, b'\r');
+                crate::hal::platform::console_write_byte(b'\r');
             }
-            write_raw_mmio(UART_TX, byte);
+            crate::hal::platform::console_write_byte(byte);
         }
         Ok(())
     }
@@ -84,13 +63,7 @@ pub fn raw_writer() -> RawUart {
 
 impl Write for KernelUart {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        for &byte in s.as_bytes() {
-            if byte == b'\n' {
-                self.write_raw(UART_TX, b'\r');
-            }
-            self.write_raw(UART_TX, byte);
-        }
-        Ok(())
+        RawUart.write_str(s)
     }
 }
 

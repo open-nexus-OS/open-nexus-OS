@@ -7,7 +7,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU selftests/marker ladder (see scripts/qemu-test.sh)
 //! PUBLIC API: kmain()
-//! DEPENDS_ON: hal::VirtMachine, mm::AddressSpaceManager, sched::Scheduler, ipc::Router
+//! DEPENDS_ON: hal::Machine, mm::AddressSpaceManager, sched::Scheduler, ipc::Router
 //! INVARIANTS: Activate kernel AS before complex init; cooperative scheduling via SYSCALL_YIELD
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
@@ -17,7 +17,7 @@ use crate::ipc;
 use crate::ipc::header::MessageHeader;
 use crate::{
     cap::{Capability, CapabilityKind, Rights},
-    hal::virt::VirtMachine,
+    hal::platform::Machine,
     hal::{IrqCtl, Tlb},
     mm::{AddressSpaceManager, AsHandle},
     sched::{EnqueueOutcome, QosClass, Scheduler},
@@ -31,7 +31,7 @@ use crate::{
 
 /// Aggregated kernel state initialised during boot.
 struct KernelState {
-    hal: VirtMachine,
+    hal: Machine,
     scheduler: Scheduler,
     tasks: TaskTable,
     ipc: ipc::Router,
@@ -175,9 +175,9 @@ impl KernelState {
 
         let router = ipc::Router::new(8);
 
-        let hal = VirtMachine::new();
+        let hal = Machine::new();
         #[cfg(feature = "debug_uart")]
-        log_debug!(target: "kmain", "KS: after VirtMachine::new");
+        log_debug!(target: "kmain", "KS: after Machine::new");
 
         Self {
             hal,
@@ -477,7 +477,7 @@ pub fn kmain() -> ! {
     // earlier bring-up/selftest sequencing non-preemptive.
     #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "timer_irq"))]
     unsafe {
-        crate::trap::timer_arm(crate::trap::DEFAULT_TICK_CYCLES);
+        crate::trap::timer_arm(crate::trap::default_tick_cycles());
         crate::trap::enable_timer_interrupts();
     }
 
@@ -530,10 +530,13 @@ pub fn kmain() -> ! {
         }
     }
 
-    // A7: announce the active per-hart timer mechanism. SBI set_timer is the
-    // v1 path; SSTC (`stimecmp`, saves the SBI trap per tick) is a documented
-    // follow-up pending a fault-safe detection probe.
-    log_info!(target: "smp", "KINIT: timer sbi");
+    // A7: announce the active per-hart timer mechanism — chosen by the tree
+    // (RFC-0098 C3): `stimecmp` when the ISA lists Sstc, SBI set_timer otherwise.
+    if crate::hal::platform::timer_uses_sstc() {
+        log_info!(target: "smp", "KINIT: timer sstc");
+    } else {
+        log_info!(target: "smp", "KINIT: timer sbi");
+    }
 
     // A3: selftests + init spawn are done — release the secondaries into
     // their scheduler loops (IPI punches them out of their park-WFI), then

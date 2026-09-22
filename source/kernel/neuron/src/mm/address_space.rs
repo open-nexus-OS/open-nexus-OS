@@ -7,7 +7,7 @@
 //! API_STABILITY: Stable
 //! TEST_COVERAGE: QEMU selftests + boot markers
 //! PUBLIC API: AddressSpaceManager (create/get/activate/as_map), AsHandle
-//! DEPENDS_ON: mm::page_table, arch::riscv (satp), hal::virt
+//! DEPENDS_ON: mm::page_table, arch::riscv (satp), hal::platform
 //! INVARIANTS: Map kernel segments; stable SATP value encoding; best-effort W^X for user maps
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
@@ -346,7 +346,7 @@ impl AddressSpaceManager {
                     .set_leaf_flags(va, PageFlags::GLOBAL)
                     .map_err(AddressSpaceError::from);
             }
-            if (0x1000_0000..0x1000_1000).contains(&va) {
+            if crate::hal::platform::uart_window().is_some_and(|(b, l)| (b..b + l).contains(&va)) {
                 let _ = space
                     .page_table_mut()
                     .set_leaf_flags(va, PageFlags::GLOBAL)

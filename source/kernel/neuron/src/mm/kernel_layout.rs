@@ -225,41 +225,28 @@ pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError>
         return Err(e);
     }
 
-    const UART_BASE: usize = 0x1000_0000;
-    const UART_LEN: usize = 0x1000;
-    if let Err(e) = map_identity_range(
-        table,
-        align_down(UART_BASE),
-        align_up(UART_BASE + UART_LEN),
-        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    ) {
-        if let MapError::Overlap = e {
-            log_error!(target: "mm", "AS-MAP: overlap in UART");
+    // The console and the interrupt controller: the two device windows the kernel
+    // itself drives, at the addresses the device tree named (RFC-0098 C3) — no
+    // literal here since TASK-0245. A platform that failed to initialise has no
+    // windows and therefore no console; the harness sees silence.
+    for (name, window) in [
+        ("uart", crate::hal::platform::uart_window()),
+        ("plic", crate::hal::platform::plic_window()),
+    ] {
+        let Some((base, len)) = window else { continue };
+        if let Err(e) = map_identity_range(
+            table,
+            align_down(base),
+            align_up(base + len),
+            PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
+        ) {
+            if let MapError::Overlap = e {
+                log_error!(target: "mm", "AS-MAP: overlap in {}", name);
+            }
+            return Err(e);
         }
-        return Err(e);
     }
 
-    // Identity-map the PLIC so the kernel can claim/complete external device
-    // interrupts and route them to userspace drivers (reactive input). QEMU virt
-    // places the PLIC at 0x0c00_0000 with a 0x60_0000 register window.
-    const PLIC_BASE: usize = 0x0c00_0000;
-    const PLIC_LEN: usize = 0x60_0000;
-    if let Err(e) = map_identity_range(
-        table,
-        align_down(PLIC_BASE),
-        align_up(PLIC_BASE + PLIC_LEN),
-        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    ) {
-        if let MapError::Overlap = e {
-            log_error!(target: "mm", "AS-MAP: overlap in PLIC");
-        }
-        return Err(e);
-    }
-
-    // Identity-map the QEMU virt fw_cfg window (VIRT_FW_CFG = 0x1010_0000, one page) so the kernel
-    // can read the boot mode (proof vs interactive) at early boot — the same source selftest-client
-    // uses. This gates whether the kernel folds its boot markers into verdicts (interactive) or emits
-    // them raw (proof, for verify-uart). Read-only use; mapped RW to match the other device windows.
     const FW_CFG_BASE: usize = 0x1010_0000;
     const FW_CFG_LEN: usize = 0x1000;
     if let Err(e) = map_identity_range(

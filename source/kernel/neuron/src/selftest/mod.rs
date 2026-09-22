@@ -7,7 +7,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU marker contract (see scripts/qemu-test.sh)
 //! PUBLIC API: selftest modules (assert, stack_run)
-//! DEPENDS_ON: hal::virt, ipc::Router, mm::AddressSpaceManager, sched::Scheduler, syscall::api
+//! DEPENDS_ON: hal::platform, ipc::Router, mm::AddressSpaceManager, sched::Scheduler, syscall::api
 //! INVARIANTS: Minimal side effects; UART markers only; feature-gated private stack
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 //!
@@ -35,7 +35,7 @@ use crate::task::Pid;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::{
     cap::{Capability, CapabilityKind, Rights},
-    hal::{virt::VirtMachine, Timer},
+    hal::{platform::Machine, Timer},
     ipc::Router,
     mm::{AddressSpaceError, AddressSpaceManager, MapError, PAGE_SIZE},
     sched::Scheduler,
@@ -50,7 +50,7 @@ use crate::{
 };
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 use crate::{
-    hal::virt::VirtMachine, ipc::Router, mm::AddressSpaceManager, sched::Scheduler, task::TaskTable,
+    hal::platform::Machine, ipc::Router, mm::AddressSpaceManager, sched::Scheduler, task::TaskTable,
 };
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use riscv::register::sstatus;
@@ -106,7 +106,7 @@ static mut SELFTEST_STACK: [u8; SELFTEST_STACK_BYTES] = [0; SELFTEST_STACK_BYTES
 /// Borrowed references to kernel subsystems used by selftests.
 pub struct Context<'a> {
     #[allow(dead_code)]
-    pub hal: &'a VirtMachine,
+    pub hal: &'a Machine,
     #[cfg_attr(not(all(target_arch = "riscv64", target_os = "none")), allow(dead_code))]
     pub router: &'a mut Router,
     #[allow(dead_code)]
