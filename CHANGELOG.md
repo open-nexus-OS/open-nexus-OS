@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-22 (TASK-0286 M1 P0: the kernel will live in the high half; two UART constants the literal gate missed)
+
+- **Decision (RFC-0098 C4 amended):** the kernel moves to a direct map `KVA = PHYS_OFFSET + PA` in
+  the Sv39 high half — measured: the identity map puts kernel-owned memory inside the user range
+  on a board whose RAM starts at physical 0. TASK-0286 recut with the measured map (22 pool sites,
+  35 window sites, the physical casts classified) and the order frames → direct map → page-backed
+  VMO → contiguous-DMA → telemetry.
+- **Literal gate:** `scripts/check-no-platform-literals.sh` now matches both spellings of an
+  address (`0x1000_0000` and `0x10000000`); the two UART constants it had missed in the kernel's
+  trap handler write through the platform console now.
+
 ### Added - 2026-09-22 (TASK-0245B P1–P2: `nexus-soc` — the SoC glue model, the board tree binds its consumers, `socd` owns the windows)
 
 - **`source/libs/nexus-soc`** (RFC-0106): the K1 clock/reset tables (23 clocks, 18 resets, every

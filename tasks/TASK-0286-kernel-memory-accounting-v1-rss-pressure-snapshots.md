@@ -1,6 +1,6 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: Draft (recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: In Progress (P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
 updated: 2026-09-22
@@ -47,20 +47,38 @@ RFC-0098 C4 amendment) together with the allocator — the two are one change, b
 consumer of a physical address is touched once. P2 left the kernel position-independent
 (load address any; VA still == PA) so the seam is the only thing left to move.
 
+**Measured 2026-09-22 (M1 P0).** `VmoPool` has 22 use sites in 7 files (`vmo.rs`, `exec.rs`,
+`task_image.rs`, `kernel_layout.rs`, `lib.rs`, `api/mod.rs`, tests); the fixed windows have 35
+sites in 10 files (incl. `stack_pool.rs`, `selftest/{mod,vm_alloc}.rs`, `va_space.rs`, `kmain.rs`).
+Of the 106 raw-pointer casts, the physical ones are: the page-table walk (`page_table.rs`, 11:
+`(entry >> 10) << 12` as a pointer, and `root_ppn` = pointer / 4096), `kernel_layout.rs` (9),
+`exec.rs` + `exec_copy.rs` (11: arena destinations), `vmo.rs` + `vmo_pool.rs` (10), the
+selftests (13), the trap handler's page-walk dump (3), `hal/platform.rs` + `plic.rs` (6: MMIO
+windows), `kmain.rs`/`boot_image.rs`/`boot_fdt.rs` (the image and the tree). The rest are user
+VAs (IPC copies into the caller's space, `ensure_user_slice`-checked), function pointers, or
+host-test layout asserts — untouched by a direct map. Page-table pages come from a 64-page
+static pool and then the kernel heap (8 MiB `.bss.heap`), so they live inside the image; the
+kernel heap stays where it is. Two more UART literals surfaced in `trap/handler.rs` (written
+`0x10000000`, a spelling the literal gate did not match — fixed with this P0).
+
 ## Goal
 
-A page-frame allocator owns every FDT memory bank minus reserved ranges and the kernel's own
-image (`mm/frames.rs`: buddy over 4 KiB frames with 2 MiB order support, per-bank, host-tested;
-`init_from_fdt(banks, reserved, kernel_range)`), and the VMO becomes a page-backed object
-(`mm/vmo.rs`: `VmoObject { pages: PageList, kind: Anon | ContiguousDma, len, owner }`) whose
-`vm_map` (RFC-0085) maps its pages; `VmoPool` and the fixed windows are deleted. `kind =
-ContiguousDma` is the only kind that allocates physically contiguous frames — for framebuffers,
-ADMA rings, USB rings, GPU buffers — and carries the coherence attribute (RFC-0098 C4: no
-`dma-coherent` on the node ⇒ `DmaBuffer::for_device/for_cpu` do Zicbom maintenance, or the
-mapping is Svpbmt non-cacheable). Accounting: per-address-space `frames_mapped`,
-`vmos_committed`, `dma_frames`, global `free`/`total` per bank; `KSELFTEST: mm frames
-(banks=… total=… free=…)` printed after bring-up; a trusted query (the existing sched/mem
-telemetry syscall shape) exposes the counters read-only to metricsd.
+Physical memory comes from the tree and the kernel lives in the high half. A page-frame
+allocator owns every FDT memory bank minus reserved ranges, the kernel's own image and the
+tree (`mm/frames.rs`: buddy over 4 KiB frames with 2 MiB order support, per bank, host-tested;
+`init_from_fdt(banks, reserved, excluded)`). The kernel is mapped at a VA offset — a direct map
+`KVA = PHYS_OFFSET + PA` of every bank and every device window in the Sv39 high half — so the
+user half is the user's on every machine, RAM at physical 0 included; the identity map is
+deleted and `phys_to_virt`/`virt_to_phys` are the one seam the physical casts become. The VMO
+becomes a page-backed object (`mm/vmo.rs`: `VmoObject { frames, kind: Anon | ContiguousDma,
+len, owner }`) whose `vm_map` (RFC-0085) maps its frames; `VmoPool` and the fixed windows are
+deleted. `kind = ContiguousDma` is the only kind that allocates physically contiguous frames —
+for framebuffers, ADMA rings, USB rings, GPU buffers — and carries the coherence attribute
+(RFC-0098 C4: no `dma-coherent` on the node ⇒ `DmaBuffer::for_device/for_cpu` do Zicbom
+maintenance, or the mapping is Svpbmt non-cacheable). Accounting: per-address-space
+`frames_mapped`, `vmos_committed`, `dma_frames`, global `free`/`total` per bank;
+`KSELFTEST: mm frames (banks=… total=… free=…)` printed after bring-up; a trusted query (the
+existing sched/mem telemetry syscall shape) exposes the counters read-only to metricsd.
 
 ## Non-Goals
 
@@ -70,27 +88,47 @@ side (RFC-0085).
 
 ## End state (binding)
 
+- **Direct map (P2).** `PHYS_OFFSET = 0xffff_ffc0_0000_0000` (the Sv39 kernel half; covers every
+  PA below 256 GiB on both machines). `_start` applies the PIE fixups at the load PA, early Rust
+  runs at PA (BSS, the tree, the platform, the memory banks), builds a boot table of 1 GiB
+  pages — RAM banks cacheable, everything else with the device attribute where the ISA lists
+  Svpbmt — plus an identity window for the switch, writes SATP, jumps high and applies the
+  fixups again with the high base (`R_RISCV_RELATIVE` is idempotent: addend + base). From there
+  every kernel VA is `PHYS_OFFSET + PA`: the image, the frames, the page tables (allocated from
+  frames; `root_ppn` via `virt_to_phys`), the windows (`console_write_byte` through the direct
+  map once a `PAGING_ON` static is set), the tree. `map_kernel_segments` maps the image (text RX,
+  data RW), the banks and the device windows into every address space as GLOBAL high-half
+  entries; nothing kernel-owned lies below `KERNEL_VA_BASE`, and "user address" =
+  `va < KERNEL_VA_BASE` everywhere `0x8000_0000` used to decide it. Secondary harts run the same
+  switch from `__secondary_hart_start`. RFC-0085's user window stays (2 GiB, unchanged).
 - `mm/mod.rs` has no address constant; `mm/frames.rs` + `mm/vmo.rs` replace `vmo_pool.rs`;
   `sys_vmo_create` takes a kind; `vmo_share_ro`, `vm_map/unmap`, `vmo_read/write`, `exec`'s
-  image allocation (still a copy until M3) run over page lists.
+  image allocation (still a copy until M3) run over frame lists; `stack_pool.rs` allocates from
+  frames.
 - Idle zeroing (`idle_zero_step`) becomes zeroing of freed frames into a zeroed pool;
   exhaustion is an event (`MM: frames exhausted (want=… free=…)`, RFC-0087) — never silent.
 - `-m` is no longer pinned to 320M in the launcher; a `-m 1G` and a `-m 256M` QEMU boot both
   pass the smp1 ladder (the allocator sizes itself from the tree).
-- Gate `scripts/check-no-fixed-windows.sh` (no `USER_VMO_ARENA`, `KERNEL_PAGE_POOL`, `VmoPool`
-  identifiers) in `just check`.
+- Gate `scripts/check-no-fixed-windows.sh` (no `USER_VMO_ARENA`, `KERNEL_PAGE_POOL`, `VmoPool`,
+  no `as *mut`/`as *const` of a physical address outside `mm::phys`) in `just check`.
 
 ## Packages
 
-- **P0** — this recut; measured map above; RFC-0100 seed deferred to M2 (this package changes
-  no object semantics visible to userspace).
-- **P1 Frame allocator** — host-tested buddy per bank; `init_from_fdt`; counters.
-- **P2 Page-backed VMO** — `VmoObject` + page lists; every syscall path moved; `VmoPool`
-  deleted; QEMU smp1/visible green; two `-m` sizes proven.
-- **P3 `contiguous-DMA` + coherence hooks** — the kind, `DmaBuffer::for_device/for_cpu`
-  (no-op on QEMU), gpud's framebuffer and virtio rings moved onto it (absorbs TASK-0284).
-- **P4 Telemetry** — `KSELFTEST: mm frames (…)` marker registered; read-only query to
-  metricsd; `docs/architecture/kernel-memory.md` rewritten.
+- **P0 — done 2026-09-22.** Measured map above; the direct-map decision (RFC-0098 C4 amended);
+  the literal gate's spelling gap closed with the two handler UART constants.
+- **P1 Frame allocator (host).** `mm/frames.rs`: per-bank buddy, `init_from_fdt`, counters,
+  determinism test (same tree → same frame order), exhaustion event; goldens over virt's one
+  bank and the board's two banks with the 2 GiB hole.
+- **P2 Direct map.** The boot switch, `mm/phys.rs` (`phys_to_virt`/`virt_to_phys`, `PAGING_ON`),
+  page tables from frames, `kernel_layout.rs` over banks + windows, every physical cast moved,
+  identity map deleted; smp1/visible green; the kernel prints `KINIT: kernel high half
+  (base=0xffff…)`.
+- **P3 Page-backed VMO.** `VmoObject` + frame lists; every syscall path moved; `VmoPool`, the
+  windows and `stack_pool`'s window deleted; `-m` unpinned; 256M and 1G proven.
+- **P4 `contiguous-DMA` + coherence hooks.** The kind, `DmaBuffer::for_device/for_cpu` (no-op
+  on QEMU), gpud's framebuffer and virtio rings moved onto it (absorbs TASK-0284).
+- **P5 Telemetry + gate + docs.** `KSELFTEST: mm frames (…)` registered; read-only query to
+  metricsd; `check-no-fixed-windows.sh`; `docs/architecture/01-neuron-kernel.md` memory section.
 
 ## Constraints / invariants
 
@@ -107,6 +145,10 @@ side (RFC-0085).
   the first picture but the RSS number (R10) is measured here for M3's gate.
 - **YELLOW:** superpage promotion (`vm_ops.rs`) assumes physically contiguous ranges — page
   lists must expose runs so promotion survives; a test pins it.
+- **YELLOW (P2):** the boot switch runs Rust before the second fixup pass — only PC-relative code
+  and no absolute pointer from data may run there (the early platform code already obeys this,
+  it was written for paging-off); the switch is proven by the boot, on both `-m` sizes and with
+  SMP=2 (secondary harts take the same path).
 - **GREEN (measured):** two banks with a 2 GiB hole — the per-bank design is forced, not
   chosen.
 

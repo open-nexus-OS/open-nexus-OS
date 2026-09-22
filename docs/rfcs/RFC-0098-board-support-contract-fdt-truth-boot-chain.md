@@ -146,6 +146,17 @@ node without `dma-coherent` is non-coherent — `DmaBuffer` performs Zicbom main
 every transfer, or maps the buffer non-cacheable through Svpbmt where the ISA lists it; QEMU
 virt is coherent and the same code path is a no-op there.
 
+**Amended 2026-09-22 (TASK-0286 P0): the kernel lives in the high half.** Measured: the kernel
+identity-maps everything it owns as GLOBAL pages, and RAM starts at physical 0 on the board — an
+identity-mapped kernel and its frames would sit inside the user VA range. Contract: a direct map
+`KVA = PHYS_OFFSET + PA` (`PHYS_OFFSET = 0xffff_ffc0_0000_0000`, the Sv39 kernel half) of every
+bank and every device window; the kernel image, the page tables, the frames and the tree are
+reached through it and nothing kernel-owned lies below it; "user address" means
+`va < KERNEL_VA_BASE`. The boot switch (fixups at the load PA → early platform at PA → a boot
+table of 1 GiB pages → SATP → the high half → fixups again with the high base) is part of the
+kernel's own entry, on QEMU and on the board alike; `phys_to_virt`/`virt_to_phys` are the one
+seam. RFC-0085's user window is unchanged.
+
 ### C5 — Storage (Phase 3, ADR-0067)
 
 `virtioblkd` becomes `blkd`: the ONE block owner, one GPT disk, partition-scoped `blockproto`;

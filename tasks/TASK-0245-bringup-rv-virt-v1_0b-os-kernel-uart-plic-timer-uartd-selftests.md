@@ -215,3 +215,7 @@ phase, required in every profile; the positive half is every driver's own bind m
 `docs/architecture/01-neuron-kernel.md` boot flow + HAL rewritten around the tree with a
 "Platform from the device tree" section. RFC-0098 Phase 1 is 🟨: this task ✅, 0245B open.
 The board's serial shows these markers only after B1.6 (nxboot as FIT payload) — TASK-0327B.
+**Post-Done finding (2026-09-22, TASK-0286 P0):** the literal gate matched only the underscored
+spelling; `trap/handler.rs` held two `0x10000000` UART constants (the user-fault and kernel-fault
+dumpers). Gate patterns accept both spellings now (self-test hit count 4) and both dumpers write
+through `hal::platform::console_write_byte`.

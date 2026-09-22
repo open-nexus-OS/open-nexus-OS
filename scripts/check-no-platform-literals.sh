@@ -15,13 +15,13 @@ cd "$(dirname "$0")/.."
 SCAN=(source userspace tools/nx/src)
 # Each pattern is an extended regex over ONE source line with comments stripped.
 PATTERNS=(
-  '0x1000_0000\b'      # QEMU virt UART
-  '0x0c00_0000\b'      # QEMU virt PLIC
-  '0x0200_0000\b'      # QEMU virt CLINT
-  '0x1000_1000\b'      # QEMU virt virtio-mmio window
-  '0x1000_8000\b'      # QEMU virt virtio-mmio slot 7 (the GPU)
-  '0x0010_1000\b'      # QEMU virt goldfish RTC
-  '0x1010_0000\b'      # QEMU virt fw_cfg
+  '0x1000_?0000\b'      # QEMU virt UART (both spellings)
+  '0x0c00_?0000\b'      # QEMU virt PLIC
+  '0x0200_?0000\b'      # QEMU virt CLINT
+  '0x1000_?1000\b'      # QEMU virt virtio-mmio window
+  '0x1000_?8000\b'      # QEMU virt virtio-mmio slot 7 (the GPU)
+  '0x0?010_?1000\b'      # QEMU virt goldfish RTC
+  '0x1010_?0000\b'      # QEMU virt fw_cfg
   'TICKS_PER_US\s*(:\s*\w+\s*)?=\s*[0-9]'   # the 10 MHz timebase as a constant
   'irq\s*[:=]\s*[0-9]+\s*\+\s*\w+'  # PLIC line derived from a slot index
 )
@@ -54,6 +54,7 @@ self_test() {
   mkdir -p "$tmp/src" "$tmp/tests"
   cat > "$tmp/src/a.rs" <<'RS'
 const UART: usize = 0x1000_0000; // must hit
+const UART2: usize = 0x10000000; // must hit (the other spelling)
 // const OLD: usize = 0x1000_0000;   (comment — must not hit)
 let irq = 3 + idx as u32;         // must hit
 const TICKS_PER_US: u64 = 10;      // must hit
@@ -64,12 +65,12 @@ RS
   local out rc=0
   out=$(scan "$tmp") || rc=$?
   rm -rf "$tmp"
-  if [[ "$rc" -ne 3 ]]; then
-    echo "[FAIL] platform-literal scanner self-test: expected 3 hits, got $rc" >&2
+  if [[ "$rc" -ne 4 ]]; then
+    echo "[FAIL] platform-literal scanner self-test: expected 4 hits, got $rc" >&2
     echo "$out" >&2
     exit 1
   fi
-  echo "[ok]   platform-literal scanner self-test (3 hits on fixtures, comments/tests skipped)"
+  echo "[ok]   platform-literal scanner self-test (4 hits on fixtures, comments/tests skipped)"
 }
 
 self_test

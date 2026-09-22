@@ -841,10 +841,6 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             if from_user {
                 // User page fault - ROBUST logging via direct MMIO (no heap, no fmt)
                 // This cannot crash because it uses no dynamic allocation
-                const UART_BASE: usize = 0x10000000;
-                const UART_TX: usize = 0x0;
-                const UART_LSR: usize = 0x5;
-                const LSR_TX_IDLE: u8 = 1 << 5;
 
                 // RFC-0068: an interactive boot keeps the ONE head line per
                 // fault (the error is never hidden) and folds the register/
@@ -853,14 +849,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 // print the full dump.
                 let expand_dump = !crate::boot_mode::fold_verdicts() || trap_dump_expanded();
                 unsafe {
-                    // Helper to write one byte
-                    let write_byte = |b: u8| {
-                        while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8)
-                            & LSR_TX_IDLE
-                            == 0
-                        {}
-                        core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
-                    };
+                    // The console the tree named (RFC-0098 C3), lock-free inside a trap.
+                    let write_byte = crate::hal::platform::console_write_byte;
 
                     // Write "[USER-PF] type @ sepc=0x... stval=0x...\n"
                     for &b in b"[USER-PF] " {
@@ -1064,18 +1054,9 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
 
             // Kernel page fault - emit minimal diagnostics via raw MMIO then panic
             {
-                const UART_BASE: usize = 0x10000000;
-                const UART_TX: usize = 0x0;
-                const UART_LSR: usize = 0x5;
-                const LSR_TX_IDLE: u8 = 1 << 5;
                 unsafe {
-                    let write_byte = |b: u8| {
-                        while core::ptr::read_volatile((UART_BASE + UART_LSR) as *const u8)
-                            & LSR_TX_IDLE
-                            == 0
-                        {}
-                        core::ptr::write_volatile((UART_BASE + UART_TX) as *mut u8, b);
-                    };
+                    // The console the tree named (RFC-0098 C3), lock-free inside a trap.
+                    let write_byte = crate::hal::platform::console_write_byte;
                     let write_hex = |val: usize, digits: usize| {
                         for shift in (0..digits).rev() {
                             let nibble = ((val >> (shift * 4)) & 0xf) as u8;
