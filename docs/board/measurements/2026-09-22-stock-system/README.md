@@ -16,7 +16,10 @@ the source our `config/board/bpi-f3/board.dts` derives from.
 | `cpuinfo.txt` | the 8 harts: ISA string, uarch, vendor/arch/impl ids |
 | `iomem.txt` | the physical map as the stock kernel sees it (RAM banks, reserved ranges, every MMIO block it claimed) |
 | `interrupts.txt` | PLIC source numbers per device (the IRQ truth; the irqchip's vendor label scrubbed) |
-| `clk_summary.txt` | debugfs clock tree head: which clocks are on under `clk_ignore_unused` |
+| `clk_summary.txt` | the FULL debugfs clock tree (341 lines, re-captured for TASK-0245B): every clock's enable count, rate and consumer under `clk_ignore_unused` |
+| `regmap-apmu.txt` | the APMU syscon window `0xd428_2800/0x400` as the stock system runs it (regmap debugfs; `/dev/mem` is fenced by the stock kernel) — the gate/mux/reset state the SPL and the stock kernel leave for SDH, USB, LCD/HDMI, GPU, EMAC |
+| `regmap-mpmu.txt` | the MPMU window `0xd405_0000/0x209c` (PLL lock/status, ACGR, APBCSCR) |
+| `regmap-ciu.txt` | the CIU window `0xd428_2c00/0x400` |
 | `partitions.txt`, `lsblk.txt` | block devices: SD (stock), eMMC (empty), boot partitions |
 | `lsmod.txt` | loaded modules (the vendor WiFi + GPU drivers are built in) |
 | `edid-hdmi.bin` | the desk monitor's EDID (256 B) |
@@ -62,6 +65,32 @@ controller `spacemit,k1x-reset`, both at `0xd405_0000` with the register windows
 `clk_32k`. Power domains: `spacemit,power-controller` (9 domains; BUS 0, VPU 1, GPU 2, …,
 HDMI 7). R3: the stock kernel boots with `clk_ignore_unused` — it never gates what the SPL
 turned on; `clk_summary.txt` shows uart/emac/pcie/dma/usb clocks enabled.
+
+**R3 measured in detail (2026-09-22, for TASK-0245B).** The live tree binds the consumers to the
+vendor clock provider `clock-controller@d4050000` (`spacemit,k1x-clock`, one node spanning every
+window: mpmu, apmu, apbc, apbs, ciu, dciu, ddrc, apbc2, rcpu, rcpu2, audpmu) and the reset
+provider (`spacemit,k1x-reset`); the vendor ids differ from mainline's per-syscon ids, the
+registers do not. Per consumer (vendor ids, decimal):
+
+| node | clocks (`clock-names`) | resets (`reset-names`) | power-domain | pinctrl-0 |
+|---|---|---|---|---|
+| `sdh@d4280000` (SD) | 137 `sdh-io`, 136 `sdh-core`, 100 `aib-clk` | 71 `sdh_axi`, 72 `sdh0` | 0 | yes (`default`, `fast`) |
+| `sdh@d4280800` (SDIO/WiFi) | 138 `sdh-io`, 136 `sdh-core` | 71 `sdh_axi`, 73 `sdh1` | 0 | yes |
+| `sdh@d4281000` (eMMC) | 139 `sdh-io`, 136 `sdh-core` | 71 `sdh_axi`, 84 `sdh2` | 0 | none |
+| `udc@c0900100` | 141 | 74 | — | — |
+| `ethernet@cac80000` | 165 `emac-clk`, 166 `ptp-clk` | 93 `emac-reset` | 0 | yes |
+| `ethernet@cac81000` | 167 `emac-clk`, 168 `ptp-clk` | 94 `emac-reset` | 0 | yes |
+
+APMU register state as the stock system runs (offsets per the mainline syscon map; values from
+`regmap-apmu.txt`): `SDH0 0x054 = 0x0000411b` (sdh_axi gate bit 3 and sdh0 gate bit 4 on, mux
+bits 8..10 = 1), `SDH1 0x058 = 0x00000052`, `SDH2 0x0e0 = 0x00000052` (gate bit 4 on, mux 0 =
+pll2_d8 375 MHz), `USB 0x05c = 0x00000f33` (usb_axi bit 1, usb_p1 bit 5, usb30 bit 8 on),
+`LCD1 0x044 = 0x08805180`, `LCD2 0x04c = 0x01040104`, `HDMI 0x1b8 = 0x01040321` (hmclk gate
+bit 0 on — the stock desktop is on HDMI), `GPU 0x0cc = 0x00000012` (gate bit 4 on),
+`EMAC0/1 0x3e4/0x3ec = 0x0000a007` (bus bit 0 + ptp bit 15 on), `ACLK 0x388 = 1`. MPMU:
+`POSR 0x010 = 0x3bb83c00` (PLL1/2/3 lock bits 27..29 set), `ACGR 0x1024 = 0x002dfeff`.
+`clk_summary`: `sdh1_clk`/`sdh2_clk` 375 MHz from `pll2_d8`, `sdh_axi_aclk` on with three
+consumers, `dpu_*` off, `pll3_d3` 1066 MHz on, `pll2_d3` 1 GHz on.
 
 **DMA coherence (R4).** The CPU has `zicbom`/`zicboz` and `svpbmt`; the stock kernel runs
 with `swiotlb=65536` and every DMA master carries `interconnects = <… "dma-mem">` ⇒ the
