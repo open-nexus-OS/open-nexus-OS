@@ -106,6 +106,7 @@ nxboot writes (in-place, with headroom reserved at FIT build time):
 
 | Property | Meaning | Source on QEMU | Source on the board |
 |---|---|---|---|
+| `nexus,boot-mode` | `proof` / `interactive` — the kernel's marker folding (syscall 45) | fw_cfg `opt/org.open-nexus/selftest-mode` (read by nxboot ONLY) | absent (= proof, raw markers) |
 | `nexus,boot-profile` | selftest/lane profile name | fw_cfg `opt/org.open-nexus/selftest-profile` (read by nxboot ONLY) | BSB target / default |
 | `nexus,boot-slot` | `a` / `b`, the slot nxboot chose | its own selection (RFC-0089) | same |
 | `nexus,display-mode` | a REQUEST (`WxH`), never the authority | fw_cfg `display-mode` | absent (EDID decides) |

@@ -3,7 +3,7 @@
 
 //! The kernel's identity-map layout: every address space starts with the
 //! same GLOBAL kernel segments (text, data, stacks, page pool, the whole
-//! VMO arena, UART/PLIC/fw_cfg windows). Split out of `address_space.rs`
+//! VMO arena, the UART/PLIC windows and the device tree). Split out of `address_space.rs`
 //! (structure-gate, RFC-0085 Phase 2). The host build gets the same no-op
 //! stub the original had.
 
@@ -245,20 +245,6 @@ pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError>
             }
             return Err(e);
         }
-    }
-
-    const FW_CFG_BASE: usize = 0x1010_0000;
-    const FW_CFG_LEN: usize = 0x1000;
-    if let Err(e) = map_identity_range(
-        table,
-        align_down(FW_CFG_BASE),
-        align_up(FW_CFG_BASE + FW_CFG_LEN),
-        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    ) {
-        if let MapError::Overlap = e {
-            log_error!(target: "mm", "AS-MAP: overlap in fw_cfg");
-        }
-        return Err(e);
     }
 
     // The device tree the firmware handed over in a1 (RFC-0098 C3, TASK-0244 P3):

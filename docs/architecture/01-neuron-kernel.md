@@ -101,7 +101,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **36 `irq_bind`** / **37 `irq_complete`**: PLIC IRQ → endpoint delivery (reactive input).
 - **38–40 `waitset_create/add/wait`**: Bounded waitsets.
 - **41–43 `fence_create/signal/wait`**: Fences.
-- **45 `boot_mode`** / **50 `boot_display_mode`**: Boot/display mode from fw_cfg (RFC‑0074/ADR‑0050).
+- **45 `boot_mode`** / **50 `boot_display_mode`**: Boot mode and display request from `/chosen/nexus,*` of the device tree (RFC‑0098 C2; RFC‑0074/ADR‑0050 for the display request — nxboot re-expresses the QEMU fw_cfg knobs there, the kernel reads no fw_cfg).
 - **46 `vmo_destroy`**: Release a VMO back to the arena (sole-owner gated; RFC‑0075).
 - **47 `vmo_read`**: Bounded copy-out of a VMO range (ADR‑0042 damage blits).
 - **48 `sched`**: Declarative scheduling recipe (affinity/shares; ADR‑0049).

@@ -1,6 +1,6 @@
 ---
 title: TASK-0245 Board support v1b (OS): the kernel's platform comes from the FDT — UART, PLIC, timer, memory ranges, hart list; kernel + nxboot position-independent; init discovers devices from the FDT
-status: In Progress (P1 Done, P2 built 2026-09-22 — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
+status: In Progress (P1–P2 Done, P3 built 2026-09-22 — `hal/platform.rs` replaces `hal/virt.rs`: console/PLIC/timer/timebase from the tree, Sstc chosen by the ISA list, no CLINT; smp1 green; recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
 owner: @kernel-team
 created: 2025-12-29
 updated: 2026-09-22
@@ -137,8 +137,14 @@ display-mode authority move (TASK-0251).
   RAM at physical 0 on the board puts an identity-mapped kernel inside the user VA range, so
   M1's P0 decides the kernel direct map at a VA offset (not P2's: it is one change with the
   allocator). ADR-0059 amended, RFC-0089 §5/§7 and RFC-0098 C2 rows updated.
-- **P3 `/chosen` syscalls + fw_cfg deletion from the kernel** (nxboot writes `/chosen` on
-  QEMU from fw_cfg — TASK-0244 P3).
+- **P3 `/chosen` syscalls + fw_cfg deletion from the kernel — built 2026-09-22.** nxboot
+  re-expresses `selftest-mode` as `nexus,boot-mode` (beside `boot-profile`/`display-mode`);
+  `diag/boot_mode.rs` resolves marker folding (syscall 45) and the display request (syscall 50)
+  from `/chosen` via `boot_fdt::bytes()`; the kernel's fw_cfg MMIO reader and the fw_cfg identity
+  window in `kernel_layout.rs` are deleted — `grep fw_cfg source/kernel` is empty. Host tests for
+  the mode words and `WxH` parsing. Not P3's: init still grants selftest-client the fw_cfg window
+  by a literal (`orchestrator.rs`) and selftest-client reads its profile there — P4 replaces both
+  with the `device.fdt` VMO.
 - **P4 Init discovery from the FDT VMO** — `helpers.rs`/`route_provision.rs` rewritten, slot
   + policy for `device.fdt`, IRQs from the tree; the literal gate lands and `just check`
   carries it.

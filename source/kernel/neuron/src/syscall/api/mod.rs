@@ -480,7 +480,7 @@ fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
 /// Returns the resolved boot mode for verdict folding: `1` for an interactive boot (services should
 /// fold their markers into a `<service> N/N` verdict), `0` for proof/unknown (raw markers, so
-/// `verify-uart` stays deterministic). Pure read of the kernel's fw_cfg-derived flag; no args.
+/// `verify-uart` stays deterministic). Pure read of the flag the kernel took from `/chosen`; no args.
 fn sys_boot_mode(_ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(usize::from(crate::boot_mode::fold_verdicts()))
 }
@@ -513,7 +513,7 @@ fn sys_system_reset(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 }
 
 /// `SYSCALL_BOOT_HANDOFF` (57): copies the validated measured-boot record
-/// (raw ADR-0059 bytes, captured pre-SATP from the loader's handoff page)
+/// (raw ADR-0059 bytes, read from `/chosen/nexus,boot-record` at boot)
 /// into the caller's buffer. Args: (ptr, len). Requires `len >= RECORD_LEN`
 /// so a short read can never masquerade as the full record; returns the
 /// bytes written, or 0 for an honest direct-kernel boot (absent/invalid
@@ -533,7 +533,7 @@ fn sys_boot_handoff(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     Ok(raw.len())
 }
 
-/// `SYSCALL_BOOT_DISPLAY_MODE` (50): the fw_cfg-configured display mode packed as
+/// `SYSCALL_BOOT_DISPLAY_MODE` (50): the display mode requested in `/chosen` packed as
 /// `w | (h << 16)`, or 0 when unknown/absent (RFC-0074 / ADR-0050). Read-only, no capability.
 fn sys_boot_display_mode(_ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
     Ok(crate::boot_mode::display_mode() as usize)

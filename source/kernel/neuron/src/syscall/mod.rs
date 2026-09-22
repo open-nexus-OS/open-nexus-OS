@@ -75,13 +75,14 @@ pub const SYSCALL_DEBUG_PUTC: usize = 16;
 /// userspace log line cannot interleave mid-line with the kernel or another process.
 pub const SYSCALL_DEBUG_WRITE: usize = 44;
 /// Boot mode query: returns 1 when the kernel resolved an INTERACTIVE boot (verdict folding on),
-/// 0 for proof/unknown (raw markers). Lets U-mode services share the kernel's fw_cfg-derived mode
-/// without each having to map fw_cfg — the keystone for per-service verdict folding.
+/// 0 for proof/unknown (raw markers). Lets U-mode services share the mode the kernel read from
+/// `/chosen/nexus,boot-mode` (RFC-0098 C2) — the keystone for per-service verdict folding.
 pub const SYSCALL_BOOT_MODE: usize = 45;
-/// Boot display-mode query (RFC-0074 / ADR-0050): returns the fw_cfg-configured display mode
-/// packed as `w | (h << 16)`, or 0 when unknown/absent. Lets the display server share the
-/// kernel's fw_cfg-derived mode without mapping fw_cfg — the compositor commands this authoritative
-/// mode onto the scanout instead of latching QEMU's transient window size.
+/// Boot display-mode query (RFC-0074 / ADR-0050): returns the display mode requested in
+/// `/chosen/nexus,display-mode` packed as `w | (h << 16)`, or 0 when unknown/absent. Lets the
+/// display server share the request without reading the tree — the compositor commands this
+/// mode onto the scanout instead of latching QEMU's transient window size (until gpud owns
+/// the mode, RFC-0098 Phase 5).
 pub const SYSCALL_BOOT_DISPLAY_MODE: usize = 50;
 /// RFC-0080: derive a READ-ONLY alias (`VmoRo`) of a VMO for shared read-only
 /// mapping (the glyph atlas). Args: (vmo_cap_slot) → new alias slot.

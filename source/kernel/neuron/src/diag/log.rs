@@ -99,7 +99,7 @@ fn now_ns() -> u64 {
 //
 // Folding is gated on `boot_mode::fold_verdicts()` (false in proof/unknown) → proof boots print
 // every raw marker so `verify-uart` is undisturbed. The only lines that stay raw in an interactive
-// boot are the pre-paging `boot:`/`traps:` markers that fire BEFORE the fw_cfg mode probe (the fold
+// boot are the pre-paging `boot:`/`traps:` markers that fire BEFORE the /chosen mode probe (the fold
 // flag is not resolvable before the address space is active).
 //
 // IMPORTANT: the `KGroup` discriminants are the `GROUPS`/`GROUP_DEFS` indices — keep both in order.

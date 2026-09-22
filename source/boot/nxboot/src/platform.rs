@@ -30,7 +30,7 @@ use nexus_fdt::{ChosenWriter, Fdt};
 
 use crate::arch;
 
-/// Headroom reserved for the `/chosen` writes (the record + four short properties).
+/// Headroom reserved for the `/chosen` writes (the record + five short properties).
 const CHOSEN_HEADROOM: usize = 2048;
 /// No stage we boot from produces a tree this large (QEMU virt ≈ 12 KiB, the
 /// board ≈ 9 KiB); a bigger claim is a corrupt header, not a tree.
@@ -41,6 +41,7 @@ const KERNEL_ALIGN: usize = 2 * 1024 * 1024;
 
 /// fw_cfg MMIO layout: data register at +0, selector at +8.
 const FW_CFG_FILE_DIR: u16 = 0x19;
+const FW_CFG_KEY_MODE: &[u8] = b"opt/org.open-nexus/selftest-mode";
 const FW_CFG_KEY_PROFILE: &[u8] = b"opt/org.open-nexus/selftest-profile";
 const FW_CFG_KEY_DISPLAY: &[u8] = b"opt/org.open-nexus/display-mode";
 
@@ -161,6 +162,11 @@ pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8]) -> usize {
     // fw_cfg has no such file.
     if let Some(fw) = fw_cfg_base(t) {
         let mut tmp = [0u8; 64];
+        if let Some(n) = fw_cfg_read(fw, FW_CFG_KEY_MODE, &mut tmp) {
+            if let Ok(s) = core::str::from_utf8(&tmp[..n]) {
+                ok &= w.set_nexus_str("boot-mode", s.trim_end_matches(['\0', '\n'])).is_ok();
+            }
+        }
         if let Some(n) = fw_cfg_read(fw, FW_CFG_KEY_PROFILE, &mut tmp) {
             if let Ok(s) = core::str::from_utf8(&tmp[..n]) {
                 ok &= w.set_nexus_str("boot-profile", s.trim_end_matches(['\0', '\n'])).is_ok();

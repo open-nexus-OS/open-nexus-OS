@@ -11,7 +11,7 @@
 
 ## Status at a Glance
 
-- **Phase 0 (fw_cfg display-mode SSOT + kernel probe + syscall)**: 🟨
+- **Phase 0 (fw_cfg display-mode SSOT + kernel probe + syscall)**: 🟨 — since 2026-09-22 (TASK-0245 P3, RFC-0098 C2) the kernel reads the request from `/chosen/nexus,display-mode`, written by nxboot from fw_cfg on QEMU; the kernel has no fw_cfg code. Syscall 50 dies in RFC-0098 Phase 5 (gpud owns the mode).
 - **Phase 1 (gpud commands the authoritative mode; device hint = capability only)**: 🟨
 - **Phase 2 (event-driven mode-change: resize/hotplug/multi-output)**: ⬜ (future)
 

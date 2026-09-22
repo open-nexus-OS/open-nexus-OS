@@ -117,10 +117,10 @@ impl KernelState {
             panic!("kernel address space activate failed");
         }
 
-        // The kernel AS is now active, so the identity-mapped fw_cfg window is reachable.
-        // Probe the boot mode (proof vs interactive) once — this gates whether later kernel
-        // boot markers fold into the verdict grid (interactive) or stay raw (proof). Safe to
-        // call here; defaults to raw on any failure. Alloc-free (fixed buffers, MMIO reads).
+        // The kernel AS is now active, so the read-only tree mapping is reachable.
+        // Resolve the boot mode (proof vs interactive) from /chosen once — this gates
+        // whether later kernel boot markers fold into the verdict grid (interactive) or
+        // stay raw (proof). Defaults to raw when the knob is absent. Alloc-free.
         crate::boot_mode::detect();
 
         // RFC-0098 C3 (TASK-0244 P3): the platform's values come from the tree in a1,

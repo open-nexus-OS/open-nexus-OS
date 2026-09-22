@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Changed - 2026-09-22 (TASK-0245 P1–P2: the kernel's platform comes from the device tree; kernel and nxboot are position-independent)
+### Changed - 2026-09-22 (TASK-0245 P1–P3: the kernel's platform comes from the device tree; kernel and nxboot are position-independent; the kernel reads no fw_cfg)
 
 - **`hal/platform.rs` replaces `hal/virt.rs`** (P1): console base/`reg-shift`/`reg-io-width` from
   `/chosen/stdout-path`, PLIC base + S-mode contexts from `interrupts-extended`, the timer through
@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The measured handoff record travels in `/chosen/nexus,boot-record`** (60 bytes, ADR-0059 v1
   layout); the fixed page at `0x9300_0000` and its constants are deleted on both sides.
   ADR-0059 amended; RFC-0089 §5/§7 and RFC-0098 C2 updated.
+- **Syscalls 45/50 read `/chosen`** (P3): nxboot re-expresses the lane's `selftest-mode` as
+  `nexus,boot-mode` next to `nexus,display-mode`; the kernel resolves marker folding and the display
+  request from the tree, and its fw_cfg reader + fw_cfg identity window are deleted (init's fw_cfg
+  grant to selftest-client is P4's).
 
 ### Added - 2026-09-22 (TASK-0244 Done: the device tree is the one hardware truth — `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)
 
