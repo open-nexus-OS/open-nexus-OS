@@ -1,6 +1,6 @@
 ---
 title: TASK-0261 Provisioning/Recovery v1.0b (OS/QEMU): flashd service + recovery ramdisk + rebootd + virtio-serial + selftests
-status: Draft
+status: Draft — PARKED 2026-09-22 (hardware fast track): the flasher protocol is fastboot over the boot-ROM download mode (TASK-0327); a device-side flashd returns as a recovery-target fastboot gadget once the USB stack (TASK-0328) has gadget mode
 owner: @reliability
 created: 2025-12-29
 depends-on: []

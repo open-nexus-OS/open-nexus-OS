@@ -1,0 +1,66 @@
+00000000-0007ffff : Reserved
+00080000-000fffff : System RAM
+00100000-005fffff : Reserved
+00600000-2ff3ffff : System RAM
+  00602000-0299c227 : Kernel image
+    00602000-01628f5d : Kernel code
+    01c00000-023fffff : Kernel rodata
+    02600000-02907bff : Kernel data
+    02908000-0299c227 : Kernel bss
+2ff40000-2fffffff : Reserved
+30000000-7fffffff : System RAM
+90000000-9effffff : pcie@ca400000
+  90000000-900fffff : 0001:00:00.0
+  90100000-901fffff : 0001:00:00.0
+9f000000-9f001fff : ca400000.pcie config
+a0000000-b6ffffff : pcie@ca800000
+  a0000000-a00fffff : 0002:00:00.0
+  a0100000-a01fffff : 0002:00:00.0
+b7000000-b7001fff : ca800000.pcie config
+b8000000-b8bfffff : d420c000.spi qspi-mmap
+c0230000-c0243fff : c0230000.vi vi
+c02f0000-c02f7ffe : c02f0000.cpp cpp
+c02f8000-c02f86ff : c02f8000.jpu jpu@c02f8000
+c0340000-c0369fff : c0340000.display-subsystem-dsi display-subsystem-dsi
+c0400500-c04006ff : c0400500.hdmi hdmi@C0400500
+c0440000-c0469fff : c0440000.display-subsystem-hdmi display-subsystem-hdmi
+c0500000-c050ffff : c0500000.linlon-v5
+c0880000-c08801ff : c088c000.rcpu_rproc rcpu_rproc@0
+c0882000-c088204f : c0883900.spacemit_snd_sspa spacemit_snd_sspa@C0883900
+c0882050-c0882053 : c0883800.adma ctrl_reg
+c0883800-c08838ff : c0883800.adma adma_reg
+c0883900-c0883bff : c0883900.spacemit_snd_sspa spacemit_snd_sspa@C0883900
+c0887000-c0887037 : c0887000.ri2c ri2c@c0887000
+c0888300-c088830f : c0888300.pwm pwm@c0888300
+c088c000-c088cfff : c088c000.rcpu_rproc rcpu_rproc@0
+c08d0000-c08d03ff : c0883800.adma buf_addr
+c08d0400-c08d3fff : c08d0400.spacemit_snd_dma_hdmi spacemit_snd_dma_hdmi
+c0940000-c09401ff : c0940000.usbphy usbphy@c0940000
+c09c0000-c09c01ff : c09c0000.usbphy1 usbphy1@c09c0000
+c0a00000-c0a07fff : dwc3@c0a00000
+  c0a00000-c0a07fff : xhci-hcd.0.auto dwc3@c0a00000
+c0a0c100-c0a0ffff : c0a00000.dwc3 dwc3@c0a00000
+c0a30000-c0a301ff : c0a30000.usb2phy usb2phy@0xc0a30000
+c0b10000-c0b107ff : c0b10000.phy puphy
+cac80000-cac8041f : cac80000.ethernet ethernet@cac80000
+cac81000-cac8141f : cac81000.ethernet ethernet@cac81000
+d4000000-d4003fff : d4000000.pdma pdma@d4000000
+d4010800-d4010837 : d4010800.i2c i2c@d4010800
+d4012000-d4012037 : d4012000.i2c i2c@d4012000
+d4013400-d40134ff : d4013400.mailbox mailbox@d4013400
+d4018000-d40180ff : d4018000.thermal thermal@d4018000
+d4019000-d40197ff : d4019000.gpio gpio@d4019000
+d4019800-d401980f : pinctrl-single
+d401d800-d401d837 : d401d800.i2c i2c@d401d800
+d401e000-d401e27b : pinctrl-single
+d4021800-d402180f : d4021800.pwm pwm@d4021800
+d4026000-d402602f : d4026000.i2s0 i2s0
+d420c000-d420cfff : d420c000.spi qspi-base
+d4280000-d42801ff : d4280000.sdh sdh@d4280000
+d4280800-d42809ff : d4280800.sdh sdh@d4280800
+d4281000-d42811ff : d4281000.sdh sdh@d4281000
+d4282910-d4282d0f : c0b10000.phy phy_sel
+d4282f90-d4282f93 : d4282f90.handler handler@d4282f90
+f0702990-f07029af : f0702990.efuse_bank efuse_bank@7
+f0703800-f07038ff : f0703800.crng crng@f0703800
+100000000-17fffffff : System RAM

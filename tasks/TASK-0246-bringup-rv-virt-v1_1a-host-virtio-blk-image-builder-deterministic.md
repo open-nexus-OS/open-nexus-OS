@@ -1,115 +1,103 @@
 ---
-title: TASK-0246 RISC-V Bring-up v1.1a (host-first): virtio-blk frontend core + packagefs image builder + deterministic tests
-status: Draft
-owner: @kernel
+title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with an FDT-selected backend
+status: Draft (recut 2026-09-22 to the end state — Block 1 B1.5 of the hardware fast track; was "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+owner: @runtime @kernel-team
 created: 2025-12-29
-depends-on: []
+updated: 2026-09-22
+depends-on:
+  - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
+  - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
+  - tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md
 follow-up-tasks:
-  - TASK-0260
-  - TASK-0289
+  - tasks/TASK-0246B-nxboot-sdhci-disk-reader.md
+  - tasks/TASK-0248-bringup-rv-virt-v1_2a-host-virtio-net-dhcp-stub-loopback-deterministic.md
 links:
-  - Vision: docs/architecture/vision.md
+  - Decision: docs/adr/0067-one-block-owner-backend-selected-by-fdt.md
+  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C4 coherence, C5, Phase 3)
+  - The owner this renames: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md, source/services/virtioblkd
+  - The trait this implements: userspace/storage/src/lib.rs (`BlockDevice`); layout SSOT userspace/storage/src/layout.rs
+  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Storage", "DMA coherence")
   - Playbook: CLAUDE.md
-  - Persistence baseline (virtio-blk): tasks/TASK-0009-persistence-v1-virtio-blk-statefs.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## History
 
-We need virtio-blk support for packagefs mounting:
+Seeded 2025-12-29 for a virtio-blk frontend + packagefs image builder; both shipped elsewhere
+(virtio-blk v2 = TASK-0314, image builder = TASK-0260). Recut 2026-09-22 under the ledger-reuse
+rule: the number now carries the board's block driver.
 
-- virtio-blk frontend (read-only) for userspace,
-- packagefs image builder (deterministic),
-- deterministic host tests.
+## Context (measured 2026-09-22)
 
-The prompt proposes userspace virtio-blk (read-only) and a packagefs image builder. `TASK-0009` already plans virtio-blk for persistence (read-write). This task delivers the **host-first core** (virtio-blk frontend library, image builder) that can be reused by both packagefs (read-only) and statefs (read-write).
+The board's system disk is an eMMC (`AJTD4R`, 14.6 GiB, HS400 enhanced strobe, `boot0`/`boot1`
+4 MiB, RPMB) behind `sdh@d4281000` (`spacemit,k1-x-sdhci`, 0x200 registers, IRQ 101, clocks
+`sdh-io` + `sdh-core`, resets `sdh_axi` + `sdh2`, power domain 0); the microSD is
+`sdh@d4280000` (IRQ 99, + `aib-clk`, card-detect GPIO); the SDIO WiFi function is
+`sdh@d4280800` (IRQ 100). All three run ADMA in the stock system. The DMA master is not
+cache-coherent (Zicbom/Svpbmt present, `swiotlb` in use). The eMMC has never been written
+(first 256 bytes zero). Today `virtioblkd` is the single owner of the ONE GPT disk (ADR-0044)
+over `storage-virtio-blk`; `BlockDevice` is the seam.
 
 ## Goal
 
-Deliver on host:
-
-1. **Virtio-blk frontend library** (`userspace/libs/virtio-blk/` or `source/drivers/storage/virtio-blk/`):
-   - virtio-mmio blk frontend (legacy virtio 0.9/modern common subset)
-   - read-only feature bit negotiation
-   - queue setup (q=0): allocate descriptor/ring buffers
-   - `read(lba, count)` → bounded to 128 KiB per call
-   - `info()` → returns sector count/size
-   - deterministic ring math (wrap-around handling)
-2. **Packagefs image builder** (`tools/mk-pkgfs-img/`):
-   - builds raw image from `pkg://fixtures/**` (existing packagefs files)
-   - simple block layout expected by packagefs
-   - deterministic order, fixed mtimes/ownership, sector-aligned
-   - produces `build/pkgfs.img` used by runner
-3. **Host tests** proving:
-   - virtio ring math: descriptor/avail/used ring wrap-around with fake MMIO backend
-   - packagefs image reader: build tiny image via `mk-pkgfs-img` with two files; read via vblk shim → hashes match
+`source/drivers/storage/sdhci` — a `BlockDevice` implementation over `nexus_hal::Bus` for the
+SoC's SDHCI hosts (standard SDHCI register set + the SoC's vendor extras from the mainline
+driver documentation): controller reset, clock via `nexus-soc`, card init (eMMC: CMD1/CMD2/CMD3,
+ext-CSD, HS200/HS400 as the second step, HS at 52 MHz first), ADMA2 descriptor rings, IRQ
+completion (`irq_bind`), bounded retries, `test_reject_*` for CRC/timeout/short-transfer
+paths on a host mock. `virtioblkd` → **`blkd`** (ADR-0067): one service, backend chosen by the
+FDT node init grants (`virtio,mmio` `device_id 2` or `spacemit,k1-x-sdhci`), same GPT parse,
+same `blockproto`, same deny-by-default identity check; topology slot + policy class
+(`device.mmio.blk` on QEMU, `device.mmio.mmc` on the board) + markers renamed with a gate
+against the old name.
 
 ## Non-Goals
 
-- OS/QEMU integration (deferred to v1.1b).
-- Write support (read-only for packagefs only).
-- Full virtio spec compliance (minimal subset only).
+SD card hot-plug, SDIO (TASK-0248 uses this host driver as a client), NVMe, the eMMC's
+hardware boot partitions/RPMB, write-back caching above the driver, performance tuning
+(TASK-0317's bench gate).
 
-## Constraints / invariants (hard requirements)
+## End state (binding)
 
-- **No duplicate virtio-blk authority**: This task provides a reusable virtio-blk frontend library. `TASK-0009` will use it for statefs (read-write), while this task focuses on packagefs (read-only).
-- **Determinism**: virtio ring math, image building, and reading must be stable given the same inputs.
-- **Bounded resources**: image building is size-bounded; read operations are bounded (128 KiB per call).
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- `blkd: backend=spacemit,k1-x-sdhci bus=8bit mode=hs400 sectors=…` on the board,
+  `blkd: backend=virtio,mmio …` on QEMU; `packagefs: mounted` follows on both.
+- `DmaBuffer` (nexus-hal) gains cache maintenance: `for_device(range)` / `for_cpu(range)` —
+  Zicbom `cbo.clean`/`cbo.inval` on hardware, no-ops on QEMU (coherent), selected by the
+  node's `dma-coherent` absence (RFC-0098 C4). ADMA descriptors live in `contiguous-DMA` VMOs
+  from TASK-0286.
+- A QEMU profile with `-device sdhci-pci -device sd-card,drive=…` (or `generic-sdhci`) runs the
+  full block ladder over the new backend, so the driver is proven before the board: `ci-os-sdhci`.
+- `virtioblkd` does not exist any more (crate, service name, markers, slots); `just check`
+  fails on the old name.
+
+## Packages
+
+- **P0** — this recut; register map table from the mainline driver docs; the QEMU sdhci
+  profile designed.
+- **P1 Driver core** — host mock tests (command state machine, ADMA rings, error paths).
+- **P2 `blkd`** — rename + backend selection + policy/slots/markers + old-name gate; QEMU
+  virtio lanes green under the new name.
+- **P3 QEMU sdhci profile** — `ci-os-sdhci` mounts the system volume over SDHCI.
+- **P4 Board** — eMMC up on the serial console (needs B1.6's boot chain to run anything), GPT
+  read, `packagefs: mounted`.
+
+## Constraints / invariants
+
+- One owner of the disk (ADR-0044/0067); no second block service.
+- No `unwrap` on device data (ext-CSD, CID, responses are untrusted-shape input).
+- Every DMA transfer is bracketed by the coherence hooks; a missing hook is a test failure on
+  the mock (the mock tracks dirty ranges).
 
 ## Red flags / decision points
 
-- **YELLOW (virtio-blk vs TASK-0009)**:
-  - `TASK-0009` already plans virtio-blk for statefs. This task should provide a reusable library that both packagefs and statefs can use. Document the relationship explicitly.
+- **RED (R4, measured):** DMA is non-coherent on the board — the hooks are not optional and
+  land in P1, before any board run.
+- **YELLOW:** HS400 needs tuning + enhanced strobe; the ledger starts at HS (52 MHz) and adds
+  HS200/HS400 as a measured step (throughput number in the log) rather than a first-boot risk.
+- **GREEN:** the trait boundary is already clean; every consumer above `BlockDevice` is
+  untouched by the rename.
 
-## Production-grade gate note
+## Definition of Done
 
-This task closes the **host-first block/image-builder floor** for bring-up, but it is not yet the full
-release-grade provisioning or trusted-boot path.
-
-- `TASK-0260` carries deterministic provisioning/recovery and flash protocol closure.
-- `TASK-0289` is still needed for verified-boot and rollback-protected image trust.
-
-## Contract sources (single source of truth)
-
-- Testing contract: `scripts/qemu-test.sh`
-- Persistence baseline: `TASK-0009` (virtio-blk for statefs)
-- Device MMIO access: `TASK-0010` (prerequisite for userspace virtio)
-
-## Stop conditions (Definition of Done)
-
-### Proof (Host) — required
-
-`cargo test -p bringup_rv_virt_v1_1_host` green (new):
-
-- virtio ring math: descriptor/avail/used ring wrap-around with fake MMIO backend
-- packagefs image reader: build tiny image via `mk-pkgfs-img` with two files; read via vblk shim → hashes match
-
-## Touched paths (allowlist)
-
-- `userspace/libs/virtio-blk/` (new; or extend `source/drivers/storage/virtio-blk/`)
-- `tools/mk-pkgfs-img/` (new)
-- `tests/bringup_rv_virt_v1_1_host/` (new)
-- `docs/storage/virtio_blk.md` (new, host-first sections)
-
-## Plan (small PRs)
-
-1. **Virtio-blk frontend library**
-   - virtio-mmio blk frontend (read-only)
-   - ring math (descriptor/avail/used)
-   - host tests
-
-2. **Packagefs image builder**
-   - image builder tool
-   - deterministic layout
-   - host tests
-
-3. **Docs**
-   - host-first docs
-
-## Acceptance criteria (behavioral)
-
-- Virtio-blk frontend library handles ring math correctly.
-- Packagefs image builder produces deterministic images.
-- Host tests pass.
+Host tests (incl. `test_reject_*`); `ci-os-sdhci` + all existing lanes green under `blkd`;
+board serial shows the two markers; old-name gate; docs (ADR-0067 Accepted, RFC-0098 Phase 3
+✅, `docs/architecture` storage page, CHANGELOG).

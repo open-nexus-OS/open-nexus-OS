@@ -1,0 +1,80 @@
+                                 enable  prepare  protect                                duty  hardware                            connection
+   clock                          count    count    count        rate   accuracy phase  cycle    enable   consumer                         id
+---------------------------------------------------------------------------------------------------------------------------------------------
+ dpll2                               0       0        0        3200000000  0          0     50000      Y   deviceless                      no_connection_id         
+    dfc_lvl5                         0       0        0        1600000000  0          0     50000      Y      deviceless                      no_connection_id         
+    dfc_lvl3                         0       0        0        1066666667  0          0     50000      Y      deviceless                      no_connection_id         
+ dpll1                               0       0        0        2400000000  0          0     50000      Y   deviceless                      no_connection_id         
+    dfc_lvl7                         0       0        0        2400000000  0          0     50000      Y      deviceless                      no_connection_id         
+    dfc_lvl6                         0       0        0        2400000000  0          0     50000      Y      deviceless                      no_connection_id         
+       ddr                           0       0        0        2400000000  0          0     50000      Y         deviceless                      no_connection_id         
+    dfc_lvl4                         0       0        0        1200000000  0          0     50000      Y      deviceless                      no_connection_id         
+    dfc_lvl2                         0       0        0        800000000   0          0     50000      Y      deviceless                      no_connection_id         
+    dfc_lvl1                         0       0        0        600000000   0          0     50000      Y      deviceless                      no_connection_id         
+    dfc_lvl0                         0       0        0        600000000   0          0     50000      Y      deviceless                      no_connection_id         
+ rir_clk                             0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ rcan_bus_clk                        0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ slow_uart                           2       4        0        0           0          0     50000      Y   d4017100.uart                   gate                     
+                                                                                                           d4017000.serial                 gate                     
+                                                                                                           deviceless                      no_connection_id         
+ emac1_bus_clk                       1       1        0        0           0          0     50000      Y   cac81000.ethernet               emac-clk                 
+                                                                                                           deviceless                      no_connection_id         
+ emac0_bus_clk                       1       1        0        0           0          0     50000      Y   cac80000.ethernet               emac-clk                 
+                                                                                                           deviceless                      no_connection_id         
+ pcie2_clk                           1       1        0        0           0          0     50000      Y   pcie@ca800000                   no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ pcie1_clk                           1       1        0        0           0          0     50000      Y   pcie@ca400000                   no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ pcie0_clk                           0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ dma_clk                             2       2        0        0           0          0     50000      Y   d4000000.pdma                   no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ qspi_bus_clk                        1       2        0        0           0          0     50000      Y   d420c000.spi                    qspi_bus_clk             
+                                                                                                           spi@d420c000                    no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ usb30_clk                           2       2        0        0           0          0     50000      Y   d4282bc8.usb3                   usbdrd30                 
+                                                                                                           c0a30000.usb2phy                no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ usb_axi_clk                         2       2        0        0           0          0     50000      Y   mv-udc                          no_connection_id         
+                                                                                                           c0940000.usbphy                 no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ usb_p1_aclk                         2       2        0        0           0          0     50000      Y   mv-ehci1                        no_connection_id         
+                                                                                                           c09c0000.usbphy1                no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ sdh_axi_aclk                        3       3        0        0           0          0     50000      Y   d4281000.sdh                    sdh-core                 
+                                                                                                           d4280800.sdh                    sdh-core                 
+                                                                                                           d4280000.sdh                    sdh-core                 
+                                                                                                           deviceless                      no_connection_id         
+ dpu_spi_aclk                        0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ dpu_spi_bus_clk                     0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ dpu_spi_hbus_clk                    0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ dpu_hclk                            0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ jpg_2kafbc_clk                      0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ jpg_4kafbc_clk                      0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ ripc_clk                            0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ can0_bus_clk                        0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ ipc_ap2aud_clk                      1       1        0        0           0          0     50000      Y   mailbox@d4013400                no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ tsen_clk                            1       1        0        0           0          0     50000      Y   d4018000.thermal                no_connection_id         
+                                                                                                           deviceless                      no_connection_id         
+ ir_clk                              0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ dro_clk                             0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ onewire_clk                         0       0        0        0           0          0     50000      N   deviceless                      no_connection_id         
+ pll3                                3       3        0        3200000000  0          0     50000      Y   deviceless                      no_connection_id         
+    pll3_d8                          0       0        0        400000000   0          0     50000      N      deviceless                      no_connection_id         
+       pll3_20                       0       0        0        20000000    0          0     50000      Y         deviceless                      no_connection_id         
+          rcan_clk                   0       0        0        20000000    0          0     50000      N            deviceless                      no_connection_id         
+          can0_clk                   0       0        0        20000000    0          0     50000      N            deviceless                      no_connection_id         
+       pll3_40                       0       0        0        40000000    0          0     50000      Y         deviceless                      no_connection_id         
+       pll3_80                       0       0        0        80000000    0          0     50000      Y         deviceless                      no_connection_id         
+    pll3_d7                          0       0        0        457142857   0          0     50000      N      deviceless                      no_connection_id         
+    pll3_d6                          0       0        0        533333333   0          0     50000      N      deviceless                      no_connection_id         
+    pll3_d5                          0       0        0        640000000   0          0     50000      N      deviceless                      no_connection_id         
+    pll3_d4                          0       0        0        800000000   0          0     50000      N      deviceless                      no_connection_id         
+    pll3_d3                          1       1        0        1066666666  0          0     50000      Y      deviceless                      no_connection_id         
+    pll3_d2                          1       1        0        1600000000  0          0     50000      Y      deviceless                      no_connection_id         
+       cpu_c1_hi_clk                 0       0        0        1600000000  0          0     50000      Y         deviceless                      no_connection_id         
+          cpu_c1_pclk                0       0        0        1600000000  0          0     50000      Y            cpu0                            cls1                     
+                                                                                                                    deviceless                      no_connection_id         
+             cpu_c1_ace_clk          0       0        0        800000000   0          0     50000      Y               deviceless                      no_connection_id         
+       cpu_c0_hi_clk                 0       0        0        1600000000  0          0     50000      Y         deviceless                      no_connection_id         
+          cpu_c0_core_clk            0       0        0        1600000000  0          0     50000      Y            cpu0                            cls0                     

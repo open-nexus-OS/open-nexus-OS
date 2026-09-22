@@ -1,112 +1,78 @@
 ---
-title: TASK-0250 Display v1.0a (host-first): simplefb compositor backend + premultiplied alpha + dirty rects + deterministic tests
-status: Draft
-owner: @ui
+title: TASK-0250 Display v1.0a (host-first): the display-controller scanout contract — a `GfxBackend` implementation for a planes-and-timings controller, EDID mode selection, host-tested
+status: Draft (recut 2026-09-22 to the end state — Block 1 B1.7 host half of the hardware fast track; was "simplefb compositor backend + premultiplied alpha + dirty rects", Draft since 2025-12-29)
+owner: @ui @runtime
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+updated: 2026-09-22
+depends-on:
+  - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
+follow-up-tasks:
+  - tasks/TASK-0251-display-v1_0b-os-fbdevd-windowd-integration-cursor-selftests.md
 links:
-  - Vision: docs/architecture/vision.md
+  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C7, Phase 5)
+  - The seam: userspace/nexus-gfx/src/backend/traits.rs (`GfxBackend`), backend/cpu_mock.rs (template); gpud backends source/drivers/gpud/src/backend/ (`attach.rs`, `present.rs`, `scanout_policy.rs`, `display_mode.rs`)
+  - Boundary that stays: docs/rfcs/RFC-0067-* (windowd = single present authority), docs/rfcs/RFC-0093-* (handoff), docs/adr/0062-*
+  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Display"), `edid-hdmi.bin`
   - Playbook: CLAUDE.md
-  - Renderer abstraction baseline: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Windowd compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## History
 
-We need real framebuffer output for Display v1.0:
+Seeded 2025-12-29 as a "simplefb" compositor backend (a bootloader-provided framebuffer).
+Recut 2026-09-22: there is no bootloader framebuffer in our chain (ADR-0066 — U-Boot's splash
+`framebuffer@7f000000` belongs to the vendor chain), so the first picture IS the display
+controller driver; this ledger is its host-testable half.
 
-- simplefb compositor backend (ARGB8888),
-- premultiplied alpha blending,
-- dirty rect accumulation,
-- deterministic host tests.
+## Context (measured 2026-09-22)
 
-The prompt proposes a simplefb backend for windowd compositor. `TASK-0055` and `TASK-0170` already plan windowd compositor with VMO buffers and headless present. This task delivers the **host-first core** (simplefb backend, premultiplied alpha, dirty rects) that extends the renderer abstraction to support real framebuffer output.
+The SoC display path: `display-subsystem-hdmi` (`spacemit,saturn-hdmi`, `0xc044_0000`, 0x2a000)
+with the pipeline `spacemit,dpu-online2` (IRQs ONLINE 139 / OFFLINE 138), encoder
+`spacemit,hdmi` (`0xc040_0500`, 0x200, IRQ 136, clock `hmclk`, reset `hdmi_reset`, power
+domain 7), `dpu_reserved` 768 KiB. The desk monitor reports a preferred 2560×1440@59.95 EDID;
+the vendor driver selects 1920×1080@60 (the SoC's HDMI ceiling), 8 bpc. gpud today has two
+backends behind `GfxBackend` (`mmio` scanout, `virgl`), both virtio; the display mode comes
+from fw_cfg (RFC-0074).
 
 ## Goal
 
-Deliver on host:
-
-1. **Simplefb compositor backend** (`userspace/libs/renderer/backend_fb.rs`):
-   - writes premultiplied-alpha ARGB8888 into a mapped buffer
-   - dirty-rect accumulation per frame; union calculation
-   - deterministic blending (premultiplied alpha pipeline)
-   - sRGB assumption (HDR as TODO)
-2. **Color operations library** (`userspace/libs/color/`):
-   - premultiplied-alpha blend math
-   - ARGB8888 format handling
-   - deterministic color space conversions
-3. **Dirty rect union**:
-   - given N rects, compute union result deterministically
-   - bounded accumulation (cap max rects per frame)
-4. **Host tests** proving:
-   - color ops: validate premultiplied-alpha blend math on small test tiles (golden hashes)
-   - dirty union: given N rects, union result equals expected
-   - vsync pace: simulated vsync produces deterministic sequences
+The scanout contract for a real display controller, as pure host-tested code:
+- `nexus-gfx` backend `dc` (`userspace/nexus-gfx/src/backend/dc/`): a `GfxBackend` whose
+  `set_scanout`/`transfer_to_host`/`move_cursor` map onto a planes-and-timings controller model
+  — primary plane (BGRA8888, stride, contiguous-DMA framebuffer), cursor plane, a mode
+  (timings from EDID), damage → plane flush, vblank/ONLINE interrupt as the present fence —
+  with a register-writer trait the OS half fills (TASK-0251) and a host mock that records the
+  register sequence (goldens).
+- `edid.rs` (`userspace/nexus-gfx` or a small `nexus-edid` crate): bounded EDID 1.4 parser —
+  detailed timings, established/standard timings, extension blocks (CEA-861 short video
+  descriptors), `pick_mode(caps)` = highest mode within the controller's limits; goldens
+  include the desk monitor's `edid-hdmi.bin` (→ 1920×1080@60 given the 1080p60 ceiling) and
+  QEMU's virtio display-info path expressed through the same `DisplayMode` type.
+- `scanout_policy.rs` in gpud gets its third arm: `Dc` next to `Gl` and `VirtioNonGl`.
 
 ## Non-Goals
 
-- OS/QEMU framebuffer mapping (deferred to v1.0b).
-- Real hardware (QEMU simplefb only).
-- HDR support (sRGB only).
+The register-level driver (TASK-0251), MIPI-DSI, HDMI audio, HDCP, multiple outputs, hotplug
+beyond a boot-time detect, any composition on the controller beyond two planes.
 
-## Constraints / invariants (hard requirements)
+## Packages
 
-- **No duplicate renderer backend**: This task extends the renderer abstraction from `TASK-0169` with a simplefb backend. Do not create a parallel rendering system.
-- **Determinism**: premultiplied alpha blending, dirty rect union, and vsync pacing must be stable given the same inputs.
-- **Bounded resources**: dirty rect accumulation is bounded; color operations are deterministic.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- **P0** — this recut; the controller model derived from the mainline driver documentation
+  (which registers make a plane, a mode, a flush); EDID goldens captured.
+- **P1 EDID** — parser + `pick_mode`, `test_reject_*` (bad checksum, truncated, extension
+  overflow).
+- **P2 `dc` backend model** — plane/mode/flush over the register-writer trait, host goldens of
+  the register sequence for a 1080p60 bring-up and a damage flush.
+- **P3 policy arm + windowd contract check** — `scanout_policy` third arm; the RFC-0093
+  handshake unchanged (windowd never learns the backend).
 
-## Red flags / decision points
+## Constraints / invariants
 
-- **YELLOW (premultiplied alpha vs straight alpha)**:
-  - Premultiplied alpha is standard for compositing. Document the choice explicitly and ensure all blending uses premultiplied alpha consistently.
+- windowd stays the single present authority; gpud composes into the scanout framebuffer as
+  today (`attach_external_framebuffer` + `present_scanout_damage`); the `dc` backend only
+  scans out and flushes.
+- No `unwrap` on EDID bytes (untrusted-shape input from the monitor).
 
-## Contract sources (single source of truth)
+## Definition of Done
 
-- Testing contract: `scripts/qemu-test.sh`
-- Renderer abstraction: `TASK-0169` (Scene-IR + Backend trait)
-- Windowd compositor: `TASK-0055` (surfaces/layers IPC + vsync)
-
-## Stop conditions (Definition of Done)
-
-### Proof (Host) — required
-
-`cargo test -p display_simplefb_v1_0_host` green (new):
-
-- color ops: validate premultiplied-alpha blend math on small test tiles (golden hashes)
-- dirty union: given N rects, union result equals expected
-- vsync pace: simulated vsync produces deterministic sequences
-
-## Touched paths (allowlist)
-
-- `userspace/libs/renderer/backend_fb.rs` (new; simplefb backend)
-- `userspace/libs/color/` (new; premultiplied alpha)
-- `tests/display_simplefb_v1_0_host/` (new)
-- `docs/display/simplefb_v1_0.md` (new, host-first sections)
-
-## Plan (small PRs)
-
-1. **Color operations + premultiplied alpha**
-   - premultiplied-alpha blend math
-   - ARGB8888 format handling
-   - host tests
-
-2. **Dirty rect union**
-   - union calculation
-   - bounded accumulation
-   - host tests
-
-3. **Simplefb backend stub**
-   - backend trait implementation
-   - host tests (with fake buffer)
-
-4. **Docs**
-   - host-first docs
-
-## Acceptance criteria (behavioral)
-
-- Premultiplied-alpha blend math works correctly.
-- Dirty rect union calculation is correct.
-- Simplefb backend integrates with renderer abstraction.
+Host tests + goldens green; the EDID picks 1080p60 for the desk monitor and QEMU's mode for
+virt; the policy arm compiled and gated; RFC-0098 Phase 5 host half ✅.

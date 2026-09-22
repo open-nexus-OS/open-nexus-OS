@@ -1,14 +1,15 @@
 ---
 title: TASK-0260 Provisioning v1.0a (host-first): nx image — deterministic GPT disk assembler + NXBD signer + factory BSB + OTA-container emission (flasher/factory-reset = residual)
 status: In Progress
-note: image-builder scope (the OTA-lane package) DELIVERED 2026-08-25; the ledger stays open for the residual flasher protocol + factory reset (executes with TASK-0261)
+note: image-builder scope (the OTA-lane package) DELIVERED 2026-08-25. RECUT 2026-09-22 (Block 1 B1.6 of the hardware fast track): the residual "flasher protocol" is answered — fastboot over the boot-ROM download mode IS the protocol (TASK-0327) — and the residual becomes the boot-ROM head partitions in `nx image`; factory reset stays residual; the nxboot-as-FIT-payload half is TASK-0260B
 owner: @reliability
 created: 2025-12-29
-updated: 2026-08-25
+updated: 2026-09-22
 depends-on: []
 follow-up-tasks:
   - TASK-0315
   - TASK-0289
+  - tasks/TASK-0260B-nxboot-as-fit-payload-chosen-node.md
 links:
   - Contract: docs/rfcs/RFC-0089-ota-v2-component-manifest-ab-boot-images-nxboot-bsb.md (§2 layout, §5 NXBD, §6 BSB)
   - BSB factory role: docs/adr/0058-boot-selection-block-dual-actor-discipline.md
@@ -56,6 +57,36 @@ Evidence (`cargo test -p nx --test image_cli` — 6 integration tests;
   shared gpt.rs doctrine — nothing boots via MBR; nxboot parses GPT
   directly), so RFC-0089 §2's "protective MBR" line is amended by this
   ledger: the GPT-only form IS the contract.
+
+## RECUT 2026-09-22 — the residual on hardware (Block 1 B1.6; ADR-0066, ADR-0067, RFC-0098 C5/C6)
+
+Measured 2026-09-21/22 on the reference board (`docs/board/bpi-f3.md`, `docs/board/measurements/
+2026-09-22-stock-system/README.md`): the boot ROM reads an 80-byte `bootinfo` header at offset 0
+of the medium, the SPL from `fsbl` (128 KiB, 256 KiB), OpenSBI's FIT from `opensbi` (1 MiB) and
+the payload FIT from `uboot` (2 MiB, 2 MiB); the vendor's flasher is plain fastboot
+(`fastboot flash <partition> <file>` from a U-Boot staged into RAM), which `scripts/board-flash.sh`
+already speaks. So:
+
+- **The flasher protocol residual is closed by decision**: no `nx flash send|verify` ↔ `flashd`
+  framing; fastboot over the boot-ROM download mode is THE protocol (TASK-0327 T2 measured it),
+  and the device-side flashd of TASK-0261 becomes a recovery-target fastboot gadget later.
+- **The residual that stays here**: `nx image` emits the board's boot-ROM head in the SAME
+  image it builds for QEMU — `bootinfo` (the vendor header, pinned), `fsbl` (the pinned SPL),
+  `env` (empty placeholder, no U-Boot), `opensbi` (the pinned `fw_dynamic.itb`), the FIT slot
+  (TASK-0260B builds its content) — as partitions of the layout SSOT
+  (`userspace/storage/src/layout.rs`, ADR-0067), followed by `bsb`, `boot-a/b`, `system-a/b`,
+  `state`, `data` (+ `swap`, reserved for M7). `scripts/board-flash.sh` learns the partition
+  list from that SSOT (one `fastboot flash` per named partition), and the "vendor boot vehicle"
+  wording in its banner dies with it.
+- **Factory reset** stays residual (executes with the recovery target).
+
+Packages: **P1** layout SSOT head partitions + `nx image` emission (host-tested GPT goldens:
+the head at the vendor offsets, our volumes after it; `sgdisk` verifies the built image);
+**P2** `board-flash.sh` from the SSOT + the eMMC written on the desk board
+(`fastboot flash` per partition, `partition-size:*` answers afterwards — today they fail on the
+empty eMMC); **P3** with TASK-0260B: the board boots the image (`nxboot: slot a` on serial).
+Gate: `contract-image-layout` extended to the head; the board reads its GPT back
+(`sgdisk -p` over `blkd` later, `fastboot getvar partition-size:boot-a` now).
 
 ## REWRITE 2026-08-25 (RFC-0089 lane recut — supersedes the pre-rewrite image-builder scope)
 

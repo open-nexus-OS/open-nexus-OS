@@ -1,6 +1,6 @@
 ---
 title: TASK-0284 Userspace driver optimization v1: ownership-based DMA buffer prototype (zero-copy)
-status: Draft
+status: Draft — ABSORBED 2026-09-22 into tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md (M1: the `contiguous-DMA` VMO kind + `DmaBuffer` coherence hooks); this ledger is closed by that package
 owner: @runtime @drivers
 created: 2026-01-09
 depends-on: []

@@ -1,132 +1,107 @@
 ---
-title: TASK-0286 Kernel memory accounting v1: per-task RSS counters + pressure snapshots + trusted query ABI
-status: Draft
-owner: @runtime @kernel-team
+title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
+status: Draft (recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+owner: @kernel-team @runtime
 created: 2026-04-13
+updated: 2026-09-22
 depends-on:
-  - TASK-0228
-  - TASK-0269
+  - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
+  - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
 follow-up-tasks:
-  - TASK-0287
+  - tasks/TASK-0286B (M2, seeded at its P0): demand paging + CoW fault path
+  - tasks/TASK-0286C (M3, seeded at its P0): page cache + shared read-only code
+  - tasks/TASK-0287-kernel-memory-pressure-v1-hard-limits-oom-handoff.md (M4)
 links:
-  - Vision: docs/architecture/vision.md
+  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C4, Phase 2); target picture M in tasks/IMPLEMENTATION-ORDER.md; RFC-0100 (memory object model v2, seeded at M2's P0)
+  - What this deletes: source/kernel/neuron/src/mm/mod.rs (`USER_VMO_ARENA_*`, `KERNEL_PAGE_POOL_*`), syscall/api/vmo_pool.rs (`VmoPool`)
+  - What stays: docs/rfcs/RFC-0085-kernel-owned-va-allocation.md (VA side), docs/rfcs/RFC-0080-* (`vmo_share_ro`), docs/adr/0054-*
+  - Absorbs: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md (the `contiguous-DMA` kind + `DmaBuffer` hooks)
+  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Memory", "DMA coherence")
   - Playbook: CLAUDE.md
-  - Boot/resource gates: docs/rfcs/RFC-0013-boot-gates-readiness-spawn-resource-v1.md
-  - OOM watchdog v1 (cooperative baseline): tasks/TASK-0228-oomd-v1-deterministic-watchdog-cooperative-memstat-samgr-kill.md
-  - Security introspection guardrails: tasks/TASK-0230-nx-sec-v1-cli-security-introspection-deny-tests-offline.md
-  - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## History
 
-`TASK-0228` is intentionally cooperative because there is no stable kernel RSS/accounting ABI today.
-That is good enough for bring-up, but it is not production-grade:
+Seeded 2026-04-13 as accounting counters + pressure snapshots (a release blocker on the board).
+Recut 2026-09-22: counters need something to count. The physical allocator is the first
+memory package of the hardware track and the foundation of every later M step; the counters
+this ledger promised ride along.
 
-- policy cannot honestly enforce RSS-style limits,
-- diagnostics cannot report true memory ownership,
-- and OOM handling remains partially blind.
+## Context (measured 2026-09-22)
 
-We need a small, explicit kernel accounting floor that gives true counters without turning the kernel
-into a procfs-style monitoring subsystem.
+Physical memory in the kernel is three compile-time windows on QEMU's `0x8000_0000`-based map
+(`USER_VMO_ARENA` 224 MiB at `0x8380_0000`, `KERNEL_PAGE_POOL` 24 MiB, `-m 320M`), carved by a
+bump + 16-slot free list (`VmoPool`); a VMO is a physical range + a capability, committed on
+create. The board has **4 GiB in two banks at physical 0 and 4 GiB** (`memory@0` 2 GiB,
+`memory@100000000` 2 GiB), reserved ranges below 6 MiB (OpenSBI, rcpu), and DMA masters that
+are not cache-coherent (Zicbom/Svpbmt in the ISA, `swiotlb` in the stock kernel). None of the
+windows can survive; relocating them by the FDT would be an interim.
 
 ## Goal
 
-Provide a kernel-owned memory accounting contract that reports bounded, deterministic per-task memory
-state to trusted readers:
-
-- resident bytes,
-- mapped bytes,
-- page-fault / reclaim-relevant counters that are actually available,
-- and global pressure snapshots suitable for OOM policy and diagnostics.
+A page-frame allocator owns every FDT memory bank minus reserved ranges and the kernel's own
+image (`mm/frames.rs`: buddy over 4 KiB frames with 2 MiB order support, per-bank, host-tested;
+`init_from_fdt(banks, reserved, kernel_range)`), and the VMO becomes a page-backed object
+(`mm/vmo.rs`: `VmoObject { pages: PageList, kind: Anon | ContiguousDma, len, owner }`) whose
+`vm_map` (RFC-0085) maps its pages; `VmoPool` and the fixed windows are deleted. `kind =
+ContiguousDma` is the only kind that allocates physically contiguous frames — for framebuffers,
+ADMA rings, USB rings, GPU buffers — and carries the coherence attribute (RFC-0098 C4: no
+`dma-coherent` on the node ⇒ `DmaBuffer::for_device/for_cpu` do Zicbom maintenance, or the
+mapping is Svpbmt non-cacheable). Accounting: per-address-space `frames_mapped`,
+`vmos_committed`, `dma_frames`, global `free`/`total` per bank; `KSELFTEST: mm frames
+(banks=… total=… free=…)` printed after bring-up; a trusted query (the existing sched/mem
+telemetry syscall shape) exposes the counters read-only to metricsd.
 
 ## Non-Goals
 
-- Full cgroups or hierarchical accounting.
-- Rich procfs/debugfs surfaces.
-- Wall-clock sampling loops.
-- Solving OOM enforcement by itself (that is `TASK-0287`).
+Demand paging, CoW, page cache, purgeable, pressure levels, compression, swap (M2–M7);
+NUMA; huge pages beyond the 2 MiB superpage promotion that already exists; changing the VA
+side (RFC-0085).
 
-## Constraints / invariants (hard requirements)
+## End state (binding)
 
-- **No fake precision**: if a counter is approximate, document the exact approximation.
-- **Bounded kernel work**: no unbounded global page-table walks for ordinary reads.
-- **Trusted readers only**: this ABI is for canonical system authorities, not ambient user queries.
-- **Deterministic outputs**: same workload -> same counters/markers within defined tolerances.
-- **Stable semantics**: do not overload existing fields or invent ad-hoc text reports.
+- `mm/mod.rs` has no address constant; `mm/frames.rs` + `mm/vmo.rs` replace `vmo_pool.rs`;
+  `sys_vmo_create` takes a kind; `vmo_share_ro`, `vm_map/unmap`, `vmo_read/write`, `exec`'s
+  image allocation (still a copy until M3) run over page lists.
+- Idle zeroing (`idle_zero_step`) becomes zeroing of freed frames into a zeroed pool;
+  exhaustion is an event (`MM: frames exhausted (want=… free=…)`, RFC-0087) — never silent.
+- `-m` is no longer pinned to 320M in the launcher; a `-m 1G` and a `-m 256M` QEMU boot both
+  pass the smp1 ladder (the allocator sizes itself from the tree).
+- Gate `scripts/check-no-fixed-windows.sh` (no `USER_VMO_ARENA`, `KERNEL_PAGE_POOL`, `VmoPool`
+  identifiers) in `just check`.
 
-## Red flags / decision points (track explicitly)
+## Packages
 
-- **RED (shared mapping attribution)**:
-  - pick one explicit charging rule for shared VMOs/mappings; do not let different readers infer different totals.
-- **YELLOW (counter surface)**:
-  - keep v1 minimal; every extra counter adds maintenance and proof burden.
-- **GREEN (scope)**:
-  - per-task + global snapshot is enough for production-grade closure v1; no general-purpose procfs required.
+- **P0** — this recut; measured map above; RFC-0100 seed deferred to M2 (this package changes
+  no object semantics visible to userspace).
+- **P1 Frame allocator** — host-tested buddy per bank; `init_from_fdt`; counters.
+- **P2 Page-backed VMO** — `VmoObject` + page lists; every syscall path moved; `VmoPool`
+  deleted; QEMU smp1/visible green; two `-m` sizes proven.
+- **P3 `contiguous-DMA` + coherence hooks** — the kind, `DmaBuffer::for_device/for_cpu`
+  (no-op on QEMU), gpud's framebuffer and virtio rings moved onto it (absorbs TASK-0284).
+- **P4 Telemetry** — `KSELFTEST: mm frames (…)` marker registered; read-only query to
+  metricsd; `docs/architecture/kernel-memory.md` rewritten.
 
-## Security considerations
+## Constraints / invariants
 
-### Threat model
-- Untrusted tasks learning too much about other tasks' memory state.
-- Spoofed userspace memory reports overriding kernel truth.
-- Expensive query paths becoming a DoS surface.
+- RFC-0085's VA rules unchanged (RECORD-THEN-MAP, CLEAR-SHOOTDOWN-FORGET).
+- Every frame has one owner (a VMO or the kernel); double free is a kernel assertion in debug
+  and an event in release.
+- Determinism: the allocator's order of frames for a given tree is stable (the smp1 lane
+  depends on it).
+- BKL budgets hold (`KSELFTEST: bkl budget ok`); the allocator's hot path is O(log n).
 
-### Security invariants (MUST hold)
-- Kernel accounting is the source of truth when exposed through this ABI.
-- Only trusted/system-authorized readers may query per-task accounting.
-- Query cost is bounded and does not require scanning unrelated tasks on every request.
+## Red flags / decision points
 
-### DON'T DO (explicit prohibitions)
-- DON'T expose unrestricted per-task memory queries to arbitrary apps.
-- DON'T claim counters are exact RSS if shared mappings are only approximately charged.
-- DON'T add debug-only bypasses that change accounting semantics in release builds.
+- **RED:** `exec` still copies code per process until M3; with 4 GiB this is not a blocker for
+  the first picture but the RSS number (R10) is measured here for M3's gate.
+- **YELLOW:** superpage promotion (`vm_ops.rs`) assumes physically contiguous ranges — page
+  lists must expose runs so promotion survives; a test pins it.
+- **GREEN (measured):** two banks with a 2 GiB hole — the per-bank design is forced, not
+  chosen.
 
-## Contract sources (single source of truth)
+## Definition of Done
 
-- QEMU marker contract: `scripts/qemu-test.sh`
-- Kernel task/resource truth: `TASK-0269`
-- Cooperative OOM baseline and limitations: `TASK-0228`
-
-## Stop conditions (Definition of Done)
-
-- **Proof (Host)**:
-  - kernel/unit tests prove:
-    - map/unmap/fault accounting updates deterministically,
-    - shared-mapping charging follows one documented rule,
-    - unauthorized readers are rejected.
-- **Proof (OS/QEMU)**:
-  - `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=180s ./scripts/qemu-test.sh`
-  - required markers:
-    - `neuron: memacct on`
-    - `KSELFTEST: memacct rss ok`
-    - `KSELFTEST: memacct query deny ok`
-    - `SELFTEST: oomd rss query ok`
-
-## Touched paths (allowlist)
-
-- `source/kernel/neuron/src/mm/`
-- `source/kernel/neuron/src/task/`
-- `source/kernel/neuron/src/syscall/`
-- `source/libs/nexus-abi/`
-- `source/services/oomd/`
-- `source/apps/selftest-client/`
-- `docs/architecture/01-neuron-kernel.md`
-- `docs/reliability/`
-- `scripts/qemu-test.sh`
-
-## Plan (small PRs)
-
-1. Define the minimal accounting model and ABI shape.
-2. Wire map/unmap/fault-side counter maintenance with host tests.
-3. Add trusted query path and reject-path tests.
-4. Integrate `oomd`/diagnostics reader and QEMU selftests.
-
-## Acceptance criteria (behavioral)
-
-- Trusted system code can read real kernel memory counters for a task.
-- Unauthorized queries fail deterministically.
-- The repo no longer has to pretend cooperative memstat is kernel RSS.
-
-## Evidence (to paste into PR)
-
-- QEMU: marker excerpt showing memory-accounting enablement and deny/selftest markers.
-- Tests: exact kernel/unit test summary for accounting and reject paths.
+Host tests; `just test-all` green with no fixed window; two `-m` sizes boot; the marker on
+QEMU and (via B1.6) on the board's serial; the gate in `just check`; docs + CHANGELOG;
+TASK-0284 closed as absorbed.

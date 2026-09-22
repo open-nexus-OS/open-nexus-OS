@@ -1,139 +1,108 @@
 ---
-title: TASK-0244 Hardware Bring-up (RISC-V virt) v1.0a (host-first): DTB parser + SBI shim + deterministic tests
-status: Draft
-owner: @kernel
+title: TASK-0244 Board support v1a (host-first): `nexus-fdt` — the flattened device tree is the one hardware truth
+status: Draft (recut 2026-09-22 to the end state — Block 1 B1.1 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0a: DTB parser + SBI shim", Draft since 2025-12-29 with no code)
+owner: @kernel-team @runtime
 created: 2025-12-29
+updated: 2026-09-22
 depends-on: []
-follow-up-tasks: []
+follow-up-tasks:
+  - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
 links:
-  - Vision: docs/architecture/vision.md
+  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C1–C3, Phase 0)
+  - Execution order: tasks/IMPLEMENTATION-ORDER.md (Block 1)
+  - Measurement this is built on: docs/board/measurements/2026-09-22-stock-system/README.md
+  - Board page: docs/board/bpi-f3.md
+  - Consumers: source/boot/nxboot (a1 pass-through + `/chosen`), source/kernel/neuron/src/core/kmain.rs, source/init/nexus-init/src/bootstrap/helpers.rs (device discovery)
   - Playbook: CLAUDE.md
-  - Testing contract: scripts/qemu-test.sh
 ---
+
+## History
+
+Seeded 2025-12-29 as a QEMU-virt DTB parser + SBI shim with deterministic host tests; never
+started. Recut 2026-09-22: the parser is the same idea, but its purpose is now the whole
+platform — on QEMU and on the reference board — and the "SBI shim" half is dropped (the kernel
+already talks SBI directly; Sstc/SBI timer selection is TASK-0245's).
 
 ## Context
 
-We need hardware bring-up for RISC-V `virt` machine:
-
-- DTB (Device Tree Blob) parsing to discover base addresses/timebase,
-- SBI (Supervisor Binary Interface) shim for time/timer operations,
-- deterministic host tests.
-
-The prompt proposes DTB skeleton and SBI shim. This task delivers the **host-first core** (DTB parser, SBI shim, tests) before OS/QEMU kernel integration.
+Nothing in the tree parses a device tree; nxboot passes `a1` through opaquely and every
+platform value is a QEMU-virt literal (RFC-0098 Context). The board's values were measured on
+2026-09-22 from the running stock system: PLIC `riscv,plic0` at `0xe000_0000` (`riscv,ndev`
+159, 16 contexts), UART `spacemit,pxa-uart` at `0xd401_7000`, `timebase-frequency` 24 MHz, 8
+harts in a `cpu-map` of two clusters, `riscv,isa-extensions` listing `sstc`/`zicbom`/`svpbmt`,
+two `memory@` banks (0–2 GiB, 4–6 GiB), a `reserved-memory` node, three `spacemit,k1-x-sdhci`
+hosts, `spacemit,dpu-online2`/`spacemit,hdmi`, `snps,dwc3`, `img,rgx`, two GMACs — 153 SoC
+nodes, of which Block 1 consumes about fifteen.
 
 ## Goal
 
-Deliver on host:
+`source/libs/nexus-fdt`: a `no_std`, `forbid(unsafe_code)`, allocation-free, bounded parser
+of the flattened device tree (v17 structure block, strings block, memory reservation block)
+with exactly the queries the consumers need:
 
-1. **DTB parser library** (`userspace/libs/dtb/` or `source/kernel/neuron/src/arch/riscv/dtb/`):
-   - parse DTB to extract:
-     - UART base address (default `0x10000000`, fallback if not in DTB)
-     - PLIC base address (default `0x0c000000`)
-     - timebase frequency (default `10000000`)
-     - hart count
-   - deterministic parsing (no host-specific behavior)
-   - error handling for malformed DTB
-2. **SBI shim library** (`source/kernel/neuron/src/arch/riscv/sbi/`):
-   - `sbi::time::set_timer(u64)` (delegates to SBI ecall)
-   - `sbi::time::get_time()` (delegates to SBI ecall, returns monotonic ns)
-   - `sbi::base::impl_id()` (returns OpenSBI implementation ID)
-   - deterministic error paths
-3. **Monotonic time conversion**:
-   - `nsec()` from SBI get_time() with DTB timebase
-   - stable conversion (no host locale leakage)
-4. **DTB skeleton** (`pkg://dts/virt-nexus.dts`):
-   - minimal, deterministic DTS describing:
-     - `cpus` (1 hart initially)
-     - `memory@80000000`
-     - `uart@10000000` (ns16550a, irq 10)
-     - `plic@0c000000` (irq domain)
-     - `virtio-mmio@10001000` (present but disabled for now)
-     - `/timebase-frequency = <10000000>;`
-   - build step: compile to `pkg://dts/virt-nexus.dtb` in image
-5. **Host tests** proving:
-   - DTB parser extracts expected values (UART/PLIC bases, timebase, hart count)
-   - SBI shim returns deterministic values (mocked calls)
-   - `nsec()` conversion correct
+- `memory_banks()` (every `/memory@*` `reg`), `reserved_ranges()` (`/reserved-memory` children
+  + the mem-reserve block), `cpus()` (hart ids, `timebase-frequency`, `riscv,isa-extensions`,
+  `mmu-type`, `cpu-map` cluster of each hart), `chosen()` (`stdout-path`, `bootargs`,
+  `nexus,*`);
+- `find_compatible(&[&str])` iterator yielding a node handle with `reg` (honouring
+  `#address-cells`/`#size-cells` of the parent and `ranges` of `/soc`), `interrupts` +
+  `interrupt-parent`, `clocks`/`clock-names`, `resets`, `power-domains`, `status`,
+  `dma-coherent`, and arbitrary `prop(name)` bytes/u32/u64/string;
+- `ChosenWriter`: in-place set of `/chosen/nexus,*` string/u64 properties using the headroom
+  nxboot reserves (grows `totalsize`; refuses without headroom) — nxboot's only write path.
+
+Host tests against two checked-in goldens: QEMU's dumped `virt` dtb (`-machine virt,dumpdtb=`)
+and `config/board/bpi-f3/board.dtb` compiled by `dtc` from OUR `board.dts` (written from the
+mainline SoC dts under its MIT option + the measured facts; never the vendor kernel's tree).
+`test_reject_*`: truncated tree, bad magic, string offset past the block, `reg` shorter than
+the cells, a `/chosen` write without headroom, cycles in `interrupt-parent`.
 
 ## Non-Goals
 
-- OS/QEMU kernel integration (deferred to v1.0b).
-- Full DTB spec compliance (minimal subset only).
-- Real hardware (QEMU `virt` only).
+Overlays, `/aliases`-based lookups beyond `stdout-path` resolution, phandle-to-node maps
+beyond what `interrupt-parent`/`clocks` need, a DTS writer, ACPI, runtime hot-plug.
 
-## Constraints / invariants (hard requirements)
+## End state (binding)
 
-- **Determinism**: DTB parsing, SBI calls, and time conversion must be stable given the same inputs.
-- **Bounded resources**: DTB parsing is size-bounded; SBI calls are deterministic.
-- **no_std compatibility**: DTB parser and SBI shim must work in no_std kernel context.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- One crate, `source/libs/nexus-fdt` (≤ 600 LOC per file; `parse.rs`, `node.rs`, `props.rs`,
+  `chosen.rs`), exported to nxboot and the kernel (both `no_std`), with the goldens under
+  `source/libs/nexus-fdt/tests/goldens/` and `config/board/bpi-f3/board.dts` as their source.
+- The kernel's platform (TASK-0245) and init's discovery consume only this crate; the grep
+  gate `scripts/check-no-platform-literals.sh` (owned by TASK-0245) is what makes "one truth"
+  enforceable.
+
+## Packages
+
+- **P0 Paper** — this recut; `board.dts` authored (MIT-derived, nodes: `/cpus` with cpu-map,
+  `/memory@*`, `/reserved-memory`, `/chosen`, `plic`, `clint` (documentary), `uart0`, the three
+  `sdh@`, `dpu`+`hdmi`, `dwc3`, `ehci`, `udc`, `gmac0/1`, `imggpu`, `clock-controller`,
+  `reset-controller`, `power-controller`, `rtc`, PMIC i2c) with the measured `reg`/`interrupts`.
+- **P1 Parser** — structure/strings walk, cells/ranges, the query API, goldens, `test_reject_*`.
+- **P2 Chosen writer** — in-place `/chosen/nexus,*` with headroom; round-trip test.
+- **P3 Consumers wired** — nxboot reads `a1` through the crate (and writes `/chosen` on QEMU
+  from fw_cfg, ADR-0066), the kernel parses it at `kmain` and prints
+  `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=…)` (asserted in every QEMU
+  profile; the board lane later).
+
+## Constraints / invariants
+
+- **No fake success**: the marker prints values READ from the tree, and the test compares them
+  with the golden's known values.
+- **Bounded parsing of trusted-but-checked input** (RFC-0098 Security): every offset/length
+  checked; no `unwrap`/`expect`; a malformed tree is a typed error.
+- No platform literal outside this crate's consumers (the gate lands with TASK-0245).
 
 ## Red flags / decision points
 
-- **YELLOW (DTB location)**:
-  - DTB pointer must be passed from bootloader/OpenSBI to kernel. Document the handoff mechanism explicitly.
+- **GREEN (measured 2026-09-22):** the board's tree is parseable by the same code as QEMU's
+  (both v17; `#address-cells 2`, `#size-cells 2`; `ranges` empty on `/soc`).
+- **YELLOW:** `/chosen` headroom — nxboot must reserve bytes at FIT build time
+  (`scripts/build-fit.sh` pads the dtb); the writer refuses otherwise (never relocates).
+- **GREEN:** license — `config/board/bpi-f3/board.dts` derives from the mainline SoC dts
+  (`GPL-2.0 OR MIT`) under MIT; the vendor kernel's dts is reference only.
 
-## Security considerations
+## Definition of Done
 
-### Threat model
-
-- **Malformed DTB**: crafted DTB causing parser out-of-bounds reads or unbounded work
-- **SBI shim misuse**: incorrect error handling or unsafe argument handling causing undefined behavior
-- **Information leakage**: logs accidentally exposing host-specific or non-deterministic values
-
-### Security invariants (MUST hold)
-
-- **Bounded parsing**: DTB parser is size-bounded and validates offsets/lengths before reading
-- **No panics on untrusted input**: malformed DTB yields deterministic errors (no `unwrap/expect`)
-- **Deterministic behavior**: host tests and parsing results are stable given the same DTB input
-
-### DON'T DO (explicit prohibitions)
-
-- DON'T parse DTB with unbounded recursion or unbounded allocation
-- DON'T treat DTB fields as trusted without bounds checks
-- DON'T use wall-clock or host locale data in conversions/tests
-
-## Contract sources (single source of truth)
-
-- Testing contract: `scripts/qemu-test.sh`
-- RISC-V virt machine spec (QEMU)
-
-## Stop conditions (Definition of Done)
-
-### Proof (Host) — required
-
-`cargo test -p bringup_rv_virt_v1_host` green (new):
-
-- DTB parse: feed fixture DTB; expect UART/PLIC bases and timebase parsed as constants
-- SBI shim: mock calls return deterministic values; `nsec()` conversion correct
-
-## Touched paths (allowlist)
-
-- `source/kernel/neuron/src/arch/riscv/dtb/` (new; DTB parser)
-- `source/kernel/neuron/src/arch/riscv/sbi/` (new; SBI shim)
-- `pkg://dts/virt-nexus.dts` (new; DTB skeleton)
-- `pkg://dts/virt-nexus.dtb` (new; compiled DTB)
-- `tests/bringup_rv_virt_v1_host/` (new)
-- `docs/bringup/virt.md` (new, host-first sections)
-
-## Plan (small PRs)
-
-1. **DTB parser + skeleton**
-   - DTB parser library (minimal subset)
-   - DTB skeleton (virt-nexus.dts)
-   - build step (compile DTS → DTB)
-   - host tests
-
-2. **SBI shim + time conversion**
-   - SBI shim library (time/base calls)
-   - monotonic time conversion
-   - host tests
-
-3. **Docs**
-   - host-first docs
-
-## Acceptance criteria (behavioral)
-
-- DTB parser extracts expected values correctly.
-- SBI shim returns deterministic values.
-- `nsec()` conversion is correct.
+Host tests green on both goldens incl. every `test_reject_*`; QEMU profiles print the marker
+with the dumped dtb's values; nxboot and the kernel have no other tree code; docs:
+`docs/board/bpi-f3.md` links the dts, RFC-0098 Phase 0 ✅.

@@ -1,0 +1,9 @@
+Module                  Size  Used by
+algif_hash             57344  1
+algif_skcipher         40960  1
+af_alg                155648  6 algif_hash,algif_skcipher
+8852bs              11628544  0
+binfmt_misc           102400  1
+sch_fq_codel          139264  7
+ip_tables             122880  0
+autofs4               319488  2

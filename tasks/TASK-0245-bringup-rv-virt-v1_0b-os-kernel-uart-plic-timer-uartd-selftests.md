@@ -1,164 +1,117 @@
 ---
-title: TASK-0245 Hardware Bring-up (RISC-V virt) v1.0b (OS/QEMU): kernel UART/PLIC/timer + userspace uartd + selftests
-status: Draft
-owner: @kernel
+title: TASK-0245 Board support v1b (OS): the kernel's platform comes from the FDT — UART, PLIC, timer, memory ranges, hart list; kernel + nxboot position-independent; init discovers devices from the FDT
+status: Draft (recut 2026-09-22 to the end state — Block 1 B1.2 of the hardware fast track; was "Hardware Bring-up (RISC-V virt) v1.0b: kernel UART/PLIC/timer + userspace uartd + selftests", Draft since 2025-12-29)
+owner: @kernel-team
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+updated: 2026-09-22
+depends-on:
+  - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
+follow-up-tasks:
+  - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
+  - tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md
 links:
-  - Vision: docs/architecture/vision.md
+  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C2, C3, Phase 1)
+  - Execution order: tasks/IMPLEMENTATION-ORDER.md (Block 1)
+  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md
+  - Hardcodes this deletes: source/kernel/neuron/src/hal/virt.rs, hal/plic.rs, arch/riscv/mod.rs (CLINT), diag/uart.rs, mm/kernel_layout.rs (UART/PLIC windows), core/kmain.rs (fw_cfg), source/init/nexus-init/src/bootstrap/helpers.rs:107-113 (virtio window), bootstrap/route_provision.rs:220 (RTC)
+  - Display-mode syscall this prepares for deletion: docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md (deleted in TASK-0251)
   - Playbook: CLAUDE.md
-  - Bring-up core (host-first): tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
-  - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## History
 
-We need OS/QEMU kernel integration for Hardware Bring-up v1.0:
+Seeded 2025-12-29 as "kernel UART/PLIC/timer for virt + a userspace uartd"; never started.
+Recut 2026-09-22: the same three subsystems, but their values come from the FDT, the kernel
+becomes position-independent, and `uartd` is dropped — the kernel-owned console
+(`debug_write`) is the end state, a userspace UART service would be a second console.
 
-- kernel early UART printk (extends existing UART support),
-- PLIC initialization,
-- timer tick via SBI,
-- userspace `uartd` service,
-- QEMU wiring with DTB handoff.
+## Context (measured 2026-09-22)
 
-The prompt proposes kernel UART/PLIC/timer and userspace uartd. Existing kernel already has UART early printk (`source/kernel/neuron/src/uart.rs`). This task extends it with DTB-based discovery and adds PLIC/timer initialization, then hands off to userspace `uartd`.
+| Value | QEMU virt (hardcoded today) | Board (from the FDT) |
+|---|---|---|
+| UART | `0x1000_0000`, `ns16550a`, 1-byte stride | `0xd401_7000`, `spacemit,pxa-uart` (`intel,xscale-uart` in mainline), 4-byte stride, clock `slow_uart` |
+| PLIC | `0x0c00_0000`, 53 sources, contexts by hart | `0xe000_0000` (64 MiB), `riscv,ndev 159`, 16 contexts (`interrupts-extended` M=11/S=9 per hart) |
+| timer | CLINT MMIO `0x0200_0000` + `mtimecmp` (M-mode registers touched from S-mode — works only on QEMU) | `sstc` in `riscv,isa-extensions` → `stimecmp`; `riscv,clint0` at `0xe400_0000` is M-mode only |
+| timebase | `TICKS_PER_US = 10` | 24 000 000 Hz |
+| harts | `MAX_CPUS = 4`, ids 0..3 | 8, `cpu-map` two clusters (4 used until TASK-0330) |
+| memory | fixed windows above `0x8000_0000` | banks at `0x0` (2 GiB) and `0x1_0000_0000` (2 GiB), reserved: OpenSBI `0–0x7ffff`, rcpu `0x100000–0x5fffff`, `dpu_reserved@2ff40000`, `framebuffer@7f000000` |
+| link address | `0x8020_0000` (kernel), nxboot self-relocates to `0x9200_0000` | FIT load `0x0020_0000` for the payload; no fixed home |
+| boot/display mode | fw_cfg (syscalls 45/50) | `/chosen/nexus,*` written by nxboot |
+| device discovery (init) | probe the virtio window `0x1000_1000 × 8`, IRQ = slot index + 1/+3 | nodes by compatible with `reg` + `interrupts` |
 
 ## Goal
 
-On OS/QEMU:
-
-1. **Kernel arch bring-up** (`source/kernel/neuron/src/arch/riscv/`):
-   - **Early UART (polled)**: extend existing UART writer to use base from DTB (fallback `0x10000000`)
-   - **DTB parse**: small reader to fetch timebase, UART, PLIC base, and hart count; log parsed values via early printk
-   - **PLIC minimal init**: set threshold 0, enable UART IRQ for hart 0; leave others masked; external IRQs get acknowledged but forwarded later to userspace (stub)
-   - **Timer tick**: init timer tick (e.g., 1kHz via SBI set_timer); rearm on interrupt
-   - **Trap/interrupt**: ensure `stvec` → existing `trap.S`; enable `sie` bits (SSIE/STIE/SEIE); provide `irq_dispatch()` that ticks timer and posts a marker
-   - **Monotonic time**: `nsec()` from SBI get_time() with DTB timebase; stable conversion
-   - **Boot flow**: `kmain` → early printk banner "NEURON (virt)", parse DTB, init timer tick, init PLIC, then spawn `nexus-init`
-   - markers: `neuron: boot virt dtb-ok tb=10000000`, `neuron: uart early printk ok`, `neuron: plic enabled`, `neuron: timer tick start`
-2. **Userspace UART driver** (`source/services/uartd/`):
-   - MMIO NS16550 driver in userspace (mapped via devmem cap or HAL mapping API) using base from DTB parsed by a tiny **devtree proxy** service (or pass via boot args env)
-   - API (`uart.capnp`): `write`, `read` (polled for now), `attachConsole` (binds to logd sink)
-   - on start, prints `uartd: userspace console ready` and subscribes to `logd` to flush logs to UART
-   - kernel stops using early printk except for panics
-   - markers: `uartd: ready`, `uartd: mmio=0x10000000 irq=10`, `uartd: attach console ok`
-3. **nexus-init extension**:
-   - start `logd` then `uartd.attachConsole()`
-   - print "HELLO FROM USERSPACE" via log pipeline
-   - marker: `userspace: hello`
-4. **QEMU wiring**:
-   - update QEMU launch to pass DTB and use OpenSBI:
-     - machine `virt`, `-bios default` (OpenSBI), `-machine virt`, `-nographic`, `-smp 1`, `-m 1024`
-     - append kernel arguments to expose DTB pointer if needed
-   - keep RUN_TIMEOUT and uart.log rotation from soak work
-5. **Diagnostics CLI** (`tools/nx-hw/`):
-   - `nx hw dt` (dump parsed DT nodes: uart, plic, timebase)
-   - `nx hw sbi` (print sbi base/time info)
-   - `nx hw irq` (show plic enable/threshold state)
-   - markers: `nx: hw dt tb=10000000`, `nx: hw sbi time=…`
-6. **OS selftests + postflight**.
+The kernel boots QEMU `virt` and the board from ONE binary with no cfg: `hal/platform.rs`
+is filled at `kmain` from the FDT (`nexus-fdt`), every listed literal is deleted, the kernel
+and nxboot are position-independent, syscalls 45/50 read `/chosen`, and init reads the tree
+through a read-only FDT VMO to discover and grant devices. Proof: every QEMU profile prints
+`KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=…)`; the board's serial shows the
+kernel banner and the same marker (via TASK-0327B once B1.6 boots it).
 
 ## Non-Goals
 
-- Full PLIC support (minimal init only).
-- Full DTB spec compliance (minimal subset only).
-- Real hardware (QEMU `virt` only).
+SoC clocks/resets/pinmux/power (TASK-0245B); the page-frame allocator (TASK-0286 — this task
+only stops the kernel from assuming where RAM is, by taking the banks from the tree into the
+same structure 0286 replaces); 8-hart scheduling (TASK-0330); a userspace UART service; the
+display-mode authority move (TASK-0251).
 
-## Constraints / invariants (hard requirements)
+## End state (binding)
 
-- **No duplicate UART authority**: kernel early printk is for boot/panic only; userspace `uartd` is the canonical console after init. Do not create parallel UART drivers.
-- **Determinism**: DTB parsing, PLIC init, and timer tick must be stable given the same inputs.
-- **Bounded resources**: DTB parsing is size-bounded; PLIC init is minimal.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- `source/kernel/neuron/src/hal/platform.rs` (replaces `hal/virt.rs`): `Platform { uart:
+  Uart{base, stride, clock_hz}, plic: Plic{base, ndev, s_context_of_hart[]}, timer:
+  TimerSource::{Sstc, Sbi}, timebase_hz, harts: [HartId; MAX_CPUS] + count, memory: banks +
+  reserved, chosen }` built once from the FDT; `hal/mod.rs` traits keep their shape, the
+  impls take the struct. UART driver understands both register strides; the PLIC driver takes
+  its S-mode context ids from `interrupts-extended`; the timer uses `stimecmp` when the ISA
+  says so, else SBI `set_timer`; `TICKS_PER_US` becomes a runtime value (budgets in
+  `core/trap/budgets.rs` are expressed in µs and converted once).
+- **Position-independent kernel and nxboot**: `-C relocation-model=pic`, an early relocation
+  loop over `R_RISCV_RELATIVE`, the link address a symbol not a machine constant; `mm/
+  kernel_layout.rs` computes the kernel's own physical range from the load address and excludes
+  it from the allocator's banks.
+- `/chosen/nexus,boot-profile` and `nexus,display-mode` replace the fw_cfg reads behind
+  syscalls 45/50 (50 itself dies in TASK-0251); the kernel has no fw_cfg code left.
+- Init: the kernel maps the DTB read-only into init (a `device.fdt` capability, slot in
+  `nexus-service-topology`, gate `check-slot-ssot.sh`); `helpers.rs` probes are replaced by
+  an FDT walk that yields `(compatible, reg, irq)` per device class; IRQ numbers come from
+  `interrupts`, the virtio `+1/+3` arithmetic is deleted; `route_provision.rs` finds the RTC by
+  compatible (`google,goldfish-rtc` on QEMU; the board's RTC is TASK-0245B's / target picture N).
+- Gate: `scripts/check-no-platform-literals.sh` fails on `0x1000_0000`, `0x0c00_0000`,
+  `0x0200_0000`, `0x1000_1000`, `0x0010_1000`, `TICKS_PER_US = 10` outside the goldens.
+
+## Packages
+
+- **P0** — this recut; measured table above.
+- **P1 Platform struct + UART/PLIC/timer from the FDT** — QEMU green with the dumped dtb.
+- **P2 Position-independent kernel + nxboot** — boots at two different load addresses on QEMU
+  (`-kernel` placement vs a moved FIT-style load) — the proof that no address is baked.
+- **P3 `/chosen` syscalls + fw_cfg deletion from the kernel** (nxboot writes `/chosen` on
+  QEMU from fw_cfg — TASK-0244 P3).
+- **P4 Init discovery from the FDT VMO** — `helpers.rs`/`route_provision.rs` rewritten, slot
+  + policy for `device.fdt`, IRQs from the tree; the literal gate lands and `just check`
+  carries it.
+
+## Constraints / invariants
+
+- The kernel keeps `MAX_CPUS` as a compile-time ceiling and parks harts beyond it through SBI
+  HSM (the board's 8 harts are TASK-0330's).
+- No CLINT MMIO from S-mode, ever (PMP-fenced on silicon).
+- Every deleted literal has a test that would fail if it came back (the grep gate).
+- Warnings gate, `forbid(unsafe_code)` outside the documented kernel modules.
 
 ## Red flags / decision points
 
-- **RED (UART authority drift)**:
-  - Do not create a parallel userspace UART driver that conflicts with kernel early printk. Kernel uses early printk for boot/panic only; `uartd` takes over after init.
-- **YELLOW (DTB handoff)**:
-  - DTB pointer must be passed from OpenSBI to kernel. Document the handoff mechanism explicitly (boot args, register, or memory location).
+- **RED (decides the timer):** Sstc must be verified on QEMU (`-cpu max` lists it) and on the
+  board (`riscv,isa-extensions` has `sstc`) before the SBI fallback is the only path; both are
+  kept, the FDT chooses.
+- **YELLOW:** a PIC kernel changes the linker script and the early-boot assembly — the smp1
+  and visible lanes are the regression net; measure boot time before/after (0269B's number).
+- **GREEN:** the board's UART is 16550-class at a 4-byte stride (mainline binds it as
+  `intel,xscale-uart`); one driver, two strides.
 
-## Security considerations
+## Definition of Done
 
-### Threat model
-
-- **Malformed DTB**: crafted DTB causing kernel-side out-of-bounds reads during DT parsing
-- **MMIO exposure**: accidentally mapping device MMIO with wrong permissions (must never be executable)
-- **IRQ abuse**: unbounded interrupt logging causing UART/CPU DoS during bring-up
-- **Console takeover**: conflicting UART authority causing confusing/unsafe debug behavior
-
-### Security invariants (MUST hold)
-
-- **DTB bounds**: DT parsing validates offsets/lengths and fails deterministically
-- **MMIO mapping invariants**: device mappings are USER+RW only and never executable (W^X preserved)
-- **Bounded logging**: any IRQ/timer diagnostics are throttled (no UART flood)
-- **Single UART authority**: kernel early printk is boot/panic only; `uartd` becomes canonical after init
-
-### DON'T DO (explicit prohibitions)
-
-- DON'T `unwrap`/`expect` on DTB-derived values in kernel bring-up path
-- DON'T enable executable MMIO mappings
-- DON'T log per-interrupt event lines unboundedly in production builds
-
-## Contract sources (single source of truth)
-
-- QEMU marker contract: `scripts/qemu-test.sh`
-- Bring-up core: `TASK-0244`
-- Existing UART: `source/kernel/neuron/src/uart.rs`
-
-## Stop conditions (Definition of Done)
-
-### Proof (OS/QEMU) — gated
-
-UART markers:
-
-- `neuron: boot virt dtb-ok tb=10000000`
-- `neuron: uart early printk ok`
-- `neuron: plic enabled`
-- `neuron: timer tick start`
-- `uartd: ready`
-- `uartd: mmio=0x10000000 irq=10`
-- `uartd: attach console ok`
-- `userspace: hello`
-- `SELFTEST: bringup uart early+userspace ok`
-- `SELFTEST: bringup plic+timer ok`
-
-## Touched paths (allowlist)
-
-- `source/kernel/neuron/src/arch/riscv/` (extend: DTB parse, PLIC init, timer tick)
-- `source/kernel/neuron/src/uart.rs` (extend: DTB-based base address)
-- `source/services/uartd/` (new)
-- `source/init/nexus-init/` (extend: start logd + uartd)
-- `scripts/run-qemu-rv64.sh` (extend: DTB handoff)
-- `tools/nx-hw/` (new)
-- `source/apps/selftest-client/` (markers)
-- `docs/bringup/virt.md` (new)
-- `docs/bringup/troubleshoot.md` (new)
-- `tools/postflight-bringup-rv_virt-v1_0.sh` (new)
-
-## Plan (small PRs)
-
-1. **Kernel arch bring-up**
-   - DTB parse in kernel
-   - PLIC init
-   - timer tick via SBI
-   - extend early UART with DTB base
-   - markers
-
-2. **Userspace uartd**
-   - MMIO NS16550 driver
-   - logd integration
-   - nexus-init wiring
-   - markers
-
-3. **QEMU wiring + diagnostics + selftests**
-   - DTB handoff in QEMU launch
-   - nx-hw CLI
-   - OS selftests + postflight
-
-## Acceptance criteria (behavioral)
-
-- Kernel boot prints early over UART, parses DTB, enables timer & PLIC.
-- Userspace `uartd` takes over console; "HELLO FROM USERSPACE" visible.
-- All OS selftest markers are emitted.
+`just test-all` green with every QEMU profile printing the FDT marker; the literal gate in
+`just check`; two-load-address boot proven; the kernel has no fw_cfg code; init discovers
+virtio devices from the tree with IRQs from `interrupts`; docs (`docs/architecture/01-neuron-kernel.md`
+platform section, RFC-0098 Phase 1 ✅, CHANGELOG).

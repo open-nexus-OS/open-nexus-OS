@@ -1,0 +1,11 @@
+NAME         MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS
+mmcblk0      179:0    0 29.8G  0 disk 
+├─mmcblk0p1  179:1    0  256K  0 part 
+├─mmcblk0p2  179:2    0   64K  0 part 
+├─mmcblk0p3  179:3    0    1M  0 part 
+├─mmcblk0p4  179:4    0    2M  0 part 
+├─mmcblk0p5  179:5    0  256M  0 part /boot
+└─mmcblk0p6  179:6    0 29.5G  0 part /
+mmcblk2      179:8    0 14.6G  0 disk 
+mmcblk2boot0 179:16   0    4M  1 disk 
+mmcblk2boot1 179:24   0    4M  1 disk 

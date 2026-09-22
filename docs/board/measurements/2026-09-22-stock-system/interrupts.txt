@@ -1,0 +1,57 @@
+           CPU0       CPU1       CPU2       CPU3       CPU4       CPU5       CPU6       CPU7       
+ 11:     249986    3301461     435050     486613     187972    1208676     429123     329875  RISC-V INTC   5 Edge      riscv-timer
+ 12:          0          0          0          0          0          0          0          0  PLIC  60 Edge      pinctrl
+ 13:          3          0          0          0          0          0          0          0  PLIC  58 Edge      k1x-gpio
+ 14:          1          0          0          0          0          0          0          0  PLIC  72 Edge      pdma
+ 15:          0          0          0          0          0          0          0          0  PLIC  36 Edge      d4010800.i2c
+ 16:       1111          0          0          0          0          0          0          0  PLIC  38 Edge      d4012000.i2c
+ 17:      11259          0          0          0          0          0          0          0  PLIC  19 Edge      d401d800.i2c
+ 18:          0          0          0          0          0          0          0          0  PLIC  64 Edge      spm8821
+ 26:          0          0          0          0          0          0          0          0   spm8821   7 Edge      p1-adc
+ 29:          0          0          0          0          0          0          0          0   spm8821  10 Edge      rtc@pmic
+ 56:          0          0          0          0          0          0          0          0   spm8821  37 Edge      spacemit_pwrkey_rise
+ 57:          0          0          0          0          0          0          0          0   spm8821  38 Edge      spacemit_pwrkey_fall
+ 58:          0          0          0          0          0          0          0          0   spm8821  39 Edge      spacemit_pwrkey_skey
+ 59:          0          0          0          0          0          0          0          0   spm8821  40 Edge      spacemit_pwrkey_lkey
+ 62:          0          0          0          0          0          0          0          0  PLIC 146 Edge      k1x-pcie
+ 65:          0          0          0          0          0          0          0          0   PCI-MSI 134217728 Edge      PCIe PME, aerdrv
+ 66:          0          0          0          0          0          0          0          0  PLIC 147 Edge      k1x-pcie
+ 69:          0          0          0          0          0          0          0          0   PCI-MSI 268435456 Edge      PCIe PME, aerdrv
+ 70:          0          0          0          0          0          0          0          0  PLIC  87 Edge      JPU
+ 71:          0          0          0          0          0          0          0          0   pinctrl 268 Edge      rtw_wifi_gpio_wakeup
+ 72:          0          0          0          0          0          0          0          0  PLIC  86 Edge      v2d-irq
+ 73:          0          0          0          0          0          0          0          0  PLIC  42 Edge      UART1
+ 74:       2935          0          0          0          0          0          0          0  PLIC  44 Edge      UART3
+ 75:       4721          0          0          0          0          0          0          0  PLIC  75 Edge      pvrsrvkm
+ 76:          2          0          0          0          0          0          0          0  PLIC 117 Edge      d420c000.spi
+ 77:          0          0          0          0          0          0          0          0  PLIC 131 Edge      end0
+ 78:          0          0          0          0          0          0          0          0  PLIC 133 Edge      end1
+ 79:          0          0          0          0          0          0          0          0  PLIC 149 Edge      dwc3-usb-wakeup
+ 80:        733          0          0          0          0          0          0          0  PLIC 125 Edge      xhci-hcd:usb2
+ 81:          0          0          0          0          0          0          0          0  PLIC 118 Edge      ehci_hcd:usb1
+ 82:          0          0          0          0          0          0          0          0  PLIC 148 Edge      usb-wakeup
+ 83:        152          0          0          0          0          0          0          0  PLIC 105 Edge      mv_udc
+ 84:          0          0          0          0          0          0          0          0  PLIC  74 Edge      c0500000.linlon-v5
+ 85:          0          0          0          0          0          0          0          0  PLIC  81 Edge      k1xccic
+ 86:          0          0          0          0          0          0          0          0  PLIC  82 Edge      k1xccic
+ 87:          0          0          0          0          0          0          0          0  PLIC  83 Edge      k1xccic
+ 88:          6          0          0          0          0          0          0          0  PLIC  84 Edge      mars-cpp
+ 89:          0          0          0          0          0          0          0          0  PLIC  79 Edge      feisp
+ 90:          4          0          0          0          0          0          0          0  PLIC  61 Edge      thermal_zone0, thermal_zone1, thermal_zone2, thermal_zone3
+ 91:     150375          0          0          0          0          0          0          0  PLIC  99 Edge      mmc0
+ 92:          0          0          0          0          0          0          0          0  k1x-gpio-irqchip  80 Edge      d4280000.sdh cd
+ 93:   20309191          0          0          0          0          0          0          0  PLIC 100 Edge      mmc1
+ 94:        334          0          0          0          0          0          0          0  PLIC 101 Edge      mmc2
+ 95:          0          0          0          0          0          0          0          0  PLIC 113 Edge      spacemit-crypto-engine-0
+ 96:         14          0          0          0          0          0          0          0  PLIC  52 Edge      d4013400.mailbox
+ 97:          0          0          0          0          0          0          0          0  RISC-V INTC  13 Edge      riscv-pmu
+ 98:          3          0          0          0          0          0          0          0  k1x-gpio-irqchip 126 Edge      es8326
+ 99:    1973051          0          0          0          0          0          0          0  PLIC 139 Edge      DPU_ONLINE
+100:          0          0          0          0          0          0          0          0  PLIC 138 Edge      DPU_OFFLINE
+101:          1          0          0          0          0          0          0          0  PLIC 136 Edge      c0400500.hdmi
+IPI0:       535        607       1031       1017        818        645        643        575  Rescheduling interrupts
+IPI1:    155866    6601559    1779503    2349120    1215005    3508213    2680933    1526339  Function call interrupts
+IPI2:         0          0          0          0          0          0          0          0  CPU stop interrupts
+IPI3:         0          0          0          0          0          0          0          0  CPU stop (for crash dump) interrupts
+IPI4:        87        171         51         55         33        115         53         21  IRQ work interrupts
+IPI5:         0          0          0          0          0          0          0          0  Timer broadcast interrupts

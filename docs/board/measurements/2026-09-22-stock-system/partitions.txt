@@ -1,0 +1,12 @@
+major minor  #blocks  name
+
+ 179        0   31211520 mmcblk0
+ 179        1        256 mmcblk0p1
+ 179        2         64 mmcblk0p2
+ 179        3       1024 mmcblk0p3
+ 179        4       2048 mmcblk0p4
+ 179        5     262144 mmcblk0p5
+ 179        6   30945263 mmcblk0p6
+ 179        8   15267840 mmcblk2
+ 179       16       4096 mmcblk2boot0
+ 179       24       4096 mmcblk2boot1

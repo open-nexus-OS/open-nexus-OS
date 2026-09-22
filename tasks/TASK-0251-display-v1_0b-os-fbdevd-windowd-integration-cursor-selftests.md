@@ -1,167 +1,103 @@
 ---
-title: TASK-0251 Display v1.0b (OS/QEMU): fbdevd service + windowd simplefb integration + cursor + SystemUI splash + `nx display` + selftests
-status: Draft
-owner: @ui
+title: TASK-0251 Display v1.0b (OS/board): the display controller + HDMI driver in gpud, the display mode's one authority is gpud (EDID on the board, virtio display-info on QEMU), syscall 50 and the fw_cfg path deleted — the first picture
+status: Draft (recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
+owner: @ui @runtime
 created: 2025-12-29
-depends-on: []
-follow-up-tasks: []
+updated: 2026-09-22
+depends-on:
+  - tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
+  - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
+  - tasks/TASK-0286-kernel-memory-accounting-v1-rss-pressure-snapshots.md
+  - tasks/TASK-0260B-nxboot-as-fit-payload-chosen-node.md
+follow-up-tasks:
+  - tasks/TASK-0327B-board-proof-lane-serial-ladder-profiles.md
 links:
-  - Vision: docs/architecture/vision.md
+  - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C7, Phase 5); amends docs/rfcs/RFC-0074-display-mode-authority-fwcfg.md + docs/adr/0050-display-mode-authority.md
+  - Host half: tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
+  - gpud: source/drivers/gpud/src/backend/ (`mod.rs` `VirtioGpuBackend`, `lifecycle.rs` IRQ bind, `attach.rs`, `present.rs`, `display_mode.rs`, `scanout_policy.rs`); windowd `display_backend.rs`
+  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Display")
   - Playbook: CLAUDE.md
-  - Authority & naming registry: tasks/TRACK-AUTHORITY-NAMING.md
-  - Display core (host-first): tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
-  - Renderer abstraction: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
-  - Windowd compositor: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - Windowd wiring: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
-  - Device MMIO access: tasks/TASK-0010-device-mmio-access-model.md
-  - Testing contract: scripts/qemu-test.sh
 ---
 
-## Context
+## History
 
-We need OS/QEMU integration for Display v1.0:
+Seeded 2025-12-29 as `fbdevd` + windowd "simplefb" integration + splash. Recut 2026-09-22:
+no fbdevd (gpud is the display owner, RFC-0067/0093), no bootloader framebuffer (ADR-0066);
+the display-mode authority moves out of the kernel.
 
-- `fbdevd` service (userspace framebuffer driver),
-- windowd simplefb backend integration,
-- cursor support,
-- SystemUI splash.
+## Context (measured 2026-09-22)
 
-The prompt proposes `fbdevd` and windowd integration with simplefb. `TASK-0055` and `TASK-0170` already plan windowd compositor with headless present (VMO buffers). This task extends it with **real framebuffer output** via simplefb, complementing the headless path.
+Nodes and numbers: TASK-0250 Context. The stock driver brings the pipeline up as
+`dpu_init` → `hdmi_setup` (id `0xa28501`, 8 bpc) → "DPU type 0 id 2 Start!", reads EDID over
+the encoder's DDC twice, sets 1920×1080@60. On QEMU the mode comes from fw_cfg
+(`opt/org.open-nexus/display-mode`, RFC-0074, syscall 50) because the virtio display-info was
+racy at boot; TASK-0326 already moved gpud's GL decision to first need, and the
+`ctrl_query_display_info` path exists.
 
 ## Goal
 
-On OS/QEMU:
-
-1. **DTB & runner updates**:
-   - extend `pkg://dts/virt-nexus.dts` with simple-framebuffer node: `framebuffer@40000000` (1280x800 ARGB8888, 8 MiB)
-   - rebuild DTB; ensure QEMU `-machine virt -nographic` is fine (write to buffer, verify via checksum/markers in uart.log)
-2. **Kernel: tiny DT parse helper**:
-   - in `neuron/src/arch/riscv/`, extend DT reader to parse `simple-framebuffer` node and publish read-only record (phys addr, size, w, h, stride, format) via bootinfo page or environment handed to userspace
-   - keep kernel printk only (no drawing)
-   - marker: `neuron: simplefb dt w=1280 h=800 fmt=a8r8g8b8 paddr=0x40000000`
-3. **fbdevd service** (`source/services/fbdevd/`):
-   - map phys addr from DT via devmem/HAL into shared VMO; expose coherent CPU buffer
-   - implement software vsync timer at ~60 Hz (configurable; deterministic tick)
-   - coalesce flush requests within tick
-   - API (`fb.capnp`): `info()` → `FbInfo`, `map()` → `shm` (VMO id), `flush(rect)`, `vsync()` → `seq`, `fill(rect, argb8888)` (test helper)
-   - markers: `fbdevd: ready`, `fbdevd: map ok addr=0x... size=...`, `fbdevd: flush rect x=.. y=.. w=.. h=..`, `fbdevd: vsync seq=..`
-4. **windowd integration**:
-   - add compositor backend `renderer/backend_fb.rs` that writes premultiplied-alpha ARGB8888 into mapped buffer
-   - dirty-rect accumulation per frame; only call `Fb.flush()` for union
-   - cursor: small RGBA sprite (e.g., 32×32) blended last; software updates on pointer move
-   - VSync pacing: drive render loop from `fbdevd.vsync()`; render only when there are invalidations
-   - ensure premultiplied alpha pipeline and sRGB assumption
-   - markers: `windowd: backend=fb simplefb 1280x800`, `windowd: frame n=… dirty=(x,y,w,h)`, `windowd: cursor move x=.. y=..`
-5. **SystemUI smoke & logo**:
-   - add `pkg://assets/branding/nexus_logo_rgba.png` (small)
-   - on session start, draw chequered background and centered logo via windowd to validate alpha & scaling
-   - marker: `systemui: splash drawn`
-6. **CLI diagnostics** (`nx display ...` as a subcommand of the canonical `nx` tool; see `tasks/TRACK-AUTHORITY-NAMING.md`):
-   - `nx display info`, `nx display test gradient`, `nx display test rect 10 10 200 120`, `nx display cursor 640 400`, `nx display vsync --count 3`
-   - markers: `nx: display info 1280x800`, `nx: display gradient ok`, `nx: display vsync seq=…`
-7. **Settings/provider**:
-   - seed `settingsd` keys: `display.scale` (already exists), `display.vsync.hz` (int; default 60); provider updates fbdevd's vsync timer
-   - marker: `settingsd→fbdevd: vsync=60`
-8. **OS selftests + postflight**.
+gpud backend `dc` on the board: power domain 7 + `hmclk` + `hdmi_reset` via `nexus-soc`,
+EDID over DDC, mode pick (TASK-0250), plane programming into a contiguous-DMA framebuffer VMO
+(the same `attach_external_framebuffer` windowd already hands over), damage flush, ONLINE IRQ
+as the present completion, cursor plane. **gpud is the display-mode authority on both
+platforms** (EDID / virtio display-info); windowd learns the mode through the existing
+RFC-0093 handshake; syscall 50 (`BOOT_DISPLAY_MODE`), the fw_cfg key and RFC-0074's authority
+are deleted (`/chosen/nexus,display-mode` stays a lane REQUEST that gpud may honour on QEMU).
+Proof: QEMU visible lane unchanged (pixel proof, mode from display-info); board:
+`gpud: dc scanout ok (1920x1080@60 edid)` + `windowd: desktop revealed` on the serial console
+and the desktop on the monitor (`board-visual: desktop`, TASK-0327B).
 
 ## Non-Goals
 
-- Kernel DRM or kernel display drivers (userspace only).
-- Real hardware (QEMU simplefb only).
-- HDR support (sRGB only).
+GPU composition (target picture G), DSI panel, HDMI audio, hotplug after boot, mode switching
+at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays QEMU-side).
 
-## Constraints / invariants (hard requirements)
+## End state (binding)
 
-- **No duplicate framebuffer authority**: `fbdevd` is the single authority for framebuffer access. Do not create parallel framebuffer drivers.
-- **No duplicate compositor backend**: windowd simplefb backend extends the renderer abstraction from `TASK-0169`. Do not create a parallel rendering system.
-- **Determinism**: framebuffer mapping, vsync timing, and compositing must be stable given the same inputs.
-- **Bounded resources**: dirty rect accumulation is bounded; vsync timer is configurable.
-- **Device access**: assumes `TASK-0010` (device MMIO access model) is Done; simplefb/physmem mapping may additionally
-  require device-class specific caps beyond virtio-mmio.
-- No `unwrap/expect`; no blanket `allow(dead_code)`.
+- `source/drivers/gpud/src/backend/dc/{mod,regs,plane,hdmi,ddc}.rs` — the register writer
+  for TASK-0250's model, over `nexus_hal::Bus` with the `device.mmio.display` grant + IRQ from
+  the FDT (`interrupts` 139/138/136 on the board).
+- `display_mode.rs`: ONE `DisplayMode` source per backend (`dc` → EDID; virtio →
+  `ctrl_query_display_info`); the kernel syscall and `nexus_abi::fwcfg` display key removed;
+  `docs/rfcs/RFC-0074` marked amended by RFC-0098 C7; `scripts/qemu-launcher.sh` passes the
+  lane's requested mode to nxboot (`/chosen`) instead of the kernel.
+- windowd: no change in contract; `display_backend.rs` reads the mode from gpud's handshake as
+  it does for virtio.
+- Markers registered in the proof manifest: `gpud: dc scanout ok (` (board profiles),
+  `board-visual: desktop` (operator-acked, TASK-0327B).
+
+## Packages
+
+- **P0** — this recut.
+- **P1 Mode authority = gpud** (QEMU): syscall 50 + fw_cfg key deleted, virtio display-info as
+  the source, launcher hands the request to nxboot; `just test-all` green, pixel proof unchanged.
+- **P2 `dc` driver** — power/clock/reset, DDC + EDID, plane + mode + flush, IRQ; QEMU cannot
+  emulate this controller → host goldens (TASK-0250) + the board.
+- **P3 First picture** — on the board through the boot chain (TASK-0260B): markers + the
+  operator ack; photo in the ledger. **Block 1 gate.**
+
+## Constraints / invariants
+
+- The framebuffer is a contiguous-DMA VMO (TASK-0286) with the coherence hooks (RFC-0098 C4)
+  around every CPU write before a flush.
+- Deny-by-default grants: `device.mmio.display` to gpud only.
+- No fake success: `dc scanout ok` prints the mode read from EDID and the flush count of the
+  first present.
 
 ## Red flags / decision points
 
-- **RED (framebuffer authority drift)**:
-  - Do not create a parallel framebuffer service that conflicts with `fbdevd`. `fbdevd` is the single authority for framebuffer access.
-- **RED (compositor backend drift)**:
-  - Do not create a parallel compositor backend. Extend the renderer abstraction from `TASK-0169` with a simplefb backend.
-- **YELLOW (headless vs simplefb)**:
-  - `TASK-0055`/`TASK-0170` plan headless present (VMO buffers). This task adds simplefb output. Both can coexist if windowd supports multiple backends, or this task must explicitly replace headless as the canonical path. Document the relationship explicitly.
+- **RED:** the controller's register semantics come from documentation and the mainline
+  driver's structure, not from the vendor's code; the first bring-up is measured on the serial
+  console with the stock system's `dmesg` sequence as the oracle (`dpu_init`, `hdmi_setup`).
+- **YELLOW:** DDC/I2C for EDID may need the SoC's I2C controller (`i2c@d401d800` is the
+  encoder's bus in the stock tree) — a small I2C master in `nexus-soc` or in the `dc` driver.
+- **GREEN (measured):** the monitor negotiates 1080p60 with the stock driver — no mode
+  gamble on the desk.
 
-## Contract sources (single source of truth)
+## Definition of Done
 
-- QEMU marker contract: `scripts/qemu-test.sh`
-- Display core: `TASK-0250`
-- Renderer abstraction: `TASK-0169` (Scene-IR + Backend trait)
-- Windowd compositor: `TASK-0055` (surfaces/layers IPC + vsync)
-- Device MMIO access: `TASK-0010` (prerequisite)
-
-## Stop conditions (Definition of Done)
-
-### Proof (OS/QEMU) — gated
-
-UART markers:
-
-- `neuron: simplefb dt w=1280 h=800 fmt=a8r8g8b8 paddr=0x40000000`
-- `fbdevd: ready`
-- `fbdevd: map ok addr=0x... size=...`
-- `fbdevd: flush rect x=.. y=.. w=.. h=..`
-- `fbdevd: vsync seq=..`
-- `windowd: backend=fb simplefb 1280x800`
-- `windowd: frame n=… dirty=(x,y,w,h)`
-- `windowd: cursor move x=.. y=..`
-- `systemui: splash drawn`
-- `SELFTEST: fb info 1280x800 ok`
-- `SELFTEST: fb gradient ok`
-- `SELFTEST: fb cursor ok`
-- `SELFTEST: fb splash ok`
-
-## Touched paths (allowlist)
-
-- `pkg://dts/virt-nexus.dts` (extend: simple-framebuffer node)
-- `source/kernel/neuron/src/arch/riscv/` (extend: DT parse for simplefb)
-- `source/services/fbdevd/` (new)
-- `source/services/windowd/` (extend: simplefb backend integration)
-- `userspace/libs/renderer/backend_fb.rs` (new; or extend existing)
-- SystemUI (splash drawing)
-- `source/services/settingsd/` (extend: `display.vsync.hz` provider key)
-- `tools/nx/` (extend: `nx display ...` subcommands; no separate `nx-display` binary)
-- `source/apps/selftest-client/` (markers)
-- `pkg://assets/branding/nexus_logo_rgba.png` (new)
-- `docs/display/simplefb_v1_0.md` (new)
-- `docs/display/troubleshoot.md` (new)
-- `tools/postflight-display-v1_0.sh` (new)
-
-## Plan (small PRs)
-
-1. **DTB & kernel DT parse**
-   - DTB: simple-framebuffer node
-   - kernel: DT parse for simplefb
-   - markers
-
-2. **fbdevd service**
-   - framebuffer mapping
-   - vsync timer
-   - flush coalescing
-   - markers
-
-3. **windowd simplefb backend integration**
-   - backend_fb.rs integration
-   - dirty rect accumulation
-   - cursor support
-   - vsync pacing
-   - markers
-
-4. **SystemUI splash + CLI + selftests**
-   - splash drawing
-   - `nx display` CLI
-   - settings provider
-   - OS selftests + postflight
-
-## Acceptance criteria (behavioral)
-
-- `fbdevd` maps and flushes simplefb; vsync timer ticks deterministically.
-- `windowd` renders via CPU path with premultiplied alpha and cursor, using dirty-rects.
-- SystemUI splash is drawn correctly.
-- All four OS selftest markers are emitted.
+QEMU: all lanes green with gpud as the mode authority and the kernel free of display-mode
+code; board: the two markers + the operator ack on the serial log of a `just board-test`
+run, the desktop visible; docs (RFC-0074 amended, ADR-0050 superseded note, RFC-0098 Phase 5
+✅, `docs/architecture/graphics/display-output-service-chain.md`, `README.md` "real hardware:
+yes", CHANGELOG).
