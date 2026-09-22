@@ -274,6 +274,26 @@ pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError>
         return Err(e);
     }
 
+    // The device tree the firmware handed over in a1 (RFC-0098 C3, TASK-0244 P3):
+    // wherever the previous stage put it — the top of RAM (QEMU), the loader's heap
+    // (nxboot), the FIT's copy (the board) — the kernel maps exactly its pages,
+    // read-only, and parses it once the space is active (`boot_fdt::report`).
+    if let Some((start, end)) = crate::boot_fdt::range() {
+        if let Err(e) = map_identity_range(
+            table,
+            start,
+            end,
+            PageFlags::VALID | PageFlags::READ | PageFlags::GLOBAL,
+        ) {
+            // An overlap means the tree sits inside a range already mapped
+            // (kernel data, a stack pool) — readable either way, not an error.
+            if !matches!(e, MapError::Overlap) {
+                log_error!(target: "mm", "AS-MAP: device tree window failed");
+                return Err(e);
+            }
+        }
+    }
+
     log_debug!(target: "mm", "map kernel segments ok");
     Ok(())
 }

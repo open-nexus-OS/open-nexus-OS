@@ -123,6 +123,10 @@ impl KernelState {
         // call here; defaults to raw on any failure. Alloc-free (fixed buffers, MMIO reads).
         crate::boot_mode::detect();
 
+        // RFC-0098 C3 (TASK-0244 P3): the platform's values come from the tree in a1,
+        // mapped read-only by `map_kernel_segments`; print what was read (or why not).
+        crate::boot_fdt::report();
+
         // Now proceed with task table and the rest of bring-up under the active SATP.
         let mut tasks = TaskTable::new();
         // If an early trap occurred, print it once to aid bring-up debugging.

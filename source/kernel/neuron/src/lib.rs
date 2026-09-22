@@ -382,6 +382,9 @@ mod bootstrap;
 // cap pulls crate::ipc/log_trace/alloc, all target-gated. Un-gating it is the
 // known host-testability item of the orchestrator track's Part 2.
 #[cfg(target_os = "none")]
+#[path = "core/boot_fdt.rs"]
+pub mod boot_fdt;
+#[cfg(target_os = "none")]
 mod cap;
 #[cfg(target_os = "none")]
 #[path = "core/cpu_main.rs"]
@@ -492,6 +495,14 @@ pub unsafe fn early_boot_init() {
     boot::early_boot_init();
 }
 
+/// Record the firmware registers (`a0` = boot hart, `a1` = device tree) — after
+/// `early_boot_init` zeroed BSS and before `kmain` builds the kernel address space
+/// that maps the tree (RFC-0098 C3). Paging must still be off.
+#[cfg(target_os = "none")]
+pub fn record_boot_regs(hartid: usize, dtb: usize) {
+    boot_fdt::record(hartid, dtb);
+}
+
 /// Entry point for the kernel runtime. Assumes early boot setup was performed
 /// and never returns.
 #[cfg(target_os = "none")]
@@ -503,6 +514,9 @@ pub fn kmain() -> ! {
 /// to compile as part of `cargo test --workspace` without warnings.
 #[cfg(not(target_os = "none"))]
 pub unsafe fn early_boot_init() {}
+
+#[cfg(not(target_os = "none"))]
+pub fn record_boot_regs(_hartid: usize, _dtb: usize) {}
 
 #[cfg(not(target_os = "none"))]
 pub fn kmain() -> ! {

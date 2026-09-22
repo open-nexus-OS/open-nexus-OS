@@ -55,13 +55,19 @@ fn uart_write_line(msg: &str) {
     }
 }
 
+/// `_start` sets only `sp` and `gp` before jumping here, so the firmware's
+/// registers survive as the C-ABI arguments: `a0` = boot hart id, `a1` = the
+/// device tree (RFC-0098 C1 — the one hardware truth).
 #[no_mangle]
-pub extern "C" fn start_rust() -> ! {
+pub extern "C" fn start_rust(hartid: usize, dtb: usize) -> ! {
     // Trimmed early diagnostics for stable, short logs.
     // SAFETY: Early boot runs before the Rust runtime. The kernel guarantees
     // that only a single core executes this path, so calling the raw
     // initialisation routine is sound here.
     unsafe { neuron::early_boot_init() };
+    // After BSS is zeroed (the record lives there), before paging (physical read
+    // of the tree's header).
+    neuron::record_boot_regs(hartid, dtb);
     uart_write_line("W0: calling kmain");
     kmain()
 }

@@ -17,6 +17,8 @@ bootfmt = { path = "../../../userspace/bootfmt", default-features = false }
 # nx image, virtioblkd and nxboot) — no_std, bounded-arena alloc.
 storage = { path = "../../../userspace/storage", default-features = false }
 sha2 = { version = "0.10", default-features = false }
+# RFC-0098 C2: nxboot owns /chosen/nexus,* — the tree reader/writer (TASK-0244 P3).
+nexus-fdt = { path = "../../libs/nexus-fdt" }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }

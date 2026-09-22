@@ -1,9 +1,9 @@
 # RFC-0098: Board support contract — the FDT is the one hardware truth, and the boot chain on hardware
 
-- Status: Draft (seeded 2026-09-22, Block 1 P0 of the hardware fast track)
+- Status: In Progress (Phase 0 ✅ 2026-09-22; seeded 2026-09-22, Block 1 P0 of the hardware fast track)
 - Owners: @kernel-team / @runtime / @tools-team
 - Created: 2026-09-22
-- Last Updated: 2026-09-22
+- Last Updated: 2026-09-22 (Phase 0 Implemented)
 - Links:
   - Tasks (execution + proof, in lane order): `tasks/TASK-0244-*` (FDT library),
     `tasks/TASK-0245-*` (kernel platform from the FDT), `tasks/TASK-0245B-*` (SoC clock/reset/
@@ -22,7 +22,7 @@
 
 ## Status at a Glance
 
-- **Phase 0 (FDT library, `nexus-fdt`)**: ⬜ — TASK-0244
+- **Phase 0 (FDT library, `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)**: ✅ 2026-09-22 — TASK-0244
 - **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: ⬜ — TASK-0245, 0245B
 - **Phase 2 (physical memory from the FDT, page-frame allocator)**: ⬜ — TASK-0286 (M1)
 - **Phase 3 (one block owner, SDHCI, nxboot reader)**: ⬜ — TASK-0246, 0246B

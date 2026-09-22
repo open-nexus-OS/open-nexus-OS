@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-22 (TASK-0244 Done: the device tree is the one hardware truth — `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)
+
+- **`source/libs/nexus-fdt`**: a `no_std`, allocation-free, bounded reader of the flattened device
+  tree (memory banks, reserved ranges, harts/clusters/ISA/timebase, PLIC base/ndev/S-mode contexts,
+  `reg` with parent cells + `ranges`, `interrupts` via `#interrupt-cells`, compatibles, phandles,
+  paths and aliases, `/chosen`) plus the one writer the boot chain needs: `/chosen/nexus,*` in place,
+  inside `dtc -p` headroom. 10 golden tests over QEMU virt's dumped tree and the reference board's,
+  8 `test_reject_*` for malformed trees (RFC-0098 Phase 0).
+- **`config/board/bpi-f3/board.dts`**: the board's tree as OUR file — derived from the mainline SoC
+  description (GPL-2.0 OR MIT, used under MIT) and the 2026-09-22 measurement; only the nodes we
+  consume (8 harts + `cpu-map`, two RAM banks at 0 and 4 GiB, PLIC `0xe000_0000`, UART `0xd401_7000`
+  at a 4-byte stride, three SDHCI hosts, DPU + HDMI, DWC3/EHCI/UDC, two GMACs, the GPU, the syscons).
+- **nxboot owns `/chosen`** (RFC-0098 C2, ADR-0066): the firmware's tree is copied into a headroomed
+  buffer, `nexus,boot-slot` / `nexus,boot-record` written, and — read ONLY there now — the lane's
+  fw_cfg knobs re-expressed as `nexus,boot-profile` / `nexus,display-mode`; the copy is what the
+  kernel receives in `a1` (`nxboot: fdt ok (harts=… tb=…Hz slot=…)`; a refusal resets loudly).
+- **The kernel reads the tree**: `start_rust(hartid, dtb)` keeps the firmware registers,
+  `boot_fdt` records the header before paging, `map_kernel_segments` maps exactly the tree's pages
+  read-only, and after the address space is active the kernel prints what it read —
+  `KSELFTEST: platform from fdt ok (uart=0x10000000 plic=0xc000000 tb=10000000Hz harts=1 banks=1
+  boot_hart=0 chosen.slot=a chosen.profile=- chosen.display=1280x800)` — the `chosen.*` values being
+  the proof that the loader's copy, not the firmware's original, is what arrived. Required in every
+  QEMU profile; the `FAIL` twin names the parser's reason. The literals this replaces die with
+  TASK-0245.
+
 ### Added - 2026-09-21 (TASK-0327 T0–T2: the reference board is reachable from a fresh box with one command)
 
 - **Block 0 of the hardware fast track** (`tasks/IMPLEMENTATION-ORDER.md`, rewritten the same day). `make initial-setup`

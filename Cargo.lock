@@ -1937,6 +1937,7 @@ dependencies = [
  "cc",
  "linked_list_allocator",
  "nexus-event",
+ "nexus-fdt",
  "proptest",
  "riscv",
  "sbi-rt",
@@ -2969,6 +2970,7 @@ name = "nxboot"
 version = "0.1.0"
 dependencies = [
  "bootfmt",
+ "nexus-fdt",
  "sbi-rt",
  "sha2",
  "storage",

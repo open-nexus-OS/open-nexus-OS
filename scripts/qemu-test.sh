@@ -2841,6 +2841,20 @@ if [[ "$REQUIRE_SMP" == "1" ]]; then
   fi
 fi
 
+# TASK-0244 P3 (RFC-0098): the platform comes from the device tree, in EVERY profile.
+# The kernel must have parsed the tree it was handed and printed the values it read;
+# a boot that could not is a FAIL marker (caught above) or silence (caught here).
+if [[ "$(count_lines "KSELFTEST: platform from fdt ok (")" -lt 1 ]]; then
+  echo "[error] platform-from-fdt proof missing: KSELFTEST: platform from fdt ok (" >&2
+  exit 1
+fi
+# nxboot owns /chosen: when the loader is in the chain it must have written and
+# read back the tree copy the kernel then parsed (direct-kernel boots skip it).
+if [[ "${NEXUS_DIRECT_KERNEL:-0}" != "1" ]] && [[ "$(count_lines "nxboot: fdt ok (")" -lt 1 ]]; then
+  echo "[error] nxboot /chosen proof missing: nxboot: fdt ok (" >&2
+  exit 1
+fi
+
 # TASK-0140: the host CLI against the LIVE-produced disk truth — after the
 # flip lane the commit raised the anti-downgrade floor (1->2) and left the
 # committed standing slot at B; `nx update status` (the same bootfmt codecs

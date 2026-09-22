@@ -1,6 +1,6 @@
 ---
 title: TASK-0244 Board support v1a (host-first): `nexus-fdt` — the flattened device tree is the one hardware truth
-status: In Progress (P0–P2 built 2026-09-22: `source/libs/nexus-fdt` parses both goldens — QEMU virt dump + `config/board/bpi-f3/board.dts` — with 10 golden + 8 `test_reject_*` tests, `no_std` cross-build green; P3 = consumers wired next. Recut 2026-09-22 from "Hardware Bring-up (RISC-V virt) v1.0a: DTB parser + SBI shim", Draft since 2025-12-29 with no code)
+status: Done 2026-09-22 (P0–P3: `nexus-fdt` + the board's own tree + both goldens host-tested; nxboot copies the tree into headroom, writes `/chosen/nexus,*` and hands the copy over; the kernel maps and parses it and prints what it read — `KSELFTEST: platform from fdt ok (… chosen.slot=a chosen.display=1280x800)` boot-proven, required in every profile. Recut 2026-09-22 from "Hardware Bring-up (RISC-V virt) v1.0a: DTB parser + SBI shim", Draft since 2025-12-29 with no code)
 owner: @kernel-team @runtime
 created: 2025-12-29
 updated: 2026-09-22
@@ -95,10 +95,21 @@ beyond what `interrupt-parent`/`clocks` need, a DTS writer, ACPI, runtime hot-pl
   139/138, GPU regs, chosen round-trip incl. remove+insert and same-length overwrite, refusal
   without headroom leaves the buffer byte-identical) + 8 `test_reject_*`; clippy `-D warnings`,
   pinned fmt, `riscv64imac-unknown-none-elf` build. 1 477 LOC, largest file 424.
-- **P3 Consumers wired** — nxboot reads `a1` through the crate (and writes `/chosen` on QEMU
-  from fw_cfg, ADR-0066), the kernel parses it at `kmain` and prints
-  `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=…)` (asserted in every QEMU
-  profile; the board lane later).
+- **P3 Consumers wired — Done 2026-09-22.** nxboot (`src/platform.rs`): validates the header in
+  `a1` (magic, `totalsize` ≤ 1 MiB), copies the tree into a 2 KiB-headroomed buffer in its bump
+  arena, writes `nexus,boot-slot`, `nexus,boot-record` (the handoff page address) and, from
+  fw_cfg — read ONLY here now — `nexus,boot-profile` / `nexus,display-mode` when the lane passes
+  them, reads the copy back through the parser (`nxboot: fdt ok (harts=… tb=…Hz slot=…)`) and
+  jumps with `a1` = the copy; any refusal is `nxboot: PANIC (fdt: <reason>)` + SBI reset. Kernel:
+  `start_rust(hartid, dtb)` keeps the firmware registers (`_start` touches only `sp`/`gp`),
+  `boot_fdt::record` reads the header with paging off, `map_kernel_segments` identity-maps
+  exactly the tree's pages read-only, `boot_fdt::report` parses after the space is active and
+  prints `KSELFTEST: platform from fdt ok (uart=0x10000000 plic=0xc000000 tb=10000000Hz harts=1
+  banks=1 boot_hart=0 chosen.slot=a chosen.profile=- chosen.display=1280x800)` — the `chosen.*`
+  values prove the kernel reads the LOADER's copy (the fw_cfg knob came back through the tree);
+  the FAIL twin carries the parser's reason. Markers registered (`bringup.toml`), REQUIRED in
+  every profile by `scripts/qemu-test.sh` (`nxboot: fdt ok (` whenever the loader is in the
+  chain). Boot-proven on `ci-os-smp1` three times while iterating; `just lint-kernel` clean.
 
 ## Constraints / invariants
 

@@ -23,6 +23,14 @@ proves = "loader read a valid BSB double block and selected the factory-active s
 phase = "bringup"
 proves = "loader verified the slot NXBD signature against the baked anchor, the rollback floor and the streamed image digest BEFORE any OS code ran (RFC-0089 §7, qemu-soft-root)"
 
+# TASK-0244 P3 (RFC-0098 C2): nxboot copied the firmware's tree into headroom, wrote
+# /chosen/nexus,* (slot, handoff record, and on QEMU the lane's profile + display
+# request read from fw_cfg) and read the copy back through the same parser the
+# kernel uses. Printed before the jump in every profile.
+[marker."nxboot: fdt ok ("]
+phase = "bringup"
+proves = "nxboot parsed the device tree it received, wrote /chosen/nexus,* into a headroomed copy and hands that copy to the kernel"
+
 [marker."nxboot: jump slot=a"]
 phase = "bringup"
 proves = "loader wrote the measured handoff page and chained into the verified image"
@@ -532,6 +540,17 @@ proves = "user-task dispatch observed on hart 2 (event-anchored)"
 phase = "bringup"
 emit_when = { profile = "smp" }
 proves = "user-task dispatch observed on hart 3 (event-anchored)"
+
+# TASK-0244 P3 (RFC-0098 C3): the kernel parsed the tree in a1 after its address space
+# came up and printed the values TASK-0245 builds the platform from — every one READ from
+# the tree (QEMU: uart 0x10000000, plic 0xc000000, tb 10 MHz; the board: 0xd4017000,
+# 0xe0000000, 24 MHz). Required in every profile; the FAIL twin names the parser's reason.
+[marker."KSELFTEST: platform from fdt ok ("]
+phase = "bringup"
+proves = "the kernel read the console, PLIC, timebase and hart count from the device tree handed over in a1"
+
+[marker."KSELFTEST: platform from fdt FAIL ("]
+phase = "bringup"
 
 [marker."KSELFTEST: smp online ok"]
 phase = "bringup"

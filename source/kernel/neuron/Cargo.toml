@@ -46,6 +46,8 @@ static_assertions = { version = "1", default-features = false }
 # above) — the kernel GROUP table folds into the SAME SSOT the services use, so OK/WARN-slow/ERROR
 # can never drift between the two sides.
 nexus-event = { path = "../../libs/nexus-event" }
+# RFC-0098: the ONE reader of the hardware truth (TASK-0244 P3); no_std, alloc-free.
+nexus-fdt = { path = "../../libs/nexus-fdt" }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }

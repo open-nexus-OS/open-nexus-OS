@@ -64,6 +64,15 @@ touched (the boot ROM tries the card first).
 Vendor pieces: `just board-inputs` (→ `scripts/fetch-board-inputs.sh`) fetches them pinned;
 `resources/board/bpi-f3/PROVENANCE.md` lists versions, hashes and licenses.
 
+## The board's device tree (ours)
+
+`config/board/bpi-f3/board.dts` is the tree our boot chain hands to the kernel (RFC-0098 C1):
+written by hand from the mainline SoC description (GPL-2.0 OR MIT, used under MIT) and the
+measured facts, only the nodes we consume. `dtc -p 512` compiles it with headroom for nxboot's
+`/chosen` writes; the host tests of `source/libs/nexus-fdt` read the compiled golden
+(`tests/goldens/bpi-f3.dtb`) next to QEMU's dumped `virt.dtb`. On every boot the kernel prints
+what it read: `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=… chosen.slot=…)`.
+
 ## Recipes
 
 | Recipe | Does |

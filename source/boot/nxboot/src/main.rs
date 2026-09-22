@@ -25,6 +25,8 @@
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod arch;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod platform;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod virtio;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -114,6 +116,10 @@ mod boot {
                     bsb_seq: loaded.bsb_seq,
                 };
                 arch::write_handoff(&bootfmt::handoff::encode_page(&handoff));
+                // RFC-0098 C2: the kernel receives OUR copy of the tree, with the
+                // loader's decisions in /chosen/nexus,* (and, on QEMU, the lane's
+                // fw_cfg knobs re-expressed there — the kernel never reads fw_cfg).
+                let dtb = crate::platform::prepare_dtb(dtb, slot_ch(loaded.slot));
                 arch::uart_puts(&format!("nxboot: jump slot={}\n", slot_ch(loaded.slot)));
                 arch::jump_kernel(loaded.desc.load_addr, hartid, dtb)
             }

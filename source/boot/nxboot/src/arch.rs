@@ -192,6 +192,13 @@ pub fn load_region() -> &'static mut [u8] {
     unsafe { core::slice::from_raw_parts_mut(LOAD_BASE as *mut u8, LOAD_MAX) }
 }
 
+/// A read-only view of physical RAM the firmware handed us — the device tree in
+/// `a1` (RFC-0098 C1). Pre-OS, paging is off and nothing else owns that RAM;
+/// the caller has validated `addr`/`len` against the tree's own header first.
+pub fn phys_slice(addr: usize, len: usize) -> &'static [u8] {
+    unsafe { core::slice::from_raw_parts(addr as *const u8, len) }
+}
+
 /// Writes the measured-boot page to its ADR-0059 address (volatile — the
 /// kernel reads it after the jump, outside this program's dataflow).
 pub fn write_handoff(page: &[u8; bootfmt::handoff::PAGE]) {
