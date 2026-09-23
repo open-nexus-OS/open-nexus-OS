@@ -14,7 +14,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: No tests (boot path proven via QEMU marker contract)
 //! PUBLIC API: early_boot_init(hartid, dtb) -> satp, high_boot_init(satp)
-//! DEPENDS_ON: arch::riscv::clear_bss, phys::build_boot_table, trap::install_trap_vector, init_heap
+//! DEPENDS_ON: arch::riscv::clear_bss, phys::build_boot_table, trap::install_trap_vector, init_heap, mm::frame_pool
 //! INVARIANTS: Single-invocation; interrupts masked; minimal diagnostics on OS path
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
@@ -89,6 +89,17 @@ pub fn high_boot_init(boot_satp: usize) {
     log_debug!(target: "boot", "A: before heap init");
     crate::init_heap();
     log_debug!(target: "boot", "B: after heap init");
+    // The frame pool (RFC-0098 C4, TASK-0286): every bank the tree names minus
+    // what is reserved or still owned elsewhere; the first page table takes
+    // its frames from here, so it exists before the kernel address space.
+    match crate::mm::frame_pool::init_from_tree() {
+        Ok(s) => log_info!(target: "boot",
+            "KINIT: mm frames (banks={} total={} free={} reserved={} excluded={})",
+            s.banks, s.total, s.free, s.reserved, s.excluded),
+        Err(e) => {
+            log_error!(target: "boot", "KINIT: mm frames FAILED ({:?}) — no backing for page tables", e)
+        }
+    }
     let (base, end) = crate::boot_image::range();
     log_info!(target: "boot", "KINIT: kernel high half (base=0x{:x} load=0x{:x} len=0x{:x})",
         base, crate::phys::virt_to_phys(base), end - base);

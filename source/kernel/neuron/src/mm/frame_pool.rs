@@ -1,0 +1,99 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+//! CONTEXT: the kernel's frame pool (TASK-0286 P2b) — the ONE `FrameAllocator`
+//! (`crate::frames`, host-proven) over the banks the tree names, built once by
+//! the boot hart after the heap exists and before the first page table.
+//! Carved out: the tree's reserved ranges, the kernel image, the tree itself,
+//! and the fixed windows the old owners still hold until P3 deletes them
+//! (`KERNEL_PAGE_POOL`, `USER_VMO_ARENA`, the user stack pool, the bootstrap
+//! identity window). Page tables allocate here (P2b); VMOs (P3) and
+//! contiguous DMA (P4) follow. Exhaustion is an event on the console AND a
+//! counter — never a silent `None`.
+//! OWNERS: @kernel-mm-team
+//! STATUS: Functional
+//! API_STABILITY: Internal
+//! TEST_COVERAGE: the allocator is host-tested in `crate::frames`; this wrapper
+//!   is proven by every boot (`KINIT: mm frames (…)`) and every page table
+//! INVARIANTS: one pool, one lock (leaf: never held across a log line); a
+//!   refused free is reported, never swallowed.
+
+use crate::frames::{Block, FrameAllocator, FrameError, Range, Stats};
+
+#[cfg(debug_assertions)]
+type PoolLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
+#[cfg(not(debug_assertions))]
+type PoolLock<T> = spin::Mutex<T>;
+
+static POOL: PoolLock<Option<FrameAllocator>> = PoolLock::new(None);
+
+/// Why the pool could not be built.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InitError {
+    /// No tree was recorded, or it does not parse.
+    NoTree,
+    /// The allocator refused the tree (too many banks/holes, a range too large).
+    Frames(FrameError),
+}
+
+/// Build the pool from the tree. Boot hart, once, heap up, paging on.
+pub fn init_from_tree() -> Result<Stats, InitError> {
+    let bytes = crate::boot_fdt::bytes().ok_or(InitError::NoTree)?;
+    let fdt = nexus_fdt::Fdt::new(bytes).map_err(|_| InitError::NoTree)?;
+    let (image_va, image_end_va) = crate::boot_image::range();
+    let image_pa = crate::phys::virt_to_phys(image_va);
+    let image = Range { base: image_pa as u64, size: (image_end_va - image_va) as u64 };
+    let tree =
+        crate::boot_fdt::range().map(|(s, e)| Range { base: s as u64, size: (e - s) as u64 });
+    let window = |(base, len): (usize, usize)| Range { base: base as u64, size: len as u64 };
+    let mut excluded = [Range { base: 0, size: 0 }; 6];
+    let mut n = 0;
+    for range in [
+        Some(image),
+        tree,
+        Some(window((super::KERNEL_PAGE_POOL_BASE, super::KERNEL_PAGE_POOL_LEN))),
+        Some(window((super::USER_VMO_ARENA_BASE, super::USER_VMO_ARENA_LEN))),
+        Some(window(crate::task::stack_pool_window())),
+        Some(window(super::BOOTSTRAP_IDENTITY_WINDOW)),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        excluded[n] = range;
+        n += 1;
+    }
+    let pool = FrameAllocator::init_from_fdt(&fdt, &excluded[..n]).map_err(InitError::Frames)?;
+    let stats = pool.stats();
+    *POOL.lock() = Some(pool);
+    Ok(stats)
+}
+
+/// A block of `1 << order` frames, or the error — exhaustion is logged here,
+/// once per occurrence, with the numbers.
+pub fn alloc(order: u8) -> Result<Block, FrameError> {
+    let result = match POOL.lock().as_mut() {
+        Some(pool) => pool.alloc(order),
+        None => Err(FrameError::Exhausted { order, free: 0 }),
+    };
+    if let Err(FrameError::Exhausted { order, free }) = result {
+        log_error!(target: "mm", "MM: frames exhausted (want=order{} free={})", order, free);
+    }
+    result
+}
+
+/// Return a block. A refusal (foreign, misaligned, double) is a kernel bug
+/// and is reported as one.
+pub fn free(block: Block) {
+    let result = match POOL.lock().as_mut() {
+        Some(pool) => pool.free(block),
+        None => Err(FrameError::NotOwned),
+    };
+    if let Err(e) = result {
+        log_error!(target: "mm", "MM: frame free refused ({:?}) base=0x{:x} order={}", e, block.base, block.order);
+    }
+}
+
+/// The counters (`None` before init).
+pub fn stats() -> Option<Stats> {
+    POOL.lock().as_ref().map(FrameAllocator::stats)
+}

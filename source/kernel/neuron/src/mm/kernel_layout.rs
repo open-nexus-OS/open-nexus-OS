@@ -14,12 +14,24 @@ use super::page_table::{MapError, PageTable};
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use super::{
     address_space::{align_down, align_up, fence_i, kernel_stack_guard_bytes},
-    page_table::{PageFlags, HUGE_PAGE_SIZE_2M, PAGE_SIZE},
+    page_table::{PageFlags, PageTablePage, HUGE_PAGE_SIZE_2M, PAGE_SIZE},
 };
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+/// The root page of the FIRST address space (the kernel's): its kernel half is
+/// built once and adopted by every later root (TASK-0286 P2b). 0 = not built.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+static KERNEL_ROOT: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
     use crate::phys::{virt_to_phys, PHYS_OFFSET};
+    let shared = KERNEL_ROOT.load(Ordering::Acquire);
+    if shared != 0 {
+        adopt_kernel_half(table, shared as *const PageTablePage);
+        return Ok(());
+    }
     extern "C" {
         static __text_start: u8;
         static __text_end: u8;
@@ -83,6 +95,7 @@ pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError>
     if let (Some((start, end)), false) = (tree, tree_in_bank) {
         map_range(table, start + PHYS_OFFSET, end + PHYS_OFFSET, RO, "DTB")?;
     }
+    KERNEL_ROOT.store(table.root.as_ptr() as usize, Ordering::Release);
     log_debug!(target: "mm", "map kernel segments ok");
     Ok(())
 }
@@ -90,6 +103,20 @@ pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError>
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 pub(super) fn map_kernel_segments(_table: &mut PageTable) -> Result<(), MapError> {
     Ok(())
+}
+
+/// Install the kernel half of `src` (root entries 256..512) into `table`'s
+/// root: every address space shares the kernel's own second-level tables,
+/// built once above (TASK-0286 P2b).
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn adopt_kernel_half(table: &mut PageTable, src: *const PageTablePage) {
+    use super::page_table::PT_ENTRIES;
+    // SAFETY: both roots are live page-table pages; the kernel half is written
+    // once at boot and read-only afterwards.
+    unsafe {
+        let (dst, src) = (&mut (*table.root.as_ptr()).entries, &(*src).entries);
+        dst[PT_ENTRIES / 2..].copy_from_slice(&src[PT_ENTRIES / 2..]);
+    }
 }
 
 /// Map `[va_start, va_end)` onto the frames behind it (`virt_to_phys`), a

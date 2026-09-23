@@ -1,6 +1,6 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: In Progress (P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: In Progress (P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
 updated: 2026-09-22
@@ -160,9 +160,27 @@ side (RFC-0085).
   stage=4`, `smp bringup ok mask=0x3`, `KSELFTEST: smp online ok`. That lane's verdict stays
   red on `ipc call budget FAIL (rt=249–326us budget=64)` — measured as PRE-EXISTING: the same
   lane on 2026-09-22 before P1/P2 read 195–344 µs (eleven runs in `build/logs/smp--2026-09-22*`);
-  the budget is wall-clock class (TASK-0054C follow-up "budget as ratio"), not this package. **Left for P2b (before P3):** page tables from frames + the kernel half shared
-  between address spaces (today every AS re-maps the banks: ~17 heap pages per AS on the
-  board), the frame allocator initialised at boot.
+  the budget is wall-clock class (TASK-0054C follow-up "budget as ratio"), not this package.
+- **P2b Frames at boot — done 2026-09-23.** `mm/frame_pool.rs`: the ONE `FrameAllocator`
+  behind a leaf lock, built in `high_boot_init` after the heap from the tree — carved out: the
+  tree's reserved ranges, the image, the tree, and the windows the old owners still hold until
+  P3 (`KERNEL_PAGE_POOL`, `USER_VMO_ARENA`, the user stack pool, the bootstrap identity
+  window, now `mm::BOOTSTRAP_IDENTITY_WINDOW`); `alloc` logs `MM: frames exhausted
+  (want=… free=…)`, `free` logs a refused free; `KINIT: mm frames (banks=1 total=13378
+  free=13378 reserved=96 excluded=68542)` on virt (52 MiB free while the windows still exist).
+  Page tables are frames: `PageTable::alloc_page` takes an order-0 block through the direct
+  map and zeroes it, `Drop` returns it; the `bringup_identity` static pool (64 image pages)
+  and `pt_static_root` are DELETED (features gone from both Cargo.tomls; the boot crate had
+  it on, which is why the first measurement showed `pt_live=0` — the pool served the first 64
+  tables silently). The kernel half is built once (`kernel_layout::KERNEL_ROOT`) and every
+  later root adopts entries 256..512 (`adopt_kernel_half`): the kernel address space costs 6
+  page-table frames on virt (`KINIT: mm frames in use (free=13372 allocs=6 frees=0
+  pt_live=6)`), a user address space its root plus its own user-level tables — the satp of
+  every activation names a frame outside the image now. Stats renamed
+  `PageTableAllocationStats { live, total, peak }` (they were `heap_*`). Allocation policy
+  pinned by a host test with the boot's exact exclusions: classic buddy — the smallest
+  sufficient order first, the lowest block within it (an exact-size free block anywhere beats
+  splitting a bigger one lower down), deterministic across boots.
 - **P3 Page-backed VMO.** `VmoObject` + frame lists; every syscall path moved; `VmoPool`, the
   windows and `stack_pool`'s window deleted; `-m` unpinned; 256M and 1G proven.
 - **P4 `contiguous-DMA` + coherence hooks.** The kind, `DmaBuffer::for_device/for_cpu` (no-op

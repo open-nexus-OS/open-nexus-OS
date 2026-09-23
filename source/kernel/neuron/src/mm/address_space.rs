@@ -289,17 +289,6 @@ impl AddressSpaceManager {
         space.page_table_mut().set_leaf_flags(va, set).map_err(AddressSpaceError::from)
     }
 
-    #[cfg(all(
-        target_arch = "riscv64",
-        target_os = "none",
-        feature = "bringup_identity",
-        not(feature = "selftest_no_satp")
-    ))]
-    #[allow(dead_code)]
-    pub fn activate_via_trampoline(&self, handle: AsHandle) -> Result<(), AddressSpaceError> {
-        self.activate(handle)
-    }
-
     /// Records that `pid` references the provided address space.
     pub fn attach(&mut self, handle: AsHandle, pid: Pid) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;

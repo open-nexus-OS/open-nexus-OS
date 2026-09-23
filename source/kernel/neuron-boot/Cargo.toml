@@ -5,7 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
-neuron = { path = "../neuron", features = ["bringup_identity"] }
+neuron = { path = "../neuron" }
 
 [features]
 trap_ring = ["neuron/trap_ring"]

@@ -90,6 +90,7 @@ pub use exit_reason::ExitReason;
 
 #[cfg(target_os = "none")]
 mod stack_pool;
+pub(crate) use stack_pool::window as stack_pool_window;
 /// Waking a blocked task (TASK-0054C P4c-2: the runqueue half is measured here).
 mod wake;
 #[cfg(target_os = "none")]

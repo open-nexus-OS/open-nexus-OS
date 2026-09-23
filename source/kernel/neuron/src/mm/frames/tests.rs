@@ -256,3 +256,43 @@ proptest! {
         prop_assert_eq!(fa.stats().free, total);
     }
 }
+
+#[test]
+fn virt_boot_shape_takes_the_smallest_sufficient_order_then_the_lowest_address() {
+    // The exclusions the kernel passes on QEMU virt (TASK-0286 P2b): the
+    // firmware reservation, the loader's tree copy, the image, the two fixed
+    // windows, the stack pool and the bootstrap identity window. Free: the
+    // rest of the loader's window (from 0x8021_c000, whose first block is
+    // order 2), the tail behind the image (from 0x815b_b000: one order-0
+    // block first, then bigger ones) and the top of the bank.
+    let reserved = [Range { base: 0x8000_0000, size: 0x6_0000 }];
+    let excluded = [
+        Range { base: 0x8020_0000, size: 0x1_c000 },
+        Range { base: 0x8040_0000, size: 0x11b_ab80 },
+        Range { base: 0x8200_0000, size: 24 * MIB },
+        Range { base: 0x8380_0000, size: 224 * MIB },
+        Range { base: 0x8010_0000, size: MIB },
+        Range { base: 0x8000_0000, size: MIB },
+    ];
+    let bank = Range { base: 0x8000_0000, size: 320 * MIB };
+    let mut fa = FrameAllocator::init(&[bank], &reserved, &excluded).unwrap();
+    // Classic buddy policy: an exact-size free block anywhere beats splitting a
+    // bigger one lower down — the image tail's lone order-0 block goes first,
+    // then the loader window's order-2 block is split from its bottom.
+    assert_eq!(fa.alloc(0).unwrap().base, 0x815b_b000);
+    assert_eq!(fa.alloc(0).unwrap().base, 0x8021_c000);
+    assert_eq!(fa.alloc(0).unwrap().base, 0x8021_d000);
+    // Same shape, same calls, same frames; nothing from an excluded range.
+    let mut again = FrameAllocator::init(&[bank], &reserved, &excluded).unwrap();
+    for _ in 0..3 {
+        again.alloc(0).unwrap();
+    }
+    let mut n = 0;
+    while let (Ok(a), Ok(b)) = (fa.alloc(0), again.alloc(0)) {
+        assert_eq!(a, b);
+        assert!(!(0x8040_0000..0x815b_b000).contains(&a.base), "image frame {a:?}");
+        assert!(!(0x8200_0000..0x9180_0000).contains(&a.base), "window frame {a:?}");
+        n += 1;
+    }
+    assert_eq!(n + 3, fa.stats().total);
+}

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-23 (TASK-0286 M1 P2b: the frame pool is live at boot, page tables are frames, the kernel half is shared)
+
+- `mm/frame_pool.rs`: the one frame allocator, built from the tree after the heap and before
+  the first page table; the tree's reserved ranges, the image, the tree and the windows the old
+  owners still hold (until P3) are carved out. `KINIT: mm frames (banks=… total=… free=…
+  reserved=… excluded=…)` and, once the kernel address space exists, `KINIT: mm frames in use
+  (free=… allocs=… frees=… pt_live=…)`; exhaustion and refused frees are console events.
+- Page tables are frames (`PageTable::alloc_page`/`Drop` through the direct map); the
+  `bringup_identity` static page-table pool and `pt_static_root` are deleted from the kernel and
+  the boot crate. The kernel half is built once and adopted by every later root (entries
+  256..512), so an address space costs its root plus its own user tables — the kernel space
+  costs 6 frames on virt. `PageTableAllocationStats` fields are `live/total/peak`.
+
 ### Changed - 2026-09-23 (TASK-0286 M1 P2: the kernel runs in the Sv39 high half; the identity map is gone)
 
 - **RFC-0098 C4 implemented.** `neuron::phys` (host-tested) is the one seam between a physical

@@ -98,18 +98,6 @@ impl KernelState {
         }
         // Activate kernel address space immediately to ensure deterministic
         // RX mapping for subsequent code paths.
-        #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "bringup_identity"))]
-        if let Err(err) = address_spaces.activate_via_trampoline(kernel_as) {
-            use core::fmt::Write as _;
-            let mut w = crate::uart::raw_writer();
-            let _ = write!(w, "KS-E: as_activate tramp {:?}\n", err);
-            panic!("kernel address space activate via trampoline failed");
-        }
-        #[cfg(not(all(
-            target_arch = "riscv64",
-            target_os = "none",
-            feature = "bringup_identity"
-        )))]
         if let Err(err) = address_spaces.activate(kernel_as) {
             use core::fmt::Write as _;
             let mut w = crate::uart::raw_writer();
@@ -127,6 +115,11 @@ impl KernelState {
         // mapped read-only by `map_kernel_segments`; print what was read (or why not).
         crate::boot_fdt::report();
         crate::boot_image::report();
+        if let Some(s) = crate::mm::frame_pool::stats() {
+            let pt = crate::mm::page_table::PageTable::allocation_stats();
+            log_info!(target: "mm", "KINIT: mm frames in use (free={} allocs={} frees={} pt_live={})",
+                s.free, s.allocs, s.frees, pt.live);
+        }
 
         // Now proceed with task table and the rest of bring-up under the active SATP.
         let mut tasks = TaskTable::new();
@@ -153,7 +146,10 @@ impl KernelState {
             let _ = caps.set(
                 1,
                 Capability {
-                    kind: CapabilityKind::Vmo { base: 0x8000_0000, len: 0x10_0000 },
+                    kind: CapabilityKind::Vmo {
+                        base: crate::mm::BOOTSTRAP_IDENTITY_WINDOW.0,
+                        len: crate::mm::BOOTSTRAP_IDENTITY_WINDOW.1,
+                    },
                     rights: Rights::MAP,
                 },
             );

@@ -50,12 +50,12 @@ fn allocation_stats_track_owned_page_lifetime() {
         let mut table = PageTable::new();
         table.map(0, 0, PageFlags::VALID | PageFlags::READ).expect("map");
         let during = PageTable::allocation_stats();
-        assert!(during.heap_live >= before.heap_live + 1);
-        assert!(during.heap_total >= before.heap_total + 1);
-        assert!(during.heap_peak >= during.heap_live);
+        assert!(during.live >= before.live + 1);
+        assert!(during.total >= before.total + 1);
+        assert!(during.peak >= during.live);
         assert!(table.allocated_pages() >= 1);
     }
     let after = PageTable::allocation_stats();
-    assert_eq!(after.heap_live, before.heap_live);
-    assert!(after.heap_total >= before.heap_total + 1);
+    assert_eq!(after.live, before.live);
+    assert!(after.total >= before.total + 1);
 }

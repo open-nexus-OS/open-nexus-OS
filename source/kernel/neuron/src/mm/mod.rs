@@ -65,6 +65,10 @@ pub const KERNEL_PAGE_POOL_BASE: usize = 0x8200_0000;
 /// loader allocates the WHOLE embedded init image (now ~16.4 MB with the
 /// CJK atlases) plus stacks from this pool.
 pub const KERNEL_PAGE_POOL_LEN: usize = 24 * 1024 * 1024;
+/// The bootstrap task's "identity VMO" `(base, len)` (cap slot 1, `kmain`):
+/// the last fixed physical window a capability names outright — P3 retires it.
+pub const BOOTSTRAP_IDENTITY_WINDOW: (usize, usize) = (0x8000_0000, 0x10_0000);
+pub mod frame_pool;
 mod kernel_layout;
 #[cfg(test)]
 mod page_table_tests;

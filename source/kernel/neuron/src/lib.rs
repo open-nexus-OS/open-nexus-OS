@@ -44,8 +44,8 @@
     // Labeled `loop { ...; break v }` value-blocks — intentional idiom, not a bug.
     clippy::never_loop,
     // These `new()`s have construction preconditions/side-effects (heap allocation,
-    // a unique single-use static page-table root under `pt_static_root`, bootstrap
-    // task seeding); a silently-derivable `Default` would be a footgun.
+    // a page-table root frame from the pool, bootstrap task seeding); a
+    // silently-derivable `Default` would be a footgun.
     clippy::new_without_default,
     // Kernel syscall/exec/trap dispatch fns mirror the hardware syscall ABI register
     // layout; bundling args into structs obscures the ABI mapping.

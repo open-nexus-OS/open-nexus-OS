@@ -24,6 +24,12 @@ const STACK_PAGES: usize = 4;
 const STACK_POOL_BASE: usize = 0x8000_0000 + 0x10_0000;
 const STACK_POOL_LIMIT: usize = 0x8000_0000 + 0x20_0000;
 
+/// The pool's physical window `(base, len)` — carved out of the frame pool
+/// until TASK-0286 P3 allocates stacks from frames.
+pub(crate) const fn window() -> (usize, usize) {
+    (STACK_POOL_BASE, STACK_POOL_LIMIT - STACK_POOL_BASE)
+}
+
 struct StackPool {
     cursor: usize,
 }

@@ -68,7 +68,10 @@ implemented by `scripts/qemu-test.sh` (marker strings are a gating surface).
    base, and enters `high_boot_init` (traps, timer, heap — nothing holding a
    pointer is built before the switch; `KINIT: kernel high half (base=… load=…)`).
    Secondary harts run the same switch in their stub, off the published boot
-   `satp`, before they touch `sp` or Rust.
+   `satp`, before they touch `sp` or Rust. `high_boot_init` also builds the
+   frame pool (`mm/frame_pool.rs`, over `crate::frames`) from the tree's banks
+   minus reserved ranges, the image, the tree and the fixed windows P3 retires
+   (`KINIT: mm frames (…)`); every page table is a frame from it.
 2. `kmain` activates the kernel address space (the image at its high alias,
    every memory bank through the direct map, the UART/PLIC windows and the
    tree when it lies outside a bank), resolves boot mode + display
@@ -192,7 +195,9 @@ increment:
 ## Address Space Model
 
 - Sv39 translation with three levels of page tables. Intermediate tables are allocated lazily as
-  mappings are installed via `AddressSpaceManager::map_page`.
+  mappings are installed via `AddressSpaceManager::map_page`; every table page is an order-0
+  frame from `mm::frame_pool`, zeroed on allocation and returned on drop (there is no static
+  bring-up pool any more).
 - The ASID allocator tracks 256 slots (ASID `0` is reserved for the kernel). Handles returned by
   `SYS_AS_CREATE` wrap the internal slot index and remain opaque to callers.
 - Fresh address spaces are seeded with the kernel half (`mm/kernel_layout.rs`, RFC-0098 C4):
@@ -200,6 +205,9 @@ increment:
   RW|GLOBAL, the kernel stack RW|GLOBAL above its guard page, left unmapped), every `/memory` bank
   through the direct map `PHYS_OFFSET + PA` (RW|GLOBAL, 2 MiB leaves, minus the image's own
   frames), the UART and PLIC windows, and the tree's pages when they lie outside every bank.
+  The kernel half is built ONCE, for the kernel's own root; every later root adopts its entries
+  256..512 (`adopt_kernel_half`), so a user address space costs its root plus its own user-level
+  tables and the kernel's second-level tables are shared by all.
   Nothing kernel-owned lies below `KERNEL_VA_BASE`; page tables hold physical addresses and the
   kernel reaches the next level through `phys::phys_to_virt` — the one seam every physical
   dereference goes through (`vmo`, `exec`, the stack pool, the trap-time page walk, the console).

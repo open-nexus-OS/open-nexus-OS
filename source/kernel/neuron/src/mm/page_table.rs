@@ -13,7 +13,7 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -27,19 +27,20 @@ pub(super) const PT_ENTRIES: usize = 512;
 /// Size of an Sv39 level-1 leaf mapping.
 pub const HUGE_PAGE_SIZE_2M: usize = 2 * 1024 * 1024;
 
-static HEAP_PT_PAGES_LIVE: AtomicUsize = AtomicUsize::new(0);
-static HEAP_PT_PAGES_TOTAL: AtomicUsize = AtomicUsize::new(0);
-static HEAP_PT_PAGES_PEAK: AtomicUsize = AtomicUsize::new(0);
+static PT_PAGES_LIVE: AtomicUsize = AtomicUsize::new(0);
+static PT_PAGES_TOTAL: AtomicUsize = AtomicUsize::new(0);
+static PT_PAGES_PEAK: AtomicUsize = AtomicUsize::new(0);
 
-/// Heap-backed page-table allocation counters.
+/// Frame-backed page-table allocation counters (TASK-0286 P2b: every
+/// page-table page is a frame from `mm::frame_pool`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PageTableAllocationStats {
-    /// Heap-backed page-table pages currently live.
-    pub heap_live: usize,
-    /// Heap-backed page-table pages ever allocated.
-    pub heap_total: usize,
-    /// Peak heap-backed page-table pages live at one time.
-    pub heap_peak: usize,
+    /// Page-table pages currently live.
+    pub live: usize,
+    /// Page-table pages ever allocated.
+    pub total: usize,
+    /// Peak page-table pages live at one time.
+    pub peak: usize,
 }
 
 bitflags! {
@@ -81,25 +82,6 @@ pub(super) struct PageTablePage {
     pub(super) entries: [usize; PT_ENTRIES],
 }
 
-impl PageTablePage {
-    const fn new() -> Self {
-        Self { entries: [0; PT_ENTRIES] }
-    }
-}
-
-// Optional static root page for early bring-up to avoid allocator/intrinsics.
-#[cfg(feature = "pt_static_root")]
-static mut PT_STATIC_ROOT: PageTablePage = PageTablePage::new();
-
-#[cfg(feature = "bringup_identity")]
-static mut PT_STATIC_POOL: [PageTablePage; 64] = [const { PageTablePage::new() }; 64];
-// SMP A2c: atomic bump cursor — the pool hand-out must stay race-free once
-// secondary harts allocate page tables (each index is claimed exactly once).
-#[cfg(feature = "bringup_identity")]
-static PT_STATIC_POOL_NEXT: AtomicUsize = AtomicUsize::new(0);
-#[cfg(feature = "bringup_identity")]
-const PT_STATIC_POOL_CAP: usize = 64;
-
 /// Three-level Sv39 page table allocating intermediate levels on demand.
 pub struct PageTable {
     pub(super) root: NonNull<PageTablePage>,
@@ -112,19 +94,8 @@ static_assertions::assert_not_impl_any!(PageTable: Send, Sync);
 impl PageTable {
     /// Creates an empty Sv39 page table with a fresh root page.
     pub fn new() -> Self {
-        #[cfg(feature = "pt_static_root")]
-        unsafe {
-            // SAFETY: The static page is uniquely used as the root for this instance in
-            // early bring-up; higher-level code must ensure single use or add a manager.
-            let ptr: *mut PageTablePage = core::ptr::addr_of_mut!(PT_STATIC_ROOT);
-            let root = NonNull::new_unchecked(ptr);
-            return Self { root, owned: vec![], _not_send_sync: PhantomData };
-        }
-        #[cfg(not(feature = "pt_static_root"))]
-        {
-            let root = Self::alloc_page();
-            Self { root, owned: vec![root], _not_send_sync: PhantomData }
-        }
+        let root = Self::alloc_page();
+        Self { root, owned: vec![root], _not_send_sync: PhantomData }
     }
 
     /// Returns the physical page number of the root page suitable for SATP.
@@ -142,9 +113,9 @@ impl PageTable {
     #[must_use]
     pub fn allocation_stats() -> PageTableAllocationStats {
         PageTableAllocationStats {
-            heap_live: HEAP_PT_PAGES_LIVE.load(Ordering::Relaxed),
-            heap_total: HEAP_PT_PAGES_TOTAL.load(Ordering::Relaxed),
-            heap_peak: HEAP_PT_PAGES_PEAK.load(Ordering::Relaxed),
+            live: PT_PAGES_LIVE.load(Ordering::Relaxed),
+            total: PT_PAGES_TOTAL.load(Ordering::Relaxed),
+            peak: PT_PAGES_PEAK.load(Ordering::Relaxed),
         }
     }
 
@@ -528,95 +499,46 @@ impl PageTable {
     }
 
     fn alloc_page() -> NonNull<PageTablePage> {
-        #[cfg(feature = "bringup_identity")]
-        {
-            // Atomic claim via bounded CAS (lr/sc): each index is handed out
-            // exactly once even with concurrent allocators on other harts,
-            // and the cursor never grows past the cap (heap fallback after).
-            // NOTE: deliberately lr/sc-based (same primitive class as the
-            // spin locks used throughout) rather than an AMO fetch_add — an
-            // amoadd here reproducibly wedged the boot (see SMP track A2c).
-            let mut idx = PT_STATIC_POOL_NEXT.load(Ordering::Acquire);
-            loop {
-                if idx >= PT_STATIC_POOL_CAP {
-                    break;
-                }
-                match PT_STATIC_POOL_NEXT.compare_exchange_weak(
-                    idx,
-                    idx + 1,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => break,
-                    Err(observed) => idx = observed,
-                }
-            }
-            if idx < PT_STATIC_POOL_CAP {
-                // SAFETY: `idx` was claimed exclusively above; the pool is a
-                // static with 'static lifetime.
-                unsafe {
-                    let base: *mut [PageTablePage; PT_STATIC_POOL_CAP] =
-                        core::ptr::addr_of_mut!(PT_STATIC_POOL);
-                    let first: *mut PageTablePage = base as *mut PageTablePage;
-                    let page_ptr: *mut PageTablePage = first.add(idx);
-                    return NonNull::new_unchecked(page_ptr);
-                }
-            }
-        }
-        let boxed = Box::new(PageTablePage::new());
-        record_heap_page_alloc();
-        unsafe { NonNull::new_unchecked(Box::into_raw(boxed)) }
+        // A frame from the pool, zeroed (frames come back dirty), through the direct map.
+        let block =
+            crate::mm::frame_pool::alloc(0).unwrap_or_else(|e| panic!("page-table frame: {:?}", e));
+        let ptr = crate::phys::phys_to_virt(block.base as usize) as *mut PageTablePage;
+        // SAFETY: a frame nobody else owns, page-aligned and page-sized.
+        unsafe { core::ptr::write_bytes(ptr as *mut u8, 0, PAGE_SIZE) };
+        record_page_alloc();
+        NonNull::new(ptr).expect("a frame is never at PA 0")
     }
 }
 
 impl Drop for PageTable {
     fn drop(&mut self) {
-        #[cfg(not(feature = "bringup_identity"))]
-        {
-            for page in self.owned.drain(..) {
-                // SAFETY: every pointer originates from `alloc_page` and is unique.
-                unsafe { drop(Box::from_raw(page.as_ptr())) };
-                record_heap_page_free();
-            }
-        }
-        #[cfg(feature = "bringup_identity")]
-        {
-            let static_base =
-                core::ptr::addr_of_mut!(PT_STATIC_POOL) as *mut PageTablePage as usize;
-            let static_end =
-                static_base + PT_STATIC_POOL_CAP * core::mem::size_of::<PageTablePage>();
-            for page in self.owned.drain(..) {
-                let ptr = page.as_ptr() as usize;
-                if ptr >= static_base && ptr < static_end {
-                    continue;
-                }
-                // SAFETY: non-static pointers originate from Box allocations in `alloc_page`.
-                unsafe { drop(Box::from_raw(page.as_ptr())) };
-                record_heap_page_free();
-            }
+        for page in self.owned.drain(..) {
+            free_page(page);
         }
     }
 }
 
-fn record_heap_page_alloc() {
-    let live = HEAP_PT_PAGES_LIVE.fetch_add(1, Ordering::Relaxed) + 1;
-    HEAP_PT_PAGES_TOTAL.fetch_add(1, Ordering::Relaxed);
-    let mut peak = HEAP_PT_PAGES_PEAK.load(Ordering::Relaxed);
+/// Return a page-table frame to the pool (every pointer from `alloc_page`).
+fn free_page(page: NonNull<PageTablePage>) {
+    let base = crate::phys::virt_to_phys(page.as_ptr() as usize) as u64;
+    crate::mm::frame_pool::free(crate::frames::Block { base, order: 0 });
+    record_page_free();
+}
+fn record_page_alloc() {
+    let live = PT_PAGES_LIVE.fetch_add(1, Ordering::Relaxed) + 1;
+    PT_PAGES_TOTAL.fetch_add(1, Ordering::Relaxed);
+    let mut peak = PT_PAGES_PEAK.load(Ordering::Relaxed);
     while live > peak {
-        match HEAP_PT_PAGES_PEAK.compare_exchange_weak(
-            peak,
-            live,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        ) {
+        match PT_PAGES_PEAK.compare_exchange_weak(peak, live, Ordering::Relaxed, Ordering::Relaxed)
+        {
             Ok(_) => break,
             Err(observed) => peak = observed,
         }
     }
 }
 
-fn record_heap_page_free() {
-    HEAP_PT_PAGES_LIVE.fetch_sub(1, Ordering::Relaxed);
+fn record_page_free() {
+    PT_PAGES_LIVE.fetch_sub(1, Ordering::Relaxed);
 }
 
 pub(super) const LEAF_PERMS: PageFlags =
