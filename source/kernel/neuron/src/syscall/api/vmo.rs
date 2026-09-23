@@ -305,7 +305,7 @@ pub(super) fn sys_vmo_read(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     if typed.len != 0 {
         unsafe {
             ptr::copy_nonoverlapping(
-                (base + typed.offset) as *const u8,
+                crate::phys::phys_to_virt(base + typed.offset) as *const u8,
                 typed.user_ptr as *mut u8,
                 typed.len,
             );
@@ -364,7 +364,7 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
         unsafe {
             ptr::copy_nonoverlapping(
                 typed.user_ptr as *const u8,
-                (base + typed.offset) as *mut u8,
+                crate::phys::phys_to_virt(base + typed.offset) as *mut u8,
                 typed.len,
             );
             riscv::asm::fence_i();
@@ -528,7 +528,11 @@ pub(super) fn log_vmo_preview(slot: usize, base: usize, len: u64, prot: u32) {
     let mut buf = [0u8; 16];
     if preview_len > 0 {
         unsafe {
-            core::ptr::copy_nonoverlapping(base as *const u8, buf.as_mut_ptr(), preview_len);
+            core::ptr::copy_nonoverlapping(
+                crate::phys::phys_to_virt(base) as *const u8,
+                buf.as_mut_ptr(),
+                preview_len,
+            );
         }
     }
     let _ = write!(

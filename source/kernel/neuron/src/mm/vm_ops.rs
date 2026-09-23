@@ -152,7 +152,7 @@ pub fn leaf_span_at(space: &AddressSpace, va: usize) -> Option<usize> {
         if entry & LEAF_PERMS.bits() != 0 {
             return Some(span);
         }
-        page = (((entry >> 10) & ((1usize << 44) - 1)) << 12) as *const _;
+        page = crate::phys::phys_to_virt(((entry >> 10) & ((1usize << 44) - 1)) << 12) as *const _;
     }
     None
 }

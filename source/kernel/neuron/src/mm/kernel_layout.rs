@@ -1,272 +1,88 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! The kernel's identity-map layout: every address space starts with the
-//! same GLOBAL kernel segments (text, data, stacks, page pool, the whole
-//! VMO arena, the UART/PLIC windows and the device tree). Split out of `address_space.rs`
-//! (structure-gate, RFC-0085 Phase 2). The host build gets the same no-op
-//! stub the original had.
+//! The kernel half of every address space (RFC-0098 C4, TASK-0286 P2): the
+//! image at its high alias with segment permissions (text RX, the rest RW,
+//! the stack guard left out), every memory bank the tree names through the
+//! direct map `PHYS_OFFSET + PA` (minus the image's own frames), the console
+//! and interrupt-controller windows, and the tree when it lies outside every
+//! bank. All GLOBAL, none below `KERNEL_VA_BASE`; the identity map is gone.
+//! Split out of `address_space.rs` (structure-gate, RFC-0085 Phase 2). The
+//! host build gets the same no-op stub the original had.
 
-use super::address_space::{align_down, align_up, fence_i, kernel_stack_guard_bytes};
-use super::page_table::{MapError, PageFlags, PageTable};
+use super::page_table::{MapError, PageTable};
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use super::page_table::{HUGE_PAGE_SIZE_2M, PAGE_SIZE};
+use super::{
+    address_space::{align_down, align_up, fence_i, kernel_stack_guard_bytes},
+    page_table::{PageFlags, HUGE_PAGE_SIZE_2M, PAGE_SIZE},
+};
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError> {
+    use crate::phys::{virt_to_phys, PHYS_OFFSET};
     extern "C" {
         static __text_start: u8;
         static __text_end: u8;
-        static __bss_end: u8;
         static __stack_bottom: u8;
-        static __stack_top: u8;
-        static __selftest_stack_base: u8;
-        static __selftest_stack_top: u8;
+        static __image_end: u8;
     }
+    const RX: PageFlags =
+        PageFlags::VALID.union(PageFlags::READ).union(PageFlags::EXECUTE).union(PageFlags::GLOBAL);
+    const RW: PageFlags =
+        PageFlags::VALID.union(PageFlags::READ).union(PageFlags::WRITE).union(PageFlags::GLOBAL);
+    const RO: PageFlags = PageFlags::VALID.union(PageFlags::READ).union(PageFlags::GLOBAL);
 
+    // The image, at the high alias it runs at: text RX; rodata, data, bss
+    // (heap, page tables, the island and selftest stacks) RW; the kernel stack
+    // RW above its guard, which stays unmapped so an overflow faults.
     let text_start = align_down(unsafe { &__text_start as *const u8 as usize });
     let text_end = align_up(unsafe { &__text_end as *const u8 as usize });
-    if text_end <= text_start {
+    let stack_bottom = align_down(unsafe { &__stack_bottom as *const u8 as usize });
+    let image_end = align_up(unsafe { &__image_end as *const u8 as usize });
+    if text_end <= text_start || image_end <= stack_bottom || stack_bottom < text_end {
         return Err(MapError::OutOfRange);
     }
-    if let Err(e) = map_identity_range(
-        table,
-        text_start,
-        text_end,
-        PageFlags::VALID | PageFlags::READ | PageFlags::EXECUTE | PageFlags::GLOBAL,
-    ) {
-        if let MapError::Overlap = e {
-            log_error!(target: "mm", "AS-MAP: overlap in TEXT {:#x}..{:#x}", text_start, text_end);
-        }
-        return Err(e);
-    }
+    map_range(table, text_start, text_end, RX, "TEXT")?;
     fence_i();
+    map_range(table, text_end, stack_bottom, RW, "DATA")?;
+    let stack_from =
+        stack_bottom.checked_add(kernel_stack_guard_bytes()).ok_or(MapError::OutOfRange)?;
+    map_range(table, stack_from, image_end, RW, "KSTACK")?;
 
-    let data_start = text_end;
-    let data_end = align_up(unsafe { &__bss_end as *const u8 as usize });
-
-    // CRITICAL: Verify HEAP is within mapped range!
-    let heap_start = unsafe { core::ptr::addr_of_mut!(crate::HEAP.0) as usize };
-    let heap_size = core::mem::size_of::<crate::HeapRegion>();
-    let heap_end = heap_start + heap_size;
-
-    if heap_end > data_end {
-        log_error!(target: "mm", "AS-MAP: HEAP NOT COVERED! heap={:#x}..{:#x} data_end={:#x}",
-            heap_start, heap_end, data_end);
-    } else {
-        log_debug!(target: "mm", "AS-MAP: HEAP OK in DATA range: heap={:#x}..{:#x} data_end={:#x}",
-            heap_start, heap_end, data_end);
-    }
-
-    if let Err(e) = map_identity_range(
-        table,
-        data_start,
-        data_end,
-        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    ) {
-        if let MapError::Overlap = e {
-            log_error!(target: "mm", "AS-MAP: overlap in DATA {:#x}..{:#x}", data_start, data_end);
+    // Every bank through the direct map, minus the image's frames (mapped
+    // above with their own permissions). RAM the tree does not name is never
+    // mapped: nothing kernel-owned can live there.
+    let (image_pa, image_pa_end) = (virt_to_phys(text_start), virt_to_phys(image_end));
+    let mut tree_in_bank = false;
+    let tree = crate::boot_fdt::range();
+    for (base, len) in crate::hal::platform::memory_banks() {
+        let end = base.checked_add(len).ok_or(MapError::OutOfRange)?;
+        if let Some((s, e)) = tree {
+            tree_in_bank |= s >= base && e <= end;
         }
-        return Err(e);
+        let lo_end = image_pa.clamp(base, end);
+        let hi_start = image_pa_end.clamp(base, end);
+        map_range(table, base + PHYS_OFFSET, lo_end + PHYS_OFFSET, RW, "BANK")?;
+        map_range(table, hi_start + PHYS_OFFSET, end + PHYS_OFFSET, RW, "BANK")?;
     }
-
-    let stack_start = align_down(unsafe { &__stack_bottom as *const u8 as usize });
-    let stack_end = align_up(unsafe { &__stack_top as *const u8 as usize });
-    if stack_end <= stack_start {
-        return Err(MapError::OutOfRange);
-    }
-    let guard_bytes = kernel_stack_guard_bytes();
-    let mapped_start = stack_start.checked_add(guard_bytes).ok_or(MapError::OutOfRange)?;
-    // DATA/BSS identity range may already cover the low portion of the stack; avoid remapping.
-    let map_from = core::cmp::max(mapped_start, data_end);
-    log_debug!(
-        target: "mm",
-        "AS-MAP: KSTACK check: start={:#x} end={:#x} data_end={:#x} guard={} map_from={:#x}",
-        stack_start,
-        stack_end,
-        data_end,
-        guard_bytes,
-        map_from
-    );
-    if map_from < stack_end {
-        log_debug!(target: "mm", "AS-MAP: mapping KSTACK tail {:#x}..{:#x}", map_from, stack_end);
-        if let Err(e) = map_identity_range(
-            table,
-            map_from,
-            stack_end,
-            PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-        ) {
-            if let MapError::Overlap = e {
-                log_error!(
-                    target: "mm",
-                    "AS-MAP: overlap in KSTACK tail {:#x}..{:#x}",
-                    map_from,
-                    stack_end
-                );
-            }
-            return Err(e);
-        }
-        log_debug!(target: "mm", "AS-MAP: KSTACK tail mapped ok");
-    } else {
-        log_debug!(
-            target: "mm",
-            "AS-MAP: skip KSTACK mapping; fully covered by DATA {:#x}..{:#x}",
-            stack_start,
-            stack_end
-        );
-    }
-
-    let selftest_stack_start = align_down(unsafe { &__selftest_stack_base as *const u8 as usize });
-    let selftest_stack_end = align_up(unsafe { &__selftest_stack_top as *const u8 as usize });
-    // Map SATP island stack as GLOBAL RW (skip if covered by DATA/BSS identity range)
-    extern "C" {
-        static __satp_island_stack_base: u8;
-        static __satp_island_stack_top: u8;
-    }
-    let island_start = align_down(unsafe { &__satp_island_stack_base as *const u8 as usize });
-    let island_end = align_up(unsafe { &__satp_island_stack_top as *const u8 as usize });
-    if island_end > island_start {
-        let overlaps_data = island_start < data_end && island_end > data_start;
-        if !overlaps_data {
-            if let Err(e) = map_identity_range(
-                table,
-                island_start,
-                island_end,
-                PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-            ) {
-                if let MapError::Overlap = e {
-                    log_error!(target: "mm", "AS-MAP: overlap in SATP-ISLAND {:#x}..{:#x}", island_start, island_end);
-                }
-                return Err(e);
-            }
-        } else {
-            log_debug!(target: "mm", "AS-MAP: skip SATP-ISLAND (covered by DATA) {:#x}..{:#x}", island_start, island_end);
-        }
-    }
-    if selftest_stack_end > selftest_stack_start {
-        // Avoid overlapping mappings: if selftest stack lies within [data_start, data_end),
-        // it is already covered by the data/BSS identity range.
-        let overlaps_data = selftest_stack_start < data_end && selftest_stack_end > data_start;
-        if !overlaps_data {
-            if let Err(e) = map_identity_range(
-                table,
-                selftest_stack_start,
-                selftest_stack_end,
-                PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-            ) {
-                if let MapError::Overlap = e {
-                    log_error!(target: "mm", "AS-MAP: overlap in SELFTEST {:#x}..{:#x}", selftest_stack_start, selftest_stack_end);
-                }
-                return Err(e);
-            }
-        } else {
-            log_debug!(target: "mm", "AS-MAP: skip SELFTEST (covered by DATA) {:#x}..{:#x}", selftest_stack_start, selftest_stack_end);
-        }
-    }
-
-    // Map a page-pool window after BSS so kernel can zero/copy user pages by PA.
-    // Keep this in sync with `mm::KERNEL_PAGE_POOL_*` used by early loader/selftest paths.
-    let pool_base = super::KERNEL_PAGE_POOL_WINDOW.base;
-    let pool_end = super::KERNEL_PAGE_POOL_WINDOW.end();
-    if let Err(e) = map_identity_range(
-        table,
-        pool_base,
-        pool_end,
-        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    ) {
-        if let MapError::Overlap = e {
-            log_error!(target: "mm", "AS-MAP: overlap in POOL {:#x}..{:#x}", pool_base, pool_end);
-        }
-        return Err(e);
-    }
-
-    // Identity-map the user stack pool used by `task::allocate_guarded_stack` so the kernel can
-    // zero freshly allocated stack pages (RFC-0004: no stale bytes / pointer remnants).
-    //
-    // NOTE: Some early bring-up paths (and page-table allocations depending on layout) may touch
-    // low RAM addresses near 0x8000_0000. Map the full 0x8000_0000..0x8020_0000 window to keep
-    // these accesses safe and avoid KPGF on unmapped low-RAM.
-    let user_stack_pool_base = 0x8000_0000usize;
-    let user_stack_pool_end = 0x8000_0000usize + 0x20_0000;
-    if let Err(e) = map_identity_range(
-        table,
-        user_stack_pool_base,
-        user_stack_pool_end,
-        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    ) {
-        if let MapError::Overlap = e {
-            log_error!(
-                target: "mm",
-                "AS-MAP: overlap in USER-STACK-POOL {:#x}..{:#x}",
-                user_stack_pool_base,
-                user_stack_pool_end
-            );
-        }
-        return Err(e);
-    }
-
-    // Identity-map the per-service VMO arena at the fixed base used by VMO_POOL.
-    let vmo_base = align_up(super::USER_VMO_ARENA_BASE);
-    let vmo_end = vmo_base.checked_add(super::USER_VMO_ARENA_LEN).ok_or(MapError::OutOfRange)?;
-    if let Err(e) = map_identity_range(
-        table,
-        vmo_base,
-        vmo_end,
-        PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-    ) {
-        if let MapError::Overlap = e {
-            log_error!(
-                target: "mm",
-                "AS-MAP: overlap in USER-VMO {:#x}..{:#x}",
-                vmo_base,
-                vmo_end
-            );
-        }
-        return Err(e);
-    }
-
-    // The console and the interrupt controller: the two device windows the kernel
-    // itself drives, at the addresses the device tree named (RFC-0098 C3) — no
-    // literal here since TASK-0245. A platform that failed to initialise has no
-    // windows and therefore no console; the harness sees silence.
+    // The console and the interrupt controller: the two device windows the
+    // kernel itself drives, at the addresses the device tree named (RFC-0098
+    // C3). A platform that failed to initialise has no windows and therefore no
+    // console; the harness sees silence.
     for (name, window) in [
-        ("uart", crate::hal::platform::uart_window()),
-        ("plic", crate::hal::platform::plic_window()),
+        ("UART", crate::hal::platform::uart_window()),
+        ("PLIC", crate::hal::platform::plic_window()),
     ] {
         let Some((base, len)) = window else { continue };
-        if let Err(e) = map_identity_range(
-            table,
-            align_down(base),
-            align_up(base + len),
-            PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::GLOBAL,
-        ) {
-            if let MapError::Overlap = e {
-                log_error!(target: "mm", "AS-MAP: overlap in {}", name);
-            }
-            return Err(e);
-        }
+        let end = base.checked_add(len).ok_or(MapError::OutOfRange)?;
+        map_range(table, align_down(base) + PHYS_OFFSET, align_up(end) + PHYS_OFFSET, RW, name)?;
     }
-
-    // The device tree the firmware handed over in a1 (RFC-0098 C3, TASK-0244 P3):
-    // wherever the previous stage put it — the top of RAM (QEMU), the loader's heap
-    // (nxboot), the FIT's copy (the board) — the kernel maps exactly its pages,
-    // read-only, and parses it once the space is active (`boot_fdt::report`).
-    if let Some((start, end)) = crate::boot_fdt::range() {
-        if let Err(e) = map_identity_range(
-            table,
-            start,
-            end,
-            PageFlags::VALID | PageFlags::READ | PageFlags::GLOBAL,
-        ) {
-            // An overlap means the tree sits inside a range already mapped
-            // (kernel data, a stack pool) — readable either way, not an error.
-            if !matches!(e, MapError::Overlap) {
-                log_error!(target: "mm", "AS-MAP: device tree window failed");
-                return Err(e);
-            }
-        }
+    // The device tree the firmware handed over in a1 (RFC-0098 C3): inside a
+    // bank it is reachable already; anywhere else its pages are mapped
+    // read-only (`boot_fdt::report` parses it once the space is active).
+    if let (Some((start, end)), false) = (tree, tree_in_bank) {
+        map_range(table, start + PHYS_OFFSET, end + PHYS_OFFSET, RO, "DTB")?;
     }
-
     log_debug!(target: "mm", "map kernel segments ok");
     Ok(())
 }
@@ -276,26 +92,36 @@ pub(super) fn map_kernel_segments(_table: &mut PageTable) -> Result<(), MapError
     Ok(())
 }
 
+/// Map `[va_start, va_end)` onto the frames behind it (`virt_to_phys`), a
+/// 2 MiB leaf wherever both sides are aligned and a whole superpage remains.
+/// An overlap names the segment so a boot log says WHAT collided.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-pub(super) fn map_identity_range(
+fn map_range(
     table: &mut PageTable,
-    start: usize,
-    end: usize,
+    va_start: usize,
+    va_end: usize,
     flags: PageFlags,
+    what: &str,
 ) -> Result<(), MapError> {
-    if start >= end {
-        return Ok(());
-    }
-    let mut addr = start;
-    while addr < end {
-        let remaining = end.checked_sub(addr).ok_or(MapError::OutOfRange)?;
-        if addr % HUGE_PAGE_SIZE_2M == 0 && remaining >= HUGE_PAGE_SIZE_2M {
-            table.map_2m(addr, addr, flags)?;
-            addr = addr.checked_add(HUGE_PAGE_SIZE_2M).ok_or(MapError::OutOfRange)?;
+    let mut va = va_start;
+    while va < va_end {
+        let pa = crate::phys::virt_to_phys(va);
+        let remaining = va_end - va;
+        let step = if va % HUGE_PAGE_SIZE_2M == 0 && remaining >= HUGE_PAGE_SIZE_2M {
+            table.map_2m(va, pa, flags).inspect_err(|e| overlap(e, what, va))?;
+            HUGE_PAGE_SIZE_2M
         } else {
-            table.map(addr, addr, flags)?;
-            addr = addr.checked_add(PAGE_SIZE).ok_or(MapError::OutOfRange)?;
-        }
+            table.map(va, pa, flags).inspect_err(|e| overlap(e, what, va))?;
+            PAGE_SIZE
+        };
+        va = va.checked_add(step).ok_or(MapError::OutOfRange)?;
     }
     Ok(())
+}
+
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn overlap(e: &MapError, what: &str, va: usize) {
+    if let MapError::Overlap = e {
+        log_error!(target: "mm", "AS-MAP: overlap in {} at {:#x}", what, va);
+    }
 }

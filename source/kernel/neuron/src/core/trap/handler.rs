@@ -691,11 +691,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             None => false,
             Some(task) => {
                 const SSTATUS_SPP: usize = 1 << 8;
-                const KERNEL_BASE: usize = 0x8000_0000;
                 let tf = task.frame();
                 task.address_space().is_some()
                     && tf.sstatus & SSTATUS_SPP == 0
-                    && tf.sepc < KERNEL_BASE
+                    && !crate::phys::is_kernel_va(tf.sepc)
             }
         };
         if !valid_user_target && crate::cpu_main::sched_loop_entered(crate::smp::cpu_current_id()) {
@@ -780,7 +779,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         satp_now, page_va
                     );
                 } else {
-                    let mut table = (ppn << 12) as *const usize;
+                    let mut table = crate::phys::phys_to_virt(ppn << 12) as *const usize;
                     let indices = vpn_indices_sv39(frame.sepc);
                     let mut pte: usize = 0;
                     let mut found = true;
@@ -805,7 +804,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                             break;
                         }
                         let next_ppn = (entry >> 10) & ((1 << 44) - 1);
-                        table = (next_ppn << 12) as *const usize;
+                        table = crate::phys::phys_to_virt(next_ppn << 12) as *const usize;
                     }
                     if found {
                         let flags = pte & 0x3ff;

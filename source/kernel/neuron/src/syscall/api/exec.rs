@@ -601,17 +601,17 @@ pub(crate) fn exec_v2_phase_a(
             // SAFETY: checked in ExecV2ArgsTyped::check.
             let name_bytes =
                 unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) };
-            // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
-            // This is deterministic, does not allocate, and can be recomputed by userland for display.
+            // Kernel-verified service identity token: FNV-1a 64 of the name bytes (deterministic).
             service_id = 0xcbf29ce484222325u64;
             for &b in name_bytes {
                 service_id ^= b as u64;
                 service_id = service_id.wrapping_mul(0x100000001b3u64);
             }
             unsafe {
-                ptr::copy_nonoverlapping(name_bytes.as_ptr(), meta_pa as *mut u8, name_bytes.len());
+                let meta = crate::phys::phys_to_virt(meta_pa);
+                ptr::copy_nonoverlapping(name_bytes.as_ptr(), meta as *mut u8, name_bytes.len());
                 if name_bytes.len() < PAGE_SIZE {
-                    ptr::write((meta_pa + name_bytes.len()) as *mut u8, 0);
+                    ptr::write((meta + name_bytes.len()) as *mut u8, 0);
                 }
             }
         }
@@ -633,7 +633,7 @@ pub(crate) fn exec_v2_phase_a(
             unsafe {
                 ptr::copy_nonoverlapping(
                     &info as *const _ as *const u8,
-                    info_pa as *mut u8,
+                    crate::phys::phys_to_virt(info_pa) as *mut u8,
                     core::mem::size_of::<crate::BootstrapInfo>(),
                 );
             }

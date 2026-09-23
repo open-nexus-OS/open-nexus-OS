@@ -449,6 +449,10 @@ mod image_allocs;
 // the in-kernel consumers, for the same reason `va_space` is.
 #[path = "mm/frames/mod.rs"]
 pub mod frames;
+// TASK-0286 M1 P2 (RFC-0098 C4): the physical↔kernel-virtual seam and the boot
+// table of the high-half switch — NOT target-gated so both are host-tested.
+#[path = "mm/phys.rs"]
+pub mod phys;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
 mod ipc_eof;
@@ -502,8 +506,20 @@ mod panic;
 /// `hartid`/`dtb` are the firmware registers (`a0`/`a1`): the tree is recorded
 /// and the platform built from it before the first log line (RFC-0098 C3).
 #[cfg(target_os = "none")]
-pub unsafe fn early_boot_init(hartid: usize, dtb: usize) {
-    boot::early_boot_init(hartid, dtb);
+pub unsafe fn early_boot_init(hartid: usize, dtb: usize) -> usize {
+    boot::early_boot_init(hartid, dtb)
+}
+
+/// The second half of boot, entered by the wrapper once it runs in the high
+/// half with the fixups re-applied (RFC-0098 C4): traps, timer, heap.
+///
+/// # Safety
+///
+/// Exactly once on the boot CPU, right after the switch `early_boot_init`
+/// prepared, before any other kernel code runs.
+#[cfg(target_os = "none")]
+pub unsafe fn high_boot_init(boot_satp: usize) {
+    boot::high_boot_init(boot_satp);
 }
 
 /// Entry point for the kernel runtime. Assumes early boot setup was performed
@@ -516,7 +532,12 @@ pub fn kmain() -> ! {
 /// Host build stub: the kernel is not runnable on non-`none` targets, but we still want the crate
 /// to compile as part of `cargo test --workspace` without warnings.
 #[cfg(not(target_os = "none"))]
-pub unsafe fn early_boot_init(_hartid: usize, _dtb: usize) {}
+pub unsafe fn early_boot_init(_hartid: usize, _dtb: usize) -> usize {
+    0
+}
+
+#[cfg(not(target_os = "none"))]
+pub unsafe fn high_boot_init(_boot_satp: usize) {}
 
 #[cfg(not(target_os = "none"))]
 pub fn kmain() -> ! {

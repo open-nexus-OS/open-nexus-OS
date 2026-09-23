@@ -253,10 +253,9 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                     None => Attempt::Retry,
                     Some(task) => {
                         const SSTATUS_SPP: usize = 1 << 8;
-                        const KERNEL_BASE: usize = 0x80000000;
                         let frame = task.frame();
                         let is_umode = (frame.sstatus & SSTATUS_SPP) == 0;
-                        let is_user_addr = frame.sepc < KERNEL_BASE;
+                        let is_user_addr = !crate::phys::is_kernel_va(frame.sepc);
                         match task.address_space() {
                             Some(handle) if is_umode && is_user_addr => {
                                 if count < 10 {

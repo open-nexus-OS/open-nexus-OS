@@ -46,7 +46,8 @@ impl PageTable {
                     if entry & LEAF_PERMS.bits() != 0 {
                         return Err("pt: non-leaf has leaf perms");
                     }
-                    let next = ((entry >> 10) << 12) as *const PageTablePage;
+                    let next =
+                        crate::phys::phys_to_virt((entry >> 10) << 12) as *const PageTablePage;
                     // Recurse into the next level
                     unsafe { walk(next)? };
                 }

@@ -88,11 +88,9 @@ impl PageTablePage {
 }
 
 // Optional static root page for early bring-up to avoid allocator/intrinsics.
-// The PageTablePage type already carries 4096-byte alignment via #[repr(align(4096))].
 #[cfg(feature = "pt_static_root")]
 static mut PT_STATIC_ROOT: PageTablePage = PageTablePage::new();
 
-// Optional static pool of page-table pages for early bring-up to avoid heap usage.
 #[cfg(feature = "bringup_identity")]
 static mut PT_STATIC_POOL: [PageTablePage; 64] = [const { PageTablePage::new() }; 64];
 // SMP A2c: atomic bump cursor — the pool hand-out must stay race-free once
@@ -131,7 +129,7 @@ impl PageTable {
 
     /// Returns the physical page number of the root page suitable for SATP.
     pub fn root_ppn(&self) -> usize {
-        self.root.as_ptr() as usize / PAGE_SIZE
+        crate::phys::virt_to_phys(self.root.as_ptr() as usize) / PAGE_SIZE
     }
 
     /// Returns page-table pages owned by this address space.
@@ -169,7 +167,7 @@ impl PageTable {
             if level == indices.len() - 1 {
                 return None;
             }
-            let next = ((entry >> 10) << 12) as *mut PageTablePage;
+            let next = table_at(entry);
             table = NonNull::new(next)?;
         }
         None
@@ -196,7 +194,7 @@ impl PageTable {
                 let offset = va & (page_size - 1);
                 return Some(phys_base | offset);
             }
-            let next = ((entry >> 10) << 12) as *mut PageTablePage;
+            let next = table_at(entry);
             table = NonNull::new(next)?;
         }
         None
@@ -222,7 +220,7 @@ impl PageTable {
             if level == indices.len() - 1 {
                 return Err(MapError::OutOfRange);
             }
-            let next = ((entry >> 10) << 12) as *mut PageTablePage;
+            let next = table_at(entry);
             table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
         }
         Err(MapError::OutOfRange)
@@ -293,14 +291,14 @@ impl PageTable {
                     Self::trace_overlap("superpage", level, va, pa, *entry);
                     return Err(MapError::Overlap);
                 }
-                let next = ((*(entry) >> 10) << 12) as *mut PageTablePage;
+                let next = table_at(*entry);
                 table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
                 continue;
             }
 
             let next = Self::alloc_page();
             self.owned.push(next);
-            let ppn = next.as_ptr() as usize / PAGE_SIZE;
+            let ppn = crate::phys::virt_to_phys(next.as_ptr() as usize) / PAGE_SIZE;
             *entry = (ppn << 10) | PageFlags::VALID.bits();
             table = next;
         }
@@ -348,7 +346,7 @@ impl PageTable {
                 *entry = 0;
                 return Ok(size);
             }
-            let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+            let next = table_at(*entry);
             table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
         }
         Err(MapError::NotMapped)
@@ -395,14 +393,14 @@ impl PageTable {
                 if *entry & LEAF_PERMS.bits() != 0 {
                     return Err(MapError::Overlap);
                 }
-                let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+                let next = table_at(*entry);
                 table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
                 continue;
             }
 
             let next = Self::alloc_page();
             self.owned.push(next);
-            let ppn = next.as_ptr() as usize / PAGE_SIZE;
+            let ppn = crate::phys::virt_to_phys(next.as_ptr() as usize) / PAGE_SIZE;
             *entry = (ppn << 10) | PageFlags::VALID.bits();
             table = next;
         }
@@ -442,7 +440,7 @@ impl PageTable {
             if is_leaf {
                 return Err(MapError::OutOfRange);
             }
-            let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+            let next = table_at(*entry);
             table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
         }
         Err(MapError::OutOfRange)
@@ -485,7 +483,7 @@ impl PageTable {
             if is_leaf {
                 return Err(MapError::OutOfRange);
             }
-            let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+            let next = table_at(*entry);
             table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
         }
         Err(MapError::OutOfRange)
@@ -523,7 +521,7 @@ impl PageTable {
             if is_leaf {
                 return Err(MapError::OutOfRange);
             }
-            let next = ((*entry >> 10) << 12) as *mut PageTablePage;
+            let next = table_at(*entry);
             table = NonNull::new(next).ok_or(MapError::OutOfRange)?;
         }
         Err(MapError::OutOfRange)
@@ -624,12 +622,14 @@ fn record_heap_page_free() {
 pub(super) const LEAF_PERMS: PageFlags =
     PageFlags::READ.union(PageFlags::WRITE).union(PageFlags::EXECUTE);
 
+/// The next-level table an intermediate entry points at, through the direct
+/// map (RFC-0098 C4): page tables hold physical addresses, the kernel does not.
+fn table_at(entry: usize) -> *mut PageTablePage {
+    crate::phys::phys_to_virt((entry >> 10) << 12) as *mut PageTablePage
+}
+/// Sv39 walk order: VPN2, VPN1, VPN0.
 pub(super) fn vpn_indices(va: usize) -> [usize; 3] {
-    let vpn0 = (va >> 12) & 0x1ff;
-    let vpn1 = (va >> 21) & 0x1ff;
-    let vpn2 = (va >> 30) & 0x1ff;
-    // Traverse from the top level (VPN2) down to VPN0 to match Sv39 walk order
-    [vpn2, vpn1, vpn0]
+    [(va >> 30) & 0x1ff, (va >> 21) & 0x1ff, (va >> 12) & 0x1ff]
 }
 
 pub const fn is_canonical_sv39(va: usize) -> bool {

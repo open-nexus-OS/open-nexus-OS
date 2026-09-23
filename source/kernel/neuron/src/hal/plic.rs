@@ -81,16 +81,16 @@ impl IrqId {
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 #[inline]
 fn write_reg(addr: usize, val: u32) {
-    // SAFETY: PLIC MMIO window is fixed by the QEMU `virt` machine and identity
-    // mapped for the kernel; all offsets are bounds-checked by the callers.
-    unsafe { write_volatile(addr as *mut u32, val) }
+    // SAFETY: the PLIC window the tree named, reached through the direct map
+    // (RFC-0098 C4); all offsets are bounds-checked by the callers.
+    unsafe { write_volatile(crate::phys::phys_to_virt(addr) as *mut u32, val) }
 }
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 #[inline]
 fn read_reg(addr: usize) -> u32 {
     // SAFETY: see `write_reg`.
-    unsafe { read_volatile(addr as *const u32) }
+    unsafe { read_volatile(crate::phys::phys_to_virt(addr) as *const u32) }
 }
 
 /// Initialises the PLIC supervisor context of every ONLINE hart (A6):

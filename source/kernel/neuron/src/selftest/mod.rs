@@ -192,8 +192,11 @@ fn ensure_data_cap(tasks: &mut TaskTable) {
             core::ptr::write_volatile((ptr + idx) as *mut u8, *byte);
         }
     }
+    // The cap names the page's FRAME (RFC-0098 C4): a kernel static lives at
+    // its high alias, the capability carries the physical address behind it.
+    let base = crate::phys::virt_to_phys(ptr);
     let cap =
-        Capability { kind: CapabilityKind::Vmo { base: ptr, len: PAGE_SIZE }, rights: Rights::MAP };
+        Capability { kind: CapabilityKind::Vmo { base, len: PAGE_SIZE }, rights: Rights::MAP };
     let caps = tasks.bootstrap_mut().caps_mut();
     // Reserve bootstrap cap slots:
     // - slot 0: bootstrap endpoint
@@ -248,8 +251,9 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
             };
             let probe_len = core::cmp::min(len, 64);
             let mut all_zero = true;
+            let probe = crate::phys::phys_to_virt(base);
             for idx in 0..probe_len {
-                let byte = unsafe { core::ptr::read_volatile((base + idx) as *const u8) };
+                let byte = unsafe { core::ptr::read_volatile((probe + idx) as *const u8) };
                 if byte != 0 {
                     all_zero = false;
                     break;
@@ -1724,7 +1728,6 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         &mut ctx.fences,
     );
 
-    // Load init ELF and get entry point
     let load_result = load_init_elf(&mut sys_ctx);
     let (entry_pc, stack_top, global_pointer, as_handle) = match load_result {
         Ok(result) => result,
@@ -1742,7 +1745,6 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         global_pointer
     );
 
-    // Spawn init process with the loaded code
     // Ensure init-lite is a direct child of the bootstrap task (PID 0) so that early
     // capability/lifecycle gates (RFC-0005 hardening) can reliably treat init-lite as
     // the temporary authority during bring-up.
@@ -1781,7 +1783,6 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     }
     let _ = sys_ctx.tasks.resume_task(init_pid_typed, sys_ctx.scheduler);
 
-    // Verify init task state
     if let Some(task) = sys_ctx.tasks.task(init_pid_typed) {
         use core::fmt::Write as _;
         let frame = task.frame();
@@ -1808,7 +1809,6 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
 
     log_info!(target: "selftest", "KSELFTEST: init spawned successfully");
     log_info!(target: "selftest", "KSELFTEST: returning to idle loop for scheduling");
-    // Return to kmain's idle loop which will properly schedule init
 }
 
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
@@ -1930,7 +1930,7 @@ fn load_init_elf(
                     p_vaddr,
                     p_filesz,
                     va,
-                    ((entry >> 10) << 12) as *mut u8,
+                    crate::phys::phys_to_virt((entry >> 10) << 12) as *mut u8,
                 );
 
                 va += PAGE_SIZE;
@@ -1939,13 +1939,13 @@ fn load_init_elf(
 
             let pa = alloc_init_page().ok_or("oom")?;
 
-            // Zero page
             unsafe {
-                core::ptr::write_bytes(pa as *mut u8, 0, PAGE_SIZE);
+                core::ptr::write_bytes(crate::phys::phys_to_virt(pa) as *mut u8, 0, PAGE_SIZE);
             }
 
             // Copy file content if in range
-            copy_segment_bytes(bytes, p_offset, p_vaddr, p_filesz, va, pa as *mut u8);
+            let dst = crate::phys::phys_to_virt(pa) as *mut u8;
+            copy_segment_bytes(bytes, p_offset, p_vaddr, p_filesz, va, dst);
 
             // Map page
             if let Err(e) = sys_ctx.address_spaces.map_page(as_handle, va, pa, flags) {
@@ -1968,7 +1968,7 @@ fn load_init_elf(
         let va = stack_base + i * PAGE_SIZE;
         let pa = alloc_init_page().ok_or("stack oom")?;
         unsafe {
-            core::ptr::write_bytes(pa as *mut u8, 0, PAGE_SIZE);
+            core::ptr::write_bytes(crate::phys::phys_to_virt(pa) as *mut u8, 0, PAGE_SIZE);
         }
 
         let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::USER;
@@ -2174,8 +2174,8 @@ fn alloc_init_page() -> Option<usize> {
     // are unavailable during early bring-up. We therefore treat `0` as "uninitialized" and seed
     // it lazily from the fixed start address.
     static PAGE_CURSOR: AtomicUsize = AtomicUsize::new(0);
-    const PAGE_LIMIT: usize = crate::mm::KERNEL_PAGE_POOL_WINDOW.end();
-    const PAGE_START: usize = crate::mm::KERNEL_PAGE_POOL_WINDOW.base;
+    const PAGE_LIMIT: usize = crate::mm::KERNEL_PAGE_POOL_BASE + crate::mm::KERNEL_PAGE_POOL_LEN;
+    const PAGE_START: usize = crate::mm::KERNEL_PAGE_POOL_BASE;
 
     loop {
         let cur = PAGE_CURSOR.load(Ordering::SeqCst);
@@ -2245,7 +2245,7 @@ fn log_symbol_words(space: &crate::mm::address_space::AddressSpace, virt: usize,
     if let Some(entry) = space.page_table().lookup(page) {
         let phys = ((entry >> 10) << 12) + offset;
         unsafe {
-            let ptr = phys as *const u32;
+            let ptr = crate::phys::phys_to_virt(phys) as *const u32;
             let word0 = core::ptr::read(ptr);
             let word1 = core::ptr::read(ptr.add(1));
             let _ = writeln!(

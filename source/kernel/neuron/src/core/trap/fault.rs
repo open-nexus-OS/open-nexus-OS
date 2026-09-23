@@ -76,7 +76,7 @@ pub(super) fn dump_user_stack_for_task(task: &task::Task, spaces: &AddressSpaceM
             }
             let addr = sp.wrapping_add(offset);
             if let Some(pa) = page_table.translate(addr) {
-                let value = core::ptr::read_volatile(pa as *const usize);
+                let value = core::ptr::read_volatile(crate::phys::phys_to_virt(pa) as *const usize);
                 write_byte(b'0');
                 write_byte(b'x');
                 for shift in (0..16).rev() {

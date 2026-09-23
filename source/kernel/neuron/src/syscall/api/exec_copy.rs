@@ -27,17 +27,28 @@ pub(crate) fn run_copy_plan(plan: &CopyPlan) {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         unsafe {
             if op.src == usize::MAX {
-                crate::smp::tlb::zero_bytes_polled(op.dst as *mut u8, op.len);
+                crate::smp::tlb::zero_bytes_polled(
+                    crate::phys::phys_to_virt(op.dst) as *mut u8,
+                    op.len,
+                );
             } else {
-                crate::smp::tlb::copy_bytes_polled(op.src as *const u8, op.dst as *mut u8, op.len);
+                crate::smp::tlb::copy_bytes_polled(
+                    op.src as *const u8,
+                    crate::phys::phys_to_virt(op.dst) as *mut u8,
+                    op.len,
+                );
             }
         }
         #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
         unsafe {
             if op.src == usize::MAX {
-                ptr::write_bytes(op.dst as *mut u8, 0, op.len);
+                ptr::write_bytes(crate::phys::phys_to_virt(op.dst) as *mut u8, 0, op.len);
             } else {
-                ptr::copy_nonoverlapping(op.src as *const u8, op.dst as *mut u8, op.len);
+                ptr::copy_nonoverlapping(
+                    op.src as *const u8,
+                    crate::phys::phys_to_virt(op.dst) as *mut u8,
+                    op.len,
+                );
             }
         }
     }

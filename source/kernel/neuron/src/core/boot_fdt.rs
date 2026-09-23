@@ -108,10 +108,11 @@ pub fn bytes() -> Option<&'static [u8]> {
     if base == 0 || len == 0 {
         return None;
     }
-    // SAFETY: `range()` was identity-mapped read-only by `map_kernel_segments`
-    // before this space became active; the tree is never written by the kernel,
-    // and `len` is the header's own `totalsize`, bounded by MAX_DTB_LEN.
-    Some(unsafe { core::slice::from_raw_parts(base as *const u8, len) })
+    // SAFETY: physical while paging is off, through the direct map once it is on
+    // (RFC-0098 C4; `map_kernel_segments` maps the tree's pages when they lie
+    // outside every bank); the tree is never written by the kernel, and `len`
+    // is the header's own `totalsize`, bounded by MAX_DTB_LEN.
+    Some(unsafe { core::slice::from_raw_parts(crate::phys::phys_to_virt(base) as *const u8, len) })
 }
 
 /// Parse the tree and print the platform values it carries, or why it could not

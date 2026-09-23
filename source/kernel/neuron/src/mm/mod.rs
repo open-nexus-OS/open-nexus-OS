@@ -1,7 +1,10 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Virtual memory primitives for Sv39 address spaces
+//! CONTEXT: Virtual memory primitives for Sv39 address spaces. The kernel half
+//! is a direct map in the high half (`crate::phys`, RFC-0098 C4); the address
+//! constants below are the LAST fixed physical windows (TASK-0286 P3 deletes
+//! them with `VmoPool`), reachable only through `phys_to_virt`.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
@@ -62,27 +65,6 @@ pub const KERNEL_PAGE_POOL_BASE: usize = 0x8200_0000;
 /// loader allocates the WHOLE embedded init image (now ~16.4 MB with the
 /// CJK atlases) plus stacks from this pool.
 pub const KERNEL_PAGE_POOL_LEN: usize = 24 * 1024 * 1024;
-/// Typed memory window descriptor used to avoid base/length mixups.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AddressWindow {
-    /// Window base address.
-    pub base: usize,
-    /// Window length in bytes.
-    pub len: usize,
-}
-
-impl AddressWindow {
-    /// Returns the exclusive window end.
-    #[must_use]
-    pub const fn end(self) -> usize {
-        self.base + self.len
-    }
-}
-
-/// Temporary kernel page-pool window used by early loader and selftest allocators.
-pub const KERNEL_PAGE_POOL_WINDOW: AddressWindow =
-    AddressWindow { base: KERNEL_PAGE_POOL_BASE, len: KERNEL_PAGE_POOL_LEN };
-
 mod kernel_layout;
 #[cfg(test)]
 mod page_table_tests;

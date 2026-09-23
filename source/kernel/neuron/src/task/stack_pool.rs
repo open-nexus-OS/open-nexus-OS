@@ -84,7 +84,11 @@ pub(super) fn allocate_guarded_stack(
     // RFC-0004: zero newly allocated stack pages so no stale bytes leak into user space.
     // This relies on the kernel identity-mapping `STACK_POOL_BASE..STACK_POOL_LIMIT`.
     unsafe {
-        core::ptr::write_bytes(phys_base as *mut u8, 0, STACK_PAGES * PAGE_SIZE);
+        core::ptr::write_bytes(
+            crate::phys::phys_to_virt(phys_base) as *mut u8,
+            0,
+            STACK_PAGES * PAGE_SIZE,
+        );
     }
     let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::USER;
     let guard_bottom = USER_STACK_TOP - (STACK_PAGES + 1) * PAGE_SIZE;

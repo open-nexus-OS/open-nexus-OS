@@ -155,7 +155,10 @@ reached through it and nothing kernel-owned lies below it; "user address" means
 `va < KERNEL_VA_BASE`. The boot switch (fixups at the load PA → early platform at PA → a boot
 table of 1 GiB pages → SATP → the high half → fixups again with the high base) is part of the
 kernel's own entry, on QEMU and on the board alike; `phys_to_virt`/`virt_to_phys` are the one
-seam. RFC-0085's user window is unchanged.
+seam. RFC-0085's user window is unchanged. **Implemented 2026-09-23 (TASK-0286 P2):** `phys.rs`
+(seam + boot table, host-tested), the two-phase entry in `neuron-boot`, the secondary stub's
+switch, `kernel_layout.rs` over banks + windows, the identity map deleted; `KINIT: kernel high
+half (base=0xffffffc0…)` on every boot.
 
 ### C5 — Storage (Phase 3, ADR-0067)
 

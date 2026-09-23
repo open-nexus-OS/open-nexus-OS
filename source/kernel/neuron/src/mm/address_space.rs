@@ -338,20 +338,14 @@ impl AddressSpaceManager {
     ) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
         let res = space.page_table_mut().map(va, pa, flags).map_err(AddressSpaceError::from);
-        // Ensure kernel text/UART pages are marked GLOBAL to remain visible across ASIDs
-        if res.is_ok() {
-            if (0x8000_0000..0x8100_0000).contains(&va) {
-                let _ = space
-                    .page_table_mut()
-                    .set_leaf_flags(va, PageFlags::GLOBAL)
-                    .map_err(AddressSpaceError::from);
-            }
-            if crate::hal::platform::uart_window().is_some_and(|(b, l)| (b..b + l).contains(&va)) {
-                let _ = space
-                    .page_table_mut()
-                    .set_leaf_flags(va, PageFlags::GLOBAL)
-                    .map_err(AddressSpaceError::from);
-            }
+        // Ensure UART pages are marked GLOBAL to remain visible across ASIDs
+        if res.is_ok()
+            && crate::hal::platform::uart_window().is_some_and(|(b, l)| (b..b + l).contains(&va))
+        {
+            let _ = space
+                .page_table_mut()
+                .set_leaf_flags(va, PageFlags::GLOBAL)
+                .map_err(AddressSpaceError::from);
         }
         #[cfg(debug_assertions)]
         {

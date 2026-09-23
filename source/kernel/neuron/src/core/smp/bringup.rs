@@ -54,21 +54,40 @@ __secondary_hart_start:
        distinguish "SBI never jumped here" from "jumped and died in this stub",
        and those have opposite fixes. This store uses only a0 + scratch regs
        and no stack, so it is valid at the very first instruction. */
-    la    t0, BRINGUP_ASM_SEEN
+    lla   t0, BRINGUP_ASM_SEEN
     slli  t1, a0, 3
     add   t0, t0, t1
     li    t2, 1
     sd    t2, 0(t0)
     fence w, w
-    mv    sp, a1
+    /* RFC-0098 C4: this stub runs at its physical address with paging off,
+       so every symbol above is `lla` (PC-relative); the GOT holds high
+       addresses. Switch to the boot table the boot hart published, jump to
+       the high alias, and only then touch sp/gp and Rust. */
+    lla   t0, SECONDARY_BOOT_SATP
+    ld    t0, 0(t0)
+    csrw  satp, t0
+    sfence.vma x0, x0
+    lla   t0, 1f
+    li    t1, {phys_offset}
+    add   t0, t0, t1
+    jr    t0
+1:  mv    sp, a1
     .option push
     .option norelax
     la    gp, __global_pointer$
     .option pop
     tail  __secondary_hart_rust
     .size __secondary_hart_start, .-__secondary_hart_start
-"#
+"#,
+    phys_offset = const crate::phys::PHYS_OFFSET,
 );
+
+/// The boot table's `satp`, for the secondaries' switch: written by the boot
+/// hart before any `hart_start`, read by the stub above PC-relatively.
+#[no_mangle]
+pub static SECONDARY_BOOT_SATP: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
 
 /// Set by [`__secondary_hart_start`] as its FIRST action, indexed by hartid.
 /// Distinguishes the two failure modes behind `stage=0`:
@@ -169,7 +188,13 @@ pub fn start_secondary_harts() -> usize {
             // reads this block.
             hart_local_prepare(cpu, stack_top);
 
-            let ret = sbi::hart_start(hart.as_index(), __secondary_hart_start as usize, stack_top);
+            // The entry is a physical address (SBI starts the hart with paging
+            // off); the stack top is the high alias the stub adopts after its
+            // switch.
+            SECONDARY_BOOT_SATP
+                .store(crate::phys::boot_satp(), core::sync::atomic::Ordering::Release);
+            let entry = crate::phys::virt_to_phys(__secondary_hart_start as usize);
+            let ret = sbi::hart_start(hart.as_index(), entry, stack_top);
             match ret.error {
                 0 | SBI_ERR_ALREADY_AVAILABLE | SBI_ERR_ALREADY_STARTED => {
                     expected_mask |= 1usize << idx;

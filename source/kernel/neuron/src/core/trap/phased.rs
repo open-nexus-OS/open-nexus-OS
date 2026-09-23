@@ -192,7 +192,10 @@ pub(super) fn phased_syscall(
                 // SAFETY: the reserved range is owned by this syscall until
                 // phase C installs the cap; nobody else can reach it.
                 unsafe {
-                    crate::smp::tlb::zero_bytes_polled(base as *mut u8, len);
+                    crate::smp::tlb::zero_bytes_polled(
+                        crate::phys::phys_to_virt(base) as *mut u8,
+                        len,
+                    );
                 }
             }
             // Phase C: re-acquire, install the cap, write the result.

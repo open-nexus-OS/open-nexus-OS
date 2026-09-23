@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-23 (TASK-0286 M1 P2: the kernel runs in the Sv39 high half; the identity map is gone)
+
+- **RFC-0098 C4 implemented.** `neuron::phys` (host-tested) is the one seam between a physical
+  address and the kernel's pointer to it: `KVA = PHYS_OFFSET + PA` (`0xffff_ffc0_0000_0000`),
+  `PAGING_ON` tells the pre-switch phase apart. The static PIE is fixed up twice: `_start`
+  applies the fixups at the load address, `early_boot_init` builds a boot table of 1 GiB leaves
+  (every `/memory` bank, the console and PLIC windows, the tree, the identity gigabyte of the
+  switch), `_start` writes `satp`, jumps to the high alias and applies the fixups again with the
+  high base; `high_boot_init` then installs traps, timer and heap. Secondary harts switch in their
+  stub off the published boot `satp`. `KINIT: kernel high half (base=… load=… len=…)` on every boot.
+- `mm/kernel_layout.rs` maps the image at its alias with segment permissions and the stack guard,
+  every bank through the direct map minus the image, the two device windows and the tree when it
+  lies outside a bank; the pool/arena/stack-pool identity windows and `AddressWindow` are deleted.
+  Every physical dereference (page-table walk and PPNs, VMO read/write/zero, exec image copies,
+  the stack pool, the trap-time page walk, the console and the PLIC) goes through the seam;
+  "user address" is `!is_kernel_va(sepc)`. `hal/platform` records the memory banks.
+
 ### Added - 2026-09-22 (TASK-0286 M1 P1: the page-frame allocator, host-proven over both golden trees)
 
 - `neuron::frames` (`mm/frames/{mod,bank}.rs`): a buddy per `/memory` bank — a bitmap per

@@ -60,9 +60,18 @@ implemented by `scripts/qemu-test.sh` (marker strings are a gating surface).
    entry on a direct `-kernel` boot) — sets `sp`/`gp` and enters
    `early_boot_init(hartid, dtb)`: BSS is zeroed, the firmware registers are
    recorded (`core/boot_fdt.rs`) and the platform is built from the device tree
-   (`hal/platform.rs`) before the first log line.
-2. `kmain` activates the kernel address space (identity map of the image, the
-   UART/PLIC windows and the tree, read-only), resolves boot mode + display
+   (`hal/platform.rs`) before the first log line. The kernel then moves to the
+   Sv39 high half (RFC-0098 C4, TASK-0286 P2): `early_boot_init` returns the
+   `satp` of a boot table of 1 GiB leaves (every bank, the two device windows,
+   the tree, plus the identity of the gigabyte the switch runs in); `_start`
+   writes it, jumps to `PHYS_OFFSET + PC`, re-applies the fixups with the high
+   base, and enters `high_boot_init` (traps, timer, heap — nothing holding a
+   pointer is built before the switch; `KINIT: kernel high half (base=… load=…)`).
+   Secondary harts run the same switch in their stub, off the published boot
+   `satp`, before they touch `sp` or Rust.
+2. `kmain` activates the kernel address space (the image at its high alias,
+   every memory bank through the direct map, the UART/PLIC windows and the
+   tree when it lies outside a bank), resolves boot mode + display
    request from `/chosen/nexus,*` (`diag/boot_mode.rs`), prints the platform,
    image and handoff markers, instantiates scheduler, capability table, IPC
    router and syscall table, then brings up SMP state and the secondary harts
@@ -186,15 +195,19 @@ increment:
   mappings are installed via `AddressSpaceManager::map_page`.
 - The ASID allocator tracks 256 slots (ASID `0` is reserved for the kernel). Handles returned by
   `SYS_AS_CREATE` wrap the internal slot index and remain opaque to callers.
-- Fresh address spaces are seeded with a kernel identity map using final-image linker symbols:
-  `[__text_start..__text_end)` is mapped RX|GLOBAL, `[__text_end..__bss_end)` RW|GLOBAL, a
-  dedicated kernel stack RW|GLOBAL with a bottom guard page left unmapped, a private selftest stack
-  bracketed by guards, and the UART window RW|GLOBAL. GLOBAL keeps kernel pages visible across
-  ASID switches.
+- Fresh address spaces are seeded with the kernel half (`mm/kernel_layout.rs`, RFC-0098 C4):
+  the image at its high alias (`[__text_start..__text_end)` RX|GLOBAL, `[__text_end..__stack_bottom)`
+  RW|GLOBAL, the kernel stack RW|GLOBAL above its guard page, left unmapped), every `/memory` bank
+  through the direct map `PHYS_OFFSET + PA` (RW|GLOBAL, 2 MiB leaves, minus the image's own
+  frames), the UART and PLIC windows, and the tree's pages when they lie outside every bank.
+  Nothing kernel-owned lies below `KERNEL_VA_BASE`; page tables hold physical addresses and the
+  kernel reaches the next level through `phys::phys_to_virt` — the one seam every physical
+  dereference goes through (`vmo`, `exec`, the stack pool, the trap-time page walk, the console).
+  GLOBAL keeps kernel pages visible across ASID switches.
 - Kernel mapping finishes by emitting a single `map kernel segments ok` UART marker once the linker
   ranges have been installed. The SATP switch island performs an eight-byte RX-sanity sample around
   the current PC (panicking on all-zero fetch windows) before writing SATP, switches stacks inside
-  the identity-mapped page, and prints `AS: post-satp OK` after the TLB fence to prove the return
+  the island page, and prints `AS: post-satp OK` after the TLB fence to prove the return
   path stayed within the island.
 - Each address space maintains the set of owning tasks so the manager can reject destruction while
   references remain. Activating a handle writes SATP and issues a global `sfence.vma`.

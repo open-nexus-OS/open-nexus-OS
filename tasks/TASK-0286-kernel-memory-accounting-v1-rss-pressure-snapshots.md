@@ -1,6 +1,6 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: In Progress (P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: In Progress (P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
 updated: 2026-09-22
@@ -135,10 +135,34 @@ side (RFC-0085).
   (14 allocs/frees → the same first superpage), the reject matrix, exhaustion counting, hole
   frame-poisoning, an unaligned bank base, table overflow, and a proptest over random
   alloc/free scripts (no overlap, `free + live == total`, everything comes back).
-- **P2 Direct map.** The boot switch, `mm/phys.rs` (`phys_to_virt`/`virt_to_phys`, `PAGING_ON`),
-  page tables from frames, `kernel_layout.rs` over banks + windows, every physical cast moved,
-  identity map deleted; smp1/visible green; the kernel prints `KINIT: kernel high half
-  (base=0xffff…)`.
+- **P2 Direct map — done 2026-09-23.** `mm/phys.rs` (top-level, host-tested: `PHYS_OFFSET`,
+  `KERNEL_VA_BASE`, `PAGING_ON`, `phys_to_virt`/`virt_to_phys`/`is_kernel_va`, the boot table
+  builder `build_boot_table` — 1 GiB leaves for every bank, both device windows, the tree and
+  the identity gigabyte — proven for both goldens' shapes). Two-phase entry in `neuron-boot`:
+  fixups at the load PA → `early_boot_init` at PA (BSS, tree, platform incl. the `/memory`
+  banks now recorded in `hal/platform`, the boot table) returns `satp` → `_start` writes it,
+  jumps to `PHYS_OFFSET + PC`, re-applies the fixups with the high base → `high_boot_init`
+  (seam on, traps, timer, heap; `KINIT: kernel high half (base=0xffffffc080400000
+  load=0x80400000 …)`). Secondary stub: `lla` only, switches to the published boot `satp`,
+  jumps high, then `sp`/`gp`/Rust; `hart_start` gets the physical entry. `kernel_layout.rs`
+  rewritten (130 lines, was 301): the image at its alias with segment permissions and the
+  stack guard, every bank through the direct map minus the image, the two windows, the tree
+  when outside a bank — the identity map, the pool/arena/stack-pool identity windows and
+  `AddressWindow` are gone. Every physical dereference goes through the seam (page-table walk
+  + `root_ppn` + child PPNs, `vmo`, `vmo_pool`, `exec`, `exec_copy`, `stack_pool`, `phased`,
+  `fault`, the trap-time page walk, the selftests, `boot_fdt::bytes`, console + PLIC MMIO);
+  "user address" = `!is_kernel_va(sepc)` in `cpu_main` and the handler; the `0x8000_0000..`
+  GLOBAL hack in `map_page` deleted; the selftest's data-page cap carries `virt_to_phys` of
+  the static (a kernel pointer is not a frame). Found by the boot, not by reading: the "vmo
+  zero" selftest probed the VMO at its PA. The YELLOW risk held: no Rust runs between the
+  `satp` write and the second fixup pass. The proof profiles run ONE hart; the secondary
+  switch is proven by `just ci-os-smp` (SMP=2, MTTCG): `KGATE: smp hart1 online=1 asm=1
+  stage=4`, `smp bringup ok mask=0x3`, `KSELFTEST: smp online ok`. That lane's verdict stays
+  red on `ipc call budget FAIL (rt=249–326us budget=64)` — measured as PRE-EXISTING: the same
+  lane on 2026-09-22 before P1/P2 read 195–344 µs (eleven runs in `build/logs/smp--2026-09-22*`);
+  the budget is wall-clock class (TASK-0054C follow-up "budget as ratio"), not this package. **Left for P2b (before P3):** page tables from frames + the kernel half shared
+  between address spaces (today every AS re-maps the banks: ~17 heap pages per AS on the
+  board), the frame allocator initialised at boot.
 - **P3 Page-backed VMO.** `VmoObject` + frame lists; every syscall path moved; `VmoPool`, the
   windows and `stack_pool`'s window deleted; `-m` unpinned; 256M and 1G proven.
 - **P4 `contiguous-DMA` + coherence hooks.** The kind, `DmaBuffer::for_device/for_cpu` (no-op

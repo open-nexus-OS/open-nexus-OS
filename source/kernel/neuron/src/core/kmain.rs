@@ -257,7 +257,7 @@ impl KernelState {
             } else {
                 0
             };
-            let image_end = core::ptr::addr_of!(__bss_end) as usize;
+            let image_end = crate::phys::virt_to_phys(core::ptr::addr_of!(__bss_end) as usize);
             let pool_base = crate::mm::KERNEL_PAGE_POOL_BASE;
             let pool_end = pool_base + crate::mm::KERNEL_PAGE_POOL_LEN;
             let arena_base = crate::mm::USER_VMO_ARENA_BASE;

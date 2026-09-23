@@ -31,16 +31,16 @@ const R_RISCV_RELATIVE: u64 = 3;
 /// One `Elf64_Rela` entry.
 const RELA_ENTRY: usize = 24;
 
-/// The image's physical range `[start, end)` as loaded: text through the
-/// kernel stack.
+/// The image's range `[start, end)`: text through the kernel stack — physical
+/// before the switch, the high alias after it (RFC-0098 C4).
 pub fn range() -> (usize, usize) {
     // SAFETY: linker-defined symbols; only their addresses are taken.
     unsafe { (&__image_start as *const u8 as usize, &__image_end as *const u8 as usize) }
 }
 
-/// The load address (= the fixup delta the entry code applied).
+/// The load address (= the first fixup delta the entry code applied).
 pub fn base() -> usize {
-    range().0
+    crate::phys::virt_to_phys(range().0)
 }
 
 /// Walk the fixup table: `(entries, first unsupported type)`.
@@ -72,7 +72,8 @@ pub fn report() {
     let (count, bad) = relocations();
     match bad {
         None => log_info!(target: "selftest",
-            "KSELFTEST: kernel image ok (base=0x{:x} len=0x{:x} relocs={})", start, end - start, count),
+            "KSELFTEST: kernel image ok (base=0x{:x} va=0x{:x} len=0x{:x} relocs={})",
+            crate::phys::virt_to_phys(start), start, end - start, count),
         Some(ty) => log_info!(target: "selftest",
             "KSELFTEST: kernel image FAIL (reloc type {} unsupported; base=0x{:x} relocs={})", ty, start, count),
     }

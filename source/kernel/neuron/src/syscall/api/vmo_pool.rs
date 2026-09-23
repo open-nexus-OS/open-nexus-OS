@@ -158,7 +158,7 @@ impl VmoPool {
             }
             let n = len.min(budget);
             unsafe {
-                ptr::write_bytes(base as *mut u8, 0, n);
+                ptr::write_bytes(crate::phys::phys_to_virt(base) as *mut u8, 0, n);
             }
             if n == len {
                 self.dirty_list[i] = (0, 0);
@@ -208,7 +208,7 @@ impl VmoPool {
         }
         let n = end - self.zeroed_until;
         unsafe {
-            ptr::write_bytes(self.zeroed_until as *mut u8, 0, n);
+            ptr::write_bytes(crate::phys::phys_to_virt(self.zeroed_until) as *mut u8, 0, n);
         }
         self.zeroed_until = end;
         n
@@ -269,7 +269,11 @@ impl VmoPool {
         let dirty_from = self.zeroed_until.clamp(base, end);
         if dirty_from < end {
             unsafe {
-                ptr::write_bytes(dirty_from as *mut u8, 0, end - dirty_from);
+                ptr::write_bytes(
+                    crate::phys::phys_to_virt(dirty_from) as *mut u8,
+                    0,
+                    end - dirty_from,
+                );
             }
         }
         if self.zeroed_until < end {
@@ -321,7 +325,7 @@ impl VmoPool {
         // Dirty list full: zero synchronously (bounded fallback) and place
         // clean, preserving the old behaviour.
         unsafe {
-            ptr::write_bytes(base as *mut u8, 0, aligned);
+            ptr::write_bytes(crate::phys::phys_to_virt(base) as *mut u8, 0, aligned);
         }
         for entry in self.free_list.iter_mut() {
             if entry.1 == 0 {

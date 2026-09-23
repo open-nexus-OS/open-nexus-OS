@@ -58,6 +58,13 @@ static NS_MUL: AtomicU64 = AtomicU64::new(0);
 static NS_DIV: AtomicU64 = AtomicU64::new(1);
 static TIMER_SSTC: AtomicBool = AtomicBool::new(false);
 static HART_COUNT: AtomicUsize = AtomicUsize::new(0);
+/// `/memory` banks `(base, len)`, in tree order; the direct map and the frame
+/// allocator (TASK-0286) are built over these.
+static MEM_BANKS: [(AtomicUsize, AtomicUsize); MAX_BANKS] =
+    [const { (AtomicUsize::new(0), AtomicUsize::new(0)) }; MAX_BANKS];
+static MEM_BANK_COUNT: AtomicUsize = AtomicUsize::new(0);
+/// Banks the platform records (the board has two).
+pub const MAX_BANKS: usize = 4;
 
 /// UART register numbers (16550 register map; the stride comes from the tree).
 const UART_TX: usize = 0x0;
@@ -118,10 +125,24 @@ pub fn init_from_fdt(bytes: Option<&[u8]>) -> Result<(), PlatformError> {
     NS_DIV.store(hz / g, Ordering::Relaxed);
     TIMEBASE_HZ.store(hz, Ordering::Relaxed);
     HART_COUNT.store(cpus.count(), Ordering::Relaxed);
+    // Memory banks (RFC-0098 C4): every `/memory` bank, bounded by MAX_BANKS.
+    let mut banks = 0usize;
+    for bank in fdt.memory_banks().take(MAX_BANKS) {
+        MEM_BANKS[banks].0.store(bank.base as usize, Ordering::Relaxed);
+        MEM_BANKS[banks].1.store(bank.size as usize, Ordering::Relaxed);
+        banks += 1;
+    }
+    MEM_BANK_COUNT.store(banks, Ordering::Relaxed);
     let sstc = cpus.harts().next().map(|c| c.has_extension("sstc")).unwrap_or(false);
     TIMER_SSTC.store(sstc, Ordering::Relaxed);
 
     Ok(())
+}
+
+/// The memory banks `(base, len)` the tree names, in tree order.
+pub fn memory_banks() -> impl Iterator<Item = (usize, usize)> {
+    let n = MEM_BANK_COUNT.load(Ordering::Relaxed);
+    MEM_BANKS.iter().take(n).map(|(b, l)| (b.load(Ordering::Relaxed), l.load(Ordering::Relaxed)))
 }
 
 /// Console window `(base, len)`, `None` before init.
@@ -223,9 +244,10 @@ pub fn arm_timer_ticks(deadline: u64) {
 /// Write one console register.
 #[inline]
 fn uart_write_reg(base: usize, reg: usize, value: u8) {
-    let addr = base + (reg << UART_SHIFT.load(Ordering::Relaxed));
-    // SAFETY: `base` is the console window the tree named, identity-mapped by
-    // `map_kernel_segments`; the width matches the node's `reg-io-width`.
+    let addr = crate::phys::phys_to_virt(base) + (reg << UART_SHIFT.load(Ordering::Relaxed));
+    // SAFETY: `base` is the console window the tree named — physical before
+    // the switch, through the direct map after it (RFC-0098 C4); the width
+    // matches the node's `reg-io-width`.
     unsafe {
         if UART_WIDTH.load(Ordering::Relaxed) == 4 {
             core::ptr::write_volatile(addr as *mut u32, u32::from(value));
@@ -237,7 +259,7 @@ fn uart_write_reg(base: usize, reg: usize, value: u8) {
 
 #[inline]
 fn uart_read_reg(base: usize, reg: usize) -> u8 {
-    let addr = base + (reg << UART_SHIFT.load(Ordering::Relaxed));
+    let addr = crate::phys::phys_to_virt(base) + (reg << UART_SHIFT.load(Ordering::Relaxed));
     // SAFETY: as above.
     unsafe {
         if UART_WIDTH.load(Ordering::Relaxed) == 4 {
