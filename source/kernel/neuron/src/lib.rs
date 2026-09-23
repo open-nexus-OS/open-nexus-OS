@@ -443,6 +443,12 @@ mod fence;
 // the same reason as `waitset`/`fence` (pure usize ranges, host-unit-tested).
 // `exec` records the ranges, task teardown returns them to `VMO_POOL`.
 mod image_allocs;
+// TASK-0286 M1 P1 (RFC-0098 C4): the page-frame allocator — NOT target-gated
+// (pure index logic over a boxed bitmap) so both golden trees run on host.
+// `mod mm` is riscv/none-only, hence the `#[path]`; `pub` until P2/P3 wire
+// the in-kernel consumers, for the same reason `va_space` is.
+#[path = "mm/frames/mod.rs"]
+pub mod frames;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
 mod ipc_eof;

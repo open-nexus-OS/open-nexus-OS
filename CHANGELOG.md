@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-22 (TASK-0286 M1 P1: the page-frame allocator, host-proven over both golden trees)
+
+- `neuron::frames` (`mm/frames/{mod,bank}.rs`): a buddy per `/memory` bank — a bitmap per
+  order with a one-bit-per-word summary, indices from the bank base rounded down to 2 MiB so
+  order-9 blocks are superpage-aligned on any bank base; first-fit in bank order, so a tree
+  and a call sequence always yield the same frames. `init_from_fdt` carves the tree's reserved
+  ranges and the kernel's exclusions (whole frames), `alloc_below` serves 32-bit DMA masters,
+  `free` refuses foreign, misaligned, hole-touching and double frees, exhaustion is an error
+  and a counter. 12 host tests over the virt and board goldens plus a proptest; the kernel
+  wires it with the direct map (P2).
+
 ### Changed - 2026-09-22 (TASK-0286 M1 P0: the kernel will live in the high half; two UART constants the literal gate missed)
 
 - **Decision (RFC-0098 C4 amended):** the kernel moves to a direct map `KVA = PHYS_OFFSET + PA` in

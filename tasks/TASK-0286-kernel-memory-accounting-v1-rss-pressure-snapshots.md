@@ -1,6 +1,6 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: In Progress (P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: In Progress (P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
 updated: 2026-09-22
@@ -116,9 +116,25 @@ side (RFC-0085).
 
 - **P0 — done 2026-09-22.** Measured map above; the direct-map decision (RFC-0098 C4 amended);
   the literal gate's spelling gap closed with the two handler UART constants.
-- **P1 Frame allocator (host).** `mm/frames.rs`: per-bank buddy, `init_from_fdt`, counters,
-  determinism test (same tree → same frame order), exhaustion event; goldens over virt's one
-  bank and the board's two banks with the 2 GiB hole.
+- **P1 Frame allocator (host) — done 2026-09-22.** `mm/frames/{mod,bank}.rs` (top-level
+  `pub mod frames` with a `#[path]`, host-compiled like `image_allocs`; `mod mm` is OS-only):
+  a buddy per bank over a bitmap per order plus a one-bit-per-word summary, indices from the
+  bank base rounded down to 2 MiB so every order-9 block is superpage-aligned whatever the
+  bank base; first-fit in bank order (deterministic: the same tree and calls yield the same
+  frames — tested); `init(banks, reserved, excluded)` / `init_from_fdt(&Fdt, excluded)`
+  (≤ 4 banks, ≤ 32 holes; a hole poisons whole frames); `alloc(order)`, `alloc_below(order,
+  limit)` (a 32-bit DMA master: first-fit makes "the lowest block is above the limit" exact),
+  `free(block)` refusing foreign, misaligned, hole-touching and double frees (`NotOwned` /
+  `NotAllocated`; a partially free parent is a debug assertion); `Stats { banks, total, free,
+  reserved, excluded, allocs, frees, exhausted }` — exhaustion is `Err(Exhausted { order,
+  free })` AND a counter, the log line lands with the kernel wiring in P2. Metadata is a boxed
+  slice (128 KiB per 2 GiB bank), never the frames themselves, so the board tree runs on the
+  host with no memory behind it. 12 host tests: both goldens (virt: one bank, 81 920 frames;
+  board: two banks around the 2 GiB hole, OpenSBI's 128 frames reserved, first superpage at
+  2 MiB, bank 1 only after bank 0), exclusions never handed out, determinism, merge round trip
+  (14 allocs/frees → the same first superpage), the reject matrix, exhaustion counting, hole
+  frame-poisoning, an unaligned bank base, table overflow, and a proptest over random
+  alloc/free scripts (no overlap, `free + live == total`, everything comes back).
 - **P2 Direct map.** The boot switch, `mm/phys.rs` (`phys_to_virt`/`virt_to_phys`, `PAGING_ON`),
   page tables from frames, `kernel_layout.rs` over banks + windows, every physical cast moved,
   identity map deleted; smp1/visible green; the kernel prints `KINIT: kernel high half
@@ -137,7 +153,9 @@ side (RFC-0085).
   and an event in release.
 - Determinism: the allocator's order of frames for a given tree is stable (the smp1 lane
   depends on it).
-- BKL budgets hold (`KSELFTEST: bkl budget ok`); the allocator's hot path is O(log n).
+- BKL budgets hold (`KSELFTEST: bkl budget ok`); an allocation costs at most orders × summary
+  words (10 × 128 word reads for a 2 GiB bank, one word + `ctz` after that), a free costs at
+  most `MAX_ORDER` merge steps — no list walk, no per-frame scan.
 
 ## Red flags / decision points
 
