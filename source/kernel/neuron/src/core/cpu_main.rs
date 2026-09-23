@@ -385,16 +385,6 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
             Attempt::Retry => continue,
             Attempt::Idle => {
                 crate::smp::tlb::note_activity(cpu, crate::smp::tlb::ACT_IDLE_LOOP, 0);
-                // P2 zero-frontier: idle harts (INCLUDING the boot hart — at
-                // SMP=2 the single secondary is saturated by the background
-                // services, and exempting cpu0 measurably starved the
-                // frontier: gate maxima regressed 6ms -> 21ms) pre-zero the
-                // VMO arena so allocations rarely memset inside a syscall.
-                // Pool leaf lock only — never the BKL; one bounded step per
-                // idle pass keeps the boot hart responsive.
-                if crate::smp::runtime_ready() && crate::syscall::api::vmo_idle_zero_step() > 0 {
-                    continue;
-                }
                 if cpu.is_boot() {
                     // Boot hart keeps its short spin so backstop delivery and
                     // the liveness watchdog stay responsive.

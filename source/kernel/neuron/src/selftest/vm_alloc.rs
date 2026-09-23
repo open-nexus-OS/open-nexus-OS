@@ -32,11 +32,13 @@ pub(super) fn run_vm_alloc_selftests(
     // span for every pa phase, plus 4K head/tail coverage.
     let vm_len = 2 * SUPERPAGE + PAGE_SIZE;
     table
-        .dispatch(SYSCALL_VMO_CREATE, sys_ctx, &Args::new([VM_VMO_SLOT, vm_len, 0, 0, 0, 0]))
+        .dispatch(SYSCALL_VMO_CREATE, sys_ctx, &Args::new([VM_VMO_SLOT, vm_len, 1, 0, 0, 0]))
         .expect("vmo_create for vm_map");
     let cap = sys_ctx.tasks.bootstrap_mut().caps_mut().get(VM_VMO_SLOT).expect("vm vmo cap");
-    let vm_base = match cap.kind {
-        CapabilityKind::Vmo { base, .. } => base,
+    // A CONTIGUOUS object (arg 2 = 1): one run, so its base is the translation
+    // oracle below and the eligible interior can be one 2 MiB leaf.
+    let (vm_id, vm_base) = match cap.kind {
+        CapabilityKind::Vmo { id, .. } => (id, crate::mm::vmo::first_pa(id).expect("one run")),
         _ => panic!("unexpected cap kind"),
     };
     let handle = crate::mm::AsHandle::from_raw(handle_raw as u32).expect("as handle");
@@ -46,7 +48,8 @@ pub(super) fn run_vm_alloc_selftests(
     // backing pa, and the eligible interior really is a 2 MiB leaf
     // (promotion PROVEN, not assumed).
     let space = sys_ctx.address_spaces.get_mut(handle).expect("as space");
-    let va = vm_ops::map_range(space, vm_base, vm_len, flags, RegionKind::Vmo).expect("vm map");
+    let va =
+        vm_ops::map_range(space, vm_base, vm_len, flags, RegionKind::Vmo, vm_id).expect("vm map");
     let window_end = crate::mm::USER_VM_WINDOW_BASE + crate::mm::USER_VM_WINDOW_LEN;
     let in_window = va >= crate::mm::USER_VM_WINDOW_BASE && va + vm_len <= window_end;
     let translates = space.page_table().translate(va) == Some(vm_base)
@@ -82,7 +85,8 @@ pub(super) fn run_vm_alloc_selftests(
     vm_ops::unmap_range(space, va, vm_len).expect("vm unmap");
     let gone = space.page_table().translate(va).is_none()
         && space.page_table().translate(interior).is_none();
-    let va2 = vm_ops::map_range(space, vm_base, vm_len, flags, RegionKind::Vmo).expect("vm re-map");
+    let va2 = vm_ops::map_range(space, vm_base, vm_len, flags, RegionKind::Vmo, vm_id)
+        .expect("vm re-map");
     if gone && va2 == va {
         log_info!(target: "selftest", "KSELFTEST: vm unmap ok");
     } else {

@@ -34,7 +34,7 @@ use std::vec::Vec;
 use nexus_hal::Bus;
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-use nexus_abi::{cap_query, mmio_map_auto, vm_map, vmo_create, CapQuery};
+use nexus_abi::{cap_query, mmio_map_auto, vm_map, vmo_create_contiguous, CapQuery};
 
 /// Maximum entropy bytes that can be requested in a single call.
 /// Bounded to prevent DoS and ensure deterministic behavior.
@@ -429,8 +429,8 @@ pub fn read_entropy_via_virtio_mmio(
     #[allow(non_snake_case)]
     let (_q_vmo, _buf_vmo, Q_VA, BUF_VA, desc_pa, buf_pa): (u32, u32, usize, usize, u64, u64) = unsafe {
         if !QUEUE_INIT {
-            let q_vmo = vmo_create(4096).map_err(|_| RngError::MapFailed)?;
-            let buf_vmo = vmo_create(4096).map_err(|_| RngError::MapFailed)?;
+            let q_vmo = vmo_create_contiguous(4096).map_err(|_| RngError::MapFailed)?;
+            let buf_vmo = vmo_create_contiguous(4096).map_err(|_| RngError::MapFailed)?;
             let flags = nexus_abi::page_flags::VALID
                 | nexus_abi::page_flags::USER
                 | nexus_abi::page_flags::READ

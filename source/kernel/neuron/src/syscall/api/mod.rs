@@ -21,15 +21,11 @@ use crate::{
     cap::{CapError, Capability, CapabilityKind, Rights},
     hal::Timer,
     ipc::{self, header::MessageHeader},
-    mm::{
-        AddressSpaceError, AddressSpaceManager, AsHandle, MapError, PageFlags, PAGE_SIZE,
-        USER_VMO_ARENA_BASE, USER_VMO_ARENA_LEN,
-    },
+    mm::{AddressSpaceError, AddressSpaceManager, AsHandle, MapError, PageFlags, PAGE_SIZE},
     sched::{QosClass, Scheduler, SetQosOutcome},
     task,
 };
 use core::slice;
-use spin::Mutex;
 
 use crate::task::BlockReason;
 
@@ -40,6 +36,7 @@ mod caps;
 mod eof_scan;
 mod exec;
 mod exec_copy;
+mod exec_image;
 mod ipc_call;
 mod ipc_msg;
 mod ipc_recv_v2;
@@ -49,7 +46,6 @@ mod sync_objects;
 mod task_image;
 mod vm_map;
 mod vmo;
-mod vmo_pool;
 
 #[cfg(test)]
 mod tests;
@@ -67,10 +63,8 @@ use sync_objects::*;
 pub(crate) use task_image::{exit_current_and_release, exit_current_faulted, exit_current_killed};
 use vm_map::*;
 pub(crate) use vm_map::{vm_unmap_clear, vm_unmap_finish};
-pub use vmo::vmo_idle_zero_step;
 use vmo::*;
 pub(crate) use vmo::{vmo_create_finish, vmo_create_reserve};
-use vmo_pool::*;
 
 pub(crate) use sched_task::selftest_sched_op;
 

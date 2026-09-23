@@ -190,10 +190,12 @@ impl CtrlQueue {
         // Response pool grows with the ring (16 slots fit one page; 32 need
         // two — the hard-coded single page was why raising RING_SLOTS broke).
         let resp_pool_len = (slots * RESP_SLOT_SIZE).div_ceil(4096) * 4096;
-        let q_vmo = nexus_abi::vmo_create(4096).map_err(|_| GpuDriverError::MmioFault)?;
-        let cmd_vmo = nexus_abi::vmo_create(cmd_pool_len).map_err(|_| GpuDriverError::MmioFault)?;
-        let resp_vmo =
-            nexus_abi::vmo_create(resp_pool_len).map_err(|_| GpuDriverError::MmioFault)?;
+        let q_vmo =
+            nexus_abi::vmo_create_contiguous(4096).map_err(|_| GpuDriverError::MmioFault)?;
+        let cmd_vmo = nexus_abi::vmo_create_contiguous(cmd_pool_len)
+            .map_err(|_| GpuDriverError::MmioFault)?;
+        let resp_vmo = nexus_abi::vmo_create_contiguous(resp_pool_len)
+            .map_err(|_| GpuDriverError::MmioFault)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ

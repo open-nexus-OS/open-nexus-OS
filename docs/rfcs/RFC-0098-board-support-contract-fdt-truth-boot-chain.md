@@ -158,7 +158,10 @@ kernel's own entry, on QEMU and on the board alike; `phys_to_virt`/`virt_to_phys
 seam. RFC-0085's user window is unchanged. **Implemented 2026-09-23 (TASK-0286 P2):** `phys.rs`
 (seam + boot table, host-tested), the two-phase entry in `neuron-boot`, the secondary stub's
 switch, `kernel_layout.rs` over banks + windows, the identity map deleted; `KINIT: kernel high
-half (base=0xffffffc0…)` on every boot.
+half (base=0xffffffc0…)` on every boot. **Implemented 2026-09-23 (TASK-0286 P3a):** the VMO is
+a page-backed object (`mm/vmo.rs`: `Anon`, `Contiguous`, `Fixed`); `sys_vmo_create` takes the
+kind in arg 2 (bit 0 = one physically contiguous block, `nexus_abi::vmo_create_contiguous`);
+`cap_query` reports a physical base only for a one-run object. `VmoPool` and the arena are gone.
 
 ### C5 — Storage (Phase 3, ADR-0067)
 

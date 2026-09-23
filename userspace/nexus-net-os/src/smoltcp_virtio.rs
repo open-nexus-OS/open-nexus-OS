@@ -25,7 +25,7 @@ use nexus_net::{
 };
 
 use net_virtio::{QueueSetup, VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
-use nexus_abi::{cap_query, mmio_map_auto, vm_map, vmo_create, CapQuery};
+use nexus_abi::{cap_query, mmio_map_auto, vm_map, vmo_create_contiguous, CapQuery};
 use nexus_hal::Bus;
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
@@ -224,10 +224,9 @@ impl SmoltcpVirtioNetStack {
 
         // Header length follows MRG_RXBUF.
         let vnet_hdr_len = if (accepted & VIRTIO_NET_F_MRG_RXBUF) != 0 { 12 } else { 10 };
-
         // Queue memory (2 pages): 1 page per queue, small bring-up queues.
         const Q_PAGES: usize = 2;
-        let q_vmo = vmo_create(Q_PAGES * 4096).map_err(|_| NetError::NoBufs)?;
+        let q_vmo = vmo_create_contiguous(Q_PAGES * 4096).map_err(|_| NetError::NoBufs)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
@@ -290,7 +289,8 @@ impl SmoltcpVirtioNetStack {
         .map_err(|_| NetError::Internal("setup q1"))?;
 
         // Buffers: ACTIVE_BUFS RX pages + ACTIVE_BUFS TX pages.
-        let buf_vmo = vmo_create(ACTIVE_BUFS * 2 * 4096).map_err(|_| NetError::NoBufs)?;
+        let buf_vmo =
+            vmo_create_contiguous(ACTIVE_BUFS * 2 * 4096).map_err(|_| NetError::NoBufs)?;
         let buf_va =
             vm_map(buf_vmo, 0, ACTIVE_BUFS * 2 * 4096, flags).map_err(|_| NetError::NoBufs)?;
         let (buf_base_pa, _buf_len) = cap_query_base_len(buf_vmo as u32)?;

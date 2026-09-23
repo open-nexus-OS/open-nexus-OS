@@ -22,7 +22,7 @@ use nexus_hal::Bus;
 use std::vec::Vec;
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-use nexus_abi::{cap_query, mmio_map_auto, vm_map, vm_unmap, vmo_create, CapQuery};
+use nexus_abi::{cap_query, mmio_map_auto, vm_map, vm_unmap, vmo_create_contiguous, CapQuery};
 
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976;
 pub const VIRTIO_MMIO_VERSION_MODERN: u32 = 2;
@@ -559,8 +559,8 @@ struct QueueState<const N: usize> {
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 impl<const N: usize> QueueState<N> {
     fn new(bus: &MmioBus, queue_index: u32) -> Result<Self, VirtioInputError> {
-        let queue_vmo = vmo_create(4096).map_err(|_| VirtioInputError::MapFailed)?;
-        let buffer_vmo = vmo_create(4096).map_err(|_| VirtioInputError::MapFailed)?;
+        let queue_vmo = vmo_create_contiguous(4096).map_err(|_| VirtioInputError::MapFailed)?;
+        let buffer_vmo = vmo_create_contiguous(4096).map_err(|_| VirtioInputError::MapFailed)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ

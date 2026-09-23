@@ -192,11 +192,11 @@ fn ensure_data_cap(tasks: &mut TaskTable) {
             core::ptr::write_volatile((ptr + idx) as *mut u8, *byte);
         }
     }
-    // The cap names the page's FRAME (RFC-0098 C4): a kernel static lives at
-    // its high alias, the capability carries the physical address behind it.
+    // A FIXED object over the page's frame (RFC-0098 C4): the static lives at
+    // its high alias, the object carries the frame, the pool never sees it.
     let base = crate::phys::virt_to_phys(ptr);
-    let cap =
-        Capability { kind: CapabilityKind::Vmo { base, len: PAGE_SIZE }, rights: Rights::MAP };
+    let id = crate::mm::vmo::adopt_fixed(base, PAGE_SIZE).expect("data page object");
+    let cap = Capability { kind: CapabilityKind::Vmo { id, len: PAGE_SIZE }, rights: Rights::MAP };
     let caps = tasks.bootstrap_mut().caps_mut();
     // Reserve bootstrap cap slots:
     // - slot 0: bootstrap endpoint
@@ -245,13 +245,13 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
                 .expect("vmo_create syscall");
             let cap =
                 sys_ctx.tasks.bootstrap_mut().caps_mut().get(VMO_SLOT).expect("vmo cap present");
-            let (base, len) = match cap.kind {
-                CapabilityKind::Vmo { base, len } => (base, len),
+            let (id, len) = match cap.kind {
+                CapabilityKind::Vmo { id, len } => (id, len),
                 _ => panic!("unexpected cap kind"),
             };
             let probe_len = core::cmp::min(len, 64);
             let mut all_zero = true;
-            let probe = crate::phys::phys_to_virt(base);
+            let probe = crate::phys::phys_to_virt(crate::mm::vmo::translate(id, 0).expect("run"));
             for idx in 0..probe_len {
                 let byte = unsafe { core::ptr::read_volatile((probe + idx) as *const u8) };
                 if byte != 0 {

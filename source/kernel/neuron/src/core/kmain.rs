@@ -117,8 +117,10 @@ impl KernelState {
         crate::boot_image::report();
         if let Some(s) = crate::mm::frame_pool::stats() {
             let pt = crate::mm::page_table::PageTable::allocation_stats();
-            log_info!(target: "mm", "KINIT: mm frames in use (free={} allocs={} frees={} pt_live={})",
-                s.free, s.allocs, s.frees, pt.live);
+            let (vmos, vmo_bytes) = crate::mm::vmo::stats();
+            log_info!(target: "mm",
+                "KINIT: mm frames in use (free={} allocs={} frees={} pt_live={} vmos={} vmo_bytes={})",
+                s.free, s.allocs, s.frees, pt.live, vmos, vmo_bytes);
         }
 
         // Now proceed with task table and the rest of bring-up under the active SATP.
@@ -142,17 +144,15 @@ impl KernelState {
                     rights: Rights::SEND | Rights::RECV,
                 },
             );
-            // Slot 1: identity VMO for bootstrap mappings
-            let _ = caps.set(
-                1,
-                Capability {
-                    kind: CapabilityKind::Vmo {
-                        base: crate::mm::BOOTSTRAP_IDENTITY_WINDOW.0,
-                        len: crate::mm::BOOTSTRAP_IDENTITY_WINDOW.1,
-                    },
-                    rights: Rights::MAP,
-                },
-            );
+            // Slot 1: the bootstrap identity window as a FIXED object (its
+            // frames are outside the pool until TASK-0286 P3b retires it).
+            let (base, len) = crate::mm::BOOTSTRAP_IDENTITY_WINDOW;
+            if let Ok(id) = crate::mm::vmo::adopt_fixed(base, len) {
+                let _ = caps.set(
+                    1,
+                    Capability { kind: CapabilityKind::Vmo { id, len }, rights: Rights::MAP },
+                );
+            }
             // Slot 2: endpoint-factory authority (init-lite receives a derived copy).
             let _ = caps.set(
                 2,
@@ -255,23 +255,12 @@ impl KernelState {
             };
             let image_end = crate::phys::virt_to_phys(core::ptr::addr_of!(__bss_end) as usize);
             let pool_base = crate::mm::KERNEL_PAGE_POOL_BASE;
-            let pool_end = pool_base + crate::mm::KERNEL_PAGE_POOL_LEN;
-            let arena_base = crate::mm::USER_VMO_ARENA_BASE;
-            let arena_end = arena_base + crate::mm::USER_VMO_ARENA_LEN;
             let mut ok = true;
             if image_end > pool_base {
                 log_error!(
                     "LAYOUT: kernel image end 0x{:x} overlaps page pool 0x{:x} — image grew past the window",
                     image_end,
                     pool_base
-                );
-                ok = false;
-            }
-            if pool_end > arena_base {
-                log_error!(
-                    "LAYOUT: page pool end 0x{:x} overlaps VMO arena 0x{:x}",
-                    pool_end,
-                    arena_base
                 );
                 ok = false;
             }
@@ -287,11 +276,10 @@ impl KernelState {
             if ok {
                 log_info!(
                     target: "kmain",
-                    "KERNEL: layout ok (image_end=0x{:x} pool=0x{:x} headroom={}K arena_end=0x{:x} pad={})",
+                    "KERNEL: layout ok (image_end=0x{:x} pool=0x{:x} headroom={}K pad={})",
                     image_end,
                     pool_base,
                     headroom / 1024,
-                    arena_end,
                     LAYOUT_PAD_LEN
                 );
             }

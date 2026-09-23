@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-23 (TASK-0286 M1 P3a: the VMO is a page-backed object; `VmoPool` and the fixed arena are gone)
+
+- `mm/vmo.rs`: a VMO is a list of physically contiguous blocks from the frame pool — `Anon`
+  (largest blocks first), `Contiguous` (one block; `vmo_create` arg 2 bit 0,
+  `nexus_abi::vmo_create_contiguous`, the DMA masters' kind — `cap_query` reports its physical
+  base, an anonymous object reports 0) or `Fixed` (frames outside the pool). Capabilities are
+  `Vmo { id, len }` / `VmoRo { id, len }`; `vm_map` maps the runs back to back with superpage
+  promotion per run; `vmo_read/write` copy run by run; destroy is guarded by the object's
+  reference count and by every address space's region table.
+- `exec` builds process images from pool blocks (`exec_image.rs`), teardown returns them; the
+  idle zero-frontier is gone (objects are zeroed at create, off the BKL). Deleted: `vmo_pool.rs`,
+  `USER_VMO_ARENA_*`, the arena layout assert. The frame ceiling is 128 MiB blocks
+  (`MAX_ORDER = 15`); windowd's 49 MiB scanout+atlas resource takes a 64 MiB block until P4
+  attaches its runs. DMA users (virtio-blk/rng/input/net, gpud, windowd's framebuffer, app-host
+  surfaces) create contiguous objects.
+
 ### Changed - 2026-09-23 (TASK-0286 M1 P2b: the frame pool is live at boot, page tables are frames, the kernel half is shared)
 
 - `mm/frame_pool.rs`: the one frame allocator, built from the tree after the heap and before

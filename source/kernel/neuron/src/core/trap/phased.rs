@@ -184,20 +184,12 @@ pub(super) fn phased_syscall(
             write_result(&mut kernel, errno);
             kernel
         }
-        Ok((base, len, needs_zero, slot_raw)) => {
+        Ok((id, len, slot_raw)) => {
             // Phase B: zero with the BKL dropped — other harts' syscalls
-            // (the UI hotpath) proceed while we memset.
+            // (the UI hotpath) proceed while we memset. The object is owned
+            // by this syscall until phase C installs the cap.
             drop(kernel);
-            if needs_zero {
-                // SAFETY: the reserved range is owned by this syscall until
-                // phase C installs the cap; nobody else can reach it.
-                unsafe {
-                    crate::smp::tlb::zero_bytes_polled(
-                        crate::phys::phys_to_virt(base) as *mut u8,
-                        len,
-                    );
-                }
-            }
+            crate::mm::vmo::zero(id);
             // Phase C: re-acquire, install the cap, write the result.
             let mut kernel = reacquire_kernel();
             let ret = {
@@ -213,7 +205,7 @@ pub(super) fn phased_syscall(
                     waitsets,
                     fences,
                 );
-                match api::vmo_create_finish(&mut ctx, base, len, slot_raw) {
+                match api::vmo_create_finish(&mut ctx, id, len, slot_raw) {
                     Ok(slot) => slot,
                     Err(err) => encode_error(err),
                 }

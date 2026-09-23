@@ -11,6 +11,7 @@
 //! TEST_COVERAGE: neuron host tests + QEMU marker gates (just test-os / ci-os-smp)
 //! ADR: docs/adr/0016-kernel-libs-architecture.md
 
+use super::exec_image::{alloc_image, alloc_zeroed_page, map_blocks, plan_payload};
 use super::*;
 
 // Typed decoders for the Decode→Check→Execute syscall discipline
@@ -88,7 +89,7 @@ impl ExecV2ArgsTyped {
 /// P2 phased exec: byte-moving work STAGED under the BKL and executed with
 /// the BKL dropped (the target task is spawned suspended and its pages are
 /// unreachable until the caller resumes it AFTER this syscall returns).
-pub(crate) const MAX_COPY_OPS: usize = 24;
+pub(crate) const MAX_COPY_OPS: usize = 64;
 
 #[derive(Clone, Copy)]
 pub(crate) struct CopyOp {
@@ -110,7 +111,7 @@ impl CopyPlan {
         Self { ops: [CopyOp { src: 0, dst: 0, len: 0 }; MAX_COPY_OPS], len: 0, fence_i: false }
     }
 
-    fn push(&mut self, op: CopyOp) -> Result<(), Error> {
+    pub(super) fn push(&mut self, op: CopyOp) -> Result<(), Error> {
         if self.len >= MAX_COPY_OPS {
             // More segments than the bounded plan: fail closed (no ELF we
             // ship comes near 24 PT_LOADs + stacks).
@@ -248,19 +249,11 @@ pub(crate) fn exec_phase_a(
         let alloc_len =
             align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
                 .ok_or(AddressSpaceError::InvalidArgs)?;
-        let (base, alloc_len, needs_zero) = VMO_POOL.lock().allocate_nozero(alloc_len)?;
-        image.push(base, alloc_len);
-        // Staged (phase B): zero the whole range first (BSS tail guarantee),
-        // then lay the file payload over it.
-        if needs_zero {
-            plan.push(CopyOp { src: usize::MAX, dst: base, len: alloc_len })?;
-        }
+        // Staged (phase B): zero every block first (BSS tail guarantee), then
+        // lay the file payload over it, split across the blocks.
+        let blocks = alloc_image(alloc_len, &mut image, plan)?;
         if p_filesz != 0 {
-            plan.push(CopyOp {
-                src: elf.as_ptr() as usize + p_offset,
-                dst: base + page_off,
-                len: p_filesz,
-            })?;
+            plan_payload(&blocks, page_off, elf.as_ptr() as usize + p_offset, p_filesz, plan)?;
             plan.fence_i = true;
         }
 
@@ -275,15 +268,7 @@ pub(crate) fn exec_phase_a(
             flags |= PageFlags::EXECUTE;
         }
 
-        // Map pages
-        let pages = alloc_len / PAGE_SIZE;
-        for page in 0..pages {
-            let va = aligned_vaddr
-                .checked_add(page * PAGE_SIZE)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
-            let pa = base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-            ctx.address_spaces.map_page_tracked(as_handle, va, pa, flags)?;
-        }
+        map_blocks(ctx.address_spaces, as_handle, aligned_vaddr, &blocks, flags)?;
     }
 
     // fence.i moved into `run_copy_plan` (the bytes land in phase B).
@@ -359,29 +344,21 @@ fn map_process_stack(
     // requested + 9 head pages + boundary page; guard stays unmapped.
     let total_pages = stack_pages.checked_add(11).ok_or(AddressSpaceError::InvalidArgs)?;
     let stack_bytes = total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-    let (stack_base, stack_len, needs_zero) = VMO_POOL.lock().allocate_nozero(stack_bytes)?;
-    image.push(stack_base, stack_len);
-    if needs_zero {
-        plan.push(CopyOp { src: usize::MAX, dst: stack_base, len: stack_len })?;
-    }
+    let blocks = alloc_image(stack_bytes, image, plan)?;
+    let stack_len = stack_bytes;
     let user_stack_top: usize = 0x2000_0000;
     // Map through the former faulting address (boundary); guard sits above.
     let mapped_top =
         user_stack_top.checked_add(10 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
     let stack_bottom = mapped_top.checked_sub(stack_len).ok_or(AddressSpaceError::InvalidArgs)?;
     let stack_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
-    for page in 0..total_pages {
-        let va =
-            stack_bottom.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        let pa = stack_base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        address_spaces.map_page_tracked(as_handle, va, pa, stack_flags)?;
-    }
+    map_blocks(address_spaces, as_handle, stack_bottom, &blocks, stack_flags)?;
     log_debug!(
         target: "exec",
-        "STACK-MAP: va=0x{:x}-0x{:x} pa=0x{:x} pages={} sp=0x{:x}",
+        "STACK-MAP: va=0x{:x}-0x{:x} blocks={} pages={} sp=0x{:x}",
         stack_bottom,
         mapped_top.saturating_sub(1),
-        stack_base,
+        blocks.len(),
         total_pages,
         user_stack_top
     );
@@ -497,18 +474,10 @@ pub(crate) fn exec_v2_phase_a(
             let alloc_len =
                 align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
                     .ok_or(AddressSpaceError::InvalidArgs)?;
-            let (base, alloc_len, needs_zero) = VMO_POOL.lock().allocate_nozero(alloc_len)?;
-            image.push(base, alloc_len);
             // Staged (phase B): zero first (BSS guarantee), then the payload.
-            if needs_zero {
-                plan.push(CopyOp { src: usize::MAX, dst: base, len: alloc_len })?;
-            }
+            let blocks = alloc_image(alloc_len, &mut image, plan)?;
             if p_filesz != 0 {
-                plan.push(CopyOp {
-                    src: elf.as_ptr() as usize + p_offset,
-                    dst: base + page_off,
-                    len: p_filesz,
-                })?;
+                plan_payload(&blocks, page_off, elf.as_ptr() as usize + p_offset, p_filesz, plan)?;
                 plan.fence_i = true;
             }
 
@@ -523,15 +492,7 @@ pub(crate) fn exec_v2_phase_a(
                 flags |= PageFlags::EXECUTE;
             }
 
-            let pages = alloc_len / PAGE_SIZE;
-            for page in 0..pages {
-                let va = aligned_vaddr
-                    .checked_add(page * PAGE_SIZE)
-                    .ok_or(AddressSpaceError::InvalidArgs)?;
-                let pa =
-                    base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-                ctx.address_spaces.map_page_tracked(as_handle, va, pa, flags)?;
-            }
+            map_blocks(ctx.address_spaces, as_handle, aligned_vaddr, &blocks, flags)?;
 
             let seg_end =
                 aligned_vaddr.checked_add(alloc_len).ok_or(AddressSpaceError::InvalidArgs)?;
@@ -594,8 +555,7 @@ pub(crate) fn exec_v2_phase_a(
             return Err(AddressSpaceError::InvalidArgs.into());
         }
 
-        let (meta_pa, meta_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
-        image.push(meta_pa, meta_len);
+        let meta_pa = alloc_zeroed_page(&mut image)?;
         let mut service_id: u64 = 0;
         if typed.name_len != 0 {
             // SAFETY: checked in ExecV2ArgsTyped::check.
@@ -619,8 +579,7 @@ pub(crate) fn exec_v2_phase_a(
         ctx.address_spaces.map_page_tracked(as_handle, meta_va, meta_pa, meta_flags)?;
 
         // Bootstrap info page describing the metadata mapping (RO).
-        let (info_pa, info_len) = VMO_POOL.lock().allocate(PAGE_SIZE)?;
-        image.push(info_pa, info_len);
+        let info_pa = alloc_zeroed_page(&mut image)?;
         {
             let info = crate::BootstrapInfo {
                 version: 2,

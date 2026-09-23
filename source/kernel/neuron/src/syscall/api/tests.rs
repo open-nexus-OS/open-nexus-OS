@@ -40,69 +40,17 @@ impl crate::hal::Timer for MockTimer {
 }
 
 #[test]
-fn vmo_pool_stats_track_used_remaining_and_peak() {
-    let mut backing = [0xAAu8; PAGE_SIZE * 2];
-    let mut pool = VmoPool::with_window(backing.as_mut_ptr() as usize, backing.len());
-    let before = pool.stats();
-    assert_eq!(before.used, 0);
-    assert_eq!(before.remaining, backing.len());
-
-    let (base, len) = pool.allocate(PAGE_SIZE / 2).expect("allocate vmo page");
-    assert_eq!(base, backing.as_ptr() as usize);
-    assert_eq!(len, PAGE_SIZE);
-    assert_eq!(&backing[..PAGE_SIZE], &[0u8; PAGE_SIZE]);
-
-    let after = pool.stats();
-    assert_eq!(after.used, PAGE_SIZE);
-    assert_eq!(after.remaining, PAGE_SIZE);
-    assert_eq!(after.peak_used, PAGE_SIZE);
-    assert!(pool.allocate(PAGE_SIZE * 2).is_err());
-    assert_eq!(pool.stats().peak_used, PAGE_SIZE);
-}
-
-#[test]
-fn vmo_pool_free_reuses_coalesces_and_rejects_double_free() {
-    let mut backing = [0xAAu8; PAGE_SIZE * 4];
-    let mut pool = VmoPool::with_window(backing.as_mut_ptr() as usize, backing.len());
-    let (a, _) = pool.allocate(PAGE_SIZE).expect("alloc a");
-    let (b, lb) = pool.allocate(PAGE_SIZE).expect("alloc b");
-    let (c, lc) = pool.allocate(PAGE_SIZE).expect("alloc c");
-
-    // A freed middle range is reused (and re-zeroed) by the next fitting allocate.
-    pool.free(b, lb).expect("free b");
-    backing[PAGE_SIZE] = 0xCC;
-    let (b2, _) = pool.allocate(PAGE_SIZE / 2).expect("realloc b");
-    assert_eq!(b2, b);
-    assert_eq!(backing[PAGE_SIZE], 0);
-
-    // Double-free and out-of-span frees are rejected.
-    pool.free(b, lb).expect("free b again (was reallocated)");
-    assert!(pool.free(b, lb).is_err());
-    assert!(pool.free(pool.limit, PAGE_SIZE).is_err());
-    assert!(pool.free(a + 1, PAGE_SIZE).is_err());
-
-    // Freeing the tail coalesces through the adjacent free middle back to
-    // the bump frontier: only `a` stays used, the rest is one big span.
-    pool.free(c, lc).expect("free c");
-    assert_eq!(pool.stats().used, PAGE_SIZE);
-    let (big, big_len) = pool.allocate(PAGE_SIZE * 3).expect("realloc whole tail");
-    assert_eq!(big, a + PAGE_SIZE);
-    assert_eq!(big_len, PAGE_SIZE * 3);
-}
-
-#[test]
-fn cap_table_vmo_overlap_count_sees_aliases() {
+fn cap_table_vmo_ref_count_sees_aliases() {
     let mut table = crate::cap::CapTable::new();
-    let cap =
-        Capability { kind: CapabilityKind::Vmo { base: 0x1000, len: 0x2000 }, rights: Rights::MAP };
+    let cap = Capability { kind: CapabilityKind::Vmo { id: 7, len: 0x2000 }, rights: Rights::MAP };
     table.set(3, cap).unwrap();
-    assert_eq!(table.vmo_overlap_count(0x1000, 0x2000), 1);
-    // A clone in the same table is an alias.
+    assert_eq!(table.vmo_ref_count(7), 1);
+    // A clone in the same table is an alias; so is a read-only alias.
     table.set(4, cap).unwrap();
-    assert_eq!(table.vmo_overlap_count(0x1000, 0x2000), 2);
-    // Partial overlap counts; disjoint does not.
-    assert_eq!(table.vmo_overlap_count(0x2000, 0x1000), 2);
-    assert_eq!(table.vmo_overlap_count(0x3000, 0x1000), 0);
+    let ro = Capability { kind: CapabilityKind::VmoRo { id: 7, len: 0x2000 }, rights: Rights::MAP };
+    table.set(5, ro).unwrap();
+    assert_eq!(table.vmo_ref_count(7), 3);
+    assert_eq!(table.vmo_ref_count(8), 0);
 }
 
 #[test]

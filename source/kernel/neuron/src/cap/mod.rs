@@ -42,14 +42,16 @@ pub enum CapabilityKind {
     Endpoint(EndpointId),
     /// Endpoint-factory authority (Phase-2 hardening): holder may create new endpoints.
     EndpointFactory,
-    /// Virtual memory object.
-    Vmo { base: usize, len: usize },
+    /// A page-backed virtual memory object (`mm::vmo`, TASK-0286 P3a): `id`
+    /// names the object, `len` its bytes. Frames are the table's, never the
+    /// capability's — a clone or transfer copies the name, not the memory.
+    Vmo { id: u32, len: usize },
     /// RFC-0080: a READ-ONLY alias of a VMO's physical pages. Derived from a
     /// `Vmo` via `vmo_share_readonly`; `sys_map` force-strips WRITE|EXECUTE so
     /// the holder can only map it read-only, and `vmo_write` rejects it. Used
     /// to share the glyph atlas across app-hosts without letting any of them
     /// corrupt the pages the others read.
-    VmoRo { base: usize, len: usize },
+    VmoRo { id: u32, len: usize },
     /// Device MMIO window (physical base + length) plus the device's PLIC line (`irq`, 0 =
     /// none), mapped into userspace only via a dedicated syscall that enforces USER|RW and
     /// never EXEC. The window and the line come from the device tree (RFC-0098 C3): init
@@ -235,19 +237,15 @@ impl CapTable {
     /// Counts capabilities whose VMO range overlaps `[base, base + len)`.
     /// `vmo_destroy`'s sole-owner safety net: summed over every task's table,
     /// the destroying cap itself accounts for exactly 1 — anything above means
-    /// a clone/transfer alias still references the memory.
-    pub fn vmo_overlap_count(&self, base: usize, len: usize) -> usize {
-        let end = base.saturating_add(len);
+    /// a clone/transfer alias still names the object.
+    pub fn vmo_ref_count(&self, id: u32) -> usize {
         self.slots
             .iter()
             .flatten()
             .filter(|cap| match cap.kind {
-                // A VmoRo alias references the SAME physical pages, so it counts
-                // toward the sole-owner check (RFC-0080).
-                CapabilityKind::Vmo { base: b, len: l }
-                | CapabilityKind::VmoRo { base: b, len: l } => {
-                    b < end && base < b.saturating_add(l)
-                }
+                // A VmoRo alias names the SAME object, so it counts toward the
+                // sole-owner check (RFC-0080).
+                CapabilityKind::Vmo { id: i, .. } | CapabilityKind::VmoRo { id: i, .. } => i == id,
                 _ => false,
             })
             .count()

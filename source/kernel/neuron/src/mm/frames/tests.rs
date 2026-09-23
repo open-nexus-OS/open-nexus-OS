@@ -8,6 +8,7 @@
 
 use super::{
     Block, FrameAllocator, FrameError, Range, FRAME_SIZE, MAX_BANKS, MAX_HOLES, MAX_ORDER,
+    SUPERPAGE_ORDER,
 };
 use proptest::prelude::*;
 
@@ -16,7 +17,7 @@ const BOARD: &[u8] = include_bytes!("../../../../../libs/nexus-fdt/tests/goldens
 
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
-const SUPER: u64 = FRAME_SIZE << MAX_ORDER;
+const SUPER: u64 = FRAME_SIZE << SUPERPAGE_ORDER;
 
 fn from_tree(bytes: &[u8], excluded: &[Range]) -> FrameAllocator {
     let fdt = nexus_fdt::Fdt::new(bytes).expect("golden parses");
@@ -70,15 +71,15 @@ fn board_golden_has_two_banks_around_the_hole() {
     assert_eq!(fa.banks()[0].base(), 0);
     assert_eq!(fa.banks()[1].base(), 4 * GIB);
     // Bank 0's first superpage sits above the reservation, still 2 MiB-aligned.
-    let b = fa.alloc(MAX_ORDER).unwrap();
-    assert_eq!(b, Block { base: SUPER, order: MAX_ORDER });
+    let b = fa.alloc(SUPERPAGE_ORDER).unwrap();
+    assert_eq!(b, Block { base: SUPER, order: SUPERPAGE_ORDER });
     // The 512 KiB..2 MiB tail of the first superpage is free in smaller blocks.
     let tail = fa.alloc(7).unwrap();
     assert_eq!(tail, Block { base: 0x8_0000, order: 7 });
     // Nothing between the banks is ever handed out; bank 1 follows bank 0.
     let mut n = 0usize;
     let mut last = 0u64;
-    while let Ok(b) = fa.alloc(MAX_ORDER) {
+    while let Ok(b) = fa.alloc(SUPERPAGE_ORDER) {
         assert!(!(b.base >= 2 * GIB && b.base < 4 * GIB), "the hole {b:?}");
         assert!(b.base > last, "ascending");
         last = b.base;
@@ -93,7 +94,7 @@ fn board_golden_has_two_banks_around_the_hole() {
 fn alloc_below_never_crosses_the_limit() {
     let mut fa = from_tree(BOARD, &[]);
     let mut n = 0usize;
-    while let Ok(b) = fa.alloc_below(MAX_ORDER, 4 * GIB) {
+    while let Ok(b) = fa.alloc_below(SUPERPAGE_ORDER, 4 * GIB) {
         assert!(b.end() <= 4 * GIB, "{b:?}");
         n += 1;
     }
@@ -157,8 +158,8 @@ fn rejects_double_free_and_foreign_blocks() {
     assert_eq!(fa.free(Block { base: 3 * GIB, order: 0 }), Err(FrameError::NotOwned));
     assert_eq!(fa.free(Block { base: SUPER + FRAME_SIZE, order: 1 }), Err(FrameError::NotOwned));
     assert_eq!(fa.free(Block { base: 0, order: 0 }), Err(FrameError::NotOwned), "OpenSBI");
-    assert_eq!(fa.free(Block { base: SUPER, order: 10 }), Err(FrameError::BadOrder));
-    assert_eq!(fa.alloc(10), Err(FrameError::BadOrder));
+    assert_eq!(fa.free(Block { base: SUPER, order: MAX_ORDER + 1 }), Err(FrameError::BadOrder));
+    assert_eq!(fa.alloc(MAX_ORDER + 1), Err(FrameError::BadOrder));
     assert_eq!(fa.stats().frees, 2);
 }
 
@@ -200,7 +201,7 @@ fn holes_poison_whole_frames_and_are_never_handed_out() {
 fn an_unaligned_bank_base_keeps_superpages_aligned() {
     let bank = Range { base: 0x8010_0800, size: 6 * MIB };
     let mut fa = FrameAllocator::init(&[bank], &[], &[]).unwrap();
-    let b = fa.alloc(MAX_ORDER).unwrap();
+    let b = fa.alloc(SUPERPAGE_ORDER).unwrap();
     assert_eq!(b.base % SUPER, 0);
     assert!(b.base >= bank.base);
     assert_eq!(b.base, 0x8020_0000);

@@ -21,7 +21,7 @@ fn space() -> VaSpace {
 }
 
 fn vmo(va: usize, len: usize, pa: usize) -> VaRegion {
-    VaRegion { va, len, pa, flags: 0xF, kind: RegionKind::Vmo }
+    VaRegion { va, len, pa, flags: 0xF, kind: RegionKind::Vmo, vmo: 0 }
 }
 
 /// ① Determinism: a fixed op sequence yields EXACT addresses, byte for byte.

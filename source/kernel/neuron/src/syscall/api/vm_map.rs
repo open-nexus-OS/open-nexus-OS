@@ -30,9 +30,9 @@ pub(super) fn sys_vm_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
         return Err(AddressSpaceError::InvalidArgs.into());
     }
     let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;
-    let (base, cap_len, read_only) = match cap.kind {
-        CapabilityKind::Vmo { base, len } => (base, len, false),
-        CapabilityKind::VmoRo { base, len } => (base, len, true),
+    let (id, cap_len, read_only) = match cap.kind {
+        CapabilityKind::Vmo { id, len } => (id, len, false),
+        CapabilityKind::VmoRo { id, len } => (id, len, true),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
     let span_end = offset.checked_add(len).ok_or(AddressSpaceError::InvalidArgs)?;
@@ -55,15 +55,30 @@ pub(super) fn sys_vm_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
     let space = ctx.address_spaces.get_mut(handle)?;
-    let va = crate::mm::vm_ops::map_range(
-        space,
-        base + offset,
-        len,
-        flags,
-        crate::va_space::RegionKind::Vmo,
-    )
-    .map_err(Error::from)?;
+    let runs = vmo_runs_in(id, offset, len)?;
+    let va = crate::mm::vm_ops::map_runs(space, &runs, flags, crate::va_space::RegionKind::Vmo, id)
+        .map_err(Error::from)?;
     Ok(va)
+}
+
+/// The object's runs clipped to `[offset, offset + len)` (page-aligned).
+pub(super) fn vmo_runs_in(
+    id: u32,
+    offset: usize,
+    len: usize,
+) -> SysResult<alloc::vec::Vec<(usize, usize)>> {
+    let runs = crate::mm::vmo::runs(id).ok_or(Error::Capability(CapError::PermissionDenied))?;
+    let end = offset.checked_add(len).ok_or(AddressSpaceError::InvalidArgs)?;
+    let mut out = alloc::vec::Vec::new();
+    let mut at = 0usize;
+    for (pa, run_len) in runs {
+        let (lo, hi) = (offset.max(at), end.min(at + run_len));
+        if lo < hi {
+            out.push((pa + (lo - at), hi - lo));
+        }
+        at += run_len;
+    }
+    Ok(out)
 }
 
 /// `SYSCALL_VM_UNMAP` (54, RFC-0085): unmap ONE exact `vm_map`/
@@ -128,6 +143,7 @@ pub(super) fn sys_mmio_map_auto(ctx: &mut Context<'_>, args: &Args) -> SysResult
         len,
         flags,
         crate::va_space::RegionKind::Mmio,
+        0,
     )
     .map_err(Error::from)?;
     Ok(va)

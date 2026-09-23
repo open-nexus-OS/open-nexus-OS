@@ -1,6 +1,6 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: In Progress (P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: In Progress (P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
 updated: 2026-09-22
@@ -181,8 +181,36 @@ side (RFC-0085).
   pinned by a host test with the boot's exact exclusions: classic buddy — the smallest
   sufficient order first, the lowest block within it (an exact-size free block anywhere beats
   splitting a bigger one lower down), deterministic across boots.
-- **P3 Page-backed VMO.** `VmoObject` + frame lists; every syscall path moved; `VmoPool`, the
-  windows and `stack_pool`'s window deleted; `-m` unpinned; 256M and 1G proven.
+- **P3a Page-backed VMO — done 2026-09-23.** `mm/vmo.rs`: `VmoObject { kind, len, blocks }`
+  in a table of ≤ 4096 objects behind a leaf lock; kinds `Anon` (pool blocks, largest first:
+  `frame_pool::alloc_bytes`), `Contiguous` (ONE block — the DMA masters' kind; `vmo_create`
+  arg 2 bit 0, `nexus_abi::vmo_create_contiguous`; `cap_query` reports its physical base, an
+  `Anon` object reports 0), `Fixed` (frames outside the pool: the tree alias, the selftest data
+  page, the bootstrap identity window — never freed). Capabilities are `Vmo { id, len }` /
+  `VmoRo { id, len }`; `vmo_ref_count(id)` replaces the range-overlap count; `VaRegion` carries
+  the id and `any_backed_by_vmo` is the destroy guard; `vm_map` maps the object's runs back to
+  back (`vm_ops::map_runs`, one region, promotion per run — largest-first keeps every 2 MiB run
+  superpage-aligned); `vmo_read/write` copy run by run; the legacy `as_map` translates per page.
+  Create is phased as before: A takes the frames, B zeroes them with the BKL dropped, C installs
+  the cap. `exec` images are pool blocks: `exec_image.rs` (`alloc_image`, `plan_payload` split
+  across blocks, `map_blocks`, `alloc_zeroed_page`), `ImageAllocs` records `Block`s (48),
+  teardown frees them to the pool; the copy plan holds 64 ops. DELETED: `vmo_pool.rs`,
+  `USER_VMO_ARENA_*`, the idle zero-frontier (`vmo_idle_zero_step` + the cpu_main hook: every
+  object is zeroed at create, off the BKL), `log_vmo_preview`, the arena layout assert.
+  Frame ceiling raised to `MAX_ORDER = 15` (128 MiB) with `SUPERPAGE_ORDER = 9` kept for the
+  alignment guarantee — measured: windowd's scanout+atlas resource is 1280 × 9600 × 4 = 49 MiB
+  and rounds to a 64 MiB block (the virtio-gpu backing is scatter-gather capable; P4 attaches
+  the runs and the resource becomes `Anon`). DMA users switched to contiguous: virtio-blk,
+  virtio-rng, virtio-input, virtio-net (`nexus-net-os`), gpud (queues, resource backings,
+  scratch), windowd's framebuffer, app-host's surfaces. On virt the pool is now 70 721 frames
+  (276 MiB) free at boot, 11 199 excluded (image, tree, page pool, stack pool, identity
+  window). Proof: `KSELFTEST: vmo zero ok`, `vm map ok` (a contiguous object, promotion
+  proven), `vm unmap ok`, `vm map reject ok`; smp1 9/9 chain markers, `desktop revealed`.
+  Exhaustion still returns the arena's errno (EPERM-class) — the ENOMEM class is M4's.
+- **P3b Windows gone.** `KERNEL_PAGE_POOL` (the selftest init loader), the user stack pool and
+  the bootstrap identity window move to frames and are deleted; `-m` is a launcher knob
+  (default 320M) and 256M + 1G boots pass smp1; `scripts/check-no-fixed-windows.sh` in
+  `just check`.
 - **P4 `contiguous-DMA` + coherence hooks.** The kind, `DmaBuffer::for_device/for_cpu` (no-op
   on QEMU), gpud's framebuffer and virtio rings moved onto it (absorbs TASK-0284).
 - **P5 Telemetry + gate + docs.** `KSELFTEST: mm frames (…)` registered; read-only query to

@@ -10,7 +10,7 @@
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU markers (`APPHOST: …`)
 
-use nexus_abi::{cap_clone, debug_println, nsec, vmo_create, vmo_write, yield_};
+use nexus_abi::{cap_clone, debug_println, nsec, vmo_create_contiguous, vmo_write, yield_};
 
 /// Probe markers must NOT fold: `nexus-service-entry` arms verdict
 /// folding for every process it bootstraps, so `debug_println` swallows
@@ -309,7 +309,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     // 3. The app's own surface VMO. Sized TALL for a banded surface so the
     //    whole resident scroll content lives in it ONCE; visible-sized
     //    otherwise. Mutable: a WM resize re-creates it at the new size.
-    let mut vmo = vmo_create(surf_w as usize * vmo_h as usize * 4)
+    let mut vmo = vmo_create_contiguous(surf_w as usize * vmo_h as usize * 4)
         .map_err(|_| "apphost: vmo create failed")?;
 
     let first_render_ok = app
@@ -763,7 +763,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                         f.min(u16::MAX as u32) as u16,
                     )
                 });
-            if let Ok(nv) = vmo_create(surf_w as usize * nvmo_h as usize * 4) {
+            if let Ok(nv) = vmo_create_contiguous(surf_w as usize * nvmo_h as usize * 4) {
                 let _ = send_wait(&client, &wire::encode_surface_destroy(surface_id));
                 let _ = nexus_abi::cap_close(vmo);
                 vmo = nv;

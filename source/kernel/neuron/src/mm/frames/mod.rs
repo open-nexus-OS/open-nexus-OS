@@ -37,8 +37,15 @@ pub use bank::Bank;
 pub const FRAME_SHIFT: u32 = 12;
 /// One frame: the Sv39 base page.
 pub const FRAME_SIZE: u64 = 1 << FRAME_SHIFT;
-/// The largest block order: 2^9 frames = one 2 MiB superpage.
-pub const MAX_ORDER: u8 = 9;
+/// The largest block order: 2^15 frames = 128 MiB, the ceiling for one
+/// physically contiguous object. A DMA master's largest ask today is windowd's
+/// scanout+atlas resource (1280 × 9600 × 4 = 49 MiB, rounded to a 64 MiB
+/// block); the virtio-gpu backing is scatter-gather capable, and TASK-0286 P4
+/// attaches the runs instead.
+pub const MAX_ORDER: u8 = 15;
+/// The order whose blocks are Sv39 superpages (2 MiB): every block of this
+/// order or larger is superpage-aligned by construction.
+pub const SUPERPAGE_ORDER: u8 = 9;
 /// Banks a tree may carry (the board has two; a NUMA box is out of scope).
 pub const MAX_BANKS: usize = 4;
 /// Reserved + excluded ranges an init may carry, in total.

@@ -61,6 +61,8 @@ pub struct VaRegion {
     /// PageFlags bits as plain usize (keeps the module pure).
     pub flags: usize,
     pub kind: RegionKind,
+    /// The VMO the region maps (`mm::vmo` id; 0 = none: MMIO, kernel-placed).
+    pub vmo: u32,
 }
 
 /// Why an operation was refused. Every variant maps to exactly one errno at
@@ -104,7 +106,8 @@ pub struct VaSpace {
     window_len: usize,
 }
 
-const EMPTY: VaRegion = VaRegion { va: 0, len: 0, pa: 0, flags: 0, kind: RegionKind::Fixed };
+const EMPTY: VaRegion =
+    VaRegion { va: 0, len: 0, pa: 0, flags: 0, kind: RegionKind::Fixed, vmo: 0 };
 
 impl VaSpace {
     #[must_use]
@@ -248,7 +251,7 @@ impl VaSpace {
                 return;
             }
         }
-        let region = VaRegion { va, len, pa, flags, kind: RegionKind::Fixed };
+        let region = VaRegion { va, len, pa, flags, kind: RegionKind::Fixed, vmo: 0 };
         if self.insert(region).is_err() {
             self.untracked = self.untracked.saturating_add(1);
         }
@@ -297,6 +300,14 @@ impl VaSpace {
         self.regions[..self.len]
             .iter()
             .any(|r| r.kind != RegionKind::Fixed && pa < r.pa + r.len && r.pa < end)
+    }
+
+    /// Does any live region map the VMO `id`? The `vmo_destroy` guard for
+    /// page-backed objects (TASK-0286 P3a): destroying an object this address
+    /// space still maps would leave live PTEs onto recycled frames.
+    #[must_use]
+    pub fn any_backed_by_vmo(&self, id: u32) -> bool {
+        id != 0 && self.regions[..self.len].iter().any(|r| r.vmo == id)
     }
 
     /// Is `[va, va+len)` free of tracked regions AND outside the managed

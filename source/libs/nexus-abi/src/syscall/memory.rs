@@ -82,18 +82,29 @@ pub fn as_map(
 
 // ——— VMO userland wrappers (OS build) ———
 
-/// Creates a new contiguous VMO of `len` bytes and returns a handle to it.
-///
-/// The initial implementation is a placeholder; the kernel syscall path will
-/// be wired in a subsequent change.
+/// Creates a new anonymous VMO of `len` bytes (page-backed: a list of
+/// physically contiguous runs, no single physical base) and returns a handle.
 #[cfg(nexus_env = "os")]
 pub fn vmo_create(_len: usize) -> Result<Handle> {
+    vmo_create_kind(_len, 0)
+}
+
+/// RFC-0098 C4 (TASK-0286 P3a): like [`vmo_create`], but the object is ONE
+/// physically contiguous block — the kind a DMA master needs (virtio queues,
+/// framebuffers, surfaces the GPU scans out); `cap_query` then reports its
+/// physical base. An anonymous VMO is a list of runs and reports base 0.
+#[cfg(nexus_env = "os")]
+pub fn vmo_create_contiguous(_len: usize) -> Result<Handle> {
+    vmo_create_kind(_len, 1)
+}
+
+#[cfg(nexus_env = "os")]
+fn vmo_create_kind(_len: usize, _kind: usize) -> Result<Handle> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     unsafe {
         const SYSCALL_VMO_CREATE: usize = 5;
         let slot = usize::MAX;
-        let len = _len;
-        let raw = ecall3(SYSCALL_VMO_CREATE, slot, len, 0);
+        let raw = ecall3(SYSCALL_VMO_CREATE, slot, _len, _kind);
         match decode_syscall(raw) {
             Ok(slot) => Ok(slot as Handle),
             Err(_) => Err(IpcError::Unsupported),
@@ -234,7 +245,9 @@ pub struct CapQuery {
     /// (0 = none) — the one place a driver learns its interrupt (RFC-0098 C3).
     /// 0 for every other kind.
     pub irq: u32,
-    /// Physical base address for the capability's window.
+    /// Physical base address for the capability's window. For a VMO only a
+    /// physically contiguous object (`vmo_create_contiguous`) has one; an
+    /// anonymous VMO reports 0 (TASK-0286 P3a).
     pub base: u64,
     /// Length in bytes of the capability's window.
     pub len: u64,

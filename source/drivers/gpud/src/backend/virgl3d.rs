@@ -172,11 +172,11 @@ impl VirtioGpuBackend {
             VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
             VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
         };
-        // RFC-0085: one whole-range `vm_map` at a kernel-chosen va — the
-        // 12-slot backing arena (9/12 consumed at boot; exhaustion = silent
-        // GL→2D fallback) is gone.
+        // RFC-0085: one whole-range `vm_map` at a kernel-chosen va (the old
+        // 12-slot backing arena is gone); contiguous: the device DMAs it.
         let backing_len = align_page(byte_len);
-        let vmo = nexus_abi::vmo_create(backing_len).map_err(|_| GfxError::ResourceExhausted)?;
+        let vmo = nexus_abi::vmo_create_contiguous(backing_len)
+            .map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
@@ -867,7 +867,7 @@ END\n";
     /// region (no resource attach). Returns the VA.
     pub(crate) fn virgl_alloc_scratch(&mut self, byte_len: usize) -> Result<usize, GfxError> {
         let len = align_page(byte_len);
-        let vmo = nexus_abi::vmo_create(len).map_err(|_| GfxError::ResourceExhausted)?;
+        let vmo = nexus_abi::vmo_create_contiguous(len).map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ

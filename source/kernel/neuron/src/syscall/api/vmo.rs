@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Memory syscalls split out of the former single-file api.rs:
-//! sys_device_cap_create, sys_vmo_* (create/destroy/read/write),
-//! sys_as_create/sys_as_map, the kernel-managed user VMO arena
-//! (VMO_POOL/VmoPool, task #124 free list) and user-slice validation helpers.
+//! sys_device_cap_create, sys_vmo_* (create/destroy/read/write/share) over the
+//! page-backed objects of `mm::vmo` (TASK-0286 P3a — the arena and `VmoPool`
+//! are gone), sys_as_create/sys_as_map, and user-slice validation helpers.
 //! (The fixed-VA sys_map/sys_mmio_map were retired by RFC-0085 P6.)
 //! OWNERS: @kernel-team
 //! STATUS: Functional
@@ -93,19 +93,36 @@ impl DeviceCapCreateArgsTyped {
 pub(super) struct VmoCreateArgsTyped {
     slot_raw: usize,
     len: usize,
+    /// Arg 2 bit 0 (RFC-0098 C4): ONE physically contiguous block — the DMA
+    /// masters' kind; `cap_query` names its base.
+    contiguous: bool,
 }
+
+/// `vmo_create` arg 2: the object must be one physically contiguous block.
+pub const VMO_CREATE_CONTIGUOUS: usize = 1;
 
 impl VmoCreateArgsTyped {
     #[inline]
     pub(super) fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self { slot_raw: args.get(0), len: args.get(1) })
+        Ok(Self {
+            slot_raw: args.get(0),
+            len: args.get(1),
+            contiguous: args.get(2) & VMO_CREATE_CONTIGUOUS != 0,
+        })
     }
     #[inline]
     pub(super) fn check(&self) -> Result<(), Error> {
-        if self.len == 0 {
+        if self.len == 0 || align_len(self.len).is_none() {
             return Err(Error::Capability(CapError::PermissionDenied));
         }
         Ok(())
+    }
+    fn kind(&self) -> crate::mm::vmo::VmoKind {
+        if self.contiguous {
+            crate::mm::vmo::VmoKind::Contiguous
+        } else {
+            crate::mm::vmo::VmoKind::Anon
+        }
     }
 }
 
@@ -166,99 +183,73 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
     Ok(slot)
 }
 
-/// P2 phase A (under the BKL): decode + reserve for `SYSCALL_VMO_CREATE`.
-/// Returns (base, aligned_len, needs_zero, slot_raw).
-pub(crate) fn vmo_create_reserve(args: &Args) -> Result<(usize, usize, bool, usize), Error> {
+/// Phase A (under the BKL): decode + take the frames for `SYSCALL_VMO_CREATE`.
+/// Returns `(id, aligned_len, slot_raw)`; the frames are NOT zeroed yet.
+pub(crate) fn vmo_create_reserve(args: &Args) -> Result<(u32, usize, usize), Error> {
     let typed = VmoCreateArgsTyped::decode(args)?;
     typed.check()?;
-    let (base, aligned, needs_zero) = VMO_POOL.lock().allocate_nozero(typed.len)?;
-    Ok((base, aligned, needs_zero, typed.slot_raw))
+    let aligned = align_len(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
+    let id = crate::mm::vmo::create(aligned, typed.kind())
+        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+    Ok((id, aligned, typed.slot_raw))
 }
 
-/// P2 phase C (BKL re-acquired): install the capability. On failure the
-/// (now zeroed) range goes back CLEAN via the free list.
+/// Phase C (BKL re-acquired): install the capability. On failure the (now
+/// zeroed) object goes back to the pool.
 pub(crate) fn vmo_create_finish(
     ctx: &mut Context<'_>,
-    base: usize,
+    id: u32,
     aligned: usize,
     slot_raw: usize,
 ) -> SysResult<usize> {
-    let cap = Capability { kind: CapabilityKind::Vmo { base, len: aligned }, rights: Rights::MAP };
+    let cap = Capability { kind: CapabilityKind::Vmo { id, len: aligned }, rights: Rights::MAP };
     let result = if slot_raw == usize::MAX {
         ctx.tasks.current_caps_mut().allocate(cap)
     } else {
         ctx.tasks.current_caps_mut().set(slot_raw, cap).map(|_| slot_raw)
     };
     if result.is_err() {
-        let _ = VMO_POOL.lock().free(base, aligned);
+        let _ = crate::mm::vmo::destroy(id);
     }
     result.map_err(Into::into)
 }
 
-/// P2: one bounded idle-zero step (64 KiB) — cpu_main idle hook.
-pub fn vmo_idle_zero_step() -> usize {
-    VMO_POOL.lock().idle_zero_step(64 * 1024)
-}
-
+/// Unphased `SYSCALL_VMO_CREATE` (selftest-owned dispatch tables): the three
+/// phases back to back, the zeroing under the BKL.
 pub(super) fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let typed = VmoCreateArgsTyped::decode(args)?;
-    typed.check()?;
-    let (base, aligned_len) = VMO_POOL.lock().allocate(typed.len)?;
-    #[cfg(feature = "debug_uart")]
-    {
-        use core::fmt::Write as _;
-        let mut u = crate::uart::raw_writer();
-        let _ = writeln!(
-            u,
-            "VMO-CREATE len=0x{:x} base=0x{:x} slot=0x{:x}",
-            aligned_len, base, typed.slot_raw
-        );
-    }
-    let cap =
-        Capability { kind: CapabilityKind::Vmo { base, len: aligned_len }, rights: Rights::MAP };
-    let target = if typed.slot_raw == usize::MAX {
-        ctx.tasks.current_caps_mut().allocate(cap)?
-    } else {
-        ctx.tasks.current_caps_mut().set(typed.slot_raw, cap)?;
-        typed.slot_raw
-    };
-    Ok(target)
+    let (id, aligned, slot_raw) = vmo_create_reserve(args)?;
+    crate::mm::vmo::zero(id);
+    vmo_create_finish(ctx, id, aligned, slot_raw)
 }
 
-/// `SYSCALL_VMO_DESTROY` (44): release a task-owned VMO back to the kernel arena
-/// (task #124 — the arena was bump-only; dead one-shot VMOs like the 4MB
-/// boot-splash backing leaked forever). Contract: for self-created, never-shared
-/// VMOs. The kernel refuses while any OTHER capability anywhere in the system
-/// references the range (clone/transfer alias) — the sole-owner safety net.
-/// Mappings are the caller's contract: it must not touch the range afterwards
-/// (a stale writable mapping in the destroying task could scribble over a reused
-/// range — the same trust already granted by `vm_map` on its own VMOs; the
-/// arena zeroes on reuse, so no stale data ever leaks to the next owner).
+/// `SYSCALL_VMO_DESTROY` (44): return a task-owned VMO's frames to the pool
+/// (task #124: dead one-shot VMOs like the 4MB boot-splash backing must not
+/// leak). Contract: for self-created, never-shared VMOs. The kernel refuses
+/// while any OTHER capability anywhere in the system names the object
+/// (clone/transfer alias) — the sole-owner safety net — and while any address
+/// space still maps it (RFC-0085, EBUSY): freeing under a live mapping would
+/// hand recycled frames to the old mapper. A new object is zeroed on create,
+/// so no stale data ever leaks to the next owner.
 pub(super) fn sys_vmo_destroy(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let slot = args.get(0);
     let cap = ctx.tasks.current_caps_mut().get(slot)?;
-    let CapabilityKind::Vmo { base, len } = cap.kind else {
+    let CapabilityKind::Vmo { id, .. } = cap.kind else {
         return Err(Error::Capability(CapError::PermissionDenied));
     };
     let mut refs = 0usize;
     for raw in 0..ctx.tasks.len() as u32 {
         if let Some(caps) = ctx.tasks.caps_of(task::Pid::from_raw(raw)) {
-            refs += caps.vmo_overlap_count(base, len);
+            refs += caps.vmo_ref_count(id);
         }
     }
     if refs != 1 {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    // RFC-0085: refuse while ANY address space still maps the range through a
-    // vm_map/mmio_map_auto region (EBUSY) — freeing under a live mapping
-    // would hand recycled arena pages to the old mapper. Legacy fixed-VA
-    // maps keep the pre-RFC caller contract (recorded as Fixed, not counted
-    // here).
-    if crate::mm::vm_ops::any_space_maps(ctx.address_spaces, base, len) {
+    if crate::mm::vm_ops::any_space_maps_vmo(ctx.address_spaces, id) {
         return Err(Error::ResourceBusy);
     }
     let _ = ctx.tasks.current_caps_mut().take(slot)?;
-    VMO_POOL.lock().free(base, len)?;
+    crate::mm::vmo::destroy(id).map_err(|_| Error::Capability(CapError::PermissionDenied))?;
     Ok(0)
 }
 
@@ -271,13 +262,13 @@ pub(super) fn sys_vmo_share_ro(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     let slot = args.get(0);
     let cap = ctx.tasks.current_caps_mut().get(slot)?;
     // Only a real (writable) VMO can be downgraded; require MAP authority.
-    let CapabilityKind::Vmo { base, len } = cap.kind else {
+    let CapabilityKind::Vmo { id, len } = cap.kind else {
         return Err(Error::Capability(CapError::PermissionDenied));
     };
     if !cap.rights.contains(Rights::MAP) {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    let ro = Capability { kind: CapabilityKind::VmoRo { base, len }, rights: Rights::MAP };
+    let ro = Capability { kind: CapabilityKind::VmoRo { id, len }, rights: Rights::MAP };
     let new_slot = ctx.tasks.current_caps_mut().allocate(ro)?;
     Ok(new_slot)
 }
@@ -292,8 +283,8 @@ pub(super) fn sys_vmo_read(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     let typed = VmoWriteArgsTyped::decode(args)?;
     typed.check()?;
     let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
-    let (base, vmo_len) = match cap.kind {
-        CapabilityKind::Vmo { base, len } => (base, len),
+    let (id, vmo_len) = match cap.kind {
+        CapabilityKind::Vmo { id, len } => (id, len),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
     let span_end =
@@ -302,14 +293,17 @@ pub(super) fn sys_vmo_read(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     ensure_user_slice(typed.user_ptr, typed.len)?;
-    if typed.len != 0 {
+    // Object bytes are runs; the user buffer is one range: copy run by run.
+    let mut dst = typed.user_ptr;
+    for (pa, len) in vmo_runs_in(id, typed.offset, typed.len)? {
         unsafe {
             ptr::copy_nonoverlapping(
-                crate::phys::phys_to_virt(base + typed.offset) as *const u8,
-                typed.user_ptr as *mut u8,
-                typed.len,
+                crate::phys::phys_to_virt(pa) as *const u8,
+                dst as *mut u8,
+                len,
             );
         }
+        dst += len;
     }
     Ok(typed.len)
 }
@@ -318,8 +312,8 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     let typed = VmoWriteArgsTyped::decode(args)?;
     typed.check()?;
     let cap = ctx.tasks.current_caps_mut().derive(typed.slot.0, Rights::MAP)?;
-    let (base, vmo_len) = match cap.kind {
-        CapabilityKind::Vmo { base, len } => (base, len),
+    let (id, vmo_len) = match cap.kind {
+        CapabilityKind::Vmo { id, len } => (id, len),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
     #[cfg(feature = "debug_uart")]
@@ -328,8 +322,8 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
         let mut u = crate::uart::raw_writer();
         let _ = write!(
             u,
-            "VMO-WRITE slot=0x{:x} base=0x{:x} off=0x{:x} len=0x{:x} user=0x{:x}\n",
-            typed.slot.0, base, typed.offset, typed.len, typed.user_ptr
+            "VMO-WRITE slot=0x{:x} id={} off=0x{:x} len=0x{:x} user=0x{:x}\n",
+            typed.slot.0, id, typed.offset, typed.len, typed.user_ptr
         );
     }
     let span_end =
@@ -360,15 +354,19 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
         }
         let _ = u.write_str("\n");
     }
-    if typed.len != 0 {
+    let mut src = typed.user_ptr;
+    for (pa, len) in vmo_runs_in(id, typed.offset, typed.len)? {
         unsafe {
             ptr::copy_nonoverlapping(
-                typed.user_ptr as *const u8,
-                crate::phys::phys_to_virt(base + typed.offset) as *mut u8,
-                typed.len,
+                src as *const u8,
+                crate::phys::phys_to_virt(pa) as *mut u8,
+                len,
             );
-            riscv::asm::fence_i();
         }
+        src += len;
+    }
+    if typed.len != 0 {
+        riscv::asm::fence_i();
     }
     Ok(typed.len)
 }
@@ -380,20 +378,12 @@ pub(super) const PROT_EXEC: u32 = 1 << 2;
 pub(super) const MAP_FLAG_USER: u32 = 1 << 0;
 pub(super) const USER_VADDR_LIMIT: usize = 0x8000_0000;
 
-// The kernel-managed user VMO arena (`VMO_POOL`/`VmoPool`) lives in
-// `vmo_pool.rs` (module-size ratchet); `api/mod.rs` globs it so `sys_vmo_*`
-// below and `exec`/`tests` reach `VMO_POOL`/`VmoPool` unqualified.
 pub(super) fn align_len(len: usize) -> Option<usize> {
     if len == 0 {
         Some(0)
     } else {
         len.checked_add(PAGE_SIZE - 1).map(|value| value & !(PAGE_SIZE - 1))
     }
-}
-
-pub(super) fn align_up_addr(addr: usize) -> usize {
-    let mask = PAGE_SIZE - 1;
-    (addr + mask) & !mask
 }
 
 pub(super) fn ensure_user_slice(ptr: usize, len: usize) -> Result<(), Error> {
@@ -436,8 +426,8 @@ pub(super) fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
     typed.check()?; // Check phase
 
     let cap = ctx.tasks.current_caps_mut().derive(typed.vmo_slot.0, Rights::MAP)?;
-    let (base, vmo_len) = match cap.kind {
-        CapabilityKind::Vmo { base, len } => (base, len as u64),
+    let (id, vmo_len) = match cap.kind {
+        CapabilityKind::Vmo { id, len } => (id, len as u64),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
 
@@ -475,73 +465,25 @@ pub(super) fn sys_as_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
         let mut u = crate::uart::raw_writer();
         let _ = writeln!(
             u,
-            "AS-MAP handle=0x{:x} slot=0x{:x} va=0x{:x} len=0x{:x} pages=0x{:x} base=0x{:x} prot=0x{:x} flags=0x{:x}",
+            "AS-MAP handle=0x{:x} slot=0x{:x} va=0x{:x} len=0x{:x} pages=0x{:x} id={} prot=0x{:x} flags=0x{:x}",
             typed.handle.to_raw(),
             typed.vmo_slot.0,
             typed.va.raw(),
             typed.len.raw(),
             pages,
-            base,
+            id,
             typed.prot,
             flags.bits()
         );
     }
 
-    #[cfg(feature = "debug_uart")]
-    let mut logged_preview = false;
-
     for page in 0..pages {
         let page_va =
             typed.va.raw().checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-        let page_pa = base.checked_add(page * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
+        let page_pa = crate::mm::vmo::translate(id, page * PAGE_SIZE)
+            .ok_or(Error::Capability(CapError::PermissionDenied))?;
         ctx.address_spaces.map_page_tracked(typed.handle, page_va, page_pa, flags)?;
-        #[cfg(feature = "debug_uart")]
-        if !logged_preview {
-            logged_preview = true;
-            log_vmo_preview(typed.vmo_slot.0, page_pa, aligned_bytes, typed.prot);
-        }
     }
 
     Ok(0)
-}
-
-#[cfg(feature = "debug_uart")]
-pub(super) fn log_vmo_preview(slot: usize, base: usize, len: u64, prot: u32) {
-    use core::fmt::Write as _;
-
-    let mut u = crate::uart::raw_writer();
-    let preview_len = core::cmp::min(len, 16) as usize;
-
-    let pool = VMO_POOL.lock();
-    let in_pool = preview_len > 0 && pool.contains(base, preview_len);
-    drop(pool);
-
-    if !in_pool {
-        let _ = write!(
-            u,
-            "VMO-PREVIEW skipped slot=0x{:x} base=0x{:x} len=0x{:x} prot=0x{:x}\n",
-            slot, base, len, prot
-        );
-        return;
-    }
-
-    let mut buf = [0u8; 16];
-    if preview_len > 0 {
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                crate::phys::phys_to_virt(base) as *const u8,
-                buf.as_mut_ptr(),
-                preview_len,
-            );
-        }
-    }
-    let _ = write!(
-        u,
-        "VMO-PREVIEW slot=0x{:x} base=0x{:x} len=0x{:x} prot=0x{:x} bytes=",
-        slot, base, len, prot
-    );
-    for byte in &buf[..preview_len] {
-        let _ = write!(u, "{:02x}", byte);
-    }
-    let _ = u.write_str("\n");
 }

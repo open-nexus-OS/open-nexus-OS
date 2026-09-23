@@ -24,7 +24,7 @@ use crate::{
     QueueSetup, VirtioBlk, VirtioError, REG_QUEUE_NUM_MAX, REG_QUEUE_SEL, VIRTIO_DEVICE_ID_BLK,
     VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN,
 };
-use nexus_abi::{cap_query, vmo_create, CapQuery};
+use nexus_abi::{cap_query, vmo_create_contiguous, CapQuery};
 use nexus_hal::Bus;
 use nexus_ipc::timer::{NotifyTimer, Waitset};
 
@@ -242,7 +242,7 @@ impl VirtioBlkMmio {
         dev.negotiate_features(driver_features)?;
 
         // Queue memory (one page: 64 desc + avail + used fit with room).
-        let q_vmo = vmo_create(Q_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
+        let q_vmo = vmo_create_contiguous(Q_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
@@ -283,7 +283,8 @@ impl VirtioBlkMmio {
         dev.notify_queue(0);
 
         // Request buffers: header/status page + per-slot data regions.
-        let buf_vmo = vmo_create(BUF_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
+        let buf_vmo =
+            vmo_create_contiguous(BUF_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
         let buf_va = nexus_abi::vm_map(buf_vmo, 0, BUF_PAGES * 4096, flags)
             .map_err(|_| VirtioError::Unsupported)?;
         let (buf_pa, _buf_len) = cap_query_base_len(buf_vmo as u32)?;

@@ -219,7 +219,8 @@ pub(super) fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     // out layout (LE):
     // - u32 kind_tag (1=vmo, 2=device_mmio, 3=vmo_ro)
     // - u32 irq (device_mmio: the PLIC line from the tree, 0 = none; else 0)
-    // - u64 base
+    // - u64 base (vmo/vmo_ro: the physical base of a ONE-run object — a
+    //   contiguous VMO — else 0: an anonymous object has no single address)
     // - u64 len
     const OUT_LEN: usize = 24;
     ensure_user_slice(out_ptr, OUT_LEN)?;
@@ -227,9 +228,13 @@ pub(super) fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     // Capability gate: require MAP rights to introspect address-bearing caps.
     let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;
     let (kind_tag, irq, base, len) = match cap.kind {
-        CapabilityKind::Vmo { base, len } => (1u32, 0u32, base as u64, len as u64),
+        CapabilityKind::Vmo { id, len } => {
+            (1u32, 0u32, crate::mm::vmo::first_pa(id).unwrap_or(0) as u64, len as u64)
+        }
         CapabilityKind::DeviceMmio { base, len, irq } => (2u32, irq, base as u64, len as u64),
-        CapabilityKind::VmoRo { base, len } => (3u32, 0u32, base as u64, len as u64),
+        CapabilityKind::VmoRo { id, len } => {
+            (3u32, 0u32, crate::mm::vmo::first_pa(id).unwrap_or(0) as u64, len as u64)
+        }
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
 

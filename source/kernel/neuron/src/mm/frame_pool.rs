@@ -5,10 +5,9 @@
 //! (`crate::frames`, host-proven) over the banks the tree names, built once by
 //! the boot hart after the heap exists and before the first page table.
 //! Carved out: the tree's reserved ranges, the kernel image, the tree itself,
-//! and the fixed windows the old owners still hold until P3 deletes them
-//! (`KERNEL_PAGE_POOL`, `USER_VMO_ARENA`, the user stack pool, the bootstrap
-//! identity window). Page tables allocate here (P2b); VMOs (P3) and
-//! contiguous DMA (P4) follow. Exhaustion is an event on the console AND a
+//! and the fixed windows the old owners still hold until P3b deletes them
+//! (`KERNEL_PAGE_POOL`, the user stack pool, the bootstrap identity window).
+//! Page tables (P2b), VMOs and process images (P3a) allocate here. Exhaustion is an event on the console AND a
 //! counter — never a silent `None`.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
@@ -46,13 +45,12 @@ pub fn init_from_tree() -> Result<Stats, InitError> {
     let tree =
         crate::boot_fdt::range().map(|(s, e)| Range { base: s as u64, size: (e - s) as u64 });
     let window = |(base, len): (usize, usize)| Range { base: base as u64, size: len as u64 };
-    let mut excluded = [Range { base: 0, size: 0 }; 6];
+    let mut excluded = [Range { base: 0, size: 0 }; 5];
     let mut n = 0;
     for range in [
         Some(image),
         tree,
         Some(window((super::KERNEL_PAGE_POOL_BASE, super::KERNEL_PAGE_POOL_LEN))),
-        Some(window((super::USER_VMO_ARENA_BASE, super::USER_VMO_ARENA_LEN))),
         Some(window(crate::task::stack_pool_window())),
         Some(window(super::BOOTSTRAP_IDENTITY_WINDOW)),
     ]
@@ -90,6 +88,37 @@ pub fn free(block: Block) {
     };
     if let Err(e) = result {
         log_error!(target: "mm", "MM: frame free refused ({:?}) base=0x{:x} order={}", e, block.base, block.order);
+    }
+}
+
+/// `len` bytes as the largest blocks that fit, largest first — a run that is
+/// 2 MiB-aligned stays a superpage when mapped. On exhaustion everything taken
+/// so far goes back and the error is the pool's (already logged).
+pub fn alloc_bytes(len: usize) -> Result<alloc::vec::Vec<Block>, FrameError> {
+    let mut blocks = alloc::vec::Vec::new();
+    let mut remaining = len.div_ceil(crate::frames::FRAME_SIZE as usize);
+    while remaining > 0 {
+        let mut order = (remaining.ilog2() as u8).min(crate::frames::MAX_ORDER);
+        let block = loop {
+            match alloc(order) {
+                Ok(block) => break block,
+                Err(FrameError::Exhausted { .. }) if order > 0 => order -= 1,
+                Err(e) => {
+                    free_blocks(&blocks);
+                    return Err(e);
+                }
+            }
+        };
+        remaining -= block.frames();
+        blocks.push(block);
+    }
+    Ok(blocks)
+}
+
+/// Return every block of a list.
+pub fn free_blocks(blocks: &[Block]) {
+    for block in blocks {
+        free(*block);
     }
 }
 

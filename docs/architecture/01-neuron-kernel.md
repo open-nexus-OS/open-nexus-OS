@@ -123,7 +123,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **2 `send`**: Send an IPC message via an endpoint capability.
 - **3 `recv`**: Receive the next pending IPC message.
 - **4** — RETIRED (RFC‑0085 P6): was the fixed‑VA `map`; number never reused. Use 53 `vm_map`.
-- **5 `vmo_create`**: Create a VMO capability.
+- **5 `vmo_create`**: Create a page-backed VMO (`mm::vmo`, TASK-0286 P3a): a list of physically contiguous blocks from the frame pool; arg 2 bit 0 asks for ONE block (the DMA masters' kind, `nexus_abi::vmo_create_contiguous`).
 - **6 `vmo_write`**: Write bytes into a VMO capability.
 - **7 `spawn`**: Create a child task (fresh Sv39 AS by default) with a guarded stack.
 - **8 `cap_transfer`**: Duplicate/grant a capability to another task with a rights mask (subset-only).
@@ -153,7 +153,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **38–40 `waitset_create/add/wait`**: Bounded waitsets.
 - **41–43 `fence_create/signal/wait`**: Fences.
 - **45 `boot_mode`** / **50 `boot_display_mode`**: Boot mode and display request from `/chosen/nexus,*` of the device tree (RFC‑0098 C2; RFC‑0074/ADR‑0050 for the display request — nxboot re-expresses the QEMU fw_cfg knobs there, the kernel reads no fw_cfg).
-- **46 `vmo_destroy`**: Release a VMO back to the arena (sole-owner gated; RFC‑0075).
+- **46 `vmo_destroy`**: Return a VMO's frames to the pool (sole-owner and not-mapped gated; RFC‑0075/0085).
 - **47 `vmo_read`**: Bounded copy-out of a VMO range (ADR‑0042 damage blits).
 - **48 `sched`**: Declarative scheduling recipe (affinity/shares; ADR‑0049).
 - **49 `as_self`**: The caller's own address-space handle.

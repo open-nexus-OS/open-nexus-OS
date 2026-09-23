@@ -97,7 +97,9 @@ pub fn init_alias() -> Option<crate::cap::Capability> {
         return None;
     }
     let pages = len.div_ceil(PAGE) * PAGE;
-    Some(Capability { kind: CapabilityKind::VmoRo { base, len: pages }, rights: Rights::MAP })
+    // A FIXED object over the tree's frames (excluded from the pool).
+    let id = crate::mm::vmo::adopt_fixed(base, pages).ok()?;
+    Some(Capability { kind: CapabilityKind::VmoRo { id, len: pages }, rights: Rights::MAP })
 }
 
 /// The tree as bytes: at its physical address while paging is off, through the

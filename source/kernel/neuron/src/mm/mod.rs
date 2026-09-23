@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Virtual memory primitives for Sv39 address spaces. The kernel half
-//! is a direct map in the high half (`crate::phys`, RFC-0098 C4); the address
-//! constants below are the LAST fixed physical windows (TASK-0286 P3 deletes
-//! them with `VmoPool`), reachable only through `phys_to_virt`.
+//! is a direct map in the high half (`crate::phys`, RFC-0098 C4); VMOs are
+//! page-backed objects (`vmo`), and the address constants below are the LAST
+//! fixed physical windows (TASK-0286 P3b deletes them), reachable only through
+//! `phys_to_virt`.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
@@ -21,35 +22,6 @@ pub mod vm_ops;
 pub use address_space::{AddressSpaceError, AddressSpaceManager, AsHandle};
 pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 
-/// Size reserved for user VMO allocations directly managed by the kernel.
-///
-/// The live interactive UI lane needs enough headroom for the full ramfb-sized
-/// framebuffer VMO after normal service bring-up has already allocated virtio,
-/// exec, metadata, and proof buffers.
-// 224MB (2026-07-22, was 160MB since 2026-07-06, 96MB before): the pool feeds
-// EVERY service image + stack + VMO (framebuffer ~20MB, GL backings, per-app
-// surfaces per ADR-0037) and is bump-first with a bounded free list. 96MB sat
-// ~1KB from exhaustion once the DSL runtime linked into windowd — and
-// exhaustion at spawn time kills a service SILENTLY (see TASK-0076B ledger).
-// The DSL app runtime (TASK-0080D) adds a process image + surface VMO PER APP;
-// the baked CJK atlases (RFC-0075 Phase 8d) add ~4.5MB to EVERY app-host
-// instance, and a logged-in session exhausted 160MB (peak 0x9e0b000 with a
-// 4MB surface pending). Machine RAM is 320M (qemu-launcher): the
-// identity-mapped arena now ends at 0x9180_0000, leaving 40MB above it.
-// Growth discipline still applies: windowd's image size is CI-gated
-// (`just contract-windowd-size`), dead one-shot VMOs get freed (#124), and
-// sharing ONE atlas via RO VMO (recorded follow-up) claws the per-instance
-// duplication back — the pool is headroom, not an excuse.
-pub const USER_VMO_ARENA_LEN: usize = 224 * 1024 * 1024;
-/// Base address of the kernel-managed user VMO arena. Moved up 0x8180_0000
-/// → 0x8280_0000 (RFC-0075 Phase 8d): the kernel image embeds init-lite,
-/// which now carries the baked CJK glyph atlases (~24 MB total image) —
-/// the fixed windows must sit BEHIND the image end. Arena end = 0x9180_0000
-/// (machine RAM is 320 MB → 0x9400_0000; 40 MB stays above).
-pub const USER_VMO_ARENA_BASE: usize = 0x8380_0000;
-/// Base address of the temporary kernel page-pool window used by early
-/// loaders/selftests. Moved 0x80c0_0000 → 0x8200_0000 (behind the grown
-/// kernel+init image; see the arena note above).
 /// RFC-0085: the kernel-managed user mapping window. `vm_map`/`mmio_map_auto`
 /// allocate ONLY here; fixed-VA maps into it are refused (EPERM) — that
 /// invariant is what keeps the `va_space` hole-finder sound without ever
@@ -74,3 +46,4 @@ mod kernel_layout;
 mod page_table_tests;
 mod page_table_verify;
 mod tests;
+pub mod vmo;

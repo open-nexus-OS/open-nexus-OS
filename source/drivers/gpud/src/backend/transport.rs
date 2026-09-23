@@ -195,7 +195,7 @@ impl VirtioGpuBackend {
         byte_len: usize,
     ) -> Result<(usize, u64, usize, u32), GfxError> {
         let backing_len = align_page(byte_len);
-        let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|_e| {
+        let backing_vmo = nexus_abi::vmo_create_contiguous(backing_len).map_err(|_e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_CREATE_FAIL);
             GfxError::ResourceExhausted
         })?;

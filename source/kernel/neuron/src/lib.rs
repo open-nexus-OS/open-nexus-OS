@@ -441,7 +441,7 @@ mod waitset;
 mod fence;
 // RFC-0075 8e: per-task process-image arena bookkeeping — NOT target-gated for
 // the same reason as `waitset`/`fence` (pure usize ranges, host-unit-tested).
-// `exec` records the ranges, task teardown returns them to `VMO_POOL`.
+// `exec` records the blocks, task teardown returns them to the frame pool.
 mod image_allocs;
 // TASK-0286 M1 P1 (RFC-0098 C4): the page-frame allocator — NOT target-gated
 // (pure index logic over a boxed bitmap) so both golden trees run on host.

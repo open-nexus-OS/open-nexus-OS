@@ -26,7 +26,8 @@ use super::{
 };
 
 const ORDERS: usize = MAX_ORDER as usize + 1;
-/// The superpage the `MAX_ORDER` block is (2 MiB with 4 KiB frames).
+/// The largest block (16 MiB): the bank origin is aligned to it, so every
+/// block of any order is aligned to its own size — superpages included.
 const SUPER_ALIGN: u64 = FRAME_SIZE << MAX_ORDER;
 
 /// Where one order's bitmap and summary live inside `Bank::bits`.

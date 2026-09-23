@@ -40,9 +40,30 @@ pub fn map_range(
     len: usize,
     flags: PageFlags,
     kind: RegionKind,
+    vmo: u32,
 ) -> Result<usize, VmOpError> {
-    if len == 0 || len % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 {
-        return Err(VmOpError::Va(VaError::BadInput));
+    map_runs(space, &[(pa, len)], flags, kind, vmo)
+}
+
+/// Map physically contiguous runs `(pa, len)` back to back at ONE
+/// kernel-chosen va (TASK-0286 P3a: a page-backed VMO is its runs). The va
+/// is chosen so the first run keeps its 2 MiB phase; later runs of a
+/// largest-first object are superpage-aligned by construction, so every
+/// eligible run promotes. One region records the whole span.
+pub fn map_runs(
+    space: &mut AddressSpace,
+    runs: &[(usize, usize)],
+    flags: PageFlags,
+    kind: RegionKind,
+    vmo: u32,
+) -> Result<usize, VmOpError> {
+    let Some(&(pa, _)) = runs.first() else { return Err(VmOpError::Va(VaError::BadInput)) };
+    let mut len = 0usize;
+    for &(run_pa, run_len) in runs {
+        if run_len == 0 || run_len % PAGE_SIZE != 0 || run_pa % PAGE_SIZE != 0 {
+            return Err(VmOpError::Va(VaError::BadInput));
+        }
+        len = len.checked_add(run_len).ok_or(VmOpError::Va(VaError::BadInput))?;
     }
     let (align, phase) =
         if len >= SUPERPAGE { (SUPERPAGE, pa & (SUPERPAGE - 1)) } else { (PAGE_SIZE, 0) };
@@ -58,7 +79,7 @@ pub fn map_range(
     };
     // RECORD-THEN-MAP: reserve the bookkeeping slot before touching the page
     // table, so "mapped but unrecorded" cannot exist even across a failure.
-    space.va_space_mut().insert(VaRegion { va, len, pa, flags: flags.bits(), kind }).map_err(
+    space.va_space_mut().insert(VaRegion { va, len, pa, flags: flags.bits(), kind, vmo }).map_err(
         |err| {
             if err == VaError::TableFull {
                 log_error!(
@@ -72,7 +93,13 @@ pub fn map_range(
         },
     )?;
     let mut mapped_end = va;
-    if let Err(err) = execute_plan(space, va, pa, len, flags, &mut mapped_end) {
+    let mut at = va;
+    let planned = runs.iter().try_for_each(|&(run_pa, run_len)| {
+        let r = execute_plan(space, at, run_pa, run_len, flags, &mut mapped_end);
+        at += run_len;
+        r
+    });
+    if let Err(err) = planned {
         rollback(space, va, mapped_end);
         let _ = space.va_space_mut().remove_exact(va, len);
         log_error!(
@@ -130,8 +157,8 @@ pub fn unmap_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<()
 /// destroy that left live PTEs onto recycled arena pages would hand the next
 /// owner's memory to the old mapper.
 #[must_use]
-pub fn any_space_maps(manager: &AddressSpaceManager, pa: usize, len: usize) -> bool {
-    manager.spaces.iter().flatten().any(|space| space.va_space().any_backed_by(pa, len))
+pub fn any_space_maps_vmo(manager: &AddressSpaceManager, id: u32) -> bool {
+    manager.spaces.iter().flatten().any(|space| space.va_space().any_backed_by_vmo(id))
 }
 
 /// Leaf span (4 KiB or 2 MiB) mapped at `va`, or `None`. The selftest oracle

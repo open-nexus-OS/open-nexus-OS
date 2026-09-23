@@ -22,23 +22,19 @@
 //!     kernel mappings; a hart idling with a stale `satp` keeps running
 //!     kernel text, which is not part of any returned range.
 
-use super::vmo_pool::VMO_POOL;
 use crate::image_allocs::ImageAllocs;
 use crate::sched::Scheduler;
 use crate::task::TaskTable;
 
-/// Returns every recorded range to the arena. Reports bytes reclaimed.
-/// A rejected range (bounds/overlap) is logged and left allocated rather
-/// than retried — a wrong free would corrupt the arena.
+/// Returns every recorded block to the frame pool. Reports bytes reclaimed;
+/// a refused block is the pool's own event line (never retried — a wrong
+/// free would corrupt the pool).
 pub fn release_image(allocs: &ImageAllocs) -> usize {
     let mut bytes = 0usize;
-    let mut rejected = 0usize;
-    for (base, len) in allocs.iter() {
-        if VMO_POOL.lock().free(base, len).is_ok() {
-            bytes = bytes.saturating_add(len);
-        } else {
-            rejected += 1;
-        }
+    let rejected = 0usize;
+    for block in allocs.iter() {
+        crate::mm::frame_pool::free(block);
+        bytes = bytes.saturating_add(block.size() as usize);
     }
     if rejected != 0 || allocs.untracked() != 0 {
         // Honest accounting: memory we could NOT return stays allocated.
