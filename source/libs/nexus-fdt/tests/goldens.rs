@@ -127,6 +127,31 @@ fn devices_are_found_by_compatible_with_registers_and_interrupt_lines() {
 }
 
 #[test]
+fn coherence_is_the_default_and_the_board_soc_bus_marks_its_masters_non_coherent() {
+    // QEMU virt's tree carries neither property: every virtio master is coherent.
+    let virt = Fdt::new(VIRT).unwrap();
+    assert!(virt.find_compatible(&["virtio,mmio"]).all(|n| n.dma_coherent()));
+    // The board's `soc` bus carries `dma-noncoherent` (measured R4: swiotlb, the
+    // stock kernel bounces; the mainline K1 tree marks the bus): every master on
+    // it inherits the property.
+    let board = Fdt::new(BOARD).unwrap();
+    const MASTERS: [&[&str]; 5] = [
+        &["spacemit,k1-sdhci"],
+        &["spacemit,dpu-online2"],
+        &["snps,dwc3"],
+        &["spacemit,k1-emac"],
+        &["img,rgx"],
+    ];
+    for compatible in MASTERS {
+        let masters: Vec<_> = board.find_compatible(compatible).collect();
+        assert!(!masters.is_empty(), "{compatible:?} in the board tree");
+        assert!(masters.iter().all(|n| !n.dma_coherent()), "{compatible:?} is non-coherent");
+    }
+    // Outside the bus nothing is marked: the cpus node stays coherent.
+    assert!(board.node_at_path("/cpus").unwrap().dma_coherent());
+}
+
+#[test]
 fn nxboot_writes_chosen_in_headroom_and_the_kernel_reads_it_back() {
     let mut buf = BOARD.to_vec();
     let mut w = ChosenWriter::new(&mut buf).unwrap();

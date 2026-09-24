@@ -59,8 +59,10 @@ pub enum CapabilityKind {
     /// (`cap_query`) — no driver derives an interrupt number from an address.
     ///
     /// Rationale: userspace drivers require MMIO access; this capability keeps the exposed
-    /// range fixed and bounded (no ambient physical mappings).
-    DeviceMmio { base: usize, len: usize, irq: u32 },
+    /// range fixed and bounded (no ambient physical mappings). `dma_noncoherent`: the
+    /// device does not snoop the CPU caches — init read it from the tree like the line
+    /// (RFC-0098 C4), the driver maintains its buffers (`DmaBuffer`).
+    DeviceMmio { base: usize, len: usize, irq: u32, dma_noncoherent: bool },
     /// Interrupt binding.
     Irq(u32),
     /// Kernel timer capability bound to a per-hart timer table entry.

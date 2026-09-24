@@ -222,14 +222,22 @@ pub(super) fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     // - u64 base (device_mmio: the register window; 0 for a VMO — its
     //   physical runs leave the kernel only through `vmo_runs`, RFC-0098 C4)
     // - u64 len
-    const OUT_LEN: usize = 24;
+    // - u32 flags (device_mmio: bit 0 = the device does not snoop the caches)
+    // - u32 cache_block (device_mmio: the harts' Zicbom block size, 0 = none —
+    //   RFC-0098 C4; what a driver of a non-coherent device maintains in)
+    const OUT_LEN: usize = 32;
     ensure_user_slice(out_ptr, OUT_LEN)?;
 
     // Capability gate: require MAP rights to introspect address-bearing caps.
     let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;
+    let (mut flags, mut cache_block) = (0u32, 0u32);
     let (kind_tag, irq, base, len) = match cap.kind {
         CapabilityKind::Vmo { len, .. } => (1u32, 0u32, 0u64, len as u64),
-        CapabilityKind::DeviceMmio { base, len, irq } => (2u32, irq, base as u64, len as u64),
+        CapabilityKind::DeviceMmio { base, len, irq, dma_noncoherent } => {
+            flags = u32::from(dma_noncoherent);
+            cache_block = crate::hal::platform::cbom_block() as u32;
+            (2u32, irq, base as u64, len as u64)
+        }
         CapabilityKind::VmoRo { len, .. } => (3u32, 0u32, 0u64, len as u64),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
@@ -239,6 +247,8 @@ pub(super) fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     out[4..8].copy_from_slice(&irq.to_le_bytes());
     out[8..16].copy_from_slice(&base.to_le_bytes());
     out[16..24].copy_from_slice(&len.to_le_bytes());
+    out[24..28].copy_from_slice(&flags.to_le_bytes());
+    out[28..32].copy_from_slice(&cache_block.to_le_bytes());
     unsafe {
         core::ptr::copy_nonoverlapping(out.as_ptr(), out_ptr as *mut u8, OUT_LEN);
     }

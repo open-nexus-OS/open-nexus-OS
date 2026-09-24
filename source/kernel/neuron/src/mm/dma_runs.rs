@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: the one door a physical address leaves the kernel by (RFC-0098 C4,
-//! TASK-0286 P4a). `vmo_runs` (syscall 60) hands a driver the `(pa, len)` runs
+//! TASK-0286 P4a), and the device's DMA coherence as its capability carries it
+//! (P4b: the `device_cap_create` flag word). `vmo_runs` (syscall 60) hands a driver the `(pa, len)` runs
 //! behind a byte range of a VMO so it can program a bus master — a virtio queue's
 //! one base, a scatter-gather resource backing. The authority rule and the
 //! clipping live here, pure, so the reject matrix runs on host; the syscall
@@ -22,6 +23,16 @@
 
 /// Runs one call may return (16 bytes each: a 4 KiB answer at most).
 pub const MAX_RUNS: usize = 256;
+
+/// `device_cap_create` arg 4 bit 0 (TASK-0286 P4b): the device does not snoop the
+/// CPU caches — the tree's `dma-noncoherent` on its node or bus.
+pub const DEVICE_DMA_NONCOHERENT: usize = 1;
+
+/// Decode `device_cap_create`'s flag word: `Some(noncoherent)`, or `None` when a
+/// bit nobody defined is set (deny-by-default: refused, never ignored).
+pub fn device_flags(raw: usize) -> Option<bool> {
+    (raw & !DEVICE_DMA_NONCOHERENT == 0).then_some(raw & DEVICE_DMA_NONCOHERENT != 0)
+}
 
 /// Bytes of one run in the user buffer: `pa: u64` then `len: u64`, little endian.
 pub const RUN_BYTES: usize = 16;
@@ -121,6 +132,19 @@ mod tests {
 
     const PAGE: usize = 4096;
     const MIB: usize = 1 << 20;
+
+    #[test]
+    fn the_device_flag_word_names_coherence() {
+        assert_eq!(device_flags(0), Some(false));
+        assert_eq!(device_flags(DEVICE_DMA_NONCOHERENT), Some(true));
+    }
+
+    #[test]
+    fn test_reject_device_cap_unknown_flag_bits() {
+        assert_eq!(device_flags(2), None);
+        assert_eq!(device_flags(DEVICE_DMA_NONCOHERENT | 1 << 7), None);
+        assert_eq!(device_flags(usize::MAX), None);
+    }
 
     #[test]
     fn a_driver_with_a_writable_vmo_is_let_through() {

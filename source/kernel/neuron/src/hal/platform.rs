@@ -57,6 +57,9 @@ static TIMEBASE_HZ: AtomicU64 = AtomicU64::new(0);
 static NS_MUL: AtomicU64 = AtomicU64::new(0);
 static NS_DIV: AtomicU64 = AtomicU64::new(1);
 static TIMER_SSTC: AtomicBool = AtomicBool::new(false);
+/// The harts' Zicbom cache-block size from the tree (`riscv,cbom-block-size`),
+/// 0 when the ISA does not list `zicbom` (RFC-0098 C4).
+static CBOM_BLOCK: AtomicUsize = AtomicUsize::new(0);
 static HART_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// `/memory` banks `(base, len)`, in tree order; the direct map and the frame
 /// allocator (TASK-0286) are built over these.
@@ -135,6 +138,17 @@ pub fn init_from_fdt(bytes: Option<&[u8]>) -> Result<(), PlatformError> {
     MEM_BANK_COUNT.store(banks, Ordering::Relaxed);
     let sstc = cpus.harts().next().map(|c| c.has_extension("sstc")).unwrap_or(false);
     TIMER_SSTC.store(sstc, Ordering::Relaxed);
+    // Zicbom: a block size the ISA cannot have (not a power of two in 16..=4096)
+    // is a corrupt tree — no user cache maintenance then, never a guessed size.
+    let cbom = cpus
+        .harts()
+        .next()
+        .filter(|c| c.has_extension("zicbom"))
+        .and_then(|c| c.node().prop_u32("riscv,cbom-block-size"))
+        .map(|b| b as usize)
+        .filter(|b| b.is_power_of_two() && (16..=4096).contains(b))
+        .unwrap_or(0);
+    CBOM_BLOCK.store(cbom, Ordering::Relaxed);
 
     Ok(())
 }
@@ -178,6 +192,26 @@ pub fn timebase_hz() -> u64 {
 
 pub fn hart_count() -> usize {
     HART_COUNT.load(Ordering::Relaxed)
+}
+
+/// The harts' Zicbom cache-block size in bytes, 0 without Zicbom (RFC-0098 C4).
+pub fn cbom_block() -> usize {
+    CBOM_BLOCK.load(Ordering::Relaxed)
+}
+
+/// `senvcfg.CBIE` (bits 5:4) and `senvcfg.CBCFE` (bit 6).
+const SENVCFG_CBIE_MASK: u64 = 0b11 << 4;
+const SENVCFG_CBIE_FLUSH: u64 = 0b01 << 4;
+const SENVCFG_CBCFE: u64 = 1 << 6;
+
+/// Let user mode maintain its own cache lines on this hart when the tree lists
+/// Zicbom (RFC-0098 C4): `cbo.clean`/`cbo.flush` allowed, and `cbo.inval`
+/// executes as a flush — a driver writes back and drops lines, it can never
+/// discard data. Called once per hart, next to its trap vector.
+pub fn enable_user_cache_maintenance() {
+    if cbom_block() != 0 {
+        riscv::update_senvcfg(SENVCFG_CBIE_MASK, SENVCFG_CBIE_FLUSH | SENVCFG_CBCFE);
+    }
 }
 
 /// Whether the timer is armed through `stimecmp` (Sstc) rather than SBI.

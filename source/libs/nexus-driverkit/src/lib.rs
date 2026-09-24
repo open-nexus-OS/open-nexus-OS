@@ -19,7 +19,10 @@
 //!
 //! DESIGN: This crate is **pure, `no_std`, and allocation-free** — [`SubmitRing`] is a fixed
 //! 32-slot busy-bitmask + round-robin allocator (a faithful generalisation of gpud's ring),
-//! [`BufferBudget`] is bounded counters, [`Qos`] is an enum + depth policy. None of it touches
+//! [`BufferBudget`] is bounded counters, [`Qos`] is an enum + depth policy, [`DmaBuffer`]
+//! (TASK-0286 P4b) moves DMA memory between CPU and device ownership by value and does the
+//! cache maintenance a non-coherent device needs at exactly those transitions (the memory and
+//! the instructions come from `nexus-abi`: `DmaVmo`, Zicbom). None of it touches
 //! MMIO, the router, or the scheduler: the device server drives `try_alloc`/`complete` from
 //! its own submit/harvest path, and signals a kernel timeline fence (`nexus_abi::fence_signal`)
 //! to [`SubmitRing::completed`] so consumers can `fence_wait`. Keeping the contract pure makes
@@ -43,9 +46,11 @@
 #![forbid(unsafe_code)]
 
 mod buffers;
+mod dma;
 mod qos;
 mod ring;
 
 pub use buffers::{BufferBudget, BufferError};
+pub use dma::{CacheOps, Direction, DmaBuffer, DmaError, DmaMemory, InFlight, Zicbom};
 pub use qos::Qos;
 pub use ring::{RingError, Slot, SubmitRing, Ticket, MAX_SLOTS};

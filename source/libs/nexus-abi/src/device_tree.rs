@@ -25,7 +25,7 @@ const PAGE: usize = 4096;
 /// callers cache the slice.
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub fn map_read_only(slot: u32) -> Option<&'static [u8]> {
-    let mut info = crate::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+    let mut info = crate::CapQuery::default();
     crate::cap_query(slot, &mut info).ok()?;
     let pages = usize::try_from(info.len).ok()?;
     if pages == 0 || pages % PAGE != 0 || pages > MAX_DTB_LEN + PAGE {

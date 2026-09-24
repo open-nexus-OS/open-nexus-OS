@@ -63,7 +63,7 @@ pub(crate) fn vm_map_roundtrip_probe() -> core::result::Result<(), ()> {
 #[allow(dead_code)]
 pub(crate) fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
     const MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
-    let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+    let mut info = nexus_abi::CapQuery::default();
     nexus_abi::cap_query(MMIO_CAP_SLOT, &mut info).map_err(|_| ())?;
     // 2 = DeviceMmio
     if info.kind_tag != 2 || info.base == 0 || info.len == 0 {
@@ -78,7 +78,7 @@ pub(crate) fn cap_query_vmo_probe() -> core::result::Result<(), ()> {
     // P4a), never through `cap_query`. A contiguous object is the case that used
     // to leak one, so that is the one probed.
     let vmo = nexus_abi::vmo_create_contiguous(4096).map_err(|_| ())?;
-    let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+    let mut info = nexus_abi::CapQuery::default();
     let queried = nexus_abi::cap_query(vmo, &mut info);
     let _ = nexus_abi::vmo_destroy(vmo);
     queried.map_err(|_| ())?;
@@ -87,4 +87,50 @@ pub(crate) fn cap_query_vmo_probe() -> core::result::Result<(), ()> {
         return Err(());
     }
     Ok(())
+}
+
+/// What `dma_buffer_probe` measured: the device's own coherence, the harts' Zicbom
+/// block and the runs of the buffer.
+pub(crate) struct DmaBufferProof {
+    pub coherent: bool,
+    pub block: usize,
+    pub runs: usize,
+}
+
+/// RFC-0098 C4 (TASK-0286 P4b): a `DmaBuffer` over a real `DmaVmo` with the Zicbom
+/// instructions forced on — QEMU's virtio devices are coherent, so the device's own
+/// coherence would skip them; forcing them proves that user mode may execute
+/// `cbo.clean`/`cbo.flush` (the kernel's `senvcfg`) and that every byte survives the
+/// ToDevice and Bidirectional round trips. The device capability is the net window
+/// init grants this harness; a VMO must be refused as a device.
+pub(crate) fn dma_buffer_probe() -> core::result::Result<DmaBufferProof, ()> {
+    use nexus_abi::{DmaCoherence, DmaVmo};
+    use nexus_driverkit::{Direction, DmaBuffer, Zicbom};
+    const DEVICE: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
+    const LEN: usize = 3 * 4096 + 100;
+    let mut query = nexus_abi::CapQuery::default();
+    nexus_abi::cap_query(DEVICE, &mut query).map_err(|_| ())?;
+    let coherent =
+        nexus_abi::device_dma_coherence(DEVICE).map_err(|_| ())? == DmaCoherence::Coherent;
+    let block = query.cache_block as usize;
+    if block == 0 {
+        return Err(()); // no Zicbom on the harts: nothing to prove the instructions with
+    }
+    let vmo = DmaVmo::anonymous(LEN).map_err(|_| ())?;
+    let refused = nexus_abi::device_dma_coherence(vmo.handle()).is_err();
+    let runs = vmo.runs().len();
+    let covered: u64 = vmo.runs().iter().map(|r| r.len).sum();
+    let mut buf =
+        DmaBuffer::new(vmo, DmaCoherence::Maintained { block }, Zicbom).map_err(|_| ())?;
+    for (i, byte) in buf.bytes_mut().iter_mut().enumerate() {
+        *byte = (i % 251) as u8;
+    }
+    let buf = buf.for_device(Direction::ToDevice).for_cpu();
+    let buf = buf.for_device(Direction::Bidirectional).for_cpu();
+    let intact = buf.bytes().iter().enumerate().all(|(i, byte)| *byte == (i % 251) as u8);
+    if refused && intact && covered == LEN as u64 && runs >= 1 {
+        Ok(DmaBufferProof { coherent, block, runs })
+    } else {
+        Err(())
+    }
 }

@@ -306,6 +306,7 @@ pub unsafe fn install_trap_vector_for(cpu: crate::types::CpuId) {
             riscv::register::mtvec::TrapMode::Direct,
         );
     }
+    crate::hal::platform::enable_user_cache_maintenance();
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

@@ -2004,6 +2004,9 @@ version = "0.1.0"
 [[package]]
 name = "nexus-driverkit"
 version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+]
 
 [[package]]
 name = "nexus-dsl-core"
@@ -3965,6 +3968,7 @@ dependencies = [
  "keystored",
  "net-virtio",
  "nexus-abi",
+ "nexus-driverkit",
  "nexus-fdt",
  "nexus-hal",
  "nexus-idl-runtime",

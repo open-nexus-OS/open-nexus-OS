@@ -29,6 +29,7 @@ os-lite = [
     "dep:pinched",
     "dep:nexus-svg",
     "dep:nexus-hal",
+    "dep:nexus-driverkit",
     "dep:nexus-net",
     "dep:nexus-ipc",
     "dep:nexus-log",
@@ -90,6 +91,8 @@ nexus-workpool = { path = "../../../source/libs/nexus-workpool", optional = true
 pinched = { path = "../../../source/services/pinched", optional = true, default-features = false }
 nexus-svg = { path = "../../../userspace/ui/svg", optional = true, default-features = false }
 nexus-hal = { path = "../../../source/libs/nexus-hal", optional = true }
+# TASK-0286 P4b: the `DmaBuffer` proof (mmio phase) — ownership + Zicbom in user mode.
+nexus-driverkit = { path = "../../../source/libs/nexus-driverkit", optional = true }
 nexus-net = { path = "../../../userspace/nexus-net", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-log = { path = "../../../source/libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }

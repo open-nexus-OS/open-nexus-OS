@@ -54,7 +54,7 @@ pub(crate) fn bootstrap_network() -> BootstrapResult {
                     }
                     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
                     {
-                        let mut q = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+                        let mut q = nexus_abi::CapQuery::default();
                         if nexus_abi::cap_query(48, &mut q).is_ok() {
                             let _ = nexus_abi::trace_line("netstackd: mmio cap48 present");
                         } else {

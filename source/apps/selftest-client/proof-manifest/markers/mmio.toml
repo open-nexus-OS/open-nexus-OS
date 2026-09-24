@@ -19,6 +19,13 @@ proves = "RFC-0085 userspace roundtrip: one-call vm_map at a kernel-chosen va, w
 [marker."SELFTEST: vm map roundtrip FAIL"]
 phase = "mmio"
 
+[marker."SELFTEST: dma buffer ok ("]
+phase = "mmio"
+proves = "RFC-0098 C4 (TASK-0286 P4b): the device capability carries its coherence (device=coherent on QEMU virt) and the harts' Zicbom block; a DmaBuffer over a real DmaVmo runs cbo.clean/cbo.flush in USER mode (the kernel enabled senvcfg) through ToDevice and Bidirectional round trips with every byte intact; a VMO is refused as a device"
+
+[marker."SELFTEST: dma buffer FAIL"]
+phase = "mmio"
+
 [marker."SELFTEST: cap query vmo ok"]
 phase = "mmio"
 proves = "RFC-0098 C4 (TASK-0286 P4a): a VMO queries as kind 1 with its length and NO physical base, even a contiguous one — physical addresses leave the kernel only through vmo_runs"

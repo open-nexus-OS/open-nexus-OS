@@ -141,10 +141,10 @@ and relocate themselves on entry (`R_RISCV_RELATIVE`); the load address comes fr
 
 The page-frame allocator owns every `/memory` bank not reserved; the fixed windows
 (`USER_VMO_ARENA_*`, `KERNEL_PAGE_POOL_*`) and `VmoPool` are deleted. A VMO becomes a page-backed
-object with a backing kind; `contiguous-DMA` is the kind DMA masters get. **Coherence rule:** a
-node without `dma-coherent` is non-coherent — `DmaBuffer` performs Zicbom maintenance around
-every transfer, or maps the buffer non-cacheable through Svpbmt where the ISA lists it; QEMU
-virt is coherent and the same code path is a no-op there.
+object with a backing kind; `contiguous-DMA` is the kind DMA masters get. **Coherence rule
+(corrected 2026-09-24, TASK-0286 P4b — see below):** a device is non-coherent when its node or
+an ancestor bus carries `dma-noncoherent`; `DmaBuffer` performs Zicbom maintenance around every
+transfer for such a device; QEMU virt is coherent and the same code path is a no-op there.
 
 **Amended 2026-09-22 (TASK-0286 P0): the kernel lives in the high half.** Measured: the kernel
 identity-maps everything it owns as GLOBAL pages, and RAM starts at physical 0 on the board — an
@@ -182,6 +182,28 @@ to learn — and a read-only alias never yields one (a device could write throug
 0. `contiguous-DMA` stays the kind for memory a device addresses by ONE base (virtio queues,
 command and response pools, request buffers); memory a device reads through a list is `Anon`.
 
+**Amended 2026-09-24 (TASK-0286 P4b): coherence travels with the device.** Measured: the rule
+as first written ("a node without `dma-coherent` is non-coherent") is backwards for RISC-V — the
+binding's default is coherent and a non-coherent master is marked `dma-noncoherent` (the
+mainline K1 tree puts it on its `soc` bus; QEMU virt's tree carries neither property, so the
+first rule would have made every virtio device non-coherent). Contract: init reads the property
+walking from the device node up to the root (`nexus_fdt::Node::dma_coherent`: the nearest
+`dma-noncoherent` or `dma-coherent` decides, none means coherent) and mints it INTO the device
+capability (`device_cap_create` arg 4 bit 0; any other bit is refused), exactly like the
+interrupt line; `cap_query` reports it (`flags` bit 0) together with the harts' cache-block
+size (`cache_block`, the tree's `riscv,cbom-block-size` when the ISA lists `zicbom`, else 0) —
+the query grows from 24 to 32 bytes. The kernel enables Zicbom for user mode on every hart whose
+tree lists it: `senvcfg.CBCFE = 1` and `senvcfg.CBIE = 01`, so `cbo.inval` executes as a flush —
+a driver can write back and drop its own lines but never discard data (user mode gets no
+data-destroying primitive). Maintenance is the driver's, through one type: `DmaBuffer`
+(`nexus-driverkit`) owns a mapped DMA object (`nexus_abi::DmaVmo`) and moves between CPU-owned
+and device-owned by value — `for_device(dir)` cleans (to the device) or flushes (from or both
+ways), `for_cpu()` flushes what the device may have written; the CPU cannot touch the bytes
+while the device owns them (a compile-time guarantee). A non-coherent device on a machine
+without Zicbom is refused (`DmaCoherence::Unmaintainable`); non-cacheable mappings through
+Svpbmt are the fallback M-track work if a board ever needs it. The firmware must enable the
+same bits for S-mode (`menvcfg`); OpenSBI ≥ 1.3 does — measured on the board in B1.6.
+
 ### C5 — Storage (Phase 3, ADR-0067)
 
 `virtioblkd` becomes `blkd`: the ONE block owner, one GPT disk, partition-scoped `blockproto`;
@@ -211,6 +233,7 @@ and the fw_cfg key are deleted; RFC-0074's authority statement is amended to poi
 | `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=…)` | every platform value came from the dtb | 1 |
 | `KSELFTEST: mm frames (banks=… total=… free=…)` | the allocator owns the FDT's memory | 2 |
 | `KSELFTEST: vmo runs ok (runs=… deny=3)` | a physical address leaves the kernel only through `vmo_runs`, only to a device holder, never for a read-only alias or past the object | 2 |
+| `SELFTEST: dma buffer ok (device=… block=… runs=…)` | the device capability carries its coherence; user-mode Zicbom runs through a `DmaBuffer` with every byte intact | 2 |
 | `blkd: backend=<compatible> …` | the block owner bound the FDT-selected device | 3 |
 | `nxboot: platform=<compatible> slot=<a\|b>` | nxboot ran as the FIT payload on the board | 4 |
 | `gpud: dc scanout ok (WxH@Hz edid)` + `windowd: desktop revealed` | the first picture | 5 |

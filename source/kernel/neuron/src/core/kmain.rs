@@ -426,6 +426,11 @@ pub fn kmain() -> ! {
     } else {
         log_info!(target: "smp", "KINIT: timer sbi");
     }
+    // RFC-0098 C4: user-mode cache maintenance for drivers of non-coherent devices.
+    match crate::hal::platform::cbom_block() {
+        0 => log_info!(target: "smp", "KINIT: user cache maintenance none (no zicbom)"),
+        block => log_info!(target: "smp", "KINIT: user cache maintenance zicbom block={}", block),
+    }
 
     // A3: selftests + init spawn are done — release the secondaries into
     // their scheduler loops (IPI punches them out of their park-WFI), then

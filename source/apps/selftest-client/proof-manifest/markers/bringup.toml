@@ -689,6 +689,16 @@ proves = "the kernel arms its per-hart timer through stimecmp because the device
 phase = "bringup"
 proves = "active per-hart timer mechanism is SBI set_timer (SSTC follow-up pending)"
 
+# RFC-0098 C4 (TASK-0286 P4b): user-mode cache maintenance comes from the tree — the
+# harts' Zicbom and `riscv,cbom-block-size`; `SELFTEST: dma buffer ok (` proves it runs.
+[marker."KINIT: user cache maintenance zicbom block="]
+phase = "bringup"
+proves = "senvcfg.CBCFE=1 and CBIE=01 (inval runs as flush) on every hart, block size from the device tree"
+
+[marker."KINIT: user cache maintenance none (no zicbom)"]
+phase = "bringup"
+proves = "the tree lists no Zicbom: no user cache maintenance, a non-coherent device is refused (DmaCoherence::Unmaintainable)"
+
 [marker."KSELFTEST: work stealing ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }

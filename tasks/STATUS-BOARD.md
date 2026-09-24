@@ -22,13 +22,13 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 
 | Group | Done / Total | Progress | Kernel-touch tasks | Notes |
 |------|---------------|----------|--------------------|-------|
-| Kernel Core & Runtime | 19 / 33 | 58% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0269B`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
+| Kernel Core & Runtime | 20 / 33 | 61% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0269B`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
 | DSoftBus & Distributed | 13 / 27 | 48% | — | Distributed session, transport, mux, and remote-service stack. |
 | Networking & Transport | 2 / 8 | 25% | — | Netstack, dev networking, ingress, and OS transport services. |
 | Observability, Crash, Perf & Diagnostics | 14 / 36 | 39% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
 | Security, Policy & Identity | 10 / 35 | 29% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
-| Storage, PackageFS & Content | 14 / 36 | 39% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
+| Storage, PackageFS & Content | 15 / 36 | 42% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
 | Updates, Packaging & Recovery | 12 / 21 | 57% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
 | Bringup, Hardware & Drivers | 3 / 13 | 23% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
 | Windowing, UI & Graphics | 31 / 80 | 39% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
@@ -95,7 +95,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Kernel Core & Runtime
 
-- Progress: `19 / 33` done (`58%`)
+- Progress: `20 / 33` done (`61%`)
 - Kernel-touch tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054C`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0269B`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` (`TASK-0054B`/`TASK-0054D` closed Done 2026-09-09 by reconciliation — perf floor delivered by 0042/0277/0283/0288 + RFC-0085/0302)
 - Tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0228`..`TASK-0230`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0267`, `TASK-0269`, `TASK-0269B`, `TASK-0276`..`TASK-0277`, `TASK-0281`..`TASK-0290`
 
@@ -136,7 +136,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Storage, PackageFS & Content
 
-- Progress: `14 / 36` done (`39%`)
+- Progress: `15 / 36` done (`42%`)
 - Kernel-touch tasks: `TASK-0031`
 - Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`, `TASK-0314`..`TASK-0320`
 - Notes (2026-08-25): `TASK-0314`..`TASK-0320` (storage end-state ladder, seeded 2026-08-14) added to this group's task list — they were counted nowhere. `TASK-0314` + `TASK-0315` Done (driver v2 + single-GPT-disk topology, delivered inside the OTA lane as packages 3/5).
@@ -295,6 +295,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0276 | Parallelism v1: deterministic threadpools + policy contract | Done | Reconciled 2026-07-19 |
 | ✅ TASK-0277 | Kernel SMP parallelism policy v1 (deterministic) | Done | Reconciled 2026-07-19 |
 | ✅ TASK-0283 | Kernel per-CPU ownership wrapper v1 | Done | Reconciled 2026-07-19 |
+| ✅ TASK-0284 | Userspace DMA buffer ownership (absorbed into TASK-0286 M1 P4b) | Done | `DmaBuffer` typestate + Zicbom, `SELFTEST: dma buffer ok` (2026-09-24) |
 | ✅ TASK-0288 | Kernel runtime closure v1c: latency budgets + stress proofs | Done | Reconciled 2026-07-19 |
 | ✅ TASK-0291 | VFS ReadDir + svc.files + filemanager role + stash real listing | Done | Boot-proven (was In Review) |
 | ✅ TASK-0292 | nxfs v1 core (host-first): engine + fsck + crash-injection | Done | Host-proven, 17 tests (was In Review) |

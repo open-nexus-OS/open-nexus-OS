@@ -103,7 +103,7 @@ fn emit_line(msg: &str) {
 }
 
 fn cap_query_base_len(slot: u32) -> Result<(u64, u64), VirtioError> {
-    let mut info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+    let mut info = CapQuery::default();
     cap_query(slot, &mut info).map_err(|_| VirtioError::Unsupported)?;
     Ok((info.base, info.len))
 }

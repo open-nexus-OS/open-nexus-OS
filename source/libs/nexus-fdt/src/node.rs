@@ -328,6 +328,24 @@ impl<'a> Node<'a> {
         self.prop_u32("phandle").or_else(|| self.prop_u32("linux,phandle"))
     }
 
+    /// Whether a bus master behind this node sees the CPU caches (RFC-0098 C4):
+    /// the nearest `dma-noncoherent` or `dma-coherent` on the node or an ancestor
+    /// bus decides; neither means coherent (the RISC-V binding's default — a
+    /// non-coherent master is the marked exception, the K1 marks its `soc` bus).
+    pub fn dma_coherent(&self) -> bool {
+        let mut at = Some(*self);
+        while let Some(node) = at {
+            if node.prop("dma-noncoherent").is_some() {
+                return false;
+            }
+            if node.prop("dma-coherent").is_some() {
+                return true;
+            }
+            at = node.parent();
+        }
+        true
+    }
+
     /// `status` is "okay" (or absent).
     pub fn is_enabled(&self) -> bool {
         matches!(self.prop_str("status"), None | Some("okay") | Some("ok"))

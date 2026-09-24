@@ -444,7 +444,7 @@ pub(crate) fn finish(vmo: u32, status: u32, elems: u32, workers: u32) {
 
 /// VMO capacity via cap_query (kind_tag 1 = VMO; the vfsd splice pattern).
 pub(crate) fn vmo_capacity(slot: u32) -> Option<usize> {
-    let mut query = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+    let mut query = nexus_abi::CapQuery::default();
     if nexus_abi::cap_query(slot, &mut query).is_err() || query.kind_tag != 1 {
         return None;
     }

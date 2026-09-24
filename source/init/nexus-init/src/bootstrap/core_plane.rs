@@ -74,19 +74,7 @@ pub(crate) fn grant_mmio_with_wait(
     let grant_span = nexus_abi::Span::begin();
     // ONE waited policy exchange (TASK-0324 P8): policyd's verdict or its death — no retry
     // cadence, no clock. `None` is a refused/absent authority: fail-closed, named.
-    if grant_mmio_cap(
-        pid,
-        svc_name,
-        cap_name,
-        dev.base,
-        dev.len,
-        dev.irq,
-        pol_route.0,
-        pol_route.1,
-        cap_slot,
-    )?
-    .is_none()
-    {
+    if grant_mmio_cap(pid, svc_name, cap_name, dev, pol_route.0, pol_route.1, cap_slot)?.is_none() {
         return Err(InitError::Map("mmio policy unavailable"));
     }
     stats.wait_ns.set(stats.wait_ns.get().saturating_add(grant_span.elapsed_ns()));

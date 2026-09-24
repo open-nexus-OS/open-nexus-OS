@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-24 (TASK-0286 M1 P4b: DMA coherence travels with the device; user-mode Zicbom; `DmaBuffer` — closes TASK-0284)
+
+- RFC-0098 C4's coherence rule corrected (it was backwards): coherent is the RISC-V default,
+  `dma-noncoherent` on a node or its bus marks the exception. `nexus_fdt::Node::dma_coherent`;
+  `config/board/bpi-f3/board.dts` marks the `soc` bus like the mainline K1 tree.
+- The coherence rides in the device capability: init mints it (`device_cap_create` arg 4 bit 0,
+  unknown bits refused), `cap_query` reports `flags` and `cache_block` (32 bytes; `CapQuery`
+  gains `Default`, every literal construction uses it).
+- Kernel: user-mode Zicbom on every hart the tree lists it for (`senvcfg.CBCFE = 1`,
+  `CBIE = 01` — `cbo.inval` runs as a flush); `KINIT: user cache maintenance zicbom block=64`.
+- `nexus_abi`: `DmaCoherence`, `device_dma_coherence`, `cache_clean` / `cache_flush`, `DmaVmo`.
+- `nexus_driverkit::DmaBuffer`: CPU-owned ↔ device-owned by value, cache maintenance exactly at
+  the transitions; touching or re-submitting a buffer in flight does not compile.
+- Harness: `SELFTEST: dma buffer ok (device=coherent block=64 runs=1)` runs the instructions in
+  user mode through a real `DmaBuffer` (required).
+- Proof: kernel host tests 88/88; nexus-fdt, nexus-abi, nexus-driverkit (26 + 3 doctests)
+  green; `just check` 14/14; smp1 and visible green; `just test-all` green (EXIT=0, 11 QEMU lanes incl. seven OTA profiles and 2 pixel proofs; `dma buffer ok` in all 6 boots that run the mmio phase, `vmo runs ok` in all 20).
+
 ### Changed - 2026-09-24 (TASK-0286 M1 P4a: one door for a physical address; gpud attaches backings scatter-gather)
 
 - Kernel: `vmo_runs` (syscall 60) is the only way a physical address leaves the kernel — the

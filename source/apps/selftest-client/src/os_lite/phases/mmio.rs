@@ -14,7 +14,7 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use crate::markers::emit_line;
+use crate::markers::{emit_bytes, emit_line, emit_u64};
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::mmio;
 
@@ -32,6 +32,19 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_VM_MAP_ROUNDTRIP_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_VM_MAP_ROUNDTRIP_FAIL);
+    }
+    // TASK-0286 P4b: DMA ownership + user-mode Zicbom through a real DmaBuffer.
+    match mmio::dma_buffer_probe() {
+        Ok(proof) => {
+            emit_bytes(crate::markers::M_SELFTEST_DMA_BUFFER_OK.as_bytes());
+            emit_bytes(if proof.coherent { b"device=coherent" } else { b"device=noncoherent" });
+            emit_bytes(b" block=");
+            emit_u64(proof.block as u64);
+            emit_bytes(b" runs=");
+            emit_u64(proof.runs as u64);
+            emit_line(")");
+        }
+        Err(()) => emit_line(crate::markers::M_SELFTEST_DMA_BUFFER_FAIL),
     }
     if mmio::cap_query_vmo_probe().is_ok() {
         emit_line(crate::markers::M_SELFTEST_CAP_QUERY_VMO_OK);

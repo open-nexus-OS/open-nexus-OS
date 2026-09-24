@@ -41,7 +41,12 @@ pub(super) fn run_vmo_runs_selftests(table: &SyscallTable, sys_ctx: &mut api::Co
     // 2. With one, the runs cover the object and name its frames.
     let (dev_base, dev_len) = crate::hal::platform::uart_window().expect("console window");
     let device = Capability {
-        kind: CapabilityKind::DeviceMmio { base: dev_base, len: dev_len, irq: 0 },
+        kind: CapabilityKind::DeviceMmio {
+            base: dev_base,
+            len: dev_len,
+            irq: 0,
+            dma_noncoherent: false,
+        },
         rights: Rights::MAP,
     };
     let dev_slot = sys_ctx.tasks.current_caps_mut().allocate(device).expect("device cap");

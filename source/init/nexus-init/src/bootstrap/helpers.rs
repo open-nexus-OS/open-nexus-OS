@@ -258,20 +258,18 @@ impl<'a> ServiceNameGuard<'a> {
     }
 }
 
-/// One policy-gated DeviceMmio grant: the window `base`/`len` and the PLIC line `irq`
-/// come from the device's tree node (RFC-0098 C3) and travel inside the capability.
-#[allow(clippy::too_many_arguments)]
+/// One policy-gated DeviceMmio grant: the window, the PLIC line and the device's DMA
+/// coherence come from its tree node (RFC-0098 C3/C4) and travel inside the capability.
 pub(crate) fn grant_mmio_cap(
     pid: u32,
     svc_name: &str,
     cap_name: &str,
-    base: usize,
-    len: usize,
-    irq: u32,
+    dev: crate::bootstrap::device_tree::DeviceWindow,
     pol_send: u32,
     pol_recv: u32,
     expected_slot: u32,
 ) -> Result<Option<bool>> {
+    let (base, len) = (dev.base, dev.len);
     // Success-path grant tracing: off by default (probe topic). DENIED/err lines below are
     // ALWAYS shown. Re-enable detail via `INIT_LITE_LOG_TOPICS=probe`.
     if probes_enabled() {
@@ -310,7 +308,13 @@ pub(crate) fn grant_mmio_cap(
         debug_write_byte(b'\n');
     }
 
-    let cap = match nexus_abi::device_mmio_cap_create(base, len, irq, usize::MAX) {
+    let cap = match nexus_abi::device_mmio_cap_create(
+        base,
+        len,
+        dev.irq,
+        dev.dma_noncoherent,
+        usize::MAX,
+    ) {
         Ok(slot) => {
             if probes_enabled() {
                 debug_write_bytes(b"init: mmio cap_create ok svc=");

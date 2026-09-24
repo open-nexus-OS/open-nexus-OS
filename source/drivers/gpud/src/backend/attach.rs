@@ -37,7 +37,7 @@ impl VirtioGpuBackend {
         // back to the kernel arena once the new scanout is live (task #124).
         let dead_splash = if self.bootstrap_splash_live { self.scanout_resource } else { None };
         self.bootstrap_splash_live = false;
-        let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+        let mut info = nexus_abi::CapQuery::default();
         nexus_abi::cap_query(vmo_slot, &mut info).map_err(|e| {
             let _ = nexus_abi::debug_println("gpud: ERROR cap_query failed");
             let _ = e;

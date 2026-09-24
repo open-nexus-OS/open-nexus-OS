@@ -144,9 +144,9 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **25 `getpid`**: Caller's task id.
 - **26 `ipc_recv_v2`**: IPC recv with sender identity + cap-move (ADR‑0042 transport).
 - **27** — RETIRED (RFC‑0085 P6): was the fixed‑VA `mmio_map`; number never reused. Use 55 `mmio_map_auto`.
-- **28 `cap_query`**: Query a capability slot (kind/irq/base/len) into a user buffer; a device capability's `irq` is the PLIC line init took from the device tree (RFC‑0098 C3) — the one place a driver learns its interrupt. `base` is a device's register window; a VMO reports 0 (its physical runs leave only through 60 `vmo_runs`).
+- **28 `cap_query`**: Query a capability slot (kind/irq/base/len) into a user buffer; a device capability's `irq` is the PLIC line init took from the device tree (RFC‑0098 C3) — the one place a driver learns its interrupt. `base` is a device's register window; a VMO reports 0 (its physical runs leave only through 60 `vmo_runs`). 32 bytes since TASK‑0286 P4b: a device also reports `flags` (bit 0 = does not snoop the caches) and `cache_block` (the harts' Zicbom block, 0 = none).
 - **29 `spawn_last_error`**: Last spawn-failure reason for the caller (RFC‑0013).
-- **30 `device_cap_create`**: Mint a DeviceMmio capability (privileged bring-up).
+- **30 `device_cap_create`**: Mint a DeviceMmio capability (privileged bring-up): window, PLIC line and, in arg 4 bit 0, `dma-noncoherent` from the node or its bus (RFC‑0098 C4; any other bit is refused).
 - **31 `cap_transfer_to`**: Transfer a capability into a specific child slot.
 - **32 `task_resume`**: Resume a suspended task.
 - **33–35 `timer_create/set/cancel`**: Per-task timer capabilities.

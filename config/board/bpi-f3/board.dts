@@ -239,6 +239,10 @@
 		#size-cells = <2>;
 		ranges;
 		interrupt-parent = <&plic>;
+		/* Measured R4 (docs/board/measurements/2026-09-22-stock-system): the
+		 * masters do not snoop the CPU caches — the stock kernel bounces through
+		 * swiotlb; the mainline K1 tree marks the bus the same way (RFC-0098 C4). */
+		dma-noncoherent;
 
 		plic: interrupt-controller@e0000000 {
 			compatible = "spacemit,k1-plic", "sifive,plic-1.0.0", "riscv,plic0";

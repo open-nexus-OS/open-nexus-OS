@@ -239,7 +239,7 @@ pub fn mmio_map_auto(_handle: Handle, _offset: usize, _len: usize) -> SysResult<
 /// Information about an address-bearing capability (VMO or device MMIO window).
 #[cfg(nexus_env = "os")]
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CapQuery {
     /// 1 = VMO, 2 = DeviceMmio, 3 = read-only VMO alias.
     pub kind_tag: u32,
@@ -253,6 +253,12 @@ pub struct CapQuery {
     pub base: u64,
     /// Length in bytes of the capability's window.
     pub len: u64,
+    /// DeviceMmio: bit 0 ([`CAP_FLAG_DMA_NONCOHERENT`]) = the device does not snoop
+    /// the CPU caches — init read it from the tree like the line (RFC-0098 C4).
+    pub flags: u32,
+    /// DeviceMmio: the harts' Zicbom cache-block size in bytes, 0 = no Zicbom —
+    /// what a driver of a non-coherent device maintains in ([`DmaCoherence`]).
+    pub cache_block: u32,
 }
 
 /// Queries a capability slot and writes the result into `out`.
@@ -277,7 +283,7 @@ pub fn cap_query(_cap: Cap, _out: &mut CapQuery) -> SysResult<()> {
 #[cfg(nexus_env = "os")]
 #[must_use]
 pub fn device_irq(slot: Cap) -> u32 {
-    let mut info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+    let mut info = CapQuery::default();
     match cap_query(slot, &mut info) {
         Ok(()) if info.kind_tag == 2 => info.irq,
         _ => 0,
@@ -285,8 +291,9 @@ pub fn device_irq(slot: Cap) -> u32 {
 }
 
 /// Creates a DeviceMmio capability in the caller's cap table (init-only): the window
-/// `base`/`len` and the device's PLIC line `irq` (0 = none), both from the device tree's
-/// node (`reg`, `interrupts` — RFC-0098 C3).
+/// `base`/`len`, the device's PLIC line `irq` (0 = none) and whether it snoops the CPU
+/// caches, all from the device tree's node (`reg`, `interrupts`, `dma-noncoherent` on the
+/// node or its bus — RFC-0098 C3/C4).
 ///
 /// If `slot_raw` is `usize::MAX`, the kernel allocates a fresh slot; otherwise, the cap is placed
 /// into the requested slot (must be empty).
@@ -295,18 +302,21 @@ pub fn device_mmio_cap_create(
     _base: usize,
     _len: usize,
     _irq: u32,
+    _dma_noncoherent: bool,
     _slot_raw: usize,
 ) -> SysResult<Cap> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_DEVICE_CAP_CREATE: usize = 30;
-        let raw =
-            unsafe { ecall4(SYSCALL_DEVICE_CAP_CREATE, _base, _len, _slot_raw, _irq as usize) };
+        let flags = if _dma_noncoherent { CAP_FLAG_DMA_NONCOHERENT as usize } else { 0 };
+        let raw = unsafe {
+            ecall5(SYSCALL_DEVICE_CAP_CREATE, _base, _len, _slot_raw, _irq as usize, flags)
+        };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
-        let _ = (_base, _len, _irq, _slot_raw);
+        let _ = (_base, _len, _irq, _dma_noncoherent, _slot_raw);
         Err(AbiError::Unsupported)
     }
 }

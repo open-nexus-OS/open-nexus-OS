@@ -1,6 +1,6 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: In Progress (P4a done 2026-09-24 — one door for a physical address (`vmo_runs`), gpud attaches runs, the 64 MiB framebuffer block is gone; P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: In Progress (P4b done 2026-09-24 — coherence travels in the device capability, user-mode Zicbom, `DmaBuffer`, TASK-0284 closed; P4a done 2026-09-24 — one door for a physical address (`vmo_runs`), gpud attaches runs, the 64 MiB framebuffer block is gone; P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
 updated: 2026-09-24
@@ -256,9 +256,43 @@ side (RFC-0085).
   tests 86/86; `just check` 14/14 gates; smp1 green (422 ok, 70 KSELFTEST, 9/9 chain markers,
   `total_ms=1256`); visible green (`PIXEL PROOF ok`, 14.67 % non-black, diff vs splash 31.77);
   `just test-all` green (EXIT=0, 11 QEMU lanes: smp1, visible ×2 pixel proofs, input-flood, seven OTA profiles; `vmo runs ok` in all 20 boots).
-- **P4b Coherence.** `dma-noncoherent` travels in the device capability (the RISC-V default is
-  coherent; the board's masters are not — measured R4), user-mode Zicbom enabled per hart from
-  the tree, `DmaBuffer::for_device/for_cpu` (no-op on a coherent device) — closes TASK-0284.
+- **P4b Coherence — done 2026-09-24 (closes TASK-0284).** Measured first: RFC-0098 C4's rule
+  was backwards — the RISC-V binding's default is coherent and a non-coherent master is marked
+  `dma-noncoherent`; QEMU virt's tree carries neither property on any virtio node (the old rule
+  would have made them all non-coherent), the mainline K1 tree puts `dma-noncoherent` on its
+  `soc` bus (matches R4: swiotlb bouncing on the stock system). RFC-0098 C4 corrected before the
+  code. Path of the truth: `nexus_fdt::Node::dma_coherent` (nearest `dma-noncoherent` /
+  `dma-coherent` up to the root, default coherent; golden test on both trees) → init's
+  `DeviceWindow.dma_noncoherent` → `device_cap_create` arg 4 bit 0 (any other bit refused:
+  `dma_runs::device_flags`, `test_reject_device_cap_unknown_flag_bits`) → `CapabilityKind::
+  DeviceMmio { …, dma_noncoherent }` → `cap_query` grows to 32 bytes (`flags`, `cache_block` =
+  the tree's `riscv,cbom-block-size` when the ISA lists `zicbom`); `CapQuery` gains `Default`
+  and all 28 literal constructions use it; `grant_mmio_cap` takes the whole `DeviceWindow`.
+  `config/board/bpi-f3/board.dts` carries `dma-noncoherent` on `soc` (golden regenerated).
+  Kernel: `hal::platform::enable_user_cache_maintenance` per hart next to the trap vector —
+  `senvcfg.CBCFE = 1`, `CBIE = 01` (`cbo.inval` runs as a flush: user mode never discards
+  data); `KINIT: user cache maintenance zicbom block=64`. `nexus_abi` (`syscall/dma.rs`, the
+  crate's second unsafe island): `DmaCoherence::{Coherent, Maintained { block },
+  Unmaintainable}` (`test_reject_maintenance_without_zicbom_or_with_a_corrupt_block`),
+  `device_dma_coherence`, `cache_clean` / `cache_flush` (safe over a slice: a block never
+  crosses a page, contents never change; `fence iorw, iorw` after), `DmaVmo` (a VMO mapped for
+  DMA, runs from `vmo_runs`, zero at create, unmapped + destroyed on drop).
+  `nexus_driverkit::DmaBuffer` → `for_device(dir)` → `InFlight` (runs only) → `for_cpu()`:
+  clean to the device, flush from it or both ways, flush again before the CPU reads; nothing for
+  a coherent device; an unmaintainable device refused; the no-touch-in-flight and
+  no-double-submit guarantees are `compile_fail` doctests. QEMU proof in the harness's mmio
+  phase with the instructions forced on (virtio is coherent): `SELFTEST: dma buffer ok
+  (device=coherent block=64 runs=1)` — `cbo.clean`/`cbo.flush` executed in user mode, every
+  byte of a 3-page-plus buffer intact through ToDevice and Bidirectional round trips, a VMO
+  refused as a device. YELLOW for B1.6: the firmware must set `menvcfg.CBCFE`/`CBIE` too —
+  OpenSBI ≥ 1.3 does; the board's vendor OpenSBI is 1.0, measure it there (our FIT pins its
+  own OpenSBI in 0260B). Not here: Svpbmt non-cacheable mappings (not needed while every
+  target hart has Zicbom); the virtio drivers keep their rings (virtio is coherent by
+  definition); first `DmaBuffer` consumers are SDHCI (B1.5) and the display controller (B1.7).
+  **Proof:** kernel host tests 88/88, nexus-fdt 12 goldens, nexus-abi 11, nexus-driverkit 26 +
+  3 doctests; `just check` 14/14; smp1 green (423 ok, 70 KSELFTEST, 9/9 chain markers,
+  `total_ms=1257`); visible green (`PIXEL PROOF ok`, diff vs splash 31.77); `just test-all`
+  green (EXIT=0, 11 QEMU lanes incl. seven OTA profiles and 2 pixel proofs; `dma buffer ok` in all 6 boots that run the mmio phase, `vmo runs ok` in all 20).
 - **P5 Telemetry + gate + docs.** `KSELFTEST: mm frames (…)` registered; read-only query to
   metricsd; `check-no-fixed-windows.sh`; `docs/architecture/01-neuron-kernel.md` memory section.
 

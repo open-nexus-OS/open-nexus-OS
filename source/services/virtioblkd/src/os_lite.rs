@@ -191,7 +191,7 @@ fn attach() -> Option<Served> {
     // Bounded wait for the init MMIO grant (grant lands after spawn).
     let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(5_000_000_000);
     let dev = loop {
-        let mut q = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+        let mut q = nexus_abi::CapQuery::default();
         if nexus_abi::cap_query(MMIO_CAP_SLOT, &mut q).is_ok() && q.kind_tag == 2 {
             match VirtioBlkDevice::new(MMIO_CAP_SLOT) {
                 Ok(dev) => break dev,

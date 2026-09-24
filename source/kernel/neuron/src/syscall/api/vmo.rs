@@ -62,18 +62,28 @@ pub(super) struct DeviceCapCreateArgsTyped {
     slot_raw: usize,
     /// The device's PLIC line from the tree's `interrupts` (0 = none).
     irq: usize,
+    /// Arg 4: the flag word (`crate::dma_runs::device_flags`).
+    flags: usize,
 }
 
 impl DeviceCapCreateArgsTyped {
     #[inline]
     pub(super) fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self { base: args.get(0), len: args.get(1), slot_raw: args.get(2), irq: args.get(3) })
+        Ok(Self {
+            base: args.get(0),
+            len: args.get(1),
+            slot_raw: args.get(2),
+            irq: args.get(3),
+            flags: args.get(4),
+        })
     }
     #[inline]
     pub(super) fn check(&self) -> Result<(), Error> {
         if self.len == 0 {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
+        // Deny-by-default on the flag word: a bit nobody defined is refused.
+        crate::dma_runs::device_flags(self.flags).ok_or(AddressSpaceError::InvalidArgs)?;
         // A line the PLIC cannot have is a corrupt tree, not a device.
         if self.irq > crate::hal::plic::MAX_IRQ as usize {
             return Err(AddressSpaceError::InvalidArgs.into());
@@ -171,6 +181,7 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
             base: typed.base,
             len: typed.len,
             irq: typed.irq as u32,
+            dma_noncoherent: crate::dma_runs::device_flags(typed.flags).unwrap_or(false),
         },
         rights: Rights::MAP,
     };

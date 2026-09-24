@@ -48,7 +48,7 @@ fn map_providers(tree: Option<&Fdt<'_>>) -> Providers {
             continue;
         }
         let slot = SYSCON_MMIO_SLOTS[kind as usize];
-        let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
+        let mut info = nexus_abi::CapQuery::default();
         if nexus_abi::cap_query(slot, &mut info).is_err() || info.kind_tag != 2 {
             emit(&format!("socd: window for {:?} not granted (slot 0x{:x})", kind, slot));
             continue;

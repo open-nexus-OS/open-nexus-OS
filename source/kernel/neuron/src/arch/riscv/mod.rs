@@ -76,6 +76,22 @@ pub fn read_time() -> u64 {
     }
 }
 
+/// Sets `senvcfg` (0x10a, by number like `stimecmp`) to `(old & !clear) | set` —
+/// the user-mode environment of this hart (RFC-0098 C4: Zicbom for drivers).
+#[inline]
+pub fn update_senvcfg(clear: u64, set: u64) {
+    #[cfg(target_arch = "riscv64")]
+    unsafe {
+        let old: u64;
+        core::arch::asm!("csrr {0}, 0x10a", out(reg) old, options(nomem, nostack));
+        core::arch::asm!("csrw 0x10a, {0}", in(reg) (old & !clear) | set, options(nomem, nostack));
+    }
+    #[cfg(not(target_arch = "riscv64"))]
+    {
+        let _ = (clear, set);
+    }
+}
+
 /// Writes a CSR by number — `stimecmp` (Sstc, 0x14d) is younger than the pinned
 /// assembler's mnemonic table. S-mode arms its own timer here; the CLINT is
 /// M-mode's and is never touched from the kernel (RFC-0098 C3).

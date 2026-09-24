@@ -917,6 +917,7 @@ expected_sequence=(
   "KSELFTEST: ipc stats ("
   "KSELFTEST: ipc payload hist ("
   "SELFTEST: vm map roundtrip ok"
+  "SELFTEST: dma buffer ok ("
   "SELFTEST: cap query vmo ok"
   "SELFTEST: ipc routing ok"
   "SELFTEST: ipc routing packagefsd ok"
