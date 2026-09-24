@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-23 (TASK-0286 M1 P3b: no fixed physical window is left; the machine memory is a lane knob)
+
+- The init loader's pages, the non-exec spawn stack (one block on the task's `ImageAllocs`) and
+  the bootstrap identity VMO moved to the frame pool; `KERNEL_PAGE_POOL_*`, `STACK_POOL_*`,
+  `BOOTSTRAP_IDENTITY_WINDOW` and the stack-pool cursor are deleted, and the pool excludes only
+  the image and the tree. `kmain`'s layout tripwire (`KERNEL: layout ok`, `NEURON_LAYOUT_PAD`)
+  and the `contract-image-layout` lane are deleted with the windows they guarded.
+- `scripts/qemu-launcher.sh`: `-m` is `QEMU_MEM` (default 320M); 256M and 1G smp1 boots pass.
+- `just check` gains `fixed-windows` (`scripts/check-no-fixed-windows.sh`): the retired names
+  and any virt-bank RAM literal in the kernel, self-tested on fixtures.
+
 ### Changed - 2026-09-23 (TASK-0286 M1 P3a: the VMO is a page-backed object; `VmoPool` and the fixed arena are gone)
 
 - `mm/vmo.rs`: a VMO is a list of physically contiguous blocks from the frame pool — `Anon`

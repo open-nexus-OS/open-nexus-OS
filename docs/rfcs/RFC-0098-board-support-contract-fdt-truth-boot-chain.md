@@ -162,6 +162,9 @@ half (base=0xffffffc0…)` on every boot. **Implemented 2026-09-23 (TASK-0286 P3
 a page-backed object (`mm/vmo.rs`: `Anon`, `Contiguous`, `Fixed`); `sys_vmo_create` takes the
 kind in arg 2 (bit 0 = one physically contiguous block, `nexus_abi::vmo_create_contiguous`);
 `cap_query` reports a physical base only for a one-run object. `VmoPool` and the arena are gone.
+**2026-09-23 (P3b):** the last fixed windows (init loader pages, spawn stacks, the bootstrap
+identity VMO) are frames; `scripts/check-no-fixed-windows.sh` keeps it so; the machine memory
+is a lane knob (`QEMU_MEM`).
 
 ### C5 — Storage (Phase 3, ADR-0067)
 

@@ -3,7 +3,7 @@
 
 //! CONTEXT: returns a finished task's process image to the user VMO arena.
 //! `exec` allocates every PT_LOAD segment, the stack and the bootstrap
-//! metadata pages from `VMO_POOL` and records them on the task
+//! metadata pages from the frame pool and records them on the task
 //! (`image_allocs::ImageAllocs`); this module is the ONLY place that hands
 //! them back. Until it existed the arena was bump-only for process images: a
 //! session that opened and closed a handful of apps exhausted it and the

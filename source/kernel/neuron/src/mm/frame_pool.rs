@@ -4,10 +4,10 @@
 //! CONTEXT: the kernel's frame pool (TASK-0286 P2b) — the ONE `FrameAllocator`
 //! (`crate::frames`, host-proven) over the banks the tree names, built once by
 //! the boot hart after the heap exists and before the first page table.
-//! Carved out: the tree's reserved ranges, the kernel image, the tree itself,
-//! and the fixed windows the old owners still hold until P3b deletes them
-//! (`KERNEL_PAGE_POOL`, the user stack pool, the bootstrap identity window).
-//! Page tables (P2b), VMOs and process images (P3a) allocate here. Exhaustion is an event on the console AND a
+//! Carved out: the tree's reserved ranges, the kernel image and the tree
+//! itself — nothing else; the last fixed windows died with P3b. Page tables
+//! (P2b), VMOs, process images (P3a), user stacks and init's pages (P3b)
+//! allocate here. Exhaustion is an event on the console AND a
 //! counter — never a silent `None`.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
@@ -44,19 +44,9 @@ pub fn init_from_tree() -> Result<Stats, InitError> {
     let image = Range { base: image_pa as u64, size: (image_end_va - image_va) as u64 };
     let tree =
         crate::boot_fdt::range().map(|(s, e)| Range { base: s as u64, size: (e - s) as u64 });
-    let window = |(base, len): (usize, usize)| Range { base: base as u64, size: len as u64 };
-    let mut excluded = [Range { base: 0, size: 0 }; 5];
+    let mut excluded = [Range { base: 0, size: 0 }; 2];
     let mut n = 0;
-    for range in [
-        Some(image),
-        tree,
-        Some(window((super::KERNEL_PAGE_POOL_BASE, super::KERNEL_PAGE_POOL_LEN))),
-        Some(window(crate::task::stack_pool_window())),
-        Some(window(super::BOOTSTRAP_IDENTITY_WINDOW)),
-    ]
-    .into_iter()
-    .flatten()
-    {
+    for range in [Some(image), tree].into_iter().flatten() {
         excluded[n] = range;
         n += 1;
     }

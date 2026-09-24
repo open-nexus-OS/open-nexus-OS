@@ -17,6 +17,7 @@
 #   RUN_TIMEOUT             – timeout duration (0 = no timeout)
 #   RUN_UNTIL_MARKER        – when "1", stop QEMU after success marker set
 #   SMP                     – number of CPU cores
+#   QEMU_MEM                – machine memory (default 320M; the kernel reads the tree)
 #   QEMU_NETDEV             – QEMU net backend
 #   QEMU_NETDEV_DEVICE      – QEMU net device
 #   QEMU_RNG_OBJECT         – QEMU RNG backend
@@ -289,7 +290,9 @@ build_qemu_args() {
   # QEMU_ACLINT=off: fall back to the classic SiFive CLINT MSWI IPI path.
   # OpenSBI 1.7's HSM hart_start via ACLINT-MSWI was observed to LOSE a hart
   # under MTTCG (hart marked STARTED, never reaches the kernel entry).
-  args+=(-machine "virt,aclint=${QEMU_ACLINT:-on}" -cpu max -m 320M -smp "${SMP:-4}" -bios default)
+  # RFC-0098 C4 (TASK-0286 P3b): the kernel sizes itself from the tree, so the
+  # machine memory is a lane knob, not a kernel constant (256M and 1G are proven).
+  args+=(-machine "virt,aclint=${QEMU_ACLINT:-on}" -cpu max -m "${QEMU_MEM:-320M}" -smp "${SMP:-4}" -bios default)
   # TASK-0289 A4 boot flip: the loader verifies and chains into the slot
   # image from the GPT disk (ADR-0059). Direct-kernel boots remain possible
   # via NEXUS_DIRECT_KERNEL=1 (honest `boot handoff absent` marker).

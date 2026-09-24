@@ -1,94 +1,40 @@
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: the legacy guarded user-stack allocator for the non-exec `spawn`
-//! path (bootstrap tasks). It hands out fixed 4-page stacks from a small
-//! identity-mapped kernel window (0x8010_0000..0x8020_0000) with a guard page.
-//! The `exec` loaders map their stacks from the VMO arena instead (see
-//! `syscall::api::exec::map_process_stack`); this pool serves only kernel-side
-//! spawns. Split out of `task/mod.rs` (RFC-0075 8e, module-size ratchet).
+//! CONTEXT: the guarded user stack for the non-exec `spawn` path (bootstrap
+//! tasks): four pages as ONE frame-pool block below a guard page (TASK-0286
+//! P3b — the fixed stack window is gone). The `exec` loaders build their
+//! stacks from pool blocks too (`syscall::api::exec::map_process_stack`);
+//! this path serves only kernel-side spawns. Split out of `task/mod.rs`
+//! (RFC-0075 8e, module-size ratchet).
 //! OWNERS: @kernel-sched-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU spawn markers (bootstrap task stacks)
-//! INVARIANTS: cursor stays within [STACK_POOL_BASE, STACK_POOL_LIMIT]; a
-//!   corrupt/uninitialized cursor is re-seeded loudly, never used blind.
+//! INVARIANTS: the block is recorded on the task and returned with its image;
+//!   a pool refusal is `StackExhausted`, never a silent fallback.
 
 use super::SpawnError;
+use crate::frames::Block;
 use crate::mm::{AddressSpaceManager, AsHandle, PageFlags, PAGE_SIZE};
 use crate::types::VirtAddr;
-use spin::Mutex;
 
 const USER_STACK_TOP: usize = 0x4000_0000;
 const STACK_PAGES: usize = 4;
-const STACK_POOL_BASE: usize = 0x8000_0000 + 0x10_0000;
-const STACK_POOL_LIMIT: usize = 0x8000_0000 + 0x20_0000;
-
-/// The pool's physical window `(base, len)` — carved out of the frame pool
-/// until TASK-0286 P3 allocates stacks from frames.
-pub(crate) const fn window() -> (usize, usize) {
-    (STACK_POOL_BASE, STACK_POOL_LIMIT - STACK_POOL_BASE)
-}
-
-struct StackPool {
-    cursor: usize,
-}
-
-impl StackPool {
-    const fn new() -> Self {
-        Self { cursor: STACK_POOL_LIMIT }
-    }
-
-    fn alloc(&mut self, pages: usize) -> Option<usize> {
-        // Robust bring-up: if `.data` initializers are unavailable (or if this static lives in
-        // a NOLOAD region), `cursor` may be zero. Treat zero as "uninitialized" and seed it from
-        // the compile-time limit.
-        if self.cursor == 0 {
-            self.cursor = STACK_POOL_LIMIT;
-        }
-        // Integrity gate (P0.1 layout audit): a cursor OUTSIDE the pool window
-        // means the `.data` initializer was corrupted/mis-loaded — say the
-        // VALUE loudly (the value fingerprints the writer) instead of failing
-        // as an anonymous StackExhausted at some later spawn.
-        if self.cursor < STACK_POOL_BASE || self.cursor > STACK_POOL_LIMIT {
-            log_error!(
-                "STACK-POOL cursor corrupt: 0x{:x} (window 0x{:x}..0x{:x}) — image/.data integrity",
-                self.cursor,
-                STACK_POOL_BASE,
-                STACK_POOL_LIMIT
-            );
-            self.cursor = STACK_POOL_LIMIT;
-        }
-        let bytes = pages.checked_mul(PAGE_SIZE)?;
-        let next = self.cursor.checked_sub(bytes)?;
-        if next < STACK_POOL_BASE {
-            log_error!(
-                "STACK-POOL exhausted: cursor=0x{:x} want={} pages (window 0x{:x}..0x{:x})",
-                self.cursor,
-                pages,
-                STACK_POOL_BASE,
-                STACK_POOL_LIMIT
-            );
-            None
-        } else {
-            self.cursor = next;
-            Some(next)
-        }
-    }
-}
-
-static STACK_ALLOCATOR: Mutex<StackPool> = Mutex::new(StackPool::new());
-
+/// The stack's frames come from the pool as ONE block (TASK-0286 P3b) and
+/// are returned when the task's image is released: the block rides on the
+/// task's `ImageAllocs` like every other page of its image.
 pub(super) fn allocate_guarded_stack(
     address_spaces: &mut AddressSpaceManager,
     handle: AsHandle,
-) -> Result<VirtAddr, SpawnError> {
-    let phys_base = {
-        let mut pool = STACK_ALLOCATOR.lock();
-        pool.alloc(STACK_PAGES).ok_or(SpawnError::StackExhausted)?
-    };
-    // RFC-0004: zero newly allocated stack pages so no stale bytes leak into user space.
-    // This relies on the kernel identity-mapping `STACK_POOL_BASE..STACK_POOL_LIMIT`.
+) -> Result<(VirtAddr, Block), SpawnError> {
+    const STACK_ORDER: u8 = STACK_PAGES.trailing_zeros() as u8;
+    const _: () = assert!(STACK_PAGES.is_power_of_two());
+    let block =
+        crate::mm::frame_pool::alloc(STACK_ORDER).map_err(|_| SpawnError::StackExhausted)?;
+    let phys_base = block.base as usize;
+    // RFC-0004: zero newly allocated stack pages so no stale bytes leak into
+    // user space — through the direct map.
     unsafe {
         core::ptr::write_bytes(
             crate::phys::phys_to_virt(phys_base) as *mut u8,
@@ -125,5 +71,6 @@ pub(super) fn allocate_guarded_stack(
         let mut u = crate::uart::raw_writer();
         let _ = write!(u, "STACK: top=0x{:x}\n", USER_STACK_TOP);
     }
-    VirtAddr::page_aligned(USER_STACK_TOP).ok_or(SpawnError::InvalidStackPointer)
+    let top = VirtAddr::page_aligned(USER_STACK_TOP).ok_or(SpawnError::InvalidStackPointer)?;
+    Ok((top, block))
 }

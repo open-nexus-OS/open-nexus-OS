@@ -285,11 +285,6 @@ ci-os-headless:
 contract-image-budgets:
     @scripts/check-image-budgets.sh
 
-# CI contract (P0.1 layout fragility): boot survives image-size perturbation
-# (baseline + 3 rodata pads, marker ladder must stay green). Boot-based —
-# expects a completed build; ~15 min. See scripts/contract-image-layout.sh.
-contract-image-layout:
-    @scripts/contract-image-layout.sh
 
 ci-os-display-gpu-pci:
     GPU_MODE=pci just test-os display-gpu
@@ -579,7 +574,7 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals display-ssot wait-not-poll ipc-bounds payload-vmo ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo ci-parity
 
 # TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
 build-truth:
@@ -619,6 +614,12 @@ slot-ssot:
 # outside the device tree — the literals TASK-0245 deleted stay deleted.
 platform-literals:
     @./scripts/check-no-platform-literals.sh
+
+# TASK-0286 P3b (RFC-0098 C4): physical memory has ONE owner — the frame pool
+# over the tree's banks. No kernel source names a fixed physical window, the
+# retired arena/pool types, or a RAM literal.
+fixed-windows:
+    @./scripts/check-no-fixed-windows.sh
 
 # TASK-0324 P6 (RFC-0093 §5): the VISIBLE display mode has one source
 # (`boot_display_mode`) and one clamp policy (`nexus_display_proto`); the retired

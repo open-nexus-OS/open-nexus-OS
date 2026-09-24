@@ -70,8 +70,9 @@ implemented by `scripts/qemu-test.sh` (marker strings are a gating surface).
    Secondary harts run the same switch in their stub, off the published boot
    `satp`, before they touch `sp` or Rust. `high_boot_init` also builds the
    frame pool (`mm/frame_pool.rs`, over `crate::frames`) from the tree's banks
-   minus reserved ranges, the image, the tree and the fixed windows P3 retires
-   (`KINIT: mm frames (…)`); every page table is a frame from it.
+   minus reserved ranges, the image and the tree (`KINIT: mm frames (…)`);
+   every page table, VMO, process image, spawn stack and init page is a frame
+   from it — no fixed physical window exists (gate `fixed-windows`).
 2. `kmain` activates the kernel address space (the image at its high alias,
    every memory bank through the direct map, the UART/PLIC windows and the
    tree when it lies outside a bank), resolves boot mode + display

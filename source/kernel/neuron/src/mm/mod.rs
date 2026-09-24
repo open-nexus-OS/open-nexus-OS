@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Virtual memory primitives for Sv39 address spaces. The kernel half
-//! is a direct map in the high half (`crate::phys`, RFC-0098 C4); VMOs are
-//! page-backed objects (`vmo`), and the address constants below are the LAST
-//! fixed physical windows (TASK-0286 P3b deletes them), reachable only through
-//! `phys_to_virt`.
+//! is a direct map in the high half (`crate::phys`, RFC-0098 C4); physical
+//! memory is the frame pool's (`frame_pool`), VMOs are page-backed objects
+//! (`vmo`), and no physical address constant remains — the only window below
+//! is the user VA window of RFC-0085.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! API_STABILITY: Stable
@@ -32,14 +32,6 @@ pub use page_table::{MapError, PageFlags, PAGE_SIZE};
 pub const USER_VM_WINDOW_BASE: usize = 0x5000_0000;
 pub const USER_VM_WINDOW_LEN: usize = 0x3000_0000; // 768 MiB
 
-pub const KERNEL_PAGE_POOL_BASE: usize = 0x8200_0000;
-/// Size of the temporary kernel page-pool window. 8 MB → 24 MB: the init
-/// loader allocates the WHOLE embedded init image (now ~16.4 MB with the
-/// CJK atlases) plus stacks from this pool.
-pub const KERNEL_PAGE_POOL_LEN: usize = 24 * 1024 * 1024;
-/// The bootstrap task's "identity VMO" `(base, len)` (cap slot 1, `kmain`):
-/// the last fixed physical window a capability names outright — P3 retires it.
-pub const BOOTSTRAP_IDENTITY_WINDOW: (usize, usize) = (0x8000_0000, 0x10_0000);
 pub mod frame_pool;
 mod kernel_layout;
 #[cfg(test)]

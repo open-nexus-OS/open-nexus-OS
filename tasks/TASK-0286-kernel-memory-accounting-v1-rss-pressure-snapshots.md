@@ -1,6 +1,6 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: In Progress (P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: In Progress (P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
 updated: 2026-09-22
@@ -207,10 +207,24 @@ side (RFC-0085).
   window). Proof: `KSELFTEST: vmo zero ok`, `vm map ok` (a contiguous object, promotion
   proven), `vm unmap ok`, `vm map reject ok`; smp1 9/9 chain markers, `desktop revealed`.
   Exhaustion still returns the arena's errno (EPERM-class) — the ENOMEM class is M4's.
-- **P3b Windows gone.** `KERNEL_PAGE_POOL` (the selftest init loader), the user stack pool and
-  the bootstrap identity window move to frames and are deleted; `-m` is a launcher knob
-  (default 320M) and 256M + 1G boots pass smp1; `scripts/check-no-fixed-windows.sh` in
-  `just check`.
+- **P3b Windows gone — done 2026-09-23.** The init loader's pages (`alloc_init_page`) are
+  frames; the non-exec spawn stack is ONE order-2 block recorded on the task's `ImageAllocs`
+  (returned with its image); the bootstrap identity VMO (PID 0's cap slot 1) is deleted —
+  found by the boot: its one user was the kernel selftest, which mapped the child address
+  space's STACK from it, i.e. writable pages over the firmware's first megabyte (the child
+  stack is a VMO of its own now, slot 6). `KERNEL_PAGE_POOL_*`, `STACK_POOL_*`, `BOOTSTRAP_IDENTITY_WINDOW`
+  and the `StackPool` cursor are gone — `mm/mod.rs` holds no physical address constant; the
+  pool excludes only the image and the tree. `kmain::assert_memory_layout` (the P0.1 layout
+  tripwire: image vs pool vs arena, `KERNEL: layout ok`, `NEURON_LAYOUT_PAD`) and its lane
+  `scripts/contract-image-layout.sh` + `just contract-image-layout` are deleted: there is no
+  window an image could grow into; the pool report is the truth. `-m` is
+  `QEMU_MEM` in the launcher (default 320M); `QEMU_MEM=256M` and `QEMU_MEM=1G` smp1 boots
+  are the proof that nothing depends on the size. Gate `scripts/check-no-fixed-windows.sh`
+  in `just check` (`fixed-windows`): the retired names and any `0x8xxx_xxxx` RAM literal in
+  the kernel outside comments, test modules and the RFC-0085 VA limit; self-tested on
+  fixtures. Left for P4: the physical-cast rule of the gate ("no `as *mut` of a physical
+  address outside `phys`") is a review rule, not a regex — every dereference goes through
+  `phys_to_virt` today, measured by reading, and P4's `DmaBuffer` is the next writer.
 - **P4 `contiguous-DMA` + coherence hooks.** The kind, `DmaBuffer::for_device/for_cpu` (no-op
   on QEMU), gpud's framebuffer and virtio rings moved onto it (absorbs TASK-0284).
 - **P5 Telemetry + gate + docs.** `KSELFTEST: mm frames (…)` registered; read-only query to

@@ -200,7 +200,7 @@ fn ensure_data_cap(tasks: &mut TaskTable) {
     let caps = tasks.bootstrap_mut().caps_mut();
     // Reserve bootstrap cap slots:
     // - slot 0: bootstrap endpoint
-    // - slot 1: identity VMO
+    // - slot 1: free for PID 0 (init-lite receives the EndpointFactory there)
     // - slot 2: EndpointFactory (Phase-2 hardening)
     //
     // Use slot 4 for this selftest-only VMO:
@@ -305,13 +305,18 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
 
         let entry = child_new_as_entry as usize;
         verbose!("KSELFTEST: before spawn\n");
-        // Provide a non-zero stack and bind to the created AS to satisfy strict arg checks
+        // The child's stack is a VMO of its own (TASK-0286 P3b: the identity
+        // window it used to be carved from — the firmware's first megabyte —
+        // is gone), bound to the created AS to satisfy strict arg checks.
         const STACK_PAGES: usize = 4;
+        const CHILD_STACK_VMO_SLOT: usize = 6;
         let user_stack_top: usize = 0x4000_0000;
         let guard_bottom = user_stack_top - (STACK_PAGES + 1) * PAGE_SIZE;
+        let stack_vmo_args = Args::new([CHILD_STACK_VMO_SLOT, STACK_PAGES * PAGE_SIZE, 0, 0, 0, 0]);
+        table.dispatch(SYSCALL_VMO_CREATE, &mut sys_ctx, &stack_vmo_args).expect("child stack vmo");
         let stack_map_args = Args::new([
             handle_raw, // target AS
-            1,          // VMO slot: identity VMO with MAP rights
+            CHILD_STACK_VMO_SLOT,
             guard_bottom + PAGE_SIZE,
             (STACK_PAGES * PAGE_SIZE),
             (PROT_READ | PROT_WRITE),
@@ -2168,38 +2173,9 @@ fn load_init_elf(
 
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
 fn alloc_init_page() -> Option<usize> {
-    use core::sync::atomic::{AtomicUsize, Ordering};
-
-    // NOTE: This lives in the kernel image and must remain robust even if `.data` initializers
-    // are unavailable during early bring-up. We therefore treat `0` as "uninitialized" and seed
-    // it lazily from the fixed start address.
-    static PAGE_CURSOR: AtomicUsize = AtomicUsize::new(0);
-    const PAGE_LIMIT: usize = crate::mm::KERNEL_PAGE_POOL_BASE + crate::mm::KERNEL_PAGE_POOL_LEN;
-    const PAGE_START: usize = crate::mm::KERNEL_PAGE_POOL_BASE;
-
-    loop {
-        let cur = PAGE_CURSOR.load(Ordering::SeqCst);
-        if cur == 0 {
-            let next = PAGE_START.checked_add(PAGE_SIZE)?;
-            if next > PAGE_LIMIT {
-                return None;
-            }
-            // First allocation: claim PAGE_START and advance cursor to PAGE_START+PAGE_SIZE.
-            match PAGE_CURSOR.compare_exchange(0, next, Ordering::SeqCst, Ordering::SeqCst) {
-                Ok(_) => return Some(PAGE_START),
-                Err(_) => continue,
-            }
-        }
-
-        let next = cur.checked_add(PAGE_SIZE)?;
-        if next > PAGE_LIMIT {
-            return None;
-        }
-        match PAGE_CURSOR.compare_exchange(cur, next, Ordering::SeqCst, Ordering::SeqCst) {
-            Ok(_) => return Some(cur),
-            Err(_) => continue,
-        }
-    }
+    // One frame from the pool (TASK-0286 P3b: the fixed page pool is gone).
+    // init-lite lives for the whole boot, so its pages are never returned.
+    crate::mm::frame_pool::alloc(0).ok().map(|b| b.base as usize)
 }
 
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]

@@ -90,7 +90,6 @@ pub use exit_reason::ExitReason;
 
 #[cfg(target_os = "none")]
 mod stack_pool;
-pub(crate) use stack_pool::window as stack_pool_window;
 /// Waking a blocked task (TASK-0054C P4c-2: the runqueue half is measured here).
 mod wake;
 #[cfg(target_os = "none")]
@@ -744,6 +743,7 @@ impl TaskTable {
 
         let mut frame = TrapFrame { sepc: entry_pc.raw(), ..TrapFrame::default() };
 
+        let mut stack_block = None;
         let (child_as, stack_top) = match address_space {
             Some(handle) => {
                 let sp = stack_sp.ok_or(SpawnError::InvalidStackPointer)?;
@@ -754,7 +754,8 @@ impl TaskTable {
                     return Err(SpawnError::InvalidStackPointer);
                 }
                 let handle = address_spaces.create()?;
-                let top = allocate_guarded_stack(address_spaces, handle)?;
+                let (top, block) = allocate_guarded_stack(address_spaces, handle)?;
+                stack_block = Some(block);
                 (handle, top)
             }
         };
@@ -765,7 +766,6 @@ impl TaskTable {
         frame.x[1] = 0;
         frame.x[3] = global_pointer;
 
-        // Debug: verify SP was set
         log_debug!(
             target: "task",
             "SPAWN-FRAME: sepc=0x{:x} sp(x2)=0x{:x} gp(x3)=0x{:x}",
@@ -822,6 +822,9 @@ impl TaskTable {
             children: Vec::new(),
             image_allocs: ImageAllocs::new(),
         };
+        if let Some(block) = stack_block {
+            task.image_allocs.push(block);
+        }
         // B: the round-robin placement must respect the inherited mask.
         task.home_cpu = clamp_home_to_affinity(
             task.affinity_mask,
