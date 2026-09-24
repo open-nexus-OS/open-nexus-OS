@@ -57,59 +57,46 @@ impl AsMapArgsTyped {
 
 #[derive(Copy, Clone)]
 pub(super) struct DeviceCapCreateArgsTyped {
-    base: usize,
-    len: usize,
+    /// Args 0/1: the device descriptor init read from the tree
+    /// (`crate::dma_reach::decode_desc`: register window, PLIC line, coherence,
+    /// DMA reach) — exactly `DEVICE_DESC_BYTES`.
+    desc_ptr: usize,
+    desc_len: usize,
     slot_raw: usize,
-    /// The device's PLIC line from the tree's `interrupts` (0 = none).
-    irq: usize,
-    /// Arg 4: the flag word (`crate::dma_runs::device_flags`).
-    flags: usize,
 }
 
 impl DeviceCapCreateArgsTyped {
     #[inline]
     pub(super) fn decode(args: &Args) -> Result<Self, Error> {
-        Ok(Self {
-            base: args.get(0),
-            len: args.get(1),
-            slot_raw: args.get(2),
-            irq: args.get(3),
-            flags: args.get(4),
-        })
+        Ok(Self { desc_ptr: args.get(0), desc_len: args.get(1), slot_raw: args.get(2) })
     }
     #[inline]
     pub(super) fn check(&self) -> Result<(), Error> {
-        if self.len == 0 {
+        // Bounded before it is read: exactly one descriptor of the layout this
+        // kernel speaks, in user memory.
+        if self.desc_len != crate::dma_reach::DEVICE_DESC_BYTES {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
-        // Deny-by-default on the flag word: a bit nobody defined is refused.
-        crate::dma_runs::device_flags(self.flags).ok_or(AddressSpaceError::InvalidArgs)?;
-        // A line the PLIC cannot have is a corrupt tree, not a device.
-        if self.irq > crate::hal::plic::MAX_IRQ as usize {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        if (self.base & (PAGE_SIZE - 1)) != 0 || (self.len & (PAGE_SIZE - 1)) != 0 {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        let end = self.base.checked_add(self.len).ok_or(AddressSpaceError::InvalidArgs)?;
-        if end <= self.base {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        Ok(())
+        ensure_user_slice(self.desc_ptr, self.desc_len)
     }
 }
+
+/// `vmo_create` arg 2: the object must be one physically contiguous block.
+pub const VMO_CREATE_CONTIGUOUS: usize = 1;
+/// `vmo_create` arg 3: the object is for no device.
+pub const VMO_CREATE_NO_DEVICE: usize = usize::MAX;
 
 #[derive(Copy, Clone)]
 pub(super) struct VmoCreateArgsTyped {
     slot_raw: usize,
     len: usize,
-    /// Arg 2 bit 0 (RFC-0098 C4): ONE physically contiguous block — the DMA
-    /// masters' kind; `cap_query` names its base.
-    contiguous: bool,
+    /// Arg 2: the flag word (`VMO_CREATE_CONTIGUOUS`; any other bit is refused).
+    flags: usize,
+    /// Arg 3 (RFC-0098 C4, TASK-0246 P1): the slot of the device capability the
+    /// object is for (`VMO_CREATE_NO_DEVICE` = none) — its frames then come from
+    /// inside that device's DMA reach.
+    device_slot: usize,
 }
-
-/// `vmo_create` arg 2: the object must be one physically contiguous block.
-pub const VMO_CREATE_CONTIGUOUS: usize = 1;
 
 impl VmoCreateArgsTyped {
     #[inline]
@@ -117,7 +104,8 @@ impl VmoCreateArgsTyped {
         Ok(Self {
             slot_raw: args.get(0),
             len: args.get(1),
-            contiguous: args.get(2) & VMO_CREATE_CONTIGUOUS != 0,
+            flags: args.get(2),
+            device_slot: args.get(3),
         })
     }
     #[inline]
@@ -125,10 +113,21 @@ impl VmoCreateArgsTyped {
         if self.len == 0 || align_len(self.len).is_none() {
             return Err(Error::Capability(CapError::PermissionDenied));
         }
+        // Deny-by-default on the flag word; and a contiguous object is a DMA
+        // master's one base — without its device the kernel cannot know where
+        // the block must lie.
+        if self.flags & !VMO_CREATE_CONTIGUOUS != 0
+            || (self.contiguous() && self.device_slot == VMO_CREATE_NO_DEVICE)
+        {
+            return Err(AddressSpaceError::InvalidArgs.into());
+        }
         Ok(())
     }
+    fn contiguous(&self) -> bool {
+        self.flags & VMO_CREATE_CONTIGUOUS != 0
+    }
     fn kind(&self) -> crate::mm::vmo::VmoKind {
-        if self.contiguous {
+        if self.contiguous() {
             crate::mm::vmo::VmoKind::Contiguous
         } else {
             crate::mm::vmo::VmoKind::Anon
@@ -160,6 +159,9 @@ impl VmoWriteArgsTyped {
     }
 }
 
+/// `SYSCALL_DEVICE_CAP_CREATE` (30): mint a device capability from init's
+/// descriptor. The kernel keeps one immutable record per register window
+/// (`mm::devices`); the capability names it. Args: (desc_ptr, desc_len, slot).
 pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = DeviceCapCreateArgsTyped::decode(args)?;
     typed.check()?;
@@ -176,12 +178,29 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
         return Err(Error::Capability(CapError::PermissionDenied));
     }
 
+    let mut bytes = [0u8; crate::dma_reach::DEVICE_DESC_BYTES];
+    // SAFETY: `check` proved `desc_ptr .. desc_ptr + DEVICE_DESC_BYTES` a user slice.
+    unsafe {
+        ptr::copy_nonoverlapping(typed.desc_ptr as *const u8, bytes.as_mut_ptr(), bytes.len());
+    }
+    // Deny-by-default: an unknown version or flag, a line the PLIC cannot have, a
+    // malformed or overlapping DMA window — each refuses the whole device.
+    let desc = crate::dma_reach::decode_desc(&bytes, crate::hal::plic::MAX_IRQ)
+        .map_err(|_| Error::AddressSpace(AddressSpaceError::InvalidArgs))?;
+    let dev = crate::mm::devices::register(desc).map_err(|e| match e {
+        // A second, different description of a described window.
+        crate::dma_reach::TableError::Conflict => Error::ResourceBusy,
+        crate::dma_reach::TableError::Full | crate::dma_reach::TableError::NoSuchDevice => {
+            Error::Capability(CapError::NoSpace)
+        }
+    })?;
     let cap = Capability {
         kind: CapabilityKind::DeviceMmio {
-            base: typed.base,
-            len: typed.len,
-            irq: typed.irq as u32,
-            dma_noncoherent: crate::dma_runs::device_flags(typed.flags).unwrap_or(false),
+            base: desc.base as usize,
+            len: desc.len as usize,
+            irq: desc.irq,
+            dma_noncoherent: desc.noncoherent,
+            dev,
         },
         rights: Rights::MAP,
     };
@@ -194,13 +213,27 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
     Ok(slot)
 }
 
-/// Phase A (under the BKL): decode + take the frames for `SYSCALL_VMO_CREATE`.
+/// Phase A (under the BKL): decode + take the frames for `SYSCALL_VMO_CREATE`
+/// — inside the named device's DMA reach when there is one.
 /// Returns `(id, aligned_len, slot_raw)`; the frames are NOT zeroed yet.
-pub(crate) fn vmo_create_reserve(args: &Args) -> Result<(u32, usize, usize), Error> {
+pub(crate) fn vmo_create_reserve(
+    ctx: &Context<'_>,
+    args: &Args,
+) -> Result<(u32, usize, usize), Error> {
     let typed = VmoCreateArgsTyped::decode(args)?;
     typed.check()?;
+    let reach = if typed.device_slot == VMO_CREATE_NO_DEVICE {
+        crate::dma_reach::DmaReach::ALL
+    } else {
+        let caps = ctx
+            .tasks
+            .caps_of(ctx.tasks.current_pid())
+            .ok_or(Error::Capability(CapError::PermissionDenied))?;
+        let dev = caps.device(typed.device_slot)?;
+        crate::mm::devices::reach(dev).ok_or(Error::Capability(CapError::PermissionDenied))?
+    };
     let aligned = align_len(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
-    let id = crate::mm::vmo::create(aligned, typed.kind())
+    let id = crate::mm::vmo::create(aligned, typed.kind(), &reach)
         .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
     Ok((id, aligned, typed.slot_raw))
 }
@@ -228,7 +261,7 @@ pub(crate) fn vmo_create_finish(
 /// Unphased `SYSCALL_VMO_CREATE` (selftest-owned dispatch tables): the three
 /// phases back to back, the zeroing under the BKL.
 pub(super) fn sys_vmo_create(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let (id, aligned, slot_raw) = vmo_create_reserve(args)?;
+    let (id, aligned, slot_raw) = vmo_create_reserve(ctx, args)?;
     crate::mm::vmo::zero(id);
     vmo_create_finish(ctx, id, aligned, slot_raw)
 }

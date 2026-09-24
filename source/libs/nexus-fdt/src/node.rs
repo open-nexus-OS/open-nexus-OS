@@ -351,18 +351,18 @@ impl<'a> Node<'a> {
         matches!(self.prop_str("status"), None | Some("okay") | Some("ok"))
     }
 
-    fn address_cells(&self) -> usize {
+    pub(crate) fn address_cells(&self) -> usize {
         self.prop_u32("#address-cells").map(|v| v as usize).unwrap_or(2)
     }
 
-    fn size_cells(&self) -> usize {
+    pub(crate) fn size_cells(&self) -> usize {
         self.prop_u32("#size-cells").map(|v| v as usize).unwrap_or(1)
     }
 
     /// The `i`-th `reg` entry, sized by the PARENT's cells and translated through
-    /// the parent's `ranges` (one level: enough for `/soc` on both trees; an
-    /// empty `ranges` is the identity, an absent one means "not translatable" and
-    /// the child address is returned as is).
+    /// the `ranges` of every bus up to the root (the board nests its masters in
+    /// `/soc/<name>-bus`, TASK-0246 P1); an empty `ranges` is the identity, an
+    /// absent one means "not translatable" and that level keeps the address.
     pub fn reg(&self, i: usize) -> Result<Option<Reg>, Error> {
         let parent = match self.parent() {
             Some(p) => p,
@@ -387,7 +387,13 @@ impl<'a> Node<'a> {
         }
         let addr = cells(&v[off..off + ac * 4]);
         let size = cells(&v[off + ac * 4..off + entry]);
-        Ok(Some(Reg { addr: parent.translate(addr)?, size }))
+        let mut addr = addr;
+        let mut level = Some(parent);
+        while let Some(bus) = level {
+            addr = bus.translate(addr)?;
+            level = bus.parent();
+        }
+        Ok(Some(Reg { addr, size }))
     }
 
     /// Translate a child address through this node's `ranges` into ITS parent's

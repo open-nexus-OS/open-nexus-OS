@@ -19,8 +19,9 @@
 //! WHAT IT UNDERSTANDS (DTB v17, the only version QEMU and the board's chain produce):
 //! the header, the memory-reservation block, the structure block (BEGIN/END_NODE,
 //! PROP, NOP, END), the strings block; `#address-cells`/`#size-cells` of the parent
-//! for `reg` (with a one-level `ranges` translation — both trees use an identity
-//! `ranges` on `/soc`), `#interrupt-cells` of the `interrupt-parent` for `interrupts`,
+//! for `reg` (translated through the `ranges` of every bus up to the root), a device's
+//! DMA reach (the `dma-ranges` above it, composed level by level — RFC-0098 C4),
+//! `#interrupt-cells` of the `interrupt-parent` for `interrupts`,
 //! phandle lookups, `compatible` matching, `/memory@*`, `/reserved-memory`, `/cpus`
 //! (+ `cpu-map` clusters), `/chosen` and `/aliases` path resolution. The writer edits
 //! exactly one thing: `/chosen` properties, in place, inside headroom the FIT build
@@ -33,11 +34,13 @@
 //! RFC: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md
 
 mod chosen;
+mod dma;
 mod header;
 mod node;
 mod platform;
 
 pub use chosen::ChosenWriter;
+pub use dma::{DmaReach, DmaWindow, MAX_DMA_WINDOWS};
 pub use header::{Error, Fdt, ReservedEntry};
 pub use node::{Node, Prop, Reg, Specifier, StrList};
 pub use platform::{Chosen, Cpu, CpuMap, Cpus, MemoryBank, ReservedRange};

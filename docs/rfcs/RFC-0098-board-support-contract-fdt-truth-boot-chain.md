@@ -3,7 +3,7 @@
 - Status: In Progress (Phase 0 ✅ 2026-09-22; seeded 2026-09-22, Block 1 P0 of the hardware fast track)
 - Owners: @kernel-team / @runtime / @tools-team
 - Created: 2026-09-22
-- Last Updated: 2026-09-22 (Phase 0 Implemented)
+- Last Updated: 2026-09-24 (C4 DMA reach Implemented — TASK-0246 P1)
 - Links:
   - Tasks (execution + proof, in lane order): `tasks/TASK-0244-*` (FDT library),
     `tasks/TASK-0245-*` (kernel platform from the FDT), `tasks/TASK-0245B-*` (SoC clock/reset/
@@ -25,7 +25,7 @@
 - **Phase 0 (FDT library, `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)**: ✅ 2026-09-22 — TASK-0244
 - **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: 🟨 — TASK-0245 ✅ 2026-09-22 (QEMU: every profile prints the platform, image and discovery markers; the board's serial proof arrives with TASK-0327B once B1.6 boots it); TASK-0245B (SoC clocks/resets/pinmux/power) open
 - **Phase 2 (physical memory from the FDT, page-frame allocator)**: ✅ 2026-09-24 — TASK-0286 (M1): high half + direct map, frame pool, page-backed VMOs, `vmo_runs`, coherence in the device capability, user Zicbom, `DmaBuffer`, `mm_stats` (QEMU: every profile; the board's serial proof arrives with TASK-0327B once B1.6 boots it)
-- **Phase 3 (one block owner, SDHCI, nxboot reader)**: ⬜ — TASK-0246, 0246B
+- **Phase 3 (one block owner, SDHCI, nxboot reader)**: 🟨 — TASK-0246 P0 (measured) + P1 (a device's DMA reach in its capability; allocation within reach; `vmo_runs` in bus addresses) ✅ 2026-09-24; P2–P6 and TASK-0246B open
 - **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: ⬜ — TASK-0260, 0260B
 - **Phase 5 (display controller scanout, mode authority = gpud)**: ⬜ — TASK-0250, 0251
 
@@ -248,6 +248,35 @@ back in that device's BUS addresses, a run outside its reach is refused (never t
 silently wrong), and the caller must hold THAT device's capability (tighter than P4a's "any
 device").
 
+**Implemented 2026-09-24 (TASK-0246 P1).** The board tree carries the measured buses:
+`storage-bus` (the three SD hosts, the DWC3, an EHCI host and the USB device controller) with
+`dma-ranges` = the identity over `[0, 2 GiB)`; `network-bus` (the two GMACs) and
+`multimedia-bus` (the display controller, the GPU) with that identity plus the translated
+window bus `0x8000_0000` → CPU `0x1_0000_0000` (2 GiB and 14 GiB). `nexus_fdt::Node::dma_reach`
+composes the ranges of every level above a node (an absent `dma-ranges` ends the walk, an
+empty one is the identity, more than four windows is a malformed tree), and `Node::reg`
+translates through every level, not one. The descriptor is `nexus_abi::DeviceDesc` v1 — 128
+bytes, little endian: `version`, `flags` (bit 0 = `dma-noncoherent`), `base`, `len`, `irq`,
+`dma_count`, four `(bus, cpu, size)` windows, unused ones zero, no window = all memory,
+identity; `device_cap_create(desc_ptr, desc_len, slot)` decodes it deny-by-default (length,
+version, unknown flag, unaligned or empty register window, a line the controller cannot have,
+an empty, overflowing or overlapping window in CPU or bus space, a non-zero unused slot) and
+the kernel keeps ONE immutable record per register window (`mm/devices.rs`, 64 records): the
+same description again names the same record (init probes a window, then grants it), a
+different one is refused (`EBUSY`); the capability names the record (`DeviceMmio { .., dev }`).
+`vmo_create(slot, len, flags, device)` takes the device slot (`usize::MAX` = none): the frames
+of an object made for a device come from inside its windows (the allocator's `alloc_within`,
+first-fit per window in CPU order, a straddling free block carved, host-proven by a proptest),
+and a contiguous object without a device is refused — the kernel rule replaces P4a's path gate
+`dma-contiguous`, which is deleted. `vmo_runs(vmo, device, offset, len, out, max)` answers in
+the device's bus addresses and refuses a byte outside its reach whole. Every driver makes its
+DMA memory for its device (virtio-blk, -net, -rng, -input, gpud's queues and the backings it
+reads). Consequence for Phase 5: memory another service allocates for a device to read —
+windowd's framebuffer for the display controller — must be made FOR that device; TASK-0250
+decides who holds the display controller's capability when the allocation happens. Proof:
+`KSELFTEST: vmo reach ok (…)` (a synthetic device whose one translated window is the top of
+the first bank) and `KSELFTEST: vmo runs ok (runs=… deny=4)`.
+
 ### C5 — Storage (Phase 3, ADR-0067)
 
 `virtioblkd` becomes `blkd`: the ONE block owner, one GPT disk, partition-scoped `blockproto`;
@@ -288,7 +317,8 @@ and the fw_cfg key are deleted; RFC-0074's authority statement is amended to poi
 |---|---|---|
 | `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=…)` | every platform value came from the dtb | 1 |
 | `KSELFTEST: mm frames (banks=… total=… free=…)` | the allocator owns the FDT's memory | 2 |
-| `KSELFTEST: vmo runs ok (runs=… deny=3)` | a physical address leaves the kernel only through `vmo_runs`, only to a device holder, never for a read-only alias or past the object | 2 |
+| `KSELFTEST: vmo runs ok (runs=… deny=4)` | an address leaves the kernel only through `vmo_runs`, only to the holder of the named device, never for a read-only alias or past the object | 2 |
+| `KSELFTEST: vmo reach ok (window=… bus=… runs=… deny=2)` | an object made for a device lies in its DMA reach and its runs come back in the device's bus addresses; out of reach and contiguous-without-device are refused | 2 |
 | `SELFTEST: dma buffer ok (device=… block=… runs=…)` | the device capability carries its coherence; user-mode Zicbom runs through a `DmaBuffer` with every byte intact | 2 |
 | `blkd: backend=<compatible> …` | the block owner bound the FDT-selected device | 3 |
 | `nxboot: platform=<compatible> slot=<a\|b>` | nxboot ran as the FIT payload on the board | 4 |

@@ -241,7 +241,8 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         // Create a fresh VMO and validate its backing bytes are all zero before any write.
         {
             const VMO_SLOT: usize = 3;
-            let vmo_create_args = Args::new([VMO_SLOT, PAGE_SIZE, 0, 0, 0, 0]);
+            let vmo_create_args =
+                Args::new([VMO_SLOT, PAGE_SIZE, 0, api::VMO_CREATE_NO_DEVICE, 0, 0]);
             table
                 .dispatch(SYSCALL_VMO_CREATE, &mut sys_ctx, &vmo_create_args)
                 .expect("vmo_create syscall");
@@ -305,6 +306,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
 
         vm_alloc::run_vm_alloc_selftests(&table, &mut sys_ctx, handle_raw);
         vmo_runs::run_vmo_runs_selftests(&table, &mut sys_ctx);
+        vmo_runs::run_vmo_reach_selftests(&table, &mut sys_ctx);
 
         let entry = child_new_as_entry as usize;
         verbose!("KSELFTEST: before spawn\n");
@@ -315,7 +317,14 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         const CHILD_STACK_VMO_SLOT: usize = 6;
         let user_stack_top: usize = 0x4000_0000;
         let guard_bottom = user_stack_top - (STACK_PAGES + 1) * PAGE_SIZE;
-        let stack_vmo_args = Args::new([CHILD_STACK_VMO_SLOT, STACK_PAGES * PAGE_SIZE, 0, 0, 0, 0]);
+        let stack_vmo_args = Args::new([
+            CHILD_STACK_VMO_SLOT,
+            STACK_PAGES * PAGE_SIZE,
+            0,
+            api::VMO_CREATE_NO_DEVICE,
+            0,
+            0,
+        ]);
         table.dispatch(SYSCALL_VMO_CREATE, &mut sys_ctx, &stack_vmo_args).expect("child stack vmo");
         let stack_map_args = Args::new([
             handle_raw, // target AS

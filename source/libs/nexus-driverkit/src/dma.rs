@@ -237,7 +237,7 @@ mod tests {
 
     impl Mem {
         fn new(len: usize) -> Self {
-            Self { bytes: vec![0; len], runs: vec![DmaRun { pa: 0x8040_0000, len: len as u64 }] }
+            Self { bytes: vec![0; len], runs: vec![DmaRun { bus: 0x8040_0000, len: len as u64 }] }
         }
     }
 
@@ -276,7 +276,7 @@ mod tests {
         let mut buf = DmaBuffer::new(Mem::new(300), coherence, &rec).unwrap();
         buf.bytes_mut()[0] = 0xa5;
         let in_flight = buf.for_device(dir);
-        assert_eq!(in_flight.runs(), &[DmaRun { pa: 0x8040_0000, len: 300 }]);
+        assert_eq!(in_flight.runs(), &[DmaRun { bus: 0x8040_0000, len: 300 }]);
         assert_eq!(in_flight.direction(), dir);
         let buf = in_flight.for_cpu();
         assert_eq!(buf.bytes()[0], 0xa5);

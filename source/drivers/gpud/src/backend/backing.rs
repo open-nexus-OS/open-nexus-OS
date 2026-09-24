@@ -30,14 +30,15 @@ pub(crate) const MAX_BACKING_RUNS: usize =
 // the address at offset 0, the length's low word at offset 8 (little endian),
 // the high word — 0 — where the entry's padding is. Proven here, not assumed.
 const _: () = assert!(size_of::<DmaRun>() == size_of::<VirtioGpuMemEntry>());
-const _: () = assert!(offset_of!(DmaRun, pa) == offset_of!(VirtioGpuMemEntry, addr));
+const _: () = assert!(offset_of!(DmaRun, bus) == offset_of!(VirtioGpuMemEntry, addr));
 const _: () = assert!(offset_of!(DmaRun, len) == offset_of!(VirtioGpuMemEntry, length));
 const _: () = assert!(cfg!(target_endian = "little"));
 
 impl VirtioGpuBackend {
     /// Attach `offset..offset + len` of the VMO in `vmo` as the backing of
-    /// `resource_id`, one memory entry per physical run; `hdr` is the command's
-    /// header (the 2D control header or the virgl context's). Returns the entries.
+    /// `resource_id`, one memory entry per run as the GPU addresses it; `hdr` is the
+    /// command's header (the 2D control header or the virgl context's). Returns the
+    /// entries. A run outside the GPU's DMA reach refuses the attach.
     pub(crate) fn attach_backing_runs(
         &mut self,
         hdr: VirtioGpuCtrlHdr,
@@ -47,15 +48,20 @@ impl VirtioGpuBackend {
         len: usize,
     ) -> Result<usize, GfxError> {
         let mut runs = [DmaRun::default(); MAX_BACKING_RUNS];
-        let count = nexus_abi::vmo_runs(vmo, offset, len, &mut runs).map_err(|err| {
-            let _ = nexus_abi::debug_println(GPUD_RESOURCE_RUNS_FAIL);
-            crate::diag::err_line(b"backing runs", err);
-            crate::diag::kv_line(
-                b"backing runs",
-                &[(b"res", u64::from(resource_id)), (b"off", offset as u64), (b"len", len as u64)],
-            );
-            GfxError::ResourceExhausted
-        })?;
+        let count =
+            nexus_abi::vmo_runs(vmo, self.device, offset, len, &mut runs).map_err(|err| {
+                let _ = nexus_abi::debug_println(GPUD_RESOURCE_RUNS_FAIL);
+                crate::diag::err_line(b"backing runs", err);
+                crate::diag::kv_line(
+                    b"backing runs",
+                    &[
+                        (b"res", u64::from(resource_id)),
+                        (b"off", offset as u64),
+                        (b"len", len as u64),
+                    ],
+                );
+                GfxError::ResourceExhausted
+            })?;
         let runs = &runs[..count];
         if runs.iter().any(|run| run.len > u64::from(u32::MAX)) {
             return Err(GfxError::InvalidArgument);

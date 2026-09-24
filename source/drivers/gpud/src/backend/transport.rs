@@ -194,9 +194,10 @@ impl VirtioGpuBackend {
         byte_len: usize,
     ) -> Result<(usize, usize, u32), GfxError> {
         let backing_len = align_page(byte_len);
-        // RFC-0098 C4 (TASK-0286 P4a): an anonymous object — the device reads
-        // it through the scatter-gather list `attach_backing_runs` builds.
-        let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|_e| {
+        // RFC-0098 C4 (TASK-0286 P4a): an anonymous object made for the GPU
+        // (inside its DMA reach, TASK-0246 P1) — the device reads it through the
+        // scatter-gather list `attach_backing_runs` builds.
+        let backing_vmo = nexus_abi::vmo_create_for(self.device, backing_len).map_err(|_e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_CREATE_FAIL);
             GfxError::ResourceExhausted
         })?;

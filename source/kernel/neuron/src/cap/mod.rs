@@ -61,8 +61,11 @@ pub enum CapabilityKind {
     /// Rationale: userspace drivers require MMIO access; this capability keeps the exposed
     /// range fixed and bounded (no ambient physical mappings). `dma_noncoherent`: the
     /// device does not snoop the CPU caches — init read it from the tree like the line
-    /// (RFC-0098 C4), the driver maintains its buffers (`DmaBuffer`).
-    DeviceMmio { base: usize, len: usize, irq: u32, dma_noncoherent: bool },
+    /// (RFC-0098 C4), the driver maintains its buffers (`DmaBuffer`). `dev` names the
+    /// kernel's record of the device (`mm::devices`, TASK-0246 P1), which holds its DMA
+    /// reach; the other fields are that record's immutable facts, carried so a map, a
+    /// bind or a query needs no table lookup.
+    DeviceMmio { base: usize, len: usize, irq: u32, dma_noncoherent: bool, dev: u16 },
     /// Interrupt binding.
     Irq(u32),
     /// Kernel timer capability bound to a per-hart timer table entry.
@@ -291,14 +294,14 @@ impl CapTable {
             })
     }
 
-    /// True when some slot holds a device capability with MAP (RFC-0098 C4: a
-    /// physical address is only good for programming a device, so only a task
-    /// that holds one may learn it through `vmo_runs`).
-    pub fn holds_device(&self) -> bool {
-        self.slots.iter().flatten().any(|cap| {
-            matches!(cap.kind, CapabilityKind::DeviceMmio { .. })
-                && cap.rights.contains(Rights::MAP)
-        })
+    /// The device record named by the capability in `slot` (a `DeviceMmio` held with
+    /// MAP): the device a VMO is made for, or whose bus addresses `vmo_runs` answers in
+    /// (RFC-0098 C4, TASK-0246 P1).
+    pub fn device(&self, slot: usize) -> Result<u16, CapError> {
+        match self.derive(slot, Rights::MAP)?.kind {
+            CapabilityKind::DeviceMmio { dev, .. } => Ok(dev),
+            _ => Err(CapError::PermissionDenied),
+        }
     }
 
     /// Returns a capability without consuming it.

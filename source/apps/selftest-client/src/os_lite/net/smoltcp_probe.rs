@@ -329,7 +329,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     const Q_PAGES_PER_QUEUE: usize = 1;
     const TOTAL_Q_PAGES: usize = Q_PAGES_PER_QUEUE * 2; // rx+tx
 
-    let q_vmo = match nexus_abi::vmo_create_contiguous(TOTAL_Q_PAGES * 4096) {
+    let q_vmo = match nexus_abi::vmo_create_contiguous(MMIO_CAP_SLOT, TOTAL_Q_PAGES * 4096) {
         Ok(v) => v,
         Err(_) => {
             emit_line(crate::markers::M_SELFTEST_SMOLTCP_QVMO_FAIL);
@@ -347,7 +347,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     };
-    let Ok(q_base_pa) = nexus_abi::vmo_dma_base(q_vmo, TOTAL_Q_PAGES * 4096) else {
+    let Ok(q_base_pa) = nexus_abi::vmo_dma_base(q_vmo, MMIO_CAP_SLOT, TOTAL_Q_PAGES * 4096) else {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_QQUERY_FAIL);
         return Err(());
     };
@@ -399,7 +399,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     }
 
     // Buffers: N rx + N tx pages.
-    let buf_vmo = match nexus_abi::vmo_create_contiguous((N * 2) * 4096) {
+    let buf_vmo = match nexus_abi::vmo_create_contiguous(MMIO_CAP_SLOT, (N * 2) * 4096) {
         Ok(v) => v,
         Err(_) => {
             emit_line(crate::markers::M_SELFTEST_SMOLTCP_BVMO_FAIL);
@@ -413,7 +413,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     };
-    let Ok(buf_base_pa) = nexus_abi::vmo_dma_base(buf_vmo, (N * 2) * 4096) else {
+    let Ok(buf_base_pa) = nexus_abi::vmo_dma_base(buf_vmo, MMIO_CAP_SLOT, (N * 2) * 4096) else {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_BQUERY_FAIL);
         return Err(());
     };

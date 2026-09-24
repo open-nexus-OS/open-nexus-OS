@@ -4,11 +4,12 @@
 //! CONTEXT: the page-backed VMO (TASK-0286 P3a, RFC-0098 C4). An object is a
 //! list of physically contiguous blocks from the frame pool: `Anon` takes the
 //! largest blocks that fit (greedy, so a 2 MiB-aligned run stays a superpage
-//! when mapped), `Contiguous` takes ONE block — the DMA masters' kind (virtio
-//! queues, framebuffers, app surfaces the GPU scans out); its physical base is
-//! what `cap_query` reports, an `Anon` object reports none. `Fixed` wraps
-//! frames that never came from the pool (the tree, a kernel data page) and are
-//! never returned. Capabilities carry the id (`Vmo { id, len }`,
+//! when mapped), `Contiguous` takes ONE block — for a DMA master that needs one
+//! base (a virtqueue). An object made for a device comes from inside that
+//! device's DMA reach (`devices`, TASK-0246 P1); its physical runs leave the
+//! kernel only through `vmo_runs`, in the asking device's bus addresses. `Fixed`
+//! wraps frames that never came from the pool (the tree, a kernel data page)
+//! and are never returned. Capabilities carry the id (`Vmo { id, len }`,
 //! `VmoRo { id, len }`); this table is the ONE owner of the frames behind them
 //! — `VmoPool` and the fixed arena are gone.
 //! OWNERS: @kernel-mm-team
@@ -23,6 +24,7 @@
 use alloc::vec::Vec;
 
 use super::frame_pool;
+use crate::dma_reach::{DmaReach, MAX_DMA_WINDOWS};
 use crate::frames::{Block, FrameError, FRAME_SIZE, MAX_ORDER};
 
 #[cfg(debug_assertions)]
@@ -41,7 +43,7 @@ pub const MAX_OBJECTS: usize = 4096;
 pub enum VmoKind {
     /// Pool blocks, largest-first; no physical base is promised.
     Anon,
-    /// One pool block: physically contiguous, `cap_query` names its base.
+    /// One pool block: physically contiguous (one DMA base).
     Contiguous,
     /// Frames outside the pool (never freed).
     Fixed,
@@ -126,21 +128,37 @@ impl VmoTable {
     }
 }
 
-/// A new object of `len` bytes (page-aligned, non-zero), frames NOT zeroed —
-/// the caller zeroes with the BKL dropped (`zero`).
-pub fn create(len: usize, kind: VmoKind) -> Result<VmoId, VmoError> {
+/// A new object of `len` bytes (page-aligned, non-zero) that `reach` can
+/// address (`DmaReach::ALL`: any frame), frames NOT zeroed — the caller zeroes
+/// with the BKL dropped (`zero`).
+pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoError> {
     if len == 0 || len % FRAME_SIZE as usize != 0 || kind == VmoKind::Fixed {
         return Err(VmoError::BadLength);
     }
+    let mut windows = [(0u64, 0u64); MAX_DMA_WINDOWS];
+    let mut n = 0;
+    for range in reach.cpu_ranges() {
+        windows[n] = range;
+        n += 1;
+    }
+    let within = (!reach.is_all()).then_some(&windows[..n]);
     let blocks = match kind {
-        VmoKind::Anon => frame_pool::alloc_bytes(len).map_err(|_| VmoError::Exhausted)?,
+        VmoKind::Anon => match within {
+            None => frame_pool::alloc_bytes(len),
+            Some(windows) => frame_pool::alloc_bytes_within(len, windows),
+        }
+        .map_err(|_| VmoError::Exhausted)?,
         VmoKind::Contiguous => {
             let pages = len / FRAME_SIZE as usize;
             let order = pages.next_power_of_two().trailing_zeros() as u8;
             if order > MAX_ORDER {
                 return Err(VmoError::BadLength);
             }
-            match frame_pool::alloc(order) {
+            let block = match within {
+                None => frame_pool::alloc(order),
+                Some(windows) => frame_pool::alloc_within(order, windows),
+            };
+            match block {
                 Ok(block) => alloc::vec![block],
                 Err(FrameError::BadOrder) => return Err(VmoError::BadLength),
                 Err(_) => return Err(VmoError::Exhausted),

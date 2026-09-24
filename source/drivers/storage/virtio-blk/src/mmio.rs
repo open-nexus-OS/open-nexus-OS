@@ -241,16 +241,18 @@ impl VirtioBlkMmio {
         };
         dev.negotiate_features(driver_features)?;
 
-        // Queue memory (one page: 64 desc + avail + used fit with room).
-        let q_vmo = vmo_create_contiguous(Q_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
+        // Queue memory (one page: 64 desc + avail + used fit with room), made for
+        // this device — inside its DMA reach, programmed with its bus addresses.
+        let q_vmo = vmo_create_contiguous(mmio_cap_slot, Q_PAGES * 4096)
+            .map_err(|_| VirtioError::Unsupported)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
         let q_mem_va = nexus_abi::vm_map(q_vmo, 0, Q_PAGES * 4096, flags)
             .map_err(|_| VirtioError::Unsupported)?;
-        let q_base_pa =
-            vmo_dma_base(q_vmo, Q_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
+        let q_base_pa = vmo_dma_base(q_vmo, mmio_cap_slot, Q_PAGES * 4096)
+            .map_err(|_| VirtioError::Unsupported)?;
 
         let desc_bytes = size_of::<RawDesc>() * QUEUE_LEN;
         let avail_bytes = size_of::<VqAvail<QUEUE_LEN>>();
@@ -284,12 +286,12 @@ impl VirtioBlkMmio {
         dev.notify_queue(0);
 
         // Request buffers: header/status page + per-slot data regions.
-        let buf_vmo =
-            vmo_create_contiguous(BUF_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
+        let buf_vmo = vmo_create_contiguous(mmio_cap_slot, BUF_PAGES * 4096)
+            .map_err(|_| VirtioError::Unsupported)?;
         let buf_va = nexus_abi::vm_map(buf_vmo, 0, BUF_PAGES * 4096, flags)
             .map_err(|_| VirtioError::Unsupported)?;
-        let buf_pa =
-            vmo_dma_base(buf_vmo, BUF_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
+        let buf_pa = vmo_dma_base(buf_vmo, mmio_cap_slot, BUF_PAGES * 4096)
+            .map_err(|_| VirtioError::Unsupported)?;
 
         let capacity_sectors = dev.capacity_sectors();
 

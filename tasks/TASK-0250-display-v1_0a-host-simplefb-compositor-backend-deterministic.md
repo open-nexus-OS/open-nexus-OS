@@ -71,6 +71,13 @@ beyond a boot-time detect, any composition on the controller beyond two planes.
   today (`attach_external_framebuffer` + `present_scanout_damage`); the `dc` backend only
   scans out and flushes.
 - No `unwrap` on EDID bytes (untrusted-shape input from the monitor).
+- **Scanout memory is made for the controller (TASK-0246 P1, RFC-0098 C4).** The DPU sits on
+  `multimedia-bus`, which translates the upper bank (bus `0x8000_0000` → CPU `0x1_0000_0000`):
+  `vmo_runs` answers only in the DPU's bus addresses, and a contiguous framebuffer can only be
+  made with the DPU's device capability (the kernel refuses a contiguous object without a
+  device). windowd holds no device capability today, and its framebuffer is anonymous — P0
+  decides between gpud (the DPU's holder) making the scanout buffer for windowd, and the plane
+  reading windowd's anonymous framebuffer as a list, if the controller's DMA takes one.
 
 ## Definition of Done
 

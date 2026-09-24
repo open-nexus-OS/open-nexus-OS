@@ -100,7 +100,7 @@ fn the_board_tree_names_every_provider_and_virt_names_none() {
 #[test]
 fn emmc_bring_up_from_the_stock_state_writes_nothing() {
     let (fdt, providers) = board_providers();
-    let emmc = fdt.node_at_path("/soc/mmc@d4281000").unwrap();
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     let plan = plan(emmc, &providers).unwrap();
     assert_eq!(plan.len(), 5, "domain + 2 resets + 2 clocks");
     let bus = MockBus::stock();
@@ -112,7 +112,7 @@ fn emmc_bring_up_from_the_stock_state_writes_nothing() {
 #[test]
 fn emmc_bring_up_from_cold_writes_exactly_the_documented_bits() {
     let (fdt, providers) = board_providers();
-    let emmc = fdt.node_at_path("/soc/mmc@d4281000").unwrap();
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     let plan = plan(emmc, &providers).unwrap();
     let bus = MockBus::cold();
     let report = Executor::new(&bus).execute(&plan).unwrap();
@@ -135,9 +135,12 @@ fn emmc_bring_up_from_cold_writes_exactly_the_documented_bits() {
 fn usb_and_ethernet_are_up_on_the_stock_board_too() {
     let (fdt, providers) = board_providers();
     let bus = MockBus::stock();
-    for path in
-        ["/soc/usb@c0a00000", "/soc/usb@c0980100", "/soc/usb@c0900100", "/soc/ethernet@cac80000"]
-    {
+    for path in [
+        "/soc/storage-bus/usb@c0a00000",
+        "/soc/storage-bus/usb@c0980100",
+        "/soc/storage-bus/usb@c0900100",
+        "/soc/network-bus/ethernet@cac80000",
+    ] {
         let node = fdt.node_at_path(path).unwrap();
         let plan = plan(node, &providers).unwrap();
         let report = Executor::new(&bus).execute(&plan).unwrap();
@@ -207,7 +210,7 @@ fn test_reject_a_write_that_does_not_read_back() {
         fn write(&self, _addr: usize, _value: u32) {}
     }
     let (fdt, providers) = board_providers();
-    let emmc = fdt.node_at_path("/soc/mmc@d4281000").unwrap();
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     let plan = plan(emmc, &providers).unwrap();
     let err = Executor::new(&DeadBus).execute(&plan).unwrap_err();
     assert_eq!(err, Fault::ReadBack { addr: APMU_BASE + 0x054, value: 0 });
@@ -218,7 +221,7 @@ fn test_reject_an_id_the_tables_do_not_know() {
     let (fdt, providers) = board_providers();
     // A pad group binds no clocks; a node with clocks of an unknown provider kind
     // is refused by kind, an unknown id by id — both before any bus access.
-    let sd = fdt.node_at_path("/soc/mmc@d4280000").unwrap();
+    let sd = fdt.node_at_path("/soc/storage-bus/mmc@d4280000").unwrap();
     let p = plan(sd, &providers).unwrap();
     assert!(p.steps().any(|s| matches!(s, Step::GateOn { .. })));
     let mut no_apmu = Providers::new();

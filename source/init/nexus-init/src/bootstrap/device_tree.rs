@@ -7,9 +7,11 @@
 //! and answers the two questions init has: which devices exist (every
 //! `virtio,mmio` transport with its window and PLIC line, the RTC by compatible)
 //! and what the loader wrote into `/chosen/nexus,*` (the lane's profile). Every
-//! device capability init mints carries the node's `reg` and `interrupts`; no
-//! address and no interrupt number is derived from anything else. The same
-//! alias is handed to the harness (`NamedSlot::DeviceTree`).
+//! device capability init mints carries the node's `reg` and `interrupts`, its
+//! coherence and the DMA reach of the buses above it (`dma-ranges`, TASK-0246 P1) —
+//! one descriptor (`nexus_abi::DeviceDesc`); no address, interrupt number or reach
+//! is derived from anything else. The same alias is handed to the harness
+//! (`NamedSlot::DeviceTree`).
 //!
 //! OWNERS: @runtime
 //! STATUS: Functional
@@ -25,7 +27,8 @@ use nexus_fdt::Fdt;
 use crate::bootstrap::helpers::{debug_write_bytes, debug_write_hex};
 use crate::os_payload::{InitError, Result};
 
-/// One device as the tree describes it: the MMIO window and the PLIC line.
+/// One device as the tree describes it: the MMIO window, the PLIC line, the
+/// coherence and the DMA reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct DeviceWindow {
     pub base: usize,
@@ -35,6 +38,32 @@ pub(crate) struct DeviceWindow {
     /// The device does not snoop the CPU caches: `dma-noncoherent` on the node or
     /// its bus (RFC-0098 C4) — minted into the capability like the line.
     pub dma_noncoherent: bool,
+    /// What its DMA can address: the `dma-ranges` of the buses above it, composed
+    /// (RFC-0098 C4, TASK-0246 P1) — the kernel allocates the device's memory inside
+    /// it and answers `vmo_runs` in its bus addresses.
+    pub reach: nexus_fdt::DmaReach,
+}
+
+// Every reach the tree can yield fits the descriptor.
+const _: () = assert!(nexus_fdt::MAX_DMA_WINDOWS <= nexus_abi::MAX_DMA_WINDOWS);
+
+impl DeviceWindow {
+    /// The descriptor the kernel mints the device capability from.
+    pub(crate) fn desc(&self) -> Result<nexus_abi::DeviceDesc> {
+        let mut windows = [nexus_abi::DmaWindow::default(); nexus_abi::MAX_DMA_WINDOWS];
+        let reach = self.reach.windows();
+        for (out, w) in windows.iter_mut().zip(reach) {
+            *out = nexus_abi::DmaWindow { bus: w.bus, cpu: w.cpu, size: w.size };
+        }
+        let desc = nexus_abi::DeviceDesc::new(
+            self.base as u64,
+            self.len as u64,
+            self.irq,
+            self.dma_noncoherent,
+            &windows[..reach.len()],
+        );
+        desc.ok_or(InitError::Map("dma reach wider than the device descriptor"))
+    }
 }
 
 /// The virtio transports init hands to drivers, classified by device id.
@@ -111,7 +140,9 @@ fn window_of(node: nexus_fdt::Node<'static>) -> Option<DeviceWindow> {
     // A window is granted in whole pages (the create syscall requires it).
     let len = len.div_ceil(PAGE) * PAGE;
     let irq = node.interrupts().next().unwrap_or(0);
-    Some(DeviceWindow { base, len, irq, dma_noncoherent: !node.dma_coherent() })
+    // A malformed `dma-ranges` above the node is a wrong tree: no window, no grant.
+    let reach = node.dma_reach().ok()?;
+    Some(DeviceWindow { base, len, irq, dma_noncoherent: !node.dma_coherent(), reach })
 }
 
 /// Every `virtio,mmio` transport the tree lists, classified by the device id read
@@ -145,8 +176,7 @@ pub(crate) fn discover_virtio() -> Result<VirtioDevices> {
     for w in windows[..n].iter().flatten() {
         found.transports += 1;
         let cap =
-            nexus_abi::device_mmio_cap_create(w.base, w.len, w.irq, w.dma_noncoherent, usize::MAX)
-                .map_err(InitError::Abi)?;
+            nexus_abi::device_mmio_cap_create(&w.desc()?, usize::MAX).map_err(InitError::Abi)?;
         let va = nexus_abi::mmio_map_auto(cap, 0, w.len).map_err(InitError::Abi)?;
         // SAFETY: the window was just mapped for `w.len` bytes; two register reads.
         let (magic, device_id) = unsafe {

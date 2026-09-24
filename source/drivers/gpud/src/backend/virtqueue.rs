@@ -181,6 +181,7 @@ impl CtrlQueue {
     /// ≤ `RING_SLOTS` so the descriptor table (`QUEUE_LEN`) and the single
     /// response page suffice.
     pub(crate) fn new(
+        device: u32,
         mmio_base: usize,
         queue_index: u32,
         slots: usize,
@@ -190,12 +191,13 @@ impl CtrlQueue {
         // Response pool grows with the ring (16 slots fit one page; 32 need
         // two — the hard-coded single page was why raising RING_SLOTS broke).
         let resp_pool_len = (slots * RESP_SLOT_SIZE).div_ceil(4096) * 4096;
-        let q_vmo =
-            nexus_abi::vmo_create_contiguous(4096).map_err(|_| GpuDriverError::MmioFault)?;
-        let cmd_vmo = nexus_abi::vmo_create_contiguous(cmd_pool_len)
-            .map_err(|_| GpuDriverError::MmioFault)?;
-        let resp_vmo = nexus_abi::vmo_create_contiguous(resp_pool_len)
-            .map_err(|_| GpuDriverError::MmioFault)?;
+        // Made for the device: inside its DMA reach (TASK-0246 P1).
+        let contiguous = |len| {
+            nexus_abi::vmo_create_contiguous(device, len).map_err(|_| GpuDriverError::MmioFault)
+        };
+        let q_vmo = contiguous(4096)?;
+        let cmd_vmo = contiguous(cmd_pool_len)?;
+        let resp_vmo = contiguous(resp_pool_len)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
@@ -210,9 +212,11 @@ impl CtrlQueue {
         let resp_va_base = nexus_abi::vm_map(resp_vmo, 0, resp_pool_len, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
         // RFC-0098 C4 (TASK-0286 P4a): the queue and both pools are ONE run each;
-        // their bases come through the one door a physical address leaves by.
-        let dma_base =
-            |vmo, len| nexus_abi::vmo_dma_base(vmo, len).map_err(|_| GpuDriverError::MmioFault);
+        // their bases come through the one door an address leaves by, in the
+        // device's bus addresses.
+        let dma_base = |vmo, len| {
+            nexus_abi::vmo_dma_base(vmo, device, len).map_err(|_| GpuDriverError::MmioFault)
+        };
         let q_pa = dma_base(q_vmo, 4096)?;
         let cmd_pa = dma_base(cmd_vmo, cmd_pool_len)?;
         let resp_pa = dma_base(resp_vmo, resp_pool_len)?;

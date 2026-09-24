@@ -182,8 +182,8 @@ mod tests {
     #[test]
     fn bring_up_round_trips_and_bounds_the_path() {
         let mut buf = [0u8; 128];
-        let n = encode_bring_up_req(&mut buf, 0x1234, "/soc/mmc@d4281000").unwrap();
-        assert_eq!(decode_bring_up_req(&buf[..n]), Some((0x1234, "/soc/mmc@d4281000")));
+        let n = encode_bring_up_req(&mut buf, 0x1234, "/soc/storage-bus/mmc@d4281000").unwrap();
+        assert_eq!(decode_bring_up_req(&buf[..n]), Some((0x1234, "/soc/storage-bus/mmc@d4281000")));
         assert!(encode_bring_up_req(&mut buf, 1, "").is_none());
         let long = core::str::from_utf8(&[b'a'; PATH_MAX + 1]).unwrap();
         assert!(encode_bring_up_req(&mut buf, 1, long).is_none());
@@ -206,8 +206,11 @@ mod tests {
     #[test]
     fn clock_rate_round_trips() {
         let mut buf = [0u8; 160];
-        let n = encode_clock_rate_req(&mut buf, 9, "/soc/mmc@d4281000", "io").unwrap();
-        assert_eq!(decode_clock_rate_req(&buf[..n]), Some((9, "/soc/mmc@d4281000", "io")));
+        let n = encode_clock_rate_req(&mut buf, 9, "/soc/storage-bus/mmc@d4281000", "io").unwrap();
+        assert_eq!(
+            decode_clock_rate_req(&buf[..n]),
+            Some((9, "/soc/storage-bus/mmc@d4281000", "io"))
+        );
         let n = encode_clock_rate_rsp(&mut buf, STATUS_OK, 9, 375_000_000).unwrap();
         assert_eq!(decode_clock_rate_rsp(&buf[..n]), Some((STATUS_OK, 9, 375_000_000)));
     }

@@ -179,6 +179,69 @@ impl Bank {
         None
     }
 
+    /// The lowest block of `order` lying entirely inside physical `[lo, hi)` (a
+    /// device's DMA reach, TASK-0246 P1): the smallest free order that holds one
+    /// first (as `alloc`), the lowest address within it. A free block that
+    /// straddles the window is split and only the in-window part is taken — its
+    /// other halves stay free. `None` when the window holds no such block.
+    pub fn alloc_in(&mut self, order: u8, lo: u64, hi: u64) -> Option<Block> {
+        let size = FRAME_SIZE << order;
+        let (lo, hi) = (lo.max(self.base), hi.min(self.end));
+        let first = align_up(lo, size);
+        if first >= hi || hi - first < size {
+            return None;
+        }
+        for o in order..=MAX_ORDER {
+            let shift = u32::from(o) + FRAME_SHIFT;
+            let from = ((align_down(first, FRAME_SIZE << o) - self.origin) >> shift) as usize;
+            let to = ((hi - 1 - self.origin) >> shift) as usize;
+            let mut at = from;
+            while let Some(idx) = self.next_free(o, at, to) {
+                let b0 = self.origin + ((idx as u64) << shift);
+                let start = align_up(first.max(b0), size);
+                if start + size <= hi.min(b0 + (FRAME_SIZE << o)) {
+                    self.carve(o, idx, order, start);
+                    return Some(Block { base: start, order });
+                }
+                at = idx + 1;
+            }
+        }
+        None
+    }
+
+    /// The first free block index at `order` in `from..=to`.
+    fn next_free(&self, order: u8, from: usize, to: usize) -> Option<usize> {
+        let level = self.levels[order as usize];
+        let to = to.min(level.blocks.checked_sub(1)?);
+        if from > to {
+            return None;
+        }
+        let mut word = from / 64;
+        let mut mask = !0u64 << (from % 64);
+        while word <= to / 64 {
+            let bits = self.bits[level.bits + word] & mask;
+            if bits != 0 {
+                let idx = word * 64 + bits.trailing_zeros() as usize;
+                return (idx <= to).then_some(idx);
+            }
+            word += 1;
+            mask = !0;
+        }
+        None
+    }
+
+    /// Take the free block `idx` at order `o` apart down to the `order` block that
+    /// starts at `start`: at every level the half off the path stays free.
+    fn carve(&mut self, o: u8, idx: usize, order: u8, start: u64) {
+        self.clear(o, idx);
+        let target = ((start - self.origin) >> FRAME_SHIFT) as usize;
+        for k in (order..o).rev() {
+            let child = target >> k;
+            self.set(k, child ^ 1);
+        }
+        self.free -= 1usize << order;
+    }
+
     /// Return `block`; buddies merge upward. Refuses blocks this bank never
     /// handed out: outside its extent, misaligned for their order, touching a
     /// hole, or already free (a double free).

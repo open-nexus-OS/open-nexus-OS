@@ -76,7 +76,7 @@ fn a_tree_without_soc_glue_answers_not_needed() {
 #[test]
 fn the_emmc_on_the_stock_board_is_ok_without_a_write() {
     let bus = MockBus::stock();
-    let rsp = bring_up("/soc/mmc@d4281000", Access::Allowed, BOARD, &bus);
+    let rsp = bring_up("/soc/storage-bus/mmc@d4281000", Access::Allowed, BOARD, &bus);
     assert_eq!(rsp.status, soc::STATUS_OK);
     assert_eq!((rsp.domains, rsp.resets, rsp.clocks), (1, 2, 2));
     assert_eq!(*bus.1.borrow(), 0, "the SPL left the eMMC glue on");
@@ -85,7 +85,7 @@ fn the_emmc_on_the_stock_board_is_ok_without_a_write() {
 #[test]
 fn the_emmc_from_cold_registers_is_ok_after_four_writes() {
     let bus = MockBus::empty();
-    let rsp = bring_up("/soc/mmc@d4281000", Access::Allowed, BOARD, &bus);
+    let rsp = bring_up("/soc/storage-bus/mmc@d4281000", Access::Allowed, BOARD, &bus);
     assert_eq!(rsp.status, soc::STATUS_OK);
     assert_eq!(*bus.1.borrow(), 4);
     assert_eq!(bus.read(APMU_BASE + 0x0e0), (1 << 1) | (1 << 4));
@@ -94,7 +94,7 @@ fn the_emmc_from_cold_registers_is_ok_after_four_writes() {
 #[test]
 fn test_reject_a_requester_without_soc_glue() {
     let bus = MockBus::stock();
-    let rsp = bring_up("/soc/mmc@d4281000", Access::Denied, BOARD, &bus);
+    let rsp = bring_up("/soc/storage-bus/mmc@d4281000", Access::Denied, BOARD, &bus);
     assert_eq!((rsp.status, rsp.nonce), (soc::STATUS_DENIED, 0xabcd));
     assert_eq!(*bus.1.borrow(), 0);
 }
@@ -127,7 +127,7 @@ fn clock_rate_reads_the_emmc_io_clock_from_the_stock_registers() {
     let providers = providers_of(&fdt);
     let bus = MockBus::stock();
     let mut req = [0u8; 160];
-    let n = soc::encode_clock_rate_req(&mut req, 5, "/soc/mmc@d4281000", "io").unwrap();
+    let n = soc::encode_clock_rate_req(&mut req, 5, "/soc/storage-bus/mmc@d4281000", "io").unwrap();
     let mut out = [0u8; REPLY_MAX];
     let (len, _) = answer(&req[..n], Access::Allowed, Some(&fdt), &providers, &bus, &mut out);
     assert_eq!(soc::decode_clock_rate_rsp(&out[..len]), Some((soc::STATUS_OK, 5, 375_000_000)));

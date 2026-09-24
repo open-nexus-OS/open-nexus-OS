@@ -65,13 +65,14 @@ impl VirtioGpuBackend {
         if watchdog.is_none() {
             let _ = nexus_abi::debug_println("gpud: FAIL device watchdog (ring waits unbounded)");
         }
-        let mut ctrlq = CtrlQueue::new(self.mmio_base, CTRL_QUEUE_INDEX, RING_SLOTS)?;
+        let mut ctrlq = CtrlQueue::new(self.device, self.mmio_base, CTRL_QUEUE_INDEX, RING_SLOTS)?;
         ctrlq.set_watchdog(watchdog.clone());
         self.ctrlq = Some(ctrlq);
         // Cursor virtqueue (index 1) — hardware-cursor overlay path. Best-effort:
         // if it can't be set up, cursor falls back and 2D still works. Single-slot
         // (cursor commands are submitted one at a time, no batching).
-        if let Ok(mut cursorq) = CtrlQueue::new(self.mmio_base, CURSOR_QUEUE_INDEX, 1) {
+        if let Ok(mut cursorq) = CtrlQueue::new(self.device, self.mmio_base, CURSOR_QUEUE_INDEX, 1)
+        {
             cursorq.set_watchdog(watchdog);
             self.cursorq = Some(cursorq);
         }

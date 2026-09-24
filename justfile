@@ -574,7 +574,7 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows dma-contiguous display-ssot wait-not-poll ipc-bounds payload-vmo ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo ci-parity
 
 # TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
 build-truth:
@@ -620,11 +620,6 @@ platform-literals:
 # retired arena/pool types, or a RAM literal.
 fixed-windows:
     @./scripts/check-no-fixed-windows.sh
-
-# TASK-0286 P4a (RFC-0098 C4): only device-driving code creates physically
-# contiguous VMOs; everything else a device reads goes through `vmo_runs`.
-dma-contiguous:
-    @./scripts/check-dma-contiguous.sh
 
 # TASK-0324 P6 (RFC-0093 §5): the VISIBLE display mode has one source
 # (`boot_display_mode`) and one clamp policy (`nexus_display_proto`); the retired

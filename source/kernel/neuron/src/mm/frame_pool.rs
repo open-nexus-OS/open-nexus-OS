@@ -7,7 +7,8 @@
 //! Carved out: the tree's reserved ranges, the kernel image and the tree
 //! itself — nothing else; the last fixed windows died with P3b. Page tables
 //! (P2b), VMOs, process images (P3a), user stacks and init's pages (P3b)
-//! allocate here. Exhaustion is an event on the console AND a
+//! allocate here; a device's DMA memory comes from inside its reach
+//! (`alloc_within`, TASK-0246 P1). Exhaustion is an event on the console AND a
 //! counter — never a silent `None`.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
@@ -16,6 +17,8 @@
 //!   is proven by every boot (`KINIT: mm frames (…)`) and every page table
 //! INVARIANTS: one pool, one lock (leaf: never held across a log line); a
 //!   refused free is reported, never swallowed.
+
+use alloc::vec::Vec;
 
 use crate::frames::{Block, FrameAllocator, FrameError, Range, Stats};
 
@@ -61,10 +64,10 @@ pub fn alloc(order: u8) -> Result<Block, FrameError> {
     locked(order, |pool| pool.alloc(order))
 }
 
-/// The largest free block of `order` or below (an object that takes several
-/// runs); exhausted only when not a single frame is left.
-pub fn alloc_at_most(order: u8) -> Result<Block, FrameError> {
-    locked(order, |pool| pool.alloc_at_most(order))
+/// A block of `1 << order` frames inside the physical `windows` (`(start, end)`,
+/// a device's DMA reach by CPU address), or the error.
+pub fn alloc_within(order: u8, windows: &[(u64, u64)]) -> Result<Block, FrameError> {
+    locked(order, |pool| pool.alloc_within(order, windows))
 }
 
 /// Run an allocation under the pool lock; an exhaustion is an event
@@ -109,12 +112,24 @@ pub fn free(block: Block) {
 /// 2 MiB-aligned stays a superpage when mapped. A fallback to smaller blocks is
 /// the allocator's (`alloc_at_most`), not an exhaustion; on a real one
 /// everything taken so far goes back and the error is the pool's (logged).
-pub fn alloc_bytes(len: usize) -> Result<alloc::vec::Vec<Block>, FrameError> {
-    let mut blocks = alloc::vec::Vec::new();
+pub fn alloc_bytes(len: usize) -> Result<Vec<Block>, FrameError> {
+    take_bytes(len, |pool, order| pool.alloc_at_most(order))
+}
+
+/// `alloc_bytes` inside the physical `windows` (a device's DMA reach).
+pub fn alloc_bytes_within(len: usize, windows: &[(u64, u64)]) -> Result<Vec<Block>, FrameError> {
+    take_bytes(len, |pool, order| pool.alloc_at_most_within(order, windows))
+}
+
+fn take_bytes(
+    len: usize,
+    take: impl Fn(&mut FrameAllocator, u8) -> Result<Block, FrameError>,
+) -> Result<Vec<Block>, FrameError> {
+    let mut blocks = Vec::new();
     let mut remaining = len.div_ceil(crate::frames::FRAME_SIZE as usize);
     while remaining > 0 {
         let order = (remaining.ilog2() as u8).min(crate::frames::MAX_ORDER);
-        match alloc_at_most(order) {
+        match locked(order, |pool| take(pool, order)) {
             Ok(block) => {
                 remaining -= block.frames();
                 blocks.push(block);

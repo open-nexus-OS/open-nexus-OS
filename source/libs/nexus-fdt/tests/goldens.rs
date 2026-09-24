@@ -126,6 +126,78 @@ fn devices_are_found_by_compatible_with_registers_and_interrupt_lines() {
     assert!(!board.find_compatible(&["spacemit,k1-rtc"]).next().unwrap().is_enabled());
 }
 
+const NESTED: &[u8] = include_bytes!("goldens/dma-nested.dtb");
+
+fn window(bus: u64, cpu: u64, size: u64) -> nexus_fdt::DmaWindow {
+    nexus_fdt::DmaWindow { bus, cpu, size }
+}
+
+#[test]
+fn the_board_buses_give_each_master_its_measured_dma_reach() {
+    let board = Fdt::new(BOARD).unwrap();
+    // Storage (SD hosts, DWC3, EHCI, UDC): ONLY the first 2 GiB, identity.
+    for path in ["/soc/storage-bus/mmc@d4281000", "/soc/storage-bus/usb@c0a00000"] {
+        let reach = board.node_at_path(path).unwrap().dma_reach().unwrap();
+        assert_eq!(reach.windows(), [window(0, 0, 0x8000_0000)], "{path}");
+    }
+    // Network: the first 2 GiB identity plus bus 2 GiB.. → CPU 4 GiB.. (2 GiB).
+    let emac = board.node_at_path("/soc/network-bus/ethernet@cac80000").unwrap();
+    assert_eq!(
+        emac.dma_reach().unwrap().windows(),
+        [window(0, 0, 0x8000_0000), window(0x8000_0000, 0x1_0000_0000, 0x8000_0000)]
+    );
+    // Multimedia (display controller, GPU): the upper bank through a translated window.
+    let dpu = board.node_at_path("/soc/multimedia-bus/display@c0440000").unwrap();
+    assert_eq!(
+        dpu.dma_reach().unwrap().windows(),
+        [window(0, 0, 0x8000_0000), window(0x8000_0000, 0x1_0000_0000, 0x3_8000_0000)]
+    );
+    // Registers are unaffected by the extra level (identity `ranges`).
+    let emmc = board.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
+    assert_eq!(emmc.reg(0).unwrap().unwrap().addr, 0xd428_1000);
+    // Not a DMA master and on no constraining bus: every address.
+    let hdmi = board.node_at_path("/soc/hdmi@c0400500").unwrap();
+    assert_eq!(hdmi.dma_reach().unwrap(), nexus_fdt::DmaReach::All);
+}
+
+#[test]
+fn qemu_virt_constrains_no_master() {
+    let virt = Fdt::new(VIRT).unwrap();
+    for node in virt.find_compatible(&["virtio,mmio"]) {
+        assert_eq!(node.dma_reach().unwrap(), nexus_fdt::DmaReach::All);
+    }
+}
+
+#[test]
+fn dma_ranges_compose_over_levels_and_an_absent_level_ends_the_walk() {
+    let fdt = Fdt::new(NESTED).unwrap();
+    // bus-b: device 0..64 MiB → bus-a 128 MiB.., and 1 GiB.. (16 MiB) → bus-a 768 MiB..;
+    // bus-a carries only its child 0..256 MiB → CPU 256 MiB+: the first window composes
+    // to CPU 384 MiB, the second lies outside bus-a's window and is out of reach.
+    let nested = fdt.find_compatible(&["test,dma-nested"]).next().unwrap();
+    assert_eq!(nested.dma_reach().unwrap().windows(), [window(0, 0x1800_0000, 0x0400_0000)]);
+    // Empty `dma-ranges` at every level: identity, every address.
+    let identity = fdt.find_compatible(&["test,dma-identity"]).next().unwrap();
+    assert_eq!(identity.dma_reach().unwrap(), nexus_fdt::DmaReach::All);
+    // The device's own bus has none: the walk ends — the 1 GiB limit above is not its.
+    let open = fdt.find_compatible(&["test,dma-unconstrained"]).next().unwrap();
+    assert_eq!(open.dma_reach().unwrap(), nexus_fdt::DmaReach::All);
+}
+
+#[test]
+fn test_reject_more_dma_windows_than_a_reach_carries() {
+    let fdt = Fdt::new(NESTED).unwrap();
+    let crowded = fdt.find_compatible(&["test,dma-crowded"]).next().unwrap();
+    assert_eq!(crowded.dma_reach(), Err(Error::DmaRanges));
+}
+
+#[test]
+fn reg_is_translated_through_every_level() {
+    let fdt = Fdt::new(NESTED).unwrap();
+    let deep = fdt.find_compatible(&["test,xlate-deep"]).next().unwrap();
+    assert_eq!(deep.reg(0).unwrap().unwrap(), nexus_fdt::Reg { addr: 0x4100_1000, size: 0x100 });
+}
+
 #[test]
 fn coherence_is_the_default_and_the_board_soc_bus_marks_its_masters_non_coherent() {
     // QEMU virt's tree carries neither property: every virtio master is coherent.
@@ -208,7 +280,7 @@ fn virt_chosen_writes_work_once_headroom_exists() {
 #[test]
 fn consumers_resolve_their_clocks_resets_domains_and_pads_to_providers() {
     let board = Fdt::new(BOARD).unwrap();
-    let emmc = board.node_at_path("/soc/mmc@d4281000").unwrap();
+    let emmc = board.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     let clocks: Vec<_> = emmc.specifiers("clocks", "#clock-cells").collect();
     assert_eq!(clocks.len(), 2);
     assert_eq!(clocks[0].provider.name(), "syscon@d4282800");
@@ -221,7 +293,7 @@ fn consumers_resolve_their_clocks_resets_domains_and_pads_to_providers() {
     let pd = emmc.specifiers("power-domains", "#power-domain-cells").next().unwrap();
     assert_eq!((pd.provider.name(), pd.arg(0)), ("syscon@d4282800", Some(0)), "K1_PD_BUS");
     // A pad group is a phandle with no cells.
-    let sd = board.node_at_path("/soc/mmc@d4280000").unwrap();
+    let sd = board.node_at_path("/soc/storage-bus/mmc@d4280000").unwrap();
     let pads: Vec<_> = sd.specifiers("pinctrl-0", "#pinctrl-cells").collect();
     assert_eq!(pads.len(), 1);
     assert_eq!((pads[0].provider.name(), pads[0].args()), ("mmc1-cfg", 0));

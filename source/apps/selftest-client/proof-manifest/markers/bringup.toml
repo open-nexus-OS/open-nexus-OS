@@ -90,7 +90,11 @@ proves = "RFC-0085/ADR-0054: fixed-VA into the window, unmap of nothing, and vmo
 
 [marker."KSELFTEST: vmo runs ok ("]
 phase = "bringup"
-proves = "RFC-0098 C4 (TASK-0286 P4a): vmo_runs — the one door a physical address leaves the kernel by — answers the runs of an anonymous object exactly (sum = length, the first run and an inner offset translate like the object) to a device holder, and refuses a task without a device capability, a read-only alias and a range past the end (deny=3)"
+proves = "RFC-0098 C4 (TASK-0286 P4a, device-scoped by TASK-0246 P1): vmo_runs — the one door an address leaves the kernel by — answers the runs of an anonymous object exactly (sum = length, the first run and an inner offset translate like the object) to the holder of the named device's capability, and refuses a device slot that names nothing, one that holds a VMO, a read-only alias and a range past the end (deny=4)"
+
+[marker."KSELFTEST: vmo reach ok ("]
+phase = "bringup"
+proves = "RFC-0098 C4 (TASK-0246 P1): a device's DMA reach is kernel truth — objects made for a device whose one translated window is the top of the first memory bank come from inside it (anonymous and contiguous), vmo_runs answers them in the device's bus addresses (whole, at an inner offset, the contiguous base), an object made for another device (the window just below) has no bus address for it, a contiguous object for no device is refused (deny=2), and the synthetic device records are retired before init"
 
 [marker."KSELFTEST: w^x enforced"]
 phase = "bringup"

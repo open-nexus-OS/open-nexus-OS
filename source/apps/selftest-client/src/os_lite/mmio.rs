@@ -76,8 +76,10 @@ pub(crate) fn cap_query_vmo_probe() -> core::result::Result<(), ()> {
     // A VMO queries as kind 1 with its length — and NO physical base: a physical
     // address leaves the kernel only through `vmo_runs` (RFC-0098 C4, TASK-0286
     // P4a), never through `cap_query`. A contiguous object is the case that used
-    // to leak one, so that is the one probed.
-    let vmo = nexus_abi::vmo_create_contiguous(4096).map_err(|_| ())?;
+    // to leak one, so that is the one probed — made for the device window init
+    // grants this harness (a contiguous object is a device's, TASK-0246 P1).
+    const DEVICE: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
+    let vmo = nexus_abi::vmo_create_contiguous(DEVICE, 4096).map_err(|_| ())?;
     let mut info = nexus_abi::CapQuery::default();
     let queried = nexus_abi::cap_query(vmo, &mut info);
     let _ = nexus_abi::vmo_destroy(vmo);
@@ -116,7 +118,7 @@ pub(crate) fn dma_buffer_probe() -> core::result::Result<DmaBufferProof, ()> {
     if block == 0 {
         return Err(()); // no Zicbom on the harts: nothing to prove the instructions with
     }
-    let vmo = DmaVmo::anonymous(LEN).map_err(|_| ())?;
+    let vmo = DmaVmo::anonymous(DEVICE, LEN).map_err(|_| ())?;
     let refused = nexus_abi::device_dma_coherence(vmo.handle()).is_err();
     let runs = vmo.runs().len();
     let covered: u64 = vmo.runs().iter().map(|r| r.len).sum();

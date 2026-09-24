@@ -82,31 +82,42 @@ pub fn as_map(
 
 // ——— VMO userland wrappers (OS build) ———
 
+/// `vmo_create` arg 3: the object is for no device.
+#[cfg(nexus_env = "os")]
+const VMO_NO_DEVICE: usize = usize::MAX;
+
 /// Creates a new anonymous VMO of `len` bytes (page-backed: a list of
 /// physically contiguous runs, no single physical base) and returns a handle.
 #[cfg(nexus_env = "os")]
 pub fn vmo_create(_len: usize) -> Result<Handle> {
-    vmo_create_kind(_len, 0)
+    vmo_create_kind(_len, 0, VMO_NO_DEVICE)
 }
 
-/// RFC-0098 C4 (TASK-0286 P3a): like [`vmo_create`], but the object is ONE
-/// physically contiguous block — the kind for memory a device addresses by one
-/// base (virtio queues, command and response pools, request buffers); its base
-/// is [`vmo_dma_base`]. Memory a device reads through a scatter-gather list is an
-/// anonymous VMO, its list is [`vmo_runs`]. Only drivers create this kind (gate
-/// `scripts/check-dma-contiguous.sh`).
+/// RFC-0098 C4 (TASK-0246 P1): like [`vmo_create`], but the object is FOR the device
+/// behind the capability in `device` — its frames come from inside that device's DMA
+/// reach, so every run has a bus address for it ([`vmo_runs`]). Memory a device
+/// reads through a scatter-gather list.
 #[cfg(nexus_env = "os")]
-pub fn vmo_create_contiguous(_len: usize) -> Result<Handle> {
-    vmo_create_kind(_len, 1)
+pub fn vmo_create_for(device: Cap, len: usize) -> Result<Handle> {
+    vmo_create_kind(len, 0, device as usize)
+}
+
+/// RFC-0098 C4: an object for `device` that is ONE physically contiguous block —
+/// the kind for memory a device addresses by one base (virtio queues, command and
+/// response pools, request buffers); its bus address is [`vmo_dma_base`]. The
+/// kernel refuses it without a device capability (TASK-0246 P1).
+#[cfg(nexus_env = "os")]
+pub fn vmo_create_contiguous(device: Cap, len: usize) -> Result<Handle> {
+    vmo_create_kind(len, 1, device as usize)
 }
 
 #[cfg(nexus_env = "os")]
-fn vmo_create_kind(_len: usize, _kind: usize) -> Result<Handle> {
+fn vmo_create_kind(_len: usize, _kind: usize, _device: usize) -> Result<Handle> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     unsafe {
         const SYSCALL_VMO_CREATE: usize = 5;
         let slot = usize::MAX;
-        let raw = ecall3(SYSCALL_VMO_CREATE, slot, _len, _kind);
+        let raw = ecall4(SYSCALL_VMO_CREATE, slot, _len, _kind, _device);
         match decode_syscall(raw) {
             Ok(slot) => Ok(slot as Handle),
             Err(_) => Err(IpcError::Unsupported),
@@ -359,33 +370,29 @@ pub fn device_irq(slot: Cap) -> u32 {
     }
 }
 
-/// Creates a DeviceMmio capability in the caller's cap table (init-only): the window
-/// `base`/`len`, the device's PLIC line `irq` (0 = none) and whether it snoops the CPU
-/// caches, all from the device tree's node (`reg`, `interrupts`, `dma-noncoherent` on the
-/// node or its bus — RFC-0098 C3/C4).
+/// Creates a DeviceMmio capability in the caller's cap table (init-only) from the
+/// device's descriptor — register window, PLIC line (0 = none), coherence and DMA
+/// reach, all from the device tree's node and the buses above it (RFC-0098 C3/C4).
+/// The kernel keeps one record per register window: describing a window again
+/// identically names the same record; differently is refused.
 ///
 /// If `slot_raw` is `usize::MAX`, the kernel allocates a fresh slot; otherwise, the cap is placed
 /// into the requested slot (must be empty).
 #[cfg(nexus_env = "os")]
-pub fn device_mmio_cap_create(
-    _base: usize,
-    _len: usize,
-    _irq: u32,
-    _dma_noncoherent: bool,
-    _slot_raw: usize,
-) -> SysResult<Cap> {
+pub fn device_mmio_cap_create(_desc: &DeviceDesc, _slot_raw: usize) -> SysResult<Cap> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_DEVICE_CAP_CREATE: usize = 30;
-        let flags = if _dma_noncoherent { CAP_FLAG_DMA_NONCOHERENT as usize } else { 0 };
-        let raw = unsafe {
-            ecall5(SYSCALL_DEVICE_CAP_CREATE, _base, _len, _slot_raw, _irq as usize, flags)
-        };
+        let ptr = (_desc as *const DeviceDesc) as usize;
+        let len = core::mem::size_of::<DeviceDesc>();
+        // SAFETY: `_desc` is a live `repr(C)` descriptor of `len` bytes the kernel
+        // only reads.
+        let raw = unsafe { ecall3(SYSCALL_DEVICE_CAP_CREATE, ptr, len, _slot_raw) };
         decode_syscall(raw).map(|slot| slot as Cap)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
-        let _ = (_base, _len, _irq, _dma_noncoherent, _slot_raw);
+        let _ = (_desc, _slot_raw);
         Err(AbiError::Unsupported)
     }
 }

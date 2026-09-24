@@ -233,7 +233,7 @@ pub(super) fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     let (mut flags, mut cache_block) = (0u32, 0u32);
     let (kind_tag, irq, base, len) = match cap.kind {
         CapabilityKind::Vmo { len, .. } => (1u32, 0u32, 0u64, len as u64),
-        CapabilityKind::DeviceMmio { base, len, irq, dma_noncoherent } => {
+        CapabilityKind::DeviceMmio { base, len, irq, dma_noncoherent, .. } => {
             flags = u32::from(dma_noncoherent);
             cache_block = crate::hal::platform::cbom_block() as u32;
             (2u32, irq, base as u64, len as u64)

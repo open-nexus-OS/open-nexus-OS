@@ -9,16 +9,19 @@ use gpud::backend::VirtioGpuBackend;
 use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::PixelFormat;
 
+/// The device capability slot the backend is made for (never used off the OS).
+const DEVICE: u32 = 4;
+
 #[test]
 fn backend_unprobed_rejects_submit() {
-    let mut b = VirtioGpuBackend::new(0x10008000, 0x200);
+    let mut b = VirtioGpuBackend::new(DEVICE, 0x10008000, 0x200);
     let empty = nexus_gfx::CommandBuffer::new().commit();
     assert!(b.submit(empty).is_err());
 }
 
 #[test]
 fn backend_probed_accepts_submit() {
-    let mut b = VirtioGpuBackend::new(0x10008000, 0x200);
+    let mut b = VirtioGpuBackend::new(DEVICE, 0x10008000, 0x200);
     b.probe().unwrap();
     let empty = nexus_gfx::CommandBuffer::new().commit();
     assert!(b.submit(empty).is_ok());
@@ -26,14 +29,14 @@ fn backend_probed_accepts_submit() {
 
 #[test]
 fn create_resource_rejects_zero() {
-    let mut b = VirtioGpuBackend::new(0x10008000, 0x200);
+    let mut b = VirtioGpuBackend::new(DEVICE, 0x10008000, 0x200);
     b.probe().unwrap();
     assert!(b.create_resource(0, 64, PixelFormat::Bgra8888).is_err());
 }
 
 #[test]
 fn transfer_rejects_out_of_bounds_rect() {
-    let mut b = VirtioGpuBackend::new(0x10008000, 0x200);
+    let mut b = VirtioGpuBackend::new(DEVICE, 0x10008000, 0x200);
     b.probe().unwrap();
     let resource = b.create_resource(16, 16, PixelFormat::Bgra8888).unwrap();
     let err = b.transfer_to_host(

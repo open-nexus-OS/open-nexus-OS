@@ -469,6 +469,7 @@ impl MappedVirtioInputDevice {
             let absolute_y = mmio.read_absolute_axis_info(1).ok();
             let queue = QueueState::<{ DEFAULT_QUEUE_ENTRIES as usize }>::new(
                 &bus,
+                mmio_cap_slot,
                 INPUT_EVENT_QUEUE_INDEX,
             )?;
             bus.write(REG_STATUS, bus.read(REG_STATUS) | STATUS_DRIVER_OK);
@@ -558,19 +559,17 @@ struct QueueState<const N: usize> {
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 impl<const N: usize> QueueState<N> {
-    fn new(bus: &MmioBus, queue_index: u32) -> Result<Self, VirtioInputError> {
-        let queue_vmo = vmo_create_contiguous(4096).map_err(|_| VirtioInputError::MapFailed)?;
-        let buffer_vmo = vmo_create_contiguous(4096).map_err(|_| VirtioInputError::MapFailed)?;
-        let flags = nexus_abi::page_flags::VALID
-            | nexus_abi::page_flags::USER
-            | nexus_abi::page_flags::READ
-            | nexus_abi::page_flags::WRITE;
-        let queue_va =
-            vm_map(queue_vmo, 0, 4096, flags).map_err(|_| VirtioInputError::MapFailed)?;
-        let buffer_va =
-            vm_map(buffer_vmo, 0, 4096, flags).map_err(|_| VirtioInputError::MapFailed)?;
-        let queue_pa = vmo_dma_base(queue_vmo, 4096).map_err(|_| VirtioInputError::MapFailed)?;
-        let buffer_pa = vmo_dma_base(buffer_vmo, 4096).map_err(|_| VirtioInputError::MapFailed)?;
+    /// The event queue and its buffers, a page each, made for `device` (inside its DMA
+    /// reach) and programmed with its bus addresses.
+    fn new(bus: &MmioBus, device: u32, queue_index: u32) -> Result<Self, VirtioInputError> {
+        use nexus_abi::page_flags::{READ, USER, VALID, WRITE};
+        let page = || -> Option<(u32, usize, u64)> {
+            let vmo = vmo_create_contiguous(device, 4096).ok()?;
+            let va = vm_map(vmo, 0, 4096, VALID | USER | READ | WRITE).ok()?;
+            Some((vmo, va, vmo_dma_base(vmo, device, 4096).ok()?))
+        };
+        let (queue_vmo, queue_va, queue_pa) = page().ok_or(VirtioInputError::MapFailed)?;
+        let (buffer_vmo, buffer_va, buffer_pa) = page().ok_or(VirtioInputError::MapFailed)?;
 
         unsafe {
             core::ptr::write_bytes(queue_va as *mut u8, 0, 4096);

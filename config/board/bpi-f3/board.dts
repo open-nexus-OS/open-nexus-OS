@@ -399,66 +399,170 @@
 			status = "okay";
 		};
 
-		sdhci0: mmc@d4280000 {
-			compatible = "spacemit,k1-sdhci";
-			reg = <0x0 0xd4280000 0x0 0x200>;
-			interrupts = <99>;
-			clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH0>;
-			clock-names = "core", "io";
-			resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH0>;
-			reset-names = "axi", "sdh";
-			power-domains = <&syscon_apmu K1_PD_BUS>;
-			pinctrl-names = "default", "uhs";
-			pinctrl-0 = <&mmc1_cfg>;
-			pinctrl-1 = <&mmc1_uhs_cfg>;
-			bus-width = <4>;
-			status = "okay";
+		// DMA reach (RFC-0098 C4), measured 2026-09-24 (docs/board/measurements/
+		// 2026-09-24-emmc-sdhci): the stock tree's `dram_range@0`, mainline's `storage-bus`.
+		// The storage masters reach ONLY the first 2 GiB, identity; bank 1 is out of reach.
+		storage-bus {
+			compatible = "simple-bus";
+			ranges;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			dma-ranges = <0x0 0x00000000 0x0 0x00000000 0x0 0x80000000>;
+
+			sdhci0: mmc@d4280000 {
+				compatible = "spacemit,k1-sdhci";
+				reg = <0x0 0xd4280000 0x0 0x200>;
+				interrupts = <99>;
+				clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH0>;
+				clock-names = "core", "io";
+				resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH0>;
+				reset-names = "axi", "sdh";
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				pinctrl-names = "default", "uhs";
+				pinctrl-0 = <&mmc1_cfg>;
+				pinctrl-1 = <&mmc1_uhs_cfg>;
+				bus-width = <4>;
+				status = "okay";
+			};
+
+			sdhci1: mmc@d4280800 {
+				compatible = "spacemit,k1-sdhci";
+				reg = <0x0 0xd4280800 0x0 0x200>;
+				interrupts = <100>;
+				clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH1>;
+				clock-names = "core", "io";
+				resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH1>;
+				reset-names = "axi", "sdh";
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				bus-width = <4>;
+				non-removable;
+				status = "okay";
+			};
+
+			// The system disk (eMMC, HS400 capable, 8-bit).
+			sdhci2: mmc@d4281000 {
+				compatible = "spacemit,k1-sdhci";
+				reg = <0x0 0xd4281000 0x0 0x200>;
+				interrupts = <101>;
+				clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH2>;
+				clock-names = "core", "io";
+				resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH2>;
+				reset-names = "axi", "sdh";
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				bus-width = <8>;
+				non-removable;
+				status = "okay";
+			};
+
+			// USB: the DWC3 host (xHCI), the EHCI host, the OTG gadget.
+			usb3: usb@c0a00000 {
+				compatible = "spacemit,k1-dwc3", "snps,dwc3";
+				reg = <0x0 0xc0a00000 0x0 0x10000>;
+				interrupts = <125>;
+				clocks = <&syscon_apmu CLK_USB30>;
+				clock-names = "usbdrd30";
+				resets = <&syscon_apmu RESET_USB30_AHB>, <&syscon_apmu RESET_USB30_VCC>,
+					 <&syscon_apmu RESET_USB30_PHY>;
+				reset-names = "ahb", "vcc", "phy";
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				dr_mode = "host";
+				status = "okay";
+			};
+
+			ehci1: usb@c0980100 {
+				compatible = "spacemit,mv-ehci";
+				reg = <0x0 0xc0980100 0x0 0x4000>;
+				interrupts = <118>;
+				clocks = <&syscon_apmu CLK_USB_P1>;
+				resets = <&syscon_apmu RESET_USBP1_AXI>;
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				status = "okay";
+			};
+
+			udc: usb@c0900100 {
+				compatible = "spacemit,mv-udc";
+				reg = <0x0 0xc0900100 0x0 0x4000>;
+				interrupts = <105>;
+				clocks = <&syscon_apmu CLK_USB_AXI>;
+				resets = <&syscon_apmu RESET_USB_AXI>;
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				status = "okay";
+			};
 		};
 
-		sdhci1: mmc@d4280800 {
-			compatible = "spacemit,k1-sdhci";
-			reg = <0x0 0xd4280800 0x0 0x200>;
-			interrupts = <100>;
-			clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH1>;
-			clock-names = "core", "io";
-			resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH1>;
-			reset-names = "axi", "sdh";
-			power-domains = <&syscon_apmu K1_PD_BUS>;
-			bus-width = <4>;
-			non-removable;
-			status = "okay";
+		// The GMACs (stock `dram_range@5`, mainline `network-bus`): the first 2 GiB identity, and
+		// bus 0x8000_0000.. reaches CPU 0x1_0000_0000.. (2 GiB) — a translated window.
+		network-bus {
+			compatible = "simple-bus";
+			ranges;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			dma-ranges = <0x0 0x00000000 0x0 0x00000000 0x0 0x80000000>,
+				     <0x0 0x80000000 0x1 0x00000000 0x0 0x80000000>;
+
+			emac0: ethernet@cac80000 {
+				compatible = "spacemit,k1-emac";
+				reg = <0x0 0xcac80000 0x0 0x420>;
+				interrupts = <131>;
+				clocks = <&syscon_apmu CLK_EMAC0_BUS>, <&syscon_apmu CLK_EMAC0_PTP>;
+				clock-names = "bus", "ptp";
+				resets = <&syscon_apmu RESET_EMAC0>;
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&gmac0_cfg>, <&gmac0_clk_ref_cfg>;
+				status = "okay";
+			};
+
+			emac1: ethernet@cac81000 {
+				compatible = "spacemit,k1-emac";
+				reg = <0x0 0xcac81000 0x0 0x420>;
+				interrupts = <133>;
+				clocks = <&syscon_apmu CLK_EMAC1_BUS>, <&syscon_apmu CLK_EMAC1_PTP>;
+				clock-names = "bus", "ptp";
+				resets = <&syscon_apmu RESET_EMAC1>;
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				status = "okay";
+			};
 		};
 
-		// The system disk (eMMC, HS400 capable, 8-bit).
-		sdhci2: mmc@d4281000 {
-			compatible = "spacemit,k1-sdhci";
-			reg = <0x0 0xd4281000 0x0 0x200>;
-			interrupts = <101>;
-			clocks = <&syscon_apmu CLK_SDH_AXI>, <&syscon_apmu CLK_SDH2>;
-			clock-names = "core", "io";
-			resets = <&syscon_apmu RESET_SDH_AXI>, <&syscon_apmu RESET_SDH2>;
-			reset-names = "axi", "sdh";
-			power-domains = <&syscon_apmu K1_PD_BUS>;
-			bus-width = <8>;
-			non-removable;
-			status = "okay";
-		};
+		// The display controller and the GPU (stock `dram_range@1`; mainline has the bus, not yet
+		// these nodes): the first 2 GiB identity, and bus 0x8000_0000.. reaches CPU
+		// 0x1_0000_0000.. (14 GiB).
+		multimedia-bus {
+			compatible = "simple-bus";
+			ranges;
+			#address-cells = <2>;
+			#size-cells = <2>;
+			dma-ranges = <0x0 0x00000000 0x0 0x00000000 0x0 0x80000000>,
+				     <0x0 0x80000000 0x1 0x00000000 0x3 0x80000000>;
 
-		// Display pipeline (measured; not in mainline yet).
-		dpu: display@c0440000 {
-			compatible = "spacemit,dpu-online2";
-			reg = <0x0 0xc0440000 0x0 0x2a000>;
-			interrupts = <139>, <138>;
-			interrupt-names = "online", "offline";
-			clocks = <&syscon_apmu CLK_DPU_MCLK>, <&syscon_apmu CLK_DPU_HCLK>,
-				 <&syscon_apmu CLK_DPU_ESC>, <&syscon_apmu CLK_DPU_BIT>,
-				 <&syscon_apmu CLK_DPU_PXCLK>;
-			clock-names = "mclk", "hclk", "esc", "bit", "px";
-			resets = <&syscon_apmu RESET_DPU_MCLK>, <&syscon_apmu RESET_DPU_HCLK>,
-				 <&syscon_apmu RESET_DPU_ESC>;
-			reset-names = "mclk", "hclk", "esc";
-			power-domains = <&syscon_apmu K1_PD_HDMI>;
-			status = "okay";
+			// Display pipeline (measured; not in mainline yet).
+			dpu: display@c0440000 {
+				compatible = "spacemit,dpu-online2";
+				reg = <0x0 0xc0440000 0x0 0x2a000>;
+				interrupts = <139>, <138>;
+				interrupt-names = "online", "offline";
+				clocks = <&syscon_apmu CLK_DPU_MCLK>, <&syscon_apmu CLK_DPU_HCLK>,
+					 <&syscon_apmu CLK_DPU_ESC>, <&syscon_apmu CLK_DPU_BIT>,
+					 <&syscon_apmu CLK_DPU_PXCLK>;
+				clock-names = "mclk", "hclk", "esc", "bit", "px";
+				resets = <&syscon_apmu RESET_DPU_MCLK>, <&syscon_apmu RESET_DPU_HCLK>,
+					 <&syscon_apmu RESET_DPU_ESC>;
+				reset-names = "mclk", "hclk", "esc";
+				power-domains = <&syscon_apmu K1_PD_HDMI>;
+				status = "okay";
+			};
+
+			gpu: gpu@cac00000 {
+				compatible = "img,rgx";
+				reg = <0x0 0xcac00000 0x0 0x80000>;
+				interrupts = <75>;
+				clocks = <&syscon_apmu CLK_GPU>;
+				clock-names = "gpu";
+				resets = <&syscon_apmu RESET_GPU>;
+				power-domains = <&syscon_apmu K1_PD_GPU>;
+				status = "okay";
+			};
 		};
 
 		hdmi: hdmi@c0400500 {
@@ -469,76 +573,6 @@
 			clock-names = "hmclk";
 			resets = <&syscon_apmu RESET_HDMI>;
 			power-domains = <&syscon_apmu K1_PD_HDMI>;
-			status = "okay";
-		};
-
-		// USB: the DWC3 host (xHCI), the EHCI host, the OTG gadget.
-		usb3: usb@c0a00000 {
-			compatible = "spacemit,k1-dwc3", "snps,dwc3";
-			reg = <0x0 0xc0a00000 0x0 0x10000>;
-			interrupts = <125>;
-			clocks = <&syscon_apmu CLK_USB30>;
-			clock-names = "usbdrd30";
-			resets = <&syscon_apmu RESET_USB30_AHB>, <&syscon_apmu RESET_USB30_VCC>,
-				 <&syscon_apmu RESET_USB30_PHY>;
-			reset-names = "ahb", "vcc", "phy";
-			power-domains = <&syscon_apmu K1_PD_BUS>;
-			dr_mode = "host";
-			status = "okay";
-		};
-
-		ehci1: usb@c0980100 {
-			compatible = "spacemit,mv-ehci";
-			reg = <0x0 0xc0980100 0x0 0x4000>;
-			interrupts = <118>;
-			clocks = <&syscon_apmu CLK_USB_P1>;
-			resets = <&syscon_apmu RESET_USBP1_AXI>;
-			power-domains = <&syscon_apmu K1_PD_BUS>;
-			status = "okay";
-		};
-
-		udc: usb@c0900100 {
-			compatible = "spacemit,mv-udc";
-			reg = <0x0 0xc0900100 0x0 0x4000>;
-			interrupts = <105>;
-			clocks = <&syscon_apmu CLK_USB_AXI>;
-			resets = <&syscon_apmu RESET_USB_AXI>;
-			power-domains = <&syscon_apmu K1_PD_BUS>;
-			status = "okay";
-		};
-
-		emac0: ethernet@cac80000 {
-			compatible = "spacemit,k1-emac";
-			reg = <0x0 0xcac80000 0x0 0x420>;
-			interrupts = <131>;
-			clocks = <&syscon_apmu CLK_EMAC0_BUS>, <&syscon_apmu CLK_EMAC0_PTP>;
-			clock-names = "bus", "ptp";
-			resets = <&syscon_apmu RESET_EMAC0>;
-			power-domains = <&syscon_apmu K1_PD_BUS>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&gmac0_cfg>, <&gmac0_clk_ref_cfg>;
-			status = "okay";
-		};
-
-		emac1: ethernet@cac81000 {
-			compatible = "spacemit,k1-emac";
-			reg = <0x0 0xcac81000 0x0 0x420>;
-			interrupts = <133>;
-			clocks = <&syscon_apmu CLK_EMAC1_BUS>, <&syscon_apmu CLK_EMAC1_PTP>;
-			clock-names = "bus", "ptp";
-			resets = <&syscon_apmu RESET_EMAC1>;
-			power-domains = <&syscon_apmu K1_PD_BUS>;
-			status = "okay";
-		};
-
-		gpu: gpu@cac00000 {
-			compatible = "img,rgx";
-			reg = <0x0 0xcac00000 0x0 0x80000>;
-			interrupts = <75>;
-			clocks = <&syscon_apmu CLK_GPU>;
-			clock-names = "gpu";
-			resets = <&syscon_apmu RESET_GPU>;
-			power-domains = <&syscon_apmu K1_PD_GPU>;
 			status = "okay";
 		};
 

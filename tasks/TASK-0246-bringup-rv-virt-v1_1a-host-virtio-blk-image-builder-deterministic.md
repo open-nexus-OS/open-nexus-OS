@@ -1,6 +1,6 @@
 ---
 title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: In Progress (P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+status: In Progress (P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; next P2 SDHCI core host-first; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 owner: @runtime @kernel-team
 created: 2025-12-29
 updated: 2026-09-24
@@ -123,13 +123,45 @@ TASK-0248's decision).
   reach (correct by luck today), the tuning-free route HS52 → HS400ES, 32-bit ADMA2, and that
   QEMU's only SD host is behind PCI. RFC-0098 amended (C3 PCI source, C4 DMA reach, C5 names +
   boot disk + operating point), ADR-0067 amended. This recut.
-- **P1 DMA reach in the device capability** — the tree (`board.dts` buses + `dma-ranges`, golden
-  regenerated), `nexus_fdt::Node::dma_ranges` (host goldens: board SD hosts `[0, 2 GiB)`, GMACs
-  translated, virt identity) and `reg` translation through every level (today one level —
-  right for `storage-bus` under `soc` only because both map the identity), the versioned device descriptor, the kernel's per-device reach
-  (allocation within reach; `vmo_runs(vmo, device, …)` in bus addresses, reach-checked, that
-  device only), `DmaVmo::for_device`; `test_reject_*` for a run outside reach, the wrong device
-  and an unknown descriptor version; the P4a/P4b proofs move onto the device-scoped form.
+- **P1 DMA reach in the device capability — ✅ done 2026-09-24.** The tree: `board.dts` gains
+  `storage-bus` (sdhci0/1/2, the DWC3, an EHCI host, the UDC; `dma-ranges` = identity over
+  `[0, 2 GiB)`), `network-bus` (the GMACs) and `multimedia-bus` (display controller, GPU), both
+  with that identity plus bus `0x8000_0000` → CPU `0x1_0000_0000`; golden regenerated.
+  `nexus_fdt::Node::dma_reach` composes the `dma-ranges` of every level above a node (absent =
+  the walk ends, empty = identity, > 4 windows = malformed) and `Node::reg` translates through
+  every level; goldens: the board's SD hosts `[0, 2 GiB)`, the GMACs and the display side
+  translated, virt constrains no master, a nested fixture for composition and translation.
+  The descriptor: `nexus_abi::DeviceDesc` v1 (128 bytes, `repr(C)`, layout pinned by const
+  asserts on both sides); the kernel's `mm/dma_reach.rs` (pure, host) decodes it deny-by-default
+  and keeps one immutable record per register window, `mm/devices.rs` is the live table; the
+  capability names its record (`DeviceMmio { .., dev }`). Allocation within reach:
+  `frames::alloc_within` / `alloc_at_most_within` (first-fit per window, a straddling free
+  block carved; unit tests + a proptest that in-window blocks stay inside, never overlap and all
+  come back), `alloc_below` deleted; `vmo_create(slot, len, flags, device)` — a contiguous
+  object without a device is refused, which replaces the `dma-contiguous` path gate (deleted).
+  `vmo_runs(vmo, device, offset, len, out, max)` answers in bus addresses, reach-checked, only
+  for the holder of THAT device; `DmaRun::pa` → `bus`; `DmaVmo::{contiguous, anonymous}(device,
+  len)`. Every driver makes its DMA memory for its device (virtio-blk, -net, -rng, -input; gpud's
+  queues and the backings the GPU reads, its CPU-only scratch stays unbound). `test_reject_*`:
+  malformed and bad-window descriptors, a second description of one window, a full table and
+  unknown ids, a run out of reach, runs outside the device's reach, windows without memory. The
+  P4a/P4b proofs moved onto the device-scoped form: `KSELFTEST: vmo runs ok (runs=2 deny=4)`
+  (no slot, a VMO as the device, a read-only alias, past the end) and the new
+  `KSELFTEST: vmo reach ok (window=0x90000000+0x4000000 bus=0x4000000000 runs=1 deny=2)` (a
+  synthetic device whose one translated window is the top of the first bank: anonymous and
+  contiguous objects placed inside, runs translated whole and at an inner offset, an object made
+  for another device outside refused, a contiguous object without a device refused; the synthetic
+  records are retired before init). Measured on smp1: the memory record is byte-identical to P5's
+  (54 objects, 70 033 408 bytes, 272 KiB DMA, `exhausted=0`); gpud attaches windowd's 49 MB
+  framebuffer in 5 runs through the GPU's reach. Found on the way: a one-page object for no
+  device can land in a carve remainder anywhere (the buddy takes the smallest order first), so
+  the selftest's "outside" object is made for a second device by construction. Proof: kernel
+  host tests 107/107, nexus-fdt goldens 17/17 and every touched crate's host tests green;
+  `just check` green (the size ratchet shrank virtio-rng 656 → 649 and virtio-input 873 → 870
+  lines); smp1 twice with byte-identical DMA markers, backing runs and memory record; visible
+  green (pixel proof: the greeter over the GL path); `just test-all` green (EXIT=0, 11 QEMU
+  lanes: smp1, visible ×2 pixel proofs, input-flood, reset, seven OTA profiles; both markers in
+  all 20 boots with identical numbers).
 - **P2 SDHCI core, host-first** — the crate over `nexus_hal::Bus` against a behavioural
   SDHCI + eMMC model in the tests (commands, responses, ADMA2 fetch from model memory, IRQ
   status, and cache-state tracking so a missing `for_cpu`/`for_device` is a test failure); the
@@ -170,6 +202,11 @@ TASK-0248's decision).
 
 - **RED (measured): DMA reach.** Without P1 the first full bank 0 turns SD transfers into
   silent corruption; P1 lands before any SDHCI transfer runs anywhere.
+- **YELLOW (found in P1): the PLIC layer's line bound is QEMU's.** `hal::plic::MAX_IRQ` = 95
+  bounds `IrqId` and the device descriptor's line, but the K1 PLIC has `riscv,ndev = 159` and
+  the eMMC host is line 101 — the board's eMMC grant would be refused today (a TASK-0245
+  residual: `plic_ndev()` is read from the tree, the bound is not). P6 derives the bound from
+  `riscv,ndev` and sizes the enable bitmap for the controller, before the first board grant.
 - **YELLOW: HS400ES on the board is a board-only proof** — QEMU has no vendor registers and no
   HS400; the K1 layer is proven by the host model first and by the board last (HS52 is the
   fallback the driver reports, not hides).

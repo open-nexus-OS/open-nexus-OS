@@ -91,20 +91,6 @@ fn board_golden_has_two_banks_around_the_hole() {
 }
 
 #[test]
-fn alloc_below_never_crosses_the_limit() {
-    let mut fa = from_tree(BOARD, &[]);
-    let mut n = 0usize;
-    while let Ok(b) = fa.alloc_below(SUPERPAGE_ORDER, 4 * GIB) {
-        assert!(b.end() <= 4 * GIB, "{b:?}");
-        n += 1;
-    }
-    assert_eq!(n, (2 * GIB / SUPER) as usize - 1);
-    // Bank 1 is untouched: its whole extent is still free.
-    assert_eq!(fa.banks()[1].free_frames(), frames(2 * GIB));
-    assert!(fa.alloc(MAX_ORDER).unwrap().base >= 4 * GIB);
-}
-
-#[test]
 fn same_tree_same_calls_same_frames() {
     let script = [9u8, 0, 3, 9, 1, 0, 5, 2, 9, 0];
     let run = |excluded: &[Range]| {
@@ -215,6 +201,86 @@ fn test_reject_alloc_at_most_counts_exhaustion_only_when_nothing_is_left() {
 }
 
 #[test]
+fn a_block_for_a_device_comes_from_inside_its_window_only() {
+    // 16 MiB bank; the device reaches only [4 MiB, 8 MiB) of it.
+    let bank = Range { base: 0x8000_0000, size: 16 * MIB };
+    let mut fa = FrameAllocator::init(&[bank], &[], &[]).unwrap();
+    let window = [(0x8000_0000 + 4 * MIB, 0x8000_0000 + 8 * MIB)];
+    let first = fa.alloc_within(0, &window).unwrap();
+    assert_eq!(first.base, 0x8000_0000 + 4 * MIB, "the lowest frame in the window");
+    let mut taken = 1;
+    while let Ok(b) = fa.alloc_within(0, &window) {
+        assert!(b.base >= window[0].0 && b.base + b.size() <= window[0].1);
+        taken += 1;
+    }
+    assert_eq!(taken, frames(4 * MIB));
+    assert_eq!(fa.stats().exhausted, 1, "one request, one exhaustion");
+    assert_eq!(fa.stats().free, frames(12 * MIB), "the rest of the bank is untouched");
+}
+
+#[test]
+fn a_free_block_straddling_the_window_is_carved_and_its_rest_stays_free() {
+    // One free 16 MiB block; the window [1 MiB, 3 MiB) cuts into it.
+    let bank = Range { base: 0x8000_0000, size: 16 * MIB };
+    let mut fa = FrameAllocator::init(&[bank], &[], &[]).unwrap();
+    let window = [(0x8000_0000 + MIB, 0x8000_0000 + 3 * MIB)];
+    // A 2 MiB block cannot start inside [1, 3) MiB aligned; a 1 MiB block can.
+    assert!(fa.alloc_within(9, &window).is_err());
+    let carved = fa.alloc_within(8, &window).unwrap();
+    assert_eq!(carved, Block { base: 0x8000_0000 + MIB, order: 8 });
+    assert_eq!(fa.stats().free, frames(15 * MIB));
+    // The halves off the path stayed free: the lowest megabyte is still there.
+    assert_eq!(fa.alloc(8).unwrap().base, 0x8000_0000);
+    // Returning both merges the bank back into one block.
+    fa.free(Block { base: 0x8000_0000, order: 8 }).unwrap();
+    fa.free(carved).unwrap();
+    assert_eq!(fa.alloc(12).unwrap().base, 0x8000_0000);
+}
+
+#[test]
+fn an_object_for_a_device_falls_back_to_smaller_blocks_inside_its_window() {
+    let bank = Range { base: 0x8000_0000, size: 16 * MIB };
+    let mut fa = FrameAllocator::init(&[bank], &[], &[]).unwrap();
+    // A window of 12 KiB: the order-2 ask is answered with 8 KiB, then 4 KiB.
+    let window = [(0x8000_0000 + 8 * MIB, 0x8000_0000 + 8 * MIB + 3 * FRAME_SIZE)];
+    assert_eq!(fa.alloc_at_most_within(2, &window).unwrap().order, 1);
+    assert_eq!(fa.alloc_at_most_within(2, &window).unwrap().order, 0);
+    assert_eq!(fa.stats().exhausted, 0);
+    assert!(fa.alloc_at_most_within(2, &window).is_err());
+    assert_eq!(fa.stats().exhausted, 1);
+}
+
+#[test]
+fn the_board_storage_window_is_bank_zero_and_the_upper_bank_is_never_touched() {
+    let mut fa = from_tree(BOARD, &[]);
+    let storage = [(0u64, 2 * GIB)];
+    let mut n = 0usize;
+    while let Ok(b) = fa.alloc_within(SUPERPAGE_ORDER, &storage) {
+        assert!(b.end() <= 2 * GIB, "a storage master's block is below 2 GiB: {b:?}");
+        n += 1;
+    }
+    // Every superpage of bank 0 but the firmware's, and not one more.
+    assert_eq!(n, (2 * GIB / SUPER) as usize - 1);
+    assert_eq!(fa.banks()[1].free_frames(), frames(2 * GIB), "the upper bank is untouched");
+    let upper = [(4 * GIB, 6 * GIB)];
+    assert!(fa.alloc_within(0, &upper).unwrap().base >= 4 * GIB);
+}
+
+#[test]
+fn test_reject_alloc_within_bad_order_and_windows_without_memory() {
+    let bank = Range { base: 0x8000_0000, size: 4 * MIB };
+    let mut fa = FrameAllocator::init(&[bank], &[], &[]).unwrap();
+    assert_eq!(fa.alloc_within(MAX_ORDER + 1, &[(0, u64::MAX)]), Err(FrameError::BadOrder));
+    assert_eq!(fa.alloc_at_most_within(MAX_ORDER + 1, &[(0, u64::MAX)]), Err(FrameError::BadOrder));
+    assert!(matches!(fa.alloc_within(0, &[]), Err(FrameError::Exhausted { .. })));
+    assert!(matches!(fa.alloc_within(0, &[(0, 0x8000_0000)]), Err(FrameError::Exhausted { .. })));
+    assert!(matches!(
+        fa.alloc_within(0, &[(0x8000_1000, 0x8000_1000)]),
+        Err(FrameError::Exhausted { .. })
+    ));
+}
+
+#[test]
 fn holes_poison_whole_frames_and_are_never_handed_out() {
     let bank = Range { base: 0x8000_0000, size: 4 * MIB };
     let reserved = [Range { base: 0x8000_0000 + 0x1800, size: 0x100 }];
@@ -292,6 +358,62 @@ proptest! {
         }
         prop_assert_eq!(fa.stats().free, total);
     }
+
+    /// The same, with every allocation made for a device whose reach is a random
+    /// window (TASK-0246 P1): each block lies inside its window, carving never
+    /// hands out a frame twice or loses one, and freeing everything merges the
+    /// bank back — a max-order block is again at the bank base.
+    #[test]
+    fn in_window_blocks_stay_inside_never_overlap_and_everything_comes_back(
+        script in prop::collection::vec(
+            (0u8..=6, 0u64..4096, 1u64..4096, any::<bool>()), 1..200
+        )
+    ) {
+        let bank = Range { base: 0x8000_0000, size: 16 * MIB };
+        let hole = Range { base: 0x8040_0000, size: 3 * FRAME_SIZE };
+        let mut fa = FrameAllocator::init(&[bank], &[hole], &[]).unwrap();
+        let total = fa.stats().total;
+        let mut live: alloc::vec::Vec<Block> = alloc::vec::Vec::new();
+        for (order, start_frame, len_frames, do_free) in script {
+            if do_free && !live.is_empty() {
+                let b = live.swap_remove(order as usize % live.len());
+                fa.free(b).unwrap();
+            } else {
+                let lo = 0x8000_0000 + start_frame * FRAME_SIZE;
+                let hi = lo + len_frames * FRAME_SIZE;
+                if let Ok(b) = fa.alloc_within(order, &[(lo, hi)]) {
+                    prop_assert!(b.base >= lo && b.end() <= hi, "{b:?} outside [{lo:#x}, {hi:#x})");
+                    prop_assert!(b.base % b.size() == 0);
+                    prop_assert!(b.base >= hole.base + hole.size || b.end() <= hole.base);
+                    for other in &live {
+                        prop_assert!(b.end() <= other.base || other.end() <= b.base, "{b:?} vs {other:?}");
+                    }
+                    live.push(b);
+                }
+            }
+            let used: usize = live.iter().map(|b| b.frames()).sum();
+            prop_assert_eq!(fa.stats().free + used, total);
+        }
+        for b in live.drain(..) {
+            fa.free(b).unwrap();
+        }
+        prop_assert_eq!(fa.stats().free, total);
+        // Every buddy merged back: draining largest-first yields exactly what a
+        // fresh allocator over the same bank and hole yields.
+        let mut fresh = FrameAllocator::init(&[bank], &[hole], &[]).unwrap();
+        prop_assert_eq!(drain_largest_first(&mut fa), drain_largest_first(&mut fresh));
+    }
+}
+
+/// Take every free frame, the largest blocks first — a fingerprint of the free map.
+fn drain_largest_first(fa: &mut FrameAllocator) -> alloc::vec::Vec<Block> {
+    let mut out = alloc::vec::Vec::new();
+    for order in (0..=MAX_ORDER).rev() {
+        while let Ok(b) = fa.alloc(order) {
+            out.push(b);
+        }
+    }
+    out
 }
 
 #[test]

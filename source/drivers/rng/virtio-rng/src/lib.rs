@@ -429,20 +429,15 @@ pub fn read_entropy_via_virtio_mmio(
     #[allow(non_snake_case)]
     let (_q_vmo, _buf_vmo, Q_VA, BUF_VA, desc_pa, buf_pa): (u32, u32, usize, usize, u64, u64) = unsafe {
         if !QUEUE_INIT {
-            let q_vmo = vmo_create_contiguous(4096).map_err(|_| RngError::MapFailed)?;
-            let buf_vmo = vmo_create_contiguous(4096).map_err(|_| RngError::MapFailed)?;
-            let flags = nexus_abi::page_flags::VALID
-                | nexus_abi::page_flags::USER
-                | nexus_abi::page_flags::READ
-                | nexus_abi::page_flags::WRITE;
-            Q_VA_S = vm_map(q_vmo, 0, 4096, flags).map_err(|_| RngError::MapFailed)?;
-            BUF_VA_S = vm_map(buf_vmo, 0, 4096, flags).map_err(|_| RngError::MapFailed)?;
-            let q_pa = vmo_dma_base(q_vmo, 4096).map_err(|_| RngError::MapFailed)?;
-            let buf_pa = vmo_dma_base(buf_vmo, 4096).map_err(|_| RngError::MapFailed)?;
-            Q_VMO = q_vmo;
-            BUF_VMO = buf_vmo;
-            DESC_PA = q_pa;
-            BUF_PA = buf_pa;
+            use nexus_abi::page_flags::{READ, USER, VALID, WRITE};
+            // A page for the device: inside its DMA reach, programmed with its bus address.
+            let page = || -> Option<(u32, usize, u64)> {
+                let vmo = vmo_create_contiguous(mmio_cap_slot, 4096).ok()?;
+                let va = vm_map(vmo, 0, 4096, VALID | USER | READ | WRITE).ok()?;
+                Some((vmo, va, vmo_dma_base(vmo, mmio_cap_slot, 4096).ok()?))
+            };
+            (Q_VMO, Q_VA_S, DESC_PA) = page().ok_or(RngError::MapFailed)?;
+            (BUF_VMO, BUF_VA_S, BUF_PA) = page().ok_or(RngError::MapFailed)?;
             QUEUE_INIT = true;
         }
         (Q_VMO, BUF_VMO, Q_VA_S, BUF_VA_S, DESC_PA, BUF_PA)

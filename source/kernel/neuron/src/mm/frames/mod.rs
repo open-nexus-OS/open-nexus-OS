@@ -92,8 +92,8 @@ impl Block {
 /// Why an allocator call was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrameError {
-    /// No free block of `order` in any bank; `free` is the frames still free
-    /// (in smaller blocks, or above a `alloc_below` limit).
+    /// No free block of `order` in any bank (or window); `free` is the frames
+    /// still free (in smaller blocks, or outside the windows asked for).
     Exhausted { order: u8, free: usize },
     /// `order > MAX_ORDER`.
     BadOrder,
@@ -207,25 +207,14 @@ impl FrameAllocator {
 
     /// The lowest free block of `order` across the banks in tree order.
     pub fn alloc(&mut self, order: u8) -> Result<Block, FrameError> {
-        self.alloc_below(order, u64::MAX)
-    }
-
-    /// Like `alloc`, but the block must end at or below `limit` (a DMA master
-    /// with a 32-bit address window asks for `1 << 32`). First-fit makes the
-    /// answer per bank exact: if the lowest block is above the limit, none is
-    /// below it.
-    pub fn alloc_below(&mut self, order: u8, limit: u64) -> Result<Block, FrameError> {
         if order > MAX_ORDER {
             return Err(FrameError::BadOrder);
         }
-        for bank in self.banks.iter_mut().filter(|b| b.base() < limit) {
-            let Some(block) = bank.alloc(order) else { continue };
-            if block.end() <= limit {
+        for bank in self.banks.iter_mut() {
+            if let Some(block) = bank.alloc(order) {
                 self.allocs += 1;
                 return Ok(block);
             }
-            // Never handed out, so this cannot fail.
-            let _ = bank.free(block);
         }
         self.exhausted += 1;
         Err(FrameError::Exhausted { order, free: self.free_frames() })
@@ -245,6 +234,50 @@ impl FrameAllocator {
                 if let Some(block) = bank.alloc(o) {
                     self.allocs += 1;
                     return Ok(block);
+                }
+            }
+        }
+        self.exhausted += 1;
+        Err(FrameError::Exhausted { order, free: self.free_frames() })
+    }
+
+    /// A block of `order` lying inside one of the physical `windows` (a device's
+    /// DMA reach, TASK-0246 P1), tried in the order given (the reach lists them by
+    /// CPU address), banks in tree order: the lowest fitting block, carved from a
+    /// straddling free block when needed. Exhaustion is counted once per request.
+    pub fn alloc_within(&mut self, order: u8, windows: &[(u64, u64)]) -> Result<Block, FrameError> {
+        if order > MAX_ORDER {
+            return Err(FrameError::BadOrder);
+        }
+        for &(lo, hi) in windows {
+            for bank in self.banks.iter_mut() {
+                if let Some(block) = bank.alloc_in(order, lo, hi) {
+                    self.allocs += 1;
+                    return Ok(block);
+                }
+            }
+        }
+        self.exhausted += 1;
+        Err(FrameError::Exhausted { order, free: self.free_frames() })
+    }
+
+    /// The largest block of `order` or below inside the `windows` — an anonymous
+    /// object for a device; a fallback to smaller blocks is served, not exhausted.
+    pub fn alloc_at_most_within(
+        &mut self,
+        order: u8,
+        windows: &[(u64, u64)],
+    ) -> Result<Block, FrameError> {
+        if order > MAX_ORDER {
+            return Err(FrameError::BadOrder);
+        }
+        for o in (0..=order).rev() {
+            for &(lo, hi) in windows {
+                for bank in self.banks.iter_mut() {
+                    if let Some(block) = bank.alloc_in(o, lo, hi) {
+                        self.allocs += 1;
+                        return Ok(block);
+                    }
                 }
             }
         }

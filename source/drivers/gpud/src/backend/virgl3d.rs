@@ -174,9 +174,11 @@ impl VirtioGpuBackend {
         };
         // RFC-0085: one whole-range `vm_map` at a kernel-chosen va (the old
         // 12-slot backing arena is gone). RFC-0098 C4 (TASK-0286 P4a): an
-        // anonymous object; the device reads it through its runs.
+        // anonymous object made for the GPU (inside its DMA reach, TASK-0246 P1);
+        // the device reads it through its runs.
         let backing_len = align_page(byte_len);
-        let vmo = nexus_abi::vmo_create(backing_len).map_err(|_| GfxError::ResourceExhausted)?;
+        let vmo = nexus_abi::vmo_create_for(self.device, backing_len)
+            .map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ

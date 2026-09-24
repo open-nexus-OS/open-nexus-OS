@@ -1,0 +1,110 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A synthetic tree for the corners the two real trees do not reach (TASK-0246 P1):
+// `dma-ranges` composed over two levels, an empty level (identity), an absent level
+// (the walk ends), a window no upper level carries, too many windows, and `reg`
+// translated through two translating `ranges`. Compiled with
+//   dtc -I dts -O dtb -o dma-nested.dtb dma-nested.dts
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	// Two levels: the device's bus 0..64 MiB is bus-a's 128 MiB.., which is CPU 256 MiB+.
+	bus-a {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		dma-ranges = <0x0 0x0 0x0 0x10000000 0x0 0x10000000>;
+
+		bus-b {
+			compatible = "simple-bus";
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+			dma-ranges = <0x0 0x0 0x0 0x08000000 0x0 0x04000000>,
+				     <0x0 0x40000000 0x0 0x30000000 0x0 0x01000000>;
+
+			nested@1000 {
+				compatible = "test,dma-nested";
+				reg = <0x0 0x1000 0x0 0x100>;
+			};
+		};
+	};
+
+	// Empty `dma-ranges` all the way up: identity, every address.
+	bus-c {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		dma-ranges;
+
+		identity@2000 {
+			compatible = "test,dma-identity";
+			reg = <0x0 0x2000 0x0 0x100>;
+		};
+	};
+
+	// The device's own bus has NO dma-ranges: the walk ends there, whatever is above.
+	bus-e {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		dma-ranges = <0x0 0x0 0x0 0x0 0x0 0x40000000>;
+
+		bus-f {
+			compatible = "simple-bus";
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+
+			unconstrained@3000 {
+				compatible = "test,dma-unconstrained";
+				reg = <0x0 0x3000 0x0 0x100>;
+			};
+		};
+	};
+
+	// Five windows at one level: more than a reach may carry.
+	bus-g {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		dma-ranges = <0x0 0x00000000 0x0 0x00000000 0x0 0x1000>,
+			     <0x0 0x00010000 0x0 0x00010000 0x0 0x1000>,
+			     <0x0 0x00020000 0x0 0x00020000 0x0 0x1000>,
+			     <0x0 0x00030000 0x0 0x00030000 0x0 0x1000>,
+			     <0x0 0x00040000 0x0 0x00040000 0x0 0x1000>;
+
+		crowded@4000 {
+			compatible = "test,dma-crowded";
+			reg = <0x0 0x4000 0x0 0x100>;
+		};
+	};
+
+	// `reg` through two translating levels: 0x1000 → 0x0100_1000 → 0x4100_1000.
+	xlate-a@40000000 {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges = <0x0 0x0 0x0 0x40000000 0x0 0x10000000>;
+
+		xlate-b@1000000 {
+			compatible = "simple-bus";
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges = <0x0 0x0 0x0 0x01000000 0x0 0x01000000>;
+
+			deep@1000 {
+				compatible = "test,xlate-deep";
+				reg = <0x0 0x1000 0x0 0x100>;
+			};
+		};
+	};
+};

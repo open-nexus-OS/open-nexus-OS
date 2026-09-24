@@ -183,7 +183,7 @@ fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
         Err(AbiError::InvalidArgument) => return Err(AbiError::InvalidArgument),
         Err(_) => return Err(nexus_abi::AbiError::InvalidArgument),
     };
-    let mut backend = VirtioGpuBackend::new(mmio_va, GPU_MMIO_LEN);
+    let mut backend = VirtioGpuBackend::new(GPU_MMIO_CAP_SLOT, mmio_va, GPU_MMIO_LEN);
     match backend.probe() {
         Ok(()) => {
             debug_println(GPUD_VIRTIO_GPU_PROBED)?;

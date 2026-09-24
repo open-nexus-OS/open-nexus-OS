@@ -48,7 +48,9 @@ Automated power control (no relay), a second board, the 2-VM network lane (`TASK
 
 **Block 1 markers from M1 (TASK-0286, added 2026-09-24).** The board ladder carries the memory
 markers QEMU already requires: `KINIT: mm frames (banks=2 …)` (two banks around the 2 GiB hole),
-`KSELFTEST: vmo runs ok (runs=… deny=3)`, `KINIT: user cache maintenance zicbom block=64`,
+`KSELFTEST: vmo runs ok (runs=… deny=4)`, `KSELFTEST: vmo reach ok (…)` (TASK-0246 P1: the
+window is the top of the first bank — on the board that is bank 0 below 2 GiB),
+`KINIT: user cache maintenance zicbom block=64`,
 `SELFTEST: dma buffer ok (device=… block=64 runs=…)` and `KSELFTEST: mm frames (…)` with
 `exhausted=0`. YELLOW: user-mode `cbo.*` needs `menvcfg.CBCFE`/`CBIE` from the firmware — the
 vendor OpenSBI is 1.0; if the `dma buffer` line traps, the FIT's own OpenSBI (≥ 1.3, TASK-0260B)

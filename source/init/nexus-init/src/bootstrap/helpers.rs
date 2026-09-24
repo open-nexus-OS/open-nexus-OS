@@ -258,8 +258,9 @@ impl<'a> ServiceNameGuard<'a> {
     }
 }
 
-/// One policy-gated DeviceMmio grant: the window, the PLIC line and the device's DMA
-/// coherence come from its tree node (RFC-0098 C3/C4) and travel inside the capability.
+/// One policy-gated DeviceMmio grant: the window, the PLIC line, the device's DMA
+/// coherence and its DMA reach come from its tree node and the buses above it
+/// (RFC-0098 C3/C4) and travel to the kernel as one descriptor.
 pub(crate) fn grant_mmio_cap(
     pid: u32,
     svc_name: &str,
@@ -308,13 +309,7 @@ pub(crate) fn grant_mmio_cap(
         debug_write_byte(b'\n');
     }
 
-    let cap = match nexus_abi::device_mmio_cap_create(
-        base,
-        len,
-        dev.irq,
-        dev.dma_noncoherent,
-        usize::MAX,
-    ) {
+    let cap = match nexus_abi::device_mmio_cap_create(&dev.desc()?, usize::MAX) {
         Ok(slot) => {
             if probes_enabled() {
                 debug_write_bytes(b"init: mmio cap_create ok svc=");

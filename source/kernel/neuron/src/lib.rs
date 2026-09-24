@@ -458,6 +458,10 @@ pub mod phys;
 // target-gated so the reject matrix runs on host.
 #[path = "mm/dma_runs.rs"]
 pub mod dma_runs;
+// TASK-0246 P1 (RFC-0098 C4): a device's DMA reach — the versioned device descriptor,
+// bus-address translation and the one-record-per-window table, NOT target-gated.
+#[path = "mm/dma_reach.rs"]
+pub mod dma_reach;
 // TASK-0286 M1 P5 (RFC-0098 C4): the memory accounting record (`mm_stats`) and the
 // bounded exhaustion log — NOT target-gated so the wire form runs on host.
 #[path = "mm/accounting.rs"]

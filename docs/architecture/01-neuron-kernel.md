@@ -124,7 +124,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **2 `send`**: Send an IPC message via an endpoint capability.
 - **3 `recv`**: Receive the next pending IPC message.
 - **4** — RETIRED (RFC‑0085 P6): was the fixed‑VA `map`; number never reused. Use 53 `vm_map`.
-- **5 `vmo_create`**: Create a page-backed VMO (`mm::vmo`, TASK-0286 P3a): a list of physically contiguous blocks from the frame pool; arg 2 bit 0 asks for ONE block (`nexus_abi::vmo_create_contiguous`) — for memory a device addresses by one base (virtio queues, command pools); only drivers create it (`just dma-contiguous`).
+- **5 `vmo_create`**: Create a page-backed VMO (`mm::vmo`, TASK-0286 P3a): a list of physically contiguous blocks from the frame pool. Args `(slot, len, flags, device)`: flag bit 0 asks for ONE block (`nexus_abi::vmo_create_contiguous`) — for memory a device addresses by one base (virtio queues, command pools); `device` names the device capability the object is for (`usize::MAX` = none) and its frames then come from inside that device's DMA reach (TASK-0246 P1, `nexus_abi::vmo_create_for`). A contiguous object needs its device — a task without one cannot make it.
 - **6 `vmo_write`**: Write bytes into a VMO capability.
 - **7 `spawn`**: Create a child task (fresh Sv39 AS by default) with a guarded stack.
 - **8 `cap_transfer`**: Duplicate/grant a capability to another task with a rights mask (subset-only).
@@ -146,7 +146,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **27** — RETIRED (RFC‑0085 P6): was the fixed‑VA `mmio_map`; number never reused. Use 55 `mmio_map_auto`.
 - **28 `cap_query`**: Query a capability slot (kind/irq/base/len) into a user buffer; a device capability's `irq` is the PLIC line init took from the device tree (RFC‑0098 C3) — the one place a driver learns its interrupt. `base` is a device's register window; a VMO reports 0 (its physical runs leave only through 60 `vmo_runs`). 32 bytes since TASK‑0286 P4b: a device also reports `flags` (bit 0 = does not snoop the caches) and `cache_block` (the harts' Zicbom block, 0 = none).
 - **29 `spawn_last_error`**: Last spawn-failure reason for the caller (RFC‑0013).
-- **30 `device_cap_create`**: Mint a DeviceMmio capability (privileged bring-up): window, PLIC line and, in arg 4 bit 0, `dma-noncoherent` from the node or its bus (RFC‑0098 C4; any other bit is refused).
+- **30 `device_cap_create`**: Mint a DeviceMmio capability (privileged bring-up) from ONE versioned descriptor (`nexus_abi::DeviceDesc`, 128 bytes; args `(desc_ptr, desc_len, slot)`): register window, PLIC line, `dma-noncoherent` and the DMA reach — the `dma-ranges` of the buses above the node (RFC‑0098 C4, TASK‑0246 P1). Decoded deny-by-default (`mm/dma_reach.rs`, host-tested); the kernel keeps one immutable record per register window (`mm/devices.rs`) — the same description again names the same record, a different one is refused — and the capability names it.
 - **31 `cap_transfer_to`**: Transfer a capability into a specific child slot.
 - **32 `task_resume`**: Resume a suspended task.
 - **33–35 `timer_create/set/cancel`**: Per-task timer capabilities.
@@ -169,13 +169,17 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **55 `mmio_map_auto`**: Device-MMIO window at a kernel-chosen va —
   same USER|RW/never-EXEC floor as the retired 27, but the caller cannot
   collide because it never picks an address (RFC‑0085).
-- **60 `vmo_runs`**: The one door a physical address leaves the kernel by
-  (RFC‑0098 C4, TASK‑0286 P4a): the `(pa, len)` runs behind a byte range of a
-  writable VMO, adjacent runs merged, at most 256 per call, all or nothing —
-  only to a task holding a device capability, never for a read-only alias.
-  A driver takes a queue's one base from it (`nexus_abi::vmo_dma_base`) and a
-  scatter-gather list for a device that reads one (gpud's resource backings,
-  windowd's framebuffer). Authority + clipping: `mm/dma_runs.rs`, host-tested.
+- **60 `vmo_runs`**: The one door an address leaves the kernel by
+  (RFC‑0098 C4, TASK‑0286 P4a; device-scoped by TASK‑0246 P1). Args
+  `(vmo, device, offset, len, out, max)`: the `(bus, len)` runs behind a byte
+  range of a writable VMO as THAT device addresses them (its reach translates),
+  adjacent runs merged, at most 256 per call, all or nothing — only to the
+  holder of the device's capability, never for a read-only alias, and a byte
+  outside the device's reach refuses the whole answer. A driver takes a
+  queue's one base from it (`nexus_abi::vmo_dma_base`) and a scatter-gather
+  list for a device that reads one (gpud's resource backings, windowd's
+  framebuffer). Authority, clipping, translation: `mm/dma_runs.rs` +
+  `mm/dma_reach.rs`, host-tested.
 - **61 `mm_stats`**: The memory record (TASK‑0286 P5): pool, page-table frames, objects and
   their DMA bytes, and the caller's own residency, versioned (`nexus_abi::mm_stats`). No
   authority — nothing in it names another task; a buffer shorter than the record is refused.
@@ -244,12 +248,20 @@ increment:
   the one seam (see *Address Space Model*).
 - **Objects.** A VMO (`mm/vmo.rs`) is a list of pool blocks: `Anon` (largest blocks first, what
   a device reads through a scatter-gather list or no device reads at all), `Contiguous` (one
-  block, for a device that takes one base — virtio queues, command pools; only drivers create
-  it, `just dma-contiguous`) or `Fixed` (frames outside the pool, never freed). Every object is
-  zeroed at create, off the BKL. Capabilities name the object (`Vmo { id, len }`).
-- **One door for a physical address.** `vmo_runs` (60) answers the runs of a byte range of a
-  writable VMO to a task holding a device capability — never for a read-only alias; `cap_query`
-  reports no VMO base (`KSELFTEST: vmo runs ok (runs=… deny=3)`).
+  block, for a device that takes one base — virtio queues, command pools; it needs its device,
+  so only a device holder makes one) or `Fixed` (frames outside the pool, never freed). Every
+  object is zeroed at create, off the BKL. Capabilities name the object (`Vmo { id, len }`).
+- **DMA reach.** A bus master reaches only what the `dma-ranges` of the buses above it name,
+  and on a bus that translates, the address it is programmed with is not the physical one (the
+  K1's storage bus reaches `[0, 2 GiB)`; its multimedia and network buses translate the upper
+  bank). init mints the composed reach into the device capability's record (`mm/devices.rs`);
+  an object made for a device comes from inside its windows (`frames::alloc_within`: first-fit
+  per window in CPU order, a straddling free block carved) — never "in reach because bank 0
+  happened to be free" (`KSELFTEST: vmo reach ok (…)`).
+- **One door for an address.** `vmo_runs` (60) answers the runs of a byte range of a writable
+  VMO in the named device's bus addresses, to the holder of that device's capability — never
+  for a read-only alias, never for a byte outside the reach; `cap_query` reports no VMO base
+  (`KSELFTEST: vmo runs ok (runs=… deny=4)`).
 - **Coherence.** A device that does not snoop the caches is marked `dma-noncoherent` on its node
   or bus; init mints that into the device capability, `cap_query` reports it with the harts'
   Zicbom block size, and the kernel enables `cbo.clean`/`cbo.flush` for user mode per hart

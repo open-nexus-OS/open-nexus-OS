@@ -49,6 +49,10 @@ pub const SYSCALL_SEND: usize = 2;
 pub const SYSCALL_RECV: usize = 3;
 // RETIRED (RFC-0085 P6): 4 was the fixed-VA `sys_map`; the number is never
 // reused (the 44-collision scar). Kernel-chosen maps are 53/54/55.
+/// Creates a VMO. Args: (slot, len, flags, device_slot) — flag bit 0 = one
+/// physically contiguous block; `device_slot` (`usize::MAX` = none) names the device
+/// capability the object is for, whose DMA reach its frames come from inside
+/// (TASK-0246 P1). A contiguous object needs its device.
 pub const SYSCALL_VMO_CREATE: usize = 5;
 pub const SYSCALL_VMO_WRITE: usize = 6;
 pub const SYSCALL_SPAWN: usize = 7;
@@ -130,10 +134,13 @@ pub const SYSCALL_IPC_CALL_V1: usize = 58;
 pub const SYSCALL_IPC_REPLY_RECV_V1: usize = 59;
 
 /// TASK-0286 P4a (RFC-0098 C4): the one door a physical address leaves the kernel
-/// by. Args: (vmo_slot, offset, len, out_ptr, max). Writes the `(pa: u64, len: u64)`
-/// runs covering the byte range of a writable VMO, adjacent runs merged, at most
-/// `max` (≤ `dma_runs::MAX_RUNS`), all or nothing; returns the count. Only a task
-/// holding a device capability may ask; a read-only alias never answers.
+/// by, device-scoped since TASK-0246 P1. Args: (vmo_slot, device_slot, offset, len,
+/// out_ptr, max). Writes the `(bus: u64, len: u64)` runs covering the byte range of
+/// a writable VMO as the named device addresses them (its DMA reach translates),
+/// adjacent runs merged, at most `max` (≤ `dma_runs::MAX_RUNS`), all or nothing;
+/// returns the count. Only the holder of that device's capability may ask; a
+/// read-only alias never answers; a byte outside the device's reach refuses the
+/// whole answer.
 pub const SYSCALL_VMO_RUNS: usize = 60;
 
 /// TASK-0286 P5 (RFC-0098 C4): the memory record — the pool, the objects and the
@@ -166,6 +173,9 @@ pub const SYSCALL_IPC_RECV_V2: usize = 26;
 /// addresses for DMA-capable resources (e.g., VMOs) without exposing ambient physical memory.
 pub const SYSCALL_CAP_QUERY: usize = 28;
 /// Creates a DeviceMmio capability in the caller's cap table (privileged; init-only).
+/// Args: (desc_ptr, desc_len, slot) — the versioned device descriptor
+/// (`dma_reach::decode_desc`: register window, PLIC line, coherence, DMA reach;
+/// TASK-0246 P1). The kernel keeps one record per register window.
 pub const SYSCALL_DEVICE_CAP_CREATE: usize = 30;
 /// Resume a suspended task (enqueue into scheduler). Privileged.
 pub const SYSCALL_TASK_RESUME: usize = 32;

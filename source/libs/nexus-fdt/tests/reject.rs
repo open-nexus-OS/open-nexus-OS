@@ -142,7 +142,7 @@ fn test_reject_specifier_with_dangling_phandle() {
     let (off, _) = emmc_clocks_offset(&buf);
     buf[off..off + 4].copy_from_slice(&0xdead_beefu32.to_be_bytes());
     let fdt = Fdt::new(&buf).unwrap();
-    let emmc = fdt.node_at_path("/soc/mmc@d4281000").unwrap();
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     // The first entry points nowhere: the list ends there, nothing is guessed.
     assert_eq!(emmc.specifiers("clocks", "#clock-cells").count(), 0);
 }
@@ -157,6 +157,6 @@ fn test_reject_specifier_cells_beyond_the_property() {
     let cells_off = cells_bytes.as_ptr() as usize - buf.as_ptr() as usize;
     buf[cells_off..cells_off + 4].copy_from_slice(&64u32.to_be_bytes());
     let fdt = Fdt::new(&buf).unwrap();
-    let emmc = fdt.node_at_path("/soc/mmc@d4281000").unwrap();
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     assert_eq!(emmc.specifiers("clocks", "#clock-cells").count(), 0);
 }

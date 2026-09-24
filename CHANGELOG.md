@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-24 (TASK-0246 P1: a device's DMA reach is kernel truth; `vmo_runs` answers in bus addresses)
+
+- The board tree carries the measured buses: `storage-bus` (the SD hosts, the DWC3, an EHCI host
+  and the USB device controller) reaches only `[0, 2 GiB)`; `network-bus` and `multimedia-bus`
+  add a window that translates the upper bank. A storage buffer was in reach only because the
+  pool happened to fill bank 0 first.
+- `nexus_fdt::Node::dma_reach` composes the `dma-ranges` of every bus above a node, and
+  `Node::reg` translates through every level instead of one.
+- `device_cap_create` (30) takes one versioned 128-byte descriptor (`nexus_abi::DeviceDesc`):
+  the register window, the line, the coherence and the reach. The kernel decodes it
+  deny-by-default and keeps one immutable record per register window (`mm/devices.rs`). An
+  identical description names the same record, a different one is refused.
+- `vmo_create` (5) takes the device slot the object is for, and its frames then come from
+  inside that device's reach (`frames::alloc_within`, proptest-backed). A contiguous object
+  without a device is refused, so the path gate `dma-contiguous` is deleted.
+- `vmo_runs` (60) takes the device and answers in its bus addresses. A byte outside the reach
+  refuses the whole answer, and only the holder of that device's capability may ask.
+  `nexus_abi::DmaRun::pa` is renamed `bus`.
+- Every driver makes its DMA memory for its own device: virtio-blk, -net, -rng and -input,
+  and gpud's queues and the backings the GPU reads. `FrameAllocator::alloc_below` is deleted,
+  since `alloc_within` supersedes it.
+- New marker `KSELFTEST: vmo reach ok (…)`; `KSELFTEST: vmo runs ok (runs=… deny=4)` is now
+  device-scoped. RFC-0098 C4 is Implemented for the reach.
+- Proof: kernel host tests 107/107 and every touched crate's host tests green; `just check`
+  green; smp1 twice with byte-identical DMA markers, backing runs and memory record; visible
+  green; `just test-all` green (EXIT=0, 11 QEMU lanes incl. seven OTA profiles and 2 pixel
+  proofs; `vmo runs ok (runs=2 deny=4)` and `vmo reach ok (…)` in all 20 boots).
+
 ### Changed - 2026-09-24 (TASK-0286 M1 P5: memory accounting as a read of its owners; exhaustion is an event — M1 done)
 
 - The frame allocator gains `alloc_at_most`: an anonymous object's fallback to smaller blocks is

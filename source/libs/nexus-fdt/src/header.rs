@@ -32,6 +32,9 @@ pub enum Error {
     Layout,
     /// A node or property the caller required is absent.
     NotFound,
+    /// `dma-ranges` with a zero-sized or overflowing window, or more windows than
+    /// [`crate::MAX_DMA_WINDOWS`] (at one level or after composing the levels).
+    DmaRanges,
 }
 
 impl fmt::Display for Error {
@@ -47,6 +50,7 @@ impl fmt::Display for Error {
             Error::NoHeadroom => "no headroom for the edit",
             Error::Layout => "strings block is not last",
             Error::NotFound => "not found",
+            Error::DmaRanges => "malformed dma-ranges",
         };
         f.write_str(s)
     }

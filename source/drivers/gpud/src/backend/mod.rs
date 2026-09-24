@@ -100,6 +100,11 @@ pub(crate) type CursorShapeEntry = (alloc::vec::Vec<u8>, u32, u32, u32, u32);
 /// On real hardware, this would be replaced by a different GfxBackend impl
 /// (e.g., MaliGpuBackend, ImaginationGpuBackend) — same trait, different hardware.
 pub struct VirtioGpuBackend {
+    /// The GPU's device capability slot: what its queues and backings are made
+    /// for and whose bus addresses they are programmed with (RFC-0098 C4,
+    /// TASK-0246 P1).
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    device: u32,
     mmio_base: usize,
     _mmio_len: usize,
     next_resource_id: u32,
@@ -449,9 +454,15 @@ impl VirtioGpuBackend {
         self.bootstrap_splash_live
     }
 
-    /// Create a new backend. Does NOT probe — call probe() separately.
-    pub fn new(mmio_base: usize, mmio_len: usize) -> Self {
+    /// Create a new backend for the device behind the capability in `device`,
+    /// its registers mapped at `mmio_base`. Does NOT probe — call probe() separately.
+    pub fn new(device: u32, mmio_base: usize, mmio_len: usize) -> Self {
+        // Off the OS a backend makes no DMA memory: nothing keeps the device.
+        #[cfg(not(all(feature = "os-lite", target_os = "none")))]
+        let _ = device;
         Self {
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            device,
             mmio_base,
             _mmio_len: mmio_len,
             next_resource_id: 1,

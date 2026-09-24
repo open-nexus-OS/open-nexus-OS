@@ -220,13 +220,16 @@ impl SmoltcpVirtioNetStack {
         let vnet_hdr_len = if (accepted & VIRTIO_NET_F_MRG_RXBUF) != 0 { 12 } else { 10 };
         // Queue memory (2 pages): 1 page per queue, small bring-up queues.
         const Q_PAGES: usize = 2;
-        let q_vmo = vmo_create_contiguous(Q_PAGES * 4096).map_err(|_| NetError::NoBufs)?;
+        // Made for this device: inside its DMA reach, programmed with its bus addresses.
+        let q_vmo =
+            vmo_create_contiguous(mmio_cap_slot, Q_PAGES * 4096).map_err(|_| NetError::NoBufs)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
         let q_mem_va = vm_map(q_vmo, 0, Q_PAGES * 4096, flags).map_err(|_| NetError::NoBufs)?;
-        let q_base_pa = vmo_dma_base(q_vmo, Q_PAGES * 4096).map_err(|_| NetError::NoBufs)?;
+        let q_base_pa =
+            vmo_dma_base(q_vmo, mmio_cap_slot, Q_PAGES * 4096).map_err(|_| NetError::NoBufs)?;
 
         // Legacy combined layout within each queue:
         // desc[Q_LEN] + avail + used (aligned to 4), all within 2 pages.
@@ -283,12 +286,12 @@ impl SmoltcpVirtioNetStack {
         .map_err(|_| NetError::Internal("setup q1"))?;
 
         // Buffers: ACTIVE_BUFS RX pages + ACTIVE_BUFS TX pages.
-        let buf_vmo =
-            vmo_create_contiguous(ACTIVE_BUFS * 2 * 4096).map_err(|_| NetError::NoBufs)?;
+        let buf_vmo = vmo_create_contiguous(mmio_cap_slot, ACTIVE_BUFS * 2 * 4096)
+            .map_err(|_| NetError::NoBufs)?;
         let buf_va =
             vm_map(buf_vmo, 0, ACTIVE_BUFS * 2 * 4096, flags).map_err(|_| NetError::NoBufs)?;
-        let buf_base_pa =
-            vmo_dma_base(buf_vmo, ACTIVE_BUFS * 2 * 4096).map_err(|_| NetError::NoBufs)?;
+        let buf_base_pa = vmo_dma_base(buf_vmo, mmio_cap_slot, ACTIVE_BUFS * 2 * 4096)
+            .map_err(|_| NetError::NoBufs)?;
 
         // Zero queue pages.
         // SAFETY: mapped q_mem_va points to the VMO mapping for queue memory.

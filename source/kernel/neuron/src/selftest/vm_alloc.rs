@@ -23,6 +23,7 @@ pub(super) fn run_vm_alloc_selftests(
     sys_ctx: &mut api::Context<'_>,
     handle_raw: usize,
 ) {
+    use crate::dma_reach::DmaReach;
     use crate::mm::vm_ops;
     use crate::mm::PageFlags;
     use crate::syscall::SYSCALL_VMO_DESTROY;
@@ -31,12 +32,16 @@ pub(super) fn run_vm_alloc_selftests(
     // Two superpages + one page: at least one whole 2 MiB interior
     // span for every pa phase, plus 4K head/tail coverage.
     let vm_len = 2 * SUPERPAGE + PAGE_SIZE;
-    table
-        .dispatch(SYSCALL_VMO_CREATE, sys_ctx, &Args::new([VM_VMO_SLOT, vm_len, 1, 0, 0, 0]))
-        .expect("vmo_create for vm_map");
+    // A CONTIGUOUS object: one run, so its base is the translation oracle below
+    // and the eligible interior can be one 2 MiB leaf. A contiguous object is a
+    // device's (TASK-0246 P1): made for a synthetic one that reaches everything,
+    // which is retired as soon as the object exists.
+    let (dev_slot, dev) = super::vmo_runs::synthetic_device(sys_ctx, 0, DmaReach::ALL);
+    let args = [VM_VMO_SLOT, vm_len, api::VMO_CREATE_CONTIGUOUS, dev_slot, 0, 0];
+    let created = table.dispatch(SYSCALL_VMO_CREATE, sys_ctx, &Args::new(args));
+    super::vmo_runs::drop_synthetic_device(sys_ctx, dev_slot, dev);
+    created.expect("vmo_create for vm_map");
     let cap = sys_ctx.tasks.bootstrap_mut().caps_mut().get(VM_VMO_SLOT).expect("vm vmo cap");
-    // A CONTIGUOUS object (arg 2 = 1): one run, so its base is the translation
-    // oracle below and the eligible interior can be one 2 MiB leaf.
     let (vm_id, vm_base) = match cap.kind {
         CapabilityKind::Vmo { id, .. } => (id, crate::mm::vmo::first_pa(id).expect("one run")),
         _ => panic!("unexpected cap kind"),

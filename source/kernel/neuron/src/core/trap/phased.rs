@@ -168,7 +168,7 @@ pub(super) fn phased_syscall(
             *task.frame_mut() = *frame;
         }
         record(frame);
-        (pid, api::vmo_create_reserve(&args))
+        (pid, api::vmo_create_reserve(&ctx, &args))
     };
     let write_result = |kernel: &mut super::runtime::KernelGuard, value: usize| {
         let (_, tasks, ..) = kernel.parts();
