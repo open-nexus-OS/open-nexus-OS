@@ -211,9 +211,15 @@ pub fn zero(id: VmoId) {
     }
 }
 
-/// `(live objects, bytes they hold)`.
-pub fn stats() -> (usize, usize) {
+/// `(live objects, bytes they hold, bytes of the contiguous ones)`.
+pub fn stats() -> (usize, usize, usize) {
     let table = TABLE.lock();
     let live = table.objects.iter().flatten();
-    (live.clone().count(), live.map(VmoObject::len).sum())
+    let contiguous = live.clone().filter(|o| o.kind == VmoKind::Contiguous).map(VmoObject::len);
+    (live.clone().count(), live.map(VmoObject::len).sum(), contiguous.sum())
+}
+
+/// Whether the live object `id` is one physically contiguous (DMA) block.
+pub fn is_contiguous(id: VmoId) -> bool {
+    with(id, |o| o.kind == VmoKind::Contiguous).unwrap_or(false)
 }

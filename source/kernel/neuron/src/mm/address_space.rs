@@ -199,6 +199,11 @@ impl AddressSpaceManager {
         Self { spaces: Vec::new(), asids: AsidAllocator::new(), _not_send_sync: PhantomData }
     }
 
+    /// Every live address space (accounting, TASK-0286 P5).
+    pub fn iter(&self) -> impl Iterator<Item = &AddressSpace> {
+        self.spaces.iter().flatten()
+    }
+
     /// Allocates a fresh address space and returns its handle.
     pub fn create(&mut self) -> Result<AsHandle, AddressSpaceError> {
         let asid = self.asids.allocate().ok_or(AddressSpaceError::AsidExhausted)?;

@@ -47,14 +47,16 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
     let _ = services::metricsd::wait_rate_limit_window();
 
-    // TASK-0014 Phase 0/1: metrics/tracing semantics + sink evidence.
+    // TASK-0014 Phase 0/1: metrics/tracing semantics + sink evidence. The retention
+    // evidence is looked up from BEFORE this harness's first metric (TASK-0286 P5).
+    let metrics_since = nexus_abi::nsec().unwrap_or(0);
     if let Ok(metricsd) = MetricsClient::new() {
         if services::metricsd::metricsd_security_reject_probe(&metricsd).is_ok() {
             emit_line(crate::markers::M_SELFTEST_METRICS_SECURITY_REJECTS_OK);
         } else {
             emit_line(crate::markers::M_SELFTEST_METRICS_SECURITY_REJECTS_FAIL);
         }
-        match services::metricsd::metricsd_semantic_probe(&metricsd, &logd) {
+        match services::metricsd::metricsd_semantic_probe(&metricsd, &logd, metrics_since) {
             Ok((counters_ok, gauges_ok, hist_ok, spans_ok, retention_ok)) => {
                 if counters_ok {
                     emit_line(crate::markers::M_SELFTEST_METRICS_COUNTERS_OK);

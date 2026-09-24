@@ -261,6 +261,75 @@ pub struct CapQuery {
     pub cache_block: u32,
 }
 
+/// The memory record `mm_stats` answers (RFC-0098 C4, TASK-0286 P5): the frame
+/// pool, the objects, and the caller's own residency — nothing about another task.
+/// Layout = the kernel's `accounting` wire form (version, field count, 64-bit fields).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MmStats {
+    /// Layout version (`MM_STATS_VERSION`).
+    pub version: u32,
+    /// 64-bit fields that follow.
+    pub fields: u32,
+    /// Memory banks the tree named.
+    pub banks: u64,
+    /// Frames handed to the pool.
+    pub total: u64,
+    /// Frames free now.
+    pub free: u64,
+    /// Frames the tree reserved.
+    pub reserved: u64,
+    /// Frames the kernel excluded (its image, the tree).
+    pub excluded: u64,
+    /// Blocks allocated since boot.
+    pub allocs: u64,
+    /// Blocks returned since boot.
+    pub frees: u64,
+    /// Requests the pool could not satisfy at all.
+    pub exhausted: u64,
+    /// Frames holding page tables.
+    pub pt_frames: u64,
+    /// Live VMOs.
+    pub vmos: u64,
+    /// Bytes they hold.
+    pub vmo_bytes: u64,
+    /// Bytes held by contiguous (DMA) VMOs.
+    pub dma_bytes: u64,
+    /// The caller's resident bytes.
+    pub own_rss_bytes: u64,
+    /// The part of those that is contiguous-DMA memory.
+    pub own_dma_bytes: u64,
+}
+
+/// The record layout this ABI speaks.
+pub const MM_STATS_VERSION: u32 = 1;
+const _: () = assert!(core::mem::size_of::<MmStats>() == 8 + 14 * 8);
+
+/// Frame size of the pool (`MmStats::total` / `free` count these).
+pub const FRAME_BYTES: u64 = 4096;
+
+/// The memory record (syscall 61); refused unless the kernel speaks this layout.
+#[cfg(nexus_env = "os")]
+pub fn mm_stats() -> SysResult<MmStats> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_MM_STATS: usize = 61;
+        let mut stats = MmStats::default();
+        let len = core::mem::size_of::<MmStats>();
+        // SAFETY: `stats` is a live, writable `repr(C)` record of `len` bytes.
+        let raw = unsafe { ecall2(SYSCALL_MM_STATS, (&mut stats as *mut MmStats) as usize, len) };
+        decode_syscall(raw)?;
+        if stats.version != MM_STATS_VERSION || stats.fields != 14 {
+            return Err(AbiError::Unsupported);
+        }
+        Ok(stats)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Queries a capability slot and writes the result into `out`.
 #[cfg(nexus_env = "os")]
 pub fn cap_query(_cap: Cap, _out: &mut CapQuery) -> SysResult<()> {

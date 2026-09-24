@@ -261,7 +261,7 @@ pub(crate) fn selftest_sched_op(
 }
 
 pub(super) fn sys_sched(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    if let Some(result) = super::sched_telemetry::sched_telemetry_op(args) {
+    if let Some(result) = super::sched_telemetry::sched_telemetry_op(args, ctx.address_spaces) {
         return result;
     }
     let op = args.get(0);

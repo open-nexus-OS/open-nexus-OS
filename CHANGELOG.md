@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-24 (TASK-0286 M1 P5: memory accounting as a read of its owners; exhaustion is an event — M1 done)
+
+- The frame allocator gains `alloc_at_most`: an anonymous object's fallback to smaller blocks is
+  served, not exhausted. Before, `alloc_bytes` stepped down through the logging `alloc`, so a
+  fragmented pool would have printed `MM: frames exhausted` for successful allocations. The pool
+  now logs a real exhaustion as `… event=exhaust.v1 resource=frames action=refused` on the 1st,
+  2nd, 4th, 8th … event (RFC-0087), and the counter holds all of them.
+- Kernel: `mm/usage.rs` reads the pool, the page-table frames, the VMO table and every address
+  space's region table. `mm/accounting.rs` is the versioned wire form, host-tested.
+  `mm_stats` (syscall 61) answers the pool, the objects and the caller's own residency.
+  `KSELFTEST: mm frames (…)` prints it at the late fence with `spaces`, `rss_sum` and `rss_max`.
+- `nexus_abi::{MmStats, mm_stats}`; metricsd holds five live `mm.*` gauges from readiness
+  (`metricsd: mm snapshot ok (…)`); `docs/architecture/01-neuron-kernel.md` gains *Physical
+  Memory*. RFC-0098 C4 amended, Phase 2 ✅; the board's serial proof moves to TASK-0327B.
+- The metrics retention proof is deterministic: metricsd announces each writer's first
+  verified WAL record with the writer's id (`retention wal verified sender=0x…`; the sink
+  moved to `os_lite/retention.rs`), and the harness looks for its own line from before its
+  first metric. The old once-per-service line passed only while the harness happened to be
+  the first writer (execd, timed and dsoftbusd write too).
+- Proof: kernel host tests 90/90; `just check` 14/14; smp1 green at 320M and 1G with
+  byte-identical usage; `ci-os-smp1` twice with identical records; visible green;
+  `just test-all` green (EXIT=0, 11 QEMU lanes incl. seven OTA profiles and 2 pixel proofs; `KSELFTEST: mm frames` in 11 boots, all `exhausted=0`; `metricsd: mm snapshot ok` in 17; `metrics retention ok` in all 6 boots that run the metrics phase).
+
 ### Changed - 2026-09-24 (TASK-0286 M1 P4b: DMA coherence travels with the device; user-mode Zicbom; `DmaBuffer` — closes TASK-0284)
 
 - RFC-0098 C4's coherence rule corrected (it was backwards): coherent is the RISC-V default,

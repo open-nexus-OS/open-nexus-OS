@@ -24,7 +24,7 @@
 
 - **Phase 0 (FDT library, `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)**: ✅ 2026-09-22 — TASK-0244
 - **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: 🟨 — TASK-0245 ✅ 2026-09-22 (QEMU: every profile prints the platform, image and discovery markers; the board's serial proof arrives with TASK-0327B once B1.6 boots it); TASK-0245B (SoC clocks/resets/pinmux/power) open
-- **Phase 2 (physical memory from the FDT, page-frame allocator)**: ⬜ — TASK-0286 (M1)
+- **Phase 2 (physical memory from the FDT, page-frame allocator)**: ✅ 2026-09-24 — TASK-0286 (M1): high half + direct map, frame pool, page-backed VMOs, `vmo_runs`, coherence in the device capability, user Zicbom, `DmaBuffer`, `mm_stats` (QEMU: every profile; the board's serial proof arrives with TASK-0327B once B1.6 boots it)
 - **Phase 3 (one block owner, SDHCI, nxboot reader)**: ⬜ — TASK-0246, 0246B
 - **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: ⬜ — TASK-0260, 0260B
 - **Phase 5 (display controller scanout, mode authority = gpud)**: ⬜ — TASK-0250, 0251
@@ -203,6 +203,23 @@ while the device owns them (a compile-time guarantee). A non-coherent device on 
 without Zicbom is refused (`DmaCoherence::Unmaintainable`); non-cacheable mappings through
 Svpbmt are the fallback M-track work if a board ever needs it. The firmware must enable the
 same bits for S-mode (`menvcfg`); OpenSBI ≥ 1.3 does — measured on the board in B1.6.
+
+**Amended 2026-09-24 (TASK-0286 P5): what memory is used, and when it ran out.** The frame
+pool, the page tables, the VMO table and every address space's region table already hold the
+truth; the accounting is a read of them, never a second set of counters. **`mm_stats`
+(syscall 61)** answers a fixed, versioned record (`version`, then 64-bit fields: banks, total,
+free, reserved, excluded, allocs, frees, exhausted, page-table frames, live objects, their
+bytes, their contiguous-DMA bytes, and the caller's own resident bytes and DMA bytes — the
+Vmo- and kernel-placed regions of its address space) into a caller buffer of at least the
+record's size; a shorter buffer is refused. It needs no authority because it reveals nothing
+about another task; another task's residency is the OOM handoff's (M4, TASK-0287) and comes
+with its own capability there. `KSELFTEST: mm frames (…)` prints the same record plus the
+address-space summary (`spaces`, `rss_sum`, `rss_max`) at the ladder's late fence. **Exhaustion
+is an event (RFC-0087 §1):** the defined moment is a request the pool cannot satisfy at all —
+an anonymous object that falls back to smaller blocks is not exhausted, and the allocator takes
+that fallback internally (`alloc_at_most`) so neither the counter nor the log sees it; the line
+`MM: frames exhausted (…) event=exhaust.v1 resource=frames action=refused` is printed on the
+1st, 2nd, 4th, 8th … occurrence (bounded under a storm, never silent), the counter holds all.
 
 ### C5 — Storage (Phase 3, ADR-0067)
 

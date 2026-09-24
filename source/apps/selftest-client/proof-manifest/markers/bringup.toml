@@ -542,6 +542,15 @@ phase = "bringup"
 [marker."metricsd: ready"]
 phase = "bringup"
 
+# TASK-0286 P5 (RFC-0098 C4): metricsd reads the kernel's memory record (`mm_stats`,
+# syscall 61) once at readiness and records it as gauges through its own retention path.
+[marker."metricsd: mm snapshot ok ("]
+phase = "bringup"
+proves = "a userspace service reads the versioned memory record (pool, objects, own residency) and records it as gauges; no poll"
+
+[marker."metricsd: mm snapshot FAIL"]
+phase = "bringup"
+
 [marker."bundlemgrd: slot a active"]
 phase = "bringup"
 proves = "bundlemgrd boot-slot accounting"

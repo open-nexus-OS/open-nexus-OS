@@ -117,7 +117,7 @@ impl KernelState {
         crate::boot_image::report();
         if let Some(s) = crate::mm::frame_pool::stats() {
             let pt = crate::mm::page_table::PageTable::allocation_stats();
-            let (vmos, vmo_bytes) = crate::mm::vmo::stats();
+            let (vmos, vmo_bytes, _) = crate::mm::vmo::stats();
             log_info!(target: "mm",
                 "KINIT: mm frames in use (free={} allocs={} frees={} pt_live={} vmos={} vmo_bytes={})",
                 s.free, s.allocs, s.frees, pt.live, vmos, vmo_bytes);

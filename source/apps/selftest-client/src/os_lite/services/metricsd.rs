@@ -123,9 +123,23 @@ pub(crate) fn wait_rate_limit_window() -> core::result::Result<(), ()> {
     }
 }
 
+/// `retention wal verified sender=0x<16 lowercase hex digits>` — metricsd's per-writer
+/// retention evidence for `sender`, in the exact form `nexus_log`'s `hex` writes.
+fn retention_evidence_needle(sender: u64) -> ([u8; 48], usize) {
+    const PREFIX: &[u8] = b"retention wal verified sender=0x";
+    let mut needle = [0u8; 48];
+    needle[..PREFIX.len()].copy_from_slice(PREFIX);
+    for i in 0..16 {
+        let nibble = ((sender >> ((15 - i) * 4)) & 0xf) as u8;
+        needle[PREFIX.len() + i] = if nibble < 10 { b'0' + nibble } else { b'a' + nibble - 10 };
+    }
+    (needle, PREFIX.len() + 16)
+}
+
 pub(crate) fn metricsd_semantic_probe(
     metricsd: &MetricsClient,
     logd: &KernelClient,
+    since_nsec: u64,
 ) -> core::result::Result<(bool, bool, bool, bool, bool), ()> {
     let total_before = super::logd::logd_stats_total(logd).unwrap_or(0);
     let c0 =
@@ -166,8 +180,13 @@ pub(crate) fn metricsd_semantic_probe(
         let _ = yield_();
     }
     let mut spans_ok = s0 == METRICS_STATUS_OK && s1 == METRICS_STATUS_OK;
+    // Deterministic retention proof (TASK-0286 P5): metricsd announces the verified WAL
+    // write of each writer's first record with the writer's id; this harness looks for its
+    // OWN announcement from before its first metric — independent of which service wrote
+    // first and of how many records logd's ring held before.
+    let (needle, needle_len) = retention_evidence_needle(sender);
     let retention_ok =
-        super::logd::logd_query_contains_since_paged(logd, 0, b"retention wal verified")
+        super::logd::logd_query_contains_since_paged(logd, since_nsec, &needle[..needle_len])
             .unwrap_or(false);
 
     let total_after = super::logd::logd_stats_total(logd).unwrap_or(0);

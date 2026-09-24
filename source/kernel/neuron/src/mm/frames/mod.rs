@@ -231,6 +231,27 @@ impl FrameAllocator {
         Err(FrameError::Exhausted { order, free: self.free_frames() })
     }
 
+    /// The largest free block of `order` or below — what an object that takes
+    /// several runs asks for (an anonymous VMO). Order-major, banks in tree
+    /// order, lowest address first: deterministic. Exhaustion (counted once) is
+    /// only "not even one frame": a request that falls back to smaller blocks is
+    /// served, not exhausted (RFC-0098 C4 / RFC-0087 §1).
+    pub fn alloc_at_most(&mut self, order: u8) -> Result<Block, FrameError> {
+        if order > MAX_ORDER {
+            return Err(FrameError::BadOrder);
+        }
+        for o in (0..=order).rev() {
+            for bank in self.banks.iter_mut() {
+                if let Some(block) = bank.alloc(o) {
+                    self.allocs += 1;
+                    return Ok(block);
+                }
+            }
+        }
+        self.exhausted += 1;
+        Err(FrameError::Exhausted { order, free: self.free_frames() })
+    }
+
     /// Return a block to the bank it came from.
     pub fn free(&mut self, block: Block) -> Result<(), FrameError> {
         if block.order > MAX_ORDER {

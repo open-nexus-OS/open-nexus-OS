@@ -40,6 +40,7 @@ mod exec_image;
 mod ipc_call;
 mod ipc_msg;
 mod ipc_recv_v2;
+mod mm_stats;
 mod sched_task;
 mod sched_telemetry;
 mod sync_objects;
@@ -350,6 +351,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_VMO_SHARE_RO, sys_vmo_share_ro);
     table.register(crate::syscall::SYSCALL_VMO_READ, sys_vmo_read);
     table.register(crate::syscall::SYSCALL_VMO_RUNS, vmo_runs::sys_vmo_runs);
+    table.register(crate::syscall::SYSCALL_MM_STATS, mm_stats::sys_mm_stats);
     table.register(SYSCALL_SPAWN, sys_spawn);
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);
     table.register(SYSCALL_CAP_TRANSFER_TO, sys_cap_transfer_to);

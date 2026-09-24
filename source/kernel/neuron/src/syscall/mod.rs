@@ -135,6 +135,11 @@ pub const SYSCALL_IPC_REPLY_RECV_V1: usize = 59;
 /// `max` (≤ `dma_runs::MAX_RUNS`), all or nothing; returns the count. Only a task
 /// holding a device capability may ask; a read-only alias never answers.
 pub const SYSCALL_VMO_RUNS: usize = 60;
+
+/// TASK-0286 P5 (RFC-0098 C4): the memory record — the pool, the objects and the
+/// caller's own residency (`accounting::MmStats`, versioned). Args: (out_ptr, out_len);
+/// a buffer shorter than the record is refused. Returns the bytes written.
+pub const SYSCALL_MM_STATS: usize = 61;
 /// IPC v1 (payload copy-out): see RFC-0005.
 pub const SYSCALL_IPC_RECV_V1: usize = 18;
 /// Create a new kernel IPC endpoint and return a capability slot for it (privileged; RFC-0005).

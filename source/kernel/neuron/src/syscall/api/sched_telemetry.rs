@@ -14,6 +14,7 @@
 //! ADR: docs/rfcs/RFC-0033-soft-real-time-spine.md
 
 use super::{Args, SysResult};
+use crate::mm::address_space::AddressSpaceManager;
 
 /// Handles the telemetry ops of `sys_sched`. `Some(_)` = this op was a report
 /// and is fully handled; `None` = not a telemetry op, fall through to the real
@@ -23,7 +24,10 @@ use super::{Args, SysResult};
 /// so the boot-end gate judges the steady-state window on its own numbers.
 /// OP 4: emit the boot-end gate line. Read-only, and called late by the ladder
 /// so the report covers the whole service bring-up contention window.
-pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
+pub(super) fn sched_telemetry_op(
+    args: &Args,
+    spaces: &AddressSpaceManager,
+) -> Option<SysResult<usize>> {
     // OP 4 (P0, declarative budgets SSOT in core/trap/budgets.rs): emit the
     // boot-end BKL budget gate line. Read-only; callable late by the selftest
     // ladder so the report COVERS the service bring-up contention window.
@@ -78,6 +82,28 @@ pub(super) fn sched_telemetry_op(args: &Args) -> Option<SysResult<usize>> {
         return Some(Ok(0));
     }
     if args.get(0) == 4 {
+        // TASK-0286 P5 (RFC-0098 C4): the memory record at the same late fence —
+        // pool, page tables, objects and every address space's residency.
+        let (m, all) = crate::mm::usage::snapshot(spaces, None);
+        log_info!(
+            target: "mm",
+            "KSELFTEST: mm frames (banks={} total={} free={} reserved={} excluded={} allocs={} frees={} exhausted={} pt_frames={} vmos={} vmo_bytes={} dma_bytes={} spaces={} rss_sum={} rss_max={})",
+            m.banks,
+            m.total,
+            m.free,
+            m.reserved,
+            m.excluded,
+            m.allocs,
+            m.frees,
+            m.exhausted,
+            m.pt_frames,
+            m.vmos,
+            m.vmo_bytes,
+            m.dma_bytes,
+            all.spaces,
+            all.rss_sum,
+            all.rss_max
+        );
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             // TASK-0054C P1 (RFC-0096 Phase 1): the IPC path as numbers over the

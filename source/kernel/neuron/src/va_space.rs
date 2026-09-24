@@ -127,6 +127,12 @@ impl VaSpace {
         self.len
     }
 
+    /// The tracked regions in va-order (accounting reads them, TASK-0286 P5).
+    #[must_use]
+    pub fn regions(&self) -> &[VaRegion] {
+        &self.regions[..self.len]
+    }
+
     #[must_use]
     pub fn peak_regions(&self) -> usize {
         self.peak

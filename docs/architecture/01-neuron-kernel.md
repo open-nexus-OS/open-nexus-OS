@@ -176,6 +176,9 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
   A driver takes a queue's one base from it (`nexus_abi::vmo_dma_base`) and a
   scatter-gather list for a device that reads one (gpud's resource backings,
   windowd's framebuffer). Authority + clipping: `mm/dma_runs.rs`, host-tested.
+- **61 `mm_stats`**: The memory record (TASK‑0286 P5): pool, page-table frames, objects and
+  their DMA bytes, and the caller's own residency, versioned (`nexus_abi::mm_stats`). No
+  authority — nothing in it names another task; a buffer shorter than the record is refused.
 
 Errors follow the conventional POSIX encoding: handlers return
 `-errno` (two's complement) in `a0`. Key codes used by the current
@@ -227,6 +230,46 @@ increment:
   path stayed within the island.
 - Each address space maintains the set of owning tasks so the manager can reject destruction while
   references remain. Activating a handle writes SATP and issues a global `sfence.vma`.
+
+## Physical Memory (RFC-0098 C4, TASK-0286 M1)
+
+- **Where memory comes from.** Every `/memory` bank of the device tree minus `/reserved-memory`,
+  the kernel image and the tree itself; nothing else. `mm/frames` is a buddy allocator per bank
+  (4 KiB frames, blocks up to `MAX_ORDER` = 128 MiB, 2 MiB blocks superpage-aligned by
+  construction; first-fit in bank order, deterministic), host-tested over both golden trees;
+  `mm/frame_pool.rs` is the one live instance. No fixed physical window exists in the kernel
+  (`just fixed-windows`); `-m` is a QEMU lane knob (`QEMU_MEM`, 256M and 1G proven).
+- **How the kernel reaches it.** The kernel runs in the Sv39 high half behind a direct map,
+  `KVA = PHYS_OFFSET (0xffff_ffc0_0000_0000) + PA`; `phys::phys_to_virt` / `virt_to_phys` are
+  the one seam (see *Address Space Model*).
+- **Objects.** A VMO (`mm/vmo.rs`) is a list of pool blocks: `Anon` (largest blocks first, what
+  a device reads through a scatter-gather list or no device reads at all), `Contiguous` (one
+  block, for a device that takes one base — virtio queues, command pools; only drivers create
+  it, `just dma-contiguous`) or `Fixed` (frames outside the pool, never freed). Every object is
+  zeroed at create, off the BKL. Capabilities name the object (`Vmo { id, len }`).
+- **One door for a physical address.** `vmo_runs` (60) answers the runs of a byte range of a
+  writable VMO to a task holding a device capability — never for a read-only alias; `cap_query`
+  reports no VMO base (`KSELFTEST: vmo runs ok (runs=… deny=3)`).
+- **Coherence.** A device that does not snoop the caches is marked `dma-noncoherent` on its node
+  or bus; init mints that into the device capability, `cap_query` reports it with the harts'
+  Zicbom block size, and the kernel enables `cbo.clean`/`cbo.flush` for user mode per hart
+  (`senvcfg.CBCFE`, `CBIE = 01`: `cbo.inval` runs as a flush). Drivers maintain their buffers
+  through `nexus_driverkit::DmaBuffer` over `nexus_abi::DmaVmo`
+  (`SELFTEST: dma buffer ok (device=… block=… runs=…)`).
+- **Accounting.** Read from the owners, never counted twice: `mm/usage.rs` collects the pool, the
+  page-table frames, the objects (with their contiguous bytes) and each address space's
+  residency (VMO and kernel-placed regions; device windows are not memory). `mm_stats` (61)
+  answers the versioned record (`mm/accounting.rs`) with the caller's own residency — nothing
+  about another task; `KSELFTEST: mm frames (…)` prints it at the ladder's late fence with the
+  summary over all spaces (`spaces`, `rss_sum`, `rss_max`); metricsd records it as gauges at
+  readiness (`metricsd: mm snapshot ok (…)`).
+- **Exhaustion is an event** (RFC-0087 §1): only a request the pool cannot satisfy at all —
+  an anonymous object's fallback to smaller blocks is the allocator's (`alloc_at_most`), not an
+  exhaustion. The counter holds every one; the console line
+  `MM: frames exhausted (…) event=exhaust.v1 resource=frames action=refused` appears on the
+  1st, 2nd, 4th, 8th … occurrence.
+- **Not yet.** Demand paging and CoW (M2), the page cache and shared read-only code (M3),
+  pressure levels, quotas and the OOM handoff (M4, TASK-0287) — see TASK-0286's follow-ups.
 
 ## W^X Policy
 

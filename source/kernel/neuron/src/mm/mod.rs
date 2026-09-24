@@ -38,4 +38,5 @@ mod kernel_layout;
 mod page_table_tests;
 mod page_table_verify;
 mod tests;
+pub mod usage;
 pub mod vmo;

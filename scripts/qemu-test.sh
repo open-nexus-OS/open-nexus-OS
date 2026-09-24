@@ -677,6 +677,7 @@ expected_sequence=(
   "blk: virtio-blk up"
   "logd: ready"
   "metricsd: ready"
+  "metricsd: mm snapshot ok ("
   "bootctld: ready"
   "bootctld: target=normal next=none"
   "bundlemgrd: slot a active"
@@ -915,6 +916,7 @@ expected_sequence=(
   "SELFTEST: ipc call bench (rt="
   "KSELFTEST: ipc call budget ok (rt="
   "KSELFTEST: ipc stats ("
+  "KSELFTEST: mm frames ("
   "KSELFTEST: ipc payload hist ("
   "SELFTEST: vm map roundtrip ok"
   "SELFTEST: dma buffer ok ("
@@ -1205,6 +1207,7 @@ case "${PROFILE:-full}" in
       "net: smoltcp iface up"
       "logd: ready"
       "metricsd: ready"
+      "metricsd: mm snapshot ok ("
       "bundlemgrd: slot a active"
       "SELFTEST: ipc routing keystored ok"
       "SELFTEST: keystored v1 ok"
@@ -1827,7 +1830,7 @@ for marker in "${expected_sequence[@]}"; do
   if ! grep -aFq "$marker" "$UART_LOG"; then
     if [[ "$metrics_markers_required" -eq 0 ]]; then
       case "$marker" in
-        "init: start metricsd"|"init: up metricsd"|"metricsd: ready"|\
+        "init: start metricsd"|"init: up metricsd"|"metricsd: ready"|"metricsd: mm snapshot ok ("|\
         "metricsd: reject invalid_args"|"metricsd: reject over_limit"|"metricsd: reject rate_limited"|\
         "SELFTEST: metrics security rejects ok"|"SELFTEST: metrics counters ok"|\
         "SELFTEST: metrics gauges ok"|"SELFTEST: metrics histograms ok"|\

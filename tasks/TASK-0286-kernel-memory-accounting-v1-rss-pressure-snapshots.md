@@ -1,6 +1,6 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: In Progress (P4b done 2026-09-24 — coherence travels in the device capability, user-mode Zicbom, `DmaBuffer`, TASK-0284 closed; P4a done 2026-09-24 — one door for a physical address (`vmo_runs`), gpud attaches runs, the 64 MiB framebuffer block is gone; P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: Done 2026-09-24 (P5 done 2026-09-24 — accounting as a read of the owners, `mm_stats`, `KSELFTEST: mm frames`, exhaustion as a bounded event, DoD swept; the board's serial proof is TASK-0327B's; P4b done 2026-09-24 — coherence travels in the device capability, user-mode Zicbom, `DmaBuffer`, TASK-0284 closed; P4a done 2026-09-24 — one door for a physical address (`vmo_runs`), gpud attaches runs, the 64 MiB framebuffer block is gone; P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
 updated: 2026-09-24
@@ -293,8 +293,71 @@ side (RFC-0085).
   3 doctests; `just check` 14/14; smp1 green (423 ok, 70 KSELFTEST, 9/9 chain markers,
   `total_ms=1257`); visible green (`PIXEL PROOF ok`, diff vs splash 31.77); `just test-all`
   green (EXIT=0, 11 QEMU lanes incl. seven OTA profiles and 2 pixel proofs; `dma buffer ok` in all 6 boots that run the mmio phase, `vmo runs ok` in all 20).
-- **P5 Telemetry + gate + docs.** `KSELFTEST: mm frames (…)` registered; read-only query to
-  metricsd; `check-no-fixed-windows.sh`; `docs/architecture/01-neuron-kernel.md` memory section.
+- **P5 Telemetry + gate + docs — done 2026-09-24.** Measured first: exhaustion was already
+  logged — but `alloc_bytes` stepped down through the orders with the logging `alloc`, so an
+  anonymous object that fell back to smaller blocks would log `MM: frames exhausted` and bump the
+  counter although it was served (latent: 0 lines in the smp1/visible boots at 320M, a
+  fragmented pool would have printed false events). Fixed in the allocator:
+  `FrameAllocator::alloc_at_most` (largest block of the order or below, order-major,
+  deterministic; exhaustion counted only when not one frame is left; 2 host tests incl.
+  `test_reject_alloc_at_most_counts_exhaustion_only_when_nothing_is_left`); the pool's one
+  locked path logs `MM: frames exhausted (want=… free=… count=…) event=exhaust.v1
+  resource=frames action=refused` on the 1st, 2nd, 4th, 8th … event (RFC-0087 §1, bounded,
+  never silent). Also measured: metricsd is a sink with retention (WAL + rollups) and no own
+  clock — a periodic sample would be a poll; it reads the record once at readiness, later
+  samples ride M4's pressure events. Accounting = a read of the owners (`mm/usage.rs`: pool,
+  page-table frames, VMO table with contiguous bytes, each space's region table — VMO and
+  kernel-placed regions are resident, device windows are not); the wire form is the pure,
+  host-compiled `mm/accounting.rs` (`MmStats`, version 1, 14 fields; 3 host tests incl.
+  `test_reject_mm_stats_into_a_short_buffer`). `mm_stats` (syscall 61, RFC-0098 C4 amended)
+  answers the pool, the objects and the caller's OWN residency — no authority, nothing about
+  another task. `KSELFTEST: mm frames (…)` at the ladder's late fence (sched op 4, next to the
+  IPC stats; REQUIRE, `end` phase) with `spaces`/`rss_sum`/`rss_max`; `nexus_abi::{MmStats,
+  mm_stats}`; metricsd `os_lite/kernel_memory.rs` records five live gauges (`mm.bytes.total`,
+  `mm.bytes.free`, `mm.vmo.bytes`, `mm.dma.bytes`, `mm.exhausted`) in its registry,
+  `metricsd: mm snapshot ok (…)` (REQUIRE where metricsd runs). **Found by the first
+  `test-all`:** recording those gauges into retention at readiness turned `ci-os-smp1` red
+  (`SELFTEST: metrics retention FAIL`, standalone smp1 green) — metricsd announced
+  `retention wal verified` ONCE per service, and the harness searched logd for it from the
+  oldest record; with metricsd as the first WAL writer the line sat at the start of the boot
+  and fell out of logd's bounded window. The proof was already a race before this package:
+  execd, timed and dsoftbusd are metricsd clients too, and the harness passed only while it
+  happened to write first. Made deterministic instead of avoided: metricsd verifies and
+  announces each WRITER's first retained record (`retention wal verified sender=0x…`, ≤ 16
+  writers; the sink moved to `os_lite/retention.rs`), the harness takes its time anchor
+  before its first metric and looks for its OWN sender's line — independent of write order
+  and ring depth (two `ci-os-smp1` runs back to back: identical evidence lines, identical
+  memory record). The kernel gauges stay live-only; retained memory samples come with M4's
+  pressure events. Docs:
+  `docs/architecture/01-neuron-kernel.md` gains *Physical Memory* and syscall 61. Measured on
+  smp1 (320M): 77 291 frames, 47 035 free at the fence, 3 176 allocs / 131 frees, 216
+  page-table frames, 54 VMOs = 70.0 MB of which 272 KiB contiguous (the virtio queues only),
+  37 spaces, `rss_sum` 108.0 MB, `rss_max` 50.3 MB (windowd), `exhausted=0`; `QEMU_MEM=1G`:
+  257 515 frames and byte-identical usage (same allocs, same `rss_sum`) — the allocator is
+  deterministic across machine sizes. `rss_sum` is M3's baseline (R10). **Proof:** kernel
+  host tests 90/90; `just check` 14/14; smp1 (424 ok, 71 KSELFTEST, 9/9) and smp1 at 1G green;
+  `ci-os-smp1` twice with byte-identical memory records; visible green (`PIXEL PROOF ok`,
+  diff vs splash 31.77); `just test-all` green (EXIT=0, 11 QEMU lanes incl. seven OTA profiles and 2 pixel proofs; `KSELFTEST: mm frames` in 11 boots, all `exhausted=0`; `metricsd: mm snapshot ok` in 17; `metrics retention ok` in all 6 boots that run the metrics phase).
+
+## DoD sweep (2026-09-24)
+
+| Definition of Done | State |
+|---|---|
+| Host tests | ✅ `frames` (both goldens), `dma_runs`, `accounting`, `phys`, nexus-fdt/-abi/-driverkit |
+| `just test-all` green with no fixed window | ✅ P3b onwards, last run with P5 |
+| two `-m` sizes boot | ✅ 256M + 1G (P3b), 1G again at P5, 320M default |
+| the marker on QEMU | ✅ `KINIT: mm frames (…)` every boot, `KSELFTEST: mm frames (…)` REQUIRE |
+| the marker on the board's serial | ➡ TASK-0327B (the board lane, once B1.6 boots the board) — listed there with the Zicbom/`menvcfg` YELLOW; the same hand-off as RFC-0098 Phase 1 |
+| the gate in `just check` | ✅ `fixed-windows` (P3b), `dma-contiguous` (P4a); the physical-cast rule is a review rule (P3b) |
+| docs + CHANGELOG | ✅ RFC-0098 C4 (P2, P3a, P3b, P4a, P4b, P5 amendments), `01-neuron-kernel.md`, CHANGELOG per package |
+| TASK-0284 closed as absorbed | ✅ P4b |
+
+Goal items delivered differently, on measurement: idle zeroing became zero-at-create off the
+BKL (P3a — no idle frontier, no zeroed pool needed while create zeroes); per-space
+`vmos_committed` is not a per-space number — an object belongs to whoever holds its capability
+and may be shared, so objects are accounted globally (`vmos`, `vmo_bytes`, `dma_bytes`) and a
+space by what it MAPS (`rss`, `dma`); attributing committed objects to an owner is the quota
+work of M4 (TASK-0287), which also brings another task's residency behind a capability.
 
 ## Constraints / invariants
 

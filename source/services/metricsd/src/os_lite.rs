@@ -22,20 +22,18 @@ use alloc::vec::Vec;
 
 use nexus_abi::nsec;
 use nexus_ipc::budget::{self, NonceMismatchBudget, RouteRetryOutcome};
-use nexus_ipc::{KernelClient, KernelServer, Wait};
+use nexus_ipc::{KernelServer, Wait};
 use nexus_metrics::{
     decode_request, encode_status_response, DecodeError, Request, OP_COUNTER_INC, OP_GAUGE_SET,
     OP_HIST_OBSERVE, OP_PING, OP_SPAN_END, OP_SPAN_START, STATUS_INVALID_ARGS, STATUS_NOT_FOUND,
     STATUS_OK, STATUS_OVER_LIMIT, STATUS_RATE_LIMITED,
 };
 
-use crate::{
-    RateLimiter, Registry, RejectReason, RetentionEngine, RetentionEventKind, RuntimeLimits,
-    SpanStartArgs,
-};
+use crate::{RateLimiter, Registry, RejectReason, RuntimeLimits, SpanStartArgs};
 
-use crate::statefs_io::{put_with_retries, statefs_delete_nonblocking};
-use statefs::client::StatefsClient;
+mod kernel_memory;
+mod retention;
+use retention::RetentionSink;
 
 /// Result type for metricsd service loop.
 pub type MetricsResult<T> = Result<T, MetricsError>;
@@ -49,138 +47,6 @@ use nexus_service_topology::slots::metricsd as declared;
 #[must_use = "metricsd errors must be handled"]
 pub enum MetricsError {
     Ipc,
-}
-
-struct RetentionSink {
-    limits: RuntimeLimits,
-    engine: RetentionEngine,
-    client: Option<KernelClient>,
-    proof_client: Option<StatefsClient>,
-    wal_proof_emitted: bool,
-    wal_verified_emitted: bool,
-    rollup_10s_proof_emitted: bool,
-    rollup_60s_proof_emitted: bool,
-}
-
-impl RetentionSink {
-    fn new(limits: RuntimeLimits) -> Self {
-        let client = if limits.retention_enabled {
-            KernelClient::new_with_slots(declared::STATEFSD.send, declared::REPLY.recv).ok()
-        } else {
-            None
-        };
-        let proof_client = if limits.retention_enabled {
-            let client =
-                KernelClient::new_with_slots(declared::STATEFSD.send, declared::REPLY.recv).ok();
-            let reply =
-                KernelClient::new_with_slots(declared::REPLY.send, declared::REPLY.recv).ok();
-            match (client, reply) {
-                (Some(c), Some(r)) => Some(StatefsClient::from_clients(c, r)),
-                _ => None,
-            }
-        } else {
-            None
-        };
-        if limits.retention_enabled && client.is_none() {
-            emit_line("metricsd: retention statefs unavailable");
-        }
-        Self {
-            limits,
-            engine: RetentionEngine::new(limits),
-            client,
-            proof_client,
-            wal_proof_emitted: false,
-            wal_verified_emitted: false,
-            rollup_10s_proof_emitted: false,
-            rollup_60s_proof_emitted: false,
-        }
-    }
-
-    fn record_metric(&mut self, record: &str) {
-        self.record(RetentionEventKind::Metric, record.as_bytes());
-    }
-
-    fn record_span(&mut self, record: &str) {
-        self.record(RetentionEventKind::Span, record.as_bytes());
-    }
-
-    fn record(&mut self, kind: RetentionEventKind, record: &[u8]) {
-        let Some(update) = self.engine.append(kind, record) else {
-            return;
-        };
-        let Some(client) = self.client.as_ref() else {
-            return;
-        };
-        let retries = match kind {
-            RetentionEventKind::Metric => self.limits.retention_best_effort_retries,
-            RetentionEventKind::Span => self.limits.retention_critical_retries,
-        };
-        let key = format!("/state/observability/metricsd/wal/seg_{}", update.wal_slot);
-        let wal_ok = put_with_retries(client, key.as_str(), &update.wal_bytes, retries);
-        if !wal_ok {
-            return;
-        }
-        if !self.wal_proof_emitted {
-            self.wal_proof_emitted = true;
-            if !nexus_abi::service_trace() {
-                nexus_log::info("metricsd", |line| {
-                    line.text("retention wal active");
-                });
-            }
-        }
-        if !self.wal_verified_emitted {
-            if let Some(proof) = self.proof_client.as_ref() {
-                if proof.put(key.as_str(), &update.wal_bytes).is_ok() {
-                    self.wal_verified_emitted = true;
-                    if !nexus_abi::service_trace() {
-                        nexus_log::info("metricsd", |line| {
-                            line.text("retention wal verified");
-                        });
-                    }
-                }
-            }
-        }
-        if let Some(rollup_10s) = update.rollup_10s.as_ref() {
-            let key =
-                format!("/state/observability/metricsd/rollup/10s/w_{}", rollup_10s.window_id);
-            let _ = put_with_retries(
-                client,
-                key.as_str(),
-                &rollup_10s.bytes,
-                self.limits.retention_best_effort_retries,
-            );
-            if !self.rollup_10s_proof_emitted {
-                self.rollup_10s_proof_emitted = true;
-                nexus_log::info("metricsd", |line| {
-                    line.text("retention rollup 10s active");
-                });
-            }
-        }
-        for window_id in update.gc_rollup_10s.iter().copied() {
-            let key = format!("/state/observability/metricsd/rollup/10s/w_{}", window_id);
-            let _ = statefs_delete_nonblocking(client, key.as_str());
-        }
-        if let Some(rollup_60s) = update.rollup_60s.as_ref() {
-            let key =
-                format!("/state/observability/metricsd/rollup/60s/w_{}", rollup_60s.window_id);
-            let _ = put_with_retries(
-                client,
-                key.as_str(),
-                &rollup_60s.bytes,
-                self.limits.retention_critical_retries,
-            );
-            if !self.rollup_60s_proof_emitted {
-                self.rollup_60s_proof_emitted = true;
-                nexus_log::info("metricsd", |line| {
-                    line.text("retention rollup 60s active");
-                });
-            }
-        }
-        for window_id in update.gc_rollup_60s.iter().copied() {
-            let key = format!("/state/observability/metricsd/rollup/60s/w_{}", window_id);
-            let _ = statefs_delete_nonblocking(client, key.as_str());
-        }
-    }
 }
 
 /// Ready notifier invoked by init glue once service bootstrap is complete.
@@ -220,6 +86,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> MetricsResult<()> {
     let mut fallback_now = 0u64;
 
     nexus_abi::service_verdict_flush("metricsd");
+    kernel_memory::record(&mut registry);
     // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
     // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
@@ -314,7 +181,10 @@ fn handle_frame(
             match result {
                 Ok(value) => {
                     log_counter_snapshot(name, value);
-                    retention.record_metric(metric_counter_record(name, value).as_str());
+                    retention.record_metric(
+                        sender_service_id,
+                        metric_counter_record(name, value).as_str(),
+                    );
                     (encode_status_response(OP_COUNTER_INC, nonce, STATUS_OK), None)
                 }
                 Err(reject) => reject_rsp(OP_COUNTER_INC, nonce, reject),
@@ -325,7 +195,10 @@ fn handle_frame(
             match result {
                 Ok(current) => {
                     log_gauge_snapshot(name, current);
-                    retention.record_metric(metric_gauge_record(name, current).as_str());
+                    retention.record_metric(
+                        sender_service_id,
+                        metric_gauge_record(name, current).as_str(),
+                    );
                     (encode_status_response(OP_GAUGE_SET, nonce, STATUS_OK), None)
                 }
                 Err(reject) => reject_rsp(OP_GAUGE_SET, nonce, reject),
@@ -336,7 +209,10 @@ fn handle_frame(
             match result {
                 Ok((count, sum)) => {
                     log_hist_snapshot(name, count, sum);
-                    retention.record_metric(metric_hist_record(name, count, sum).as_str());
+                    retention.record_metric(
+                        sender_service_id,
+                        metric_hist_record(name, count, sum).as_str(),
+                    );
                     (encode_status_response(OP_HIST_OBSERVE, nonce, STATUS_OK), None)
                 }
                 Err(reject) => reject_rsp(OP_HIST_OBSERVE, nonce, reject),
@@ -370,6 +246,7 @@ fn handle_frame(
                         &ended.end_attrs,
                     );
                     retention.record_span(
+                        sender_service_id,
                         span_end_record(
                             &ended.name,
                             ended.parent_span_id,

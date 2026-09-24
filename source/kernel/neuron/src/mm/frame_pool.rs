@@ -56,15 +56,39 @@ pub fn init_from_tree() -> Result<Stats, InitError> {
     Ok(stats)
 }
 
-/// A block of `1 << order` frames, or the error — exhaustion is logged here,
-/// once per occurrence, with the numbers.
+/// A block of `1 << order` frames, or the error.
 pub fn alloc(order: u8) -> Result<Block, FrameError> {
-    let result = match POOL.lock().as_mut() {
-        Some(pool) => pool.alloc(order),
-        None => Err(FrameError::Exhausted { order, free: 0 }),
+    locked(order, |pool| pool.alloc(order))
+}
+
+/// The largest free block of `order` or below (an object that takes several
+/// runs); exhausted only when not a single frame is left.
+pub fn alloc_at_most(order: u8) -> Result<Block, FrameError> {
+    locked(order, |pool| pool.alloc_at_most(order))
+}
+
+/// Run an allocation under the pool lock; an exhaustion is an event
+/// (RFC-0087 §1): the allocator counted it, the console hears the 1st, 2nd,
+/// 4th, 8th … one — outside the lock, with the numbers.
+fn locked(
+    order: u8,
+    f: impl FnOnce(&mut FrameAllocator) -> Result<Block, FrameError>,
+) -> Result<Block, FrameError> {
+    let (result, count) = match POOL.lock().as_mut() {
+        Some(pool) => {
+            let result = f(pool);
+            let count = if result.is_err() { pool.stats().exhausted } else { 0 };
+            (result, count)
+        }
+        // No pool yet: every ask is refused, and says so.
+        None => (Err(FrameError::Exhausted { order, free: 0 }), 1),
     };
     if let Err(FrameError::Exhausted { order, free }) = result {
-        log_error!(target: "mm", "MM: frames exhausted (want=order{} free={})", order, free);
+        if crate::accounting::log_exhaustion(count) {
+            log_error!(target: "mm",
+                "MM: frames exhausted (want=order{} free={} count={}) event=exhaust.v1 resource=frames action=refused",
+                order, free, count);
+        }
     }
     result
 }
@@ -82,25 +106,24 @@ pub fn free(block: Block) {
 }
 
 /// `len` bytes as the largest blocks that fit, largest first — a run that is
-/// 2 MiB-aligned stays a superpage when mapped. On exhaustion everything taken
-/// so far goes back and the error is the pool's (already logged).
+/// 2 MiB-aligned stays a superpage when mapped. A fallback to smaller blocks is
+/// the allocator's (`alloc_at_most`), not an exhaustion; on a real one
+/// everything taken so far goes back and the error is the pool's (logged).
 pub fn alloc_bytes(len: usize) -> Result<alloc::vec::Vec<Block>, FrameError> {
     let mut blocks = alloc::vec::Vec::new();
     let mut remaining = len.div_ceil(crate::frames::FRAME_SIZE as usize);
     while remaining > 0 {
-        let mut order = (remaining.ilog2() as u8).min(crate::frames::MAX_ORDER);
-        let block = loop {
-            match alloc(order) {
-                Ok(block) => break block,
-                Err(FrameError::Exhausted { .. }) if order > 0 => order -= 1,
-                Err(e) => {
-                    free_blocks(&blocks);
-                    return Err(e);
-                }
+        let order = (remaining.ilog2() as u8).min(crate::frames::MAX_ORDER);
+        match alloc_at_most(order) {
+            Ok(block) => {
+                remaining -= block.frames();
+                blocks.push(block);
             }
-        };
-        remaining -= block.frames();
-        blocks.push(block);
+            Err(e) => {
+                free_blocks(&blocks);
+                return Err(e);
+            }
+        }
     }
     Ok(blocks)
 }

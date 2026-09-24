@@ -179,6 +179,42 @@ fn exhaustion_is_an_error_and_a_counter() {
 }
 
 #[test]
+fn a_fallback_to_smaller_blocks_is_served_not_exhausted() {
+    // Two frames free, no order-1 block left: the order-1 ask is answered with
+    // an order-0 block and neither the counter nor the caller sees exhaustion.
+    let bank = Range { base: 0x8000_0000, size: 4 * FRAME_SIZE };
+    let mut fa = FrameAllocator::init(&[bank], &[], &[]).unwrap();
+    let a = fa.alloc(0).unwrap();
+    let _b = fa.alloc(0).unwrap();
+    let c = fa.alloc(0).unwrap();
+    let _d = fa.alloc(0).unwrap();
+    fa.free(a).unwrap();
+    fa.free(c).unwrap(); // frames 0 and 2 free, their buddies taken: no order-1 block
+    let got = fa.alloc_at_most(1).unwrap();
+    assert_eq!(got, Block { base: 0x8000_0000, order: 0 }, "the largest that fits, lowest first");
+    assert_eq!(fa.stats().exhausted, 0);
+    // A whole block of the asked order is taken when one exists.
+    let mut fresh = FrameAllocator::init(&[bank], &[], &[]).unwrap();
+    assert_eq!(fresh.alloc_at_most(1).unwrap().order, 1);
+}
+
+#[test]
+fn test_reject_alloc_at_most_counts_exhaustion_only_when_nothing_is_left() {
+    // Three frames: an order-1 block and an order-0 block.
+    let bank = Range { base: 0x8000_0000, size: 3 * FRAME_SIZE };
+    let mut fa = FrameAllocator::init(&[bank], &[], &[]).unwrap();
+    assert_eq!(fa.alloc_at_most(MAX_ORDER).map(|b| b.order), Ok(1));
+    assert_eq!(fa.alloc_at_most(MAX_ORDER).map(|b| b.order), Ok(0));
+    assert_eq!(fa.stats().exhausted, 0);
+    assert_eq!(
+        fa.alloc_at_most(MAX_ORDER),
+        Err(FrameError::Exhausted { order: MAX_ORDER, free: 0 })
+    );
+    assert_eq!(fa.stats().exhausted, 1);
+    assert_eq!(fa.alloc_at_most(MAX_ORDER + 1), Err(FrameError::BadOrder));
+}
+
+#[test]
 fn holes_poison_whole_frames_and_are_never_handed_out() {
     let bank = Range { base: 0x8000_0000, size: 4 * MIB };
     let reserved = [Range { base: 0x8000_0000 + 0x1800, size: 0x100 }];

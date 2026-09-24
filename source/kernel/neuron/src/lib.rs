@@ -458,6 +458,10 @@ pub mod phys;
 // target-gated so the reject matrix runs on host.
 #[path = "mm/dma_runs.rs"]
 pub mod dma_runs;
+// TASK-0286 M1 P5 (RFC-0098 C4): the memory accounting record (`mm_stats`) and the
+// bounded exhaustion log — NOT target-gated so the wire form runs on host.
+#[path = "mm/accounting.rs"]
+pub mod accounting;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
 mod ipc_eof;
