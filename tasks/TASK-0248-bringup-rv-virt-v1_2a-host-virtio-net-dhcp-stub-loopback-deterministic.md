@@ -61,6 +61,12 @@ Deliver on host:
 
 ## Red flags / decision points
 
+- **RED (measured 2026-09-24, TASK-0246 P0): the SDIO host shares a page.** The WiFi function's
+  host `mmc@d4280800` and the microSD host `mmc@d4280000` lie in ONE 4 KiB page (registers
+  0x200 each, 0x800 apart); a page-granular `DeviceMmio` grant for one exposes the other, and
+  init's `window_of` skips the unaligned base today. Decide at this task's P0: one owner for
+  both hosts, or a sub-page grant model — not a silent over-grant.
+
 - **RED (virtio-net authority drift)**:
   - Do not create a parallel virtio-net implementation that conflicts with `TASK-0003` (smoltcp). If both coexist, they must share MMIO access and not conflict. Document the relationship explicitly.
 - **YELLOW (DHCP stub vs real DHCP)**:

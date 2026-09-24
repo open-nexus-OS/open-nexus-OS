@@ -1,0 +1,29 @@
+      dev: sdhci-pci, id ""
+        sd-spec-version = 2 (0x2)
+        uhs = 0 (0x0)
+        capareg = 91763892 (0x57834b4)
+        maxcurr = 0 (0x0)
+        addr = 01.0
+        romfile = ""
+        romsize = 4294967295 (0xffffffff)
+        rombar = -1 (0xffffffffffffffff)
+        multifunction = false
+        x-pcie-lnksta-dllla = true
+        failover_pair_id = ""
+        acpi-index = 0 (0x0)
+        x-pcie-err-unc-mask = true
+        x-pcie-ari-nextfn-1 = false
+        x-max-bounce-buffer-size = 4096 (4 KiB)
+        sriov-pf = ""
+        x-pcie-ext-tag = true
+        busnr = 0 (0x0)
+        class Class 0805, addr 00:01.0, pci id 1b36:0007 (sub 1af4:1100)
+        bar 0: mem at 0xffffffffffffffff [0xfe]
+        bus: sd-bus
+          type sdhci-bus
+          dev: emmc, id ""
+            boot-partition-size = 0 (0x0)
+            boot-config = 0 (0x0)
+            rpmb-partition-size = 0 (0x0)
+            auth-key = ""
+            drive = "e"

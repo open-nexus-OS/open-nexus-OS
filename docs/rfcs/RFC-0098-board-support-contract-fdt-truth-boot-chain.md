@@ -137,6 +137,18 @@ CLINT MMIO is never touched from S-mode. The kernel and nxboot are linked positi
 and relocate themselves on entry (`R_RISCV_RELATIVE`); the load address comes from the FIT
 (board) or QEMU's `-kernel` placement — no link-time machine constant.
 
+**Amended 2026-09-24 (TASK-0246 P0): a PCI host bridge is a device source.** Measured
+(`docs/board/measurements/2026-09-24-emmc-sdhci`): QEMU's only SD host on `virt` is
+`sdhci-pci` behind `pci-host-ecam-generic`, and nothing before the OS assigns its BAR. A
+`pci-host-ecam-generic` node is enumerated like a list of nodes: its buses read through ECAM,
+every function's memory BARs sized and assigned lowest-first from the node's 32-bit memory range
+(a 64-bit BAR from the 64-bit range), memory decode and bus mastering enabled, INTx routed
+through the node's `interrupt-map` to the PLIC line. The result is the same `DeviceMmio`
+capability (window, line; coherence and DMA reach from the host node) and the same grant by
+class. ONE pure, host-tested planner does it for nxboot and init, so both see one assignment.
+The board's PCIe (a DesignWare host with link training) is a driver of its own later; this is
+the generic ECAM host only.
+
 ### C4 — Physical memory (Phase 2 = M1 of target picture M)
 
 The page-frame allocator owns every `/memory` bank not reserved; the fixed windows
@@ -221,12 +233,39 @@ that fallback internally (`alloc_at_most`) so neither the counter nor the log se
 `MM: frames exhausted (…) event=exhaust.v1 resource=frames action=refused` is printed on the
 1st, 2nd, 4th, 8th … occurrence (bounded under a storm, never silent), the counter holds all.
 
+**Amended 2026-09-24 (TASK-0246 P0): DMA reach travels with the device.** Measured: the K1's
+storage masters (the SDHCI hosts, the DWC3) sit on a `storage-bus` whose `dma-ranges` maps only
+`[0, 2 GiB)` — the board's second bank at 4 GiB is out of their reach — while the camera, dma,
+multimedia, network and PCIe buses TRANSLATE (bus `0x8000_0000…` → CPU `0x1_0000_0000…`). A
+DMA buffer lands in reach today only because the pool fills bank 0 first: correct by luck, and
+silent corruption once bank 0 is full. Contract: the tree says it (`board.dts` carries the
+buses and their `dma-ranges` for every node it has); init reads a device's ranges walking up
+from its node (no `dma-ranges` anywhere above means the identity over all memory) and mints them
+into the device capability next to the line and the coherence — with more attributes than
+argument registers, `device_cap_create` takes a versioned descriptor. A VMO made FOR a device
+is allocated within its reach, and `vmo_runs` names the device it answers for: the runs come
+back in that device's BUS addresses, a run outside its reach is refused (never truncated, never
+silently wrong), and the caller must hold THAT device's capability (tighter than P4a's "any
+device").
+
 ### C5 — Storage (Phase 3, ADR-0067)
 
 `virtioblkd` becomes `blkd`: the ONE block owner, one GPT disk, partition-scoped `blockproto`;
 its `BlockDevice` backend is chosen by the FDT node it is granted (`virtio,mmio` with
-`device_id 2`, or `spacemit,k1-x-sdhci`). nxboot carries the same two readers. The GPT layout
+`device_id 2`, or `spacemit,k1-sdhci` — corrected 2026-09-24, see below). nxboot carries the same two readers. The GPT layout
 SSOT (`userspace/storage/src/layout.rs`) gains the boot-ROM head partitions on the board.
+
+**Amended 2026-09-24 (TASK-0246 P0, measured):** the board tree's compatible is the mainline
+`spacemit,k1-sdhci` (the vendor tree's `spacemit,k1-x-sdhci` is not ours); on QEMU the SDHCI
+backend is reached through the PCI source (C3: class `0805`, `sdhci-pci`) — one `sdhci` driver
+for both, a K1 layer (vendor registers, HS400 enhanced strobe) over the standard core. **The disk
+is the medium the boot came from:** nxboot writes `/chosen/nexus,boot-disk` (the node path, or
+the PCI function behind a host node) for the device it read the boot volume from, and init
+grants exactly that one to `blkd` — the board carries three SD hosts and a stock SD card, and a
+choice by address order would be a guess. The operating point is reached without tuning: HS52
+(8 bit, SDR), then HS400 enhanced strobe (PHY DLL lock) — the stock system's own mode; ADMA2
+32-bit (the host's and the bus's limit). nxboot initialises the card itself (it trusts no
+predecessor's controller state), with the same core in PIO mode.
 
 ### C6 — Boot chain (Phase 4, ADR-0066)
 

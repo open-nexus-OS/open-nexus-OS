@@ -1,7 +1,7 @@
 # ADR-0067: ONE block owner (`blkd`) whose backend the FDT selects — virtio-blk on QEMU, SDHCI on the board; the GPT plane above it never learns the difference
 
 - Status: Proposed
-- Date: 2026-09-22
+- Date: 2026-09-22 (amended 2026-09-24)
 - Links:
   - Tasks: `tasks/TASK-0246-*` (SDHCI driver + `blkd`), `tasks/TASK-0246B-*` (nxboot reader)
   - RFCs: `docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md` (C5),
@@ -28,7 +28,7 @@ or the same owner with a second backend.
 - **`virtioblkd` becomes `blkd`, the one block owner on every platform.** It is granted ONE
   device node by init (RFC-0017 class `device.mmio.blk` on QEMU, `device.mmio.mmc` on the
   board) and selects its `BlockDevice` backend by that node's compatible: `virtio,mmio` with
-  virtio `device_id 2`, or `spacemit,k1-x-sdhci`. One binary, one policy identity, one GPT
+  virtio `device_id 2`, or `spacemit,k1-sdhci` (corrected 2026-09-24, see the amendment). One binary, one policy identity, one GPT
   parse, the same `blockproto`.
 - The SDHCI backend lives in `source/drivers/storage/sdhci` over `nexus_hal::Bus`, ADMA2 from
   the start (the stock system proves the host does it), with `DmaBuffer` cache maintenance
@@ -41,6 +41,28 @@ or the same owner with a second backend.
   the volumes; consumers keep addressing partitions by name.
 - Out of scope: hot-plug of the microSD, multiple simultaneous disks, NVMe (a third backend
   when the PCIe path exists), the eMMC's `boot0`/`boot1` hardware partitions and RPMB.
+
+## Amendment 2026-09-24 (TASK-0246 P0, measured)
+
+Measured on the board, upstream and in QEMU (`docs/board/measurements/2026-09-24-emmc-sdhci`):
+
+- **Names.** The board tree's compatible is the mainline `spacemit,k1-sdhci`; the stock
+  system's `spacemit,k1-x-sdhci` belongs to the vendor tree we do not boot.
+- **Reach.** The SD hosts sit on the K1's `storage-bus`, whose `dma-ranges` covers only the
+  first 2 GiB. The device capability carries that reach and the kernel allocates the driver's
+  DMA memory inside it (RFC-0098 C4) — the ADMA table and the data buffers alike.
+- **The operating point without tuning.** HS52 (8 bit, SDR) first, then HS400 with enhanced
+  strobe — the stock system's own mode: the PHY DLL locks, no delay-line tuning runs. HS200 is
+  not a step. ADMA2 with 32-bit descriptors (the host's `64-bit DMA broken` quirk and the bus's
+  reach agree).
+- **The QEMU backend is real.** `sdhci-pci` + the `emmc` model prove the standard core (reset,
+  clock, commands, ADMA2, IRQ completion, the eMMC init to HS52 8-bit) in a lane, through the
+  PCI device source (RFC-0098 C3); the board proves the K1 layer. One `sdhci` crate, two layers:
+  `Generic` and `K1`.
+- **Which disk.** nxboot names the medium it booted from in `/chosen/nexus,boot-disk`; init
+  grants exactly that device to `blkd` (the board has three SD hosts and a stock SD card).
+- **nxboot initialises the card itself** with the same core in PIO mode — it relies on no
+  predecessor's controller state, so QEMU (no SPL) and the board (SPL before it) take one path.
 
 ## Consequences
 

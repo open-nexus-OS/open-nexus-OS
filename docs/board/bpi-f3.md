@@ -6,7 +6,10 @@
 The board on the desk for the hardware fast track (`tasks/IMPLEMENTATION-ORDER.md`). This page
 is what a developer needs to reach it; the boot chain we build on it is Block 1's subject
 (RFC-0098, ADR-0066/0067, `TASK-0260B`). Measured facts carry the date they were measured; the
-full read-out of the stock system (2026-09-22) is `measurements/2026-09-22-stock-system/README.md`.
+full read-out of the stock system (2026-09-22) is
+`measurements/2026-09-22-stock-system/README.md`. The eMMC, its SDHCI host, the storage bus's
+DMA reach and QEMU's SD stand-in (2026-09-24, TASK-0246 P0) are
+`measurements/2026-09-24-emmc-sdhci/README.md`.
 
 ## Hardware (what matters to us)
 
