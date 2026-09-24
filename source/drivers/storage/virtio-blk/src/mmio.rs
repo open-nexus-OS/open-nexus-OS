@@ -24,7 +24,7 @@ use crate::{
     QueueSetup, VirtioBlk, VirtioError, REG_QUEUE_NUM_MAX, REG_QUEUE_SEL, VIRTIO_DEVICE_ID_BLK,
     VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN,
 };
-use nexus_abi::{cap_query, vmo_create_contiguous, CapQuery};
+use nexus_abi::{cap_query, vmo_create_contiguous, vmo_dma_base, CapQuery};
 use nexus_hal::Bus;
 use nexus_ipc::timer::{NotifyTimer, Waitset};
 
@@ -249,7 +249,8 @@ impl VirtioBlkMmio {
             | nexus_abi::page_flags::WRITE;
         let q_mem_va = nexus_abi::vm_map(q_vmo, 0, Q_PAGES * 4096, flags)
             .map_err(|_| VirtioError::Unsupported)?;
-        let (q_base_pa, _q_len) = cap_query_base_len(q_vmo as u32)?;
+        let q_base_pa =
+            vmo_dma_base(q_vmo, Q_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
 
         let desc_bytes = size_of::<RawDesc>() * QUEUE_LEN;
         let avail_bytes = size_of::<VqAvail<QUEUE_LEN>>();
@@ -287,7 +288,8 @@ impl VirtioBlkMmio {
             vmo_create_contiguous(BUF_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
         let buf_va = nexus_abi::vm_map(buf_vmo, 0, BUF_PAGES * 4096, flags)
             .map_err(|_| VirtioError::Unsupported)?;
-        let (buf_pa, _buf_len) = cap_query_base_len(buf_vmo as u32)?;
+        let buf_pa =
+            vmo_dma_base(buf_vmo, BUF_PAGES * 4096).map_err(|_| VirtioError::Unsupported)?;
 
         let capacity_sectors = dev.capacity_sectors();
 

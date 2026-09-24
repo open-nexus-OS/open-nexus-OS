@@ -124,7 +124,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **2 `send`**: Send an IPC message via an endpoint capability.
 - **3 `recv`**: Receive the next pending IPC message.
 - **4** — RETIRED (RFC‑0085 P6): was the fixed‑VA `map`; number never reused. Use 53 `vm_map`.
-- **5 `vmo_create`**: Create a page-backed VMO (`mm::vmo`, TASK-0286 P3a): a list of physically contiguous blocks from the frame pool; arg 2 bit 0 asks for ONE block (the DMA masters' kind, `nexus_abi::vmo_create_contiguous`).
+- **5 `vmo_create`**: Create a page-backed VMO (`mm::vmo`, TASK-0286 P3a): a list of physically contiguous blocks from the frame pool; arg 2 bit 0 asks for ONE block (`nexus_abi::vmo_create_contiguous`) — for memory a device addresses by one base (virtio queues, command pools); only drivers create it (`just dma-contiguous`).
 - **6 `vmo_write`**: Write bytes into a VMO capability.
 - **7 `spawn`**: Create a child task (fresh Sv39 AS by default) with a guarded stack.
 - **8 `cap_transfer`**: Duplicate/grant a capability to another task with a rights mask (subset-only).
@@ -144,7 +144,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **25 `getpid`**: Caller's task id.
 - **26 `ipc_recv_v2`**: IPC recv with sender identity + cap-move (ADR‑0042 transport).
 - **27** — RETIRED (RFC‑0085 P6): was the fixed‑VA `mmio_map`; number never reused. Use 55 `mmio_map_auto`.
-- **28 `cap_query`**: Query a capability slot (kind/irq/base/len) into a user buffer; a device capability's `irq` is the PLIC line init took from the device tree (RFC‑0098 C3) — the one place a driver learns its interrupt.
+- **28 `cap_query`**: Query a capability slot (kind/irq/base/len) into a user buffer; a device capability's `irq` is the PLIC line init took from the device tree (RFC‑0098 C3) — the one place a driver learns its interrupt. `base` is a device's register window; a VMO reports 0 (its physical runs leave only through 60 `vmo_runs`).
 - **29 `spawn_last_error`**: Last spawn-failure reason for the caller (RFC‑0013).
 - **30 `device_cap_create`**: Mint a DeviceMmio capability (privileged bring-up).
 - **31 `cap_transfer_to`**: Transfer a capability into a specific child slot.
@@ -169,6 +169,13 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **55 `mmio_map_auto`**: Device-MMIO window at a kernel-chosen va —
   same USER|RW/never-EXEC floor as the retired 27, but the caller cannot
   collide because it never picks an address (RFC‑0085).
+- **60 `vmo_runs`**: The one door a physical address leaves the kernel by
+  (RFC‑0098 C4, TASK‑0286 P4a): the `(pa, len)` runs behind a byte range of a
+  writable VMO, adjacent runs merged, at most 256 per call, all or nothing —
+  only to a task holding a device capability, never for a read-only alias.
+  A driver takes a queue's one base from it (`nexus_abi::vmo_dma_base`) and a
+  scatter-gather list for a device that reads one (gpud's resource backings,
+  windowd's framebuffer). Authority + clipping: `mm/dma_runs.rs`, host-tested.
 
 Errors follow the conventional POSIX encoding: handlers return
 `-errno` (two's complement) in `a0`. Key codes used by the current

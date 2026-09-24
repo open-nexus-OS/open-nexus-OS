@@ -78,7 +78,7 @@ use input_live_protocol::{
     OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE, STATUS_MALFORMED, STATUS_UNSUPPORTED,
 };
 #[cfg(nexus_env = "os")]
-use nexus_abi::vmo_create_contiguous;
+use nexus_abi::vmo_create;
 use nexus_abi::{debug_println, debug_trace, nsec};
 use nexus_ipc::{IpcError, KernelServer, Wait};
 
@@ -419,14 +419,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         }
     };
 
-    // GPU-only architecture: windowd is the sole display owner.
-    // It always creates its own framebuffer VMO — no fbdevd, no ramfb,
-    // no handoff from another service. gpud provides scanout on demand.
+    // GPU-only architecture: windowd is the sole display owner and creates its own
+    // framebuffer VMO (no fbdevd, no ramfb, no handoff). gpud scans it out on demand,
+    // handing the device the object's runs (RFC-0098 C4): an anonymous object.
     #[cfg(nexus_env = "os")]
     {
         let _ = debug_println("windowd: backend=gpu");
         let byte_len: usize = (DISPLAY_WIDTH as usize) * (RESOURCE_HEIGHT as usize) * 4;
-        if let Ok(handle) = vmo_create_contiguous(byte_len) {
+        if let Ok(handle) = vmo_create(byte_len) {
             let _ = debug_println("windowd: fb vmo create ok");
             runtime.register_framebuffer_vmo(handle);
             // Write source frame (wallpaper) to VMO Plane 0 once.

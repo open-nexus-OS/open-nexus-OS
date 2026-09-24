@@ -73,12 +73,17 @@ pub(crate) fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
 }
 
 pub(crate) fn cap_query_vmo_probe() -> core::result::Result<(), ()> {
-    // Allocate a small VMO and ensure we can query its physical window deterministically.
-    let vmo = nexus_abi::vmo_create(4096).map_err(|_| ())?;
+    // A VMO queries as kind 1 with its length — and NO physical base: a physical
+    // address leaves the kernel only through `vmo_runs` (RFC-0098 C4, TASK-0286
+    // P4a), never through `cap_query`. A contiguous object is the case that used
+    // to leak one, so that is the one probed.
+    let vmo = nexus_abi::vmo_create_contiguous(4096).map_err(|_| ())?;
     let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-    nexus_abi::cap_query(vmo, &mut info).map_err(|_| ())?;
+    let queried = nexus_abi::cap_query(vmo, &mut info);
+    let _ = nexus_abi::vmo_destroy(vmo);
+    queried.map_err(|_| ())?;
     // 1 = VMO
-    if info.kind_tag != 1 || info.base == 0 || info.len < 4096 {
+    if info.kind_tag != 1 || info.base != 0 || info.len < 4096 {
         return Err(());
     }
     Ok(())

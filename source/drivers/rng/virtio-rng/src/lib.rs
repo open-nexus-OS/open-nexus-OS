@@ -34,7 +34,7 @@ use std::vec::Vec;
 use nexus_hal::Bus;
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-use nexus_abi::{cap_query, mmio_map_auto, vm_map, vmo_create_contiguous, CapQuery};
+use nexus_abi::{mmio_map_auto, vm_map, vmo_create_contiguous, vmo_dma_base};
 
 /// Maximum entropy bytes that can be requested in a single call.
 /// Bounded to prevent DoS and ensure deterministic behavior.
@@ -437,14 +437,12 @@ pub fn read_entropy_via_virtio_mmio(
                 | nexus_abi::page_flags::WRITE;
             Q_VA_S = vm_map(q_vmo, 0, 4096, flags).map_err(|_| RngError::MapFailed)?;
             BUF_VA_S = vm_map(buf_vmo, 0, 4096, flags).map_err(|_| RngError::MapFailed)?;
-            let mut q_info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-            cap_query(q_vmo, &mut q_info).map_err(|_| RngError::MapFailed)?;
-            let mut b_info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-            cap_query(buf_vmo, &mut b_info).map_err(|_| RngError::MapFailed)?;
+            let q_pa = vmo_dma_base(q_vmo, 4096).map_err(|_| RngError::MapFailed)?;
+            let buf_pa = vmo_dma_base(buf_vmo, 4096).map_err(|_| RngError::MapFailed)?;
             Q_VMO = q_vmo;
             BUF_VMO = buf_vmo;
-            DESC_PA = q_info.base;
-            BUF_PA = b_info.base;
+            DESC_PA = q_pa;
+            BUF_PA = buf_pa;
             QUEUE_INIT = true;
         }
         (Q_VMO, BUF_VMO, Q_VA_S, BUF_VA_S, DESC_PA, BUF_PA)

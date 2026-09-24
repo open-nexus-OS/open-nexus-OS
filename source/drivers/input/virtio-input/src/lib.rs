@@ -22,7 +22,7 @@ use nexus_hal::Bus;
 use std::vec::Vec;
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-use nexus_abi::{cap_query, mmio_map_auto, vm_map, vm_unmap, vmo_create_contiguous, CapQuery};
+use nexus_abi::{mmio_map_auto, vm_map, vm_unmap, vmo_create_contiguous, vmo_dma_base};
 
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976;
 pub const VIRTIO_MMIO_VERSION_MODERN: u32 = 2;
@@ -569,10 +569,8 @@ impl<const N: usize> QueueState<N> {
             vm_map(queue_vmo, 0, 4096, flags).map_err(|_| VirtioInputError::MapFailed)?;
         let buffer_va =
             vm_map(buffer_vmo, 0, 4096, flags).map_err(|_| VirtioInputError::MapFailed)?;
-        let mut queue_info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-        cap_query(queue_vmo, &mut queue_info).map_err(|_| VirtioInputError::MapFailed)?;
-        let mut buffer_info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-        cap_query(buffer_vmo, &mut buffer_info).map_err(|_| VirtioInputError::MapFailed)?;
+        let queue_pa = vmo_dma_base(queue_vmo, 4096).map_err(|_| VirtioInputError::MapFailed)?;
+        let buffer_pa = vmo_dma_base(buffer_vmo, 4096).map_err(|_| VirtioInputError::MapFailed)?;
 
         unsafe {
             core::ptr::write_bytes(queue_va as *mut u8, 0, 4096);
@@ -583,14 +581,14 @@ impl<const N: usize> QueueState<N> {
         let avail_va = desc_va + core::mem::size_of::<VqDesc>() * N;
         let used_va = desc_va
             + align4(core::mem::size_of::<VqDesc>() * N + core::mem::size_of::<VqAvail<N>>());
-        let avail_pa = queue_info.base + (avail_va - desc_va) as u64;
-        let used_pa = queue_info.base + (used_va - desc_va) as u64;
+        let avail_pa = queue_pa + (avail_va - desc_va) as u64;
+        let used_pa = queue_pa + (used_va - desc_va) as u64;
 
         bus.write(REG_QUEUE_SEL, queue_index);
         let max = bus.read(REG_QUEUE_NUM_MAX);
         validate_queue_capacity(max, N as u16)?;
         bus.write(REG_QUEUE_NUM, N as u32);
-        write_u64_mmio_pair(bus, REG_QUEUE_DESC_LOW, REG_QUEUE_DESC_HIGH, queue_info.base);
+        write_u64_mmio_pair(bus, REG_QUEUE_DESC_LOW, REG_QUEUE_DESC_HIGH, queue_pa);
         write_u64_mmio_pair(bus, REG_QUEUE_DRIVER_LOW, REG_QUEUE_DRIVER_HIGH, avail_pa);
         write_u64_mmio_pair(bus, REG_QUEUE_DEVICE_LOW, REG_QUEUE_DEVICE_HIGH, used_pa);
         bus.write(REG_QUEUE_READY, 1);
@@ -598,7 +596,7 @@ impl<const N: usize> QueueState<N> {
         let desc = desc_va as *mut VqDesc;
         let avail = avail_va as *mut VqAvail<N>;
         for idx in 0..N {
-            let buf_pa = buffer_info.base + (idx * INPUT_EVENT_SIZE) as u64;
+            let buf_pa = buffer_pa + (idx * INPUT_EVENT_SIZE) as u64;
             unsafe {
                 core::ptr::write_volatile(&mut (*desc.add(idx)).addr, buf_pa);
                 core::ptr::write_volatile(&mut (*desc.add(idx)).len, INPUT_EVENT_SIZE as u32);
@@ -618,7 +616,7 @@ impl<const N: usize> QueueState<N> {
             _buffer_vmo: buffer_vmo,
             queue_va,
             buffer_va,
-            _desc_pa: queue_info.base,
+            _desc_pa: queue_pa,
             last_used_idx: 0,
             next_avail_idx: N as u16,
         })

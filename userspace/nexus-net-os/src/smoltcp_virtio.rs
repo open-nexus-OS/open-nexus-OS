@@ -25,7 +25,7 @@ use nexus_net::{
 };
 
 use net_virtio::{QueueSetup, VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
-use nexus_abi::{cap_query, mmio_map_auto, vm_map, vmo_create_contiguous, CapQuery};
+use nexus_abi::{mmio_map_auto, vm_map, vmo_create_contiguous, vmo_dma_base};
 use nexus_hal::Bus;
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
@@ -96,12 +96,6 @@ impl Bus for MmioBus {
 
 fn align4(x: usize) -> usize {
     (x + 3) & !3usize
-}
-
-fn cap_query_base_len(slot: u32) -> Result<(u64, u64), NetError> {
-    let mut info = CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-    cap_query(slot, &mut info).map_err(|_| NetError::Internal("cap_query failed"))?;
-    Ok((info.base, info.len))
 }
 
 pub struct SmoltcpVirtioNetStack {
@@ -232,7 +226,7 @@ impl SmoltcpVirtioNetStack {
             | nexus_abi::page_flags::READ
             | nexus_abi::page_flags::WRITE;
         let q_mem_va = vm_map(q_vmo, 0, Q_PAGES * 4096, flags).map_err(|_| NetError::NoBufs)?;
-        let (q_base_pa, _q_len) = cap_query_base_len(q_vmo as u32)?;
+        let q_base_pa = vmo_dma_base(q_vmo, Q_PAGES * 4096).map_err(|_| NetError::NoBufs)?;
 
         // Legacy combined layout within each queue:
         // desc[Q_LEN] + avail + used (aligned to 4), all within 2 pages.
@@ -293,7 +287,8 @@ impl SmoltcpVirtioNetStack {
             vmo_create_contiguous(ACTIVE_BUFS * 2 * 4096).map_err(|_| NetError::NoBufs)?;
         let buf_va =
             vm_map(buf_vmo, 0, ACTIVE_BUFS * 2 * 4096, flags).map_err(|_| NetError::NoBufs)?;
-        let (buf_base_pa, _buf_len) = cap_query_base_len(buf_vmo as u32)?;
+        let buf_base_pa =
+            vmo_dma_base(buf_vmo, ACTIVE_BUFS * 2 * 4096).map_err(|_| NetError::NoBufs)?;
 
         // Zero queue pages.
         // SAFETY: mapped q_mem_va points to the VMO mapping for queue memory.

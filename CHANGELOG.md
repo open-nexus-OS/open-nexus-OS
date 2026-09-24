@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-24 (TASK-0286 M1 P4a: one door for a physical address; gpud attaches backings scatter-gather)
+
+- Kernel: `vmo_runs` (syscall 60) is the only way a physical address leaves the kernel — the
+  `(pa, len)` runs behind a byte range of a writable VMO, adjacent runs merged, at most 256 per
+  call, all or nothing, only to a task that holds a device capability and never for a
+  read-only alias (`mm/dma_runs.rs`, pure and host-tested: 13 tests, the `test_reject_*`
+  matrix). `cap_query` no longer reports a base for a VMO. `KSELFTEST: vmo runs ok (runs=…
+  deny=3)` is required in every profile. RFC-0098 C4 amended.
+- `nexus_abi`: `DmaRun`, `vmo_runs`, `vmo_dma_base` (the one-run case). virtio-blk, -rng,
+  -input, -net and gpud's queues take their bases through it.
+- gpud: every resource backing and every alias (atlas rows, display planes) is attached from
+  the object's runs (`backend/backing.rs`, one ATTACH_BACKING of up to 254 entries);
+  gpud's own backings and its blur scratch, windowd's 49 MiB framebuffer (a 64 MiB block
+  before) and app-host's surfaces are anonymous objects. `ResourceRecord` moved to
+  `backend/resources.rs` and names the VMO instead of a physical base.
+- `just check` gains `dma-contiguous` (`scripts/check-dma-contiguous.sh`): only drivers, the
+  virtio-net crate, the proof harness and the ABI create contiguous VMOs.
+- `SELFTEST: cap query vmo ok` now proves that a contiguous VMO queries with NO base.
+- Proof: kernel host tests 86/86; `just check` 14/14 gates; smp1 green (422 ok, 70 KSELFTEST,
+  9/9 chain markers, `total_ms=1256`); visible green (`PIXEL PROOF ok`, diff vs splash 31.77;
+  backings of 4–32 MiB attach with 1–7 runs); `just test-all` green (EXIT=0, 11 QEMU lanes: smp1, visible ×2 pixel proofs, input-flood, seven OTA profiles; `vmo runs ok` in all 20 boots).
+
 ### Changed - 2026-09-23 (TASK-0286 M1 P3b: no fixed physical window is left; the machine memory is a lane knob)
 
 - The init loader's pages, the non-exec spawn stack (one block on the task's `ImageAllocs`) and

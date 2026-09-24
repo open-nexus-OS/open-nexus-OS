@@ -1,16 +1,40 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Resource bookkeeping: the `ResourceRecord` lookup, pixel-format mapping,
+//! Resource bookkeeping: the `ResourceRecord` and its lookup, pixel-format mapping,
 //! scanout VMO cloning, and the small validation/error-mapping helpers shared
 //! by the `GfxBackend` resource methods.
 
-use super::{ResourceRecord, VirtioGpuBackend};
+use super::VirtioGpuBackend;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
 use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::types::{Rect, ResourceId};
 use nexus_gfx::core::types::PixelFormat;
+
+/// One resource gpud created on the device and the guest memory behind it.
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+pub(crate) struct ResourceRecord {
+    pub(crate) id: ResourceId,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) format: PixelFormat,
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) backing_va: usize,
+    /// The VMO whose runs the device reads (`vmo_runs`, RFC-0098 C4): gpud's
+    /// own backing, or windowd's framebuffer (which gpud does not own).
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) dma_vmo: u32,
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) backing_len: usize,
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) backing_vmo: u32,
+    /// Exact `vm_map` region length (RFC-0085) — what `vm_unmap` must be
+    /// handed on release; 0 = nothing mapped.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) backing_map_len: usize,
+}
 
 impl VirtioGpuBackend {
     /// Convert PixelFormat to virtio-gpu format constant.

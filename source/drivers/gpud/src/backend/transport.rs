@@ -15,9 +15,8 @@ use super::ResourceRecord;
 use super::VirtioGpuBackend;
 #[allow(unused_imports)]
 use crate::markers::{
-    GPUD_CHAIN_BATCH_OK, GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CAP_QUERY_FAIL,
-    GPUD_RESOURCE_CREATED, GPUD_RESOURCE_CREATE_CMD_FAIL, GPUD_RESOURCE_VMO_CREATE_FAIL,
-    GPUD_RESOURCE_VMO_MAP_FAIL,
+    GPUD_CHAIN_BATCH_OK, GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CREATED,
+    GPUD_RESOURCE_CREATE_CMD_FAIL, GPUD_RESOURCE_VMO_CREATE_FAIL, GPUD_RESOURCE_VMO_MAP_FAIL,
 };
 use crate::protocol;
 use nexus_gfx::backend::error::GfxError;
@@ -193,9 +192,11 @@ impl VirtioGpuBackend {
         h: u32,
         fmt: PixelFormat,
         byte_len: usize,
-    ) -> Result<(usize, u64, usize, u32), GfxError> {
+    ) -> Result<(usize, usize, u32), GfxError> {
         let backing_len = align_page(byte_len);
-        let backing_vmo = nexus_abi::vmo_create_contiguous(backing_len).map_err(|_e| {
+        // RFC-0098 C4 (TASK-0286 P4a): an anonymous object — the device reads
+        // it through the scatter-gather list `attach_backing_runs` builds.
+        let backing_vmo = nexus_abi::vmo_create(backing_len).map_err(|_e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_VMO_CREATE_FAIL);
             GfxError::ResourceExhausted
         })?;
@@ -215,11 +216,6 @@ impl VirtioGpuBackend {
             GfxError::MmioFault
         })?;
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
-        let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-        nexus_abi::cap_query(backing_vmo, &mut info).map_err(|_e| {
-            let _ = nexus_abi::debug_println(GPUD_RESOURCE_CAP_QUERY_FAIL);
-            GfxError::MmioFault
-        })?;
 
         let gpu_format = Self::to_gpu_format(fmt);
         // Debug: emit format and resource_id values
@@ -257,19 +253,13 @@ impl VirtioGpuBackend {
             e
         })?;
 
-        let attach = protocol::VirtioGpuResourceAttachBacking {
-            hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
-            resource_id: id.0,
-            nr_entries: 1,
-        };
-        let entry =
-            protocol::VirtioGpuMemEntry { addr: info.base, length: byte_len as u32, _padding: 0 };
-        self.ctrl_submit_pair(&attach, &entry).map_err(|e| {
+        let hdr = ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING);
+        self.attach_backing_runs(hdr, id.0, backing_vmo, 0, byte_len).map_err(|e| {
             let _ = nexus_abi::debug_println(GPUD_RESOURCE_ATTACH_CMD_FAIL);
             e
         })?;
         let _ = nexus_abi::debug_println(GPUD_RESOURCE_CREATED);
-        Ok((backing_va, info.base, backing_len, backing_vmo))
+        Ok((backing_va, backing_len, backing_vmo))
     }
 
     pub(crate) fn transfer_to_host_os(
@@ -359,14 +349,13 @@ impl VirtioGpuBackend {
         queue.submit_no_response(self.mmio_base, bytes)
     }
 
-    pub(crate) fn ctrl_submit_pair<A, B>(&mut self, a: &A, b: &B) -> Result<(), GfxError> {
+    /// A command struct followed by a variable payload in ONE ring slot — an
+    /// ATTACH_BACKING and its memory entries (`backing::attach_backing_runs`).
+    pub(crate) fn ctrl_submit_payload<A>(&mut self, a: &A, b_bytes: &[u8]) -> Result<(), GfxError> {
         #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
         self.flush_pending_3d()?;
         let a_bytes = unsafe {
             core::slice::from_raw_parts((a as *const A).cast::<u8>(), core::mem::size_of::<A>())
-        };
-        let b_bytes = unsafe {
-            core::slice::from_raw_parts((b as *const B).cast::<u8>(), core::mem::size_of::<B>())
         };
         let mmio = self.mmio_base;
         let batch = self.ctrl_batch;

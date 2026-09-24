@@ -329,7 +329,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     const Q_PAGES_PER_QUEUE: usize = 1;
     const TOTAL_Q_PAGES: usize = Q_PAGES_PER_QUEUE * 2; // rx+tx
 
-    let q_vmo = match nexus_abi::vmo_create(TOTAL_Q_PAGES * 4096) {
+    let q_vmo = match nexus_abi::vmo_create_contiguous(TOTAL_Q_PAGES * 4096) {
         Ok(v) => v,
         Err(_) => {
             emit_line(crate::markers::M_SELFTEST_SMOLTCP_QVMO_FAIL);
@@ -347,12 +347,10 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     };
-    let mut q_info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-    if nexus_abi::cap_query(q_vmo, &mut q_info).is_err() {
+    let Ok(q_base_pa) = nexus_abi::vmo_dma_base(q_vmo, TOTAL_Q_PAGES * 4096) else {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_QQUERY_FAIL);
         return Err(());
-    }
-    let q_base_pa = q_info.base;
+    };
 
     // Layout for legacy (queue_align=4): desc at base, then avail, then used (same page).
     let align4 = |x: usize| (x + 3) & !3usize;
@@ -401,7 +399,7 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     }
 
     // Buffers: N rx + N tx pages.
-    let buf_vmo = match nexus_abi::vmo_create((N * 2) * 4096) {
+    let buf_vmo = match nexus_abi::vmo_create_contiguous((N * 2) * 4096) {
         Ok(v) => v,
         Err(_) => {
             emit_line(crate::markers::M_SELFTEST_SMOLTCP_BVMO_FAIL);
@@ -415,11 +413,10 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
             return Err(());
         }
     };
-    let mut bq = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-    if nexus_abi::cap_query(buf_vmo, &mut bq).is_err() {
+    let Ok(buf_base_pa) = nexus_abi::vmo_dma_base(buf_vmo, (N * 2) * 4096) else {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_BQUERY_FAIL);
         return Err(());
-    }
+    };
 
     let mut q = VirtioQueues::<N> {
         rx_desc: rx_desc_va as *mut VqDesc,
@@ -441,9 +438,9 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     };
     for i in 0..N {
         q.rx_buf_va[i] = buf_va + i * 4096;
-        q.rx_buf_pa[i] = bq.base + (i as u64) * 4096;
+        q.rx_buf_pa[i] = buf_base_pa + (i as u64) * 4096;
         q.tx_buf_va[i] = buf_va + (N + i) * 4096;
-        q.tx_buf_pa[i] = bq.base + ((N + i) as u64) * 4096;
+        q.tx_buf_pa[i] = buf_base_pa + ((N + i) as u64) * 4096;
     }
     // Zero rings
     unsafe {

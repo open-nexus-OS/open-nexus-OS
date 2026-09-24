@@ -28,10 +28,9 @@ use nexus_gfx::command::buffer::RgbaColor;
 
 use crate::backend::VirtioGpuBackend;
 use crate::protocol::{
-    VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
-    VirtioGpuResourceCreate3d, VirtioGpuSubmit3d, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE,
-    VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING, VIRTIO_GPU_CMD_RESOURCE_CREATE_3D,
-    VIRTIO_GPU_CMD_SUBMIT_3D,
+    VirtioGpuCtxAttachResource, VirtioGpuResourceCreate3d, VirtioGpuSubmit3d,
+    VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
+    VIRTIO_GPU_CMD_RESOURCE_CREATE_3D, VIRTIO_GPU_CMD_SUBMIT_3D,
 };
 use crate::virgl::{
     Submit3d, PIPE_BIND_RENDER_TARGET, PIPE_BIND_SAMPLER_VIEW, PIPE_FORMAT_B8G8R8A8_UNORM,
@@ -256,8 +255,9 @@ impl VirtioGpuBackend {
         }
         let scanout = self.scanout_resource.ok_or(GfxError::DeviceNotFound)?;
         let record = self.find_resource(scanout).ok_or(GfxError::DeviceNotFound)?;
-        let alias_pa = record.backing_pa + (ATLAS_ROW as u64) * (FB_STRIDE as u64);
-        let alias_len = ATLAS_ROWS * FB_STRIDE;
+        // The atlas rows of windowd's framebuffer, as that VMO's runs (RFC-0098 C4).
+        let alias_off = ATLAS_ROW as usize * FB_STRIDE as usize;
+        let alias_len = ATLAS_ROWS as usize * FB_STRIDE as usize;
 
         let create = VirtioGpuResourceCreate3d {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
@@ -275,13 +275,8 @@ impl VirtioGpuBackend {
             _padding: 0,
         };
         self.ctrl_submit_struct(&create)?;
-        let attach = VirtioGpuResourceAttachBacking {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
-            resource_id: ATLAS_RES,
-            nr_entries: 1,
-        };
-        let entry = VirtioGpuMemEntry { addr: alias_pa, length: alias_len, _padding: 0 };
-        self.ctrl_submit_pair(&attach, &entry)?;
+        let hdr = self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING);
+        self.attach_backing_runs(hdr, ATLAS_RES, record.dma_vmo, alias_off, alias_len)?;
         let ctx_attach = VirtioGpuCtxAttachResource {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
             resource_id: ATLAS_RES,

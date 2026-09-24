@@ -209,12 +209,13 @@ impl CtrlQueue {
             .map_err(|_| GpuDriverError::MmioFault)?;
         let resp_va_base = nexus_abi::vm_map(resp_vmo, 0, resp_pool_len, flags)
             .map_err(|_| GpuDriverError::MmioFault)?;
-        let mut q_info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-        let mut cmd_info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-        let mut resp_info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-        nexus_abi::cap_query(q_vmo, &mut q_info).map_err(|_| GpuDriverError::MmioFault)?;
-        nexus_abi::cap_query(cmd_vmo, &mut cmd_info).map_err(|_| GpuDriverError::MmioFault)?;
-        nexus_abi::cap_query(resp_vmo, &mut resp_info).map_err(|_| GpuDriverError::MmioFault)?;
+        // RFC-0098 C4 (TASK-0286 P4a): the queue and both pools are ONE run each;
+        // their bases come through the one door a physical address leaves by.
+        let dma_base =
+            |vmo, len| nexus_abi::vmo_dma_base(vmo, len).map_err(|_| GpuDriverError::MmioFault);
+        let q_pa = dma_base(q_vmo, 4096)?;
+        let cmd_pa = dma_base(cmd_vmo, cmd_pool_len)?;
+        let resp_pa = dma_base(resp_vmo, resp_pool_len)?;
         unsafe {
             core::ptr::write_bytes(queue_va as *mut u8, 0, 4096);
             core::ptr::write_bytes(cmd_va_base as *mut u8, 0, cmd_pool_len);
@@ -234,17 +235,9 @@ impl CtrlQueue {
             return Err(GpuDriverError::ResourceExhausted);
         }
         write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_NUM, QUEUE_LEN as u32);
-        write_u64_pair(mmio_base, protocol::VIRTIO_MMIO_QUEUE_DESC_LOW, q_info.base);
-        write_u64_pair(
-            mmio_base,
-            protocol::VIRTIO_MMIO_QUEUE_DRIVER_LOW,
-            q_info.base + desc_bytes as u64,
-        );
-        write_u64_pair(
-            mmio_base,
-            protocol::VIRTIO_MMIO_QUEUE_DEVICE_LOW,
-            q_info.base + used_off as u64,
-        );
+        write_u64_pair(mmio_base, protocol::VIRTIO_MMIO_QUEUE_DESC_LOW, q_pa);
+        write_u64_pair(mmio_base, protocol::VIRTIO_MMIO_QUEUE_DRIVER_LOW, q_pa + desc_bytes as u64);
+        write_u64_pair(mmio_base, protocol::VIRTIO_MMIO_QUEUE_DEVICE_LOW, q_pa + used_off as u64);
         write_reg(mmio_base, protocol::VIRTIO_MMIO_QUEUE_READY, 1);
 
         Ok(Self {
@@ -256,9 +249,9 @@ impl CtrlQueue {
             avail: avail_va as *mut VqAvail<QUEUE_LEN>,
             used: used_va as *mut VqUsed<QUEUE_LEN>,
             cmd_va: cmd_va_base,
-            cmd_pa: cmd_info.base,
+            cmd_pa,
             resp_va: resp_va_base,
-            resp_pa: resp_info.base,
+            resp_pa,
             ring: nexus_driverkit::SubmitRing::new(slots),
             last_used: 0,
             mmio_base,

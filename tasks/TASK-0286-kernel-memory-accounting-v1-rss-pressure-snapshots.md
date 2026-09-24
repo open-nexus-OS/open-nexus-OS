@@ -1,9 +1,9 @@
 ---
 title: TASK-0286 Kernel memory v1a (M1): the physical map comes from the FDT and a page-frame allocator replaces the fixed windows — page-backed VMOs, a `contiguous-DMA` kind, and the accounting counters this ledger always promised
-status: In Progress (P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
+status: In Progress (P4a done 2026-09-24 — one door for a physical address (`vmo_runs`), gpud attaches runs, the 64 MiB framebuffer block is gone; P3b done 2026-09-23 — no fixed physical window left, `-m` a lane knob, gate in `just check`; P3a done 2026-09-23 — the VMO is a page-backed object, `VmoPool` + the arena deleted; P2b done 2026-09-23 — frames live at boot, page tables are frames, the kernel half is shared; P2 done 2026-09-23 — the kernel runs in the high half, smp1 + visible green; P1 done 2026-09-22 — `frames` host-proven over both golden trees; P0 done 2026-09-22 — measured, the kernel direct map decided; recut 2026-09-22 to the end state — Block 1 B1.4 of the hardware fast track and M1 of target picture M; was "per-task RSS counters + pressure snapshots + trusted query ABI", Draft since 2026-04-13)
 owner: @kernel-team @runtime
 created: 2026-04-13
-updated: 2026-09-22
+updated: 2026-09-24
 depends-on:
   - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
   - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
@@ -225,8 +225,40 @@ side (RFC-0085).
   fixtures. Left for P4: the physical-cast rule of the gate ("no `as *mut` of a physical
   address outside `phys`") is a review rule, not a regex — every dereference goes through
   `phys_to_virt` today, measured by reading, and P4's `DmaBuffer` is the next writer.
-- **P4 `contiguous-DMA` + coherence hooks.** The kind, `DmaBuffer::for_device/for_cpu` (no-op
-  on QEMU), gpud's framebuffer and virtio rings moved onto it (absorbs TASK-0284).
+- **P4a One door for a physical address — done 2026-09-24.** Measured: seven consumers read a
+  VMO's physical base from `cap_query` (virtio-blk, -rng, -input, -net, gpud's queues, gpud's
+  resource backings, gpud's attach of windowd's framebuffer); three objects were contiguous
+  only for that reason — gpud's backings (virtio-gpu `RESOURCE_ATTACH_BACKING` takes a list),
+  windowd's 49 MiB framebuffer (a 64 MiB block) and app-host's surfaces (no device reads them:
+  windowd copies with `vmo_read`); gpud's blur scratch is CPU-only. Contract (RFC-0098 C4
+  amended, C8 row added): `vmo_runs` (syscall 60) is the only way a physical address leaves
+  the kernel — the runs of a byte range of a writable `Vmo`, adjacent runs merged, ≤ 256 per
+  call, all or nothing, only to a caller holding a `DeviceMmio` (`CapTable::holds_device`);
+  `cap_query` reports no VMO base. The authority rule and the clipping are the pure,
+  host-compiled `mm/dma_runs.rs` (13 host tests, the `test_reject_vmo_runs_*` matrix) — the
+  syscall layer is riscv-only and its test files never compile on host (known since 0245),
+  so the logic that must be proven lives outside it; `syscall/api/vmo_runs.rs` resolves the
+  cap and copies out, `selftest/vmo_runs.rs` drives `resolve_runs` on QEMU: `KSELFTEST: vmo
+  runs ok (runs=2 deny=3)` (an anonymous 4 MiB + 4 KiB object answers two runs that sum to its
+  length and translate like it; no device cap, a read-only alias and a range past the end are
+  refused). `nexus_abi::{DmaRun, vmo_runs, vmo_dma_base}`; the five virtio drivers and gpud's
+  queues take their bases through the door. gpud `backend/backing.rs`: `attach_backing_runs`
+  (one ATTACH_BACKING of up to 254 entries — one ring slot; the kernel's run is the device's
+  memory entry, layout asserted at compile time) for every backing and every alias (atlas rows,
+  display planes); `ctrl_submit_pair` became `ctrl_submit_payload`; `ResourceRecord` moved to
+  `resources.rs` (structure ratchet: `backend/mod.rs` 737 → 717) and names `dma_vmo` instead
+  of a physical base. windowd's framebuffer, app-host's surfaces and gpud's own backings and
+  scratch are `Anon`. Gate `dma-contiguous` in `just check`: only drivers, `nexus-net-os`, the
+  proof harness and the ABI create contiguous VMOs. `SELFTEST: cap query vmo ok` now proves a
+  contiguous VMO queries with NO base. Measured on `visible` (`gpud: backing runs …`): the
+  2D splash 4 MB → 4 runs, display texture 4 MB → 5, wallpaper 4 MB → 4, display-plane alias
+  8 MB → 1, atlas alias 32 MB → 7 — far below the 254-entry slot. **Proof:** kernel host
+  tests 86/86; `just check` 14/14 gates; smp1 green (422 ok, 70 KSELFTEST, 9/9 chain markers,
+  `total_ms=1256`); visible green (`PIXEL PROOF ok`, 14.67 % non-black, diff vs splash 31.77);
+  `just test-all` green (EXIT=0, 11 QEMU lanes: smp1, visible ×2 pixel proofs, input-flood, seven OTA profiles; `vmo runs ok` in all 20 boots).
+- **P4b Coherence.** `dma-noncoherent` travels in the device capability (the RISC-V default is
+  coherent; the board's masters are not — measured R4), user-mode Zicbom enabled per hart from
+  the tree, `DmaBuffer::for_device/for_cpu` (no-op on a coherent device) — closes TASK-0284.
 - **P5 Telemetry + gate + docs.** `KSELFTEST: mm frames (…)` registered; read-only query to
   metricsd; `check-no-fixed-windows.sh`; `docs/architecture/01-neuron-kernel.md` memory section.
 

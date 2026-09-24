@@ -46,6 +46,8 @@ mod sync_objects;
 mod task_image;
 mod vm_map;
 mod vmo;
+mod vmo_runs;
+pub(crate) use vmo_runs::resolve_runs;
 
 #[cfg(test)]
 mod tests;
@@ -347,6 +349,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_VMO_DESTROY, sys_vmo_destroy);
     table.register(crate::syscall::SYSCALL_VMO_SHARE_RO, sys_vmo_share_ro);
     table.register(crate::syscall::SYSCALL_VMO_READ, sys_vmo_read);
+    table.register(crate::syscall::SYSCALL_VMO_RUNS, vmo_runs::sys_vmo_runs);
     table.register(SYSCALL_SPAWN, sys_spawn);
     table.register(SYSCALL_CAP_TRANSFER, sys_cap_transfer);
     table.register(SYSCALL_CAP_TRANSFER_TO, sys_cap_transfer_to);

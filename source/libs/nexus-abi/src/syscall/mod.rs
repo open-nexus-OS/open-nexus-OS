@@ -8,6 +8,7 @@
 
 pub mod caps;
 pub mod debug;
+pub mod dma;
 pub mod ipc;
 pub mod memory;
 pub mod task;
@@ -17,6 +18,7 @@ pub mod types;
 #[cfg(nexus_env = "os")]
 pub use caps::*;
 pub use debug::*;
+pub use dma::*;
 pub use ipc::*;
 #[cfg(nexus_env = "os")]
 pub use memory::*;

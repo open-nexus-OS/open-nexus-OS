@@ -125,17 +125,9 @@ impl VirtioGpuBackend {
             };
             self.ctrl_submit_struct(&create).map_err(|_| GfxError::CommandRejected)?;
 
-            let attach = protocol::VirtioGpuResourceAttachBacking {
-                hdr: ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
-                resource_id: id.0,
-                nr_entries: 1,
-            };
-            let entry = protocol::VirtioGpuMemEntry {
-                addr: info.base,
-                length: (width * height * 4) as u32,
-                _padding: 0,
-            };
-            self.ctrl_submit_pair(&attach, &entry).map_err(|_| GfxError::CommandRejected)?;
+            // windowd's framebuffer is an anonymous object: attach its runs.
+            let hdr = ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING);
+            self.attach_backing_runs(hdr, id.0, vmo_slot, 0, (width * height * 4) as usize)?;
         }
 
         // GL-presented scanout (G0/G1): on a virgl-capable device the display
@@ -151,7 +143,7 @@ impl VirtioGpuBackend {
                 height,
                 format: PixelFormat::Bgra8888,
                 backing_va,
-                backing_pa: info.base,
+                dma_vmo: vmo_slot,
                 backing_len: (width * height * 4) as usize,
                 backing_vmo: 0,
                 backing_map_len: backing_len_aligned,
@@ -242,7 +234,7 @@ impl VirtioGpuBackend {
             height,
             format: PixelFormat::Bgra8888,
             backing_va,
-            backing_pa: info.base,
+            dma_vmo: vmo_slot,
             backing_len: (width * height * 4) as usize,
             backing_vmo: 0, // external VMO from windowd (cap lifetime independent)
             backing_map_len: backing_len_aligned,

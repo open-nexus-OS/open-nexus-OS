@@ -60,6 +60,8 @@ mod fence;
 mod smp_sched;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vm_alloc;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod vmo_runs;
 use smp_sched::run_steal_selftests;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -302,6 +304,7 @@ fn run_address_space_selftests(ctx: &mut Context<'_>) {
         log_info!(target: "selftest", "KSELFTEST: as map ok");
 
         vm_alloc::run_vm_alloc_selftests(&table, &mut sys_ctx, handle_raw);
+        vmo_runs::run_vmo_runs_selftests(&table, &mut sys_ctx);
 
         let entry = child_new_as_entry as usize;
         verbose!("KSELFTEST: before spawn\n");

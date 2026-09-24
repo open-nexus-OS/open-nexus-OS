@@ -26,13 +26,14 @@ use nexus_gfx::core::types::PixelFormat;
 
 use crate::error::GpuDriverError;
 use crate::markers::{
-    GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CAP_QUERY_FAIL, GPUD_RESOURCE_CREATED,
-    GPUD_RESOURCE_CREATE_CMD_FAIL, GPUD_RESOURCE_VMO_CREATE_FAIL, GPUD_RESOURCE_VMO_MAP_FAIL,
+    GPUD_RESOURCE_ATTACH_CMD_FAIL, GPUD_RESOURCE_CREATED, GPUD_RESOURCE_CREATE_CMD_FAIL,
+    GPUD_RESOURCE_VMO_CREATE_FAIL, GPUD_RESOURCE_VMO_MAP_FAIL,
 };
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
 
 mod attach;
+mod backing;
 mod blur_cache;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod bootstrap;
@@ -56,7 +57,7 @@ mod virtqueue;
 
 // The validation + error-mapping helpers live in `resources`; the GfxBackend
 // trait impl below resolves them by bare name.
-use resources::{map_nexus_error, resource_byte_len, validate_rect};
+use resources::{map_nexus_error, resource_byte_len, validate_rect, ResourceRecord};
 
 // The os-lite transport + virtqueue layer (MMIO map, reg helpers, ring types +
 // `CtrlQueue`) is shared by the GfxBackend command methods still in this file.
@@ -422,27 +423,6 @@ const MAX_PENDING_RT_LAYERS: usize = 32;
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 pub(crate) const MAX_SCROLL_IDS: usize = 8;
 
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
-pub(crate) struct ResourceRecord {
-    pub(crate) id: ResourceId,
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) format: PixelFormat,
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) backing_va: usize,
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) backing_pa: u64,
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) backing_len: usize,
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) backing_vmo: u32,
-    /// Exact `vm_map` region length (RFC-0085) — what `vm_unmap` must be
-    /// handed on release; 0 = nothing mapped.
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) backing_map_len: usize,
-}
-
 impl VirtioGpuBackend {
     /// True while the boot splash is still held: the GL scanout owns the display but the
     /// desktop has NOT been revealed yet (wallpaper + cursor not both ready). gpud
@@ -679,7 +659,7 @@ impl GfxBackend for VirtioGpuBackend {
         let id = ResourceId(self.next_resource_id);
         self.next_resource_id += 1;
         #[cfg(all(feature = "os-lite", target_os = "none"))]
-        let (backing_va, backing_pa, backing_len, backing_vmo) =
+        let (backing_va, backing_len, backing_vmo) =
             self.create_resource_os(id, w, h, fmt, _byte_len)?;
         self.resources.push(ResourceRecord {
             id,
@@ -689,7 +669,7 @@ impl GfxBackend for VirtioGpuBackend {
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             backing_va,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
-            backing_pa,
+            dma_vmo: backing_vmo,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             backing_len,
             #[cfg(all(feature = "os-lite", target_os = "none"))]

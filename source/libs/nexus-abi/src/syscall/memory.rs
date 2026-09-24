@@ -90,9 +90,11 @@ pub fn vmo_create(_len: usize) -> Result<Handle> {
 }
 
 /// RFC-0098 C4 (TASK-0286 P3a): like [`vmo_create`], but the object is ONE
-/// physically contiguous block — the kind a DMA master needs (virtio queues,
-/// framebuffers, surfaces the GPU scans out); `cap_query` then reports its
-/// physical base. An anonymous VMO is a list of runs and reports base 0.
+/// physically contiguous block — the kind for memory a device addresses by one
+/// base (virtio queues, command and response pools, request buffers); its base
+/// is [`vmo_dma_base`]. Memory a device reads through a scatter-gather list is an
+/// anonymous VMO, its list is [`vmo_runs`]. Only drivers create this kind (gate
+/// `scripts/check-dma-contiguous.sh`).
 #[cfg(nexus_env = "os")]
 pub fn vmo_create_contiguous(_len: usize) -> Result<Handle> {
     vmo_create_kind(_len, 1)
@@ -245,9 +247,9 @@ pub struct CapQuery {
     /// (0 = none) — the one place a driver learns its interrupt (RFC-0098 C3).
     /// 0 for every other kind.
     pub irq: u32,
-    /// Physical base address for the capability's window. For a VMO only a
-    /// physically contiguous object (`vmo_create_contiguous`) has one; an
-    /// anonymous VMO reports 0 (TASK-0286 P3a).
+    /// DeviceMmio: the physical base of the register window. 0 for a VMO — a
+    /// VMO's physical runs leave the kernel only through [`vmo_runs`] /
+    /// [`vmo_dma_base`] (RFC-0098 C4, TASK-0286 P4a).
     pub base: u64,
     /// Length in bytes of the capability's window.
     pub len: u64,

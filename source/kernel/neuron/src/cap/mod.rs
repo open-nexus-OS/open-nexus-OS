@@ -289,6 +289,16 @@ impl CapTable {
             })
     }
 
+    /// True when some slot holds a device capability with MAP (RFC-0098 C4: a
+    /// physical address is only good for programming a device, so only a task
+    /// that holds one may learn it through `vmo_runs`).
+    pub fn holds_device(&self) -> bool {
+        self.slots.iter().flatten().any(|cap| {
+            matches!(cap.kind, CapabilityKind::DeviceMmio { .. })
+                && cap.rights.contains(Rights::MAP)
+        })
+    }
+
     /// Returns a capability without consuming it.
     pub fn get(&self, slot: usize) -> Result<Capability, CapError> {
         self.slots.get(slot).and_then(|entry| *entry).ok_or(CapError::InvalidSlot)

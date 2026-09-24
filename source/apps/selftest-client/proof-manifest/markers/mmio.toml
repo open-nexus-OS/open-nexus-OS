@@ -21,6 +21,7 @@ phase = "mmio"
 
 [marker."SELFTEST: cap query vmo ok"]
 phase = "mmio"
+proves = "RFC-0098 C4 (TASK-0286 P4a): a VMO queries as kind 1 with its length and NO physical base, even a contiguous one — physical addresses leave the kernel only through vmo_runs"
 
 [marker."dbg: phase mmio skipped"]
 phase = "mmio"

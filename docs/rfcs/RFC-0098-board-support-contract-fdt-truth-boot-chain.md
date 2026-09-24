@@ -166,6 +166,22 @@ kind in arg 2 (bit 0 = one physically contiguous block, `nexus_abi::vmo_create_c
 identity VMO) are frames; `scripts/check-no-fixed-windows.sh` keeps it so; the machine memory
 is a lane knob (`QEMU_MEM`).
 
+**Amended 2026-09-24 (TASK-0286 P4a): one door for a physical address.** Measured: seven DMA
+consumers learned a VMO's physical base through `cap_query`, and gpud's resource backings,
+windowd's framebuffer (1280 × 9600 × 4 = 49 MiB, a 64 MiB block) and app-host's surfaces were
+contiguous only because `cap_query` can name one run — the virtio-gpu backing is a
+scatter-gather list, and no device ever reads an app surface (windowd copies it with
+`vmo_read`). Contract: a physical address leaves the kernel only through **`vmo_runs`
+(syscall 60)** — `(slot, offset, len, out, max)` writes the `(pa, len)` runs that cover the
+byte range of a writable `Vmo` the caller holds with MAP, physically adjacent runs merged, at
+most `max ≤ 256` per call, all or nothing (a range that needs more runs is refused, never
+truncated). Authority: the caller holds a device capability (`DeviceMmio`) — a physical
+address is good for nothing but programming a bus master, so a task without a device has none
+to learn — and a read-only alias never yields one (a device could write through the address).
+`cap_query` reports a base only for `DeviceMmio` (its register window); for a VMO it reports
+0. `contiguous-DMA` stays the kind for memory a device addresses by ONE base (virtio queues,
+command and response pools, request buffers); memory a device reads through a list is `Anon`.
+
 ### C5 — Storage (Phase 3, ADR-0067)
 
 `virtioblkd` becomes `blkd`: the ONE block owner, one GPT disk, partition-scoped `blockproto`;
@@ -194,6 +210,7 @@ and the fw_cfg key are deleted; RFC-0074's authority statement is amended to poi
 |---|---|---|
 | `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=…)` | every platform value came from the dtb | 1 |
 | `KSELFTEST: mm frames (banks=… total=… free=…)` | the allocator owns the FDT's memory | 2 |
+| `KSELFTEST: vmo runs ok (runs=… deny=3)` | a physical address leaves the kernel only through `vmo_runs`, only to a device holder, never for a read-only alias or past the object | 2 |
 | `blkd: backend=<compatible> …` | the block owner bound the FDT-selected device | 3 |
 | `nxboot: platform=<compatible> slot=<a\|b>` | nxboot ran as the FIT payload on the board | 4 |
 | `gpud: dc scanout ok (WxH@Hz edid)` + `windowd: desktop revealed` | the first picture | 5 |

@@ -88,6 +88,10 @@ proves = "RFC-0085: unmap clears translation and an equal re-map returns the SAM
 phase = "bringup"
 proves = "RFC-0085/ADR-0054: fixed-VA into the window, unmap of nothing, and vmo_destroy under live mappings each refused with their own identity"
 
+[marker."KSELFTEST: vmo runs ok ("]
+phase = "bringup"
+proves = "RFC-0098 C4 (TASK-0286 P4a): vmo_runs — the one door a physical address leaves the kernel by — answers the runs of an anonymous object exactly (sum = length, the first run and an inner offset translate like the object) to a device holder, and refuses a task without a device capability, a read-only alias and a range past the end (deny=3)"
+
 [marker."KSELFTEST: w^x enforced"]
 phase = "bringup"
 proves = "kernel selftest: WRITE+EXECUTE leaf refused (promoted to a gate by RFC-0085 P3)"

@@ -169,14 +169,14 @@ impl VirtioGpuBackend {
         byte_len: usize,
     ) -> Result<usize, GfxError> {
         use crate::protocol::{
-            VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
-            VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
+            VirtioGpuCtxAttachResource, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE,
+            VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
         };
         // RFC-0085: one whole-range `vm_map` at a kernel-chosen va (the old
-        // 12-slot backing arena is gone); contiguous: the device DMAs it.
+        // 12-slot backing arena is gone). RFC-0098 C4 (TASK-0286 P4a): an
+        // anonymous object; the device reads it through its runs.
         let backing_len = align_page(byte_len);
-        let vmo = nexus_abi::vmo_create_contiguous(backing_len)
-            .map_err(|_| GfxError::ResourceExhausted)?;
+        let vmo = nexus_abi::vmo_create(backing_len).map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ
@@ -184,16 +184,8 @@ impl VirtioGpuBackend {
         let backing_va =
             nexus_abi::vm_map(vmo, 0, backing_len, flags).map_err(|_| GfxError::MmioFault)?;
         unsafe { core::ptr::write_bytes(backing_va as *mut u8, 0, backing_len) };
-        let mut info = nexus_abi::CapQuery { kind_tag: 0, irq: 0, base: 0, len: 0 };
-        nexus_abi::cap_query(vmo, &mut info).map_err(|_| GfxError::MmioFault)?;
-
-        let attach = VirtioGpuResourceAttachBacking {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
-            resource_id: res_id,
-            nr_entries: 1,
-        };
-        let entry = VirtioGpuMemEntry { addr: info.base, length: byte_len as u32, _padding: 0 };
-        self.ctrl_submit_pair(&attach, &entry)?;
+        let hdr = self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING);
+        self.attach_backing_runs(hdr, res_id, vmo, 0, byte_len)?;
         let ctx_attach = VirtioGpuCtxAttachResource {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
             resource_id: res_id,
@@ -560,23 +552,20 @@ END\n";
     /// vertex shader (context-persistent objects).
     pub(crate) fn virgl_blur_init(&mut self) -> Result<(), GfxError> {
         use crate::protocol::{
-            VirtioGpuCtxAttachResource, VirtioGpuMemEntry, VirtioGpuResourceAttachBacking,
-            VirtioGpuResourceCreate3d, VirtioGpuSubmit3d, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE,
-            VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING, VIRTIO_GPU_CMD_RESOURCE_CREATE_3D,
-            VIRTIO_GPU_CMD_SUBMIT_3D,
+            VirtioGpuCtxAttachResource, VirtioGpuResourceCreate3d, VirtioGpuSubmit3d,
+            VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
+            VIRTIO_GPU_CMD_RESOURCE_CREATE_3D, VIRTIO_GPU_CMD_SUBMIT_3D,
         };
         use crate::virgl::{
             Submit3d, PIPE_BIND_RENDER_TARGET, PIPE_BIND_SAMPLER_VIEW, PIPE_BIND_VERTEX_BUFFER,
             PIPE_BUFFER, PIPE_FORMAT_B8G8R8A8_UNORM, PIPE_FORMAT_R8_UNORM, PIPE_SHADER_FRAGMENT,
             PIPE_TEXTURE_2D,
         };
-        // Scanout record carries the fb VMO physical base for the alias.
+        // The scanout record names windowd's framebuffer VMO; the alias is its
+        // runs over the display planes (rows 1600..3199), RFC-0098 C4.
         let scanout = self.scanout_resource.ok_or(GfxError::DeviceNotFound)?;
         let record = self.find_resource(scanout).ok_or(GfxError::DeviceNotFound)?;
-        let fb_pa = record.backing_pa;
-        // Display planes: rows 1600..3199 of the 1280×3200 VMO.
-        let alias_pa = fb_pa + 1600 * 5120;
-        let alias_len = 1600u32 * 5120;
+        let (alias_off, alias_len) = (1600usize * 5120, 1600usize * 5120);
 
         // FBSRC: 1280×1600 texture aliasing the display planes.
         let create_src = VirtioGpuResourceCreate3d {
@@ -595,13 +584,8 @@ END\n";
             _padding: 0,
         };
         self.ctrl_submit_struct(&create_src)?;
-        let attach = VirtioGpuResourceAttachBacking {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING),
-            resource_id: 0xF8,
-            nr_entries: 1,
-        };
-        let entry = VirtioGpuMemEntry { addr: alias_pa, length: alias_len, _padding: 0 };
-        self.ctrl_submit_pair(&attach, &entry)?;
+        let hdr = self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING);
+        self.attach_backing_runs(hdr, 0xF8, record.dma_vmo, alias_off, alias_len)?;
         let ctx_attach = VirtioGpuCtxAttachResource {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
             resource_id: 0xF8,
@@ -867,7 +851,8 @@ END\n";
     /// region (no resource attach). Returns the VA.
     pub(crate) fn virgl_alloc_scratch(&mut self, byte_len: usize) -> Result<usize, GfxError> {
         let len = align_page(byte_len);
-        let vmo = nexus_abi::vmo_create_contiguous(len).map_err(|_| GfxError::ResourceExhausted)?;
+        // CPU-only (no device reads it): an anonymous object.
+        let vmo = nexus_abi::vmo_create(len).map_err(|_| GfxError::ResourceExhausted)?;
         let flags = nexus_abi::page_flags::VALID
             | nexus_abi::page_flags::USER
             | nexus_abi::page_flags::READ

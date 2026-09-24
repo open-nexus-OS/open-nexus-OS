@@ -453,6 +453,11 @@ pub mod frames;
 // table of the high-half switch — NOT target-gated so both are host-tested.
 #[path = "mm/phys.rs"]
 pub mod phys;
+// TASK-0286 M1 P4a (RFC-0098 C4): the one door a physical address leaves the
+// kernel by (`vmo_runs`) — the authority rule and the clipping, NOT
+// target-gated so the reject matrix runs on host.
+#[path = "mm/dma_runs.rs"]
+pub mod dma_runs;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
 mod ipc_eof;
