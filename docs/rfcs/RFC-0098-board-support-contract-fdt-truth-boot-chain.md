@@ -3,7 +3,7 @@
 - Status: In Progress (Phase 0 ✅ 2026-09-22; seeded 2026-09-22, Block 1 P0 of the hardware fast track)
 - Owners: @kernel-team / @runtime / @tools-team
 - Created: 2026-09-22
-- Last Updated: 2026-09-24 (C4 DMA reach Implemented — TASK-0246 P1)
+- Last Updated: 2026-09-25 (C5 driver core Implemented — TASK-0246 P2)
 - Links:
   - Tasks (execution + proof, in lane order): `tasks/TASK-0244-*` (FDT library),
     `tasks/TASK-0245-*` (kernel platform from the FDT), `tasks/TASK-0245B-*` (SoC clock/reset/
@@ -25,7 +25,7 @@
 - **Phase 0 (FDT library, `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)**: ✅ 2026-09-22 — TASK-0244
 - **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: 🟨 — TASK-0245 ✅ 2026-09-22 (QEMU: every profile prints the platform, image and discovery markers; the board's serial proof arrives with TASK-0327B once B1.6 boots it); TASK-0245B (SoC clocks/resets/pinmux/power) open
 - **Phase 2 (physical memory from the FDT, page-frame allocator)**: ✅ 2026-09-24 — TASK-0286 (M1): high half + direct map, frame pool, page-backed VMOs, `vmo_runs`, coherence in the device capability, user Zicbom, `DmaBuffer`, `mm_stats` (QEMU: every profile; the board's serial proof arrives with TASK-0327B once B1.6 boots it)
-- **Phase 3 (one block owner, SDHCI, nxboot reader)**: 🟨 — TASK-0246 P0 (measured) + P1 (a device's DMA reach in its capability; allocation within reach; `vmo_runs` in bus addresses) ✅ 2026-09-24; P2–P6 and TASK-0246B open
+- **Phase 3 (one block owner, SDHCI, nxboot reader)**: 🟨 — TASK-0246 P0 (measured) + P1 (a device's DMA reach in its capability; allocation within reach; `vmo_runs` in bus addresses) ✅ 2026-09-24; P2 (the SDHCI core, host-proven) ✅ 2026-09-25; P3–P6 and TASK-0246B open
 - **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: ⬜ — TASK-0260, 0260B
 - **Phase 5 (display controller scanout, mode authority = gpud)**: ⬜ — TASK-0250, 0251
 
@@ -295,6 +295,15 @@ choice by address order would be a guess. The operating point is reached without
 (8 bit, SDR), then HS400 enhanced strobe (PHY DLL lock) — the stock system's own mode; ADMA2
 32-bit (the host's and the bus's limit). nxboot initialises the card itself (it trusts no
 predecessor's controller state), with the same core in PIO mode.
+
+**Implemented 2026-09-25 (TASK-0246 P2): the driver core, host-proven.**
+`source/drivers/storage/sdhci` is the standard core plus the K1 layer over `nexus_hal::Bus`.
+The mode is chosen by rule: HS400 enhanced strobe in JEDEC order (HS, 8-bit DDR with strobe,
+HS400, the host's strobe and DLL), else HS52 on the widest bus, else legacy. The final bus is
+verified by reading the EXT_CSD again, and a failed HS400ES falls back to HS52 with its reason
+reported. Sector-addressed cards only, the volatile cache kept off, CMD23 + CMD18/25, ADMA2
+through `DmaBuffer`, PIO for nxboot. It is proven against a behavioural controller and eMMC
+model with an exact non-coherent cache; the QEMU lane (P5) and the board (P6) follow.
 
 ### C6 — Boot chain (Phase 4, ADR-0066)
 

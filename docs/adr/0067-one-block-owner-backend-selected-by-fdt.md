@@ -58,7 +58,9 @@ Measured on the board, upstream and in QEMU (`docs/board/measurements/2026-09-24
 - **The QEMU backend is real.** `sdhci-pci` + the `emmc` model prove the standard core (reset,
   clock, commands, ADMA2, IRQ completion, the eMMC init to HS52 8-bit) in a lane, through the
   PCI device source (RFC-0098 C3); the board proves the K1 layer. One `sdhci` crate, two layers:
-  `Generic` and `K1`.
+  `Standard` and `K1` (implemented 2026-09-25, TASK-0246 P2: `source/drivers/storage/sdhci`,
+  eMMC only — the SD-card protocol is outside TASK-0246 and arrives when an SD medium is
+  needed).
 - **Which disk.** nxboot names the medium it booted from in `/chosen/nexus,boot-disk`; init
   grants exactly that device to `blkd` (the board has three SD hosts and a stock SD card).
 - **nxboot initialises the card itself** with the same core in PIO mode — it relies on no

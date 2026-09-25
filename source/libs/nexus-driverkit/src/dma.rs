@@ -79,10 +79,12 @@ pub trait DmaMemory {
 
 /// The cache instructions a non-coherent device needs, in `block`-byte cache blocks.
 pub trait CacheOps {
-    /// Write back (the device will read).
+    /// Write back (the device will read). The CPU's view does not change.
     fn clean(&self, bytes: &[u8], block: usize);
-    /// Write back and drop (the device will write, or wrote).
-    fn flush(&self, bytes: &[u8], block: usize);
+    /// Write back and drop (the device will write, or wrote). What the CPU reads afterwards
+    /// is what the memory holds — the view may change, hence `&mut` (TASK-0246 P2: this is
+    /// also what lets a host model of a non-coherent cache be exact).
+    fn flush(&self, bytes: &mut [u8], block: usize);
 }
 
 /// The harts' Zicbom instructions (`nexus_abi::cache_clean` / `cache_flush`; no-ops
@@ -94,7 +96,7 @@ impl CacheOps for Zicbom {
     fn clean(&self, bytes: &[u8], block: usize) {
         nexus_abi::cache_clean(bytes, block);
     }
-    fn flush(&self, bytes: &[u8], block: usize) {
+    fn flush(&self, bytes: &mut [u8], block: usize) {
         nexus_abi::cache_flush(bytes, block);
     }
 }
@@ -184,12 +186,12 @@ impl<M: DmaMemory, C: CacheOps> DmaBuffer<M, C> {
     }
 
     /// Hand the buffer to the device for a transfer in `dir`.
-    pub fn for_device(self, dir: Direction) -> InFlight<M, C> {
+    pub fn for_device(mut self, dir: Direction) -> InFlight<M, C> {
         if let Some(block) = self.block {
             match dir {
                 Direction::ToDevice => self.cache.clean(self.mem.bytes(), block),
                 Direction::FromDevice | Direction::Bidirectional => {
-                    self.cache.flush(self.mem.bytes(), block)
+                    self.cache.flush(self.mem.bytes_mut(), block)
                 }
             }
         }
@@ -214,10 +216,10 @@ impl<M: DmaMemory, C: CacheOps> InFlight<M, C> {
     }
 
     /// The device is done: the CPU owns the buffer again.
-    pub fn for_cpu(self) -> DmaBuffer<M, C> {
+    pub fn for_cpu(mut self) -> DmaBuffer<M, C> {
         if let Some(block) = self.buf.block {
             if self.dir != Direction::ToDevice {
-                self.buf.cache.flush(self.buf.mem.bytes(), block);
+                self.buf.cache.flush(self.buf.mem.bytes_mut(), block);
             }
         }
         self.buf
@@ -266,7 +268,7 @@ mod tests {
         fn clean(&self, bytes: &[u8], block: usize) {
             self.0.borrow_mut().push(Op::Clean(bytes.len(), block));
         }
-        fn flush(&self, bytes: &[u8], block: usize) {
+        fn flush(&self, bytes: &mut [u8], block: usize) {
             self.0.borrow_mut().push(Op::Flush(bytes.len(), block));
         }
     }

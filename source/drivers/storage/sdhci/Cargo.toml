@@ -1,0 +1,16 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "storage-sdhci"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "SDHCI host + eMMC driver core (TASK-0246): the standard core and the K1 layer, ADMA2 and PIO, an eMMC from power-up to HS52 or HS400 enhanced strobe — pure, host-proven against a behavioural controller and card model"
+
+[dependencies]
+# `DmaRun` (what the device is programmed with) and `DmaCoherence` travel in the ABI's
+# DMA vocabulary; `DmaBuffer` is the one ownership type for device memory (TASK-0286 P4b).
+nexus-abi = { path = "../../../libs/nexus-abi" }
+nexus-driverkit = { path = "../../../libs/nexus-driverkit" }
+nexus-hal = { path = "../../../libs/nexus-hal" }

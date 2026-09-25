@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-25 (TASK-0246 P2: the SDHCI + eMMC driver core, host-proven)
+
+- `source/drivers/storage/sdhci` (`storage-sdhci`) is the standard SDHCI core plus the K1
+  layer. It speaks `nexus_hal::Bus` in aligned 32-bit words, waits on the interrupt with a
+  named deadline per stage, and polls only states that raise no interrupt.
+- An eMMC goes from power-up to HS400 enhanced strobe (the K1, with a card that has the
+  strobe) or HS52 on the widest bus, chosen by rule and without tuning. The final bus is
+  verified by reading the EXT_CSD again, and a failed HS400ES falls back to HS52 with its
+  reason reported.
+- `Disk` moves sectors with CMD23 + CMD18/25 and ADMA2 through two `DmaBuffer`s.
+  `Card::read_pio` reads without DMA for the boot loader. After a data error the card is
+  stopped and brought back to the transfer state.
+- `nexus_driverkit::CacheOps::flush` takes the CPU view `&mut`: after an invalidating flush
+  the CPU reads what memory holds.
+- Proof: 16 unit tests and 31 tests against a behavioural controller + eMMC model with an
+  exact non-coherent cache (goldens for the command and K1 register sequences, HS52 on 4 and
+  8 bits, HS400ES at 187.5 MHz, the `test_reject_*` matrix). Two cache mutations each fail 8
+  tests. `just check` green; `just test-all` green (EXIT=0, 11 QEMU lanes; `dma buffer ok` in
+  all 6 boots that run it, on the changed flush path).
+
 ### Changed - 2026-09-24 (TASK-0246 P1: a device's DMA reach is kernel truth; `vmo_runs` answers in bus addresses)
 
 - The board tree carries the measured buses: `storage-bus` (the SD hosts, the DWC3, an EHCI host

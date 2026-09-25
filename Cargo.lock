@@ -4294,6 +4294,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "storage-sdhci"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-driverkit",
+ "nexus-hal",
+]
+
+[[package]]
 name = "storage-virtio-blk"
 version = "0.1.0"
 dependencies = [

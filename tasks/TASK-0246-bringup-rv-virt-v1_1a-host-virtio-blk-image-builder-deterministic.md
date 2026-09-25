@@ -1,6 +1,6 @@
 ---
 title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: In Progress (P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; next P2 SDHCI core host-first; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+status: In Progress (P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; next P3 PCI ECAM source; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 owner: @runtime @kernel-team
 created: 2025-12-29
 updated: 2026-09-24
@@ -162,12 +162,55 @@ TASK-0248's decision).
   green (pixel proof: the greeter over the GL path); `just test-all` green (EXIT=0, 11 QEMU
   lanes: smp1, visible ×2 pixel proofs, input-flood, reset, seven OTA profiles; both markers in
   all 20 boots with identical numbers).
-- **P2 SDHCI core, host-first** — the crate over `nexus_hal::Bus` against a behavioural
-  SDHCI + eMMC model in the tests (commands, responses, ADMA2 fetch from model memory, IRQ
-  status, and cache-state tracking so a missing `for_cpu`/`for_device` is a test failure); the
-  eMMC init to HS52 8-bit; the K1 layer's register sequence and HS400ES step; `test_reject_*`:
-  command timeout, CRC error, data timeout, ADMA error, short transfer, R1 error bits, unexpected
-  card state, EXT_CSD with a zero or out-of-range sector count.
+- **P2 SDHCI core, host-first — ✅ done 2026-09-25.** `source/drivers/storage/sdhci`
+  (`storage-sdhci`: pure, `no_std`, `forbid(unsafe_code)`, eleven modules of at most 380 lines).
+  The standard core speaks `nexus_hal::Bus` in aligned 32-bit words only. It covers reset,
+  power at the highest voltage the controller names, the divider for spec 2 and 3 (with the
+  4.10 PLL), width, timing with the card clock stopped, and 1.8 V. The command engine does
+  R1/R1b/R2/R3 with interrupt completion and a named deadline per stage, PIO, and ADMA2 with
+  32-bit descriptors built from `DmaRun`s (END on the last transfer descriptor). It checks
+  the residual block count and resets the lines after an error. The K1 layer (`k1.rs`) sets,
+  after reset, PHY + PLL lock, drive 4 + RX bias, MMC card mode and the pad clock. It sets the
+  transmit clock per timing, the HS400 mode bit, and the enhanced strobe with the DLL
+  (pre-delay, range and regulator at 1, register 1 = 0x92) locked within 100 µs. The eMMC
+  (`card.rs`): JEDEC identification with sector addressing required, the EXT_CSD by PIO at
+  legacy speed, the volatile cache kept off (every write is durable when it completes). The
+  mode follows a rule, never a trial: HS400 enhanced strobe in JEDEC order (HS timing, 8-bit
+  DDR with strobe, HS400, then the host's strobe and DLL at the operating clock), else HS52 on
+  the widest bus, else legacy. Every switch is followed by the card's status, and the final
+  bus is verified by reading the EXT_CSD again. `init_best` falls back from a failed HS400ES
+  to HS52 from a fresh reset and returns the reason. Transfers are CMD23 + CMD18/CMD25; after
+  a data error the card is stopped (CMD12) and must be back in transfer before anything else
+  runs. `Disk` moves sectors through a descriptor table and a bounce buffer, both
+  `DmaBuffer`s, in chunks; `Card::read_pio` reads without DMA or interrupt (for 0246B). The
+  `BlockDevice` adapters live with their consumers (blkd in P4, nxboot in 0246B): the
+  `storage` crate depends on the virtio driver, and the core depends on no service. Every
+  wait bound is public (`timeouts`). `nexus_driverkit::CacheOps::flush` now takes the CPU
+  view `&mut`: after an invalidating flush the CPU reads what memory holds, and that exact
+  semantics is what lets the host model be exact. Proof: 16 unit tests (the divider at the
+  measured operating points 399.8 kHz, 23.4, 46.9 and 187.5 MHz; descriptors; protocol
+  decoding; the board's measured EXT_CSD) and 31 tests against a behavioural controller +
+  eMMC model with an exact non-coherent cache (`tests/sdhci`). They cover the command
+  sequences and the K1 vendor-register sequence as goldens, HS52 on 4 and 8 bits, HS400ES at
+  187.5 MHz, the DLL fallback, determinism to the microsecond, ADMA2 through four scattered
+  runs, PIO, and the ledger's `test_reject_*` list plus byte addressing, refused switches, a
+  corrupting bus, ranges, unreachable DMA memory and bad configurations. Two mutations — no
+  cache maintenance, and a read handed to the device as a write — each fail 8 tests. The
+  strict model found a real bug before any hardware ran: a local 512-byte constant shadowed
+  the block register's name, so the block word went to offset 0x200. Gates: `just check`
+  green, the crate lints clean and cross-builds for the OS target, and `just test-all` is
+  green (EXIT=0; 11 QEMU lanes; `dma buffer ok` in all 6 boots that run it, on the changed
+  flush path; the memory record byte-identical to P1's).
+- **Found in P2, for P5 (measured in QEMU 11.1.1's source).** Its `emmc` model is
+  byte-addressed up to 2 GiB (the capacity bit is set only above), so the lane's image must be
+  larger than 2 GiB: the driver drives sector-addressed cards only, like every card of this
+  generation. The model offers HS26 and HS52 only, so the lane runs HS52. CMD23 needs the
+  card's spec version 3.01, which the `emmc` model sets. The SDHCI model raises transfer
+  complete after a busy response, takes END on a transfer descriptor, and reads a zero length
+  as 64 KiB.
+- **YELLOW for P6 (found in P2): where the DLL locks.** The core locks the DLL at the
+  operating clock (187.5 MHz); the mainline driver locks it at 52 MHz and raises the clock
+  after. The board decides: if the lock at 187.5 MHz fails, the layer locks at 52 MHz first.
 - **P3 PCI ECAM source** — the pure planner (host tests over the virt golden and synthetic config
   spaces: BAR sizing, 32/64-bit assignment, swizzled INTx), init glue and the
   `init: devices from pci ok (…)` marker; the SDHCI function granted by class.
