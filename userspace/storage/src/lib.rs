@@ -171,3 +171,11 @@ pub mod layout;
 
 /// Partition-scoped block IPC protocol codec (ADR-0044).
 pub mod blockproto;
+
+/// The boot disk: the loader's record of the medium the boot came from, its kind and the
+/// class its grant is asked for (RFC-0098 C5, TASK-0246 P4b).
+pub mod boot_disk;
+
+/// The SDHCI backend's block face: an eMMC behind an SDHCI host as a `BlockDevice`, and its
+/// host configuration from the tree (ADR-0067, TASK-0246 P4b).
+pub mod sdhci;

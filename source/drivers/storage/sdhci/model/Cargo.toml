@@ -1,0 +1,16 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "storage-sdhci-model"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "The behavioural SDHCI controller + eMMC + non-coherent DMA memory the SDHCI core and its consumers are proven against on the host (TASK-0246); host only"
+
+[dependencies]
+nexus-abi = { path = "../../../../libs/nexus-abi" }
+nexus-driverkit = { path = "../../../../libs/nexus-driverkit" }
+nexus-hal = { path = "../../../../libs/nexus-hal" }
+storage-sdhci = { path = ".." }

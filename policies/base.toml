@@ -2,7 +2,7 @@
 samgrd = ["ipc.core", "time.read"]
 bundlemgrd = ["fs.read", "fs.verify", "ipc.core"]
 keystored = ["crypto.sign", "crypto.verify", "ipc.core", "rng.entropy", "device.keygen", "policy.delegate", "statefs.keystore"]
-statefsd = ["ipc.core", "policy.delegate", "device.mmio.blk"]
+statefsd = ["ipc.core", "policy.delegate"]
 # TASK-0051B: `crash.attach.stack` = conservative default attachment level
 # for at-rest crash artifacts (bounded stack/code previews). `crash.attach.full`
 # is intentionally NOT granted — the deny is the redaction proof.
@@ -10,7 +10,7 @@ statefsd = ["ipc.core", "policy.delegate", "device.mmio.blk"]
 # retention GC) — NOT the generic `statefs.write`.
 execd = ["proc.spawn", "ipc.core", "fs.read", "crash.attach.stack", "statefs.crash"]
 "packagefsd" = ["ipc.core", "fs.read"]
-"vfsd" = ["ipc.core", "device.mmio.blk"]
+"vfsd" = ["ipc.core"]
 # TASK-0049B PR-B3c: init persists supervision restart counters at
 # /state/init/restarts/* (statefs.write covers PUT+SYNC; statefs.read the
 # read-back). No statefs.boot/admin — init is a regular record client here.
@@ -49,7 +49,9 @@ netstackd = ["device.mmio.net", "ipc.core", "policy.delegate"]
 # (the sender is already kernel-attributed). Its RFC-0091 profile below is the
 # only one the grammar lets bind `address = "any"`.
 ingressd = ["ipc.core", "policy.delegate"]
-blkd = ["device.mmio.blk", "ipc.core", "soc.glue"]
+# TASK-0246 P4b (ADR-0044/0067): the disk has ONE holder — the block owner, whatever its
+# backend: `device.mmio.blk` for a virtio disk, `device.mmio.mmc` for an SD/MMC host.
+blkd = ["device.mmio.blk", "device.mmio.mmc", "ipc.core", "soc.glue"]
 rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 # RFC-0106: the ONE holder of the syscon/pinctrl windows; `policy.delegate` because
 # it asks policyd whether a requester holds `soc.glue` before touching a register.

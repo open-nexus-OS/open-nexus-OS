@@ -116,6 +116,11 @@ impl VirtioDisk {
         Self::init(base)
     }
 
+    /// The transport's register window (the boot disk's record names the node that lists it).
+    pub fn base(&self) -> usize {
+        self.base
+    }
+
     fn init(base: usize) -> Option<Self> {
         let w = |reg: usize, v: u32| arch::mmio_write32(base + reg, v);
         let r = |reg: usize| arch::mmio_read32(base + reg);

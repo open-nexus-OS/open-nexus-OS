@@ -11,6 +11,7 @@ default = ["std"]
 std = []
 os-lite = [
     "storage-virtio-blk/os-lite",
+    "storage-sdhci/os-lite",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
@@ -24,8 +25,17 @@ nexus-ipc = { path = "../nexus-ipc", optional = true, default-features = false }
 # TASK-0324 P4f-1b: the block-plane client slots are declared in the topology.
 nexus-service-topology = { path = "../../source/libs/nexus-service-topology" }
 storage-virtio-blk = { path = "../../source/drivers/storage/virtio-blk" }
+# TASK-0246 P4b: the SDHCI backend's block face (`sdhci`) over the SDHCI core.
+storage-sdhci = { path = "../../source/drivers/storage/sdhci" }
+nexus-driverkit = { path = "../../source/libs/nexus-driverkit" }
 nexus-hal = { path = "../../source/libs/nexus-hal" }
+# TASK-0246 P4b: the boot-disk record resolves against the device tree.
+nexus-fdt = { path = "../../source/libs/nexus-fdt" }
 sha2 = { version = "0.10", default-features = false }
+
+[dev-dependencies]
+# The behavioural SDHCI controller + eMMC the block face is proven against.
+storage-sdhci-model = { path = "../../source/drivers/storage/sdhci/model" }
 
 # The `nexus_env` cfg is declared here so a HOST compile without the
 # workspace RUSTFLAGS (e.g. as a build-dependency of an OS service) stays

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-25 (TASK-0246 P4b: the boot disk from the loader's record)
+
+- nxboot records the medium the boot came from in `/chosen/nexus,boot-disk`: a node path, or
+  `<ECAM host path>/mmc@<dev>,<func>` for an SD host behind PCI (the Open Firmware child
+  notation; the generic name is the kind). `nxboot: fdt ok (…)` names it.
+- `storage::boot_disk` is the one codec: three kinds (`virtio,mmio`, the K1's
+  `spacemit,k1-sdhci`, `mmc` behind PCI), their grant classes (`device.mmio.blk`,
+  `device.mmio.mmc`), every malformed record refused by name. `nexus-fdt` gained
+  `Node::path_into`.
+- init grants `blkd` exactly the recorded disk, asked for its kind's class, with the read-only
+  tree in `blkd`'s new `NamedSlot::DeviceTree`; a function behind PCI gets bus mastering after
+  its grant, read back. Wave 0 is split so the grant is made while only policyd runs: `blkd`
+  starts with its disk in place, and its 5 s poll for the grant is gone. `init: boot disk ok (…)`
+  is required in every profile.
+- `blkd` reads the same record, refuses a grant that is not the recorded disk's window, and runs
+  the backend the kind needs — the virtio-blk driver, or the SDHCI core through
+  `storage::sdhci` (its `BlockDevice` face and the host configuration from the node) over the
+  new `storage_sdhci::os` glue (the window from the capability, the line on the owner's
+  endpoint, every wait a kernel one-shot, DMA memory made for the device). `blkd: backend ok (…)`
+  names kind and record. A direct-kernel dev boot grants the lowest virtio disk and says
+  `record=none`.
+- The behavioural SDHCI machine is its own crate, `storage-sdhci-model`.
+- Least privilege: `statefsd` and `vfsd` no longer hold `device.mmio.blk`; `blkd` alone holds
+  both disk classes. The stale `policies/manifest.json` (three edits behind) is regenerated
+  and a host test fails on the next stale edit.
+- Proof: host tests (`storage` 12, `blkd` 8, nexus-fdt goldens 20,
+  `storage-sdhci` 47 on the extracted machine, policy 2), each with mutations that fail them;
+  `just check` green; smp1 and visible green; `just test-all` green twice with identical numbers
+  (EXIT=0, 11 lanes, both markers in all 18 boots that reach init); manual boots with an extra
+  SD host (found, not granted) and direct-kernel (`record=none`).
+
 ### Changed - 2026-09-25 (TASK-0246 P4a: the block owner is `blkd`)
 
 - ADR-0067 makes one block owner whose backend is chosen by the device it is granted, so the

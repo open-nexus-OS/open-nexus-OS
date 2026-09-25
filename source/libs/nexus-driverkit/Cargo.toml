@@ -9,3 +9,9 @@ description = "RFC-0033 DriverKit core: bounded submit ring + completion fence +
 # TASK-0286 P4b: `DmaBuffer` speaks the ABI's DMA vocabulary (`DmaRun`, `DmaCoherence`,
 # the Zicbom instructions, `DmaVmo` on the OS) instead of a parallel copy of it.
 nexus-abi = { path = "../nexus-abi" }
+
+# The `nexus_env` cfg is declared here so a HOST compile without the workspace RUSTFLAGS (e.g.
+# through `storage` as a build-dependency of an OS service, TASK-0246 P4b) stays warning-free
+# under the hard warning gate.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nexus_env, values("host", "os"))'] }

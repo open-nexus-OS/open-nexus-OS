@@ -7,7 +7,9 @@
 //! channels (fixed slots 5..8) and priority wiring, bundlemgrd's server
 //! pair + block-plane client, blkd's server pair + IRQ endpoint,
 //! the deny-by-default MMIO proof, device discovery from the tree and the ONE
-//! policy-gated grant the plane needs (`device.mmio.blk` → blkd).
+//! policy-gated grant the plane needs: the disk the loader booted from → blkd, asked
+//! for its kind's class (TASK-0246 P4b) — made while only policyd runs, so blkd starts
+//! with its disk in place.
 //! Then the volume pass runs — so every later stage (endpoint mints,
 //! driver grants, wiring, resume) sees volume-spawned services exactly
 //! like embedded ones. The transfers here are the SAME transfers the
@@ -113,6 +115,51 @@ fn transfer_server_pair(chan: &mut CtrlChannel, id: ServiceId, req: u32, rsp: u3
     crate::bootstrap::blk_plane::wire_blk_plane_for_with(chan, blk_req);
 }
 
+/// The boot disk → blkd (TASK-0246 P4b): the tree its record is read from, the grant for the
+/// disk's kind, bus mastering for a function behind PCI after its grant, one line. A record
+/// that names no disk init may grant is refused by name and ends the boot.
+fn grant_boot_disk(
+    stats: &GrantStats,
+    pol_route: (u32, u32),
+    blkd_pid: u32,
+    (devices, pci): (&VirtioDevices, &crate::bootstrap::pci::PciDevices),
+    init_wire: &mut nexus_event::SpanTally,
+    init_fold: bool,
+) -> Result<()> {
+    use crate::bootstrap::boot_disk;
+    let disk = boot_disk::resolve(devices, pci).map_err(|reason| {
+        boot_disk::refused(reason);
+        InitError::Map("boot disk refused")
+    })?;
+    let pinned = crate::bootstrap::declared_slots::pin_named(
+        blkd_pid,
+        ServiceId::Blkd,
+        crate::service_topology::NamedSlot::DeviceTree,
+        nexus_abi::INIT_DEVICE_TREE_SLOT,
+        Rights::MAP,
+    );
+    if pinned.is_some() && iw(init_wire, init_fold, "init:blkd") {
+        debug_write_bytes(b"init: device tree grant ok svc=blkd\n");
+    }
+    grant_mmio_with_wait(
+        stats,
+        pol_route,
+        blkd_pid,
+        "blkd",
+        disk.kind.policy_class(),
+        disk.window,
+        DEVICE_MMIO_CAP_SLOT,
+    )?;
+    if let Some(sd) = disk.pci {
+        crate::bootstrap::pci::enable_bus_master(&sd).map_err(|reason| {
+            boot_disk::refused(reason);
+            InitError::Map("bus mastering")
+        })?;
+    }
+    boot_disk::report(&disk);
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn bring_up(
     ctrls: &mut Vec<CtrlChannel>,
@@ -188,33 +235,29 @@ pub(crate) fn bring_up(
         }
     }
 
-    // Wave 0: the three plane services run from here — pairs + control
-    // channels are in place, so none of them retries a route probe.
-    crate::bootstrap::resume::resume_plane(ctrls);
+    // Wave 0a: the policy authority runs first — pairs + control channels are in place, so it
+    // retries no route probe; the grants below ask it, and the disk's owner must find its disk
+    // in place when it starts (TASK-0246 P4b: no owner waits for its grant).
+    crate::bootstrap::resume::resume_authority(ctrls);
 
     let pol_route = (pol_ctl_route_req, pol_ctl_route_rsp);
     mmio_policy_deny_probe(pol_route)?;
     // RFC-0098 C3: every window and interrupt line below comes from the tree.
     let devices = device_tree::discover_virtio()?;
     device_tree::report(&devices);
-    // TASK-0246 P3: the tree's ECAM hosts are a device source too (the SD host's grant: P4).
-    crate::bootstrap::pci::report(&crate::bootstrap::pci::discover());
+    // TASK-0246 P3: the tree's ECAM hosts are a device source too (the boot disk may be one's).
+    let pci = crate::bootstrap::pci::discover();
+    crate::bootstrap::pci::report(&pci);
 
-    // The ONE grant the plane needs: the disk → blkd (ADR-0044 one
-    // owner; every other client is a blockproto client). From here the
-    // block plane is live and bundlemgrd can attach the measured volume.
+    // The ONE grant the plane needs: the disk the boot came from → blkd (ADR-0044/0067: one
+    // owner; every other client is a blockproto client). From here the block plane is live and
+    // bundlemgrd can attach the measured volume.
     if let Some(blkd_pid) = ctrls.iter().find(|c| c.svc_name == "blkd").map(|c| c.pid) {
-        let blk = devices.blk[0].ok_or(InitError::Map("virtio-blk not in the device tree"))?;
-        grant_mmio_with_wait(
-            stats,
-            pol_route,
-            blkd_pid,
-            "blkd",
-            "device.mmio.blk",
-            blk,
-            DEVICE_MMIO_CAP_SLOT,
-        )?;
+        grant_boot_disk(stats, pol_route, blkd_pid, (&devices, &pci), init_wire, init_fold)?;
     }
+
+    // Wave 0b: the disk's owner (its disk granted) and the volume verifier.
+    crate::bootstrap::resume::resume_plane(ctrls);
 
     // TASK-0321 (RFC-0089 §12.3, ADR-0060): the SECOND spawn pass — services
     // on the verified system volume, spawned BEFORE any per-pid endpoint

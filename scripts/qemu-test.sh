@@ -741,7 +741,9 @@ expected_sequence=(
   # TASK-0315: blkd owns the ONE GPT disk and serves partition-scoped
   # block IO; clients attach over IPC and the deny-by-default partition
   # gate is proven every boot. TASK-0246 P4a: the driver's completion
-  # bound runs on the watchdog pair its owner hands in.
+  # bound runs on the watchdog pair its owner hands in. P4b: the owner runs
+  # the backend of the disk the loader recorded (the record read back).
+  "blkd: backend ok (kind=virtio-blk record=/soc/virtio_mmio@"
   "blkd: gpt ok (parts=7)"
   "blkd: irq endpoint bound"
   "blk: watchdog on"
@@ -1237,6 +1239,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 list ok"
       "SELFTEST: bundlemgrd volume ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
+      "blkd: backend ok (kind=virtio-blk record=/soc/virtio_mmio@"
       "blkd: gpt ok (parts=7)"
       "blkd: irq endpoint bound"
       "blk: watchdog on"
@@ -2882,6 +2885,12 @@ fi
 # TASK-0246 P3 (RFC-0098 C3): the tree's ECAM hosts are enumerated with the shared planner.
 if [[ "$(count_lines "init: devices from pci ok (")" -lt 1 ]]; then
   echo "[error] init PCI-discovery proof missing: init: devices from pci ok (" >&2
+  exit 1
+fi
+# TASK-0246 P4b (RFC-0098 C5): the disk the block owner is granted is the one the loader
+# recorded in /chosen/nexus,boot-disk, asked for its kind's class.
+if [[ "$(count_lines "init: boot disk ok (")" -lt 1 ]]; then
+  echo "[error] boot-disk proof missing: init: boot disk ok (" >&2
   exit 1
 fi
 # nxboot owns /chosen: when the loader is in the chain it must have written and

@@ -329,3 +329,43 @@ fn consumers_resolve_their_clocks_resets_domains_and_pads_to_providers() {
     let blk = virt.find_compatible(&["virtio,mmio"]).next().unwrap();
     assert!(blk.specifiers("clocks", "#clock-cells").next().is_none());
 }
+
+#[test]
+fn every_node_names_its_own_path_and_the_path_finds_it_again() {
+    for tree in [VIRT, BOARD] {
+        let fdt = Fdt::new(tree).unwrap();
+        let mut seen = 0;
+        for node in fdt.all_nodes() {
+            let mut buf = [0u8; 128];
+            let path = node.path_into(&mut buf).unwrap();
+            let found = fdt.node_at_path(path).unwrap();
+            assert_eq!(found.name(), node.name(), "{path}");
+            assert_eq!(found.reg(0).ok().flatten(), node.reg(0).ok().flatten(), "{path}");
+            seen += 1;
+        }
+        assert!(seen > 20);
+    }
+    let virt = Fdt::new(VIRT).unwrap();
+    let mut buf = [0u8; 64];
+    assert_eq!(virt.root().unwrap().path_into(&mut buf), Some("/"));
+    let blk = virt.node_at_path("/soc/virtio_mmio@10008000").unwrap();
+    assert_eq!(blk.path_into(&mut buf), Some("/soc/virtio_mmio@10008000"));
+    let board = Fdt::new(BOARD).unwrap();
+    let emmc = board.find_compatible(&["spacemit,k1-sdhci"]).last().unwrap();
+    assert_eq!(emmc.path_into(&mut buf), Some("/soc/storage-bus/mmc@d4281000"));
+}
+
+#[test]
+fn test_reject_a_path_that_does_not_fit() {
+    let virt = Fdt::new(VIRT).unwrap();
+    let blk = virt.node_at_path("/soc/virtio_mmio@10008000").unwrap();
+    // 25 bytes: every shorter buffer is refused whole, never truncated.
+    for len in 0..25 {
+        let mut buf = vec![0u8; len];
+        assert_eq!(blk.path_into(&mut buf), None, "len={len}");
+    }
+    let mut buf = [0u8; 25];
+    assert_eq!(blk.path_into(&mut buf), Some("/soc/virtio_mmio@10008000"));
+    let mut empty = [0u8; 0];
+    assert_eq!(virt.root().unwrap().path_into(&mut empty), None);
+}

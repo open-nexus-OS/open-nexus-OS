@@ -7,6 +7,7 @@
 //! API_STABILITY: Unstable
 
 pub(crate) mod blk_plane;
+pub(crate) mod boot_disk;
 pub(crate) mod core_plane;
 pub(crate) mod declared_routes;
 pub(crate) mod declared_slots;

@@ -27,7 +27,8 @@ source/init/nexus-init/src/
 │   ├── route_builder.rs   ← build_route_table, populate_samgrd_registry
 │   ├── responder.rs       ← run_responder_loop (route-get, health-ok, exec-check)
 │   ├── helpers.rs         ← MMIO probing, OTA, health checks, debug helpers
-│   ├── core_plane.rs      ← wave 0: policyd/blkd/bundlemgrd + the volume spawn pass
+│   ├── core_plane.rs      ← wave 0: policyd, the boot-disk grant, blkd/bundlemgrd + the volume spawn pass
+│   ├── boot_disk.rs       ← the loader's boot-disk record → the ONE grant blkd gets
 │   ├── volume_spawn.rs    ← QUERY → VMO → GET_BUNDLE_ELF → RO map → exec_v2 (per volume service)
 │   ├── service_source.rs  ← SSOT: which services live on the system volume
 │   └── orchestrator.rs    ← run_bootstrap (spawn + endpoints + wiring)
@@ -44,9 +45,16 @@ bundlemgrd verified against the volume index. That fixes the boot shape:
    suspended (`init: start/up <svc>`), then `init: ready`.
 2. **Wave 0 — the CORE plane** (`core_plane.rs`): policyd, blkd and
    bundlemgrd get their server pairs + control channels and are the ONLY
-   services resumed; the disk MMIO grant (policy-gated) brings the block
-   plane up; bundlemgrd verifies the volume paired with the measured boot
-   slot; the **volume spawn pass** runs (`init: spawn from volume svc=… bundle=…@…`).
+   services resumed, in two steps (TASK-0246 P4b): policyd first and alone,
+   then — after the disk grant — blkd and bundlemgrd. The grant is the disk the
+   loader recorded in `/chosen/nexus,boot-disk` (`bootstrap/boot_disk.rs`),
+   asked for its kind's class (`device.mmio.blk` / `device.mmio.mmc`), with the
+   read-only tree pinned into blkd's `NamedSlot::DeviceTree` and, for an SD
+   host behind PCI, bus mastering switched on for that function after its
+   grant; blkd therefore starts with its disk in place and waits for nothing
+   (`init: boot disk ok (…)`). bundlemgrd verifies the volume paired with the
+   measured boot slot; the **volume spawn pass** runs (`init: spawn from volume
+   svc=… bundle=…@…`).
    Nothing else runs yet on purpose: a resumed service without its server
    pair retries its route probe over init's control channel, and every retry
    parks a moved reply cap in init's 256-slot table (8 per service) — the

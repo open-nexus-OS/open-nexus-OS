@@ -13,10 +13,14 @@
 //! HS400 enhanced strobe (the K1 with a card that has the strobe) — no tuning anywhere.
 //! [`Disk`] moves sectors with ADMA2 through `DmaBuffer`, so every byte the device sees
 //! crosses its typestate; [`Card::read_pio`] reads without DMA or interrupts (the boot
-//! loader, TASK-0246B). The `BlockDevice` adapters live with their consumers (blkd P4,
-//! nxboot 0246B); this crate depends on no service.
+//! loader, TASK-0246B). The OS glue is `os` (feature `os-lite`: the window mapped from the
+//! device capability, the line bound, kernel one-shots for every wait, DMA memory made for the
+//! device) — the crate's only `unsafe`, the volatile register access. The `BlockDevice`
+//! adapters live with their consumers (`storage::sdhci` for blkd, nxboot in 0246B); this crate
+//! depends on no service. The behavioural machine the core is proven against is its own crate,
+//! `storage-sdhci-model`.
 //! OWNERS: @runtime @drivers
-//! STATUS: Functional (host-proven; the OS glue is TASK-0246 P4, the QEMU lane P5, the board P6)
+//! STATUS: Functional (host-proven; the OS glue since TASK-0246 P4b, the QEMU lane P5, the board P6)
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: unit tests (divider, descriptors, protocol decoding, the board's measured
 //!   EXT_CSD); `tests/sdhci.rs` (init to HS52 and HS400ES, the K1 register sequence, ADMA and
@@ -27,7 +31,7 @@
 //!   descriptor names memory the device cannot reach (below 4 GiB, 4-byte aligned).
 
 #![cfg_attr(not(test), no_std)]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![deny(missing_docs)]
 
 pub mod adma;
@@ -39,6 +43,7 @@ mod engine;
 mod error;
 mod host;
 pub mod k1;
+pub mod os;
 pub mod proto;
 pub mod regs;
 

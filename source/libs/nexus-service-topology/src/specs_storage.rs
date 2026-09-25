@@ -98,7 +98,8 @@ pub(crate) const STATEFSD: ServiceSpec = ServiceSpec {
 };
 
 // TASK-0315: the block-plane owner (TASK-0246: `blkd`, whatever its backend). It makes no
-// outbound call, so it holds no reply inbox; its interrupt wake is the named IRQ-notify slot.
+// outbound call, so it holds no reply inbox; its interrupt wake is the named IRQ-notify slot,
+// and the read-only tree (P4b) holds the loader's record of the disk it was granted.
 /// The declaration of `blkd`.
 pub(crate) const BLKD: ServiceSpec = ServiceSpec {
     id: ServiceId::Blkd,
@@ -113,6 +114,7 @@ pub(crate) const BLKD: ServiceSpec = ServiceSpec {
         NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::blkd::IRQ_NOTIFY },
         NamedSlotBinding { name: NamedSlot::DeviceWatchdogRecv, slot: slots::blkd::WATCHDOG.recv },
         NamedSlotBinding { name: NamedSlot::DeviceWatchdogSend, slot: slots::blkd::WATCHDOG.send },
+        NamedSlotBinding { name: NamedSlot::DeviceTree, slot: slots::blkd::DEVICE_TREE },
     ],
 };
 

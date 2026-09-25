@@ -31,11 +31,9 @@ use blkd::gate::Gates;
 use nexus_ipc::{Server as _, Wait};
 use storage::blockproto::{self, BlockRequest, MAX_BLOCKS_PER_REQ, SECTOR_SIZE};
 use storage::gpt::{self, Partition};
-use storage::virtio_blk::VirtioBlkDevice;
 use storage::BlockDevice;
 
-/// Deterministic MMIO cap slot owned by init distribution.
-const MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
+use crate::disk_os::Disk;
 
 fn emit(msg: &str) {
     let _ = nexus_abi::debug_println(msg);
@@ -49,7 +47,7 @@ struct PartWindow {
 }
 
 struct Served {
-    dev: VirtioBlkDevice,
+    dev: Disk,
     parts: [Option<PartWindow>; blockproto::PART_COUNT as usize],
     /// TASK-0321 P4b: one armed VMO per sender `(sid, slot)` — bounded
     /// table; a re-arm replaces (closes) the previous one.
@@ -143,28 +141,10 @@ impl Served {
     }
 }
 
-/// Opens the device, parses the GPT and maps the RFC-0089 selectors.
+/// Opens the disk init granted (`disk_os`: the backend its kind needs — init granted it before
+/// this task ran, so nothing waits), parses the GPT and maps the RFC-0089 selectors.
 fn attach() -> Option<Served> {
-    // Bounded wait for the init MMIO grant (grant lands after spawn).
-    let deadline = nexus_abi::nsec().unwrap_or(0).saturating_add(5_000_000_000);
-    let dev = loop {
-        let mut q = nexus_abi::CapQuery::default();
-        if nexus_abi::cap_query(MMIO_CAP_SLOT, &mut q).is_ok() && q.kind_tag == 2 {
-            match VirtioBlkDevice::new(MMIO_CAP_SLOT, nexus_service_topology::slots::blkd::WATCHDOG)
-            {
-                Ok(dev) => break dev,
-                Err(_) => {
-                    emit("blkd: device open FAIL");
-                    return None;
-                }
-            }
-        }
-        if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            emit("blkd: mmio grant timeout");
-            return None;
-        }
-        let _ = nexus_abi::yield_();
-    };
+    let dev = crate::disk_os::open()?;
 
     let table = match gpt::parse_gpt(&dev) {
         Ok(table) => table,
@@ -331,9 +311,8 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
     // IRQ completion (TASK-0314 machinery + TASK-0315 provisioning): init pins a DEDICATED
     // notify endpoint into the declared named slot during spawn-time distribution — no route
     // round-trip, no shared traffic (TASK-0324 P4f-1b moved it off the clients' reply slot).
-    const IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::slots::blkd::IRQ_NOTIFY;
     if let Some(s) = served.as_mut() {
-        if s.dev.bind_irq_endpoint(IRQ_NOTIFY_SLOT) {
+        if s.dev.bind_irq() {
             emit("blkd: irq endpoint bound");
         }
     }

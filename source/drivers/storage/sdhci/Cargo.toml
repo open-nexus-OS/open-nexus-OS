@@ -8,9 +8,28 @@ edition = "2021"
 license = "Apache-2.0"
 description = "SDHCI host + eMMC driver core (TASK-0246): the standard core and the K1 layer, ADMA2 and PIO, an eMMC from power-up to HS52 or HS400 enhanced strobe — pure, host-proven against a behavioural controller and card model"
 
+[features]
+default = []
+# The OS glue (`os`): the window from the device capability, the line, kernel one-shots.
+os-lite = ["dep:nexus-ipc", "dep:nexus-service-topology"]
+
 [dependencies]
 # `DmaRun` (what the device is programmed with) and `DmaCoherence` travel in the ABI's
 # DMA vocabulary; `DmaBuffer` is the one ownership type for device memory (TASK-0286 P4b).
 nexus-abi = { path = "../../../libs/nexus-abi" }
 nexus-driverkit = { path = "../../../libs/nexus-driverkit" }
 nexus-hal = { path = "../../../libs/nexus-hal" }
+# The OS glue's waits: a kernel one-shot on the owner's watchdog pair in a waitset with the
+# interrupt endpoint (`nexus_ipc::timer`), never a receive deadline.
+nexus-ipc = { path = "../../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
+nexus-service-topology = { path = "../../../libs/nexus-service-topology", optional = true }
+
+[dev-dependencies]
+# The behavioural controller + card + non-coherent memory (its own crate since P4b, so every
+# consumer of the core is proven against the same machine).
+storage-sdhci-model = { path = "model" }
+
+# The `nexus_env` cfg is declared here so a HOST compile without the workspace RUSTFLAGS stays
+# warning-free under the hard warning gate.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nexus_env, values("host", "os"))'] }

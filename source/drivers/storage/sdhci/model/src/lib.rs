@@ -1,12 +1,24 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The machine the driver runs against on the host: a controller (`ctrl`), an eMMC
-//! (`card`), DMA memory behind a non-coherent cache (`mem`), simulated time, a log of what
-//! the driver did, and faults a test can inject. Time moves only when the driver lets it
-//! (`delay_us`, `wait_irq`); a wait with nothing pending jumps to its deadline, so a fault
-//! that never completes costs no real time and every run is identical.
+//! CONTEXT: The machine the SDHCI core runs against on the host (TASK-0246): a controller
+//! (`ctrl`), an eMMC (`card`), DMA memory behind a non-coherent cache (`mem`), simulated time,
+//! a log of what the driver did, and faults a test can inject. Time moves only when the
+//! driver lets it (`delay_us`, `wait_irq`); a wait with nothing pending jumps to its deadline,
+//! so a fault that never completes costs no real time and every run is identical. One machine
+//! for every consumer of the core — the core's own tests (P2), the block owner's adapter
+//! (P4b), the boot loader's reader (TASK-0246B) — so each is proven against the same
+//! behaviour. Host only: no OS crate depends on it.
 //! OWNERS: @runtime @drivers
+//! STATUS: Functional
+//! API_STABILITY: Internal
+//! TEST_COVERAGE: the core's `tests/sdhci` (init goldens, ADMA2 under the cache protocol, the
+//!   reject matrix) prove the machine against the driver and each other
+
+#![forbid(unsafe_code)]
+// A test machine, host only: a fixture that cannot be built is a failed test, reported where it
+// broke — its inputs are the tests' own constants, never untrusted data.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 pub mod card;
 pub mod ctrl;
@@ -15,8 +27,12 @@ pub mod mem;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use nexus_abi::DmaCoherence;
+use nexus_driverkit::DmaBuffer;
 use nexus_hal::Bus;
-use storage_sdhci::{Host, HostConfig, Layer, Platform};
+use storage_sdhci::{Card, Ceiling, Disk, Host, HostConfig, Layer, Platform};
+
+use mem::{ModelCache, ModelMem};
 
 /// What the driver did, in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,9 +119,8 @@ pub fn k1() -> Config {
 }
 
 pub fn measured() -> [u8; 512] {
-    let hex = include_str!(
-        "../../../../../../../docs/board/measurements/2026-09-24-emmc-sdhci/ext_csd.hex"
-    );
+    let hex =
+        include_str!("../../../../../../docs/board/measurements/2026-09-24-emmc-sdhci/ext_csd.hex");
     let digits: Vec<u8> = hex.bytes().filter(u8::is_ascii_hexdigit).collect();
     let mut raw = [0u8; 512];
     for (i, pair) in digits.chunks_exact(2).take(512).enumerate() {
@@ -186,4 +201,27 @@ pub fn commands(m: &Shared) -> Vec<(u8, u32)> {
         .iter()
         .filter_map(|e| if let Event::Cmd(i, a) = *e { Some((i, a)) } else { None })
         .collect()
+}
+
+pub type ModelCard = Card<ModelBus, SimPlatform>;
+pub type ModelDisk = Disk<ModelBus, SimPlatform, ModelMem, ModelCache>;
+
+/// The harts' cache block: every buffer is maintained (the K1's `soc` bus is non-coherent).
+pub const NONCOHERENT: DmaCoherence = DmaCoherence::Maintained { block: 64 };
+
+/// A card initialised up to `ceiling` on an interrupt-driven host.
+pub fn card(m: &Shared, ceiling: Ceiling) -> ModelCard {
+    Card::init(host(m, true), ceiling).map_err(|f| f.error).expect("init")
+}
+
+/// A DMA buffer over model memory, maintained like the K1's.
+pub fn buffer(m: &Shared, mem: ModelMem) -> DmaBuffer<ModelMem, ModelCache> {
+    DmaBuffer::new(mem, NONCOHERENT, ModelCache(m.clone())).expect("buffer")
+}
+
+/// A disk with a one-page table at 1 GiB and a 64 KiB bounce buffer in four scattered runs.
+pub fn disk(m: &Shared, card: ModelCard) -> ModelDisk {
+    let table = buffer(m, ModelMem::new(m, 4096, 0x4000_0000, 1, 0));
+    let bounce = buffer(m, ModelMem::new(m, 64 * 1024, 0x4800_0000, 4, 1));
+    Disk::new(card, table, bounce).expect("disk")
 }

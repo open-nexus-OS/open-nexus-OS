@@ -547,25 +547,8 @@ pub mod vfsd {
     pub const PACKAGEFSD: SlotPair = SlotPair::new(5, REPLY.recv);
 }
 
-/// blkd (TASK-0324 P4f-1b).
-pub mod blkd {
-    use super::SlotPair;
-
-    /// blkd's own server endpoint (block-plane clients send here). It holds NO reply
-    /// inbox: the driver makes no outbound call, and the inbox init used to provision was
-    /// never read — declaring it at 5/6 collided with the driver's own virtqueue VMOs, which it
-    /// allocates at the lowest free slots because it runs before init wires it.
-    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
-    /// RECV half of the dedicated IRQ-completion notify endpoint. It used to sit at 0xF1 —
-    /// the same number as every block-plane client's reply RECV, so a reader could not tell
-    /// the driver's IRQ slot from a client's reply slot; 0xF3 extends the block-plane family
-    /// instead of aliasing into it (both sides read this constant, so the move is safe by
-    /// construction).
-    pub const IRQ_NOTIFY: u32 = 0xF3;
-    /// Device-watchdog endpoint (TASK-0054C P2-b): the completion wait's bound — a one-shot
-    /// on a waitset beside the IRQ endpoint; its fire is `virtio-blk: timeout`.
-    pub const WATCHDOG: SlotPair = SlotPair::new(0xF5, 0xF4);
-}
+/// blkd (TASK-0324 P4f-1b; its table is `slots/blkd.rs`).
+pub mod blkd;
 
 /// windowd (TASK-0324 P4a).
 pub mod windowd {

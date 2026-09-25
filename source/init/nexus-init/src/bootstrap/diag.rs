@@ -53,6 +53,35 @@ pub(crate) fn il(wire: &mut nexus_event::SpanTally, fold: bool, subject: &str) -
     !fold || expanded("lifecycle") || expanded(svc)
 }
 
+/// One marker line built with `core::fmt` and written with one call (a line written in pieces
+/// can be torn by a service printing at the same time); longer than [`emit_marker_atomic`]'s,
+/// for lines that carry a device path.
+pub(crate) struct Line {
+    buf: [u8; 192],
+    len: usize,
+}
+
+impl core::fmt::Write for Line {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let take = s.len().min(self.buf.len() - self.len);
+        self.buf[self.len..self.len + take].copy_from_slice(&s.as_bytes()[..take]);
+        self.len += take;
+        Ok(())
+    }
+}
+
+impl Line {
+    pub(crate) fn new() -> Self {
+        Self { buf: [0; 192], len: 0 }
+    }
+
+    pub(crate) fn emit(mut self) {
+        use core::fmt::Write as _;
+        let _ = self.write_str("\n");
+        crate::bootstrap::helpers::debug_write_bytes(&self.buf[..self.len]);
+    }
+}
+
 /// Emits one CONTRACT marker line atomically (single `debug_println`).
 /// The per-byte `debug_write_*` helpers tear against concurrently running
 /// services — a freshly resumed instance printed its ready line INSIDE

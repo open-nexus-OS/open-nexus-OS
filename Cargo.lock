@@ -292,10 +292,13 @@ name = "blkd"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-fdt",
  "nexus-ipc",
+ "nexus-pci",
  "nexus-service-entry",
  "nexus-service-topology",
  "storage",
+ "storage-sdhci",
 ]
 
 [[package]]
@@ -2194,6 +2197,7 @@ dependencies = [
  "samgrd",
  "serde",
  "statefs",
+ "storage",
  "tempfile",
  "thiserror",
  "toml",
@@ -4307,10 +4311,14 @@ name = "storage"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-driverkit",
+ "nexus-fdt",
  "nexus-hal",
  "nexus-ipc",
  "nexus-service-topology",
  "sha2",
+ "storage-sdhci",
+ "storage-sdhci-model",
  "storage-virtio-blk",
 ]
 
@@ -4321,6 +4329,19 @@ dependencies = [
  "nexus-abi",
  "nexus-driverkit",
  "nexus-hal",
+ "nexus-ipc",
+ "nexus-service-topology",
+ "storage-sdhci-model",
+]
+
+[[package]]
+name = "storage-sdhci-model"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-driverkit",
+ "nexus-hal",
+ "storage-sdhci",
 ]
 
 [[package]]

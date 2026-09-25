@@ -81,6 +81,9 @@ nexus-fdt = { path = "../../libs/nexus-fdt" }
 # TASK-0246 P3: the ECAM hosts in the tree are a device source (the planner nxboot shares).
 nexus-hal = { path = "../../libs/nexus-hal" }
 nexus-pci = { path = "../../libs/nexus-pci" }
+# TASK-0246 P4b: the loader's boot-disk record, its kinds and their grant classes (the block
+# layer's contract crate; no engine or driver of it runs in init).
+storage = { path = "../../../userspace/storage", default-features = false }
 # RFC-0106: the provider kinds (and their slot index) init grants to socd.
 nexus-soc = { path = "../../libs/nexus-soc" }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }

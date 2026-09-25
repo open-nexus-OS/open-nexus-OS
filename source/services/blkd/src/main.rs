@@ -17,6 +17,7 @@
 //! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md,
 //!   docs/adr/0067-one-block-owner-backend-selected-by-fdt.md
 
+mod disk_os;
 mod os_lite;
 mod route_os;
 

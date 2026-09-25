@@ -1,0 +1,67 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// What the real trees cannot show (TASK-0246 P4b): a disabled disk node and a disabled ECAM
+// host (boot-disk refusals); an SD host that allows HS400 enhanced strobe, one with the strobe
+// but not 1.8 V signalling, one with 1.8 V but not the strobe, and one with a bus width no bus
+// has (the host configuration).
+// Compiled with `dtc -I dts -O dtb -p 512`.
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	chosen {
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		virtio_mmio@10001000 {
+			compatible = "virtio,mmio";
+			reg = <0x0 0x10001000 0x0 0x1000>;
+			status = "disabled";
+		};
+
+		mmc@d4281000 {
+			compatible = "spacemit,k1-sdhci";
+			reg = <0x0 0xd4281000 0x0 0x200>;
+			bus-width = <8>;
+			mmc-hs400-1_8v;
+			mmc-hs400-enhanced-strobe;
+		};
+
+		mmc@d4282000 {
+			compatible = "spacemit,k1-sdhci";
+			reg = <0x0 0xd4282000 0x0 0x200>;
+			mmc-hs400-enhanced-strobe;
+		};
+
+		mmc@d4284000 {
+			compatible = "spacemit,k1-sdhci";
+			reg = <0x0 0xd4284000 0x0 0x200>;
+			bus-width = <8>;
+			mmc-hs400-1_8v;
+		};
+
+		mmc@d4283000 {
+			compatible = "spacemit,k1-sdhci";
+			reg = <0x0 0xd4283000 0x0 0x200>;
+			bus-width = <264>;
+		};
+
+		pci@30000000 {
+			compatible = "pci-host-ecam-generic";
+			device_type = "pci";
+			reg = <0x0 0x30000000 0x0 0x10000000>;
+			bus-range = <0x0 0xff>;
+			#address-cells = <3>;
+			#size-cells = <2>;
+			status = "disabled";
+		};
+	};
+};

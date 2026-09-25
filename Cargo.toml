@@ -15,6 +15,7 @@ members = [
     "source/drivers/rtc/goldfish-rtc",
     "source/drivers/storage/virtio-blk",
     "source/drivers/storage/sdhci",
+    "source/drivers/storage/sdhci/model",
     "source/libs/nexus-pci",
     "source/drivers/gpud",
     "source/drivers/soc/socd",

@@ -631,6 +631,16 @@ proves = "init read every device window and interrupt line it grants from the de
 phase = "bringup"
 proves = "init enumerated every ECAM host of the tree with the shared planner and named the SD host controller it found"
 
+# RFC-0098 C5 (TASK-0246 P4b): the loader records the medium the boot came from in
+# `/chosen/nexus,boot-disk`; init resolves the record to the ONE device the block owner is
+# granted (a virtio transport the probe found, the K1's SD host, an SD host behind PCI) and asks
+# policyd for its kind's class; a function behind PCI gets bus mastering after its grant. The
+# line names the kind and the record (`record=none` only on a direct-kernel dev boot). Required
+# in every profile.
+[marker."init: boot disk ok ("]
+phase = "bringup"
+proves = "init granted the block owner exactly the disk the loader recorded, asked for its kind's class"
+
 [marker."KSELFTEST: smp online ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }

@@ -14,9 +14,14 @@ os-lite = []
 stack_pages = 0
 
 [dependencies]
+# TASK-0246 P4b: the backend is chosen from the loader's boot-disk record in the tree, the
+# window checked against the recorded node or ECAM host, the SD host configured from its node.
+nexus-fdt = { path = "../../libs/nexus-fdt" }
+nexus-pci = { path = "../../libs/nexus-pci" }
+storage-sdhci = { path = "../../drivers/storage/sdhci" }
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
-# The host proves the pure parts (`gate`) against the same protocol constants and ids.
+# The host proves the pure parts (`backend`, `gate`) against the same protocol constants and ids.
 nexus-abi = { path = "../../libs/nexus-abi" }
 storage = { path = "../../../userspace/storage" }
 

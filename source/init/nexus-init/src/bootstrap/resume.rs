@@ -72,12 +72,24 @@ pub(crate) fn affinity_summary() {
 /// exhausted the table (`abi:no-space`, blk-plane wiring FAIL).
 const PLANE: &[&str] = &["policyd", "blkd", "bundlemgrd"];
 
+/// The plane's policy authority — resumed first and alone: every grant the plane makes asks
+/// it, and the disk's owner must find its disk in place when it starts (TASK-0246 P4b — no
+/// owner waits for its grant).
+const AUTHORITY: &str = "policyd";
+
 pub(crate) fn in_plane(name: &str) -> bool {
     PLANE.contains(&name)
 }
 
+/// Wave 0a: the policy authority.
+pub(crate) fn resume_authority(ctrls: &[CtrlChannel]) {
+    resume_non_drivers_where(ctrls, |name| name == AUTHORITY);
+}
+
+/// Wave 0b: the rest of the plane — the block owner (its disk already granted) and the
+/// volume verifier.
 pub(crate) fn resume_plane(ctrls: &[CtrlChannel]) {
-    resume_non_drivers_where(ctrls, in_plane);
+    resume_non_drivers_where(ctrls, |name| in_plane(name) && name != AUTHORITY);
 }
 
 /// Wave 1 (TASK-0050 PR-5): resume the rest of the always-on CORE graph —

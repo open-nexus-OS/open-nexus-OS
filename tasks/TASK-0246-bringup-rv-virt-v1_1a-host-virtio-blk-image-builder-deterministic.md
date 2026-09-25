@@ -1,6 +1,6 @@
 ---
 title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: In Progress (P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P4b next — the boot disk from `/chosen`, the backend by the granted device; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+status: In Progress (P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4c next — socd before the disk grant; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 owner: @runtime @kernel-team
 created: 2025-12-29
 updated: 2026-09-25
@@ -106,12 +106,12 @@ TASK-0248's decision).
 - **`blkd`** replaces `virtioblkd` (ADR-0067): one service, the backend chosen by the device
   init grants (virtio `device_id 2`, `spacemit,k1-sdhci`, PCI class 0805), the device being the
   one nxboot booted from (`/chosen/nexus,boot-disk`); same GPT parse, `blockproto`,
-  deny-by-default identity check; `blkd: backend=… ready` markers; `virtioblkd` exists nowhere
+  deny-by-default identity check; `blkd: backend ok (kind=… record=…)` markers; `virtioblkd` exists nowhere
   and `just check` fails on the name.
 - **`ci-os-sdhci`** in `test-all`: `sdhci-pci` (8-bit v3 capabilities) + `emmc` carrying the
   system image, no virtio disk; nxboot reads it (TASK-0246B), the full ladder mounts the system
   volume over the SDHCI backend.
-- **Board:** `blkd: backend=spacemit,k1-sdhci bus=8 mode=hs400es sectors=30535680 …` and
+- **Board:** `blkd: backend ok (kind=spacemit,k1-sdhci record=/soc/storage-bus/mmc@d4281000 mode=hs400es bus=8 sectors=30535680)` and
   `packagefs: mounted` on the serial console, with the throughput in the log.
 
 ## Packages
@@ -248,7 +248,7 @@ TASK-0248's decision).
   2026-09-25** (below); **P4b** the
   boot disk from `/chosen`, the backend chosen by the granted device, the SDHCI backend and the
   SD host's grant with bus mastering; **P4c** socd in the core plane before the disk grant and
-  `blkd` asking it for its node. The package as first written: rename (crate, service, topology ids/specs/slots/routes, init planes,
+  `blkd` asking it for its node — **P4b done 2026-09-25** (below). The package as first written: rename (crate, service, topology ids/specs/slots/routes, init planes,
   supervision, policy, markers, scripts, docs) with the old-name gate; the driver crates take
   their slots from the owner (no service's slot name inside a driver); backend selection by the
   granted device; `/chosen/nexus,boot-disk` written by nxboot and honoured by init; the
@@ -284,6 +284,53 @@ TASK-0248's decision).
   `mmio statefsd-blk` decision line for the old owner. P4b rewrites who may hold the disk
   (`device.mmio.blk` for a virtio disk, `device.mmio.mmc` for an SD host, `blkd` only) with a
   reject test. For P4c: `slots::blkd` says the owner makes no outbound call; asking socd is one.
+- **P4b done 2026-09-25 — the boot disk.** The loader records the medium the boot came from in
+  `/chosen/nexus,boot-disk`: an absolute path — a node, or a function on the root bus of an
+  ECAM host named the Open Firmware way as that host's child, `<generic name>@<dev>,<func>` in
+  canonical lower-case hex (`/soc/pci@30000000/mmc@1,0`); the generic name is the kind. One
+  codec, `storage::boot_disk`, for the writer and both readers: three kinds (`virtio,mmio`, the
+  K1's `spacemit,k1-sdhci`, `mmc` behind PCI), their RFC-0017 classes (`device.mmio.blk`,
+  `device.mmio.mmc`), every malformed record refused by name (`nexus-fdt` gained
+  `Node::path_into`). nxboot writes the node path of the transport it read the volume from
+  (`nxboot: fdt ok (… disk=…)`). init resolves the record (`bootstrap/boot_disk.rs`): a virtio
+  node must be one the probe read device id 2 through, a PCI function must be an SD host the
+  plan placed; it pins the read-only tree into `blkd`'s new `NamedSlot::DeviceTree`
+  (`slots::blkd::DEVICE_TREE`), asks policyd for the kind's class, and gives a function behind
+  PCI bus mastering after its grant, read back from its command register. Wave 0 is split:
+  policyd runs first and alone, the grant is made, and only then blkd and bundlemgrd run — the
+  owner starts with its disk in place, so its poll-against-a-clock wait for the grant (5 s,
+  `yield_`) is gone. `blkd` reads the same record from its tree, refuses a grant whose window is
+  not the recorded disk's (`blkd::backend`), and runs the backend the kind needs: the
+  virtio-blk driver, or the SDHCI core through `storage::sdhci` (the `BlockDevice` face,
+  `host_config` from the node) over `storage_sdhci::os` (the window from the capability, the
+  line on the owner's notify endpoint, every wait a one-shot on its watchdog pair in one
+  waitset, DMA memory made for the device and maintained with Zicbom). A direct-kernel dev boot
+  (no loader, no record) grants the lowest virtio disk and says `record=none`. The behavioural
+  SDHCI machine is its own crate, `storage-sdhci-model`, so the core, the block face and (0246B)
+  the loader's reader are proven against one machine. Least privilege: `statefsd` and `vfsd`
+  lost `device.mmio.blk`; `blkd` alone holds both disk classes. Markers: `init: boot disk ok (`
+  in every profile, `blkd: backend ok (kind=virtio-blk record=/soc/virtio_mmio@` in the
+  block-plane ladders. Proof: host — `storage` boot_disk 6 + sdhci 6, `blkd` backend 5 +
+  gate 3, nexus-fdt goldens 20, `storage-sdhci` 47 on the extracted machine, policy 2; mutations
+  each fail their tests (boot_disk 7, the block face 5, backend 6, policy 1); `just check` green;
+  `build-os-workspace` 0 warnings; `ci-os-smp1` and `ci-os-visible` green (desktop 14.67 %);
+  `just test-all` green twice with identical numbers (EXIT=0, 11 QEMU lanes; `init: boot disk ok`
+  and `blkd: backend ok` in all 18 boots that reach init, no disk FAIL); manual boots: an SD host
+  attached beside the virtio disk is found (`sd=00:01.0`) and not granted, and a direct-kernel
+  boot grants the virtio disk with `record=none`.
+- **Found in P4b.** `policies/manifest.json` had gone stale across three `base.toml` edits
+  (TASK-0052 P3, TASK-0245B P2, P4a) because nothing validated it; it is regenerated and
+  `userspace/policy/tests/committed_policy.rs` now fails on the next stale edit. Six drivers
+  carry their own volatile `MmioBus` (virtio-blk, virtio-input, socd, the harness, nexus-net-os,
+  init) — a driverkit primitive for a mapped device window is its own package, not this one.
+  `policyd/src/os_lite.rs` lines 346–813 are a block comment holding the pre-`lite_protocol`
+  handler (never compiled; it still names the old disk owner) — a policyd hygiene package
+  deletes it. No gate runs clippy over OS-only code: `just lint` is host-cfg clippy and
+  `diag-os` is `cargo check`, so every service's `os_lite.rs` goes unlinted — an OS clippy run
+  found a pre-existing `forget` of a non-`Drop` value in `blkd/src/os_lite.rs` (TASK-0321) and
+  an unnecessary closure in `storage/src/remote_blk.rs`, and `nexus-abi` has casts to the same
+  type under the RISC-V cfg (P1). The new P4b code passes it (`storage-sdhci`, `blkd` — both
+  backend devices boxed after its `large_enum_variant`); an OS-clippy gate is its own package.
 - **TASK-0246B nxboot readers** — between P4 and P5 (the QEMU lane boots through it).
 - **P5 `ci-os-sdhci`** — the launcher profile and the lane in `test-all`; the system volume
   mounted over the SDHCI backend; the proof of the standard core.

@@ -40,6 +40,12 @@ At a high level the stack looks like:
      is a device source too: init plans its root bus with `nexus-pci` (the
      planner nxboot shares), every BAR on pages of its own, INTx routed, bus
      mastering left to the grant (`init: devices from pci ok (…)`, TASK-0246 P3).
+   - The disk is the medium the boot came from: nxboot records the transport it
+     read the volume from in `/chosen/nexus,boot-disk` (a node path, or
+     `<ECAM host>/mmc@<dev>,<func>` for an SD host behind PCI); init resolves
+     that record to the ONE grant `blkd` gets, asked for the kind's class, and
+     makes it while only policyd runs, so `blkd` starts with its disk in place
+     (`init: boot disk ok (…)`, `blkd: backend ok (…)`, TASK-0246 P4b).
    - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: jump
      slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
      `nxboot: PANIC (…)` + SBI reset — never a silent boot of unverified

@@ -130,7 +130,9 @@ pub(crate) fn chosen_str(name: &str) -> Option<&'static str> {
     tree()?.chosen().ok()?.nexus_str(name)
 }
 
-fn window_of(node: nexus_fdt::Node<'static>) -> Option<DeviceWindow> {
+/// A node's device window: its first `reg` (page-aligned, whole pages), its line, coherence and
+/// DMA reach.
+pub(crate) fn window_of(node: nexus_fdt::Node<'static>) -> Option<DeviceWindow> {
     let reg = node.reg(0).ok().flatten()?;
     let base = usize::try_from(reg.addr).ok()?;
     let len = usize::try_from(reg.size).ok()?;

@@ -111,6 +111,7 @@ nxboot writes (in-place, with headroom reserved at FIT build time):
 | `nexus,boot-slot` | `a` / `b`, the slot nxboot chose | its own selection (RFC-0089) | same |
 | `nexus,display-mode` | a REQUEST (`WxH`), never the authority | fw_cfg `display-mode` | absent (EDID decides) |
 | `nexus,boot-record` | the measured handoff record itself (60 bytes, ADR-0059 v1 layout) | nxboot | nxboot |
+| `nexus,boot-disk` | the medium the boot volume was read from: a node path, or `<ECAM host path>/mmc@<dev>,<func>` for an SD host behind PCI (C5) | nxboot (the transport it read) | nxboot |
 
 The kernel's syscalls 45 (`BOOT_MODE`) and 50 (`BOOT_DISPLAY_MODE`) read `/chosen`; every
 fw_cfg read in the kernel is deleted (Phase 1). 50 is deleted in Phase 5 when gpud owns the
@@ -328,6 +329,21 @@ service id, slot table, policy row and markers (`blkd: gpt ok (parts=7)`); its p
 is a pure module proven over the whole sender × partition × op matrix on the host, and a gate
 in `just check` keeps the retired name out of everything but dated records. The backend is
 still virtio-blk; P4b chooses it by the device init grants.
+
+**Implemented 2026-09-25 (TASK-0246 P4b): the boot disk.** The record is an absolute path —
+a node, or a function on the root bus of an ECAM host named the Open Firmware way as that
+host's child, `<generic name>@<device>,<function>` in canonical lower-case hex
+(`/soc/pci@30000000/mmc@1,0`); the generic name is the kind, so every stage reads one kind from
+one record. Three kinds: `virtio,mmio` (device id 2 checked by whoever maps it), the K1's
+`spacemit,k1-sdhci`, and `mmc` behind PCI (class 0805). One codec (`storage::boot_disk`) for
+the writer (nxboot) and both readers; malformed records are refused by name, never repaired.
+init resolves the record, asks policyd for the kind's class (`device.mmio.blk`,
+`device.mmio.mmc` — both granted to `blkd` alone), gives a PCI function bus mastering after
+its grant, and makes the grant while only policyd runs, so the owner starts with its disk in
+place and waits for nothing. `blkd` reads the same record from its read-only tree, refuses a
+grant whose window is not the recorded disk's, and runs the backend the kind needs. A
+direct-kernel dev boot (no loader, no record) grants the lowest virtio disk and says so
+(`record=none`). The SDHCI backend's glue runs first in the P5 lane.
 
 ### C6 — Boot chain (Phase 4, ADR-0066)
 

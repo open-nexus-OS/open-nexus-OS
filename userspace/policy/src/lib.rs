@@ -213,6 +213,16 @@ impl PolicyDoc {
         self.allow.values().map(|caps| caps.len()).sum()
     }
 
+    /// The subjects that hold `cap`, in name order — how a least-privilege rule ("the disk has
+    /// ONE holder") is checked against the policy itself.
+    pub fn holders(&self, cap: &str) -> impl Iterator<Item = &str> {
+        let cap = canonical(cap);
+        self.allow
+            .iter()
+            .filter(move |(_, caps)| caps.contains(&cap))
+            .map(|(subject, _)| subject.as_str())
+    }
+
     pub fn check(&self, required: &[&str], subject: &str) -> Result<(), Denied> {
         let subject_key = canonical(subject);
         let allowed_caps = self.allow.get(&subject_key);

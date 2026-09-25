@@ -28,7 +28,8 @@ use nexus_fdt::{ChosenWriter, Fdt};
 
 use crate::arch;
 
-/// Headroom reserved for the `/chosen` writes (the record + five short properties).
+/// Headroom reserved for the `/chosen` writes (the record, the boot disk's path and five short
+/// properties).
 const CHOSEN_HEADROOM: usize = 2048;
 /// No stage we boot from produces a tree this large (QEMU virt ≈ 12 KiB, the
 /// board ≈ 9 KiB); a bigger claim is a corrupt header, not a tree.
@@ -140,9 +141,18 @@ pub fn virtio_mmio_bases(t: &Tree) -> impl Iterator<Item = usize> + '_ {
         .filter_map(|r| usize::try_from(r.addr).ok())
 }
 
-/// Copy the tree, write `/chosen/nexus,*` (the slot, the measured record and
+/// The boot disk's record (RFC-0098 C5): the path of the node that lists the transport whose
+/// window the boot volume was read from, written into `out`.
+pub fn boot_disk_record<'b>(t: &Tree, window: usize, out: &'b mut [u8]) -> Option<&'b str> {
+    use storage::boot_disk::{node_at_window, record_for_node, Place};
+    let disk = node_at_window(&t.fdt, u64::try_from(window).ok()?)?;
+    let Place::Node(node) = disk.place else { return None };
+    record_for_node(&node, out)
+}
+
+/// Copy the tree, write `/chosen/nexus,*` (the slot, the measured record, the boot disk and
 /// the QEMU lane knobs), return the copy's address for `a1`.
-pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8]) -> usize {
+pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8], boot_disk: &str) -> usize {
     let src = arch::phys_slice(t.phys, t.len);
     // Page-aligned: the kernel hands this very copy to init as read-only pages.
     let buf: &'static mut [u8] = arch::alloc_pages(t.len + CHOSEN_HEADROOM);
@@ -156,6 +166,8 @@ pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8]) -> usize {
     let slot_str = core::str::from_utf8(&slot_buf).unwrap_or("?");
     let mut ok = w.set_nexus_str("boot-slot", slot_str).is_ok();
     ok &= w.set_nexus_bytes("boot-record", record).is_ok();
+    // TASK-0246 P4b: the medium the boot came from — init grants exactly that to the owner.
+    ok &= w.set_nexus_str(storage::boot_disk::CHOSEN_KEY, boot_disk).is_ok();
     // QEMU lane knobs: absent on the board (no fw_cfg node), absent when
     // fw_cfg has no such file.
     if let Some(fw) = fw_cfg_base(t) {
@@ -186,7 +198,9 @@ pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8]) -> usize {
         Ok(cpus) => (cpus.count(), cpus.timebase_hz),
         Err(e) => fail(error_str(e)),
     };
-    arch::uart_puts(&alloc::format!("nxboot: fdt ok (harts={harts} tb={tb}Hz slot={slot})\n"));
+    arch::uart_puts(&alloc::format!(
+        "nxboot: fdt ok (harts={harts} tb={tb}Hz slot={slot} disk={boot_disk})\n"
+    ));
     // The buffer outlives this program: it lives in the loader's bump arena, which
     // nothing frees, and the kernel maps it read-only from `a1`.
     buf.as_ptr() as usize

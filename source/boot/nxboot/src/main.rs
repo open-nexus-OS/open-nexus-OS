@@ -127,7 +127,15 @@ mod boot {
                 // record (ADR-0059 v1 bytes) and, on QEMU, the lane's fw_cfg knobs
                 // re-expressed there (the kernel never reads fw_cfg).
                 let record = bootfmt::handoff::encode_record(&handoff);
-                let dtb = crate::platform::prepare_dtb(&tree, slot_ch(loaded.slot), &record);
+                // RFC-0098 C5 (TASK-0246 P4b): the disk the volume was just read from.
+                let mut path = [0u8; storage::boot_disk::MAX_RECORD];
+                let Some(boot_disk) =
+                    crate::platform::boot_disk_record(&tree, disk.base(), &mut path)
+                else {
+                    panic_reset("boot disk not in the tree");
+                };
+                let dtb =
+                    crate::platform::prepare_dtb(&tree, slot_ch(loaded.slot), &record, boot_disk);
                 // RFC-0098 C6: the image is position-independent; it runs where
                 // this loader put it and fixes itself up there.
                 arch::uart_puts(&format!(

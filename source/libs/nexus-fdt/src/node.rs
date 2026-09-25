@@ -200,6 +200,33 @@ impl<'a> Node<'a> {
         self.name
     }
 
+    /// The node's absolute path (`/soc/virtio_mmio@10008000`; the root is `/`), written into
+    /// `out` — the inverse of [`Fdt::node_at_path`], how a boot stage names a device to the
+    /// next one (`/chosen/nexus,boot-disk`). `None` when the path does not fit `out`.
+    pub fn path_into<'b>(&self, out: &'b mut [u8]) -> Option<&'b str> {
+        let mut names: [&'a str; MAX_DEPTH] = [""; MAX_DEPTH];
+        let mut depth = 0;
+        let mut node = *self;
+        while let Some(parent) = node.parent() {
+            *names.get_mut(depth)? = node.name;
+            depth += 1;
+            node = parent;
+        }
+        if depth == 0 {
+            *out.first_mut()? = b'/';
+            return core::str::from_utf8(&out[..1]).ok();
+        }
+        let mut len = 0;
+        for name in names[..depth].iter().rev() {
+            let end = len + 1 + name.len();
+            let dst = out.get_mut(len..end)?;
+            dst[0] = b'/';
+            dst[1..].copy_from_slice(name.as_bytes());
+            len = end;
+        }
+        core::str::from_utf8(&out[..len]).ok()
+    }
+
     /// The parent node, `None` for the root.
     pub fn parent(&self) -> Option<Node<'a>> {
         let poff = self.parent?;
