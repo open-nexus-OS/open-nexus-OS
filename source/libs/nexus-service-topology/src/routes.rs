@@ -105,7 +105,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::SelftestClient, ServiceId::Settingsd),
     (ServiceId::SelftestClient, ServiceId::Imed),
     (ServiceId::SelftestClient, ServiceId::ImedOsk),
-    (ServiceId::SelftestClient, ServiceId::Virtioblkd),
+    (ServiceId::SelftestClient, ServiceId::Blkd),
     // RFC-0092 (TASK-0052 P3): the ingress gateway asks policyd for the
     // declared subject's `net.expose` and drives netstackd (listen/accept/
     // connect/relay); the selftest registers its exposure intents.

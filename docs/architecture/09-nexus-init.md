@@ -27,7 +27,7 @@ source/init/nexus-init/src/
 │   ├── route_builder.rs   ← build_route_table, populate_samgrd_registry
 │   ├── responder.rs       ← run_responder_loop (route-get, health-ok, exec-check)
 │   ├── helpers.rs         ← MMIO probing, OTA, health checks, debug helpers
-│   ├── core_plane.rs      ← wave 0: policyd/virtioblkd/bundlemgrd + the volume spawn pass
+│   ├── core_plane.rs      ← wave 0: policyd/blkd/bundlemgrd + the volume spawn pass
 │   ├── volume_spawn.rs    ← QUERY → VMO → GET_BUNDLE_ELF → RO map → exec_v2 (per volume service)
 │   ├── service_source.rs  ← SSOT: which services live on the system volume
 │   └── orchestrator.rs    ← run_bootstrap (spawn + endpoints + wiring)
@@ -42,7 +42,7 @@ bundlemgrd verified against the volume index. That fixes the boot shape:
 
 1. **Embedded spawn** — every service still in init's table is `exec_v2`'d
    suspended (`init: start/up <svc>`), then `init: ready`.
-2. **Wave 0 — the CORE plane** (`core_plane.rs`): policyd, virtioblkd and
+2. **Wave 0 — the CORE plane** (`core_plane.rs`): policyd, blkd and
    bundlemgrd get their server pairs + control channels and are the ONLY
    services resumed; the disk MMIO grant (policy-gated) brings the block
    plane up; bundlemgrd verifies the volume paired with the measured boot

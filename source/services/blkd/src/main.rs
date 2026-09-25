@@ -7,15 +7,15 @@
     no_main
 )]
 
-//! CONTEXT: virtioblkd — the single virtio-blk owner serving
-//! partition-scoped block IO over IPC (ADR-0044 end state, TASK-0315).
-//! The v0 proof stub (map window, print marker, park) is replaced by the
-//! real server in `os_lite.rs`.
+//! CONTEXT: blkd — the ONE block owner serving partition-scoped block IO over IPC
+//! (ADR-0044 end state, TASK-0315; ADR-0067: one owner on every platform, TASK-0246). The
+//! server loop is `os_lite.rs`; the pure partition gate is the library's `gate`.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: QEMU marker ladder (scripts/qemu-test.sh)
-//! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
+//! TEST_COVERAGE: `tests/gate.rs` (host); QEMU marker ladder (scripts/qemu-test.sh)
+//! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md,
+//!   docs/adr/0067-one-block-owner-backend-selected-by-fdt.md
 
 mod os_lite;
 mod route_os;

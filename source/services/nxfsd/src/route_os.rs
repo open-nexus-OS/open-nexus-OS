@@ -4,7 +4,7 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
 //! CONTEXT: nxfsd's block-plane attach (TASK-0315): init wires the
-//! virtioblkd request SEND + a dedicated reply pair at FIXED slots
+//! blkd request SEND + a dedicated reply pair at FIXED slots
 //! (blockproto SSOT 0xF0..0xF2) during spawn-time distribution — present
 //! BEFORE any request can flow, so the pristine upgrade window keeps the
 //! same ordering guarantee the old direct-MMIO grant had. The attach gate
@@ -24,7 +24,7 @@ use storage::remote_blk::RemoteBlockDevice;
 
 /// One bounded attach attempt for the DATA partition. The cap-presence
 /// gate is free; the INFO round trip is bounded (1 s) so early attempts
-/// while virtioblkd still initializes its device stay cheap for the
+/// while blkd still initializes its device stay cheap for the
 /// upgrade window's retry budget.
 pub(crate) fn attach_data_partition() -> Option<RemoteBlockDevice> {
     RemoteBlockDevice::open(

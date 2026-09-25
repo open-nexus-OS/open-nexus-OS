@@ -48,7 +48,7 @@ Magic "NXSF" (4) | OpCode (1) | KeyLen (u16) | ValueLen (u32) | Key | Value | CR
   `statefs.boot` (`/state/boot/*`) via policyd deny-by-default; denials audited to logd.
 - Backend: starts on `MemBlockDevice`, upgrades to virtio-blk while pristine. After ADR-0044 /
   TASK-0293 the block path becomes a `PartitionView` of the GPT `state` partition served by
-  `virtioblkd` (journal bytes unchanged).
+  `blkd` (journal bytes unchanged).
 
 ## Known consumers (keep green through any change)
 

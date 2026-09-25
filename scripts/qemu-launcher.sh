@@ -115,14 +115,13 @@ QEMU_RNG_DEVICE=${QEMU_RNG_DEVICE:--device virtio-rng-device,rng=rng0}
 GPU_MODE=${GPU_MODE:-mmio}
 QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk}
 # TASK-0315 (ADR-0044 end state): ONE GPT disk (bsb|boot-a/b|system-a/b|
-# state|data), built/patched host-side by `nx image` — virtioblkd owns the
+# state|data), built/patched host-side by `nx image` — blkd owns the
 # device and serves partition-scoped block IO to statefsd/nxfsd.
 QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/nexus.img}
 QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
 QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
 QEMU_BLK_LOCK_FILE=${QEMU_BLK_LOCK_FILE:-"$ROOT/build/.qemu-blk.lock"}
 QEMU_BLK_LOCK_WAIT=${QEMU_BLK_LOCK_WAIT:-180}
-# Second virtio-blk device: the nxfs `/data` user-data volume (ADR-0044 /
 # NEXUS_KEEP_BLK=1 preserves the disk across launches so cold-boot
 # persistence can be proven (default: wipe per boot for deterministic runs).
 NEXUS_KEEP_BLK=${NEXUS_KEEP_BLK:-0}

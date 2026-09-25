@@ -97,29 +97,22 @@ pub(crate) const STATEFSD: ServiceSpec = ServiceSpec {
     extra_slots: &[],
 };
 
-// TASK-0315: the block-plane owner. `reply_inbox` despite empty routes:
-// the inbox is the driver's IRQ notify endpoint (this service makes no
-// outbound calls, so the channel is exclusively the interrupt wake).
-/// The declaration of `virtioblkd`.
-pub(crate) const VIRTIOBLKD: ServiceSpec = ServiceSpec {
-    id: ServiceId::Virtioblkd,
+// TASK-0315: the block-plane owner (TASK-0246: `blkd`, whatever its backend). It makes no
+// outbound call, so it holds no reply inbox; its interrupt wake is the named IRQ-notify slot.
+/// The declaration of `blkd`.
+pub(crate) const BLKD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Blkd,
     stage: Stage::Platform,
     exposes_server: true,
     reply_inbox: false,
     routes_to: &[],
     announce: true,
-    server_slots: slots::virtioblkd::SERVER,
+    server_slots: slots::blkd::SERVER,
     reply_slots: SlotPair::UNDECLARED,
     extra_slots: &[
-        NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::virtioblkd::IRQ_NOTIFY },
-        NamedSlotBinding {
-            name: NamedSlot::DeviceWatchdogRecv,
-            slot: slots::virtioblkd::WATCHDOG.recv,
-        },
-        NamedSlotBinding {
-            name: NamedSlot::DeviceWatchdogSend,
-            slot: slots::virtioblkd::WATCHDOG.send,
-        },
+        NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::blkd::IRQ_NOTIFY },
+        NamedSlotBinding { name: NamedSlot::DeviceWatchdogRecv, slot: slots::blkd::WATCHDOG.recv },
+        NamedSlotBinding { name: NamedSlot::DeviceWatchdogSend, slot: slots::blkd::WATCHDOG.send },
     ],
 };
 

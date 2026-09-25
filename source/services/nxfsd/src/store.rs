@@ -55,8 +55,8 @@ impl DataStore {
     /// the caller retries (the grant may land after the server endpoint).
     pub fn acquire() -> Option<Self> {
         // TASK-0315: the device left this process — the DATA partition
-        // arrives over the blockproto plane (virtioblkd owns the queue).
-        // A `None` keeps the caller's bounded retry (virtioblkd may still
+        // arrives over the blockproto plane (blkd owns the queue).
+        // A `None` keeps the caller's bounded retry (blkd may still
         // be attaching).
         let device = match crate::route_os::attach_data_partition() {
             Some(device) => device,

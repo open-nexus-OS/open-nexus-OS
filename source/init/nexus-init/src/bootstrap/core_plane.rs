@@ -5,9 +5,9 @@
 //! RFC-0089 §12.3, ADR-0060). Everything the volume spawn pass needs and
 //! nothing that needs a volume service: policyd's server pair, control
 //! channels (fixed slots 5..8) and priority wiring, bundlemgrd's server
-//! pair + block-plane client, virtioblkd's server pair + IRQ endpoint,
+//! pair + block-plane client, blkd's server pair + IRQ endpoint,
 //! the deny-by-default MMIO proof, device discovery from the tree and the ONE
-//! policy-gated grant the plane needs (`device.mmio.blk` → virtioblkd).
+//! policy-gated grant the plane needs (`device.mmio.blk` → blkd).
 //! Then the volume pass runs — so every later stage (endpoint mints,
 //! driver grants, wiring, resume) sees volume-spawned services exactly
 //! like embedded ones. The transfers here are the SAME transfers the
@@ -48,8 +48,8 @@ pub(crate) struct CorePlane {
     pub pol_rsp: u32,
     pub bnd_req: u32,
     pub bnd_rsp: u32,
-    pub vblk_req: u32,
-    pub vblk_rsp: u32,
+    pub blk_req: u32,
+    pub blk_rsp: u32,
     pub pol_ctl_route_req: u32,
     pub pol_ctl_exec_req: u32,
     /// The virtio transports the tree lists, classified (RFC-0098 C3).
@@ -102,15 +102,15 @@ fn mmio_policy_deny_probe(pol_route: (u32, u32)) -> Result<()> {
 /// A CORE service's pre-minted server pair → its deterministic slots 3/4
 /// (the `distribute_server_pair_for` transfer, made here for the three
 /// services the plane needs; the bulk pass later skips a pair already set).
-fn transfer_server_pair(chan: &mut CtrlChannel, id: ServiceId, req: u32, rsp: u32, vblk_req: u32) {
+fn transfer_server_pair(chan: &mut CtrlChannel, id: ServiceId, req: u32, rsp: u32, blk_req: u32) {
     // TASK-0324 P4f: all three core-plane services are declared — pinned before they run.
-    // TASK-0054C P2-b: their declared timer endpoints too (virtioblkd's device watchdog).
+    // TASK-0054C P2-b: their declared timer endpoints too (blkd's device watchdog).
     crate::bootstrap::declared_routes::pin_declared_timers(chan.pid, id);
     if let Some(pair) = crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, req, rsp) {
         chan.set_send(id, pair.send);
         chan.set_recv(id, pair.recv);
     }
-    crate::bootstrap::blk_plane::wire_blk_plane_for_with(chan, vblk_req);
+    crate::bootstrap::blk_plane::wire_blk_plane_for_with(chan, blk_req);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -135,10 +135,10 @@ pub(crate) fn bring_up(
     let pol_rsp = mint(selftest_pid, 8)?;
     let bnd_req = mint(bundlemgrd_pid, 8)?;
     let bnd_rsp = mint(selftest_pid, 8)?;
-    // TASK-0315: virtioblkd's blockproto request endpoint (block plane).
-    let vblk_req =
+    // TASK-0315: blkd's blockproto request endpoint (block plane).
+    let blk_req =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
-    let vblk_rsp =
+    let blk_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
 
     // Server pairs (their declared slots) + block-plane wiring for the three CORE
@@ -146,10 +146,10 @@ pub(crate) fn bring_up(
     for (name, id, req, rsp) in [
         ("policyd", ServiceId::Policyd, pol_req, pol_rsp),
         ("bundlemgrd", ServiceId::Bundlemgrd, bnd_req, bnd_rsp),
-        ("virtioblkd", ServiceId::Virtioblkd, vblk_req, vblk_rsp),
+        ("blkd", ServiceId::Blkd, blk_req, blk_rsp),
     ] {
         if let Some(chan) = ctrls.iter_mut().find(|c| c.svc_name == name) {
-            transfer_server_pair(chan, id, req, rsp, vblk_req);
+            transfer_server_pair(chan, id, req, rsp, blk_req);
         }
     }
 
@@ -200,16 +200,16 @@ pub(crate) fn bring_up(
     // TASK-0246 P3: the tree's ECAM hosts are a device source too (the SD host's grant: P4).
     crate::bootstrap::pci::report(&crate::bootstrap::pci::discover());
 
-    // The ONE grant the plane needs: the disk → virtioblkd (ADR-0044 one
+    // The ONE grant the plane needs: the disk → blkd (ADR-0044 one
     // owner; every other client is a blockproto client). From here the
     // block plane is live and bundlemgrd can attach the measured volume.
-    if let Some(virtioblkd_pid) = ctrls.iter().find(|c| c.svc_name == "virtioblkd").map(|c| c.pid) {
+    if let Some(blkd_pid) = ctrls.iter().find(|c| c.svc_name == "blkd").map(|c| c.pid) {
         let blk = devices.blk[0].ok_or(InitError::Map("virtio-blk not in the device tree"))?;
         grant_mmio_with_wait(
             stats,
             pol_route,
-            virtioblkd_pid,
-            "virtioblkd",
+            blkd_pid,
+            "blkd",
             "device.mmio.blk",
             blk,
             DEVICE_MMIO_CAP_SLOT,
@@ -234,8 +234,8 @@ pub(crate) fn bring_up(
         pol_rsp,
         bnd_req,
         bnd_rsp,
-        vblk_req,
-        vblk_rsp,
+        blk_req,
+        blk_rsp,
         pol_ctl_route_req,
         pol_ctl_exec_req,
         devices,

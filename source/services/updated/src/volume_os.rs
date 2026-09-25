@@ -7,7 +7,7 @@
 //! CONTEXT: the OS half of bundle-set staging (RFC-0089 §12.4, TASK-0321
 //! P3): the block-plane devices and marker events the generic
 //! `updates::volume_apply::VolumeAssembler` drives. `BlockVolumeDev` wraps
-//! a partition-scoped `RemoteBlockDevice` (virtioblkd grants `updated`
+//! a partition-scoped `RemoteBlockDevice` (blkd grants `updated`
 //! both system partitions — the engine scopes the SLOT: writes go only to
 //! the inactive one, the active one is read for unchanged-bundle reuse).
 //! `VolumeMarkers` prints the §12.7 lines. `active_nxbd_digest` gives a

@@ -574,7 +574,7 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo retired-names ci-parity
 
 # TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
 build-truth:
@@ -630,6 +630,12 @@ display-ssot:
 # TASK-0324 P7: a reply is WAITED for (kernel wake), never polled against a clock; ratchet only shrinks.
 wait-not-poll:
     @./scripts/check-wait-not-poll.sh
+
+# TASK-0246 P4a (ADR-0067): a renamed service stays renamed (the block owner is `blkd`).
+# The retired spellings are listed only in the gate's table and appear elsewhere only in
+# dated records (ledgers, changelog, ADRs, RFCs, measurements). See scripts/check-retired-names.sh.
+retired-names:
+    @./scripts/check-retired-names.sh
 
 # CI/test-all COVERAGE parity: every `just` recipe the workflow invokes must
 # also be reachable from `test-all`. Mechanical guard against the drift that let

@@ -165,7 +165,7 @@ pub mod pkgimg_bundles;
 /// Bounded read-only GPT parsing + `PartitionView` (ADR-0044).
 pub mod gpt;
 
-/// THE RFC-0089 §2 disk-layout authority (shared by nx image, virtioblkd,
+/// THE RFC-0089 §2 disk-layout authority (shared by nx image, blkd,
 /// nxboot — one table, zero drift).
 pub mod layout;
 

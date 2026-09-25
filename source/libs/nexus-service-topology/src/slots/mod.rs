@@ -547,11 +547,11 @@ pub mod vfsd {
     pub const PACKAGEFSD: SlotPair = SlotPair::new(5, REPLY.recv);
 }
 
-/// virtioblkd (TASK-0324 P4f-1b).
-pub mod virtioblkd {
+/// blkd (TASK-0324 P4f-1b).
+pub mod blkd {
     use super::SlotPair;
 
-    /// virtioblkd's own server endpoint (block-plane clients send here). It holds NO reply
+    /// blkd's own server endpoint (block-plane clients send here). It holds NO reply
     /// inbox: the driver makes no outbound call, and the inbox init used to provision was
     /// never read — declaring it at 5/6 collided with the driver's own virtqueue VMOs, which it
     /// allocates at the lowest free slots because it runs before init wires it.

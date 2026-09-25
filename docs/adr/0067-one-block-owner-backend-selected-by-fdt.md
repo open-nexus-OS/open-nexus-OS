@@ -29,7 +29,10 @@ or the same owner with a second backend.
   device node by init (RFC-0017 class `device.mmio.blk` on QEMU, `device.mmio.mmc` on the
   board) and selects its `BlockDevice` backend by that node's compatible: `virtio,mmio` with
   virtio `device_id 2`, or `spacemit,k1-sdhci` (corrected 2026-09-24, see the amendment). One binary, one policy identity, one GPT
-  parse, the same `blockproto`.
+  parse, the same `blockproto`. (Renamed 2026-09-25, TASK-0246 P4a: the crate, service id,
+  slot table, policy row and markers; the partition gate became a host-proven module; the
+  virtio driver takes its watchdog slots from its owner; `scripts/check-retired-names.sh` in
+  `just check` keeps the old spellings out of the living tree. The backend choice is P4b.)
 - The SDHCI backend lives in `source/drivers/storage/sdhci` over `nexus_hal::Bus`, ADMA2 from
   the start (the stock system proves the host does it), with `DmaBuffer` cache maintenance
   because the master is not coherent (RFC-0098 C4). It serves eMMC and SD; SDIO (the WiFi

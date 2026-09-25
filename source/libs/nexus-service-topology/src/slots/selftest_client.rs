@@ -67,9 +67,9 @@ pub const IMED: SlotPair = SlotPair::new(0x2A, 0x2B);
 pub const IMED_OSK: SlotPair = SlotPair::new(0x2C, REPLY.recv);
 /// bootctld (reset/target lane; a successful reset never answers).
 pub const BOOTCTLD: SlotPair = SlotPair::new(0x2D, REPLY.recv);
-/// virtioblkd's request endpoint for the deny probes — NOT a block-plane grant: the
+/// blkd's request endpoint for the deny probes — NOT a block-plane grant: the
 /// probes prove that a sender without one is refused.
-pub const VIRTIOBLKD: SlotPair = SlotPair::new(0x2E, REPLY.recv);
+pub const BLKD: SlotPair = SlotPair::new(0x2E, REPLY.recv);
 /// The read-only device tree the harness reads its boot mode/profile from (`/chosen`).
 pub const DEVICE_TREE: u32 = 0x31;
 /// socd (RFC-0106): the harness proves that a tree without SoC glue answers `NotNeeded`.

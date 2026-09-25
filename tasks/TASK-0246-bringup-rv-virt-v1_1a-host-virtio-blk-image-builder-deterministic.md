@@ -1,9 +1,9 @@
 ---
 title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: In Progress (P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; next P4 `blkd`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+status: In Progress (P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P4b next — the boot disk from `/chosen`, the backend by the granted device; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 owner: @runtime @kernel-team
 created: 2025-12-29
-updated: 2026-09-24
+updated: 2026-09-25
 depends-on:
   - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
   - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
@@ -14,7 +14,7 @@ follow-up-tasks:
 links:
   - Decision: docs/adr/0067-one-block-owner-backend-selected-by-fdt.md (amended 2026-09-24)
   - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C3 PCI source, C4 coherence + DMA reach, C5 — all amended 2026-09-24, Phase 3)
-  - The owner this renames: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md, source/services/virtioblkd
+  - The owner (renamed in P4a): docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md, source/services/blkd
   - The trait this implements: userspace/storage/src/lib.rs (`BlockDevice`); layout SSOT userspace/storage/src/layout.rs
   - Measurements: docs/board/measurements/2026-09-24-emmc-sdhci/README.md (this P0), docs/board/measurements/2026-09-22-stock-system/README.md ("Storage", "DMA coherence")
   - Reused: `nexus_driverkit::DmaBuffer` over `nexus_abi::DmaVmo` (TASK-0286 P4b), `socd` (RFC-0106), `vmo_runs` (TASK-0286 P4a)
@@ -242,7 +242,13 @@ TASK-0248's decision).
   configuration space again to enable bus mastering for that function only. For P5: the
   launcher's `QEMU_EXTRA_ARGS` hook does not reach it through `scripts/qemu-test.sh`, which
   declares its own array of that name, so the lane needs a profile knob for its devices.
-- **P4 `blkd`** — rename (crate, service, topology ids/specs/slots/routes, init planes,
+- **P4 `blkd` — in progress 2026-09-25, in three commits of one intent each:** **P4a** the
+  rename with the retired-name gate, the driver's slots from its owner, the stale texts, and
+  `blkd` in the OS service list with its partition gate host-tested in `tests/` — **done
+  2026-09-25** (below); **P4b** the
+  boot disk from `/chosen`, the backend chosen by the granted device, the SDHCI backend and the
+  SD host's grant with bus mastering; **P4c** socd in the core plane before the disk grant and
+  `blkd` asking it for its node. The package as first written: rename (crate, service, topology ids/specs/slots/routes, init planes,
   supervision, policy, markers, scripts, docs) with the old-name gate; the driver crates take
   their slots from the owner (no service's slot name inside a driver); backend selection by the
   granted device; `/chosen/nexus,boot-disk` written by nxboot and honoured by init; the
@@ -252,6 +258,32 @@ TASK-0248's decision).
   QEMU; the stale texts the map found (`remote_blk` "2 s deadline", an unemitted watchdog marker,
   `reply_inbox`, the launcher's `/data` device) corrected; every existing lane green under the
   new name.
+- **P4a done 2026-09-25 — the name.** The crate, service id, topology slots/specs/routes,
+  init's planes and supervision, the policy row, the markers (`blkd: gpt ok (parts=7)`,
+  `blkd: irq endpoint bound`), the selftest routes, the scripts and the living docs say `blkd`;
+  ADRs, RFCs, ledgers and the changelog keep the old name as dated records.
+  `scripts/check-retired-names.sh` (in `just check`) lists each retired name in every spelling
+  it was written in, with its successor and the decision, and fails on any of them in a tracked
+  or new file outside those records. It matches exact spellings: the virtio device type
+  `VirtioBlkDevice` contains the old name case-folded and is not the service. Its fixture
+  self-test catches four weakenings (untracked files, case folding, the history exclusion, the
+  spellings). The partition gate is `blkd::gate`, a pure module on the kernel-attributed
+  sender id; `tests/gate.rs` checks the whole matrix — six senders, ten partition selectors,
+  nine op codes — against the grants ADR-0044 and RFC-0089 §12.5 write down, plus two
+  `test_reject_*` cases, and four mutations of the gate each fail it. `blkd` joined
+  `config/os-services.txt` (diag-os and the dependency gate cover it). The virtio-blk driver
+  takes its watchdog pair from its owner, and the ladder now requires `blk: watchdog on` —
+  the proof that the pair the owner hands in arms (it was emitted, never required). The four
+  stale texts are corrected. Proof: `just check` green; `just build-os-workspace` 0 warnings;
+  `ci-os-smp1` green; `ci-os-visible` green (desktop 14.67 % non-black, diff vs splash 31.77);
+  `just test-all` green (EXIT=0; 11 QEMU lanes; `blkd: gpt ok` and `blk: watchdog on` in all
+  18 boots that reach init, the old name in none).
+- **Found in P4a.** For P4b: `policies/base.toml` still grants `device.mmio.blk` to `statefsd`
+  and `vfsd` — both have been block-plane clients since TASK-0315, so the policy names three
+  possible holders of the disk and ADR-0044 names one; policyd still emits a
+  `mmio statefsd-blk` decision line for the old owner. P4b rewrites who may hold the disk
+  (`device.mmio.blk` for a virtio disk, `device.mmio.mmc` for an SD host, `blkd` only) with a
+  reject test. For P4c: `slots::blkd` says the owner makes no outbound call; asking socd is one.
 - **TASK-0246B nxboot readers** — between P4 and P5 (the QEMU lane boots through it).
 - **P5 `ci-os-sdhci`** — the launcher profile and the lane in `test-all`; the system volume
   mounted over the SDHCI backend; the proof of the standard core.

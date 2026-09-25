@@ -27,6 +27,7 @@ use crate::{
 use nexus_abi::{cap_query, vmo_create_contiguous, vmo_dma_base, CapQuery};
 use nexus_hal::Bus;
 use nexus_ipc::timer::{NotifyTimer, Waitset};
+use nexus_service_topology::SlotPair;
 
 mod watchdog;
 
@@ -201,7 +202,10 @@ pub struct VirtioBlkMmio {
 }
 
 impl VirtioBlkMmio {
-    pub fn new(mmio_cap_slot: u32) -> Result<Self, VirtioError> {
+    /// The device behind the capability in `mmio_cap_slot`; its completion waits are bounded
+    /// by a one-shot on `watchdog`, the device-watchdog pair its OWNER declares and pins (a
+    /// driver names no service's slots).
+    pub fn new(mmio_cap_slot: u32, watchdog: SlotPair) -> Result<Self, VirtioError> {
         // The window is reached through the kernel-chosen map only; its physical
         // base is nobody's business here (RFC-0098 C3: the line comes with the cap).
         let _ = cap_query_base_len(mmio_cap_slot)?;
@@ -321,11 +325,8 @@ impl VirtioBlkMmio {
             sector_size: 512,
             irq_num,
             irq_ep,
-            // TASK-0054C P2-b: the completion wait's bound, from the warm-up read on. The pair
-            // is declared and pinned before virtioblkd runs (core plane).
-            watchdog: RefCell::new(
-                NotifyTimer::bind(nexus_service_topology::slots::virtioblkd::WATCHDOG).ok(),
-            ),
+            // TASK-0054C P2-b: the completion wait's bound, from the warm-up read on.
+            watchdog: RefCell::new(NotifyTimer::bind(watchdog).ok()),
             wait_ws: RefCell::new(None),
             irq_logged: Cell::new(false),
             poll_logged: Cell::new(false),

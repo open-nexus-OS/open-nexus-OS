@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: The device's completion wait and its bound (TASK-0054C P2-b): a kernel one-shot
-//! on virtioblkd's declared device-watchdog pair, a waitset member beside the IRQ endpoint.
+//! on the device-watchdog pair its owner declares and hands in, a waitset member beside the
+//! IRQ endpoint.
 //! A request the device never completes ends in `virtio-blk: timeout` from the watchdog's
 //! frame — never from a receive deadline or a clock compare; the poll fallback (no IRQ line)
 //! is bounded by the same timer. Split out of `mmio.rs` (structure gate); a child module so
@@ -10,7 +11,7 @@
 //! OWNERS: @storage
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: QEMU (`virtioblkd: watchdog bound`, `blk: irq completion on`, every
+//! TEST_COVERAGE: QEMU (`blk: watchdog on`, `blk: irq completion on`, every
 //!   block-plane read in the ladder).
 
 use super::{emit_line, VirtioBlkMmio, VirtioError};

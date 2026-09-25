@@ -6,7 +6,7 @@
 //! CONTEXT: The pristine-window backend upgrade (split from `os_lite.rs`
 //! under the structure ratchet; TASK-0315 form): attach the STATE
 //! partition over the blockproto plane (bounded blocking — the window
-//! must never lose to virtioblkd still bringing the device up), swap the
+//! must never lose to blkd still bringing the device up), swap the
 //! RAM engine for the disk engine, rebuild anti-rollback state, and
 //! account failures against the window's bounded retry budget.
 //! OWNERS: @runtime
@@ -33,11 +33,11 @@ pub(crate) fn try_upgrade(
 ) {
     // TASK-0315: the device left this process — attach the
     // STATE partition over the blockproto plane instead
-    // (virtioblkd owns the queue; same pristine-window
+    // (blkd owns the queue; same pristine-window
     // discipline as the old direct-MMIO upgrade). The
     // attempt BLOCKS bounded, so the first request stalls
     // like the old inline device init did — the window can
-    // never lose to virtioblkd still coming up.
+    // never lose to blkd still coming up.
     match crate::route_os::attach_state_partition() {
         None => {
             emit_line("statefsd: journal open failed (virtio)");

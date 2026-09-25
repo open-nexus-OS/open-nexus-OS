@@ -120,7 +120,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     }
 
     // TASK-0315: cross-partition deny (state write without a grant) —
-    // late in the ladder so virtioblkd is long serving.
+    // late in the ladder so blkd is long serving.
     crate::os_lite::probes::blkgate::blk_cross_partition_deny_proof();
     // TASK-0321: the system volume is read-gated to bundlemgrd/updated.
     crate::os_lite::probes::blkgate::blk_system_volume_deny_proof();

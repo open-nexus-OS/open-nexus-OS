@@ -49,7 +49,7 @@ netstackd = ["device.mmio.net", "ipc.core", "policy.delegate"]
 # (the sender is already kernel-attributed). Its RFC-0091 profile below is the
 # only one the grammar lets bind `address = "any"`.
 ingressd = ["ipc.core", "policy.delegate"]
-virtioblkd = ["device.mmio.blk", "ipc.core", "soc.glue"]
+blkd = ["device.mmio.blk", "ipc.core", "soc.glue"]
 rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 # RFC-0106: the ONE holder of the syscon/pinctrl windows; `policy.delegate` because
 # it asks policyd whether a requester holds `soc.glue` before touching a register.

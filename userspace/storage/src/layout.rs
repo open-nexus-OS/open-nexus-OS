@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: THE single authority for the RFC-0089 §2 GPT disk layout —
-//! shared by `nx image` (host builder), `virtioblkd` (TASK-0315 partition
+//! shared by `nx image` (host builder), `blkd` (TASK-0315 partition
 //! server) and `nxboot` (TASK-0289 loader), so the three can never drift
 //! on offsets or names. Sizes are the contract; LBAs derive from them
 //! deterministically (1 MiB alignment). Growth is a conscious act gated

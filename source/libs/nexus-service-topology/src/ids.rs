@@ -76,7 +76,7 @@ pub enum ServiceId {
     /// THE virtio-blk owner (ADR-0044 end state, TASK-0315): parses the one
     /// GPT disk and serves partition-scoped block IO; statefsd/nxfsd are
     /// its blockproto clients.
-    Virtioblkd = 29,
+    Blkd = 29,
     /// Inbound gateway (RFC-0092 / TASK-0052): the ONE service that binds
     /// NIC-facing ports; fronts declared `[[expose]]` intents.
     Ingressd = 30,
@@ -120,7 +120,7 @@ impl ServiceId {
         Self::Imed,
         Self::ImedOsk,
         Self::Bootctld,
-        Self::Virtioblkd,
+        Self::Blkd,
         Self::Ingressd,
         Self::Socd,
     ];
@@ -156,7 +156,7 @@ impl ServiceId {
             b"imed" => Self::Imed,
             b"imed-osk" => Self::ImedOsk,
             b"bootctld" => Self::Bootctld,
-            b"virtioblkd" => Self::Virtioblkd,
+            b"blkd" => Self::Blkd,
             b"ingressd" => Self::Ingressd,
             b"socd" => Self::Socd,
             _ => return None,
@@ -194,7 +194,7 @@ impl ServiceId {
             Self::Imed => "imed",
             Self::ImedOsk => "imed-osk",
             Self::Bootctld => "bootctld",
-            Self::Virtioblkd => "virtioblkd",
+            Self::Blkd => "blkd",
             Self::Ingressd => "ingressd",
             Self::Socd => "socd",
         }

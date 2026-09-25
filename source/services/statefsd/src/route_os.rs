@@ -4,7 +4,7 @@
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]
 
 //! CONTEXT: statefsd's block-plane attach (TASK-0315): init wires the
-//! virtioblkd request SEND + a dedicated reply pair at FIXED slots
+//! blkd request SEND + a dedicated reply pair at FIXED slots
 //! (blockproto SSOT 0xF0..0xF2) during spawn-time distribution — present
 //! BEFORE any request can flow, so the pristine upgrade window keeps the
 //! same ordering guarantee the old direct-MMIO grant had. The attach gate
@@ -25,7 +25,7 @@ use storage::remote_blk::RemoteBlockDevice;
 /// One attach attempt for the STATE partition. BLOCKS bounded (8 s) once
 /// the wiring is present — mirroring the old direct-MMIO upgrade, where
 /// the inline device init also ran to completion on the first request:
-/// the pristine window must never lose to virtioblkd still bringing the
+/// the pristine window must never lose to blkd still bringing the
 /// device up. A `None` after the bound is a REAL failure the window's
 /// bounded retry budget accounts.
 pub(crate) fn attach_state_partition() -> Option<RemoteBlockDevice> {

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-25 (TASK-0246 P4a: the block owner is `blkd`)
+
+- ADR-0067 makes one block owner whose backend is chosen by the device it is granted, so the
+  name that tied it to one transport is gone. The crate, the service id, the topology slots
+  and specs, init's planes and supervision, the policy row, the markers
+  (`blkd: gpt ok (parts=7)`, `blkd: irq endpoint bound`), the selftest routes, the scripts and
+  the living docs say `blkd`. ADRs, RFCs, ledgers and this changelog keep the old name: they
+  are dated records.
+- `scripts/check-retired-names.sh` (in `just check`) fails on a retired name in any spelling
+  it was written in, in any tracked or new file outside those records. Its fixture self-test
+  catches four weakenings of the scanner.
+- The partition gate is `blkd::gate`, a pure module on the kernel-attributed sender id.
+  `tests/gate.rs` checks the whole sender × partition × op matrix against the grants of
+  ADR-0044 and RFC-0089 §12.5, plus `test_reject_*` cases; four mutations of the gate each fail
+  it. `blkd` joined `config/os-services.txt`, so diag-os and the dependency gate cover it.
+- The virtio-blk driver takes its watchdog pair from its owner instead of naming the owner's
+  slots, and every lane now requires `blk: watchdog on` (emitted before, never required).
+- Stale texts corrected: the block client's "2 s deadline" (a request has no clock), a
+  coverage line naming a marker nothing printed, the owner's reply inbox, the launcher's
+  half-sentence about a second disk.
+- Proof: blkd host tests 3/3; `just check` green; `ci-os-smp1` and `ci-os-visible` green;
+  `just test-all` green (EXIT=0; 11 QEMU lanes; `blkd: gpt ok` and `blk: watchdog on` in all
+  18 boots that reach init, the old name in none).
+
 ### Added - 2026-09-25 (TASK-0246 P3: the PCI ECAM device source)
 
 - `source/libs/nexus-pci` reads a `pci-host-ecam-generic` node from the tree. It covers the ECAM

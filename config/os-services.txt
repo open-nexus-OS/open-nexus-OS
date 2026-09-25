@@ -10,6 +10,7 @@ samgrd
 bundlemgrd
 packagefsd
 vfsd
+blkd
 execd
 abilitymgr
 timed

@@ -20,8 +20,12 @@ pub struct VirtioBlkDevice {
 }
 
 impl VirtioBlkDevice {
-    pub fn new(mmio_cap_slot: u32) -> Result<Self, BlockError> {
-        let inner = VirtioBlkMmio::new(mmio_cap_slot).map_err(|_| BlockError::IoError)?;
+    /// The disk behind `mmio_cap_slot`, its waits bounded by the owner's device-watchdog pair.
+    pub fn new(
+        mmio_cap_slot: u32,
+        watchdog: nexus_service_topology::SlotPair,
+    ) -> Result<Self, BlockError> {
+        let inner = VirtioBlkMmio::new(mmio_cap_slot, watchdog).map_err(|_| BlockError::IoError)?;
         Ok(Self { inner })
     }
 

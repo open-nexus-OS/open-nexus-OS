@@ -186,7 +186,7 @@ where
     debug_write_str("init: ready");
     debug_write_byte(b'\n');
     debug_write_bytes(b"!init-lite ready\n");
-    // Wave 0 (policyd/virtioblkd/bundlemgrd) is resumed INSIDE the CORE-plane
+    // Wave 0 (policyd/blkd/bundlemgrd) is resumed INSIDE the CORE-plane
     // stage below, right after its server pairs exist; the rest of the
     // always-on core (wave 1) resumes after the bulk server-pair
     // distribution — see `resume::PLANE` for why nothing runs earlier.
@@ -207,8 +207,8 @@ where
         pol_rsp,
         bnd_req,
         bnd_rsp,
-        vblk_req,
-        vblk_rsp,
+        blk_req,
+        blk_rsp,
         pol_ctl_route_req,
         pol_ctl_exec_req,
         devices,
@@ -498,8 +498,8 @@ where
         key_req,
         key_rsp,
         state_req,
-        vblk_req,
-        vblk_rsp,
+        blk_req,
+        blk_rsp,
         state_rsp,
         rng_req,
         rng_rsp,
@@ -691,7 +691,7 @@ where
     }
 
     // TASK-0315: statefsd is a blockproto CLIENT — the double MMIO grant
-    // (the ADR-0044 one-owner violation) is gone; virtioblkd above is the
+    // (the ADR-0044 one-owner violation) is gone; blkd above is the
     // only holder.
     // Boot elapsed after the MMIO-grant phase (spawn + resume + early wiring
     // + grants); the gap to `total_ms` is the co-run cap-wiring phase.

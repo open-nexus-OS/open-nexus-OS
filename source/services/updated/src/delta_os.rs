@@ -6,7 +6,7 @@
 
 //! CONTEXT: the OS half of `boot-image-delta` staging (RFC-0090,
 //! TASK-0034). `RemoteBase` gives the generic `DeltaAdapter` byte-
-//! addressed reads of the ACTIVE slot's image body (virtioblkd already
+//! addressed reads of the ACTIVE slot's image body (blkd already
 //! grants `updated` both boot partitions — the engine scopes the SLOT:
 //! writes go only to the inactive one) plus the base identity from the
 //! active NXBD sector, which the LOADER verified this very boot (the

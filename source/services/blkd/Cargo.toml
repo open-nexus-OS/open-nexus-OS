@@ -1,5 +1,5 @@
 [package]
-name = "virtioblkd"
+name = "blkd"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -16,7 +16,9 @@ stack_pages = 0
 [dependencies]
 
 [target.'cfg(not(target_os = "none"))'.dependencies]
-# Host stub for now (this service is OS-first).
+# The host proves the pure parts (`gate`) against the same protocol constants and ids.
+nexus-abi = { path = "../../libs/nexus-abi" }
+storage = { path = "../../../userspace/storage" }
 
 [target.'cfg(all(target_os = "none", target_arch = "riscv64"))'.dependencies]
 nexus-service-entry = { path = "../../libs/nexus-service-entry" }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: The partition-scoped block IPC protocol (ADR-0044/RFC-0089):
-//! virtioblkd is the single virtio-queue owner and serves these frames;
+//! blkd is the single virtio-queue owner and serves these frames;
 //! statefsd/nxfsd consume them through `RemoteBlockDevice`. ONE codec for
 //! both ends — the wire cannot drift. Bounded: at most
 //! [`MAX_BLOCKS_PER_REQ`] sectors per request so every frame stays far

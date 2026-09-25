@@ -64,6 +64,6 @@ mod tests {
             assert!(!crate::boot_graph::in_core(n), "CORE service {n} must stay embedded");
         }
         assert!(!is_volume_service("bundlemgrd"));
-        assert!(!is_volume_service("virtioblkd"));
+        assert!(!is_volume_service("blkd"));
     }
 }

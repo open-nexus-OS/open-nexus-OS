@@ -25,7 +25,7 @@ const fn inbox(to: ServiceId, slots: SlotPair) -> Route {
 }
 
 /// The declaration of `selftest-client` (TASK-0324 P4f-5). Kinds follow each target's reply
-/// discipline: netstackd, ingressd and virtioblkd answer on the caller's CAP_MOVE cap, so the
+/// discipline: netstackd, ingressd and blkd answer on the caller's CAP_MOVE cap, so the
 /// RECV halves the order-based arm granted there were never read and are not granted.
 pub(crate) const SELFTEST_CLIENT: ServiceSpec = ServiceSpec {
     id: ServiceId::SelftestClient,
@@ -56,7 +56,7 @@ pub(crate) const SELFTEST_CLIENT: ServiceSpec = ServiceSpec {
         shared(ServiceId::Imed, slots::selftest_client::IMED),
         inbox(ServiceId::ImedOsk, slots::selftest_client::IMED_OSK),
         inbox(ServiceId::Bootctld, slots::selftest_client::BOOTCTLD),
-        inbox(ServiceId::Virtioblkd, slots::selftest_client::VIRTIOBLKD),
+        inbox(ServiceId::Blkd, slots::selftest_client::BLKD),
     ],
     announce: true,
     server_slots: SlotPair::UNDECLARED,

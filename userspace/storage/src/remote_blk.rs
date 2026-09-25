@@ -5,13 +5,14 @@
 
 //! CONTEXT: `RemoteBlockDevice` — the partition-scoped block client
 //! (ADR-0044/TASK-0315): statefsd and nxfsd speak `BlockDevice` against
-//! virtioblkd over the blockproto wire instead of owning device MMIO.
+//! blkd over the blockproto wire instead of owning device MMIO.
 //! Transport = the canonical service-client shape (statefs client
 //! lineage): request on the target's SEND slot with a CAP_MOVE reply
 //! clone, reply correlated by magic + nonce on the caller's SHARED reply
 //! inbox (stranger frames are drained, never misparsed). Bounded
-//! everything: ≤ MAX_BLOCKS_PER_REQ sectors per message, 2 s per-op
-//! deadline, fail-closed on any malformed reply.
+//! everything: ≤ MAX_BLOCKS_PER_REQ sectors per message, no clock on a request (it
+//! ends on its reply or on the server's death, RFC-0093 §7), fail-closed on any
+//! malformed reply.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -34,7 +35,7 @@ static NONCE: AtomicU32 = AtomicU32::new(1);
 
 /// Partition-scoped remote block device (one selector per instance).
 pub struct RemoteBlockDevice {
-    /// SEND slot to virtioblkd's request endpoint.
+    /// SEND slot to blkd's request endpoint.
     send_slot: u32,
     /// The caller's reply inbox (SEND clone travels per request).
     reply_send_slot: u32,
@@ -46,7 +47,7 @@ pub struct RemoteBlockDevice {
 impl RemoteBlockDevice {
     /// Opens the partition: ONE INFO round trip proves the server is up, the partition
     /// exists and the caller is allowed to see it — a clock-free wait (TASK-0324 P7-d):
-    /// virtioblkd's answer or its death. `None` = the partition is not there.
+    /// blkd's answer or its death. `None` = the partition is not there.
     pub fn open(
         send_slot: u32,
         reply_send_slot: u32,
@@ -69,7 +70,7 @@ impl RemoteBlockDevice {
 
     /// One request/reply round trip into the caller's buffer (ZERO allocation —
     /// bump-allocator services never free). No clock (TASK-0324 P7-d): queue space, then the
-    /// answer on the reply inbox, or virtioblkd's death (EOF — it holds the moved cap).
+    /// answer on the reply inbox, or blkd's death (EOF — it holds the moved cap).
     /// Shared-inbox correlation is the caller's via the nonce inside `frame`; a foreign
     /// frame (another op's late reply) is dropped and the wait resumes.
     fn round_trip(&self, frame: &[u8], rsp: &mut [u8]) -> Result<usize, BlockError> {
@@ -88,7 +89,7 @@ impl RemoteBlockDevice {
         .map_err(|_| BlockError::IoError)
     }
 
-    /// TASK-0321 P4b: arms a clone of `vmo` at virtioblkd for this sender
+    /// TASK-0321 P4b: arms a clone of `vmo` at blkd for this sender
     /// (no reply; the queue is FIFO so the following READ_VMO sees it).
     /// The caller keeps its own handle.
     pub fn arm_vmo(&self, vmo: u32) -> Result<(), BlockError> {
@@ -97,7 +98,7 @@ impl RemoteBlockDevice {
         let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
         let n = blockproto::encode_arm_vmo_into(&mut req, nonce, self.part);
         // The moved cap is the destination VMO — data, not a reply inbox. No clock
-        // (TASK-0324 P7-d): queue space or virtioblkd's death.
+        // (TASK-0324 P7-d): queue space or blkd's death.
         if nexus_ipc::exchange::send_with_cap(self.send_slot, &req[..n], moved).is_err() {
             let _ = nexus_abi::cap_close(moved);
             return Err(BlockError::IoError);

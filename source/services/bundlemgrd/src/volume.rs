@@ -42,7 +42,7 @@ include!(concat!(env!("OUT_DIR"), "/os_trust_baked.rs"));
 const VOLUME_START_SECTOR: u64 = 8;
 /// One block-plane request worth of bytes (12 sectors) — the streaming unit.
 const CHUNK: usize = blockproto::MAX_BLOCKS_PER_REQ as usize * blockproto::SECTOR_SIZE;
-/// Bounded attach window: virtioblkd may still be bringing the device up
+/// Bounded attach window: blkd may still be bringing the device up
 /// when init asks for the first bundle (its MMIO grant lands late).
 
 /// Why the volume is not trusted — the marker vocabulary (RFC-0089 §12.7).
@@ -323,7 +323,7 @@ impl Volume {
     ) -> Result<(u32, u32, u32), VolumeFail> {
         let start = self.index.superblock.data_offset as u64 + entry.data_offset;
         let total = entry.data_len as usize;
-        // TASK-0321 P4b: ONE bulk round trip — virtioblkd streams the entry's
+        // TASK-0321 P4b: ONE bulk round trip — blkd streams the entry's
         // byte range straight into the destination VMO (device runs, no IPC
         // per 6 KiB); the digest is then taken from the VMO itself (what the
         // consumer will map), header-last discipline unchanged. The arm is

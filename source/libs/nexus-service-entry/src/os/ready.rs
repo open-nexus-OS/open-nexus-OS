@@ -29,7 +29,7 @@ pub fn ready(marker: &str) -> nexus_abi::SysResult<()> {
 /// records it and sends nothing back. The announce must NEVER hold the service back from
 /// its serving loop: init's responder drains the control queue only after orchestration,
 /// and orchestration itself waits on services (the block driver serves the system volume),
-/// so waiting here for queue room is a circular wait (seen: virtioblkd looping in `ready()`,
+/// so waiting here for queue room is a circular wait (seen: blkd looping in `ready()`,
 /// volume unavailable, init fatal). Hence: non-blocking attempts, a handful of yields at
 /// most, loud on failure. The kernel's blocking send is avoided on purpose as well (it arms a
 /// timer wakeup before the first attempt and does not disarm it on an immediate error).
@@ -100,7 +100,7 @@ pub fn wait_for_stage() {
 /// The ONE sender behind every one-way control verb: routing-frame encoding, no nonce, a
 /// handful of NONBLOCK attempts, loud on failure. It must NEVER block — init's responder drains
 /// the control queue only after orchestration, and orchestration itself waits on services, so a
-/// blocking send here is a circular wait (seen: virtioblkd looping in `ready()`, volume
+/// blocking send here is a circular wait (seen: blkd looping in `ready()`, volume
 /// unavailable, init fatal).
 fn announce_verb(verb: &[u8], what: &str) {
     /// Non-blocking attempts before giving up (each separated by one `yield_()`).

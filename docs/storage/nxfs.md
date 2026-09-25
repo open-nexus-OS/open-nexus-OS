@@ -37,7 +37,7 @@ packagefsd, `/data` = nxfsd.
 |---|---|
 | Full contract (format, txns, classes, markers) | `docs/rfcs/RFC-0071-nxfs-user-data-filesystem-contract.md` |
 | statefs/nxfs split decision | `docs/adr/0043-user-data-in-dedicated-cow-fs-statefs-stays-service-kv.md` |
-| Block topology (GPT, virtioblkd owner, keep-blk) | `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md` |
+| Block topology (GPT, blkd owner, keep-blk) | `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md` |
 | VFS surface it mounts into (ReadDir/writes/errors) | `docs/rfcs/RFC-0072-vfs-v2-writable-providers-readdir-stable-errors.md` |
 | App surface above it (`svc.files`, filemanager role) | `docs/rfcs/RFC-0073-app-files-surface-svc-files-permission-filemanager-role.md` |
 | Milestone ladder + status | `tasks/TRACK-STASH-USER-DATA-FS.md` |

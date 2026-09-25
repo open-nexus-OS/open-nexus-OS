@@ -70,7 +70,7 @@ pub(crate) fn affinity_summary() {
 /// CAP_MOVEd reply cap in init's 256-slot table (8 per service, the ctrl
 /// queue depth) — with the whole core running through a ~100 ms pass that
 /// exhausted the table (`abi:no-space`, blk-plane wiring FAIL).
-const PLANE: &[&str] = &["policyd", "virtioblkd", "bundlemgrd"];
+const PLANE: &[&str] = &["policyd", "blkd", "bundlemgrd"];
 
 pub(crate) fn in_plane(name: &str) -> bool {
     PLANE.contains(&name)

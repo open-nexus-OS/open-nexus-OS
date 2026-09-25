@@ -33,7 +33,7 @@ These tests prove the full system wiring is real (no fake success):
 
 - `SELFTEST: mmio map ok` — mapping works and known register reads succeed
 - `rngd: mmio window mapped ok` — a designated owner service mapped its window
-- `virtioblkd: mmio window mapped ok` — virtio-blk consumer path works (device present, cap distributed, mapping works)
+- `blkd: mmio window mapped ok` — virtio-blk consumer path works (device present, cap distributed, mapping works)
 - `SELFTEST: mmio policy deny ok` — policy deny-by-default is enforced for a non-matching MMIO capability
 
 Where: `scripts/qemu-test.sh` marker ladder.

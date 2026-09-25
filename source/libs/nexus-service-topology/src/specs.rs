@@ -68,7 +68,7 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
     crate::specs_app::SAMGRD,
     crate::specs_storage::STATEFSD,
     crate::specs_security::INGRESSD,
-    crate::specs_storage::VIRTIOBLKD,
+    crate::specs_storage::BLKD,
     crate::specs_storage::LOGD,
     crate::specs_app::SESSIOND,
     crate::specs_app::SETTINGSD,

@@ -131,7 +131,7 @@ pub(crate) mod sync {
     use storage::remote_blk::RemoteBlockDevice;
     use storage::{blockproto, BlockDevice};
 
-    /// Attach budget: virtioblkd is long up when bootctld (last in the
+    /// Attach budget: blkd is long up when bootctld (last in the
     /// stage graph) loads its record.
 
     pub(crate) enum Outcome {

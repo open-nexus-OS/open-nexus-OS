@@ -323,6 +323,12 @@ reported. Sector-addressed cards only, the volatile cache kept off, CMD23 + CMD1
 through `DmaBuffer`, PIO for nxboot. It is proven against a behavioural controller and eMMC
 model with an exact non-coherent cache; the QEMU lane (P5) and the board (P6) follow.
 
+**Implemented 2026-09-25 (TASK-0246 P4a): the name.** The block owner is `blkd` in the
+service id, slot table, policy row and markers (`blkd: gpt ok (parts=7)`); its partition gate
+is a pure module proven over the whole sender × partition × op matrix on the host, and a gate
+in `just check` keeps the retired name out of everything but dated records. The backend is
+still virtio-blk; P4b chooses it by the device init grants.
+
 ### C6 — Boot chain (Phase 4, ADR-0066)
 
 Boot ROM → vendor SPL (DDR) → OpenSBI (`fw_dynamic`) → **nxboot** as the FIT's `uboot`-slot

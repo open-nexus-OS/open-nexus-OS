@@ -738,11 +738,13 @@ expected_sequence=(
   "SELFTEST: bundlemgrd v1 list ok"
   "SELFTEST: bundlemgrd volume ok"
   "SELFTEST: bundlemgrd v1 malformed ok"
-  # TASK-0315: virtioblkd owns the ONE GPT disk and serves partition-scoped
+  # TASK-0315: blkd owns the ONE GPT disk and serves partition-scoped
   # block IO; clients attach over IPC and the deny-by-default partition
-  # gate is proven every boot.
-  "virtioblkd: gpt ok (parts=7)"
-  "virtioblkd: irq endpoint bound"
+  # gate is proven every boot. TASK-0246 P4a: the driver's completion
+  # bound runs on the watchdog pair its owner hands in.
+  "blkd: gpt ok (parts=7)"
+  "blkd: irq endpoint bound"
+  "blk: watchdog on"
   "blk: irq completion on"
   "statefsd: virtio upgrade ok"
   "SELFTEST: blk cross-partition deny ok"
@@ -1235,8 +1237,9 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 list ok"
       "SELFTEST: bundlemgrd volume ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
-      "virtioblkd: gpt ok (parts=7)"
-      "virtioblkd: irq endpoint bound"
+      "blkd: gpt ok (parts=7)"
+      "blkd: irq endpoint bound"
+      "blk: watchdog on"
       "blk: irq completion on"
       "statefsd: virtio upgrade ok"
       "SELFTEST: blk cross-partition deny ok"
@@ -2275,7 +2278,7 @@ fi
 if grep -aFq "SELFTEST: blk cross-partition deny FAIL" "$UART_LOG"; then
   echo "[error] first_failed_phase=bringup missing_marker='SELFTEST: blk cross-partition deny ok'" >&2
   echo "[error] block-plane partition gate not enforced" >&2
-  grep -a "virtioblkd: \|SELFTEST: blk" "$UART_LOG" | head -n 8 >&2
+  grep -a "blkd: \|SELFTEST: blk" "$UART_LOG" | head -n 8 >&2
   exit 1
 fi
 # TASK-0036-A guard: a quorum FAIL means health-commit v2 never completed

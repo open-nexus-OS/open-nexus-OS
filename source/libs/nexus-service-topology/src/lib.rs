@@ -63,10 +63,10 @@ pub const SERVER_SLOTS: SlotPair = SlotPair::new(4, 3);
 pub const DEVICE_MMIO_SLOT: u32 = 48;
 
 /// The band for capabilities init grants a service AFTER it has started running (TASK-0324
-/// P4f-3). The core plane resumes virtioblkd, policyd and bundlemgrd before the wiring phase so
+/// P4f-3). The core plane resumes blkd, policyd and bundlemgrd before the wiring phase so
 /// the system volume can be served; a running service allocates its own capabilities at the
 /// lowest free slots, so a late grant declared low races those allocations — observed for
-/// virtioblkd in P4f-1b. Late grants to such a service live from here up, above anything a
+/// blkd in P4f-1b. Late grants to such a service live from here up, above anything a
 /// service allocates itself. (policyd's audit inbox 0x9-0xB predates the band and is safe for a
 /// stated reason: its slots 1-8 are all pinned before it resumes and it allocates nothing
 /// before it is wired.)
@@ -78,7 +78,7 @@ pub const LATE_GRANT_BASE: u32 = 0xE0;
 pub const STAGE_FENCE_SLOT: u32 = 0x38;
 
 /// The block plane's client slots (TASK-0315 wiring, TASK-0324 P4f-1b home): every
-/// block-plane client (statefsd, vfsd, bootctld, updated, bundlemgrd) receives virtioblkd's
+/// block-plane client (statefsd, vfsd, bootctld, updated, bundlemgrd) receives blkd's
 /// request SEND at [`BLK_PLANE_REQ_SLOT`] and a private reply pair at [`BLK_PLANE_REPLY`],
 /// in the same place in every table. The numbers lived in init's wiring and again in
 /// `storage::blockproto`, whose comment promised "same numbers in every client's table".

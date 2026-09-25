@@ -183,7 +183,7 @@ These tasks exercise kernel primitives during bring-up and define boot contracts
 
 - **Notes**: First OS kernel + userspace driver integration
 
-### ✅ TASK-0247: Bringup RV virt v1.1b (OS SMP + HSM/IPI + virtioblkd + packagefs)
+### ✅ TASK-0247: Bringup RV virt v1.1b (OS SMP + HSM/IPI + blkd + packagefs)
 
 - **Status**: Has Security section
 

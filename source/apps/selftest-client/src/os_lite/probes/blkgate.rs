@@ -3,7 +3,7 @@
 
 //! CONTEXT: Cross-partition deny probe (TASK-0315, ADR-0044): the selftest
 //! holds NO block-plane grant, so a WRITE to the `state` partition must
-//! come back `STATUS_DENIED` from virtioblkd's kernel-attributed sender
+//! come back `STATUS_DENIED` from blkd's kernel-attributed sender
 //! gate. State-neutral by construction (a denied write mutates nothing) —
 //! the standing detector shape, not a one-shot.
 //! OWNERS: @runtime
@@ -31,8 +31,8 @@ const PART_STATE: u8 = 0;
 const PART_SYSTEM_A: u8 = 5;
 const STATUS_DENIED: u8 = 5;
 
-fn route_virtioblkd() -> Option<u32> {
-    match budget::route_with_nonce(b"virtioblkd", NonceMismatchBudget::new(64)) {
+fn route_blkd() -> Option<u32> {
+    match budget::route_with_nonce(b"blkd", NonceMismatchBudget::new(64)) {
         RouteRetryOutcome::Success { send_slot, .. } => Some(send_slot),
         _ => None,
     }
@@ -95,11 +95,11 @@ fn deny_probe(op: u8, frame: &mut [u8], nonce: u32, ok_marker: &str, fail_marker
     }
 }
 
-/// The probe itself: `true` iff virtioblkd answered OUR nonce with
+/// The probe itself: `true` iff blkd answered OUR nonce with
 /// `STATUS_DENIED`; every other outcome (route miss, send failure,
 /// timeout, non-denied status) is `false`.
 fn deny_probe_quiet(op: u8, frame: &mut [u8], nonce: u32) -> bool {
-    let Some(send_slot) = route_virtioblkd() else {
+    let Some(send_slot) = route_blkd() else {
         return false;
     };
     frame[0] = MAGIC0;

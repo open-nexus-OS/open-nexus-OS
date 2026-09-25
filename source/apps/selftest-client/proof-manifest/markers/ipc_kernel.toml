@@ -56,7 +56,7 @@ phase = "ipc_kernel"
 
 # RFC-0098 C3 (TASK-0245 DoD): a task binds or re-arms only the PLIC line its device
 # capability carries — a line nobody granted the harness is refused with EPERM. The positive
-# half is every driver's own bind marker (`gpud: gpu irq bound`, `virtioblkd: irq endpoint
+# half is every driver's own bind marker (`gpud: gpu irq bound`, `blkd: irq endpoint
 # bound`, `hidrawd: irq endpoint bound`).
 [marker."SELFTEST: irq bind deny ok"]
 phase = "ipc_kernel"

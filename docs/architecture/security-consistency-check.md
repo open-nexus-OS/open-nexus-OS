@@ -301,7 +301,7 @@ Source-of-truth: `docs/architecture/smp-ipi-rate-limiting.md`.
 - `tasks/TASK-0012-kernel-smp-v1-percpu-runqueues-ipis.md` — SMP baseline
 - `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` — QoS + timed
 - `tasks/TASK-0042-smp-v2-affinity-qos-budgets-kernel-abi.md` — Affinity + shares
-- `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-virtioblkd-packagefs-selftests.md` — RISC-V SMP
+- `tasks/TASK-0247-bringup-rv-virt-v1_1b-os-smp-hsm-ipi-blkd-packagefs-selftests.md` — RISC-V SMP
 - `tasks/TASK-0277-kernel-smp-parallelism-policy-v1-deterministic.md` — SMP policy
 - `tasks/TASK-0276-parallelism-v1-deterministic-threadpools-policy-contract.md` — Userspace parallelism
 - `docs/architecture/16-rust-concurrency-model.md` — Rust concurrency patterns

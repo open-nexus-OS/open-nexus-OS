@@ -3,27 +3,31 @@
 
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 
-//! CONTEXT: virtioblkd — THE single virtio-blk owner (ADR-0044 end state,
-//! TASK-0315): opens the ONE GPT disk, parses the table once (RO,
-//! CRC-validated by `storage::gpt`), and serves partition-scoped blockproto
-//! requests over IPC. Access is deny-by-default on the KERNEL-ATTRIBUTED
-//! sender id: statefsd → `state` (rw), the nxfs owner (vfsd) → `data`
-//! (rw); everyone else is `STATUS_DENIED` — the cross-partition deny is a
-//! gated selftest. Completion waits BLOCK on the device interrupt through a
-//! dedicated notify endpoint init pins into the declared IRQ slot
-//! (`blk: irq completion on`) instead of yield-polling. The service makes no
-//! outbound calls, so it holds no reply inbox (TASK-0324 P4f-1b removed the
-//! unused one init used to provision).
+//! CONTEXT: blkd — THE single block owner (ADR-0044 end state, TASK-0315;
+//! ADR-0067/TASK-0246: one owner on every platform, its backend chosen by
+//! the device init grants — today the virtio-blk one): opens the ONE GPT
+//! disk, parses the table once (RO, CRC-validated by `storage::gpt`), and
+//! serves partition-scoped blockproto requests over IPC. Access is
+//! deny-by-default on the KERNEL-ATTRIBUTED sender id (`blkd::gate`):
+//! statefsd → `state` (rw), the nxfs owner (vfsd) → `data` (rw); everyone
+//! else is `STATUS_DENIED` — the cross-partition deny is a gated selftest.
+//! Completion waits BLOCK on the device interrupt through a dedicated notify
+//! endpoint init pins into the declared IRQ slot (`blk: irq completion on`)
+//! instead of yield-polling. The service makes no outbound calls, so it
+//! holds no reply inbox (TASK-0324 P4f-1b removed the unused one init used
+//! to provision).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: blockproto codec host tests + QEMU ladder
-//!   (`virtioblkd: gpt ok`, statefs/nxfs persistence over IPC, keep-blk
+//! TEST_COVERAGE: `tests/gate.rs` + blockproto codec host tests + QEMU ladder
+//!   (`blkd: gpt ok`, statefs/nxfs persistence over IPC, keep-blk
 //!   double boot, cross-partition deny).
-//! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md
+//! ADR: docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md,
+//!   docs/adr/0067-one-block-owner-backend-selected-by-fdt.md
 
 extern crate alloc;
 
+use blkd::gate::Gates;
 use nexus_ipc::{Server as _, Wait};
 use storage::blockproto::{self, BlockRequest, MAX_BLOCKS_PER_REQ, SECTOR_SIZE};
 use storage::gpt::{self, Partition};
@@ -139,53 +143,6 @@ impl Served {
     }
 }
 
-/// Per-sender partition grants (kernel-attributed identity; ADR-0044:
-/// least privilege, one owner per store).
-struct Gates {
-    sid_statefsd: u64,
-    sid_vfsd: u64,
-    sid_bootctld: u64,
-    sid_updated: u64,
-    /// TASK-0321 (RFC-0089 §12.5): the system-volume verifier/reader.
-    sid_bundlemgrd: u64,
-}
-
-impl Gates {
-    /// Op-aware matrix (RFC-0089 §12.5): READ/INFO vs WRITE/SYNC can have
-    /// different holders — the system volumes are read by bundlemgrd (and
-    /// updated, for unchanged-bundle reuse) but written only by updated.
-    fn allowed(&self, sender: u64, part: u8, op: u8) -> bool {
-        let read_only = matches!(
-            op,
-            blockproto::OP_READ
-                | blockproto::OP_INFO
-                | blockproto::OP_ARM_VMO
-                | blockproto::OP_READ_VMO
-                | blockproto::OP_RELEASE_VMO
-        );
-        match part {
-            blockproto::PART_STATE => sender == self.sid_statefsd,
-            blockproto::PART_DATA => sender == self.sid_vfsd,
-            // TASK-0036-B: the BSB runtime writer is bootctld and ONLY
-            // bootctld (ADR-0058; the loader writes pre-OS, nx image at
-            // the factory).
-            blockproto::PART_BSB => sender == self.sid_bootctld,
-            // TASK-0179 (RFC-0089 §2): slot partitions are written only by
-            // updated (the engine itself refuses the ACTIVE slot; this
-            // gate scopes the sender, the engine scopes the slot).
-            blockproto::PART_BOOT_A | blockproto::PART_BOOT_B => sender == self.sid_updated,
-            // TASK-0321 (RFC-0089 §12.5): system volumes — bundlemgrd verifies
-            // + serves (READ), updated assembles the INACTIVE one (WRITE; the
-            // engine scopes the slot) and reads the ACTIVE one for reuse.
-            blockproto::PART_SYSTEM_A | blockproto::PART_SYSTEM_B => {
-                sender == self.sid_updated || (read_only && sender == self.sid_bundlemgrd)
-            }
-            // Anything else: deny-by-default.
-            _ => false,
-        }
-    }
-}
-
 /// Opens the device, parses the GPT and maps the RFC-0089 selectors.
 fn attach() -> Option<Served> {
     // Bounded wait for the init MMIO grant (grant lands after spawn).
@@ -193,16 +150,17 @@ fn attach() -> Option<Served> {
     let dev = loop {
         let mut q = nexus_abi::CapQuery::default();
         if nexus_abi::cap_query(MMIO_CAP_SLOT, &mut q).is_ok() && q.kind_tag == 2 {
-            match VirtioBlkDevice::new(MMIO_CAP_SLOT) {
+            match VirtioBlkDevice::new(MMIO_CAP_SLOT, nexus_service_topology::slots::blkd::WATCHDOG)
+            {
                 Ok(dev) => break dev,
                 Err(_) => {
-                    emit("virtioblkd: device open FAIL");
+                    emit("blkd: device open FAIL");
                     return None;
                 }
             }
         }
         if nexus_abi::nsec().unwrap_or(u64::MAX) >= deadline {
-            emit("virtioblkd: mmio grant timeout");
+            emit("blkd: mmio grant timeout");
             return None;
         }
         let _ = nexus_abi::yield_();
@@ -211,7 +169,7 @@ fn attach() -> Option<Served> {
     let table = match gpt::parse_gpt(&dev) {
         Ok(table) => table,
         Err(_) => {
-            emit("virtioblkd: gpt parse FAIL");
+            emit("blkd: gpt parse FAIL");
             return None;
         }
     };
@@ -231,9 +189,9 @@ fn attach() -> Option<Served> {
     Some(Served { dev, parts, armed: [None; ARMED_MAX], run: alloc::vec![0u8; RUN_BUF] })
 }
 
-/// `virtioblkd: gpt ok (parts=N)` — bounded formatting (N ≤ 9).
+/// `blkd: gpt ok (parts=N)` — bounded formatting (N ≤ 9).
 fn emit_gpt_ok(count: usize) {
-    let mut line = *b"virtioblkd: gpt ok (parts=0)";
+    let mut line = *b"blkd: gpt ok (parts=0)";
     let idx = line.len() - 2;
     line[idx] = b'0' + (count.min(9) as u8);
     if let Ok(msg) = core::str::from_utf8(&line) {
@@ -263,7 +221,7 @@ fn serve(served: &mut Served, gates: &Gates, sender: u64, frame: &[u8], out: &mu
         return blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_UNKNOWN_PART);
     };
     if !gates.allowed(sender, part, op) {
-        emit("virtioblkd: denied (partition gate)");
+        emit("blkd: denied (partition gate)");
         return blockproto::write_rsp_header(out, op, nonce, blockproto::STATUS_DENIED);
     }
     match req {
@@ -345,12 +303,12 @@ fn arm_vmo(
         return;
     };
     if served.window(part).is_none() || !gates.allowed(sender, part, blockproto::OP_ARM_VMO) {
-        emit("virtioblkd: denied (partition gate)");
+        emit("blkd: denied (partition gate)");
         let _ = nexus_abi::cap_close(slot);
         return;
     }
     if !served.arm(sender, slot) {
-        emit("virtioblkd: arm table full");
+        emit("blkd: arm table full");
     }
 }
 
@@ -359,7 +317,7 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
 
     // Server endpoint: the declared pair, pinned before this task runs (no route ask, P7-b).
     let Some(server) = crate::route_os::declared_server() else {
-        emit("virtioblkd: server endpoint FAIL");
+        emit("blkd: server endpoint FAIL");
         return Err(nexus_abi::AbiError::Unsupported);
     };
 
@@ -367,29 +325,23 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
     if served.is_none() {
         // Honest degrade: stay up and answer IO errors — a parked stub
         // would wedge every storage client behind their own deadlines.
-        emit("virtioblkd: serving without device (degraded)");
+        emit("blkd: serving without device (degraded)");
     }
 
     // IRQ completion (TASK-0314 machinery + TASK-0315 provisioning): init pins a DEDICATED
     // notify endpoint into the declared named slot during spawn-time distribution — no route
     // round-trip, no shared traffic (TASK-0324 P4f-1b moved it off the clients' reply slot).
-    const IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::slots::virtioblkd::IRQ_NOTIFY;
+    const IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::slots::blkd::IRQ_NOTIFY;
     if let Some(s) = served.as_mut() {
         if s.dev.bind_irq_endpoint(IRQ_NOTIFY_SLOT) {
-            emit("virtioblkd: irq endpoint bound");
+            emit("blkd: irq endpoint bound");
         }
     }
 
-    let _ = nexus_service_entry::ready("virtioblkd: ready");
-    nexus_abi::service_verdict_flush("virtioblkd");
+    let _ = nexus_service_entry::ready("blkd: ready");
+    nexus_abi::service_verdict_flush("blkd");
 
-    let gates = Gates {
-        sid_statefsd: nexus_abi::service_id_from_name(b"statefsd"),
-        sid_vfsd: nexus_abi::service_id_from_name(b"vfsd"),
-        sid_bootctld: nexus_abi::service_id_from_name(b"bootctld"),
-        sid_updated: nexus_abi::service_id_from_name(b"updated"),
-        sid_bundlemgrd: nexus_abi::service_id_from_name(b"bundlemgrd"),
-    };
+    let gates = Gates::system();
 
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     let mut inbuf = [0u8; blockproto::HDR_LEN + 10 + MAX_BLOCKS_PER_REQ as usize * SECTOR_SIZE];
@@ -439,10 +391,10 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
                 let rsp = &outbuf[..rn];
                 if let Some(reply) = reply {
                     if reply.reply_and_close(rsp).is_err() {
-                        emit("virtioblkd: reply send fail");
+                        emit("blkd: reply send fail");
                     }
                 } else if server.send(rsp, Wait::NonBlocking).is_err() {
-                    emit("virtioblkd: rsp send fail (dropping)");
+                    emit("blkd: rsp send fail (dropping)");
                 }
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
@@ -451,14 +403,14 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
             Err(_) => {
                 let (should_log, verdict) = breaker.on_error();
                 if should_log {
-                    emit("virtioblkd: transient ipc error (continuing)");
+                    emit("blkd: transient ipc error (continuing)");
                 }
                 match verdict {
                     nexus_ipc::resilience::BreakerVerdict::Continue => {
                         let _ = nexus_abi::yield_();
                     }
                     nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
-                        emit("virtioblkd: endpoint defect (consecutive error limit)");
+                        emit("blkd: endpoint defect (consecutive error limit)");
                         return Err(nexus_abi::AbiError::Unsupported);
                     }
                 }

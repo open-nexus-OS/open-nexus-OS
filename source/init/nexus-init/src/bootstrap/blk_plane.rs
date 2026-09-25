@@ -22,36 +22,36 @@ use nexus_abi::Rights;
 /// plane's fleet slots (`BLK_PLANE_REQ_SLOT` + `BLK_PLANE_REPLY`); the owner gets its dedicated
 /// IRQ notify endpoint in its declared named slot (TASK-0324 P4f-1b).
 pub(crate) fn wire_blk_plane_for(chan: &CtrlChannel, eps: &Endpoints) {
-    wire_blk_plane_for_with(chan, eps.vblk_req);
+    wire_blk_plane_for_with(chan, eps.blk_req);
 }
 
 /// The same dispatch from the bare request endpoint — the CORE-plane stage
-/// (TASK-0321 P4) wires bundlemgrd/virtioblkd before `Endpoints` exists.
-pub(crate) fn wire_blk_plane_for_with(chan: &CtrlChannel, vblk_req: u32) {
+/// (TASK-0321 P4) wires bundlemgrd/blkd before `Endpoints` exists.
+pub(crate) fn wire_blk_plane_for_with(chan: &CtrlChannel, blk_req: u32) {
     use crate::service_topology::ServiceId;
     let Some(id) = ServiceId::from_name(chan.svc_name.as_bytes()) else { return };
     match id {
         // TASK-0036-B: bootctld projects the boot record to the `bsb`
         // partition (ADR-0058 runtime writer) over the same fixed-slot
         // plane. TASK-0179: updated writes the INACTIVE boot slot through
-        // it (the partition gate in virtioblkd scopes each sender).
+        // it (the partition gate in blkd scopes each sender).
         // TASK-0321 (RFC-0089 §12.3/§12.5): bundlemgrd READS the system
         // volume (NXSV + index + bundle windows) over the same fixed-slot
-        // plane; the op-aware gate in virtioblkd denies it every write.
+        // plane; the op-aware gate in blkd denies it every write.
         ServiceId::Statefsd
         | ServiceId::Vfsd
         | ServiceId::Bootctld
         | ServiceId::Updated
         | ServiceId::Bundlemgrd => {
-            wire_blk_plane_client(chan.pid, chan.svc_name, vblk_req);
+            wire_blk_plane_client(chan.pid, chan.svc_name, blk_req);
         }
-        ServiceId::Virtioblkd => {
+        ServiceId::Blkd => {
             if let Ok(irq_ep) =
                 nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
             {
                 let r = crate::bootstrap::declared_slots::pin_named(
                     chan.pid,
-                    ServiceId::Virtioblkd,
+                    ServiceId::Blkd,
                     crate::service_topology::NamedSlot::IrqNotify,
                     irq_ep,
                     Rights::RECV,
@@ -67,17 +67,17 @@ pub(crate) fn wire_blk_plane_for_with(chan: &CtrlChannel, vblk_req: u32) {
 }
 
 /// TASK-0315: block-plane client wiring at the fleet's block-plane slots (declared once in
-/// `nexus-service-topology`, read by `storage::blockproto` too): virtioblkd request SEND + a
+/// `nexus-service-topology`, read by `storage::blockproto` too): blkd request SEND + a
 /// dedicated reply pair per client. Runs inside the spawn-time distribution so the caps
 /// exist BEFORE any request can reach the client services (the statefsd
 /// pristine window depends on that ordering).
-pub(crate) fn wire_blk_plane_client(pid: u32, name: &str, vblk_req: u32) {
+pub(crate) fn wire_blk_plane_client(pid: u32, name: &str, blk_req: u32) {
     use crate::service_topology::{BLK_PLANE_REPLY, BLK_PLANE_REQ_SLOT};
     let Ok(reply_ep) = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) else {
         debug_write_bytes(b"init: blk plane reply mint FAIL\n");
         return;
     };
-    let a = nexus_abi::cap_transfer_to_slot(pid, vblk_req, Rights::SEND, BLK_PLANE_REQ_SLOT);
+    let a = nexus_abi::cap_transfer_to_slot(pid, blk_req, Rights::SEND, BLK_PLANE_REQ_SLOT);
     let b = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::RECV, BLK_PLANE_REPLY.recv);
     let c = nexus_abi::cap_transfer_to_slot(pid, reply_ep, Rights::SEND, BLK_PLANE_REPLY.send);
     let _ = nexus_abi::cap_close(reply_ep);
