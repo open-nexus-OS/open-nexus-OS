@@ -2169,9 +2169,11 @@ dependencies = [
  "nexus-abi",
  "nexus-event",
  "nexus-fdt",
+ "nexus-hal",
  "nexus-idl-runtime",
  "nexus-ipc",
  "nexus-log",
+ "nexus-pci",
  "nexus-service-topology",
  "nexus-soc",
  "nexus-sync",
@@ -2283,6 +2285,14 @@ dependencies = [
  "nexus-ipc",
  "nexus-vfs-types",
  "thiserror",
+]
+
+[[package]]
+name = "nexus-pci"
+version = "0.1.0"
+dependencies = [
+ "nexus-fdt",
+ "nexus-hal",
 ]
 
 [[package]]

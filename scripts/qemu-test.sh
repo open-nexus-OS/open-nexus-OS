@@ -2876,6 +2876,11 @@ if [[ "$(count_lines "init: devices from fdt ok (")" -lt 1 ]]; then
   echo "[error] init device-discovery proof missing: init: devices from fdt ok (" >&2
   exit 1
 fi
+# TASK-0246 P3 (RFC-0098 C3): the tree's ECAM hosts are enumerated with the shared planner.
+if [[ "$(count_lines "init: devices from pci ok (")" -lt 1 ]]; then
+  echo "[error] init PCI-discovery proof missing: init: devices from pci ok (" >&2
+  exit 1
+fi
 # nxboot owns /chosen: when the loader is in the chain it must have written and
 # read back the tree copy the kernel then parsed (direct-kernel boots skip it).
 if [[ "${NEXUS_DIRECT_KERNEL:-0}" != "1" ]] && [[ "$(count_lines "nxboot: fdt ok (")" -lt 1 ]]; then

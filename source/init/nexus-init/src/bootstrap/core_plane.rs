@@ -197,6 +197,8 @@ pub(crate) fn bring_up(
     // RFC-0098 C3: every window and interrupt line below comes from the tree.
     let devices = device_tree::discover_virtio()?;
     device_tree::report(&devices);
+    // TASK-0246 P3: the tree's ECAM hosts are a device source too (the SD host's grant: P4).
+    crate::bootstrap::pci::report(&crate::bootstrap::pci::discover());
 
     // The ONE grant the plane needs: the disk → virtioblkd (ADR-0044 one
     // owner; every other client is a blockproto client). From here the

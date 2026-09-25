@@ -20,6 +20,7 @@ pub(crate) mod handshake;
 pub(crate) mod helpers;
 pub(crate) mod labels;
 pub(crate) mod orchestrator;
+pub(crate) mod pci;
 pub(crate) mod persist;
 pub(crate) mod policyd;
 pub(crate) mod respawn;

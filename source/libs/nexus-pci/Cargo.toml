@@ -1,0 +1,13 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-pci"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The PCI ECAM device source (RFC-0098 C3, TASK-0246 P3): a generic ECAM host read from the device tree, its root bus enumerated, every memory BAR sized and placed on pages of its own, INTx routed through the interrupt map — one pure planner for nxboot and init"
+
+[dependencies]
+nexus-fdt = { path = "../nexus-fdt" }
+nexus-hal = { path = "../nexus-hal" }

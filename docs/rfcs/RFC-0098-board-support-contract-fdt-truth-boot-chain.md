@@ -3,7 +3,7 @@
 - Status: In Progress (Phase 0 ✅ 2026-09-22; seeded 2026-09-22, Block 1 P0 of the hardware fast track)
 - Owners: @kernel-team / @runtime / @tools-team
 - Created: 2026-09-22
-- Last Updated: 2026-09-25 (C5 driver core Implemented — TASK-0246 P2)
+- Last Updated: 2026-09-25 (C3 PCI ECAM source Implemented — TASK-0246 P3)
 - Links:
   - Tasks (execution + proof, in lane order): `tasks/TASK-0244-*` (FDT library),
     `tasks/TASK-0245-*` (kernel platform from the FDT), `tasks/TASK-0245B-*` (SoC clock/reset/
@@ -25,7 +25,7 @@
 - **Phase 0 (FDT library, `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)**: ✅ 2026-09-22 — TASK-0244
 - **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: 🟨 — TASK-0245 ✅ 2026-09-22 (QEMU: every profile prints the platform, image and discovery markers; the board's serial proof arrives with TASK-0327B once B1.6 boots it); TASK-0245B (SoC clocks/resets/pinmux/power) open
 - **Phase 2 (physical memory from the FDT, page-frame allocator)**: ✅ 2026-09-24 — TASK-0286 (M1): high half + direct map, frame pool, page-backed VMOs, `vmo_runs`, coherence in the device capability, user Zicbom, `DmaBuffer`, `mm_stats` (QEMU: every profile; the board's serial proof arrives with TASK-0327B once B1.6 boots it)
-- **Phase 3 (one block owner, SDHCI, nxboot reader)**: 🟨 — TASK-0246 P0 (measured) + P1 (a device's DMA reach in its capability; allocation within reach; `vmo_runs` in bus addresses) ✅ 2026-09-24; P2 (the SDHCI core, host-proven) ✅ 2026-09-25; P3–P6 and TASK-0246B open
+- **Phase 3 (one block owner, SDHCI, nxboot reader)**: 🟨 — TASK-0246 P0 (measured) + P1 (a device's DMA reach in its capability; allocation within reach; `vmo_runs` in bus addresses) ✅ 2026-09-24; P2 (the SDHCI core, host-proven) ✅ 2026-09-25; P3 (the PCI ECAM device source) ✅ 2026-09-25; P4–P6 and TASK-0246B open
 - **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: ⬜ — TASK-0260, 0260B
 - **Phase 5 (display controller scanout, mode authority = gpud)**: ⬜ — TASK-0250, 0251
 
@@ -148,6 +148,24 @@ capability (window, line; coherence and DMA reach from the host node) and the sa
 class. ONE pure, host-tested planner does it for nxboot and init, so both see one assignment.
 The board's PCIe (a DesignWare host with link training) is a driver of its own later; this is
 the generic ECAM host only.
+
+**Implemented 2026-09-25 (TASK-0246 P3), with two tightenings.** `source/libs/nexus-pci` reads
+the host (`PciHost`: the ECAM window, the bus range, the windows from `ranges` in CPU
+addresses, the INTx routes from `interrupt-map` under its mask, and the coherence and DMA reach
+the functions inherit). `plan` walks the root bus through `ConfigSpace` and records every
+function. It sizes each memory BAR with decoding off and places it largest first at the lowest
+aligned address of its window; a 64-bit BAR goes to the 64-bit window and falls back below
+4 GiB. It turns memory decoding on and routes each pin. The first tightening: every BAR spans
+at least one page of its own, so a capability for one function never reaches another's
+registers (QEMU's SD host decodes 256 bytes and gets a page). The second: bus mastering is
+never turned on by the plan, only for the function a DMA driver is granted, at the grant
+(`enable_bus_master`) — deny by default. Host bridges keep their decoding and PCI-to-PCI
+bridges are recorded, not crossed; I/O BARs are refused (no port space is driven). init maps
+each host's root-bus configuration space through a capability of its own, plans it and names
+what it found: `init: devices from pci ok (hosts=… functions=… sd=…)`, required in every
+profile. With QEMU's `sdhci-pci` attached it reads
+`sd=00:01.0 bar=0x40000000 irq=33 caps=0x057834b4`: the capability register came through the
+placed BAR, so the function decodes where the plan put it.
 
 ### C4 — Physical memory (Phase 2 = M1 of target picture M)
 
@@ -329,6 +347,7 @@ and the fw_cfg key are deleted; RFC-0074's authority statement is amended to poi
 | `KSELFTEST: vmo runs ok (runs=… deny=4)` | an address leaves the kernel only through `vmo_runs`, only to the holder of the named device, never for a read-only alias or past the object | 2 |
 | `KSELFTEST: vmo reach ok (window=… bus=… runs=… deny=2)` | an object made for a device lies in its DMA reach and its runs come back in the device's bus addresses; out of reach and contiguous-without-device are refused | 2 |
 | `SELFTEST: dma buffer ok (device=… block=… runs=…)` | the device capability carries its coherence; user-mode Zicbom runs through a `DmaBuffer` with every byte intact | 2 |
+| `init: devices from pci ok (hosts=… functions=… sd=…)` | every ECAM host of the tree planned by the shared planner; the SD host's BAR decodes where it was placed | 3 |
 | `blkd: backend=<compatible> …` | the block owner bound the FDT-selected device | 3 |
 | `nxboot: platform=<compatible> slot=<a\|b>` | nxboot ran as the FIT payload on the board | 4 |
 | `gpud: dc scanout ok (WxH@Hz edid)` + `windowd: desktop revealed` | the first picture | 5 |

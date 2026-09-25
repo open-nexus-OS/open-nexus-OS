@@ -196,6 +196,26 @@ fn reg_is_translated_through_every_level() {
     let fdt = Fdt::new(NESTED).unwrap();
     let deep = fdt.find_compatible(&["test,xlate-deep"]).next().unwrap();
     assert_eq!(deep.reg(0).unwrap().unwrap(), nexus_fdt::Reg { addr: 0x4100_1000, size: 0x100 });
+    // The same translation for any address in the node's parent space.
+    assert_eq!(deep.cpu_address(0x1000).unwrap(), 0x4100_1000);
+}
+
+#[test]
+fn a_device_below_a_bus_without_a_node_reaches_what_the_bus_passes_down() {
+    // A PCI function behind QEMU's ECAM host (TASK-0246 P3): no `dma-ranges` on the host,
+    // coherent, and its windows are identity in the CPU's space.
+    let virt = Fdt::new(VIRT).unwrap();
+    let pci = virt.find_compatible(&["pci-host-ecam-generic"]).next().unwrap();
+    assert_eq!(pci.child_dma_reach().unwrap(), nexus_fdt::DmaReach::All);
+    assert!(pci.dma_coherent());
+    assert_eq!(pci.cpu_address(0x4000_0000).unwrap(), 0x4000_0000);
+    // On the board a bus's children reach what the bus's own ranges say: the same answer
+    // a device node on it gets.
+    let board = Fdt::new(BOARD).unwrap();
+    let storage = board.node_at_path("/soc/storage-bus").unwrap();
+    let emmc = board.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
+    assert_eq!(storage.child_dma_reach().unwrap(), emmc.dma_reach().unwrap());
+    assert_eq!(storage.child_dma_reach().unwrap().windows(), [window(0, 0, 0x8000_0000)]);
 }
 
 #[test]

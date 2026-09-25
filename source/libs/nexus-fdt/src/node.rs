@@ -387,13 +387,19 @@ impl<'a> Node<'a> {
         }
         let addr = cells(&v[off..off + ac * 4]);
         let size = cells(&v[off + ac * 4..off + entry]);
+        Ok(Some(Reg { addr: self.cpu_address(addr)?, size }))
+    }
+
+    /// An address in this node's parent bus space — what its `reg`, and for a bus the parent
+    /// side of its `ranges`, hold — translated through every level to the CPU's.
+    pub fn cpu_address(&self, addr: u64) -> Result<u64, Error> {
         let mut addr = addr;
-        let mut level = Some(parent);
+        let mut level = self.parent();
         while let Some(bus) = level {
             addr = bus.translate(addr)?;
             level = bus.parent();
         }
-        Ok(Some(Reg { addr, size }))
+        Ok(addr)
     }
 
     /// Translate a child address through this node's `ranges` into ITS parent's

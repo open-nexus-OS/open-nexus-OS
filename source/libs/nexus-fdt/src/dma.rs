@@ -50,27 +50,39 @@ type Level = ([DmaWindow; MAX_DMA_WINDOWS], usize);
 impl Node<'_> {
     /// This device's DMA reach: the `dma-ranges` of the buses above it, composed.
     pub fn dma_reach(&self) -> Result<DmaReach, Error> {
-        let mut level = self.parent();
-        let mut composed: Option<Level> = None;
-        while let Some(bus) = level {
-            match bus.prop("dma-ranges") {
-                None => break,
-                Some([]) => {}
-                Some(v) => {
-                    let parsed = parse_level(bus, v)?;
-                    composed = Some(match composed {
-                        None => parsed,
-                        Some((prev, n)) => compose(&prev[..n], &parsed.0[..parsed.1])?,
-                    });
-                }
-            }
-            level = bus.parent();
-        }
-        Ok(match composed {
-            None => DmaReach::All,
-            Some((windows, count)) => DmaReach::Windows { windows, count },
-        })
+        reach_from(self.parent())
     }
+
+    /// The reach of a device BELOW this bus node that has no node of its own — a PCI
+    /// function behind a host bridge (TASK-0246 P3): this node's `dma-ranges` and every
+    /// level above, composed.
+    pub fn child_dma_reach(&self) -> Result<DmaReach, Error> {
+        reach_from(Some(*self))
+    }
+}
+
+/// The `dma-ranges` from `start` up to the first level that has none, composed.
+fn reach_from(start: Option<Node<'_>>) -> Result<DmaReach, Error> {
+    let mut level = start;
+    let mut composed: Option<Level> = None;
+    while let Some(bus) = level {
+        match bus.prop("dma-ranges") {
+            None => break,
+            Some([]) => {}
+            Some(v) => {
+                let parsed = parse_level(bus, v)?;
+                composed = Some(match composed {
+                    None => parsed,
+                    Some((prev, n)) => compose(&prev[..n], &parsed.0[..parsed.1])?,
+                });
+            }
+        }
+        level = bus.parent();
+    }
+    Ok(match composed {
+        None => DmaReach::All,
+        Some((windows, count)) => DmaReach::Windows { windows, count },
+    })
 }
 
 /// One bus's `dma-ranges`: (child address in the bus's cells, parent address in its

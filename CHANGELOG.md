@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-25 (TASK-0246 P3: the PCI ECAM device source)
+
+- `source/libs/nexus-pci` reads a `pci-host-ecam-generic` node from the tree. It covers the ECAM
+  window, the windows in CPU addresses, the INTx routes, and the coherence and DMA reach its
+  functions inherit.
+- Its planner walks the root bus and places every memory BAR largest first, each on at least
+  one page of its own. It turns memory decoding on and routes each pin. It never enables bus
+  mastering; that is left to the grant.
+- nexus-fdt gains `Node::cpu_address` and `Node::child_dma_reach` (the reach of a device below a
+  bus that has no node of its own).
+- init plans each host's root bus and prints `init: devices from pci ok (…)`, required in every
+  profile. With QEMU's `sdhci-pci` attached it reads the SD host's capability register through
+  the placed BAR (`caps=0x057834b4`, QEMU's own value).
+- RFC-0098 C3 is Implemented and tightened: BARs on pages of their own, bus mastering only at
+  the grant.
+- Proof: nexus-pci 19 tests (the host from QEMU's golden tree, eight malformed hosts refused by
+  name, the planner over a synthetic configuration space) and nexus-fdt goldens 18; `just check`
+  green; `just test-all` green (EXIT=0, 11 QEMU lanes; the marker in every boot that reaches
+  init); a manual boot with `sdhci-pci` + `emmc` found the SD host at `00:01.0`, line 33.
+
 ### Added - 2026-09-25 (TASK-0246 P2: the SDHCI + eMMC driver core, host-proven)
 
 - `source/drivers/storage/sdhci` (`storage-sdhci`) is the standard SDHCI core plus the K1

@@ -36,7 +36,10 @@ At a high level the stack looks like:
      the tree in `a1` and injects a read-only alias of it into init's slot 2;
      init discovers the virtio transports and the RTC from it and every device
      capability it grants carries the node's window AND interrupt line
-     (`init: devices from fdt ok (…)`, RFC-0098 C3).
+     (`init: devices from fdt ok (…)`, RFC-0098 C3). Each ECAM host of the tree
+     is a device source too: init plans its root bus with `nexus-pci` (the
+     planner nxboot shares), every BAR on pages of its own, INTx routed, bus
+     mastering left to the grant (`init: devices from pci ok (…)`, TASK-0246 P3).
    - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: jump
      slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
      `nxboot: PANIC (…)` + SBI reset — never a silent boot of unverified

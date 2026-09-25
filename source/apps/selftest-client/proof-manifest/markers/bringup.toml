@@ -622,6 +622,15 @@ phase = "bringup"
 phase = "bringup"
 proves = "init read every device window and interrupt line it grants from the device tree"
 
+# RFC-0098 C3 (TASK-0246 P3): the tree's ECAM hosts are a device source. init reads each
+# host, maps its root bus's configuration space through a capability of its own and plans it
+# (BARs on pages of their own, memory decoding on, INTx routed, bus mastering off); the line
+# names hosts, functions and the SD host (QEMU virt: one host; the SD host only in profiles
+# that attach `sdhci-pci`). Required in every profile.
+[marker."init: devices from pci ok ("]
+phase = "bringup"
+proves = "init enumerated every ECAM host of the tree with the shared planner and named the SD host controller it found"
+
 [marker."KSELFTEST: smp online ok"]
 phase = "bringup"
 emit_when = { profile = "smp" }

@@ -1,6 +1,6 @@
 ---
 title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: In Progress (P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; next P3 PCI ECAM source; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+status: In Progress (P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; next P4 `blkd`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 owner: @runtime @kernel-team
 created: 2025-12-29
 updated: 2026-09-24
@@ -211,9 +211,37 @@ TASK-0248's decision).
 - **YELLOW for P6 (found in P2): where the DLL locks.** The core locks the DLL at the
   operating clock (187.5 MHz); the mainline driver locks it at 52 MHz and raises the clock
   after. The board decides: if the lock at 187.5 MHz fails, the layer locks at 52 MHz first.
-- **P3 PCI ECAM source** — the pure planner (host tests over the virt golden and synthetic config
-  spaces: BAR sizing, 32/64-bit assignment, swizzled INTx), init glue and the
-  `init: devices from pci ok (…)` marker; the SDHCI function granted by class.
+- **P3 PCI ECAM source — ✅ done 2026-09-25.** `source/libs/nexus-pci` (pure, `no_std`,
+  `forbid(unsafe_code)`): `PciHost` reads a `pci-host-ecam-generic` node. That covers the ECAM
+  window, the bus range, the windows from `ranges` in CPU addresses (`Node::cpu_address`, new
+  in nexus-fdt), the INTx routes from `interrupt-map` under its mask, the coherence, and the DMA
+  reach the functions inherit (`Node::child_dma_reach`, new). `plan` walks the root bus
+  through `ConfigSpace` (ECAM over `nexus_hal::Bus`). It sizes each memory BAR with decoding
+  off and places it largest first at the lowest aligned address of its window, a 64-bit BAR in
+  the 64-bit window with a fallback below 4 GiB. It turns memory decoding on and routes each
+  pin. Two tightenings of C3, recorded there. Every BAR spans at least a page of its own, so no
+  capability for one function reaches another. The plan never enables bus mastering;
+  `enable_bus_master` is for the grant. Host bridges keep their decoding, PCI-to-PCI bridges
+  are recorded and not crossed, and I/O BARs are refused. init (`bootstrap/pci.rs`) maps each
+  host's root-bus configuration space through a capability of its own and plans it. It reads
+  the first SD host's capability register through the placed BAR and prints one line, written
+  with one call: `init: devices from pci ok (…)`, required in every profile; a malformed host
+  gets a FAIL line and is skipped. Proof: nexus-pci 19 tests (QEMU virt's host from its golden
+  tree and its swizzled routes; a fixture of eight malformed hosts, each refused by name; the
+  planner over a synthetic configuration space for placement, isolation, the 64-bit window,
+  multi-function devices, bridges, the refusals, determinism and bus mastering at the grant
+  alone; ECAM addressing), nexus-fdt goldens 18. Every lane prints `hosts=1 functions=1 sd=none`.
+  A manual boot with `sdhci-pci` + `emmc` printed
+  `init: devices from pci ok (hosts=1 functions=2 sd=00:01.0 bar=0x40000000 irq=33 caps=0x057834b4)`.
+  That is QEMU's `capareg` read through the placed BAR, and line 33 is the measured route.
+  Gates: `just check` green; `just test-all` green (EXIT=0; 11 QEMU lanes; the PCI marker in
+  every one of the 18 boots that reach init — the fallback lane's slot-b boots stop before
+  init by design, like the tree marker).
+- **Found in P3.** For P4: the SD host's window is `PciDevices.sd`. Its grant repeats the
+  description init read it with, so the kernel keeps one record, and the grant maps the
+  configuration space again to enable bus mastering for that function only. For P5: the
+  launcher's `QEMU_EXTRA_ARGS` hook does not reach it through `scripts/qemu-test.sh`, which
+  declares its own array of that name, so the lane needs a profile knob for its devices.
 - **P4 `blkd`** — rename (crate, service, topology ids/specs/slots/routes, init planes,
   supervision, policy, markers, scripts, docs) with the old-name gate; the driver crates take
   their slots from the owner (no service's slot name inside a driver); backend selection by the

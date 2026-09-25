@@ -1,0 +1,120 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Hosts the planner must refuse by name, and one whose bus translates (TASK-0246 P3).
+// Build: dtc -I dts -O dtb -o pci-hosts.dtb pci-hosts.dts (dtc warns about the hosts that
+// are malformed on purpose).
+
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	plic: interrupt-controller@c000000 {
+		compatible = "riscv,plic0";
+		reg = <0x0 0xc000000 0x0 0x600000>;
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		#address-cells = <0>;
+	};
+
+	mute: mute@0 {
+		reg = <0x0 0x0 0x0 0x1000>;
+	};
+
+	pci@10000000 {
+		compatible = "pci-host-ecam-generic", "test,bad-cells";
+		device_type = "pci";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		reg = <0x0 0x10000000 0x0 0x100000>;
+	};
+
+	pci-noreg {
+		compatible = "pci-host-ecam-generic", "test,no-reg";
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+	};
+
+	pci@30000000 {
+		compatible = "pci-host-ecam-generic", "test,small-ecam";
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		reg = <0x0 0x30000000 0x0 0x100000>;
+		bus-range = <0x0 0x1>;
+	};
+
+	pci@40000000 {
+		compatible = "pci-host-ecam-generic", "test,config-window";
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		reg = <0x0 0x40000000 0x0 0x100000>;
+		bus-range = <0x0 0x0>;
+		ranges = <0x0 0x0 0x0 0x0 0x50000000 0x0 0x1000>;
+	};
+
+	pci@60000000 {
+		compatible = "pci-host-ecam-generic", "test,short-map";
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		reg = <0x0 0x60000000 0x0 0x100000>;
+		bus-range = <0x0 0x0>;
+		interrupt-map-mask = <0x1800 0x0 0x0 0x7>;
+		interrupt-map = <0x0 0x0 0x0 0x1 &plic>;
+	};
+
+	pci@70000000 {
+		compatible = "pci-host-ecam-generic", "test,orphan-map";
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		reg = <0x0 0x70000000 0x0 0x100000>;
+		bus-range = <0x0 0x0>;
+		interrupt-map-mask = <0x1800 0x0 0x0 0x7>;
+		interrupt-map = <0x0 0x0 0x0 0x1 0x55 0x20>;
+	};
+
+	pci@80000000 {
+		compatible = "pci-host-ecam-generic", "test,parent-without-cells";
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		reg = <0x0 0x80000000 0x0 0x100000>;
+		bus-range = <0x0 0x0>;
+		interrupt-map-mask = <0x1800 0x0 0x0 0x7>;
+		interrupt-map = <0x0 0x0 0x0 0x1 &mute 0x20>;
+	};
+
+	pci@90000000 {
+		compatible = "pci-host-ecam-generic", "test,mem32-above-4g";
+		device_type = "pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		reg = <0x0 0x90000000 0x0 0x100000>;
+		bus-range = <0x0 0x0>;
+		ranges = <0x2000000 0x1 0x0 0x1 0x0 0x0 0x1000>;
+	};
+
+	bus@a0000000 {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges = <0x0 0x0 0x0 0xa0000000 0x0 0x10000000>;
+
+		pci@0 {
+			compatible = "pci-host-ecam-generic", "test,translated";
+			device_type = "pci";
+			#address-cells = <3>;
+			#size-cells = <2>;
+			#interrupt-cells = <1>;
+			reg = <0x0 0x0 0x0 0x100000>;
+			bus-range = <0x0 0x0>;
+			ranges = <0x2000000 0x0 0x1000000 0x0 0x1000000 0x0 0x1000000>;
+		};
+	};
+};
