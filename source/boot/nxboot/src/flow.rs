@@ -87,6 +87,28 @@ pub struct Loaded {
     pub bsb_seq: u64,
 }
 
+/// A disk's boot state: its partitions, its `bsb` partition, and the BSB block that counts
+/// with its index — the double-block rule (§6): the valid block with the higher seq wins.
+pub struct BootState {
+    pub parts: alloc::vec::Vec<Partition>,
+    pub bsb_part: Partition,
+    pub current: Bsb,
+    pub index: usize,
+}
+
+/// Reads `dev`'s boot state. The same read decides which candidate is the boot disk
+/// (`disk::carries_bsb`) and starts every boot decision (`run`).
+pub fn read_boot_state<D: BlockDevice>(dev: &D) -> Result<BootState, FlowError> {
+    let parts = parse_gpt(dev).map_err(|_| FlowError::Disk)?;
+    let bsb_part = find_partition_named(&parts, &GUID_NEXUS_BSB, "bsb").ok_or(FlowError::Disk)?;
+    let mut block0 = [0u8; SECTOR];
+    let mut block1 = [0u8; SECTOR];
+    dev.read_blocks(bsb_part.first_lba, &mut block0).map_err(|_| FlowError::Disk)?;
+    dev.read_blocks(bsb_part.first_lba + 1, &mut block1).map_err(|_| FlowError::Disk)?;
+    let (current, index) = bsb::pick(&block0, &block1).ok_or(FlowError::BsbInvalid)?;
+    Ok(BootState { parts, bsb_part, current, index })
+}
+
 /// Runs one complete boot decision. On success the verified image bytes
 /// are in `dest[..image_len]` and the caller may jump; on error the caller
 /// panics loudly and resets (wait-loop doctrine).
@@ -95,15 +117,7 @@ pub fn run<D: BlockDevice>(
     dest: &mut [u8],
     emit: &mut dyn FnMut(Event),
 ) -> Result<Loaded, FlowError> {
-    let parts = parse_gpt(dev).map_err(|_| FlowError::Disk)?;
-    let bsb_part = find_partition_named(&parts, &GUID_NEXUS_BSB, "bsb").ok_or(FlowError::Disk)?;
-
-    // BSB double-block rule (§6): valid block with the higher seq wins.
-    let mut block0 = [0u8; SECTOR];
-    let mut block1 = [0u8; SECTOR];
-    dev.read_blocks(bsb_part.first_lba, &mut block0).map_err(|_| FlowError::Disk)?;
-    dev.read_blocks(bsb_part.first_lba + 1, &mut block1).map_err(|_| FlowError::Disk)?;
-    let (cur, cur_idx) = bsb::pick(&block0, &block1).ok_or(FlowError::BsbInvalid)?;
+    let BootState { parts, bsb_part, current: cur, index: cur_idx } = read_boot_state(dev)?;
 
     let p = plan(&cur);
     emit(Event::BsbOk { slot: p.boot, seq: cur.seq });

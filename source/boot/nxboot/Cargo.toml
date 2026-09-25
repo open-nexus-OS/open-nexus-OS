@@ -19,6 +19,11 @@ storage = { path = "../../../userspace/storage", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 # RFC-0098 C2: nxboot owns /chosen/nexus,* — the tree reader/writer (TASK-0244 P3).
 nexus-fdt = { path = "../../libs/nexus-fdt" }
+# TASK-0246B: the SDHCI core the OS runs too, in PIO (the loader's reader), over the HAL bus;
+# the PCI planner init runs (QEMU's SD host sits behind the ECAM host, unassigned until planned).
+storage-sdhci = { path = "../../drivers/storage/sdhci" }
+nexus-hal = { path = "../../libs/nexus-hal" }
+nexus-pci = { path = "../../libs/nexus-pci" }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }
@@ -28,6 +33,8 @@ sbi-rt = { version = "0.0.2", default-features = false }
 # assemble fixture disks with the same shared authorities nx image uses.
 bootfmt = { path = "../../../userspace/bootfmt", features = ["std", "sign"] }
 storage = { path = "../../../userspace/storage", features = ["std"] }
+# The behavioural SDHCI controller + eMMC the reader is proven against (the core's own machine).
+storage-sdhci-model = { path = "../../drivers/storage/sdhci/model" }
 
 [[bin]]
 name = "nxboot"

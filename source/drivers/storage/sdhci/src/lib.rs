@@ -12,8 +12,9 @@
 //! eMMC from power-up to HS52 on the widest bus the controller and the board share, or to
 //! HS400 enhanced strobe (the K1 with a card that has the strobe) — no tuning anywhere.
 //! [`Disk`] moves sectors with ADMA2 through `DmaBuffer`, so every byte the device sees
-//! crosses its typestate; [`Card::read_pio`] reads without DMA or interrupts (the boot
-//! loader, TASK-0246B). The OS glue is `os` (feature `os-lite`: the window mapped from the
+//! crosses its typestate; [`Card::read_pio`] and [`Card::write_pio`] move them without DMA or
+//! interrupts (the boot loader, TASK-0246B — it writes the BSB before it loads); a PIO transfer
+//! the controller ends early is a named short transfer, not a wait for a block that never comes. The OS glue is `os` (feature `os-lite`: the window mapped from the
 //! device capability, the line bound, kernel one-shots for every wait, DMA memory made for the
 //! device) — the crate's only `unsafe`, the volatile register access. The `BlockDevice`
 //! adapters live with their consumers (`storage::sdhci` for blkd, nxboot in 0246B); this crate

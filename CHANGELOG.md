@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-25 (TASK-0246B P1: nxboot reads the boot disk through the SDHCI core too)
+
+- The SDHCI core writes by PIO (`Card::write_pio`), for the loader: the A/B trial writes the BSB
+  before it loads. A PIO transfer the controller ends early is now a named short transfer; it
+  used to wait for a block that never comes (a latent bug the new tests found). The behavioural
+  machine drives PIO writes and lets time pass under a pending interrupt, so a driver waiting
+  for the wrong bit meets its deadline instead of hanging a test.
+- nxboot finds the boot disk by one rule: candidates in a fixed order (virtio block transports,
+  SD hosts in the tree that may hold an eMMC, SD hosts behind each ECAM host — planned with the
+  planner init runs), the first that opens and carries a valid BSB wins, every skipped one is
+  named. It reads and writes that disk through `nxboot::disk::sdhci` (PIO, HS52, the card
+  initialised from power-up) or the virtio reader, and records it
+  (`/soc/pci@30000000/mmc@1,0` on QEMU). `flow::read_boot_state` is the one BSB read.
+- A QEMU boot with only `sdhci-pci` + `emmc` reaches the whole storage stack: nxboot reads over
+  PIO, init grants the recorded function with bus mastering, `blkd` runs the SDHCI backend
+  (ADMA2, IRQ; `mode=hs52 bus=4`), the system volume, packagefs, statefs and nxfs mount.
+- Proof: host tests (`storage-sdhci` 54, nxboot 12 — the new ones fail under
+  three mutations of the write path); `just check` green; smp1 green; `just test-all` green
+  (EXIT=0, 11 lanes; nxboot records a virtio disk in all 21 of its boots, skips nothing);
+  manual boots from `sdhci-pci` + `emmc` alone mount every store, with no FAIL beyond the known
+  dsoftbus pair on a fresh image.
+
 ### Changed - 2026-09-25 (TASK-0246 P4c: socd before the disk; the block owner brings its node up)
 
 - socd runs in the core plane before the disk is granted (wave 0: policyd, socd, then blkd and

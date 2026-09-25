@@ -71,10 +71,40 @@ impl<B: Bus, P: Platform> Host<B, P> {
         self.issue(&cmd, TM_READ | TM_BLOCK_COUNT | multi, true, blocks)?;
         let r1 = self.response_r1(cmd.index)?;
         let deadline = self.data_deadline(blocks, false);
-        for block in buf.chunks_exact_mut(SECTOR) {
-            self.wait(INT_BUF_READ, Stage::Data, deadline, cmd.index)?;
+        let total = buf.len() / SECTOR;
+        for (i, block) in buf.chunks_exact_mut(SECTOR).enumerate() {
+            self.next_block(INT_BUF_READ, deadline, cmd.index, total - i)?;
             for word in block.chunks_exact_mut(4) {
                 word.copy_from_slice(&self.bus.read(DATA_PORT).to_le_bytes());
+            }
+        }
+        self.wait(INT_XFER_COMPLETE, Stage::Data, deadline, cmd.index)?;
+        self.residual()?;
+        Ok(r1)
+    }
+
+    /// A write command whose data moves by PIO from `buf` (whole blocks); returns the R1.
+    /// Transfer complete follows the card's busy, so the blocks are programmed when this
+    /// returns (the boot loader's path: it writes the BSB before it loads).
+    pub(crate) fn write_pio(&mut self, cmd: Command, buf: &[u8]) -> Result<u32, Error> {
+        let result = self.write_pio_inner(cmd, buf);
+        if result.is_err() {
+            let _ = self.reset_lines(RESET_CMD | RESET_DATA);
+        }
+        result
+    }
+
+    fn write_pio_inner(&mut self, cmd: Command, buf: &[u8]) -> Result<u32, Error> {
+        let blocks = blocks_of(buf.len())?;
+        let multi = if blocks > 1 { TM_MULTI } else { 0 };
+        self.issue(&cmd, TM_BLOCK_COUNT | multi, true, blocks)?;
+        let r1 = self.response_r1(cmd.index)?;
+        let deadline = self.data_deadline(blocks, true);
+        let total = buf.len() / SECTOR;
+        for (i, block) in buf.chunks_exact(SECTOR).enumerate() {
+            self.next_block(INT_BUF_WRITE, deadline, cmd.index, total - i)?;
+            for word in block.chunks_exact(4) {
+                self.bus.write(DATA_PORT, u32::from_le_bytes([word[0], word[1], word[2], word[3]]));
             }
         }
         self.wait(INT_XFER_COMPLETE, Stage::Data, deadline, cmd.index)?;
@@ -167,6 +197,30 @@ impl<B: Bus, P: Platform> Host<B, P> {
 
     /// Wait until one of `want` latches — an error bit first — and clear what was taken.
     fn wait(&mut self, want: u32, stage: Stage, deadline: u64, cmd: u8) -> Result<(), Error> {
+        self.wait_for(want, stage, deadline, cmd).map(|_| ())
+    }
+
+    /// The next block of a PIO transfer: the buffer is ready (`true`), or the controller ended
+    /// the transfer before it (`false` — it completed instead of asking for the block).
+    fn next_block(
+        &mut self,
+        buffer: u32,
+        deadline: u64,
+        cmd: u8,
+        left: usize,
+    ) -> Result<(), Error> {
+        let fired = self.wait_for(buffer | INT_XFER_COMPLETE, Stage::Data, deadline, cmd)?;
+        if fired & INT_XFER_COMPLETE == 0 {
+            return Ok(());
+        }
+        // Ended early: what the controller counts as left is short; if it counts nothing, the
+        // blocks this side still holds are.
+        self.residual()?;
+        Err(Error::ShortTransfer { remaining: u16::try_from(left).unwrap_or(u16::MAX) })
+    }
+
+    /// Waits for any bit of `want`; returns the ones that fired (cleared).
+    fn wait_for(&mut self, want: u32, stage: Stage, deadline: u64, cmd: u8) -> Result<u32, Error> {
         loop {
             let status = self.bus.read(INT_STATUS);
             if status & ERR_ALL != 0 {
@@ -179,7 +233,7 @@ impl<B: Bus, P: Platform> Host<B, P> {
             }
             if status & want != 0 {
                 self.bus.write(INT_STATUS, status & want);
-                return Ok(());
+                return Ok(status & want);
             }
             if self.platform.now_us() >= deadline {
                 return Err(Error::Timeout(stage));

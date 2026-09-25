@@ -40,6 +40,18 @@ pub struct Ctrl {
     vendor: BTreeMap<usize, u32>,
     /// A PIO read in progress: the bytes, how far the driver read, the blocks it gets.
     pio: Option<(Vec<u8>, usize, u16)>,
+    /// A PIO write in progress (TASK-0246B P1).
+    pio_write: Option<PioWrite>,
+}
+
+/// A PIO write: where the blocks go, what the driver wrote so far, how many blocks the card
+/// takes and how many the command asked for.
+struct PioWrite {
+    lba: u32,
+    bytes: Vec<u8>,
+    pos: usize,
+    blocks: u16,
+    count: u16,
 }
 
 impl Ctrl {
@@ -62,6 +74,7 @@ impl Ctrl {
             adma_addr: 0,
             vendor: BTreeMap::new(),
             pio: None,
+            pio_write: None,
         }
     }
 
@@ -192,6 +205,7 @@ impl Machine {
             BLOCK => self.ctrl.block = v,
             ARGUMENT => self.ctrl.arg = v,
             XFER_CMD => self.issue(v),
+            DATA_PORT => self.pio_write(v),
             HOST_CTRL => self.ctrl.host_ctrl = v,
             CLOCK if v & RESET_ALL != 0 => {
                 self.ctrl.reset_all();
@@ -202,6 +216,7 @@ impl Machine {
             CLOCK => {
                 if v & RESET_DATA != 0 {
                     self.ctrl.pio = None;
+                    self.ctrl.pio_write = None;
                 }
                 self.ctrl.clock = v & !(RESET_MASK | CLK_INT_STABLE);
             }
@@ -313,8 +328,17 @@ impl Machine {
                 }
             }
             self.finish(short);
+        } else if let Phase::Write { lba, .. } = phase {
+            // The driver fills the buffer word by word; each full block asks for the next.
+            let bytes = vec![0; usize::from(moved) * 512];
+            self.ctrl.pio_write = Some(PioWrite { lba, bytes, pos: 0, blocks: moved, count });
+            if moved == 0 {
+                self.ctrl.pio_write = None;
+                self.finish(short);
+            } else {
+                self.latch(INT_BUF_WRITE);
+            }
         } else {
-            assert!(read, "PIO writes are not driven");
             self.ctrl.pio = Some((bytes, 0, moved));
             self.latch(INT_BUF_READ);
         }
@@ -385,6 +409,25 @@ impl Machine {
     fn adma_fail(&mut self, state: u32) {
         self.ctrl.adma_error = state;
         self.latch(ERR_ADMA);
+    }
+
+    fn pio_write(&mut self, word: u32) {
+        let write =
+            self.ctrl.pio_write.as_mut().expect("data port write without a PIO write transfer");
+        write.bytes[write.pos..write.pos + 4].copy_from_slice(&word.to_le_bytes());
+        write.pos += 4;
+        if write.pos % 512 != 0 {
+            return;
+        }
+        if write.pos / 512 < usize::from(write.blocks) {
+            self.latch(INT_BUF_WRITE);
+            return;
+        }
+        let done = self.ctrl.pio_write.take().expect("the write in progress");
+        for (i, sector) in done.bytes.chunks_exact(512).enumerate() {
+            self.card.written.insert(done.lba + i as u32, sector.try_into().unwrap());
+        }
+        self.finish(done.count - done.blocks);
     }
 
     fn pio_read(&mut self) -> u32 {

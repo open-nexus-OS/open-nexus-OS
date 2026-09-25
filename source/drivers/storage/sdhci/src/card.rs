@@ -152,6 +152,26 @@ impl<B: Bus, P: Platform> Card<B, P> {
         check(r1, cmd.index, Some(state::TRANSFER))
     }
 
+    /// Write `buf.len() / 512` sectors at `lba` by PIO — no DMA, no interrupt needed (the boot
+    /// loader's path: the A/B trial writes the BSB before the load); programmed when this
+    /// returns.
+    pub fn write_pio(&mut self, lba: u32, buf: &[u8]) -> Result<(), Error> {
+        let blocks = blocks_of(buf.len())?;
+        self.check_range(lba, blocks)?;
+        let result = self.write_pio_inner(lba, blocks, buf);
+        self.recover_after(result)
+    }
+
+    fn write_pio_inner(&mut self, lba: u32, blocks: u16, buf: &[u8]) -> Result<(), Error> {
+        self.set_block_count(blocks)?;
+        let cmd = Command::new(index::WRITE_MULTIPLE_BLOCK, lba, Resp::R1);
+        let r1 = self.host.write_pio(cmd, buf)?;
+        check(r1, cmd.index, Some(state::TRANSFER))?;
+        // An error found while programming shows in the status that follows.
+        card_status(&mut self.host, Some(state::TRANSFER))?;
+        Ok(())
+    }
+
     /// Move `blocks` sectors at `lba` by ADMA2 with the descriptor table at bus address
     /// `table` (written and handed to the device by [`crate::Disk`]).
     pub(crate) fn adma(

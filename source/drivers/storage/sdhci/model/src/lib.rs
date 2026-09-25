@@ -167,7 +167,11 @@ impl Platform for SimPlatform {
     }
     fn wait_irq(&mut self, deadline_us: u64) {
         let mut m = self.m.borrow_mut();
-        if !m.ctrl.pending() {
+        if m.ctrl.pending() {
+            // A pending interrupt returns at once, but time still passes: a driver waiting for a
+            // bit that never comes spins to its deadline, as on hardware, instead of forever.
+            m.now += 1;
+        } else {
             m.now = m.now.max(deadline_us);
         }
     }

@@ -6,7 +6,9 @@
 //! uses (storage::layout::plan + write_gpt, bootfmt factory BSB, NXBD-last
 //! slot writes, the dev OS-image signing seed the anchor is baked from).
 //! Covers the clean boot, the trial/exhaustion ladder and the adversarial
-//! matrix (tamper, downgrade, stranger key, zeroed slot, both-bad, torn BSB).
+//! matrix (tamper, downgrade, stranger key, zeroed slot, both-bad, torn BSB); and the boot
+//! disk (TASK-0246B P1): the candidate rule, and whole decisions — the clean boot and the trial
+//! ladder's BSB writes — over the SDHCI reader against the core's behavioural machine.
 //! OWNERS: @security
 //! ADR: docs/adr/0059-first-stage-boot-chain-nxboot-handoff.md
 
@@ -63,7 +65,7 @@ mod sha2_digest {
 }
 
 /// NXBD-last slot write — the same discipline `nx image` and `updated` use.
-fn write_slot(dev: &mut MemBlockDevice, part: &Partition, kernel: &[u8], nxbd: &[u8; SECTOR]) {
+fn write_slot<D: BlockDevice>(dev: &mut D, part: &Partition, kernel: &[u8], nxbd: &[u8; SECTOR]) {
     dev.write_blocks(part.first_lba, &[0u8; SECTOR]).expect("clear nxbd");
     let mut padded = kernel.to_vec();
     padded.resize(kernel.len().div_ceil(SECTOR) * SECTOR, 0);
@@ -71,8 +73,8 @@ fn write_slot(dev: &mut MemBlockDevice, part: &Partition, kernel: &[u8], nxbd: &
     dev.write_blocks(part.first_lba, nxbd).expect("nxbd last");
 }
 
-struct Fixture {
-    dev: MemBlockDevice,
+struct Fixture<D: BlockDevice = MemBlockDevice> {
+    dev: D,
     bsb: Partition,
     boot_a: Partition,
     boot_b: Partition,
@@ -83,8 +85,13 @@ struct Fixture {
 /// (block 0 seq 1, active A committed; block 1 zeroed) + signed boot-a;
 /// boot-b stays zeroed (invalid by definition).
 fn factory_fixture() -> Fixture {
+    factory_fixture_on(MemBlockDevice::new(SECTOR, NEXUS_DISK_BYTES / SECTOR as u64))
+}
+
+/// The factory disk written onto `dev` through its own `BlockDevice` face — for the SDHCI reader,
+/// every sector crosses its PIO writes.
+fn factory_fixture_on<D: BlockDevice>(mut dev: D) -> Fixture<D> {
     let parts = plan().expect("layout plan");
-    let mut dev = MemBlockDevice::new(SECTOR, NEXUS_DISK_BYTES / SECTOR as u64);
     write_gpt(&mut dev, &parts).expect("gpt");
     let bsb_part = find_partition_named(&parts, &GUID_NEXUS_BSB, "bsb").expect("bsb part");
     let boot_a = find_partition_named(&parts, &GUID_NEXUS_BOOT, "boot-a").expect("boot-a");
@@ -96,14 +103,16 @@ fn factory_fixture() -> Fixture {
     Fixture { dev, bsb: bsb_part, boot_a, boot_b, kernel_a }
 }
 
-fn run(fx: &mut Fixture) -> (Result<flow::Loaded, FlowError>, Vec<Event>, Vec<u8>) {
+fn run<D: BlockDevice>(
+    fx: &mut Fixture<D>,
+) -> (Result<flow::Loaded, FlowError>, Vec<Event>, Vec<u8>) {
     let mut dest = vec![0u8; 2 * 1024 * 1024];
     let mut events = Vec::new();
     let got = flow::run(&mut fx.dev, &mut dest, &mut |e| events.push(e));
     (got, events, dest)
 }
 
-fn schedule_trial(fx: &mut Fixture, floor: u32, tries: u8) {
+fn schedule_trial<D: BlockDevice>(fx: &mut Fixture<D>, floor: u32, tries: u8) {
     // bootctld-style projection: alternate block, higher seq, next=b.
     let next = Bsb {
         seq: 2,
@@ -277,4 +286,100 @@ fn wrong_load_addr_is_a_descriptor_reject() {
     let (got, events, _) = run(&mut fx);
     assert_eq!(got.expect("fallback").slot, Slot::A);
     assert!(events.contains(&Event::VerifyFail { slot: Slot::B, reason: Reason::Nxbd }));
+}
+
+// ---- The boot disk (TASK-0246B P1): the rule, and the SDHCI reader under whole decisions ----
+
+use nxboot::disk::{self, sdhci::SdhciDisk, Skip};
+use storage_sdhci_model as model;
+
+type SdDisk = SdhciDisk<model::ModelBus, model::SimPlatform>;
+
+/// The eMMC behind `m`'s host, opened from power-up and polled, as the loader drives it.
+fn sd_open(m: &model::Shared) -> Result<SdDisk, storage_sdhci::Error> {
+    let platform = model::SimPlatform { m: m.clone(), irq: false };
+    SdhciDisk::open(model::ModelBus(m.clone()), platform, model::host_config(m))
+}
+
+#[test]
+fn a_whole_boot_decision_runs_over_the_sdhci_reader() {
+    let m = model::machine(model::qemu_8bit());
+    let mut fx = factory_fixture_on(sd_open(&m).expect("card"));
+    let (got, events, dest) = run(&mut fx);
+    let loaded = got.expect("clean boot over sdhci");
+    assert_eq!(loaded.slot, Slot::A);
+    assert_eq!(&dest[..fx.kernel_a.len()], fx.kernel_a.as_slice(), "verified bytes in dest");
+    assert_eq!(events[0], Event::BsbOk { slot: Slot::A, seq: 1 });
+    assert!(m.borrow().mem.ops.is_empty(), "no DMA memory: the loader reads by PIO");
+}
+
+#[test]
+fn the_trial_ladder_writes_the_bsb_through_the_sdhci_reader() {
+    let m = model::machine(model::qemu_8bit());
+    let mut fx = factory_fixture_on(sd_open(&m).expect("card"));
+    let kernel_b = kernel_fixture(0xB7);
+    let nxbd_b = signed_nxbd(&kernel_b, "build-B", 2, &dev_seed());
+    write_slot(&mut fx.dev, &fx.boot_b.clone(), &kernel_b, &nxbd_b);
+    schedule_trial(&mut fx, 1, 2);
+    // Each decision re-reads the BSB from the card: the next `from` is the last one's write.
+    let (got, events, dest) = run(&mut fx);
+    assert_eq!(got.expect("trial 1").slot, Slot::B);
+    assert_eq!(events[1], Event::Tries { slot: Slot::B, from: 2, to: 1 });
+    assert_eq!(&dest[..kernel_b.len()], kernel_b.as_slice());
+    let (got, events, _) = run(&mut fx);
+    assert_eq!(got.expect("trial 2").slot, Slot::B);
+    assert_eq!(events[1], Event::Tries { slot: Slot::B, from: 1, to: 0 });
+    let (got, events, _) = run(&mut fx);
+    assert_eq!(got.expect("exhausted").slot, Slot::A);
+    assert_eq!(events[1], Event::Exhausted { attempted: Slot::B, to: Slot::A });
+}
+
+#[test]
+fn the_first_candidate_carrying_a_valid_bsb_is_the_boot_disk() {
+    let blank = || MemBlockDevice::new(SECTOR, NEXUS_DISK_BYTES / SECTOR as u64);
+    let open = |c: &u8| -> Result<MemBlockDevice, &'static str> {
+        match c {
+            0 => Err("silent"),
+            1 => Ok(blank()),
+            2 => {
+                // Our layout, both BSB blocks zeroed.
+                let mut dev = blank();
+                write_gpt(&mut dev, &plan().expect("plan")).expect("gpt");
+                Ok(dev)
+            }
+            _ => Ok(factory_fixture().dev),
+        }
+    };
+    let mut skipped = Vec::new();
+    let (picked, _) =
+        disk::pick([0u8, 1, 2, 3, 4], open, |c, why| skipped.push((*c, why))).expect("a disk");
+    assert_eq!(picked, 3, "the first with a valid BSB; the one after it is never opened");
+    assert_eq!(
+        skipped,
+        [(0, Skip::NoDevice("silent")), (1, Skip::NoLayout), (2, Skip::NoValidBsb)]
+    );
+    assert!(disk::pick([0u8, 1, 2], open, |_, _| {}).is_none());
+}
+
+#[test]
+fn a_silent_sd_host_is_skipped_and_a_card_left_initialised_is_initialised_again() {
+    let silent = model::machine(model::qemu_8bit());
+    silent.borrow_mut().faults.silent = Some(1);
+    // The boot medium: written by one reader, then opened again from power-up — the card is still
+    // in the transfer state its last user left (the board's SPL does the same).
+    let emmc = model::machine(model::qemu_8bit());
+    let fx = factory_fixture_on(sd_open(&emmc).expect("card"));
+    drop(fx);
+    let hosts = [&silent, &emmc];
+    let mut skipped = Vec::new();
+    let (picked, mut dev) = disk::pick(
+        0..hosts.len(),
+        |i| sd_open(hosts[*i]).map_err(|_| "no card"),
+        |i, why| skipped.push((*i, why)),
+    )
+    .expect("the eMMC");
+    assert_eq!((picked, skipped), (1, vec![(0, Skip::NoDevice("no card"))]));
+    let mut dest = vec![0u8; 2 * 1024 * 1024];
+    let loaded = flow::run(&mut dev, &mut dest, &mut |_| {}).expect("boot");
+    assert_eq!(loaded.slot, Slot::A);
 }

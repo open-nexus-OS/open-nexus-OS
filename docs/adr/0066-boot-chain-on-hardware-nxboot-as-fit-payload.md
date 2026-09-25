@@ -44,6 +44,9 @@ chainload detour.
   (virtio on QEMU, SDHCI on the board; ADR-0067), keeps its A/B + GPT + NXBD flow, passes the
   DTB through unchanged except for `/chosen/nexus,*` (RFC-0098 C2), and on QEMU is the only
   fw_cfg reader.
+  (implemented 2026-09-25, TASK-0246B P1: the SDHCI core in PIO, reading and writing the BSB;
+  the boot disk is the first candidate — virtio, SD hosts in the tree, SD hosts behind PCI —
+  carrying a valid BSB, and its record goes to `/chosen/nexus,boot-disk`)
 - `nx image` builds ONE image for QEMU and the board: the boot-ROM head (`bootinfo`, `fsbl`,
   `env` placeholder, `opensbi`, the FIT) prepended to the layout SSOT's volumes; `fastboot`
   writes it partition by partition.

@@ -40,8 +40,11 @@ At a high level the stack looks like:
      is a device source too: init plans its root bus with `nexus-pci` (the
      planner nxboot shares), every BAR on pages of its own, INTx routed, bus
      mastering left to the grant (`init: devices from pci ok (…)`, TASK-0246 P3).
-   - The disk is the medium the boot came from: nxboot records the transport it
-     read the volume from in `/chosen/nexus,boot-disk` (a node path, or
+   - The disk is the medium the boot came from: nxboot takes the first candidate
+     — virtio block transports, SD hosts in the tree, SD hosts behind each ECAM
+     host (planned with the planner init runs) — that carries a valid BSB, reads
+     and writes it through the virtio reader or the SDHCI core in PIO
+     (TASK-0246B), and records it in `/chosen/nexus,boot-disk` (a node path, or
      `<ECAM host>/mmc@<dev>,<func>` for an SD host behind PCI); init resolves
      that record to the ONE grant `blkd` gets, asked for the kind's class, and
      makes it while only policyd runs, so `blkd` starts with its disk in place

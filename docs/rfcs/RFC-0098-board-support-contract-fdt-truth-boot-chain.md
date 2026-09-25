@@ -354,6 +354,16 @@ the power domain, resets, clocks and pads on the board — and, for the K1 layer
 clock's rate, the base clock the host's capability register does not name. A function behind
 PCI has no node of its own and asks nothing.
 
+**Implemented 2026-09-25 (TASK-0246B P1): the loader's reader.** nxboot finds the boot disk by
+one rule — candidates in a fixed order (virtio block transports by address, SD hosts in the tree
+that may hold an eMMC by address, SD hosts behind each ECAM host in the planner's order), the
+first that opens and carries a valid BSB wins, every one skipped is named — and reads and writes
+it through the same SDHCI core the OS runs, in PIO (`Card::read_pio`, `Card::write_pio`: the A/B
+trial writes the BSB before the load), initialising the card itself. It plans QEMU's ECAM host
+with the planner init runs (`nexus-pci`), so both stages see one assignment, and records the
+disk (`/soc/pci@30000000/mmc@1,0` on QEMU). A manual QEMU boot with only `sdhci-pci` + `emmc`
+reaches the whole storage stack over the SDHCI backend; the lane is TASK-0246 P5.
+
 ### C6 — Boot chain (Phase 4, ADR-0066)
 
 Boot ROM → vendor SPL (DDR) → OpenSBI (`fw_dynamic`) → **nxboot** as the FIT's `uboot`-slot

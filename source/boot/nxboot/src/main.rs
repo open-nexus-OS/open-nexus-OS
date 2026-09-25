@@ -3,7 +3,7 @@
 
 //! CONTEXT: nxboot binary shell (TASK-0289 Phase A). On the bare-metal
 //! riscv target this is the complete first-stage loader: tree + console +
-//! kernel window (RFC-0098) → virtio probe →
+//! kernel window (RFC-0098) → the boot disk (virtio or SDHCI, `probe`) →
 //! `flow::run` (BSB → select/actuate → GPT → NXBD verify → digest →
 //! fallback) → measured handoff page → icache-fenced jump. Every terminal
 //! failure prints a deterministic `nxboot: PANIC (...)` marker and SBI-
@@ -28,6 +28,8 @@ mod arch;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod platform;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod probe;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod virtio;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -41,7 +43,6 @@ mod boot {
     use nxboot::flow::{self, Event, FlowError, Reason};
 
     use crate::arch;
-    use crate::virtio::VirtioDisk;
 
     fn slot_ch(slot: Slot) -> char {
         match slot {
@@ -109,9 +110,12 @@ mod boot {
         let Some((base, len)) = crate::platform::kernel_window(&tree) else {
             panic_reset("no kernel window in the first memory bank");
         };
-        let Some(mut disk) = VirtioDisk::probe(crate::platform::virtio_mmio_bases(&tree)) else {
-            panic_reset("no virtio-blk transport");
+        // RFC-0098 C5 (TASK-0246B): the boot disk is the first candidate — virtio, the SD hosts
+        // in the tree, the SD hosts behind PCI — that carries a valid BSB; its record names it.
+        let Some((mut disk, record_buf, record_len)) = crate::probe::find(&tree) else {
+            panic_reset("no boot disk");
         };
+        let boot_disk = core::str::from_utf8(&record_buf[..record_len]).unwrap_or("?");
         let dest = arch::load_region(base, len);
         match flow::run(&mut disk, dest, &mut |e| emit(&e)) {
             Ok(loaded) => {
@@ -127,13 +131,7 @@ mod boot {
                 // record (ADR-0059 v1 bytes) and, on QEMU, the lane's fw_cfg knobs
                 // re-expressed there (the kernel never reads fw_cfg).
                 let record = bootfmt::handoff::encode_record(&handoff);
-                // RFC-0098 C5 (TASK-0246 P4b): the disk the volume was just read from.
-                let mut path = [0u8; storage::boot_disk::MAX_RECORD];
-                let Some(boot_disk) =
-                    crate::platform::boot_disk_record(&tree, disk.base(), &mut path)
-                else {
-                    panic_reset("boot disk not in the tree");
-                };
+                // RFC-0098 C5: the record of the disk the volume was just read from.
                 let dtb =
                     crate::platform::prepare_dtb(&tree, slot_ch(loaded.slot), &record, boot_disk);
                 // RFC-0098 C6: the image is position-independent; it runs where

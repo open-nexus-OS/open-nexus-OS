@@ -4,7 +4,8 @@
 //! CONTEXT: nxboot's own minimal POLLING virtio-blk reader (RFC-0089 §7;
 //! ADR-0059 frozen scope). The userspace driver stack is syscall-bound and
 //! not reusable pre-OS, so the loader speaks the transport directly:
-//! probe the transports the device tree lists, bring up ONE 8-entry queue (modern
+//! open a block transport the device tree lists (the boot-disk rule, `probe.rs`, picks which),
+//! bring up ONE 8-entry queue (modern
 //! transport ONLY — the harness runs force-legacy=off; a legacy window is
 //! named loudly and refused, never half-driven), submit
 //! 3-descriptor chains and poll the used ring with a bounded spin (wait-
@@ -90,35 +91,21 @@ pub struct VirtioDisk {
 }
 
 impl VirtioDisk {
-    /// Probes the `virtio,mmio` transports the device tree lists for the
-    /// boot disk — the lowest-addressed blk device, the one the launcher
-    /// attaches first — and brings its queue up. `None` = no disk — terminal.
-    pub fn probe(bases: impl Iterator<Item = usize>) -> Option<Self> {
-        let mut disk: Option<usize> = None;
-        for base in bases {
-            if arch::mmio_read32(base + REG_MAGIC) != VIRTIO_MAGIC
-                || arch::mmio_read32(base + REG_DEVICE_ID) != DEVICE_ID_BLK
-            {
-                continue;
-            }
-            disk = Some(disk.map_or(base, |d| d.min(base)));
-        }
-        let base = disk?;
-        if arch::mmio_read32(base + REG_VERSION) != VERSION_MODERN {
-            // The harness runs virtio-mmio modern (qemu-launcher sets
-            // force-legacy=off); a legacy transport is a misconfiguration,
-            // named loudly instead of half-driven.
-            arch::uart_puts(
-                "nxboot: legacy virtio-mmio unsupported (boot with force-legacy=off)\n",
-            );
-            return None;
-        }
-        Self::init(base)
+    /// True when the transport at `base` carries a block device (the boot-disk candidates are
+    /// block transports only — the rule never opens a net or input device).
+    pub fn is_block(base: usize) -> bool {
+        arch::mmio_read32(base + REG_MAGIC) == VIRTIO_MAGIC
+            && arch::mmio_read32(base + REG_DEVICE_ID) == DEVICE_ID_BLK
     }
 
-    /// The transport's register window (the boot disk's record names the node that lists it).
-    pub fn base(&self) -> usize {
-        self.base
+    /// The block transport at `base` with its queue up; why not, named.
+    pub fn open(base: usize) -> Result<Self, &'static str> {
+        if arch::mmio_read32(base + REG_VERSION) != VERSION_MODERN {
+            // The harness runs virtio-mmio modern (qemu-launcher sets force-legacy=off); a legacy
+            // transport is a misconfiguration, named instead of half-driven.
+            return Err("legacy virtio-mmio (boot with force-legacy=off)");
+        }
+        Self::init(base).ok_or("queue setup")
     }
 
     fn init(base: usize) -> Option<Self> {

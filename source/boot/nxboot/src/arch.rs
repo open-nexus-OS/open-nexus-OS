@@ -165,6 +165,14 @@ pub fn system_reset() -> ! {
     }
 }
 
+/// The hart's `time` CSR: ticks at the tree's timebase (the loader's only clock — the SDHCI
+/// reader's bounded waits, TASK-0246B).
+pub fn time_ticks() -> u64 {
+    let ticks: u64;
+    unsafe { core::arch::asm!("rdtime {}", out(reg) ticks) };
+    ticks
+}
+
 // ---- volatile accessors (the virtio module's only path to raw memory) ----
 
 pub fn mmio_read32(addr: usize) -> u32 {

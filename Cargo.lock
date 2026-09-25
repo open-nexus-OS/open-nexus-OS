@@ -3011,9 +3011,13 @@ version = "0.1.0"
 dependencies = [
  "bootfmt",
  "nexus-fdt",
+ "nexus-hal",
+ "nexus-pci",
  "sbi-rt",
  "sha2",
  "storage",
+ "storage-sdhci",
+ "storage-sdhci-model",
 ]
 
 [[package]]

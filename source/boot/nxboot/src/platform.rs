@@ -132,24 +132,6 @@ fn align_up(v: usize, align: usize) -> Option<usize> {
     v.checked_add(align - 1).map(|x| x & !(align - 1))
 }
 
-/// The MMIO bases of every `virtio,mmio` transport the tree lists, for the
-/// disk probe (RFC-0098 C1: devices by compatible, never by a window scan).
-pub fn virtio_mmio_bases(t: &Tree) -> impl Iterator<Item = usize> + '_ {
-    t.fdt
-        .find_compatible(&["virtio,mmio"])
-        .filter_map(|n| n.reg(0).ok().flatten())
-        .filter_map(|r| usize::try_from(r.addr).ok())
-}
-
-/// The boot disk's record (RFC-0098 C5): the path of the node that lists the transport whose
-/// window the boot volume was read from, written into `out`.
-pub fn boot_disk_record<'b>(t: &Tree, window: usize, out: &'b mut [u8]) -> Option<&'b str> {
-    use storage::boot_disk::{node_at_window, record_for_node, Place};
-    let disk = node_at_window(&t.fdt, u64::try_from(window).ok()?)?;
-    let Place::Node(node) = disk.place else { return None };
-    record_for_node(&node, out)
-}
-
 /// Copy the tree, write `/chosen/nexus,*` (the slot, the measured record, the boot disk and
 /// the QEMU lane knobs), return the copy's address for `a1`.
 pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8], boot_disk: &str) -> usize {
