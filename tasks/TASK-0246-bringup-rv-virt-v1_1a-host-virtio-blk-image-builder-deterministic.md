@@ -1,6 +1,6 @@
 ---
 title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: In Progress (P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4c next — socd before the disk grant; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+status: In Progress (P4c done 2026-09-25 — socd in the core plane before the disk grant, on declared slots; blkd brings its node up (and on the K1 learns its `io` clock) before touching the controller; P4 complete; 0246B next — nxboot's SDHCI reader; P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 owner: @runtime @kernel-team
 created: 2025-12-29
 updated: 2026-09-25
@@ -248,7 +248,7 @@ TASK-0248's decision).
   2026-09-25** (below); **P4b** the
   boot disk from `/chosen`, the backend chosen by the granted device, the SDHCI backend and the
   SD host's grant with bus mastering; **P4c** socd in the core plane before the disk grant and
-  `blkd` asking it for its node — **P4b done 2026-09-25** (below). The package as first written: rename (crate, service, topology ids/specs/slots/routes, init planes,
+  `blkd` asking it for its node — **P4b and P4c done 2026-09-25** (below). The package as first written: rename (crate, service, topology ids/specs/slots/routes, init planes,
   supervision, policy, markers, scripts, docs) with the old-name gate; the driver crates take
   their slots from the owner (no service's slot name inside a driver); backend selection by the
   granted device; `/chosen/nexus,boot-disk` written by nxboot and honoured by init; the
@@ -331,6 +331,31 @@ TASK-0248's decision).
   an unnecessary closure in `storage/src/remote_blk.rs`, and `nexus-abi` has casts to the same
   type under the RISC-V cfg (P1). The new P4b code passes it (`storage-sdhci`, `blkd` — both
   backend devices boxed after its `large_enum_variant`); an OS-clippy gate is its own package.
+- **P4c done 2026-09-25 — the node before the controller.** socd (RFC-0106) runs in the core
+  plane before the disk is granted: its server pair is minted there, its tree alias and provider
+  windows are granted there, and it is resumed between policyd and blkd (wave 0 is now three
+  steps). It asks init for nothing any more — its own server is its declared pair and its
+  `soc.glue` check goes over its declared policyd route and reply inbox (`check_cap_on`) — so it
+  serves while init's responder does not answer yet; the route asks it made before would have
+  deadlocked there. The core plane pins socd's and blkd's declared legs from the endpoints that
+  exist then (`declared_routes::wire_declared_legs` over a `LegEndpoints` lookup, idempotent: the
+  later generic run keeps them and adds socd's logd leg). `blkd` gained a reply inbox and a
+  route to socd (`slots::blkd::{REPLY, SOCD}`, high slots pinned before it runs, clear of its
+  virtqueue VMOs; `REQUIRED_ROUTES` names the edge) and, before it opens the backend, asks socd to bring the recorded disk's node
+  up (`blkd::backend` now names the node; none for a function behind PCI) and, for the K1 layer,
+  for the `io` clock's rate — the base clock the host's capability register does not name. The
+  exchange is the ONE socd client, `nexus_ipc::socd` (`bring_up`, `clock_rate`); the harness's
+  private copy is gone. `blkd: backend ok (kind=… soc=… record=…)` carries socd's verdict, and
+  the block-plane ladders require `soc=not-needed` on QEMU. Proof: host — `blkd` backend 5 (the node named, none behind PCI) +
+  gate 3, `nexus-service-topology` 11, `nexus-init` 53 (its cross-SSOT test caught the new edge
+  missing from `REQUIRED_ROUTES` on the first run); `just check` green; `build-os-workspace` 0
+  warnings; `ci-os-smp1` and `ci-os-visible` green (desktop 14.67 %); `just test-all` green
+  (EXIT=0, 11 QEMU lanes; in all 18 boots that reach init socd is ready before the disk grant
+  and `blkd: backend ok (kind=virtio-blk soc=not-needed …)` follows its bring-up, no disk or pin
+  FAIL).
+- **Found in P4c.** RFC-0106's security floor names a per-class capability
+  (`soc.glue.<class>`); socd still checks the one `soc.glue`, so any holder may bring any node
+  up — the first real consumer (this one) makes the gap concrete; RFC-0106 Phase 2 records it.
 - **TASK-0246B nxboot readers** — between P4 and P5 (the QEMU lane boots through it).
 - **P5 `ci-os-sdhci`** — the launcher profile and the lane in `test-all`; the system volume
   mounted over the SDHCI backend; the proof of the standard core.

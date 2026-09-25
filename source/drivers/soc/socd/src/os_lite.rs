@@ -4,6 +4,9 @@
 //! The service loop (OS target): map the tree alias and every provider window
 //! init granted (by kind), announce what the tree holds, then serve requests —
 //! policy first (`soc.glue` of the kernel-attributed sender), then the verdict.
+//! Every slot is declared and pinned before socd runs (TASK-0246 P4c): it serves the
+//! block owner during the core plane, while init's responder does not answer yet, so
+//! it asks init for nothing — not its own server, not its route to policyd.
 
 extern crate alloc;
 
@@ -11,7 +14,6 @@ use alloc::format;
 
 use nexus_abi::yield_;
 use nexus_fdt::Fdt;
-use nexus_ipc::budget::{route_with_nonce, NonceMismatchBudget, RouteRetryOutcome};
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_service_topology::{slots, SYSCON_MMIO_SLOTS};
 use nexus_soc::{Provider, ProviderKind, Providers};
@@ -62,17 +64,24 @@ fn map_providers(tree: Option<&Fdt<'_>>) -> Providers {
     providers
 }
 
-fn route_server() -> Option<KernelServer> {
-    match route_with_nonce(b"socd", NonceMismatchBudget::new(64)) {
-        RouteRetryOutcome::Success { send_slot, recv_slot } => {
-            KernelServer::new_with_slots(recv_slot, send_slot).ok()
-        }
-        _ => None,
-    }
+/// socd's server on the slots init pins for it — the only source (no route ask: the core
+/// plane runs before init's responder answers).
+fn declared_server() -> Option<KernelServer> {
+    let pair = slots::socd::SERVER;
+    KernelServer::new_with_slots(pair.recv, pair.send).ok()
 }
 
+/// policyd's verdict on `soc.glue` for the requester, over socd's declared route and reply
+/// inbox; anything but an allow — including an unreachable authority — is a denial.
 fn access_of(sender_service_id: u64) -> Access {
-    match nexus_ipc::policyd::check_cap_delegated(sender_service_id, CAP_SOC_GLUE) {
+    let decision = nexus_ipc::policyd::check_cap_on(
+        slots::socd::POLICYD.send,
+        slots::socd::REPLY.send,
+        slots::socd::REPLY.recv,
+        sender_service_id,
+        CAP_SOC_GLUE,
+    );
+    match decision {
         nexus_ipc::policyd::CapDecision::Allow => Access::Allowed,
         _ => Access::Denied,
     }
@@ -91,7 +100,7 @@ pub fn service_main_loop() -> Result<()> {
             nexus_service_entry::ready(&format!("socd: ready (providers={})", providers.count()));
     }
 
-    let server = route_server().ok_or("route failed")?;
+    let server = declared_server().ok_or("server slots missing")?;
     nexus_abi::service_verdict_flush("socd");
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];

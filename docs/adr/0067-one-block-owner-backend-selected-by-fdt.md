@@ -36,7 +36,9 @@ or the same owner with a second backend.
   the backend is chosen from the loader's `/chosen/nexus,boot-disk` record, which `blkd` reads
   from its read-only tree and checks against the window it was granted; a PCI SD host is named
   `<host>/mmc@<dev>,<func>`; the classes are `device.mmio.blk` and `device.mmio.mmc`, and
-  `blkd` is their only holder.)
+  `blkd` is their only holder. Implemented 2026-09-25, P4c: socd runs before the disk is
+  granted, and `blkd` has it bring the disk's node up — and name the K1's `io` clock rate —
+  before it touches the controller.)
 - The SDHCI backend lives in `source/drivers/storage/sdhci` over `nexus_hal::Bus`, ADMA2 from
   the start (the stock system proves the host does it), with `DmaBuffer` cache maintenance
   because the master is not coherent (RFC-0098 C4). It serves eMMC and SD; SDIO (the WiFi

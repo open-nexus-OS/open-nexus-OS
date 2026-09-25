@@ -297,6 +297,7 @@ dependencies = [
  "nexus-pci",
  "nexus-service-entry",
  "nexus-service-topology",
+ "nexus-wire",
  "storage",
  "storage-sdhci",
 ]
@@ -2212,6 +2213,7 @@ dependencies = [
  "nexus-abi",
  "nexus-service-topology",
  "nexus-sync",
+ "nexus-wire",
 ]
 
 [[package]]

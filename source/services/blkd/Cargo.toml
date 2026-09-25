@@ -31,3 +31,5 @@ nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"] }
 storage = { path = "../../../userspace/storage", default-features = false, features = ["os-lite"] }
+# TASK-0246 P4c: socd's verdicts (`nexus_wire::soc`) on the disk's node.
+nexus-wire = { path = "../../libs/nexus-wire" }

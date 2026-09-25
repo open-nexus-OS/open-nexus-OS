@@ -13,7 +13,7 @@
 
 - **Phase 0 (paper + measurement, the table with provenance)**: ✅ 2026-09-22 — TASK-0245B P0
 - **Phase 1 (`nexus-soc` library, tree bindings, specifier resolution)**: ✅ 2026-09-22 — TASK-0245B P1 (host-proven against the measured APMU state)
-- **Phase 2 (`socd`, protocol, policy class, init grants, first consumer)**: 🟨 — socd + protocol + policy + init grants ✅ 2026-09-22 (TASK-0245B P2, QEMU: `socd: ready (no soc glue in this tree)`, `SELFTEST: soc glue not needed ok` in every profile); the first real consumer is TASK-0246's SDHCI on the board
+- **Phase 2 (`socd`, protocol, policy class, init grants, first consumer)**: 🟨 — socd + protocol + policy + init grants ✅ 2026-09-22 (TASK-0245B P2, QEMU: `socd: ready (no soc glue in this tree)`, `SELFTEST: soc glue not needed ok` in every profile); TASK-0246 P4c (2026-09-25): socd runs in the core plane on declared slots (no route ask — it serves before init's responder does), the block owner asks it through the shared client `nexus_ipc::socd` to bring the disk's node up before touching the controller and, on the K1, for the `io` clock's rate (QEMU: `blkd: backend ok (… soc=not-needed …)` in every boot); the board's eMMC is the first `ok` (TASK-0246 P6). Open: the per-class floor below (`soc.glue.<class>`) is still the one `soc.glue` capability
 - **Phase 3 (power domains, display/USB/GPU sets)**: ⬜ — TASK-0245B P3 with TASK-0251/0328/0329
 
 Definition: "Complete" = the contract below is implemented and the proof gates are green on

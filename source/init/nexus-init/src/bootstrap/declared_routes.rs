@@ -5,7 +5,10 @@
 //! its CAP_MOVE reply inbox and every `routes_to` entry, each pinned into the slot the topology
 //! declares and recorded for the route responder. The generic wiring arm runs it for every
 //! server it provisions; the pre-resume pass runs it for the proof harness, which runs from
-//! wave 1 on and must hold its legs before it first runs (RFC-0093 §4).
+//! wave 1 on and must hold its legs before it first runs (RFC-0093 §4); the core plane runs it
+//! for socd and blkd before they run (TASK-0246 P4c), with the few endpoints that exist then.
+//! Idempotent: a leg already pinned is kept, so a later run only adds what was missing (socd's
+//! logd leg, whose endpoint does not exist during the core plane).
 //! OWNERS: @runtime
 //! STATUS: Production (TASK-0324 P4)
 //! API_STABILITY: Internal
@@ -19,19 +22,44 @@ use crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT;
 use crate::service_topology::{RouteKind, ServiceId, ServiceSpec};
 use nexus_abi::Rights;
 
+/// The endpoints a leg is pinned from: the whole bundle once bootstrap minted it, or the few
+/// the core plane holds before that.
+pub(crate) trait LegEndpoints {
+    /// A reply inbox bootstrap minted for `id` ahead of time (none: a fresh one is made).
+    fn minted_reply_ep(&self, id: ServiceId) -> Option<u32>;
+    /// The server pair of `id` (request, response).
+    fn server_pair(&self, id: ServiceId) -> Option<(u32, u32)>;
+    /// The request endpoint `from` sends on over a `ReplyInbox` route to `to`.
+    fn request_ep(&self, from: ServiceId, to: ServiceId) -> Option<u32>;
+}
+
+impl LegEndpoints for Endpoints {
+    fn minted_reply_ep(&self, id: ServiceId) -> Option<u32> {
+        Endpoints::minted_reply_ep(self, id)
+    }
+    fn server_pair(&self, id: ServiceId) -> Option<(u32, u32)> {
+        Endpoints::server_pair(self, id)
+    }
+    fn request_ep(&self, from: ServiceId, to: ServiceId) -> Option<u32> {
+        Endpoints::request_ep(self, from, to)
+    }
+}
+
 /// Pins `spec`'s reply inbox and outbound routes into `pid` and records them on `chan`.
 /// Best-effort: a leg whose pin fails is reported by the pin and left unwired, never bricks boot.
+/// A leg `chan` already records is kept; a target `eps` does not know yet is left for a later
+/// run.
 pub(crate) fn wire_declared_legs(
     pid: u32,
     spec: &ServiceSpec,
-    eps: &Endpoints,
+    eps: &impl LegEndpoints,
     chan: &mut CtrlChannel,
 ) {
     let name = chan.svc_name;
     // CAP_MOVE reply inbox: PRE-MINTED when bootstrap made one, freshly created otherwise. Same
-    // lifecycle either way: pin RECV+SEND, close the init-side slot.
-    let mut reply_recv_opt: Option<u32> = None;
-    if spec.reply_inbox {
+    // lifecycle either way: pin RECV+SEND, close the init-side slot. One pinned earlier stays.
+    let mut reply_recv_opt: Option<u32> = chan.reply_recv_slot;
+    if spec.reply_inbox && reply_recv_opt.is_none() {
         let inbox_ep = eps
             .minted_reply_ep(spec.id)
             .or_else(|| nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8).ok());
@@ -46,6 +74,10 @@ pub(crate) fn wire_declared_legs(
         }
     }
     for route in spec.routes_to {
+        // Pinned by an earlier run (the core plane): kept.
+        if chan.send(route.to).is_some() {
+            continue;
+        }
         match route.kind {
             // Replies arrive on the TARGET's pre-minted response endpoint, shared directly
             // (vfsd → packagefsd).

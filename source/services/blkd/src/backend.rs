@@ -8,13 +8,41 @@
 //! transport runs the virtio-blk backend; an SD host runs the SDHCI core with the
 //! configuration its node gives (`storage::sdhci::host_config`). Without a record (a
 //! direct-kernel dev boot, where init granted the lowest virtio disk) the disk node at the
-//! granted window stands in. Pure: the tree and the window are the only inputs.
+//! granted window stands in. The selection names the node the owner asks socd to bring up
+//! before it touches the controller (TASK-0246 P4c) — none for a function behind PCI, which
+//! has no node of its own. Pure: the tree and the window are the only inputs.
 //! OWNERS: @runtime
 
-use nexus_fdt::Fdt;
+use nexus_fdt::{Fdt, Node};
 use nexus_pci::{PciHost, WindowKind};
-use storage::boot_disk::{self, BootDisk, Kind, Place, Reject};
+use storage::boot_disk::{self, BootDisk, Kind, Place, Reject, MAX_RECORD};
 use storage_sdhci::HostConfig;
+
+/// A node's path, held by value: the owner sends it to socd.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct NodePath {
+    buf: [u8; MAX_RECORD],
+    len: usize,
+}
+
+impl NodePath {
+    fn of(node: &Node<'_>) -> Option<Self> {
+        let mut buf = [0u8; MAX_RECORD];
+        let len = node.path_into(&mut buf)?.len();
+        Some(Self { buf, len })
+    }
+
+    /// The path.
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
+    }
+}
+
+impl core::fmt::Debug for NodePath {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// The backend a disk needs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +62,8 @@ pub struct Selected {
     pub backend: Backend,
     /// The loader recorded it (false: the direct-kernel stand-in).
     pub recorded: bool,
+    /// The node the device is (socd brings it up); none for a function behind PCI.
+    pub node: Option<NodePath>,
 }
 
 /// Why the owner refuses the device it was granted.
@@ -74,7 +104,12 @@ pub fn select(fdt: &Fdt<'_>, window: u64) -> Result<Selected, Refusal> {
             Backend::Sdhci(storage::sdhci::host_config(&disk).ok_or(Refusal::HostConfig)?)
         }
     };
-    Ok(Selected { kind: disk.kind, backend, recorded })
+    let node = match disk.place {
+        // A node whose path does not fit a record could not have been recorded either.
+        Place::Node(node) => Some(NodePath::of(&node).ok_or(Refusal::Record(Reject::TooLong))?),
+        Place::Pci { .. } => None,
+    };
+    Ok(Selected { kind: disk.kind, backend, recorded, node })
 }
 
 /// The granted window is the disk's: a node's first register window, or inside a memory

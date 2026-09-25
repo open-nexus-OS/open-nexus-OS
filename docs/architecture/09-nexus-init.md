@@ -43,10 +43,16 @@ bundlemgrd verified against the volume index. That fixes the boot shape:
 
 1. **Embedded spawn** — every service still in init's table is `exec_v2`'d
    suspended (`init: start/up <svc>`), then `init: ready`.
-2. **Wave 0 — the CORE plane** (`core_plane.rs`): policyd, blkd and
+2. **Wave 0 — the CORE plane** (`core_plane.rs`): policyd, socd, blkd and
    bundlemgrd get their server pairs + control channels and are the ONLY
-   services resumed, in two steps (TASK-0246 P4b): policyd first and alone,
-   then — after the disk grant — blkd and bundlemgrd. The grant is the disk the
+   services resumed, in three steps (TASK-0246 P4b/P4c): policyd first and
+   alone; then socd, once the tree alias and its provider windows are granted
+   (its route to policyd and its reply inbox are pinned before it runs — it
+   serves before init's responder does, so it asks init for nothing); then —
+   after the disk grant — blkd, which has socd bring its disk's node up before
+   it touches the controller, and bundlemgrd. socd's and blkd's declared legs
+   are pinned from the core plane's endpoints (`declared_routes`, idempotent:
+   the later generic run adds only socd's logd leg). The grant is the disk the
    loader recorded in `/chosen/nexus,boot-disk` (`bootstrap/boot_disk.rs`),
    asked for its kind's class (`device.mmio.blk` / `device.mmio.mmc`), with the
    read-only tree pinned into blkd's `NamedSlot::DeviceTree` and, for an SD

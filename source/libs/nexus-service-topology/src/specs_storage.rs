@@ -13,7 +13,7 @@ use crate::routes::Route;
 use crate::routes::RouteKind;
 use crate::specs::ServiceSpec;
 use crate::Stage;
-use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId, SlotPair};
+use crate::{slots, NamedSlot, NamedSlotBinding, ServiceId};
 
 /// The declaration of `keystored`.
 pub(crate) const KEYSTORED: ServiceSpec = ServiceSpec {
@@ -97,19 +97,24 @@ pub(crate) const STATEFSD: ServiceSpec = ServiceSpec {
     extra_slots: &[],
 };
 
-// TASK-0315: the block-plane owner (TASK-0246: `blkd`, whatever its backend). It makes no
-// outbound call, so it holds no reply inbox; its interrupt wake is the named IRQ-notify slot,
-// and the read-only tree (P4b) holds the loader's record of the disk it was granted.
+// TASK-0315: the block-plane owner (TASK-0246: `blkd`, whatever its backend). Its one outbound
+// call is socd's bring-up of the disk's node (P4c), answered on its own inbox; its interrupt
+// wake is the named IRQ-notify slot, and the read-only tree (P4b) holds the loader's record of
+// the disk it was granted.
 /// The declaration of `blkd`.
 pub(crate) const BLKD: ServiceSpec = ServiceSpec {
     id: ServiceId::Blkd,
     stage: Stage::Platform,
     exposes_server: true,
-    reply_inbox: false,
-    routes_to: &[],
+    reply_inbox: true,
+    routes_to: &[Route {
+        to: ServiceId::Socd,
+        kind: RouteKind::ReplyInbox,
+        slots: slots::blkd::SOCD,
+    }],
     announce: true,
     server_slots: slots::blkd::SERVER,
-    reply_slots: SlotPair::UNDECLARED,
+    reply_slots: slots::blkd::REPLY,
     extra_slots: &[
         NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::blkd::IRQ_NOTIFY },
         NamedSlotBinding { name: NamedSlot::DeviceWatchdogRecv, slot: slots::blkd::WATCHDOG.recv },

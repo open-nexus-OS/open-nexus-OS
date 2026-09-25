@@ -345,6 +345,15 @@ grant whose window is not the recorded disk's, and runs the backend the kind nee
 direct-kernel dev boot (no loader, no record) grants the lowest virtio disk and says so
 (`record=none`). The SDHCI backend's glue runs first in the P5 lane.
 
+**Implemented 2026-09-25 (TASK-0246 P4c): the node before the controller.** socd (RFC-0106)
+runs in the core plane before the disk is granted, on declared slots only — its server pair,
+its route to policyd and its reply inbox are pinned before it runs, so it serves while init's
+responder does not answer yet. `blkd` asks it (`nexus_ipc::socd`, its own declared route) to
+bring the recorded disk's node up before it touches the controller — `NOT_NEEDED` on QEMU virt,
+the power domain, resets, clocks and pads on the board — and, for the K1 layer, for the `io`
+clock's rate, the base clock the host's capability register does not name. A function behind
+PCI has no node of its own and asks nothing.
+
 ### C6 — Boot chain (Phase 4, ADR-0066)
 
 Boot ROM → vendor SPL (DDR) → OpenSBI (`fw_dynamic`) → **nxboot** as the FIT's `uboot`-slot

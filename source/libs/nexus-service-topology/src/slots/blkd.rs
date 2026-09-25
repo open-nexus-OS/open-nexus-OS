@@ -9,11 +9,16 @@
 
 use super::SlotPair;
 
-/// blkd's own server endpoint (block-plane clients send here). It holds NO reply
-/// inbox: the driver makes no outbound call, and the inbox init used to provision was
-/// never read — declaring it at 5/6 collided with the driver's own virtqueue VMOs, which it
-/// allocates at the lowest free slots because it runs before init wires it.
+/// blkd's own server endpoint (block-plane clients send here).
 pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+/// The CAP_MOVE reply inbox of its one outbound call — asking socd to bring its node up
+/// (TASK-0246 P4c). High slots on purpose: the virtio driver allocates its virtqueue VMOs at
+/// the lowest free slots, which is where an inbox at 5/6 once collided with them; init pins
+/// this one before blkd runs.
+pub const REPLY: SlotPair = SlotPair::new(0xF8, 0xF7);
+/// The route to socd (RFC-0106): `BRING_UP` of the disk's node before the controller is
+/// touched, and on the K1 the `io` clock's rate.
+pub const SOCD: SlotPair = SlotPair::new(0xF9, REPLY.recv);
 /// RECV half of the dedicated IRQ-completion notify endpoint. It used to sit at 0xF1 —
 /// the same number as every block-plane client's reply RECV, so a reader could not tell
 /// the driver's IRQ slot from a client's reply slot; 0xF3 extends the block-plane family

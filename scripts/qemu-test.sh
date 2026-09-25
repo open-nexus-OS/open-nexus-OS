@@ -742,8 +742,9 @@ expected_sequence=(
   # block IO; clients attach over IPC and the deny-by-default partition
   # gate is proven every boot. TASK-0246 P4a: the driver's completion
   # bound runs on the watchdog pair its owner hands in. P4b: the owner runs
-  # the backend of the disk the loader recorded (the record read back).
-  "blkd: backend ok (kind=virtio-blk record=/soc/virtio_mmio@"
+  # the backend of the disk the loader recorded (the record read back). P4c:
+  # socd answered the owner's bring-up of that node before the disk opened.
+  "blkd: backend ok (kind=virtio-blk soc=not-needed record=/soc/virtio_mmio@"
   "blkd: gpt ok (parts=7)"
   "blkd: irq endpoint bound"
   "blk: watchdog on"
@@ -1239,7 +1240,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 list ok"
       "SELFTEST: bundlemgrd volume ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
-      "blkd: backend ok (kind=virtio-blk record=/soc/virtio_mmio@"
+      "blkd: backend ok (kind=virtio-blk soc=not-needed record=/soc/virtio_mmio@"
       "blkd: gpt ok (parts=7)"
       "blkd: irq endpoint bound"
       "blk: watchdog on"

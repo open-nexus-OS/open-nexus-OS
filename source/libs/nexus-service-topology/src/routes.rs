@@ -50,13 +50,16 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks
     (ServiceId::Socd, ServiceId::Policyd), // `soc.glue` of the requester (RFC-0106)
     (ServiceId::Socd, ServiceId::Logd), // log sink (optional target)
+    // TASK-0246 P4c: the block owner has socd bring its disk's node up (and, on the K1, name
+    // the `io` clock's rate) before it touches the controller.
+    (ServiceId::Blkd, ServiceId::Socd),
     (ServiceId::Vfsd, ServiceId::Packagefsd), // pkg:/ metadata + reads (reply inbox)
     (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
-    (ServiceId::Samgrd, ServiceId::Logd), // structured logs via CAP_MOVE
+    (ServiceId::Samgrd, ServiceId::Logd),     // structured logs via CAP_MOVE
     (ServiceId::Statefsd, ServiceId::Policyd), // policy checks via CAP_MOVE
-    (ServiceId::Statefsd, ServiceId::Logd), // audit trail (TASK-0324 P4f-6)
+    (ServiceId::Statefsd, ServiceId::Logd),   // audit trail (TASK-0324 P4f-6)
     (ServiceId::Settingsd, ServiceId::Statefsd), // persist prefs (TASK-0072 Phase 8)
-    (ServiceId::Logd, ServiceId::Statefsd), // evidence spill (TASK-0049C, RFC-0087 §5)
+    (ServiceId::Logd, ServiceId::Statefsd),   // evidence spill (TASK-0049C, RFC-0087 §5)
     // TASK-0324 P4f-1b: bootctld's legs are DECLARED routes on fixed slots. bootctld never
     // resolves them (init's boot-attempt handshake runs before the responder serves) — a
     // declared route is a provisioned edge, not a promise to route through the responder.

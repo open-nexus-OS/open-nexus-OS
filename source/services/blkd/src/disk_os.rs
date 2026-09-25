@@ -6,8 +6,10 @@
 //! CONTEXT: blkd's disk (ADR-0067, TASK-0246 P4b): the device init granted before this task
 //! ran — in place, or not coming, so nothing here waits for it — driven by the backend its kind
 //! needs. The loader's boot-disk record in the tree names the disk and the granted window must
-//! be that disk's (`blkd::backend::select`); a virtio transport runs the virtio-blk driver, an
-//! SD host the SDHCI core (`storage::sdhci`). One line says what runs, or why nothing does.
+//! be that disk's (`blkd::backend::select`); socd brings the disk's node up before the
+//! controller is touched and, on the K1, names its `io` clock's rate (TASK-0246 P4c); a virtio
+//! transport runs the virtio-blk driver, an SD host the SDHCI core (`storage::sdhci`). One line
+//! says what runs, or why nothing does.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -20,15 +22,20 @@ use alloc::boxed::Box;
 use core::fmt::Write as _;
 
 use blkd::backend::{self, Backend};
-use nexus_service_topology::slots::blkd::{DEVICE_TREE, IRQ_NOTIFY, WATCHDOG};
+use nexus_service_topology::slots::blkd::{DEVICE_TREE, IRQ_NOTIFY, REPLY, SOCD, WATCHDOG};
+use nexus_wire::soc;
 use storage::boot_disk::{Kind, CHOSEN_KEY};
 use storage::sdhci::OsSdhciDevice;
 use storage::virtio_blk::VirtioBlkDevice;
 use storage::{BlockDevice, BlockError};
-use storage_sdhci::Mode;
+use storage_sdhci::{Layer, Mode};
 
 /// The slot the granted device's capability lands in.
 const MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
+/// The owner's two socd requests, one each: the reply inbox is its own, so a fixed nonce names
+/// each answer.
+const NONCE_BRING_UP: u32 = 1;
+const NONCE_CLOCK_RATE: u32 = 2;
 
 /// The disk, driven by the backend its kind needs. Either device lives on the heap, allocated
 /// once at attach (the SDHCI one carries the run tables of its DMA buffers).
@@ -122,10 +129,18 @@ pub(crate) fn open() -> Option<Disk> {
     };
     let record =
         tree.chosen().ok().and_then(|c| c.nexus_str(CHOSEN_KEY)).filter(|_| selected.recorded);
+    // RFC-0106: the disk's node up before the controller is touched — power domains, resets,
+    // clocks, pads; `not-needed` when the node names none (QEMU virt). A function behind PCI
+    // has no node of its own.
+    let soc = match selected.node {
+        Some(node) => soc_bring_up(node.as_str())?,
+        None => "none",
+    };
+    let facts = Facts { kind: selected.kind, soc, record };
     match selected.backend {
         Backend::VirtioBlk => match VirtioBlkDevice::new(MMIO_CAP_SLOT, WATCHDOG) {
             Ok(dev) => {
-                report(selected.kind, record, dev.block_count(), None);
+                report(&facts, dev.block_count(), None);
                 Some(Disk::Virtio(Box::new(dev)))
             }
             Err(_) => {
@@ -133,12 +148,16 @@ pub(crate) fn open() -> Option<Disk> {
                 None
             }
         },
-        Backend::Sdhci(config) => {
+        Backend::Sdhci(mut config) => {
+            if config.layer == Layer::K1 {
+                // The K1's capability register names no base clock: its `io` clock's rate.
+                config.base_clock_hz = Some(soc_io_clock(selected.node.as_ref())?);
+            }
             match storage::sdhci::open(MMIO_CAP_SLOT, IRQ_NOTIFY, WATCHDOG, config) {
-                Ok((dev, facts)) => {
+                Ok((dev, opened)) => {
                     let mode = dev.disk().map(|disk| disk.card().mode());
-                    report(selected.kind, record, dev.block_count(), Some((mode, facts.fallback)));
-                    Some(Disk::Sdhci { dev: Box::new(dev), irq_bound: facts.irq_bound })
+                    report(&facts, dev.block_count(), Some((mode, opened.fallback)));
+                    Some(Disk::Sdhci { dev: Box::new(dev), irq_bound: opened.irq_bound })
                 }
                 Err(error) => {
                     refused(format_args!("sdhci-open error={error:?}"));
@@ -149,16 +168,69 @@ pub(crate) fn open() -> Option<Disk> {
     }
 }
 
-/// `blkd: backend ok (kind=… record=… [mode=… bus=…] sectors=… [fallback=…])`.
-fn report(
+/// socd's verdict on the disk's node — `ok` or `not-needed`; anything else refuses the disk
+/// (one line says why).
+fn soc_bring_up(path: &str) -> Option<&'static str> {
+    match nexus_ipc::socd::bring_up(SOCD.send, REPLY, path, NONCE_BRING_UP) {
+        Ok(reply) if reply.status == soc::STATUS_OK => Some("ok"),
+        Ok(reply) if reply.status == soc::STATUS_NOT_NEEDED => Some("not-needed"),
+        Ok(reply) => {
+            refused(format_args!("soc-bring-up status={}", reply.status));
+            None
+        }
+        Err(error) => {
+            refused(format_args!("soc-bring-up error={error:?}"));
+            None
+        }
+    }
+}
+
+/// The rate of the node's `io` clock, from socd; none refuses the disk (one line says why).
+fn soc_io_clock(node: Option<&backend::NodePath>) -> Option<u32> {
+    let Some(node) = node else {
+        refused(format_args!("soc-clock no-node"));
+        return None;
+    };
+    match nexus_ipc::socd::clock_rate(SOCD.send, REPLY, node.as_str(), "io", NONCE_CLOCK_RATE) {
+        Ok((soc::STATUS_OK, hz)) if hz > 0 => match u32::try_from(hz) {
+            Ok(hz) => Some(hz),
+            Err(_) => {
+                refused(format_args!("soc-clock hz={hz}"));
+                None
+            }
+        },
+        Ok((status, _)) => {
+            refused(format_args!("soc-clock status={status}"));
+            None
+        }
+        Err(error) => {
+            refused(format_args!("soc-clock error={error:?}"));
+            None
+        }
+    }
+}
+
+/// What the marker says about every disk.
+struct Facts<'a> {
     kind: Kind,
-    record: Option<&str>,
+    soc: &'static str,
+    record: Option<&'a str>,
+}
+
+/// `blkd: backend ok (kind=… soc=… record=… [mode=… bus=…] sectors=… [fallback=…])`.
+fn report(
+    facts: &Facts<'_>,
     sectors: u64,
     sdhci: Option<(Option<Mode>, Option<storage_sdhci::Error>)>,
 ) {
     let mut line = Line::new();
-    let _ =
-        write!(line, "blkd: backend ok (kind={} record={}", kind.name(), record.unwrap_or("none"));
+    let _ = write!(
+        line,
+        "blkd: backend ok (kind={} soc={} record={}",
+        facts.kind.name(),
+        facts.soc,
+        facts.record.unwrap_or("none")
+    );
     if let Some((mode, fallback)) = sdhci {
         let (name, bus) = match mode {
             Some(Mode::Legacy { width }) => ("legacy", width),

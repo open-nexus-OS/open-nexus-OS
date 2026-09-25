@@ -52,6 +52,9 @@ pub(crate) struct CorePlane {
     pub bnd_rsp: u32,
     pub blk_req: u32,
     pub blk_rsp: u32,
+    /// socd's server pair (TASK-0246 P4c: minted here — blkd asks it before the volume pass).
+    pub soc_req: u32,
+    pub soc_rsp: u32,
     pub pol_ctl_route_req: u32,
     pub pol_ctl_exec_req: u32,
     /// The virtio transports the tree lists, classified (RFC-0098 C3).
@@ -98,6 +101,30 @@ fn mmio_policy_deny_probe(pol_route: (u32, u32)) -> Result<()> {
         }
         Some(true) => Err(InitError::Map("mmio policy deny unexpectedly allowed")),
         None => Err(InitError::Map("mmio policy deny unavailable")),
+    }
+}
+
+/// The endpoints that exist during the core plane — policyd's and socd's server pairs — for the
+/// legs of the services that talk before init's responder serves (TASK-0246 P4c: socd asks
+/// policyd, blkd asks socd).
+struct CoreEndpoints {
+    pol: (u32, u32),
+    soc: (u32, u32),
+}
+
+impl crate::bootstrap::declared_routes::LegEndpoints for CoreEndpoints {
+    fn minted_reply_ep(&self, _: ServiceId) -> Option<u32> {
+        None
+    }
+    fn server_pair(&self, id: ServiceId) -> Option<(u32, u32)> {
+        match id {
+            ServiceId::Policyd => Some(self.pol),
+            ServiceId::Socd => Some(self.soc),
+            _ => None,
+        }
+    }
+    fn request_ep(&self, _: ServiceId, to: ServiceId) -> Option<u32> {
+        self.server_pair(to).map(|(req, _)| req)
     }
 }
 
@@ -187,11 +214,18 @@ pub(crate) fn bring_up(
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
     let blk_rsp =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
+    // TASK-0246 P4c: the SoC glue owner's pair — its request endpoint socd's, its response
+    // endpoint the harness's (RFC-0106).
+    let socd_pid =
+        ctrls.iter().find(|c| c.svc_name == "socd").map(|c| c.pid).ok_or(InitError::MissingElf)?;
+    let soc_req = mint(socd_pid, 8)?;
+    let soc_rsp = mint(selftest_pid, 8)?;
 
-    // Server pairs (their declared slots) + block-plane wiring for the three CORE
+    // Server pairs (their declared slots) + block-plane wiring for the four CORE
     // services this stage talks to — the same pins the bulk distribution makes.
     for (name, id, req, rsp) in [
         ("policyd", ServiceId::Policyd, pol_req, pol_rsp),
+        ("socd", ServiceId::Socd, soc_req, soc_rsp),
         ("bundlemgrd", ServiceId::Bundlemgrd, bnd_req, bnd_rsp),
         ("blkd", ServiceId::Blkd, blk_req, blk_rsp),
     ] {
@@ -200,9 +234,22 @@ pub(crate) fn bring_up(
         }
     }
 
+    // TASK-0246 P4c: socd and blkd talk before init's responder serves — socd asks policyd
+    // whether a requester holds `soc.glue`, blkd asks socd to bring its disk's node up. Their
+    // declared legs are pinned now, from the endpoints that exist, before either runs (the later
+    // generic run keeps them and adds what was missing: socd's logd leg).
+    let core_eps = CoreEndpoints { pol: (pol_req, pol_rsp), soc: (soc_req, soc_rsp) };
+    for name in ["socd", "blkd"] {
+        let Some(spec) = crate::service_topology::spec_for(name.as_bytes()) else { continue };
+        if let Some(chan) = ctrls.iter_mut().find(|c| c.svc_name == name) {
+            let pid = chan.pid;
+            crate::bootstrap::declared_routes::wire_declared_legs(pid, spec, &core_eps, chan);
+        }
+    }
+
     // Private init-lite <-> policyd check channels: request endpoints are owned by policyd (it
     // receives the queries). Pinned where `slots::policyd` declares them, here in the core plane
-    // — BEFORE policyd runs (`resume_plane` below), so none of its own allocations can take them.
+    // — BEFORE policyd runs (`resume_authority` below), so none of its own allocations can take them.
     let pol_ctl_route_req = mint(policyd_pid, 8)?;
     let pol_ctl_exec_req = mint(policyd_pid, 8)?;
     {
@@ -249,6 +296,12 @@ pub(crate) fn bring_up(
     let pci = crate::bootstrap::pci::discover();
     crate::bootstrap::pci::report(&pci);
 
+    // RFC-0106 (TASK-0246 P4c): the SoC glue owner — the tree alias and every provider window —
+    // runs before the disk is granted: the disk's owner asks it to bring the disk's node up
+    // before it touches the controller.
+    crate::bootstrap::soc_glue::provision(socd_pid, stats, pol_route, init_wire, init_fold)?;
+    crate::bootstrap::resume::resume_soc_glue(ctrls);
+
     // The ONE grant the plane needs: the disk the boot came from → blkd (ADR-0044/0067: one
     // owner; every other client is a blockproto client). From here the block plane is live and
     // bundlemgrd can attach the measured volume.
@@ -279,6 +332,8 @@ pub(crate) fn bring_up(
         bnd_rsp,
         blk_req,
         blk_rsp,
+        soc_req,
+        soc_rsp,
         pol_ctl_route_req,
         pol_ctl_exec_req,
         devices,

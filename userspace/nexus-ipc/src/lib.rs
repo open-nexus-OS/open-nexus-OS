@@ -149,6 +149,10 @@ pub mod capabilities;
 /// Reusable policyd capability-check client (RFC-0066): one delegated cap check.
 pub mod policyd;
 
+/// The ONE socd client (RFC-0106, TASK-0246 P4c): `BRING_UP` and `CLOCK_RATE` over a declared
+/// route.
+pub mod socd;
+
 /// Typed circuit breaker for server recv loops (SMP robustness): #[must_use]
 /// verdict so die-on-error loops cannot be written silently.
 pub mod resilience;

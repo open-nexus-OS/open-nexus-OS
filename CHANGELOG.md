@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-25 (TASK-0246 P4c: socd before the disk; the block owner brings its node up)
+
+- socd runs in the core plane before the disk is granted (wave 0: policyd, socd, then blkd and
+  bundlemgrd), on declared slots only: its server pair, its policyd route and its reply inbox
+  are pinned before it runs, so it serves while init's responder does not answer yet.
+- `blkd` has socd bring the recorded disk's node up before it touches the controller and, on
+  the K1, name the `io` clock's rate (the SDHCI base clock). `blkd: backend ok (kind=… soc=…
+  record=…)` carries the verdict; the block-plane ladders require `soc=not-needed` on QEMU.
+- `nexus_ipc::socd` is the one socd client (`bring_up`, `clock_rate`); the harness uses it.
+- init's `wire_declared_legs` takes a small endpoint lookup and is idempotent, so the core plane
+  pins socd's and blkd's legs early and the generic run adds only what was missing.
+- Proof: host tests (`blkd` 8, topology 11, `nexus-init` 53); `just check`
+  green; smp1 and visible green; `just test-all` green (EXIT=0, 11 lanes; socd ready before the
+  disk grant and `soc=not-needed` in all 18 boots that reach init).
+
 ### Added - 2026-09-25 (TASK-0246 P4b: the boot disk from the loader's record)
 
 - nxboot records the medium the boot came from in `/chosen/nexus,boot-disk`: a node path, or

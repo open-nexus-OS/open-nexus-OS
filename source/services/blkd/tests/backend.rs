@@ -33,13 +33,23 @@ fn every_kind_selects_its_backend() {
         (Kind::VirtioBlk, Backend::VirtioBlk, true)
     );
     // QEMU's SD host behind PCI: its BAR sits in the host's 32-bit memory window.
+    assert_eq!(
+        virtio.node.map(|n| n.as_str().to_string()).as_deref(),
+        Some("/soc/virtio_mmio@10008000")
+    );
     let pci = select(VIRT, Some("/soc/pci@30000000/mmc@1,0"), 0x4000_0000).unwrap();
     let Backend::Sdhci(config) = pci.backend else { panic!("{pci:?}") };
     assert_eq!((pci.kind, config.layer, config.bus_width), (Kind::SdhciPci, Layer::Standard, 8));
+    // A function behind PCI has no node of its own to bring up.
+    assert_eq!(pci.node, None);
     // The board's eMMC: the K1 layer, its node's 8 bits.
     let emmc = select(BOARD, Some("/soc/storage-bus/mmc@d4281000"), 0xd428_1000).unwrap();
     let Backend::Sdhci(config) = emmc.backend else { panic!("{emmc:?}") };
     assert_eq!((emmc.kind, config.layer, config.bus_width), (Kind::SdhciK1, Layer::K1, 8));
+    assert_eq!(
+        emmc.node.map(|n| n.as_str().to_string()).as_deref(),
+        Some("/soc/storage-bus/mmc@d4281000")
+    );
 }
 
 #[test]
@@ -86,6 +96,10 @@ fn test_reject_an_sd_host_its_node_cannot_configure() {
 fn without_a_record_only_a_disk_node_at_the_window_stands_in() {
     let blk = select(VIRT, None, 0x1000_8000).unwrap();
     assert_eq!((blk.kind, blk.backend, blk.recorded), (Kind::VirtioBlk, Backend::VirtioBlk, false));
+    assert_eq!(
+        blk.node.map(|n| n.as_str().to_string()).as_deref(),
+        Some("/soc/virtio_mmio@10008000")
+    );
     // A PCI function has no node: without a record nothing names it.
     assert_eq!(select(VIRT, None, 0x4000_0000), Err(Refusal::NoDisk));
     assert_eq!(select(VIRT, None, 0x1000_0000), Err(Refusal::NoDisk));

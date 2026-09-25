@@ -63,19 +63,23 @@ pub(crate) fn affinity_summary() {
 }
 
 /// Wave 0 (TASK-0321 P4): the CORE plane the volume spawn pass needs —
-/// policy authority, the block device owner and the volume verifier —
-/// and NOTHING else. Every other service stays suspended until its server
+/// policy authority, the SoC glue owner (TASK-0246 P4c), the block device owner and the
+/// volume verifier — and NOTHING else. Every other service stays suspended until its server
 /// pair is distributed: a resumed service without its pair retries its
 /// route probe over init's control channel, and each retry parks a
 /// CAP_MOVEd reply cap in init's 256-slot table (8 per service, the ctrl
 /// queue depth) — with the whole core running through a ~100 ms pass that
 /// exhausted the table (`abi:no-space`, blk-plane wiring FAIL).
-const PLANE: &[&str] = &["policyd", "blkd", "bundlemgrd"];
+const PLANE: &[&str] = &["policyd", "socd", "blkd", "bundlemgrd"];
 
 /// The plane's policy authority — resumed first and alone: every grant the plane makes asks
 /// it, and the disk's owner must find its disk in place when it starts (TASK-0246 P4b — no
 /// owner waits for its grant).
 const AUTHORITY: &str = "policyd";
+
+/// The SoC glue owner (RFC-0106) — resumed second, once its windows are granted: the disk's
+/// owner asks it to bring the disk's node up before it touches the controller (TASK-0246 P4c).
+const SOC_GLUE: &str = "socd";
 
 pub(crate) fn in_plane(name: &str) -> bool {
     PLANE.contains(&name)
@@ -86,10 +90,15 @@ pub(crate) fn resume_authority(ctrls: &[CtrlChannel]) {
     resume_non_drivers_where(ctrls, |name| name == AUTHORITY);
 }
 
-/// Wave 0b: the rest of the plane — the block owner (its disk already granted) and the
+/// Wave 0b: the SoC glue owner.
+pub(crate) fn resume_soc_glue(ctrls: &[CtrlChannel]) {
+    resume_non_drivers_where(ctrls, |name| name == SOC_GLUE);
+}
+
+/// Wave 0c: the rest of the plane — the block owner (its disk already granted) and the
 /// volume verifier.
 pub(crate) fn resume_plane(ctrls: &[CtrlChannel]) {
-    resume_non_drivers_where(ctrls, |name| in_plane(name) && name != AUTHORITY);
+    resume_non_drivers_where(ctrls, |name| in_plane(name) && name != AUTHORITY && name != SOC_GLUE);
 }
 
 /// Wave 1 (TASK-0050 PR-5): resume the rest of the always-on CORE graph —
