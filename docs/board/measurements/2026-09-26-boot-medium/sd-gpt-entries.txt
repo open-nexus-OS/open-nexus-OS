@@ -1,0 +1,9 @@
+# The stock microSD's GPT entries (LBA 2..33), read 2026-09-26 over adb:
+#   adb shell 'dd if=/dev/mmcblk0 bs=512 skip=2 count=32' | <decode 128-byte entries>
+# index name first_lba last_lba size type-guid (bootinfo is not an entry: it lives in sector 0)
+1 fsbl 256 767 256KiB ebd0a0a2-b9e5-4433-87c0-68b6b72699c7 attrs=0x0
+2 env 768 895 64KiB ebd0a0a2-b9e5-4433-87c0-68b6b72699c7 attrs=0x0
+3 opensbi 2048 4095 1024KiB ebd0a0a2-b9e5-4433-87c0-68b6b72699c7 attrs=0x0
+4 uboot 4096 8191 2048KiB ebd0a0a2-b9e5-4433-87c0-68b6b72699c7 attrs=0x0
+5 bootfs 8192 532479 262144KiB ebd0a0a2-b9e5-4433-87c0-68b6b72699c7 attrs=0x0
+6 rootfs 532480 62423006 30945263KiB ebd0a0a2-b9e5-4433-87c0-68b6b72699c7 attrs=0x0

@@ -1,0 +1,38 @@
+# Evidence strings from the pinned vendor boot pieces (resources/board/bpi-f3/PROVENANCE.md), 2026-09-26.
+# Strings only (`strings -n 4`), the lines the README's conclusions rest on; no code is copied.
+
+## SPL (factory/FSBL.bin, U-Boot SPL 2022.10 vendor build): how it finds its next stages
+Boot from fit configuration %s
+mmc_load_image_raw_sector: mmc block read error
+opensbi
+spl: mmc partition switch failed
+spl: partition error
+uboot
+U-Boot SPL 2022.10<vendor>-gdcdcab9e9-dirty (Jun 01 2026 - 10:02:26 +0000)
+
+## U-Boot proper (image 'uboot' of u-boot.itb, extracted with dumpimage -T flat_dt -p 0): the flash vehicle
+bootinfo would not add as partition
+Both GPT write methods failed
+cannot add second partition at offset 0
+can not parse json, check your flash_config.cfg is json format or not
+fastboot_raw_partition_
+flash bootinfo
+GPT write command failed
+ gpt write mmc 0 $partitions
+gpt write mmc 0 $partitions
+gpt write mmc 0 '%s'
+miss part, send command:			fastboot oem read:part [offset]
+oem config
+oem env
+oem erase
+oem log
+oem read
+set_protective_mbr
+%s: invalid MBR - refusing to write to flash
+%s: updating MBR
+upload
+write_sparse_image
+
+## Absent from U-Boot proper (checked): the upstream raw-GPT path of 'fastboot flash gpt'
+updating MBR, Primary and Backup GPT: 0
+invalid GPT - refusing to write to flash: 0

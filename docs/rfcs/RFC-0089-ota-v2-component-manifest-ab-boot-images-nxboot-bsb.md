@@ -176,11 +176,6 @@ table in `userspace/storage` (shared by `nx image`, `virtioblkd`, `nxboot`):
 | name | type | size (v1) | content |
 |---|---|---|---|
 | `bsb` | `NEXUS-BSB-v1` | 1 MiB | BSB double block (§6) |
-
-(Amendment 2026-08-25, TASK-0260: the disk is GPT-only — `storage::gpt`
-deliberately writes no protective MBR; nothing boots via MBR and `nxboot`
-parses GPT directly. The concrete table below is realized verbatim in
-`userspace/storage/src/layout.rs`, the ONE shared layout authority.)
 | `boot-a` | `NEXUS-BOOT-v1` | 56 MiB | NXBD @ sector 0, boot image from sector 8 |
 | `boot-b` | `NEXUS-BOOT-v1` | 56 MiB | same layout; zeroed NXBD = invalid slot |
 | `system-a` | `NEXUS-SYS-v1` | 32 MiB | **reserved** (Phase B system volume) |
@@ -188,11 +183,32 @@ parses GPT directly. The concrete table below is realized verbatim in
 | `state` | `NEXUS-STATE-v1` | 64 MiB | statefs journal |
 | `data` | `NEXUS-DATA-v1` | 128 MiB | nxfs (`/data`), incl. `/data/updates/` staging |
 
+(Amendment 2026-08-25, TASK-0260: the concrete table is realized verbatim in
+`userspace/storage/src/layout.rs`, the ONE shared layout authority. It also made the disk
+GPT-only, with no protective MBR — withdrawn by the amendment below.)
+
+**Amendment 2026-09-26 (TASK-0260 P0, measured on the board —
+`docs/board/measurements/2026-09-26-boot-medium/`):**
+
+- The disk starts with the board's boot-ROM head, GPT partitions 1–4 in this order: `fsbl`
+  (at 128 KiB, 256 KiB), `env` (384 KiB, 64 KiB), `opensbi` (1 MiB, 1 MiB), `uboot` (2 MiB,
+  2 MiB — the slot of the loader's FIT, under the name the vendor SPL looks it up by), typed
+  `NEXUS-FW-v1`. The table above follows from 4 MiB. On QEMU the head stays zero.
+- Sector 0 carries a protective MBR on every image — U-Boot's GPT driver, and with it the SPL,
+  sees no GPT without one. The board image adds the boot-ROM header in bytes 0–79 of the same
+  sector.
+- The GPT's backup lies at the last sector of the device the image is built for.
+- `swap` (M7) is appended last once M7 has measured its size; nothing is reserved for it.
+
+Implemented by TASK-0260 P1.
+
 Rules:
 
 - Slot partitions are written only by `updated` (inactive slot only) and provisioning
   tools; `bsb` only by bootctld (runtime), `nxboot` (boot-time actuator fields) and the
   factory image builder. Cross-partition access is deny-by-default (TASK-0315).
+- The head partitions are written only by provisioning tools; no service reads or writes them
+  (the block owner refuses them).
 - Per-slot image budgets are gated in `scripts/check-image-budgets.sh` — growth is a
   conscious act, never silent.
 - Staging bytes live under `/data` (nxfs) per ADR-0043 — never in the `/state` KV.

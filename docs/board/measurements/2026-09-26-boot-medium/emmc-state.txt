@@ -1,0 +1,9 @@
+# The eMMC (mmcblk2) as the stock system sees it, read 2026-09-26 over adb (nothing written):
+#   cat /sys/block/mmcblk2/size                      -> 30535680 sectors (14.56 GiB)
+#   dd if=/dev/mmcblk2 bs=512 count=34 | <count nonzero bytes>  -> 0 (no header, no GPT: never flashed)
+#   ls /sys/block/mmcblk2/ | grep mmcblk2p           -> (none)
+#   cat /sys/block/mmcblk2boot0/force_ro             -> 1 (the hardware boot partitions stay read-only)
+30535680
+nonzero bytes in sectors 0..33: 0
+partitions: none
+boot0 force_ro: 1

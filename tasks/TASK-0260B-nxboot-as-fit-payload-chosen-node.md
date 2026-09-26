@@ -14,7 +14,7 @@ links:
   - Decision: docs/adr/0066-boot-chain-on-hardware-nxboot-as-fit-payload.md
   - Contract: docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md (C1, C2, C6, Phase 4)
   - nxboot: source/boot/nxboot (ADR-0059, RFC-0089); tools: scripts/build-fit.sh (new), scripts/board-flash.sh (TASK-0327)
-  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Boot flow"), resources/board/bpi-f3/PROVENANCE.md (FIT facts: OpenSBI at 0x0, payload at 0x0020_0000, `fdt_1 = k1-x_deb1`)
+  - Measurement: docs/board/measurements/2026-09-22-stock-system/README.md ("Boot flow"), resources/board/bpi-f3/PROVENANCE.md (FIT facts: OpenSBI at 0x0, payload at 0x0020_0000, `fdt_1 = k1-x_deb1`), docs/board/measurements/2026-09-26-boot-medium/README.md (TASK-0260 P0: the SPL finds `opensbi`/`uboot` through the GPT and selects a FIT configuration by name)
   - Playbook: CLAUDE.md
 ---
 
@@ -24,6 +24,13 @@ The SPL loads two FITs from the `opensbi` (1 MiB) and `uboot` (2 MiB) partitions
 jumps to the `uboot` FIT's image (load `0x0020_0000`) in S-mode with the FIT's selected DTB in
 `a1`. The vendor payload is U-Boot; ours is nxboot. On QEMU nxboot is the `-kernel` payload
 and the only place that may read fw_cfg (RFC-0098 C2).
+
+## Context added 2026-09-26 (TASK-0260 P0, measured)
+
+The FIT goes into the head partition the SPL knows as `uboot` (#4, 2 MiB at 2 MiB): the name,
+number and offset stay the SPL's, whatever the slot holds. The SPL picks a FIT configuration by
+name (`Boot from fit configuration %s`) — which name it asks for, and so which configuration our
+single-config FIT must answer (or its default), is measured with the first boot (TASK-0260 P3).
 
 ## Goal
 

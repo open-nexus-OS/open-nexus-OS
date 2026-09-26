@@ -388,6 +388,16 @@ image → kernel. `nx image` builds ONE image with the head (`bootinfo`, `fsbl`,
 `opensbi`, the FIT) and our volumes; `fastboot` is the flasher protocol (TASK-0327). The FIT is
 built by `scripts/build-fit.sh` (`mkimage`) from OpenSBI + nxboot + our dtb.
 
+**Amended 2026-09-26 (TASK-0260 P0, measured — `docs/board/measurements/2026-09-26-boot-medium/`):**
+the disk the board boots is OURS byte for byte. Sector 0 shares the boot-ROM header (bytes 0–79)
+with a protective MBR, without which the SPL sees no GPT. The head is GPT partitions 1–4
+(`fsbl`, `env`, `opensbi`, `uboot`) at the vendor's offsets and in its order — the SPL finds its
+stages through the GPT, so names, numbers and offsets stay; the FIT sits in `uboot`. The GPT's
+backup lies at the device's last sector. The vendor flash vehicle's `flash gpt` builds a GPT of
+its own from a JSON (every partition basic data, no raw path), so it never writes the disk's
+GPT: the image and our backup GPT go through its raw writes and are read back (RFC-0089 §2
+amendment, TASK-0260 P1/P2).
+
 ### C7 — Display mode (Phase 5)
 
 gpud is the authority: on the board it reads EDID over the HDMI encoder's DDC and picks the

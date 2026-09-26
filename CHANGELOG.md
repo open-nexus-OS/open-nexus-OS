@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Docs - 2026-09-26 (TASK-0260 P0: the boot medium measured)
+
+- `docs/board/measurements/2026-09-26-boot-medium/`: the stock microSD read over adb (nothing
+  written). Its sector 0 carries the boot-ROM header in bytes 0–79 and a protective MBR in the
+  same sector. Its GPT holds the head as partitions 1–4 (`fsbl`, `env`, `opensbi`, `uboot` at
+  128 KiB, 384 KiB, 1 MiB, 2 MiB), every one typed basic data, with the backup at the disk's
+  end. The eMMC is empty (30 535 680 sectors).
+- The vendor flash vehicle's evidence: its `flash gpt` builds a GPT from JSON (`gpt write`),
+  upstream's raw path is absent, and raw writes and read-back exist beside it. U-Boot's GPT
+  driver sees no GPT without a protective MBR (upstream `part_test_efi`).
+- TASK-0260 recut to the end state. Every image carries a protective MBR, the head is GPT
+  partitions 1–4, the GPT is built for its device, the flash path writes our bytes, and `swap`
+  is not reserved. RFC-0089 §2 is amended and its 2026-08-25 "GPT-only" amendment withdrawn;
+  RFC-0098 C6 and ADR-0066 are amended.
+
 ### Added - 2026-09-26 (TASK-0246B P2: the loader's board path)
 
 - The board tree marks what each SD host may carry, as the stock system's live tree does

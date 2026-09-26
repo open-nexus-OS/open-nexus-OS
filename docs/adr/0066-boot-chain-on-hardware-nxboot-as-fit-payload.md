@@ -53,6 +53,12 @@ chainload detour.
 - `nx image` builds ONE image for QEMU and the board: the boot-ROM head (`bootinfo`, `fsbl`,
   `env` placeholder, `opensbi`, the FIT) prepended to the layout SSOT's volumes; `fastboot`
   writes it partition by partition.
+  (Amended 2026-09-26, TASK-0260 P0, measured: `fastboot` writes the image byte for byte through
+  the vehicle's raw writes, not partition by partition. The vehicle's `flash gpt` builds its own
+  GPT from a JSON, typing every partition basic data, and our stages find partitions by name and
+  type. Sector 0 carries a protective MBR next to the boot-ROM header, since U-Boot's GPT driver,
+  and so the SPL, sees no GPT without one. The head is GPT partitions 1–4 at the vendor's
+  offsets, and the FIT's slot keeps the SPL's name `uboot`.)
 - Out of scope: signed FIT / secure boot (follow-up once the chain runs), SPI-NOR boot, the
   vendor's `env`/`bootfs`/`rootfs` (never written).
 
