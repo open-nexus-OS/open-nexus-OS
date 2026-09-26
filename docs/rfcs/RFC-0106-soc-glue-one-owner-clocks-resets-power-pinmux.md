@@ -3,7 +3,7 @@
 - Status: Draft (seeded 2026-09-22 at TASK-0245B P0)
 - Owners: @runtime @kernel-team
 - Created: 2026-09-22
-- Last Updated: 2026-09-22
+- Last Updated: 2026-09-26
 - Links:
   - Tasks: `tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md` (execution + proof); consumers `tasks/TASK-0246-*` (SDHCI), `TASK-0251-*` (DPU/HDMI), `TASK-0328-*` (USB), `TASK-0329-*` (GPU), `TASK-0248-*` (GMAC)
   - Related RFCs: `docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md` (C3: the tree is the truth; this RFC is its SoC-glue arm), `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (grant model; new class `device.mmio.syscon`), `docs/rfcs/RFC-0093-*` (service topology / declared slots)
@@ -13,7 +13,7 @@
 
 - **Phase 0 (paper + measurement, the table with provenance)**: ✅ 2026-09-22 — TASK-0245B P0
 - **Phase 1 (`nexus-soc` library, tree bindings, specifier resolution)**: ✅ 2026-09-22 — TASK-0245B P1 (host-proven against the measured APMU state)
-- **Phase 2 (`socd`, protocol, policy class, init grants, first consumer)**: 🟨 — socd + protocol + policy + init grants ✅ 2026-09-22 (TASK-0245B P2, QEMU: `socd: ready (no soc glue in this tree)`, `SELFTEST: soc glue not needed ok` in every profile); TASK-0246 P4c (2026-09-25): socd runs in the core plane on declared slots (no route ask — it serves before init's responder does), the block owner asks it through the shared client `nexus_ipc::socd` to bring the disk's node up before touching the controller and, on the K1, for the `io` clock's rate (QEMU: `blkd: backend ok (… soc=not-needed …)` in every boot); the board's eMMC is the first `ok` (TASK-0246 P6). Open: the per-class floor below (`soc.glue.<class>`) is still the one `soc.glue` capability
+- **Phase 2 (`socd`, protocol, policy class, init grants, first consumer)**: 🟨 — socd + protocol + policy + init grants ✅ 2026-09-22 (TASK-0245B P2, QEMU: `socd: ready (no soc glue in this tree)`, `SELFTEST: soc glue not needed ok` in every profile); TASK-0246 P4c (2026-09-25): socd runs in the core plane on declared slots (no route ask — it serves before init's responder does), the block owner asks it through the shared client `nexus_ipc::socd` to bring the disk's node up before touching the controller and, on the K1, for the `io` clock's rate (QEMU: `blkd: backend ok (… soc=not-needed …)` in every boot); the board's eMMC is the first `ok` (TASK-0246 P6). TASK-0246B P2 (2026-09-26): the two node operations live in `nexus-soc` once — `bring_up` (plan, then execute; an empty plan is `NotNeeded`) and `clock_rate` — and `socd` answers with them; the loader runs them for its boot disk before any service exists (the loader clause below). Open: the per-class floor below (`soc.glue.<class>`) is still the one `soc.glue` capability
 - **Phase 3 (power domains, display/USB/GPU sets)**: ⬜ — TASK-0245B P3 with TASK-0251/0328/0329
 
 Definition: "Complete" = the contract below is implemented and the proof gates are green on
@@ -91,6 +91,17 @@ clock-framework API (rates are read, not set, beyond what a node's binding deman
 - **Markers**: `socd: ready (providers=N)` | `socd: ready (no soc glue in this tree)`;
   `socd: bring-up <node> ok (domain=… resets=… clocks=… pads=…)`; `socd: bring-up <node> FAIL
   (step=… reg=0x… val=0x…)`; selftest `SELFTEST: soc glue not needed ok` on QEMU.
+- **The node operations** (`nexus_soc::bring_up`, `nexus_soc::clock_rate`; TASK-0246B P2) are
+  the one definition of "up" and of "the rate": `socd` answers `OP_BRING_UP` and
+  `OP_CLOCK_RATE` with them, and nothing else re-derives them.
+- **The loader** (TASK-0246B P2): before any service exists, nxboot runs the same node
+  operations over the same tables for the one node it is about to boot from — the provider
+  windows at the physical addresses the tree names — and reads that node's `io` clock. It is a
+  single program on one hart that ends before `socd` starts, so no register ever has two
+  writers at once; while the OS runs, `socd` stays the one writer. The loader's bring-up leaves
+  the node as `socd`'s would, so `socd`'s later bring-up of the same node writes nothing (every
+  step reads back first). A glue fault on the loader's side is a named skip of that disk with
+  the register and the value it read, never a boot from a host whose glue is not up.
 
 ### Register semantics (facts transcribed from the mainline documentation and measured)
 

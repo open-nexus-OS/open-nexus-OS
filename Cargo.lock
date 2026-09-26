@@ -3013,6 +3013,7 @@ dependencies = [
  "nexus-fdt",
  "nexus-hal",
  "nexus-pci",
+ "nexus-soc",
  "sbi-rt",
  "sha2",
  "storage",

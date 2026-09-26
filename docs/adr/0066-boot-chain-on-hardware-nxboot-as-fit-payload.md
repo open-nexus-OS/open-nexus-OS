@@ -46,7 +46,10 @@ chainload detour.
   fw_cfg reader.
   (implemented 2026-09-25, TASK-0246B P1: the SDHCI core in PIO, reading and writing the BSB;
   the boot disk is the first candidate — virtio, SD hosts in the tree, SD hosts behind PCI —
-  carrying a valid BSB, and its record goes to `/chosen/nexus,boot-disk`)
+  carrying a valid BSB, and its record goes to `/chosen/nexus,boot-disk`. 2026-09-26, P2: on
+  the board the loader brings the eMMC host's node up and reads its `io` clock with the SoC
+  glue library `socd` runs — before any service exists, RFC-0106's loader clause — and the
+  tree's `no-mmc` flags keep the microSD slot and the SDIO host out of the rule)
 - `nx image` builds ONE image for QEMU and the board: the boot-ROM head (`bootinfo`, `fsbl`,
   `env` placeholder, `opensbi`, the FIT) prepended to the layout SSOT's volumes; `fastboot`
   writes it partition by partition.

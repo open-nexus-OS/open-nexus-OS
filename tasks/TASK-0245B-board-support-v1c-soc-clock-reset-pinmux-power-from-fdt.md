@@ -3,7 +3,7 @@ title: TASK-0245B Board support v1c: `nexus-soc` + `socd` — clock gates, reset
 status: In Progress (P0–P1 done, P2 built 2026-09-22 — socd, the soc protocol, policy and init grants; was "seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0245")
 owner: @runtime @kernel-team
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-26
 depends-on:
   - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
   - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
@@ -166,7 +166,10 @@ node up / this clock's rate".
   requester without `soc.glue` → `DENIED`; unknown node / malformed frame / HDMI's unmeasured
   domain → their statuses. Markers: `init: start|up socd`, `socd: ready (no soc glue in this
   tree)` | `socd: ready (providers=N)`, `SELFTEST: soc glue not needed ok` — required in every
-  profile.
+  profile. **2026-09-26 (TASK-0246B P2):** the two node operations moved into `nexus-soc` —
+  `bring_up` (plan, then execute; an empty plan is `NotNeeded`) and `clock_rate` — and
+  `verdict.rs` answers with them (its own clock-rate walk deleted); the loader runs the same
+  operations for its boot disk before any service exists (RFC-0106's loader clause).
 - **P3 — Power domains + the display/USB/GPU sets.** Measurement recipe on the stock system,
   domains 2/7, HDMI DDC and USB pads; consumed by TASK-0251/0328/0329.
 

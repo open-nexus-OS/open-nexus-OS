@@ -3,10 +3,12 @@
 
 //! CONTEXT: `socd` — the ONE writer of the syscon and pinctrl windows (RFC-0106,
 //! TASK-0245B P2). A consumer sends `BRING_UP <node path>`; socd checks that the
-//! requester holds `soc.glue` (policyd, deny-by-default), plans the node's steps
-//! from the tree it was handed (`nexus-soc`: power domain, resets released,
-//! clocks on) over the provider windows init granted by compatible, executes
-//! them with read-back and answers a verdict. A tree without providers (QEMU
+//! requester holds `soc.glue` (policyd, deny-by-default), brings the node up from
+//! the tree it was handed (`nexus_soc::bring_up`: power domain, resets released,
+//! clocks on, every write read back) over the provider windows init granted by
+//! compatible and answers a verdict; `CLOCK_RATE` answers `nexus_soc::clock_rate`.
+//! The node operations are the library's, so the loader — which runs them for its
+//! boot disk before any service exists (TASK-0246B P2) — means the same by them. A tree without providers (QEMU
 //! virt) makes every plan empty: the honest answer is `NOT_NEEDED`, never `OK`.
 //! `verdict` is the pure part: request bytes + tree + windows → reply bytes, so
 //! the host tests drive the same code the service loop runs.

@@ -350,7 +350,7 @@ runs in the core plane before the disk is granted, on declared slots only — it
 its route to policyd and its reply inbox are pinned before it runs, so it serves while init's
 responder does not answer yet. `blkd` asks it (`nexus_ipc::socd`, its own declared route) to
 bring the recorded disk's node up before it touches the controller — `NOT_NEEDED` on QEMU virt,
-the power domain, resets, clocks and pads on the board — and, for the K1 layer, for the `io`
+the power domain, resets and clocks on the board (the eMMC binds no pads) — and, for the K1 layer, for the `io`
 clock's rate, the base clock the host's capability register does not name. A function behind
 PCI has no node of its own and asks nothing.
 
@@ -369,6 +369,17 @@ QEMU with `sdhci-pci` (spec 3.00, 8-bit) + `emmc` and no virtio disk, and requir
 chain: the SD host found behind the ECAM host, the loader's record, init's grant with bus
 mastering, `blkd: backend ok (kind=sdhci-pci … mode=hs52 bus=8 …)`, then the full ladder over
 it. The standard core is proven on a real controller model; the K1 layer waits for the board.
+
+**Implemented 2026-09-26 (TASK-0246B P2): the board path.** "May hold an eMMC" is the standard
+flag: a host the tree marks `no-mmc` may not. The board tree marks what each SD host may carry
+as the stock system's live tree does (measured): the microSD slot `no-mmc` + `no-sdio`, the
+SDIO WiFi host `no-mmc` + `no-sd`, the eMMC host `no-sd` + `no-sdio` with its HS400ES
+capability. A K1 host marked `no-mmc` is no disk kind (`storage::boot_disk::Kind::of_node`), so
+neither the loader's rule nor a record names it; on the board the eMMC host is the only SD
+candidate. Before the loader opens it, it brings the host's node up and reads its `io` clock
+with the node operations `socd` answers with (`nexus_soc::bring_up`, `nexus_soc::clock_rate`;
+RFC-0106's loader clause). Host-proven against the golden tree, the measured register state and
+the K1 machine; the board proves it in TASK-0246 P6.
 
 ### C6 — Boot chain (Phase 4, ADR-0066)
 

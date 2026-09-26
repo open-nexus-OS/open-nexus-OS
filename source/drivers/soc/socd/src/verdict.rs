@@ -8,7 +8,7 @@
 
 use nexus_fdt::Fdt;
 use nexus_hal::Bus;
-use nexus_soc::{plan, Executor, Fault, PlanError, Providers};
+use nexus_soc::{bring_up, clock_rate, BringUp, BringUpError, Fault, Providers, RateError};
 use nexus_wire::soc;
 
 /// The largest reply any op produces.
@@ -82,27 +82,22 @@ pub fn answer<B: Bus>(
                 rsp.status = soc::STATUS_NO_SUCH_NODE;
                 return finish(out, rsp);
             };
-            match plan(node, providers) {
-                Ok(p) if p.is_empty() => {}
-                Ok(p) => match Executor::new(bus).execute(&p) {
-                    Ok(report) => {
-                        rsp.status = soc::STATUS_OK;
-                        rsp.domains = report.domains.min(255) as u8;
-                        rsp.resets = report.resets_released.min(255) as u8;
-                        rsp.clocks = report.clocks_on.min(255) as u8;
-                    }
-                    Err(Fault::ReadBack { addr, value }) | Err(Fault::FcStuck { addr, value }) => {
-                        rsp.status = soc::STATUS_FAILED;
-                        rsp.fault_addr = addr as u64;
-                        rsp.fault_value = value;
-                    }
-                    Err(Fault::Range) => rsp.status = soc::STATUS_FAILED,
-                },
-                Err(PlanError::ProviderUnknown(_))
-                | Err(PlanError::IdUnknown(..))
-                | Err(PlanError::DomainUnsupported(_))
-                | Err(PlanError::ProviderKindUnknown)
-                | Err(PlanError::TooManySteps) => rsp.status = soc::STATUS_UNSUPPORTED,
+            match bring_up(node, providers, bus) {
+                Ok(BringUp::NotNeeded) => {}
+                Ok(BringUp::Up(report)) => {
+                    rsp.status = soc::STATUS_OK;
+                    rsp.domains = report.domains.min(255) as u8;
+                    rsp.resets = report.resets_released.min(255) as u8;
+                    rsp.clocks = report.clocks_on.min(255) as u8;
+                }
+                Err(BringUpError::Fault(Fault::ReadBack { addr, value }))
+                | Err(BringUpError::Fault(Fault::FcStuck { addr, value })) => {
+                    rsp.status = soc::STATUS_FAILED;
+                    rsp.fault_addr = addr as u64;
+                    rsp.fault_value = value;
+                }
+                Err(BringUpError::Fault(Fault::Range)) => rsp.status = soc::STATUS_FAILED,
+                Err(BringUpError::Plan(_)) => rsp.status = soc::STATUS_UNSUPPORTED,
             }
             finish(out, rsp)
         }
@@ -113,7 +108,7 @@ pub fn answer<B: Bus>(
             let (status, hz) = if access == Access::Denied {
                 (soc::STATUS_DENIED, 0)
             } else {
-                clock_rate(tree, providers, bus, path, name)
+                rate_of(tree, providers, bus, path, name)
             };
             let n = soc::encode_clock_rate_rsp(out, status, nonce, hz).unwrap_or(0);
             (n, Outcome { status, domains: 0, resets: 0, clocks: 0 })
@@ -126,7 +121,9 @@ fn outcome_of(rsp: &soc::BringUpReply) -> Outcome {
     Outcome { status: rsp.status, domains: rsp.domains, resets: rsp.resets, clocks: rsp.clocks }
 }
 
-fn clock_rate<B: Bus>(
+/// The wire verdict on a named clock's rate (`nexus_soc::clock_rate`): a node that names no
+/// such clock needs none, a provider or id the tables do not cover is unsupported.
+fn rate_of<B: Bus>(
     tree: Option<&Fdt<'_>>,
     providers: &Providers,
     bus: &B,
@@ -135,15 +132,11 @@ fn clock_rate<B: Bus>(
 ) -> (u8, u64) {
     let Some(tree) = tree else { return (soc::STATUS_NOT_NEEDED, 0) };
     let Some(node) = tree.node_at_path(path) else { return (soc::STATUS_NO_SUCH_NODE, 0) };
-    let Some(spec) = node.specifier_named("clocks", "#clock-cells", "clock-names", name) else {
-        return (soc::STATUS_NOT_NEEDED, 0);
-    };
-    let Some(kind) = nexus_soc::ProviderKind::of(spec.provider) else {
-        return (soc::STATUS_UNSUPPORTED, 0);
-    };
-    let Some(provider) = providers.get(kind) else { return (soc::STATUS_UNSUPPORTED, 0) };
-    let Some(entry) = nexus_soc::table::clock(kind, spec.arg(0).unwrap_or(u32::MAX)) else {
-        return (soc::STATUS_UNSUPPORTED, 0);
-    };
-    (soc::STATUS_OK, Executor::new(bus).rate(entry, provider.base))
+    match clock_rate(node, name, providers, bus) {
+        Ok(hz) => (soc::STATUS_OK, hz),
+        Err(RateError::NoSuchClock) => (soc::STATUS_NOT_NEEDED, 0),
+        Err(RateError::ProviderKindUnknown)
+        | Err(RateError::ProviderUnknown(_))
+        | Err(RateError::IdUnknown(..)) => (soc::STATUS_UNSUPPORTED, 0),
+    }
 }

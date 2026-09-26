@@ -12,7 +12,10 @@ use std::collections::HashMap;
 use nexus_fdt::Fdt;
 use nexus_hal::Bus;
 use nexus_soc::table::k1;
-use nexus_soc::{plan, Executor, Fault, PlanError, ProviderKind, Providers, Step};
+use nexus_soc::{
+    bring_up, clock_rate, plan, BringUp, BringUpError, Executor, Fault, PlanError, ProviderKind,
+    Providers, RateError, Step,
+};
 
 const BOARD: &[u8] = include_bytes!("../../nexus-fdt/tests/goldens/bpi-f3.dtb");
 const VIRT: &[u8] = include_bytes!("../../nexus-fdt/tests/goldens/virt.dtb");
@@ -202,13 +205,6 @@ fn test_reject_stuck_frequency_change_bit() {
 
 #[test]
 fn test_reject_a_write_that_does_not_read_back() {
-    struct DeadBus;
-    impl Bus for DeadBus {
-        fn read(&self, _addr: usize) -> u32 {
-            0
-        }
-        fn write(&self, _addr: usize, _value: u32) {}
-    }
     let (fdt, providers) = board_providers();
     let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     let plan = plan(emmc, &providers).unwrap();
@@ -227,4 +223,77 @@ fn test_reject_an_id_the_tables_do_not_know() {
     let mut no_apmu = Providers::new();
     no_apmu.set(providers.get(ProviderKind::Apbc).unwrap());
     assert_eq!(plan(sd, &no_apmu), Err(PlanError::ProviderUnknown(ProviderKind::Apmu)));
+}
+
+// ---- The node operations (TASK-0246B P2): what `socd` and the loader both run ----
+
+/// A bus that takes no write (nothing answers at the windows).
+struct DeadBus;
+
+impl Bus for DeadBus {
+    fn read(&self, _addr: usize) -> u32 {
+        0
+    }
+    fn write(&self, _addr: usize, _value: u32) {}
+}
+
+#[test]
+fn a_node_is_brought_up_when_the_tree_binds_glue_and_not_needed_when_it_binds_none() {
+    let virt = Fdt::new(VIRT).unwrap();
+    let none = Providers::from_tree(&virt, |n| n.reg(0).ok().flatten().map(|r| r.addr as usize));
+    let blk = virt.find_compatible(&["virtio,mmio"]).next().unwrap();
+    assert_eq!(bring_up(blk, &none, &MockBus::cold()), Ok(BringUp::NotNeeded));
+    let (fdt, providers) = board_providers();
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
+    let bus = MockBus::stock();
+    let Ok(BringUp::Up(report)) = bring_up(emmc, &providers, &bus) else {
+        panic!("the eMMC is up")
+    };
+    let counts = (report.domains, report.resets_released, report.clocks_on, report.writes);
+    assert_eq!(counts, (1, 2, 2, 0), "the stock state needs no write");
+    let cold = MockBus::cold();
+    let Ok(BringUp::Up(report)) = bring_up(emmc, &providers, &cold) else { panic!("up from cold") };
+    assert_eq!(report.writes, 4, "the documented bits: {:?}", cold.writes());
+}
+
+#[test]
+fn test_reject_a_bring_up_the_tables_do_not_cover_or_the_bus_does_not_take() {
+    let (fdt, providers) = board_providers();
+    let bus = MockBus::stock();
+    let hdmi = fdt.node_at_path("/soc/hdmi@c0400500").unwrap();
+    let refused = Err(BringUpError::Plan(PlanError::DomainUnsupported(7)));
+    assert_eq!(bring_up(hdmi, &providers, &bus), refused);
+    assert!(bus.writes().is_empty(), "refused before any bus access");
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
+    let fault = Fault::ReadBack { addr: APMU_BASE + 0x054, value: 0 };
+    assert_eq!(bring_up(emmc, &providers, &DeadBus), Err(BringUpError::Fault(fault)));
+}
+
+#[test]
+fn a_named_clock_rate_is_what_the_registers_select() {
+    let (fdt, providers) = board_providers();
+    let bus = MockBus::stock();
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
+    let sd = fdt.node_at_path("/soc/storage-bus/mmc@d4280000").unwrap();
+    // The live tree's `spacemit,sdh-freq` for the same hosts (measured 2026-09-26).
+    assert_eq!(clock_rate(emmc, "io", &providers, &bus), Ok(375_000_000), "sdh2: pll2_d8");
+    assert_eq!(clock_rate(sd, "io", &providers, &bus), Ok(204_800_000), "sdh0: pll1_d6 / 2");
+    assert_eq!(clock_rate(emmc, "core", &providers, &bus), Ok(307_200_000), "sdh_axi: fixed");
+    // From a cold register file the rate is what the zeroed fields select: mux 0, divider 1.
+    let cold = MockBus::cold();
+    assert_eq!(clock_rate(emmc, "io", &providers, &cold), Ok(409_600_000), "pll1_d6");
+}
+
+#[test]
+fn test_reject_a_clock_rate_without_its_name_or_its_window() {
+    let (fdt, providers) = board_providers();
+    let bus = MockBus::stock();
+    let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
+    assert_eq!(clock_rate(emmc, "strobe", &providers, &bus), Err(RateError::NoSuchClock));
+    let no_apmu = Providers::new();
+    let refused = Err(RateError::ProviderUnknown(ProviderKind::Apmu));
+    assert_eq!(clock_rate(emmc, "io", &no_apmu, &bus), refused);
+    let virt = Fdt::new(VIRT).unwrap();
+    let blk = virt.find_compatible(&["virtio,mmio"]).next().unwrap();
+    assert_eq!(clock_rate(blk, "io", &no_apmu, &bus), Err(RateError::NoSuchClock));
 }

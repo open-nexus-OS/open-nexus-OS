@@ -3,16 +3,19 @@
 
 //! CONTEXT: Which disk the loader boots from (TASK-0246B P1, RFC-0098 C5). The target half lists
 //! the candidates in the rule's order — virtio block transports by address, SD hosts in the tree
-//! that may hold an eMMC by address, SD hosts behind an ECAM host in the planner's order — and
-//! [`pick`] takes the first that opens and carries a valid BSB (`flow::read_boot_state`, the read
-//! every boot decision starts with); each one skipped is reported with why. The record the loader
-//! then writes names that disk, and the OS grants exactly it. Host-tested against fixture disks.
+//! that may hold an eMMC by address ([`node::emmc_hosts`]), SD hosts behind an ECAM host in the
+//! planner's order — and [`pick`] takes the first that opens and carries a valid BSB
+//! (`flow::read_boot_state`, the read every boot decision starts with); each one skipped is
+//! reported with why. A host in the tree opens once its glue is up and its `io` clock read
+//! ([`node::open_config`], P2). The record the loader then writes names that disk, and the OS
+//! grants exactly it. Host-tested against fixture disks.
 //! OWNERS: @runtime @reliability
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: `tests/boot_disk.rs` (the rule), `tests/sdhci_reader.rs` (the SDHCI reader
-//!   under a whole boot decision, against the behavioural controller + eMMC)
+//! TEST_COVERAGE: `tests/loader_flow.rs` (the rule; the SDHCI reader under whole boot decisions
+//!   against the behavioural controller + eMMC; the board's hosts, their glue and their clock)
 
+pub mod node;
 pub mod sdhci;
 
 use storage::BlockDevice;

@@ -1,6 +1,6 @@
 ---
 title: TASK-0246B nxboot reads the boot medium through the same SDHCI core as `blkd` — on the board, and behind QEMU's PCI host — and names it in `/chosen`
-status: In Progress (P1 done 2026-09-25 — the PIO write path, nxboot's disk rule with the SDHCI reader, the PCI plan in nxboot, the record; QEMU boots from `sdhci-pci` end to end, and since TASK-0246 P5 (2026-09-26) the `ci-os-sdhci` lane in `test-all` boots through the reader; P2 next — the board path; recut 2026-09-25 to the end state below after TASK-0246 P2–P4c; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0246, recut 2026-09-24 at TASK-0246 P0)
+status: In Progress (P2 done 2026-09-26 — the board path: the SD hosts' measured roles in the board tree, a `no-mmc` host no disk kind, `nexus-soc` bring-up and the `io` clock in the loader, host-proven; the board proves it in TASK-0246 P6 / TASK-0260B; P1 done 2026-09-25 — the PIO write path, nxboot's disk rule with the SDHCI reader, the PCI plan in nxboot, the record; QEMU boots from `sdhci-pci` end to end, and since TASK-0246 P5 (2026-09-26) the `ci-os-sdhci` lane in `test-all` boots through the reader; P2 next — the board path; recut 2026-09-25 to the end state below after TASK-0246 P2–P4c; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0246, recut 2026-09-24 at TASK-0246 P0)
 owner: @runtime @reliability
 created: 2026-09-22
 updated: 2026-09-26
@@ -59,10 +59,14 @@ virtio reader, finds it by a fixed rule, and names it in `/chosen/nexus,boot-dis
   bus mastering stays off (PIO).
 - **The record**: the node path, or `<ECAM host path>/mmc@<dev>,<func>`
   (`storage::boot_disk::record_for_pci_sd_host`), for the disk the volume was read from.
-- **The board** (P2): nxboot brings the eMMC host's node up with `nexus-soc` (the library socd
-  runs — power domain, resets, clocks, pads, read back) and reads the `io` clock's rate from the
-  clock tree for the K1 layer's base clock; host-proven against the board's golden tree and a
-  register file; the board proves it in TASK-0246 P6 / TASK-0260B.
+- **The board** (P2): the board tree marks each SD host's role the standard way, as the live
+  tree does (measured) — so the eMMC host is the board's only SD candidate — and carries the
+  eMMC host's HS400ES capability. nxboot brings the candidate's node up with `nexus-soc` (the
+  library socd runs — power domain, resets, clocks, every write read back; the eMMC binds no
+  pads) and reads its `io` clock's rate from the registers for the K1 layer's base clock. The
+  bring-up and the rate live in `nexus-soc` once, for socd and the loader. Host-proven against
+  the board's golden tree, the measured register state and the K1 machine; the board proves it
+  in TASK-0246 P6 / TASK-0260B.
 
 ## Non-Goals
 
@@ -104,15 +108,49 @@ fallback by design), the SD-card protocol (the core drives eMMC only).
   mode=hs52 bus=4 sectors=8388608)`, the system volume (23 bundles), packagefs, statefs and nxfs
   mounted; a fresh image shows no FAIL beyond the known dsoftbus pair (an image reused from
   earlier lanes — BSB seq 6 — failed `ota delta stage`; the fresh one did not).
-- **P2 — the board path.** `nexus-soc` bring-up + the `io` clock's rate in nxboot for a
-  `spacemit,k1-sdhci` candidate; the board tree marks the SDIO host (`no-mmc`) so the rule cannot
-  pick it; host-proven; proven on the board in TASK-0246 P6.
+- **P2 — the board path — done 2026-09-26.** Measured 2026-09-26 over adb (the live vendor tree,
+  `docs/board/measurements/2026-09-24-emmc-sdhci/live-tree-sdh.txt`): the microSD host carries
+  `no-mmc` + `no-sdio`, the SDIO host `no-mmc` + `no-sd` + `non-removable`, the eMMC host
+  `no-sd` + `no-sdio` + `non-removable` + `mmc-hs400-1_8v` + `mmc-hs400-enhanced-strobe`. Our
+  board tree carried none of them: the rule would have tried the SD slot and the SDIO function
+  as eMMCs first (an op-cond bound each), and the eMMC node allowed no HS400ES. The board tree
+  takes the measured roles and the eMMC's capability (the golden rebuilt). `nexus-soc` owns a
+  node's bring-up (`bring_up`: plan, then execute; an empty plan is `NotNeeded`) and a named
+  clock's rate (`clock_rate`), both moved out of socd, which now calls them. nxboot's library
+  half gets `disk::node`: the hosts the tree lets hold an eMMC, and a host's configuration once
+  its glue is up and its `io` clock read. The target half runs it over physical windows, for the
+  one candidate it is about to open. RFC-0106 records the loader clause (before any service
+  exists, the loader runs the same library; socd stays the one writer while the OS runs).
+  Host: the board offers only its eMMC host; from the measured state the loader writes nothing
+  and reads 375 MHz, from cold it writes exactly the documented bits; a whole boot decision over
+  the K1 machine at the derived clock; glue that does not read back and a host without an `io`
+  clock are skipped with their reason. The board proves it in TASK-0246 P6 / TASK-0260B.
+  A K1 host marked `no-mmc` is no disk kind (`storage::boot_disk::Kind::of_node`), so no stage —
+  the loader's rule, init's grant, the owner's selection — names it. A glue fault prints the
+  register and the value it read (`nxboot: bring-up <node> FAIL (reg=… val=…)`, socd's words)
+  next to the skip line. Proof: host — `nexus-soc` 16 (4 new: the node operations — not needed
+  on virt, up without a write from the measured state and with four from cold, refused before
+  any bus access, a fault with its register; `io` reads 375 MHz on the eMMC and 204.8 MHz on the
+  microSD host, the live tree's `spacemit,sdh-freq`); `storage` (a record naming a `no-mmc` host
+  refused, by path and by window; the board's eMMC allows HS400ES); nxboot `loader_flow` 19 (7
+  new: the tree's hosts lowest address first; the board offers only its eMMC host; from the
+  measured state no write and 375 MHz, from cold the four documented writes and 409.6 MHz; a
+  whole boot decision over the K1 machine at the derived clock; glue that does not read back,
+  glue the tables do not cover, a host without an `io` clock and a bus no host has refused by
+  name); five mutations (the `no-mmc` guard, seen by both suites; the bring-up; the clock name;
+  the address order) each fail their test; socd's contract 7 unchanged. `just check` green;
+  `build-os-workspace` 0 warnings; `just test-all` green (EXIT=0, 12 QEMU lanes). QEMU behaves
+  as before: nxboot records a virtio disk in 20 of its 21 boots and the SD host in the SDHCI
+  one, skips nothing and never reaches the board path (no K1 host in QEMU's tree); `blkd:
+  backend ok` in all 19 boots that reach init; socd answers `no soc glue in this tree` in all
+  19; smp1 shows 430 and the SDHCI lane 429 ok lines, as before the package, with the same two
+  allowlisted dsoftbus FAIL lines.
 
 ## Red flags / decision points
 
 - **YELLOW: a candidate that never answers costs its bounded init** (an empty host: the op-cond
-  bound, one second). The rule orders non-removable eMMC hosts first on the board, and QEMU lanes
-  attach one disk.
+  bound, one second). On the board the tree marks the SD slot and the SDIO host `no-mmc`
+  (measured, P2), so the eMMC host is the only SD candidate; QEMU lanes attach one disk.
 - **YELLOW: QEMU's `emmc` is byte-addressed at or below 2 GiB** (P0) — the core drives
   sector-addressed cards only, so the lane's image is larger than 2 GiB (sparse).
 - **GREEN:** the flow, the BSB/GPT/NXBD decisions and the markers are untouched; the reader is
@@ -120,7 +158,9 @@ fallback by design), the SD-card protocol (the core drives eMMC only).
 
 ## Definition of Done
 
-Host: the PIO write matrix, the reader under a flow run, the candidate rule ✅ (P1); QEMU:
+Host: the PIO write matrix, the reader under a flow run, the candidate rule ✅ (P1); the board
+path — the tree's roles, the glue and the `io` clock — against the golden tree, the measured
+register state and the K1 machine ✅ (P2, 2026-09-26); QEMU:
 `ci-os-sdhci` boots through nxboot's SDHCI reader and `init` grants the device named in
 `/chosen` (TASK-0246 P5) ✅ 2026-09-26; the board: `nxboot: platform=<compatible> slot=<a|b>`
 (TASK-0260B) with the eMMC as the recorded disk; ADR-0066/0067 consequences recorded.

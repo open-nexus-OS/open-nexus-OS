@@ -9,7 +9,8 @@
 //! `<generic name>@<device>,<function>` (`/soc/pci@30000000/mmc@1,0`). The generic name says
 //! what the function is, so every stage reads the same kind from the same record. Three
 //! kinds exist: a virtio transport, the K1's SD/MMC host, an SD host controller behind PCI;
-//! anything else is refused by name. The loader writes the record (`record_for_node`,
+//! anything else is refused by name — a K1 host the tree marks `no-mmc` (a microSD slot, an
+//! SDIO function) too: the core drives eMMC only, so it holds no disk this system boots from. The loader writes the record (`record_for_node`,
 //! `record_for_pci_sd_host`); init resolves it to the grant; the owner resolves it again
 //! against the window it was granted. Pure: the tree is the only input.
 //! OWNERS: @runtime
@@ -64,14 +65,15 @@ impl Kind {
         }
     }
 
-    /// The kind of an enabled tree node, by its `compatible`.
+    /// The kind of an enabled tree node, by its `compatible`. A K1 host the tree marks
+    /// `no-mmc` holds no eMMC — the only card the core drives — and is no disk.
     pub fn of_node(node: &Node<'_>) -> Option<Kind> {
         if !node.is_enabled() {
             return None;
         }
         node.compatible().find_map(|c| match c {
             VIRTIO_MMIO => Some(Kind::VirtioBlk),
-            K1_SDHCI => Some(Kind::SdhciK1),
+            K1_SDHCI if node.prop("no-mmc").is_none() => Some(Kind::SdhciK1),
             _ => None,
         })
     }
@@ -117,7 +119,8 @@ pub enum Reject {
     NoSuchNode,
     /// The node — or the ECAM host above a function — is disabled.
     Disabled,
-    /// The node or the function's generic name is not a disk this system drives.
+    /// The node or the function's generic name is not a disk this system drives (a K1 host
+    /// marked `no-mmc` included).
     NotADisk,
     /// The function's unit address is not `<device>,<function>` in lower-case hex with
     /// device < 32 and function < 8.

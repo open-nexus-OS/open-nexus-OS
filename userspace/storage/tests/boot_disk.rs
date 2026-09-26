@@ -89,8 +89,14 @@ fn every_record_the_writer_produces_resolves_to_the_same_device() {
             assert_eq!((d, f, disk.kind), (dev, func, Kind::SdhciPci), "{record}");
         }
     }
+    // On the board the writer records only a host that may hold an eMMC (no `no-mmc`): one.
     let board = Fdt::new(BOARD).unwrap();
-    for node in board.find_compatible(&["spacemit,k1-sdhci"]) {
+    let emmc_hosts: Vec<_> = board
+        .find_compatible(&["spacemit,k1-sdhci"])
+        .filter(|node| node.prop("no-mmc").is_none())
+        .collect();
+    assert_eq!(emmc_hosts.len(), 1);
+    for node in emmc_hosts {
         let record = boot_disk::record_for_node(&node, &mut out).unwrap().to_string();
         assert_eq!(boot_disk::parse(&board, &record).unwrap().kind, Kind::SdhciK1, "{record}");
     }
@@ -113,6 +119,20 @@ fn the_owner_finds_its_disk_by_window_when_no_record_exists() {
     assert!(boot_disk::node_at_window(&board, 0).is_none());
     // A disabled disk is not found either.
     assert!(boot_disk::node_at_window(&Fdt::new(FIXTURE).unwrap(), 0x1000_1000).is_none());
+}
+
+/// The board's microSD slot and SDIO function carry `no-mmc` (measured 2026-09-26): neither is
+/// a disk, whether a record names it or the owner looks it up by its window.
+#[test]
+fn test_reject_a_record_naming_a_host_that_holds_no_emmc() {
+    for host in ["/soc/storage-bus/mmc@d4280000", "/soc/storage-bus/mmc@d4280800"] {
+        assert_eq!(resolve(BOARD, host).err(), Some(Reject::NotADisk), "{host}");
+    }
+    let board = Fdt::new(BOARD).unwrap();
+    for window in [0xd428_0000, 0xd428_0800] {
+        assert!(boot_disk::node_at_window(&board, window).is_none(), "{window:#x}");
+    }
+    assert_eq!(boot_disk::node_at_window(&board, 0xd428_1000).unwrap().kind, Kind::SdhciK1);
 }
 
 #[test]

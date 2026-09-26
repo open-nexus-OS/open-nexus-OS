@@ -91,11 +91,12 @@ fn test_reject_a_device_error_and_serve_again() {
 
 #[test]
 fn the_host_configuration_comes_from_the_boot_disks_node() {
-    // The board's eMMC: 8 bits, the K1 layer; its node does not (yet) allow HS400ES.
+    // The board's eMMC: 8 bits, the K1 layer, HS400 with the enhanced strobe at 1.8 V — the
+    // live tree's flags (measured 2026-09-26).
     let board = Fdt::new(BOARD).unwrap();
     let emmc = boot_disk::parse(&board, "/soc/storage-bus/mmc@d4281000").unwrap();
     let config = host_config(&emmc).unwrap();
-    assert_eq!((config.bus_width, config.hs400es, config.layer), (8, false, Layer::K1));
+    assert_eq!((config.bus_width, config.hs400es, config.layer), (8, true, Layer::K1));
     assert_eq!(config.base_clock_hz, None);
     // QEMU's SD host behind PCI: the standard core, its capabilities say the rest.
     let virt = Fdt::new(VIRT).unwrap();

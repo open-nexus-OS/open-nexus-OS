@@ -1,12 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The boot disk on the target (TASK-0246B P1, RFC-0098 C5). The candidates the tree
+//! CONTEXT: The boot disk on the target (TASK-0246B P1/P2, RFC-0098 C5). The candidates the tree
 //! lists, in the rule's order — virtio block transports by address; SD hosts that may hold an
-//! eMMC (`spacemit,k1-sdhci` without `no-mmc`) by address; SD host controllers behind each ECAM
-//! host, placed by the planner init runs too (QEMU's `sdhci-pci`: nothing assigns its BAR before
-//! this) — go to `nxboot::disk::pick`, which takes the first that opens and carries a valid BSB.
-//! Each one skipped gets a line; the chosen one is named by its record
+//! eMMC by address (`nxboot::disk::node::emmc_hosts`: not marked `no-mmc`); SD host controllers
+//! behind each ECAM host, placed by the planner init runs too (QEMU's `sdhci-pci`: nothing
+//! assigns its BAR before this) — go to `nxboot::disk::pick`, which takes the first that opens
+//! and carries a valid BSB. A host in the tree opens once its glue is up and its `io` clock read
+//! (`nxboot::disk::node::open_config`, over the provider windows at their physical addresses —
+//! only for the candidate being opened). Each one skipped gets a line, a glue fault one more
+//! with the register and what it read; the chosen one is named by its record
 //! (`/chosen/nexus,boot-disk`: the node path, or `<ECAM host>/mmc@<dev>,<func>`). The SDHCI
 //! reader runs over physical registers and `rdtime` (no interrupt, no DMA).
 //! OWNERS: @runtime @reliability
@@ -23,6 +26,8 @@ use alloc::vec::Vec;
 use nexus_fdt::{Fdt, Node};
 use nexus_hal::Bus;
 use nexus_pci::{Ecam, PciHost};
+use nexus_soc::Fault;
+use nxboot::disk::node::{self, Refusal};
 use nxboot::disk::{self, sdhci::SdhciDisk, Skip};
 use storage::boot_disk::{self as record, Kind, Place, CLASS_SD_HOST, MAX_RECORD};
 use storage::{BlockDevice, BlockError};
@@ -85,7 +90,7 @@ impl Platform for ArchPlatform {
 /// A place the boot volume may be.
 enum Candidate {
     Virtio { node: Node<'static>, base: usize },
-    SdNode { node: Node<'static>, base: usize, config: HostConfig },
+    SdNode { node: Node<'static>, base: usize },
     SdPci { host: Node<'static>, dev: u8, func: u8, bar: usize },
 }
 
@@ -152,7 +157,7 @@ pub fn find(tree: &Tree) -> Option<(BootDisk, [u8; MAX_RECORD], usize)> {
     let tb_hz = tree.fdt.cpus().map(|c| u64::from(c.timebase_hz)).unwrap_or(0);
     let (chosen, disk) = disk::pick(
         candidates(&tree.fdt),
-        |c| open(c, tb_hz),
+        |c| open(&tree.fdt, c, tb_hz),
         |c, why| {
             let mut buf = [0u8; MAX_RECORD];
             let name = record_of(c, &mut buf).unwrap_or("?");
@@ -177,24 +182,12 @@ fn candidates(fdt: &Fdt<'static>) -> Vec<Candidate> {
         .filter(|(base, _)| VirtioDisk::is_block(*base))
         .collect();
     virtio.sort_unstable_by_key(|(base, _)| *base);
-    let mut sd: Vec<(usize, Node<'static>)> = fdt
-        .find_compatible(&["spacemit,k1-sdhci"])
-        .filter(|n| n.is_enabled() && n.prop("no-mmc").is_none())
-        .filter_map(|n| Some((window(&n)?, n)))
-        .collect();
-    sd.sort_unstable_by_key(|(base, _)| *base);
 
     let mut out: Vec<Candidate> =
         virtio.into_iter().map(|(base, node)| Candidate::Virtio { node, base }).collect();
-    for (base, node) in sd {
-        let disk = record::BootDisk { place: Place::Node(node), kind: Kind::SdhciK1 };
-        match storage::sdhci::host_config(&disk) {
-            Some(config) => out.push(Candidate::SdNode { node, base, config }),
-            None => {
-                arch::uart_puts(&format!("nxboot: disk {} skipped (host config)\n", node.name()))
-            }
-        }
-    }
+    out.extend(
+        node::emmc_hosts(fdt).into_iter().map(|(base, node)| Candidate::SdNode { node, base }),
+    );
     for host in fdt.find_compatible(&["pci-host-ecam-generic"]).filter(|n| n.is_enabled()) {
         pci_sd_hosts(fdt, host, &mut out);
     }
@@ -221,7 +214,7 @@ fn pci_sd_hosts(fdt: &Fdt<'static>, host: Node<'static>, out: &mut Vec<Candidate
     }
 }
 
-fn open(candidate: &Candidate, tb_hz: u64) -> Result<BootDisk, &'static str> {
+fn open(fdt: &Fdt<'static>, candidate: &Candidate, tb_hz: u64) -> Result<BootDisk, &'static str> {
     let sd = |base: usize, config: HostConfig| {
         SdhciDisk::open(ArchBus { base }, ArchPlatform { tb_hz }, config)
             .map(BootDisk::Sdhci)
@@ -229,7 +222,15 @@ fn open(candidate: &Candidate, tb_hz: u64) -> Result<BootDisk, &'static str> {
     };
     match candidate {
         Candidate::Virtio { base, .. } => VirtioDisk::open(*base).map(BootDisk::Virtio),
-        Candidate::SdNode { base, config, .. } => sd(*base, *config),
+        Candidate::SdNode { node, base } => {
+            // Its glue up and its `io` clock read — the provider windows at their physical
+            // addresses, for this candidate only.
+            let config = node::open_config(fdt, *node, &ArchBus { base: 0 }).map_err(|why| {
+                glue_fault_line(node, why);
+                why.name()
+            })?;
+            sd(*base, config)
+        }
         Candidate::SdPci { host, dev, func, bar } => {
             let place = Place::Pci { host: *host, dev: *dev, func: *func };
             let disk = record::BootDisk { place, kind: Kind::SdhciPci };
@@ -247,6 +248,18 @@ fn record_of<'b>(candidate: &Candidate, out: &'b mut [u8]) -> Option<&'b str> {
             record::record_for_pci_sd_host(host, *dev, *func, out)
         }
     }
+}
+
+/// The register and the value a failed glue step read, next to the skip line that names it —
+/// the words of `socd`'s own failure marker (RFC-0106), so one search finds both stages.
+fn glue_fault_line(node: &Node<'static>, why: Refusal) {
+    let Refusal::Glue(Fault::ReadBack { addr, value } | Fault::FcStuck { addr, value }) = why
+    else {
+        return;
+    };
+    let mut buf = [0u8; MAX_RECORD];
+    let path = record::record_for_node(node, &mut buf).unwrap_or("?");
+    arch::uart_puts(&format!("nxboot: bring-up {path} FAIL (reg=0x{addr:x} val=0x{value:x})\n"));
 }
 
 fn sd_error(error: Error) -> &'static str {

@@ -47,7 +47,9 @@ pub fn host_config(disk: &BootDisk<'_>) -> Option<HostConfig> {
             let hs400es = node.prop("mmc-hs400-enhanced-strobe").is_some()
                 && node.prop("mmc-hs400-1_8v").is_some();
             // The K1's capability register names no base clock: the `io` clock's rate comes
-            // from the SoC glue (TASK-0246 P4c); until it does, the host refuses to start.
+            // from the SoC glue — socd's answer to the block owner (TASK-0246 P4c), the
+            // loader's own `nexus_soc::clock_rate` (TASK-0246B P2); without it the host
+            // refuses to start.
             Some(HostConfig { base_clock_hz: None, bus_width, hs400es, layer: Layer::K1 })
         }
         _ => None,

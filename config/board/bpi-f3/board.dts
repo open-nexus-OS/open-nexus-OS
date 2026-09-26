@@ -409,6 +409,12 @@
 			#size-cells = <2>;
 			dma-ranges = <0x0 0x00000000 0x0 0x00000000 0x0 0x80000000>;
 
+			// What each SD host may carry, the standard way (`no-mmc`/`no-sd`/`no-sdio`), as the
+			// stock system's live tree marks them (measured 2026-09-26, docs/board/measurements/
+			// 2026-09-24-emmc-sdhci/live-tree-sdh.txt): the loader's boot-disk rule and the block
+			// owner treat only a host without `no-mmc` as one that may hold an eMMC.
+
+			// The microSD slot.
 			sdhci0: mmc@d4280000 {
 				compatible = "spacemit,k1-sdhci";
 				reg = <0x0 0xd4280000 0x0 0x200>;
@@ -422,9 +428,12 @@
 				pinctrl-0 = <&mmc1_cfg>;
 				pinctrl-1 = <&mmc1_uhs_cfg>;
 				bus-width = <4>;
+				no-mmc;
+				no-sdio;
 				status = "okay";
 			};
 
+			// The SDIO WiFi function.
 			sdhci1: mmc@d4280800 {
 				compatible = "spacemit,k1-sdhci";
 				reg = <0x0 0xd4280800 0x0 0x200>;
@@ -436,10 +445,12 @@
 				power-domains = <&syscon_apmu K1_PD_BUS>;
 				bus-width = <4>;
 				non-removable;
+				no-mmc;
+				no-sd;
 				status = "okay";
 			};
 
-			// The system disk (eMMC, HS400 capable, 8-bit).
+			// The system disk (eMMC, 8-bit, HS400 with enhanced strobe at 1.8 V).
 			sdhci2: mmc@d4281000 {
 				compatible = "spacemit,k1-sdhci";
 				reg = <0x0 0xd4281000 0x0 0x200>;
@@ -451,6 +462,10 @@
 				power-domains = <&syscon_apmu K1_PD_BUS>;
 				bus-width = <8>;
 				non-removable;
+				no-sd;
+				no-sdio;
+				mmc-hs400-1_8v;
+				mmc-hs400-enhanced-strobe;
 				status = "okay";
 			};
 

@@ -10,7 +10,8 @@ the mainline tree and driver (facts only — register offsets, bits, bus layout;
 copied) and from QEMU 11.1.1 on the host.
 
 Files: `ext_csd.hex` (the card's 512-byte EXT_CSD as the stock kernel read it — card data,
-not vendor source), `qemu-sdhci-pci-qtree.txt` (QEMU monitor excerpt).
+not vendor source), `qemu-sdhci-pci-qtree.txt` (QEMU monitor excerpt), `live-tree-sdh.txt`
+(the three hosts' live tree properties, added 2026-09-26 — see the addendum at the end).
 
 ## The card (`mmc2:0001`, `/sys/bus/mmc/devices` + debugfs)
 
@@ -110,3 +111,20 @@ not vendor source), `qemu-sdhci-pci-qtree.txt` (QEMU monitor excerpt).
    HS52 8-bit) through `sdhci-pci` + `emmc`, which needs PCI ECAM enumeration and BAR
    assignment in the OS — deterministic, and the same planner serves nxboot and init. The
    board proves the K1 layer (vendor registers, HS400ES).
+
+## Addendum 2026-09-26 (TASK-0246B P2): which host may hold what (`live-tree-sdh.txt`)
+
+Read over adb from the live vendor tree (kernel 6.6.63), the standard mmc-controller flags that
+say what each host may carry:
+
+| Host | Carries | Flags in the live tree | `bus-width` | `spacemit,sdh-freq` |
+|---|---|---|---|---|
+| `sdh@d4280000` | the microSD slot | `no-mmc`, `no-sdio` (+ `cd-inverted`) | 4 | 204.8 MHz |
+| `sdh@d4280800` | the SDIO WiFi function | `no-mmc`, `no-sd`, `non-removable` | 4 | 375 MHz |
+| `sdh@d4281000` | the eMMC | `no-sd`, `no-sdio`, `non-removable`, `mmc-hs400-1_8v`, `mmc-hs400-enhanced-strobe` | 8 | 375 MHz |
+
+The frequencies agree with the APMU state measured on 2026-09-22
+(`../2026-09-22-stock-system/regmap-apmu.txt`): `SDH0` = `0x411b` selects mux 0 (`pll1_d6`,
+409.6 MHz) divided by 2 = 204.8 MHz; `SDH1` and `SDH2` = `0x52` select mux 2 (`pll2_d8`,
+375 MHz) divided by 1.
+

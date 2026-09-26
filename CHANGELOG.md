@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-26 (TASK-0246B P2: the loader's board path)
+
+- The board tree marks what each SD host may carry, as the stock system's live tree does
+  (measured over adb, `docs/board/measurements/2026-09-24-emmc-sdhci/live-tree-sdh.txt`): the
+  microSD slot `no-mmc` + `no-sdio`, the SDIO WiFi host `no-mmc` + `no-sd`, the eMMC host
+  `no-sd` + `no-sdio` + `mmc-hs400-1_8v` + `mmc-hs400-enhanced-strobe`. The golden `bpi-f3.dtb`
+  is rebuilt from it.
+- A K1 host marked `no-mmc` is no disk kind (`storage::boot_disk::Kind::of_node`): no stage
+  records, resolves or grants it. On the board the eMMC host is the only SD candidate.
+- `nexus-soc` owns the two node operations: `bring_up` (plan, then execute; an empty plan is
+  `NotNeeded`) and `clock_rate` (a named clock's rate, read back). `socd` answers with them; its
+  own clock-rate walk is deleted.
+- nxboot's `disk::node`: the tree's SD hosts that may hold the boot disk, lowest address first,
+  and a host's configuration once its glue is up and its `io` clock read. It runs for the one
+  candidate the loader is about to open, over the provider windows at their physical
+  addresses. A glue fault skips the disk by name, with the register and the value it read.
+- RFC-0106 records the loader clause; RFC-0098 C5 defines "may hold an eMMC".
+- Proof: host tests (`nexus-soc` 16 with 4 new, nxboot `loader_flow` 19 with 7 new, `storage`
+  with the `no-mmc` refusal, socd's contract 7 unchanged); five mutations each fail their test;
+  `just check` green; `build-os-workspace` 0 warnings; `just test-all` green (EXIT=0, 12 QEMU
+  lanes). QEMU behaves as before: 21 loader boots (20 virtio, 1 SD host), no skip, `blkd:
+  backend ok` in all 19 boots that reach init, smp1 430 and the SDHCI lane 429 ok lines as
+  before. The board proves the path in TASK-0246 P6 / TASK-0260B.
+
 ### Added - 2026-09-26 (TASK-0246 P5: the SDHCI lane in `test-all`)
 
 - `just ci-os-sdhci` (`[profile.sdhci]`, extends smp1) boots QEMU with `sdhci-pci` (spec 3.00, the

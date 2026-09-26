@@ -1,0 +1,32 @@
+# The three SD hosts as the stock system's live tree describes them (TASK-0246B P2).
+# Read 2026-09-26 over adb from /proc/device-tree/soc/sdh@*: compatible, status, bus-width,
+# spacemit,sdh-freq (big-endian u32) and which standard mmc-controller flags are present.
+# The first line is the running kernel (uname -r).
+6.6.63
+== sdh@d4280000
+compatible: spacemit,k1-x-sdhci 
+status: okay
+bus-width: 0x00000004
+spacemit,sdh-freq: 0x0c350000
+no-mmc: present
+no-sdio: present
+cd-inverted: present
+== sdh@d4280800
+compatible: spacemit,k1-x-sdhci 
+status: okay
+bus-width: 0x00000004
+spacemit,sdh-freq: 0x165a0bc0
+no-mmc: present
+no-sd: present
+non-removable: present
+keep-power-in-suspend: present
+== sdh@d4281000
+compatible: spacemit,k1-x-sdhci 
+status: okay
+bus-width: 0x00000008
+spacemit,sdh-freq: 0x165a0bc0
+no-sd: present
+no-sdio: present
+non-removable: present
+mmc-hs400-1_8v: present
+mmc-hs400-enhanced-strobe: present

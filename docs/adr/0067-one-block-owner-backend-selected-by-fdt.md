@@ -74,6 +74,8 @@ Measured on the board, upstream and in QEMU (`docs/board/measurements/2026-09-24
   and arrives when an SD medium is needed).
 - **Which disk.** nxboot names the medium it booted from in `/chosen/nexus,boot-disk`; init
   grants exactly that device to `blkd` (the board has three SD hosts and a stock SD card).
+  (2026-09-26, TASK-0246B P2: the board tree marks the microSD slot and the SDIO host `no-mmc`,
+  as the live tree does; a K1 host so marked is no disk kind, so no stage names or grants it.)
 - **nxboot initialises the card itself** with the same core in PIO mode — it relies on no
   predecessor's controller state, so QEMU (no SPL) and the board (SPL before it) take one path.
 

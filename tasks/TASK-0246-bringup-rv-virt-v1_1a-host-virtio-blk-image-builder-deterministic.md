@@ -379,7 +379,10 @@ TASK-0248's decision).
   proof is 14.67 % non-black in both visible runs. `make doctor` exits 0 here; a stand-in QEMU
   without `emmc` fails it with exactly that one line.
 - **P6 Board** — after B1.6 boots our chain: eMMC at HS52, then HS400ES, GPT read,
-  `packagefs: mounted`; the markers join TASK-0327B's ladder.
+  `packagefs: mounted`; the markers join TASK-0327B's ladder. Since TASK-0246B P2 (2026-09-26)
+  the board tree carries what the live tree measured: the eMMC host's HS400ES capability
+  (`mmc-hs400-1_8v`, `mmc-hs400-enhanced-strobe`, so `blkd` aims for HS400ES there) and the
+  `no-mmc` flags that keep the microSD slot and the SDIO host out of every stage.
 
 ## Constraints / invariants
 

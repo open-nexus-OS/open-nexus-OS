@@ -383,3 +383,153 @@ fn a_silent_sd_host_is_skipped_and_a_card_left_initialised_is_initialised_again(
     let loaded = flow::run(&mut dev, &mut dest, &mut |_| {}).expect("boot");
     assert_eq!(loaded.slot, Slot::A);
 }
+
+// ---- The board path (TASK-0246B P2): the tree's SD hosts, their glue, their clock ----
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use nexus_fdt::Fdt;
+use nexus_hal::Bus;
+use nexus_soc::{Fault, PlanError};
+use nxboot::disk::node::{self as sd_node, Refusal};
+use storage_sdhci::Layer;
+
+const BOARD: &[u8] = include_bytes!("../../../libs/nexus-fdt/tests/goldens/bpi-f3.dtb");
+const VIRT: &[u8] = include_bytes!("../../../libs/nexus-fdt/tests/goldens/virt.dtb");
+/// SD hosts the real trees cannot show: one binding no glue, one with a bus no host has.
+const FIXTURE: &[u8] = include_bytes!("../../../../userspace/storage/tests/fixtures/boot-disk.dtb");
+/// The APMU window as the stock system runs it (measured 2026-09-22): what the SPL leaves.
+const APMU_STOCK: &str =
+    include_str!("../../../../docs/board/measurements/2026-09-22-stock-system/regmap-apmu.txt");
+const APMU_BASE: usize = 0xd428_2800;
+const EMMC: &str = "/soc/storage-bus/mmc@d4281000";
+
+/// The provider windows as a register file: absolute address → word, every write logged.
+#[derive(Default)]
+struct Regs {
+    words: RefCell<HashMap<usize, u32>>,
+    writes: RefCell<Vec<(usize, u32)>>,
+}
+
+impl Regs {
+    fn stock() -> Self {
+        let regs = Regs::default();
+        for line in APMU_STOCK.lines() {
+            let Some((off, val)) = line.split_once(": ") else { continue };
+            let off = usize::from_str_radix(off.trim(), 16).expect("offset");
+            let val = u32::from_str_radix(val.trim(), 16).expect("value");
+            regs.words.borrow_mut().insert(APMU_BASE + off, val);
+        }
+        regs
+    }
+}
+
+impl Bus for Regs {
+    fn read(&self, addr: usize) -> u32 {
+        self.words.borrow().get(&addr).copied().unwrap_or(0)
+    }
+    fn write(&self, addr: usize, value: u32) {
+        self.writes.borrow_mut().push((addr, value));
+        self.words.borrow_mut().insert(addr, value);
+    }
+}
+
+/// Nothing answers at the windows.
+struct DeadBus;
+
+impl Bus for DeadBus {
+    fn read(&self, _addr: usize) -> u32 {
+        0
+    }
+    fn write(&self, _addr: usize, _value: u32) {}
+}
+
+#[test]
+fn the_rule_takes_the_tree_hosts_lowest_address_first() {
+    let fixture = Fdt::new(FIXTURE).unwrap();
+    let bases: Vec<usize> = sd_node::emmc_hosts(&fixture).into_iter().map(|(b, _)| b).collect();
+    assert_eq!(bases, [0xd428_1000, 0xd428_2000, 0xd428_3000, 0xd428_4000], "not the tree's order");
+    assert!(sd_node::emmc_hosts(&Fdt::new(VIRT).unwrap()).is_empty(), "QEMU lists none");
+}
+
+#[test]
+fn test_reject_a_host_marked_no_mmc_so_the_board_offers_only_its_emmc() {
+    let board = Fdt::new(BOARD).unwrap();
+    for path in ["/soc/storage-bus/mmc@d4280000", "/soc/storage-bus/mmc@d4280800"] {
+        let host = board.node_at_path(path).unwrap();
+        assert!(host.prop("no-mmc").is_some(), "{path}: the live tree's flag");
+    }
+    let hosts: Vec<(usize, &str)> =
+        sd_node::emmc_hosts(&board).into_iter().map(|(b, n)| (b, n.name())).collect();
+    assert_eq!(hosts, [(0xd428_1000, "mmc@d4281000")]);
+}
+
+#[test]
+fn from_the_measured_state_the_emmc_host_needs_no_write_and_runs_at_375_mhz() {
+    let board = Fdt::new(BOARD).unwrap();
+    let emmc = board.node_at_path(EMMC).unwrap();
+    let regs = Regs::stock();
+    let config = sd_node::open_config(&board, emmc, &regs).expect("the eMMC host");
+    assert_eq!(config.base_clock_hz, Some(375_000_000), "sdh2_clk: pll2_d8, divider 1");
+    assert_eq!((config.bus_width, config.hs400es, config.layer), (8, true, Layer::K1));
+    assert!(regs.writes.borrow().is_empty(), "the SPL left the eMMC glue on");
+}
+
+#[test]
+fn from_cold_the_loader_writes_the_documented_glue_bits_and_reads_what_they_select() {
+    let board = Fdt::new(BOARD).unwrap();
+    let emmc = board.node_at_path(EMMC).unwrap();
+    let regs = Regs::default();
+    let config = sd_node::open_config(&board, emmc, &regs).expect("up from cold");
+    let (sdh0, sdh2) = (APMU_BASE + 0x054, APMU_BASE + 0x0e0);
+    assert_eq!(
+        *regs.writes.borrow(),
+        [(sdh0, 1 << 0), (sdh2, 1 << 1), (sdh0, (1 << 0) | (1 << 3)), (sdh2, (1 << 1) | (1 << 4))],
+        "sdh_axi released, sdh2 released, sdh_axi gated on, sdh2 gated on"
+    );
+    assert_eq!(config.base_clock_hz, Some(409_600_000), "zeroed fields: mux 0 = pll1_d6");
+}
+
+#[test]
+fn a_whole_boot_decision_runs_over_the_board_emmc_host() {
+    let board = Fdt::new(BOARD).unwrap();
+    let emmc = board.node_at_path(EMMC).unwrap();
+    let config = sd_node::open_config(&board, emmc, &Regs::stock()).expect("config");
+    // The K1 machine's host runs its `io` clock at the 375 MHz the registers select.
+    let m = model::machine(model::k1());
+    let platform = model::SimPlatform { m: m.clone(), irq: false };
+    let disk = SdhciDisk::open(model::ModelBus(m.clone()), platform, config).expect("the eMMC");
+    let mut fx = factory_fixture_on(disk);
+    let (got, events, dest) = run(&mut fx);
+    assert_eq!(got.expect("a clean boot over the K1 host").slot, Slot::A);
+    assert_eq!(&dest[..fx.kernel_a.len()], fx.kernel_a.as_slice(), "verified bytes in dest");
+    assert_eq!(events[0], Event::BsbOk { slot: Slot::A, seq: 1 });
+    assert!(m.borrow().mem.ops.is_empty(), "no DMA memory: the loader reads by PIO");
+}
+
+#[test]
+fn test_reject_glue_the_tables_do_not_cover_or_that_does_not_read_back() {
+    let board = Fdt::new(BOARD).unwrap();
+    let emmc = board.node_at_path(EMMC).unwrap();
+    let fault = Fault::ReadBack { addr: APMU_BASE + 0x054, value: 0 };
+    assert_eq!(sd_node::open_config(&board, emmc, &DeadBus), Err(Refusal::Glue(fault)));
+    assert_eq!(Refusal::Glue(fault).name(), "soc glue failed");
+    // A node whose glue the tables do not cover is refused before any bus access (the HDMI
+    // encoder's power domain 7 stands in for such a host).
+    let hdmi = board.node_at_path("/soc/hdmi@c0400500").unwrap();
+    let regs = Regs::default();
+    let refused = Err(Refusal::GlueUnsupported(PlanError::DomainUnsupported(7)));
+    assert_eq!(sd_node::open_config(&board, hdmi, &regs), refused);
+    assert!(regs.writes.borrow().is_empty());
+}
+
+#[test]
+fn test_reject_a_k1_host_without_an_io_clock_or_a_bus() {
+    let fixture = Fdt::new(FIXTURE).unwrap();
+    // It binds no glue: nothing to bring up, and no clock to run the host at — never a guess.
+    let bare = fixture.node_at_path("/soc/mmc@d4281000").unwrap();
+    assert_eq!(sd_node::open_config(&fixture, bare, &Regs::default()), Err(Refusal::NoIoClock));
+    let odd = fixture.node_at_path("/soc/mmc@d4283000").unwrap();
+    assert_eq!(sd_node::open_config(&fixture, odd, &Regs::default()), Err(Refusal::HostConfig));
+}
