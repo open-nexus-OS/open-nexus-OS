@@ -4,10 +4,11 @@
 //! CONTEXT: THE single authority for the RFC-0089 §2 GPT disk layout —
 //! shared by `nx image` (host builder), `blkd` (partition server) and
 //! `nxboot` (loader), so the three can never drift on offsets, names or
-//! types. The disk starts with the board's boot-ROM head (TASK-0260 P1,
-//! RFC-0089 §2 amendment 2026-09-26): GPT partitions 1–4 at the offsets and
-//! in the order the vendor SPL finds them — through the GPT, by name or by
-//! number, so both stay as measured (docs/board/measurements/
+//! types. The disk starts with the part of the board's boot chain that lives
+//! in the user area (TASK-0260 P1/P2, RFC-0089 §2 amendment 2026-09-26):
+//! GPT partitions 1–2, `opensbi` and `uboot`, which the SPL — itself in the
+//! eMMC's boot0 hardware partition, next to the boot-ROM header — finds by
+//! NAME (the vendor SPL's configuration, docs/board/measurements/
 //! 2026-09-26-boot-medium) — zero on QEMU. Our volumes follow from the next
 //! 1 MiB boundary. Sizes are the contract; LBAs derive from them
 //! deterministically. Growth is a conscious act gated by
@@ -47,25 +48,13 @@ pub struct PartitionSpec {
     pub place: Place,
 }
 
-/// The disk, in GPT order. The head's entries 1–4 are the board's boot firmware: the SPL
-/// (`fsbl`), an environment no stage of ours reads (`env`), OpenSBI (`opensbi`) and the
-/// loader's FIT under the name the SPL looks it up by (`uboot`). Then RFC-0089 §2's volumes
+/// The disk, in GPT order. The head's entries 1–2 are the board's boot firmware the SPL loads
+/// by name: OpenSBI (`opensbi`) and the loader's FIT (`uboot`, the SPL's name for its payload
+/// slot), at the offsets the vendor's medium uses. Then RFC-0089 §2's volumes
 /// (normative order); `system-a/b` are RESERVED for the Phase-B bundle-set volumes — empty on
 /// purpose, so the disk never needs repartitioning when that phase lands. `swap` (M7) is
 /// appended last once M7 has measured its size.
 pub const NEXUS_DISK_LAYOUT: &[PartitionSpec] = &[
-    PartitionSpec {
-        name: "fsbl",
-        type_guid: GUID_NEXUS_FW,
-        size_bytes: 256 * KIB,
-        place: Place::At(128 * KIB),
-    },
-    PartitionSpec {
-        name: "env",
-        type_guid: GUID_NEXUS_FW,
-        size_bytes: 64 * KIB,
-        place: Place::At(384 * KIB),
-    },
     PartitionSpec {
         name: "opensbi",
         type_guid: GUID_NEXUS_FW,
@@ -158,26 +147,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_head_is_where_the_board_boot_rom_and_its_spl_look() {
+    fn the_head_is_what_the_spl_loads_by_name() {
         let parts = plan().expect("layout fits");
-        let head: Vec<(&str, u64, u64)> = parts[..4]
-            .iter()
-            .map(|p| {
-                (p.name.as_str(), p.first_lba * SECTOR, (p.last_lba + 1 - p.first_lba) * SECTOR)
-            })
-            .collect();
-        // The stock medium's GPT entries 1–4 (measured 2026-09-26).
-        assert_eq!(
-            head,
-            [
-                ("fsbl", 128 * KIB, 256 * KIB),
-                ("env", 384 * KIB, 64 * KIB),
-                ("opensbi", MIB, MIB),
-                ("uboot", 2 * MIB, 2 * MIB)
-            ]
-        );
-        assert!(parts[..4].iter().all(|p| p.type_guid == GUID_NEXUS_FW));
-        assert_eq!((parts[4].name.as_str(), parts[4].first_lba * SECTOR), ("bsb", 4 * MIB));
+        let span = |p: &Partition| (p.first_lba * SECTOR, (p.last_lba + 1 - p.first_lba) * SECTOR);
+        let head: Vec<(&str, (u64, u64))> =
+            parts[..2].iter().map(|p| (p.name.as_str(), span(p))).collect();
+        // The names the vendor SPL loads (measured 2026-09-26), where the vendor's medium has them.
+        assert_eq!(head, [("opensbi", (MIB, MIB)), ("uboot", (2 * MIB, 2 * MIB))]);
+        assert!(parts[..2].iter().all(|p| p.type_guid == GUID_NEXUS_FW));
+        assert_eq!((parts[2].name.as_str(), parts[2].first_lba * SECTOR), ("bsb", 4 * MIB));
+        assert!(type_of("fsbl").is_none() && type_of("env").is_none(), "boot0 holds the SPL");
     }
 
     #[test]

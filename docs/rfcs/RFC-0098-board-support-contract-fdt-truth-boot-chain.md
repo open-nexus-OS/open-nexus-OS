@@ -389,14 +389,20 @@ image → kernel. `nx image` builds ONE image with the head (`bootinfo`, `fsbl`,
 built by `scripts/build-fit.sh` (`mkimage`) from OpenSBI + nxboot + our dtb.
 
 **Amended 2026-09-26 (TASK-0260 P0, measured — `docs/board/measurements/2026-09-26-boot-medium/`):**
-the disk the board boots is OURS byte for byte. Sector 0 shares the boot-ROM header (bytes 0–79)
-with a protective MBR, without which the SPL sees no GPT. The head is GPT partitions 1–4
-(`fsbl`, `env`, `opensbi`, `uboot`) at the vendor's offsets and in its order — the SPL finds its
-stages through the GPT, so names, numbers and offsets stay; the FIT sits in `uboot`. The GPT's
-backup lies at the device's last sector. The vendor flash vehicle's `flash gpt` builds a GPT of
-its own from a JSON (every partition basic data, no raw path), so it never writes the disk's
-GPT: the image and our backup GPT go through its raw writes and are read back (RFC-0089 §2
-amendment, TASK-0260 P1/P2).
+the disk the board boots is OURS byte for byte. Sector 0 carries a protective MBR, without which
+the SPL sees no GPT. The GPT's backup lies at the device's last sector. The vendor flash
+vehicle's `flash gpt` builds a GPT of its own from a JSON (every partition basic data, no raw
+path), so it never writes the disk's GPT.
+
+**Amended again 2026-09-26 (TASK-0260 P2, from the vendor's U-Boot source, then written and read
+back):** the eMMC boots from its **boot0** hardware partition — the boot-ROM header at 0, the SPL
+at `0x200` — and the SPL loads `opensbi` and `uboot` from the user area **by name**. So the user
+area's head is GPT partitions 1–2 (`opensbi`, `uboot`; the FIT sits in `uboot`), sector 0 holds
+the protective MBR alone, and `nx image` builds boot0 next to the disk. P0's sector-0 header and
+user-area `fsbl`/`env` were the SD card's form. The flash path declares every region — the user
+area in chunks, the backup GPT, boot0 — as a raw partition in the vehicle's environment (64-bit
+block addresses; its JSON regions compute offsets in 32 bits), writes it, and reads it back from
+the stock system: done on the desk board, every region exact.
 
 ### C7 — Display mode (Phase 5)
 

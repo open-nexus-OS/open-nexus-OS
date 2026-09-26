@@ -1,0 +1,46 @@
+# U-Boot fastboot probes on the desk board (TASK-0260 P2, 2026-09-26): the vehicle staged into RAM
+# (scripts/board-flash.sh --stage-only), then raw partitions declared and sized — nothing written.
+
+$ fastboot oem env:set fastboot_raw_partition_nxprobe:0x3000 0x10
+OKAY [  0.000s]
+Finished. Total time: 0.000s
+
+$ fastboot oem env:get fastboot_raw_partition_nxprobe
+OKAY [  0.000s]
+Finished. Total time: 0.000s
+
+$ fastboot getvar partition-size:nxprobe
+partition-size:nxprobe: 0x0000000000002000
+Finished. Total time: 0.000s
+
+$ fastboot getvar partition-type:nxprobe
+getvar:partition-type:nxprobe                      FAILED (remote: 'failed to set partition')
+Finished. Total time: 0.000s
+
+$ fastboot oem env:set fastboot_raw_partition_nxend:30535646 34
+OKAY [  0.000s]
+Finished. Total time: 0.000s
+
+$ fastboot getvar partition-size:nxend
+partition-size:nxend: 0x0000000000004400
+Finished. Total time: 0.000s
+
+$ fastboot oem env:set fastboot_raw_partition_nxb0:0 8192 mmcpart 1
+OKAY [  0.000s]
+Finished. Total time: 0.000s
+
+$ fastboot getvar partition-size:nxb0
+partition-size:nxb0: 0x0000000000400000
+Finished. Total time: 0.002s
+
+$ fastboot getvar partition-size:fsbl
+getvar:partition-size:fsbl                         FAILED (remote: 'invalid partition or device')
+Finished. Total time: 0.009s
+
+$ fastboot getvar partition-size:bootinfo
+getvar:partition-size:bootinfo                     FAILED (remote: 'invalid partition or device')
+Finished. Total time: 0.004s
+
+$ fastboot getvar partition-size:opensbi
+getvar:partition-size:opensbi                      FAILED (remote: 'invalid partition or device')
+Finished. Total time: 0.004s

@@ -43,7 +43,8 @@ matches the vendor id, so both modes work without sudo once you are in the seria
 ## The flash path (plain `fastboot`; the vendor's GUI flasher is not needed)
 
 The vendor's own recipe (`fastboot.yaml` inside the release archive) and three independent
-write-ups agree on the sequence `scripts/board-flash.sh` implements:
+write-ups agree on this sequence. `scripts/board-flash.sh` stages the vehicle the same way
+(the first four lines); what it writes is described below:
 
 ```
 lsusb                                   # "DFU USB download gadget" = boot ROM → staging needed; "U-Boot USB download gadget" = already staged
@@ -59,10 +60,13 @@ fastboot flash uboot    u-boot.itb
 fastboot reboot
 ```
 
-Today the recipe writes the **vendor boot vehicle** (GPT + the five bootloader partitions) and
-never the vendor OS volumes; our own partitions join it with Block 1's boot chain, and the
-recipe's banner names the chain it flashed. The stock system on the microSD card is not
-touched (the boot ROM tries the card first).
+Our recipe writes none of the vendor's partitions and never lets the vehicle build a GPT
+(`flash gpt <json>` types every partition basic data; its JSON regions compute offsets in 32
+bits). It writes **our disk** instead — the user area, the backup GPT, boot0 — as raw partitions
+declared in the vehicle's environment (`oem env:set fastboot_raw_partition_<name>:<start> <count>
+[mmcpart <n>]`), each sized before it is written, from the plan `just board-image` makes (see "The
+image for this board"). The stock system on the microSD card is not touched (the boot ROM tries
+the card first).
 
 Vendor pieces: `just board-inputs` (→ `scripts/fetch-board-inputs.sh`) fetches them pinned;
 `resources/board/bpi-f3/PROVENANCE.md` lists versions, hashes and licenses.
@@ -84,7 +88,9 @@ what it read: `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts
 | `just board-inputs` | fetch + verify the pinned vendor boot pieces (~250 MB download, once) |
 | `just board-serial [PORT]` | picocom on the adapter at 115200 8N1, log tee'd to `build/logs/board--<ts>/uart.log` (`build/logs/latest-board`) — the same file shape the QEMU marker tools read |
 | `just board-flash --stage-only` | boot ROM → SPL → U-Boot in RAM, prints the board's variables, writes nothing (the safe first contact) |
-| `just board-flash` | the above, then the vendor boot vehicle to eMMC (asks first) |
+| `just board-image` | the board's disk (the eMMC's user area + boot0) and its flash plan, from the last OS build |
+| `just board-flash --plan DIR` | the above, then write the flash plan to the eMMC: each region a raw partition, its size checked first (asks first) |
+| `just board-flash --verify DIR` | read every region of the plan back from the stock system over adb and compare digests |
 | `just board-ack MARKER=<name>` | append `board-visual: <name>` to the current board log — a human check becomes a marker the manifest can require (`TASK-0327B`) |
 
 ## Boot-ROM / SPL facts for Block 1 (measured from the vendor pieces, 2026-09-21)
@@ -100,21 +106,26 @@ what it read: `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts
 - SPL links at `0xc080_1000` (SRAM `0xc080_0000`, 4 KiB header); DDR controller at
   `0xc000_0000`.
 
-## The image for this board (TASK-0260 P1)
+## The image for this board (TASK-0260 P1/P2)
 
-`nx image build --target bpi-f3` builds the disk this board boots, byte for byte: a sparse file
-of the eMMC's 30 535 680 sectors (`config/board/bpi-f3/image.toml`). It holds:
+The eMMC boots from its boot0 hardware partition: the boot-ROM header at 0 and the SPL at `0x200`.
+The SPL then loads `opensbi` and `uboot` from the user area by name (the vendor's U-Boot source;
+`docs/board/measurements/2026-09-26-boot-medium/`). `just board-image` builds, from the last OS
+build (`config/board/bpi-f3/image.toml`):
 
-- in sector 0, the protective MBR, with the boot-ROM header in bytes 0–79;
-- the head as GPT partitions 1–4 (`fsbl`, `env`, `opensbi`, `uboot` at the offsets above),
-  filled from the pinned pieces — the header is checked as the boot ROM checks it, and `env`
-  stays zero;
-- our volumes from 4 MiB;
-- the backup GPT at the eMMC's last sector.
+- `build/board/bpi-f3/nexus.img` — the eMMC's user area byte for byte, a sparse file of its
+  30 535 680 sectors: the protective MBR in sector 0, our GPT with `opensbi` and `uboot` as
+  partitions 1–2 and our volumes from 4 MiB, the backup GPT at the last sector;
+- `nexus.img.boot0` — boot0: the eMMC boot-ROM header (checked as the boot ROM checks it) and the
+  SPL at the offset it names;
+- `flash/` — the flash plan (`nx image flash-plan`): the raw regions and their digests.
 
-`uboot` holds the loader's FIT once TASK-0260B builds it (`--fit`). The measurement behind it is
-`docs/board/measurements/2026-09-26-boot-medium/`; how the image reaches the eMMC is TASK-0260
-P2.
+`uboot` holds the loader's FIT once TASK-0260B builds it (`scripts/board-image.sh --fit FILE`).
+Then `just board-flash --plan build/board/bpi-f3/flash` writes it. Each region is declared in
+the vehicle as a raw partition and its size read back before it is written, and the board then
+boots its microSD. `just board-flash --verify build/board/bpi-f3/flash` reads every region back
+over adb. Done on the desk board on 2026-09-26: every region was exact, and the stock kernel reads
+our nine partitions without a warning.
 
 ## Measured against the boot ROM (2026-09-21, `just board-flash --stage-only`)
 
@@ -128,9 +139,9 @@ P2.
 | not implemented | `getvar all` (both stages), `slot-count`, `secure`, `unlocked`; every `partition-size:*` → "invalid partition or device" = the eMMC has never been flashed |
 | **the trap** | `getvar version-brom` is NOT a discriminator: the vendor U-Boot answers it too. A second `--stage-only` run against the U-Boot already in RAM therefore staged the SPL again; U-Boot's `continue` then "resumed boot" and the board **vanished from USB** (no `361c` device for minutes) — power cycle needed. `board-devices --mode` now tells `download` (product string "DFU USB download gadget") from `fastboot` ("U-Boot USB download gadget"), and `board-flash` stages only in `download` mode and verifies the mode after staging (re-proven after a power cycle: boot-ROM run 5.2 s, second run skips staging in 0.5 s) |
 
-`blk-size` is what the vendor recipe uses to pick `partition_{blk-size}.json`; `board-flash` asserts
-`k1-x` + `universal` before it writes. `max-download-size` bounds one `flash` payload at 256 MiB
-(our volumes are ≤ 128 MiB). Leaving the board in U-Boot's fastboot mode is harmless; `fastboot
+`blk-size` is what the vendor recipe uses to pick `partition_{blk-size}.json`; our recipe does not
+use it. `board-flash --plan` asserts product `k1-x` and a `max-download-size` of at least the
+plan's chunk (256 MiB: the plan's chunks are exactly that). Leaving the board in U-Boot's fastboot mode is harmless; `fastboot
 reboot` boots the microSD system again — its adb gadget (`361c:0008`) reappears after ~65 s (measured), so
 a lane waiting for it must allow that long.
 

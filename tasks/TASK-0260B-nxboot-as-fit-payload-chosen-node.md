@@ -27,10 +27,12 @@ and the only place that may read fw_cfg (RFC-0098 C2).
 
 ## Context added 2026-09-26 (TASK-0260 P0, measured)
 
-The FIT goes into the head partition the SPL knows as `uboot` (#4, 2 MiB at 2 MiB): the name,
-number and offset stay the SPL's, whatever the slot holds. The SPL picks a FIT configuration by
-name (`Boot from fit configuration %s`) — which name it asks for, and so which configuration our
-single-config FIT must answer (or its default), is measured with the first boot (TASK-0260 P3).
+The FIT goes into the head partition the SPL knows as `uboot` (2 MiB at 2 MiB; partition 2 since
+TASK-0260 P2): the SPL loads it by that name (`CONFIG_SYS_LOAD_IMAGE_SEC_PARTITION_NAME`, the vendor's
+defconfig), whatever the slot holds. The SPL picks a FIT configuration by name (`Boot from fit
+configuration %s`) — which name it asks for, and so which configuration our single-config FIT must
+answer (or its default), is measured with the first boot (TASK-0260 P3). `scripts/board-image.sh
+--fit FILE` puts the FIT into the board image; `just board-flash --plan` writes it.
 
 ## Goal
 

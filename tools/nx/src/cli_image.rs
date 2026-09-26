@@ -40,6 +40,25 @@ pub(crate) enum ImageAction {
     /// boot-b image `nxboot` MUST reject (tampered payload behind a valid
     /// NXBD, or a validly-signed downgrade) and point the BSB at it.
     Backstop(ImageBackstopArgs),
+    /// The flash plan of a board image (TASK-0260 P2): the raw regions the
+    /// flash vehicle writes — the user area in chunks, the backup GPT, boot0
+    /// — each with its file and digest.
+    FlashPlan(ImageFlashPlanArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ImageFlashPlanArgs {
+    /// A board image built with `--target <board>` (its boot0 next to it: `<image>.boot0`).
+    #[arg(long)]
+    pub(crate) image: PathBuf,
+    /// Where the region files and `plan.json` go.
+    #[arg(long)]
+    pub(crate) out_dir: PathBuf,
+    /// The largest single write the vehicle takes (its `max-download-size`).
+    #[arg(long, default_value = "256M")]
+    pub(crate) chunk_bytes: String,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Args, Debug)]

@@ -48,6 +48,7 @@ pub(crate) fn handle_image(args: ImageArgs) -> ExecResult {
         ImageAction::Ota(a) => crate::commands::image_ota::handle_ota(a),
         ImageAction::Fixtures(a) => crate::commands::image_fixtures::handle_fixtures(a),
         ImageAction::Backstop(a) => crate::commands::image_backstop::handle_backstop(a),
+        ImageAction::FlashPlan(a) => crate::commands::image_flash::handle_flash_plan(a),
     }
 }
 
@@ -273,7 +274,7 @@ fn handle_build(args: ImageBuildArgs) -> ExecResult {
     })?;
     write_gpt(&mut dev, &parts)
         .map_err(|e| NxError::new(ExitClass::Internal, format!("image: gpt write ({e:?})")))?;
-    let head = disk.write_head(&mut dev, &parts)?;
+    let head = disk.write_head(&mut dev, &parts, &args.out)?;
 
     // Factory BSB: block 0 = seq 1 (active A, committed, floor = the
     // shipped image's rollback index); block 1 stays zeroed (invalid) —

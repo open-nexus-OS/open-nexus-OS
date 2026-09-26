@@ -1,0 +1,50 @@
+# The first write of our disk to the eMMC (TASK-0260 P2, 2026-09-26, the user's go):
+# scripts/board-flash.sh --plan build/board/bpi-f3/flash --yes
+[board-flash] U-Boot fastboot mode already up — staging skipped
+[board-flash] board variables (U-Boot fastboot):
+    product            k1-x
+    version-bootloader U-Boot 2022.10<vendor>-gdcdcab9e9-dirty
+    serialno           7cc8e2bef8fb
+    blk-size           universal
+    mtd-size           NULL
+    max-download-size  0x10000000
+    current-slot       a
+
+[board-flash] ABOUT TO WRITE THE eMMC from build/board/bpi-f3/flash:
+    nxdisk0   hwpart 0  lba 0            524288 sectors  nxdisk0.img
+    nxdisk1   hwpart 0  lba 524288       239616 sectors  nxdisk1.img
+    nxgpt     hwpart 0  lba 30535647         33 sectors  nxgpt.img
+    nxboot0   hwpart 1  lba 0              8192 sectors  nxboot0.img
+[board-flash] the stock system on the microSD card is not touched
+[board-flash] fastboot oem env:set fastboot_raw_partition_nxdisk0:0 524288
+OKAY [  0.000s]
+Finished. Total time: 0.000s
+[board-flash] fastboot flash nxdisk0 build/board/bpi-f3/flash/nxdisk0.img
+Sending 'nxdisk0' (262144 KB)                      OKAY [  9.935s]
+Writing 'nxdisk0'                                  OKAY [  6.719s]
+Finished. Total time: 16.667s
+[board-flash] fastboot oem env:set fastboot_raw_partition_nxdisk1:524288 239616
+OKAY [  0.000s]
+Finished. Total time: 0.000s
+[board-flash] fastboot flash nxdisk1 build/board/bpi-f3/flash/nxdisk1.img
+Sending 'nxdisk1' (119808 KB)                      OKAY [  4.788s]
+Writing 'nxdisk1'                                  OKAY [  3.129s]
+Finished. Total time: 8.004s
+[board-flash] fastboot oem env:set fastboot_raw_partition_nxgpt:30535647 33
+OKAY [  0.000s]
+Finished. Total time: 0.000s
+[board-flash] fastboot flash nxgpt build/board/bpi-f3/flash/nxgpt.img
+Sending 'nxgpt' (16 KB)                            OKAY [  0.019s]
+Writing 'nxgpt'                                    OKAY [  0.070s]
+Finished. Total time: 0.177s
+[board-flash] fastboot oem env:set fastboot_raw_partition_nxboot0:0 8192 mmcpart 1
+OKAY [  0.000s]
+Finished. Total time: 0.000s
+[board-flash] fastboot flash nxboot0 build/board/bpi-f3/flash/nxboot0.img
+Sending 'nxboot0' (4096 KB)                        OKAY [  0.172s]
+Writing 'nxboot0'                                  OKAY [  0.138s]
+Finished. Total time: 0.412s
+[board-flash] written. Resetting the board (it boots the microSD first); then: scripts/board-flash.sh --verify build/board/bpi-f3/flash
+[board-flash] fastboot reboot
+Rebooting                                          OKAY [  0.000s]
+Finished. Total time: 0.150s

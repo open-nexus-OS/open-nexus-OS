@@ -39,6 +39,11 @@ board-serial *args:
 board-flash *args:
     @scripts/board-flash.sh {{args}}
 
+# TASK-0260 P2: the board's disk (the eMMC's user area + boot0) and its flash plan from the last OS
+# build (`just build-os-workspace`); then `just board-flash --plan build/board/bpi-f3/flash`.
+board-image *args:
+    @scripts/board-image.sh {{args}}
+
 board-ack MARKER:
     @scripts/board-ack.sh {{MARKER}}
 
@@ -73,7 +78,10 @@ help:
     @echo "  just board-devices       # is the board connected, and in which mode (stock / download)? + serial adapter"
     @echo "  just board-inputs        # fetch + verify the pinned vendor boot pieces (~250 MB once)"
     @echo "  just board-serial [PORT] # debug UART console, logged to build/logs/board--<ts>/uart.log"
-    @echo "  just board-flash [--stage-only] # boot ROM → SPL → U-Boot in RAM (+ flash the boot vehicle to eMMC)"
+    @echo "  just board-image                # the board's disk (eMMC user area + boot0) + flash plan from the last OS build"
+    @echo "  just board-flash --stage-only   # boot ROM → SPL → U-Boot in RAM, print the board's variables, write nothing"
+    @echo "  just board-flash --plan DIR     # write a flash plan to the eMMC (raw regions, sizes checked first; asks)"
+    @echo "  just board-flash --verify DIR   # read every region back from the stock system (adb) and compare"
     @echo "  just board-ack MARKER=x  # a human check becomes a 'board-visual: x' marker in the board log"
     @echo
     @echo "[Kernel Developers]"

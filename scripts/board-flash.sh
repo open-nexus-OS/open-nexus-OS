@@ -3,65 +3,115 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # CONTEXT: Flash the reference board over its boot-ROM download mode with plain
-#          `fastboot` (TASK-0327). The protocol, as the vendor's own recipe
-#          (fastboot.yaml in the release archive) and three independent
-#          write-ups agree:
+#          `fastboot` (TASK-0327, TASK-0260 P2). The vehicle, as the vendor's
+#          own recipe (fastboot.yaml in the release archive) stages it:
 #            1. boot ROM (361c:1001): `fastboot stage FSBL.bin; fastboot continue`
 #               — the SPL runs from SRAM, trains DDR, and waits again;
 #            2. `fastboot stage u-boot.itb; fastboot continue` — the vendor
-#               U-Boot runs from RAM and offers the flashing mode;
-#            3. `fastboot flash <partition> <file>` per partition, the GPT
-#               first (`fastboot flash gpt partition_universal.json`).
-#          Steps 1–2 write NOTHING; that is what --stage-only does, and it is
-#          how the board's variables are read (`fastboot getvar all`) without
-#          touching it. Step 3 is destructive for the eMMC; the stock system
-#          on the microSD card is not touched (the boot ROM tries the card
-#          first), and the script asks before writing.
+#               U-Boot runs from RAM and offers the flashing mode.
+#          Steps 1–2 write NOTHING; that is what --stage-only does.
 #
-#          What gets written today: the vendor BOOT VEHICLE only — the GPT
-#          from the vendor partition table and the bootloader partitions
-#          (bootinfo, fsbl, env, opensbi, uboot), never its OS volumes. Our own
-#          partitions (`userspace/storage/src/layout.rs`) join this recipe with
-#          Block 1's boot chain (TASK-0260/0260B), when the image `nx image`
-#          builds carries the boot-ROM head itself; the banner says which
-#          chain was flashed so this can never read as "our chain boots".
+#          What gets written is OUR disk, byte for byte, from a flash plan
+#          (`nx image flash-plan`, docs/board/measurements/2026-09-26-boot-medium):
+#          the eMMC's user area (our GPT with its protective MBR, the head the
+#          SPL loads by name, our volumes, the backup GPT at the disk's end)
+#          and its boot0 hardware partition (the boot-ROM header and the SPL).
+#          The vehicle's own `flash gpt <json>` builds a GPT of its own (every
+#          partition basic data) and its JSON regions compute offsets in 32
+#          bits, so neither is used: each region is declared as a raw
+#          partition (`oem env:set fastboot_raw_partition_<name>:<start>
+#          <sectors> [mmcpart <n>]` — 64-bit block addresses, measured), its
+#          size read back (`getvar partition-size:<name>`) before anything is
+#          written, then flashed. --verify reads every region back from the
+#          stock system (it boots from the microSD first: DIP 1+2 default)
+#          over adb and compares the plan's digests.
 # OWNERS:  @tools-team
 # STATUS:  Functional
-# API_STABILITY: Stable (flags); the partition set changes with TASK-0260B
-# TEST_COVERAGE: TASK-0327 T2 against the desk board (--stage-only measured first)
-# DEPENDS_ON: fastboot (android-tools), scripts/board-devices.sh, scripts/fetch-board-inputs.sh
+# API_STABILITY: Stable (flags)
+# TEST_COVERAGE: TASK-0327 T2 (--stage-only) and TASK-0260 P2 (--plan, --verify) against
+#                the desk board; the plan itself: tools/nx/tests/image_flash_cli.rs
+# DEPENDS_ON: fastboot (android-tools), adb (--verify), python3, scripts/board-devices.sh,
+#             scripts/fetch-board-inputs.sh
 #
 # Usage:
-#   scripts/board-flash.sh --stage-only     # boot ROM → SPL → U-Boot in RAM, print getvars, write nothing
-#   scripts/board-flash.sh                  # ... then flash the vendor boot vehicle to eMMC (asks first)
-#   scripts/board-flash.sh --yes            # no confirmation prompt
-#   scripts/board-flash.sh --skip-stage     # board already sits in U-Boot fastboot mode
+#   scripts/board-flash.sh --stage-only          # boot ROM → SPL → U-Boot in RAM, print the board's variables, write nothing
+#   scripts/board-flash.sh --plan DIR            # ... then write the flash plan in DIR to the eMMC (asks first)
+#   scripts/board-flash.sh --plan DIR --yes      # no confirmation prompt
+#   scripts/board-flash.sh --verify DIR          # read every region of the plan back from the stock system (adb)
+#   --skip-stage                                 # the board already sits in U-Boot fastboot mode
 #
-# Exit codes: 0 done · 1 tool/inputs missing · 2 aborted or fastboot failed · 3 board not in download mode
+# Exit codes: 0 done · 1 tool/inputs missing · 2 aborted, fastboot failed or a region mismatched ·
+#             3 board not in the mode the step needs
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BOARD="bpi-f3"
 VENDOR="$ROOT/resources/board/$BOARD/vendor"
+# The eMMC as the stock system names it (mmc2; measured 2026-09-22) and its boot0.
+STOCK_EMMC="/dev/mmcblk2"
 
-STAGE_ONLY=0; ASSUME_YES=0; SKIP_STAGE=0
-for arg in "$@"; do
-  case "$arg" in
+STAGE_ONLY=0; ASSUME_YES=0; SKIP_STAGE=0; PLAN=""; VERIFY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --stage-only) STAGE_ONLY=1 ;;
     --yes|-y)     ASSUME_YES=1 ;;
     --skip-stage) SKIP_STAGE=1 ;;
-    -h|--help)    sed -n '34,40p' "$0"; exit 0 ;;
-    *) echo "[error] unknown flag: $arg" >&2; exit 1 ;;
+    --plan)       PLAN="${2:?--plan needs a directory}"; shift ;;
+    --verify)     VERIFY="${2:?--verify needs a directory}"; shift ;;
+    -h|--help)    sed -n '35,42p' "$0"; exit 0 ;;
+    *) echo "[error] unknown flag: $1" >&2; exit 1 ;;
   esac
+  shift
 done
 
 log()  { printf '\033[1;34m[board-flash]\033[0m %s\n' "$*"; }
 err()  { printf '\033[1;31m[board-flash][error]\033[0m %s\n' "$*" >&2; }
 
+# The plan's regions, one per line: name hwpart start_lba sectors file sha256.
+regions() {
+  python3 - "$1/plan.json" <<'PY'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+for r in plan["regions"]:
+    print(r["name"], r["hwpart"], r["start_lba"], r["sectors"], r["file"], r["sha256"])
+PY
+}
+
+plan_field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1/plan.json" "$2"; }
+
+# --- verify: read the plan back from the stock system ----------------------------------
+if [ -n "$VERIFY" ]; then
+  [ -f "$VERIFY/plan.json" ] || { err "no plan.json in $VERIFY"; exit 1; }
+  command -v adb >/dev/null 2>&1 || { err "adb missing — scripts/install-deps.sh (android-tools)"; exit 1; }
+  [ "$(timeout 10 adb get-state 2>/dev/null)" = "device" ] || {
+    err "no stock system on adb — let the board boot the microSD (reset), then re-run"; exit 3; }
+  sectors="$(timeout 10 adb shell cat /sys/block/mmcblk2/size | tr -d '\r')"
+  want="$(plan_field "$VERIFY" disk_sectors)"
+  [ "$sectors" = "$want" ] || { err "the eMMC has $sectors sectors, the plan was built for $want"; exit 2; }
+  bad=0
+  while read -r name hwpart start count _file sha; do
+    dev="$STOCK_EMMC"; [ "$hwpart" = 1 ] && dev="${STOCK_EMMC}boot0"
+    # stdin from /dev/null: `adb shell` reads it, and would swallow the rest of the regions.
+    got="$(timeout 300 adb shell "dd if=$dev bs=1M iflag=skip_bytes,count_bytes skip=$((start * 512)) count=$((count * 512)) 2>/dev/null | sha256sum" </dev/null | cut -c1-64)"
+    if [ "$got" = "$sha" ]; then
+      log "read back $name ($dev @ $start, $count sectors): sha256 matches"
+    else
+      err "read back $name ($dev @ $start, $count sectors): sha256 $got, the plan says $sha"; bad=1
+    fi
+  done < <(regions "$VERIFY")
+  [ "$bad" = 0 ] || exit 2
+  log "every region reads back as planned"
+  exit 0
+fi
+
+# --- stage the vehicle (writes nothing) ------------------------------------------------
 command -v fastboot >/dev/null 2>&1 || { err "fastboot missing — scripts/install-deps.sh (android-tools)"; exit 1; }
 "$ROOT/scripts/fetch-board-inputs.sh" --check >/dev/null 2>&1 || {
   err "vendor boot pieces not fetched — run: just board-inputs"; exit 1; }
+if [ -n "$PLAN" ]; then
+  [ -f "$PLAN/plan.json" ] || { err "no plan.json in $PLAN — nx image flash-plan"; exit 1; }
+fi
 
 mode="$("$ROOT/scripts/board-devices.sh" --mode || true)"
 case "$mode" in
@@ -76,9 +126,9 @@ esac
 n="$(fastboot devices 2>/dev/null | grep -c . || true)"
 [ "$n" -eq 1 ] || { err "expected exactly one fastboot device, found $n"; exit 3; }
 
-fb() { # log + run one fastboot command; any failure is fatal
+fb() { # log + run one fastboot command; any failure is fatal (stdin kept off the region loop)
   log "fastboot $*"
-  if ! fastboot "$@"; then err "fastboot $* failed"; exit 2; fi
+  if ! fastboot "$@" </dev/null; then err "fastboot $* failed"; exit 2; fi
 }
 
 if [ "$SKIP_STAGE" != 1 ]; then
@@ -104,37 +154,30 @@ fi
 
 # Neither the boot ROM nor the vendor U-Boot implements `getvar all` (measured
 # 2026-09-21: "Variable not implemented"); these are the variables that answer.
-# `blk-size` names the partition table the vendor recipe would pick
-# (`partition_{blk-size}.json`) — we flash `partition_universal.json`, so it
-# must say `universal`; `max-download-size` bounds a single `flash` payload.
 log "board variables (U-Boot fastboot):"
-blk_size=""; product=""
+product=""; max_download=""
 for v in product version-bootloader serialno blk-size mtd-size max-download-size current-slot; do
   val="$(timeout 5 fastboot getvar "$v" 2>&1 | head -1 | sed -n "s/^$v: //p")"
   printf '    %-18s %s\n' "$v" "${val:-<not implemented>}"
-  case "$v" in blk-size) blk_size="$val" ;; product) product="$val" ;; esac
+  case "$v" in product) product="$val" ;; max-download-size) max_download="$val" ;; esac
 done
 
-if [ "$STAGE_ONLY" = 1 ]; then
-  log "--stage-only: nothing written. The board sits in U-Boot fastboot mode until reset."
+if [ "$STAGE_ONLY" = 1 ] || [ -z "$PLAN" ]; then
+  log "nothing written. The board sits in U-Boot fastboot mode until reset."
   exit 0
 fi
 
-# --- write the vendor boot vehicle -------------------------------------------
-PARTS=(
-  "bootinfo  factory/bootinfo_sd.bin"    # the vendor's universal table uses the SD header for eMMC too (measured: partition_universal.json)
-  "fsbl      factory/FSBL.bin"
-  "env       env.bin"
-  "opensbi   fw_dynamic.itb"
-  "uboot     u-boot.itb"
-)
-if [ "$product" != "k1-x" ] || [ "$blk_size" != "universal" ]; then
-  err "refusing to flash: product='${product:-?}' blk-size='${blk_size:-?}' — this recipe is for product k1-x with the universal block layout"
+# --- write the plan ----------------------------------------------------------------------
+chunk="$(plan_field "$PLAN" chunk_bytes)"
+if [ "$product" != "k1-x" ] || [ -z "$max_download" ] || [ $((max_download)) -lt "$chunk" ]; then
+  err "refusing to flash: product='${product:-?}' max-download-size='${max_download:-?}' (the plan's chunks are $chunk bytes)"
   exit 2
 fi
 echo
-log "ABOUT TO WRITE THE eMMC: GPT from partition_universal.json + ${#PARTS[@]} bootloader partitions"
-log "chain flashed = VENDOR boot vehicle (SPL → OpenSBI → vendor U-Boot); our OS volumes come with TASK-0260B"
+log "ABOUT TO WRITE THE eMMC from $PLAN:"
+while read -r name hwpart start count file _sha; do
+  printf '    %-9s hwpart %s  lba %-9s %9s sectors  %s\n' "$name" "$hwpart" "$start" "$count" "$file"
+done < <(regions "$PLAN")
 log "the stock system on the microSD card is not touched"
 if [ "$ASSUME_YES" != 1 ]; then
   printf '[board-flash] Continue? [y/N] '
@@ -142,10 +185,16 @@ if [ "$ASSUME_YES" != 1 ]; then
   case "$reply" in y|Y|yes|YES) ;; *) err "aborted by user (board stays in fastboot mode)."; exit 2 ;; esac
 fi
 
-fb flash gpt "$VENDOR/partition_universal.json"
-for entry in "${PARTS[@]}"; do
-  read -r part file _ <<<"$entry"
-  fb flash "$part" "$VENDOR/$file"
-done
-log "written. Resetting the board (it boots the microSD card first; eMMC carries the boot vehicle only)."
+while read -r name hwpart start count file _sha; do
+  desc="$start $count"
+  [ "$hwpart" = 0 ] || desc="$desc mmcpart $hwpart"
+  fb oem "env:set" "fastboot_raw_partition_${name}:${desc}"
+  size="$(timeout 5 fastboot getvar "partition-size:$name" 2>&1 </dev/null | sed -n "s/^partition-size:$name: //p")"
+  if [ -z "$size" ] || [ $((size)) -ne $((count * 512)) ]; then
+    err "the vehicle does not see $name as $count sectors (partition-size: ${size:-none}) — nothing written for it"
+    exit 2
+  fi
+  fb flash "$name" "$PLAN/$file"
+done < <(regions "$PLAN")
+log "written. Resetting the board (it boots the microSD first); then: scripts/board-flash.sh --verify $PLAN"
 fb reboot

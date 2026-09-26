@@ -59,6 +59,13 @@ chainload detour.
   type. Sector 0 carries a protective MBR next to the boot-ROM header, since U-Boot's GPT driver,
   and so the SPL, sees no GPT without one. The head is GPT partitions 1–4 at the vendor's
   offsets, and the FIT's slot keeps the SPL's name `uboot`.)
+  (Amended again 2026-09-26, TASK-0260 P2, from the vendor's U-Boot source, then written and
+  read back on the desk board: the eMMC boots from its boot0 hardware partition — the boot-ROM
+  header and the SPL live there, and `nx image` builds boot0 beside the disk — and the SPL loads
+  `opensbi` and `uboot` from the user area by name, so the head is those two partitions and
+  sector 0 carries the protective MBR alone. `fastboot` writes every region raw, declared through
+  the vehicle's environment as `fastboot_raw_partition_*` with 64-bit block addresses, and
+  `scripts/board-flash.sh --verify` reads each back.)
 - Out of scope: signed FIT / secure boot (follow-up once the chain runs), SPI-NOR boot, the
   vendor's `env`/`bootfs`/`rootfs` (never written).
 

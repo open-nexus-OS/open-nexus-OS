@@ -1,0 +1,36 @@
+# Read back from the stock system after the write (TASK-0260 P2, 2026-09-26):
+# scripts/board-flash.sh --verify build/board/bpi-f3/flash
+[board-flash] read back nxdisk0 (/dev/mmcblk2 @ 0, 524288 sectors): sha256 matches
+[board-flash] read back nxdisk1 (/dev/mmcblk2 @ 524288, 239616 sectors): sha256 matches
+[board-flash] read back nxgpt (/dev/mmcblk2 @ 30535647, 33 sectors): sha256 matches
+[board-flash] read back nxboot0 (/dev/mmcblk2boot0 @ 0, 8192 sectors): sha256 matches
+[board-flash] every region reads back as planned
+
+# The stock kernel's view of the written eMMC (adb: dmesg, sysfs, lsblk):
+[    5.554972] mmcblk2: mmc2:0001 AJTD4R 14.6 GiB
+[    5.562407]  mmcblk2: p1 p2 p3 p4 p5 p6 p7 p8 p9
+[    5.568437] mmcblk2boot0: mmc2:0001 AJTD4R 4.00 MiB
+[    5.574453] mmcblk2boot1: mmc2:0001 AJTD4R 4.00 MiB
+[    5.580283] mmcblk2rpmb: mmc2:0001 AJTD4R 4.00 MiB, chardev (239:0)
+---
+mmcblk2p1 start=2048 size=2048 PARTNAME=opensbi
+mmcblk2p2 start=4096 size=4096 PARTNAME=uboot
+mmcblk2p3 start=8192 size=2048 PARTNAME=bsb
+mmcblk2p4 start=10240 size=114688 PARTNAME=boot-a
+mmcblk2p5 start=124928 size=114688 PARTNAME=boot-b
+mmcblk2p6 start=239616 size=65536 PARTNAME=system-a
+mmcblk2p7 start=305152 size=65536 PARTNAME=system-b
+mmcblk2p8 start=370688 size=131072 PARTNAME=state
+mmcblk2p9 start=501760 size=262144 PARTNAME=data
+---
+NAME        PARTLABEL PARTTYPE                             PARTUUID
+mmcblk2                                                    
+├─mmcblk2p1 opensbi   5558454e-2d53-5746-2d76-310000000000 5558454e-2d53-4944-534b-2d7631000100
+├─mmcblk2p2 uboot     5558454e-2d53-5746-2d76-310000000000 5558454e-2d53-4944-534b-2d7631000200
+├─mmcblk2p3 bsb       5558454e-2d53-5342-422d-763100000000 5558454e-2d53-4944-534b-2d7631000300
+├─mmcblk2p4 boot-a    5558454e-2d53-4f42-4f54-2d7631000000 5558454e-2d53-4944-534b-2d7631000400
+├─mmcblk2p5 boot-b    5558454e-2d53-4f42-4f54-2d7631000000 5558454e-2d53-4944-534b-2d7631000500
+├─mmcblk2p6 system-a  5558454e-2d53-5953-532d-763100000000 5558454e-2d53-4944-534b-2d7631000600
+├─mmcblk2p7 system-b  5558454e-2d53-5953-532d-763100000000 5558454e-2d53-4944-534b-2d7631000700
+├─mmcblk2p8 state     5558454e-2d53-5453-4154-452d76310000 5558454e-2d53-4944-534b-2d7631000800
+└─mmcblk2p9 data      5558454e-2d53-4144-5441-2d7631000000 5558454e-2d53-4944-534b-2d7631000900

@@ -19,6 +19,7 @@ pub(crate) mod image;
 pub(crate) mod image_backstop;
 pub(crate) mod image_board;
 pub(crate) mod image_fixtures;
+pub(crate) mod image_flash;
 pub(crate) mod image_ota;
 pub(crate) mod image_volume;
 pub(crate) mod input;

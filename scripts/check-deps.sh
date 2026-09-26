@@ -308,6 +308,7 @@ if [ "$WANT_BOARD" = 0 ]; then
   ok "board checks skipped (BOARD=0) — no reference board on this host"
 else
   need_bin fastboot "just board-flash (boot-ROM download mode + U-Boot fastboot)" "scripts/install-deps.sh  (android-tools / fastboot)"
+  need_bin adb      "just board-flash --verify (reads the eMMC back from the stock system)" "scripts/install-deps.sh  (android-tools / adb)"
   need_bin mkimage  "FIT images for the board boot chain (Block 1)" "scripts/install-deps.sh  (u-boot-tools / uboot-tools)"
   need_bin dtc      "the board device tree (Block 1)" "scripts/install-deps.sh  (device-tree-compiler / dtc)"
   need_bin sgdisk   "verifying the flashed image's GPT" "scripts/install-deps.sh  (gdisk / gptfdisk)"

@@ -1,6 +1,6 @@
 ---
 title: TASK-0260 Provisioning v1.0a (host-first): nx image — deterministic GPT disk assembler + NXBD signer + factory BSB + OTA-container emission (flasher/factory-reset = residual)
-status: In Progress (P1 done 2026-09-26 — the layout and the builder on the host: every image a complete GPT with a protective MBR for its disk, the head as partitions 1–4, `nx image build --target`, `blkd` by name and type; P2 next — the flash path, with the user at the board; P0 done 2026-09-26 — the boot medium measured byte for byte: sector 0 shares the boot-ROM header and a protective MBR, the SPL finds its stages through the GPT, the flash vehicle's `flash gpt` cannot carry our partition types; recut to the end state below; P1 next — the layout and the builder)
+status: In Progress (P2 done 2026-09-26 — the flash path: the eMMC boots from boot0 (the vendor source), our disk and boot0 written through raw partitions and read back exactly; P3 next — with TASK-0260B, the board boots it; P1 done 2026-09-26 — the layout and the builder on the host: every image a complete GPT with a protective MBR for its disk, the head as partitions 1–4, `nx image build --target`, `blkd` by name and type; P2 next — the flash path, with the user at the board; P0 done 2026-09-26 — the boot medium measured byte for byte: sector 0 shares the boot-ROM header and a protective MBR, the SPL finds its stages through the GPT, the flash vehicle's `flash gpt` cannot carry our partition types; recut to the end state below; P1 next — the layout and the builder)
 note: image-builder scope (the OTA-lane package) DELIVERED 2026-08-25. RECUT 2026-09-22 (Block 1 B1.6 of the hardware fast track): the residual "flasher protocol" is answered — fastboot over the boot-ROM download mode IS the protocol (TASK-0327) — and the residual becomes the boot-ROM head partitions in `nx image`; factory reset stays residual; the nxboot-as-FIT-payload half is TASK-0260B
 owner: @reliability
 created: 2025-12-29
@@ -48,29 +48,33 @@ vendor pieces (`docs/board/measurements/2026-09-26-boot-medium/`):
   the flash path, and `swap` needs no reservation: disposable and last, M7 appends it when it
   has measured its size — it moves no other partition.
 
-### End state (binding)
+### End state (binding; the head recut at P2 — the eMMC boots from boot0)
 
-- **One layout, one builder.** `storage::layout` describes the whole disk: the head as GPT
-  partitions 1–4 with the measured names, offsets and order, typed `NEXUS-FW-v1` (no stage of
-  ours reads or writes them at run time — `blkd` refuses them, deny-by-default); then our
-  volumes from 4 MiB in RFC-0089 §2's order (`bsb`, `boot-a/b`, `system-a/b`, `state`, `data`).
+- **One layout, one builder.** `storage::layout` describes the whole disk: the head the SPL loads
+  by name as GPT partitions 1–2 (`opensbi`, `uboot`), typed `NEXUS-FW-v1` (no stage of ours reads
+  or writes them at run time — `blkd` serves no selector for them); then our volumes from 4 MiB
+  in RFC-0089 §2's order (`bsb`, `boot-a/b`, `system-a/b`, `state`, `data`).
   `swap` (M7) is appended last when M7 sizes it; `data` growing into the rest of the eMMC is a
   later provisioning step (nxfs grow), not this task.
-- **Every image carries a protective MBR** (`storage::gpt::write_gpt`); the **board image adds
-  the boot-ROM header** in bytes 0–79 of the same sector. RFC-0089 §2's "GPT-only" amendment is
-  withdrawn.
+- **Every image carries a protective MBR** (`storage::gpt::write_gpt`); RFC-0089 §2's "GPT-only"
+  amendment is withdrawn. The eMMC's boot-ROM header and SPL live in its boot0 hardware
+  partition, beside the user area (below), not in sector 0.
 - **The GPT describes the device it lands on:** `nx image build --target qemu|bpi-f3` — the
   target names the disk (QEMU: the image, including the SDHCI lane's 4 GiB, which the launcher
   passes to the builder instead of growing the file afterwards; the board: the eMMC's measured
   sector count) and the head's contents. The backup header sits at the device's last sector.
-- **The board image is the QEMU layout plus the head's contents:** `bootinfo` (sector 0),
-  `fsbl`, `opensbi` from the pinned vendor pieces (`fetch-board-inputs.sh` checks their hashes),
-  `env` zero (no U-Boot reads it), `uboot` = TASK-0260B's FIT. A QEMU image needs no vendor piece:
-  its head partitions stay zero.
-- **The flash path writes our bytes.** `nx image` derives the flash plan from the layout;
-  `board-flash.sh` writes the image and our backup GPT through the vehicle's raw writes — never
-  its JSON GPT as the disk's truth — and reads the GPT back and compares it with the image. The
-  eMMC is written only with the user's go.
+- **The board image is the QEMU layout plus the head's contents, and boot0 beside it:**
+  `opensbi` from the pinned vendor piece, `uboot` = TASK-0260B's FIT; `<image>.boot0` = the eMMC
+  boot-ROM header at 0 (checked as the boot ROM checks it, and the eMMC's) and the SPL at the
+  offset the header names (`fetch-board-inputs.sh` checks the pieces' hashes). A QEMU image needs
+  no vendor piece: its head partitions stay zero and it has no boot0.
+- **The flash path writes our bytes.** `nx image flash-plan` turns a board image into raw
+  regions — the user area in chunks of one download, the backup GPT, boot0 — each with its
+  digest; `board-flash.sh --plan` declares each in the vehicle as a raw partition
+  (`oem env:set fastboot_raw_partition_<name>`, 64-bit block addresses, hardware partition
+  included), checks its size, writes it; `--verify` reads every region back from the stock
+  system. The vehicle's JSON GPT and JSON regions are never used. The eMMC is written only with
+  the user's go.
 
 ### Packages
 
@@ -120,22 +124,51 @@ vendor pieces (`docs/board/measurements/2026-09-26-boot-medium/`):
   among them). 21 loader boots (20 virtio, 1 SD host), no skip. `blkd: gpt ok (parts=7)` and
   `blkd: backend ok` appear in all 19 boots that reach init, with no parse failure. smp1 shows
   430 and the SDHCI lane 429 ok lines, as before the package.
-- **P2 — the flash path (board, with the user).** First measured in U-Boot fastboot mode with
-  nothing written (`board-flash.sh --stage-only`, download mode by the user): which raw writes
-  the vehicle takes beyond `bootinfo` (a `hidden` region at offset 0 over the image, sparse above
-  `max-download-size`), and the read-back. Then the flash plan from the layout, the eMMC written
-  (the user's go), read back byte-exact, and the stock system reading the eMMC's GPT over adb
-  (our names, our types). If the vehicle writes no raw region beyond `bootinfo`, P2 stops and
-  records it; the answer then is our own flash vehicle (TASK-0261's gadget), never a
-  vehicle-typed GPT.
+- **P2 — the flash path — done 2026-09-26.** Read first in the vendor's public U-Boot tree (its
+  fastboot flash driver and the board's defconfig; `docs/board/measurements/2026-09-26-boot-medium`,
+  addendum), and it corrects P0/P1's head. The eMMC boots from its **boot0** hardware partition:
+  `flash bootinfo` writes an eMMC header there at 0, `flash fsbl` (`MMC_BOOT1_NAME="fsbl"`) the
+  SPL at `0x200`. The SPL loads `opensbi` and `uboot` from the user area **by name**
+  (`SYS_LOAD_IMAGE_*_PARTITION_NAME`). P1's sector-0 header and user-area `fsbl`/`env` were the SD
+  card's form. The vehicle's JSON regions compute offsets in 32 bits and cannot reach the backup
+  GPT, but its environment is writable and it keeps upstream's raw partitions. Measured in U-Boot
+  fastboot mode with nothing written: a raw partition declared through `oem env:set` answers
+  `getvar partition-size` exactly — at `0x3000`, at the eMMC's last 34 sectors, and as boot0
+  (`mmcpart 1`). Built: the layout's head is `opensbi` + `uboot` (partitions 1–2). The board image
+  writes no header into sector 0; boot0 (`<image>.boot0`) holds the eMMC header and the SPL at the
+  header's offset (checked: magic, CRC, media tag `eMMC`, the SPL within the header's limit and
+  boot0). `nx image flash-plan` emits the raw regions and their digests. `board-flash.sh --plan`
+  declares, sizes and writes them, and `--verify` reads them back over adb; the vendor
+  boot-vehicle write is deleted. `just board-image` builds the disk and the plan from the last OS
+  build. Written with the user's go, read back exactly. Proof: on the desk board, the vehicle
+  staged into RAM (`--stage-only`) and the raw partitions probed with nothing written; then, with
+  the user's go, the plan was written. The user area took 256 MiB in 16.7 s and 117 MiB in 8.0 s;
+  then came the backup GPT at sector 30 535 647 and boot0 (`mmcpart 1`), each sized through
+  `getvar` first. After the reset into the stock system, `--verify` finds every region's SHA-256
+  equal to the plan's. The stock kernel reads `mmcblk2: p1 … p9` without a GPT warning, with our
+  names, offsets, type GUIDs and distinct unique GUIDs (transcripts in the measurement). Host:
+  `nx` 119 tests pass, with `image_board_cli` 4 on the eMMC model and `image_flash_cli` 3 new
+  (the regions rebuild the disk exactly; the same image gives the same plan; what is no board
+  disk is refused). `storage` covers the head as `opensbi` + `uboot`, and `blkd` its parts test.
+  Six mutations each fail their test: backup region off by one, boot0 on the user area, the last
+  chunk uncut, the media tag unchecked, the SPL at the vendor's `0x200` instead of the header's
+  offset, zero pieces dropped. That fifth one survived at first, because the fixture used
+  `0x200`; the fixture now uses `0x400`. `just board-image` builds the disk and the plan from the
+  real artifacts. `just check` green; `build-os-workspace` 0 warnings; `just test-all` green
+  (EXIT=0, 12 QEMU lanes on the nine-partition layout): 21 loader boots with no skip, and
+  `blkd: gpt ok (parts=7)` in all 19 boots that reach init. smp1 shows 430 and the SDHCI lane 429
+  ok lines, as before.
 - **P3 — with TASK-0260B:** the board boots nxboot from the `uboot` slot — the serial ladder
   (`nxboot: platform=…` → kernel banner → `init: ready`); which lookup the SPL used is recorded.
 
 ### Red flags / decision points
 
-- **YELLOW: the SPL's stage lookup (name or number)** — answered by keeping both; P3 records it.
-- **YELLOW: the vehicle's raw writes beyond `bootinfo`** — measured on the next SoC generation's
-  public table, not yet on this board's vehicle; P2 measures before writing.
+- **GREEN (P2): the SPL's stage lookup** — by name (the vendor SPL's configuration).
+- **GREEN (P2): the vehicle's raw writes** — raw partitions through its environment, 64-bit,
+  boot0 included; written and read back exactly.
+- **YELLOW: boot0's header path is the vendor source's, not yet a boot** — whether the boot ROM
+  takes our boot0 when the microSD is absent (or the DIP switches select the eMMC) is P3's run;
+  the SD card stays the desk fallback.
 - **YELLOW: the board image's `data` is 128 MiB of 14.56 GiB** — enough for Block 1; growth is
   a later provisioning step.
 - **GREEN: the eMMC is empty and the boot ROM tries the microSD first** — a wrong eMMC write

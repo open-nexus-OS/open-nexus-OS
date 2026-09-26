@@ -12,7 +12,7 @@ use storage::blockproto::{part_layout_name, PART_COUNT, PART_DATA};
 use storage::gpt::{Partition, GUID_NEXUS_FW};
 use storage::layout::plan;
 
-const HEAD: [&str; 4] = ["fsbl", "env", "opensbi", "uboot"];
+const HEAD: [&str; 2] = ["opensbi", "uboot"];
 
 #[test]
 fn every_selector_finds_its_volume_on_the_layout() {
@@ -30,7 +30,7 @@ fn every_selector_finds_its_volume_on_the_layout() {
 fn test_reject_the_boot_rom_head_as_a_served_partition() {
     let table = plan().expect("layout");
     let head: Vec<&Partition> = table.iter().filter(|p| HEAD.contains(&p.name.as_str())).collect();
-    assert_eq!(head.len(), 4);
+    assert_eq!(head.len(), 2);
     // No selector names a head partition …
     for sel in 0..=u8::MAX {
         assert!(part_layout_name(sel).is_none_or(|name| !HEAD.contains(&name)), "{sel}");

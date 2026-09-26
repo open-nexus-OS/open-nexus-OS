@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-26 (TASK-0260 P2: our disk on the board's eMMC — written raw, read back exactly)
+
+- The vendor's U-Boot source changed P1's head. The eMMC boots from its boot0 hardware partition,
+  with the boot-ROM header at 0 and the SPL at `0x200`. The SPL loads `opensbi` and `uboot` by
+  name. The layout's head is therefore `opensbi` + `uboot` (partitions 1–2), and sector 0 holds
+  the protective MBR alone. `nx image build --target bpi-f3` writes boot0 beside the disk
+  (`<image>.boot0`): the eMMC header, checked as the boot ROM checks it and required to be the
+  eMMC's, and the SPL at the offset the header names. The profile gains `[boot0]`.
+- `nx image flash-plan`: a board image becomes raw regions with digests — the user area in
+  chunks of one download, the backup GPT in the last 33 sectors, boot0 on hardware partition 1.
+  Deterministic.
+- `scripts/board-flash.sh --plan DIR` declares each region in the vehicle as a raw partition
+  (`oem env:set fastboot_raw_partition_*`, 64-bit block addresses; the vehicle's JSON regions
+  compute offsets in 32 bits), checks its size and writes it. `--verify DIR` reads every region
+  back from the stock system over adb. The vendor boot-vehicle write is gone.
+- `just board-image` (`scripts/board-image.sh`) builds the disk, boot0 and the plan from the last
+  OS build.
+- The measurement gains the vendor-source facts, the fastboot probes and the first write with
+  its read-back (`docs/board/measurements/2026-09-26-boot-medium/`).
+- Proof: on the desk board, with the user's go, the plan was written (the user area 256 + 117
+  MiB, the backup GPT, boot0) and read back from the stock system; every region's SHA-256
+  matches. The stock kernel reads our nine partitions without a GPT warning. Host: `nx` 119 tests
+  pass (`image_flash_cli` 3 new, `image_board_cli` on the eMMC model), and six mutations each
+  fail their test. `just check` green; `build-os-workspace` 0 warnings; `just test-all` green
+  (EXIT=0, 12 QEMU lanes on the nine-partition layout; `blkd: gpt ok (parts=7)` in all 19 boots
+  that reach init).
+
 ### Changed - 2026-09-26 (TASK-0260 P1: every image is a complete GPT disk; a board's image is its disk)
 
 - `storage::gpt::write_gpt` writes a complete GPT for the disk it writes: the protective MBR in

@@ -190,21 +190,26 @@ GPT-only, with no protective MBR — withdrawn by the amendment below.)
 **Amendment 2026-09-26 (TASK-0260 P0, measured on the board —
 `docs/board/measurements/2026-09-26-boot-medium/`):**
 
-- The disk starts with the board's boot-ROM head, GPT partitions 1–4 in this order: `fsbl`
-  (at 128 KiB, 256 KiB), `env` (384 KiB, 64 KiB), `opensbi` (1 MiB, 1 MiB), `uboot` (2 MiB,
-  2 MiB — the slot of the loader's FIT, under the name the vendor SPL looks it up by), typed
-  `NEXUS-FW-v1`. The table above follows from 4 MiB. On QEMU the head stays zero.
+- The disk starts with the part of the board's boot chain that lives in the user area: GPT
+  partitions 1–2, `opensbi` (at 1 MiB, 1 MiB) and `uboot` (2 MiB, 2 MiB — the slot of the loader's
+  FIT), which the vendor SPL loads by those names; typed `NEXUS-FW-v1`. The table above follows
+  from 4 MiB. On QEMU the head stays zero. (P0 had read the head as partitions 1–4 with `fsbl`
+  and `env` and the boot-ROM header in sector 0 — the SD card's form; corrected at P2, below.)
 - Sector 0 carries a protective MBR on every image — U-Boot's GPT driver, and with it the SPL,
-  sees no GPT without one. The board image adds the boot-ROM header in bytes 0–79 of the same
-  sector.
+  sees no GPT without one.
+- On the board's eMMC, the boot-ROM header and the SPL live in its boot0 hardware partition (the
+  header at 0, the SPL at the offset the header names), beside the user area; `nx image` builds
+  boot0 next to the disk.
 - The GPT's backup lies at the last sector of the device the image is built for.
 - `swap` (M7) is appended last once M7 has measured its size; nothing is reserved for it.
 
-Implemented 2026-09-26 (TASK-0260 P1): `storage::gpt::write_gpt` writes the protective MBR and
+Implemented 2026-09-26 (TASK-0260 P1/P2): `storage::gpt::write_gpt` writes the protective MBR and
 both GPT copies for the disk it writes; `storage::layout` carries the head; `nx image build
---target qemu|bpi-f3` builds QEMU's image or a board's disk byte for byte, its head from
-`config/board/<board>/image.toml`. Every stage now finds a volume by its name AND its type — the
-block owner too (`blkd::parts`), which matched the name alone before.
+--target qemu|bpi-f3` builds QEMU's image or a board's disk byte for byte plus its boot0, from
+`config/board/<board>/image.toml`. Every stage finds a volume by its name AND its type — the
+block owner too (`blkd::parts`), which matched the name alone before. P2 wrote the board's disk
+and boot0 to the eMMC through raw regions (`nx image flash-plan`, `scripts/board-flash.sh`) and
+read both back exactly from the stock system.
 
 Rules:
 

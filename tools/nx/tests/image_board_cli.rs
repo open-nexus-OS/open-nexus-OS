@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Process-boundary tests for the disk an image is built for (`nx image build
-//! --target`, TASK-0260 P1, RFC-0089 §2). QEMU's image at the size a lane asks for, its GPT's
-//! backup at that size's end. A board's image from a fixture profile: exactly the disk's size,
-//! the boot-ROM header in sector 0 beside the protective MBR, the head's pieces in their
-//! partitions, the volumes byte-identical to QEMU's. And the refusals: a header the boot ROM
-//! would refuse, a piece or a disk that does not fit, a board given a size, a profile field
-//! the builder does not know.
+//! --target`, TASK-0260 P1/P2, RFC-0089 §2). QEMU's image at the size a lane asks for, its GPT's
+//! backup at that size's end. A board's image from a fixture profile: the user area exactly the
+//! disk's size, sector 0 the protective MBR alone, the head's pieces in their partitions, the
+//! volumes byte-identical to QEMU's; beside it boot0 — the eMMC boot-ROM header at 0, the SPL at
+//! the offset the header names. And the refusals: a header the boot ROM would refuse or that is
+//! not the eMMC's, an SPL the header does not allow, a piece or a disk that does not fit, a board
+//! given a size, a profile field the builder does not know.
 //! OWNERS: @reliability @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -23,7 +24,12 @@ use storage::gpt::crc32_ieee;
 const OS_SEED_HEX: &str = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
 /// The fixture board's disk: 1 GiB (sparse).
 const BOARD_SECTORS: u64 = 2 * 1024 * 1024;
-const HEAD: [&str; 4] = ["fsbl", "env", "opensbi", "uboot"];
+const HEAD: [&str; 2] = ["opensbi", "uboot"];
+/// The fixture's boot0: 1 MiB; its header places the SPL at 0x400 (not the vendor's 0x200 — the
+/// offset must come from the header) and allows 64 KiB.
+const BOOT0_SECTORS: u64 = 2048;
+const SPL_OFFSET: u32 = 0x400;
+const SPL_LIMIT: u32 = 0x1_0000;
 
 fn run_nx(args: &[&str], cwd: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_nx"))
@@ -33,20 +39,28 @@ fn run_nx(args: &[&str], cwd: &Path) -> Output {
         .expect("nx process must run")
 }
 
-/// A boot-ROM header as the boot ROM checks it: the magic, a CRC-32 of the first 64 bytes.
-fn boot_header() -> Vec<u8> {
+/// A boot-ROM header as the boot ROM checks it: the magic, the media tag, the SPL's offset and
+/// size limit, a CRC-32 of the first 64 bytes.
+fn boot_header_for(media: &[u8; 4], offset: u32, limit: u32) -> Vec<u8> {
     let mut header = vec![0u8; 80];
     header[..4].copy_from_slice(&0xB007_14F0u32.to_le_bytes());
-    header[8..16].copy_from_slice(b"FIXTURE\0");
+    header[8..12].copy_from_slice(media);
+    header[0x20..0x24].copy_from_slice(&offset.to_le_bytes());
+    header[0x28..0x2C].copy_from_slice(&limit.to_le_bytes());
     let crc = crc32_ieee(&header[..64]);
     header[64..68].copy_from_slice(&crc.to_le_bytes());
     header
 }
 
+fn boot_header() -> Vec<u8> {
+    boot_header_for(b"eMMC", SPL_OFFSET, SPL_LIMIT)
+}
+
 fn profile(sectors: u64, extra: &str) -> String {
     format!(
-        "[disk]\nsectors = {sectors}\n\n[head]\nboot_header = \"head/header.bin\"\n\
-         fsbl = \"head/fsbl.bin\"\nopensbi = \"head/opensbi.itb\"\n{extra}"
+        "[disk]\nsectors = {sectors}\n\n[boot0]\nsectors = {BOOT0_SECTORS}\n\
+         header = \"head/header.bin\"\nspl = \"head/spl.bin\"\n\n\
+         [head]\nopensbi = \"head/opensbi.itb\"\n{extra}"
     )
 }
 
@@ -56,7 +70,7 @@ fn setup(dir: &Path) {
     std::fs::write(dir.join("kernel.bin"), kernel).expect("kernel");
     std::fs::create_dir_all(dir.join("board/head")).expect("head dir");
     std::fs::write(dir.join("board/head/header.bin"), boot_header()).expect("header");
-    std::fs::write(dir.join("board/head/fsbl.bin"), vec![0xF5u8; 200_000]).expect("fsbl");
+    std::fs::write(dir.join("board/head/spl.bin"), vec![0xF5u8; 60_000]).expect("spl");
     std::fs::write(dir.join("board/head/opensbi.itb"), vec![0x05u8; 130_000]).expect("opensbi");
     std::fs::write(dir.join("board/image.toml"), profile(BOARD_SECTORS, "")).expect("profile");
     std::fs::write(dir.join("fit.itb"), vec![0xF1u8; 300_000]).expect("fit");
@@ -128,7 +142,7 @@ fn a_qemu_disk_of_the_size_a_lane_asks_for_carries_its_backup_at_the_end() {
 }
 
 #[test]
-fn a_board_image_is_its_disk_byte_for_byte() {
+fn a_board_image_is_its_disk_byte_for_byte_with_boot0_beside_it() {
     let dir = tempfile::tempdir().expect("tempdir");
     setup(dir.path());
     let out = build(dir.path(), "b.img", &BOARD);
@@ -136,43 +150,40 @@ fn a_board_image_is_its_disk_byte_for_byte() {
     assert!(build(dir.path(), "q.img", &[]).status.success(), "the same inputs for QEMU");
     let (board, qemu) = (dir.path().join("b.img"), dir.path().join("q.img"));
     assert_eq!(std::fs::metadata(&board).expect("meta").len(), BOARD_SECTORS * 512);
-    // Sector 0: the boot-ROM header, then the protective MBR over the board's disk.
+    // Sector 0: the protective MBR over the board's disk, the boot code area free — the eMMC's
+    // boot ROM reads its header from boot0.
     let sector0 = read_at(&board, 0, 512);
-    assert_eq!(&sector0[..80], boot_header().as_slice());
-    assert!(sector0[80..446].iter().all(|b| *b == 0));
+    assert!(sector0[..446].iter().all(|b| *b == 0));
     assert_eq!(sector0[450], 0xEE);
     assert_eq!(&sector0[454..462], &[1, 0, 0, 0, 0xFF, 0xFF, 0x1F, 0x00], "LBA 1, disk − 1");
     assert_eq!(&sector0[510..512], &[0x55, 0xAA]);
     let backup = read_at(&board, (BOARD_SECTORS - 1) * 512, 512);
     assert_eq!(u64_at(&backup, 24), BOARD_SECTORS - 1, "the backup at the disk's end");
-    // The head: each piece in its partition, `env` zero; QEMU's head all zero.
+    // boot0: the header at 0, the SPL at the header's offset, zeros elsewhere.
+    let boot0 = std::fs::read(dir.path().join("b.img.boot0")).expect("boot0 beside the image");
+    let spl = std::fs::read(dir.path().join("board/head/spl.bin")).expect("spl");
+    assert_eq!(boot0.len() as u64, BOOT0_SECTORS * 512);
+    assert_eq!(&boot0[..80], boot_header().as_slice());
+    let at = SPL_OFFSET as usize;
+    assert!(boot0[80..at].iter().all(|b| *b == 0));
+    assert_eq!(&boot0[at..at + spl.len()], spl.as_slice());
+    assert!(boot0[at + spl.len()..].iter().all(|b| *b == 0));
+    assert!(!dir.path().join("q.img.boot0").exists(), "QEMU's disk has no boot0");
+    // The head: each piece in its partition; QEMU's head all zero.
     let layout = storage::layout::plan().expect("layout");
-    let pieces = [
-        ("fsbl", "board/head/fsbl.bin"),
-        ("opensbi", "board/head/opensbi.itb"),
-        ("uboot", "fit.itb"),
-    ];
-    for (name, file) in pieces {
+    for (name, file) in [("opensbi", "board/head/opensbi.itb"), ("uboot", "fit.itb")] {
         let p = layout.iter().find(|p| p.name == name).expect("head partition");
         let want = std::fs::read(dir.path().join(file)).expect("piece");
         assert_eq!(read_at(&board, p.first_lba * 512, want.len()), want, "{name}");
     }
     for p in layout.iter().filter(|p| HEAD.contains(&p.name.as_str())) {
-        let bytes =
-            read_at(&qemu, p.first_lba * 512, ((p.last_lba + 1 - p.first_lba) * 512) as usize);
-        assert!(bytes.iter().all(|b| *b == 0), "QEMU's {} is zero", p.name);
-        if p.name == "env" {
-            let env = read_at(&board, p.first_lba * 512, bytes.len());
-            assert!(env.iter().all(|b| *b == 0), "the board's env is zero");
-        }
+        let len = ((p.last_lba + 1 - p.first_lba) * 512) as usize;
+        assert!(read_at(&qemu, p.first_lba * 512, len).iter().all(|b| *b == 0), "{}", p.name);
     }
     // The volumes do not depend on the disk they land on.
     for p in layout.iter().filter(|p| !HEAD.contains(&p.name.as_str())) {
-        let (b, q) = (
-            region_sha(&board, p.first_lba, p.last_lba),
-            region_sha(&qemu, p.first_lba, p.last_lba),
-        );
-        assert_eq!(b, q, "{} identical on both disks", p.name);
+        let board_sha = region_sha(&board, p.first_lba, p.last_lba);
+        assert_eq!(board_sha, region_sha(&qemu, p.first_lba, p.last_lba), "{}", p.name);
     }
     let verify = run_nx(&["image", "verify", "--image", "b.img", "--key", "os.seed"], dir.path());
     assert!(verify.status.success(), "verify: {}", String::from_utf8_lossy(&verify.stdout));
@@ -189,9 +200,16 @@ fn test_reject_a_boot_header_the_boot_rom_would_refuse() {
     bad_magic[0] ^= 0x01;
     let crc = crc32_ieee(&bad_magic[..64]);
     bad_magic[64..68].copy_from_slice(&crc.to_le_bytes());
-    for (what, bytes) in
-        [("crc", bad_crc), ("magic", bad_magic), ("length", boot_header()[..79].to_vec())]
-    {
+    let refused = [
+        ("crc", bad_crc),
+        ("magic", bad_magic),
+        ("length", boot_header()[..79].to_vec()),
+        ("the SD card's header", boot_header_for(b"SDC\0", SPL_OFFSET, SPL_LIMIT)),
+        ("an SPL offset inside the header", boot_header_for(b"eMMC", 64, SPL_LIMIT)),
+        ("an SPL the header does not allow", boot_header_for(b"eMMC", SPL_OFFSET, 1000)),
+        ("an SPL offset past boot0", boot_header_for(b"eMMC", 0x10_0000, SPL_LIMIT)),
+    ];
+    for (what, bytes) in refused {
         std::fs::write(&header, &bytes).expect("header");
         let out = build(dir.path(), "b.img", &BOARD);
         assert_eq!(out.status.code(), Some(3), "{what}: {}", String::from_utf8_lossy(&out.stdout));
@@ -215,10 +233,10 @@ fn test_reject_a_disk_or_a_piece_that_does_not_fit() {
     let profile_at = dir.path().join("board/image.toml");
     std::fs::write(&profile_at, profile(1000, "")).expect("profile");
     refused(&BOARD, "a disk smaller than the layout");
-    std::fs::write(&profile_at, profile(BOARD_SECTORS, "env = \"head/fsbl.bin\"\n")).expect("p");
+    std::fs::write(&profile_at, profile(BOARD_SECTORS, "env = \"head/spl.bin\"\n")).expect("p");
     refused(&BOARD, "a field the builder does not know");
     std::fs::write(&profile_at, profile(BOARD_SECTORS, "")).expect("profile");
-    std::fs::write(dir.path().join("board/head/fsbl.bin"), vec![0xF5u8; 256 * 1024 + 1])
-        .expect("f");
-    refused(&BOARD, "an SPL larger than fsbl");
+    std::fs::write(dir.path().join("board/head/opensbi.itb"), vec![5u8; 1024 * 1024 + 1])
+        .expect("o");
+    refused(&BOARD, "OpenSBI larger than its partition");
 }

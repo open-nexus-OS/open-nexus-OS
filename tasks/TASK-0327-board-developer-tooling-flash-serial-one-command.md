@@ -189,7 +189,10 @@ download mode, `just board-serial` shows the stock system's console (adapter req
 
 - **No fake success**: `board-flash` prints which chain it flashed (vendor bootloader stages + our
   volumes until Block 1's B1.6); a human-visible check is an operator-acked `board-visual:` marker,
-  never prose.
+  never prose. (Since TASK-0260 P2, 2026-09-26: `board-flash --plan DIR` writes our disk and boot0
+  from a flash plan, each region a raw partition sized before it is written, and `--verify DIR`
+  reads every region back over adb; the vendor boot-vehicle write is gone; `just board-image`
+  builds the plan.)
 - **No secrets, no sudo at flash time**: the udev rule is the permission model; scripts never call
   sudo except `install-deps.sh` through its existing adapter.
 - **Vendor binaries are inputs, not sources**: fetched with URL + SHA-256 + license pins by
