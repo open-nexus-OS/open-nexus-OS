@@ -85,6 +85,7 @@ help:
     @echo "  just ci-os-display-gpu    # GPU pipeline verification via UART markers"
     @echo "  just test-os smp         # SMP-gated QEMU smoke (2 harts; REQUIRE_SMP declared by the manifest)"
     @echo "  just ci-os-smp1          # deterministic 1-hart boot gate (profile smp1: -smp 1 + icount; the test-all boot proof)"
+    @echo "  just ci-os-sdhci         # the SDHCI lane: boot + every store over QEMU's sdhci-pci + emmc, no virtio disk"
     @echo "  just ci-os-smp           # SMP=2 real-parallelism lane (MTTCG, bounded retry; CI coverage)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
@@ -306,6 +307,11 @@ ci-os-display-gpu-pci:
 # conflicts are now a hard error (scripts/qemu-test.sh:pm_apply_profile_env).
 ci-os-smp1:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-200s} just test-os smp1
+# TASK-0246 P5: the SDHCI lane — QEMU's SD host (`sdhci-pci`, 8-bit) with an eMMC holding the
+# system image and no virtio disk (`[profile.sdhci]`): the loader reads the boot disk by PIO,
+# the block owner serves it by ADMA2, every store mounts over it. One hart + icount.
+ci-os-sdhci:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os sdhci
 # TASK-0324 P0: display truth — the real GL compositor (virgl, egl-headless +
 # VNC) with a HOST-side pixel proof: the desktop snapshot must be non-black and
 # must differ from the boot splash. Markers alone shipped a black screen.
@@ -743,6 +749,7 @@ test-all:
     just lint-kernel
     just test-kernel
     just ci-os-smp1
+    just ci-os-sdhci
     just ci-os-visible
     just input-flood
     just ci-os-reset

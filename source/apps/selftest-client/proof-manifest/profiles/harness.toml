@@ -111,6 +111,18 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { SMP = "1", QEMU_NO_ICOUNT = "0" }
 
+# TASK-0246 P5: the SDHCI lane — the standard SDHCI core's proof. QEMU's SD host
+# (`sdhci-pci`, spec 3.00 with the 8-bit capability) carries an eMMC with the system
+# image, and there is no virtio disk: nxboot finds the boot disk behind the ECAM host
+# and reads it by PIO (TASK-0246B), init grants the recorded function with bus
+# mastering, blkd serves it by ADMA2 on its interrupt, and the whole ladder mounts
+# every store over it. The image grows past 2 GiB (QEMU's `emmc` addresses bytes at or
+# below it; the core drives sector-addressed cards only). One hart + icount, like smp1.
+[profile.sdhci]
+runner = "scripts/qemu-test.sh"
+extends = "smp1"
+env = { QEMU_BLK_DEVICE = "-device sdhci-pci,sd-spec-version=3,capareg=0x057c34b4 -device emmc,drive=drvblk", QEMU_BLK_IMG_BYTES = "4G" }
+
 # TASK-0050 PR-3: real system-reset lane. The guest requests an SBI cold
 # reboot EARLY in bringup (sentinel discipline over statefs); QEMU restarts
 # the same machine (no -no-reboot), the uart log carries BOTH boots, and

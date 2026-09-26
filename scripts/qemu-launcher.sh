@@ -26,6 +26,7 @@
 #   QEMU_BLK_DRIVE          – QEMU block drive
 #   QEMU_BLK_DEVICE         – QEMU block device
 #   QEMU_BLK_IMG            – QEMU block image path
+#   QEMU_BLK_IMG_BYTES      – grow the image to at least this size (sparse; the SDHCI lane)
 #   QEMU_INPUT_AUTOINJECT   – when "1", enable QMP for visible input injection
 #   QEMU_QMP_SOCKET         – QMP unix socket path
 #   NEXUS_OTA_BACKSTOP      – tamper|downgrade: arm boot-b via nx image backstop (TASK-0289-B)
@@ -125,6 +126,10 @@ QEMU_BLK_LOCK_WAIT=${QEMU_BLK_LOCK_WAIT:-180}
 # NEXUS_KEEP_BLK=1 preserves the disk across launches so cold-boot
 # persistence can be proven (default: wipe per boot for deterministic runs).
 NEXUS_KEEP_BLK=${NEXUS_KEEP_BLK:-0}
+# TASK-0246 P5: grow the disk past the layout (sparse; only ever grown): QEMU's
+# `emmc` model addresses bytes at or below 2 GiB, and the SDHCI core drives
+# sector-addressed cards only. The GPT stays the layout's. Empty = as built.
+QEMU_BLK_IMG_BYTES=${QEMU_BLK_IMG_BYTES:-}
 
 INTERACTIVE_READY_SENTINEL=${INTERACTIVE_READY_SENTINEL:-$ROOT/build/.interactive-scene-ready}
 
@@ -242,6 +247,9 @@ prepare_blk_image() {
         --kind "$NEXUS_OTA_BACKSTOP" --kernel "$KERNEL_BIN" \
         --sign "$sign_key" --build-id "otaTRIAL" >/dev/null
     fi
+  fi
+  if [[ -n "$QEMU_BLK_IMG_BYTES" ]]; then
+    truncate -s ">$QEMU_BLK_IMG_BYTES" "$QEMU_BLK_IMG"
   fi
 }
 

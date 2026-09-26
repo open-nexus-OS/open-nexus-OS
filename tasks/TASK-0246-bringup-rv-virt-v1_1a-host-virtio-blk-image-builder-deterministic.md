@@ -1,9 +1,9 @@
 ---
 title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: In Progress (P4c done 2026-09-25 — socd in the core plane before the disk grant, on declared slots; blkd brings its node up (and on the K1 learns its `io` clock) before touching the controller; P4 complete; 0246B next — nxboot's SDHCI reader; P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+status: In Progress (P5 done 2026-09-26 — the `ci-os-sdhci` lane in `test-all`: QEMU boots from `sdhci-pci` + `emmc` alone and runs the whole ladder over the SDHCI backend; next 0246B P2 — the board path, then P6 on the board after B1.6; 0246B P1 done 2026-09-25 — nxboot reads the boot disk through the SDHCI core; P4c done 2026-09-25 — socd in the core plane before the disk grant, on declared slots; blkd brings its node up (and on the K1 learns its `io` clock) before touching the controller; P4 complete; P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 owner: @runtime @kernel-team
 created: 2025-12-29
-updated: 2026-09-25
+updated: 2026-09-26
 depends-on:
   - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
   - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
@@ -357,8 +357,27 @@ TASK-0248's decision).
   (`soc.glue.<class>`); socd still checks the one `soc.glue`, so any holder may bring any node
   up — the first real consumer (this one) makes the gap concrete; RFC-0106 Phase 2 records it.
 - **TASK-0246B nxboot readers** — between P4 and P5 (the QEMU lane boots through it).
-- **P5 `ci-os-sdhci`** — the launcher profile and the lane in `test-all`; the system volume
-  mounted over the SDHCI backend; the proof of the standard core.
+- **P5 `ci-os-sdhci` — done 2026-09-26.** `[profile.sdhci]` (extends smp1: one hart, icount)
+  attaches `sdhci-pci,sd-spec-version=3` with the 8-bit capability and an `emmc` holding the
+  system image, and no virtio disk; the launcher grows the freshly built image past 2 GiB
+  (`QEMU_BLK_IMG_BYTES`, sparse, grow-only). The block plane's backend markers are one list per
+  profile in `scripts/qemu-test.sh` (`BLK_BACKEND_MARKERS`): the virtio ones everywhere else, and
+  here the SD host found behind the ECAM host, the loader's record, init's grant with bus
+  mastering and `blkd: backend ok (kind=sdhci-pci … mode=hs52 bus=8`. `just ci-os-sdhci` runs in
+  `test-all` (like smp1, not in CI); `make doctor` checks that QEMU has both device models.
+  Proof: `just check` green; `ci-os-sdhci` green three times (twice alone, once inside
+  `test-all`). The key lines carry identical text in all three runs: the loader's record, the
+  PCI discovery, the grant, `blkd: backend ok (kind=sdhci-pci … mode=hs52 bus=8
+  sectors=8388608)`, the GPT, the system volume, packagefs, statefs, nxfs home and the OTA
+  stages. Two runs match to the line; the third differs only in line positions from
+  `nxfsd: mounted home` on. That is asynchronous service output: smp1's `nxfsd` line drifts
+  between 1094 and 1096 across four runs. Each run shows 429 ok lines and the same two
+  allowlisted dsoftbus FAIL lines, and takes about 3 min 10 s, like smp1. `just test-all`
+  green (EXIT=0, 12 QEMU lanes, up from 11). nxboot records a virtio disk in 20 of its 21 boots
+  and the SD host in the SDHCI one, and skips no candidate. `blkd: backend ok` appears in all
+  19 boots that reach init (18 virtio-blk, 1 sdhci-pci), `backend FAIL` in none. The pixel
+  proof is 14.67 % non-black in both visible runs. `make doctor` exits 0 here; a stand-in QEMU
+  without `emmc` fails it with exactly that one line.
 - **P6 Board** — after B1.6 boots our chain: eMMC at HS52, then HS400ES, GPT read,
   `packagefs: mounted`; the markers join TASK-0327B's ladder.
 
@@ -385,8 +404,10 @@ TASK-0248's decision).
 - **YELLOW: HS400ES on the board is a board-only proof** — QEMU has no vendor registers and no
   HS400; the K1 layer is proven by the host model first and by the board last (HS52 is the
   fallback the driver reports, not hides).
-- **YELLOW: QEMU `emmc` fidelity** — the model's CMD6/bus-width behaviour at 8 bit is measured
-  in P5; if it cannot do 8 bit the lane runs 4 bit and says so in its marker.
+- **GREEN (measured 2026-09-25, P5): QEMU `emmc` fidelity** — with `sdhci-pci,sd-spec-version=3`
+  and the 8-bit capability the core switches the card to HS52 on 8 bits and reads the EXT_CSD
+  back on them (`blkd: backend ok (… mode=hs52 bus=8 …)`); the default `sdhci-pci` (spec 2.00, no
+  8-bit capability) runs 4 bits.
 - **YELLOW (measured): socd's place in the boot order.** The disk owner must have its node
   brought up before it touches the controller; socd moves into the core plane in P4 (it needs
   only policyd, which is already there) — on the board the SPL left the eMMC clocked, so the

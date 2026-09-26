@@ -231,6 +231,18 @@ if command -v qemu-system-riscv64 >/dev/null 2>&1; then
     bad "qemu-system-riscv64 does not know the 'virt' machine" "reinstall QEMU from your distro"
   fi
 
+  # `just test-all` runs the SDHCI lane (`just ci-os-sdhci`, TASK-0246 P5): an
+  # eMMC on QEMU's SD host behind the PCI host. Both are device models a QEMU
+  # build may lack, and without them the lane's QEMU refuses to start.
+  devices="$(qemu-system-riscv64 -device help 2>/dev/null)"
+  if printf '%s\n' "$devices" | grep -q '^name "sdhci-pci"' \
+     && printf '%s\n' "$devices" | grep -q '^name "emmc"'; then
+    ok "devices 'sdhci-pci' + 'emmc' (the SDHCI lane, just ci-os-sdhci)"
+  else
+    bad "QEMU lacks the 'sdhci-pci' or 'emmc' device — 'just test-all' cannot run the SDHCI lane" \
+        "a QEMU whose '-device help' lists both (the lane is proven on QEMU 11.1.1)"
+  fi
+
   if [ "$WANT_GUI" != 0 ]; then
     # `just start` defaults to GPU_MODE=virgl in a `gtk,gl=on` window, and the
     # virgl proof lane uses egl-headless. On Debian/Ubuntu both live in

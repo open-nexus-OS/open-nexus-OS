@@ -574,6 +574,29 @@ print_uart_excerpt() {
 #
 # For headless/display-gpu profiles, truncate before display-specific markers
 # (windowd: systemui loaded, launcher:, SELFTEST: ui*) which require GTK.
+
+# TASK-0246 P5: the block plane's backend markers — one list, used by both ladders below.
+# Every lane boots from the virtio disk except the SDHCI one, which has none: nxboot
+# finds the SD host behind the ECAM host (QEMU virt: 00:01.0 on line 33) and the block
+# owner serves it by ADMA2 on an 8-bit bus at HS52 (the values this machine yields).
+case "${PROFILE:-full}" in
+  sdhci)
+    BLK_BACKEND_MARKERS=(
+      "init: devices from pci ok (hosts=1 functions=2 sd=00:01.0 bar=0x40000000 irq=33 caps=0x057c34b4)"
+      "disk=/soc/pci@30000000/mmc@1,0)"
+      "init: boot disk ok (kind=sdhci-pci record=/soc/pci@30000000/mmc@1,0 irq=33 master=on)"
+      "blkd: backend ok (kind=sdhci-pci soc=none record=/soc/pci@30000000/mmc@1,0 mode=hs52 bus=8"
+    )
+    ;;
+  *)
+    BLK_BACKEND_MARKERS=(
+      "blkd: backend ok (kind=virtio-blk soc=not-needed record=/soc/virtio_mmio@"
+      "blk: watchdog on"
+      "blk: irq completion on"
+    )
+    ;;
+esac
+
 expected_sequence=(
   "neuron vers."
   "KSELFTEST: vmo zero ok"
@@ -744,11 +767,9 @@ expected_sequence=(
   # bound runs on the watchdog pair its owner hands in. P4b: the owner runs
   # the backend of the disk the loader recorded (the record read back). P4c:
   # socd answered the owner's bring-up of that node before the disk opened.
-  "blkd: backend ok (kind=virtio-blk soc=not-needed record=/soc/virtio_mmio@"
+  "${BLK_BACKEND_MARKERS[@]}"
   "blkd: gpt ok (parts=7)"
   "blkd: irq endpoint bound"
-  "blk: watchdog on"
-  "blk: irq completion on"
   "statefsd: virtio upgrade ok"
   "SELFTEST: blk cross-partition deny ok"
   # TASK-0321 (RFC-0089 §12, ADR-0060): the verified system volume —
@@ -1121,7 +1142,7 @@ case "${PROFILE:-full}" in
   # gpud build provenance) on top of this ladder; the `full` display ladder
   # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
   # marker is a scheduler-determinism defect tracked in TASK-0324 P5.
-  headless|smp1|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible)
+  headless|smp1|sdhci|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -1240,11 +1261,9 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 list ok"
       "SELFTEST: bundlemgrd volume ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
-      "blkd: backend ok (kind=virtio-blk soc=not-needed record=/soc/virtio_mmio@"
+      "${BLK_BACKEND_MARKERS[@]}"
       "blkd: gpt ok (parts=7)"
       "blkd: irq endpoint bound"
-      "blk: watchdog on"
-      "blk: irq completion on"
       "statefsd: virtio upgrade ok"
       "SELFTEST: blk cross-partition deny ok"
       "bundlemgrd: system volume verified (slot="
@@ -1308,7 +1327,7 @@ esac
 # the `full` profile carries the same gates in the base list above. Order is
 # free — the strict-order loop only checks init:/KSELFTEST: markers.
 case "${PROFILE:-full}" in
-  headless|smp1|reset)
+  headless|smp1|sdhci|reset)
     expected_sequence+=(
       "child: hello-elf"
       "child: exit0 start"
@@ -2447,7 +2466,7 @@ fi
 # red with "GPU chain contract broken" on a headless boot (2026-07-25).
 profile_has_display() {
   case "${PROFILE:-full}" in
-    headless | smp | smp1 | reset | dhcp | dhcp-strict | quic-required | os2vm | supply-chain) return 1 ;;
+    headless | smp | smp1 | sdhci | reset | dhcp | dhcp-strict | quic-required | os2vm | supply-chain) return 1 ;;
     *) return 0 ;;
   esac
 }
@@ -2940,7 +2959,7 @@ fi
 # MARKER_CONTRACT=0 disables (e.g. for exotic manual profiles).
 if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
   case "${PROFILE:-full}" in
-    headless|full|smp|smp1|display-gpu)
+    headless|full|smp|smp1|sdhci|display-gpu)
       bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,gpu-core,display || exit 1
       ;;
   esac

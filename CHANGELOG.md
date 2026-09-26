@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-26 (TASK-0246 P5: the SDHCI lane in `test-all`)
+
+- `just ci-os-sdhci` (`[profile.sdhci]`, extends smp1) boots QEMU with `sdhci-pci` (spec 3.00, the
+  8-bit capability) + `emmc` holding the system image and no virtio disk. The loader reads the
+  boot disk by PIO, init grants the recorded function with bus mastering, `blkd` serves it by
+  ADMA2 on an 8-bit bus at HS52, and the whole ladder runs over it. It is part of `test-all`.
+- The launcher grows the freshly built image past 2 GiB (`QEMU_BLK_IMG_BYTES`, sparse,
+  grow-only): QEMU's `emmc` addresses bytes at or below 2 GiB, the core drives sector-addressed
+  cards only.
+- The block plane's backend markers are one list per profile (`BLK_BACKEND_MARKERS` in
+  `scripts/qemu-test.sh`).
+- `make doctor` (`scripts/check-deps.sh`) checks that QEMU has the `sdhci-pci` and `emmc` device
+  models, which `test-all` now needs; a QEMU without them is reported as the cause instead of
+  failing the lane with missing markers. Like smp1, the lane runs in `test-all`, not in CI.
+- Measured: QEMU's `emmc` runs the 8-bit bus (the TASK-0246 P0 YELLOW is GREEN).
+- Proof: `just check` green; `ci-os-sdhci` green three times (twice alone, once in
+  `test-all`). The key lines carry identical text in all three runs. Two runs match to the line;
+  the third differs only in line positions from `nxfsd: mounted home` on, asynchronous output
+  that smp1 shows too. Each run shows 429 ok lines and the same two allowlisted dsoftbus FAIL
+  lines. `just test-all` green (EXIT=0, 12 QEMU lanes). `blkd: backend ok` appears in all 19
+  boots that reach init (18 virtio-blk, 1 sdhci-pci `mode=hs52 bus=8`). nxboot skips no
+  candidate in its 21 boots. `make doctor` fails a QEMU without `emmc` with exactly that line.
+
 ### Added - 2026-09-25 (TASK-0246B P1: nxboot reads the boot disk through the SDHCI core too)
 
 - The SDHCI core writes by PIO (`Card::write_pio`), for the loader: the A/B trial writes the BSB

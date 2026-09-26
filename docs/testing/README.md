@@ -63,6 +63,12 @@ The full layer reference — including the end-to-end coverage table and the per
      ≠ splash), see [os-markers.md](os-markers.md) "Display truth".
    - `just ci-os-smp1` — deterministic gate: `-smp 1` + icount, no
      secondary-hart demands (`[profile.smp1]`).
+   - `just ci-os-sdhci` — the SDHCI lane (TASK-0246 P5): the smp1 topology
+     with QEMU's `sdhci-pci` (spec 3.00, 8-bit) + `emmc` holding the system
+     image and no virtio disk; nxboot reads it by PIO, `blkd` serves it by
+     ADMA2, every store mounts over it (`[profile.sdhci]`; the image is grown
+     past 2 GiB with `QEMU_BLK_IMG_BYTES`). It needs a QEMU with both device
+     models (`make doctor` checks); like smp1 it runs in `test-all`, not in CI.
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
      proofs required, bounded retry (`[profile.smp]`).
 

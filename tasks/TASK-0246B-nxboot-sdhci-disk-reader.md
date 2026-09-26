@@ -1,9 +1,9 @@
 ---
 title: TASK-0246B nxboot reads the boot medium through the same SDHCI core as `blkd` — on the board, and behind QEMU's PCI host — and names it in `/chosen`
-status: In Progress (P1 done 2026-09-25 — the PIO write path, nxboot's disk rule with the SDHCI reader, the PCI plan in nxboot, the record; QEMU boots from `sdhci-pci` end to end; P2 next — the board path; recut 2026-09-25 to the end state below after TASK-0246 P2–P4c; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0246, recut 2026-09-24 at TASK-0246 P0)
+status: In Progress (P1 done 2026-09-25 — the PIO write path, nxboot's disk rule with the SDHCI reader, the PCI plan in nxboot, the record; QEMU boots from `sdhci-pci` end to end, and since TASK-0246 P5 (2026-09-26) the `ci-os-sdhci` lane in `test-all` boots through the reader; P2 next — the board path; recut 2026-09-25 to the end state below after TASK-0246 P2–P4c; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0246, recut 2026-09-24 at TASK-0246 P0)
 owner: @runtime @reliability
 created: 2026-09-22
-updated: 2026-09-25
+updated: 2026-09-26
 depends-on:
   - tasks/TASK-0246-bringup-rv-virt-v1_1a-host-virtio-blk-image-builder-deterministic.md (P2 SDHCI core, P3 PCI planner, P4b boot-disk record)
 follow-up-tasks:
@@ -120,7 +120,7 @@ fallback by design), the SD-card protocol (the core drives eMMC only).
 
 ## Definition of Done
 
-Host: the PIO write matrix, the reader under a flow run, the candidate rule; QEMU:
+Host: the PIO write matrix, the reader under a flow run, the candidate rule ✅ (P1); QEMU:
 `ci-os-sdhci` boots through nxboot's SDHCI reader and `init` grants the device named in
-`/chosen` (TASK-0246 P5); the board: `nxboot: platform=<compatible> slot=<a|b>` (TASK-0260B) with
-the eMMC as the recorded disk; ADR-0066/0067 consequences recorded.
+`/chosen` (TASK-0246 P5) ✅ 2026-09-26; the board: `nxboot: platform=<compatible> slot=<a|b>`
+(TASK-0260B) with the eMMC as the recorded disk; ADR-0066/0067 consequences recorded.

@@ -364,6 +364,12 @@ with the planner init runs (`nexus-pci`), so both stages see one assignment, and
 disk (`/soc/pci@30000000/mmc@1,0` on QEMU). A manual QEMU boot with only `sdhci-pci` + `emmc`
 reaches the whole storage stack over the SDHCI backend; the lane is TASK-0246 P5.
 
+**Implemented 2026-09-26 (TASK-0246 P5): the lane.** `just ci-os-sdhci` (in `test-all`) boots
+QEMU with `sdhci-pci` (spec 3.00, 8-bit) + `emmc` and no virtio disk, and requires the whole
+chain: the SD host found behind the ECAM host, the loader's record, init's grant with bus
+mastering, `blkd: backend ok (kind=sdhci-pci … mode=hs52 bus=8 …)`, then the full ladder over
+it. The standard core is proven on a real controller model; the K1 layer waits for the board.
+
 ### C6 — Boot chain (Phase 4, ADR-0066)
 
 Boot ROM → vendor SPL (DDR) → OpenSBI (`fw_dynamic`) → **nxboot** as the FIT's `uboot`-slot
