@@ -26,7 +26,7 @@
 #   QEMU_BLK_DRIVE          – QEMU block drive
 #   QEMU_BLK_DEVICE         – QEMU block device
 #   QEMU_BLK_IMG            – QEMU block image path
-#   QEMU_BLK_IMG_BYTES      – grow the image to at least this size (sparse; the SDHCI lane)
+#   QEMU_BLK_IMG_BYTES      – build the image for a disk of this size (sparse; the SDHCI lane)
 #   QEMU_INPUT_AUTOINJECT   – when "1", enable QMP for visible input injection
 #   QEMU_QMP_SOCKET         – QMP unix socket path
 #   NEXUS_OTA_BACKSTOP      – tamper|downgrade: arm boot-b via nx image backstop (TASK-0289-B)
@@ -126,9 +126,10 @@ QEMU_BLK_LOCK_WAIT=${QEMU_BLK_LOCK_WAIT:-180}
 # NEXUS_KEEP_BLK=1 preserves the disk across launches so cold-boot
 # persistence can be proven (default: wipe per boot for deterministic runs).
 NEXUS_KEEP_BLK=${NEXUS_KEEP_BLK:-0}
-# TASK-0246 P5: grow the disk past the layout (sparse; only ever grown): QEMU's
-# `emmc` model addresses bytes at or below 2 GiB, and the SDHCI core drives
-# sector-addressed cards only. The GPT stays the layout's. Empty = as built.
+# TASK-0246 P5: a disk larger than the layout (sparse): QEMU's `emmc` model
+# addresses bytes at or below 2 GiB, and the SDHCI core drives sector-addressed
+# cards only. TASK-0260 P1: `nx image build --disk-bytes` builds the image for
+# that disk — its GPT's backup at the disk's end. Empty = the layout's 384 MiB.
 QEMU_BLK_IMG_BYTES=${QEMU_BLK_IMG_BYTES:-}
 
 INTERACTIVE_READY_SENTINEL=${INTERACTIVE_READY_SENTINEL:-$ROOT/build/.interactive-scene-ready}
@@ -236,9 +237,13 @@ prepare_blk_image() {
     if [[ -d "$ROOT/build/system-bundles" ]]; then
       sysvol=(--system-bundles "$ROOT/build/system-bundles")
     fi
+    local -a disk=()
+    if [[ -n "$QEMU_BLK_IMG_BYTES" ]]; then
+      disk=(--disk-bytes "$QEMU_BLK_IMG_BYTES")
+    fi
     "$nx_bin" image build --kernel "$KERNEL_BIN" --out "$QEMU_BLK_IMG" \
       --sign "$sign_key" --build-id "$build_id" --rollback-index 1 \
-      --data "$ROOT/build/data-seed.img" "${sysvol[@]}" >/dev/null
+      --data "$ROOT/build/data-seed.img" "${sysvol[@]}" "${disk[@]}" >/dev/null
     # TASK-0289-B: arm a loader-backstop trial (boot-b image nxboot MUST
     # reject + BSB next=b). Fresh-build path only — the armed BSB is the
     # lane's precondition, a kept disk would carry stale runtime state.
@@ -247,9 +252,6 @@ prepare_blk_image() {
         --kind "$NEXUS_OTA_BACKSTOP" --kernel "$KERNEL_BIN" \
         --sign "$sign_key" --build-id "otaTRIAL" >/dev/null
     fi
-  fi
-  if [[ -n "$QEMU_BLK_IMG_BYTES" ]]; then
-    truncate -s ">$QEMU_BLK_IMG_BYTES" "$QEMU_BLK_IMG"
   fi
 }
 

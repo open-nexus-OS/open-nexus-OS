@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-26 (TASK-0260 P1: every image is a complete GPT disk; a board's image is its disk)
+
+- `storage::gpt::write_gpt` writes a complete GPT for the disk it writes: the protective MBR in
+  sector 0, the primary header and entries, the backup entries and header in the last sectors,
+  and distinct unique partition GUIDs. It refuses partitions outside the usable range,
+  overlapping or badly named. `parse_gpt` refuses a header that is not the primary and
+  partitions outside the usable range.
+- `storage::layout` starts with the board's boot-ROM head as GPT partitions 1–4 (`fsbl`, `env`,
+  `opensbi`, `uboot` at 128 KiB, 384 KiB, 1 MiB, 2 MiB, typed `NEXUS-FW-v1`). Our volumes move
+  from 1 MiB to 4 MiB. On QEMU the head stays zero.
+- `nx image build --target qemu|bpi-f3`: QEMU's image at 384 MiB or `--disk-bytes` (the launcher
+  passes `QEMU_BLK_IMG_BYTES` instead of growing the file afterwards). A board's image comes
+  from `config/board/<board>/image.toml`: exactly the disk's size (sparse), the boot-ROM header
+  in sector 0 checked like the boot ROM checks it, the pinned SPL and OpenSBI, `--fit` for
+  `uboot`.
+- `blkd` serves its volumes by layout name AND type (`blkd::parts`); the head has no selector.
+  The marker stays `blkd: gpt ok (parts=7)`.
+- Proof: host tests (`storage`; `blkd` `tests/parts.rs` 3 new; `nx` 116 with 4 new, three old
+  tests reading the layout instead of fixed offsets); six mutations each fail their test.
+  `sgdisk -v` finds no problem in the QEMU image or the board image; the board image's sector 0
+  matches the stock medium's in bytes 0–79. `just check` green; `build-os-workspace` 0
+  warnings; `just test-all` green (EXIT=0, 12 QEMU lanes). `blkd: gpt ok (parts=7)` appears in
+  all 19 boots that reach init; smp1 shows 430 and the SDHCI lane 429 ok lines, as before.
+
 ### Docs - 2026-09-26 (TASK-0260 P0: the boot medium measured)
 
 - `docs/board/measurements/2026-09-26-boot-medium/`: the stock microSD read over adb (nothing

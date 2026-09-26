@@ -72,6 +72,21 @@ pub(crate) struct ImageBuildArgs {
     /// `<out>.system-a.pkgimg` for the image-budget gate.
     #[arg(long)]
     pub(crate) system_bundles: Option<PathBuf>,
+    /// TASK-0260 P1: the disk the image is for — `qemu` (the image file is the disk) or a
+    /// board (`bpi-f3`: its profile names the disk and the boot-ROM head's contents). The GPT
+    /// is built for that disk: its backup at the disk's last sector.
+    #[arg(long, default_value = "qemu")]
+    pub(crate) target: String,
+    /// The disk's size for `--target qemu` (bytes, or with a K/M/G suffix), e.g. the SDHCI
+    /// lane's 4G; at least the layout's 384 MiB (the default).
+    #[arg(long)]
+    pub(crate) disk_bytes: Option<String>,
+    /// A board's image profile (default: `config/board/<target>/image.toml`).
+    #[arg(long)]
+    pub(crate) board_profile: Option<PathBuf>,
+    /// The loader's FIT for a board's `uboot` slot (TASK-0260B); without it the slot is zero.
+    #[arg(long)]
+    pub(crate) fit: Option<PathBuf>,
     #[arg(long)]
     pub(crate) json: bool,
 }

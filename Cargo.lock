@@ -2976,6 +2976,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "toml",
  "updates",
 ]
 

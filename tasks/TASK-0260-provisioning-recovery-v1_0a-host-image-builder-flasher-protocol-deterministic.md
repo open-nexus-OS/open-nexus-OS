@@ -1,6 +1,6 @@
 ---
 title: TASK-0260 Provisioning v1.0a (host-first): nx image — deterministic GPT disk assembler + NXBD signer + factory BSB + OTA-container emission (flasher/factory-reset = residual)
-status: In Progress (P0 done 2026-09-26 — the boot medium measured byte for byte: sector 0 shares the boot-ROM header and a protective MBR, the SPL finds its stages through the GPT, the flash vehicle's `flash gpt` cannot carry our partition types; recut to the end state below; P1 next — the layout and the builder)
+status: In Progress (P1 done 2026-09-26 — the layout and the builder on the host: every image a complete GPT with a protective MBR for its disk, the head as partitions 1–4, `nx image build --target`, `blkd` by name and type; P2 next — the flash path, with the user at the board; P0 done 2026-09-26 — the boot medium measured byte for byte: sector 0 shares the boot-ROM header and a protective MBR, the SPL finds its stages through the GPT, the flash vehicle's `flash gpt` cannot carry our partition types; recut to the end state below; P1 next — the layout and the builder)
 note: image-builder scope (the OTA-lane package) DELIVERED 2026-08-25. RECUT 2026-09-22 (Block 1 B1.6 of the hardware fast track): the residual "flasher protocol" is answered — fastboot over the boot-ROM download mode IS the protocol (TASK-0327) — and the residual becomes the boot-ROM head partitions in `nx image`; factory reset stays residual; the nxboot-as-FIT-payload half is TASK-0260B
 owner: @reliability
 created: 2025-12-29
@@ -85,6 +85,41 @@ vendor pieces (`docs/board/measurements/2026-09-26-boot-medium/`):
   + protective MBR), the backup at the device's end, the QEMU and board images identical but for
   sector 0's header, the head's contents and the disk size; our volumes where the parser finds
   them; `sgdisk -v` clean on both. QEMU: `test-all` green with the volumes moved to 4 MiB.
+- **P1 — done 2026-09-26.** `storage::gpt::write_gpt` lays down a complete GPT for the disk it
+  writes: the protective MBR in sector 0 (UEFI CHS values; the boot code area left free), the
+  primary header and entries, and the backup entries and header in the last sectors. The
+  partitions get distinct unique GUIDs (`NEXUS_DISK_GUID` plus their index). It refuses
+  partitions outside the usable range, overlapping or badly named. `parse_gpt` refuses a header
+  that is not the primary and partitions outside the usable range. `storage::layout` starts with
+  the head (`Place::At`, `NEXUS-FW-v1`), our volumes follow from 4 MiB, and `type_of(name)`
+  gives the layout's type. `nx image build --target qemu|bpi-f3`: QEMU's image at the layout's
+  384 MiB or `--disk-bytes`, which the launcher now passes instead of growing the file
+  afterwards. A board's image comes from `config/board/<board>/image.toml`: exactly the disk's
+  size (sparse), the boot-ROM header in sector 0, checked as the boot ROM checks it (length,
+  magic, CRC-32 of the first 64 bytes), the SPL and OpenSBI in their partitions, and `--fit`
+  into `uboot`. `blkd` serves its volumes by layout name AND type (`blkd::parts`, host-tested);
+  until now it matched the name alone, so the P0 recut's "our stages find partitions by name and
+  type" held for nxboot and `nx image` only. Measured: `blkd` counts the volumes it serves, so
+  the marker stays `blkd: gpt ok (parts=7)`; the head has no selector at all. Proof: host —
+  `storage` (the writer: the protective MBR, both headers and entry arrays, distinct unique
+  GUIDs; a layout the disk cannot hold refused; the parser refusing a backup at LBA 1, partitions
+  over either GPT copy, an empty usable range; the head at the measured offsets and numbers),
+  `blkd` `tests/parts.rs` 3 (every selector on the layout; the head never served; a volume under
+  another type refused), `nx` 116 with `image_board_cli` 4 new (a QEMU disk of the size a lane
+  asks for, its backup at the end; a board image exactly its disk — sector 0's header beside the
+  protective MBR, the head's pieces, the volumes byte-identical to QEMU's; the boot ROM's
+  refusals; a disk or a piece that does not fit). Three tests that carried the old offsets now
+  read the layout. Six mutations each fail their test: no protective MBR, no backup header, the
+  head off its offsets, served by name only, the header's CRC unchecked, the parser accepting any
+  range. Real images: `sgdisk -v` finds no problem in the QEMU image or in the board image built
+  from the pinned pieces. `sgdisk -p` shows the head at 256/768/2048/4096 and the volumes from
+  8192. The board image is 15 634 268 160 bytes, the eMMC exactly. Its sector 0 matches the stock
+  medium in bytes 0–79 and in the protective entry's type and start; only CHS (UEFI values) and
+  the size (another disk) differ. `nx image verify` passes both. `just check` green;
+  `build-os-workspace` 0 warnings; `just test-all` green (EXIT=0, 12 QEMU lanes, every OTA lane
+  among them). 21 loader boots (20 virtio, 1 SD host), no skip. `blkd: gpt ok (parts=7)` and
+  `blkd: backend ok` appear in all 19 boots that reach init, with no parse failure. smp1 shows
+  430 and the SDHCI lane 429 ok lines, as before the package.
 - **P2 — the flash path (board, with the user).** First measured in U-Boot fastboot mode with
   nothing written (`board-flash.sh --stage-only`, download mode by the user): which raw writes
   the vehicle takes beyond `bootinfo` (a `hidden` region at offset 0 over the image, sparse above

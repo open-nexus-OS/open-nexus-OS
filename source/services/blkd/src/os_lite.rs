@@ -28,22 +28,16 @@
 extern crate alloc;
 
 use blkd::gate::Gates;
+use blkd::parts::{self, Window as PartWindow};
 use nexus_ipc::{Server as _, Wait};
 use storage::blockproto::{self, BlockRequest, MAX_BLOCKS_PER_REQ, SECTOR_SIZE};
-use storage::gpt::{self, Partition};
+use storage::gpt;
 use storage::BlockDevice;
 
 use crate::disk_os::Disk;
 
 fn emit(msg: &str) {
     let _ = nexus_abi::debug_println(msg);
-}
-
-/// Resolved partition table entry: selector → absolute sector window.
-#[derive(Clone, Copy)]
-struct PartWindow {
-    first_lba: u64,
-    sectors: u64,
 }
 
 struct Served {
@@ -153,19 +147,9 @@ fn attach() -> Option<Served> {
             return None;
         }
     };
-    let mut parts: [Option<PartWindow>; blockproto::PART_COUNT as usize] =
-        [None; blockproto::PART_COUNT as usize];
-    let mut found = 0usize;
-    for sel in 0..blockproto::PART_COUNT {
-        let Some(name) = blockproto::part_layout_name(sel) else { continue };
-        let hit: Option<&Partition> = table.iter().find(|p| p.name == name);
-        if let Some(p) = hit {
-            parts[sel as usize] =
-                Some(PartWindow { first_lba: p.first_lba, sectors: p.last_lba - p.first_lba + 1 });
-            found += 1;
-        }
-    }
-    emit_gpt_ok(found);
+    // RFC-0089 §2: the selectors by layout name AND type; the boot-ROM head has none.
+    let parts = parts::windows(&table);
+    emit_gpt_ok(parts.iter().flatten().count());
     Some(Served { dev, parts, armed: [None; ARMED_MAX], run: alloc::vec![0u8; RUN_BUF] })
 }
 

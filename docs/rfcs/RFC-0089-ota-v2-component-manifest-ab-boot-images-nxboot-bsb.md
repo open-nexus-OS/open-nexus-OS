@@ -200,7 +200,11 @@ GPT-only, with no protective MBR — withdrawn by the amendment below.)
 - The GPT's backup lies at the last sector of the device the image is built for.
 - `swap` (M7) is appended last once M7 has measured its size; nothing is reserved for it.
 
-Implemented by TASK-0260 P1.
+Implemented 2026-09-26 (TASK-0260 P1): `storage::gpt::write_gpt` writes the protective MBR and
+both GPT copies for the disk it writes; `storage::layout` carries the head; `nx image build
+--target qemu|bpi-f3` builds QEMU's image or a board's disk byte for byte, its head from
+`config/board/<board>/image.toml`. Every stage now finds a volume by its name AND its type — the
+block owner too (`blkd::parts`), which matched the name alone before.
 
 Rules:
 

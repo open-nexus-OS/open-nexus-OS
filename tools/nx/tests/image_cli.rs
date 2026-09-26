@@ -53,6 +53,12 @@ fn file_sha(path: &Path) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Where the layout every stage builds puts `name` (bytes; the offsets are never copied here).
+fn offset_of(name: &str) -> usize {
+    let layout = storage::layout::plan().expect("layout");
+    layout.iter().find(|p| p.name == name).expect("in the layout").first_lba as usize * 512
+}
+
 fn build(dir: &Path, out: &str, build_id: &str) -> Output {
     run_nx(
         &[
@@ -96,11 +102,10 @@ fn verify_rejects_tampered_boot_image() {
     let dir = tempfile::tempdir().expect("tempdir");
     setup(dir.path());
     assert!(build(dir.path(), "t.img", "dev-T").status.success());
-    // Flip one byte INSIDE the boot-a payload (bsb sits at 1 MiB, boot-a
-    // starts at the next 1 MiB alignment = 2 MiB; image at sector 8).
+    // Flip one byte INSIDE the boot-a payload (the image starts at the slot's sector 8).
     let img = dir.path().join("t.img");
     let mut bytes = std::fs::read(&img).expect("read img");
-    let off = 2 * 1024 * 1024 + 8 * 512 + 1000;
+    let off = offset_of("boot-a") + 8 * 512 + 1000;
     bytes[off] ^= 0xFF;
     std::fs::write(&img, bytes).expect("write img");
     let verify = run_nx(&["image", "verify", "--image", "t.img", "--key", "os.seed"], dir.path());
@@ -148,16 +153,13 @@ fn patch_refreshes_boot_a_and_preserves_everything_else() {
     let after = std::fs::read(dir.path().join("p.img")).expect("read");
     assert_eq!(before.len(), after.len());
 
-    // bsb partition (1 MiB region before boot-a) byte-identical…
-    let bsb_start = 2048 * 512;
-    let boot_a_start = 2 * 1024 * 1024; // second aligned partition start
-    assert_eq!(
-        before[bsb_start..boot_a_start],
-        after[bsb_start..boot_a_start],
-        "bsb region untouched"
-    );
-    // …and everything after boot-a (boot-b/system/state/data) too.
-    let boot_a_end = boot_a_start + 56 * 1024 * 1024;
+    // Everything in front of boot-a (the head, the bsb) byte-identical — the offsets from the
+    // layout every stage builds, not a copy of them…
+    let (boot_a_start, boot_b_start) = (offset_of("boot-a"), offset_of("boot-b"));
+    assert!(offset_of("bsb") < boot_a_start);
+    assert_eq!(before[..boot_a_start], after[..boot_a_start], "head and bsb untouched");
+    // …and everything after boot-a (boot-b/system/state/data and the backup GPT) too.
+    let boot_a_end = boot_b_start;
     assert_eq!(before[boot_a_end..], after[boot_a_end..], "later partitions untouched");
     // The refreshed build id is visible.
     let verify =
@@ -313,7 +315,7 @@ fn backstop_arms_the_alternate_bsb_block_and_keeps_the_floor() {
     // Two arms = two alternate-block writes; the reader must see the
     // newest (seq 3) with the trial pending and the floor intact.
     let bytes = std::fs::read(dir.path().join("bs.img")).expect("img");
-    let bsb_off = 1024 * 1024; // first partition (layout SSOT: bsb at 1 MiB)
+    let bsb_off = offset_of("bsb");
     let (bsb, _) =
         bootfmt::bsb::pick(&bytes[bsb_off..bsb_off + 512], &bytes[bsb_off + 512..bsb_off + 1024])
             .expect("armed bsb must decode");

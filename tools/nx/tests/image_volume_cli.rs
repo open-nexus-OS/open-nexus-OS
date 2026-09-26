@@ -65,10 +65,11 @@ fn verify_rejects_tampered_and_unpaired_system_volume() {
     assert!(build_with_volume(dir.path(), "t.img", "dev-T").status.success());
     let img = dir.path().join("t.img");
 
-    // Layout SSOT: bsb@1MiB, boot-a@2MiB(56MiB), boot-b@58MiB(56MiB),
-    // system-a@114MiB; the volume body starts at sector 8. Patch ONE byte
-    // in place (the image is 384 MiB — never slurp it in a test).
-    let sys_a: u64 = 114 * 1024 * 1024;
+    // Where the layout every stage builds puts system-a (never a copy of its offsets); the
+    // volume body starts at sector 8. Patch ONE byte in place (the image is 384 MiB — never
+    // slurp it in a test).
+    let layout = storage::layout::plan().expect("layout");
+    let sys_a = layout.iter().find(|p| p.name == "system-a").expect("system-a").first_lba * 512;
     let off = sys_a + 8 * 512 + 8192 + 100; // inside a bundle window
     let flip = |xor: u8| {
         use std::io::{Read, Seek, SeekFrom, Write};

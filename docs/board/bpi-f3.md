@@ -100,6 +100,22 @@ what it read: `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts
 - SPL links at `0xc080_1000` (SRAM `0xc080_0000`, 4 KiB header); DDR controller at
   `0xc000_0000`.
 
+## The image for this board (TASK-0260 P1)
+
+`nx image build --target bpi-f3` builds the disk this board boots, byte for byte: a sparse file
+of the eMMC's 30 535 680 sectors (`config/board/bpi-f3/image.toml`). It holds:
+
+- in sector 0, the protective MBR, with the boot-ROM header in bytes 0–79;
+- the head as GPT partitions 1–4 (`fsbl`, `env`, `opensbi`, `uboot` at the offsets above),
+  filled from the pinned pieces — the header is checked as the boot ROM checks it, and `env`
+  stays zero;
+- our volumes from 4 MiB;
+- the backup GPT at the eMMC's last sector.
+
+`uboot` holds the loader's FIT once TASK-0260B builds it (`--fit`). The measurement behind it is
+`docs/board/measurements/2026-09-26-boot-medium/`; how the image reaches the eMMC is TASK-0260
+P2.
+
 ## Measured against the boot ROM (2026-09-21, `just board-flash --stage-only`)
 
 | Step | Observed |

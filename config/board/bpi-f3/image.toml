@@ -1,0 +1,24 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The disk this board boots from and what its boot-ROM head holds (TASK-0260 P1,
+# RFC-0089 §2): `nx image build --target bpi-f3` builds the image for this disk,
+# byte for byte (sparse), the GPT's backup at its last sector. Paths are relative
+# to this file; the vendor pieces are fetched and hash-checked by
+# `scripts/fetch-board-inputs.sh` (pins: resources/board/bpi-f3/PROVENANCE.md).
+
+[disk]
+# The eMMC, in 512-byte sectors (14.56 GiB; measured 2026-09-26,
+# docs/board/measurements/2026-09-26-boot-medium/emmc-state.txt).
+sectors = 30535680
+
+[head]
+# The boot-ROM header in bytes 0-79 of sector 0, next to the protective MBR — the
+# one the vendor's universal layout uses for eMMC too (it points the boot ROM at
+# `fsbl`, 128 KiB).
+boot_header = "../../../resources/board/bpi-f3/vendor/factory/bootinfo_sd.bin"
+# The SPL (DDR training), into `fsbl`.
+fsbl = "../../../resources/board/bpi-f3/vendor/factory/FSBL.bin"
+# OpenSBI (`fw_dynamic`, a FIT), into `opensbi`. `env` stays zero: no U-Boot reads
+# it; `uboot` holds the loader's FIT (`--fit`, TASK-0260B).
+opensbi = "../../../resources/board/bpi-f3/vendor/fw_dynamic.itb"

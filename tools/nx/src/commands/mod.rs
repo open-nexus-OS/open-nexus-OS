@@ -17,6 +17,7 @@ pub(crate) mod dsl;
 pub(crate) mod idl;
 pub(crate) mod image;
 pub(crate) mod image_backstop;
+pub(crate) mod image_board;
 pub(crate) mod image_fixtures;
 pub(crate) mod image_ota;
 pub(crate) mod image_volume;

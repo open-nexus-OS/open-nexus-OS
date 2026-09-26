@@ -5,7 +5,8 @@
 //! host-side disk/OTA artifact authority. Layout comes from THE shared
 //! table (`storage::layout`), GPT bytes from the shared writer/parser
 //! (`storage::gpt` — tool and OS agree by construction), NXBD/BSB from
-//! `bootfmt`. Deterministic end to end: no wall clock in any written
+//! `bootfmt`, the disk an image is for — QEMU's or a board's, with its
+//! boot-ROM head — from `image_board` (TASK-0260 P1). Deterministic end to end: no wall clock in any written
 //! byte, build-twice ⇒ identical images. NXBD-LAST discipline on
 //! build/patch: the image body lands before the descriptor, so an
 //! interrupted write leaves an INVALID slot, never a half-bootable one.
@@ -32,7 +33,7 @@ use storage::gpt::{
 };
 
 use crate::commands::image_volume as volume;
-use storage::layout::{plan, NEXUS_DISK_BYTES};
+use storage::layout::plan;
 use storage::{BlockDevice, BlockError};
 
 pub(crate) const SECTOR: usize = 512;
@@ -172,6 +173,14 @@ pub(crate) fn part(parts: &[Partition], guid: &[u8; 16], name: &str) -> Result<P
     })
 }
 
+/// The partition the layout names `name`, found by that name AND the layout's type for it.
+pub(crate) fn part_named(parts: &[Partition], name: &str) -> Result<Partition, NxError> {
+    let guid = storage::layout::type_of(name).ok_or_else(|| {
+        NxError::new(ExitClass::Internal, format!("image: `{name}` is not in the layout"))
+    })?;
+    part(parts, &guid, name)
+}
+
 fn slot_budget_sectors(p: &Partition) -> u64 {
     (p.last_lba - p.first_lba + 1).saturating_sub(IMAGE_START_SECTOR)
 }
@@ -253,14 +262,18 @@ fn handle_build(args: ImageBuildArgs) -> ExecResult {
     let parts = plan().ok_or_else(|| {
         NxError::new(ExitClass::Internal, "image: layout exceeds NEXUS_DISK_BYTES")
     })?;
+    // TASK-0260 P1: the disk the image is for (QEMU's, or a board's from its profile) — the
+    // GPT is built for it, and a board's boot-ROM head goes in right after.
+    let disk = crate::commands::image_board::disk_for(&args)?;
     if let Some(parent) = args.out.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let mut dev = FileBlockDevice::create(&args.out, NEXUS_DISK_BYTES).map_err(|err| {
+    let mut dev = FileBlockDevice::create(&args.out, disk.bytes).map_err(|err| {
         NxError::new(ExitClass::Internal, format!("image: create {}: {err}", args.out.display()))
     })?;
     write_gpt(&mut dev, &parts)
         .map_err(|e| NxError::new(ExitClass::Internal, format!("image: gpt write ({e:?})")))?;
+    let head = disk.write_head(&mut dev, &parts)?;
 
     // Factory BSB: block 0 = seq 1 (active A, committed, floor = the
     // shipped image's rollback index); block 1 stays zeroed (invalid) —
@@ -323,7 +336,9 @@ fn handle_build(args: ImageBuildArgs) -> ExecResult {
 
     let data = json!({
         "out": args.out.display().to_string(),
-        "disk_bytes": NEXUS_DISK_BYTES,
+        "target": args.target,
+        "disk_bytes": disk.bytes,
+        "head": head,
         "build_id": args.build_id,
         "rollback_index": args.rollback_index,
         "kernel_bytes": kernel.len(),
@@ -333,7 +348,12 @@ fn handle_build(args: ImageBuildArgs) -> ExecResult {
     });
     Ok((
         ExitClass::Success,
-        format!("image: built {} (build={})", args.out.display(), args.build_id),
+        format!(
+            "image: built {} (target={} build={})",
+            args.out.display(),
+            args.target,
+            args.build_id
+        ),
         args.json,
         Some(data),
     ))
