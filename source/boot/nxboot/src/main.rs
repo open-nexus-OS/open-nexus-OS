@@ -41,8 +41,10 @@ mod boot {
 
     use bootfmt::bsb::Slot;
     use nxboot::flow::{self, Event, FlowError, Reason};
+    use storage::trace::{LoaderTrace, TraceError};
 
     use crate::arch;
+    use crate::probe::BootDisk;
 
     fn slot_ch(slot: Slot) -> char {
         match slot {
@@ -100,6 +102,55 @@ mod boot {
         arch::system_reset()
     }
 
+    /// The boot trace (RFC-0107): the loader's console text in its slot of the boot disk's
+    /// `trace` partition, rewritten at each milestone — so a board boot can be read without a
+    /// serial adapter. Diagnostics only: a trace that cannot be kept never stops the boot.
+    struct Trace(Option<LoaderTrace>);
+
+    impl Trace {
+        fn open(disk: &BootDisk) -> Self {
+            match LoaderTrace::open(disk) {
+                Ok(t) => {
+                    arch::uart_puts(&format!("nxboot: trace slot={} seq={}\n", t.slot(), t.seq()));
+                    Self(Some(t))
+                }
+                Err(e) => {
+                    let why = match e {
+                        TraceError::NoPartition => "no partition",
+                        TraceError::TooSmall => "too small",
+                        TraceError::Io => "io",
+                    };
+                    arch::uart_puts(&format!("nxboot: trace none ({why})\n"));
+                    Self(None)
+                }
+            }
+        }
+
+        /// Everything printed so far into the slot; `complete` on the loader's last write.
+        fn keep(&mut self, disk: &mut BootDisk, complete: bool) {
+            let Some(t) = self.0.as_mut() else { return };
+            let (text, lost) = arch::captured();
+            if t.write(disk, text, lost, complete).is_err() {
+                self.0 = None;
+                arch::uart_puts("nxboot: trace FAIL (write)\n");
+            }
+        }
+
+        /// `/chosen/nexus,trace`: the slot's first LBA and the boot's sequence number.
+        fn handoff(&self) -> Option<String> {
+            self.0.as_ref().map(|t| format!("{} {}", t.slot_lba(), t.seq()))
+        }
+    }
+
+    /// A terminal failure once the disk is known: the reason on the console and in the trace.
+    fn fail(trace: &mut Trace, disk: &mut BootDisk, msg: &str) -> ! {
+        arch::uart_puts("nxboot: PANIC (");
+        arch::uart_puts(msg);
+        arch::uart_puts(")\n");
+        trace.keep(disk, true);
+        arch::system_reset()
+    }
+
     /// Rust-side entry, reached from the `_start` asm (via the `no_mangle`
     /// export in `arch`) with the firmware registers (a0 = hartid,
     /// a1 = DTB) intact.
@@ -116,6 +167,9 @@ mod boot {
             panic_reset("no boot disk");
         };
         let boot_disk = core::str::from_utf8(&record_buf[..record_len]).unwrap_or("?");
+        // RFC-0107: from here on the boot leaves its console text on the disk.
+        let mut trace = Trace::open(&disk);
+        trace.keep(&mut disk, false);
         let dest = arch::load_region(base, len);
         match flow::run(&mut disk, dest, &mut |e| emit(&e)) {
             Ok(loaded) => {
@@ -132,19 +186,27 @@ mod boot {
                 // re-expressed there (the kernel never reads fw_cfg).
                 let record = bootfmt::handoff::encode_record(&handoff);
                 // RFC-0098 C5: the record of the disk the volume was just read from.
-                let dtb =
-                    crate::platform::prepare_dtb(&tree, slot_ch(loaded.slot), &record, boot_disk);
+                // RFC-0107: the trace's slot, for the OS writer.
+                let handoff_trace = trace.handoff();
+                let dtb = crate::platform::prepare_dtb(
+                    &tree,
+                    slot_ch(loaded.slot),
+                    &record,
+                    boot_disk,
+                    handoff_trace.as_deref(),
+                );
                 // RFC-0098 C6: the image is position-independent; it runs where
                 // this loader put it and fixes itself up there.
                 arch::uart_puts(&format!(
                     "nxboot: jump slot={} base=0x{base:x}\n",
                     slot_ch(loaded.slot)
                 ));
+                trace.keep(&mut disk, true);
                 arch::jump_kernel(base as u64, hartid, dtb)
             }
-            Err(FlowError::BsbInvalid) => panic_reset("bsb invalid on both blocks"),
-            Err(FlowError::Disk) => panic_reset("disk io"),
-            Err(FlowError::BothSlotsBad { .. }) => panic_reset("both slots bad"),
+            Err(FlowError::BsbInvalid) => fail(&mut trace, &mut disk, "bsb invalid on both blocks"),
+            Err(FlowError::Disk) => fail(&mut trace, &mut disk, "disk io"),
+            Err(FlowError::BothSlotsBad { .. }) => fail(&mut trace, &mut disk, "both slots bad"),
         }
     }
 

@@ -112,6 +112,7 @@ nxboot writes (in-place, with headroom reserved at FIT build time):
 | `nexus,display-mode` | a REQUEST (`WxH`), never the authority | fw_cfg `display-mode` | absent (EDID decides) |
 | `nexus,boot-record` | the measured handoff record itself (60 bytes, ADR-0059 v1 layout) | nxboot | nxboot |
 | `nexus,boot-disk` | the medium the boot volume was read from: a node path, or `<ECAM host path>/mmc@<dev>,<func>` for an SD host behind PCI (C5) | nxboot (the transport it read) | nxboot |
+| `nexus,trace` | the boot trace's slot this boot writes: `"<slot's first LBA on the boot disk> <seq>"` (RFC-0107); absent when the disk has no `trace` partition | nxboot | nxboot |
 
 The kernel's syscalls 45 (`BOOT_MODE`) and 50 (`BOOT_DISPLAY_MODE`) read `/chosen`; every
 fw_cfg read in the kernel is deleted (Phase 1). 50 is deleted in Phase 5 when gpud owns the

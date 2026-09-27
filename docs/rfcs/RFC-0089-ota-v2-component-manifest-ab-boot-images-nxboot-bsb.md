@@ -211,6 +211,11 @@ block owner too (`blkd::parts`), which matched the name alone before. P2 wrote t
 and boot0 to the eMMC through raw regions (`nx image flash-plan`, `scripts/board-flash.sh`) and
 read both back exactly from the stock system.
 
+**Amendment 2026-09-27 (RFC-0107, TASK-0327B P1):** the `trace` partition (`NEXUS-TRACE-v1`,
+8 MiB) follows `data`: the boot trace's eight slots, one per boot, each the console text of that
+boot (RFC-0107 owns the format). Images are built with it zeroed (no boot kept); the flash plan
+writes it with the rest of the user area, so a freshly flashed disk counts its boots from 1.
+
 Rules:
 
 - Slot partitions are written only by `updated` (inactive slot only) and provisioning
@@ -218,6 +223,9 @@ Rules:
   factory image builder. Cross-partition access is deny-by-default (TASK-0315).
 - The head partitions are written only by provisioning tools; no service reads or writes them
   (the block owner refuses them).
+- `trace` is written by nxboot (the loader's region of its boot's slot) and — RFC-0107 Phase 2 —
+  by the one OS trace writer through the block owner's gate; until then the block owner has no
+  selector for it, so no request can name it.
 - Per-slot image budgets are gated in `scripts/check-image-budgets.sh` — growth is a
   conscious act, never silent.
 - Staging bytes live under `/data` (nxfs) per ADR-0043 — never in the `/state` KV.

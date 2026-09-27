@@ -44,6 +44,30 @@ pub(crate) enum ImageAction {
     /// flash vehicle writes — the user area in chunks, the backup GPT, boot0
     /// — each with its file and digest.
     FlashPlan(ImageFlashPlanArgs),
+    /// The boot trace of a disk (RFC-0107): each kept boot's console text.
+    Trace(ImageTraceArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ImageTraceArgs {
+    /// A disk image, or a dump of its `trace` partition alone (what `just board-log` pulls).
+    #[arg(long)]
+    pub(crate) image: PathBuf,
+    /// Every kept boot, oldest first (default: the latest).
+    #[arg(long)]
+    pub(crate) all: bool,
+    /// Every kept boot from this sequence number on, oldest first — one run's boots (the
+    /// harness takes the number from the run's first `nxboot: trace` line).
+    #[arg(long, conflicts_with = "all")]
+    pub(crate) since: Option<u64>,
+    /// The loader's text only.
+    #[arg(long)]
+    pub(crate) loader: bool,
+    /// Write the text here, byte for byte (default: print it).
+    #[arg(long)]
+    pub(crate) out: Option<PathBuf>,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Args, Debug)]

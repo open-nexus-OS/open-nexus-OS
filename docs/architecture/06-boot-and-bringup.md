@@ -49,6 +49,12 @@ At a high level the stack looks like:
      that record to the ONE grant `blkd` gets, asked for the kind's class, and
      makes it while only policyd runs, so `blkd` starts with its disk in place
      (`init: boot disk ok (…)`, `blkd: backend ok (…)`, TASK-0246 P4b).
+   - The boot trace (RFC-0107): everything the loader prints is also kept on
+     that disk, in the `trace` partition's slot for this boot (`nxboot: trace
+     slot=<n> seq=<m>`), written when the disk is found, before the jump and on
+     every terminal failure; `/chosen/nexus,trace` hands the slot to the OS. A
+     board without a serial adapter is read back with `just board-log`; every
+     QEMU lane checks that the trace equals the UART's loader lines.
    - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: jump
      slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
      `nxboot: PANIC (…)` + SBI reset — never a silent boot of unverified

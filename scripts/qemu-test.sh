@@ -2954,6 +2954,41 @@ if [[ "${PROFILE:-full}" == "ota-flip" || "${PROFILE:-full}" == "ota-bundle" || 
   echo "[info] verify-nxupdate: ok (active=b committed floor=2 build=otaB from $nxupdate_img)"
 fi
 
+# RFC-0107 (TASK-0327B P1): the boot trace — every line the loader printed is
+# also on the disk, boot by boot, in the trace partition's loader regions; the
+# same text a board without a serial adapter is read by. The run's boots are
+# the trace's boots from the run's first `nxboot: trace ... seq=N` on (a kept
+# disk, NEXUS_KEEP_BLK=1, also holds the boots of earlier launches).
+# TRACE_CONTRACT=0 disables (profiles whose disk is not this image); a direct
+# kernel boot has no loader to keep one.
+if [[ "${TRACE_CONTRACT:-1}" == "1" && "${NEXUS_DIRECT_KERNEL:-0}" == "1" ]]; then
+  echo "[SKIP] trace contract: direct kernel boot (NEXUS_DIRECT_KERNEL=1, no loader in the chain)"
+elif [[ "${TRACE_CONTRACT:-1}" == "1" ]]; then
+  trace_bin="$ROOT/target/release/nx"
+  trace_img="${QEMU_BLK_IMG:-$ROOT/build/nexus.img}"
+  trace_out="$LOG_DIR/trace-loader.txt"
+  trace_since=$(grep -a -o -m1 'nxboot: trace slot=[0-9]* seq=[0-9]*' "$UART_LOG" | sed 's/.*seq=//' || true)
+  if [[ -z "$trace_since" ]]; then
+    echo "[error] trace contract: the loader kept no trace in this run (no 'nxboot: trace slot=' line)" >&2
+    grep -a '^nxboot: trace' "$UART_LOG" | head -3 >&2 || true
+    exit 1
+  fi
+  if ! trace_meta=$("$trace_bin" image trace --image "$trace_img" --since "$trace_since" --loader --out "$trace_out" --json 2>&1); then
+    echo "[error] trace contract: the trace of $trace_img keeps no boot from seq $trace_since on" >&2
+    echo "$trace_meta" >&2
+    exit 1
+  fi
+  uart_loader=$(grep -a '^nxboot:' "$UART_LOG" | tr -d '\r' || true)
+  trace_loader=$(tr -d '\r' <"$trace_out")
+  if [[ -z "$uart_loader" || "$uart_loader" != "$trace_loader" ]]; then
+    echo "[error] trace contract: the loader's lines on the disk differ from the UART" >&2
+    diff <(printf '%s\n' "$uart_loader") <(printf '%s\n' "$trace_loader") | head -20 >&2
+    exit 1
+  fi
+  trace_boots=$(grep -c '"seq"' <<<"$trace_meta" || true)
+  echo "[PASS] trace contract: the loader's $(grep -c . <<<"$trace_loader") lines of $trace_boots boot(s) from seq $trace_since are on the disk ($trace_img)"
+fi
+
 # Chain-marker contract reconciliation (tools/nx/chains/markers.txt): the
 # simulated chain tests and the real boot must agree on the hop markers.
 # MARKER_CONTRACT=0 disables (e.g. for exotic manual profiles).

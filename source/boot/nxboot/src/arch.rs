@@ -144,8 +144,11 @@ fn uart_write(base: usize, reg: usize, value: u8) {
 }
 
 /// Polled byte-wise console write (pre-OS: no interrupts, no ownership
-/// conflicts — the loader runs strictly before any driver exists).
+/// conflicts — the loader runs strictly before any driver exists). Every
+/// byte is also kept for the boot trace (RFC-0107), from the first one on —
+/// before the console is known too.
 pub fn uart_puts(msg: &str) {
+    capture(msg.as_bytes());
     let base = UART_BASE.load(Ordering::Acquire);
     if base == 0 {
         return;
@@ -154,6 +157,36 @@ pub fn uart_puts(msg: &str) {
         while uart_read(base, UART_LSR) & LSR_TX_IDLE == 0 {}
         uart_write(base, UART_TX, byte);
     }
+}
+
+// ---- the loader's own console text, for the boot trace (RFC-0107) -------
+
+/// As large as the trace's loader region: what fits there, kept here.
+const CAPTURE_LEN: usize = storage::trace::LOADER_REGION;
+
+static mut CAPTURE: [u8; CAPTURE_LEN] = [0; CAPTURE_LEN];
+static CAPTURE_USED: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_LOST: AtomicUsize = AtomicUsize::new(0);
+
+fn capture(bytes: &[u8]) {
+    let used = CAPTURE_USED.load(Ordering::Relaxed);
+    let take = bytes.len().min(CAPTURE_LEN - used);
+    // One hart runs the loader (the lottery's winner): no second writer, and the reader
+    // (`captured`) runs on the same hart.
+    unsafe {
+        let dst = core::ptr::addr_of_mut!(CAPTURE) as *mut u8;
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), dst.add(used), take);
+    }
+    CAPTURE_USED.store(used + take, Ordering::Relaxed);
+    CAPTURE_LOST.fetch_add(bytes.len() - take, Ordering::Relaxed);
+}
+
+/// Everything the loader printed so far, and whether it printed more than it kept.
+pub fn captured() -> (&'static [u8], bool) {
+    let used = CAPTURE_USED.load(Ordering::Relaxed);
+    let bytes =
+        unsafe { core::slice::from_raw_parts(core::ptr::addr_of!(CAPTURE) as *const u8, used) };
+    (bytes, CAPTURE_LOST.load(Ordering::Relaxed) > 0)
 }
 
 /// SBI SRST cold reboot; if the SBI call returns (no SRST extension),

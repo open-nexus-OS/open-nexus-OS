@@ -49,6 +49,7 @@ pub(crate) fn handle_image(args: ImageArgs) -> ExecResult {
         ImageAction::Fixtures(a) => crate::commands::image_fixtures::handle_fixtures(a),
         ImageAction::Backstop(a) => crate::commands::image_backstop::handle_backstop(a),
         ImageAction::FlashPlan(a) => crate::commands::image_flash::handle_flash_plan(a),
+        ImageAction::Trace(a) => crate::commands::image_trace::handle_trace(a),
     }
 }
 

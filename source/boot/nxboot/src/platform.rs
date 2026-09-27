@@ -132,9 +132,15 @@ fn align_up(v: usize, align: usize) -> Option<usize> {
     v.checked_add(align - 1).map(|x| x & !(align - 1))
 }
 
-/// Copy the tree, write `/chosen/nexus,*` (the slot, the measured record, the boot disk and
-/// the QEMU lane knobs), return the copy's address for `a1`.
-pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8], boot_disk: &str) -> usize {
+/// Copy the tree, write `/chosen/nexus,*` (the slot, the measured record, the boot disk, the
+/// boot trace's slot and the QEMU lane knobs), return the copy's address for `a1`.
+pub fn prepare_dtb(
+    t: &Tree,
+    slot: char,
+    record: &[u8],
+    boot_disk: &str,
+    trace: Option<&str>,
+) -> usize {
     let src = arch::phys_slice(t.phys, t.len);
     // Page-aligned: the kernel hands this very copy to init as read-only pages.
     let buf: &'static mut [u8] = arch::alloc_pages(t.len + CHOSEN_HEADROOM);
@@ -150,6 +156,10 @@ pub fn prepare_dtb(t: &Tree, slot: char, record: &[u8], boot_disk: &str) -> usiz
     ok &= w.set_nexus_bytes("boot-record", record).is_ok();
     // TASK-0246 P4b: the medium the boot came from — init grants exactly that to the owner.
     ok &= w.set_nexus_str(storage::boot_disk::CHOSEN_KEY, boot_disk).is_ok();
+    // RFC-0107: the boot trace's slot, for the OS writer (`"<first LBA> <seq>"`).
+    if let Some(trace) = trace {
+        ok &= w.set_nexus_str(storage::trace::CHOSEN_KEY, trace).is_ok();
+    }
     // QEMU lane knobs: absent on the board (no fw_cfg node), absent when
     // fw_cfg has no such file.
     if let Some(fw) = fw_cfg_base(t) {

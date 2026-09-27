@@ -24,7 +24,7 @@ use alloc::vec::Vec;
 
 use crate::gpt::{
     first_usable_lba, last_usable_lba, Partition, GUID_NEXUS_BOOT, GUID_NEXUS_BSB, GUID_NEXUS_DATA,
-    GUID_NEXUS_FW, GUID_NEXUS_STATE, GUID_NEXUS_SYS,
+    GUID_NEXUS_FW, GUID_NEXUS_STATE, GUID_NEXUS_SYS, GUID_NEXUS_TRACE,
 };
 
 const KIB: u64 = 1024;
@@ -52,8 +52,9 @@ pub struct PartitionSpec {
 /// by name: OpenSBI (`opensbi`) and the loader's FIT (`uboot`, the SPL's name for its payload
 /// slot), at the offsets the vendor's medium uses. Then RFC-0089 §2's volumes
 /// (normative order); `system-a/b` are RESERVED for the Phase-B bundle-set volumes — empty on
-/// purpose, so the disk never needs repartitioning when that phase lands. `swap` (M7) is
-/// appended last once M7 has measured its size.
+/// purpose, so the disk never needs repartitioning when that phase lands. Then the boot trace
+/// (`trace`, RFC-0107: eight 1 MiB slots of console text). `swap` (M7) is appended last once M7
+/// has measured its size.
 pub const NEXUS_DISK_LAYOUT: &[PartitionSpec] = &[
     PartitionSpec {
         name: "opensbi",
@@ -102,6 +103,12 @@ pub const NEXUS_DISK_LAYOUT: &[PartitionSpec] = &[
         name: "data",
         type_guid: GUID_NEXUS_DATA,
         size_bytes: 128 * MIB,
+        place: Place::Next,
+    },
+    PartitionSpec {
+        name: "trace",
+        type_guid: GUID_NEXUS_TRACE,
+        size_bytes: 8 * MIB,
         place: Place::Next,
     },
 ];
@@ -188,6 +195,7 @@ mod tests {
     fn every_name_has_one_type() {
         assert_eq!(type_of("bsb"), Some(GUID_NEXUS_BSB));
         assert_eq!(type_of("uboot"), Some(GUID_NEXUS_FW));
+        assert_eq!(type_of("trace"), Some(GUID_NEXUS_TRACE));
         assert_eq!(type_of("swap"), None);
         let mut names: Vec<&str> = NEXUS_DISK_LAYOUT.iter().map(|s| s.name).collect();
         names.sort_unstable();

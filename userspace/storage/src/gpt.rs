@@ -39,6 +39,8 @@ pub const GUID_NEXUS_SYS: [u8; 16] = *b"NEXUS-SYS-v1\0\0\0\0";
 /// `uboot` — RFC-0089 §2 amendment 2026-09-26): firmware no stage of ours reads or writes
 /// at run time.
 pub const GUID_NEXUS_FW: [u8; 16] = *b"NEXUS-FW-v1\0\0\0\0\0";
+/// GPT partition-type GUID for the boot trace (RFC-0107): each boot's console text.
+pub const GUID_NEXUS_TRACE: [u8; 16] = *b"NEXUS-TRACE-v1\0\0";
 /// The disk GUID every image carries (deterministic builds); the partitions' unique GUIDs
 /// derive from it and their position.
 pub const NEXUS_DISK_GUID: [u8; 16] = *b"NEXUS-DISK-v1\0\0\0";

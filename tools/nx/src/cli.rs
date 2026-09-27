@@ -97,6 +97,7 @@ impl Cli {
                 ImageAction::Ota(a) => a.json,
                 ImageAction::Backstop(a) => a.json,
                 ImageAction::FlashPlan(a) => a.json,
+                ImageAction::Trace(a) => a.json,
             },
             Commands::Update(args) => match &args.action {
                 UpdateAction::Check(a) => a.json,

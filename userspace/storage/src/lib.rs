@@ -179,3 +179,6 @@ pub mod boot_disk;
 /// The SDHCI backend's block face: an eMMC behind an SDHCI host as a `BlockDevice`, and its
 /// host configuration from the tree (ADR-0067, TASK-0246 P4b).
 pub mod sdhci;
+
+/// The boot trace: each boot's console text in the `trace` partition (RFC-0107, TASK-0327B).
+pub mod trace;

@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-27 (TASK-0327B P0/P1, RFC-0107: the boot trace — the loader's console kept on the boot disk)
+
+- No USB-UART adapter is at the desk, and the board's first boots are the ones that stop early.
+  So the console text of each boot is kept on the boot disk and read back afterwards (RFC-0107,
+  seeded at P0; TASK-0327B recut).
+- The layout gains a `trace` partition: `NEXUS-TRACE-v1`, 8 MiB, after `data`, eight 1 MiB
+  slots, one per boot.
+- `storage::trace` is the one codec. A header counts only in its own slot, and only with its
+  magic, version, CRC and in-bounds lengths. The next boot takes the highest valid seq + 1,
+  round the ring. Taking a slot over clears the old header first; after that, text is written
+  first and the header last.
+- nxboot captures every byte it prints and keeps it in its slot. It writes when the disk is
+  found, before the jump and on every terminal failure, and says which slot it took:
+  `nxboot: trace slot=<n> seq=<m>`. It hands the slot to the OS in `/chosen/nexus,trace`
+  (RFC-0098 C2). A trace it cannot write never stops a boot.
+- `nx image trace` reads a disk image or a dump of the partition:
+  - the latest boot, `--all`, `--since <seq>`, `--loader`;
+  - `--out` for the bytes exactly, `--json` for each boot's seq, slot, lengths and flags.
+- `just board-log` (`scripts/board-log.sh`) reads the board's trace over adb from its stock
+  system. It finds the partition by its GPT name and checks its size, then pulls it binary-safe.
+  The latest boot lands in `build/logs/board--<ts>/uart.log`.
+- Every QEMU lane checks the trace contract. The run's boots on the disk — from its first
+  `nxboot: trace … seq=N` on — must hold exactly the UART's `nxboot:` lines
+  (`trace-loader.txt` in the log directory). A direct-kernel boot skips it and says so.
+- Proof, host:
+  - `storage` trace: 6 tests; two use a fault-injecting disk (a torn takeover shows no mixed
+    record; a milestone torn in its text keeps the last complete one).
+  - `nx` `image_trace_cli`: 4 tests.
+  - 10 mutations each fail their test.
+  - The harness contract, run standalone against a lane's log: PASS; FAIL on a missing jump line
+    and on a missing trace line; PASS on a kept disk from seq 2, where the plain `--all`
+    comparison FAILs; SKIP for a direct kernel.
+- Proof, QEMU: `just test-all` EXIT=0 — 12 QEMU runs, each `[PASS] trace contract`, 21 boots
+  kept (the reset lane's 3 boots in one run, ota-fallback's 4 with the fallback decision); the
+  sdhci lane wrote its trace through the SDHCI core in PIO.
+- Proof, board: `just board-log` reaches the stock system and lists our nine partitions by name.
+  The disk flashed at TASK-0260 P2 predates the partition, so it exits 4 and names the fix.
+  Against a stand-in `adb` serving a lane's disk: `uart.log` and `trace-all.log` byte-equal to
+  the disk's boots; exit 5 on a zeroed trace, exit 3 without a stock system.
+
 ### Added - 2026-09-26 (TASK-0260 P2: our disk on the board's eMMC — written raw, read back exactly)
 
 - The vendor's U-Boot source changed P1's head. The eMMC boots from its boot0 hardware partition,

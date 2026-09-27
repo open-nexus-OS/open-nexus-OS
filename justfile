@@ -44,6 +44,12 @@ board-flash *args:
 board-image *args:
     @scripts/board-image.sh {{args}}
 
+# RFC-0107 (TASK-0327B): the board's boot trace, read without a serial adapter — the trace
+# partition pulled from the eMMC by the stock system (adb); the latest boot becomes
+# build/logs/board--<ts>/uart.log.
+board-log:
+    @scripts/board-log.sh
+
 board-ack MARKER:
     @scripts/board-ack.sh {{MARKER}}
 
@@ -82,6 +88,7 @@ help:
     @echo "  just board-flash --stage-only   # boot ROM → SPL → U-Boot in RAM, print the board's variables, write nothing"
     @echo "  just board-flash --plan DIR     # write a flash plan to the eMMC (raw regions, sizes checked first; asks)"
     @echo "  just board-flash --verify DIR   # read every region back from the stock system (adb) and compare"
+    @echo "  just board-log           # the eMMC boot trace (no serial adapter): latest boot → build/logs/board--<ts>/uart.log"
     @echo "  just board-ack MARKER=x  # a human check becomes a 'board-visual: x' marker in the board log"
     @echo
     @echo "[Kernel Developers]"

@@ -91,6 +91,7 @@ what it read: `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts
 | `just board-image` | the board's disk (the eMMC's user area + boot0) and its flash plan, from the last OS build |
 | `just board-flash --plan DIR` | the above, then write the flash plan to the eMMC: each region a raw partition, its size checked first (asks first) |
 | `just board-flash --verify DIR` | read every region of the plan back from the stock system over adb and compare digests |
+| `just board-log` | the boot trace (RFC-0107) without a serial adapter: the stock system (microSD in, board reset) pulls the eMMC's `trace` partition over adb; the latest boot → `build/logs/board--<ts>/uart.log`, every kept boot → `trace-all.log`. Exit 4 = the eMMC has no trace partition, 5 = no boot reached the loader's disk step since the disk was written (the chain stopped before nxboot, or nxboot found no boot disk) |
 | `just board-ack MARKER=<name>` | append `board-visual: <name>` to the current board log — a human check becomes a marker the manifest can require (`TASK-0327B`) |
 
 ## Boot-ROM / SPL facts for Block 1 (measured from the vendor pieces, 2026-09-21)
