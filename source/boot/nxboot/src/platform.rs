@@ -4,7 +4,8 @@
 //! CONTEXT: nxboot's reading of the device tree and its ownership of
 //! `/chosen/nexus,*` (RFC-0098 C1/C2/C6, ADR-0066, TASK-0244 P3, TASK-0245 P2).
 //! The tree the firmware handed over in `a1` is the loader's only source of
-//! truth: the console it prints on (`/chosen/stdout-path`), the memory bank
+//! truth, and the loader's first line names it (`nxboot: platform=… tree=…`):
+//! the console it prints on (`/chosen/stdout-path`), the memory bank
 //! and reserved ranges the kernel window is chosen from, the virtio transports
 //! it probes for the boot disk, and — on QEMU only — the fw_cfg window whose
 //! lane knobs it re-expresses in `/chosen`. Before the jump the tree is copied
@@ -17,9 +18,10 @@
 //! OWNERS: @runtime @security
 //! STATUS: Functional
 //! API_STABILITY: Internal (the `/chosen` keys are RFC-0098's contract)
-//! TEST_COVERAGE: QEMU ladder (`nxboot: fdt ok (` in every profile; the kernel's
-//!   `KSELFTEST: platform from fdt ok` reads the copy back; `KSELFTEST: kernel
-//!   image ok (base=…)` proves the window); parser host tests in nexus-fdt
+//! TEST_COVERAGE: QEMU ladder (`nxboot: platform=` and `nxboot: fdt ok (` in
+//!   every profile; the kernel's `KSELFTEST: platform from fdt ok` reads the
+//!   copy back; `KSELFTEST: kernel image ok (base=…)` proves the window);
+//!   parser host tests in nexus-fdt
 //! ADR: docs/adr/0066-boot-chain-on-hardware-nxboot-as-fit-payload.md
 
 extern crate alloc;
@@ -86,6 +88,10 @@ pub fn init(dtb: usize) -> Tree {
     let shift = node.prop_u32("reg-shift").unwrap_or(0) as usize;
     let width = node.prop_u32("reg-io-width").unwrap_or(1) as usize;
     arch::set_console(uart.addr as usize, shift, width);
+    // RFC-0098 C8 (TASK-0260B): the loader's first line — the platform the tree names and where
+    // the tree that reached `a1` lies (on the board: where the SPL put it, measurement R1).
+    let platform = fdt.root().ok().and_then(|root| root.compatible().next()).unwrap_or("(none)");
+    arch::uart_puts(&alloc::format!("nxboot: platform={platform} tree=0x{dtb:x} size={total}\n"));
     Tree { fdt, phys: dtb, len: total }
 }
 

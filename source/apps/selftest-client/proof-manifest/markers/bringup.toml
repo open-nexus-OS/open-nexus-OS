@@ -15,6 +15,12 @@
 # TASK-0289 A4: the nxboot first-stage loader precedes the kernel in every
 # boot (ADR-0059). The verify-ok literal is a PREFIX — the build id is
 # launcher-derived (dev-<kernelsha8>) and varies per build.
+# TASK-0260B (RFC-0098 C8): the loader's first line, as soon as it has a console — the platform
+# the tree names and where the tree that reached a1 lies (on the board: where the SPL put it).
+[marker."nxboot: platform="]
+phase = "bringup"
+proves = "nxboot parsed the tree it received in a1 and brought its console up from it; the line names the platform and the tree's address and size"
+
 [marker."nxboot: bsb ok (slot=a"]
 phase = "bringup"
 proves = "loader read a valid BSB double block and selected the factory-active slot (RFC-0089 §6)"

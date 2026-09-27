@@ -102,6 +102,37 @@ fn the_console_is_resolved_through_stdout_path_and_aliases() {
     assert_eq!(uart.interrupts().next(), Some(42));
 }
 
+/// On the board the SPL hands this very tree to the pinned OpenSBI (TASK-0260B), so it carries
+/// what the firmware reads. OpenSBI's ACLINT drivers serve exactly the harts the CLINT's
+/// `interrupts-extended` names — machine software (3) for its IPIs, machine timer (7) for its
+/// timer — and without them its timer serves no hart and it stops before our loader (the first
+/// board attempt). Its console driver matches `spacemit,pxa-uart`. QEMU brings its own tree.
+#[test]
+fn the_board_firmware_finds_every_hart_on_the_clint_and_its_console() {
+    const M_SOFT: u32 = 3;
+    const M_TIMER: u32 = 7;
+    let board = Fdt::new(BOARD).unwrap();
+    let clint = board.find_compatible(&["sifive,clint0"]).next().expect("the clint");
+    let cells = clint.prop("interrupts-extended").expect("the harts it serves");
+    let mut served = std::collections::BTreeMap::<u32, Vec<u32>>::new();
+    for pair in cells.chunks_exact(8) {
+        let intc = u32::from_be_bytes([pair[0], pair[1], pair[2], pair[3]]);
+        let cause = u32::from_be_bytes([pair[4], pair[5], pair[6], pair[7]]);
+        let hart = board
+            .node_by_phandle(intc)
+            .and_then(|n| n.parent())
+            .and_then(|cpu| cpu.prop_cell("reg", 0))
+            .expect("a hart's interrupt controller");
+        served.entry(hart).or_default().push(cause);
+    }
+    let harts: Vec<u32> = served.keys().copied().collect();
+    assert_eq!(harts, (0..board.cpus().unwrap().count() as u32).collect::<Vec<_>>());
+    for (hart, causes) in &served {
+        assert!(causes.contains(&M_SOFT) && causes.contains(&M_TIMER), "hart {hart}: {causes:?}");
+    }
+    assert!(board.stdout().expect("console").is_compatible("spacemit,pxa-uart"));
+}
+
 #[test]
 fn devices_are_found_by_compatible_with_registers_and_interrupt_lines() {
     let virt = Fdt::new(VIRT).unwrap();

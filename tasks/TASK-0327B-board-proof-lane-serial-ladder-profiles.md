@@ -92,6 +92,12 @@ P2 read the eMMC back over adb.
   - **Proof — board:** `just board-log` against the stock system over adb. The lookup lists our
     nine partitions by their GPT names. The disk written in TASK-0260 P2 predates the partition,
     so the exit is 4 with the command that fixes it.
+  - **Proof — on hardware, 2026-09-27 (TASK-0260B P2):** the board's first eMMC boot read back
+    with `just board-log`, with no serial adapter attached.
+    - The first attempts kept no boot, which correctly placed the stop before the loader. It
+      was the firmware: our tree's CLINT.
+    - Once the tree was fixed, the trace held the loader's six lines, from
+      `nxboot: platform=bananapi,bpi-f3 tree=0x268000 …` to `nxboot: jump slot=a base=0x400000`.
   - **Proof — `board-log` against a stand-in stock system** (an `adb` that serves ota-fallback's
     disk as the eMMC, CRLF included):
     - `uart.log` is the disk's latest boot and `trace-all.log` its four boots, both byte for byte;

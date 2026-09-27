@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-27 (TASK-0260B P0–P2: nxboot is the board's FIT payload; the first boot from the eMMC reaches the verified kernel jump)
+
+- The FIT the SPL loads from `uboot`: `config/board/bpi-f3/nexus.its`, built by
+  `scripts/build-fit.sh` and always put into the board image by `just board-image`.
+  - It has the vendor FIT's measured shape: nxboot is the `os = "U-Boot"` standalone payload at
+    `0x0020_0000` that OpenSBI jumps to; our tree sits in the one configuration, which carries
+    the board's name `k1-x_deb1` and is the default.
+  - OpenSBI stays in its own partition.
+- The payload covers nxboot's whole footprint, `.bss` and stack included (416 KiB). The SPL puts
+  the tree right after the payload's bytes and grows it in place (U-Boot v2022.10), and OpenSBI
+  grows it again (v1.3). An unpadded payload would have the tree inside nxboot's `.bss`, zeroed
+  by nxboot's first instructions: a silent reset before any console or trace.
+- The build checks the FIT's shape and that the payload covers the footprint; it records no
+  build time, and two builds give the same bytes.
+- nxboot's first line: `nxboot: platform=<root compatible> tree=0x<a1> size=<bytes>`, as soon as
+  it has a console. It says which tree reached `a1` and where it lies (on the board: where the
+  SPL put it). It is registered in the proof manifest, required in every profile, and the first
+  line of every boot trace. RFC-0098 C8 is amended: the slot is on `nxboot: jump`.
+- ADR-0066 is amended: our FIT is nxboot + our tree, and the payload covers the footprint.
+- **P2 — the first boot from the eMMC** (`docs/board/measurements/2026-09-27-first-emmc-boot/`),
+  read with `just board-log` and no serial adapter:
+  - Attempt A kept no boot, with USB silent throughout. The SPL hands **our** tree to the pinned
+    OpenSBI, and our CLINT did not name the harts it serves. OpenSBI v1.3's timer then serves no
+    hart and stops silently before the next stage ("timer init failed", `sbi_hart_hang`).
+  - The CLINT now names every hart's MSIP (3) and MTIP (7). The UART also carries
+    `spacemit,pxa-uart`, the name the firmware's console matches.
+  - Attempt B: the board boots its eMMC through the vendor SPL and OpenSBI into nxboot. nxboot
+    finds the eMMC, verifies slot A and jumps to the kernel at `0x400000`. The tree reached
+    `a1` at `0x268000`, right after the padded payload, as predicted.
+- The board golden (`nexus-fdt` `tests/goldens/bpi-f3.dtb`) is regenerated.
+  - A host test holds what the firmware reads from the board tree; both mutations are killed.
+  - `just board-goldens` (new, in `just check`) keeps each board tree's golden byte-equal to
+    its `board.dts`; it had never been checked.
+  - `dtc` moves to the core dependencies (`install-deps`, doctor, CI).
+- Proof:
+  - `just check` and `ci-os-smp1` green;
+  - `just test-all` EXIT=0 on the FIT and the platform line (12 QEMU runs, every trace
+    contract green);
+  - two FIT builds byte-identical;
+  - five build mutations refused;
+  - the board boot above.
+
 ### Added - 2026-09-27 (TASK-0327B P0/P1, RFC-0107: the boot trace — the loader's console kept on the boot disk)
 
 - No USB-UART adapter is at the desk, and the board's first boots are the ones that stop early.

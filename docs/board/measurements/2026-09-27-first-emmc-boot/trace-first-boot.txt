@@ -1,0 +1,6 @@
+nxboot: platform=bananapi,bpi-f3 tree=0x268000 size=13376
+nxboot: trace slot=0 seq=1
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-67a4 rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000

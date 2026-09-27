@@ -173,6 +173,12 @@ channel.
 ### Proof (board)
 
 - `just board-log` after an eMMC boot attempt shows how far the boot came.
+  - Done 2026-09-27 (TASK-0260B P2, `docs/board/measurements/2026-09-27-first-emmc-boot/`).
+  - The first attempts kept no boot: the chain stopped before the loader, in the firmware.
+  - Once the board tree was fixed, the trace held the loader's six lines from the board, from
+    `nxboot: platform=bananapi,bpi-f3 tree=0x268000 …` to
+    `nxboot: jump slot=a base=0x400000`.
+  - That was the loader's first proof on hardware, and no serial adapter was attached.
 
 ## Alternatives considered
 

@@ -73,11 +73,13 @@ Vendor pieces: `just board-inputs` (→ `scripts/fetch-board-inputs.sh`) fetches
 
 ## The board's device tree (ours)
 
-`config/board/bpi-f3/board.dts` is the tree our boot chain hands to the kernel (RFC-0098 C1):
-written by hand from the mainline SoC description (GPL-2.0 OR MIT, used under MIT) and the
-measured facts, only the nodes we consume. `dtc -p 512` compiles it with headroom for nxboot's
-`/chosen` writes; the host tests of `source/libs/nexus-fdt` read the compiled golden
-(`tests/goldens/bpi-f3.dtb`) next to QEMU's dumped `virt.dtb`. On every boot the kernel prints
+`config/board/bpi-f3/board.dts` is the tree our boot chain hands to the kernel (RFC-0098 C1). It
+is written by hand from the mainline SoC description (GPL-2.0 OR MIT, used under MIT) and the
+measured facts, and it holds only the nodes we consume, plus what the pinned firmware reads from
+it: the SPL passes the FIT's tree to OpenSBI (TASK-0260B). `dtc -p 512` compiles it with
+headroom for nxboot's `/chosen` writes. The host tests of `source/libs/nexus-fdt` read the
+compiled golden (`tests/goldens/bpi-f3.dtb`) next to QEMU's dumped `virt.dtb`, and `just
+board-goldens` (in `just check`) keeps the golden byte-equal to the source. On every boot the kernel prints
 what it read: `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts=… chosen.slot=…)`.
 
 ## Recipes
@@ -107,7 +109,7 @@ what it read: `KSELFTEST: platform from fdt ok (uart=… plic=… tb=…Hz harts
 - SPL links at `0xc080_1000` (SRAM `0xc080_0000`, 4 KiB header); DDR controller at
   `0xc000_0000`.
 
-## The image for this board (TASK-0260 P1/P2)
+## The image for this board (TASK-0260 P1/P2, TASK-0260B)
 
 The eMMC boots from its boot0 hardware partition: the boot-ROM header at 0 and the SPL at `0x200`.
 The SPL then loads `opensbi` and `uboot` from the user area by name (the vendor's U-Boot source;
@@ -119,14 +121,41 @@ build (`config/board/bpi-f3/image.toml`):
   partitions 1–2 and our volumes from 4 MiB, the backup GPT at the last sector;
 - `nexus.img.boot0` — boot0: the eMMC boot-ROM header (checked as the boot ROM checks it) and the
   SPL at the offset it names;
+- `nexus.itb` — the FIT in `uboot` (`scripts/build-fit.sh`, `config/board/bpi-f3/nexus.its`), the
+  vendor FIT's measured shape:
+  - nxboot from the same OS build as the kernel, as the `os = "U-Boot"` payload at `0x0020_0000`
+    that OpenSBI jumps to;
+  - our device tree, in the one configuration, which carries the board's name `k1-x_deb1` and
+    is the default.
+  - The payload is nxboot padded to its whole footprint, `.bss` and stack included: the SPL puts
+    the tree right after the payload's bytes and grows it there, and so does OpenSBI.
+  - Two builds give the same bytes.
 - `flash/` — the flash plan (`nx image flash-plan`): the raw regions and their digests.
 
-`uboot` holds the loader's FIT once TASK-0260B builds it (`scripts/board-image.sh --fit FILE`).
-Then `just board-flash --plan build/board/bpi-f3/flash` writes it. Each region is declared in
+`just board-flash --plan build/board/bpi-f3/flash` writes the plan. Each region is declared in
 the vehicle as a raw partition and its size read back before it is written, and the board then
 boots its microSD. `just board-flash --verify build/board/bpi-f3/flash` reads every region back
 over adb. Done on the desk board on 2026-09-26: every region was exact, and the stock kernel reads
 our nine partitions without a warning.
+
+## Booting our OS from the eMMC, read without a serial adapter (TASK-0260B, RFC-0107)
+
+The chain: boot ROM → the vendor SPL (DDR training) → the vendor OpenSBI → **nxboot** from the
+FIT in `uboot` → the kernel. The pinned SPL and OpenSBI are the only vendor pieces that run. The
+DIP switches' default boots the microSD first, so a boot of the eMMC goes like this:
+
+1. `just board-image` builds the disk from the last OS build, and `just board-flash --plan
+   build/board/bpi-f3/flash` writes it (hold `FDL` at reset first). The board then boots its
+   stock system from the microSD, where `just board-flash --verify …` reads every region back.
+2. Take the microSD out and reset: the boot ROM finds no card and boots the eMMC. The monitor
+   stays dark (no display yet), and only the power LED is lit.
+3. After a minute, put the microSD back and reset: the stock system boots again.
+4. `just board-log` pulls the eMMC's boot trace over adb. It writes the latest boot as
+   `build/logs/board--<ts>/uart.log`.
+
+First done 2026-09-27 (`docs/board/measurements/2026-09-27-first-emmc-boot/`). nxboot found the
+eMMC, verified slot A and jumped to the kernel. How far the kernel gets shows up in the trace with
+RFC-0107 Phase 2.
 
 ## Measured against the boot ROM (2026-09-21, `just board-flash --stage-only`)
 
@@ -153,3 +182,7 @@ a lane waiting for it must allow that long.
 - `fastboot` sees nothing: the board is in stock mode (`361c:0008`) — hold `FDL` at reset.
 - Permission denied on the port: the serial-group membership is not effective yet — log out and in.
 - The `!` shell of an editor/agent has no TTY for the sudo password (`sudo -v` in a terminal first).
+- Our `board.dts` is also the firmware's tree: the SPL hands the FIT's tree to OpenSBI. So a node
+  OpenSBI reads must be complete. A CLINT without `interrupts-extended` stopped OpenSBI silently
+  before our loader (2026-09-27). `nexus-fdt`'s board-golden test holds what the firmware reads,
+  and `just board-goldens` keeps the golden equal to `board.dts`.

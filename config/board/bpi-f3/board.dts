@@ -261,10 +261,22 @@
 					      <&cpu7_intc 11>, <&cpu7_intc 9>;
 		};
 
-		// M-mode only (OpenSBI's); documented so nobody maps it from S-mode.
+		// M-mode only: S-mode never maps it. The SPL hands this very tree to OpenSBI,
+		// whose ACLINT drivers serve exactly the harts named here (IPI: MSIP 3, timer:
+		// MTIP 7). Without the list its timer serves no hart and it stops before the
+		// next stage (OpenSBI v1.3: fdt_parse_aclint_node, aclint_mtimer_warm_init →
+		// "timer init failed"; TASK-0260B, the first board attempt).
 		clint@e4000000 {
 			compatible = "spacemit,k1-clint", "sifive,clint0";
 			reg = <0x0 0xe4000000 0x0 0x10000>;
+			interrupts-extended = <&cpu0_intc 3>, <&cpu0_intc 7>,
+					      <&cpu1_intc 3>, <&cpu1_intc 7>,
+					      <&cpu2_intc 3>, <&cpu2_intc 7>,
+					      <&cpu3_intc 3>, <&cpu3_intc 7>,
+					      <&cpu4_intc 3>, <&cpu4_intc 7>,
+					      <&cpu5_intc 3>, <&cpu5_intc 7>,
+					      <&cpu6_intc 3>, <&cpu6_intc 7>,
+					      <&cpu7_intc 3>, <&cpu7_intc 7>;
 		};
 
 		// The clock/reset/power syscon windows (mainline names); the providers
@@ -384,9 +396,11 @@
 			};
 		};
 
-		// The debug console: 16550-class registers at a 4-byte stride.
+		// The debug console: 16550-class registers at a 4-byte stride. `spacemit,pxa-uart`
+		// is the name the pinned OpenSBI's console driver matches (its binary's match
+		// strings, TASK-0260B), so the firmware prints on it too.
 		uart0: serial@d4017000 {
-			compatible = "spacemit,k1-uart", "intel,xscale-uart";
+			compatible = "spacemit,k1-uart", "spacemit,pxa-uart", "intel,xscale-uart";
 			reg = <0x0 0xd4017000 0x0 0x100>;
 			reg-shift = <2>;
 			reg-io-width = <4>;

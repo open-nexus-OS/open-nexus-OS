@@ -120,8 +120,9 @@ log "detected distro family: $family (ID=${DISTRO:-unknown})"
 # BOARD (TASK-0327) is what talks to the reference board: `fastboot` speaks the
 # SoC boot ROM's download protocol and U-Boot's flashing mode (the vendor's
 # flasher is a modified fastboot; the plain one works), a serial terminal for
-# the 3-pin debug UART, `mkimage` (FIT images) and `dtc` (the board dts) for
-# Block 1, `sgdisk` to verify the image's GPT, `lsusb` to see the board at all.
+# the 3-pin debug UART, `mkimage` (the board's FIT) for Block 1, `sgdisk` to
+# verify the image's GPT, `lsusb` to see the board at all. (`dtc` is CORE:
+# `just check` compiles every board tree against its golden, TASK-0260B.)
 # Installed by default because a box that cannot reach the board is the
 # exception now, not the rule; --no-board skips it. Like GUI it only warns.
 # The permission half (udev rule + serial group) is scripts/install-board-
@@ -132,7 +133,7 @@ case "$family" in
       ca-certificates curl git
       build-essential pkg-config mold
       python3 python3-venv python3-pip
-      capnproto just ripgrep
+      capnproto just ripgrep device-tree-compiler
       libssl-dev
       "qemu-system-riscv|qemu-system-misc"
       podman uidmap "passt|slirp4netns" fuse-overlayfs
@@ -146,7 +147,7 @@ case "$family" in
     # packages; the android-tools-* names are the older split.
     BOARD=(
       "fastboot|android-tools-fastboot" "adb|android-tools-adb"
-      picocom u-boot-tools device-tree-compiler gdisk usbutils xz-utils
+      picocom u-boot-tools gdisk usbutils xz-utils
     )
     ;;
   fedora)
@@ -154,7 +155,7 @@ case "$family" in
       ca-certificates curl git
       gcc gcc-c++ make binutils "pkgconf-pkg-config|pkgconfig" mold
       python3 python3-pip
-      capnproto just ripgrep
+      capnproto just ripgrep dtc
       openssl-devel
       "qemu-system-riscv-core|qemu-system-riscv"
       podman shadow-utils "passt|slirp4netns" fuse-overlayfs
@@ -163,14 +164,14 @@ case "$family" in
          qemu-device-display-virtio-gpu-gl qemu-device-display-virtio-gpu-pci-gl
          virglrenderer mesa-dri-drivers)
     OPTIONAL=(gdb meson ninja-build "flatbuffers-compiler|flatbuffers-devel")
-    BOARD=(android-tools picocom uboot-tools dtc gdisk usbutils xz)
+    BOARD=(android-tools picocom uboot-tools gdisk usbutils xz)
     ;;
   arch)
     CORE=(
       ca-certificates curl git
       base-devel pkgconf mold
       python python-pip
-      capnproto just ripgrep
+      capnproto just ripgrep dtc
       openssl
       qemu-system-riscv
       podman shadow "passt|slirp4netns" fuse-overlayfs
@@ -179,7 +180,7 @@ case "$family" in
          qemu-hw-display-virtio-gpu-gl qemu-hw-display-virtio-gpu-pci-gl
          virglrenderer mesa)
     OPTIONAL=(gdb meson ninja flatbuffers)
-    BOARD=(android-tools picocom uboot-tools dtc gptfdisk usbutils xz)
+    BOARD=(android-tools picocom uboot-tools gptfdisk usbutils xz)
     ;;
 esac
 

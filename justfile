@@ -595,7 +595,12 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo retired-names ci-parity
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo retired-names ci-parity board-goldens
+
+# TASK-0260B: each board tree's golden (the nexus-fdt/nexus-soc host tests read it) is the tree
+# the board boots — config/board/<board>/board.dts compiled byte for byte.
+board-goldens:
+    @./scripts/check-board-goldens.sh
 
 # TASK-0324 P0: service features/ELF paths have one home (crate manifest + discover-services.sh).
 build-truth:

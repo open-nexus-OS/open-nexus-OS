@@ -34,8 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (capnproto, just)
-        run: sudo apt-get update && sudo apt-get install -y capnproto just
+      # device-tree-compiler: `just board-goldens` compiles each board tree (TASK-0260B).
+      - name: Install system deps (capnproto, just, dtc)
+        run: sudo apt-get update && sudo apt-get install -y capnproto device-tree-compiler just
       # One pinned toolchain (rust-toolchain.toml drives it) so CI clippy/rustfmt
       # match the local `just` recipes and every real build path exactly.
       - name: Install Rust (pinned nightly-2025-01-15)

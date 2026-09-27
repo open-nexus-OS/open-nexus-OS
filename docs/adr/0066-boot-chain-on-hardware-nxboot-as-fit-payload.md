@@ -68,6 +68,30 @@ chainload detour.
   `scripts/board-flash.sh --verify` reads each back.)
 - Out of scope: signed FIT / secure boot (follow-up once the chain runs), SPI-NOR boot, the
   vendor's `env`/`bootfs`/`rootfs` (never written).
+- (Amended 2026-09-27, TASK-0260B P0/P1, measured on the pinned vendor FIT and read in the
+  sources the vendor's SPL and OpenSBI are built from.)
+  - Our FIT holds **nxboot and our tree only**. OpenSBI stays the pinned `fw_dynamic.itb` in
+    its own partition `opensbi`, which the SPL loads separately; the decision's "from OpenSBI +
+    nxboot + our dtb" named the chain, not the FIT.
+  - The FIT has the vendor FIT's shape. nxboot is the `os = "U-Boot"` standalone image at
+    `0x0020_0000` that OpenSBI takes as its next stage. The one configuration carries the name
+    the SPL asks for (`k1-x_deb1`) and is the default.
+  - The payload is nxboot **padded to its whole footprint**, text through `.bss` and its stack.
+    The SPL puts the tree right after the payload's bytes and grows it in place (U-Boot
+    v2022.10 `spl_fit_append_fdt`, `fdt_shrink_to_minimum(…, 8192)`), and OpenSBI grows it
+    again (v1.3 fixups, +1 KiB). An unpadded payload would have them in nxboot's `.bss`,
+    zeroed by its first instructions.
+  - `scripts/build-fit.sh` builds the FIT from the OS build's nxboot. It checks the shape and
+    that the payload covers the footprint, and two builds give the same bytes.
+  - `just board-image` always puts the FIT into `uboot`.
+  - **Measured on the desk board, 2026-09-27 (P2, `docs/board/measurements/2026-09-27-first-emmc-boot/`):**
+    - The chain runs: boot ROM → SPL → OpenSBI → nxboot, which found the eMMC, verified slot A
+      and jumped to the kernel. The board's boot trace kept every loader line (RFC-0107).
+    - The tree reached `a1` at `0x268000`, right after the padded payload.
+    - It first stopped silently in OpenSBI. The SPL hands **our** tree to the pinned OpenSBI,
+      and our CLINT did not name the harts it serves, so OpenSBI's timer served none.
+    - So the board tree carries what the firmware reads, held by a host test on the board
+      golden.
 
 ## Consequences
 

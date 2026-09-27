@@ -1,0 +1,16 @@
+# USB identities (lsusb -d 361c:) during the eMMC boot attempts, scripts: a 0.5 s poll (TASK-0260B P2)
+
+## Attempt A (the first FIT, the tree without the CLINT's interrupts-extended)
+    0.0s usb: ID 361c:0008 <vendor> K1 ADB;
+  532.0s usb: (no 361c device)
+  600.5s TIMEOUT after 600s
+(continued after the watch window)
+    0.0s usb: (no 361c device)
+   84.2s usb: ID 361c:0008 <vendor> K1 ADB;
+   84.5s stock system back on adb — done
+
+## Attempt B (the tree with the CLINT's interrupts-extended)
+    0.0s usb: ID 361c:0008 <vendor> K1 ADB;
+   11.5s usb: (no 361c device)
+  140.0s usb: ID 361c:0008 <vendor> K1 ADB;
+  140.3s stock system back on adb — done

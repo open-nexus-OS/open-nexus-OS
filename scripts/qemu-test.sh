@@ -2919,6 +2919,12 @@ if [[ "${NEXUS_DIRECT_KERNEL:-0}" != "1" ]] && [[ "$(count_lines "nxboot: fdt ok
   echo "[error] nxboot /chosen proof missing: nxboot: fdt ok (" >&2
   exit 1
 fi
+# TASK-0260B (RFC-0098 C8): the loader's first line names the platform and the
+# tree that reached a1 — the rung a board boot is read from first.
+if [[ "${NEXUS_DIRECT_KERNEL:-0}" != "1" ]] && [[ "$(count_lines "nxboot: platform=")" -lt 1 ]]; then
+  echo "[error] nxboot platform proof missing: nxboot: platform=" >&2
+  exit 1
+fi
 
 # TASK-0140: the host CLI against the LIVE-produced disk truth — after the
 # flip lane the commit raised the anti-downgrade floor (1->2) and left the

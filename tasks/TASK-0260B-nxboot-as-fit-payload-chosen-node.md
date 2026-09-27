@@ -1,6 +1,6 @@
 ---
 title: TASK-0260B nxboot is the FIT payload on the board — `/chosen/nexus,*` written by nxboot, fw_cfg read only there, one image for QEMU and the board
-status: Draft (seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0260)
+status: In Progress (P0 recut, P1 the FIT and P2 the first eMMC boot ✅ 2026-09-27 — boot ROM → SPL → OpenSBI → nxboot → the verified kernel jump, read from the board's boot trace; the board tree carries what the firmware reads; next P3 the kernel's side, read with RFC-0107 Phase 2; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0260)
 owner: @reliability @runtime
 created: 2026-09-22
 depends-on:
@@ -18,6 +18,99 @@ links:
   - Playbook: CLAUDE.md
 ---
 
+## RECUT 2026-09-27 — P0: the FIT measured, the payload's footprint, the first board attempt read from the trace
+
+Measured before building (the pinned vendor FIT, `dumpimage -l`/`fdtget`, and nxboot's own link):
+
+- The vendor FIT holds U-Boot and one tree per board variant. OpenSBI is not in it: the SPL
+  loads OpenSBI from its own partition, `opensbi`. So our FIT holds **nxboot + our tree**, and
+  OpenSBI stays the pinned `fw_dynamic.itb` (the earlier "OpenSBI + nxboot + dtb" is corrected
+  here and in ADR-0066).
+- The payload's shape: root `#address-cells = <2>`; the image `type = "standalone"`,
+  `os = "U-Boot"`, `arch = "riscv"`, `compression = "none"`, `load = <0 0x200000>`, a crc32 hash
+  (OpenSBI's next stage is the image with `os = "U-Boot"`). The configurations:
+  `default = "conf_1"`, each `{description = "<board name>", loadables, fdt}`, and the SPL picks
+  one by the board's name (`k1-x_deb1`). Our one configuration carries that name and is the
+  default, so both paths take it.
+- **The payload must cover its whole footprint.** The SPL places the tree right after the
+  payload's bytes and then grows it in place. In U-Boot v2022.10 (the vendor's base),
+  `common/spl/spl_fit.c` sets `image_info.load_addr = spl_image->load_addr + spl_image->size`
+  and then calls `fdt_shrink_to_minimum(fdt, 8192)`. OpenSBI grows it again in place: in v1.3,
+  `lib/utils/fdt/fdt_fixup.c` calls `fdt_open_into(fdt, fdt, fdt_totalsize(fdt) + 1024)` for its
+  reserved memory, and +1024/+32 for the other fixups.
+  - nxboot's `.bss` is `NOLOAD`: its heap (192 KiB), the trace's capture buffer (64 KiB) and its
+    stack (16 KiB). A flat image ends at `__load_end` (130 KiB).
+  - So the tree would sit inside `.bss`, zeroed by nxboot's first instructions, and the loader
+    would reset before it has a console or a disk.
+  - So the FIT's payload is nxboot's flat image padded to `__image_end` (416 KiB), its whole
+    footprint, read from the ELF's own symbols.
+- nxboot needs no platform split: it reads fw_cfg only when the tree lists a
+  `qemu,fw-cfg-mmio` node (TASK-0245), and everything else already comes from the tree.
+- The eMMC's boot configuration needs no change. Measured from the stock system (debugfs
+  `ext_csd`): `PARTITION_CONFIG` [179] = `0x00` (BOOT_PARTITION_ENABLE 0), `BOOT_SIZE_MULT` 32
+  (4 MiB), `BOOT_INFO` `0x07`.
+  - That is the state the vendor's own eMMC flow leaves: `clear_emmc()` in its fastboot code
+    sets `mmc_set_part_conf(mmc, 0, 0, 1)`, and nothing after it enables a boot partition.
+  - So the boot ROM reads boot0 by partition access, not by the eMMC's boot operation.
+
+### Packages
+
+- **P1 — the FIT ✅ 2026-09-27.**
+  - `config/board/bpi-f3/nexus.its` (the measured shape, one configuration named `k1-x_deb1`).
+  - `scripts/build-fit.sh`:
+    - nxboot from the last OS build, padded to its footprint;
+    - the tree from `scripts/build-board-dtb.sh`;
+    - `mkimage` with no build time recorded (`SOURCE_DATE_EPOCH=0`);
+    - the shape checked with `dumpimage`, the size against the partition.
+  - `just board-image` always builds the FIT and puts it into `uboot`.
+  - nxboot's first line, `nxboot: platform=<root compatible> tree=0x<a1> size=<bytes>`, printed as
+    soon as it has a console. It records which tree reached `a1` and where it lies (R1): on the
+    board, where the SPL put it.
+    - It is the first line in the trace, like every loader line.
+    - It replaces RFC-0098 C8's planned `platform=<compatible> slot=<s>`: the slot is known only
+      after the boot-selection block and is already on `nxboot: jump slot=<s>`, and the hart is
+      always 0 once nxboot has moved itself there.
+  - The build checks that the FIT's payload covers the footprint.
+  - Proof:
+    - two builds byte-identical (`c820eefe…`);
+    - five mutations each refused by the build: the load address, no padding, the default
+      configuration, a FIT larger than its partition, no nxboot;
+    - the harness's new requirement run standalone: PASS, FAIL, SKIP;
+    - `just check`, `ci-os-smp1` and `just test-all` EXIT=0 (12 QEMU runs, every trace contract
+      with the platform line first).
+- **P2 — the first eMMC boot ✅ 2026-09-27** (`docs/board/measurements/2026-09-27-first-emmc-boot/`).
+  Each attempt:
+  1. flash (FDL) and read back exactly;
+  2. a baseline `just board-log`: the trace is empty;
+  3. the microSD out, reset: the boot ROM boots the eMMC;
+  4. the microSD in, reset;
+  5. `just board-log`.
+  - **Attempt A:** no boot kept, USB silent throughout (no fallback to the boot ROM's or the
+    SPL's download mode), only the power LED.
+    - Measured without changing anything:
+      - the eMMC boot config is the vendor flow's own;
+      - the SPL takes our FIT (its strings);
+      - the pinned OpenSBI's K1 code reads nothing from the tree and it never reads
+        `riscv,isa`.
+    - **But OpenSBI runs on our tree, and our CLINT had no `interrupts-extended`.** OpenSBI
+      v1.3's ACLINT timer then serves no hart, `init_coldboot` prints "timer init failed" and
+      calls `sbi_hart_hang()`: a silent stop before our loader.
+    - The fix: the CLINT names every hart's MSIP (3) and MTIP (7), and the UART also carries
+      `spacemit,pxa-uart`, the name the firmware's console matches.
+    - Held by a host test on the board golden (both mutations killed). `just board-goldens` in
+      `just check` keeps that golden byte-equal to `board.dts`: it was never checked before,
+      and `dtc` is now a core dependency and in CI.
+  - **Attempt B, with the fixed tree:** the loader's six lines from the board.
+    - The platform, and the tree at `0x268000`: R1 measured, right after the padded payload,
+      where an unpadded one would have put it inside `.bss`.
+    - The eMMC found through `mmc@d4281000`.
+    - The boot selection block, verify ok, `/chosen`.
+    - The jump to the verified kernel at `0x400000`.
+    - One boot kept, so no reset loop.
+- **P3 — the kernel on the board.** Read with RFC-0107 Phase 2 (TASK-0327B P2, the kernel's
+  console ring and the OS writer): how far the kernel comes, then what stops it. Done when the
+  board's trace reaches `init: ready`, with this ledger's Definition of Done.
+
 ## Context (measured 2026-09-22)
 
 The SPL loads two FITs from the `opensbi` (1 MiB) and `uboot` (2 MiB) partitions; OpenSBI
@@ -31,8 +124,9 @@ The FIT goes into the head partition the SPL knows as `uboot` (2 MiB at 2 MiB; p
 TASK-0260 P2): the SPL loads it by that name (`CONFIG_SYS_LOAD_IMAGE_SEC_PARTITION_NAME`, the vendor's
 defconfig), whatever the slot holds. The SPL picks a FIT configuration by name (`Boot from fit
 configuration %s`) — which name it asks for, and so which configuration our single-config FIT must
-answer (or its default), is measured with the first boot (TASK-0260 P3). `scripts/board-image.sh
---fit FILE` puts the FIT into the board image; `just board-flash --plan` writes it.
+answer (or its default), is measured with the first boot (TASK-0260 P3). (Since P1, `just
+board-image` always builds the FIT and puts it into the board image; `just board-flash --plan`
+writes it.)
 
 ## Goal
 

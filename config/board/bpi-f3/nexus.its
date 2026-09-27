@@ -1,0 +1,61 @@
+/*
+ * Copyright 2026 Open Nexus OS Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * CONTEXT: the FIT the board's SPL loads from the `uboot` partition (ADR-0066,
+ * TASK-0260B): nxboot as the payload OpenSBI jumps to, and our device tree. The
+ * shape is the vendor FIT's, measured (`dumpimage -l` on the pinned u-boot.itb,
+ * resources/board/bpi-f3/PROVENANCE.md): the payload is an `os = "U-Boot"`
+ * standalone image at 0x0020_0000 — the image OpenSBI's next stage is taken
+ * from — and the SPL picks a configuration by the board's name (`k1-x_deb1`),
+ * else the default; ours has one, answering both. OpenSBI is not in here: the
+ * SPL loads it from its own partition (`opensbi`).
+ *
+ * `nxboot.img` is nxboot's flat image padded to its whole memory footprint
+ * (text through .bss and its stack): the SPL puts the tree right after the
+ * payload's bytes, and an unpadded payload would put it inside nxboot's .bss.
+ * scripts/build-fit.sh stages both files next to a copy of this source.
+ */
+
+/dts-v1/;
+
+/ {
+	description = "Open Nexus OS: nxboot + the board's device tree";
+	#address-cells = <2>;
+
+	images {
+		nxboot {
+			description = "nxboot";
+			type = "standalone";
+			os = "U-Boot";
+			arch = "riscv";
+			compression = "none";
+			load = <0x0 0x00200000>;
+			entry = <0x0 0x00200000>;
+			data = /incbin/("nxboot.img");
+			hash-1 {
+				algo = "crc32";
+			};
+		};
+
+		fdt-1 {
+			description = "k1-x_deb1";
+			type = "flat_dt";
+			compression = "none";
+			data = /incbin/("board.dtb");
+			hash-1 {
+				algo = "crc32";
+			};
+		};
+	};
+
+	configurations {
+		default = "conf-1";
+
+		conf-1 {
+			description = "k1-x_deb1";
+			loadables = "nxboot";
+			fdt = "fdt-1";
+		};
+	};
+};

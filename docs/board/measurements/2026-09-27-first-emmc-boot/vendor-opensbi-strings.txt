@@ -1,0 +1,54 @@
+# The pinned OpenSBI (fw_dynamic.itb, image 0): the strings it matches, and the tree
+# properties it reads — extracted from its binary (TASK-0260B P2)
+
+## vendor,name strings
+allwinner,sun20i-d1-wdt-reset
+andestech,nceplic100
+linux,phandle
+opensbi,domain,config
+opensbi,domain,instance
+opensbi,domain,memregion
+riscv,aclint-mswi
+riscv,aplic
+riscv,children
+riscv,clint0
+riscv,delegate
+riscv,event-to-mhpmcounters
+riscv,event-to-mhpmevent
+riscv,group-index-bits
+riscv,group-index-shift
+riscv,guest-index-bits
+riscv,hart-index-bits
+riscv,idle-state
+riscv,imsics
+riscv,ndev
+riscv,num-ids
+riscv,num-sources
+riscv,plic0
+riscv,pmu
+riscv,raw-event-to-mhpmcounters
+riscv,sbi-suspend-param
+sifive,clint0
+sifive,plic-1.0.0
+sifive,test1
+snps,dw-apb-uart
+spacemit,k1
+spacemit,k1-pro
+spacemit,k1-x
+spacemit,k1x
+spacemit,pxa-uart
+thead,c900-clint
+thead,c900-plic
+thead,reset-sample
+ucb,htif0
+
+## tree property names present / absent
+timebase-frequency     present
+interrupts-extended    present
+stdout-path            present
+reg-shift              present
+reg-io-width           present
+clock-frequency        present
+mmu-type               present
+riscv,isa              absent
+riscv,isa-extensions   absent

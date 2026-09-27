@@ -26,7 +26,11 @@
 - **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: 🟨 — TASK-0245 ✅ 2026-09-22 (QEMU: every profile prints the platform, image and discovery markers; the board's serial proof arrives with TASK-0327B once B1.6 boots it); TASK-0245B (SoC clocks/resets/pinmux/power) open
 - **Phase 2 (physical memory from the FDT, page-frame allocator)**: ✅ 2026-09-24 — TASK-0286 (M1): high half + direct map, frame pool, page-backed VMOs, `vmo_runs`, coherence in the device capability, user Zicbom, `DmaBuffer`, `mm_stats` (QEMU: every profile; the board's serial proof arrives with TASK-0327B once B1.6 boots it)
 - **Phase 3 (one block owner, SDHCI, nxboot reader)**: 🟨 — TASK-0246 P0 (measured) + P1 (a device's DMA reach in its capability; allocation within reach; `vmo_runs` in bus addresses) ✅ 2026-09-24; P2 (the SDHCI core, host-proven) ✅ 2026-09-25; P3 (the PCI ECAM device source) ✅ 2026-09-25; P4–P6 and TASK-0246B open
-- **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: ⬜ — TASK-0260, 0260B
+- **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: 🟨 — TASK-0260 P0–P2 ✅
+  2026-09-26 (our disk on the eMMC, written and read back exactly); TASK-0260B P0–P2 ✅
+  2026-09-27 (the FIT; the board boots its eMMC through the vendor SPL and OpenSBI into nxboot,
+  which verifies slot A and jumps to the kernel — read from the board's boot trace, RFC-0107);
+  the kernel's side with TASK-0327B P2 (the OS trace)
 - **Phase 5 (display controller scanout, mode authority = gpud)**: ⬜ — TASK-0250, 0251
 
 Definition: "Complete" = every phase's proof gates are green on QEMU **and** on the board
@@ -405,6 +409,25 @@ area in chunks, the backup GPT, boot0 — as a raw partition in the vehicle's en
 block addresses; its JSON regions compute offsets in 32 bits), writes it, and reads it back from
 the stock system: done on the desk board, every region exact.
 
+**Amended 2026-09-27 (TASK-0260B P0–P2, measured on the desk board —
+`docs/board/measurements/2026-09-27-first-emmc-boot/`):**
+
+- **The FIT holds nxboot and our tree only.** OpenSBI stays in `opensbi`; the "OpenSBI +
+  nxboot + our dtb" above named the chain.
+- **The payload is nxboot padded to its whole footprint.** The SPL places the tree right after
+  the payload's bytes and grows it there, and so does OpenSBI. Measured: the tree reached `a1`
+  at `0x268000` = `0x200000` + nxboot's 416 KiB footprint.
+- **The board tree is also the firmware's tree.** The SPL hands it to the pinned OpenSBI, so
+  it carries what that firmware reads:
+  - the CLINT names every hart's machine software and timer interrupt. Without that list,
+    OpenSBI's timer serves no hart and it stops silently before nxboot: the first attempt.
+  - the console carries the compatible the firmware's driver matches.
+  A host test on the board golden holds both, and `just board-goldens` keeps the golden
+  byte-equal to `board.dts`.
+- **Measured:** boot ROM → SPL → OpenSBI → nxboot, which found the eMMC, verified slot A and
+  jumped to the kernel. The board's boot trace kept every line
+  (`nxboot: platform=bananapi,bpi-f3 tree=0x268000 …` → `nxboot: jump slot=a base=0x400000`).
+
 ### C7 — Display mode (Phase 5)
 
 gpud is the authority: on the board it reads EDID over the HDMI encoder's DDC and picks the
@@ -424,7 +447,7 @@ and the fw_cfg key are deleted; RFC-0074's authority statement is amended to poi
 | `SELFTEST: dma buffer ok (device=… block=… runs=…)` | the device capability carries its coherence; user-mode Zicbom runs through a `DmaBuffer` with every byte intact | 2 |
 | `init: devices from pci ok (hosts=… functions=… sd=…)` | every ECAM host of the tree planned by the shared planner; the SD host's BAR decodes where it was placed | 3 |
 | `blkd: backend=<compatible> …` | the block owner bound the FDT-selected device | 3 |
-| `nxboot: platform=<compatible> slot=<a\|b>` | nxboot ran as the FIT payload on the board | 4 |
+| `nxboot: platform=<root compatible> tree=0x<a1> size=<bytes>` | nxboot ran — on the board as the FIT payload — and parsed the tree that reached `a1`; the line says where that tree lies (R1). The loader's first line, as soon as it has a console, so it is also the first line of the boot trace (RFC-0107). (Amended 2026-09-27, TASK-0260B: the slot, first planned on this line, is only known after the BSB and is on `nxboot: jump slot=<s>`.) | 4 |
 | `gpud: dc scanout ok (WxH@Hz edid)` + `windowd: desktop revealed` | the first picture | 5 |
 
 Gate scripts: `scripts/check-no-platform-literals.sh` (Phase 1), `scripts/check-no-fixed-windows.sh`
