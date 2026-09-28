@@ -15,7 +15,9 @@
 //! API_STABILITY: Internal (the record is RFC-0107's contract)
 //! TEST_COVERAGE: unit tests below
 
-use super::{slot_lba, Header, TraceError, OS_AT, OS_OVERFLOW, OS_REGION, SECTOR, SLOTS};
+use super::{
+    slot_lba, Header, TraceError, OS_AT, OS_OVERFLOW, OS_REGION, OS_RESCUED, SECTOR, SLOTS,
+};
 use crate::gpt::Partition;
 use crate::BlockDevice;
 
@@ -77,10 +79,32 @@ impl OsTrace {
         text: &[u8],
         lost: bool,
     ) -> Result<usize, TraceError> {
+        self.append_flagged(dev, text, lost, 0)
+    }
+
+    /// The next boot's loader appends what it found of this boot's ring in RAM — the tail the
+    /// block owner never wrote, or all of it (RFC-0107 Phase 3): the record says so.
+    pub fn rescue<D: BlockDevice>(
+        &mut self,
+        dev: &mut D,
+        text: &[u8],
+        lost: bool,
+    ) -> Result<usize, TraceError> {
+        self.append_flagged(dev, text, lost, OS_RESCUED)
+    }
+
+    fn append_flagged<D: BlockDevice>(
+        &mut self,
+        dev: &mut D,
+        text: &[u8],
+        lost: bool,
+        extra: u32,
+    ) -> Result<usize, TraceError> {
         let io = |_| TraceError::Io;
         let used = self.len();
         let n = text.len().min(OS_REGION - used);
         let mut header = self.header;
+        header.flags |= extra;
         if lost || n < text.len() {
             header.flags |= OS_OVERFLOW;
         }
@@ -155,6 +179,36 @@ mod tests {
         assert_eq!(got.loader, b"nxboot: jump slot=a\n", "the loader's region as it was");
         assert_eq!(got.os, text);
         assert_eq!(got.header.flags, LOADER_COMPLETE, "the loader's flags kept, no OS flag");
+    }
+
+    #[test]
+    fn the_next_loader_rescues_the_tail_the_block_owner_never_wrote() {
+        let mut dev = disk();
+        let (lba, seq) = booted(&mut dev, b"nxboot: jump slot=a\n");
+        let text = stream(2000);
+        let part = part_of(&dev);
+        let mut os = OsTrace::open(&dev, &part, lba, seq).expect("this boot");
+        os.append(&mut dev, &text[..700], false).expect("what the owner kept");
+        // The next boot: its loader names the previous slot and finds the ring's rest.
+        let next = LoaderTrace::open(&dev).expect("next boot");
+        assert_eq!(next.previous(), Some((lba, seq)));
+        let mut prev = OsTrace::open(&dev, next.partition(), lba, seq).expect("previous boot");
+        assert_eq!(prev.len(), 700, "the loader continues where the owner stopped");
+        assert_eq!(prev.rescue(&mut dev, &text[700..], false), Ok(1300));
+        let got = records(&dev, &part).expect("records");
+        let rec = got.iter().find(|r| r.header.seq == seq).expect("the previous boot");
+        assert_eq!(rec.os, text);
+        assert_eq!(rec.header.flags & (OS_RESCUED | OS_OVERFLOW), OS_RESCUED);
+        // A gap the ring had already overwritten is flagged too.
+        let mut prev = OsTrace::open(&dev, &part, lba, seq).expect("again");
+        prev.rescue(&mut dev, b"late\n", true).expect("gap");
+        let got = records(&dev, &part).expect("records");
+        let rec = got.iter().find(|r| r.header.seq == seq).expect("the previous boot");
+        assert_eq!(rec.header.flags & OS_OVERFLOW, OS_OVERFLOW);
+        // The first boot has no previous one.
+        let mut fresh = disk();
+        assert_eq!(LoaderTrace::open(&fresh).expect("first").previous(), None);
+        let _ = booted(&mut fresh, b"x\n");
     }
 
     #[test]

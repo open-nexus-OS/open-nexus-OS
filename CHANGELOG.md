@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-28 (TASK-0327B P3, RFC-0107 Phase 3: a boot's console ring rescued from RAM by the next loader)
+
+- The first eMMC boot with the OS trace kept the loader's six lines and no OS text: the kernel
+  started and nothing reached the block owner's writer. The stock system's kernel forbids RAM
+  reads, so the only reader that runs before the next kernel is the loader — the rescue is the
+  DRAM measurement.
+- The kernel stamps its console ring with the boot's trace sequence number
+  (`/chosen/nexus,trace`; `nexus-console-ring` header offset 24). Before nxboot loads its image
+  over the kernel window, it scans the window's page starts for the previous boot's ring
+  (`find`), opens that boot's slot and appends what the ring holds past the OS text already
+  kept (`OsTrace::rescue`, flag `OS_RESCUED`): `nxboot: rescue ok (seq=<n> bytes=<b> lost=<l>)`,
+  or `rescue none (first boot | no ring of seq=<n> in ram | slot of seq=<n> not its record)`.
+  The reset lane requires both rescues; `nx image trace --json` shows `os_rescued` and
+  `just board-log` says so.
+- `nx image flash-plan` records the trace partition and `board-flash.sh --verify` reads it as
+  zero: every boot writes it, and a verify after a boot wrongly failed `nxdisk1`.
+- Proof, host: `nexus-console-ring` 6 tests (`find_ring`/`find`, `Reader::from`, a lapped ring's gap, another boot's, an unstamped and a missing ring); `storage` trace 11 (the rescue of the tail the owner never wrote, a flagged gap, no previous boot on the first); `nx` image_flash_cli 3 (the plan's trace entry) + image_trace_cli 4; nxboot cross-build and `build-os-workspace` with 0 warnings.
+- Proof, mutations: 7 host mutations each killed — `find` ignoring the stamp, accepting seq 0 (found survivable, a test added), scanning every byte, `Reader::from` at 0, a rescue that does not mark, `previous()` naming the wrong slot.
+- Proof, QEMU: `ci-os-reset`: boot 2 `nxboot: rescue ok (seq=1 bytes=643 lost=0)`, boot 3 `rescue ok (seq=2 bytes=245 lost=0)`, the OS contract byte-equal with the rescued tails (116 828 bytes of 3 boots); `ci-os-smp1`: `rescue none (first boot)`. `just test-all`: EXIT=0 in 54 min — 12 QEMU runs, every loader and OS trace contract green, 21 boots, 929 531 bytes of kernel console text byte-equal to the UART, 9 rescues across the reset and OTA lanes (the reset lane's 643 and 245 bytes the same as in the single run; ota-fallback's two early-dead trial kernels rescued whole, 5944 bytes each, and their text byte-equal too); 3617 host tests; 0 errors..
+- Proof, board: three flash cycles on the desk board, each read back exact — with `--verify` reading the trace partition as zero after boots (the fix proven) — and read with `just board-log` without a serial adapter: the first cycle's loader could not tell a scrubbed DRAM from an early-dead kernel (`no ring of seq=N in ram`), the second reported `no ring in ram` for stamped and unstamped rings alike, and the third, with the loader's own probe page, `dram probe lost` on every reset — the board's reset path scrubs DRAM (`docs/board/measurements/2026-09-28-dram-retention/`). Every board boot's loader ran to the verified jump; none kept OS text.
+
 ### Added - 2026-09-28 (TASK-0327B P2, RFC-0107 Phase 2: the kernel console in the boot trace)
 
 - The kernel keeps every byte it sends to the console in a fixed static ring of whole pages

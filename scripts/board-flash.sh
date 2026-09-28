@@ -89,11 +89,25 @@ if [ -n "$VERIFY" ]; then
   sectors="$(timeout 10 adb shell cat /sys/block/mmcblk2/size | tr -d '\r')"
   want="$(plan_field "$VERIFY" disk_sectors)"
   [ "$sectors" = "$want" ] || { err "the eMMC has $sectors sectors, the plan was built for $want"; exit 2; }
+  # RFC-0107: the trace partition is written by every boot, so it is read as zero — the plan's
+  # regions carry it zero (an older plan without the field: nothing is skipped).
+  trace_start="$(python3 -c 'import json,sys; t=json.load(open(sys.argv[1])).get("trace"); print(t["start_lba"] if t else "")' "$VERIFY/plan.json")"
+  trace_count="$(python3 -c 'import json,sys; t=json.load(open(sys.argv[1])).get("trace"); print(t["sectors"] if t else "")' "$VERIFY/plan.json")"
   bad=0
   while read -r name hwpart start count _file sha; do
     dev="$STOCK_EMMC"; [ "$hwpart" = 1 ] && dev="${STOCK_EMMC}boot0"
+    # The region's bytes, with the trace partition's span (if it lies in this region of the
+    # user area) replaced by zeros — three reads piped into one digest.
+    rd="dd if=$dev bs=1M iflag=skip_bytes,count_bytes"
+    cmd="$rd skip=$((start * 512)) count=$((count * 512))"
+    if [ "$hwpart" = 0 ] && [ -n "$trace_start" ]; then
+      o0=$(( start > trace_start ? start : trace_start )); o1=$(( start + count < trace_start + trace_count ? start + count : trace_start + trace_count ))
+      if [ "$o1" -gt "$o0" ]; then
+        cmd="{ $rd skip=$((start * 512)) count=$(((o0 - start) * 512)); dd if=/dev/zero bs=512 count=$((o1 - o0)); $rd skip=$((o1 * 512)) count=$(((start + count - o1) * 512)); }"
+      fi
+    fi
     # stdin from /dev/null: `adb shell` reads it, and would swallow the rest of the regions.
-    got="$(timeout 300 adb shell "dd if=$dev bs=1M iflag=skip_bytes,count_bytes skip=$((start * 512)) count=$((count * 512)) 2>/dev/null | sha256sum" </dev/null | cut -c1-64)"
+    got="$(timeout 300 adb shell "$cmd 2>/dev/null | sha256sum" </dev/null | cut -c1-64)"
     if [ "$got" = "$sha" ]; then
       log "read back $name ($dev @ $start, $count sectors): sha256 matches"
     else

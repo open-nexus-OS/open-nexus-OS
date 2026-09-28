@@ -2370,7 +2370,9 @@ if [[ "${REQUIRE_RESET_PROOF:-0}" == "1" ]]; then
     "SELFTEST: recovery fsck ok" \
     "bootctld: commit blocked (target=recovery)" \
     "SELFTEST: recovery slot ok" \
-    "SELFTEST: recovery ops deny ok"; do
+    "SELFTEST: recovery ops deny ok" \
+    "nxboot: rescue ok (seq=1 " \
+    "nxboot: rescue ok (seq=2 "; do
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
       echo "[error] reset lane: cycle chain marker missing" >&2

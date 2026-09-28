@@ -101,6 +101,8 @@ def region(name):
     state = "complete" if b[f"{name}_complete"] else "INCOMPLETE"
     if b[f"{name}_overflow"]:
         state += ", overflowed"
+    if b.get(f"{name}_rescued"):
+        state += ", rescued from RAM by the next loader"
     return f"{b[f'{name}_bytes']} bytes ({state})"
 print(f"[board-log] {data['kept']} boot(s) kept; the latest: seq {b['seq']} (slot {b['slot']})")
 print(f"[board-log]   loader: {region('loader')}")

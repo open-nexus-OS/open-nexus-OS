@@ -109,6 +109,11 @@ fn the_regions_rebuild_the_disk_exactly() {
     let text = std::fs::read_to_string(dir.path().join("flash/plan.json")).expect("plan.json");
     let plan: serde_json::Value = serde_json::from_str(&text).expect("json");
     assert_eq!(plan["disk_sectors"], BOARD_SECTORS);
+    assert_eq!(
+        plan["trace"]["sectors"], 16384,
+        "the trace partition, for --verify to read as zero"
+    );
+    assert!(plan["trace"]["start_lba"].as_u64().unwrap() > 0);
     let regions = plan["regions"].as_array().expect("regions");
     let field = |r: &serde_json::Value, k: &str| r[k].as_u64().expect(k);
     // The user area: chunks from sector 0, back to back, to the end of the last partition.

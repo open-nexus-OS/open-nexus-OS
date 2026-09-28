@@ -144,6 +144,12 @@ pub fn report() {
             // C2 round trip end to end. `-` = the property is absent.
             let chosen = fdt.chosen().ok();
             let nexus = |k: &str| chosen.and_then(|c| c.nexus_str(k)).unwrap_or("-");
+            // RFC-0107 Phase 3: the console ring carries the boot's trace sequence number
+            // (`/chosen/nexus,trace` = "<lba> <seq>"), so the next loader can find this
+            // boot's ring in RAM and keep what the block owner never wrote.
+            if let Some(seq) = nexus("trace").split(' ').nth(1).and_then(|s| s.parse().ok()) {
+                crate::hal::console_ring::stamp(seq);
+            }
             log_info!(target: "selftest",
                 "KSELFTEST: platform from fdt ok (uart=0x{:x} plic=0x{:x} ndev={} tb={}Hz harts={} banks={} boot_hart={} timer={} ticks_per_us={} chosen.slot={} chosen.profile={} chosen.display={})",
                 uart, plic, crate::hal::platform::plic_ndev(), cpus.timebase_hz,

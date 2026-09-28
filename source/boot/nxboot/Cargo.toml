@@ -16,6 +16,8 @@ bootfmt = { path = "../../../userspace/bootfmt", default-features = false }
 # Shared GPT walk + partition GUID table (RFC-0089 §2: ONE authority for
 # nx image, blkd and nxboot) — no_std, bounded-arena alloc.
 storage = { path = "../../../userspace/storage", default-features = false }
+# RFC-0107 Phase 3: the previous boot's console ring, found in RAM by its layout.
+nexus-console-ring = { path = "../../libs/nexus-console-ring" }
 sha2 = { version = "0.10", default-features = false }
 # RFC-0098 C2: nxboot owns /chosen/nexus,* — the tree reader/writer (TASK-0244 P3).
 nexus-fdt = { path = "../../libs/nexus-fdt" }

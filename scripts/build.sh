@@ -427,6 +427,31 @@ build_kernel_and_init() {
   # TASK-0289 A4: first-stage loader (verifies the slot before any OS code
   # runs; its linker script hard-asserts the 256 KiB budget, ADR-0059).
   require_or_build "$NXBOOT_ELF" "boot:nxboot" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p nxboot --target "$TARGET" --release
+  # The flat kernel image is an artifact of THIS build, not of the next QEMU
+  # lane: `nx image` (the board's disk included) reads it, and until TASK-0327B
+  # P3 only the launcher objcopied it, at a lane's start — so a board image
+  # built right after the OS build carried the previous lane's kernel.
+  flatten_kernel
+}
+
+# ELF → flat binary with the toolchain's llvm-objcopy (the launcher keeps the
+# same step as a freshness guard: it is a no-op once this ran).
+flatten_kernel() {
+  if [[ "$NEXUS_SKIP_BUILD" == "1" && -f "$KERNEL_BIN" ]]; then
+    return 0
+  fi
+  local objcopy="" candidate
+  for candidate in \
+    "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/llvm-objcopy \
+    "$HOME"/.rustup/toolchains/*/bin/llvm-objcopy
+  do
+    if [[ -x "$candidate" ]]; then objcopy="$candidate"; break; fi
+  done
+  if [[ -z "$objcopy" ]]; then
+    echo "[error] build.sh: llvm-objcopy not found (rustup component add llvm-tools-preview)" >&2
+    exit 1
+  fi
+  "$objcopy" -O binary "$KERNEL_ELF" "$KERNEL_BIN"
 }
 
 # ---------------------------------------------------------------------------

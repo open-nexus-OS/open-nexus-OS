@@ -1,6 +1,6 @@
 ---
 title: TASK-0327B Board proof lane: the marker ladder from the boot trace on the disk (RFC-0107) or the debug UART, `board-*` profiles, opt-in in `test-all`
-status: In Progress (P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace: the kernel's console ring kept by the block owner, byte-equal to the UART in every lane; next the board attempt that reads how far the kernel comes; seeded 2026-09-21 at Block 0 P0)
+status: In Progress (P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace; P3 done 2026-09-28 — the RAM rescue, proven on QEMU, and the board measured: its reset scrubs DRAM, so the board's early kernel needs the UART (P4's serial ladder) or a LED ladder; seeded 2026-09-21 at Block 0 P0)
 owner: @devx @runtime
 created: 2026-09-21
 depends-on:
@@ -135,7 +135,39 @@ P2 read the eMMC back over adb.
   - **Proof — host:** `nexus-console-ring` 4 tests (every byte once across the wrap; bytes lost before a read counted; a prefix overwritten during the copy dropped; another ring's header refused); `storage` trace 10 (the loader's 6, the OS writer's 4: sectors + a reopen, other boots' slots and a stray record, text past the region and text the ring lost, a torn append); `nexus-service-topology` 12 (blkd the one ring reader); `nx` image_trace_cli 4 (`--seq`, `--os`). Kernel cross-build and `build-os-workspace` with 0 warnings.
   - **Proof — QEMU:** `ci-os-smp1`: `init: console ring grant ok svc=blkd`, `blkd: trace os ok (slot=0 seq=1)`, `[PASS] trace contract (os): 64485 bytes … byte-equal to the UART` (through `stage: platform` to the UI selftests). `just test-all`: EXIT=0 in 52 min — 12 QEMU runs, every loader AND OS trace contract green, 21 boots kept, 912 240 bytes of kernel console text byte-equal to the UART (the reset lane's 3 boots, ota-fallback's 4 with its two trial boots that stop before the block owner and keep none); 3614 host tests; 0 errors..
   - **Proof — mutations:** 8 host mutations each killed — the reader's lost count, its during-copy skip, its version check; the writer's LBA check, its seq/slot check, its overflow flag, its region bound; a second ring reader. The harness OS contract against the smp1 lane's disk and log: PASS; a flipped byte → refused at byte 100 with both texts; an emptied OS region → "keeps no OS text"; a region cut before `stage: platform` → refused.
-- **P3 — the RAM rescue**, only if the board keeps DRAM across a reset (measured first).
+- **P3 — the RAM rescue** (2026-09-28; recut: the rescue IS the measurement — the stock
+  system's kernel forbids RAM reads, so the only reader that runs before the next kernel is the
+  loader). Trigger: the first P2 board boot kept the loader's six lines and NO OS text — the
+  kernel started and nothing reached the block owner's writer; whether the kernel stopped early
+  or the owner's first ADMA2 write failed is exactly what the ring in RAM answers.
+  - `nexus-console-ring`: the header carries the boot's trace `seq` (offset 24, stamped by the
+    kernel from `/chosen/nexus,trace`); `find(window, seq)` scans page starts for an intact
+    header with that number; `Reader::from(position)`; `RingBytes` reads a ring in memory.
+  - nxboot: after its trace is open and BEFORE the image is loaded over the window, `rescue`
+    finds the previous boot's ring, opens that boot's slot (`LoaderTrace::previous`,
+    `OsTrace::open` — the slot must be that boot's record) and appends what the ring holds past
+    the OS text already kept (`OsTrace::rescue`, flag `OS_RESCUED`; a lapped gap sets overflow).
+    `nxboot: rescue ok (seq=<n>[ unstamped] bytes=<b> lost=<l>)` / `rescue none (first boot |
+    no ring in ram | ring of seq=<m> in ram, not seq=<n> | slot of seq=<n> not its record |
+    unstamped ring, seq=<n> has text)` / `rescue FAIL (write)`. An unstamped ring (the kernel
+    stopped before it read the tree) is taken as the previous boot's — every kernel start
+    zeroes `.bss`, so a ring in the window is the most recent run's — when that boot kept no
+    OS text yet; the first board cycle showed the distinction was needed (the loader could not
+    tell a scrubbed DRAM from an early-dead kernel).
+  - `nx image trace --json` shows `os_rescued`; `just board-log` says "rescued from RAM by the
+    next loader".
+  - `nx image flash-plan` records the trace partition and `board-flash.sh --verify` reads it as
+    zero: it is written by every boot, and a verify after a boot lied about `nxdisk1`.
+  - Found on the way: `just board-image` right after `just build-os-workspace` shipped a stale
+    kernel — the OS build never produced the flat `neuron-boot.bin`; only the QEMU launcher did,
+    at a lane's start, so the board's image was as fresh as the last lane, not the last build
+    (the build id did not change after a kernel edit). `scripts/build.sh` now emits the flat
+    image from the ELF it just built; the launcher's step stays as the freshness guard.
+  - **Proof — host:** `nexus-console-ring` 6 tests (`find_ring`/`find`, `Reader::from`, a lapped ring's gap, another boot's, an unstamped and a missing ring); `storage` trace 11 (the rescue of the tail the owner never wrote, a flagged gap, no previous boot on the first); `nx` image_flash_cli 3 (the plan's trace entry) + image_trace_cli 4; nxboot cross-build and `build-os-workspace` with 0 warnings.
+  - **Proof — mutations:** 7 host mutations each killed — `find` ignoring the stamp, accepting seq 0 (found survivable, a test added), scanning every byte, `Reader::from` at 0, a rescue that does not mark, `previous()` naming the wrong slot.
+  - **Proof — QEMU:** `ci-os-reset`: boot 2 `nxboot: rescue ok (seq=1 bytes=643 lost=0)`, boot 3 `rescue ok (seq=2 bytes=245 lost=0)`, the OS contract byte-equal with the rescued tails (116 828 bytes of 3 boots); `ci-os-smp1`: `rescue none (first boot)`. `just test-all`: EXIT=0 in 54 min — 12 QEMU runs, every loader and OS trace contract green, 21 boots, 929 531 bytes of kernel console text byte-equal to the UART, 9 rescues across the reset and OTA lanes (the reset lane's 643 and 245 bytes the same as in the single run; ota-fallback's two early-dead trial kernels rescued whole, 5944 bytes each, and their text byte-equal too); 3617 host tests; 0 errors..
+  - **Proof — board (the measurement):** three flash cycles on the desk board, each read back exact — with `--verify` reading the trace partition as zero after boots (the fix proven) — and read with `just board-log` without a serial adapter: the first cycle's loader could not tell a scrubbed DRAM from an early-dead kernel (`no ring of seq=N in ram`), the second reported `no ring in ram` for stamped and unstamped rings alike, and the third, with the loader's own probe page, `dram probe lost` on every reset — the board's reset path scrubs DRAM (`docs/board/measurements/2026-09-28-dram-retention/`). Every board boot's loader ran to the verified jump; none kept OS text.
+  - **Verdict:** Phase 3 works where DRAM survives a reset (QEMU's reset lane; proven) and cannot on this board. What is left for the board's early kernel without an adapter is the user LED (`sys-led`, GPIO 96 of `k1x-gpio` at 0xd4019000, measured) — a ladder of a few bits — or the debug UART, whose ladder (`just board-serial`, P4) is built.
 - **P4 — the board ladder**, with TASK-0260B's FIT: the first eMMC boot attempt read back with
   `just board-log`, `markers/board.toml`, the `board-*` profiles, `just board-test`.
 

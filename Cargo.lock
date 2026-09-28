@@ -3017,6 +3017,7 @@ name = "nxboot"
 version = "0.1.0"
 dependencies = [
  "bootfmt",
+ "nexus-console-ring",
  "nexus-fdt",
  "nexus-hal",
  "nexus-pci",

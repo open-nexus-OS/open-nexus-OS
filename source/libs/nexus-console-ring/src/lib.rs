@@ -30,13 +30,18 @@ pub const BYTES: usize = PAGE + DATA_BYTES;
 pub const DATA_AT: usize = PAGE;
 
 /// The header (little-endian): `magic` at 0, `version` (u32) at 8, `data_bytes` (u32) at 12,
-/// `head` (u64, written atomically by the kernel) at 16; the rest of the page is zero.
+/// `head` (u64, written atomically by the kernel) at 16, `seq` (u64) at 24; the rest of the
+/// page is zero.
 pub const MAGIC: [u8; 8] = *b"NXCRING1";
 pub const VERSION: u32 = 1;
 pub const OFF_MAGIC: usize = 0;
 pub const OFF_VERSION: usize = 8;
 pub const OFF_DATA_BYTES: usize = 12;
 pub const OFF_HEAD: usize = 16;
+/// The boot's trace sequence number (u64, RFC-0107 Phase 3), stamped by the kernel from
+/// `/chosen/nexus,trace` once it has read the tree; 0 until then. The next loader matches a ring
+/// it finds in RAM to the boot it belongs to by this.
+pub const OFF_SEQ: usize = 24;
 
 /// Whether a header page describes this ring: the magic, the version and the data size.
 pub fn header_ok(header: &[u8]) -> bool {
@@ -53,6 +58,57 @@ pub fn header_fields() -> [(usize, [u8; 8]); 2] {
     sizes[..4].copy_from_slice(&VERSION.to_le_bytes());
     sizes[4..].copy_from_slice(&(DATA_BYTES as u32).to_le_bytes());
     [(OFF_MAGIC, MAGIC), (OFF_VERSION, sizes)]
+}
+
+/// A ring in a byte window (the previous boot's, still in RAM: RFC-0107 Phase 3): the offset of
+/// the header page of the ring stamped with `seq`, scanning page starts. `None` when no page
+/// carries this ring's header with that sequence number — a scrubbed or retrained DRAM, or a
+/// different boot's ring.
+pub fn find(window: &[u8], seq: u64) -> Option<usize> {
+    if seq == 0 {
+        return None;
+    }
+    (0..window.len().saturating_sub(BYTES - 1))
+        .step_by(PAGE)
+        .find(|&at| header_ok(&window[at..at + PAGE]) && header_seq(&window[at..at + PAGE]) == seq)
+}
+
+/// The first intact ring header at a page start of `window`, with its stamped `seq` (0 = the
+/// kernel stopped before it read the tree). Every kernel start zeroes its `.bss`, so a ring in
+/// the window is always the most recent kernel run's: this is the measurement of whether the
+/// DRAM kept it.
+pub fn find_ring(window: &[u8]) -> Option<(usize, u64)> {
+    (0..window.len().saturating_sub(BYTES - 1))
+        .step_by(PAGE)
+        .find(|&at| header_ok(&window[at..at + PAGE]))
+        .map(|at| (at, header_seq(&window[at..at + PAGE])))
+}
+
+/// The `seq` field of a header page (0 = not stamped).
+pub fn header_seq(header: &[u8]) -> u64 {
+    match header.get(OFF_SEQ..OFF_SEQ + 8) {
+        Some(b) => u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]),
+        None => 0,
+    }
+}
+
+/// A whole ring in memory — the header page and the data — as a [`Source`] (the loader's view of
+/// a previous boot's ring, and the tests').
+pub struct RingBytes<'a>(pub &'a [u8]);
+
+impl Source for RingBytes<'_> {
+    fn head(&self) -> u64 {
+        match self.0.get(OFF_HEAD..OFF_HEAD + 8) {
+            Some(b) => u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]),
+            None => 0,
+        }
+    }
+    fn copy(&self, at: usize, out: &mut [u8]) {
+        let at = DATA_AT + at.min(DATA_BYTES);
+        let n = out.len().min(self.0.len().saturating_sub(at));
+        out[..n].copy_from_slice(&self.0[at..at + n]);
+        out[n..].fill(0);
+    }
 }
 
 /// The ring's memory as a reader sees it.
@@ -82,6 +138,11 @@ pub struct Reader {
 impl Reader {
     pub const fn new() -> Self {
         Self { next: 0 }
+    }
+
+    /// A reader that continues at stream position `position` (what an earlier reader kept).
+    pub const fn from(position: u64) -> Self {
+        Self { next: position }
     }
 
     /// The stream position of the next byte this reader returns.
@@ -228,6 +289,60 @@ mod tests {
         let b = reader.read(&ring, &mut buf);
         assert_eq!((b.len, b.lost), (300, 0));
         assert_eq!(&buf[..b.len], &stream(DATA_BYTES as u64, 300)[..]);
+    }
+
+    /// A window of RAM as the next loader sees it: the ring's pages somewhere in it.
+    fn window_with_ring(ring: &Ring, at: usize, seq: u64) -> Vec<u8> {
+        let mut w = vec![0u8; at + BYTES + 3 * PAGE];
+        for (off, field) in header_fields() {
+            w[at + off..at + off + 8].copy_from_slice(&field);
+        }
+        w[at + OFF_HEAD..at + OFF_HEAD + 8].copy_from_slice(&ring.head.get().to_le_bytes());
+        w[at + OFF_SEQ..at + OFF_SEQ + 8].copy_from_slice(&seq.to_le_bytes());
+        w[at + DATA_AT..at + DATA_AT + DATA_BYTES].copy_from_slice(&ring.data.borrow());
+        w
+    }
+
+    #[test]
+    fn the_next_loader_finds_the_previous_boots_ring_and_reads_on_from_where_the_trace_ends() {
+        let ring = Ring::new();
+        ring.write(5000);
+        let w = window_with_ring(&ring, 7 * PAGE, 42);
+        assert_eq!(find(&w, 42), Some(7 * PAGE));
+        // The trace kept 3000 bytes; the ring still holds the rest.
+        let mut reader = Reader::from(3000);
+        let mut buf = vec![0u8; 8192];
+        let b = reader.read(&RingBytes(&w[7 * PAGE..7 * PAGE + BYTES]), &mut buf);
+        assert_eq!((b.len, b.lost), (2000, 0));
+        assert_eq!(&buf[..2000], &stream(3000, 2000)[..]);
+        // A ring that lapped what the trace kept: the gap is counted, the rest is in order.
+        let ring = Ring::new();
+        ring.write(DATA_BYTES as u64 + 500);
+        let w = window_with_ring(&ring, 0, 7);
+        let mut reader = Reader::from(100);
+        let mut buf = vec![0u8; DATA_BYTES];
+        let b = reader.read(&RingBytes(&w[..BYTES]), &mut buf);
+        assert_eq!((b.len, b.lost), (DATA_BYTES, 400));
+        assert_eq!(&buf[..b.len], &stream(500, DATA_BYTES)[..]);
+    }
+
+    #[test]
+    fn test_reject_a_ring_of_another_boot_an_unstamped_one_and_a_window_without_one() {
+        let ring = Ring::new();
+        ring.write(10);
+        let w = window_with_ring(&ring, 3 * PAGE, 9);
+        assert_eq!(find(&w, 8), None, "another boot's ring");
+        assert_eq!(find(&w, 0), None, "seq 0 never matches");
+        let unstamped = window_with_ring(&ring, 3 * PAGE, 0);
+        assert_eq!(find(&unstamped, 9), None, "a ring the kernel never stamped");
+        assert_eq!(find(&unstamped, 0), None, "an unstamped ring never answers for 0");
+        assert_eq!(find_ring(&unstamped), Some((3 * PAGE, 0)), "but it is found, as unstamped");
+        assert_eq!(find_ring(&w), Some((3 * PAGE, 9)));
+        assert_eq!(find_ring(&vec![0u8; 8 * PAGE]), None);
+        assert_eq!(find(&vec![0u8; 8 * PAGE], 9), None, "no ring at all");
+        let mut off = window_with_ring(&ring, 3 * PAGE, 9);
+        off.insert(0, 0); // the ring no longer starts on a page
+        assert_eq!(find(&off, 9), None, "the scan steps by pages");
     }
 
     #[test]

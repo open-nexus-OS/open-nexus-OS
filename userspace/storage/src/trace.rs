@@ -48,6 +48,8 @@ pub const LOADER_COMPLETE: u32 = 1 << 0;
 pub const LOADER_OVERFLOW: u32 = 1 << 1;
 pub const OS_COMPLETE: u32 = 1 << 2;
 pub const OS_OVERFLOW: u32 = 1 << 3;
+/// The OS region's tail (or all of it) was rescued from RAM by the next boot's loader (Phase 3).
+pub const OS_RESCUED: u32 = 1 << 4;
 
 /// A slot's header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +162,7 @@ pub fn next(headers: &[Option<Header>]) -> (u32, u64) {
 
 /// The loader's writer: one slot, its region, the header last.
 pub struct LoaderTrace {
+    part: Partition,
     lba: u64,
     header: Header,
     taken: bool,
@@ -172,7 +175,20 @@ impl LoaderTrace {
         let part = partition(&parts).ok_or(TraceError::NoPartition)?;
         let (slot, seq) = next(&headers(dev, &part)?);
         let header = Header { slot, seq, loader_len: 0, os_len: 0, flags: 0 };
-        Ok(Self { lba: slot_lba(&part, slot)?, header, taken: false })
+        Ok(Self { lba: slot_lba(&part, slot)?, part, header, taken: false })
+    }
+
+    /// The `trace` partition this slot lies in.
+    pub fn partition(&self) -> &Partition {
+        &self.part
+    }
+
+    /// The previous boot's slot and sequence number — where a ring the loader finds in RAM
+    /// belongs (Phase 3). `None` on the first boot.
+    pub fn previous(&self) -> Option<(u64, u64)> {
+        let seq = self.header.seq.checked_sub(1).filter(|&s| s >= 1)?;
+        let slot = ((seq - 1) % u64::from(SLOTS)) as u32;
+        Some((slot_lba(&self.part, slot).ok()?, seq))
     }
 
     /// The slot's first sector on the disk.

@@ -22,8 +22,7 @@
 - **Phase 2 (the kernel's console ring, read-only to the block owner, which keeps it; the
   whole ladder persisted)**: ✅ 2026-09-28 — TASK-0327B P2 (no read syscall: the ring is
   exposed like the tree; every lane's contract compares each boot's OS text with the UART)
-- **Phase 3 (a crashed boot's ring rescued from RAM by the next loader — only if the board
-  measures DRAM retention across a reset)**: ⬜
+- **Phase 3 (a crashed boot's ring rescued from RAM by the next loader)**: ✅ 2026-09-28 built and proven on QEMU's reset lane — TASK-0327B P3; **measured on the board: the reset scrubs DRAM** (`nxboot: dram probe lost` every time, `docs/board/measurements/2026-09-28-dram-retention/`), so the rescue cannot work there
 
 Definition: "Complete" = the contract below is implemented and its proof gates are green on
 QEMU and on the board.
@@ -144,9 +143,26 @@ channel.
     `blkd: trace os none (<why>)` once at start.
   - The trace lags the console by at most one period; a boot that stops in the kernel before the
     block owner runs leaves no OS text (Phase 3's case).
-- **Phase 3**: the ring lives in a RAM range the tree reserves; the next loader copies a previous
-  ring that is still intact (magic, CRC) into its slot before anything else — built only after
-  the board shows that DRAM keeps its content across a reset.
+- **Phase 3** (amended 2026-09-28, TASK-0327B P3): the ring is where the kernel image put it —
+  static pages in the image's `.bss`, inside the kernel window — and the kernel stamps the
+  header with the boot's trace sequence number (`/chosen/nexus,trace`). The next loader, once
+  it knows the disk and BEFORE it loads its image over the window, scans the window's page
+  starts for a ring whose header is intact and stamped with the previous boot's number. What it
+  finds past the OS text the block owner had kept goes into that boot's OS region, marked
+  `OS_RESCUED` (bit 4); a gap the ring had overwritten sets the overflow flag too. Every kernel
+  start zeroes its `.bss`, so a ring in the window is the most recent kernel run's: one stamped
+  with the previous boot's number is that boot's, and an unstamped one (the kernel stopped
+  before it read the tree — the case the rescue exists for) is still that run's, taken as long
+  as nothing was kept for that boot yet. Its console says `nxboot: rescue ok (seq=<n>[ unstamped]
+  bytes=<b> lost=<l>)`, or `nxboot: rescue none (<why>)`: `first boot`, `no ring in ram` (the
+  DRAM did not keep it), `ring of seq=<m> in ram, not seq=<n>`, `slot of seq=<n> not its
+  record`, `unstamped ring, seq=<n> has text`. The rescue IS the
+  DRAM measurement: the stock system's kernel forbids RAM reads (`/dev/mem` is strict), so the
+  only reader that runs before the next kernel is the loader. On QEMU a fresh launch has no ring
+  (zeroed RAM) and the reset lane's later boots find their predecessors'; on the board the first
+  rescue says whether DDR training keeps the content.
+  - Not a boot dependency: a failed rescue write prints `nxboot: rescue FAIL (write)` and the
+    boot goes on.
 
 ### Phases / milestones (contract-level)
 
@@ -155,7 +171,7 @@ channel.
   `uart.log` equal the loader regions of the trace, boot by boot).
 - **Phase 2**: the kernel ring, read-only to the block owner, which keeps it; the whole `uart.log`
   in the trace.
-- **Phase 3**: the RAM rescue.
+- **Phase 3**: the RAM rescue by the next loader — the measurement of DRAM retention included.
 
 ## Security considerations
 
@@ -213,8 +229,8 @@ channel.
 
 ## Open questions
 
-- Phase 3: does the board's DRAM keep its content across a reset with the vendor SPL's DDR
-  training? Measured before Phase 3 is built.
+- ~~Phase 3: does the board's DRAM keep its content across a reset with the vendor SPL's DDR
+  training?~~ Measured 2026-09-28: it does not (`docs/board/measurements/2026-09-28-dram-retention/`).
 
 ---
 
@@ -224,4 +240,4 @@ channel.
       trace`, `just board-log`, the harness's trace contract (TASK-0327B P1, 2026-09-27).
 - [x] Phase 2: the kernel ring, exposed read-only to the block owner (ADR-0040 amended), which
       keeps it in the trace; the OS-text contract in every lane (TASK-0327B P2, 2026-09-28).
-- [ ] Phase 3: measured, then the RAM rescue.
+- [x] Phase 3: the RAM rescue, which measures (TASK-0327B P3, 2026-09-28); the board's verdict recorded in the ledger.

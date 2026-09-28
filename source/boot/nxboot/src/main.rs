@@ -41,7 +41,7 @@ mod boot {
 
     use bootfmt::bsb::Slot;
     use nxboot::flow::{self, Event, FlowError, Reason};
-    use storage::trace::{LoaderTrace, TraceError};
+    use storage::trace::{LoaderTrace, OsTrace, TraceError};
 
     use crate::arch;
     use crate::probe::BootDisk;
@@ -143,6 +143,100 @@ mod boot {
         }
     }
 
+    /// RFC-0107 Phase 3: the previous boot's console ring, if the DRAM kept it across the reset —
+    /// found by its layout in the kernel window this boot's image is about to overwrite. What the
+    /// block owner never wrote (its tail, or all of it when the kernel stopped before the owner
+    /// ran) goes into that boot's OS region, marked rescued. Diagnostics only: nothing here stops
+    /// the boot, and a window without the ring is the measurement that the DRAM was scrubbed.
+    fn rescue(trace: &Trace, disk: &mut BootDisk, base: usize, len: usize) {
+        use nexus_console_ring::{find_ring, Reader, RingBytes, BYTES};
+        let Some(t) = trace.0.as_ref() else { return };
+        let Some((lba, seq)) = t.previous() else {
+            arch::uart_puts("nxboot: rescue none (first boot)\n");
+            return;
+        };
+        let window = arch::phys_slice(base, len);
+        // Every kernel start zeroes its `.bss`, so a ring in the window is the most recent
+        // kernel run's — the previous boot's when it stamped the number, and when it did not
+        // (it stopped before reading the tree) still that run's, as long as nothing was kept
+        // for that boot yet.
+        let Some((at, stamped)) = find_ring(window) else {
+            arch::uart_puts("nxboot: rescue none (no ring in ram)\n");
+            return;
+        };
+        if stamped != seq && stamped != 0 {
+            arch::uart_puts(&format!(
+                "nxboot: rescue none (ring of seq={stamped} in ram, not seq={seq})\n"
+            ));
+            return;
+        }
+        let mut os = match OsTrace::open(disk, t.partition(), lba, seq) {
+            Ok(os) => os,
+            Err(_) => {
+                arch::uart_puts(&format!(
+                    "nxboot: rescue none (slot of seq={seq} not its record)\n"
+                ));
+                return;
+            }
+        };
+        if stamped == 0 && !os.is_empty() {
+            arch::uart_puts(&format!("nxboot: rescue none (unstamped ring, seq={seq} has text)\n"));
+            return;
+        }
+        let ring = RingBytes(&window[at..at + BYTES]);
+        let mut reader = Reader::from(os.len() as u64);
+        let mut buf = [0u8; 4096];
+        let (mut kept, mut lost) = (0usize, 0u64);
+        loop {
+            let batch = reader.read(&ring, &mut buf);
+            if batch.len == 0 && batch.lost == 0 {
+                break;
+            }
+            lost += batch.lost;
+            match os.rescue(disk, &buf[..batch.len], batch.lost > 0) {
+                Ok(n) if n == batch.len && batch.len == buf.len() => kept += n,
+                Ok(n) => {
+                    kept += n;
+                    break;
+                }
+                Err(_) => {
+                    arch::uart_puts("nxboot: rescue FAIL (write)\n");
+                    return;
+                }
+            }
+        }
+        let how = if stamped == 0 { " unstamped" } else { "" };
+        arch::uart_puts(&format!("nxboot: rescue ok (seq={seq}{how} bytes={kept} lost={lost})\n"));
+    }
+
+    /// The DRAM-retention probe (RFC-0107 Phase 3's measurement, independent of the kernel): the
+    /// last page of the kernel window carries this boot's sequence number; the next loader reads
+    /// it before it loads its image. `kept` = the DRAM keeps its content across the board's
+    /// reset path (so a ring that is missing was never written — the kernel stopped before its
+    /// first lines); `lost` = the reset scrubs it (so the ring cannot be rescued on this board).
+    /// A page the kernel may well reuse, so `stale` or `lost` after a long run proves nothing;
+    /// after a boot that kept no OS text it does.
+    fn dram_probe(trace: &Trace, base: usize, len: usize) {
+        const MAGIC: &[u8; 8] = b"NXDRAM1\0";
+        let Some(t) = trace.0.as_ref() else { return };
+        let page = arch::load_region(base + len - 4096, 4096);
+        let found = (page[..8] == *MAGIC).then(|| {
+            u64::from_le_bytes([
+                page[8], page[9], page[10], page[11], page[12], page[13], page[14], page[15],
+            ])
+        });
+        match (found, t.previous()) {
+            (Some(seq), Some((_, prev))) if seq == prev => {
+                arch::uart_puts(&format!("nxboot: dram probe kept (seq={seq})\n"));
+            }
+            (Some(seq), _) => arch::uart_puts(&format!("nxboot: dram probe stale (seq={seq})\n")),
+            (None, Some(_)) => arch::uart_puts("nxboot: dram probe lost\n"),
+            (None, None) => arch::uart_puts("nxboot: dram probe none (first boot)\n"),
+        }
+        page[..8].copy_from_slice(MAGIC);
+        page[8..16].copy_from_slice(&t.seq().to_le_bytes());
+    }
+
     /// A terminal failure once the disk is known: the reason on the console and in the trace.
     fn fail(trace: &mut Trace, disk: &mut BootDisk, msg: &str) -> ! {
         arch::uart_puts("nxboot: PANIC (");
@@ -171,6 +265,9 @@ mod boot {
         // RFC-0107: from here on the boot leaves its console text on the disk.
         let mut trace = Trace::open(&disk);
         trace.keep(&mut disk, false);
+        // RFC-0107 Phase 3: before the window is overwritten, what the previous boot left in it.
+        dram_probe(&trace, base, len);
+        rescue(&trace, &mut disk, base, len);
         let dest = arch::load_region(base, len);
         match flow::run(&mut disk, dest, &mut |e| emit(&e)) {
             Ok(loaded) => {

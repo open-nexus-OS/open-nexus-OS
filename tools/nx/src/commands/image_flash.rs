@@ -125,7 +125,12 @@ pub(crate) fn handle_flash_plan(args: ImageFlashPlanArgs) -> ExecResult {
         listed.push(json!({ "name": r.name, "hwpart": r.hwpart, "start_lba": r.start,
             "sectors": r.sectors, "file": format!("{}.img", r.name), "sha256": hex(&digest) }));
     }
-    let plan = json!({ "disk_sectors": disk, "chunk_bytes": chunk, "regions": listed });
+    // RFC-0107: the trace partition is written by every boot — `board-flash.sh --verify` reads
+    // it as zero, as the plan's regions carry it.
+    let trace = storage::trace::partition(&parts)
+        .map(|p| json!({ "start_lba": p.first_lba, "sectors": p.last_lba + 1 - p.first_lba }));
+    let plan =
+        json!({ "disk_sectors": disk, "chunk_bytes": chunk, "regions": listed, "trace": trace });
     let text = serde_json::to_string_pretty(&plan).map_err(|e| internal(format!("image: {e}")))?;
     let plan_path = args.out_dir.join("plan.json");
     std::fs::write(&plan_path, format!("{text}\n"))

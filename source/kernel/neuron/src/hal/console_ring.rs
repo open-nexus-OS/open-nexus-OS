@@ -59,6 +59,15 @@ pub fn init() {
     }
 }
 
+/// Stamps the boot's trace sequence number into the header (RFC-0107 Phase 3): the next loader
+/// matches a ring it finds in RAM to the boot it belongs to by this. Once, after the tree is read.
+pub fn stamp(seq: u64) {
+    // SAFETY: `OFF_SEQ` is 8-aligned inside the header page of a static that lives forever;
+    // the field is only ever accessed atomically.
+    let field = unsafe { &*(base().add(nexus_console_ring::OFF_SEQ) as *const AtomicU64) };
+    field.store(seq, Ordering::Release);
+}
+
 /// Records `byte` in the ring, then hands it to `emit` (the UART write), both under the ring's
 /// lock: the ring keeps the bytes in the order the console receives them.
 pub fn record_then(byte: u8, emit: impl FnOnce(u8)) {

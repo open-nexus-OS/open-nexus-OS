@@ -21,6 +21,13 @@
 phase = "bringup"
 proves = "nxboot parsed the tree it received in a1 and brought its console up from it; the line names the platform and the tree's address and size"
 
+# RFC-0107 Phase 3 (TASK-0327B P3): the loader found the previous boot's console ring still in
+# RAM and kept what its block owner never wrote. Required where a run reboots the same machine
+# (the reset lane); a fresh launch prints `nxboot: rescue none (first boot)`.
+[marker."nxboot: rescue ok (seq="]
+phase = "bringup"
+proves = "the loader found the previous boot's console ring in RAM by its stamped sequence number and appended its unkept tail to that boot's trace slot (marked rescued)"
+
 [marker."nxboot: bsb ok (slot=a"]
 phase = "bringup"
 proves = "loader read a valid BSB double block and selected the factory-active slot (RFC-0089 §6)"

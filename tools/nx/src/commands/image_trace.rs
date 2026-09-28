@@ -18,6 +18,7 @@ use serde_json::json;
 use storage::gpt::{parse_gpt, Partition, GUID_NEXUS_TRACE};
 use storage::trace::{
     self, Record, TraceError, LOADER_COMPLETE, LOADER_OVERFLOW, OS_COMPLETE, OS_OVERFLOW,
+    OS_RESCUED,
 };
 use storage::BlockDevice;
 
@@ -84,7 +85,7 @@ pub(crate) fn handle_trace(args: ImageTraceArgs) -> ExecResult {
                 "loader_bytes": r.loader.len(), "loader_complete": flag(r, LOADER_COMPLETE),
                 "loader_overflow": flag(r, LOADER_OVERFLOW),
                 "os_bytes": r.os.len(), "os_complete": flag(r, OS_COMPLETE),
-                "os_overflow": flag(r, OS_OVERFLOW),
+                "os_overflow": flag(r, OS_OVERFLOW), "os_rescued": flag(r, OS_RESCUED),
             })
         })
         .collect();

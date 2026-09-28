@@ -1,0 +1,32 @@
+nxboot: platform=bananapi,bpi-f3 tree=0x269000 size=13376
+nxboot: trace slot=0 seq=1
+nxboot: dram probe none (first boot)
+nxboot: rescue none (first boot)
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-d427 rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
+nxboot: platform=bananapi,bpi-f3 tree=0x269000 size=13376
+nxboot: trace slot=1 seq=2
+nxboot: dram probe lost
+nxboot: rescue none (no ring in ram)
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-d427 rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
+nxboot: platform=bananapi,bpi-f3 tree=0x269000 size=13376
+nxboot: trace slot=2 seq=3
+nxboot: dram probe lost
+nxboot: rescue none (no ring in ram)
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-d427 rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
+nxboot: platform=bananapi,bpi-f3 tree=0x269000 size=13376
+nxboot: trace slot=3 seq=4
+nxboot: dram probe lost
+nxboot: rescue none (no ring in ram)
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-d427 rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
