@@ -11,6 +11,7 @@
 //! INVARIANTS: No allocation in IRQ paths; stable contracts across builds
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
+pub mod console_ring;
 pub mod platform;
 pub mod plic;
 

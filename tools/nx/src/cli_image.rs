@@ -60,9 +60,15 @@ pub(crate) struct ImageTraceArgs {
     /// harness takes the number from the run's first `nxboot: trace` line).
     #[arg(long, conflicts_with = "all")]
     pub(crate) since: Option<u64>,
+    /// Exactly the boot with this sequence number.
+    #[arg(long, conflicts_with_all = ["all", "since"])]
+    pub(crate) seq: Option<u64>,
     /// The loader's text only.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "os")]
     pub(crate) loader: bool,
+    /// The OS text only (what the block owner kept from the kernel console).
+    #[arg(long)]
+    pub(crate) os: bool,
     /// Write the text here, byte for byte (default: print it).
     #[arg(long)]
     pub(crate) out: Option<PathBuf>,

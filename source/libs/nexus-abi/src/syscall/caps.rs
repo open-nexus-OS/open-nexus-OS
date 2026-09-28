@@ -22,6 +22,10 @@ pub const INIT_ENDPOINT_FACTORY_SLOT: u32 = 1;
 /// `DEVICE_TREE_CHILD_SLOT`); init maps it, discovers devices from it and hands the same
 /// alias to services that read their own node.
 pub const INIT_DEVICE_TREE_SLOT: u32 = 2;
+/// Capability slot of init-lite's read-only kernel console ring (RFC-0107 Phase 2): the kernel
+/// injects a `VmoRo` of its ring pages (neuron `CONSOLE_RING_CHILD_SLOT`); init pins it to the
+/// block owner alone, which keeps it in the boot trace.
+pub const INIT_CONSOLE_RING_SLOT: u32 = 3;
 /// Binds an external interrupt source (PLIC) to an endpoint the caller owns, so
 /// the kernel routes that device IRQ to `endpoint_cap` and wakes a blocked
 /// receiver — the reactive alternative to polling the device. The driver then

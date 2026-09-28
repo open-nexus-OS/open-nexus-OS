@@ -174,6 +174,12 @@ fn the_latest_boot_by_default_every_kept_boot_with_all_and_the_loader_alone_with
     assert_eq!(out_bytes(dir.path(), &both), format!("{ONE}{TWO}{THREE}").as_bytes());
     let run = [img[0], img[1], "--since", "2", "--loader"];
     assert_eq!(out_bytes(dir.path(), &run), format!("{TWO}{THREE}").as_bytes(), "one run's boots");
+    let os = [img[0], img[1], "--seq", "3", "--os"];
+    assert_eq!(out_bytes(dir.path(), &os), THREE_OS.as_bytes(), "one boot's OS text");
+    let two = [img[0], img[1], "--seq", "2"];
+    assert_eq!(out_bytes(dir.path(), &two), TWO.as_bytes(), "one boot, no OS text kept");
+    let both = run_nx(&["image", "trace", "--image", "disk.img", "--os", "--loader"], dir.path());
+    assert_eq!(both.status.code(), Some(2), "--os and --loader exclude each other");
 
     let m = meta(dir.path(), &all);
     assert_eq!((m["kept"].as_u64(), seqs(&m)), (Some(3), vec![1, 2, 3]));
@@ -267,6 +273,9 @@ fn test_reject_what_holds_no_trace_or_no_boot() {
     let later = run_nx(&["image", "trace", "--image", "disk.img", "--since", "2"], dir.path());
     assert_eq!(later.status.code(), Some(3), "no boot from seq 2 on: {}", text(&later));
     assert!(text(&later).contains("keeps no boot from seq 2 on (the latest is 1)"));
+    let absent = run_nx(&["image", "trace", "--image", "disk.img", "--seq", "9"], dir.path());
+    assert_eq!(absent.status.code(), Some(3), "no boot 9: {}", text(&absent));
+    assert!(text(&absent).contains("keeps no boot 9 (the latest is 1)"));
 
     let missing = run_nx(&["image", "trace", "--image", "missing.img"], dir.path());
     assert_eq!(missing.status.code(), Some(4), "{}", text(&missing));

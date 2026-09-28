@@ -1,6 +1,6 @@
 ---
 title: TASK-0327B Board proof lane: the marker ladder from the boot trace on the disk (RFC-0107) or the debug UART, `board-*` profiles, opt-in in `test-all`
-status: In Progress (P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log`; next the board attempt with TASK-0260B's FIT; seeded 2026-09-21 at Block 0 P0)
+status: In Progress (P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace: the kernel's console ring kept by the block owner, byte-equal to the UART in every lane; next the board attempt that reads how far the kernel comes; seeded 2026-09-21 at Block 0 P0)
 owner: @devx @runtime
 created: 2026-09-21
 depends-on:
@@ -103,8 +103,38 @@ P2 read the eMMC back over adb.
     - `uart.log` is the disk's latest boot and `trace-all.log` its four boots, both byte for byte;
     - a zeroed trace (a freshly flashed disk) exits 5;
     - no stock system exits 3.
-- **P2 — the OS trace.** The kernel ring + read syscall (ADR-0040 amended), the OS writer and its
-  gate, the whole-log contract in every lane.
+- **P2 — the OS trace** (2026-09-28; recut from "ring + read syscall + a gated writer" while
+  building — the facts: `console_write_byte` is the one hook every console path passes; the
+  kernel already exposes static memory read-only through a `VmoRo` init pins by name; `blkd`
+  is the first process that can write the disk, and `init: ready` prints before it runs).
+  - `nexus-console-ring` (new lib, `no_std`, zero deps): the ring's one layout — a header page
+    (`NXCRING1`, version, data size, the head) and 128 KiB of data — and the reader, which
+    counts what the writer overwrote before a read and drops a prefix overwritten during the
+    copy. 4 host tests.
+  - The kernel (`hal/console_ring.rs`): static, page-aligned pages in `.bss`; `init()` writes
+    the header after `zero_bss`; `console_write_byte` records then emits under one
+    `SpinIrqLock` (a bounded wait, so a stopped holder never silences the console); the ring
+    goes to init read-only in slot 3 (`INIT_CONSOLE_RING_SLOT`), like the tree.
+  - The topology: `NamedSlot::ConsoleRing` and blkd's `CONSOLE_RING` + `TRACE_TIMER` slots;
+    `test_reject_a_second_console_ring_reader` holds blkd as the one reader. init pins the ring
+    (`init: console ring grant ok svc=blkd`).
+  - `storage::trace::OsTrace`: appends to this boot's slot only — the loader's handoff `lba`
+    must be the place the ring rule gives `seq` in the partition, and the header there that
+    boot's record; text first, header last; no per-call allocation (a partial last sector kept
+    in the writer); overflow flagged. 4 host tests, two with a fault-injecting disk.
+  - `blkd` keeps the region itself (`trace_os.rs`): the `trace` partition gets NO selector (no
+    client can name it, `parts=7` stays), the serve loop runs on a waitset over the server
+    endpoint and a periodic 250 ms kernel timer on the declared pair (RFC-0093 §7), a tick keeps
+    at most 64 KiB in 4 KiB appends; `blkd: trace os ok (slot=<n> seq=<m>)` on the first write,
+    `blkd: trace os none (<why>)` once at start.
+  - `nx image trace --seq <n> --os`; the harness's OS contract (`tools/trace_os_contract.py`):
+    each boot's OS region is the UART's text after its jump line byte for byte; a boot that
+    stopped before the block owner ran keeps none (a fallback lane's trial boots — allowed for
+    every boot but the run's last, whose region must reach `stage: platform`).
+  - RFC-0107 §Write authority / Phase 2 and ADR-0040 amended.
+  - **Proof — host:** `nexus-console-ring` 4 tests (every byte once across the wrap; bytes lost before a read counted; a prefix overwritten during the copy dropped; another ring's header refused); `storage` trace 10 (the loader's 6, the OS writer's 4: sectors + a reopen, other boots' slots and a stray record, text past the region and text the ring lost, a torn append); `nexus-service-topology` 12 (blkd the one ring reader); `nx` image_trace_cli 4 (`--seq`, `--os`). Kernel cross-build and `build-os-workspace` with 0 warnings.
+  - **Proof — QEMU:** `ci-os-smp1`: `init: console ring grant ok svc=blkd`, `blkd: trace os ok (slot=0 seq=1)`, `[PASS] trace contract (os): 64485 bytes … byte-equal to the UART` (through `stage: platform` to the UI selftests). `just test-all`: EXIT=0 in 52 min — 12 QEMU runs, every loader AND OS trace contract green, 21 boots kept, 912 240 bytes of kernel console text byte-equal to the UART (the reset lane's 3 boots, ota-fallback's 4 with its two trial boots that stop before the block owner and keep none); 3614 host tests; 0 errors..
+  - **Proof — mutations:** 8 host mutations each killed — the reader's lost count, its during-copy skip, its version check; the writer's LBA check, its seq/slot check, its overflow flag, its region bound; a second ring reader. The harness OS contract against the smp1 lane's disk and log: PASS; a flipped byte → refused at byte 100 with both texts; an emptied OS region → "keeps no OS text"; a region cut before `stage: platform` → refused.
 - **P3 — the RAM rescue**, only if the board keeps DRAM across a reset (measured first).
 - **P4 — the board ladder**, with TASK-0260B's FIT: the first eMMC boot attempt read back with
   `just board-log`, `markers/board.toml`, the `board-*` profiles, `just board-test`.

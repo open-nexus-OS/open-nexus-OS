@@ -20,6 +20,7 @@
 mod disk_os;
 mod os_lite;
 mod route_os;
+mod trace_os;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 nexus_service_entry::declare_entry!(crate::os_lite::os_entry);

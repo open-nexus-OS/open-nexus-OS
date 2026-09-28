@@ -43,6 +43,9 @@ fn emit(msg: &str) {
 struct Served {
     dev: Disk,
     parts: [Option<PartWindow>; blockproto::PART_COUNT as usize],
+    /// The boot trace's partition (RFC-0107), by the layout's name and type — no selector names
+    /// it: only this service's trace keeper writes it.
+    trace: Option<gpt::Partition>,
     /// TASK-0321 P4b: one armed VMO per sender `(sid, slot)` — bounded
     /// table; a re-arm replaces (closes) the previous one.
     armed: [Option<(u64, u32)>; ARMED_MAX],
@@ -150,7 +153,8 @@ fn attach() -> Option<Served> {
     // RFC-0089 §2: the selectors by layout name AND type; the boot-ROM head has none.
     let parts = parts::windows(&table);
     emit_gpt_ok(parts.iter().flatten().count());
-    Some(Served { dev, parts, armed: [None; ARMED_MAX], run: alloc::vec![0u8; RUN_BUF] })
+    let trace = storage::trace::partition(&table);
+    Some(Served { dev, parts, trace, armed: [None; ARMED_MAX], run: alloc::vec![0u8; RUN_BUF] })
 }
 
 /// `blkd: gpt ok (parts=N)` — bounded formatting (N ≤ 9).
@@ -309,75 +313,104 @@ pub fn os_entry() -> Result<(), nexus_abi::AbiError> {
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     let mut inbuf = [0u8; blockproto::HDR_LEN + 10 + MAX_BLOCKS_PER_REQ as usize * SECTOR_SIZE];
     let mut outbuf = [0u8; blockproto::HDR_LEN + 1 + MAX_BLOCKS_PER_REQ as usize * SECTOR_SIZE];
+    // RFC-0107 Phase 2: this boot's console text, kept in the boot trace's OS region.
+    let mut keeper =
+        served.as_ref().and_then(|s| crate::trace_os::Keeper::open(&s.dev, s.trace.as_ref()));
+    // RFC-0093 §7: ONE waitset over the server endpoint and the trace's pacing timer — a wake
+    // drains the server in a bounded batch, then lets the keeper look at the ring. Without a
+    // keeper, one blocking receive per request, as before.
+    let waitset = keeper.as_ref().and_then(|k| {
+        let members = [nexus_service_topology::slots::blkd::SERVER.recv, k.wake_slot()];
+        nexus_ipc::timer::Waitset::over(&members).ok()
+    });
+    if keeper.is_some() && waitset.is_none() {
+        emit("blkd: trace os none (no-waitset)");
+        keeper = None;
+    }
+    const SERVER_BATCH: usize = 32;
     loop {
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut inbuf) {
-            Ok((n, sender, reply)) => {
-                breaker.on_success();
-                if let Some((_, BlockRequest::ArmVmo { part })) =
-                    blockproto::decode_request(&inbuf[..n])
-                {
-                    arm_vmo(served.as_mut(), &gates, sender, part, reply);
-                    continue;
-                }
-                let rn = match served.as_mut() {
-                    Some(s) => serve(s, &gates, sender, &inbuf[..n], &mut outbuf),
-                    None => {
-                        // Device never attached: every op is an IO error
-                        // (correlated when decodable).
-                        match blockproto::decode_request(&inbuf[..n]) {
-                            Some((nonce, req)) => {
-                                let op = match req {
-                                    BlockRequest::Info { .. } => blockproto::OP_INFO,
-                                    BlockRequest::Read { .. } => blockproto::OP_READ,
-                                    BlockRequest::Write { .. } => blockproto::OP_WRITE,
-                                    BlockRequest::Sync { .. } => blockproto::OP_SYNC,
-                                    BlockRequest::ArmVmo { .. } => blockproto::OP_ARM_VMO,
-                                    BlockRequest::ReadVmo { .. } => blockproto::OP_READ_VMO,
-                                    BlockRequest::ReleaseVmo { .. } => blockproto::OP_RELEASE_VMO,
-                                };
-                                blockproto::write_rsp_header(
+        let wait = if waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
+        for _ in 0..SERVER_BATCH {
+            match server.recv_request_with_meta_into(wait, &mut inbuf) {
+                Ok((n, sender, reply)) => {
+                    breaker.on_success();
+                    if let Some((_, BlockRequest::ArmVmo { part })) =
+                        blockproto::decode_request(&inbuf[..n])
+                    {
+                        arm_vmo(served.as_mut(), &gates, sender, part, reply);
+                        continue;
+                    }
+                    let rn = match served.as_mut() {
+                        Some(s) => serve(s, &gates, sender, &inbuf[..n], &mut outbuf),
+                        None => {
+                            // Device never attached: every op is an IO error
+                            // (correlated when decodable).
+                            match blockproto::decode_request(&inbuf[..n]) {
+                                Some((nonce, req)) => {
+                                    let op = match req {
+                                        BlockRequest::Info { .. } => blockproto::OP_INFO,
+                                        BlockRequest::Read { .. } => blockproto::OP_READ,
+                                        BlockRequest::Write { .. } => blockproto::OP_WRITE,
+                                        BlockRequest::Sync { .. } => blockproto::OP_SYNC,
+                                        BlockRequest::ArmVmo { .. } => blockproto::OP_ARM_VMO,
+                                        BlockRequest::ReadVmo { .. } => blockproto::OP_READ_VMO,
+                                        BlockRequest::ReleaseVmo { .. } => {
+                                            blockproto::OP_RELEASE_VMO
+                                        }
+                                    };
+                                    blockproto::write_rsp_header(
+                                        &mut outbuf,
+                                        op,
+                                        nonce,
+                                        blockproto::STATUS_IO,
+                                    )
+                                }
+                                None => blockproto::write_rsp_header(
                                     &mut outbuf,
-                                    op,
-                                    nonce,
-                                    blockproto::STATUS_IO,
-                                )
+                                    0,
+                                    0,
+                                    blockproto::STATUS_MALFORMED,
+                                ),
                             }
-                            None => blockproto::write_rsp_header(
-                                &mut outbuf,
-                                0,
-                                0,
-                                blockproto::STATUS_MALFORMED,
-                            ),
                         }
+                    };
+                    let rsp = &outbuf[..rn];
+                    if let Some(reply) = reply {
+                        if reply.reply_and_close(rsp).is_err() {
+                            emit("blkd: reply send fail");
+                        }
+                    } else if server.send(rsp, Wait::NonBlocking).is_err() {
+                        emit("blkd: rsp send fail (dropping)");
                     }
-                };
-                let rsp = &outbuf[..rn];
-                if let Some(reply) = reply {
-                    if reply.reply_and_close(rsp).is_err() {
-                        emit("blkd: reply send fail");
+                    if waitset.is_none() {
+                        break;
                     }
-                } else if server.send(rsp, Wait::NonBlocking).is_err() {
-                    emit("blkd: rsp send fail (dropping)");
                 }
-            }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                let _ = nexus_abi::yield_();
-            }
-            Err(_) => {
-                let (should_log, verdict) = breaker.on_error();
-                if should_log {
-                    emit("blkd: transient ipc error (continuing)");
+                // The endpoint is drained (a waitset round) — or, blocking, cannot be.
+                Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                    break;
                 }
-                match verdict {
-                    nexus_ipc::resilience::BreakerVerdict::Continue => {
-                        let _ = nexus_abi::yield_();
+                Err(_) => {
+                    let (should_log, verdict) = breaker.on_error();
+                    if should_log {
+                        emit("blkd: transient ipc error (continuing)");
                     }
-                    nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
+                    // Never a yield or a clock here (the wait-not-poll gate): the round ends,
+                    // and the waitset — or the next blocking receive — is the wait.
+                    if matches!(verdict, nexus_ipc::resilience::BreakerVerdict::EndpointDefect) {
                         emit("blkd: endpoint defect (consecutive error limit)");
                         return Err(nexus_abi::AbiError::Unsupported);
                     }
+                    break;
                 }
             }
+        }
+        if let (Some(k), Some(s)) = (keeper.as_mut(), served.as_mut()) {
+            k.tick(&mut s.dev);
+        }
+        // WAIT — no clock: a request or the trace's timer wakes this loop.
+        if let Some(ws) = waitset.as_ref() {
+            let _ = ws.wait();
         }
     }
 }

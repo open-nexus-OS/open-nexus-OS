@@ -168,6 +168,19 @@ fn grant_boot_disk(
     if pinned.is_some() && iw(init_wire, init_fold, "init:blkd") {
         debug_write_bytes(b"init: device tree grant ok svc=blkd\n");
     }
+    // RFC-0107 Phase 2: the kernel console ring, read-only, to its one reader — the block owner
+    // keeps it in the boot trace. A kernel without the ring leaves the slot empty; blkd then
+    // keeps no OS text and says so.
+    let ring = crate::bootstrap::declared_slots::pin_named(
+        blkd_pid,
+        ServiceId::Blkd,
+        crate::service_topology::NamedSlot::ConsoleRing,
+        nexus_abi::INIT_CONSOLE_RING_SLOT,
+        Rights::MAP,
+    );
+    if ring.is_some() && iw(init_wire, init_fold, "init:blkd") {
+        debug_write_bytes(b"init: console ring grant ok svc=blkd\n");
+    }
     grant_mmio_with_wait(
         stats,
         pol_route,

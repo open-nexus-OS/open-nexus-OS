@@ -54,7 +54,12 @@ At a high level the stack looks like:
      slot=<n> seq=<m>`), written when the disk is found, before the jump and on
      every terminal failure; `/chosen/nexus,trace` hands the slot to the OS. A
      board without a serial adapter is read back with `just board-log`; every
-     QEMU lane checks that the trace equals the UART's loader lines.
+     QEMU lane checks that the trace equals the UART's loader lines. From the
+     kernel on (RFC-0107 Phase 2) every console byte is also kept in a static
+     kernel ring of pages, which init receives read-only like the tree and pins
+     to the block owner alone; `blkd` appends it to the same slot's OS region,
+     paced by a kernel timer (`blkd: trace os ok (slot=<n> seq=<m>)`), and the
+     lane checks that text against the UART byte for byte.
    - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: jump
      slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
      `nxboot: PANIC (…)` + SBI reset — never a silent boot of unverified

@@ -46,6 +46,8 @@ static_assertions = { version = "1", default-features = false }
 nexus-event = { path = "../../libs/nexus-event" }
 # RFC-0098: the ONE reader of the hardware truth (TASK-0244 P3); no_std, alloc-free.
 nexus-fdt = { path = "../../libs/nexus-fdt" }
+# RFC-0107 Phase 2: the console ring's one layout, shared with its reader; no_std, zero deps.
+nexus-console-ring = { path = "../../libs/nexus-console-ring" }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }

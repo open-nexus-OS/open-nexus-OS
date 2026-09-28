@@ -119,6 +119,7 @@ mod boot {
                         TraceError::NoPartition => "no partition",
                         TraceError::TooSmall => "too small",
                         TraceError::Io => "io",
+                        TraceError::NotThisBoot => "not this boot",
                     };
                     arch::uart_puts(&format!("nxboot: trace none ({why})\n"));
                     Self(None)

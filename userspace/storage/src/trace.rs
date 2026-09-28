@@ -104,6 +104,12 @@ impl Header {
     }
 }
 
+mod os;
+#[cfg(test)]
+mod testdisk;
+
+pub use os::OsTrace;
+
 /// Why the trace cannot be used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraceError {
@@ -113,6 +119,8 @@ pub enum TraceError {
     TooSmall,
     /// A read or a write failed.
     Io,
+    /// The slot the loader handed over does not hold this boot's record.
+    NotThisBoot,
 }
 
 /// The `trace` partition among `parts`, by the layout's name and type.
@@ -245,27 +253,9 @@ pub fn records<D: BlockDevice>(dev: &D, part: &Partition) -> Result<Vec<Record>,
 
 #[cfg(test)]
 mod tests {
+    use super::testdisk::{disk, part_of, Torn};
     use super::*;
-    use crate::gpt::write_gpt;
     use crate::MemBlockDevice;
-
-    /// A disk with only the trace partition, at LBA 2048.
-    fn disk() -> MemBlockDevice {
-        let sectors = u64::from(SLOTS) * SLOT_SECTORS;
-        let mut dev = MemBlockDevice::new(SECTOR, 2048 + sectors + 64);
-        let part = Partition {
-            type_guid: GUID_NEXUS_TRACE,
-            first_lba: 2048,
-            last_lba: 2048 + sectors - 1,
-            name: PARTITION.into(),
-        };
-        write_gpt(&mut dev, &[part]).expect("gpt");
-        dev
-    }
-
-    fn part_of(dev: &MemBlockDevice) -> Partition {
-        partition(&parse_gpt(dev).expect("gpt")).expect("trace")
-    }
 
     #[test]
     fn a_boot_writes_its_slot_text_first_header_last_and_reads_back() {
@@ -321,33 +311,6 @@ mod tests {
         let stray = Header { slot: 5, seq: 1, loader_len: 0, os_len: 0, flags: 0 };
         dev.write_block(part.first_lba + 2 * SLOT_SECTORS, &stray.encode()).expect("write");
         assert!(records(&dev, &part).expect("records").is_empty());
-    }
-
-    /// A disk whose writes fail where `fails(lba, bytes)` says: a power cut at that write.
-    struct Torn<F: Fn(u64, &[u8]) -> bool> {
-        dev: MemBlockDevice,
-        fails: F,
-    }
-
-    impl<F: Fn(u64, &[u8]) -> bool> BlockDevice for Torn<F> {
-        fn block_size(&self) -> usize {
-            self.dev.block_size()
-        }
-        fn block_count(&self) -> u64 {
-            self.dev.block_count()
-        }
-        fn read_block(&self, idx: u64, buf: &mut [u8]) -> Result<(), crate::BlockError> {
-            self.dev.read_block(idx, buf)
-        }
-        fn write_block(&mut self, idx: u64, buf: &[u8]) -> Result<(), crate::BlockError> {
-            if (self.fails)(idx, buf) {
-                return Err(crate::BlockError::IoError);
-            }
-            self.dev.write_block(idx, buf)
-        }
-        fn sync(&mut self) -> Result<(), crate::BlockError> {
-            self.dev.sync()
-        }
     }
 
     #[test]

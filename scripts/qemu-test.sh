@@ -770,6 +770,8 @@ expected_sequence=(
   "${BLK_BACKEND_MARKERS[@]}"
   "blkd: gpt ok (parts=7)"
   "blkd: irq endpoint bound"
+  # RFC-0107 Phase 2: the owner kept the kernel console ring in this boot's trace slot.
+  "blkd: trace os ok (slot="
   "statefsd: virtio upgrade ok"
   "SELFTEST: blk cross-partition deny ok"
   # TASK-0321 (RFC-0089 §12, ADR-0060): the verified system volume —
@@ -1264,6 +1266,7 @@ case "${PROFILE:-full}" in
       "${BLK_BACKEND_MARKERS[@]}"
       "blkd: gpt ok (parts=7)"
       "blkd: irq endpoint bound"
+      "blkd: trace os ok (slot="
       "statefsd: virtio upgrade ok"
       "SELFTEST: blk cross-partition deny ok"
       "bundlemgrd: system volume verified (slot="
@@ -2993,6 +2996,15 @@ elif [[ "${TRACE_CONTRACT:-1}" == "1" ]]; then
   fi
   trace_boots=$(grep -c '"seq"' <<<"$trace_meta" || true)
   echo "[PASS] trace contract: the loader's $(grep -c . <<<"$trace_loader") lines of $trace_boots boot(s) from seq $trace_since are on the disk ($trace_img)"
+  # RFC-0107 Phase 2 (TASK-0327B P2): the OS text — what the block owner kept
+  # from the kernel's console ring — is the UART's text after each boot's jump
+  # line, byte for byte (a prefix: the console runs on after the last write),
+  # and the run's last boot's reaches `stage: platform`.
+  if ! trace_os=$(python3 "$ROOT/tools/trace_os_contract.py" "$trace_bin" "$trace_img" "$UART_LOG" "$trace_since" "$LOG_DIR"); then
+    echo "[error] trace contract (os): $trace_os" >&2
+    exit 1
+  fi
+  echo "[PASS] trace contract (os): ${trace_os#* } bytes of ${trace_os%% *} boot(s) of kernel console text are on the disk, byte-equal to the UART"
 fi
 
 # Chain-marker contract reconciliation (tools/nx/chains/markers.txt): the

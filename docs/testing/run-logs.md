@@ -14,6 +14,7 @@ build/logs/
     qemu.stderr           ← QEMU's own error stream
     build.stderr          ← compiler warnings/errors (persisted)
     trace-loader.txt      ← the run's loader lines as the boot disk's trace keeps them (RFC-0107)
+    trace-os-<seq>.txt    ← each boot's kernel console text as the block owner kept it (RFC-0107 Phase 2)
   board--{ts}/            ← a board boot: `just board-serial` (the adapter) or `just board-log`
     uart.log              ←   (the eMMC's boot trace over adb: uart.log = the latest boot,
     trace-all.log         ←    trace-all.log = every kept boot, trace.part = the partition)
@@ -21,9 +22,12 @@ build/logs/
 ```
 
 Every lane checks the **trace contract** (RFC-0107): the run's boots on the disk — from the
-run's first `nxboot: trace slot=<n> seq=<m>` on — hold exactly the UART's `nxboot:` lines. A
-`[error] trace contract` names the difference; `nx image trace --image build/nexus.img --all`
-shows what the disk kept.
+run's first `nxboot: trace slot=<n> seq=<m>` on — hold exactly the UART's `nxboot:` lines, and
+(Phase 2) each boot's OS region is the UART's text after its jump line, byte for byte — a boot
+that stopped before the block owner ran keeps none — with the last boot's reaching
+`stage: platform`. A `[error] trace contract` names the difference (the OS
+one the first differing byte); `nx image trace --image build/nexus.img --all` shows what the
+disk kept, `--seq <n> --os` one boot's kernel console text.
 
 The old flat files (`uart.log`, `qemu.log` in repo root) and `.cursor/debug*.log` are obsolete.
 Use the newest run's `hypothesis.json` as the first triage stop after any QEMU run.

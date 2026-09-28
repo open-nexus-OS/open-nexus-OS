@@ -214,6 +214,20 @@ into a green verdict, so they must be genuine) is ongoing and so far reassuring.
   (init MMIO-grant yield loops and fixed selftest waits → waitset / reply-correlated event wakes)
   tracked on the same overall track.
 
+## Amendment 2026-09-28 (RFC-0107 Phase 2, TASK-0327B P2): the kernel keeps a console ring
+
+The "no replay buffer" rule above was about the verdict-grid mechanism and the kernel's
+UART+alloc trouble: nothing allocated, nothing growing. It stands. What Phase 2 adds is a
+**fixed, static** ring of whole pages in the kernel image's own `.bss` (`hal/console_ring.rs`,
+the layout in `nexus-console-ring`): every byte the kernel sends to the console — its own lines
+and every service's `debug_putc`/`debug_write` — is recorded and emitted under one lock in the
+one hook every console path passes (`console_write_byte`), so the ring holds what the UART
+receives, in its order, and also what was written before the console was known. No heap, no
+`Vec`, no syscall: the kernel exposes the pages read-only, the way it exposes the device tree,
+and init pins them to the block owner alone, which keeps them in the boot trace on the boot
+disk. The reason is the board: without a serial adapter the trace is the only witness of a
+boot, and the console text is what the proof manifest judges.
+
 ## Alternatives considered
 
 - **Just delete the noisy markers.** Rejected: they are valuable when debugging. The problem is

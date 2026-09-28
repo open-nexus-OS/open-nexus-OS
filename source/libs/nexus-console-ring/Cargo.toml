@@ -1,0 +1,10 @@
+[package]
+name = "nexus-console-ring"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The kernel console ring's layout and its reader (RFC-0107 Phase 2): one format for the kernel that writes it and the one service that reads it"
+
+[dependencies]
+
+[dev-dependencies]

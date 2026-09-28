@@ -20,7 +20,7 @@
 2339	source/kernel/neuron/src/selftest/mod.rs
 723	source/kernel/neuron/src/syscall/api/exec.rs
 1653	source/kernel/neuron/src/syscall/api/tests.rs
-1206	source/kernel/neuron/src/task/mod.rs
+1191	source/kernel/neuron/src/task/mod.rs
 880	source/libs/nexus-display-proto/src/client_surface.rs
 655	source/libs/nexus-event/src/lib.rs
 651	source/libs/nexus-evidence/src/lib.rs

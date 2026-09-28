@@ -150,6 +150,8 @@ pub mod syscall;
 pub use syscall::*;
 
 pub mod device_tree;
+
+pub mod console_ring;
 #[cfg(nexus_env = "os")]
 pub mod slot_probe;
 

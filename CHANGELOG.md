@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-28 (TASK-0327B P2, RFC-0107 Phase 2: the kernel console in the boot trace)
+
+- The kernel keeps every byte it sends to the console in a fixed static ring of whole pages
+  (`hal/console_ring.rs`; the layout in the new `nexus-console-ring` lib): the one hook every
+  console path passes records the byte and emits it under one lock, so the ring holds what the
+  UART receives, in its order, bytes before the console is known included. No heap, no syscall:
+  the kernel exposes the pages read-only to init (slot 3, `INIT_CONSOLE_RING_SLOT`), like the
+  tree; init pins them to the block owner alone (`NamedSlot::ConsoleRing`, a `test_reject_*`
+  holds it the one reader). ADR-0040 amended.
+- The block owner keeps the OS region of this boot's trace slot (`storage::trace::OsTrace`,
+  `blkd/src/trace_os.rs`): paced by a periodic kernel timer on its declared notify pair
+  (RFC-0093 §7), appending text first and the header last, never taking a slot over — the slot
+  the loader handed over in `/chosen/nexus,trace` must already be that boot's record at the
+  place the ring rule gives its number. The `trace` partition has no selector: no client can name
+  it. `blkd: trace os ok (slot=<n> seq=<m>)` on the first write.
+- `nx image trace --seq <n>` and `--os`; every lane's trace contract now also compares each
+  boot's OS text with the UART log byte for byte (`tools/trace_os_contract.py`); a boot that
+  stopped before the block owner ran keeps none, allowed for every boot but the run's last,
+  whose text must reach `stage: platform`.
+- Proof, host: `nexus-console-ring` 4 tests (every byte once across the wrap; bytes lost before a read counted; a prefix overwritten during the copy dropped; another ring's header refused); `storage` trace 10 (the loader's 6, the OS writer's 4: sectors + a reopen, other boots' slots and a stray record, text past the region and text the ring lost, a torn append); `nexus-service-topology` 12 (blkd the one ring reader); `nx` image_trace_cli 4 (`--seq`, `--os`). Kernel cross-build and `build-os-workspace` with 0 warnings.
+- Proof, mutations: 8 host mutations each killed — the reader's lost count, its during-copy skip, its version check; the writer's LBA check, its seq/slot check, its overflow flag, its region bound; a second ring reader. The harness OS contract against the smp1 lane's disk and log: PASS; a flipped byte → refused at byte 100 with both texts; an emptied OS region → "keeps no OS text"; a region cut before `stage: platform` → refused.
+- Proof, QEMU: `ci-os-smp1`: `init: console ring grant ok svc=blkd`, `blkd: trace os ok (slot=0 seq=1)`, `[PASS] trace contract (os): 64485 bytes … byte-equal to the UART` (through `stage: platform` to the UI selftests). `just test-all`: EXIT=0 in 52 min — 12 QEMU runs, every loader AND OS trace contract green, 21 boots kept, 912 240 bytes of kernel console text byte-equal to the UART (the reset lane's 3 boots, ota-fallback's 4 with its two trial boots that stop before the block owner and keep none); 3614 host tests; 0 errors..
+
 ### Added - 2026-09-27 (TASK-0260B P0–P2: nxboot is the board's FIT payload; the first boot from the eMMC reaches the verified kernel jump)
 
 - The FIT the SPL loads from `uboot`: `config/board/bpi-f3/nexus.its`, built by

@@ -1,7 +1,7 @@
 # RFC-0107: The boot trace — console markers persisted on the boot disk, read without a serial adapter
 
-- Status: In Progress (Phase 0 ✅ 2026-09-27, Phase 1 ✅ 2026-09-27 — TASK-0327B P0/P1; seeded
-  2026-09-27)
+- Status: In Progress (Phase 0 + 1 ✅ 2026-09-27, Phase 2 ✅ 2026-09-28 — TASK-0327B P0–P2; Phase 3
+  waits for the board's DRAM measurement; seeded 2026-09-27)
 - Owners: @runtime @devx
 - Created: 2026-09-27
 - Last Updated: 2026-09-27
@@ -19,8 +19,9 @@
 - **Phase 1 (the partition, the record, the loader writes, the host reads; QEMU proof)**: ✅
   2026-09-27 — TASK-0327B P1 (the trace contract in every lane; `just board-log` against the
   board's stock system)
-- **Phase 2 (the kernel's console ring and its read syscall, the OS writer; the whole ladder
-  persisted)**: ⬜
+- **Phase 2 (the kernel's console ring, read-only to the block owner, which keeps it; the
+  whole ladder persisted)**: ✅ 2026-09-28 — TASK-0327B P2 (no read syscall: the ring is
+  exposed like the tree; every lane's contract compares each boot's OS text with the UART)
 - **Phase 3 (a crashed boot's ring rescued from RAM by the next loader — only if the board
   measures DRAM retention across a reset)**: ⬜
 
@@ -73,9 +74,11 @@ channel.
   sets the region's overflow flag; the loader's capture buffer and the kernel ring are static.
 - **Fail-closed reading**: a slot counts only with its magic, its version, a matching header CRC
   and lengths inside their regions; anything else is shown as absent or damaged, never guessed.
-- **Write authority**: before the OS, only the loader; in the OS, only the one trace writer,
-  through the block owner's gate (deny-by-default on the kernel-attributed sender). Phase 2's read
-  syscall is gated by a capability init hands to exactly that writer.
+- **Write authority**: before the OS, only the loader; in the OS, only the block owner itself
+  (amended 2026-09-28, Phase 2: the owner keeps the OS region, so the `trace` partition has no
+  selector and no client can name it — nothing to gate). The kernel's console ring reaches
+  exactly one reader: the topology declares its slot for the block owner alone, held by a
+  `test_reject_*`.
 - **No new secret exposure**: secrets never reach the console (the standing rule); the trace adds
   no reader beyond physical access to the disk.
 
@@ -117,10 +120,30 @@ channel.
 - **The harness's contract** (every QEMU lane): the run's boots are the trace's boots from the
   run's first `nxboot: trace … seq=N` on (a kept disk also holds the boots of earlier launches);
   their loader regions hold exactly the UART's `nxboot:` lines. A direct-kernel boot has no
-  loader and skips it, saying so.
-- **Phase 2**: the kernel keeps a fixed static ring of every byte it sends to the console —
-  including bytes before the console is known — and a read syscall returns the ring's bytes from a
-  given offset; the OS writer appends them to its region periodically and at `init: ready`.
+  loader and skips it, saying so. Phase 2 adds: each boot's OS region is the UART's text after
+  that boot's jump line, byte for byte (a prefix); a boot that stopped before the block owner
+  ran keeps none, which is allowed for every boot but the run's last, whose region must reach
+  `stage: platform` (`tools/trace_os_contract.py`).
+- **Readers, Phase 2**: `nx image trace --seq <n>` one boot, `--os` the OS text only.
+- **Phase 2** (amended 2026-09-28 from the design below; TASK-0327B P2): the kernel keeps a
+  fixed static ring of every byte it sends to the console — including bytes before the console
+  is known — in whole pages of its own image (`nexus-console-ring` is the one layout: a header
+  page with magic `NXCRING1`, version, the data size and the head, then 128 KiB of data; the head
+  counts every byte ever written). Every console path passes one hook, which records the byte
+  and emits it under one lock, so the ring holds the bytes in the order the UART receives them.
+  - **No read syscall**: the kernel exposes the ring read-only, the way it exposes the tree —
+    a `VmoRo` in init's slot 3 (`INIT_CONSOLE_RING_SLOT`), which init pins into the block owner's
+    declared `ConsoleRing` slot and nowhere else.
+  - **The block owner is the OS writer**: it holds the disk, so it is the first process that can
+    write it, and a diagnostics channel depends on as little as possible. Paced by a periodic
+    kernel timer on a declared notify endpoint (RFC-0093 §7, 250 ms) beside its server endpoint,
+    it appends what the ring holds to this boot's slot (`/chosen/nexus,trace`), text first,
+    header last, never taking a slot over: the slot must already be this boot's record, at the
+    place the ring rule gives its number. What the ring overwrote before it was read sets the OS
+    overflow flag. Its console says `blkd: trace os ok (slot=<n> seq=<m>)` on its first write, or
+    `blkd: trace os none (<why>)` once at start.
+  - The trace lags the console by at most one period; a boot that stops in the kernel before the
+    block owner runs leaves no OS text (Phase 3's case).
 - **Phase 3**: the ring lives in a RAM range the tree reserves; the next loader copies a previous
   ring that is still intact (magic, CRC) into its slot before anything else — built only after
   the board shows that DRAM keeps its content across a reset.
@@ -130,7 +153,8 @@ channel.
 - **Phase 1**: the partition and the record codec (`storage::trace`), the loader's capture and
   writes, `nx image trace`, the harness's trace contract (every lane: the loader lines of
   `uart.log` equal the loader regions of the trace, boot by boot).
-- **Phase 2**: the kernel ring and syscall, the OS writer, the whole `uart.log` in the trace.
+- **Phase 2**: the kernel ring, read-only to the block owner, which keeps it; the whole `uart.log`
+  in the trace.
 - **Phase 3**: the RAM rescue.
 
 ## Security considerations
@@ -198,5 +222,6 @@ channel.
 
 - [x] Phase 1: `storage::trace`, the layout's `trace` partition, the loader's writer, `nx image
       trace`, `just board-log`, the harness's trace contract (TASK-0327B P1, 2026-09-27).
-- [ ] Phase 2: the kernel ring + syscall (ADR-0040 amended), the OS writer, the whole-log contract.
+- [x] Phase 2: the kernel ring, exposed read-only to the block owner (ADR-0040 amended), which
+      keeps it in the trace; the OS-text contract in every lane (TASK-0327B P2, 2026-09-28).
 - [ ] Phase 3: measured, then the RAM rescue.

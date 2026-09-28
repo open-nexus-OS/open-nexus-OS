@@ -102,6 +102,14 @@ kernel names an address, an interrupt line or a frequency of its own.
   read-only, exposes it to the kernel (`bytes()`) and injects a read-only
   alias (`VmoRo`) into init's slot 2 (`nexus_abi::INIT_DEVICE_TREE_SLOT`),
   from which init discovers devices and hands the tree to services.
+- **`hal/console_ring.rs`** (RFC-0107 Phase 2) — a static ring of pages that
+  keeps every byte the kernel sends to the console (its own lines and every
+  service's debug syscalls, bytes before the console is known included), in
+  the UART's order: `console_write_byte` records and emits under one lock.
+  Exposed like the tree, read-only, in init's slot 3
+  (`nexus_abi::INIT_CONSOLE_RING_SLOT`); init pins it to the block owner
+  alone, which keeps it in the boot trace on the boot disk. The layout is
+  `nexus-console-ring`'s; no syscall, no heap.
 - **`core/boot_image.rs`** — the image's own range and the fixup-table check:
   `KSELFTEST: kernel image ok (base=… len=… relocs=…)`.
 - **`core/boot_handoff.rs`** — the measured-boot record from

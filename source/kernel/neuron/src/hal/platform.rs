@@ -305,14 +305,19 @@ fn uart_read_reg(base: usize, reg: usize) -> u8 {
 }
 
 /// Emit one byte on the console: wait for the transmitter, then write. Dropped
-/// when no console is known yet (never a write to a guessed address).
+/// when no console is known yet (never a write to a guessed address). Every byte
+/// is first kept in the console ring (RFC-0107 Phase 2) — the one hook every
+/// console path passes, so the ring holds what the UART receives, in its order,
+/// and also what was written before the console was known.
 pub fn console_write_byte(byte: u8) {
-    let base = UART_BASE.load(Ordering::Acquire);
-    if base == 0 {
-        return;
-    }
-    while uart_read_reg(base, UART_LSR) & LSR_TX_IDLE == 0 {}
-    uart_write_reg(base, UART_TX, byte);
+    super::console_ring::record_then(byte, |byte| {
+        let base = UART_BASE.load(Ordering::Acquire);
+        if base == 0 {
+            return;
+        }
+        while uart_read_reg(base, UART_LSR) & LSR_TX_IDLE == 0 {}
+        uart_write_reg(base, UART_TX, byte);
+    });
 }
 
 /// Collection of HAL devices for the running machine.

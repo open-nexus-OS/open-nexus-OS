@@ -150,6 +150,9 @@ pub enum NamedSlot {
     /// The device tree, read-only (RFC-0098 C3): the harness reads its boot mode and
     /// profile from `/chosen/nexus,*` there.
     DeviceTree,
+    /// The kernel console ring, read-only (RFC-0107 Phase 2): the block owner — its one
+    /// reader — keeps it in the boot trace.
+    ConsoleRing,
 }
 
 /// One named slot binding of a service.
@@ -233,6 +236,18 @@ mod tests {
             assert!(!seen.contains(&spec.id), "duplicate spec for {:?}", spec.id);
             seen.push(spec.id);
         }
+    }
+
+    /// RFC-0107 Phase 2: the kernel console ring has ONE reader, the block owner that keeps it
+    /// in the boot trace — no other service may even declare a slot init would pin it into.
+    #[test]
+    fn test_reject_a_second_console_ring_reader() {
+        let readers: Vec<ServiceId> = SERVICE_SPECS
+            .iter()
+            .filter(|spec| spec.extra_slots.iter().any(|b| b.name == NamedSlot::ConsoleRing))
+            .map(|spec| spec.id)
+            .collect();
+        assert_eq!(readers, [ServiceId::Blkd]);
     }
 
     #[test]

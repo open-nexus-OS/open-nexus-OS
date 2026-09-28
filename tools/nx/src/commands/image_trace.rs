@@ -5,9 +5,10 @@
 //! disk image — its `trace` partition found by the layout's name and type — or from a dump of
 //! that partition alone, which is what `just board-log` pulls from the board's stock system. The
 //! latest boot by default, every kept boot oldest first with `--all`, one run's boots with
-//! `--since <seq>`; the loader's text only with `--loader`. Records are read through
-//! `storage::trace`, which counts a slot only with its magic, version, CRC and in-bounds lengths.
-//! The text goes out byte for byte (`--out`), so the proof manifest judges it like a `uart.log`.
+//! `--since <seq>`, one boot with `--seq <n>`; the loader's text only with `--loader`, the OS
+//! text only with `--os`. Records are read through `storage::trace`, which counts a slot only
+//! with its magic, version, CRC and in-bounds lengths. The text goes out byte for byte (`--out`),
+//! so the proof manifest judges it like a `uart.log`.
 //! OWNERS: @devx @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -40,7 +41,7 @@ pub(crate) fn handle_trace(args: ImageTraceArgs) -> ExecResult {
             name: trace::PARTITION.into(),
         });
     let records = trace::records(&dev, &part).map_err(|e| match e {
-        TraceError::TooSmall | TraceError::NoPartition => NxError::new(
+        TraceError::TooSmall | TraceError::NoPartition | TraceError::NotThisBoot => NxError::new(
             ExitClass::ValidationReject,
             "image: neither a disk with a trace partition nor a dump of one",
         ),
@@ -49,24 +50,27 @@ pub(crate) fn handle_trace(args: ImageTraceArgs) -> ExecResult {
     let Some(latest) = records.last() else {
         return Err(NxError::new(ExitClass::ValidationReject, "image: the trace keeps no boot"));
     };
-    let chosen: Vec<&Record> = match args.since {
-        Some(from) => records.iter().filter(|r| r.header.seq >= from).collect(),
-        None if args.all => records.iter().collect(),
-        None => vec![latest],
+    let chosen: Vec<&Record> = match (args.seq, args.since) {
+        (Some(seq), _) => records.iter().filter(|r| r.header.seq == seq).collect(),
+        (None, Some(from)) => records.iter().filter(|r| r.header.seq >= from).collect(),
+        (None, None) if args.all => records.iter().collect(),
+        (None, None) => vec![latest],
     };
     if chosen.is_empty() {
-        let from = args.since.unwrap_or_default();
+        let which = match args.seq {
+            Some(seq) => format!("boot {seq}"),
+            None => format!("boot from seq {} on", args.since.unwrap_or_default()),
+        };
         return Err(NxError::new(
             ExitClass::ValidationReject,
-            format!(
-                "image: the trace keeps no boot from seq {from} on (the latest is {})",
-                latest.header.seq
-            ),
+            format!("image: the trace keeps no {which} (the latest is {})", latest.header.seq),
         ));
     }
     let mut text = Vec::new();
     for r in &chosen {
-        text.extend_from_slice(&r.loader);
+        if !args.os {
+            text.extend_from_slice(&r.loader);
+        }
         if !args.loader {
             text.extend_from_slice(&r.os);
         }

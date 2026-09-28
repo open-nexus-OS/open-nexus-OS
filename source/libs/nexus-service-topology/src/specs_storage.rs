@@ -120,6 +120,9 @@ pub(crate) const BLKD: ServiceSpec = ServiceSpec {
         NamedSlotBinding { name: NamedSlot::DeviceWatchdogRecv, slot: slots::blkd::WATCHDOG.recv },
         NamedSlotBinding { name: NamedSlot::DeviceWatchdogSend, slot: slots::blkd::WATCHDOG.send },
         NamedSlotBinding { name: NamedSlot::DeviceTree, slot: slots::blkd::DEVICE_TREE },
+        NamedSlotBinding { name: NamedSlot::ConsoleRing, slot: slots::blkd::CONSOLE_RING },
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::blkd::TRACE_TIMER.recv },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::blkd::TRACE_TIMER.send },
     ],
 };
 

@@ -33,3 +33,9 @@ pub const WATCHDOG: SlotPair = SlotPair::new(0xF5, 0xF4);
 /// record from it and checks the grant against it, and its SD host's node configures the
 /// host.
 pub const DEVICE_TREE: u32 = 0xF6;
+/// The kernel console ring, read-only (RFC-0107 Phase 2): the owner keeps it in the boot
+/// trace's slot for this boot (`/chosen/nexus,trace`).
+pub const CONSOLE_RING: u32 = 0xFA;
+/// The trace's pacing timer (RFC-0107 Phase 2, RFC-0093 §7): a one-shot armed while the ring
+/// holds bytes the trace does not, a waitset member beside the server endpoint.
+pub const TRACE_TIMER: SlotPair = SlotPair::new(0xFC, 0xFB);

@@ -11,3 +11,5 @@ nexus-event = { path = "../nexus-event" }
 # ADR-0051: service wire protocols moved to the declarative SSOT crate;
 # re-exported here at their historical paths (transitional shim).
 nexus-wire = { path = "../nexus-wire" }
+# RFC-0107 Phase 2: the kernel console ring's layout and reader (the mapping lives here).
+nexus-console-ring = { path = "../nexus-console-ring" }

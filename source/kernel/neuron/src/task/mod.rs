@@ -85,6 +85,7 @@ mod affinity;
 /// TASK-0054C P4a: the state that lets `ipc_call` be committed and finished by its peer.
 pub mod completion;
 mod exit_reason;
+mod init_caps;
 pub use affinity::{clamp_home_to_affinity, validate_affinity_mask};
 pub use exit_reason::ExitReason;
 
@@ -719,26 +720,10 @@ impl TaskTable {
         let mut child_caps = CapTable::new();
         child_caps.set(slot, bootstrap_cap)?;
 
-        // RFC-0005 Phase 2 hardening: endpoint creation authority is an explicit
-        // EndpointFactory capability; the bootstrap task (PID 0) carries it in slot 2 and
-        // its direct userspace child (init-lite) receives a derived copy in slot 1 — no
-        // PID gating, no cap_transfer timed from outside. RFC-0098 C3 (TASK-0245 P4): the
-        // same child receives the device tree, read-only, in slot 2
-        // (`nexus_abi::INIT_DEVICE_TREE_SLOT`, see `boot_fdt::init_alias`).
+        // The kernel's direct userspace child (init) gets its fixed slots — the endpoint
+        // factory, the device tree, the console ring — from `init_caps` (the ABI's numbers).
         if parent == Pid::KERNEL && address_space.is_some() {
-            const FACTORY_PARENT_SLOT: usize = 2;
-            const FACTORY_CHILD_SLOT: usize = 1;
-            const DEVICE_TREE_CHILD_SLOT: usize = 2;
-            if let Ok(factory_cap) = parent_task.caps.get(FACTORY_PARENT_SLOT) {
-                if factory_cap.kind == CapabilityKind::EndpointFactory
-                    && factory_cap.rights.contains(Rights::MANAGE)
-                {
-                    let _ = child_caps.set(FACTORY_CHILD_SLOT, factory_cap);
-                }
-            }
-            if let Some(alias) = crate::boot_fdt::init_alias() {
-                let _ = child_caps.set(DEVICE_TREE_CHILD_SLOT, alias);
-            }
+            init_caps::inject(&parent_task.caps, &mut child_caps);
         }
 
         let mut frame = TrapFrame { sepc: entry_pc.raw(), ..TrapFrame::default() };

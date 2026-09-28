@@ -42,6 +42,8 @@ pub fn early_boot_init(hartid: usize, dtb: usize) -> usize {
     unsafe {
         zero_bss();
     }
+    // RFC-0107 Phase 2: the console ring's header, before the first console byte.
+    crate::hal::console_ring::init();
     // RFC-0098 C3: the platform — console, PLIC, timebase, memory banks — is
     // built from the tree in a1 BEFORE the first byte is logged; paging is off,
     // so the tree is read at its physical address. Without a valid tree there

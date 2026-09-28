@@ -41,6 +41,13 @@ proves = "nxboot parsed the device tree it received, wrote /chosen/nexus,* into 
 phase = "bringup"
 proves = "loader carried the measured handoff record in /chosen and chained into the verified image at the window it chose from the tree (base=… on the line)"
 
+# RFC-0107 Phase 2 (TASK-0327B P2): the block owner keeps the kernel's console ring in this
+# boot's trace slot on the boot disk — printed on its first write. The harness's OS trace
+# contract compares what it kept with the UART log byte for byte.
+[marker."blkd: trace os ok (slot="]
+phase = "bringup"
+proves = "the block owner appended the kernel console ring's text to this boot's trace slot (the slot the loader handed over in /chosen/nexus,trace), text first, header last"
+
 [marker."KSELFTEST: boot handoff ok (measured)"]
 phase = "bringup"
 proves = "kernel validated the loader's CRC'd handoff record (ADR-0059 ABI parity across the two implementations; qemu-soft-root measurement, never policy)"
