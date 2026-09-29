@@ -116,6 +116,7 @@ impl Profile {
             boot_cfg::runtime_mode_with_retry(),
             legacy,
             default,
+            boot_cfg::machine(),
         )
     }
 
@@ -170,6 +171,7 @@ impl Profile {
         runtime_mode: Option<RuntimeMode>,
         legacy_profile: Option<Profile>,
         default: Profile,
+        machine: boot_cfg::Machine,
     ) -> Profile {
         // Proof boots ALWAYS run the full ladder. The proof harness keys its marker
         // expectation (`verify-uart list-markers --profile=<harness>`) on the HARNESS profile,
@@ -211,9 +213,15 @@ impl Profile {
         match runtime_mode {
             Some(RuntimeMode::InteractiveFull) => Profile::Full,
             Some(RuntimeMode::InteractiveMinimal) => Profile::Bringup,
-            // Neither a profile nor a mode in the tree and no build-time choice: a board
-            // (QEMU's loader always writes one of them from fw_cfg).
-            None if legacy_profile.is_none() && runtime_profile.is_none() => Profile::Board,
+            // A board's tree (root not QEMU's) with neither a profile nor a mode in `/chosen`
+            // and no build-time choice: the board ladder. On QEMU an absent mode is a valid
+            // proof boot (RFC-0098 C2), so the machine decides, never the absence alone.
+            None if machine == boot_cfg::Machine::Board
+                && legacy_profile.is_none()
+                && runtime_profile.is_none() =>
+            {
+                Profile::Board
+            }
             _ => legacy_profile.unwrap_or(default),
         }
     }
@@ -232,6 +240,7 @@ pub(crate) fn runtime_is_interactive() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::os_lite::boot_cfg::Machine;
     use crate::runtime_mode::{RuntimeMode, RuntimeProfile};
 
     #[test]
@@ -280,7 +289,7 @@ mod tests {
     fn a_tree_without_profile_or_mode_is_a_board() {
         // No fw_cfg, no build-time choice: the board ladder — everything but the slot-writing
         // and network phases.
-        let board = Profile::resolve(None, None, None, Profile::Quick);
+        let board = Profile::resolve(None, None, None, Profile::Quick, Machine::Board);
         assert_eq!(board, Profile::Board);
         assert!(board.includes(PhaseId::Bringup) && board.includes(PhaseId::Vfs));
         assert!(board.includes(PhaseId::Mmio) && board.includes(PhaseId::End));
@@ -288,8 +297,22 @@ mod tests {
         assert!(!board.includes(PhaseId::Remote));
         // A build-time choice still wins when the tree says nothing.
         assert_eq!(
-            Profile::resolve(None, None, Some(Profile::Quick), Profile::Full),
+            Profile::resolve(None, None, Some(Profile::Quick), Profile::Full, Machine::Board),
             Profile::Quick
+        );
+    }
+
+    /// RFC-0098 C2: on QEMU an absent `nexus,boot-mode` IS the proof boot (raw markers), and a
+    /// lane without a profile knob runs the build-time default — never the board ladder.
+    #[test]
+    fn test_reject_board_ladder_on_qemu_without_knobs() {
+        assert_eq!(
+            Profile::resolve(None, None, None, Profile::Full, Machine::QemuVirt),
+            Profile::Full
+        );
+        assert_eq!(
+            Profile::resolve(None, None, None, Profile::Full, Machine::Unknown),
+            Profile::Full
         );
     }
 
@@ -301,13 +324,20 @@ mod tests {
                 None,
                 Some(RuntimeMode::InteractiveMinimal),
                 Some(Profile::Full),
-                Profile::Quick
+                Profile::Quick,
+                Machine::QemuVirt
             ),
             Profile::Bringup
         );
         // `interactive-full` → the whole ladder (folded into verdicts at runtime).
         assert_eq!(
-            Profile::resolve(None, Some(RuntimeMode::InteractiveFull), None, Profile::Quick),
+            Profile::resolve(
+                None,
+                Some(RuntimeMode::InteractiveFull),
+                None,
+                Profile::Quick,
+                Machine::QemuVirt
+            ),
             Profile::Full
         );
     }
@@ -322,7 +352,8 @@ mod tests {
                 Some(RuntimeProfile::Bringup),
                 Some(RuntimeMode::Proof),
                 None,
-                Profile::Full
+                Profile::Full,
+                Machine::QemuVirt
             ),
             Profile::Full
         );
@@ -331,7 +362,8 @@ mod tests {
                 Some(RuntimeProfile::None),
                 Some(RuntimeMode::Proof),
                 None,
-                Profile::Full
+                Profile::Full,
+                Machine::QemuVirt
             ),
             Profile::Full
         );
@@ -344,7 +376,8 @@ mod tests {
                 Some(RuntimeProfile::Net),
                 Some(RuntimeMode::InteractiveFull),
                 Some(Profile::Quick),
-                Profile::Full
+                Profile::Full,
+                Machine::QemuVirt
             ),
             Profile::Net
         );

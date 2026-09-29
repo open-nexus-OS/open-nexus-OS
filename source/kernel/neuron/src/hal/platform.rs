@@ -321,8 +321,23 @@ fn uart_read_reg(base: usize, reg: usize) -> u8 {
 /// when no console is known yet (never a write to a guessed address). Every byte
 /// is first kept in the console ring (RFC-0107 Phase 2) — the one hook every
 /// console path passes, so the ring holds what the UART receives, in its order,
-/// and also what was written before the console was known.
+/// and also what was written before the console was known. The line the byte
+/// belongs to is this hart's from its first byte to `\n` (`console_line`,
+/// TASK-0327B P4 H0d): on a multi-hart board two writers otherwise interleave
+/// byte by byte and no marker survives.
 pub fn console_write_byte(byte: u8) {
+    super::console_line::with_line(byte, console_emit);
+}
+
+/// Sends this hart's gathered partial line now (the panic path's first act, so the trace
+/// ends at the dying hart's last byte).
+pub fn console_flush_line() {
+    super::console_line::flush_current_hart(console_emit);
+}
+
+/// One byte to the ring and the UART, in that order, with no line discipline: the leaf every
+/// console path ends in.
+fn console_emit(byte: u8) {
     super::console_ring::record_then(byte, |byte| {
         let base = UART_BASE.load(Ordering::Acquire);
         if base == 0 {

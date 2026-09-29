@@ -19,6 +19,9 @@ use crate::{trap, uart};
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    // TASK-0327B P4 H0d: this hart's gathered partial line goes out first, so the trace ends
+    // at the dying hart's last byte before the panic text.
+    crate::hal::platform::console_flush_line();
     let mut w = uart::raw_writer();
 
     // CRITICAL: Use minimal formatting to avoid triggering another panic

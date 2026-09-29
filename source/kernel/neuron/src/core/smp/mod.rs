@@ -254,9 +254,11 @@ pub fn hart_local_stage_resume(
     }
 }
 
-/// Identity fast path: `tp` points at a valid hart-local block in S-mode.
+/// Identity fast path: `tp` points at a valid hart-local block in S-mode. `None` before the
+/// block is installed — the console's line discipline (`hal::console_line`) asks here on every
+/// byte and must never count as an identity fallback.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn cpu_from_hart_local_tp() -> Option<CpuId> {
+pub(crate) fn cpu_from_hart_local_tp() -> Option<CpuId> {
     let raw_tp: usize;
     // SAFETY: reading `tp` is side-effect free.
     unsafe {

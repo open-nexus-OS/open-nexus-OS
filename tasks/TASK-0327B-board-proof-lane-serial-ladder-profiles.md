@@ -1,6 +1,6 @@
 ---
 title: TASK-0327B Board proof lane: the marker ladder from the boot trace on the disk (RFC-0107) or the debug UART, `board-*` profiles, opt-in in `test-all`
-status: In Progress (P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace; P3 done 2026-09-28 — the RAM rescue, proven on QEMU, and the board measured: its reset scrubs DRAM, so the board's early kernel needs the UART (P4's serial ladder) or a LED ladder; seeded 2026-09-21 at Block 0 P0)
+status: In Progress (P4 H0 done 2026-09-29 — `[PASS] board-headless` on the desk board; `board-visible` waits for Block 1's D5; P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace; P3 done 2026-09-28 — the RAM rescue, proven on QEMU, and the board measured: its reset scrubs DRAM, so the board's early kernel needs the UART (P4's serial ladder) or a LED ladder; seeded 2026-09-21 at Block 0 P0)
 owner: @devx @runtime
 created: 2026-09-21
 depends-on:
@@ -168,7 +168,7 @@ P2 read the eMMC back over adb.
   - **Proof — QEMU:** `ci-os-reset`: boot 2 `nxboot: rescue ok (seq=1 bytes=643 lost=0)`, boot 3 `rescue ok (seq=2 bytes=245 lost=0)`, the OS contract byte-equal with the rescued tails (116 828 bytes of 3 boots); `ci-os-smp1`: `rescue none (first boot)`. `just test-all`: EXIT=0 in 54 min — 12 QEMU runs, every loader and OS trace contract green, 21 boots, 929 531 bytes of kernel console text byte-equal to the UART, 9 rescues across the reset and OTA lanes (the reset lane's 643 and 245 bytes the same as in the single run; ota-fallback's two early-dead trial kernels rescued whole, 5944 bytes each, and their text byte-equal too); 3617 host tests; 0 errors..
   - **Proof — board (the measurement):** three flash cycles on the desk board, each read back exact — with `--verify` reading the trace partition as zero after boots (the fix proven) — and read with `just board-log` without a serial adapter: the first cycle's loader could not tell a scrubbed DRAM from an early-dead kernel (`no ring of seq=N in ram`), the second reported `no ring in ram` for stamped and unstamped rings alike, and the third, with the loader's own probe page, `dram probe lost` on every reset — the board's reset path scrubs DRAM (`docs/board/measurements/2026-09-28-dram-retention/`). Every board boot's loader ran to the verified jump; none kept OS text.
   - **Verdict:** Phase 3 works where DRAM survives a reset (QEMU's reset lane; proven). On this board the DRAM decays over a reset: three cycles lost the probe, a fourth kept it and rescued the kernel's console with bit errors — a lucky witness, never a proof medium (the measurement's amendment). What is left for the board's early kernel without an adapter is the user LED (`sys-led`, GPIO 96 of `k1x-gpio` at 0xd4019000, measured) — a ladder of a few bits — or the debug UART, whose ladder (`just board-serial`, P4) is built.
-- **P4 — the board ladder**, with TASK-0260B's FIT: the first eMMC boot attempt read back with
+- **P4 — the board ladder** (H0 ✅ 2026-09-29: `[PASS] board-headless: 17 rungs, no FAIL marker, manifest clean` on the desk board, image dev-755d5e41, 8 tracked reds tolerated — entropy ×7, RTC ×1; `board-visible` red at `gpud: dc scanout ok (` until D5), with TASK-0260B's FIT: the first eMMC boot attempt read back with
   `just board-log`, `markers/board.toml`, the `board-*` profiles, `just board-test`.
   **Recut 2026-09-29 as H0, the board-cycle hygiene before any display cycle (plan
   `composed-churning-squid`):**
@@ -192,6 +192,14 @@ P2 read the eMMC back over adb.
     network device); the two device-capability probes say `SELFTEST: dma buffer skipped (no device
     granted)` / `cap query vmo skipped (no device granted)` instead of `FAIL` when init granted no
     device. The nxra proof stays: it is state-neutral by construction (`NotStaged`).
+    **Amended 2026-09-29 evening:** "neither knob in `/chosen`" was the wrong board signal — on
+    QEMU an absent `nexus,boot-mode` IS the proof boot (RFC-0098 C2), and the `smp1` lane ran
+    the board ladder (`dbg: phase ota skipped`, `bundlemgrd: slot a active` missing). The
+    machine decides now: the tree's root `compatible` (`riscv-virtio` = QEMU virt; anything else
+    that reads = board; no tree = the knobs alone), `boot_cfg::Machine`, a fifth input of
+    `Profile::resolve` with `test_reject_board_ladder_on_qemu_without_knobs`. Note: the
+    `os_lite` tests are riscv-gated and never run on host (pre-existing) — the lanes are the
+    proof; moving the pure resolve logic beside `runtime_mode.rs` is a follow-up.
   - **H0c — `scripts/board-test.sh` + `board-headless`/`board-visible`** (built): `board-image` →
     `board-flash --plan` → operator prompts with the LED ladder as the wait signal → `board-log` →
     `verify-uart --profile=board-*` on the pulled trace; never green by timeout (no `nxboot:` banner
@@ -211,23 +219,32 @@ P2 read the eMMC back over adb.
     source exists (follow-up: rngd on the board, the SoC's TRNG); and the ladder is one rung
     short: `stage: platform` is never printed on the board — H0d. The lane is honest: `[FAIL]
     board-headless: rung missing: 'stage: platform' (rung 17 of 17)` until H0d is fixed.
-  - **H0d — the platform stage on the board** (found by H0c, instrumented 2026-09-29, one cycle to
-    measure): every platform-floor service prints `<svc>: ready` (13 of 13 — blkd, statefsd, logd,
-    policyd, bootctld, execd, samgrd, keystored, rngd, socd, bundlemgrd, packagefsd, vfsd), none
-    prints `FAIL ready announce`, yet init never prints `init: up <svc>` for any of them and never
-    signals `stage: platform`; `abilitymgr` and `sessiond` then wait on the fence forever (`FAIL
-    stage wait svc=… stage=session-start`) — the board never starts a session. The frames that DO
-    arrive are the ones announced after the responder began (`init: up inputd|windowd|touchd|
-    pinched`). On QEMU `smp` (four harts) the same early announces are drained fine. Two silent
-    paths in the responder could hide the loss and are now witnesses: a control frame that decodes
-    as neither a route ask, an exec check nor a verb → `init: ctrl frame unknown svc=<s> len=<n>
-    head=<16 hex>`; a control recv that fails with anything but an empty queue → `init: ctrl recv
-    err svc=<s> err=<label>`. The next board trace decides between: the frames arrive garbled
-    (a cross-hart payload/ordering defect in the kernel's IPC on this SoC), a refused channel (a
-    slot the board's different grant set aliases — the board has no virtio planes, so init's
-    kernel-allocated slots differ from QEMU's), or no frame at all (lost between the child's
-    `Ok` send and init's queue). Measurement folder:
-    `docs/board/measurements/2026-09-29-platform-stage/`.
+  - **H0d — the console tears across harts** (found by H0c 2026-09-29; fixed in the kernel). The
+    first reading — `stage: platform` never signalled, all 13 platform-floor `@ready` frames
+    lost — was wrong: the instrumented cycle (init's two new responder witnesses, which stay)
+    fired nothing, and de-interleaving the trace found every `init: up <svc>` and `stage:
+    platform` present, woven BYTE by byte into a `[USER-PF]` dump another hart printed at the
+    same time (`0i0n0i0t0:0 0u0p0 …`). The kernel's trap/fault/panic printers are lock-free by
+    design and write per byte through `console_write_byte`; on four real harts they interleave
+    with any writer at byte granularity — QEMU's serialised emulation never made it fail a lane.
+    Fix: each hart GATHERS its line (`console_line::LineBuf`) and sends it at `\n` as one unit
+    through a gate (`LineOwner`) held only while pure console bytes go out — nothing waits for a
+    hart doing anything else, so no kernel lock couples with the console (the first cut, a
+    hart owning the line from its first byte, coupled exactly so on QEMU: IPC round trips of
+    275 µs against a 64 µs budget, statefs writes past their budget — measured, replaced).
+    Same-hart re-entry writes through; a gate held past 30 ms is abandoned and taken over; the
+    panic path flushes its hart's partial line first; a silent death costs at most one partial
+    line per hart in the ring (RFC-0107 Phase 3 note). Measurement:
+    `docs/board/measurements/2026-09-29-platform-stage/`. Separately still red on the board:
+    `stage: display-ready` never opens (gpud exits without a display device until TASK-0251
+    D4), so no session starts — the D-track's to close; the headless ladder ends at
+    `stage: platform`. **Closed 2026-09-29 evening (image dev-755d5e41):** the board's trace is
+    line-atomic — 0 woven lines, `stage: platform` whole, 36 `init: up` lines — and
+    `[PASS] board-headless`. The gate also found `SELFTEST: walltime rtc FAIL` whole for the
+    first time (torn and invisible before): the tree's `rtc@d4010000` (`spacemit,k1-rtc`) has
+    no driver — tolerated with its reference in `config/fail-marker-allow-board.txt`
+    (follow-up: rtc on the board, with rngd/TRNG). Archived:
+    `docs/board/measurements/2026-09-29-platform-stage/board-boot-2026-09-29T18-26-58-line-atomic.txt`.
   - **Amended 2026-09-29:** with the ring written back per byte (`cbo.flush`, RFC-0107 Phase 3 note) every
     board rescue since read `lost=0` and ended at the kernel's last byte — a warm reset keeps this
     board's DRAM, a cold one does not — and the rescue carried the diagnosis of TASK-0260B P3 (six
@@ -278,5 +295,7 @@ is the fix, not a kernel workaround.
 
 ## Definition of Done
 
-`[PASS] board-headless` and `[PASS] board-visible` on the desk board with Block 1's markers; the
-profiles registered in `harness.toml`; `docs/testing/README.md` documents the lane and the opt-in.
+`[PASS] board-headless` (✅ 2026-09-29) and `[PASS] board-visible` (with Block 1's markers — D5) on
+the desk board; the profiles registered in `harness.toml`; `docs/testing/README.md` documents the
+lane and the opt-in. Follow-ups carried in `config/fail-marker-allow-board.txt`: an entropy source
+(rngd/TRNG) and an RTC driver on the board.

@@ -63,6 +63,38 @@ pub(crate) fn runtime_profile_with_retry() -> Option<RuntimeProfile> {
     retry_runtime_config(runtime_profile)
 }
 
+/// What the tree's root names (TASK-0327B P4 H0b): QEMU's `virt` machine is `riscv-virtio`;
+/// anything else that reads is a board. RFC-0098 C2 makes an absent `nexus,boot-mode` a valid
+/// proof boot on QEMU (raw markers), so "no knobs in `/chosen`" can never mean "board" by
+/// itself — the machine does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Machine {
+    /// QEMU `virt` (`compatible = "riscv-virtio"`): the lanes' machine.
+    QemuVirt,
+    /// A tree whose root is not QEMU's: real hardware.
+    Board,
+    /// No readable tree (an image without the pinned alias): decided by the knobs alone.
+    Unknown,
+}
+
+#[must_use]
+pub(crate) fn machine() -> Machine {
+    let Some(bytes) = tree_bytes() else {
+        return Machine::Unknown;
+    };
+    let Ok(fdt) = nexus_fdt::Fdt::new(bytes) else {
+        return Machine::Unknown;
+    };
+    let Ok(root) = fdt.root() else {
+        return Machine::Unknown;
+    };
+    if root.is_compatible("riscv-virtio") {
+        Machine::QemuVirt
+    } else {
+        Machine::Board
+    }
+}
+
 /// `/chosen/nexus,<name>` from the tree init pinned for us.
 fn chosen_str(name: &str) -> Option<&'static str> {
     let fdt = nexus_fdt::Fdt::new(tree_bytes()?).ok()?;

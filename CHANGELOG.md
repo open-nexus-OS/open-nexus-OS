@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-09-29 (TASK-0327B P4 H0d: the kernel console tears across harts)
+
+- **On the four-hart board, console lines from two harts interleaved byte by byte** — init's
+  `init: up <svc>` ladder and `stage: platform` came out woven into a user-fault dump another
+  hart printed (`0i0n0i0t0:0 0u0p0 …`), unreadable to every grep the proof lanes are, and the
+  board lane's first "real red" (`stage: platform` missing) was this. The kernel's
+  trap/fault/panic printers are lock-free by design; QEMU's serialised emulation hid the
+  tearing. Each hart now GATHERS its console line and sends it at `\n` as one unit — ring and
+  UART bytes, in order — through a gate held only while pure console bytes go out, so nothing
+  waits for a hart doing anything else and no kernel lock can couple with the console (a
+  first cut with a waiting line owner did couple, measured on QEMU and replaced). Same-hart
+  re-entry writes through; a gate held past 30 ms is abandoned and taken over; the panic path
+  flushes its hart's partial line first (`hal/console_line.rs`; pure `console_line.rs`,
+  host-tested).
+- **`[PASS] board-headless` on the desk board** (image dev-755d5e41): 17 rungs, manifest clean,
+  8 tracked reds tolerated — no entropy source (7) and, whole for the first time, no RTC driver
+  (`SELFTEST: walltime rtc FAIL`, `rtc@d4010000` `spacemit,k1-rtc`), both in
+  `config/fail-marker-allow-board.txt` with their references.
+- The selftest-client's board ladder (H0b) fired on QEMU's `smp1` lane: "neither knob in
+  `/chosen`" is a valid proof boot there (RFC-0098 C2), not a board. The machine decides now —
+  the tree's root `compatible` (`riscv-virtio` = QEMU virt, anything else that reads = board).
+- init's responder names a control frame it cannot decode and a control channel the kernel
+  refuses (`init: ctrl frame unknown svc=… len=… head=…`, `init: ctrl recv err svc=… err=…`)
+  instead of skipping silently — the witnesses that ruled IPC loss out.
+
 ### Added - 2026-09-29 (TASK-0327B P4 H0: the board cycle as one command; the board's proof lane finds its first real red)
 
 - **`scripts/board-test.sh` + `just board-test PROFILE=board-headless|board-visible`:** the desk
@@ -28,12 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the card opens, and a structural reject reads `verify FAIL (slot=<s> nxbd-<why> head=<16 hex>
   reread=<same|differs>)` — instrumented for the loop after the stock kernel
   (`docs/board/measurements/2026-09-29-emmc-after-linux/`, not reproduced in two cycles).
-- **Found by the lane (H0d, open):** on the board `stage: platform` is never signalled — all 13
-  platform-floor services announce `@ready`, init records none of them, and the session never
-  starts (`FAIL stage wait svc=abilitymgr|sessiond`). Two silent paths in init's responder are
-  now witnesses (`init: ctrl frame unknown svc=… len=… head=…`, `init: ctrl recv err svc=…
-  err=…`); the next board trace decides between garbled frames, a refused channel and no frame
-  (`docs/board/measurements/2026-09-29-platform-stage/`). The lane stays RED on it.
+- **Found by the lane (H0d):** the board's `stage: platform` rung was missing — the console
+  tearing fixed above (`docs/board/measurements/2026-09-29-platform-stage/`).
 - `tasks/IMPLEMENTATION-ORDER.md` re-sorted (user priority 2026-09-29): a visible picture on the
   board's HDMI and USB keyboard/mouse (Block 1 B1.7 D0–D5, Block 2 U0–U3) before Block 3; rule 6
   is the end-state UX quality gate, phrased generically.

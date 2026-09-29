@@ -12,6 +12,7 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 pub mod boot_led;
+pub mod console_line;
 pub mod console_ring;
 pub mod platform;
 pub mod plic;

@@ -152,7 +152,12 @@ channel.
   completed cache block, every line end and the header back with Zicbom `cbo.flush` (the
   block size from the tree; QEMU's tree names Zicbom too, a tree without it keeps the ring
   as it was). The rescue reads what the kernel wrote up to its last line, not up to its last
-  eviction. The next loader, once
+  eviction. Amended 2026-09-29 (TASK-0327B P4 H0d): on a multi-hart machine each hart gathers
+  its console line and sends it at `\n` as one unit into the ring and the UART (two harts
+  otherwise interleave byte by byte, and no marker survives — measured on the board), so the
+  ring and the UART still agree byte for byte, a trapped death still ends at its last byte (the
+  panic path flushes its hart's line first), and a SILENT death costs at most one partial line
+  per hart — the line after that hart's last `\n`. The next loader, once
   it knows the disk and BEFORE it loads its image over the window, scans the window's page
   starts for a ring whose header is intact and stamped with the previous boot's number. What it
   finds past the OS text the block owner had kept goes into that boot's OS region, marked

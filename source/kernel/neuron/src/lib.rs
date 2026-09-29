@@ -468,6 +468,9 @@ pub mod dma_reach;
 pub mod accounting;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
+/// One console line at a time across harts — the pure owner logic (TASK-0327B P4 H0d),
+/// host-tested; bound to the funnel in `hal::console_line`.
+pub mod console_line;
 mod ipc_eof;
 // TASK-0054C P1 (RFC-0096): the pure IPC-path counters — NOT target-gated so
 // their record/reset contract runs on host. Fed by the send/recv paths.

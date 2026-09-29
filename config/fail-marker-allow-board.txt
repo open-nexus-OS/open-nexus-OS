@@ -15,3 +15,9 @@ SELFTEST: statefs auth put FAIL
 SELFTEST: statefs tamper deny FAIL
 SELFTEST: statefs rollback deny FAIL
 SELFTEST: statefs enc roundtrip FAIL
+#
+# The board's RTC (`rtc@d4010000`, `spacemit,k1-rtc`) has no driver yet, so the wall-clock
+# proof has no source. Tracked: tasks/TASK-0327B P4 (H0) follow-up "rtc on the board"
+# (measured 2026-09-29, board--2026-09-29T18-26-58 — whole once the console was line-atomic;
+# torn and invisible to the gate before).
+SELFTEST: walltime rtc FAIL
