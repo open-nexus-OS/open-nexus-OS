@@ -56,7 +56,7 @@ beyond a boot-time detect, any composition on the controller beyond two planes.
 
 ## Packages
 
-- **P0** — this recut; the controller model derived from the mainline driver documentation
+- **P0** — this recut; the controller model derived from the mainline driver documentation. **Measured 2026-09-29 (D0):** `docs/board/measurements/2026-09-29-display-regs/` — the live block map at 1920x1080@60 (OUTCTRL2 at 0x18000 holds the timing, CMPS2 at 0x4c00, RDMA at 0xa80+i·0x100, DPU_CTL at 0x500), the first-light sequence (about thirty direct writes, no command list, no display MMU, a contiguous buffer by bus address), the HDMI encoder's PLL/PHY/DDC words, the EDID; the pipeline runs on `hmclk` alone.
   (which registers make a plane, a mode, a flush); EDID goldens captured.
 - **P1 EDID** — parser + `pick_mode`, `test_reject_*` (bad checksum, truncated, extension
   overflow).

@@ -1,0 +1,105 @@
+plane[31]: plane-0
+	crtc=crtc-0
+	fb=131
+		allocated by = gnome-shell
+		refcount=2
+		format=XR24 little-endian (0x34325258)
+		modifier=0x0
+		size=1920x1080
+		layers:
+			size[0]=1920x1080
+			pitch[0]=7680
+			offset[0]=0
+			obj[0]:
+				name=0
+				refcount=3
+				start=001007e9
+				size=8294400
+				imported=no
+	crtc-pos=1920x1080+0+0
+	src-pos=1920.000000x1080.000000+0.000000+0.000000
+	rotation=1
+	normalized-zpos=0
+	color-encoding=ITU-R BT.601 YCbCr
+	color-range=YCbCr limited range
+plane[43]: plane-1
+	crtc=(null)
+	fb=0
+	crtc-pos=0x0+0+0
+	src-pos=0.000000x0.000000+0.000000+0.000000
+	rotation=1
+	normalized-zpos=1
+	color-encoding=ITU-R BT.601 YCbCr
+	color-range=YCbCr limited range
+plane[55]: plane-2
+	crtc=(null)
+	fb=0
+	crtc-pos=0x0+0+0
+	src-pos=0.000000x0.000000+0.000000+0.000000
+	rotation=1
+	normalized-zpos=2
+	color-encoding=ITU-R BT.601 YCbCr
+	color-range=YCbCr limited range
+plane[67]: plane-3
+	crtc=(null)
+	fb=0
+	crtc-pos=0x0+0+0
+	src-pos=0.000000x0.000000+0.000000+0.000000
+	rotation=1
+	normalized-zpos=3
+	color-encoding=ITU-R BT.601 YCbCr
+	color-range=YCbCr limited range
+plane[79]: plane-4
+	crtc=(null)
+	fb=0
+	crtc-pos=0x0+0+0
+	src-pos=0.000000x0.000000+0.000000+0.000000
+	rotation=1
+	normalized-zpos=4
+	color-encoding=ITU-R BT.601 YCbCr
+	color-range=YCbCr limited range
+plane[91]: plane-5
+	crtc=(null)
+	fb=0
+	crtc-pos=0x0+0+0
+	src-pos=0.000000x0.000000+0.000000+0.000000
+	rotation=1
+	normalized-zpos=5
+	color-encoding=ITU-R BT.601 YCbCr
+	color-range=YCbCr limited range
+plane[103]: plane-6
+	crtc=(null)
+	fb=0
+	crtc-pos=0x0+0+0
+	src-pos=0.000000x0.000000+0.000000+0.000000
+	rotation=1
+	normalized-zpos=6
+	color-encoding=ITU-R BT.601 YCbCr
+	color-range=YCbCr limited range
+plane[115]: plane-7
+	crtc=(null)
+	fb=0
+	crtc-pos=0x0+0+0
+	src-pos=0.000000x0.000000+0.000000+0.000000
+	rotation=1
+	normalized-zpos=7
+	color-encoding=ITU-R BT.601 YCbCr
+	color-range=YCbCr limited range
+crtc[127]: crtc-0
+	enable=1
+	active=1
+	self_refresh_active=0
+	planes_changed=1
+	mode_changed=0
+	active_changed=0
+	connectors_changed=0
+	color_mgmt_changed=0
+	plane_mask=1
+	connector_mask=1
+	encoder_mask=1
+	mode: "1920x1080": 60 148500 1920 2008 2052 2200 1080 1082 1087 1125 0x40 0x5
+connector[130]: HDMI-A-1
+	crtc=crtc-0
+	self_refresh_aware=0
+	max_requested_bpc=0
+	colorspace=Default

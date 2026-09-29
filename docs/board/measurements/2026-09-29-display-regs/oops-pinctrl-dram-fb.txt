@@ -1,0 +1,55 @@
+== oops
+837-[ 9355.572760] RTW: setkey_hdl: set group key for 3c:a6:2f:37:65:b9, kid:2 type:1 algo:AES
+838-[ 9355.572988] RTW: send eapol packet - WPA Group Key 2/2
+839:[ 9652.748572] Unable to handle kernel access to user memory without uaccess routines at virtual address 0000000000000ba4
+840:[ 9652.759426] Oops [#1]
+841-[ 9652.761721] Modules linked in: algif_hash algif_skcipher af_alg 8852bs binfmt_misc sch_fq_codel ip_tables autofs4
+842-[ 9652.772090] CPU: 3 PID: 3078 Comm: sh Not tainted 6.6.63 #2.2.9.2
+843-[ 9652.778239] Hardware name: spacemit k1-x deb1 board (DT)
+844:[ 9652.783595] epc : 0xba4
+845-[ 9652.786054]  ra : drm_dev_unregister+0x4a/0x74
+846:[ 9652.790520] epc : 0000000000000ba4 ra : ffffffff80781374 sp : ffffffc812803c10
+847-[ 9652.797791]  gp : ffffffff82302858 tp : ffffffd90e456400 t0 : ffffffff81be4570
+848-[ 9652.805062]  t1 : 0000000000000004 t2 : 0000000000000000 s0 : ffffffc812803c30
+849-[ 9652.812321]  s1 : ffffffd901e59c80 a0 : ffffffd901e59c80 a1 : 0000000000000000
+850-[ 9652.819571]  a2 : ffffffff81c7c6b8 a3 : 00000000726f6674 a4 : ffffffd9018fc000
+851-[ 9652.826841]  a5 : 0000000000000ba4 a6 : 0000000000000000 a7 : 0000000000000002
+852-[ 9652.834110]  s2 : ffffffd901c59c10 s3 : ffffffff816f8aa0 s4 : ffffffd901c59c90
+853-[ 9652.841370]  s5 : ffffffd901900090 s6 : ffffffd90c563c20 s7 : 7fffffffffffffff
+854-[ 9652.848640]  s8 : 0000002ace5c6058 s9 : 0000000000000002 s10: 0000003fefa00f45
+855-[ 9652.855929]  s11: 0000002ace5cadb0 t3 : ffffffffffffffff t4 : ffffffffffffffff
+856-[ 9652.863199]  t5 : ffffffd90c8c03e0 t6 : 0000000000040000
+857-[ 9652.868535] status: 0000000200000120 badaddr: 0000000000000ba4 cause: 000000000000000c
+858-[ 9652.876526] Code: Unable to access instruction at 0x0000000000000b90.
+859-[ 9652.883561] audit: type=1400 audit(1790708815.708:127): apparmor="DENIED" operation="open" class="file" profile="rsyslogd" name="/run/systemd/s
+860-[ 9652.883933] ---[ end trace 0000000000000000 ]---
+861-[ 9652.905444] audit: type=1400 audit(1790708815.708:128): apparmor="DENIED" operation="open" class="file" profile="rsyslogd" name="/run/systemd/s
+== pinctrl hdmi_0_grp
+./pinctrl-single,pins: 000001ec000000010000d040000001f0000000010000d040000001f4000000010000b040000001f8000000010000b040
+./phandle: 00000070
+./name: 68646d695f305f67727000
+== dram_range@1
+#address-cells: 00000002
+#interconnect-cells: 00000000
+#size-cells: 00000002
+compatible: 73706163656d69742d6472616d2d62757300
+dma-ranges: 000000000000000000000000000000000000000080000000000000008000000000000001000000000000000380000000
+name: 6472616d5f72616e676500
+phandle: 00000064
+status: 6f6b617900
+== fb debugfs
+framebuffer[131]:
+	allocated by = gnome-shell
+	refcount=2
+	format=XR24 little-endian (0x34325258)
+	modifier=0x0
+	size=1920x1080
+	layers:
+		size[0]=1920x1080
+		pitch[0]=7680
+		offset[0]=0
+		obj[0]:
+			name=0
+CmaTotal:         393216 kB
+CmaFree:          382752 kB
+/tmp/dpu-reserved.bin 786432

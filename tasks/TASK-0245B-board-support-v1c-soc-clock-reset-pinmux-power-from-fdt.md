@@ -170,7 +170,7 @@ node up / this clock's rate".
   `bring_up` (plan, then execute; an empty plan is `NotNeeded`) and `clock_rate` — and
   `verdict.rs` answers with them (its own clock-rate walk deleted); the loader runs the same
   operations for its boot disk before any service exists (RFC-0106's loader clause).
-- **P3 — Power domains + the display/USB/GPU sets.** Measurement recipe on the stock system,
+- **P3 — Power domains + the display/USB/GPU sets.** **Display half measured 2026-09-29 (D0, `docs/board/measurements/2026-09-29-display-regs/`):** the HDMI pipeline needs `hmclk` (syscon clock 0x98, 491.52 MHz from pll1_d5) + `hdmi_reset` (0x59) + power domain 7 — none of the five DSI clocks; the stock kernel never drops domain 7 while it runs (the unbind path oopses), so the domain's own on/off protocol is measured on our chain. Measurement recipe on the stock system,
   domains 2/7, HDMI DDC and USB pads; consumed by TASK-0251/0328/0329.
 
 ## Constraints / invariants

@@ -68,7 +68,7 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
 
 ## Packages
 
-- **P0** — this recut.
+- **P0** — this recut. **Measured 2026-09-29 (D0):** see `docs/board/measurements/2026-09-29-display-regs/README.md` — the pipeline needs `hmclk` + `hdmi_reset` + power domain 7 only; the scanout buffer may live in bank 0 (bus = CPU − 0x8000_0000); the controller is not cache-coherent; ONLINE IRQ 139.
 - **P1 Mode authority = gpud** (QEMU): syscall 50 + fw_cfg key deleted, virtio display-info as
   the source, launcher hands the request to nxboot; `just test-all` green, pixel proof unchanged.
 - **P2 `dc` driver** — power/clock/reset, DDC + EDID, plane + mode + flush, IRQ; QEMU cannot

@@ -1,0 +1,318 @@
+# DPU window 0xc0440000, picture on (1920x1080@60 XR24 pitch 7680). offset: value [blank value if different]  BLOCK@base: field=value … (field names from the vendor kernel's register headers, reference only)
+0x00000: 0x03001030  DPU_TOP@0x0: Minor_number=48; DPU_TOP@0x0: Major_number=16; DPU_TOP@0x0: Product_ID=768
+0x00358: 0x00000004  
+0x00360: 0x00000010  
+0x00364: 0x00000200  
+0x00528: 0x00000820  DPU_CTL@0x500: ctl0_timing_inter0=8; DPU_CTL@0x500: ctl0_timing_inter1=8
+0x00558: 0x00000820  DPU_CTL@0x500: ctl1_timing_inter0=8; DPU_CTL@0x500: ctl1_timing_inter1=8
+0x00560: 0x00040002  DPU_CTL@0x500: ctl2_nml_rch_en=2; DPU_CTL@0x500: ctl2_nml_outctl_en=1
+0x00588: 0x00000f21  DPU_CTL@0x500: ctl2_video_mod=1; DPU_CTL@0x500: ctl2_timing_inter0=8; DPU_CTL@0x500: ctl2_timing_inter1=15
+0x005a0: 0x00000820  DPU_CTL@0x500: ctl3_timing_inter0=8; DPU_CTL@0x500: ctl3_timing_inter1=8
+0x005bc: 0x00000208  DPU_CTL@0x500: ctl4_timing_inter0=8
+0x00618: 0x00000001  DPU_CTL@0x500: ctl_nml_cmdlist_wb_en=1
+0x00650: 0x00000003  
+0x00654: 0x00000004  
+0x00658: 0x00020002  
+0x0065c: 0x00000004  
+0x00660: 0x7fff0000  
+0x00664: 0x7fff7fff  
+0x00668: 0x7fff7fff  
+0x00700: 0x00001fff  DPU_CRG@0x700: mclk_wb_auto_en=1; DPU_CRG@0x700: aclk_wb_auto_en=1; DPU_CRG@0x700: aclk_rdma_auto_en=1; DPU_CRG@0x700: mclk_layer_auto_en=1; DPU_CRG@0x700: mclk_scl_auto_en=1; DPU_CRG@0x700: mclk_cmps_auto_en=1; DPU_CRG@0x700: mclk_outctl_auto_en=1; DPU_CRG@0x700: dscclk_outctl_auto_en=1; DPU_CRG@0x700: pixclk_outctl_auto_en=1; DPU_CRG@0x700: aclk_outctl_auto_en=1; DPU_CRG@0x700: aclk_cmdlist_auto_en=1; DPU_CRG@0x700: pclk_cmdlist_auto_en=1; DPU_CRG@0x700: aclk_dma_top_sw_en=1
+0x00704: 0x003f001f  DPU_CRG@0x700: crg_dma_auto_en=31; DPU_CRG@0x700: crg_wb_auto_en=63
+0x00708: 0x01ffff03  DPU_CRG@0x700: crg_scl_auto_en=3; DPU_CRG@0x700: crg_pre_auto_en=131071
+0x0070c: 0x0003ffff  DPU_CRG@0x700: crg_outctl_auto_en=262143
+0x00710: 0x00030003  DPU_CRG@0x700: crg_ctl_auto_en=3; DPU_CRG@0x700: crg_cmdlist_auto_en=3
+0x00714: 0x00030003  
+0x00718: 0x00030003  
+0x0071c: 0x00030003  
+0x00720: 0x00030003  
+0x00724: 0x00030003  
+0x00728: 0x00030003  
+0x0072c: 0x00030003  
+0x00730: 0x00030003  
+0x00734: 0x00030003  
+0x00738: 0x00030003  
+0x0073c: 0x00030003  
+0x00740: 0x00030003  
+0x00744: 0x00030003  
+0x00748: 0x00030003  
+0x0074c: 0x00030003  
+0x00750: 0x00030003  
+0x00754: 0x00030003  
+0x00758: 0x00030003  
+0x0075c: 0x00030003  
+0x00760: 0x00030003  
+0x00764: 0x00030003  
+0x00768: 0x00030003  
+0x0076c: 0x00030003  
+0x00770: 0x00030003  
+0x00774: 0x00030003  
+0x00778: 0x00030003  
+0x0077c: 0x00030003  
+0x00780: 0x00030003  
+0x00784: 0x00030003  
+0x00788: 0x00030003  
+0x0078c: 0x00030003  
+0x00790: 0x00030003  
+0x00794: 0x00030003  
+0x00798: 0x00030003  
+0x0079c: 0x00030003  
+0x007a0: 0x00030003  
+0x007a4: 0x00030003  
+0x007a8: 0x00030003  
+0x007ac: 0x00030003  
+0x007b0: 0x00030003  
+0x007b4: 0x00030003  
+0x007b8: 0x00030003  
+0x007bc: 0x00030003  
+0x007c0: 0x00030003  
+0x007c4: 0x00030003  
+0x007c8: 0x00030003  
+0x007cc: 0x00030003  
+0x007d0: 0x00030003  
+0x007d4: 0x00030003  
+0x007d8: 0x00030003  
+0x007dc: 0x00030003  
+0x007e0: 0x00030003  
+0x007e4: 0x00030003  
+0x007e8: 0x00030003  
+0x007ec: 0x00030003  
+0x007f0: 0x00030003  
+0x007f4: 0x00030003  
+0x007f8: 0x00030003  
+0x007fc: 0x00030003  
+0x00804: 0x2ff45000  CMDLIST@0x800: cmdlist_ch_y=62544
+0x00870: 0x0000000f  
+0x00878: 0x3fff0000  
+0x00890: 0x00110011  
+0x00894: 0x00110011  
+0x00898: 0x00110011  
+0x0089c: 0x00110011  
+0x008a0: 0x00110011  
+0x008a4: 0x00110011  
+0x008a8: 0x00110011  
+0x008ac: 0x00000001  
+0x00910: 0x0000f212  DPU_INTP@0x900: onl2_nml_frm_timing_eof_int_msk=1; DPU_INTP@0x900: onl2_nml_cfg_rdy_clr_int_msk=1; DPU_INTP@0x900: onl2_nml_frm_timing_unflow_int_msk=1; DPU_INTP@0x900: onl2_nml_cmdlist_ch_frm_cfg_done_int_msk=15
+0x00950: 0x00003000  DPU_INTP@0x900: onl0_nml_cmdlist_ch_frm_cfg_done_int_raw=3
+0x00958: 0x00003000  DPU_INTP@0x900: onl1_nml_cmdlist_ch_frm_cfg_done_int_raw=3
+0x00960: 0x0000000d  DPU_INTP@0x900: onl2_nml_frm_timing_vsync_int_raw=1; DPU_INTP@0x900: onl2_nml_frm_timing_cfg_eof_int_raw=1; DPU_INTP@0x900: onl2_nml_frm_timing_cfg_line_int_raw=1
+0x00968: 0x00000060  DPU_INTP@0x900: offl0_cmdlist_ch_frm_cfg_done_int_raw=3
+0x00970: 0x00000060  DPU_INTP@0x900: offl1_cmdlist_ch_frm_cfg_done_int_raw=3
+0x00a04: 0x00040010  DMA_TOP@0xa00: img_rr_ratio=16; DMA_TOP@0xa00: pixel_num_th=4
+0x00a08: 0xfffffffe  DMA_TOP@0xa00: rdma_timeout_limit=65534; DMA_TOP@0xa00: wdma_timeout_limit=65535
+0x00a0c: 0x00000009  DMA_TOP@0xa00: dmac0_rstn_pwr=1; DMA_TOP@0xa00: dmac0_burst_length=1
+0x00a10: 0x00000009  DMA_TOP@0xa00: dmac1_rstn_pwr=1; DMA_TOP@0xa00: dmac1_burst_length=1
+0x00a14: 0x00000009  DMA_TOP@0xa00: dmac2_rstn_pwr=1; DMA_TOP@0xa00: dmac2_burst_length=1
+0x00a18: 0x00000009  DMA_TOP@0xa00: dmac3_rstn_pwr=1; DMA_TOP@0xa00: dmac3_burst_length=1
+0x00a1c: 0x00042223  DMA_TOP@0xa00: online_rqos=3; DMA_TOP@0xa00: offline_rqos=2; DMA_TOP@0xa00: online_wqos=2; DMA_TOP@0xa00: offline_wqos=2; DMA_TOP@0xa00: cmdlist_rqos=4
+0x00a20: 0x00001008  DMA_TOP@0xa00: dmac0_rd_outs_num=8; DMA_TOP@0xa00: dmac0_wr_outs_num=16
+0x00a24: 0x00001020  DMA_TOP@0xa00: dmac1_rd_outs_num=32; DMA_TOP@0xa00: dmac1_wr_outs_num=16
+0x00a28: 0x00001020  DMA_TOP@0xa00: dmac2_rd_outs_num=32; DMA_TOP@0xa00: dmac2_wr_outs_num=16
+0x00a2c: 0x00001020  DMA_TOP@0xa00: dmac3_rd_outs_num=32; DMA_TOP@0xa00: dmac3_wr_outs_num=16
+0x00a54: 0x1e007001 [blank 0x20003000]  DMA_TOP@0xa00: arb_debug_info_axi0=503345153
+0x00a80: 0x001e203c  RDMA_PATH0@0xa80: outstanding_num=15; RDMA_PATH0@0xa80: layer_cmpsr_id=2; RDMA_PATH0@0xa80: rdma_burst_len=15
+0x00aa0: 0x10000000  RDMA_PATH0@0xa80: base_addr0_low_ly0=268435456
+0x00ab8: 0x00001e00  RDMA_PATH0@0xa80: rdma_stride0_layer0=7680
+0x00abc: 0x04380780  RDMA_PATH0@0xa80: img_width_ly0=1920; RDMA_PATH0@0xa80: img_height_ly0=1080
+0x00ac4: 0x0437077f  RDMA_PATH0@0xa80: bbox_end_x_ly0=1919; RDMA_PATH0@0xa80: bbox_end_y_ly0=1079
+0x00af0: 0x00000008  RDMA_PATH0@0xa80: pixel_format=8
+0x00af8: 0x100000f0  RDMA_PATH0@0xa80: fbc_mem_size=240; RDMA_PATH0@0xa80: fbc_mem_map=1
+0x00b00: 0x000004a8  RDMA_PATH0@0xa80: csc_matrix00=1192
+0x00b04: 0x0fc2072c  RDMA_PATH0@0xa80: csc_matrix02=1836; RDMA_PATH0@0xa80: csc_matrix03=16136
+0x00b08: 0x0fc984a8  RDMA_PATH0@0xa80: csc_matrix10=1192; RDMA_PATH0@0xa80: csc_matrix11=16166
+0x00b0c: 0x00137dde  RDMA_PATH0@0xa80: csc_matrix12=15838; RDMA_PATH0@0xa80: csc_matrix13=77
+0x00b10: 0x021cc4a8  RDMA_PATH0@0xa80: csc_matrix20=1192; RDMA_PATH0@0xa80: csc_matrix21=2163
+0x00b14: 0x0fb7c000  RDMA_PATH0@0xa80: csc_matrix23=16095
+0x00b34: 0x003ffcef  RDMA_PATH0@0xa80: prefetch_osd_num=15; RDMA_PATH0@0xa80: prefetch_hdr_osd_num=7; RDMA_PATH0@0xa80: osd_sub_step=2; RDMA_PATH0@0xa80: osd_num_min=31; RDMA_PATH0@0xa80: hdr_osd_num_min=15; RDMA_PATH0@0xa80: pp_buf_switch_num=3
+0x00b38: 0x003ffcef  
+0x00b3c: 0x003ffcef  
+0x00b40: 0x00008000  
+0x00b4c: 0x00200000  
+0x00b50: 0x00040004  
+0x00b54: 0x00100066  
+0x00b58: 0x00000008  
+0x00b80: 0x001e203c  RDMA_PATH1@0xb80: outstanding_num=15; RDMA_PATH1@0xb80: layer_cmpsr_id=2; RDMA_PATH1@0xb80: rdma_burst_len=15
+0x00ba0: 0x90000000  RDMA_PATH1@0xb80: base_addr0_low_ly0=2415919104
+0x00bb8: 0x00001e00  RDMA_PATH1@0xb80: rdma_stride0_layer0=7680
+0x00bbc: 0x04380780  RDMA_PATH1@0xb80: img_width_ly0=1920; RDMA_PATH1@0xb80: img_height_ly0=1080
+0x00bc4: 0x0437077f  RDMA_PATH1@0xb80: bbox_end_x_ly0=1919; RDMA_PATH1@0xb80: bbox_end_y_ly0=1079
+0x00bf0: 0x00000008  RDMA_PATH1@0xb80: pixel_format=8
+0x00bf8: 0x00000570  RDMA_PATH1@0xb80: fbc_mem_size=1392
+0x00c00: 0x000004a8  RDMA_PATH1@0xb80: csc_matrix00=1192
+0x00c04: 0x0fc2072c  RDMA_PATH1@0xb80: csc_matrix02=1836; RDMA_PATH1@0xb80: csc_matrix03=16136
+0x00c08: 0x0fc984a8  RDMA_PATH1@0xb80: csc_matrix10=1192; RDMA_PATH1@0xb80: csc_matrix11=16166
+0x00c0c: 0x00137dde  RDMA_PATH1@0xb80: csc_matrix12=15838; RDMA_PATH1@0xb80: csc_matrix13=77
+0x00c10: 0x021cc4a8  RDMA_PATH1@0xb80: csc_matrix20=1192; RDMA_PATH1@0xb80: csc_matrix21=2163
+0x00c14: 0x0fb7c000  RDMA_PATH1@0xb80: csc_matrix23=16095
+0x00c34: 0x003ffcef  RDMA_PATH1@0xb80: prefetch_osd_num=15; RDMA_PATH1@0xb80: prefetch_hdr_osd_num=7; RDMA_PATH1@0xb80: osd_sub_step=2; RDMA_PATH1@0xb80: osd_num_min=31; RDMA_PATH1@0xb80: hdr_osd_num_min=15; RDMA_PATH1@0xb80: pp_buf_switch_num=3
+0x00c38: 0x003ffcef  
+0x00c3c: 0x003ffcef  
+0x00c40: 0x00008432 [blank 0x00008258]  
+0x00c4c: 0x00404000  
+0x00c50: 0x00040004  
+0x00c54: 0x00100066  
+0x00c58: 0x00000008  
+0x00c5c: 0x10000000  
+0x00c60: 0x00086c03 [blank 0x0004b801]  
+0x00c64: 0x00086c03 [blank 0x0004b801]  
+0x00c68: 0x00086c03 [blank 0x0004b801]  
+0x00c6c: 0x00086c03 [blank 0x0004b801]  
+0x00c70: 0x00086c03 [blank 0x0004b801]  
+0x00c74: 0x00086c03 [blank 0x0004b801]  
+0x00c78: 0x00086c03 [blank 0x0004b801]  
+0x00c7c: 0x00086c03 [blank 0x0004b801]  
+0x00c80: 0x381e00fc  RDMA_PATH2@0xc80: outstanding_num=31; RDMA_PATH2@0xc80: req_conti_num=1; RDMA_PATH2@0xc80: rdma_burst_len=15; RDMA_PATH2@0xc80: hdr_osd_num=7
+0x00cb8: 0x05a005a0  RDMA_PATH2@0xc80: rdma_stride0_layer0=1440; RDMA_PATH2@0xc80: rdma_stride1_layer0=1440
+0x00cbc: 0x0a0005a0  RDMA_PATH2@0xc80: img_width_ly0=1440; RDMA_PATH2@0xc80: img_height_ly0=2560
+0x00cc4: 0x09ff059f  RDMA_PATH2@0xc80: bbox_end_x_ly0=1439; RDMA_PATH2@0xc80: bbox_end_y_ly0=2559
+0x00cf8: 0x00000440  RDMA_PATH2@0xc80: fbc_mem_size=1088
+0x00d00: 0x000004a8  RDMA_PATH2@0xc80: csc_matrix00=1192
+0x00d04: 0x0fc2072c  RDMA_PATH2@0xc80: csc_matrix02=1836; RDMA_PATH2@0xc80: csc_matrix03=16136
+0x00d08: 0x0fc984a8  RDMA_PATH2@0xc80: csc_matrix10=1192; RDMA_PATH2@0xc80: csc_matrix11=16166
+0x00d0c: 0x00137dde  RDMA_PATH2@0xc80: csc_matrix12=15838; RDMA_PATH2@0xc80: csc_matrix13=77
+0x00d10: 0x021cc4a8  RDMA_PATH2@0xc80: csc_matrix20=1192; RDMA_PATH2@0xc80: csc_matrix21=2163
+0x00d14: 0x0fb7c000  RDMA_PATH2@0xc80: csc_matrix23=16095
+0x00d18: 0x00550000  RDMA_PATH2@0xc80: alpha1_ly0=85
+0x00d1c: 0x00ff00aa  RDMA_PATH2@0xc80: alpha2_ly0=170; RDMA_PATH2@0xc80: alpha3_ly0=255
+0x00d34: 0x003ffcef  RDMA_PATH2@0xc80: prefetch_osd_num=15; RDMA_PATH2@0xc80: prefetch_hdr_osd_num=7; RDMA_PATH2@0xc80: osd_sub_step=2; RDMA_PATH2@0xc80: osd_num_min=31; RDMA_PATH2@0xc80: hdr_osd_num_min=15; RDMA_PATH2@0xc80: pp_buf_switch_num=3
+0x00d38: 0x003ffcef  
+0x00d3c: 0x003ffcef  
+0x00d40: 0x00008000  
+0x00d4c: 0x00200000  
+0x00d80: 0x381e00fc  RDMA_PATH3@0xd80: outstanding_num=31; RDMA_PATH3@0xd80: req_conti_num=1; RDMA_PATH3@0xd80: rdma_burst_len=15; RDMA_PATH3@0xd80: hdr_osd_num=7
+0x00db8: 0x05a005a0  RDMA_PATH3@0xd80: rdma_stride0_layer0=1440; RDMA_PATH3@0xd80: rdma_stride1_layer0=1440
+0x00dbc: 0x0a0005a0  RDMA_PATH3@0xd80: img_width_ly0=1440; RDMA_PATH3@0xd80: img_height_ly0=2560
+0x00dc4: 0x09ff059f  RDMA_PATH3@0xd80: bbox_end_x_ly0=1439; RDMA_PATH3@0xd80: bbox_end_y_ly0=2559
+0x00df8: 0x00000440  RDMA_PATH3@0xd80: fbc_mem_size=1088
+0x00e00: 0x000004a8  RDMA_PATH3@0xd80: csc_matrix00=1192
+0x00e04: 0x0fc2072c  RDMA_PATH3@0xd80: csc_matrix02=1836; RDMA_PATH3@0xd80: csc_matrix03=16136
+0x00e08: 0x0fc984a8  RDMA_PATH3@0xd80: csc_matrix10=1192; RDMA_PATH3@0xd80: csc_matrix11=16166
+0x00e0c: 0x00137dde  RDMA_PATH3@0xd80: csc_matrix12=15838; RDMA_PATH3@0xd80: csc_matrix13=77
+0x00e10: 0x021cc4a8  RDMA_PATH3@0xd80: csc_matrix20=1192; RDMA_PATH3@0xd80: csc_matrix21=2163
+0x00e14: 0x0fb7c000  RDMA_PATH3@0xd80: csc_matrix23=16095
+0x00e18: 0x00550000  RDMA_PATH3@0xd80: alpha1_ly0=85
+0x00e1c: 0x00ff00aa  RDMA_PATH3@0xd80: alpha2_ly0=170; RDMA_PATH3@0xd80: alpha3_ly0=255
+0x00e34: 0x003ffcef  RDMA_PATH3@0xd80: prefetch_osd_num=15; RDMA_PATH3@0xd80: prefetch_hdr_osd_num=7; RDMA_PATH3@0xd80: osd_sub_step=2; RDMA_PATH3@0xd80: osd_num_min=31; RDMA_PATH3@0xd80: hdr_osd_num_min=15; RDMA_PATH3@0xd80: pp_buf_switch_num=3
+0x00e38: 0x003ffcef  
+0x00e3c: 0x003ffcef  
+0x00e40: 0x00008000  
+0x00e4c: 0x00200000  
+0x00e50: 0x00048004  
+0x00e54: 0x00100066  
+0x00e58: 0x00000008  
+0x01680: 0x0001ffff  MMU@0x1680: rdma_timelimit=65535; MMU@0x1680: mmu_cg_en=1
+0x0168c: 0x01080f20  MMU@0x1680: cfg_dmac0_arcache=2; MMU@0x1680: cfg_dmac0_arregion=15; MMU@0x1680: cfg_dmac0_rd_outs_num=8; MMU@0x1680: cfg_dmac0_axi_burst=1
+0x01690: 0x00080000  MMU@0x1680: cfg_dmac1_rd_outs_num=8
+0x01694: 0x00080000  MMU@0x1680: cfg_dmac2_rd_outs_num=8
+0x01698: 0x00080000  MMU@0x1680: cfg_dmac3_rd_outs_num=8
+0x0169c: 0x008901e3 [blank 0x008906c2]  MMU@0x1680: axi0_ar_debug=8978915
+0x016a0: 0x00800000  MMU@0x1680: axi0_aw_debug=8388608
+0x016c0: 0x00001eb8 [blank 0x00006cb3]  MMU@0x1680: tlb_cmd_num_total=7864
+0x016c8: 0x0000048e [blank 0x00000484]  MMU@0x1680: tlb_wait_cycle_total=1166
+0x01780: 0x00000401  
+0x01784: 0x2ff48000  
+0x0179c: 0x00010000  
+0x017a8: 0x000007e9  
+0x01800: 0x00000401  
+0x01804: 0x2ff48000  
+0x0181c: 0x00090000  
+0x01828: 0x000007e9  
+0x018a8: 0x0000ffff  
+0x018ac: 0x0000ffff  
+0x018b0: 0x0000ffff  
+0x01928: 0x0000ffff  
+0x0192c: 0x0000ffff  
+0x01930: 0x0000ffff  
+0x019a8: 0x0000ffff  
+0x019ac: 0x0000ffff  
+0x019b0: 0x0000ffff  
+0x0440c: 0x00000092  
+0x0442c: 0x0000016d  
+0x0444c: 0x00000092  
+0x0446c: 0x00000092  
+0x04c00: 0x00078001  CMPS2@0x4c00: m_ncmps_en=1; CMPS2@0x4c00: m_noutput_width=1920
+0x04c04: 0x00000438  CMPS2@0x4c00: m_noutput_height=1080
+0x04c0c: 0x000000ff  CMPS2@0x4c00: m_nbg_color_G=255
+0x04c14: 0x000000ff  CMPS2@0x4c00: m_nbg_color_A=255
+0x04d18: 0x00000003  CMPS2@0x4c00: m_nl7_en=1; CMPS2@0x4c00: m_nl7_layer_id=1
+0x04d2c: 0x077f0000  CMPS2@0x4c00: m_nl7_rect_rbotx=1919
+0x04d30: 0x00010437  CMPS2@0x4c00: m_nl7_rect_rboty=1079; CMPS2@0x4c00: m_nl7_blend_mode=1
+0x04d34: 0x00ff0037  CMPS2@0x4c00: m_nl7_alpha_factor=55; CMPS2@0x4c00: m_nl7_layer_alpha=255
+0x04e38: 0x03070422 [blank 0x0189050a]  
+0x04e3c: 0x00f0000f [blank 0x00f0000e]  
+0x04e40: 0x00020f01  
+0x0513c: 0x00ff0000  
+0x06000: 0x00078000  SCALER0@0x6000: m_nscl_input_width=1920
+0x06004: 0x05000438  SCALER0@0x6000: m_nscl_input_height=1080; SCALER0@0x6000: m_nscl_output_width=1280
+0x06008: 0x000002d0  SCALER0@0x6000: m_nscl_output_height=720
+0x0600c: 0x0000638e  SCALER0@0x6000: m_nscl_hor_init_phase_l32b=25486
+0x06014: 0x00004000  SCALER0@0x6000: m_nscl_ver_init_phase_l32b=16384
+0x0601c: 0x0001c71c  SCALER0@0x6000: m_nscl_hor_delta_phase=116508
+0x06020: 0x00018000  SCALER0@0x6000: m_nscl_ver_delta_phase=98304
+0x18000: 0x04380780  OUTCTRL_TOP2@0x18000: m_n_inwdith=1920; OUTCTRL_TOP2@0x18000: m_n_inheight=1080
+0x18004: 0x04380780  OUTCTRL_TOP2@0x18000: scale_wdith=1920; OUTCTRL_TOP2@0x18000: scale_height=1080
+0x18014: 0x1a005652  OUTCTRL_TOP2@0x18000: dither_en=1; OUTCTRL_TOP2@0x18000: dither_out_dpth0=5; OUTCTRL_TOP2@0x18000: dither_out_dpth1=6; OUTCTRL_TOP2@0x18000: dither_out_dpth2=5; OUTCTRL_TOP2@0x18000: dither_rotate_mode=2; OUTCTRL_TOP2@0x18000: dither_pattern_bit=6
+0x18018: 0x00000020  OUTCTRL_TOP2@0x18000: frame_timing_en=1
+0x18038: 0x28082000  OUTCTRL_TOP2@0x18000: dither_bayer_map01=32; OUTCTRL_TOP2@0x18000: dither_bayer_map02=8; OUTCTRL_TOP2@0x18000: dither_bayer_map03=40
+0x1803c: 0x2a0a2202  OUTCTRL_TOP2@0x18000: dither_bayer_map04=2; OUTCTRL_TOP2@0x18000: dither_bayer_map05=34; OUTCTRL_TOP2@0x18000: dither_bayer_map06=10; OUTCTRL_TOP2@0x18000: dither_bayer_map07=42
+0x18040: 0x18381030  OUTCTRL_TOP2@0x18000: dither_bayer_map10=48; OUTCTRL_TOP2@0x18000: dither_bayer_map11=16; OUTCTRL_TOP2@0x18000: dither_bayer_map12=56; OUTCTRL_TOP2@0x18000: dither_bayer_map13=24
+0x18044: 0x1a3a1232  OUTCTRL_TOP2@0x18000: dither_bayer_map14=50; OUTCTRL_TOP2@0x18000: dither_bayer_map15=18; OUTCTRL_TOP2@0x18000: dither_bayer_map16=58; OUTCTRL_TOP2@0x18000: dither_bayer_map17=26
+0x18048: 0x24042c0c  OUTCTRL_TOP2@0x18000: dither_bayer_map20=12; OUTCTRL_TOP2@0x18000: dither_bayer_map21=44; OUTCTRL_TOP2@0x18000: dither_bayer_map22=4; OUTCTRL_TOP2@0x18000: dither_bayer_map23=36
+0x1804c: 0x26062e0e  OUTCTRL_TOP2@0x18000: dither_bayer_map24=14; OUTCTRL_TOP2@0x18000: dither_bayer_map25=46; OUTCTRL_TOP2@0x18000: dither_bayer_map26=6; OUTCTRL_TOP2@0x18000: dither_bayer_map27=38
+0x18050: 0x14341c3c  OUTCTRL_TOP2@0x18000: dither_bayer_map30=60; OUTCTRL_TOP2@0x18000: dither_bayer_map31=28; OUTCTRL_TOP2@0x18000: dither_bayer_map32=52; OUTCTRL_TOP2@0x18000: dither_bayer_map33=20
+0x18054: 0x16361e3e  OUTCTRL_TOP2@0x18000: dither_bayer_map34=62; OUTCTRL_TOP2@0x18000: dither_bayer_map35=30; OUTCTRL_TOP2@0x18000: dither_bayer_map36=54; OUTCTRL_TOP2@0x18000: dither_bayer_map37=22
+0x18058: 0x2b0b2303  OUTCTRL_TOP2@0x18000: dither_bayer_map40=3; OUTCTRL_TOP2@0x18000: dither_bayer_map41=35; OUTCTRL_TOP2@0x18000: dither_bayer_map42=11; OUTCTRL_TOP2@0x18000: dither_bayer_map43=43
+0x1805c: 0x29092101  OUTCTRL_TOP2@0x18000: dither_bayer_map44=1; OUTCTRL_TOP2@0x18000: dither_bayer_map45=33; OUTCTRL_TOP2@0x18000: dither_bayer_map46=9; OUTCTRL_TOP2@0x18000: dither_bayer_map47=41
+0x18060: 0x1b3b1333  OUTCTRL_TOP2@0x18000: dither_bayer_map50=51; OUTCTRL_TOP2@0x18000: dither_bayer_map51=19; OUTCTRL_TOP2@0x18000: dither_bayer_map52=59; OUTCTRL_TOP2@0x18000: dither_bayer_map53=27
+0x18064: 0x19391131  OUTCTRL_TOP2@0x18000: dither_bayer_map54=49; OUTCTRL_TOP2@0x18000: dither_bayer_map55=17; OUTCTRL_TOP2@0x18000: dither_bayer_map56=57; OUTCTRL_TOP2@0x18000: dither_bayer_map57=25
+0x18068: 0x27072f0f  OUTCTRL_TOP2@0x18000: dither_bayer_map60=15; OUTCTRL_TOP2@0x18000: dither_bayer_map61=47; OUTCTRL_TOP2@0x18000: dither_bayer_map62=7; OUTCTRL_TOP2@0x18000: dither_bayer_map63=39
+0x1806c: 0x25052d0d  OUTCTRL_TOP2@0x18000: dither_bayer_map64=13; OUTCTRL_TOP2@0x18000: dither_bayer_map65=45; OUTCTRL_TOP2@0x18000: dither_bayer_map66=5; OUTCTRL_TOP2@0x18000: dither_bayer_map67=37
+0x18070: 0x17371f3f  OUTCTRL_TOP2@0x18000: dither_bayer_map70=63; OUTCTRL_TOP2@0x18000: dither_bayer_map71=31; OUTCTRL_TOP2@0x18000: dither_bayer_map72=55; OUTCTRL_TOP2@0x18000: dither_bayer_map73=23
+0x18074: 0x15351d3d  OUTCTRL_TOP2@0x18000: dither_bayer_map74=61; OUTCTRL_TOP2@0x18000: dither_bayer_map75=29; OUTCTRL_TOP2@0x18000: dither_bayer_map76=53; OUTCTRL_TOP2@0x18000: dither_bayer_map77=21
+0x18078: 0x02800064  OUTCTRL_TOP2@0x18000: dfc_low_thre=100; OUTCTRL_TOP2@0x18000: dfc_high_thre=640
+0x18080: 0x00940058  OUTCTRL_TOP2@0x18000: hfp=88; OUTCTRL_TOP2@0x18000: hbp=148
+0x18084: 0x00260002  OUTCTRL_TOP2@0x18000: vfp=2; OUTCTRL_TOP2@0x18000: vbp=38
+0x18088: 0x1005102c  OUTCTRL_TOP2@0x18000: hsync_width=44; OUTCTRL_TOP2@0x18000: hsp=1; OUTCTRL_TOP2@0x18000: vsync_width=5; OUTCTRL_TOP2@0x18000: vsp=1
+0x1808c: 0x04380780  OUTCTRL_TOP2@0x18000: h_active=1920; OUTCTRL_TOP2@0x18000: v_active=1080
+0x18090: 0x00000002  OUTCTRL_TOP2@0x18000: user=2
+0x18094: 0x00004000  OUTCTRL_TOP2@0x18000: fm_cmd_timeout_num=16384
+0x18098: 0x00000fff  OUTCTRL_TOP2@0x18000: back_ground_r=4095
+0x180a4: 0x00000010  OUTCTRL_TOP2@0x18000: eof_ln_dly=16
+0x180b0: 0x0000000d  OUTCTRL_TOP2@0x18000: sof0_irq_raw=1; OUTCTRL_TOP2@0x18000: cfg_eof0_irq_raw=1; OUTCTRL_TOP2@0x18000: cfg_eol0_irq_raw=1
+0x180b8: 0x00000252  OUTCTRL_TOP2@0x18000: eof0_irq_mask=1; OUTCTRL_TOP2@0x18000: underflow0_irq_mask=1; OUTCTRL_TOP2@0x18000: eof1_irq_mask=1; OUTCTRL_TOP2@0x18000: underflow1_irq_mask=1
+0x180c8: 0x00000359 [blank 0x00000398]  OUTCTRL_TOP2@0x18000: postproc_ln_cnt=857
+0x180cc: 0x04080359 [blank 0x00980399]  OUTCTRL_TOP2@0x18000: dither_ln_cnt=857; OUTCTRL_TOP2@0x18000: dither_pix_cnt=1032
+0x18100: 0x000000fe  OUTCTRL_PROC2@0x18100: m_ngain_to_full_en=1; OUTCTRL_PROC2@0x18100: m_nmatrix_en=1; OUTCTRL_PROC2@0x18100: m_nendmatrix_en=1; OUTCTRL_PROC2@0x18100: m_nfront_tmootf_en=1; OUTCTRL_PROC2@0x18100: m_nend_tmootf_en=1; OUTCTRL_PROC2@0x18100: m_neotf_en=1; OUTCTRL_PROC2@0x18100: m_noetf_en=1
+0x18108: 0x000fff02  OUTCTRL_PROC2@0x18100: m_noetf_mode=2; OUTCTRL_PROC2@0x18100: m_noetf_max=4095
+0x18238: 0x00000400  OUTCTRL_PROC2@0x18100: m_pendmatrix_table0=1024
+0x18240: 0x00000400  OUTCTRL_PROC2@0x18100: m_pendmatrix_table4=1024
+0x18248: 0x00000400  OUTCTRL_PROC2@0x18100: m_pendmatrix_table8=1024
+0x29000: 0x0000000e  WB_TOP@0x29000: m_nwb_proc_en=1; WB_TOP@0x29000: m_nmatrix_en=1; WB_TOP@0x29000: m_noetf_en=1
+0x29020: 0x10000000  WB_TOP@0x29000: wb_wdma_outstanding_num=16
+0x29024: 0x00000010  WB_TOP@0x29000: wb_wdma_burst_len=16
+0x2904c: 0x00056500  WB_TOP@0x29000: wb_dither_out_dpth0=5; WB_TOP@0x29000: wb_dither_out_dpth1=6; WB_TOP@0x29000: wb_dither_out_dpth2=5
+0x29054: 0x28082000  WB_TOP@0x29000: wb_dither_bayer_map1=32; WB_TOP@0x29000: wb_dither_bayer_map2=8; WB_TOP@0x29000: wb_dither_bayer_map3=40
+0x29058: 0x2a0a2202  WB_TOP@0x29000: wb_dither_bayer_map4=2; WB_TOP@0x29000: wb_dither_bayer_map5=34; WB_TOP@0x29000: wb_dither_bayer_map6=10; WB_TOP@0x29000: wb_dither_bayer_map7=42
+0x2905c: 0x18381030  WB_TOP@0x29000: wb_dither_bayer_map8=48; WB_TOP@0x29000: wb_dither_bayer_map9=16; WB_TOP@0x29000: wb_dither_bayer_map10=56; WB_TOP@0x29000: wb_dither_bayer_map11=24
+0x29060: 0x1a3a1232  WB_TOP@0x29000: wb_dither_bayer_map12=50; WB_TOP@0x29000: wb_dither_bayer_map13=18; WB_TOP@0x29000: wb_dither_bayer_map14=58; WB_TOP@0x29000: wb_dither_bayer_map15=26
+0x29064: 0x24042c0c  WB_TOP@0x29000: wb_dither_bayer_map16=12; WB_TOP@0x29000: wb_dither_bayer_map17=44; WB_TOP@0x29000: wb_dither_bayer_map18=4; WB_TOP@0x29000: wb_dither_bayer_map19=36
+0x29068: 0x26062e0e  WB_TOP@0x29000: wb_dither_bayer_map20=14; WB_TOP@0x29000: wb_dither_bayer_map21=46; WB_TOP@0x29000: wb_dither_bayer_map22=6; WB_TOP@0x29000: wb_dither_bayer_map23=38
+0x2906c: 0x14341c3c  WB_TOP@0x29000: wb_dither_bayer_map24=60; WB_TOP@0x29000: wb_dither_bayer_map25=28; WB_TOP@0x29000: wb_dither_bayer_map26=52; WB_TOP@0x29000: wb_dither_bayer_map27=20
+0x29070: 0x16361e3e  WB_TOP@0x29000: wb_dither_bayer_map28=62; WB_TOP@0x29000: wb_dither_bayer_map29=30; WB_TOP@0x29000: wb_dither_bayer_map30=54; WB_TOP@0x29000: wb_dither_bayer_map31=22
+0x29074: 0x2b0b2303  WB_TOP@0x29000: wb_dither_bayer_map32=3; WB_TOP@0x29000: wb_dither_bayer_map33=35; WB_TOP@0x29000: wb_dither_bayer_map34=11; WB_TOP@0x29000: wb_dither_bayer_map35=43
+0x29078: 0x29092101  WB_TOP@0x29000: wb_dither_bayer_map36=1; WB_TOP@0x29000: wb_dither_bayer_map37=33; WB_TOP@0x29000: wb_dither_bayer_map38=9; WB_TOP@0x29000: wb_dither_bayer_map39=41
+0x2907c: 0x1b3b1333  WB_TOP@0x29000: wb_dither_bayer_map40=51; WB_TOP@0x29000: wb_dither_bayer_map41=19; WB_TOP@0x29000: wb_dither_bayer_map42=59; WB_TOP@0x29000: wb_dither_bayer_map43=27
+0x29080: 0x19391131  WB_TOP@0x29000: wb_dither_bayer_map44=49; WB_TOP@0x29000: wb_dither_bayer_map45=17; WB_TOP@0x29000: wb_dither_bayer_map46=57; WB_TOP@0x29000: wb_dither_bayer_map47=25
+0x29084: 0x27072f0f  WB_TOP@0x29000: wb_dither_bayer_map48=15; WB_TOP@0x29000: wb_dither_bayer_map49=47; WB_TOP@0x29000: wb_dither_bayer_map50=7; WB_TOP@0x29000: wb_dither_bayer_map51=39
+0x29088: 0x25052d0d  WB_TOP@0x29000: wb_dither_bayer_map52=13; WB_TOP@0x29000: wb_dither_bayer_map53=45; WB_TOP@0x29000: wb_dither_bayer_map54=5; WB_TOP@0x29000: wb_dither_bayer_map55=37
+0x2908c: 0x17371f3f  WB_TOP@0x29000: wb_dither_bayer_map56=63; WB_TOP@0x29000: wb_dither_bayer_map57=31; WB_TOP@0x29000: wb_dither_bayer_map58=55; WB_TOP@0x29000: wb_dither_bayer_map59=23
+0x29090: 0x15351d3d  WB_TOP@0x29000: wb_dither_bayer_map60=61; WB_TOP@0x29000: wb_dither_bayer_map61=29; WB_TOP@0x29000: wb_dither_bayer_map62=53; WB_TOP@0x29000: wb_dither_bayer_map63=21
+0x2909c: 0x000fff02  WB_TOP@0x29000: m_noetf_mode=2; WB_TOP@0x29000: m_noetf_max=4095
+0x290a0: 0x3da606a4  WB_TOP@0x29000: m_pmatrix_table0=1700; WB_TOP@0x29000: m_pmatrix_table1=15782
+0x290a4: 0x3f803fb5  WB_TOP@0x29000: m_pmatrix_table2=16309; WB_TOP@0x29000: m_pmatrix_table3=16256
+0x290a8: 0x3ff70488  WB_TOP@0x29000: m_pmatrix_table4=1160; WB_TOP@0x29000: m_pmatrix_table5=16375
+0x290ac: 0x3f993fed  WB_TOP@0x29000: m_pmatrix_table6=16365; WB_TOP@0x29000: m_pmatrix_table7=16281
+0x290b0: 0x0000047a  WB_TOP@0x29000: m_pmatrix_table8=1146
+0x290c0: 0x00545155  WB_TOP@0x29000: dbug_bus0=5525845
+0x290c8: 0x000f000f  WB_TOP@0x29000: dbug_bus2=983055
+0x290d0: 0x000f000f  WB_TOP@0x29000: dbug_bus4=983055

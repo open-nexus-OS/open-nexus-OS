@@ -1,0 +1,82 @@
+== phandle map
+0x6d -> ./reserved-memory/dpu_reserved@2ff40000
+0x64 -> ./soc/dram_range@1
+0x70 -> ./soc/pinctrl@d401e000/hdmi_0_grp
+0x1d -> ./soc/reset-controller@d4050000
+0x03 -> ./soc/clock-controller@d4050000
+0x20 -> ./soc/power-management@0/power-controller
+0x1e -> ./soc/interrupt-controller@e0000000
+== reserved-memory
+reserved-memory/dpu_reserved@2ff40000/: 000000002ff4000000000000000c0000  compat=shared-dma-pool 
+reserved-memory/framebuffer@7f000000/: 000000007f0000000000000001000000  compat=
+reserved-memory/linux,cma/:   compat=shared-dma-pool 
+reserved-memory/mmode_resv0@0/: 00000000000000000000000000080000  compat=
+reserved-memory/rcpu_mem_0@400000/: 00000000004000000000000000200000  compat=
+reserved-memory/rcpu_mem_heap@100000/: 00000000001000000000000000200000  compat=
+reserved-memory/rsc_table@3fc000/: 00000000003fc0000000000000004000  compat=
+reserved-memory/vdev0buffer@306000/: 000000000030600000000000000f6000  compat=shared-dma-pool 
+reserved-memory/vdev0vring0@300000/: 00000000003000000000000000003000  compat=
+reserved-memory/vdev0vring1@303000/: 00000000003030000000000000003000  compat=
+== interconnect/multimedia bus dma-ranges
+find: warning: you have specified the global option -maxdepth after the argument -type, but global options are not positional, i.e., -maxdepth affects tests specified before it as well as those specified after it.  Please specify global options before other arguments.
+== drm mode/connector
+crtc[127]: crtc-0
+	enable=1
+	active=1
+	self_refresh_active=0
+	planes_changed=1
+	mode_changed=0
+	active_changed=0
+	connectors_changed=0
+	color_mgmt_changed=0
+	plane_mask=1
+	connector_mask=1
+	encoder_mask=1
+	mode: "1920x1080": 60 148500 1920 2008 2052 2200 1080 1082 1087 1125 0x40 0x5
+connector[130]: HDMI-A-1
+	crtc=crtc-0
+	self_refresh_aware=0
+	max_requested_bpc=0
+	colorspace=Default
+== iomem
+c0400500-c04006ff : c0400500.hdmi hdmi@C0400500
+c0440000-c0469fff : c0440000.display-subsystem-hdmi display-subsystem-hdmi
+c08d0400-c08d3fff : c08d0400.spacemit_snd_dma_hdmi spacemit_snd_dma_hdmi
+== dmesg display
+[    0.000000] OF: reserved mem: initialized node dpu_reserved@2ff40000, compatible id shared-dma-pool
+[    0.000000] OF: reserved mem: 0x000000002ff40000..0x000000002fffffff (768 KiB) nomap non-reusable dpu_reserved@2ff40000
+[    0.347654] platform soc: Fixed dependency cycle(s) with /soc/hdmi@C0400500
+[    0.394419] platform soc: Fixed dependency cycle(s) with /soc/hdmi@C0400500
+[    0.398543] platform c0400500.hdmi: Fixed dependency cycle(s) with /soc
+[    0.405127] platform c0400500.hdmi: Fixed dependency cycle(s) with /soc/reset-controller@d4050000
+[    0.413906] platform c0400500.hdmi: Fixed dependency cycle(s) with /soc/clock-controller@d4050000
+[    0.422760] platform c0400500.hdmi: Fixed dependency cycle(s) with /soc/interrupt-controller@e0000000
+[    3.912060] [drm] Initialized pvr 24.2.6603887 20170530 for cac00000.imggpu on minor 0
+[    6.156340] [drm] spacemit_dpu_bind()
+[    6.160385] spacemit-dpu-drv soc:port@c0440000: assigned reserved memory node dpu_reserved@2ff40000
+[    6.169938] [drm] dpu plane init ok
+[    6.173475] spacemit-drm-drv c0440000.display-subsystem-hdmi: bound soc:port@c0440000 (ops dpu_component_ops)
+[    6.183856] spacemit-drm-drv c0440000.display-subsystem-hdmi: bound c0400500.hdmi (ops spacemit_hdmi_ops)
+[    6.194073] [drm] Initialized spacemit 1.0.0 20231115 for c0440000.display-subsystem-hdmi on minor 1
+[    6.205330] [drm] spacemit_hdmi_connector_detect() hdmi status connected
+[    6.212136] [drm] spacemit_hdmi_get_edid_block() len 128
+[    6.238000] [drm] spacemit_hdmi_get_edid_block() len 128
+[    6.243759] [drm] setting 1920x1080@60Hz as preferred mode
+[    6.254636] [drm] spacemit_crtc_atomic_enable(power on)
+[    6.254724] [drm] dpu_init 
+[    6.254763] [drm] spacemit_hdmi_encoder_enable()
+[    6.254778] [drm] spacemit_hdmi_setup() id 0xa28501, hdmi 8bpc 
+[    6.256929] [drm] DPU type 0 id 2 Start!
+[    6.329524] spacemit-drm-drv c0440000.display-subsystem-hdmi: [drm] fb0: spacemitdrmfb frame buffer device
+[    6.341387] [drm] spacemit_hdmi_connector_detect() hdmi status connected
+[    6.355614] [drm] spacemit_hdmi_get_edid_block() len 128
+[    6.390012] [drm] spacemit_hdmi_get_edid_block() len 128
+[    6.395782] [drm] setting 1920x1080@60Hz as preferred mode
+[    7.073046]   #0: snd-hdmi
+[   41.665560] systemd[1]: Starting modprobe@drm.service - Load Kernel Module drm...
+[   41.913043] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[   41.921819] systemd[1]: Finished modprobe@drm.service - Load Kernel Module drm.
+[   71.925977] [drm] spacemit_hdmi_connector_detect() hdmi status connected
+[   71.926032] [drm] spacemit_hdmi_get_edid_block() len 128
+[   71.950028] [drm] spacemit_hdmi_get_edid_block() len 128
+[   71.950472] [drm] setting 1920x1080@60Hz as preferred mode
