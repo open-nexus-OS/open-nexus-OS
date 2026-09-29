@@ -14,7 +14,7 @@ use core::cell::RefCell;
 
 use nexus_hal::Bus;
 use storage::{BlockDevice, BlockError};
-use storage_sdhci::{Card, Ceiling, Error, Host, HostConfig, Platform};
+use storage_sdhci::{Card, Ceiling, Error, Host, HostConfig, Mode, Platform};
 
 /// A sector.
 pub const SECTOR: usize = 512;
@@ -32,6 +32,16 @@ impl<B: Bus, P: Platform> SdhciDisk<B, P> {
         let card = Card::init(host, Ceiling::Hs52).map_err(|failure| failure.error)?;
         let sectors = u64::from(card.sectors());
         Ok(Self { card: RefCell::new(card), sectors })
+    }
+
+    /// The mode the card runs in, as negotiated at open (`legacy`/`hs52` on a `width`-bit
+    /// bus, `hs400es`) — one loader line names it, next to the slot verdict it reads with.
+    pub fn mode_name(&self) -> (&'static str, u8) {
+        match self.card.borrow().mode() {
+            Mode::Legacy { width } => ("legacy", width),
+            Mode::Hs52 { width } => ("hs52", width),
+            Mode::Hs400es => ("hs400es", 8),
+        }
     }
 
     fn run(

@@ -1,0 +1,17 @@
+# FAIL markers the BOARD lane tolerates (scripts/board-test.sh, the no-fake-green gate for
+# the desk board) — in addition to config/fail-marker-allow.txt, which every lane reads.
+# One marker prefix per line; '#' starts a comment. Every entry is a KNOWN, tracked red on the
+# board that is green on QEMU — never a hiding place. Remove a line once the proof is green on
+# the board; never add one without the tracking reference.
+#
+# The board has no entropy source yet (`init: rng plane none`: no virtio-rng, the SoC's TRNG
+# has no driver) — keystored gets no key material, so every authenticated statefs put and the
+# tamper/rollback denials built on it fail. Tracked: tasks/TASK-0327B P4 (H0) follow-up
+# "rngd on the board" (measured 2026-09-29, board-boot-2026-09-29T12-28-44).
+SELFTEST: rng entropy FAIL
+SELFTEST: device key pubkey FAIL
+SELFTEST: device key persist FAIL
+SELFTEST: statefs auth put FAIL
+SELFTEST: statefs tamper deny FAIL
+SELFTEST: statefs rollback deny FAIL
+SELFTEST: statefs enc roundtrip FAIL

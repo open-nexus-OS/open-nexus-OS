@@ -65,6 +65,10 @@ pub enum Profile {
     /// `[profile.none]` — boot + `end` only (used by harness fault-injection
     /// to confirm a binary built with skip semantics actually skips).
     None,
+    /// A board without fw_cfg names neither a profile nor a mode in `/chosen`: the whole
+    /// ladder except the phases that write the boot slots (OTA staging) or need a network
+    /// device (Net, Remote) — the live disk is never a fixture (TASK-0327B P4 H0b).
+    Board,
 }
 
 /// One entry per `[phase.X]` in `proof-manifest.toml`. Order mirrors the
@@ -119,6 +123,7 @@ impl Profile {
     pub fn includes(self, p: PhaseId) -> bool {
         match self {
             Profile::Full => true,
+            Profile::Board => !matches!(p, PhaseId::Ota | PhaseId::Net | PhaseId::Remote),
             Profile::Bringup | Profile::None => {
                 matches!(p, PhaseId::Bringup | PhaseId::End)
             }
@@ -206,6 +211,9 @@ impl Profile {
         match runtime_mode {
             Some(RuntimeMode::InteractiveFull) => Profile::Full,
             Some(RuntimeMode::InteractiveMinimal) => Profile::Bringup,
+            // Neither a profile nor a mode in the tree and no build-time choice: a board
+            // (QEMU's loader always writes one of them from fw_cfg).
+            None if legacy_profile.is_none() && runtime_profile.is_none() => Profile::Board,
             _ => legacy_profile.unwrap_or(default),
         }
     }
@@ -269,8 +277,20 @@ mod tests {
     }
 
     #[test]
-    fn unknown_env_falls_back_to_default() {
-        assert_eq!(Profile::resolve(None, None, None, Profile::Quick), Profile::Quick);
+    fn a_tree_without_profile_or_mode_is_a_board() {
+        // No fw_cfg, no build-time choice: the board ladder — everything but the slot-writing
+        // and network phases.
+        let board = Profile::resolve(None, None, None, Profile::Quick);
+        assert_eq!(board, Profile::Board);
+        assert!(board.includes(PhaseId::Bringup) && board.includes(PhaseId::Vfs));
+        assert!(board.includes(PhaseId::Mmio) && board.includes(PhaseId::End));
+        assert!(!board.includes(PhaseId::Ota) && !board.includes(PhaseId::Net));
+        assert!(!board.includes(PhaseId::Remote));
+        // A build-time choice still wins when the tree says nothing.
+        assert_eq!(
+            Profile::resolve(None, None, Some(Profile::Quick), Profile::Full),
+            Profile::Quick
+        );
     }
 
     #[test]

@@ -46,7 +46,8 @@ mod boot {
     use alloc::string::String;
 
     use bootfmt::bsb::Slot;
-    use nxboot::flow::{self, Event, FlowError, Reason};
+    use bootfmt::FmtError;
+    use nxboot::flow::{self, Event, FlowError, NxbdWhy, Reason};
     use storage::trace::{LoaderTrace, OsTrace, TraceError};
 
     use crate::arch;
@@ -61,7 +62,21 @@ mod boot {
 
     fn reason_str(reason: Reason) -> String {
         match reason {
-            Reason::Nxbd => String::from("nxbd"),
+            Reason::Nxbd { why, head, stable } => {
+                let why = match why {
+                    NxbdWhy::Fmt(FmtError::Malformed) => "malformed",
+                    NxbdWhy::Fmt(FmtError::Reserved) => "reserved",
+                    NxbdWhy::Fmt(FmtError::Crc) => "crc",
+                    NxbdWhy::Fmt(FmtError::Signature) => "sig",
+                    NxbdWhy::Bounds => "bounds",
+                    NxbdWhy::Load => "load",
+                };
+                let mut hex = String::new();
+                for b in head {
+                    hex.push_str(&format!("{b:02x}"));
+                }
+                format!("nxbd-{why} head={hex} reread={}", if stable { "same" } else { "differs" })
+            }
             Reason::Sig => String::from("sig"),
             Reason::Digest => String::from("digest"),
             Reason::Rollback { have, min } => format!("rollback {have} < min {min}"),

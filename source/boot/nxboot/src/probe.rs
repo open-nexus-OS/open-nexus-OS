@@ -234,7 +234,13 @@ fn open(fdt: &Fdt<'static>, candidate: &Candidate, tb_hz: u64) -> Result<BootDis
                 glue_fault_line(node, why);
                 why.name()
             })?;
-            sd(*base, config)
+            let disk = sd(*base, config)?;
+            // TASK-0327B P4 H0a: the mode the loader reads the slot with, next to its verdict.
+            if let BootDisk::Sdhci(d) = &disk {
+                let (mode, width) = d.mode_name();
+                arch::uart_puts(&format!("nxboot: disk sdhci mode={mode} bus={width}\n"));
+            }
+            Ok(disk)
         }
         Candidate::SdPci { host, dev, func, bar } => {
             let place = Place::Pci { host: *host, dev: *dev, func: *func };

@@ -72,6 +72,14 @@ pub(crate) fn cap_query_mmio_probe() -> core::result::Result<(), ()> {
     Ok(())
 }
 
+/// Whether init granted this client a device capability in its MMIO slot (a device plane the
+/// tree names; absent on a board without that plane).
+pub(crate) fn device_granted() -> bool {
+    const DEVICE: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
+    let mut info = nexus_abi::CapQuery::default();
+    nexus_abi::cap_query(DEVICE, &mut info).is_ok() && info.kind_tag == 2
+}
+
 pub(crate) fn cap_query_vmo_probe() -> core::result::Result<(), ()> {
     // A VMO queries as kind 1 with its length — and NO physical base: a physical
     // address leaves the kernel only through `vmo_runs` (RFC-0098 C4, TASK-0286

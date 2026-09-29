@@ -26,6 +26,10 @@ proves = "RFC-0098 C4 (TASK-0286 P4b): the device capability carries its coheren
 [marker."SELFTEST: dma buffer FAIL"]
 phase = "mmio"
 
+[marker."SELFTEST: dma buffer skipped (no device granted)"]
+phase = "mmio"
+proves = "TASK-0327B P4 H0b: a boot that granted the selftest-client no device (a board without the virtio-net plane) says so instead of blaming the kernel; the board's DMA proof is blkd's backend line"
+
 [marker."SELFTEST: cap query vmo ok"]
 phase = "mmio"
 proves = "RFC-0098 C4 (TASK-0286 P4a): a VMO queries as kind 1 with its length and NO physical base, even a contiguous one — physical addresses leave the kernel only through vmo_runs"
@@ -34,6 +38,9 @@ proves = "RFC-0098 C4 (TASK-0286 P4a): a VMO queries as kind 1 with its length a
 phase = "mmio"
 
 [marker."SELFTEST: cap query vmo FAIL"]
+phase = "mmio"
+
+[marker."SELFTEST: cap query vmo skipped (no device granted)"]
 phase = "mmio"
 
 [marker."SELFTEST: mmio "]

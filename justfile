@@ -53,6 +53,21 @@ board-log:
 board-ack MARKER:
     @scripts/board-ack.sh {{MARKER}}
 
+# TASK-0327B P4 (H0c): the board proof lane — flash, operator-prompted boot, the trace pulled
+# and judged (ladder, FAIL gate, manifest); `--log=<uart.log>` judges a capture without a board.
+board-test PROFILE='board-headless' *args:
+    @scripts/board-test.sh --profile={{PROFILE}} {{args}}
+
+# The board lane inside test-all: only with NEXUS_BOARD=1 (a desk with the board), never silent.
+board-lane:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${NEXUS_BOARD:-0}" = "1" ]; then
+      scripts/board-test.sh --profile="${NEXUS_BOARD_PROFILE:-board-headless}"
+    else
+      echo "[skip] board lane: set NEXUS_BOARD=1 at a desk with the board (just board-test PROFILE=board-headless)"
+    fi
+
 # -----------------------------------------------------------------------------
 # DSL toolchain (TASK-0075): builds the nx-dsl backend and runs it directly,
 # or through the `nx dsl` shim (NX_DSL_BACKEND delegation).
@@ -778,6 +793,7 @@ test-all:
     just ci-os-ota-bundle-resume
     just ci-os-ota-bundle-delta
     just ci-os-ota-backstops
+    just board-lane
     @scripts/hypothesis-log.sh H5 "justfile:test-all:end" "aggregate gate completed"
 
 # -----------------------------------------------------------------------------

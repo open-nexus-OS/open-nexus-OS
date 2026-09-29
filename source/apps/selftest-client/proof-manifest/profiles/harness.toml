@@ -236,3 +236,15 @@ runner = "scripts/qemu-test.sh"
 extends = "headless"
 env = { REQUIRE_SUPPLY_CHAIN = "1" }
 
+# TASK-0327B P4 H0c: the board lanes. The runner is scripts/board-test.sh — no QEMU, no env:
+# the transcript is the boot trace pulled from the eMMC (RFC-0107) or a serial capture; the
+# REQUIRED ladder lives in the runner, the vocabulary is the parent's plus markers/board.toml.
+# The board is an SMP machine (four harts online) and runs the full ladder: its vocabulary is
+# the smp chain (smp → headless → full); board-visible adds Block 1's display lines on top.
+[profile.board-headless]
+runner = "scripts/board-test.sh"
+extends = "smp"
+
+[profile.board-visible]
+runner = "scripts/board-test.sh"
+extends = "board-headless"

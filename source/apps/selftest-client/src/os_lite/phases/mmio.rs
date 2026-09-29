@@ -33,6 +33,14 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_VM_MAP_ROUNDTRIP_FAIL);
     }
+    // TASK-0327B P4 H0b: these two prove a DEVICE capability's contract; a boot that granted
+    // the selftest-client no device (the board has no virtio-net) skips them and says so —
+    // a `FAIL` would blame the kernel for a plane the tree does not have.
+    if !mmio::device_granted() {
+        emit_line(crate::markers::M_SELFTEST_DMA_BUFFER_SKIPPED_NO_DEVICE_GRANTED);
+        emit_line(crate::markers::M_SELFTEST_CAP_QUERY_VMO_SKIPPED_NO_DEVICE_GRANTED);
+        return Ok(());
+    }
     // TASK-0286 P4b: DMA ownership + user-mode Zicbom through a real DmaBuffer.
     match mmio::dma_buffer_probe() {
         Ok(proof) => {

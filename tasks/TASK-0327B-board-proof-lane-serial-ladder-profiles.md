@@ -170,6 +170,64 @@ P2 read the eMMC back over adb.
   - **Verdict:** Phase 3 works where DRAM survives a reset (QEMU's reset lane; proven). On this board the DRAM decays over a reset: three cycles lost the probe, a fourth kept it and rescued the kernel's console with bit errors — a lucky witness, never a proof medium (the measurement's amendment). What is left for the board's early kernel without an adapter is the user LED (`sys-led`, GPIO 96 of `k1x-gpio` at 0xd4019000, measured) — a ladder of a few bits — or the debug UART, whose ladder (`just board-serial`, P4) is built.
 - **P4 — the board ladder**, with TASK-0260B's FIT: the first eMMC boot attempt read back with
   `just board-log`, `markers/board.toml`, the `board-*` profiles, `just board-test`.
+  **Recut 2026-09-29 as H0, the board-cycle hygiene before any display cycle (plan
+  `composed-churning-squid`):**
+  - **H0a — the loader loop after the stock kernel** (with 0246B). Measured 2026-09-29: an eMMC boot
+    right after the stock kernel ran loops `verify FAIL (slot=a nxbd)` → `fallback -> slot=b` →
+    `PANIC (both slots bad)` → reset (2 of 2; boots after `fastboot reboot` and warm restarts of our
+    own chain verify 12 of 12). Instrument (built): `nxboot: disk sdhci mode=<m> bus=<w>` after the
+    card opens; `verify FAIL (slot=<s> nxbd-<malformed|reserved|crc|bounds|load> head=<16 hex>
+    reread=<same|differs>)` (`Reason::Nxbd { why, head, stable }`, `NxbdWhy`). Protocol: stock
+    system up → microSD out while it runs → `adb reboot` → eMMC → trace
+    (`docs/board/measurements/2026-09-29-emmc-after-linux/`). Then the card-init fix from the
+    measurement; gate: three consecutive stock → eMMC cycles without `verify FAIL`. **2026-09-29
+    afternoon: instrumented, not reproduced** — two cycles with the failing days' steps (stock fully
+    up at HS400ES/1.8 V, the eMMC read over adb, microSD out, reset) verified and booted; every
+    failing boot had read `dram probe lost`, every clean one `kept`. The instrument stays; the fix
+    waits for the next occurrence's trace. (The stock root is on the microSD: pulling it kills the
+    stock system, so the reset button is the reboot — `adb reboot` is not available.)
+  - **H0b — the selftest-client honest on the board** (built): a tree that names neither
+    `nexus,boot-profile` nor `nexus,boot-mode` (no fw_cfg) resolves to `Profile::Board` — every
+    phase but OTA (writes the boot slots: the live disk is never a fixture), Net and Remote (no
+    network device); the two device-capability probes say `SELFTEST: dma buffer skipped (no device
+    granted)` / `cap query vmo skipped (no device granted)` instead of `FAIL` when init granted no
+    device. The nxra proof stays: it is state-neutral by construction (`NotStaged`).
+  - **H0c — `scripts/board-test.sh` + `board-headless`/`board-visible`** (built): `board-image` →
+    `board-flash --plan` → operator prompts with the LED ladder as the wait signal → `board-log` →
+    `verify-uart --profile=board-*` on the pulled trace; never green by timeout (no `nxboot:` banner
+    = FAIL); `board-visual:` acks through `scripts/board-ack.sh`; `just board-test PROFILE=`; in
+    `test-all` only under `NEXUS_BOARD=1`.
+    **Built 2026-09-29:** `scripts/board-test.sh` (`--log=` judges a capture without a board; the
+    live path flashes, prompts with the LED ladder as the wait signal, pulls the trace), profiles
+    `board-headless` (extends `smp`: the board is a four-hart machine) and `board-visible`,
+    `markers/board.toml` (the board vocabulary + `board-visual: desktop|typed`), `just board-test`,
+    `just board-lane` in `test-all` under `NEXUS_BOARD=1`. The ladder is judged by PRESENCE, as
+    `qemu-test.sh` judges its `expected_sequence` (the rungs come from independent services on
+    four harts; their order differs per boot — measured on two captures). Judged on the day's
+    capture (H0b image): the manifest is clean; the FAIL gate found the board's real reds —
+    keystored gets no entropy (`init: rng plane none`, no TRNG driver), so `SELFTEST: rng entropy
+    FAIL`, the device-key proofs, `statefs auth put FAIL` and the tamper/rollback denials fail —
+    tolerated with their reference in `config/fail-marker-allow-board.txt` until an entropy
+    source exists (follow-up: rngd on the board, the SoC's TRNG); and the ladder is one rung
+    short: `stage: platform` is never printed on the board — H0d. The lane is honest: `[FAIL]
+    board-headless: rung missing: 'stage: platform' (rung 17 of 17)` until H0d is fixed.
+  - **H0d — the platform stage on the board** (found by H0c, instrumented 2026-09-29, one cycle to
+    measure): every platform-floor service prints `<svc>: ready` (13 of 13 — blkd, statefsd, logd,
+    policyd, bootctld, execd, samgrd, keystored, rngd, socd, bundlemgrd, packagefsd, vfsd), none
+    prints `FAIL ready announce`, yet init never prints `init: up <svc>` for any of them and never
+    signals `stage: platform`; `abilitymgr` and `sessiond` then wait on the fence forever (`FAIL
+    stage wait svc=… stage=session-start`) — the board never starts a session. The frames that DO
+    arrive are the ones announced after the responder began (`init: up inputd|windowd|touchd|
+    pinched`). On QEMU `smp` (four harts) the same early announces are drained fine. Two silent
+    paths in the responder could hide the loss and are now witnesses: a control frame that decodes
+    as neither a route ask, an exec check nor a verb → `init: ctrl frame unknown svc=<s> len=<n>
+    head=<16 hex>`; a control recv that fails with anything but an empty queue → `init: ctrl recv
+    err svc=<s> err=<label>`. The next board trace decides between: the frames arrive garbled
+    (a cross-hart payload/ordering defect in the kernel's IPC on this SoC), a refused channel (a
+    slot the board's different grant set aliases — the board has no virtio planes, so init's
+    kernel-allocated slots differ from QEMU's), or no frame at all (lost between the child's
+    `Ok` send and init's queue). Measurement folder:
+    `docs/board/measurements/2026-09-29-platform-stage/`.
   - **Amended 2026-09-29:** with the ring written back per byte (`cbo.flush`, RFC-0107 Phase 3 note) every
     board rescue since read `lost=0` and ended at the kernel's last byte — a warm reset keeps this
     board's DRAM, a cold one does not — and the rescue carried the diagnosis of TASK-0260B P3 (six

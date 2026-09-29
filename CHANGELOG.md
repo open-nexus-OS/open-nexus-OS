@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-09-29 (TASK-0327B P4 H0: the board cycle as one command; the board's proof lane finds its first real red)
+
+- **`scripts/board-test.sh` + `just board-test PROFILE=board-headless|board-visible`:** the desk
+  board judged the way a QEMU lane is judged — the manifest's surprise/forbidden check
+  (`verify-uart --profile=board-*`), the FAIL gate (`config/fail-marker-allow.txt` plus the
+  board's own tracked reds in `config/fail-marker-allow-board.txt`), and a REQUIRED ladder kept
+  in the harness, judged by presence as `qemu-test.sh` does. The live path builds the image,
+  flashes the plan, prompts the operator with the LED ladder as the wait signal, waits for the
+  stock system on adb and pulls the boot trace; `--log=` judges an archived capture without a
+  board. Never green by timeout: no loader banner is a FAIL, a missing rung names itself, an
+  operator-acked marker (`board-visual: desktop|typed`, `scripts/board-ack.sh`) is asked for.
+  `just board-lane` runs in `test-all` only under `NEXUS_BOARD=1`. Profiles `board-headless`
+  (extends `smp`) and `board-visible`, vocabulary `markers/board.toml`.
+- **The selftest-client on a board:** a tree that names neither `nexus,boot-profile` nor
+  `nexus,boot-mode` resolves to `Profile::Board` — every phase but OTA, Net and Remote; the two
+  device-capability probes report `skipped (no device granted)` instead of `FAIL` when init
+  granted no device.
+- **The loader's disk verdict carries its evidence:** `nxboot: disk sdhci mode=<m> bus=<w>` after
+  the card opens, and a structural reject reads `verify FAIL (slot=<s> nxbd-<why> head=<16 hex>
+  reread=<same|differs>)` — instrumented for the loop after the stock kernel
+  (`docs/board/measurements/2026-09-29-emmc-after-linux/`, not reproduced in two cycles).
+- **Found by the lane (H0d, open):** on the board `stage: platform` is never signalled — all 13
+  platform-floor services announce `@ready`, init records none of them, and the session never
+  starts (`FAIL stage wait svc=abilitymgr|sessiond`). Two silent paths in init's responder are
+  now witnesses (`init: ctrl frame unknown svc=… len=… head=…`, `init: ctrl recv err svc=…
+  err=…`); the next board trace decides between garbled frames, a refused channel and no frame
+  (`docs/board/measurements/2026-09-29-platform-stage/`). The lane stays RED on it.
+- `tasks/IMPLEMENTATION-ORDER.md` re-sorted (user priority 2026-09-29): a visible picture on the
+  board's HDMI and USB keyboard/mouse (Block 1 B1.7 D0–D5, Block 2 U0–U3) before Block 3; rule 6
+  is the end-state UX quality gate, phrased generically.
+
 ### Fixed - 2026-09-28 (TASK-0260B P3: the board kernel's silent stop — one timer arming path; the IRQ bound and device windows from the tree)
 
 - **The kernel stopped ~16–20 ms after init's spawn on the board, in silence, whatever the

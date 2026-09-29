@@ -1,0 +1,94 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The board's own vocabulary (TASK-0327B P4 H0c): what the loader and the kernel say
+# only on hardware (the tree names a LED, an APMU, harts the OS may not start), the storage
+# owner's lines the board ladder requires, the display lines Block 1's gate requires, and the
+# operator-acked markers `board-visual: <name>` that `scripts/board-ack.sh` refuses to append
+# unless declared here. The REQUIRED ladder lives in `scripts/board-test.sh`; this file is the
+# vocabulary `verify-uart` judges surprise against.
+# OWNERS: @runtime @tools-team
+# STATUS: Functional
+# API_STABILITY: Stable (marker literals are contracts)
+
+[marker."nxboot: boot led ok (gpio="]
+phase = "bringup"
+proves = "TASK-0260B P3: the loader brought the LED's GPIO block up from the tree, muxed the pad and lit the ladder's first group"
+
+[marker."nxboot: boot led none ("]
+phase = "bringup"
+
+[marker."nxboot: watchdog off ("]
+phase = "bringup"
+proves = "TASK-0260B P3: the SoC watchdog the tree names was read and left disabled (the value it had is in the line)"
+
+[marker."nxboot: cores awake (apmu="]
+phase = "bringup"
+proves = "TASK-0260B P3: every core's power-down-on-wfi bits are clear before the kernel runs (mainline firmware's cold-boot contract)"
+
+[marker."nxboot: dram probe "]
+phase = "bringup"
+proves = "RFC-0107 Phase 3: whether the previous boot's DRAM survived the reset (kept | lost | stale | none)"
+
+[marker."nxboot: disk sdhci mode="]
+phase = "bringup"
+proves = "TASK-0327B P4 H0a: the mode and bus width the loader reads the boot disk with, next to its slot verdict"
+
+[marker."KINIT: milestone "]
+phase = "bringup"
+proves = "TASK-0260B P3: each LED milestone with the boot's own clock and the console's UART stall count"
+
+[marker."KINIT: irq state before runtime"]
+phase = "bringup"
+proves = "TASK-0260B P3: the interrupt state the runtime begins with (sstatus, sie, sip)"
+
+[marker."disabled by the tree — not started"]
+phase = "bringup"
+proves = "RFC-0098: a cpu node with status = disabled is never started (`KINIT: hart<n> disabled by the tree — not started`)"
+
+[marker."init: net plane none ("]
+phase = "bringup"
+proves = "RFC-0098: the tree names no network device; the plane is declared absent, never fatal"
+
+[marker."init: rng plane none ("]
+phase = "bringup"
+
+[marker."init: gpu plane none ("]
+phase = "bringup"
+
+[marker."KGATE: smp bringup ok mask="]
+phase = "bringup"
+proves = "every hart the tree enables came online through SBI HSM (mask=0xf on the board's four, 0x1 on QEMU smp1)"
+
+[marker."KSELFTEST: spawn ok pid="]
+phase = "bringup"
+proves = "init exists as a task: its image copied into its address space and spawned by the kernel"
+
+[marker."blkd: ready"]
+phase = "bringup"
+
+[marker."blkd: backend ok (kind="]
+phase = "bringup"
+proves = "TASK-0246: the block owner opened the tree's boot disk — on the board the SDHCI host with the card's negotiated mode and bus width"
+
+[marker."blkd: gpt ok (parts="]
+phase = "bringup"
+
+[marker."bundlemgrd: system volume verified ("]
+phase = "bringup"
+proves = "the system volume's bundle set verified from the boot disk before any bundle is served"
+
+[marker."gpud: dc scanout ok ("]
+phase = "bringup"
+proves = "TASK-0251 (Block 1 gate): the display controller scans out the desktop at the mode EDID and the SoC's maximum agree on"
+
+[marker."windowd: desktop revealed"]
+phase = "bringup"
+
+[marker."board-visual: desktop"]
+phase = "end"
+proves = "a person at the monitor confirmed the desktop of THIS boot (scripts/board-ack.sh; Block 1 gate)"
+
+[marker."board-visual: typed"]
+phase = "end"
+proves = "a person confirmed that a USB keyboard and mouse move THIS boot's desktop (Block 2 gate)"

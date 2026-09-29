@@ -35,8 +35,10 @@ pub const EXPECTED_LOAD_ADDR: u64 = bootfmt::nxbd::LOAD_ADDR_RELOCATABLE;
 /// `nxbd | sig | digest | rollback <n> < min <m> | io`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reason {
-    /// Malformed/zeroed descriptor, impossible bounds or wrong load_addr.
-    Nxbd,
+    /// Malformed/zeroed descriptor, impossible bounds or wrong load_addr — with the check
+    /// that refused it, the sector's first bytes and whether a second read of the same
+    /// sector agreed (TASK-0327B P4 H0a: the board's loader loop after the stock kernel).
+    Nxbd { why: NxbdWhy, head: [u8; 8], stable: bool },
     /// Signature did not verify against the baked anchor.
     Sig,
     /// Streamed image sha256 mismatch.
@@ -45,6 +47,17 @@ pub enum Reason {
     Rollback { have: u32, min: u32 },
     /// Block reads failed.
     Io,
+}
+
+/// Which check refused a slot's descriptor sector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NxbdWhy {
+    /// `bootfmt` refused the sector's structure (magic, version, reserved, CRC).
+    Fmt(FmtError),
+    /// A decoded image size of 0, past the partition's budget or past the window.
+    Bounds,
+    /// A decoded load address other than the relocatable one.
+    Load,
 }
 
 /// Terminal flow failures (all end in a loud panic + reset upstream).
@@ -211,10 +224,19 @@ fn load_slot<D: BlockDevice>(
     let part = slot_partition(parts, slot).ok_or(Reason::Io)?;
     let mut sector0 = [0u8; SECTOR];
     dev.read_blocks(part.first_lba, &mut sector0).map_err(|_| Reason::Io)?;
-    let desc = trust::verify_nxbd(&sector0).map_err(|err| match err {
-        FmtError::Signature => Reason::Sig,
-        _ => Reason::Nxbd,
-    })?;
+    let mut head = [0u8; 8];
+    head.copy_from_slice(&sector0[..8]);
+    let desc = match trust::verify_nxbd(&sector0) {
+        Ok(desc) => desc,
+        Err(FmtError::Signature) => return Err(Reason::Sig),
+        Err(err) => {
+            // A second read of the same sector: the same bytes name a data path that reads
+            // wrong but steadily (timing, bus width); different bytes name a marginal one.
+            let mut again = [0u8; SECTOR];
+            let stable = dev.read_blocks(part.first_lba, &mut again).is_ok() && again == sector0;
+            return Err(Reason::Nxbd { why: NxbdWhy::Fmt(err), head, stable });
+        }
+    };
 
     let budget_sectors = (part.last_lba - part.first_lba + 1).saturating_sub(IMAGE_START_SECTOR);
     let image_len = desc.image_size as usize;
@@ -222,9 +244,11 @@ fn load_slot<D: BlockDevice>(
     if desc.image_size == 0
         || padded_len as u64 > budget_sectors * SECTOR as u64
         || padded_len > dest.len()
-        || desc.load_addr != EXPECTED_LOAD_ADDR
     {
-        return Err(Reason::Nxbd);
+        return Err(Reason::Nxbd { why: NxbdWhy::Bounds, head, stable: true });
+    }
+    if desc.load_addr != EXPECTED_LOAD_ADDR {
+        return Err(Reason::Nxbd { why: NxbdWhy::Load, head, stable: true });
     }
     if desc.rollback_index < floor {
         return Err(Reason::Rollback { have: desc.rollback_index, min: floor });

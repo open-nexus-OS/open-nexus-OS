@@ -192,3 +192,16 @@ Topic guides:
 - [evidence-bundle.md](evidence-bundle.md) — normative spec for signed evidence bundles (RFC-0038 Phase 5).
 - [bisect-good-drift-regress.json](bisect-good-drift-regress.json) — fixture for the Phase-6 3-commit `good→drift→regress` synthetic bisect smoke (`tools/bisect-evidence.sh ... --synthetic-map=docs/testing/bisect-good-drift-regress.json ...`).
 - [trace-diff-fixtures.json](trace-diff-fixtures.json) — fixture corpus for `tools/diff-traces.sh` (exact / extra / missing / reorder / phase-mismatch classes).
+
+## Board lane (`just board-test PROFILE=board-headless|board-visible`)
+
+The desk board is judged like a QEMU lane (`scripts/board-test.sh`, TASK-0327B P4): the image is
+built and flashed, the operator is prompted step by step with the user LED's ladder as the wait
+signal, the boot trace is pulled from the eMMC by `just board-log` (no serial adapter needed),
+and the capture is judged three ways — `verify-uart` (surprise/forbidden lines, the board
+vocabulary in `proof-manifest/markers/board.toml`), the FAIL gate (`config/fail-marker-allow.txt`)
+and the REQUIRED ladder in the runner, in order. `board-visible` additionally asks the operator
+for `board-visual: desktop`, appended with `just board-ack`. Nothing passes by timeout. Judge an
+archived capture without a board: `scripts/board-test.sh --profile=board-headless --log=<uart.log>`.
+In `just test-all` the lane runs only with `NEXUS_BOARD=1` (`just board-lane`); without it the
+step prints that it was skipped.

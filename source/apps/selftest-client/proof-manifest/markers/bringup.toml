@@ -1282,6 +1282,17 @@ phase = "bringup"
 [marker."init: service exit name="]
 phase = "bringup"
 
+# TASK-0327B P4 H0d: a control frame init cannot decode, or a control channel the kernel
+# refuses to hand a frame from, is NAMED instead of skipped — on the board the platform
+# floor's `@ready` frames never reached the ready table and `stage: platform` was never
+# signalled; these two lines are the witnesses that decide whether the frames arrive
+# garbled, arrive at all, or are refused.
+[marker."init: ctrl frame unknown svc="]
+phase = "bringup"
+
+[marker."init: ctrl recv err svc="]
+phase = "bringup"
+
 [marker."init: FAIL supervision probe spawn"]
 phase = "bringup"
 

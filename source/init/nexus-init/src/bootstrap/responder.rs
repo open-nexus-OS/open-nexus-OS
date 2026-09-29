@@ -89,7 +89,21 @@ pub(crate) fn run_responder_loop(
             ) {
                 Ok(n) => n as usize,
                 Err(nexus_abi::IpcError::QueueEmpty) => continue,
-                Err(_) => continue,
+                // A control channel that fails for any other reason is a witness, never a
+                // silent skip: a frame the kernel refused to hand over is a frame the ladder
+                // will wait for forever (TASK-0327B P4 H0d — measured on the board).
+                Err(err) => {
+                    crate::bootstrap::diag::emit_marker_atomic(
+                        &[
+                            b"init: ctrl recv err svc=",
+                            chan.svc_name.as_bytes(),
+                            b" err=",
+                            ipc_error_label(err).as_bytes(),
+                        ],
+                        None,
+                    );
+                    continue;
+                }
             };
             if chan.svc_name == "updated" {
                 debug_write_bytes(b"init: ctrl req from updated\n");
@@ -184,7 +198,13 @@ pub(crate) fn run_responder_loop(
                             nexus_abi::IPC_SYS_NONBLOCK,
                             0,
                         );
+                        continue;
                     }
+                    // Neither a route ask nor an exec check: the frame is NAMED, with its
+                    // length and first bytes, instead of vanishing — a control verb that does
+                    // not decode is exactly what a lost `@ready` would look like from here
+                    // (TASK-0327B P4 H0d). Bounded: one line, eight head bytes.
+                    crate::bootstrap::diag::emit_ctrl_frame_unknown(chan.svc_name, &buf[..n]);
                     continue;
                 }
             };

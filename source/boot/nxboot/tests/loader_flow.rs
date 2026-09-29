@@ -232,7 +232,9 @@ fn stranger_key_and_zeroed_slot_reject_with_stable_reasons() {
     schedule_trial(&mut fx, 1, 1);
     let (got, events, _) = run(&mut fx);
     assert_eq!(got.expect("fallback").slot, Slot::A);
-    assert!(events.contains(&Event::VerifyFail { slot: Slot::B, reason: Reason::Nxbd }));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::VerifyFail { slot: Slot::B, reason: Reason::Nxbd { .. } })));
 }
 
 #[test]
@@ -245,10 +247,13 @@ fn both_slots_bad_is_terminal_and_ordered() {
     fx.dev.write_blocks(fx.boot_a.first_lba, &sector).expect("corrupt");
 
     let (got, _events, _) = run(&mut fx);
-    assert_eq!(
+    assert!(matches!(
         got.expect_err("must not boot unverified bytes"),
-        FlowError::BothSlotsBad { first: (Slot::A, Reason::Sig), second: (Slot::B, Reason::Nxbd) }
-    );
+        FlowError::BothSlotsBad {
+            first: (Slot::A, Reason::Sig),
+            second: (Slot::B, Reason::Nxbd { .. })
+        }
+    ));
 }
 
 #[test]
@@ -285,7 +290,9 @@ fn wrong_load_addr_is_a_descriptor_reject() {
     schedule_trial(&mut fx, 1, 1);
     let (got, events, _) = run(&mut fx);
     assert_eq!(got.expect("fallback").slot, Slot::A);
-    assert!(events.contains(&Event::VerifyFail { slot: Slot::B, reason: Reason::Nxbd }));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::VerifyFail { slot: Slot::B, reason: Reason::Nxbd { .. } })));
 }
 
 // ---- The boot disk (TASK-0246B P1): the rule, and the SDHCI reader under whole decisions ----

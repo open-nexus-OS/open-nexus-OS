@@ -109,3 +109,22 @@ pub(crate) fn emit_marker_atomic(parts: &[&[u8]], hex: Option<u64>) {
         let _ = nexus_abi::debug_println(msg);
     }
 }
+
+/// A control frame that is neither a route ask, an exec check nor a control verb: NAMED with
+/// its sender, length and first bytes, in one atomic line, instead of vanishing (TASK-0327B P4
+/// H0d — on the board the platform floor's `@ready` frames never reached the ready table, and
+/// a silent skip was the only possible witness). Bounded: eight head bytes, one line.
+pub(crate) fn emit_ctrl_frame_unknown(svc: &str, frame: &[u8]) {
+    let mut head = 0u64;
+    for (i, b) in frame.iter().take(8).enumerate() {
+        head |= u64::from(*b) << (8 * (7 - i));
+    }
+    // Frames are at most 64 bytes (`IPC_SYS_TRUNCATE` into a 64-byte buffer): two digits.
+    let len = frame.len().min(99);
+    let digits = [b'0' + (len / 10) as u8, b'0' + (len % 10) as u8];
+    let digits = if len < 10 { &digits[1..] } else { &digits[..] };
+    emit_marker_atomic(
+        &[b"init: ctrl frame unknown svc=", svc.as_bytes(), b" len=", digits, b" head="],
+        Some(head),
+    );
+}
