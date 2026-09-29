@@ -61,6 +61,8 @@ static TIMER_SSTC: AtomicBool = AtomicBool::new(false);
 /// 0 when the ISA does not list `zicbom` (RFC-0098 C4).
 static CBOM_BLOCK: AtomicUsize = AtomicUsize::new(0);
 static HART_COUNT: AtomicUsize = AtomicUsize::new(0);
+/// Bit `h` set: the tree lists hart `h` as a cpu the OS may use (`status` okay or absent).
+static HART_MASK: AtomicUsize = AtomicUsize::new(0);
 /// `/memory` banks `(base, len)`, in tree order; the direct map and the frame
 /// allocator (TASK-0286) are built over these.
 static MEM_BANKS: [(AtomicUsize, AtomicUsize); MAX_BANKS] =
@@ -128,6 +130,11 @@ pub fn init_from_fdt(bytes: Option<&[u8]>) -> Result<(), PlatformError> {
     NS_DIV.store(hz / g, Ordering::Relaxed);
     TIMEBASE_HZ.store(hz, Ordering::Relaxed);
     HART_COUNT.store(cpus.count(), Ordering::Relaxed);
+    let mut mask = 0usize;
+    for hart in cpus.harts().map(|c| c.hart as usize).filter(|&h| h < usize::BITS as usize) {
+        mask |= 1 << hart;
+    }
+    HART_MASK.store(mask, Ordering::Relaxed);
     // Memory banks (RFC-0098 C4): every `/memory` bank, bounded by MAX_BANKS.
     let mut banks = 0usize;
     for bank in fdt.memory_banks().take(MAX_BANKS) {
@@ -192,6 +199,12 @@ pub fn timebase_hz() -> u64 {
 
 pub fn hart_count() -> usize {
     HART_COUNT.load(Ordering::Relaxed)
+}
+
+/// Whether the tree lists hart `hart` as one the OS may start (RFC-0098: a cpu node
+/// with `status = "disabled"` is not).
+pub fn hart_enabled(hart: usize) -> bool {
+    hart < usize::BITS as usize && HART_MASK.load(Ordering::Relaxed) & (1 << hart) != 0
 }
 
 /// The harts' Zicbom cache-block size in bytes, 0 without Zicbom (RFC-0098 C4).
@@ -315,9 +328,27 @@ pub fn console_write_byte(byte: u8) {
         if base == 0 {
             return;
         }
-        while uart_read_reg(base, UART_LSR) & LSR_TX_IDLE == 0 {}
+        // TASK-0260B P3: the wait for the transmitter is bounded (2 ms, twenty byte
+        // times at the slowest console rate) — a transmitter that stops, whatever stops
+        // it, must not stop the kernel. The byte then stays in the ring only and the stall
+        // is counted (`uart_stalls`, stamped into the boot milestones).
+        let bound = ns_to_ticks(2_000_000);
+        let t0 = crate::arch::riscv::read_time();
+        while uart_read_reg(base, UART_LSR) & LSR_TX_IDLE == 0 {
+            if bound != 0 && crate::arch::riscv::read_time().wrapping_sub(t0) > bound {
+                UART_STALLS.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        }
         uart_write_reg(base, UART_TX, byte);
     });
+}
+
+/// Bytes the console gave up on because the transmitter never became ready in time.
+static UART_STALLS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn uart_stalls() -> usize {
+    UART_STALLS.load(Ordering::Relaxed)
 }
 
 /// Collection of HAL devices for the running machine.

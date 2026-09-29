@@ -26,11 +26,17 @@
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod arch;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod cores;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod led;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod platform;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod probe;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod virtio;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod watchdog;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod boot {
@@ -253,6 +259,14 @@ mod boot {
         // RFC-0098 C1: the tree first — the console, the memory map and the
         // transports all come from it; nothing below knows an address.
         let tree = crate::platform::init(dtb);
+        // TASK-0260B P3: a watchdog the vendor chain would have stopped — first, before any wait.
+        crate::watchdog::stop(&tree);
+        // TASK-0260B P3: no core powers itself down on `wfi` until the OS owns idle — a parked
+        // core that vanished from the bus took the boot hart with it (its PLIC context read).
+        crate::cores::keep_awake(&tree);
+        // TASK-0260B P3: the boot LED, brought up and lit — the channel a board without a
+        // serial adapter has for the kernel's earliest milestones.
+        crate::led::prepare(&tree);
         let Some((base, len)) = crate::platform::kernel_window(&tree) else {
             panic_reset("no kernel window in the first memory bank");
         };

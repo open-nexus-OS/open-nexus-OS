@@ -1,6 +1,6 @@
 # ADR-0066: On hardware the booted chain is boot ROM → vendor SPL → OpenSBI → nxboot as the FIT payload — no vendor U-Boot in the booted system
 
-- Status: Proposed
+- Status: Accepted (2026-09-29 — the chain boots the board's eMMC through the vendor SPL and OpenSBI into nxboot and our kernel to a living userspace; measured in `tasks/TASK-0260B-*` P3)
 - Date: 2026-09-22
 - Links:
   - Tasks: `tasks/TASK-0260-*` (image head + fastboot as the flasher protocol),

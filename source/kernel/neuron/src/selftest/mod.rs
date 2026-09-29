@@ -57,6 +57,13 @@ use riscv::register::sstatus;
 
 pub mod assert;
 mod fence;
+#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
+mod init_image;
+#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
+use init_image::{
+    align_down, align_up, alloc_init_page, copy_segment_bytes, log_symbol_words, read_u16,
+    read_u32, read_u64,
+};
 mod smp_sched;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vm_alloc;
@@ -559,6 +566,8 @@ fn call_on_stack(entry: extern "C" fn(), new_sp: usize) {
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 pub fn entry(ctx: &mut Context<'_>) {
     CHILD_HEARTBEAT.store(0, Ordering::SeqCst);
+    // Boot LED milestone 6: the kernel selftests begin.
+    crate::hal::boot_led::milestone(6);
     run_address_space_selftests(ctx);
     run_ipc_queue_full_selftest(ctx);
     run_ipc_bytes_full_selftest(ctx);
@@ -583,6 +592,9 @@ pub fn entry(ctx: &mut Context<'_>) {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     ctx.tasks.set_current(Pid::KERNEL);
     run_exit_wait_selftests(ctx);
+    // Boot LED milestone 7: a child task ran in user mode, exited and was waited for — the
+    // trap path, the user round trip and the lifecycle work on this hardware.
+    crate::hal::boot_led::milestone(7);
 
     // Spawn embedded init process
     #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
@@ -1761,7 +1773,6 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         stack_top,
         global_pointer
     );
-
     // Ensure init-lite is a direct child of the bootstrap task (PID 0) so that early
     // capability/lifecycle gates (RFC-0005 hardening) can reliably treat init-lite as
     // the temporary authority during bring-up.
@@ -1777,6 +1788,8 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
     };
 
     log_info!(target: "selftest", "KSELFTEST: spawn ok pid={}", init_pid);
+    // Boot LED milestone 10: init exists as a task.
+    crate::hal::boot_led::milestone(10);
 
     // RFC-0005 Phase-2 hardening: EndpointFactory is now injected by the kernel when PID 0 spawns
     // the init-lite userspace task. (See `TaskTable::spawn_inner`.)
@@ -1865,6 +1878,8 @@ fn load_init_elf(
         Err(_) => return Err("as create failed"),
     };
 
+    // Boot LED milestone 8: init's address space exists; its segments are copied next.
+    crate::hal::boot_led::milestone(8);
     // Load PT_LOAD segments
     const PT_LOAD: u32 = 1;
     const PF_R: u32 = 4;
@@ -1924,6 +1939,9 @@ fn load_init_elf(
         let seg_start = align_down(p_vaddr, PAGE_SIZE);
         let seg_end = align_up(p_vaddr + p_memsz, PAGE_SIZE);
         let mut va = seg_start;
+        // TASK-0260B P3: the board's kernel died in this loop with no trap and no line — the
+        // frames it copies into, named, so a rescued console shows which access it was.
+        let (mut pages, mut first_pa, mut last_pa) = (0usize, 0usize, 0usize);
 
         while va < seg_end {
             let existing_entry = {
@@ -1940,6 +1958,13 @@ fn load_init_elf(
                     extra |= PageFlags::WRITE | PageFlags::DIRTY;
                 }
                 let _ = sys_ctx.address_spaces.set_leaf_flags(as_handle, va, extra);
+                log_info!(
+                    target: "selftest",
+                    "KSELFTEST: shared page va=0x{:x} entry=0x{:x} pa=0x{:x}",
+                    va,
+                    entry,
+                    (entry >> 10) << 12
+                );
 
                 copy_segment_bytes(
                     bytes,
@@ -1949,12 +1974,18 @@ fn load_init_elf(
                     va,
                     crate::phys::phys_to_virt((entry >> 10) << 12) as *mut u8,
                 );
+                log_info!(target: "selftest", "KSELFTEST: shared page copied va=0x{:x}", va);
 
                 va += PAGE_SIZE;
                 continue;
             }
 
             let pa = alloc_init_page().ok_or("oom")?;
+            if pages == 0 {
+                first_pa = pa;
+            }
+            last_pa = pa;
+            pages += 1;
 
             unsafe {
                 core::ptr::write_bytes(crate::phys::phys_to_virt(pa) as *mut u8, 0, PAGE_SIZE);
@@ -1969,10 +2000,18 @@ fn load_init_elf(
                 log_info!(target: "selftest", "KSELFTEST: map_page failed va=0x{:x} pa=0x{:x} flags={:?} err={:?}", va, pa, flags, e);
                 return Err("map failed");
             }
-
             va += PAGE_SIZE;
         }
+        log_info!(
+            target: "selftest",
+            "KSELFTEST: segment copied (pages={} first_pa=0x{:x} last_pa=0x{:x})",
+            pages,
+            first_pa,
+            last_pa
+        );
     }
+    // Boot LED milestone 9: every segment of init is in its address space.
+    crate::hal::boot_led::milestone(9);
 
     // Allocate stack (place high in user address space) and ensure the SP page is mapped.
     const STACK_PAGES: usize = 16;
@@ -2181,111 +2220,6 @@ fn load_init_elf(
     let stack_sp = (mapped_top - 2 * PAGE_SIZE) & !0xf;
 
     Ok((e_entry, stack_sp, gp, as_handle))
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn alloc_init_page() -> Option<usize> {
-    // One frame from the pool (TASK-0286 P3b: the fixed page pool is gone).
-    // init-lite lives for the whole boot, so its pages are never returned.
-    crate::mm::frame_pool::alloc(0).ok().map(|b| b.base as usize)
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn read_u16(bytes: &[u8]) -> u16 {
-    u16::from_le_bytes([bytes[0], bytes[1]])
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn read_u32(bytes: &[u8]) -> u32 {
-    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn read_u64(bytes: &[u8]) -> u64 {
-    u64::from_le_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ])
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn align_down(addr: usize, align: usize) -> usize {
-    addr & !(align - 1)
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn align_up(addr: usize, align: usize) -> usize {
-    let rem = addr % align;
-    if rem == 0 {
-        addr
-    } else {
-        addr + (align - rem)
-    }
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn log_symbol_words(space: &crate::mm::address_space::AddressSpace, virt: usize, label: &str) {
-    use core::fmt::Write as _;
-
-    let page = align_down(virt, PAGE_SIZE);
-    let offset = virt - page;
-
-    let mut uart = crate::uart::raw_writer();
-    if let Some(entry) = space.page_table().lookup(page) {
-        let phys = ((entry >> 10) << 12) + offset;
-        unsafe {
-            let ptr = crate::phys::phys_to_virt(phys) as *const u32;
-            let word0 = core::ptr::read(ptr);
-            let word1 = core::ptr::read(ptr.add(1));
-            let _ = writeln!(
-                uart,
-                "[INFO selftest] {} va=0x{:016x} words=0x{:08x} 0x{:08x}",
-                label, virt, word0, word1
-            );
-        }
-    } else {
-        let _ = writeln!(uart, "[ERROR selftest] {} missing mapping va=0x{:016x}", label, virt);
-    }
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn copy_segment_bytes(
-    file: &[u8],
-    seg_offset: usize,
-    seg_vaddr: usize,
-    seg_filesz: usize,
-    page_va: usize,
-    page_ptr: *mut u8,
-) {
-    if seg_filesz == 0 {
-        return;
-    }
-
-    let Some(seg_end) = seg_vaddr.checked_add(seg_filesz) else {
-        return;
-    };
-    let Some(page_end) = page_va.checked_add(PAGE_SIZE) else {
-        return;
-    };
-
-    let copy_start = core::cmp::max(page_va, seg_vaddr);
-    if copy_start >= seg_end {
-        return;
-    }
-    let copy_end = core::cmp::min(page_end, seg_end);
-    if copy_end <= copy_start {
-        return;
-    }
-
-    let len = copy_end - copy_start;
-    let src_off = seg_offset + (copy_start - seg_vaddr);
-    let dst_off = copy_start - page_va;
-    if src_off + len > file.len() {
-        return;
-    }
-
-    unsafe {
-        core::ptr::copy_nonoverlapping(file.as_ptr().add(src_off), page_ptr.add(dst_off), len);
-    }
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

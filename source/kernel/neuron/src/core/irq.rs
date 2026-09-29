@@ -86,7 +86,7 @@ fn irq_payload(irq: IrqId) -> [u8; 4] {
 /// cannot run inside the trap). A claimed source stays MASKED at the PLIC —
 /// no level storm — and this hart's next `dispatch_external` (idle loop /
 /// timer backstop / U-mode S_EXT) delivers it. Bitmask over the source ids
-/// (`MAX_IRQ` = 95 fits two words).
+/// (`MAX_IRQ` = 1023, the PLIC's ceiling, is sixteen words).
 ///
 /// Why not `drain_undelivered` once the runtime runs: completing a bound level
 /// source without delivery re-asserts it immediately, so a hart that is

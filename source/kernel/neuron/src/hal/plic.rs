@@ -51,9 +51,12 @@ fn current_s_context() -> usize {
     s_context(crate::smp::cpu_current_id().as_index())
 }
 
-/// Highest external IRQ source we manage (QEMU `virt` wires virtio-mmio[0..8] to
-/// PLIC sources 1..=8). Bounds the enable bitmap we touch.
-pub const MAX_IRQ: u32 = 95;
+/// The PLIC's architectural ceiling on source ids (1..=1023): the size of the
+/// kernel's per-source tables. The platform's own count is `platform::plic_ndev()`
+/// from the tree (95 on QEMU `virt`, 159 on the board), the bound every binding
+/// and device descriptor is checked against — this was the literal 95, and the
+/// board's storage host (source 101) could not be described (TASK-0260B P3).
+pub const MAX_IRQ: u32 = 1023;
 
 /// A PLIC interrupt source id (1..=MAX_IRQ; 0 is "no interrupt").
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

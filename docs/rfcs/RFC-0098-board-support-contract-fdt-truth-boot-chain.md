@@ -30,7 +30,13 @@
   2026-09-26 (our disk on the eMMC, written and read back exactly); TASK-0260B P0–P2 ✅
   2026-09-27 (the FIT; the board boots its eMMC through the vendor SPL and OpenSBI into nxboot,
   which verifies slot A and jumps to the kernel — read from the board's boot trace, RFC-0107);
-  the kernel's side with TASK-0327B P2 (the OS trace)
+  **TASK-0260B P3 ✅ 2026-09-29: the kernel boots the board into a living userspace** —
+  `init: ready`, `blkd: backend ok (spacemit,k1-sdhci mode=hs400es …)`, `blkd: trace os ok`
+  (the OS trace on the eMMC), bundlemgrd serving the system volume, the fleet `ready` to
+  `stage: platform`. Four causes found by the LED ladder and the ring rescue, all hidden by
+  QEMU: the timer re-armed through SBI while armed through `stimecmp`; `MAX_IRQ` as virt's 95;
+  device blocks starting inside a page refused; no `sfence.vma` after a PTE change. Every
+  bound now comes from the tree (`plic_ndev`, the timebase, the harts, the device windows).
 - **Phase 5 (display controller scanout, mode authority = gpud)**: ⬜ — TASK-0250, 0251
 
 Definition: "Complete" = every phase's proof gates are green on QEMU **and** on the board

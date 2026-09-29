@@ -219,6 +219,8 @@ pub fn kmain() -> ! {
     // rung (the harness enforces strict KSELFTEST order).
     unsafe { crate::boot_handoff::capture_early() };
     crate::boot_handoff::emit_marker();
+    // Milestone 3: kmain, the measured handoff captured.
+    crate::hal::boot_led::milestone(3);
     #[cfg(feature = "boot_timing")]
     let t0 = crate::arch::riscv::read_time();
     let kernel = unsafe { init_kernel_state() };
@@ -241,6 +243,8 @@ pub fn kmain() -> ! {
         &kernel.syscalls,
     );
     kernel.tasks.bootstrap_mut().set_trap_domain(_default_trap_domain);
+    // Milestone 4: the kernel state exists and the trap runtime is installed.
+    crate::hal::boot_led::milestone(4);
 
     let expected_online_mask = crate::smp::start_secondary_harts();
     // Bounded HSM bring-up with retry: a start request issued in quick
@@ -258,6 +262,8 @@ pub fn kmain() -> ! {
     // fatal — the system boots degraded with the online set (the SMP proof
     // gate still requires its markers, so CI catches it honestly).
     crate::smp::emit_bringup_gate(expected_online_mask);
+    // Milestone 5: the secondary harts are started and gated (online or loudly missing).
+    crate::hal::boot_led::milestone(5);
     let _ = online_ok;
     // Touch HAL traits to satisfy imports
     let uart_dev = kernel.hal.uart();
@@ -432,6 +438,15 @@ pub fn kmain() -> ! {
         block => log_info!(target: "smp", "KINIT: user cache maintenance zicbom block={}", block),
     }
 
+    // Milestone 11: the kernel selftests ran and init is spawned — the runtime begins.
+    crate::hal::boot_led::milestone(11);
+    // The interrupt state the runtime begins with, for a board's trace (TASK-0260B P3: a
+    // pending timer here was the board kernel's silent stop).
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        let (st, si, sp) = irq_csrs();
+        log_info!(target: "boot", "KINIT: irq state before runtime sstatus=0x{:x} sie=0x{:x} sip=0x{:x}", st, si, sp);
+    }
     // A3: selftests + init spawn are done — release the secondaries into
     // their scheduler loops (IPI punches them out of their park-WFI), then
     // become CPU 0's scheduler.
@@ -448,4 +463,17 @@ pub fn kmain() -> ! {
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 pub fn kmain() -> ! {
     panic!("kmain is only available on riscv64 none target");
+}
+
+/// `(sstatus, sie, sip)` raw, for the interrupt-state stamp before the runtime.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn irq_csrs() -> (usize, usize, usize) {
+    let (st, si, sp): (usize, usize, usize);
+    // SAFETY: reads of three S-mode CSRs, no side effects.
+    unsafe {
+        core::arch::asm!("csrr {}, sstatus", out(reg) st, options(nomem, nostack));
+        core::arch::asm!("csrr {}, sie", out(reg) si, options(nomem, nostack));
+        core::arch::asm!("csrr {}, sip", out(reg) sp, options(nomem, nostack));
+    }
+    (st, si, sp)
 }

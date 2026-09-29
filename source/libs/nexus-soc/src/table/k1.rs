@@ -54,12 +54,17 @@ const APMU_EMAC0_CLK_RES_CTRL: u16 = 0x3e4;
 const APMU_EMAC1_CLK_RES_CTRL: u16 = 0x3ec;
 // ---- APBC registers ----
 const APBC_UART1_CLK_RST: u16 = 0x00; // = uart0 in the binding
+                                      // The GPIO block's core (24 MHz crystal) and bus gates (mainline v6.16 ccu-k1: APBC_GPIO_CLK_RST
+                                      // 0x08, gpio_clk BIT1 parent vctcxo_24m, gpio_bus_clk BIT0) — TASK-0260B P3, the boot LED.
+const APBC_GPIO_CLK_RST: u16 = 0x08;
 const APBC_AIB_CLK_RST: u16 = 0x3c;
 
 // ---- ids (config/board/include/dt-bindings/clock/spacemit,k1-syscon.h) ----
 pub const CLK_UART0: u32 = 0;
 pub const CLK_AIB: u32 = 42;
 pub const CLK_UART0_BUS: u32 = 52;
+pub const CLK_GPIO: u32 = 9;
+pub const CLK_GPIO_BUS: u32 = 61;
 pub const CLK_AIB_BUS: u32 = 94;
 pub const CLK_SDH_AXI: u32 = 10;
 pub const CLK_SDH0: u32 = 11;
@@ -330,6 +335,8 @@ pub static CLOCKS: &[ClockEntry] = &[
         fixed_parent_hz: 0,
     },
     gate(Apbc, CLK_UART0_BUS, "uart0_bus_clk", APBC_UART1_CLK_RST, BIT0, 0),
+    gate(Apbc, CLK_GPIO, "gpio_clk", APBC_GPIO_CLK_RST, BIT1, 24_000_000),
+    gate(Apbc, CLK_GPIO_BUS, "gpio_bus_clk", APBC_GPIO_CLK_RST, BIT0, 0),
     gate(Apbc, CLK_AIB, "aib_clk", APBC_AIB_CLK_RST, BIT1, 0),
     gate(Apbc, CLK_AIB_BUS, "aib_bus_clk", APBC_AIB_CLK_RST, BIT0, 0),
 ];

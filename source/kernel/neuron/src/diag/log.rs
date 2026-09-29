@@ -77,13 +77,14 @@ pub fn set_topic_mask(bits: u32) {
 // State is plain atomics — NO heap/Vec/replay-buffer (the kernel's UART+alloc constraint). This
 // first slice folds only the `selftest` topic; more subsystems adopt the same pattern next.
 
-/// Monotonic nanoseconds from the RISC-V `time` CSR (QEMU virt timebase = 10 MHz → 100 ns/tick).
-/// Host builds have no CSR; return 0 (verdict timing is a no-op off-target).
+/// Monotonic nanoseconds from the RISC-V `time` CSR through the platform's timebase
+/// (was `ticks · 100`: QEMU's 10 MHz only). Host builds have no CSR; return 0
+/// (verdict timing is a no-op off-target).
 #[inline]
 fn now_ns() -> u64 {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        (riscv::register::time::read() as u64).wrapping_mul(100)
+        crate::hal::platform::ticks_to_ns(riscv::register::time::read() as u64)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {

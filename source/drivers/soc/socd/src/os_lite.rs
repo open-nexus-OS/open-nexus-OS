@@ -20,6 +20,9 @@ use nexus_soc::{Provider, ProviderKind, Providers};
 use nexus_wire::soc;
 
 use crate::bus::MmioBus;
+
+/// The grant's granularity (RFC-0017).
+const PAGE: usize = 4096;
 use crate::verdict::{self, Access, REPLY_MAX};
 
 pub type Result<T> = core::result::Result<T, &'static str>;
@@ -46,9 +49,13 @@ fn map_providers(tree: Option<&Fdt<'_>>) -> Providers {
     let Some(tree) = tree else { return providers };
     for kind in KINDS {
         // Only a kind the tree names is expected in its slot.
-        if !tree.all_nodes().any(|n| ProviderKind::of(n) == Some(kind)) {
+        let Some(node) = tree.all_nodes().find(|n| ProviderKind::of(*n) == Some(kind)) else {
             continue;
-        }
+        };
+        // The grant covers the pages the block's registers occupy (init's `window_of`);
+        // the block itself may start inside its page (the APMU at 0xd4282800) — the
+        // offset is the tree's, read here from the same node (TASK-0260B P3).
+        let offset = node.reg(0).ok().flatten().map_or(0, |r| (r.addr % PAGE as u64) as usize);
         let slot = SYSCON_MMIO_SLOTS[kind as usize];
         let mut info = nexus_abi::CapQuery::default();
         if nexus_abi::cap_query(slot, &mut info).is_err() || info.kind_tag != 2 {
@@ -57,7 +64,7 @@ fn map_providers(tree: Option<&Fdt<'_>>) -> Providers {
         }
         let len = usize::try_from(info.len).unwrap_or(0);
         match nexus_abi::mmio_map_auto(slot, 0, len) {
-            Ok(base) => providers.set(Provider { kind, base }),
+            Ok(base) => providers.set(Provider { kind, base: base + offset }),
             Err(_) => emit(&format!("socd: window for {:?} map FAIL", kind)),
         }
     }

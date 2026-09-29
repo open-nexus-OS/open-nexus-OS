@@ -1,0 +1,425 @@
+nxboot: platform=bananapi,bpi-f3 tree=0x26a000 size=13376
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: cores awake (apmu=0xd4282800 cores=8 was=0x0)
+nxboot: boot led none (no led)
+nxboot: trace slot=1 seq=2
+nxboot: dram probe lost
+nxboot: rescue ok (seq=1 bytes=3443 lost=0)
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-b7a9 rbidx=1)
+nxboot: fdt ok (harts=1 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
+[INFO boot] boot: ok
+[INFO boot] KINIT: milestone 1 at 968 ms (uart stalls=0)
+[INFO boot] traps: ok
+[INFO boot] KINIT: mm frames (banks=2 total=1043836 free=1043836 reserved=176 excluded=4612)
+[INFO boot] KINIT: kernel high half (base=0xffffffc000400000 load=0x400000 len=0x11ff940)
+[INFO boot] KINIT: milestone 2 at 991 ms (uart stalls=0)
+[INFO boot] boot: returning to wrapper
+[INFO selftest] KSELFTEST: boot handoff ok (measured)
+[INFO boot] neuron: boot handoff slot=a rbidx=1 seq=1 (qemu-soft-root)
+[INFO boot] KINIT: milestone 3 at 1011 ms (uart stalls=0)
+[INFO as] AS: trampoline enter val=0x8000100000000244
+AS: post-satp OK
+[INFO selftest] KSELFTEST: platform from fdt ok (uart=0xd4017000 plic=0xe0000000 ndev=159 tb=24000000Hz harts=1 banks=2 boot_hart=0 timer=sstc ticks_per_us=24 chosen.slot=a chosen.profile=- chosen.display=-)
+[INFO selftest] KSELFTEST: kernel image ok (base=0x400000 va=0xffffffc000400000 len=0x11ff940 relocs=1119)
+[INFO mm] KINIT: mm frames in use (free=1043827 allocs=9 frees=0 pt_live=9 vmos=0 vmo_bytes=0)
+SCHED: timeslice=1000000
+SCHED: new exit
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO smp] KINIT: cpu0 online
+[INFO boot] KINIT: milestone 4 at 1073 ms (uart stalls=0)
+[INFO smp] KINIT: hart1 disabled by the tree — not started
+[INFO smp] KINIT: hart2 disabled by the tree — not started
+[INFO smp] KINIT: hart3 disabled by the tree — not started
+[INFO boot] KINIT: milestone 5 at 1095 ms (uart stalls=0)
+
+     _ __   ___ _   _ _ __ ___  _ __
+    | '_ \ / _ \ | | | '__/ _ \| '_ \
+    | | | |  __/ |_| | | | (_) | | | |
+    |_| |_|\___|\__,_|_|  \___/|_| |_|
+
+    neuron vers. 0.1.0  ·  One OS. Many Devices.
+
+[INFO boot] KINIT: milestone 6 at 1119 ms (uart stalls=0)
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO selftest] KSELFTEST: as create ok
+[INFO selftest] KSELFTEST: vmo zero ok
+[INFO selftest] KSELFTEST: userptr guard ok
+[INFO selftest] KSELFTEST: as map ok
+[INFO selftest] KSELFTEST: vm map ok
+[INFO selftest] KSELFTEST: vm unmap ok
+[ERROR pt] VA-FIXED-REFUSED va=0x51000000 (managed window or tracked region)
+[INFO selftest] KSELFTEST: vm map reject ok
+[INFO selftest] KSELFTEST: vmo runs ok (runs=2 deny=4)
+[INFO selftest] KSELFTEST: vmo reach ok (window=0x7c000000+0x4000000 bus=0x4000000000 runs=1 deny=2)
+[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x8000100000000244
+[INFO selftest] KSELFTEST: direct-run begin
+[INFO as] AS: trampoline enter val=0x800020000000024d
+AS: post-satp OK
+[INFO selftest] KSELFTEST: direct-run set SUM
+[INFO selftest] KSELFTEST: direct-run calling entry sp=0x40000000
+[INFO selftest] KSELFTEST: direct call begin
+[INFO selftest] KSELFTEST: child entry
+[INFO selftest] KSELFTEST: child newas running
+[INFO selftest] KSELFTEST: child exit
+[INFO selftest] KSELFTEST: direct call return
+[INFO selftest] KSELFTEST: returned from child entry
+[INFO as] AS: trampoline enter val=0x8000100000000244
+AS: post-satp OK
+[INFO selftest] KSELFTEST: spawn ok
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO selftest] KSELFTEST: w^x enforced
+[INFO selftest] KSELFTEST: ipc queue full ok
+[INFO selftest] KSELFTEST: ipc bytes full ok
+[INFO selftest] KSELFTEST: ipc global bytes budget ok
+[INFO selftest] KSELFTEST: ipc owner bytes budget ok
+[INFO selftest] KSELFTEST: ipc recv waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send unblock ok
+[INFO selftest] KSELFTEST: ipc endpoint quota ok (created=384)
+[INFO selftest] KSELFTEST: ipc close wakes ok
+[INFO selftest] KSELFTEST: ipc owner-exit wakes ok
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO selftest] KSELFTEST: timer cap lifecycle ok
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO selftest] KSELFTEST: waitset wake ok
+[INFO selftest] KSELFTEST: waitset timeout ok
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO selftest] KSELFTEST: fence wait ok
+[INFO selftest] KSELFTEST: fence timeout ok
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO selftest] KSELFTEST: fence transfer ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason oom ok
+[INFO selftest] KSELFTEST: spawn reason cap-table-full ok
+[INFO selftest] KSELFTEST: spawn reason endpoint-quota ok
+[INFO selftest] KSELFTEST: spawn reason map-failed ok
+[INFO selftest] KSELFTEST: spawn reasons ok
+[INFO selftest] KSELFTEST: resource sentinel ok
+[INFO selftest] KSELFTEST: cpuid tp ok
+[INFO selftest] KSELFTEST: cpuid fallback counterfactual ok
+[INFO selftest] KSELFTEST: sched affinity reject ok
+[INFO selftest] KSELFTEST: sched abi ok
+[INFO selftest] KSELFTEST: tlb shootdown skipped (smp=1)
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO selftest] KSELFTEST: exit ok
+[INFO selftest] KSELFTEST: wait ok
+[INFO boot] KINIT: milestone 7 at 1429 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: spawn init begin
+SYSCALL install debug_putc=0xffffffc00044b480
+SYSCALL install ep_create=0xffffffc000444c58
+[INFO boot] KINIT: milestone 8 at 1447 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x2b84a flags=0x5
+[INFO selftest] KSELFTEST: map flags bits=0x1b
+[INFO selftest] KSELFTEST: segment copied (pages=44 first_pa=0x26e000 last_pa=0x21b000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1042b850 memsz=0x86c4c4 flags=0x4
+[INFO selftest] KSELFTEST: map flags bits=0x13
+[INFO selftest] KSELFTEST: shared page va=0x1042b000 entry=0x86c5b pa=0x21b000
+[INFO selftest] KSELFTEST: shared page copied va=0x1042b000
+[INFO selftest] KSELFTEST: segment copied (pages=2156 first_pa=0x21c000 last_pa=0x1b4b000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10c97d14 memsz=0x812ed flags=0x6
+[INFO selftest] KSELFTEST: map flags bits=0x17
+[INFO selftest] KSELFTEST: shared page va=0x10c97000 entry=0x6d2c53 pa=0x1b4b000
+[INFO selftest] KSELFTEST: shared page copied va=0x10c97000
+[INFO selftest] KSELFTEST: segment copied (pages=130 first_pa=0x1b4c000 last_pa=0x1bcd000)
+[INFO boot] KINIT: milestone 9 at 1541 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: derived gp=0x10c98514 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10c98514
+[INFO selftest] KSELFTEST: spawn ok pid=17
+[INFO boot] KINIT: milestone 10 at 1563 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: init spawned successfully
+[INFO selftest] KSELFTEST: returning to idle loop for scheduling
+[INFO boot] KINIT: irq state before plic sstatus=0x8000000200006602 sie=0x20 sip=0x0
+[INFO smp] KINIT: timer sstc
+[INFO smp] KINIT: user cache maintenance zicbom block=64
+[INFO boot] KINIT: milestone 11 at 1595 ms (uart stalls=0)
+[INFO boot] KINIT: irq state before runtime sstatus=0x8000000200006600 sie=0x220 sip=0x20
+[INFO trap] KINIT: trap scause=0x8000000000000005 sepc=0xffffffc00042dce2 sstatus=0x8000000200006720 stval=0x0 sp=0xffffffc0015fe270
+[INFO trap] KINIT: tick handled, next in 240000 ticks
+[INFO boot] KINIT: irq state sie on
+[INFO smp] KINIT: cpu0 sched loop
+[INFO as] AS: trampoline enter val=0x800060000000026d
+AS: post-satp OK
+!init-lite entry
+init: entry
+log topics mask=0x0000000000000001
+init: start
+init: start keystored
+init: start rngd
+init: start socd
+init: start policyd
+init: start logd
+init: start samgrd
+init: start bundlemgrd
+init: start statefsd
+init: start updated
+init: updated ctrl slots send=0x0000000000000001 recv=0x0000000000000002
+init: start packagefsd
+init: start vfsd
+init: start execd
+init: start selftest-client
+init: start bootctld
+init: start blkd
+init: ready
+!init-lite ready
+init: blk plane wired svc=bundlemgrd
+init: blk irq ep wired
+init: blkd route->socd ok
+init: policyd priority-wired
+[INFO as] AS: trampoline enter val=0x8000a00000001d91
+AS: post-satp OK
+[INFO smp] KINIT: long ecall nr=18 15ms cpu0
+policyd: ready
+abi-profile: ready (server=policyd|abi-filterd)
+[INFO smp] KINIT: long ecall nr=44 10ms cpu0
+policyd: audit emit deferred
+policyd: mmio blk deny priv
+[INFO as] AS: trampoline enter val=0x800060000000026d
+AS: post-satp OK
+[INFO smp] KINIT: long ecall nr=40 15ms cpu0
+init: mmio policy deny ok
+init: devices from fdt ok (virtio=0000000000000000 blk_irq=0000000000000000 gpu_irq=0000000000000000 input_irqs=0000000000000000,0000000000000000,0000000000000000, rtc=0000000000000000)
+init: devices from pci ok (hosts=0 functions=0 sd=none)
+[INFO smp] KINIT: long ecall nr=44 11ms cpu0
+init: device tree grant ok svc=socd
+[INFO as] AS: trampoline enter val=0x8000a00000001d91
+AS: post-satp OK
+[INFO smp] KINIT: long ecall nr=18 12ms cpu0
+policyd: audit emit deferred
+[INFO as] AS: trampoline enter val=0x800060000000026d
+AS: post-satp OK
+[INFO smp] KINIT: long ecall nr=40 15ms cpu0
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+init: device tree grant ok svc=blkd
+init: console ring grant ok svc=blkd
+socd: ready (providers=6)
+policyd: audit emit deferred
+init: boot disk ok (kind=spacemit,k1-sdhci record=/soc/storage-bus/mmc@d4281000 irq=101)
+[INFO smp] KINIT: long ecall nr=44 18ms cpu0
+init: start metricsd
+bundlemgrd: ready
+[INFO bundlemgrd] core service log probe: bundlemgrd
+socd: bring-up /soc/storage-bus/mmc@d4281000 ok (domains=1 resets=2 clocks=2)
+[INFO smp] KINIT: long ecall nr=44 14ms cpu0
+blkd: backend ok (kind=spacemit,k1-sdhci soc=ok record=/soc/storage-bus/mmc@d4281000 mode=hs400es bus=8 sectors=30535680)
+blkd: gpt ok (parts=7)
+blkd: irq endpoint bound
+blkd: ready
+bundlemgrd: system volume verified (slot=a build=dev-b7a9 bundles=23)
+bundlemgrd: bundle served (name=metricsd read_ms=1 hash_ms=2)
+init: spawn from volume svc=metricsd bundle=metricsd@1.0.0 sha=bc89c91ee66e5777
+init: start settingsd
+bundlemgrd: bundle served (name=settingsd read_ms=0 hash_ms=1)
+init: spawn from volume svc=settingsd bundle=settingsd@1.0.0 sha=c527fc0ee181562f
+init: start timed
+bundlemgrd: bundle served (name=timed read_ms=0 hash_ms=0)
+init: spawn from volume svc=timed bundle=timed@1.0.0 sha=61062d1486102ebd
+init: start abilitymgr
+bundlemgrd: bundle served (name=abilitymgr read_ms=0 hash_ms=1)
+init: spawn from volume svc=abilitymgr bundle=abilitymgr@1.0.0 sha=f1b807e80fb5175b
+init: start sessiond
+bundlemgrd: bundle served (name=sessiond read_ms=0 hash_ms=1)
+init: spawn from volume svc=sessiond bundle=sessiond@1.0.0 sha=78eafa8597efa743
+init: start netstackd
+bundlemgrd: bundle served (name=netstackd read_ms=1 hash_ms=3)
+init: spawn from volume svc=netstackd bundle=netstackd@1.0.0 sha=24c5105590c796b9
+init: start ingressd
+bundlemgrd: bundle served (name=ingressd read_ms=0 hash_ms=1)
+init: spawn from volume svc=ingressd bundle=ingressd@1.0.0 sha=e994f274cfd2f1ac
+init: start dsoftbusd
+bundlemgrd: bundle served (name=dsoftbusd read_ms=1 hash_ms=4)
+init: spawn from volume svc=dsoftbusd bundle=dsoftbusd@1.0.0 sha=0501eea16da3bec2
+init: start hidrawd
+bundlemgrd: bundle served (name=hidrawd read_ms=0 hash_ms=1)
+init: spawn from volume svc=hidrawd bundle=hidrawd@1.0.0 sha=e6415ee0667cb93c
+init: start touchd
+bundlemgrd: bundle served (name=touchd read_ms=0 hash_ms=0)
+init: spawn from volume svc=touchd bundle=touchd@1.0.0 sha=d80f56836738acd6
+init: start gpud
+bundlemgrd: bundle served (name=gpud read_ms=4 hash_ms=13)
+init: spawn from volume svc=gpud bundle=gpud@1.0.0 sha=faa58da23e7ba930
+init: start windowd
+blkd: trace os ok (slot=1 seq=2)
+bundlemgrd: bundle served (name=windowd read_ms=64 hash_ms=192)
+init: spawn from volume svc=windowd bundle=windowd@1.0.0 sha=0d2207ef69105729
+init: start inputd
+bundlemgrd: bundle served (name=inputd read_ms=0 hash_ms=1)
+init: spawn from volume svc=inputd bundle=inputd@1.0.0 sha=7f4532b222904575
+init: start imed
+bundlemgrd: bundle served (name=imed read_ms=1 hash_ms=3)
+init: spawn from volume svc=imed bundle=imed@1.0.0 sha=2254639cbe717336
+init: start pinched
+bundlemgrd: bundle served (name=pinched read_ms=2 hash_ms=5)
+init: spawn from volume svc=pinched bundle=pinched@1.0.0 sha=2ed99303b05802c8
+init: probe key_req self-xfer pid=0x0000000000000011 cap=0x0000000000000068
+init: probe key_req self-xfer SEND ok slot=0x0000000000000069
+init: probe key_req self-xfer RECV ok slot=0x0000000000000069
+init: blk plane wired svc=statefsd
+init: blk plane wired svc=updated
+init: blk plane wired svc=vfsd
+init: blk plane wired svc=bootctld
+init: selftest-client route->vfsd ok
+init: selftest-client route->packagefsd ok
+init: selftest-client route->policyd ok
+init: selftest-client route->bundlemgrd ok
+init: selftest-client route->updated ok
+init: selftest-client route->samgrd ok
+init: selftest-client route->execd ok
+init: selftest-client route->keystored ok
+init: selftest-client route->statefsd ok
+init: selftest-client route->logd ok
+init: selftest-client route->inputd ok
+init: selftest-client route->netstackd ok
+init: selftest-client route->dsoftbusd ok
+init: selftest-client route->rngd ok
+init: selftest-client route->socd ok
+init: selftest-client route->timed ok
+init: selftest-client route->metricsd ok
+init: selftest-client route->pinched ok
+init: selftest-client route->settingsd ok
+init: selftest-client route->ingressd ok
+init: selftest-client route->imed ok
+init: selftest-client route->imed-osk ok
+init: selftest-client route->bootctld ok
+init: selftest-client route->blkd ok
+init: windowd priority-wired
+init: inputd priority-wired
+init: keystored slots recv=0x0000000000000003 send=0x0000000000000004
+init: keystored route->statefsd ok
+init: keystored route->logd ok
+init: keystored route->policyd ok
+init: keystored route->rngd ok
+init: policyd slots recv=0x0000000000000003 send=0x0000000000000004
+init: policyd route->logd ok
+init: logd slots recv=0x0000000000000003 send=0x0000000000000004
+init: logd route->statefsd ok
+init: samgrd slots recv=0x0000000000000003 send=0x0000000000000004
+init: samgrd route->logd ok
+init: bundlemgrd slots recv=0x0000000000000003 send=0x0000000000000004
+init: bundlemgrd route->logd ok
+init: bundlemgrd route->metricsd ok
+init: statefsd slots recv=0x0000000000000003 send=0x0000000000000004
+init: statefsd route->policyd ok
+init: statefsd route->logd ok
+init: updated slots recv=0x0000000000000003 send=0x0000000000000004
+init: updated route->bundlemgrd ok
+init: updated route->keystored ok
+init: updated route->statefsd ok
+init: updated route->vfsd ok
+init: updated route->bootctld ok
+init: updated route->policyd ok
+init: updated route->logd ok
+init: execd reply slots recv=0x0000000000000005 send=0x0000000000000006
+init: execd logd slots send=0x0000000000000007 recv=0x0000000000000005
+init: execd windowd slots send=0x0000000000000008 recv=0x0000000000000009
+init: execd bundle slot send=0x000000000000000a
+init: execd recv-wake slots ping=0x000000000000000b/0x000000000000000c reply=0x000000000000000d/0x000000000000000e
+init: execd route->abilitymgr ok
+init: execd route->sessiond ok
+init: execd route->settingsd ok
+init: execd route->timed ok
+init: execd route->imed-osk ok
+init: execd route->vfsd ok
+init: execd route->updated ok
+init: execd route->statefsd ok
+init: execd route->policyd ok
+init: bootctld slots recv=0x0000000000000003 send=0x0000000000000004
+init: bootctld route->statefsd ok
+init: bootctld route->policyd ok
+init: blkd slots recv=0x0000000000000003 send=0x0000000000000004
+init: metricsd slots recv=0x0000000000000003 send=0x0000000000000004
+init: metricsd route->statefsd ok
+init: metricsd route->logd ok
+init: abilitymgr slots recv=0x0000000000000003 send=0x0000000000000004
+init: abilitymgr route->bundlemgrd ok
+init: abilitymgr route->execd ok
+init: abilitymgr route->sessiond ok
+init: sessiond slots recv=0x0000000000000003 send=0x0000000000000004
+init: netstackd slots recv=0x0000000000000003 send=0x0000000000000004
+init: netstackd route->policyd ok
+init: ingressd slots recv=0x0000000000000003 send=0x0000000000000004
+init: ingressd route->policyd ok
+init: ingressd route->netstackd ok
+init: dsoftbusd slots recv=0x0000000000000003 send=0x0000000000000004
+init: dsoftbusd route->netstackd ok
+init: dsoftbusd route->samgrd ok
+init: dsoftbusd route->bundlemgrd ok
+init: dsoftbusd route->packagefsd ok
+init: dsoftbusd route->statefsd ok
+init: dsoftbusd route->logd ok
+init: hidrawd inputd slots send=0x0000000000000003 recv=0x0000000000000004
+init: gpud slots recv=0x0000000000000003 send=0x0000000000000004
+init: windowd already priority-wired, skip
+init: windowd route->bundlemgrd ok
+init: windowd route->sessiond ok
+init: windowd route->settingsd ok
+init: windowd route->abilitymgr ok
+init: windowd route->imed ok
+init: windowd settings-watch ok
+init: inputd already priority-wired, skip
+init: inputd windowd slots send=0x0000000000000005 recv=0x0000000000000006
+init: inputd route->imed ok
+init: inputd settings-watch ok
+init: imed osk recv ok
+init: imed route->windowd ok
+init: imed route->settingsd ok
+init: imed route->statefsd ok
+!fatal-err map:virtio-net not in the device tree
+[ERROR init]keystored: ready
+keystored: statefs backend ok
+rngd: ready
+logd: ready
+samgrd: ready
+samgrd: mode os-lite
+samgrd: slots logging
+samgrd: slots 00000003 00000004
+statefsd: entry
+statefsd: journal v2 mounted (2PC)
+statefsd: ready
+statefsd: write hardening on (auth-envelope)
+statefsd: encryption off
+packagefsd: ready
+vfsd: ready
+vfsd: namespace ready
+execd: entry
+execd: ready
+bootctld: ready
+ fatal err=map:virtio-net not in the device tree
+!fatal init-lite fatal
+[ERROR init] init-lite fatal
+panic svc=init-lite file=source/init/nexus-init/srcbundlemgrd: volume status served
+/bootstrap/helpers.rs line=45 col=5
+[INFO smp] KINIT: wake pid=21 not-blocked
+blkd: transient ipc error (continuing)
+rngd: route fallback slots
+logd: transient ipc error (continuing)
+logd: transient ipc error (continuing)
+packagefsd: mounted (system volume slot=a bundles=23 files=115)
+logd: transient ipc error (continuing)
+logd: endpoint defect (consecutive error limit)
+service error svc=logd type=logd::os_lite::ServerError
+RECVWAKE: woke from blocking recv
+RECVWAKE: woke twice (park/wake cycle repeats)
+execd: recv-wake probe ok
+SELFTEST: exec child blocking recv wake ok
+execd: recv-wake probe eof on exit ok
+SELFTEST: exec child eof on exit ok
+execd: atlas vmo ready
+SELFTEST: nxra require FAIL
+service error svc=selftest-client type=()
+blkd: transient ipc error (continuing)
+blkd: transient ipc error (continuing)

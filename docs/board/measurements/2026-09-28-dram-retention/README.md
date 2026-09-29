@@ -44,3 +44,30 @@ the debug UART (an adapter), or the board's user LEDs driven by the kernel's ear
   leaves it off. A kernel that toggled it at its early milestones would be visible without any
   adapter — a few bits, where the UART gives the text. Whether the pad is muxed as GPIO before
   the stock kernel runs is not measured.
+
+## Amendment, later the same day: the retention is marginal, not absent
+
+A fourth cycle (the boot LED package, `trace-all-led-cycle.txt`) kept the probe across the
+reset button — `nxboot: dram probe kept (seq=1)` — and the loader rescued the previous boot's
+console ring: `nxboot: rescue ok (seq=1 bytes=6635 lost=0)`. The text
+(`kernel-console-boot1-rescued.txt`) is the board's first kernel console: the platform from the
+tree, the high half, four harts online, every kernel selftest, and the spawn of init up to its
+segments being mapped — where it ends, mid-line, 117 counted bytes reading as zero. A few bytes
+inside are flipped (`selft%st`, `JSELFTEST`): the DRAM was decaying while it was read.
+
+So: the reset does not scrub the DRAM deterministically; the content decays over the reset
+(likely with the time the SoC spends unpowered/retraining), and a quick reset can keep most of
+it, with bit errors. The rescue is therefore worth having on this board — as a lucky witness,
+never as a proof medium — and the LED ladder is the deterministic one.
+
+
+## Files added 2026-09-28/29 (TASK-0260B P3)
+
+- `kernel-console-led-window-boots1-3.txt` — the first kernel console rescued after the LED
+  window was mapped: the whole kernel selftest ladder on the board, three boots, `lost=0`.
+- `board-boot-2026-09-29-first-os-trace.txt` — the first boot whose OS trace reached the eMMC
+  (`blkd: trace os ok`): init, the fleet, bundlemgrd serving the system volume; init died on the
+  missing virtio-net (fixed the same day).
+- `board-boot-2026-09-29-verified-4harts-led.txt` — the verification boot with the board's own
+  tree, four harts and the LED ladder: `smp bringup ok mask=0xf`, `plic ctx cpu0..3 ok`,
+  `init: ready`, `blkd: backend ok (spacemit,k1-sdhci mode=hs400es)`, the OS trace on disk.

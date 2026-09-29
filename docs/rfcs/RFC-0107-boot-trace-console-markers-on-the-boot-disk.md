@@ -22,7 +22,7 @@
 - **Phase 2 (the kernel's console ring, read-only to the block owner, which keeps it; the
   whole ladder persisted)**: ✅ 2026-09-28 — TASK-0327B P2 (no read syscall: the ring is
   exposed like the tree; every lane's contract compares each boot's OS text with the UART)
-- **Phase 3 (a crashed boot's ring rescued from RAM by the next loader)**: ✅ 2026-09-28 built and proven on QEMU's reset lane — TASK-0327B P3; **measured on the board: the reset scrubs DRAM** (`nxboot: dram probe lost` every time, `docs/board/measurements/2026-09-28-dram-retention/`), so the rescue cannot work there
+- **Phase 3 (a crashed boot's ring rescued from RAM by the next loader)**: ✅ 2026-09-28 built and proven on QEMU's reset lane — TASK-0327B P3; **measured on the board: the reset lets DRAM decay** (`nxboot: dram probe lost` three cycles, then one `kept` with a rescued, bit-flipped kernel console — `docs/board/measurements/2026-09-28-dram-retention/`), so the rescue was a lucky witness there — until the ring was written back per byte (`cbo.flush`, 2026-09-28): since then every board rescue read `lost=0` and ended at the kernel's last byte, and the rescue carried the diagnosis of TASK-0260B P3 (a warm reset keeps DRAM on this board; a cold one does not)
 
 Definition: "Complete" = the contract below is implemented and its proof gates are green on
 QEMU and on the board.
@@ -145,7 +145,14 @@ channel.
     block owner runs leaves no OS text (Phase 3's case).
 - **Phase 3** (amended 2026-09-28, TASK-0327B P3): the ring is where the kernel image put it —
   static pages in the image's `.bss`, inside the kernel window — and the kernel stamps the
-  header with the boot's trace sequence number (`/chosen/nexus,trace`). The next loader, once
+  header with the boot's trace sequence number (`/chosen/nexus,trace`). On a real cache the
+  ring is write-back memory and a reset drops dirty lines, so a rescued ring ended lines
+  before the kernel did (measured 2026-09-28: two complete rings, `lost=0`, cut at the same
+  byte while the LED showed the kernel further on); the kernel therefore writes every
+  completed cache block, every line end and the header back with Zicbom `cbo.flush` (the
+  block size from the tree; QEMU's tree names Zicbom too, a tree without it keeps the ring
+  as it was). The rescue reads what the kernel wrote up to its last line, not up to its last
+  eviction. The next loader, once
   it knows the disk and BEFORE it loads its image over the window, scans the window's page
   starts for a ring whose header is intact and stamped with the previous boot's number. What it
   finds past the OS text the block owner had kept goes into that boot's OS region, marked
@@ -230,7 +237,7 @@ channel.
 ## Open questions
 
 - ~~Phase 3: does the board's DRAM keep its content across a reset with the vendor SPL's DDR
-  training?~~ Measured 2026-09-28: it does not (`docs/board/measurements/2026-09-28-dram-retention/`).
+  training?~~ Measured 2026-09-28: not reliably — the content decays over the reset; one quick reset kept it with bit errors (`docs/board/measurements/2026-09-28-dram-retention/`).
 
 ---
 

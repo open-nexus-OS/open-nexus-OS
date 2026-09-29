@@ -153,9 +153,49 @@ DIP switches' default boots the microSD first, so a boot of the eMMC goes like t
 4. `just board-log` pulls the eMMC's boot trace over adb. It writes the latest boot as
    `build/logs/board--<ts>/uart.log`.
 
-First done 2026-09-27 (`docs/board/measurements/2026-09-27-first-emmc-boot/`). nxboot found the
-eMMC, verified slot A and jumped to the kernel. How far the kernel gets shows up in the trace with
-RFC-0107 Phase 2.
+First done 2026-09-27 (`docs/board/measurements/2026-09-27-first-emmc-boot/`): nxboot found the
+eMMC, verified slot A and jumped to the kernel. **Since 2026-09-29 the kernel boots the board into
+a living userspace**: `init: ready`, `blkd: backend ok (kind=spacemit,k1-sdhci mode=hs400es bus=8
+sectors=30535680)`, `blkd: trace os ok` — the OS trace lands on the eMMC and `just board-log` shows
+it — bundlemgrd serving the system volume, the fleet `ready` to `stage: platform`
+(`docs/board/measurements/2026-09-28-dram-retention/board-boot-2026-09-29-first-os-trace.txt`).
+What it took, every cause hidden by QEMU: the timer re-armed through SBI while armed through
+`stimecmp`, the PLIC source bound as virt's 95, device blocks starting inside a page refused, no
+`sfence.vma` after a PTE change. The trace's OS text ends where the block owner's writer last
+ran; a kernel that stops before it is read from the next boot's `nxboot: rescue ok` (the ring,
+written back per byte) and from the LED ladder below.
+
+## Reading the boot LED (TASK-0260B P3): the kernel's earliest milestones without a UART
+
+The board's reset scrubs DRAM (`docs/board/measurements/2026-09-28-dram-retention/`), so the
+boot trace can only show what the block owner wrote — nothing of a kernel that stops before it.
+The user LED (`sys-led`, GPIO bank 3 line 0, named in `/chosen/nexus,boot-led`) is the channel
+that remains, a few bits per boot. Watch it during an eMMC boot (microSD out, reset); the power
+LED stays on regardless.
+
+| Group | Who | Milestone |
+|---|---|---|
+| 2 short, right after the reset | nxboot | the loader is alive, the GPIO block up, the pad muxed (then 2 s solid) |
+| 1 short | kernel | the platform came from the tree (console, PLIC, timebase) |
+| 2 short | kernel | the kernel runs in the high half |
+| 3 short | kernel | `kmain`, the measured handoff captured |
+| 4 short | kernel | the kernel state exists, the trap runtime is installed |
+| 1 long | kernel | the secondary harts are started and gated (online, or loudly missing) |
+| 1 long, 1 short | kernel | the kernel selftests begin |
+| 1 long, 2 short | kernel | a child task ran in user mode, exited and was waited for |
+| 1 long, 3 short | kernel | init's address space exists; its segments are copied next |
+| 1 long, 4 short | kernel | every segment of init's ELF is mapped and copied into its address space |
+| 2 long | kernel | init exists as a task (`spawn ok`) |
+| 2 long, 1 short | kernel | the kernel selftests ran, init is spawned, the runtime begins |
+| flicker, forever | kernel | a panic (the kernel's own verdict; the trace has its text when the ring survives) |
+
+A short pulse is 120 ms on, a long one 600 ms on, each followed by 200 ms off; a group ends
+with a 0.7 s pause — long counts five, short counts one. The last group you see is the last
+milestone the boot reached; a frozen LED after a group means the kernel stopped in the next
+phase; a flicker means it panicked; no pulse at all means nxboot never ran (or the GPIO's glue
+refused). The trace tells the loader's side (`just board-log`): `nxboot: boot led ok
+(gpio=… bank=3 line=0)` or `boot led none (<why>)`. On QEMU the tree names no LED and
+nothing pulses.
 
 ## Measured against the boot ROM (2026-09-21, `just board-flash --stage-only`)
 
@@ -177,11 +217,22 @@ a lane waiting for it must allow that long.
 
 ## Pitfalls
 
+- **An eMMC boot right after the stock system ran loops in the loader** (`verify FAIL (slot=a
+  nxbd)` → `PANIC (both slots bad)` → reset → again; measured 2026-09-29, 2 of 2): the stock kernel
+  leaves the card in a state nxboot's reader cannot read the slot descriptor from, and it survives
+  the SoC reset. Boot the eMMC after `fastboot reboot` (12 of 12 verify) — or fix in the board
+  proof lane (`tasks/TASK-0327B-*`). A reset before the microSD is in boots the eMMC again, so the
+  trace can hold one more boot than the cycle asked for — `just board-log` shows the latest.
+
 - `sudo make initial-setup` breaks the setup (everything would be created for root) — run it as
   yourself; the scripts ask for sudo where they need it.
 - `fastboot` sees nothing: the board is in stock mode (`361c:0008`) — hold `FDL` at reset.
 - Permission denied on the port: the serial-group membership is not effective yet — log out and in.
 - The `!` shell of an editor/agent has no TTY for the sudo password (`sudo -v` in a terminal first).
+- The SoC watchdog (`spacemit,k1x-wdt`, the vendor U-Boot's `wdt-reboot`) is named in our
+  tree and stopped by nxboot first thing (`nxboot: watchdog off (… was=0x…)`). Measured
+  2026-09-28: it was not running when our chain started (`was=0x0`); the stop is a guard for a
+  chain that hands over with it counting, not the explanation of an early kernel death.
 - Our `board.dts` is also the firmware's tree: the SPL hands the FIT's tree to OpenSBI. So a node
   OpenSBI reads must be complete. A CLINT without `interrupts-extended` stopped OpenSBI silently
   before our loader (2026-09-27). `nexus-fdt`'s board-golden test holds what the firmware reads,

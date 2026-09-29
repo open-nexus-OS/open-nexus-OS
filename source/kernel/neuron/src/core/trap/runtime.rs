@@ -131,8 +131,9 @@ impl KernelGuard {
         {
             let waited = (riscv::register::time::read() as u64).saturating_sub(t0);
             super::budgets::record_bkl_wait(waited);
-            // 10 MHz mtime: 10_000 ticks = 1ms spent spinning for the lock.
-            if waited > 10_000 {
+            // More than 1 ms of the platform's timebase spent spinning for the lock
+            // (was the literal `10_000` ticks — 1 ms only at QEMU's 10 MHz).
+            if waited > crate::hal::platform::ns_to_ticks(1_000_000) {
                 static BKL_CONTENTION_LOGGED: core::sync::atomic::AtomicUsize =
                     core::sync::atomic::AtomicUsize::new(0);
                 if BKL_CONTENTION_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 6 {

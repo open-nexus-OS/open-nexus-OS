@@ -1,0 +1,47 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A synthetic tree for a corner the two real trees do not reach (TASK-0260B P3): a
+// `/cpus` with a disabled cpu node between two enabled ones. `harts()` yields the enabled
+// two, the count is two, the disabled one keeps its node (a cpu-map may still name it).
+// Compiled with
+//   dtc -I dts -O dtb -o cpus-disabled.dtb cpus-disabled.dts
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	compatible = "test,cpus-disabled";
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		timebase-frequency = <24000000>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0>;
+			status = "okay";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+		};
+
+		cpu1: cpu@1 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <1>;
+			status = "disabled";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+		};
+
+		cpu2: cpu@2 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <2>;
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i", "m", "a", "c", "sstc";
+		};
+	};
+};

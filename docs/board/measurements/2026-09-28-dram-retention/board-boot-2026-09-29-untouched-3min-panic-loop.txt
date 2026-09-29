@@ -1,0 +1,47 @@
+nxboot: trace slot=2 seq=3
+nxboot: dram probe lost
+nxboot: rescue none (no ring in ram)
+nxboot: bsb ok (slot=a seq=8)
+nxboot: verify FAIL (slot=a nxbd)
+nxboot: fallback -> slot=b
+nxboot: verify FAIL (slot=b nxbd)
+nxboot: PANIC (both slots bad)
+NXTRACE1
+nxboot: platform=bananapi,bpi-f3 tree=0x26a000 size=13376
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: cores awake (apmu=0xd4282800 cores=8 was=0x0)
+nxboot: boot led ok (gpio=0xd4019000 bank=3 line=0)
+nxboot: trace slot=3 seq=4
+nxboot: dram probe stale (seq=34359738371)
+nxboot: rescue none (no ring in ram)
+nxboot: bsb ok (slot=a seq=8)
+nxboot: verify FAIL (slot=a nxbd)
+nxboot: fallback -> slot=b
+nxboot: verify FAIL (slot=b nxbd)
+nxboot: PANIC (both slots bad)
+NXTRACE1
+nxboot: platform=bananapi,bpi-f3 tree=0x26a000 size=13376
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: cores awake (apmu=0xd4282800 cores=8 was=0x0)
+nxboot: boot led ok (gpio=0xd4019000 bank=3 line=0)
+nxboot: trace slot=4 seq=5
+nxboot: dram probe kept (seq=4)
+nxboot: rescue none (no ring in ram)
+nxboot: bsb ok (slot=a seq=8)
+nxboot: verify FAIL (slot=a nxbd)
+nxboot: fallback -> slot=b
+nxboot: verify FAIL (slot=b nxbd)
+nxboot: PANIC (both slots bad)
+NXTRACE1
+nxboot: platform=bananapi,bpi-f3 tree=0x26a000 size=13376
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: cores awake (apmu=0xd4282800 cores=8 was=0x0)
+nxboot: boot led ok (gpio=0xd4019000 bank=3 line=0)
+nxboot: trace slot=5 seq=6
+nxboot: dram probe kept (seq=5)
+nxboot: rescue none (no ring in ram)
+nxboot: bsb ok (slot=a seq=8)
+nxboot: verify FAIL (slot=a nxbd)
+nxboot: fallback -> slot=b
+nxboot: verify FAIL (slot=b nxbd)
+nxboot: PANIC (both slots bad)

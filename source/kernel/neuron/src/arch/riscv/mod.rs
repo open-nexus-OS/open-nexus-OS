@@ -61,7 +61,8 @@ pub fn clear_bss(start: *mut u8, end: *mut u8) {
 
 // Legacy trap/timer functions removed - now handled in trap.rs with SBI
 
-/// Reads the timer CSR (nsec on virt is based on a 10 MHz counter).
+/// Reads the `time` CSR, in ticks of the platform's timebase (`hal::platform::ticks_to_ns`
+/// converts; 10 MHz on QEMU virt, 24 MHz on the board).
 #[inline]
 pub fn read_time() -> u64 {
     #[cfg(target_arch = "riscv64")]

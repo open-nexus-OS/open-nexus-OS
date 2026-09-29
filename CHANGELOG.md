@@ -7,8 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-09-28 (TASK-0260B P3: the board kernel's silent stop — one timer arming path; the IRQ bound and device windows from the tree)
+
+- **The kernel stopped ~16–20 ms after init's spawn on the board, in silence, whatever the
+  configuration.** With the console ring written back per byte, six cycles narrowed it to a
+  pending supervisor timer (`sip=0x20`) whose trap stormed the hart: the tick was armed through
+  `stimecmp` (the tree lists Sstc) but re-armed in the trap handler and the bring-up park through
+  `sbi::set_timer`, and the board's firmware does not fold `set_timer` onto `stimecmp` — the
+  compare stayed in the past. QEMU's bundled firmware folds it, which hid the mix. The handler
+  and the park now arm through the one path, `hal::platform::arm_timer_ticks`. First result: the
+  board boots init — `init: ready`, `policyd: ready`, `abi-profile: ready`, the device-tree and
+  console-ring grants.
+- `hal::plic::MAX_IRQ` was the literal 95 (QEMU virt's source count) and rejected the board's
+  storage host (source 101 of 159) at `device_cap_create` — init-lite died on it. The bound is
+  the tree's `plic_ndev()`; the per-source tables are sized to the PLIC's ceiling (1023).
+- init refused a device block whose registers start inside a page (`base % PAGE != 0`), so socd
+  never received the APMU syscon (0xd4282800). A device window is now the pages the registers
+  occupy; socd applies the in-page offset it reads from the same tree node.
+- The kernel fences the TLB after a PTE change (`vm_ops::fence_asid`: `sfence.vma x0, asid`
+  after `map_runs` and `set_leaf_flags`): RISC-V lets the walker cache a miss, and blkd's first
+  store into a DMA table it had just mapped page-faulted on the board — QEMU never caches a
+  miss and had hidden the missing fence.
+- init declares an absent device plane instead of dying on it (`init: net|rng|gpu plane none (no
+  device in the tree)`): the board has no virtio-net, virtio-rng or virtio-gpu, and init-lite had
+  been fatal on the first of them after the whole fleet was up.
+- `KINIT: milestone k at N ms (uart stalls=S)` stamps every LED milestone with the boot's own
+  clock; the console's wait for the UART transmitter is bounded (2 ms) and counted, never a
+  place for the kernel to hang.
+
+### Added - 2026-09-28 (TASK-0260B P3: the boot LED ladder — the kernel's earliest milestones on the board's user LED)
+
+- The board's reset scrubs DRAM and its first OS-trace boots kept no OS text, so the kernel's
+  earliest phase had no witness without a serial adapter. The user LED (`sys-led`, GPIO bank 3
+  line 0, measured on the stock system with its pad's mux register and value) is now named in
+  the board tree (`/chosen/nexus,boot-led`, `nexus,boot-led-pad`), which gains the GPIO block;
+  the K1 table learns the block's two APBC gates (mainline v6.16 `ccu-k1`).
+- nxboot brings the block up through the SoC glue, muxes the pad, sets the direction and pulses
+  the LED twice — the loader is alive, the channel works (`nxboot: boot led ok (gpio=… bank=3
+  line=0)` / `boot led none (<why>)`).
+- The kernel pulses the LED at eleven milestones (`hal/boot_led.rs`; a long pulse counts
+  five, a short one counts one): the platform from the tree, the high half, `kmain`, the trap
+  runtime, the secondary harts gated, the selftests, a child task's user-mode round trip,
+  init's address space, its segments copied, init spawned, the runtime. A panic flickers the
+  LED until reset (`boot_led::fatal` from the panic handler). Busy waits on `time`, ~25 s on
+  the board, a no-op on QEMU (its tree names no LED). How to read it: `docs/board/bpi-f3.md`.
+- The kernel reviewed against the board rather than QEMU, and four literals that meant
+  "10 MHz" replaced by the tree's timebase (`hal::platform::ns_to_ticks`/`ticks_to_ns`): the
+  SMP bring-up wait budget (`budget_ns / 100` gave the board 208 ms of a 500 ms budget) and
+  its poll, the TLB shootdown ack budget, the BKL contention threshold, the console's
+  timestamps. Every wait on the board had run at 42 % of its budget.
+- The tree decides the harts: `nexus-fdt` `Cpus::harts()` skips a cpu node with
+  `status = "disabled"` (fixture `tests/goldens/cpus-disabled.dts`), the kernel keeps the
+  tree's hart mask (`hal::platform::hart_enabled`) and never starts a disabled hart
+  (`KINIT: hart{n} disabled by the tree — not started`). A single-hart boot is a tree edit.
+- The LED's GPIO block is a kernel device window like the console's (`hal::boot_led::window()`
+  mapped by `mm::kernel_layout`): the boot table's gigabyte leaves had covered it by accident,
+  so the first pulse after the switch to the runtime table faulted — every board kernel had
+  "died" at its next milestone, wherever that milestone stood.
+- `nexus-fdt`: `Chosen::boot_led()` and `boot_led_pad()`, golden-tested for both trees.
+- Proof: the board's LED ladder read by a person and the trace read back by `just board-log`
+  (`docs/board/measurements/2026-09-28-dram-retention/`, 2026-09-28/29): every milestone group, the
+  ring rescued and, since the ring is written back per byte, cut at the kernel's last byte.
+
 ### Added - 2026-09-28 (TASK-0327B P3, RFC-0107 Phase 3: a boot's console ring rescued from RAM by the next loader)
 
+- The ring is written back on a real cache: every completed cache block, every line end and the
+  header go to memory with Zicbom `cbo.flush` (`hal/console_ring.rs`, the block size from the
+  tree). Measured on the board with the LED window mapped: two complete rescued rings (`lost=0`)
+  cut at the same byte while the LED showed the kernel further on — a reset drops dirty lines,
+  so a rescue had read the kernel's last eviction, not its last line.
 - The first eMMC boot with the OS trace kept the loader's six lines and no OS text: the kernel
   started and nothing reached the block owner's writer. The stock system's kernel forbids RAM
   reads, so the only reader that runs before the next kernel is the loader — the rescue is the

@@ -291,7 +291,9 @@ impl AddressSpaceManager {
         set: PageFlags,
     ) -> Result<(), AddressSpaceError> {
         let space = self.get_mut(handle)?;
-        space.page_table_mut().set_leaf_flags(va, set).map_err(AddressSpaceError::from)
+        space.page_table_mut().set_leaf_flags(va, set).map_err(AddressSpaceError::from)?;
+        super::vm_ops::fence_asid(space.asid());
+        Ok(())
     }
 
     /// Records that `pid` references the provided address space.

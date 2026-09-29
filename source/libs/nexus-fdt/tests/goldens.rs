@@ -102,6 +102,22 @@ fn the_console_is_resolved_through_stdout_path_and_aliases() {
     assert_eq!(uart.interrupts().next(), Some(42));
 }
 
+/// The boot LED (TASK-0260B P3): the board names its user LED in `/chosen` — bank 3 line 0 of
+/// the GPIO block at 0xd4019000, its pad's mux register and value — and QEMU names none.
+#[test]
+fn the_board_names_its_boot_led_and_qemu_names_none() {
+    let board = Fdt::new(BOARD).unwrap();
+    let chosen = board.chosen().unwrap();
+    let led = chosen.boot_led().expect("the board's boot LED");
+    assert_eq!((led.bank, led.line, led.flags), (3, 0, 0));
+    assert!(led.gpio.is_compatible("spacemit,k1-gpio"));
+    assert_eq!(led.gpio.reg(0).unwrap().unwrap().addr, 0xd401_9000);
+    assert_eq!(chosen.boot_led_pad(), Some((0xd401_e180, 0x440)));
+    let virt = Fdt::new(VIRT).unwrap();
+    assert!(virt.chosen().unwrap().boot_led().is_none());
+    assert!(virt.chosen().unwrap().boot_led_pad().is_none());
+}
+
 /// On the board the SPL hands this very tree to the pinned OpenSBI (TASK-0260B), so it carries
 /// what the firmware reads. OpenSBI's ACLINT drivers serve exactly the harts the CLINT's
 /// `interrupts-extended` names — machine software (3) for its IPIs, machine timer (7) for its
@@ -384,6 +400,26 @@ fn every_node_names_its_own_path_and_the_path_finds_it_again() {
     let board = Fdt::new(BOARD).unwrap();
     let emmc = board.find_compatible(&["spacemit,k1-sdhci"]).last().unwrap();
     assert_eq!(emmc.path_into(&mut buf), Some("/soc/storage-bus/mmc@d4281000"));
+}
+
+/// TASK-0260B P3: a cpu node with `status = "disabled"` is not a hart the OS may start —
+/// `harts()` skips it, the count drops, and the enabled ones keep their ids (the canonical
+/// way a board tree pins a boot to fewer harts than the SoC has).
+#[test]
+fn a_disabled_cpu_node_is_not_a_hart() {
+    const DISABLED: &[u8] = include_bytes!("goldens/cpus-disabled.dtb");
+    let cpus = Fdt::new(DISABLED).unwrap().cpus().unwrap();
+    assert_eq!(cpus.timebase_hz, 24_000_000);
+    assert_eq!(cpus.count(), 2);
+    let harts: Vec<u32> = cpus.harts().map(|c| c.hart).collect();
+    assert_eq!(harts, [0, 2], "hart 1 is disabled, hart 2 has no status (enabled)");
+    assert!(cpus.harts().all(|c| c.is_enabled() && c.has_extension("sstc")));
+    // The node itself is still in the tree (a cpu-map may name it).
+    let fdt = Fdt::new(DISABLED).unwrap();
+    assert!(fdt.node_at_path("/cpus/cpu@1").is_some());
+    // The real trees enable every hart they list: nothing changes for them.
+    assert_eq!(Fdt::new(VIRT).unwrap().cpus().unwrap().count(), 4);
+    assert_eq!(Fdt::new(BOARD).unwrap().cpus().unwrap().count(), 8);
 }
 
 #[test]

@@ -50,6 +50,16 @@
 		stdout-path = "serial0:115200n8";
 		// nexus,boot-profile / nexus,boot-slot / nexus,boot-record /
 		// nexus,display-mode are written here by nxboot at boot (RFC-0098 C2).
+		// The boot LED (TASK-0260B P3): the board's user LED, `sys-led`, GPIO bank 3
+		// line 0 (= gpio 96, active high; measured on the stock system 2026-09-28,
+		// docs/board/measurements/2026-09-28-dram-retention). nxboot brings the GPIO
+		// block up and pulses it once; the kernel pulses its boot milestones on it —
+		// the one channel a boot without a serial adapter leaves. The pad's mux
+		// register and the value the stock system runs it with (pinctrl-single
+		// `pins`: pin 96 at d401e180 = 0x440, mux 0 = GPIO), so the loader sets it
+		// before the first pulse.
+		nexus,boot-led = <&gpio 3 0 0>;
+		nexus,boot-led-pad = <0xd401e180 0x440>;
 	};
 
 	// Measured: two banks, a 2 GiB hole between them (4 GiB board).
@@ -394,6 +404,28 @@
 					drive-strength = <21>;
 				};
 			};
+		};
+
+		// The SoC watchdog (the vendor U-Boot's tree, `k1-x.dtsi`: the register window and
+		// the reset-enable word at 0xd4051020). Named so nxboot can STOP it: the vendor
+		// chain's U-Boot starts, feeds and stops it before Linux; ours never runs U-Boot
+		// (TASK-0260B P3 — the kernel died mid-line, seconds in, until this). Nothing
+		// else consumes it; its clock is the one it is already running on.
+		watchdog@d4080000 {
+			compatible = "spacemit,k1x-wdt";
+			reg = <0x0 0xd4080000 0x0 0x1000>,
+			      <0x0 0xd4051020 0x0 0x4>;
+		};
+
+		// The GPIO block (mainline shape; reg as the stock system maps it — the driver's
+		// bank 3 lies at +0x100). Consumed for the boot LED only (TASK-0260B P3).
+		gpio: gpio@d4019000 {
+			compatible = "spacemit,k1-gpio";
+			reg = <0x0 0xd4019000 0x0 0x800>;
+			clocks = <&syscon_apbc CLK_GPIO>, <&syscon_apbc CLK_GPIO_BUS>;
+			clock-names = "core", "bus";
+			gpio-controller;
+			#gpio-cells = <3>;
 		};
 
 		// The debug console: 16550-class registers at a 4-byte stride. `spacemit,pxa-uart`

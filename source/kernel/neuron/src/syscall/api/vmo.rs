@@ -185,7 +185,9 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
     }
     // Deny-by-default: an unknown version or flag, a line the PLIC cannot have, a
     // malformed or overlapping DMA window — each refuses the whole device.
-    let desc = crate::dma_reach::decode_desc(&bytes, crate::hal::plic::MAX_IRQ)
+    // The IRQ bound is the platform's source count from the tree (RFC-0098), not the
+    // tables' architectural ceiling.
+    let desc = crate::dma_reach::decode_desc(&bytes, crate::hal::platform::plic_ndev())
         .map_err(|_| Error::AddressSpace(AddressSpaceError::InvalidArgs))?;
     let dev = crate::mm::devices::register(desc).map_err(|e| match e {
         // A second, different description of a described window.

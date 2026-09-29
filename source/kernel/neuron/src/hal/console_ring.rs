@@ -84,9 +84,41 @@ pub fn record_then(byte: u8, emit: impl FnOnce(u8)) {
     // SAFETY: `at` lies inside the data area of the ring's pages.
     unsafe { base().add(at).write_volatile(byte) };
     head().store(h + 1, Ordering::Release);
+    // RFC-0107 on a real cache (TASK-0260B P3): the ring lives in write-back memory and the
+    // board's reset drops dirty lines, so the next loader's rescue lost the tail — a kernel
+    // read as "stopped" lines before it did. Every byte and the header are written back at
+    // once (Zicbom `cbo.flush`, the block size from the tree; nothing without Zicbom, where
+    // the ring is what it was): the rescue then ends at the last byte the kernel wrote, a
+    // half line included — cheap next to the UART's own time per byte.
+    let block = super::platform::cbom_block();
+    if block != 0 {
+        flush_block(at, block);
+        flush_block(OFF_HEAD, block);
+    }
     emit(byte);
     drop(guard);
 }
+
+/// Writes the cache block holding ring offset `at` back to memory.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+fn flush_block(at: usize, block: usize) {
+    let addr = (base() as usize + at) & !(block - 1);
+    // SAFETY: `cbo.flush` on a block of the ring's own pages; the tree named Zicbom and the
+    // firmware enabled it for S-mode (`menvcfg.CBCFE`), as the platform's DMA path relies on.
+    unsafe {
+        core::arch::asm!(
+            ".option push",
+            ".option arch, +zicbom",
+            "cbo.flush ({0})",
+            ".option pop",
+            in(reg) addr,
+            options(nostack)
+        );
+    }
+}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+fn flush_block(_at: usize, _block: usize) {}
 
 /// The ring as init receives it: read-only pages over the image's own frames (the pool never
 /// owned them), like the tree's alias (`boot_fdt::init_alias`).

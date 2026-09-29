@@ -4,8 +4,8 @@
 //! The kernel half of every address space (RFC-0098 C4, TASK-0286 P2): the
 //! image at its high alias with segment permissions (text RX, the rest RW,
 //! the stack guard left out), every memory bank the tree names through the
-//! direct map `PHYS_OFFSET + PA` (minus the image's own frames), the console
-//! and interrupt-controller windows, and the tree when it lies outside every
+//! direct map `PHYS_OFFSET + PA` (minus the image's own frames), the console,
+//! interrupt-controller and boot-LED windows, and the tree when it lies outside every
 //! bank. All GLOBAL, none below `KERNEL_VA_BASE`; the identity map is gone.
 //! Split out of `address_space.rs` (structure-gate, RFC-0085 Phase 2). The
 //! host build gets the same no-op stub the original had.
@@ -77,13 +77,17 @@ pub(super) fn map_kernel_segments(table: &mut PageTable) -> Result<(), MapError>
         map_range(table, base + PHYS_OFFSET, lo_end + PHYS_OFFSET, RW, "BANK")?;
         map_range(table, hi_start + PHYS_OFFSET, end + PHYS_OFFSET, RW, "BANK")?;
     }
-    // The console and the interrupt controller: the two device windows the
-    // kernel itself drives, at the addresses the device tree named (RFC-0098
-    // C3). A platform that failed to initialise has no windows and therefore no
-    // console; the harness sees silence.
+    // The console, the interrupt controller and the boot LED's GPIO block: the
+    // device windows the kernel itself drives, at the addresses the device tree
+    // named (RFC-0098 C3). A platform that failed to initialise has no windows
+    // and therefore no console; the harness sees silence. The LED window
+    // (TASK-0260B P3) is here because the boot table's gigabyte leaves had
+    // covered it by accident: the first pulse after the switch to this table
+    // faulted, and every board kernel "died" at its next milestone.
     for (name, window) in [
         ("UART", crate::hal::platform::uart_window()),
         ("PLIC", crate::hal::platform::plic_window()),
+        ("LED", crate::hal::boot_led::window()),
     ] {
         let Some((base, len)) = window else { continue };
         let end = base.checked_add(len).ok_or(MapError::OutOfRange)?;

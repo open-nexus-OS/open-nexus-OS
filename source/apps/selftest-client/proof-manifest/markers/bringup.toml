@@ -55,6 +55,18 @@ proves = "loader carried the measured handoff record in /chosen and chained into
 phase = "bringup"
 proves = "the block owner appended the kernel console ring's text to this boot's trace slot (the slot the loader handed over in /chosen/nexus,trace), text first, header last"
 
+# TASK-0260B P3: how init's image reaches its address space — one line per ELF segment (its
+# page count and the first/last frame it was copied into) and one per page two segments share.
+# The board's first kernel deaths were inside this loop; these lines are the sight a rescued
+# console has of it, so they stay as contract markers (prefixes: the numbers are the build's).
+[marker."KSELFTEST: segment copied (pages="]
+phase = "bringup"
+proves = "one PT_LOAD segment of init's ELF is mapped and copied into its address space, with the frames it went into"
+
+[marker."KSELFTEST: shared page va="]
+phase = "bringup"
+proves = "a page two segments of init's ELF share got the union of their flags before the second segment's bytes were copied into it"
+
 [marker."KSELFTEST: boot handoff ok (measured)"]
 phase = "bringup"
 proves = "kernel validated the loader's CRC'd handoff record (ADR-0059 ABI parity across the two implementations; qemu-soft-root measurement, never policy)"

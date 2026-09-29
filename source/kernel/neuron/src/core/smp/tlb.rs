@@ -46,10 +46,13 @@ struct TlbMailbox {
 static TLB_MAIL: [TlbMailbox; MAX_CPUS] =
     [const { TlbMailbox { requested: AtomicU64::new(0), acked: AtomicU64::new(0) } }; MAX_CPUS];
 
-/// Wait budget for all acks: 100ms of mtime (10 MHz → 100ns/tick). A hart
-/// that cannot ack within this is wedged or lost its IPI — fail closed.
+/// Wait budget for all acks: 100 ms of the platform's timebase (was the literal
+/// `1_000_000` ticks — 100 ms only at QEMU's 10 MHz). A hart that cannot ack
+/// within this is wedged or lost its IPI — fail closed.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-const ACK_BUDGET_TICKS: u64 = 1_000_000;
+fn ack_budget_ticks() -> u64 {
+    crate::hal::platform::ns_to_ticks(100_000_000)
+}
 
 #[inline]
 fn local_flush_all() {
@@ -213,7 +216,8 @@ pub fn shootdown_all() {
             }
             // Doorbell to every target (idle ones ack early when it lands).
             let _ = sbi::send_ipi(targets, 0);
-            let deadline = (riscv::register::time::read() as u64).saturating_add(ACK_BUDGET_TICKS);
+            let deadline =
+                (riscv::register::time::read() as u64).saturating_add(ack_budget_ticks());
             while (riscv::register::time::read() as u64) < deadline {
                 let mut all_acked = true;
                 for (idx, mail) in TLB_MAIL.iter().enumerate() {

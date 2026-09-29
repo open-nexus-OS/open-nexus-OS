@@ -604,55 +604,58 @@ where
     // RFC-0098 C3: every grant below carries a window + PLIC line read from the
     // device's tree node (ADR-0044: blk[0] = the ONE disk, granted in the CORE-plane
     // stage; a second blk device is nobody's — `/data` is a partition on the one disk).
-    let net = devices.net.ok_or(InitError::Map("virtio-net not in the device tree"))?;
-    let rng = devices.rng.ok_or(InitError::Map("virtio-rng not in the device tree"))?;
-    crate::bootstrap::core_plane::grant_mmio_with_wait(
-        &grant_stats,
-        pol_route,
-        netstackd_pid,
-        "netstackd",
-        "device.mmio.net",
-        net,
-        DEVICE_MMIO_CAP_SLOT,
-    )?;
-    crate::bootstrap::core_plane::grant_mmio_with_wait(
-        &grant_stats,
-        pol_route,
-        rngd_pid,
-        "rngd",
-        "device.mmio.rng",
-        rng,
-        DEVICE_MMIO_CAP_SLOT,
-    )?;
-    // RFC-0076: RTC window → timed (own anchor read; no rtcd). Best-effort.
+    // RFC-0098: the tree decides which device planes exist. A plane without a device is
+    // declared absent and its owner runs without a window (the board has no virtio-net,
+    // virtio-rng or virtio-gpu; TASK-0260B P3: `init` died on the first of them).
+    match devices.net {
+        Some(net) => crate::bootstrap::core_plane::grant_mmio_with_wait(
+            &grant_stats,
+            pol_route,
+            netstackd_pid,
+            "netstackd",
+            "device.mmio.net",
+            net,
+            DEVICE_MMIO_CAP_SLOT,
+        )?,
+        None => debug_write_bytes(b"init: net plane none (no device in the tree)\n"),
+    }
+    match devices.rng {
+        Some(rng) => crate::bootstrap::core_plane::grant_mmio_with_wait(
+            &grant_stats,
+            pol_route,
+            rngd_pid,
+            "rngd",
+            "device.mmio.rng",
+            rng,
+            DEVICE_MMIO_CAP_SLOT,
+        )?,
+        None => debug_write_bytes(b"init: rng plane none (no device in the tree)\n"),
+    }
     grant_rtc_mmio_to_timed(timed_pid, pol_ctl_route_req, pol_ctl_route_rsp)?;
-    let gpu = devices.gpu.ok_or(InitError::Map("virtio-gpu not in the device tree"))?;
-    crate::bootstrap::core_plane::grant_mmio_with_wait(
-        &grant_stats,
-        pol_route,
-        gpud_pid,
-        "gpud",
-        "device.mmio.gpu",
-        gpu,
-        DEVICE_MMIO_CAP_SLOT,
-    )?;
-    crate::bootstrap::core_plane::grant_mmio_with_wait(
-        &grant_stats,
-        pol_route,
-        selftest_pid,
-        "selftest-client",
-        "device.mmio.net",
-        net,
-        DEVICE_MMIO_CAP_SLOT,
-    )?;
+    match devices.gpu {
+        Some(gpu) => crate::bootstrap::core_plane::grant_mmio_with_wait(
+            &grant_stats,
+            pol_route,
+            gpud_pid,
+            "gpud",
+            "device.mmio.gpu",
+            gpu,
+            DEVICE_MMIO_CAP_SLOT,
+        )?,
+        None => debug_write_bytes(b"init: gpu plane none (no device in the tree)\n"),
+    }
+    if let Some(net) = devices.net {
+        crate::bootstrap::core_plane::grant_mmio_with_wait(
+            &grant_stats,
+            pol_route,
+            selftest_pid,
+            "selftest-client",
+            "device.mmio.net",
+            net,
+            DEVICE_MMIO_CAP_SLOT,
+        )?;
+    }
 
-    // The device tree, read-only, to selftest-client: the harness reads its runtime
-    // boot-config (`/chosen/nexus,boot-mode` / `boot-profile`, written by nxboot from
-    // the launcher's knobs) WITHOUT a rebuild — the same binary boots in `proof` mode
-    // under the harness and `interactive-full` under `just start`. Not a device: the
-    // alias the kernel gave init is pinned directly (no policyd round-trip) into the
-    // slot the topology declares (`NamedSlot::DeviceTree`). Non-fatal: without it the
-    // client's `runtime_mode` is None → the legacy `full` profile + verdict mode off.
     {
         let pinned = crate::bootstrap::declared_slots::pin_named(
             selftest_pid,

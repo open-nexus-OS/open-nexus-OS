@@ -134,13 +134,19 @@ pub(crate) fn chosen_str(name: &str) -> Option<&'static str> {
 /// DMA reach.
 pub(crate) fn window_of(node: nexus_fdt::Node<'static>) -> Option<DeviceWindow> {
     let reg = node.reg(0).ok().flatten()?;
-    let base = usize::try_from(reg.addr).ok()?;
-    let len = usize::try_from(reg.size).ok()?;
-    if base % PAGE != 0 || len == 0 {
+    let addr = usize::try_from(reg.addr).ok()?;
+    let size = usize::try_from(reg.size).ok()?;
+    if size == 0 {
         return None;
     }
+    // A device window is the pages its registers occupy (RFC-0017: MMIO is granted by
+    // the page): a block whose registers start inside a page — the board's APMU syscon
+    // at 0xd4282800, a 0x400-byte block — gets the page it lies in, and its consumer
+    // applies the in-page offset it reads from the same tree node (TASK-0260B P3: the
+    // old `base % PAGE != 0` refusal left socd without the APMU).
+    let base = addr & !(PAGE - 1);
+    let len = (addr + size).div_ceil(PAGE) * PAGE - base;
     // A window is granted in whole pages (the create syscall requires it).
-    let len = len.div_ceil(PAGE) * PAGE;
     let irq = node.interrupts().next().unwrap_or(0);
     // A malformed `dma-ranges` above the node is a wrong tree: no window, no grant.
     let reach = node.dma_reach().ok()?;

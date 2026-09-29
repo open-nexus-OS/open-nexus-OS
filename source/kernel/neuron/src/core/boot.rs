@@ -56,6 +56,9 @@ pub fn early_boot_init(hartid: usize, dtb: usize) -> usize {
         log_info!(target: "boot", "boot: platform from fdt FAILED ({:?})", e);
         return 0;
     }
+    // TASK-0260B P3: the boot LED's ladder, milestone 1 — the platform came from the tree.
+    crate::hal::boot_led::init(crate::boot_fdt::bytes());
+    crate::hal::boot_led::milestone(1);
     // The boot table: every bank and the two device windows through the direct
     // map, the tree wherever the previous stage put it, and the identity of the
     // gigabyte this code runs in — for the instructions between the satp write
@@ -105,6 +108,8 @@ pub fn high_boot_init(boot_satp: usize) {
     let (base, end) = crate::boot_image::range();
     log_info!(target: "boot", "KINIT: kernel high half (base=0x{:x} load=0x{:x} len=0x{:x})",
         base, crate::phys::virt_to_phys(base), end - base);
+    // Milestone 2: the kernel runs in the high half.
+    crate::hal::boot_led::milestone(2);
     log_info!(target: "boot", "boot: returning to wrapper");
 }
 

@@ -46,6 +46,11 @@ pub struct ArchBus {
     base: usize,
 }
 
+impl ArchBus {
+    /// The bus at physical addresses, as the loader runs.
+    pub const UNTRANSLATED: ArchBus = ArchBus { base: 0 };
+}
+
 impl Bus for ArchBus {
     fn read(&self, addr: usize) -> u32 {
         arch::mmio_read32(self.base + addr)

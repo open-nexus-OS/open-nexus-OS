@@ -1,0 +1,303 @@
+NXTRACE1
+nxboot: platform=bananapi,bpi-f3 tree=0x26a000 size=13376
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: boot led ok (gpio=0xd4019000 bank=3 line=0)
+nxboot: trace slot=0 seq=1
+nxboot: dram probe none (first boot)
+nxboot: rescue none (first boot)
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-95db rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
+[INFO boot] boot: ok
+[INFO boot] traps: ok
+[INFO boot] KINIT: mm frames (banks=2 total=1043840 free=1043840 reserved=256 excluded=4608)
+[INFO boot] KINIT: kernel high half (base=0xffffffc000400000 load=0x400000 len=0x11fb940)
+[INFO boot] boot: returning to wrapper
+[INFO selftest] KSELFTEST: boot handoff ok (measured)
+[INFO boot] neuron: boot handoff slot=a rbidx=1 seq=1 (qemu-soft-root)
+[INFO as] AS: trampoline enter val=0x8000100000000244
+AS: post-satp OK
+[INFO selftest] KSELFTEST: platform from fdt ok (uart=0xd4017000 plic=0xe0000000 ndev=159 tb=24000000Hz harts=8 banks=2 boot_hart=0 timer=sstc ticks_per_us=24 chosen.slot=a chosen.profile=- chosen.display=-)
+[INFO selftest] KSELFTEST: kernel image ok (base=0x400000 va=0xffffffc000400000 len=0x11fb940 relocs=1097)
+[INFO mm] KINIT: mm frames in use (free=1043831 allocs=9 frees=0 pt_live=9 vmos=0 vmk_bytes=0)
+SCHED: times,ice=1000000
+SCHED: new exit
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO smp] KINIT: cpu0 online
+[INFO smp] KINIT: cpu1 online
+[INFO smp] KINIT: cpu2 online
+[INFO smp] KGATE: smp hart1 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KINIT: cpu3 online
+[INFO smp] KGATE: smp hart2 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp hart3 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp bringup ok mask=0xf
+     _ __   ___ _   _ _ __ ___  _ __
+    | '_ \ / _ \ | | | '__/ _ \| '_ \
+    | | | |  __/ |_| | | | (_) | | | |
+    |_| |_|\___|\__,_|_|  \___/|_| |_|
+    neuron vers. 0.1.0  
+  One OS. Many Devices.
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: as create ok
+[INFO selftest] KSELFTEST: vmo zero ok
+[INFO selftest] KSELFTEST: userptr guard ok
+[INFO selftest] KSELFTEST: as map ok
+[INFO selftest] KSELFTEST: vm map ok
+[INFO smp] KINIT: cpu2 ssoft trap
+[INFO selftest] KSELFTEST: vm unmap ok
+[INFO smp] KINIT: cpu3 ssoft trap
+[ERROR pt] VA-FIXED-REFUSED va=0x51000000 (managed window or tracked region)
+[INFO smp] KINIT: cpu2 ssoft trap
+[INFO smp] KINIT: cpu1 ssoft trap
+[INFO selftest] KSELFTEST: vm map reject ok
+[INFO selftest] KSELFTEST: vmo runs ok (runs=2 deny=4)
+[INFO selftest] KSELFTEST: vmo reach ok (window=0x7c000000+0x4000000 bus=0x4000000000 runs=1 deny=2)
+[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x8000100000000244
+[INFO selftest] KSELFTEST: direct-run begin
+[INFO as] AS: trampoline enter val=0x800020000000024d
+AS: post-satp OK
+[INFO selftest] KSELFTEST: direct-run set SUM
+[INFO selftest] KSELFTEST: direct-run calling entry sp=0x40000000
+[INFO selftest] KSELFTEST: direct call begin
+[INFO selftest] KSELFTEST: child entry
+[INFO selftest] KSELFTEST: child newas running
+[INFO selftest] KSELFTEST: child exit
+[INFO selftest] KSELFTEST: direct call return
+[INFO selftest] KSELFTEST: returned from child entry
+[INFO as] AS: trampoline enter val=0x8000100000000244
+AS: post-satp OK
+[INFO selftest] KSELFTEST: spawn ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: w^x enforced
+[INFO selftest] KSELFTEST: ipc queue full ok
+[INFO selftest] KSELFTEST: ipc bytes full ok
+[INFO selftest] KSELFTEST: ipc global bytes budget ok
+[INFO selftest] KSELFTEST: ipc owner bytes budget ok
+[INFO selftest] KSELFTEST: ipc recv waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send unblock ok
+[INFO selftest] KSELFTEST: ipc endpoint quota ok (created=384)
+[INFO selftest] KSELFTEST: ipc close wakes ok
+[INFO selftest] KSELFTEST: ipc owner-exit wakes ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: timer cap lifecycle ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: waitset wake ok
+[INFO selftest] KSELFTEST: waitset timeout ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: fence wait ok
+[INFO selftest] KSELFTEST: fence timeout ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: fence transfer ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason oom ok
+[INFO selftest] KSELFTEST: spawn reason cap-table-full ok
+[INFO selftest] KSELFTEST: spawn reason endpoint-quota ok
+[INFO selftest] KSELFTEST: spawn reason map-failed ok
+[INFO selftest] KSELFTEST: spawn reasons ok
+[INFO selftest] KSELFTEST: resource sentinel ok
+[INFO selftest] KSELFTEST: cpuid tp ok
+[INFO selftest] KSELFTEST: cpuid fallback counterfactual ok
+[INFO selftest] KSELFTEST: sched affinity reject ok
+[INFO selftest] KSELFTEST: sched abi ok
+[INFO selftest] KSELFTEST: smp online ok
+[INFO selftest] KSELFTEST: kernel lock contention bounded ok
+[INFO selftest] KSELFTEST: ipi counterfactual ok
+[INFO selftest] KSELFTEST: ipi resched ok
+[INFO selftest] KSELFTEST: test_reject_invalid_ipi_target_cpu ok
+[INFO selftest] KSELFTEST: test_reject_offline_cpu_resched ok
+[INFO selftest] KSELFTEST: runtime ipi budget ok
+[INFO selftest] KSELFTEST: runtime stress ok
+[INFO selftest] KSELFTEST: work stealing ok
+[INFO selftest] KSELFTEST: edt arm ok
+[INFO selftest] KSELFTEST: steal park ok
+[INFO selftest] KSELFTEST: test_reject_steal_above_bound ok
+[INFO selftest] KSELFTEST: test_reject_steal_higher_qos ok
+[INFO selftest] KSELFTEST: tlb shootdown counterfactual ok
+[INFO selftest] KSELFTEST: tlb shootdown ok
+[INFO selftest] KSELFTEST: sched affinity clamp ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: exit ok
+[INFO selftest] KSELFTEST: wait ok
+[INFO selftest] KSELFTEST: spawn init begin
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x2b846 flags=0x5
+[INFO selftest] KSELFTEST: map flags bits=0x1b
+[INFO selftest] KSELFTEST: segment copied (pages=44 first_pa=0x26a000 last_pa=0x217000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1042b848 memsz=0x86bb9c flags=0x4
+[INFO selftest] KSELFTEST: map flags bits=0x13
+[INFO selftest] KSELFTEST: shared page va=0x1042b000 entry=0x85c5b pa=0x217000
+[INFO selftest] KSELFTEST: shared page copied va=0x1042b000
+[INFO selftest] KSELFTEST: segmen4 copied (pages=2156 first_p =0x218000 last_pa=0x1b47000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10c973e4 memsz=0x80c1d flags=0x6
+[INFO selftest] KSELFTEST: map flags bits=0x17
+[INFO selftest] KSELFTEST: shared page va=0x10c97000 entry=0x6d1c53 pa=0x1b47000
+[INFO selftest] KSELFTEST: shared page copied va=0x10c97000
+NXTRACE1
+nxboot: platform=bananapi,bpi-f3 tree=0x26a000 size=13376
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: boot led ok (gpio=0xd4019000 bank=3 line=0)
+nxboot: trace slot=1 seq=2
+nxboot: dram probe kept (seq=1)
+nxboot: rescue ok (seq=1 bytes=7039 lost=0)
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-95db rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
+[INFO boot] boot: ok
+[INFO boot] traps: ok
+[INFO boot] KINIT: mm frames (banks=2 total=1043840 free=1043840 reserved=256 excluded=4608)
+[INFO boot] KINIT: kernel high half (base=0xffffffc000400000 load=0x400000 len=0x11fb940)
+[INFO boot] boot: returning to wrapper
+[INFO selftest] KSELFTEST: boot handoff ok (measured)
+[INFO boot] neuron: boot handoff slot=a rbidx=1 seq=1 (qemu-soft-root)
+[INFO as] AS: trampoline enter val=0x8000100000000244
+AS: post-satp OK
+[INFO selftest] KSELFTEST: platform from fdt ok (uart=0xd4017000 plic=0xe0000000 ndev=159 tb=24000000Hz harts=8 banks=2 boot_hart=0 timer=sstc ticks_per_us=24 chosen.slot=a chosen.profile=- chosen.display=-)
+[INFO selftest] KSELFTEST: kernel image ok (base=0x400000 va=0xffffffc000400000 len=0x11fb940 relocs=1097)
+[INFO mm] KINIT: mm frames in use (free=1043831 allocs=9 frees=0 pt_live=9 vmos=0 vmk_bytes=0)
+SCHED: times,ice=1000000
+SCHED: new exit
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO smp] KINIT: cpu0 online
+[INFO smp] KINIT: cpu1 online
+[INFO smp] KINIT: cpu2 online
+[INFO smp] KGATE: smp hart1 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KINIT: cpu3 online
+[INFO smp] KGATE: smp hart2 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp hart3 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp bringup ok mask=0xf
+     _ __   ___ _   _ _ __ ___  _ __
+    | '_ \ / _ \ | | | '__/ _ \| '_ \
+    | | | |  __/ |_| | | | (_) | | | |
+    |_| |_|\___|\__,_|_|  \___/|_| |_|
+    neuron vers. 0.1.0  
+  One OS. Many Devices.
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: as create ok
+[INFO selftest] KSELFTEST: vmo zero ok
+[INFO selftest] KSELFTEST: userptr guard ok
+[INFO selftest] KSELFTEST: as map ok
+[INFO selftest] KSELFTEST: vm map ok
+[INFO smp] KINIT: cpu1 ssoft trap
+[INFO smp] KINIT: cpu3 ssoft trap
+[INFO selftest] KSELFTEST: vm unmap ok
+[INFO smp] KINIT: cpu2 ssoft trap
+[INFO smp] KINIT: cpu1 ssoft trap
+[ERROR pt] VA-FIXED-REFUSED va=0x51000000 (managed window or tracked region)
+[INFO selftest] KSELFTEST: vm map reject ok
+[INFO selftest] KSELFTEST: vmo runs ok (runs=2 deny=4)
+[INFO selftest] KSELFTEST: vmo reach ok (window=0x7c000000+0x4000000 bus=0x4000000000 runs=1 deny=2)
+[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x8000100000000244
+[INFO selftest] KSELFTEST: direct-run begin
+[INFO as] AS: trampoline enter val=0x800020000000024d
+AS: post-satp OK
+[INFO selftest] KSELFTEST: direct-run set SUM
+[INFO selftest] KSELFTEST: direct-run calling entry sp=0x40000000
+[INFO selftest] KSELFTEST: direct call begin
+[INFO selftest] KSELFTEST: child entry
+[INFO selftest] KSELFTEST: child newas running
+[INFO selftest] KSELFTEST: child exit
+[INFO selftest] KSELFTEST: direct call return
+[INFO selftest] KSELFTEST: returned from child entry
+[INFO as] AS: trampoline enter val=0x8000100000000244
+AS: post-satp OK
+[INFO selftest] KSELFTEST: spawn ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: w^x enforced
+[INFO selftest] KSELFTEST: ipc queue full ok
+[INFO selftest] KSELFTEST: ipc bytes full ok
+[INFO selftest] KSELFTEST: ipc global bytes budget ok
+[INFO selftest] KSELFTEST: ipc owner bytes budget ok
+[INFO selftest] KSELFTEST: ipc recv waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send unblock ok
+[INFO selftest] KSELFTEST: ipc endpoint quota ok (created=384)
+[INFO selftest] KSELFTEST: ipc close wakes ok
+[INFO selftest] KSELFTEST: ipc owner-exit wakes ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: timer cap lifecycle ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: waitset wake ok
+[INFO selftest] KSELFTEST: waitset timeout ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: fence wait ok
+[INFO selftest] KSELFTEST: fence timeout ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: fence transfer ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason oom ok
+[INFO selftest] KSELFTEST: spawn reason cap-table-full ok
+[INFO selftest] KSELFTEST: spawn reason endpoint-quota ok
+[INFO selftest] KSELFTEST: spawn reason map-failed ok
+[INFO selftest] KSELFTEST: spawn reasons ok
+[INFO selftest] KSELFTEST: resource sentinel ok
+[INFO selftest] KSELFTEST: cpuid tp ok
+[INFO selftest] KSELFTEST: cpuid fallback counterfactual ok
+[INFO selftest] KSELFTEST: sched affinity reject ok
+[INFO selftest] KSELFTEST: sched abi ok
+[INFO selftest] KSELFTEST: smp online ok
+[INFO selftest] KSELFTEST: kernel lock contention bounded ok
+[INFO selftest] KSELFTEST: ipi counterfactual ok
+[INFO selftest] KSELFTEST: ipi resched ok
+[INFO selftest] KSELFTEST: test_reject_invalid_ipi_target_cpu ok
+[INFO selftest] KSELFTEST: test_reject_offline_cpu_resched ok
+[INFO selftest] KSELFTEST: runtime ipi budget ok
+[INFO selftest] KSELFTEST: runtime stress ok
+[INFO selftest] KSELFTEST: work stealing ok
+[INFO selftest] KSELFTEST: edt arm ok
+[INFO selftest] KSELFTEST: steal park ok
+[INFO selftest] KSELFTEST: test_reject_steal_above_bound ok
+[INFO selftest] KSELFTEST: test_reject_steal_higher_qos ok
+[INFO selftest] KSELFTEST: tlb shootdown counterfactual ok
+[INFO selftest] KSELFTEST: tlb shootdown ok
+[INFO selftest] KSELFTEST: sched affinity clamp ok
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: exit ok
+[INFO selftest] KSELFTEST: wait ok
+[INFO selftest] KSELFTEST: spawn init begin
+SYSCALL install debug_putc=0xffffffc00044a016
+SYSCALL install ep_create=0xffffffc0004437ee
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x2b846 flags=0x5
+[INFO selftest] KSELFTEST: map flags bits=0x1b
+[INFO selftest] KSELFTEST: segment copied (pages=44 first_pa=0x26a000 last_pa=0x217000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1042b848 memsz=0x86bb9c flags=0x4
+[INFO selftest] KSELFTEST: map flags bits=0x13
+[INFO selftest] KSELFTEST: shared page va=0x1042b000 entry=0x85c5b pa=0x217000
+[INFO selftest] KSELFTEST: shared page copied va=0x1042b000
+[INFO selftest] KSELFTEST: segmen4 copied (pages=2156 first_p =0x218000 last_pa=0x1b47000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10c973e4 memsz=0x80c1d flags=0x6
+[INFO selftest] KSELFTEST: map flags bits=0x17
+[INFO selftest] KSELFTEST: shared page va=0x10c97000 entry=0x6d1c53 pa=0x1b47000
+[INFO selftest] KSELFTEST: shared page copied va=0x10c97000
+NXTRACE1
+nxboot: platform=bananapi,bpi-f3 tree=0x26a000 size=13376
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: boot led ok (gpio=0xd4019000 bank=3 line=0)
+nxboot: trace slot=2 seq=3
+nxboot: dram probe kept (seq=2)
+nxboot: rescue ok (seq=2 bytes=6947 lost=0)
+nxboot: bsb ok (slot=a seq=1)
+nxboot: verify ok (slot=a build=dev-95db rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000

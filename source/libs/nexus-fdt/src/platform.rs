@@ -125,11 +125,14 @@ impl Iterator for RegIter<'_> {
 }
 
 impl<'a> Cpus<'a> {
-    /// Every `device_type = "cpu"` child with a `reg` (its hart id).
+    /// Every enabled `device_type = "cpu"` child with a `reg` (its hart id). A cpu node
+    /// with `status = "disabled"` is not a hart the OS may start: it stays out of the
+    /// count, the mask and the ISA probes, the canonical way a tree pins a boot to fewer
+    /// harts.
     pub fn harts(&self) -> impl Iterator<Item = Cpu<'a>> {
         self.node
             .children()
-            .filter(|c| c.prop_str("device_type") == Some("cpu"))
+            .filter(|c| c.prop_str("device_type") == Some("cpu") && c.is_enabled())
             .filter_map(|c| c.prop_cell("reg", 0).map(|hart| Cpu { node: c, hart }))
     }
 
@@ -232,6 +235,41 @@ impl<'a> Chosen<'a> {
     pub fn node(&self) -> Node<'a> {
         self.node
     }
+
+    /// The boot LED (TASK-0260B P3): `nexus,boot-led = <&gpio bank line flags>` — the GPIO
+    /// controller node and the line the loader and the kernel pulse their milestones on. `None`
+    /// on a tree without one (QEMU), or one whose phandle names no node.
+    pub fn boot_led(&self) -> Option<BootLed<'a>> {
+        let mut key = NexusKey::new("boot-led")?;
+        let key = key.as_str();
+        let phandle = self.node.prop_cell(key, 0)?;
+        let bank = self.node.prop_cell(key, 1)?;
+        let line = self.node.prop_cell(key, 2)?;
+        let flags = self.node.prop_cell(key, 3).unwrap_or(0);
+        let gpio = self.node.fdt.node_by_phandle(phandle)?;
+        Some(BootLed { gpio, bank, line, flags })
+    }
+
+    /// The boot LED's pad register and the value that muxes it as a GPIO
+    /// (`nexus,boot-led-pad = <reg value>`, measured on the board): `(reg, value)`.
+    pub fn boot_led_pad(&self) -> Option<(u64, u32)> {
+        let mut key = NexusKey::new("boot-led-pad")?;
+        let key = key.as_str();
+        Some((u64::from(self.node.prop_cell(key, 0)?), self.node.prop_cell(key, 1)?))
+    }
+}
+
+/// The boot LED as `/chosen` names it: a line of a GPIO controller node.
+#[derive(Clone, Copy)]
+pub struct BootLed<'a> {
+    /// The GPIO controller (`reg` is its window).
+    pub gpio: Node<'a>,
+    /// The controller's bank (32 lines each).
+    pub bank: u32,
+    /// The line in the bank.
+    pub line: u32,
+    /// The binding's flags cell (0 = active high).
+    pub flags: u32,
 }
 
 /// `"nexus," + name` without an allocator: a fixed buffer, refused when the

@@ -111,8 +111,26 @@ pub fn map_runs(
         );
         return Err(VmOpError::Map(err));
     }
+    fence_asid(space.asid());
     Ok(va)
 }
+
+/// `sfence.vma` for one address space after its PTEs changed — invalid→valid included:
+/// RISC-V lets the walker cache a miss, so the next access could fault on a page that is
+/// mapped (Linux's `update_mmu_cache` fences for the same reason). QEMU never caches a
+/// miss and hid every missing fence; the board's first store into a freshly mapped DMA
+/// table page-faulted (TASK-0260B P3). Harmless for a space this hart is not running.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub(crate) fn fence_asid(asid: crate::types::Asid) {
+    let raw = asid.as_raw() as usize;
+    // SAFETY: a TLB fence scoped to one ASID; no memory or register side effects.
+    unsafe {
+        core::arch::asm!("sfence.vma x0, {0}", in(reg) raw, options(nostack, preserves_flags));
+    }
+}
+
+#[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+pub(crate) fn fence_asid(_asid: crate::types::Asid) {}
 
 /// Phase A of an unmap: validate `(va, len)` and clear its PTEs. The region
 /// STAYS recorded — its va must not become reusable before the TLB

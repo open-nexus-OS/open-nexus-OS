@@ -182,6 +182,13 @@ pub fn start_secondary_harts() -> usize {
             let Some(stack_top) = secondary_stack_top(cpu) else {
                 continue;
             };
+            // RFC-0098: the tree says which harts the OS may use — a cpu node with
+            // `status = "disabled"` is never started (a deliberate single-hart boot on a
+            // board reads that way; QEMU's tree enables every hart it lists).
+            if !crate::hal::platform::hart_enabled(idx) {
+                log_info!(target: "smp", "KINIT: hart{} disabled by the tree — not started", idx);
+                continue;
+            }
 
             // Prepare the hart-local block BEFORE the hart can start executing:
             // hart_start is asynchronous, and the secondary's trap install
@@ -275,13 +282,16 @@ pub fn retry_missing_harts(expected_mask: usize) {
 /// online. Iteration budgets are meaningless across icount/MTTCG — 2M
 /// spin_loops are microseconds under MTTCG, which flakily timed out hart 3
 /// on SMP=4 bring-up.
-/// Poll interval while waiting for a hart, in mtime ticks (10 MHz ⇒ 1 ms).
-/// Short enough that bring-up latency is unaffected, long enough that the
-/// emulator gets a real slice to run the hart we are waiting for.
+/// Poll interval while waiting for a hart: 1 ms of the platform's timebase
+/// (was the literal `10_000` ticks — 1 ms only at QEMU's 10 MHz). Short enough
+/// that bring-up latency is unaffected, long enough that the emulator gets a
+/// real slice to run the hart we are waiting for.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-const ONLINE_POLL_TICKS: u64 = 10_000;
+fn online_poll_ticks() -> u64 {
+    crate::hal::platform::ns_to_ticks(1_000_000)
+}
 
-/// Parks this hart for ~[`ONLINE_POLL_TICKS`] instead of spinning.
+/// Parks this hart for ~[`online_poll_ticks`] instead of spinning.
 ///
 /// TASK-0306. The old loop called `spin_loop()`, which under TCG burns the
 /// boot hart's entire scheduler quantum — starving the very vCPU it is
@@ -300,8 +310,8 @@ const ONLINE_POLL_TICKS: u64 = 10_000;
 /// secondary park loop relies on).
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn park_until_poll() {
-    let next = (riscv::register::time::read() as u64).saturating_add(ONLINE_POLL_TICKS);
-    sbi::set_timer(next);
+    let next = (riscv::register::time::read() as u64).saturating_add(online_poll_ticks());
+    crate::hal::platform::arm_timer_ticks(next);
     // SAFETY: enables the timer bit in `sie` and executes WFI with
     // `sstatus.SIE` clear (the caller cleared it for the whole wait). The
     // pending timer releases WFI without being taken as a trap.
@@ -314,8 +324,10 @@ fn park_until_poll() {
 pub fn wait_for_online_mask(expected_mask: usize, budget_ns: u64) -> bool {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        // QEMU virt mtime runs at 10 MHz (100ns/tick).
-        let deadline = (riscv::register::time::read() as u64).saturating_add(budget_ns / 100);
+        // The budget in the platform's ticks (was `budget_ns / 100`: QEMU's 10 MHz only —
+        // on a 24 MHz board that cut every wait to 42 %).
+        let deadline = (riscv::register::time::read() as u64)
+            .saturating_add(crate::hal::platform::ns_to_ticks(budget_ns));
         // Keep traps masked for the whole wait: we want the timer as a WFI
         // wake source only, never as a trap into a scheduler that does not
         // exist yet. Restored before returning.
@@ -340,7 +352,7 @@ pub fn wait_for_online_mask(expected_mask: usize, budget_ns: u64) -> bool {
             park_until_poll();
         };
         // Disarm: leave no stale compare behind for the real scheduler timer.
-        sbi::set_timer(u64::MAX);
+        crate::hal::platform::arm_timer_ticks(u64::MAX);
         if sie_was_set {
             // SAFETY: restoring the caller's interrupt-enable state.
             unsafe {

@@ -72,6 +72,9 @@ fn panic(info: &PanicInfo) -> ! {
         });
     }
 
+    // TASK-0260B P3: on a board the LED flickers until reset — a panic reads differently from
+    // a stop; without a LED this returns and the hart parks as before.
+    crate::hal::boot_led::fatal();
     loop {
         crate::arch::riscv::wait_for_interrupt();
     }
