@@ -75,9 +75,9 @@ pub(crate) use sched_task::selftest_sched_op;
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_AS_SELF,
-    SYSCALL_BOOT_DISPLAY_MODE, SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER,
-    SYSCALL_CAP_TRANSFER_TO, SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE,
-    SYSCALL_EXEC, SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_CALL_V1, SYSCALL_IPC_ENDPOINT_CREATE,
+    SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO,
+    SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC,
+    SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_CALL_V1, SYSCALL_IPC_ENDPOINT_CREATE,
     SYSCALL_IPC_RECV_V1, SYSCALL_IPC_REPLY_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MMIO_MAP_AUTO,
     SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND, SYSCALL_SPAWN,
     SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL,
@@ -396,7 +396,6 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_DEBUG_WRITE, sys_debug_write);
     table.register(SYSCALL_BOOT_MODE, sys_boot_mode);
     table.register(crate::syscall::SYSCALL_SYSTEM_RESET, sys_system_reset);
-    table.register(SYSCALL_BOOT_DISPLAY_MODE, sys_boot_display_mode);
     table.register(crate::syscall::SYSCALL_BOOT_HANDOFF, sys_boot_handoff);
     // RFC-0068: fold this per-process syscall-table install echo into the `syscalls` verdict
     // (NEXUS_LOG_EXPAND=syscalls to see them raw). One tally per install event.
@@ -534,12 +533,6 @@ fn sys_boot_handoff(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
         core::ptr::copy_nonoverlapping(raw.as_ptr(), ptr as *mut u8, raw.len());
     }
     Ok(raw.len())
-}
-
-/// `SYSCALL_BOOT_DISPLAY_MODE` (50): the display mode requested in `/chosen` packed as
-/// `w | (h << 16)`, or 0 when unknown/absent (RFC-0074 / ADR-0050). Read-only, no capability.
-fn sys_boot_display_mode(_ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
-    Ok(crate::boot_mode::display_mode() as usize)
 }
 
 /// Atomic debug slice write. Emits the whole user byte slice under the UART lock in one

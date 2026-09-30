@@ -52,6 +52,7 @@
 // RFC-0067 P5-Final G3: CPU glass blur (`backdrop`) deleted — GPU-rendered.
 mod damage;
 mod filter;
+mod framebuffer_grant;
 #[cfg(nexus_env = "os")]
 mod loop_telemetry;
 pub(crate) mod material_glass;
@@ -74,11 +75,10 @@ extern crate alloc;
 use core::fmt::Write as _;
 
 use input_live_protocol::{
-    decode_update_visible_state, encode_status, encode_visible_state_frame, frame_has_op,
-    OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE, STATUS_MALFORMED, STATUS_UNSUPPORTED,
+    decode_update_visible_state, encode_display_space, encode_status, encode_visible_state_frame,
+    frame_has_op, OP_GET_DISPLAY_SPACE, OP_GET_VISIBLE_STATE, OP_UPDATE_VISIBLE_STATE,
+    STATUS_MALFORMED, STATUS_UNSUPPORTED,
 };
-#[cfg(nexus_env = "os")]
-use nexus_abi::vmo_create;
 use nexus_abi::{debug_println, debug_trace, nsec};
 use nexus_display_proto::layout;
 use nexus_ipc::{IpcError, KernelServer, Wait};
@@ -87,19 +87,14 @@ use crate::markers::{ready_marker, WALLPAPER_FAIL};
 
 use crate::telemetry::WindowdDisplayTelemetryReport;
 
-// Phase 6c: control-plane / data-plane separation.
-// Data plane: all pixel data lives in shared VMOs, rendered by gpud.
-//   VMO layout (16MB, 1280x3200, 4-plane):
-//     Plane 0: rows    0.. 799 — wallpaper source  (offset 0x000000)
-//     Plane 1: rows  800..1599 — retained scene    (offset 0x3E8000)
-//     Plane 2: rows 1600..2399 — frame ring slot A  (offset 0x7D0000)
-//     Plane 3: rows 2400..3199 — frame ring slot B  (offset 0xBB8000)
+// Phase 6c: control-plane / data-plane separation. All pixel data lives in the shared
+// framebuffer — gpud's, granted to windowd (RFC-0098 C7) — laid out by
+// `nexus_display_proto::layout`: plane 0 the wallpaper source, plane 1 the retained scene,
+// plane 2 the display plane (frame ring slot A), plane 3 slot B (the blur cache), then the atlas.
 /// The shared-VMO layout maximum — the resource budget, not a default mode. One home:
 /// `nexus_display_proto::LAYOUT_MAX` (TASK-0324 P6-a; it lived three times before).
 pub(crate) const DISPLAY_WIDTH: u32 = nexus_display_proto::LAYOUT_MAX.0;
 pub(crate) const DISPLAY_HEIGHT: u32 = nexus_display_proto::LAYOUT_MAX.1;
-// Four display planes + the surface atlas (`nexus_display_proto::layout`'s rows, shared with gpud).
-pub(crate) const RESOURCE_HEIGHT: u32 = crate::atlas::RESOURCE_HEIGHT;
 // Byte twins of the live *_ROW_OFFSET values below — documented plane-layout
 // contract (RFC-0067 retained-plane); kept for the layout math even where only
 // the row form is consumed today.
@@ -239,7 +234,23 @@ fn dispatch_client_frame(
         runtime.handle_settings_event(frame);
         return;
     }
-    if frame_has_op(frame, OP_GET_VISIBLE_STATE) {
+    if frame_has_op(frame, OP_GET_DISPLAY_SPACE) {
+        // RFC-0098 C7: inputd's one ask — answered on the reply inbox it moved, never on the
+        // shared response endpoint (several services read that one).
+        let (w, h) = runtime.visible_mode();
+        match moved_cap.take() {
+            Some(reply) => reply_route::answer(
+                server,
+                Some(reply),
+                &encode_display_space(w, h),
+                false,
+                OP_GET_DISPLAY_SPACE,
+            ),
+            None => {
+                let _ = debug_println("windowd: FAIL display space ask without a reply inbox");
+            }
+        }
+    } else if frame_has_op(frame, OP_GET_VISIBLE_STATE) {
         let response = encode_visible_state_frame(runtime.visible_state());
         reply_route::answer(server, moved_cap.take(), &response, false, OP_GET_VISIBLE_STATE);
     } else if frame_has_op(frame, OP_UPDATE_VISIBLE_STATE) {
@@ -368,25 +379,6 @@ fn dispatch_client_frame(
     }
 }
 
-/// The VISIBLE display mode from the ONE source (RFC-0093 §5): the fw_cfg mode the kernel
-/// derived, clamped to the shared-VMO layout maximum by the one shared policy. An
-/// unconfigured boot is NAMED rather than silently defaulted — but it still sizes, because a
-/// compositor that refuses to pick a mode is a black screen (ADR-0041).
-fn resolve_boot_display_mode() -> (u32, u32) {
-    #[cfg(nexus_env = "os")]
-    {
-        let configured = nexus_abi::boot_display_mode();
-        if configured.is_none() {
-            let _ = nexus_abi::debug_write(b"windowd: FAIL display mode unconfigured\n");
-        }
-        nexus_display_proto::resolve_display_mode(configured, None, nexus_display_proto::LAYOUT_MAX)
-    }
-    #[cfg(not(nexus_env = "os"))]
-    {
-        nexus_display_proto::LAYOUT_MAX
-    }
-}
-
 pub fn service_main_loop() -> Result<(), &'static str> {
     // Verdict folding: fold windowd's scattered `debug_println` bring-up markers (route/shell/
     // wallpaper/handoff/present…) into one `windowd N/N` grid line in interactive boots. Flushed
@@ -400,11 +392,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         nexus_service_topology::slots::windowd::SERVER.send,
     )
     .map_err(|_| "windowd: init fail kernel-server")?;
-    // RFC-0093 §5: the mode has ONE source — the fw_cfg mode the kernel derived. windowd has
-    // no device to ask and no longer asks gpud: that round-trip fell back to 1280×800 on EVERY
-    // failure path (no slots, send fail, timeout, no reply), which is how a wrong mode could
-    // latch for a whole session without anyone noticing.
-    let (visible_w, visible_h) = resolve_boot_display_mode();
+    // RFC-0098 C7: the mode and the framebuffer are gpud's — asked once, before the compositor
+    // exists, because the compositor is built at the granted mode. No default stands in: a
+    // stack without gpud is named (`windowd: display none (…)`) and runs display-less.
+    let grant = framebuffer_grant::request();
+    let (visible_w, visible_h) = grant.mode;
     let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
         Ok(rt) => {
             let _ = nexus_service_entry::ready(&ready_marker(visible_w, visible_h));
@@ -417,23 +409,13 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         }
     };
 
-    // GPU-only architecture: windowd is the sole display owner and creates its own
-    // framebuffer VMO (no fbdevd, no ramfb, no handoff). gpud scans it out on demand,
-    // handing the device the object's runs (RFC-0098 C4): an anonymous object.
-    #[cfg(nexus_env = "os")]
-    {
+    // The granted framebuffer: the wallpaper into plane 0, the first frame, then the attach —
+    // gpud scans it out. Display-less (no grant): nothing to write, nothing to attach.
+    if let Some(handle) = grant.framebuffer {
         let _ = debug_println("windowd: backend=gpu");
-        let byte_len: usize = (DISPLAY_WIDTH as usize) * (RESOURCE_HEIGHT as usize) * 4;
-        if let Ok(handle) = vmo_create(byte_len) {
-            let _ = debug_println("windowd: fb vmo create ok");
-            runtime.register_framebuffer_vmo(handle);
-            // Write source frame (wallpaper) to VMO Plane 0 once.
-            // Control-plane -> data-plane: 4MB wallpaper moves from heap to shared VMO.
-            let _ = runtime.write_source_frame_to_vmo();
-            let _ = runtime.process_deferred_framebuffer_write();
-        } else {
-            let _ = debug_println("windowd: ERROR fb vmo create failed");
-        }
+        runtime.register_framebuffer_vmo(handle);
+        let _ = runtime.write_source_frame_to_vmo();
+        let _ = runtime.process_deferred_framebuffer_write();
     }
 
     let mut recv_frame = [0u8; 512];

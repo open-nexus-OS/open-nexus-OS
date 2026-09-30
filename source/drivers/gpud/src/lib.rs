@@ -63,6 +63,9 @@ pub mod cpu_vector;
 /// gpud's frame clock (TASK-0324 P7-d): the one-shot timer pacing the self-presented phases.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod frame_clock;
+/// The framebuffer grant and the attach that follows it (RFC-0098 C7, RFC-0093 §5).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod framebuffer_grant;
 /// Reply encoding for the request loop (RFC-0093 §5).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod reply;

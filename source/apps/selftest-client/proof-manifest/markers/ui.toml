@@ -6,10 +6,34 @@
 # STATUS: In Progress (GPU-only migration)
 # API_STABILITY: Stable literals once TASK-0062 Phase 6 closes
 #
-# Architecture: GPU-only path. windowd is the sole display owner — it creates the
-# framebuffer VMO and sends it to gpud via OP_SET_FRAMEBUFFER_VMO. gpud provides
-# scanout (ATTACH_BACKING + SET_SCANOUT) on demand. No fbdevd, no ramfb, no
-# handoff from another service — one owner, one path.
+# Architecture: GPU-only path. Since RFC-0098 C7 (TASK-0251 P1) the display mode and the
+# framebuffer are gpud's: gpud decides the mode (the lane's request from the tree, the
+# device's capability, one policy), makes the framebuffer for its device and grants both to
+# windowd (OP_FRAMEBUFFER_REQUEST); windowd composes into it and attaches
+# (OP_SET_FRAMEBUFFER_VMO, no cap); inputd asks windowd once for the space. One owner per
+# thing, one path.
+
+# RFC-0098 C7: the display-mode chain. `scripts/qemu-test.sh` REQUIRES all four with the
+# lane's mode in every display lane.
+[marker."gpud: display mode "]
+phase = "bringup"
+proves = "gpud decided the visible mode at probe and names the candidate it took (request / device / maximum)"
+
+[marker."gpud: framebuffer granted ("]
+phase = "bringup"
+proves = "gpud made the shared framebuffer for its device and granted it to windowd with the mode"
+
+[marker."windowd: display mode from gpud ("]
+phase = "bringup"
+proves = "windowd built its compositor at the mode gpud granted, on the framebuffer gpud owns"
+
+[marker."inputd: display space from windowd ("]
+phase = "bringup"
+proves = "inputd asked windowd once for its hit-test space (gpud's mode) over its declared reply inbox"
+
+[marker."windowd: display none ("]
+phase = "bringup"
+proves = "no gpud answered (no display device, e.g. the board before its controller driver): windowd runs display-less at the layout maximum and says so"
 
 [marker."windowd: ready (w=1280, h=800, hz=120)"]
 phase = "end"

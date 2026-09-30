@@ -37,7 +37,10 @@
   QEMU: the timer re-armed through SBI while armed through `stimecmp`; `MAX_IRQ` as virt's 95;
   device blocks starting inside a page refused; no `sfence.vma` after a PTE change. Every
   bound now comes from the tree (`plic_ndev`, the timebase, the harts, the device windows).
-- **Phase 5 (display controller scanout, mode authority = gpud)**: ⬜ — TASK-0250, 0251
+- **Phase 5 (display controller scanout, mode authority = gpud)**: 🟨 — mode authority ✅
+  2026-09-30 (TASK-0251 P1, C7): gpud decides the mode from the lane's request in the tree and
+  the device's capability, owns the framebuffer and grants both to windowd; syscall 50 is
+  deleted. The controller's scanout on the board: TASK-0251 P2/P3 (host half TASK-0250 P1/P2 ✅).
 
 Definition: "Complete" = every phase's proof gates are green on QEMU **and** on the board
 lane (`TASK-0327B`); the last QEMU-only literal is gone from the tree.
@@ -124,9 +127,9 @@ nxboot writes (in-place, with headroom reserved at FIT build time):
 | `nexus,boot-disk` | the medium the boot volume was read from: a node path, or `<ECAM host path>/mmc@<dev>,<func>` for an SD host behind PCI (C5) | nxboot (the transport it read) | nxboot |
 | `nexus,trace` | the boot trace's slot this boot writes: `"<slot's first LBA on the boot disk> <seq>"` (RFC-0107); absent when the disk has no `trace` partition | nxboot | nxboot |
 
-The kernel's syscalls 45 (`BOOT_MODE`) and 50 (`BOOT_DISPLAY_MODE`) read `/chosen`; every
-fw_cfg read in the kernel is deleted (Phase 1). 50 is deleted in Phase 5 when gpud owns the
-mode. Init and services read the FDT through a read-only VMO the kernel exposes (init: the
+The kernel's syscall 45 (`BOOT_MODE`) reads `/chosen`; every fw_cfg read in the kernel is
+deleted (Phase 1). Syscall 50, the kernel's relay of the display-mode request, is deleted
+(2026-09-30, C7): gpud reads the request from its own tree slot. Init and services read the FDT through a read-only VMO the kernel exposes (init: the
 `VmoRo` alias the kernel injects at `nexus_abi::INIT_DEVICE_TREE_SLOT`; services: the same alias
 pinned into their declared `NamedSlot::DeviceTree`), never through a syscall per value. Since
 TASK-0245 P4 the harness reads its boot mode/profile there and init discovers virtio transports
@@ -439,8 +442,29 @@ the stock system: done on the desk board, every region exact.
 gpud is the authority: on the board it reads EDID over the HDMI encoder's DDC and picks the
 highest mode the controller supports (1920×1080@60 on this SoC); on QEMU it uses
 `ctrl_query_display_info`. windowd asks gpud (the existing handshake, RFC-0093); syscall 50
-and the fw_cfg key are deleted; RFC-0074's authority statement is amended to point here.
+is deleted; RFC-0074's authority statement is amended to point here.
 `/chosen/nexus,display-mode` remains a request a lane can make on QEMU.
+
+**Amended 2026-09-30 (TASK-0251 P1 — built, QEMU-proven):**
+
+- **The request.** It travels launcher → fw_cfg (`opt/org.open-nexus/display-mode`, read by
+  nxboot only — the key stays, it is the lane's transport) → `/chosen/nexus,display-mode` →
+  gpud, which holds its own read-only tree slot (`NamedSlot::DeviceTree`,
+  `slots::gpud::DEVICE_TREE`) and parses it with `nexus_display_proto::parse_display_request`.
+  Nobody else reads it; the kernel holds no display policy.
+- **The decision.** `resolve_display_mode_sourced(request, device, LAYOUT_MAX)`: the request
+  wins (race-free — a QEMU window may report its unrealized default), else the device's
+  capability, else the layout maximum; gpud names it: `gpud: display mode WxH (request|device|
+  maximum)`.
+- **The memory.** The shared framebuffer is gpud's: made at the first grant FOR its device
+  (`vmo_create_for`; the display controller takes the contiguous kind with its driver), kept
+  for gpud's lifetime. windowd receives the mode and a clone of the object in ONE answer
+  (RFC-0093 §5 as amended: `OP_FRAMEBUFFER_REQUEST`), builds its compositor at that mode and
+  attaches without a cap. windowd allocates no framebuffer (`check-display-ssot.sh` rule 7).
+- **The pointer space.** inputd asks windowd once (`OP_GET_DISPLAY_SPACE`) over its declared
+  reply inbox — windowd's hit-test space is gpud's mode.
+- **No display.** A stack without gpud (no display device: the board until TASK-0251 P2)
+  is named — `windowd: display none (…)` — and runs display-less at the layout maximum.
 
 ### C8 — Proof markers (contracts; registered in the proof manifest)
 

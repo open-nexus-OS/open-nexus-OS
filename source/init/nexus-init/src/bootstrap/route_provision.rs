@@ -170,6 +170,31 @@ pub(crate) fn provision_inputd_imed_route(pid: u32, eps: &Endpoints, chan: &mut 
     }
 }
 
+/// inputd's declared reply inbox (RFC-0098 C7): windowd answers inputd's ONE display-space
+/// call there — never on windowd's shared response endpoint, which several services read.
+/// inputd is priority-wired, so the generic declared-legs arm that mints inboxes never runs for
+/// it; this is that arm's inbox step, pinned where `slots::inputd::REPLY` declares it.
+pub(crate) fn provision_inputd_reply_inbox(pid: u32, chan: &mut CtrlChannel) {
+    let factory = crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT;
+    let Ok(reply_ep) = nexus_abi::ipc_endpoint_create_for(factory, pid, 8) else {
+        debug_write_bytes(b"init: inputd reply inbox FAIL (create)\n");
+        return;
+    };
+    let pinned =
+        crate::bootstrap::declared_slots::pin_reply_inbox(pid, ServiceId::Inputd, reply_ep);
+    let _ = nexus_abi::cap_close(reply_ep);
+    match pinned {
+        Some(inbox) => {
+            chan.reply_recv_slot = Some(inbox.recv);
+            chan.reply_send_slot = Some(inbox.send);
+            if crate::bootstrap::diag::raw_or_expanded("inputd") {
+                debug_write_bytes(b"init: inputd reply inbox ok\n");
+            }
+        }
+        None => debug_write_bytes(b"init: inputd reply inbox FAIL (pin)\n"),
+    }
+}
+
 /// Provisions windowd's launch route (TASK-0080D): SEND on abilitymgr's
 /// pre-minted request endpoint + RECV on its response endpoint, so the Apps
 /// menu's `OP_LAUNCH` reaches the lifecycle broker and the status reply

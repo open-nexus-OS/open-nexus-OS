@@ -46,11 +46,13 @@ contains the required evidence.
   - **Effects** (`nexus-effects`): `blur_1d` used for backdrop + shadow blur in
     compositor; separable blur, 9-slice shadow, dual-kawase blur available.
 
-  Writes composed rows into its own framebuffer VMO (created via `vmo_create`) and
-  hands it off to `gpud` for zero-copy GPU scanout via `OP_SET_FRAMEBUFFER_VMO`.
-- `gpud` is a pure driver: probes virtio-gpu MMIO, accepts a framebuffer VMO from
-  `windowd`, performs `ATTACH_BACKING` + `SET_SCANOUT`, and provides hardware cursor
-  support. It does not own scene composition or a second cursor truth.
+  Writes composed rows into the framebuffer `gpud` GRANTED it (RFC-0098 C7: asked once at
+  start with `OP_FRAMEBUFFER_REQUEST`, answered with the mode and a clone of the object) and
+  attaches it (`OP_SET_FRAMEBUFFER_VMO`, no capability) for zero-copy GPU scanout.
+- `gpud` is the display driver and the display-mode authority: probes the device, decides
+  the visible mode (the lane's request from its own tree slot, the device's capability, one
+  policy), makes the framebuffer FOR its device and grants it, performs `ATTACH_BACKING` +
+  `SET_SCANOUT`. It does not own scene composition or a second cursor truth.
 - `init-lite` owns capability routing and endpoint rights.
 
 ## GPU-only Display Architecture (RFC-0059 Phase 6)
@@ -58,11 +60,12 @@ contains the required evidence.
 The display path follows a one-owner/one-path compositor pattern:
 
 ```
-windowd (sole display owner)
+windowd (scene + present authority)
   │
-  ├── vmo_create(1280×800×4)
-  ├── compose frames
-  ├── OP_SET_FRAMEBUFFER_VMO → gpud
+  ├── OP_FRAMEBUFFER_REQUEST → gpud ─ grant: mode + framebuffer (gpud's)
+  ├── compose frames into the granted framebuffer
+  ├── OP_SET_FRAMEBUFFER_VMO → gpud (attach, no cap)
+  ├── OP_GET_DISPLAY_SPACE ← inputd (once, over inputd's reply inbox)
   └── OP_UPDATE_VISIBLE_STATE ← inputd
         │
         ▼
@@ -75,8 +78,10 @@ windowd (sole display owner)
 └──────────────────┘
 ```
 
-No fbdevd, no ramfb, no handoff from another service — `windowd` creates its
-own framebuffer VMO and `gpud` provides scanout on demand.
+No fbdevd, no ramfb — one owner per thing: `gpud` owns the mode and the scanout memory
+(made for the scanout device, which only its holder can do), `windowd` owns the scene and
+every present. A stack without `gpud` is named (`windowd: display none (…)`) and runs
+display-less at the layout maximum.
 
 ## Input Fast-Path
 

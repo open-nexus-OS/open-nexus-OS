@@ -2,6 +2,13 @@
 
 ## Status
 
+**Superseded in part (2026-09-30, RFC-0098 C7, TASK-0251 P1):** the ONE source is now gpud, not a
+kernel relay — gpud reads the lane's request from its own read-only tree slot, applies the one
+policy (`nexus_display_proto::resolve_display_mode`) and grants the mode together with the
+framebuffer it owns (RFC-0093 §5 v3); windowd builds on the grant, inputd asks windowd once;
+syscall 50 and its ABI wrapper are deleted (`check-retired-names.sh`). The decision below — the
+request wins over a device report, one policy, no polled queries — stands.
+
 Accepted and implemented (2026-09-13, TASK-0324 P6-a): the mode has ONE source
 (`nexus_abi::boot_display_mode()`, fw_cfg SSOT per RFC-0074) clamped by one policy in
 `nexus-display-proto`; gpud, windowd and inputd read it, the query protocols

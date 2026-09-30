@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-30 (TASK-0251 P1, TASK-0250 P1/P2: the display mode and the framebuffer are gpud's; the board display controller's host half)
+
+- **gpud is the display-mode authority (RFC-0098 C7).** It reads the lane's request
+  (`/chosen/nexus,display-mode`) from its own read-only tree slot, takes the device's
+  capability and applies the one policy (`resolve_display_mode_sourced`), naming the candidate
+  it took (`gpud: display mode WxH (request|device|maximum)`). The kernel's relay of the request
+  (syscall 50) and its `nexus_abi` wrapper are deleted — the kernel holds no display policy.
+- **gpud owns the framebuffer.** It makes the shared resource at the first grant FOR its device
+  and grants mode + a clone in ONE answer (`OP_FRAMEBUFFER_REQUEST` → `FramebufferGrant`,
+  RFC-0093 §5 v3). windowd asks once before its compositor exists, builds at the granted mode,
+  and attaches without a cap (an attach carrying one is refused); windowd allocates no
+  framebuffer any more, and the dead cap-moving legacy handoff is deleted. A stack without gpud
+  is named — `windowd: display none (…)` — and runs display-less at the layout maximum (the
+  board until its display controller's driver).
+- **inputd asks windowd once** for the space windowd hit-tests in (`OP_GET_DISPLAY_SPACE`, a
+  new declared reply inbox `slots::inputd::REPLY` — windowd's shared response endpoint has
+  several readers); no retry, no default.
+- Gates: the relay's names in `check-retired-names.sh`; `check-display-ssot.sh` rule 7 (windowd
+  allocates no VMO); `qemu-test.sh` REQUIRES the chain (`gpud: display mode … (request)`, `gpud:
+  framebuffer granted`, `windowd: display mode from gpud`, `inputd: display space from
+  windowd`) with the lane's mode in every display lane.
+- **The board display controller's host half** (`nexus_gfx::backend::dc`): a bounded EDID 1.4 +
+  CEA-861 parser and `pick_mode` (the largest progressive mode within the SoC's maximum at the
+  monitor's aspect — the reference monitor gives 1920x1080@60 from its own detailed timing, never
+  a stretched mode), the controller's register map as measured on 2026-09-29, and the
+  bring-up/plane/flush model over a register writer whose 1080p60 sequence reproduces the live
+  dump's words exactly (`tests/dc_goldens.rs`). The scanout-policy arm for the controller moves
+  to TASK-0251 P2, where its consumer lands (an unconstructed variant would break the warning
+  gate).
+
 ### Changed - 2026-09-30 (M-L: the display layout at the board's mode, 1920x1080, from ONE source)
 
 - **`nexus_display_proto::layout`** is the one home of the shared framebuffer resource's layout:

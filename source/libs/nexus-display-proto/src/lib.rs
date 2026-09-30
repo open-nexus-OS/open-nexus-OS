@@ -16,9 +16,10 @@
 //! opcode-specific payload. The **hot per-frame stream** ([`OP_PRESENT_DAMAGE`] /
 //! [`OP_SUBMIT_ANIMATION_FRAME`]) carries a serialized `nexus_gfx::CommittedBuffer`
 //! after the opcode byte — that codec is the SSOT for the command payload and is
-//! NOT re-encoded here. This crate owns only the thin control frames (attach,
-//! legacy damage rect, cursor) and the shared constants. Bulk pixel data never
-//! crosses IPC; it lives in the shared framebuffer VMO (capability move).
+//! NOT re-encoded here. This crate owns only the thin control frames (the framebuffer
+//! grant, attach, legacy damage rect, cursor) and the shared constants. Bulk pixel data
+//! never crosses IPC; it lives in the shared framebuffer VMO — gpud's, granted to windowd
+//! by capability move ([`grant`]).
 //!
 //! Why hand-rolled and not Cap'n Proto: the control frames are tiny, fixed, and
 //! on the boot/handoff + per-frame paths; Cap'n Proto's segment/pointer framing
@@ -34,7 +35,13 @@
 pub mod client_surface;
 pub mod control;
 pub mod envelope;
+/// The framebuffer grant — the display mode and the scanout memory are gpud's (RFC-0098 C7).
+pub mod grant;
 pub mod layout;
+pub use grant::{
+    decode_framebuffer_grant, encode_framebuffer_grant, encode_framebuffer_request,
+    parse_display_request, FramebufferGrant, FRAMEBUFFER_GRANT_LEN, OP_FRAMEBUFFER_REQUEST,
+};
 pub mod surface_settings;
 pub mod surface_text;
 pub mod surface_windows;
@@ -46,7 +53,9 @@ pub use surface_windows::{OP_SURFACE_TASKBAR, OP_SURFACE_WINDOWS};
 pub const OP_SUBMIT_ANIMATION_FRAME: u8 = 1;
 /// Move the hardware cursor (deprecated; cursor composites via BlendCursor).
 pub const OP_MOVE_CURSOR: u8 = 2;
-/// Attach the shared framebuffer VMO (capability moved in the IPC cap slot).
+/// Attach: the framebuffer gpud GRANTED ([`OP_FRAMEBUFFER_REQUEST`]) now holds windowd's first
+/// frame — scan it out. `[op, handoff_id: u32 le]`; no capability moves: since RFC-0098 C7 the
+/// framebuffer is gpud's, and an attach that carries a cap is refused.
 pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
 /// Present with damage: opcode + serialized `CommittedBuffer` (preferred) or the
 /// legacy fixed 17-byte rect frame ([`encode_damage_frame`]).
@@ -147,7 +156,7 @@ pub fn decode_set_layer_transform(frame: &[u8]) -> Option<(u32, i16, i16, u8, u1
 /// cycles pre-uploaded slots via the 2-byte SELECT — no per-frame upload).
 pub const CURSOR_SHAPE_SLOTS: usize = 16;
 
-// ── Display mode: ONE policy, ONE maximum (RFC-0074 / ADR-0050, RFC-0093 §5) ─
+// ── Display mode: ONE policy, ONE maximum, ONE authority (RFC-0098 C7, RFC-0093 §5) ─
 
 /// The fixed shared-VMO layout maximum — the RESOURCE BUDGET every display
 /// consumer sizes against, not a "default mode". It lived three times (windowd's
@@ -155,23 +164,58 @@ pub const CURSOR_SHAPE_SLOTS: usize = 16;
 /// [`layout`], together with every plane row and byte offset derived from it.
 pub use layout::LAYOUT_MAX;
 
-/// Resolve the VISIBLE display mode (RFC-0074 / ADR-0050).
+/// Resolve the VISIBLE display mode — gpud's decision, the one authority (RFC-0098 C7).
 ///
-/// Authority order: the fw_cfg-**configured** mode (`nexus_abi::boot_display_mode()`,
-/// kernel-derived and race-free) wins; else the device's advertised **capability**
-/// (gpud only — windowd and inputd pass `None`); else `layout_max`. Every candidate
-/// is validated non-zero and clamped, so a racy or malicious device report can never
-/// size the scanout degenerately.
+/// Order: the lane's **request** (`/chosen/nexus,display-mode`, read by gpud from its own
+/// tree slot, [`parse_display_request`]) wins — it is what the launcher asked for and it is
+/// race-free, where a QEMU window may transiently report its unrealized default; else the
+/// device's advertised **capability** (virtio display info on QEMU, the monitor's EDID on the
+/// board); else `layout_max`. Every candidate is validated non-zero and clamped, so a racy or
+/// malicious report can never size the scanout degenerately.
 ///
-/// This function used to live in gpud alone, which is why windowd and inputd each
-/// grew their OWN query protocol to ask someone else for the answer. Both protocols
-/// are retired (RFC-0093 §5): the mode has one source and one policy.
+/// gpud is the only caller: windowd receives the result with the framebuffer grant
+/// ([`OP_FRAMEBUFFER_REQUEST`]) and inputd asks windowd for it. The polled query protocols of
+/// before (RFC-0093 §5) stay retired, and so does the kernel's relay of the request.
 #[must_use]
 pub fn resolve_display_mode(
-    configured: Option<(u32, u32)>,
+    request: Option<(u32, u32)>,
     device: Option<(u32, u32)>,
     layout_max: (u32, u32),
 ) -> (u32, u32) {
+    resolve_display_mode_sourced(request, device, layout_max).0
+}
+
+/// Which candidate [`resolve_display_mode`] took — gpud names it in its decision marker
+/// (`gpud: display mode WxH (<source>)`), so a lane whose request never arrived is visible.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModeSource {
+    /// The lane's request (`/chosen/nexus,display-mode`).
+    Request,
+    /// The device's advertised capability.
+    Device,
+    /// Neither: the layout maximum.
+    LayoutMax,
+}
+
+impl ModeSource {
+    /// The marker word.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            ModeSource::Request => "request",
+            ModeSource::Device => "device",
+            ModeSource::LayoutMax => "maximum",
+        }
+    }
+}
+
+/// [`resolve_display_mode`] with the candidate it took — the one implementation of the policy.
+#[must_use]
+pub fn resolve_display_mode_sourced(
+    request: Option<(u32, u32)>,
+    device: Option<(u32, u32)>,
+    layout_max: (u32, u32),
+) -> ((u32, u32), ModeSource) {
     let sane = |wh: Option<(u32, u32)>| -> Option<(u32, u32)> {
         wh.and_then(|(w, h)| {
             if w == 0 || h == 0 {
@@ -181,7 +225,11 @@ pub fn resolve_display_mode(
             }
         })
     };
-    sane(configured).or_else(|| sane(device)).unwrap_or(layout_max)
+    match (sane(request), sane(device)) {
+        (Some(mode), _) => (mode, ModeSource::Request),
+        (None, Some(mode)) => (mode, ModeSource::Device),
+        (None, None) => (layout_max, ModeSource::LayoutMax),
+    }
 }
 
 // ── Status codes (reply byte 0) ──────────────────────────────────────────────
@@ -303,8 +351,8 @@ pub const fn is_cursor_reply_magic(payload: u32) -> bool {
 }
 
 /// Attach ack v2 (RFC-0093 §5): what gpud commands onto the scanout for this
-/// handoff. `mode` is the VISIBLE mode; windowd cross-checks it against the ONE
-/// mode source (`boot_display_mode`, P6-a) — the ack is evidence, not the source.
+/// handoff. `mode` is the VISIBLE mode; windowd cross-checks it against the mode
+/// gpud granted with the framebuffer — the ack is evidence, not the source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AttachAck {
     pub status: u8,
@@ -455,9 +503,9 @@ mod tests {
         assert!(!is_cursor_reply_magic(u32::MAX));
     }
     #[test]
-    fn configured_wins_over_device() {
+    fn request_wins_over_device() {
         // The GTK race makes the device report the tiny window default; the
-        // fw_cfg-configured mode is authoritative and must win.
+        // lane's request is race-free and must win.
         assert_eq!(
             resolve_display_mode(Some((1280, 800)), Some((640, 507)), LAYOUT_MAX),
             (1280, 800)
@@ -465,7 +513,7 @@ mod tests {
     }
 
     #[test]
-    fn follows_configured_smaller_mode() {
+    fn follows_a_smaller_request() {
         assert_eq!(
             resolve_display_mode(Some((1024, 768)), Some((640, 507)), LAYOUT_MAX),
             (1024, 768)
@@ -473,13 +521,24 @@ mod tests {
     }
 
     #[test]
-    fn device_capability_used_when_unconfigured() {
+    fn device_capability_used_without_a_request() {
         assert_eq!(resolve_display_mode(None, Some((1024, 768)), LAYOUT_MAX), (1024, 768));
     }
 
     #[test]
     fn falls_back_to_layout_max() {
         assert_eq!(resolve_display_mode(None, None, LAYOUT_MAX), LAYOUT_MAX);
+    }
+
+    /// The source names the candidate the policy took — including a degenerate request that
+    /// fell through to the device (the marker must not claim "request" then).
+    #[test]
+    fn the_source_names_the_candidate_taken() {
+        let r = |req, dev| resolve_display_mode_sourced(req, dev, LAYOUT_MAX);
+        assert_eq!(r(Some((1280, 800)), Some((640, 507))), ((1280, 800), ModeSource::Request));
+        assert_eq!(r(Some((0, 800)), Some((1024, 768))), ((1024, 768), ModeSource::Device));
+        assert_eq!(r(None, None), (LAYOUT_MAX, ModeSource::LayoutMax));
+        assert_eq!(ModeSource::LayoutMax.label(), "maximum");
     }
 
     #[test]

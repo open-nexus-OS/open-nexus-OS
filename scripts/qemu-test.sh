@@ -2476,6 +2476,26 @@ profile_has_display() {
   esac
 }
 
+# RFC-0098 C7 (TASK-0251 P1): the display mode is gpud's. Every display lane proves the chain
+# with the lane's own request — gpud decides from the request it read in the tree, grants the
+# mode with the framebuffer it owns, windowd builds on the grant, inputd asks windowd once.
+# A default standing in anywhere along it (a lost request, a display-less windowd, an inputd
+# that never asked) breaks the literal here.
+if profile_has_display; then
+  lane_mode="${QEMU_GPU_XRES:-1280}x${QEMU_GPU_YRES:-800}"
+  for m in \
+    "gpud: display mode ${lane_mode} (request)" \
+    "gpud: framebuffer granted (${lane_mode})" \
+    "windowd: display mode from gpud (${lane_mode})" \
+    "inputd: display space from windowd (${lane_mode})"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+      echo "[error] display-mode chain broken (RFC-0098 C7): gpud decides, windowd builds on the grant, inputd asks windowd" >&2
+      exit 1
+    fi
+  done
+fi
+
 # TASK-0055B fake-green guard (GPU-capable profiles): the guest marker summarizes a
 # configured GPU scanout and must not appear without mode/present/handoff prerequisites.
 # Only enforced for GPU-capable profiles (headless has no virtio-gpu device).

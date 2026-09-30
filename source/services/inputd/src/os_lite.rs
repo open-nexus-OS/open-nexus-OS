@@ -36,6 +36,7 @@ use crate::{
 
 // TASK-0324 P7-d: the waitset + pacing-timer side of the loop (child module: it reaches the
 // runtime's private state without widening any visibility).
+mod display_space;
 mod wait;
 use wait::{build_waitset, serve_request};
 
@@ -278,15 +279,8 @@ impl LiveRouteRuntime {
             last_windowd_push_ns: 0,
             chain: InputdChainTelemetry::new(),
         };
-        // RFC-0093 §5: the pointer display space comes from the ONE mode source, once, at
-        // startup. It used to be polled out of windowd (`OP_GET_VISIBLE_MODE`, up to 100
-        // attempts at 200 ms) with a 1280×800 fallback standing meanwhile — so early clicks
-        // could land in a different coordinate space than the one windowd hit-tests in.
-        let (w, h) = nexus_display_proto::resolve_display_mode(
-            nexus_abi::boot_display_mode(),
-            None,
-            nexus_display_proto::LAYOUT_MAX,
-        );
+        // RFC-0098 C7: the pointer space is windowd's hit-test space (gpud's mode), asked once.
+        let (w, h) = display_space::from_windowd();
         if runtime.input.set_display_space(w, h).is_err() {
             let _ = nexus_abi::debug_write(b"inputd: FAIL display space rejected\n");
         }

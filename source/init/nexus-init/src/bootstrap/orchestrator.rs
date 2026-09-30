@@ -656,16 +656,19 @@ where
         )?;
     }
 
-    {
-        let pinned = crate::bootstrap::declared_slots::pin_named(
-            selftest_pid,
-            ServiceId::SelftestClient,
-            crate::service_topology::NamedSlot::DeviceTree,
-            nexus_abi::INIT_DEVICE_TREE_SLOT,
-            Rights::MAP,
-        );
-        if pinned.is_some() && iw(&mut init_wire, init_fold, "init:selftest-client") {
-            debug_write_bytes(b"init: device tree grant ok svc=selftest-client\n");
+    // The tree, read-only: the harness reads its boot mode and profile there; gpud, the display-
+    // mode authority, the lane's display-mode request (RFC-0098 C7).
+    for (pid, svc, subject) in [
+        (selftest_pid, ServiceId::SelftestClient, "init:selftest-client"),
+        (gpud_pid, ServiceId::Gpud, "init:gpud"),
+    ] {
+        let (tree, slot) =
+            (crate::service_topology::NamedSlot::DeviceTree, nexus_abi::INIT_DEVICE_TREE_SLOT);
+        let pinned = crate::bootstrap::declared_slots::pin_named(pid, svc, tree, slot, Rights::MAP);
+        if pinned.is_some() && iw(&mut init_wire, init_fold, subject) {
+            let svc_name = subject.trim_start_matches("init:").as_bytes();
+            let line: [&[u8]; 2] = [b"init: device tree grant ok svc=", svc_name];
+            crate::bootstrap::diag::emit_marker_atomic(&line, None);
         }
     }
 

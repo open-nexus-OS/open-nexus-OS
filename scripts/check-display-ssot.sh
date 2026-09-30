@@ -2,15 +2,19 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# CONTEXT: Display-mode SSOT gate (TASK-0324 P6-a, RFC-0093 §5). The VISIBLE display
-# mode has ONE source — `nexus_abi::boot_display_mode()` (RFC-0074 / ADR-0050) — and ONE
-# policy, `nexus_display_proto::resolve_display_mode`, clamped to the ONE declared
-# `LAYOUT_MAX`. Before this, the policy lived in gpud alone, so windowd and inputd each
-# grew a PROTOCOL to ask someone else for the answer, each with a silent 1280x800 fallback
-# on every failure path. A wrong mode could latch for a whole session with nobody noticing.
+# CONTEXT: Display-mode SSOT gate (TASK-0324 P6-a, RFC-0093 §5, RFC-0098 C7). The VISIBLE
+# display mode has ONE authority — gpud, which reads the lane's request from its own tree slot,
+# applies ONE policy (`nexus_display_proto::resolve_display_mode`, clamped to the ONE declared
+# `LAYOUT_MAX`) and grants the mode together with the framebuffer it owns. Before, windowd and
+# inputd each grew a PROTOCOL to poll someone else for the answer, each with a silent 1280x800
+# fallback on every failure path — a wrong mode could latch for a whole session unnoticed.
 #
 # Rules (non-comment code only):
-#   1. The retired query protocols stay retired (windowd->gpud and inputd->windowd).
+#   1. The retired (polled) query protocols stay retired (windowd->gpud and inputd->windowd).
+#      The mode now travels gpud -> windowd in the framebuffer grant, and windowd -> inputd
+#      in ONE call over inputd's declared reply inbox — no retry, no default.
+#   7. The framebuffer is gpud's (RFC-0098 C7): windowd allocates no VMO — a scanout
+#      buffer must be made FOR the scanout device, and only gpud holds that capability.
 #   2. No mode-retry machinery in windowd/inputd — the mode is read, not polled.
 #   3. No `1280, 800` literal in windowd/inputd/gpud production code: the layout maximum
 #      is declared once in `nexus-display-proto`. Test fixtures are exempt (they assert
@@ -111,6 +115,19 @@ reveal_and_readback_rules() {
     return $bad
 }
 
+# Rule 7 runs against a ROOT (windowd's source, or the self-test fixtures).
+framebuffer_owner_rule() {
+    local root="$1" hits
+    hits=$(grep -rnE '\bvmo_create(_for|_contiguous)?[[:space:]]*\(' "$root" --include='*.rs' \
+        | grep -vE ':[0-9]+:[[:space:]]*//' || true)
+    if [ -n "$hits" ]; then
+        echo "[FAIL] display-ssot: windowd allocates a VMO — the framebuffer is gpud's (RFC-0098 C7):" >&2
+        printf '%s\n' "$hits" >&2
+        return 1
+    fi
+    return 0
+}
+
 if [ "${1:-}" = "--self-test" ]; then
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
@@ -148,17 +165,29 @@ FIX
         echo "[FAIL] display-ssot: reveal/readback rules reject a clean tree" >&2
         exit 1
     fi
-    echo "[ok]   display-ssot: scanner self-test passed (5 shapes caught, test block skipped, reveal/readback rules fail on fixtures)"
+    mkdir -p "$tmp/wbad" "$tmp/wgood"
+    printf 'fn fb() { let h = vmo_create(len); }\n' > "$tmp/wbad/mod.rs"
+    printf '// windowd no longer calls vmo_create( — the framebuffer is granted.\nfn fb(g: Grant) { use_it(g.framebuffer); }\n' > "$tmp/wgood/mod.rs"
+    if framebuffer_owner_rule "$tmp/wbad" 2>/dev/null; then
+        echo "[FAIL] display-ssot: the framebuffer-owner rule did not catch the fixture" >&2
+        exit 1
+    fi
+    if ! framebuffer_owner_rule "$tmp/wgood"; then
+        echo "[FAIL] display-ssot: the framebuffer-owner rule rejects a clean tree" >&2
+        exit 1
+    fi
+    echo "[ok]   display-ssot: scanner self-test passed (5 shapes caught, test block skipped, reveal/readback and framebuffer-owner rules fail on fixtures)"
     exit 0
 fi
 
 violations=$(scan "${PROD_PATHS[@]}" | grep . || true)
 if [ -n "$violations" ]; then
-    echo "[FAIL] display-ssot: the display mode has one source and one policy (RFC-0093 §5):" >&2
+    echo "[FAIL] display-ssot: the display mode has one authority and one policy (RFC-0098 C7):" >&2
     printf '%s\n' "$violations" >&2
-    echo "       read nexus_abi::boot_display_mode() and clamp with" >&2
-    echo "       nexus_display_proto::resolve_display_mode(.., LAYOUT_MAX)." >&2
+    echo "       gpud decides it (resolve_display_mode at probe) and grants it with the" >&2
+    echo "       framebuffer; inputd asks windowd once. Nobody polls, nobody defaults." >&2
     exit 1
 fi
 reveal_and_readback_rules source/drivers/gpud/src || exit 1
-echo "[PASS] display-ssot: one mode source, one clamp policy, no retired query protocol, no resurrected handoff heuristic, evidence-only reveal, probe-only readback"
+framebuffer_owner_rule source/services/windowd/src || exit 1
+echo "[PASS] display-ssot: one mode authority, one clamp policy, gpud owns the framebuffer, no retired query protocol, no resurrected handoff heuristic, evidence-only reveal, probe-only readback"

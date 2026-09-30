@@ -666,9 +666,9 @@ platform-literals:
 fixed-windows:
     @./scripts/check-no-fixed-windows.sh
 
-# TASK-0324 P6 (RFC-0093 §5): the VISIBLE display mode has one source
-# (`boot_display_mode`) and one clamp policy (`nexus_display_proto`); the retired
-# query protocols stay retired. See scripts/check-display-ssot.sh.
+# TASK-0324 P6 (RFC-0093 §5), RFC-0098 C7: the VISIBLE display mode has one authority
+# (gpud, which grants it with the framebuffer) and one clamp policy (`nexus_display_proto`);
+# the retired query protocols stay retired. See scripts/check-display-ssot.sh.
 display-ssot:
     @./scripts/check-display-ssot.sh
 

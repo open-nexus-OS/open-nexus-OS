@@ -43,6 +43,13 @@ gpud: chain G3c batch complete (drained)
 windowd: present visible ok
 display: first scanout ok
 systemui: first frame visible
+# RFC-0098 C7: the display-mode chain — gpud decides, grants the mode with the framebuffer it
+# owns, windowd builds on the grant, inputd asks windowd once. Prefixes: the lane's own mode is
+# checked by scripts/qemu-test.sh in the display lanes.
+gpud: display mode
+gpud: framebuffer granted (
+windowd: display mode from gpud (
+inputd: display space from windowd (
 
 # group: os2vm — 2-VM DSoftBus harness ladder (harness-emitted, not simulated)
 dsoftbusd: discovery cross-vm up

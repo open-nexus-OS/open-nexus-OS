@@ -28,6 +28,7 @@
 //! | [`send_with_cap_nonblocking`] | DATA | never | same, but the caller RETRIES instead of blocking |
 //! | [`send_nonblocking`] | nothing | never | fire-and-forget: no cap, so no ack can rot on anyone's inbox |
 //! | [`send_request`] + [`recv_response`] | nothing | for queue space / the answer | a `SharedResponse` route: the server answers on its OWN endpoint |
+//! | [`send_request`] + [`recv_response_with_cap`] | nothing out, DATA back | for queue space / the answer | a `SharedResponse` route whose answer GRANTS an object (gpud's framebuffer: the mode rides the frame, the object the cap slot) |
 //!
 //! Nothing here PARKS a frame for a later exchange: no service in the fleet spawns a thread,
 //! so no client ever has two exchanges in flight, and a frame that is not this exchange's
@@ -199,6 +200,19 @@ pub fn recv_response(recv_slot: u32, out: &mut [u8]) -> Result<usize> {
     nexus_abi::ipc_recv_v1(recv_slot, &mut hdr, out, nexus_abi::IPC_SYS_TRUNCATE, 0)
         .map(|n| n as usize)
         .map_err(map)
+}
+
+/// [`recv_response`] for an answer that moves a DATA cap back — a grant (RFC-0098 C7: gpud
+/// answers windowd's framebuffer request with the mode in the frame and a clone of the
+/// framebuffer object in the cap slot). Returns the frame length and the slot the kernel
+/// installed the moved cap at, `None` when the answer moved none. Same wait as
+/// [`recv_response`]: the answer or the server's death, no clock.
+pub fn recv_response_with_cap(recv_slot: u32, out: &mut [u8]) -> Result<(usize, Option<u32>)> {
+    let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+    let n = nexus_abi::ipc_recv_v1(recv_slot, &mut hdr, out, nexus_abi::IPC_SYS_TRUNCATE, 0)
+        .map_err(map)? as usize;
+    let moved = ((hdr.flags & nexus_abi::ipc_hdr::CAP_MOVE) != 0).then_some(hdr.src);
+    Ok((n, moved))
 }
 
 fn map(err: nexus_abi::IpcError) -> IpcError {

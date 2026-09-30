@@ -76,7 +76,7 @@ const GPUD_SEND_SLOT: u32 = nexus_service_topology::slots::gpud::SERVER.send;
 const GPU_IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
 /// The shared-VMO layout maximum (one home: `nexus_display_proto::LAYOUT_MAX`) — the
 /// resource budget the scanout is sized against, NOT a default mode. The visible mode
-/// itself comes from `boot_display_mode()` via `resolve_display_mode` (RFC-0093 §5).
+/// itself is gpud's decision at probe (`backend::display_mode`, RFC-0098 C7).
 /// The former `DISPLAY_HEIGHT` pair was `#[allow(dead_code)]`-carried and is deleted:
 /// the attach path passes `RESOURCE_HEIGHT`.
 const DISPLAY_WIDTH: u32 = nexus_display_proto::LAYOUT_MAX.0;
@@ -304,45 +304,36 @@ fn service_requests(
                         let handoff_t0 = nsec().unwrap_or(0);
                         let handoff_id =
                             decode_handoff_id_attach(frame).unwrap_or(active_handoff_id);
-                        match moved_cap.take() {
-                            Some(cap) => match backend.attach_external_framebuffer(
-                                cap.slot(),
-                                DISPLAY_WIDTH,
-                                RESOURCE_HEIGHT,
-                            ) {
-                                Ok(()) => {
-                                    active_handoff_id = handoff_id;
-                                    let _ = backend.move_cursor(0, 0);
-                                    let _ = debug_println("gpud: handoff attach ack");
-                                    let _ = debug_println(GPUD_CURSOR_ON);
-                                    let _ = debug_println(GPUD_DISPLAY_READY);
-                                    emit_handoff_timing(
-                                        (nsec().unwrap_or(handoff_t0).saturating_sub(handoff_t0)
-                                            / 1_000_000)
-                                            as u32,
-                                    );
-                                    // The GL scanout now exists, so the recv-timeout
-                                    // path may re-present the build-up (spin-blur demo).
-                                    #[cfg(all(nexus_env = "os", feature = "virgl"))]
-                                    if spin_demo_active {
-                                        let _ = debug_println("gpud: spin-blur demo armed (120Hz)");
-                                    }
-                                    (STATUS_OK, Some(active_handoff_id))
+                        // RFC-0098 C7: the framebuffer is gpud's (granted before); no cap moves.
+                        match crate::framebuffer_grant::attach(
+                            &mut backend,
+                            moved_cap.take(),
+                            DISPLAY_WIDTH,
+                            RESOURCE_HEIGHT,
+                        ) {
+                            Ok(()) => {
+                                active_handoff_id = handoff_id;
+                                let _ = backend.move_cursor(0, 0);
+                                let _ = debug_println("gpud: handoff attach ack");
+                                let _ = debug_println(GPUD_CURSOR_ON);
+                                let _ = debug_println(GPUD_DISPLAY_READY);
+                                emit_handoff_timing(
+                                    (nsec().unwrap_or(handoff_t0).saturating_sub(handoff_t0)
+                                        / 1_000_000) as u32,
+                                );
+                                // The GL scanout now exists, so the recv-timeout
+                                // path may re-present the build-up (spin-blur demo).
+                                #[cfg(all(nexus_env = "os", feature = "virgl"))]
+                                if spin_demo_active {
+                                    let _ = debug_println("gpud: spin-blur demo armed (120Hz)");
                                 }
-                                Err(e) => {
-                                    let _ = debug_println("gpud: ERROR attach framebuffer failed");
-                                    let _ = debug_println(
-                                        "gpud: ERROR attach framebuffer resource create failed",
-                                    );
-                                    let _ = e;
-                                    (STATUS_DEVICE_ERROR, Some(handoff_id))
-                                }
-                            },
-                            None => {
-                                let _ = debug_println("gpud: ERROR no cap in VMO message");
-                                (STATUS_MALFORMED, Some(handoff_id))
+                                (STATUS_OK, Some(active_handoff_id))
                             }
+                            Err(status) => (status, Some(handoff_id)),
                         }
+                    }
+                    nexus_display_proto::OP_FRAMEBUFFER_REQUEST => {
+                        (crate::framebuffer_grant::grant(&mut backend), None)
                     }
                     OP_PRESENT_DAMAGE => {
                         // This present composites the recorded scroll rows — the

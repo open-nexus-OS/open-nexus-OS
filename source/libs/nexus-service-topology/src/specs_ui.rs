@@ -57,6 +57,8 @@ pub(crate) const GPUD: ServiceSpec = ServiceSpec {
         NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::gpud::TIMER_SEND },
         NamedSlotBinding { name: NamedSlot::DeviceWatchdogRecv, slot: slots::gpud::WATCHDOG.recv },
         NamedSlotBinding { name: NamedSlot::DeviceWatchdogSend, slot: slots::gpud::WATCHDOG.send },
+        // RFC-0098 C7: the display-mode authority reads the lane's request from the tree.
+        NamedSlotBinding { name: NamedSlot::DeviceTree, slot: slots::gpud::DEVICE_TREE },
     ],
 };
 
@@ -65,7 +67,9 @@ pub(crate) const INPUTD: ServiceSpec = ServiceSpec {
     id: ServiceId::Inputd,
     stage: Stage::DisplayReady,
     exposes_server: true,
-    reply_inbox: false,
+    // RFC-0098 C7: one call to windowd for the display space (gpud's mode) is answered on
+    // this private inbox — windowd's shared response endpoint has several readers.
+    reply_inbox: true,
     // TASK-0324 P4b: inputd had NO declaration at all — init wired it entirely from a
     // bespoke arm whose comments called the windowd leg's slot numbers "a boot
     // contract". They are that contract now, in one readable place.
@@ -79,7 +83,7 @@ pub(crate) const INPUTD: ServiceSpec = ServiceSpec {
     ],
     announce: true,
     server_slots: slots::inputd::SERVER,
-    reply_slots: SlotPair::UNDECLARED,
+    reply_slots: slots::inputd::REPLY,
     extra_slots: &[
         NamedSlotBinding { name: NamedSlot::Settings, slot: slots::inputd::SETTINGS_SEND },
         NamedSlotBinding { name: NamedSlot::SettingsWatchRecv, slot: slots::inputd::WATCH_RECV },

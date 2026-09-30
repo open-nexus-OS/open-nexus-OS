@@ -288,7 +288,9 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
 
 | Frame | Bytes |
 |---|---|
-| attach request | `[OP_SET_FRAMEBUFFER_VMO=3, handoff_id:u32]` + CAP_MOVE of the framebuffer VMO (unchanged) |
+| **framebuffer request** (v3, 2026-09-30) | `[OP_FRAMEBUFFER_REQUEST=14]` from windowd, once at start, before its compositor exists |
+| **framebuffer grant** (v3) | `[status:u8, mode_w:u16, mode_h:u16, len:u32]` (9 bytes) on gpud's response endpoint + CAP_MOVE of a clone of gpud's framebuffer object; an OK grant with a zero or above-`LAYOUT_MAX` mode or `len` below the layout's resource does not decode (`test_reject_*` in `nexus_display_proto::grant`) |
+| attach request | `[OP_SET_FRAMEBUFFER_VMO=3, handoff_id:u32]` — since v3 **no cap**: the framebuffer is the one gpud granted; an attach carrying a cap is refused (`STATUS_MALFORMED`, cap closed) |
 | **attach ack v2** | `[status:u8, handoff_id:u32, seq:u32, mode_w:u16, mode_h:u16, content_x:u16, content_y:u16, content_w:u16, content_h:u16]` (21 bytes; `status` = `STATUS_OK/MALFORMED/DEVICE_ERROR`) |
 | present | `[OP_PRESENT_DAMAGE=4, seq:u32, CommittedBuffer…]` — `seq` strictly increasing per windowd instance, window ≤ 64 outstanding |
 | **present ack v2** | `[status:u8, seq:u32]` — echoes the presented `seq`; an unknown or already-acked `seq` at windowd is `windowd: FAIL present ack seq=<n> unexpected` (never forgotten, never "stalled") |
@@ -296,10 +298,18 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
 
 Rules:
 
-- `OP_GET_DISPLAY_MODE = 11` and `decode_display_mode_reply` are **retired** (P6). The display
-  mode has one source, `nexus_abi::boot_display_mode()` (RFC-0074 SSOT), read by gpud, windowd
-  and inputd; a device whose capability disagrees is `gpud: FAIL display mode <cfg> vs device
-  <cap>` — no default `(1280, 800)` anywhere.
+- `OP_GET_DISPLAY_MODE = 11` and `decode_display_mode_reply` are **retired** (P6), and so is
+  the kernel relay that replaced them (syscall 50, amended 2026-09-30 by RFC-0098 C7). The
+  display mode has ONE authority, gpud: it reads the lane's request from its own tree slot,
+  takes the device's capability, applies `resolve_display_mode` and names the result (`gpud:
+  display mode WxH (request|device|maximum)`); a device whose capability disagrees with the
+  request is `gpud: FAIL display mode <req> vs device <cap>`. windowd receives the mode with
+  the framebuffer grant (`windowd: display mode from gpud (WxH)`); inputd asks windowd ONCE
+  over its declared reply inbox (`OP_GET_DISPLAY_SPACE`, `input-live-protocol`; `inputd:
+  display space from windowd (WxH)`) — no retry, no default `(1280, 800)` anywhere. A stack
+  without gpud is named (`windowd: display none (…)`) and runs display-less at `LAYOUT_MAX`.
+- The framebuffer is gpud's (v3): made at the first grant FOR the scanout device, kept for
+  gpud's lifetime, granted to windowd by clone; windowd allocates no framebuffer.
 - Reveal is a handshake, not a heuristic: `REVEAL_FALLBACK_NS`, `REVEAL_HARD_CAP_NS`, the
   3-pixel `plane0_has_content` probe and the three `gpud: desktop reveal (…)` variants are
   deleted; one marker `gpud: desktop reveal (handshake seq=<n>)`. Never-black (ADR-0041) holds
@@ -315,9 +325,14 @@ Rules:
   TASK-0068) build on.
 
 Gate: `test_reject_present_ack_without_seq`, `test_reject_attach_ack_without_mode`,
-`test_reject_reveal_without_handshake`, `test_reject_unknown_ack_seq`; structure gate: no
-`OP_GET_DISPLAY_MODE`, no `1280, 800` literal, no `DISPLAY_MODE_RETRY` in windowd/inputd; no
-`nsec()` in gpud's reveal path.
+`test_reject_reveal_without_handshake`, `test_reject_unknown_ack_seq`,
+`test_reject_grant_without_a_buildable_mode`, `test_reject_grant_smaller_than_the_layout`,
+`test_reject_refused_or_malformed_display_space`; structure gate: no `OP_GET_DISPLAY_MODE`, no
+`1280, 800` literal, no `DISPLAY_MODE_RETRY` in windowd/inputd; no `nsec()` in gpud's reveal
+path; no VMO allocation in windowd (rule 7); the relay's names in `check-retired-names.sh`;
+`scripts/qemu-test.sh` REQUIRES the chain (`gpud: display mode … (request)`, `gpud: framebuffer
+granted`, `windowd: display mode from gpud`, `inputd: display space from windowd`) with the
+lane's mode in every display lane.
 
 ### 6. Display truth as a gate (normative, delivered P0)
 

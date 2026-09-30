@@ -15,6 +15,7 @@ os-lite = [
     "dep:nexus-ipc",
     "dep:nexus-service-entry",
     "dep:nexus-driverkit",
+    "dep:nexus-fdt",
 ]
 # Enables GPU-accelerated backdrop blur via virgl (QEMU -device virtio-gpu-pci,virgl=on).
 # When enabled and virgl is detected at runtime, gpud emits "gpud: virgl ready".
@@ -53,6 +54,9 @@ nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-driverkit = { path = "../../libs/nexus-driverkit", optional = true }
+# RFC-0098 C7: gpud is the display-mode authority and reads the lane's request
+# (`/chosen/nexus,display-mode`) from its own read-only tree slot.
+nexus-fdt = { path = "../../libs/nexus-fdt", optional = true }
 
 # Build-time only: rasterize the boot-splash logo SVG → embedded BGRA bitmap (host std).
 [build-dependencies]

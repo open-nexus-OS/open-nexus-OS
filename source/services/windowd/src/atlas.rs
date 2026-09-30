@@ -45,8 +45,6 @@ pub(crate) const ATLAS_ROW_OFFSET: u32 = nexus_display_proto::layout::ATLAS_ROW;
 /// resident scroll band, floating windows with their blur bands, the dock and fullscreen
 /// round-trips; five starved on the fullscreen re-create with four windows open).
 pub(crate) const ATLAS_ROWS: u32 = nexus_display_proto::layout::ATLAS_ROWS;
-/// Total framebuffer-resource height including the atlas: what windowd sizes the VMO to.
-pub(crate) const RESOURCE_HEIGHT: u32 = nexus_display_proto::layout::RESOURCE_HEIGHT;
 
 /// A cached layer surface: a packed rectangle in the atlas region.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -235,7 +233,7 @@ mod tests {
 
     #[test]
     fn resource_height_matches_layout() {
-        assert_eq!(RESOURCE_HEIGHT, ATLAS_ROW_OFFSET + ATLAS_ROWS);
+        assert_eq!(nexus_display_proto::layout::RESOURCE_HEIGHT, ATLAS_ROW_OFFSET + ATLAS_ROWS);
         assert_eq!(ATLAS_ROW_OFFSET, 4 * nexus_display_proto::layout::PLANE_ROWS);
     }
 

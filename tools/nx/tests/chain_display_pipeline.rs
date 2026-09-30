@@ -28,7 +28,7 @@ mod tests {
     ///   H1: gpud: ready
     ///   H2: windowd: runtime init ok
     ///   H3: windowd: ready (w=1280, h=800, hz=120)
-    ///   H4: windowd: fb vmo create ok
+    ///   H4: windowd: backend=gpu      ← the framebuffer gpud granted (RFC-0098 C7)
     ///   H5: windowd: handoff attach sent
     ///   H6: gpud: recv OP_SET_FRAMEBUFFER_VMO
     ///   H7: windowd: handoff attach ack
@@ -61,21 +61,21 @@ mod tests {
             .after(2)
             .describe("H3: windowd ready with wallpaper");
 
-        // --- VMO create ---
+        // --- the granted framebuffer ---
         runner
-            .expect_marker("windowd: fb vmo create ok", ms(200))
+            .expect_marker("windowd: backend=gpu", ms(200))
             .after(3)
-            .describe("H4: 16MB framebuffer VMO created");
+            .describe("H4: the framebuffer gpud granted is registered");
 
         // --- handoff (reactive, no polling) ---
         runner
             .expect_marker("windowd: handoff attach sent", ms(300))
             .after(4)
-            .describe("H5: VMO cap-move sent to gpud (blocking)");
+            .describe("H5: attach sent (no cap: the framebuffer is gpud's)");
         runner
             .expect_marker("gpud: recv OP_SET_FRAMEBUFFER_VMO", ms(500))
             .after(5)
-            .describe("H6: gpud received VMO");
+            .describe("H6: gpud received the attach");
         runner
             .expect_marker("windowd: handoff attach ack", ms(500))
             .after(6)
@@ -131,7 +131,10 @@ mod tests {
         runner.register(Box::new(WindowdContract::visible_bootstrap(1280, 800)));
 
         runner.expect_marker("gpud: ready", ms(500)).describe("gpud ready");
-        runner.expect_marker("windowd: fb vmo create ok", ms(500)).after(0).describe("VMO created");
+        runner
+            .expect_marker("windowd: backend=gpu", ms(500))
+            .after(0)
+            .describe("framebuffer registered");
         runner
             .expect_marker("windowd: handoff attach sent", ms(300))
             .after(1)

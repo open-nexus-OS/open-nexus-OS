@@ -1259,6 +1259,7 @@ dependencies = [
  "nexus-abi",
  "nexus-display-proto",
  "nexus-driverkit",
+ "nexus-fdt",
  "nexus-gfx",
  "nexus-ipc",
  "nexus-sdf",

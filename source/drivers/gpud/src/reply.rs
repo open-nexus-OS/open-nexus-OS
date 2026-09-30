@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: gpud's reply encoding (RFC-0093 §5) — the ONE place a request's answer takes its
-//! wire shape: the 21-byte attach ack (with the mode gpud commands, as evidence for windowd's
+//! wire shape: the framebuffer grant (its sender in `framebuffer_grant`, it moves a cap), the
+//! 21-byte attach ack (with the mode gpud commands, as evidence for windowd's
 //! cross-check against the one mode source), the 5-byte present ack `[status, seq]` (also the
 //! shape of a cursor reply, whose payload is a magic no present seq ever equals), and the bare
 //! status byte of a fire-and-forget control op. Split out of `service.rs` under the
@@ -27,6 +28,11 @@ pub(crate) fn send(
     payload: Option<u32>,
     active_handoff_id: u32,
 ) {
+    if op == nexus_display_proto::OP_FRAMEBUFFER_REQUEST {
+        // RFC-0098 C7: the answer moves the framebuffer along — its own sender.
+        crate::framebuffer_grant::answer(server, backend, status);
+        return;
+    }
     if op == OP_SET_FRAMEBUFFER_VMO {
         let w = backend.display_w.min(u16::MAX as u32) as u16;
         let h = backend.display_h.min(u16::MAX as u32) as u16;

@@ -211,6 +211,9 @@ pub mod gpud {
     /// Device-watchdog endpoint (TASK-0054C P2-b): the GPU ring-buffer wait's bound — a
     /// one-shot on a waitset beside the IRQ endpoint; its fire is the lost-IRQ recovery.
     pub const WATCHDOG: SlotPair = SlotPair::new(0x23, 0x22);
+    /// The device tree, read-only (RFC-0098 C3/C7): gpud, the display-mode authority, reads the
+    /// lane's request (`/chosen/nexus,display-mode`) here.
+    pub const DEVICE_TREE: u32 = 0x24;
 }
 
 /// hidrawd (TASK-0324 P4d).
@@ -283,6 +286,9 @@ pub mod inputd {
     pub const TIMER_SEND: u32 = 0x24;
     /// The pair as one value (`nexus_ipc::timer::NotifyTimer::bind`).
     pub const TIMER: SlotPair = SlotPair::new(TIMER_SEND, TIMER_RECV);
+    /// The CAP_MOVE reply inbox (RFC-0098 C7): windowd answers inputd's one display-space call
+    /// here — never on windowd's shared response endpoint, which several services read.
+    pub const REPLY: SlotPair = SlotPair::new(0x26, 0x25);
 }
 
 /// keystored (TASK-0324 P4f-2). Its policyd leg used to land on 9 only because the optional

@@ -56,6 +56,9 @@ the runtime toggle.
   init-granted cap (the selftest-client pattern) over extending
   `SYSCALL_BOOT_DISPLAY_MODE`.
 - Resolutions above the 1280×800 layout maximum (separate atlas/VMO work).
+- *Note 2026-09-30:* syscall 50 is retired — gpud, the display-mode authority, reads the
+  lane's `/chosen/nexus,display-mode` request from its own tree slot (RFC-0098 C7, TASK-0251
+  P1) — and the layout maximum is 1920×1080 (M-L); a preset's mode travels as that request.
 
 ## Constraints / invariants
 

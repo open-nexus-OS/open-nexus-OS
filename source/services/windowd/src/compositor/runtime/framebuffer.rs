@@ -15,6 +15,12 @@
 use super::*;
 
 impl DisplayServerRuntime {
+    /// The visible mode windowd composes and hit-tests in — gpud's grant (RFC-0098 C7); inputd
+    /// asks for it once (`OP_GET_DISPLAY_SPACE`).
+    pub(crate) fn visible_mode(&self) -> (u32, u32) {
+        (self.mode.width, self.mode.height)
+    }
+
     /// Phase 6c: Write source frame (wallpaper) to VMO bottom half once.
     /// Moves 4MB of pixel data from control-plane heap to data-plane VMO.
     /// Banded: ROW_WRITE_CHUNK rows per `vmo_write` (same pattern as
@@ -93,18 +99,17 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Phase 2 of framebuffer registration: write the first composed frame
-    /// and emit all bootstrap markers. Called from the IPC loop after the
-    /// VMO-ack response has been sent.
+    /// Phase 2 of framebuffer registration: write the first composed frame into the
+    /// framebuffer gpud granted, emit the bootstrap markers, then attach (gpud scans it out).
     pub(crate) fn process_deferred_framebuffer_write(&mut self) -> u8 {
         if !self.framebuffer_pending_first_write {
             return STATUS_OK;
         }
-        let Some(handle) = self.framebuffer else {
+        if self.framebuffer.is_none() {
             let _ = debug_println("windowd: ERROR framebuffer missing during handoff");
             self.framebuffer_pending_first_write = false;
             return STATUS_MALFORMED;
-        };
+        }
 
         if !self.first_handoff_frame_written {
             if let Err(err) = self.write_current_frame() {
@@ -131,7 +136,7 @@ impl DisplayServerRuntime {
 
         // Reactive handoff: block until gpud accepts the VMO (no polling).
         if !self.first_handoff_attach_acked {
-            self.do_handoff_attach_blocking(handle);
+            self.do_handoff_attach_blocking();
         }
 
         // TASK-0324 P7-b: the SYNCHRONOUS session probe that stood here (TASK-0065B: "the
@@ -287,34 +292,23 @@ impl DisplayServerRuntime {
         let _ = debug_println(SELFTEST_UI_VISIBLE_PRESENT_MARKER);
     }
 
-    /// Reactive handoff: send VMO to gpud and block until acknowledged.
-    /// No polling — the kernel wakes us when gpud's reply arrives.
-    pub(super) fn do_handoff_attach_blocking(&mut self, fb_handle: Handle) {
+    /// Reactive handoff (RFC-0093 §5 as amended by RFC-0098 C7): the first frame is in the
+    /// framebuffer gpud GRANTED — ask gpud to scan it out and block until acknowledged. No cap
+    /// moves (the framebuffer is gpud's); no polling — the kernel wakes us on gpud's reply.
+    pub(super) fn do_handoff_attach_blocking(&mut self) {
         if !self.ensure_gpud_client() {
             let _ = debug_println("windowd: handoff no gpud client");
             return;
         }
-        let clone = match nexus_abi::cap_clone(fb_handle) {
-            Ok(cap) => cap,
-            Err(_) => {
-                let _ = debug_println("windowd: handoff cap-clone failed");
-                return;
-            }
-        };
         let frame = encode_gpud_attach_frame(self.first_handoff_id);
         let send_ok = {
             let Some(client) = self.gpud_client.as_ref() else {
-                let _ = nexus_abi::cap_close(clone);
                 return;
             };
-            match nexus_ipc::exchange::send_with_cap(client.slots().0, &frame, clone) {
+            match nexus_ipc::exchange::send_request(client.slots().0, &frame) {
                 Ok(()) => true,
                 Err(e) => {
-                    log_gpud_cap_error(
-                        "windowd: handoff cap-move send failed",
-                        e,
-                        client.slots().0,
-                    );
+                    log_gpud_cap_error("windowd: handoff attach send failed", e, client.slots().0);
                     self.gpud_client = None;
                     false
                 }
@@ -332,9 +326,9 @@ impl DisplayServerRuntime {
             match client.recv(Wait::Blocking) {
                 Ok(reply) => match nexus_display_proto::decode_attach_ack(&reply) {
                     Some(ack) if ack.status == GPUD_STATUS_OK => {
-                        // RFC-0093 §5: the ack's mode is EVIDENCE — the source is
-                        // `boot_display_mode()` (P6-a). A disagreement is named: windowd would
-                        // otherwise hit-test in a space gpud does not scan out.
+                        // RFC-0093 §5: the ack's mode is EVIDENCE — the source is the mode
+                        // gpud granted with the framebuffer (RFC-0098 C7). A disagreement is named:
+                        // windowd would otherwise hit-test in a space gpud does not scan out.
                         let acked = (u32::from(ack.mode_w), u32::from(ack.mode_h));
                         if acked != (self.mode.width, self.mode.height) {
                             let _ = debug_println(&alloc::format!(
@@ -430,72 +424,5 @@ impl DisplayServerRuntime {
             band_start = band_end;
         }
         Ok(())
-    }
-
-    /// Returns true when at least one animation is active and needs driving.
-    /// Send the framebuffer VMO to gpud for zero-copy GPU scanout.
-    /// Returns true only after gpud accepted the VMO handoff.
-    /// (Blocking-ack handoff variant; the boot path uses the id-less handoff.
-    /// Kept: documents the OP_SET_FRAMEBUFFER_VMO accept contract.)
-    #[allow(dead_code)]
-    pub(super) fn try_handoff_framebuffer_to_gpud(&mut self, fb_handle: Handle) -> bool {
-        if !self.ensure_gpud_client() {
-            return false;
-        }
-
-        // Single-shot clone: bootstrap is fail-fast by design.
-        let clone = match nexus_abi::cap_clone(fb_handle) {
-            Ok(c) => c,
-            Err(_) => {
-                let _ = debug_println("windowd: fb handoff to gpud cap-clone failed");
-                return false;
-            }
-        };
-
-        // Send VMO with blocking wait — kernel guarantees delivery before return.
-        let request = [GPU_SET_FRAMEBUFFER_VMO_OP];
-        let send_result = {
-            let Some(client) = self.gpud_client.as_ref() else {
-                return false;
-            };
-            nexus_ipc::exchange::send_with_cap(client.slots().0, &request, clone)
-        };
-        let recv_result = if send_result.is_ok() {
-            let Some(client) = self.gpud_client.as_ref() else {
-                return false;
-            };
-            client.recv(Wait::Blocking)
-        } else {
-            Err(nexus_ipc::IpcError::Disconnected)
-        };
-        match (send_result, recv_result) {
-            (Ok(()), Ok(reply)) if reply.first().copied() == Some(GPUD_STATUS_OK) => {
-                let _ = debug_println("windowd: fb handoff to gpud ok");
-                true
-            }
-            (Ok(()), Ok(reply)) => {
-                if let Some(status) = reply.first().copied() {
-                    let _ = debug_println(&alloc::format!(
-                        "windowd: fb handoff to gpud bad-status=0x{status:02x}"
-                    ));
-                } else {
-                    let _ = debug_println("windowd: fb handoff to gpud bad-status=empty");
-                }
-                self.gpud_client = None;
-                false
-            }
-            (Err(e), _) => {
-                let _ = debug_println("windowd: fb handoff to gpud send-failed");
-                log_gpud_ipc_error("windowd: fb handoff to gpud send-failed detail", e);
-                self.gpud_client = None;
-                false
-            }
-            (Ok(()), Err(e)) => {
-                let _ = debug_println("windowd: fb handoff to gpud recv-failed");
-                log_gpud_ipc_error("windowd: fb handoff to gpud recv-failed detail", e);
-                self.gpud_client = None;
-                false
-            }
-        }
     }
 }

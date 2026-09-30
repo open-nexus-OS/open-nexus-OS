@@ -22,8 +22,8 @@ pub(crate) struct ResourceRecord {
     pub(crate) format: PixelFormat,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) backing_va: usize,
-    /// The VMO whose runs the device reads (`vmo_runs`, RFC-0098 C4): gpud's
-    /// own backing, or windowd's framebuffer (which gpud does not own).
+    /// The VMO whose runs the device reads (`vmo_runs`, RFC-0098 C4): a backing, or the
+    /// shared framebuffer — gpud's too since RFC-0098 C7, granted to windowd.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) dma_vmo: u32,
     #[cfg(all(feature = "os-lite", target_os = "none"))]

@@ -7,6 +7,8 @@
 //! API_STABILITY: Unstable
 
 pub mod cpu_mock;
+/// The board display controller's host half (EDID, mode policy, register model — D2).
+pub mod dc;
 pub mod error;
 pub mod traits;
 pub mod types;

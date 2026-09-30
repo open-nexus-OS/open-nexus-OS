@@ -125,7 +125,7 @@ impl VirtioGpuBackend {
             };
             self.ctrl_submit_struct(&create).map_err(|_| GfxError::CommandRejected)?;
 
-            // windowd's framebuffer is an anonymous object: attach its runs.
+            // The framebuffer (gpud's, made for this device — RFC-0098 C7): attach its runs.
             let hdr = ctrl_hdr(protocol::VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING);
             self.attach_backing_runs(hdr, id.0, vmo_slot, 0, (width * height * 4) as usize)?;
         }

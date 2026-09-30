@@ -16,6 +16,13 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
+/// inputd's display space, asked of windowd once (RFC-0098 C7).
+pub mod display_space;
+pub use display_space::{
+    decode_display_space, encode_display_space, encode_get_display_space, DISPLAY_SPACE_FRAME_LEN,
+    OP_GET_DISPLAY_SPACE,
+};
+
 pub const MAGIC0: u8 = b'I';
 pub const MAGIC1: u8 = b'N';
 pub const VERSION: u8 = 1;

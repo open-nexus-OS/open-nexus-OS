@@ -48,6 +48,15 @@ impl Contract for WindowdContract {
             .id
             .ok_or_else(|| ContractError::new(ServiceId(0), "windowd: service id not set"))?;
 
+        // 0. The framebuffer grant (RFC-0098 C7): the mode gpud decided, asked before the
+        //    runtime exists (the runtime is built at the granted mode).
+        if self.gpud_available {
+            bus.emit_marker(
+                id,
+                &format!("windowd: display mode from gpud ({}x{})", self.width, self.height),
+            );
+        }
+
         // 1. Runtime initialisieren
         bus.emit_marker(id, "windowd: runtime init ok");
         bus.emit_marker(
@@ -55,7 +64,7 @@ impl Contract for WindowdContract {
             &format!("windowd: ready (w={}, h={}, hz={})", self.width, self.height, self.hz),
         );
 
-        // 2. GPU self-bootstrap: windowd creates own framebuffer VMO
+        // 2. The framebuffer gpud granted is registered (windowd makes none — RFC-0098 C7)
         bus.emit_marker(id, "windowd: backend=gpu");
 
         // 3. Bootsplash/Display start
@@ -92,7 +101,6 @@ impl Contract for WindowdContract {
 
         // 4. Phase 1-8: GPU-first display pipeline (reactive, no polling)
         if self.gpud_available {
-            bus.emit_marker(id, "windowd: fb vmo create ok");
             bus.emit_marker(id, "windowd: handoff attach sent");
             bus.emit_marker(id, "windowd: handoff attach ack");
             bus.emit_marker(id, "windowd: handoff present sent");

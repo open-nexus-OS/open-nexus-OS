@@ -39,6 +39,7 @@ mod blur_cache;
 mod bootstrap;
 mod cursor;
 mod display_mode;
+mod framebuffer;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod lifecycle;
 mod present;
@@ -110,15 +111,16 @@ pub struct VirtioGpuBackend {
     _mmio_len: usize,
     next_resource_id: u32,
     probed: bool,
-    /// The scanout's VISIBLE mode, resolved once at probe from the device's
-    /// `GET_DISPLAY_INFO` (QEMU `xres=`/`yres=`; fallback 1280×800). RESOURCE
-    /// layout (plane rows, strides, atlas budget) stays at the fixed maximum —
-    /// this is the visible sub-rect the compositor targets. (Read by os-lite
-    /// service/present + virgl scanout; host only constructs → scoped allow.)
+    /// The scanout's VISIBLE mode, decided once at probe (`display_mode`, RFC-0098 C7) and
+    /// granted to windowd with the framebuffer; the RESOURCE layout stays at the maximum.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) display_w: u32,
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) display_h: u32,
+    /// The shared framebuffer resource: gpud's own, made for its device at the first grant
+    /// (`crate::framebuffer_grant`), kept for gpud's lifetime.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) framebuffer_vmo: Option<u32>,
     /// True when virgl GPU acceleration is detected at probe time.
     /// Requires `virgl` feature + QEMU `-device virtio-gpu-pci,virgl=on`.
     #[allow(dead_code)]
@@ -472,6 +474,8 @@ impl VirtioGpuBackend {
             display_w: nexus_display_proto::LAYOUT_MAX.0,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             display_h: nexus_display_proto::LAYOUT_MAX.1,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            framebuffer_vmo: None,
             virgl_capable: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             gl_device: false,
@@ -613,17 +617,16 @@ impl VirtioGpuBackend {
             self.enforce_scanout_policy()?;
         }
 
-        // Resolve the VISIBLE mode the compositor OWNS and COMMANDS (RFC-0074 /
-        // ADR-0050): fw_cfg-configured mode is authoritative (kernel-derived,
-        // race-free); GET_DISPLAY_INFO is validated CAPABILITY only (QEMU's GTK
-        // backend transiently reports the un-realized window default → wrong mode).
+        // Decide the VISIBLE mode — gpud is the authority (RFC-0098 C7): the lane's request
+        // from the tree wins (race-free); GET_DISPLAY_INFO is validated CAPABILITY (QEMU's GTK
+        // backend transiently reports the un-realized window default → never the source alone).
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         {
             let device = if self.ctrlq.is_some() { self.ctrl_query_display_info() } else { None };
             if let Some((w, h)) = device {
                 display_mode::emit_display_info_marker(w, h); // diagnostic: advertised capability
             }
-            let (rw, rh) = display_mode::resolve(nexus_abi::boot_display_mode(), device);
+            let (rw, rh) = display_mode::resolve(display_mode::request_from_tree(), device);
             self.display_w = rw;
             self.display_h = rh;
         }

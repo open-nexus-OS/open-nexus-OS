@@ -1,9 +1,9 @@
 ---
 title: TASK-0251 Display v1.0b (OS/board): the display controller + HDMI driver in gpud, the display mode's one authority is gpud (EDID on the board, virtio display-info on QEMU), syscall 50 and the fw_cfg path deleted — the first picture
-status: Draft (recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
+status: In Progress (P1 done 2026-09-30 — the mode authority is gpud on QEMU: request from gpud's tree slot, framebuffer owned and granted by gpud, windowd builds on the grant, inputd asks windowd once, syscall 50 deleted; P2/P3 follow on the board; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
 owner: @ui @runtime
 created: 2025-12-29
-updated: 2026-09-22
+updated: 2026-09-30
 depends-on:
   - tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
   - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
@@ -69,8 +69,25 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
 ## Packages
 
 - **P0** — this recut. **Measured 2026-09-29 (D0):** see `docs/board/measurements/2026-09-29-display-regs/README.md` — the pipeline needs `hmclk` + `hdmi_reset` + power domain 7 only; the scanout buffer may live in bank 0 (bus = CPU − 0x8000_0000); the controller is not cache-coherent; ONLINE IRQ 139.
-- **P1 Mode authority = gpud** (QEMU): syscall 50 + fw_cfg key deleted, virtio display-info as
-  the source, launcher hands the request to nxboot; `just test-all` green, pixel proof unchanged.
+- **P1 Mode authority = gpud** (QEMU) — **done 2026-09-30.** Built: gpud reads the lane's request
+  from its own read-only tree slot (`NamedSlot::DeviceTree`, `slots::gpud::DEVICE_TREE`, pinned by
+  init next to the harness's) and decides with `resolve_display_mode_sourced` (`gpud: display mode
+  WxH (request|device|maximum)`); gpud owns the shared framebuffer (made at the first grant with
+  `vmo_create_for` its device, kept) and grants mode + a clone in ONE answer
+  (`OP_FRAMEBUFFER_REQUEST` → `FramebufferGrant`, RFC-0093 §5 v3; `gpud: framebuffer granted`);
+  windowd asks once before its compositor exists, builds at the granted mode (`windowd: display
+  mode from gpud (WxH)`) and attaches without a cap (an attach with a cap is refused); a stack
+  without gpud is named (`windowd: display none (…)`); inputd asks windowd once
+  (`OP_GET_DISPLAY_SPACE` over its new declared reply inbox, `slots::inputd::REPLY`; `inputd:
+  display space from windowd (WxH)`). Deleted: syscall 50 (kernel), `nexus_abi` wrapper,
+  windowd's `resolve_boot_display_mode` and its framebuffer allocation, the dead cap-moving
+  legacy handoff; the fw_cfg key STAYS — it is the lane's transport of the request to nxboot
+  (RFC-0098 C7 amended). Gates: `check-retired-names.sh` (the relay's names),
+  `check-display-ssot.sh` rule 7 (windowd allocates no VMO), `qemu-test.sh` REQUIRES the four
+  chain markers with the lane's mode in every display lane. Proof: host tests of the wire
+  (`test_reject_grant_*`, `test_reject_refused_or_malformed_display_space`), `just check`, the
+  `smp1`, `visible` (1280x800) and `visible-fhd` (1920x1080) lanes with the full chain and the
+  pixel proof, `just test-all` EXIT=0 (60 PASS, 0 FAIL, 2026-09-30).
 - **P2 `dc` driver** — power/clock/reset, DDC + EDID, plane + mode + flush, IRQ; QEMU cannot
   emulate this controller → host goldens (TASK-0250) + the board.
 - **P3 First picture** — on the board through the boot chain (TASK-0260B): markers + the

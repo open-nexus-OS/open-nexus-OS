@@ -85,9 +85,13 @@ impl Contract for GpudContract {
             self.id.ok_or_else(|| ContractError::new(ServiceId(0), "gpud: service id not set"))?;
 
         bus.emit_marker(id, "gpud: virtio-gpu probed");
+        // RFC-0098 C7: gpud decides the mode at probe (the simulated lane requests 1280x800).
+        bus.emit_marker(id, "gpud: display mode 1280x800 (request)");
         bus.emit_marker(id, "gpud: ready");
 
         if self.handoff {
+            // The framebuffer is gpud's: granted with the mode before windowd attaches.
+            bus.emit_marker(id, "gpud: framebuffer granted (1280x800)");
             bus.emit_marker(id, "gpud: recv OP_SET_FRAMEBUFFER_VMO");
             bus.emit_marker(id, "gpud: set_scanout ok");
             bus.emit_marker(id, "gpud: handoff attach ack");

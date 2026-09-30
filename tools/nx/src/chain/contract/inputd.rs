@@ -44,6 +44,9 @@ impl Contract for InputdContract {
         // Priority-wired: inputd uses init-assigned slots (5=send, 6=recv),
         // bypassing the kernel route table for deterministic IPC.
         bus.emit_marker(id, "inputd: priority-wired slots 5/6 ok");
+        // RFC-0098 C7: the pointer space is windowd's hit-test space (gpud's mode), asked once
+        // over inputd's declared reply inbox; the simulated lane runs at 1280x800.
+        bus.emit_marker(id, "inputd: display space from windowd (1280x800)");
 
         if self.cursor_moves {
             // Input-chain hops I3..I5, string-identical to os_lite.rs.

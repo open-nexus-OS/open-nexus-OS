@@ -148,7 +148,8 @@ pub enum NamedSlot {
     /// recv-wake probe (execd): RECV half of the reply endpoint.
     ProbeReplyRecv,
     /// The device tree, read-only (RFC-0098 C3): the harness reads its boot mode and
-    /// profile from `/chosen/nexus,*` there.
+    /// profile from `/chosen/nexus,*` there, the block owner and the SoC glue their nodes,
+    /// gpud the lane's display-mode request (RFC-0098 C7).
     DeviceTree,
     /// The kernel console ring, read-only (RFC-0107 Phase 2): the block owner — its one
     /// reader — keeps it in the boot trace.

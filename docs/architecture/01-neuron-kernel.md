@@ -161,7 +161,7 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **36 `irq_bind`** / **37 `irq_complete`**: PLIC IRQ → endpoint delivery (reactive input).
 - **38–40 `waitset_create/add/wait`**: Bounded waitsets.
 - **41–43 `fence_create/signal/wait`**: Fences.
-- **45 `boot_mode`** / **50 `boot_display_mode`**: Boot mode and display request from `/chosen/nexus,*` of the device tree (RFC‑0098 C2; RFC‑0074/ADR‑0050 for the display request — nxboot re-expresses the QEMU fw_cfg knobs there, the kernel reads no fw_cfg).
+- **45 `boot_mode`**: The boot mode from `/chosen/nexus,boot-mode` of the device tree (RFC‑0098 C2 — nxboot re-expresses the QEMU fw_cfg knobs there, the kernel reads no fw_cfg). **50** is retired: it relayed the display-mode request, which gpud — the display-mode authority — reads from its own tree slot since RFC‑0098 C7.
 - **46 `vmo_destroy`**: Return a VMO's frames to the pool (sole-owner and not-mapped gated; RFC‑0075/0085).
 - **47 `vmo_read`**: Bounded copy-out of a VMO range (ADR‑0042 damage blits).
 - **48 `sched`**: Declarative scheduling recipe (affinity/shares; ADR‑0049).

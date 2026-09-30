@@ -44,25 +44,6 @@ pub fn boot_measured_read() -> Option<[u8; 60]> {
     }
 }
 
-/// The fw_cfg-configured display mode (RFC-0074 / ADR-0050) as `(w, h)`, or `None` when
-/// unknown/absent/host. The display server treats this as the AUTHORITATIVE mode it commands
-/// onto the scanout — kernel-derived, so QEMU's transient GTK window size never latches wrong.
-/// (ABI monolith reduction deferred to a separate task — this stays inline for now.)
-#[must_use]
-pub fn boot_display_mode() -> Option<(u32, u32)> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        // SYSCALL_BOOT_DISPLAY_MODE (50) → packed `w | (h << 16)`, 0 = unknown.
-        let packed = decode_syscall(unsafe { ecall0(50) }).unwrap_or(0);
-        let (w, h) = ((packed & 0xFFFF) as u32, (packed >> 16) as u32);
-        (w > 0 && h > 0).then_some((w, h))
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        None
-    }
-}
-
 // ── Per-process service verdict (alloc-free) ─────────────────────────────────────────────────
 // In an interactive boot a service folds its routine boot markers into one `[ts] OK <service> N/N
 // <ms>` grid line (the same form the kernel emits for `kself`). Fold mode is set once at service

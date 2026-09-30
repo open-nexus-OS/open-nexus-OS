@@ -1,83 +1,85 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The `gpud: display info WxH` marker. The resolution POLICY itself moved to
-//! `nexus_display_proto::resolve_display_mode` (TASK-0324 P6-a): it lived here alone, which
-//! is why windowd and inputd each grew their own protocol to ask someone else for the mode.
+//! CONTEXT: gpud decides the display mode (RFC-0098 C7, TASK-0251 P1) — the one authority. It
+//! reads the lane's REQUEST from its own read-only tree slot (`/chosen/nexus,display-mode`,
+//! written by nxboot from the launcher's knob; absent on the board), takes the device's
+//! CAPABILITY from the device (virtio display info on QEMU; the monitor's EDID with the board's
+//! display controller, TASK-0251 P2), and applies the one policy,
+//! `nexus_display_proto::resolve_display_mode`. windowd receives the decision with the
+//! framebuffer grant; nobody else reads the request (the kernel's relay, syscall 50, is gone).
+//!
+//! Markers (alloc-free — the heap never sees boot markers): `gpud: display info WxH` (the
+//! device's advertised capability), `gpud: display mode WxH (<source>)` (the decision and the
+//! candidate it came from: request / device / maximum), `gpud: FAIL display mode <req> vs device
+//! <cap>` (a disagreement, named instead of silently overruled — the GTK-window race that made a
+//! device report its unrealized default used to be invisible).
 //! OWNERS: @ui @runtime
-//! STATUS: Experimental
-//! API_STABILITY: Unstable
+//! STATUS: Functional
+//! API_STABILITY: Internal
 
-/// The VISIBLE mode gpud commands onto the scanout (RFC-0074 / ADR-0050, RFC-0093 §5).
-///
-/// The clamp POLICY lives once, in `nexus_display_proto`; this wrapper adds the one thing only
-/// gpud can know — whether the device's advertised capability DISAGREES with the configured
-/// mode. The configured mode still wins (kernel-derived and race-free, which is the point of
-/// RFC-0074), but the disagreement is named instead of silently overruled: the GTK-window race
-/// that made a device report its un-realized default used to be invisible.
+/// The lane's display-mode request, read from gpud's own tree slot; `None` when the tree names
+/// none (the board, a direct-kernel boot) or the value is not a request.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-pub(super) fn resolve(configured: Option<(u32, u32)>, device: Option<(u32, u32)>) -> (u32, u32) {
-    if let (Some((cw, ch)), Some((dw, dh))) = (configured, device) {
-        if (cw, ch) != (dw, dh) {
-            emit_mode_mismatch(cw, ch, dw, dh);
-        }
-    }
-    nexus_display_proto::resolve_display_mode(configured, device, nexus_display_proto::LAYOUT_MAX)
+pub(super) fn request_from_tree() -> Option<(u32, u32)> {
+    let tree =
+        nexus_abi::device_tree::map_read_only(nexus_service_topology::slots::gpud::DEVICE_TREE)?;
+    let chosen = nexus_fdt::Fdt::new(tree).ok()?.chosen().ok()?;
+    nexus_display_proto::parse_display_request(chosen.nexus_str("display-mode")?.as_bytes())
 }
 
-/// `gpud: display info WxH` — the resolved visible mode (alloc-free: gpud's
-/// stack-buffer marker pattern, the heap never sees boot markers).
+/// The VISIBLE mode gpud commands onto the scanout and grants to windowd. Names a request the
+/// device disagrees with and the candidate the policy took.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(super) fn resolve(request: Option<(u32, u32)>, device: Option<(u32, u32)>) -> (u32, u32) {
+    if let (Some((rw, rh)), Some((dw, dh))) = (request, device) {
+        if (rw, rh) != (dw, dh) {
+            let mut line = Line::new();
+            line.text(b"gpud: FAIL display mode ").mode(rw, rh);
+            line.text(b" vs device ").mode(dw, dh).emit();
+        }
+    }
+    let (mode, source) = nexus_display_proto::resolve_display_mode_sourced(
+        request,
+        device,
+        nexus_display_proto::LAYOUT_MAX,
+    );
+    let mut line = Line::new();
+    line.text(b"gpud: display mode ").mode(mode.0, mode.1);
+    line.text(b" (").text(source.label().as_bytes()).text(b")").emit();
+    mode
+}
+
+/// `gpud: display info WxH` — the device's advertised capability (diagnostic).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(super) fn emit_display_info_marker(w: u32, h: u32) {
-    fn put(buf: &mut [u8; 40], p: &mut usize, s: &[u8]) {
-        for &b in s {
-            if *p < buf.len() {
-                buf[*p] = b;
-                *p += 1;
-            }
-        }
-    }
-    fn put_dec(buf: &mut [u8; 40], p: &mut usize, mut v: u32) {
-        let mut tmp = [0u8; 10];
-        let mut n = 0;
-        loop {
-            tmp[n] = b'0' + (v % 10) as u8;
-            v /= 10;
-            n += 1;
-            if v == 0 {
-                break;
-            }
-        }
-        while n > 0 {
-            n -= 1;
-            put(buf, p, &tmp[n..=n]);
-        }
-    }
-    let mut buf = [0u8; 40];
-    let mut p = 0usize;
-    put(&mut buf, &mut p, b"gpud: display info ");
-    put_dec(&mut buf, &mut p, w);
-    put(&mut buf, &mut p, b"x");
-    put_dec(&mut buf, &mut p, h);
-    let _ = nexus_abi::trace_line(core::str::from_utf8(&buf[..p]).unwrap_or("gpud: display info"));
+    Line::new().text(b"gpud: display info ").mode(w, h).emit();
 }
 
-/// `gpud: FAIL display mode <cfg> vs device <cap>` (RFC-0093 §5) — the device advertises a
-/// mode other than the configured one. The configured mode still wins (it is kernel-derived
-/// and race-free, which is the whole point of RFC-0074), but the disagreement is EVIDENCE:
-/// the GTK-window race that made a device report the un-realized default used to be invisible.
-/// Alloc-free, same stack-buffer pattern as the info marker.
+/// A bounded stack line, emitted with one `trace_line` (one atomic console line).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-fn emit_mode_mismatch(cfg_w: u32, cfg_h: u32, dev_w: u32, dev_h: u32) {
-    fn put(buf: &mut [u8; 72], p: &mut usize, s: &[u8]) {
+struct Line {
+    buf: [u8; 72],
+    len: usize,
+}
+
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+impl Line {
+    const fn new() -> Self {
+        Self { buf: [0; 72], len: 0 }
+    }
+
+    fn text(&mut self, s: &[u8]) -> &mut Self {
         for &b in s {
-            if *p < buf.len() {
-                buf[*p] = b;
-                *p += 1;
+            if self.len < self.buf.len() {
+                self.buf[self.len] = b;
+                self.len += 1;
             }
         }
+        self
     }
-    fn put_dec(buf: &mut [u8; 72], p: &mut usize, mut v: u32) {
+
+    fn dec(&mut self, mut v: u32) -> &mut Self {
         let mut tmp = [0u8; 10];
         let mut n = 0;
         loop {
@@ -90,20 +92,18 @@ fn emit_mode_mismatch(cfg_w: u32, cfg_h: u32, dev_w: u32, dev_h: u32) {
         }
         while n > 0 {
             n -= 1;
-            put(buf, p, &tmp[n..=n]);
+            let digit = [tmp[n]];
+            self.text(&digit);
         }
+        self
     }
-    let mut buf = [0u8; 72];
-    let mut p = 0usize;
-    put(&mut buf, &mut p, b"gpud: FAIL display mode ");
-    put_dec(&mut buf, &mut p, cfg_w);
-    put(&mut buf, &mut p, b"x");
-    put_dec(&mut buf, &mut p, cfg_h);
-    put(&mut buf, &mut p, b" vs device ");
-    put_dec(&mut buf, &mut p, dev_w);
-    put(&mut buf, &mut p, b"x");
-    put_dec(&mut buf, &mut p, dev_h);
-    let _ = nexus_abi::trace_line(
-        core::str::from_utf8(&buf[..p]).unwrap_or("gpud: FAIL display mode mismatch"),
-    );
+
+    fn mode(&mut self, w: u32, h: u32) -> &mut Self {
+        self.dec(w).text(b"x").dec(h)
+    }
+
+    fn emit(&self) {
+        let _ =
+            nexus_abi::trace_line(core::str::from_utf8(&self.buf[..self.len]).unwrap_or("gpud"));
+    }
 }

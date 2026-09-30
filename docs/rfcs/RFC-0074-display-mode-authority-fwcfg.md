@@ -1,6 +1,10 @@
 # RFC-0074: Display-mode authority — compositor owns the mode, sourced from fw_cfg
 
-- Status: Draft
+- Status: Superseded in its authority statement (2026-09-30) by RFC-0098 C7 — the display mode
+  is gpud's (it reads the lane's request from its own tree slot, applies the one policy and
+  grants the mode with the framebuffer it owns, RFC-0093 §5 v3); the kernel relay (syscall 50)
+  is deleted. What stays from here: the request is race-free and wins over a device report;
+  fw_cfg is the lane's transport of that request to nxboot. Originally: Draft
 - Owners: @runtime / @kernel-team
 - Created: 2026-07-20
 - Last Updated: 2026-07-20

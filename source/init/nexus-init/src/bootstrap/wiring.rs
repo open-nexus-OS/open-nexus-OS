@@ -238,6 +238,7 @@ pub(crate) fn wire_services(
                     // legs (their slot numbers are a boot contract).
                     provision_inputd_imed_route(pid, eps, chan);
                     provision_inputd_settings_watch(pid, eps, chan);
+                    provision_inputd_reply_inbox(pid, chan);
                     continue;
                 }
                 let in_slots =
@@ -266,6 +267,7 @@ pub(crate) fn wire_services(
                 // their slot numbers are a boot contract).
                 provision_inputd_imed_route(pid, eps, chan);
                 provision_inputd_settings_watch(pid, eps, chan);
+                provision_inputd_reply_inbox(pid, chan);
                 if iw(init_wire, init_fold, "init:inputd") {
                     debug_write_bytes(b"init: inputd slots recv=0x");
                     debug_write_hex(recv_slot as usize);

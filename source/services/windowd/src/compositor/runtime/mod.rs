@@ -42,7 +42,6 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 // these local names just re-source its values (no more hand-mirroring gpud).
 // (Both ops are consumed by the allow-annotated GPU animation/handoff paths.)
 const GPU_ANIMATION_SUBMIT_OP: u8 = nexus_display_proto::OP_SUBMIT_ANIMATION_FRAME;
-const GPU_SET_FRAMEBUFFER_VMO_OP: u8 = nexus_display_proto::OP_SET_FRAMEBUFFER_VMO;
 const GPU_MOVE_CURSOR_OP: u8 = nexus_display_proto::OP_MOVE_CURSOR;
 const GPU_UPLOAD_CURSOR_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
 const GPU_SET_LAYER_SCROLL_OP: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
@@ -696,8 +695,8 @@ fn alloc_band_or_log(
 }
 
 impl DisplayServerRuntime {
-    /// Boot entry: the VISIBLE mode from the ONE source (`boot_display_mode`, RFC-0093 §5),
-    /// clamped to the fixed shared-VMO layout; `mode.stride` stays the fixed layout pitch.
+    /// Boot entry: the VISIBLE mode gpud granted (RFC-0098 C7), inside the fixed shared-VMO
+    /// layout; `mode.stride` stays the fixed layout pitch.
     pub(crate) fn new_with_mode(visible_w: u32, visible_h: u32) -> Result<Self, WindowdError> {
         let _ = debug_println(RUNTIME_INIT_START);
         // Runtime text (TASK-0070 Phase 6): dynamic text renders from the baked
