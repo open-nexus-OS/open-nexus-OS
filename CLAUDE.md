@@ -154,3 +154,6 @@ English; prefer modular files (~600 LOC) over monoliths.
 - `docs/testing/README.md` — test layers, QEMU profiles, marker ladder
 - `docs/standards/` — Rust/build/security/documentation standards
 - `.claude/skills/` — code-quality + architecture-review (design gate) + boot-proof + verify workflows
+- `.claude/skills/driver-bringup/` — driver / board / SoC-block bring-up playbook: measure on the
+  stock system → hypotheses with a decision criterion → gate → code → gate → sharpen (recipes,
+  gate library, traps, ledger template)

@@ -1,0 +1,77 @@
+# Traps (each with date and reference)
+
+Every trap below cost at least one board cycle. Read them before the first cycle of a new
+driver; add a new one the day it is won, with its reference, never from memory.
+
+## QEMU hides what the board shows
+
+- **Timer re-arm through the wrong path** (2026-09-28, `source/kernel/neuron/src/hal/platform.rs`
+  `arm_timer_ticks`, CHANGELOG "Fixed - 2026-09-28"): the tick was armed through `stimecmp`
+  but re-armed through SBI in the trap handler; QEMU's firmware folds the two, the board's does
+  not — the kernel stopped 16–20 ms after init's spawn with no message. Found with the LED
+  ladder and `sip` stamps, not with markers.
+- **A QEMU literal as a bound** (2026-09-28, `hal/plic.rs` `MAX_IRQ`): 95 was QEMU virt's source
+  count; the board's storage host is IRQ 101 of 159. Bounds come from the tree (`plic_ndev()`).
+- **Sub-page device bases** (2026-09-28, `source/init/nexus-init/src/bootstrap/device_tree.rs`
+  `window_of`): init refused a block whose registers start inside a page (the APMU at
+  0xd4282800); a window is the pages the registers touch plus an in-page offset.
+- **No `sfence.vma` after a PTE change** (2026-09-28, `mm/vm_ops.rs` `fence_asid`): QEMU's TLB
+  forgave it; the board's first store into a DMA table faulted.
+- **Console tearing across harts** (2026-09-29, `hal/console_line.rs`, `console_line.rs`,
+  `docs/board/measurements/2026-09-29-platform-stage/`): the kernel's lock-free trap/fault
+  printers interleaved with a service's marker BYTE by byte on four real harts; every grep in
+  every proof lane read "missing". Each hart's line now leaves as one unit.
+- **MTTCG is not a board either**: `ci-os-smp` (two harts, MTTCG) has been red on
+  `KSELFTEST: ipc call budget FAIL` since at least 2026-09-23 on every attempt and is NOT in
+  `test-all` (only `ci-os-smp1` is) — it is a tearing witness, not a gate
+  (`docs/board/measurements/2026-09-29-platform-stage/README.md` §Proof).
+
+## Reading the evidence wrong
+
+- **"Missing" may mean "torn"** (2026-09-29, same folder): before assuming a lost IPC frame,
+  search the transcript with a regex that allows one stray character between letters. The
+  instrumented witnesses (`init: ctrl frame unknown`, `init: ctrl recv err`) fired nothing;
+  the de-interleaved grep found every line.
+- **The loader loop that would not come back** (2026-09-29,
+  `docs/board/measurements/2026-09-29-emmc-after-linux/`): two cycles reproduced a
+  `verify FAIL … nxbd` loop after the stock kernel, two later cycles with the same steps did
+  not; the instrument (`nxboot: disk sdhci mode=`, the `nxbd-<why> head= reread=` verdict)
+  stays and the fix waits for a trace — do not "fix" what the trace has not shown.
+- **DRAM retention is a coin the reset flips** (2026-09-28, `2026-09-28-dram-retention/`):
+  three cold cycles lost the console ring, one warm cycle kept it with bit errors — a rescue is
+  a witness on this board, the trace on the disk is the proof.
+
+## The stock system is not a lab bench
+
+- **`dd if=/dev/mem` faults on MMIO; byte-wise mmap reads answer `0xffffffff`** (2026-09-29,
+  `2026-09-29-display-regs/README.md` §Instrument): 32-bit loads through `ctypes` on the
+  mmap.
+- **`fb0/blank` is a layer blank, not a power-down** (2026-09-29, same README): 17 controller
+  words and one APMU bit moved; the encoder and its clock stayed on.
+- **Unbinding the vendor display driver oopses it** (2026-09-29,
+  `2026-09-29-display-regs/oops-pinctrl-dram-fb.txt`): the system survives, the pipeline
+  stays up, the domain's power-down protocol is not observable that way — nor by unplugging
+  the cable (2026-09-30: only the HPD bit moves).
+- **Pulling the microSD kills the stock system** (2026-09-29, `2026-09-29-emmc-after-linux/`):
+  its root filesystem is on the card; `adb reboot` is not available, the reset button is the
+  reboot.
+
+## Our own assumptions
+
+- **"No knobs in `/chosen`" is not "a board"** (2026-09-29, CHANGELOG "Fixed - 2026-09-29",
+  `source/apps/selftest-client/src/os_lite/boot_cfg.rs` `Machine`): on QEMU an absent
+  `nexus,boot-mode` IS the proof boot (RFC-0098 C2); the `smp1` lane ran the board ladder
+  for one afternoon. The machine is decided by the tree's root `compatible`.
+- **A profile name is a ladder key** (2026-09-30, `scripts/qemu-test.sh` `case "$PROFILE"`,
+  CHANGELOG "Changed - 2026-09-30"): a new profile not in the list falls into the `full`
+  ladder and is red on markers it never emits; and `visible` had skipped `verify-uart`
+  entirely until its profile extended `headless`.
+- **A layout constant has derivatives** (2026-09-30, `source/libs/nexus-display-proto/src/layout.rs`):
+  the maximum lived in one place, its rows, offsets, strides and the surface ceiling in
+  twelve; `mode.stride` must stay the layout pitch (`source/services/windowd/src/smoke.rs`
+  `for_visible`) or the first frame write panics on the band buffer.
+- **The board never drops a power domain while it runs**: the stock kernel keeps the display
+  domain up; D3 measures the domain protocol on our chain, one write at a time.
+- **Board cycles are slow and not free**: a cycle is flash → LED ladder → microSD → reset →
+  `just board-log`; a USB-UART adapter would shorten every cycle more than any script
+  (plan note 2026-09-29). Batch hypotheses so one cycle decides several.

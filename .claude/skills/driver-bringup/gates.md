@@ -1,0 +1,29 @@
+# Gate library (with provenance)
+
+A gate is a check that exists because a measurement showed the failure it catches. Each
+entry: what it proves, where it came from, and when it may be changed. "Adjust" means
+sharpen or drop — never widen to make a red run green (CLAUDE.md `no-fake-green`).
+
+| Gate | Where | Proves | Won on | May change when |
+|---|---|---|---|---|
+| Board proof lane, presence ladder | `scripts/board-test.sh` (`ladder_headless`, `ladder_visible`), `just board-test`, `just board-lane` under `NEXUS_BOARD=1` | the board's transcript holds every REQUIRED rung of the profile; no loader banner = FAIL; the ladder is judged by PRESENCE as `qemu-test.sh` judges its `expected_sequence` (rungs come from independent services on four harts; their order differs per boot — measured on two captures 2026-09-29) | TASK-0327B P4 H0c, 2026-09-29; its first live run found `stage: platform` missing (console tearing, H0d) | a rung is added when a new driver has a marker behind real behavior; a rung is removed only with the retired-name gate holding its literal |
+| Board's tolerated reds | `config/fail-marker-allow-board.txt` (read by `board-test.sh` after `config/fail-marker-allow.txt`) | a FAIL marker that is green on QEMU and red on the board is TRACKED, with the ledger reference on its line — never a hiding place | entropy family (7 markers, no TRNG driver) 2026-09-29; `SELFTEST: walltime rtc FAIL` (no RTC driver), whole for the first time once the console was line-atomic 2026-09-29 | a line is removed the day the driver lands; a line is never added without the reference |
+| Operator-acked markers | `scripts/board-ack.sh`, `board-visual: <name>` declared in `markers/board.toml` | a person at the monitor confirmed THIS boot (`desktop`, `typed`) — asked for, never assumed | H0c 2026-09-29; the Block 1 / Block 2 gates of `tasks/IMPLEMENTATION-ORDER.md` | a new name is declared before it is asked |
+| Trace contract, ring = UART | `scripts/qemu-test.sh` (`[PASS] trace contract` / `trace contract (os)`) | the loader's lines and the kernel's console bytes kept on the boot disk are byte-equal to the UART transcript — the medium the board is read through is proven on every QEMU lane | RFC-0107 P1/P2 2026-09-27/28; kept true through the line-atomic console 2026-09-30 (each hart's line enters ring and UART as one unit) | never loosened; a lane whose disk is not the image sets `TRACE_CONTRACT=0` explicitly |
+| Retired names | `scripts/check-retired-names.sh` (in `just check`), ADR-0067 | a name that was retired (a syscall, a service, a marker vocabulary) does not return in the living tree; history stays in tasks/, CHANGELOG, docs | TASK-0246 P4a | the table only grows; an entry is removed only when the name is deliberately reintroduced by an ADR |
+| Module-size ratchet | `scripts/check-structure.sh` / `just structure-gate`, `config/loc-baseline.txt` | no `.rs` file above ~600 LOC unless grandfathered; a grandfathered file may shrink, never grow | every package; `virgl3d.rs` split into `virgl3d_blur.rs` (M-L, 2026-09-30), `selftest/init_image.rs` split (2026-09-29) | a baseline entry only goes down; a split is the answer to "it grew" |
+| CI parity | `scripts/check-ci-parity.sh` / `just ci-parity` | every workflow recipe is reachable from `just test-all` — a lane nobody runs is not a gate | repo hygiene 2026-08 | a new lane is added to `test-all` in the same package (`ci-os-visible-fhd`, 2026-09-30) |
+| Board tree goldens | `scripts/check-board-goldens.sh` / `just board-goldens` | the compiled board tree is byte-equal to its golden; a tree change is a deliberate, reviewed diff | TASK-0245/0260 | regenerate the golden with the tree change, in the same commit |
+| Surprise / forbidden markers | `nexus-proof-manifest verify-uart --profile=<p>` (in `qemu-test.sh` and `board-test.sh`) | every line that looks like a marker is declared for the profile chain; forbidden ones are absent. Expectations only suppress surprise — the REQUIRED set lives in the harness | manifest P4; `visible` was skipped until 2026-09-30 (its profile now extends `headless` and is judged) | a marker is declared with its phase and what it proves; a profile's `extends` names the ladder it really runs |
+| Slot SSOT / platform literals / fixed windows | `scripts/check-slot-ssot.sh`, `check-no-platform-literals.sh`, `check-no-fixed-windows.sh` (in `just check`) | a driver takes slots from the topology declaration and windows from the tree — no literal address or slot in a service | TASK-0324; `hal::plic::MAX_IRQ = 95` (a QEMU literal) rejected the board's storage IRQ 101 until 2026-09-28 — the kind of literal these gates exist for | never |
+
+## Designing a new gate for a driver
+
+1. Name the behavior, then the marker: `<svc>: <thing> ok (<measured value>)` — the value
+   in the line is what the measurement predicted (`blkd: backend ok (spacemit,k1-sdhci
+   hs400es bus=8 sectors=…)`, `gpud: dc scanout ok (1920x1080@60 edid)`).
+2. Declare it (`markers/*.toml`, phase + `proves`), REQUIRE it in the lane's ladder, and —
+   if it can fail — declare its `FAIL` form too; a FAIL form on the board without a driver
+   gets its allow-list line with the reference.
+3. Show it red once: boot the version before the fix, or inject the failure, and archive
+   that transcript next to the green one.
