@@ -3,7 +3,7 @@
 - Status: Draft (seeded 2026-09-22 at TASK-0245B P0)
 - Owners: @runtime @kernel-team
 - Created: 2026-09-22
-- Last Updated: 2026-09-26
+- Last Updated: 2026-09-30
 - Links:
   - Tasks: `tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md` (execution + proof); consumers `tasks/TASK-0246-*` (SDHCI), `TASK-0251-*` (DPU/HDMI), `TASK-0328-*` (USB), `TASK-0329-*` (GPU), `TASK-0248-*` (GMAC)
   - Related RFCs: `docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md` (C3: the tree is the truth; this RFC is its SoC-glue arm), `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (grant model; new class `device.mmio.syscon`), `docs/rfcs/RFC-0093-*` (service topology / declared slots)
@@ -14,7 +14,7 @@
 - **Phase 0 (paper + measurement, the table with provenance)**: ✅ 2026-09-22 — TASK-0245B P0
 - **Phase 1 (`nexus-soc` library, tree bindings, specifier resolution)**: ✅ 2026-09-22 — TASK-0245B P1 (host-proven against the measured APMU state)
 - **Phase 2 (`socd`, protocol, policy class, init grants, first consumer)**: 🟨 — socd + protocol + policy + init grants ✅ 2026-09-22 (TASK-0245B P2, QEMU: `socd: ready (no soc glue in this tree)`, `SELFTEST: soc glue not needed ok` in every profile); TASK-0246 P4c (2026-09-25): socd runs in the core plane on declared slots (no route ask — it serves before init's responder does), the block owner asks it through the shared client `nexus_ipc::socd` to bring the disk's node up before touching the controller and, on the K1, for the `io` clock's rate (QEMU: `blkd: backend ok (… soc=not-needed …)` in every boot); the board's eMMC is the first `ok` (TASK-0246 P6). TASK-0246B P2 (2026-09-26): the two node operations live in `nexus-soc` once — `bring_up` (plan, then execute; an empty plan is `NotNeeded`) and `clock_rate` — and `socd` answers with them; the loader runs them for its boot disk before any service exists (the loader clause below). Open: the per-class floor below (`soc.glue.<class>`) is still the one `soc.glue` capability
-- **Phase 3 (power domains, display/USB/GPU sets)**: ⬜ — TASK-0245B P3 with TASK-0251/0328/0329
+- **Phase 3 (power domains, display/USB/GPU sets)**: 🟨 — display set ✅ 2026-09-30 on the board (TASK-0245B P3): power domain 7 hardware-sequenced from the stock system's own tree (`docs/board/measurements/2026-09-30-power-domains/`), `hmclk` at the rate the node demands (`assigned-clock-rates`), the display node trimmed to what the pipeline uses, socd's marker with every touched register's words — one board cycle decided the protocol (`0x3f4 0x0>0x11`, `0x0f0` bit 15, `0x1b8` to the stock word), `SELFTEST: soc glue display ok` is a `board-headless` rung; pads, the USB set and the GPU set with TASK-0251 P2b/0328/0329
 
 Definition: "Complete" = the contract below is implemented and the proof gates are green on
 QEMU and on the board.
@@ -82,15 +82,22 @@ clock-framework API (rates are read, not set, beyond what a node's binding deman
   `pinctrl-0`/`pinctrl-names` (mainline ids; the binding headers are BSD-2-Clause copies).
 - **Protocol `soc` v1** (nexus-wire, request/reply on `socd`'s server endpoint):
   - `OP_BRING_UP { node_path }` → `{ status, domain_on, resets_released, clocks_on, pads_set }`;
-    order: power domain → resets deassert → clocks enable (mux/div per binding, FC poll) →
-    pads; `status ∈ { Ok, NotNeeded, Denied, NoSuchNode, Failed{step, reg, value} }`.
+    order: power domain → resets deassert → clocks enable → the rates the node demands
+    (the standard `assigned-clocks` / `assigned-clock-rates`: met exactly by one parent and
+    one divider or refused, FC poll; after the gates, so the switch happens on a running
+    clock of an idle consumer) → pads; `status ∈ { Ok, NotNeeded, Denied, NoSuchNode,
+    Failed{step, reg, value} }`.
   - `OP_CLOCK_RATE { node_path, clock_name }` → `{ hz }` computed from the table's parent tree
     and the mux/div fields read back; PLL rates from the locked PLL descriptors.
 - **Client** `nexus_soc::client::bring_up(node_path)` / `clock_rate(node_path, name)`; a driver
   calls `bring_up` before its first register access and treats `NotNeeded` as success.
 - **Markers**: `socd: ready (providers=N)` | `socd: ready (no soc glue in this tree)`;
-  `socd: bring-up <node> ok (domain=… resets=… clocks=… pads=…)`; `socd: bring-up <node> FAIL
-  (step=… reg=0x… val=0x…)`; selftest `SELFTEST: soc glue not needed ok` on QEMU.
+  `socd: bring-up <node> ok (domains=… resets=… clocks=… rates=… writes=…)`; `socd: bring-up
+  <node> FAIL (step=read-back|frequency-change|domain|range reg=<window>+0x… val=0x…)`, `FAIL
+  (refused: <why>)`, `FAIL (denied)`, `FAIL (no such node)`; both `ok` and `FAIL (step=…)` end
+  with every register the bring-up touched as `<window>+0x<offset>:0x<before>>0x<after>`
+  (one console line; words that do not fit are counted, never cut); selftest `SELFTEST: soc
+  glue not needed ok` on QEMU.
 - **The node operations** (`nexus_soc::bring_up`, `nexus_soc::clock_rate`; TASK-0246B P2) are
   the one definition of "up" and of "the rate": `socd` answers `OP_BRING_UP` and
   `OP_CLOCK_RATE` with them, and nothing else re-derives them.
@@ -108,9 +115,14 @@ clock-framework API (rates are read, not set, beyond what a node's binding deman
 Gates: set the bit to enable. APMU resets: the bit SET means released (deassert = set).
 APBC/APBC2 resets: bit 2 SET asserts. Mux/div changes: write the fields, set the
 frequency-change bit, poll until it clears. Pads: one 32-bit register per pad at `pad * 4`
-(mux bits 0..2, pull/drive/schmitt/slew fields). Power domains: undocumented in mainline —
-Phase 3 measures before the first write. The complete table with offsets, bits and the
-stock values is TASK-0245B's "Register truth".
+(mux bits 0..2, pull/drive/schmitt/slew fields). Power domains: undocumented in mainline;
+the stock system's own tree describes each domain's control word (mode, request, two sleep
+bits, isolation) and its status bits, the live APMU names the status word (Phase 3,
+`docs/board/measurements/2026-09-30-power-domains/`). A hardware-sequenced domain comes up
+when its mode bit is set with the request low and the request is then raised; its status bit
+is polled with a bound; a domain already on is left alone. A software-sequenced domain (the
+driver walks isolation and the sleep bits) is refused until its consumer measures it. The
+complete table with offsets, bits and the stock values is TASK-0245B's "Register truth".
 
 ## Alternatives considered
 

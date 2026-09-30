@@ -31,8 +31,9 @@ HDMI pipeline runs on one clock, the five DSI clocks are off — that trimmed th
 diff it against a changed state. Ways to change state, honest about what they are:
 `fb0/blank` disables the layer only (nothing else moves — measured); a cable unplug flips
 the HPD bit only (measured 2026-09-30); a driver unbind may oops the vendor driver (it did,
-`2026-09-29-display-regs/oops-pinctrl-dram-fb.txt`) — so the domain's own on/off protocol
-is measured on OUR chain, one write at a time with read-back and a capped poll (D3).
+`2026-09-29-display-regs/oops-pinctrl-dram-fb.txt`) — so a transition the stock system never
+makes is judged on OUR chain, with the words of every register before and after (socd's
+bring-up marker, D3). Its register map usually needs no cycle at all: recipe 3b.
 
 ## 3. The tree: nodes, phandles, ranges
 
@@ -42,6 +43,27 @@ memory-region → the reserved pool, interconnect → the DRAM range with its `d
 pinctrl → the pad group with mux values). The `dma-ranges` of the bus node translate CPU
 addresses to bus addresses — the framebuffer's bus address was CPU − 0x8000_0000, which
 decided that the scanout buffer may live in bank 0.
+
+## 3b. The stock tree from the pinned archive — no board cycle (`2026-09-30-power-domains/`)
+
+The vendor's own tree often states what its driver does with a register: the power
+controller lists every domain's control word, its mode/request/sleep/isolation bits and its
+status bits. The pinned vendor archive (`resources/board/<board>/PROVENANCE.md`, cached by
+`scripts/fetch-board-inputs.sh`) carries the boot partition; read the board variant's tree
+without mounting and without root:
+
+```
+python3 -c "import zipfile,shutil,sys; z=zipfile.ZipFile(sys.argv[1]); \
+  shutil.copyfileobj(z.open('bootfs.ext4'), open('bootfs.ext4','wb'))" <archive>.zip
+debugfs -R "ls -l /<dtb dir>" bootfs.ext4
+debugfs -R "dump /<dtb dir>/<variant>.dtb v.dtb" bootfs.ext4 && dtc -I dtb -O dts v.dtb
+```
+
+Prove it is the tree the stock system ran before trusting it: its `model` and a phandle
+read live must match (`power-domains = <0x20 7>` live, phandle `0x20` = the power controller
+in the file). Then check the tree's claims against the live words — the tree named the
+status BITS but not the status REGISTER; the one APMU word whose bits matched all seven
+switchable domains' states named it. Transcribe facts into a table; copy no tree text.
 
 ## 4. Display: DRM state and EDID
 

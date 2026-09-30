@@ -17,6 +17,18 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
+    /// The short name markers use for the window (`apmu+0x3f4`).
+    pub const fn name(self) -> &'static str {
+        match self {
+            ProviderKind::Apbc => "apbc",
+            ProviderKind::Apmu => "apmu",
+            ProviderKind::Mpmu => "mpmu",
+            ProviderKind::Apbc2 => "apbc2",
+            ProviderKind::Pll => "pll",
+            ProviderKind::Pinctrl => "pinctrl",
+        }
+    }
+
     /// The kind of a node, from its compatible list.
     pub fn of(node: Node<'_>) -> Option<Self> {
         const KINDS: [(&str, ProviderKind); 6] = [
@@ -78,5 +90,17 @@ impl Providers {
     /// How many providers are known (0 = a tree without SoC glue, e.g. QEMU virt).
     pub fn count(&self) -> usize {
         self.slots.iter().flatten().count()
+    }
+
+    /// The window that holds `addr` and the offset inside it — the provider with the highest
+    /// base at or below `addr` (windows do not overlap, and every planned address is a base
+    /// plus a table offset). For naming a register in a marker, never for access.
+    pub fn locate(&self, addr: usize) -> Option<(ProviderKind, usize)> {
+        self.slots
+            .iter()
+            .flatten()
+            .filter(|p| p.base <= addr)
+            .max_by_key(|p| p.base)
+            .map(|p| (p.kind, addr - p.base))
     }
 }

@@ -522,12 +522,12 @@ fn test_reject_glue_the_tables_do_not_cover_or_that_does_not_read_back() {
     let fault = Fault::ReadBack { addr: APMU_BASE + 0x054, value: 0 };
     assert_eq!(sd_node::open_config(&board, emmc, &DeadBus), Err(Refusal::Glue(fault)));
     assert_eq!(Refusal::Glue(fault).name(), "soc glue failed");
-    // A node whose glue the tables do not cover is refused before any bus access (the HDMI
-    // encoder's power domain 7 stands in for such a host).
-    let hdmi = board.node_at_path("/soc/hdmi@c0400500").unwrap();
+    // A node whose glue the tables do not cover is refused before any bus access (the GPU's
+    // unmeasured power domain 2 stands in for such a host).
+    let gpu = board.node_at_path("/soc/multimedia-bus/gpu@cac00000").unwrap();
     let regs = Regs::default();
-    let refused = Err(Refusal::GlueUnsupported(PlanError::DomainUnsupported(7)));
-    assert_eq!(sd_node::open_config(&board, hdmi, &regs), refused);
+    let refused = Err(Refusal::GlueUnsupported(PlanError::DomainUnsupported(2)));
+    assert_eq!(sd_node::open_config(&board, gpu, &regs), refused);
     assert!(regs.writes.borrow().is_empty());
 }
 

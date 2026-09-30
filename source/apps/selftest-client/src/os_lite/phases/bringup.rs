@@ -173,6 +173,8 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     probes::rng::rng_entropy_selftest();
     // RFC-0106: the SoC glue owner answers NotNeeded on a tree without providers.
     probes::soc::soc_glue_selftest();
+    // TASK-0245B P3: on the board, the display set up through socd (domain 7, hmclk's rate).
+    probes::soc::soc_glue_display_selftest();
     probes::rng::rng_entropy_oversized_selftest();
     let device_pubkey = probes::device_key::device_key_selftest();
     // statefs (basic put/get/list + unauthorized access)

@@ -95,6 +95,12 @@ pub(crate) fn machine() -> Machine {
     }
 }
 
+/// The tree init pinned for us, parsed — the machine's own description (no path or address
+/// is hard-coded by a probe that reads it).
+pub(crate) fn tree() -> Option<nexus_fdt::Fdt<'static>> {
+    nexus_fdt::Fdt::new(tree_bytes()?).ok()
+}
+
 /// `/chosen/nexus,<name>` from the tree init pinned for us.
 fn chosen_str(name: &str) -> Option<&'static str> {
     let fdt = nexus_fdt::Fdt::new(tree_bytes()?).ok()?;

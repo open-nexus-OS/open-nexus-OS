@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! The provider tables: what a clock/reset id of a provider means in registers.
+//! The provider tables: what a clock, reset or power-domain id of a provider means in registers.
 //! Ids are the binding header's (`config/board/include/dt-bindings`); offsets and
 //! bits are transcribed facts (the mainline driver documentation, the board's
 //! measured state — see each table's provenance line). Never an address.
@@ -41,6 +41,47 @@ pub struct ClockEntry {
     pub fixed_parent_hz: u64,
 }
 
+impl ClockEntry {
+    /// The mux and divider field values that make exactly `hz`: the first parent in mux order
+    /// that a divider inside the field turns into `hz`, the smallest divider first. `None`
+    /// when the clock has no mux or divider, or when no parent reaches `hz` exactly — a rate
+    /// the tree demands is met exactly or refused, never rounded.
+    pub fn select(&self, hz: u64) -> Option<(u32, u32)> {
+        let (mux, div) = (self.mux?, self.div?);
+        let muxes = 1usize << mux.width.min(8);
+        let divs = 1u64 << div.width.min(8);
+        for (m, parent) in self.parents.iter().enumerate().take(muxes) {
+            for d in 0..divs {
+                let n = d + 1;
+                if parent.hz % n == 0 && parent.hz / n == hz {
+                    return Some((m as u32, d as u32));
+                }
+            }
+        }
+        None
+    }
+}
+
+/// One power domain of a provider: how it comes up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DomainEntry {
+    pub provider: ProviderKind,
+    pub id: u32,
+    pub name: &'static str,
+    pub on: DomainOn,
+}
+
+/// How a power domain comes up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DomainOn {
+    /// The SoC keeps it on: nothing to write.
+    Always,
+    /// Hardware-sequenced: `mode` in `ctrl` hands the domain to the power sequencer, a rising
+    /// `request` asks the sequencer to power it up, and `on` in `status` reports it up.
+    /// Offsets in the provider's window.
+    Sequenced { ctrl: u16, mode: u32, request: u32, status: u16, on: u32 },
+}
+
 /// One reset line of a provider: `mask` in `reg`; `assert_sets` = writing the
 /// bit asserts (APBC/APBC2), else writing the bit RELEASES (APMU).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,4 +113,9 @@ pub fn clock(provider: ProviderKind, id: u32) -> Option<&'static ClockEntry> {
 /// Look a reset up by provider and id.
 pub fn reset(provider: ProviderKind, id: u32) -> Option<&'static ResetEntry> {
     k1::RESETS.iter().find(|r| r.provider == provider && r.id == id)
+}
+
+/// Look a power domain up by provider and id.
+pub fn domain(provider: ProviderKind, id: u32) -> Option<&'static DomainEntry> {
+    k1::DOMAINS.iter().find(|d| d.provider == provider && d.id == id)
 }

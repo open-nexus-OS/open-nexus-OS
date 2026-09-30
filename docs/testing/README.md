@@ -200,7 +200,9 @@ built and flashed, the operator is prompted step by step with the user LED's lad
 signal, the boot trace is pulled from the eMMC by `just board-log` (no serial adapter needed),
 and the capture is judged three ways — `verify-uart` (surprise/forbidden lines, the board
 vocabulary in `proof-manifest/markers/board.toml`), the FAIL gate (`config/fail-marker-allow.txt`)
-and the REQUIRED ladder in the runner, in order. `board-visible` additionally asks the operator
+and the REQUIRED ladder in the runner, judged by presence like the QEMU harness (since
+2026-09-30 it includes the SoC glue's display rung `SELFTEST: soc glue display ok`: the display
+pipeline is powered and clocked on every board boot). `board-visible` additionally asks the operator
 for `board-visual: desktop`, appended with `just board-ack`. Nothing passes by timeout. Judge an
 archived capture without a board: `scripts/board-test.sh --profile=board-headless --log=<uart.log>`.
 In `just test-all` the lane runs only with `NEXUS_BOARD=1` (`just board-lane`); without it the

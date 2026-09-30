@@ -128,18 +128,7 @@ pub fn service_main_loop() -> Result<()> {
                 let (n, outcome) =
                     verdict::answer(frame, access, tree.as_ref(), &providers, &bus, &mut out);
                 if let Some((_, path)) = soc::decode_bring_up_req(frame) {
-                    match outcome.status {
-                        soc::STATUS_OK => emit(&format!(
-                            "socd: bring-up {} ok (domains={} resets={} clocks={})",
-                            path, outcome.domains, outcome.resets, outcome.clocks
-                        )),
-                        soc::STATUS_NOT_NEEDED => {
-                            emit(&format!("socd: bring-up {} not needed", path))
-                        }
-                        status => {
-                            emit(&format!("socd: bring-up {} FAIL (status={})", path, status))
-                        }
-                    }
+                    emit(verdict::bring_up_marker(path, &outcome).as_str());
                 }
                 let rsp = &out[..n];
                 if let Some(reply) = reply {

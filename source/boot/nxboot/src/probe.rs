@@ -26,7 +26,6 @@ use alloc::vec::Vec;
 use nexus_fdt::{Fdt, Node};
 use nexus_hal::Bus;
 use nexus_pci::{Ecam, PciHost};
-use nexus_soc::Fault;
 use nxboot::disk::node::{self, Refusal};
 use nxboot::disk::{self, sdhci::SdhciDisk, Skip};
 use storage::boot_disk::{self as record, Kind, Place, CLASS_SD_HOST, MAX_RECORD};
@@ -264,10 +263,8 @@ fn record_of<'b>(candidate: &Candidate, out: &'b mut [u8]) -> Option<&'b str> {
 /// The register and the value a failed glue step read, next to the skip line that names it —
 /// the words of `socd`'s own failure marker (RFC-0106), so one search finds both stages.
 fn glue_fault_line(node: &Node<'static>, why: Refusal) {
-    let Refusal::Glue(Fault::ReadBack { addr, value } | Fault::FcStuck { addr, value }) = why
-    else {
-        return;
-    };
+    let Refusal::Glue(fault) = why else { return };
+    let Some((addr, value)) = fault.register() else { return };
     let mut buf = [0u8; MAX_RECORD];
     let path = record::record_for_node(node, &mut buf).unwrap_or("?");
     arch::uart_puts(&format!("nxboot: bring-up {path} FAIL (reg=0x{addr:x} val=0x{value:x})\n"));

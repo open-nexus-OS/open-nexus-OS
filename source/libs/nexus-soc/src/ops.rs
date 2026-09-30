@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The executor: steps over a `Bus`, every write read back, every self-clearing
-//! bit polled with a bound. A step already satisfied writes nothing — the
-//! stock state of the board is the first proof (`tests/k1.rs`).
+//! bit and every power domain's status polled with a bound. A step already
+//! satisfied writes nothing — the stock state of the board is the first proof
+//! (`tests/k1.rs`).
 
 use nexus_hal::Bus;
 
@@ -15,6 +16,11 @@ use crate::table::ClockEntry;
 /// no clock; `socd` bounds the wall-clock around it).
 pub const FC_POLL_READS: usize = 1000;
 
+/// Bound on polling a power domain's status (bus reads): a power-up outlasts a clock switch
+/// (the rail ramps before the sequencer lifts isolation); at a few hundred nanoseconds per
+/// APMU read this caps the wait at tens of milliseconds.
+pub const DOMAIN_POLL_READS: usize = 100_000;
+
 /// Why a step failed: the register and what it read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {
@@ -22,8 +28,32 @@ pub enum Fault {
     ReadBack { addr: usize, value: u32 },
     /// The frequency-change bit never cleared.
     FcStuck { addr: usize, value: u32 },
+    /// A power domain never reported on (`addr` = its status register, the word read last).
+    DomainStuck { addr: usize, value: u32 },
     /// A mux/div value outside the field.
     Range,
+}
+
+impl Fault {
+    /// The step kind that failed, for markers: `read-back`, `frequency-change`, `domain`, `range`.
+    pub fn step(&self) -> &'static str {
+        match self {
+            Fault::ReadBack { .. } => "read-back",
+            Fault::FcStuck { .. } => "frequency-change",
+            Fault::DomainStuck { .. } => "domain",
+            Fault::Range => "range",
+        }
+    }
+
+    /// The register and the word it read, when the fault has one.
+    pub fn register(&self) -> Option<(usize, u32)> {
+        match *self {
+            Fault::ReadBack { addr, value }
+            | Fault::FcStuck { addr, value }
+            | Fault::DomainStuck { addr, value } => Some((addr, value)),
+            Fault::Range => None,
+        }
+    }
 }
 
 /// What the executor did.
@@ -33,6 +63,7 @@ pub struct Report {
     pub writes: usize,
     pub resets_released: usize,
     pub clocks_on: usize,
+    pub rates_set: usize,
     pub domains: usize,
 }
 
@@ -64,10 +95,66 @@ impl<'b, B: Bus> Executor<'b, B> {
                     }
                     report.clocks_on += 1;
                 }
+                Step::SetRate { clock, window, mux, div } => {
+                    report.writes += self.set_rate(clock, window, mux, div)?;
+                    report.rates_set += 1;
+                }
                 Step::DomainAssumedOn { .. } => report.domains += 1,
+                Step::DomainOn { ctrl, mode, request, status, on, .. } => {
+                    report.writes += self.domain_on(ctrl, mode, request, status, on)?;
+                    report.domains += 1;
+                }
             }
         }
         Ok(report)
+    }
+
+    /// Bring a hardware-sequenced domain up; returns the writes it took. A domain that
+    /// already reports on is left alone. Else: the mode bit with the request low, then the
+    /// request raised — a rising request whatever state the control word was left in — and
+    /// the status polled with a bound.
+    fn domain_on(
+        &self,
+        ctrl: usize,
+        mode: u32,
+        request: u32,
+        status: usize,
+        on: u32,
+    ) -> Result<usize, Fault> {
+        if self.bus.read(status) & on == on {
+            return Ok(0);
+        }
+        let mut writes = 0;
+        if self.set_bits(ctrl, mode | request, mode)? {
+            writes += 1;
+        }
+        if self.set_bits(ctrl, request, request)? {
+            writes += 1;
+        }
+        for _ in 0..DOMAIN_POLL_READS {
+            if self.bus.read(status) & on == on {
+                return Ok(writes);
+            }
+        }
+        Err(Fault::DomainStuck { addr: status, value: self.bus.read(status) })
+    }
+
+    /// Make a clock run at the selected parent and divider; returns the writes it took. A
+    /// clock already there is left alone (no frequency change triggered).
+    fn set_rate(
+        &self,
+        clock: &ClockEntry,
+        window: usize,
+        mux: u32,
+        div: u32,
+    ) -> Result<usize, Fault> {
+        let (Some(mux_f), Some(div_f)) = (clock.mux, clock.div) else { return Err(Fault::Range) };
+        let word = self.bus.read(window + clock.reg as usize);
+        if mux_f.get(word) == mux && div_f.get(word) == div {
+            return Ok(0);
+        }
+        self.set_mux_div(clock, window, mux, div)?;
+        Ok(if clock.fc != 0 { 2 } else { 1 })
     }
 
     /// Make `mask` of the register at `addr` read `want`; true when a write was

@@ -89,6 +89,7 @@ ladder_headless=(
   "bundlemgrd: system volume verified ("
   "policyd: ready"
   "stage: platform"
+  "SELFTEST: soc glue display ok"
 )
 ladder_visible=(
   "${ladder_headless[@]}"

@@ -78,6 +78,23 @@ phase = "bringup"
 phase = "bringup"
 proves = "the system volume's bundle set verified from the boot disk before any bundle is served"
 
+[marker."SELFTEST: soc glue display ok"]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0245B P3 (D3): socd brought up every display node the tree names — power domain 7 reported on in its status word, hdmi_reset released, hmclk gated on at the 491.52 MHz the nodes demand; socd's own line carries every register it touched, before and after"
+
+[marker."SELFTEST: soc glue display FAIL (status=0x"]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+
+[marker."SELFTEST: soc glue display FAIL (no display node)"]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+
+[marker."SELFTEST: soc glue display FAIL (ipc)"]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+
 [marker."gpud: dc scanout ok ("]
 phase = "bringup"
 proves = "TASK-0251 (Block 1 gate): the display controller scans out the desktop at the mode EDID and the SoC's maximum agree on"

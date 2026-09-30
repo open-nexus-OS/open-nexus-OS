@@ -603,13 +603,15 @@
 				reg = <0x0 0xc0440000 0x0 0x2a000>;
 				interrupts = <139>, <138>;
 				interrupt-names = "online", "offline";
-				clocks = <&syscon_apmu CLK_DPU_MCLK>, <&syscon_apmu CLK_DPU_HCLK>,
-					 <&syscon_apmu CLK_DPU_ESC>, <&syscon_apmu CLK_DPU_BIT>,
-					 <&syscon_apmu CLK_DPU_PXCLK>;
-				clock-names = "mclk", "hclk", "esc", "bit", "px";
-				resets = <&syscon_apmu RESET_DPU_MCLK>, <&syscon_apmu RESET_DPU_HCLK>,
-					 <&syscon_apmu RESET_DPU_ESC>;
-				reset-names = "mclk", "hclk", "esc";
+				// The HDMI pipeline runs on hmclk alone — the five DSI clocks are off
+				// with the picture on — at the rate measured running (491.52 MHz,
+				// docs/board/measurements/2026-09-29-display-regs/).
+				clocks = <&syscon_apmu CLK_HDMI>;
+				clock-names = "hmclk";
+				assigned-clocks = <&syscon_apmu CLK_HDMI>;
+				assigned-clock-rates = <491520000>;
+				resets = <&syscon_apmu RESET_HDMI>;
+				reset-names = "hdmi_reset";
 				power-domains = <&syscon_apmu K1_PD_HDMI>;
 				status = "okay";
 			};
@@ -632,7 +634,10 @@
 			interrupts = <136>;
 			clocks = <&syscon_apmu CLK_HDMI>;
 			clock-names = "hmclk";
+			assigned-clocks = <&syscon_apmu CLK_HDMI>;
+			assigned-clock-rates = <491520000>;
 			resets = <&syscon_apmu RESET_HDMI>;
+			reset-names = "hdmi_reset";
 			power-domains = <&syscon_apmu K1_PD_HDMI>;
 			status = "okay";
 		};

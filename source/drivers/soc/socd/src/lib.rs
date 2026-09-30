@@ -13,11 +13,14 @@
 //! `verdict` is the pure part: request bytes + tree + windows → reply bytes, so
 //! the host tests drive the same code the service loop runs.
 //! OWNERS: @runtime @kernel-team
-//! STATUS: Functional (P2: bring-up + clock rate; pads and power domains follow P3)
+//! STATUS: Functional (P2: bring-up + clock rate; P3: the display set — power
+//!   domain 7, hmclk at its demanded rate — and the marker's register words; pads follow)
 //! API_STABILITY: Internal (the wire is `nexus_wire::soc`)
-//! TEST_COVERAGE: tests/contract.rs — NotNeeded on virt, the eMMC verdict over a
-//!   register file seeded from the measured board state, denied/no-such-node/
-//!   malformed replies; QEMU: `socd: ready (no soc glue in this tree)` +
+//! TEST_COVERAGE: tests/contract.rs — NotNeeded on virt, the eMMC and display
+//!   verdicts over a register file seeded from the measured board state, denied/
+//!   no-such-node/malformed/unmeasured-domain replies, the marker with every
+//!   register a bring-up touched before and after (a line too long counts what it
+//!   drops); QEMU: `socd: ready (no soc glue in this tree)` +
 //!   `SELFTEST: soc glue not needed ok`
 //! RFC: docs/rfcs/RFC-0106-soc-glue-one-owner-clocks-resets-power-pinmux.md
 

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-30 (TASK-0245B P3 display half: power domain 7 and hmclk's rate from the tree; socd shows every register it touched)
+
+- **Power domain 7 comes up through the SoC glue.** Its protocol was read from the stock
+  system's own tree (the power controller in the pinned vendor archive's boot partition) and
+  checked against the live APMU words (`docs/board/measurements/2026-09-30-power-domains/`):
+  hardware-sequenced, control `0x3f4` (mode bit 4, request bit 0), status `0x0f0` bit 15.
+  `nexus-soc` carries it as a table entry; the executor checks the status first (a domain
+  already on is left alone), else sets the mode with the request low, raises the request and
+  polls the status with a bound — a domain that never reports on is `Fault::DomainStuck` with
+  the status word. The GPU and VPU domains are software-sequenced and stay refused.
+- **A node's demanded rate is met exactly or refused.** The planner reads the standard
+  `assigned-clocks` / `assigned-clock-rates`, picks the parent and divider that make the rate
+  exactly (`PlanError::RateUnreachable` otherwise) and sets it after the gates; a clock
+  already there takes no frequency change.
+- **The display node names what the pipeline uses.** `hmclk` + `hdmi_reset` + domain 7, as
+  the stock tree does — the five DSI clocks and three DSI resets left the tree and the tables;
+  both display nodes demand `hmclk` at 491.52 MHz (the rate measured running). Golden
+  regenerated.
+- **socd's marker is the instrument.** `ok (domains= resets= clocks= rates= writes=)` or
+  `FAIL (step= reg=<window>+0x… val=0x…)` (RFC-0106), then every register the bring-up touched
+  with its word before and after — one board cycle decides the domain's sequence, the status
+  word, the rate and the unnamed bits of `0x1b8` (TASK-0251 P2).
+- **Proven on the board the same day** (one cycle, build dev-42cf): the selftest client asks
+  socd for every display node the tree names; the words show our chain finds domain 7 off,
+  `0x3f4 0x0>0x11`, `0x0f0 0x8>0x8008` (bit 15 alone), `0x1b8 0x1040304>0x1040321` (reset's
+  136.5 MHz to 491.52 MHz, the stock word exactly), the encoder after it `writes=0`, then
+  `SELFTEST: soc glue display ok` — a new rung of `board-headless`, red on the previous trace,
+  `[PASS]` here (`docs/board/measurements/2026-09-30-power-domains/`).
+- The bring-up skill gained the recipe (the stock tree from the pinned archive, no board
+  cycle).
+
 ### Changed - 2026-09-30 (TASK-0251 P1, TASK-0250 P1/P2: the display mode and the framebuffer are gpud's; the board display controller's host half)
 
 - **gpud is the display-mode authority (RFC-0098 C7).** It reads the lane's request

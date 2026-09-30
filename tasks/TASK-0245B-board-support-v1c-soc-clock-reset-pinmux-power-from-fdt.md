@@ -1,6 +1,6 @@
 ---
 title: TASK-0245B Board support v1c: `nexus-soc` + `socd` — clock gates, resets, pinmux and power domains from the FDT syscon nodes, ONE owner for every board driver
-status: In Progress (P0–P1 done, P2 built 2026-09-22 — socd, the soc protocol, policy and init grants; was "seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0245")
+status: In Progress (P0–P1 done, P2 built 2026-09-22 — socd, the soc protocol, policy and init grants; P3 display half ✅ 2026-09-30 on the board — power domain 7, hmclk at its demanded rate, the trimmed display node, socd's register words, `[PASS] board-headless` with the display rung; pads and the USB/GPU sets open; was "seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0245")
 owner: @runtime @kernel-team
 created: 2026-09-22
 updated: 2026-09-26
@@ -172,6 +172,46 @@ node up / this clock's rate".
   operations for its boot disk before any service exists (RFC-0106's loader clause).
 - **P3 — Power domains + the display/USB/GPU sets.** **Display half measured 2026-09-29 (D0, `docs/board/measurements/2026-09-29-display-regs/`):** the HDMI pipeline needs `hmclk` (syscon clock 0x98, 491.52 MHz from pll1_d5) + `hdmi_reset` (0x59) + power domain 7 — none of the five DSI clocks; the stock kernel never drops domain 7 while it runs (the unbind path oopses), so the domain's own on/off protocol is measured on our chain. Measurement recipe on the stock system,
   domains 2/7, HDMI DDC and USB pads; consumed by TASK-0251/0328/0329.
+  **Display half ✅ 2026-09-30 (D3, host-proven and proven on the board the same day):**
+  the domain's protocol came from the stock system's own tree — its power controller, in the
+  pinned vendor archive's boot partition — checked against the live APMU words
+  (`docs/board/measurements/2026-09-30-power-domains/`): domain 7 is hardware-sequenced, control
+  `0x3f4` (mode bit 4, request bit 0), status `0x0f0` bit 15 (the one APMU word whose bits match
+  all seven switchable domains' states); stock `0x3f4 = 0x11`, `0x0f0 = 0x8009`. `nexus-soc`:
+  `table::DomainEntry`/`DomainOn` (BUS always on, HDMI sequenced; GPU and VPU are
+  software-sequenced and stay refused until their consumers measure them), `Step::DomainOn`
+  (status first — a domain already on is left alone; else the mode bit with the request low,
+  the request raised, the status polled at most `DOMAIN_POLL_READS`; `Fault::DomainStuck`
+  names the status word), `Step::SetRate` from the standard `assigned-clocks` /
+  `assigned-clock-rates` (met exactly by a parent and a divider or refused —
+  `PlanError::RateUnreachable`; after the gates; a clock already there takes no frequency
+  change), `Plan::registers()`, `Providers::locate`. The five DSI clocks and three DSI resets
+  left the tables and the tree: the display controller names `hmclk` + `hdmi_reset` + domain 7,
+  as the stock tree does, and both display nodes demand `hmclk` at 491.52 MHz (golden
+  regenerated). `socd`'s marker is RFC-0106's: `ok (domains= resets= clocks= rates= writes=)`
+  or `FAIL (step= reg=<window>+0x… val=0x…)`, then every register the bring-up touched as
+  `<window>+0x<offset>:0x<before>>0x<after>` — the instrument that decides the domain's
+  sequence (H1), the status word (H2), the rate (H3) and `0x1b8`'s unnamed bits (H4) in ONE
+  board cycle. Proof, host: `nexus-soc` 20 tests (the display pipeline from the stock state
+  with no write; from cold the exact six writes — `0x3f4 = 0x10`, `0x11`, `0x1b8` reset, gate,
+  mux, frequency change; a request left raised but off gets a fresh edge;
+  `test_reject_a_domain_that_never_reports_on`, `test_reject_a_domain_without_a_measured_protocol`,
+  `test_reject_a_rate_no_parent_makes_exactly`), `socd` 10 (the display verdict, the marker's
+  words, a line too long counts the words it drops — red first, the count itself had fallen off
+  the line), `nexus-fdt` goldens, `nxboot` loader flow (the GPU's domain stands in for glue the
+  tables do not cover). Proof, board (build dev-42cf, one cycle,
+  `docs/board/measurements/2026-09-30-power-domains/board-boot-2026-09-30T17-14-32-display-glue.txt`):
+  the selftest client asks socd for every display node the tree names —
+  `socd: bring-up /soc/multimedia-bus/display@c0440000 ok (domains=1 resets=1 clocks=1 rates=1
+  writes=5) apmu+0x3f4:0x0>0x11 apmu+0xf0:0x8>0x8008 apmu+0x1b8:0x1040304>0x1040321`, the
+  encoder's bring-up after it `writes=0`, `SELFTEST: soc glue display ok`; `[PASS]
+  board-headless` with the new rung (red on the 2026-09-29 trace). H1–H4 decided in that one
+  cycle: the sequence works on our chain (the domain starts off), `0x0f0` bit 15 is the status
+  (the only bit that moved), the rate lands at 491.52 MHz from the reset's 136.5 MHz, and
+  `0x1b8`'s unnamed bits are its reset state — socd leaves the stock word exactly. `just
+  test-all` on the final tree: EXIT=0 (60 PASS, 0 FAIL). Pads stay
+  open: the encoder's DDC group (`hdmi_0_grp`) is measured, its pad-number mapping lands with
+  its consumer (TASK-0251 P2b).
 
 ## Constraints / invariants
 

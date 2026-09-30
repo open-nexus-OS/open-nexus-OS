@@ -89,7 +89,14 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
   `smp1`, `visible` (1280x800) and `visible-fhd` (1920x1080) lanes with the full chain and the
   pixel proof, `just test-all` EXIT=0 (60 PASS, 0 FAIL, 2026-09-30).
 - **P2 `dc` driver** — power/clock/reset, DDC + EDID, plane + mode + flush, IRQ; QEMU cannot
-  emulate this controller → host goldens (TASK-0250) + the board.
+  emulate this controller → host goldens (TASK-0250) + the board. Power/clock/reset is socd's
+  (TASK-0245B P3, built 2026-09-30): gpud asks for the controller's and the encoder's node;
+  socd powers domain 7, releases `hdmi_reset`, gates `hmclk` on at 491.52 MHz and prints every
+  register it touched before and after — proven on the board 2026-09-30 (D3's own cycle, the
+  board ladder's `SELFTEST: soc glue display ok` rung; `docs/board/measurements/2026-09-30-
+  power-domains/` H1–H4 decided), so P2 starts from a powered, clocked, released pipeline and
+  its first read is the controller's version word (`0x03001030` at offset 0). P2b needs the
+  encoder's DDC pads (`hdmi_0_grp`, measured) and their pad-number mapping in the table.
 - **P3 First picture** — on the board through the boot chain (TASK-0260B): markers + the
   operator ack; photo in the ledger. **Block 1 gate.**
 

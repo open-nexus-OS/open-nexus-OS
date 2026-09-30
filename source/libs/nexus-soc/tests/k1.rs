@@ -32,6 +32,9 @@ struct MockBus {
     /// Bits the hardware clears by itself once written (the FC bits): the mock
     /// clears them on write, as the SoC does after the switch.
     self_clearing: Vec<(usize, u32)>,
+    /// A power sequencer: once the control word at `.0` holds all of `.1`, the status word
+    /// at `.2` reports `.3` — the domain came up.
+    sequencer: Option<(usize, u32, usize, u32)>,
 }
 
 impl MockBus {
@@ -41,6 +44,7 @@ impl MockBus {
             writes: RefCell::new(Vec::new()),
             stuck_fc: None,
             self_clearing: Vec::new(),
+            sequencer: None,
         }
     }
 
@@ -78,6 +82,12 @@ impl Bus for MockBus {
             }
         }
         self.regs.borrow_mut().insert(addr, stored);
+        if let Some((ctrl, bits, status, on)) = self.sequencer {
+            if addr == ctrl && stored & bits == bits {
+                let now = self.read(status);
+                self.regs.borrow_mut().insert(status, now | on);
+            }
+        }
     }
 }
 
@@ -151,18 +161,138 @@ fn usb_and_ethernet_are_up_on_the_stock_board_too() {
     }
 }
 
+// ---- The display set (TASK-0245B P3): domain 7, hdmi_reset, hmclk at its demanded rate ----
+
+const DPU: &str = "/soc/multimedia-bus/display@c0440000";
+const HDMI: &str = "/soc/hdmi@c0400500";
+const HDMI_PWR_CTRL: usize = APMU_BASE + 0x3f4;
+const PWR_STATUS: usize = APMU_BASE + 0x0f0;
+const HDMI_CLK_RES: usize = APMU_BASE + 0x1b8;
+
+/// A cold register file whose power sequencer brings domain 7 up once its control word
+/// holds the mode bit and the request, and whose hmclk frequency-change bit clears itself.
+fn cold_with_sequencer() -> MockBus {
+    let mut bus = MockBus::cold();
+    bus.sequencer = Some((HDMI_PWR_CTRL, (1 << 4) | (1 << 0), PWR_STATUS, 1 << 15));
+    bus.self_clearing.push((HDMI_CLK_RES, 1 << 29));
+    bus
+}
+
 #[test]
-fn the_display_controller_is_off_on_the_stock_board_and_hdmi_is_on() {
+fn the_display_pipeline_names_what_the_stock_tree_names() {
+    let (fdt, providers) = board_providers();
+    for path in [DPU, HDMI] {
+        let p = plan(fdt.node_at_path(path).unwrap(), &providers).unwrap();
+        let steps: Vec<Step> = p.steps().copied().collect();
+        let hmclk = nexus_soc::table::clock(ProviderKind::Apmu, k1::CLK_HDMI).unwrap();
+        assert_eq!(
+            steps,
+            vec![
+                Step::DomainOn {
+                    id: k1::PD_HDMI,
+                    ctrl: HDMI_PWR_CTRL,
+                    mode: 1 << 4,
+                    request: 1 << 0,
+                    status: PWR_STATUS,
+                    on: 1 << 15
+                },
+                Step::ReleaseReset { addr: HDMI_CLK_RES, mask: 1 << 9, assert_sets: false },
+                Step::GateOn { addr: HDMI_CLK_RES, mask: 1 << 0 },
+                // 491.52 MHz = pll1_d5 (mux 1) / 1 (divider 0).
+                Step::SetRate { clock: hmclk, window: APMU_BASE, mux: 1, div: 0 },
+            ],
+            "{path}: domain 7, hdmi_reset, hmclk — none of the five DSI clocks"
+        );
+        let regs: Vec<usize> = p.registers().iter().collect();
+        assert_eq!(regs, vec![HDMI_PWR_CTRL, PWR_STATUS, HDMI_CLK_RES], "each register once");
+    }
+}
+
+#[test]
+fn the_display_pipeline_on_the_stock_board_is_up_without_a_write() {
     let (fdt, providers) = board_providers();
     let bus = MockBus::stock();
-    let hdmi = fdt.node_at_path("/soc/hdmi@c0400500").unwrap();
-    // HDMI lives in domain 7: the planner refuses until P3 measures the protocol.
-    assert_eq!(plan(hdmi, &providers), Err(PlanError::DomainUnsupported(7)));
-    let ex = Executor::new(&bus);
+    for path in [DPU, HDMI] {
+        let Ok(BringUp::Up(report)) = bring_up(fdt.node_at_path(path).unwrap(), &providers, &bus)
+        else {
+            panic!("{path} is up on the stock board")
+        };
+        let counts = (report.domains, report.resets_released, report.clocks_on, report.rates_set);
+        assert_eq!(counts, (1, 1, 1, 1));
+        assert_eq!(report.writes, 0, "{path}: the stock desktop is on HDMI: {:?}", bus.writes());
+    }
     let hmclk = nexus_soc::table::clock(ProviderKind::Apmu, k1::CLK_HDMI).unwrap();
-    assert!(ex.is_on(hmclk, APMU_BASE), "the stock desktop is on HDMI");
-    let dpu_hclk = nexus_soc::table::clock(ProviderKind::Apmu, k1::CLK_DPU_HCLK).unwrap();
-    assert!(!ex.is_on(dpu_hclk, APMU_BASE), "clk_summary: dpu_hclk off");
+    assert_eq!(Executor::new(&bus).rate(hmclk, APMU_BASE), 491_520_000);
+}
+
+#[test]
+fn the_display_pipeline_from_cold_raises_the_domain_request_then_sets_the_rate() {
+    let (fdt, providers) = board_providers();
+    let bus = cold_with_sequencer();
+    let dpu = fdt.node_at_path(DPU).unwrap();
+    let Ok(BringUp::Up(report)) = bring_up(dpu, &providers, &bus) else { panic!("up from cold") };
+    assert_eq!(
+        bus.writes(),
+        vec![
+            (HDMI_PWR_CTRL, 1 << 4),              // the sequencer's mode, the request low
+            (HDMI_PWR_CTRL, (1 << 4) | (1 << 0)), // the request raised: 0x11, the stock word
+            (HDMI_CLK_RES, 1 << 9),               // hdmi_reset released
+            (HDMI_CLK_RES, (1 << 9) | (1 << 0)),  // hmclk gated on
+            (HDMI_CLK_RES, 0x221),                // mux 1 = pll1_d5, divider 0
+            (HDMI_CLK_RES, 0x221 | (1 << 29)),    // the frequency change, cleared by the SoC
+        ],
+        "one write at a time, in RFC-0106 order"
+    );
+    assert_eq!(report.writes, 6);
+    assert_eq!(bus.read(PWR_STATUS) & (1 << 15), 1 << 15, "domain 7 reports on");
+    let hmclk = nexus_soc::table::clock(ProviderKind::Apmu, k1::CLK_HDMI).unwrap();
+    assert_eq!(Executor::new(&bus).rate(hmclk, APMU_BASE), 491_520_000);
+    // The encoder shares all three: its bring-up after the controller's writes nothing.
+    let hdmi = fdt.node_at_path(HDMI).unwrap();
+    let Ok(BringUp::Up(again)) = bring_up(hdmi, &providers, &bus) else { panic!("hdmi up") };
+    assert_eq!(again.writes, 0);
+}
+
+#[test]
+fn a_domain_left_requested_but_off_gets_a_fresh_rising_request() {
+    let (fdt, providers) = board_providers();
+    let bus = cold_with_sequencer();
+    // The control word already reads 0x11 while the status says off (a request that never
+    // landed): the executor drops the request and raises it again.
+    bus.regs.borrow_mut().insert(HDMI_PWR_CTRL, 0x11);
+    let p = plan(fdt.node_at_path(DPU).unwrap(), &providers).unwrap();
+    Executor::new(&bus).execute(&p).unwrap();
+    assert_eq!(bus.writes()[..2], [(HDMI_PWR_CTRL, 0x10), (HDMI_PWR_CTRL, 0x11)]);
+}
+
+#[test]
+fn test_reject_a_domain_that_never_reports_on() {
+    let (fdt, providers) = board_providers();
+    let mut bus = cold_with_sequencer();
+    bus.sequencer = None; // the request lands nowhere
+    let p = plan(fdt.node_at_path(DPU).unwrap(), &providers).unwrap();
+    let err = Executor::new(&bus).execute(&p).unwrap_err();
+    assert_eq!(err, Fault::DomainStuck { addr: PWR_STATUS, value: 0 });
+    assert_eq!((err.step(), err.register()), ("domain", Some((PWR_STATUS, 0))));
+    assert_eq!(bus.writes().len(), 2, "no reset or clock touched in a domain that is off");
+}
+
+#[test]
+fn test_reject_a_domain_without_a_measured_protocol() {
+    let (fdt, providers) = board_providers();
+    let gpu = fdt.node_at_path("/soc/multimedia-bus/gpu@cac00000").unwrap();
+    // The GPU's domain is software-sequenced and unmeasured: refused before any bus access.
+    assert_eq!(plan(gpu, &providers), Err(PlanError::DomainUnsupported(k1::PD_GPU)));
+}
+
+#[test]
+fn test_reject_a_rate_no_parent_makes_exactly() {
+    let hmclk = nexus_soc::table::clock(ProviderKind::Apmu, k1::CLK_HDMI).unwrap();
+    assert_eq!(hmclk.select(491_520_000), Some((1, 0)), "pll1_d5 / 1");
+    assert_eq!(hmclk.select(245_760_000), Some((1, 1)), "pll1_d5 / 2 — no rounding elsewhere");
+    assert_eq!(hmclk.select(500_000_000), None, "met exactly or refused, never rounded");
+    let uart = nexus_soc::table::clock(ProviderKind::Apbc, k1::CLK_UART0).unwrap();
+    assert_eq!(uart.select(14_745_600), None, "a clock without a divider sets no rate");
 }
 
 #[test]
@@ -260,9 +390,9 @@ fn a_node_is_brought_up_when_the_tree_binds_glue_and_not_needed_when_it_binds_no
 fn test_reject_a_bring_up_the_tables_do_not_cover_or_the_bus_does_not_take() {
     let (fdt, providers) = board_providers();
     let bus = MockBus::stock();
-    let hdmi = fdt.node_at_path("/soc/hdmi@c0400500").unwrap();
-    let refused = Err(BringUpError::Plan(PlanError::DomainUnsupported(7)));
-    assert_eq!(bring_up(hdmi, &providers, &bus), refused);
+    let gpu = fdt.node_at_path("/soc/multimedia-bus/gpu@cac00000").unwrap();
+    let refused = Err(BringUpError::Plan(PlanError::DomainUnsupported(k1::PD_GPU)));
+    assert_eq!(bring_up(gpu, &providers, &bus), refused);
     assert!(bus.writes().is_empty(), "refused before any bus access");
     let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     let fault = Fault::ReadBack { addr: APMU_BASE + 0x054, value: 0 };

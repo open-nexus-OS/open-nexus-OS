@@ -365,9 +365,17 @@ fn consumers_resolve_their_clocks_resets_domains_and_pads_to_providers() {
     assert_eq!(pads.len(), 1);
     assert_eq!((pads[0].provider.name(), pads[0].args()), ("mmc1-cfg", 0));
     assert!(emmc.specifiers("pinctrl-0", "#pinctrl-cells").next().is_none(), "eMMC pads are fixed");
-    // The display controller names five clocks; the GPU its domain.
+    // The display controller names what the stock tree names — hmclk alone, at the rate it
+    // was measured running (assigned-clock-rates, index-aligned) — and domain 7; the GPU its
+    // domain.
     let dpu = board.find_compatible(&["spacemit,dpu-online2"]).next().unwrap();
-    assert_eq!(dpu.specifiers("clocks", "#clock-cells").count(), 5);
+    let dpu_clocks: Vec<_> = dpu.specifiers("clocks", "#clock-cells").map(|s| s.arg(0)).collect();
+    assert_eq!(dpu_clocks, vec![Some(26)], "CLK_HDMI");
+    let assigned = dpu.specifiers("assigned-clocks", "#clock-cells").next().unwrap();
+    assert_eq!(assigned.arg(0), Some(26));
+    assert_eq!(dpu.prop_cell("assigned-clock-rates", 0), Some(491_520_000));
+    let dpu_pd = dpu.specifiers("power-domains", "#power-domain-cells").next().unwrap();
+    assert_eq!(dpu_pd.arg(0), Some(7), "K1_PD_HDMI");
     let gpu = board.find_compatible(&["img,rgx"]).next().unwrap();
     let gpu_pd = gpu.specifiers("power-domains", "#power-domain-cells").next().unwrap();
     assert_eq!(gpu_pd.arg(0), Some(2), "K1_PD_GPU");

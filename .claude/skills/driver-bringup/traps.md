@@ -71,7 +71,10 @@ driver; add a new one the day it is won, with its reference, never from memory.
   twelve; `mode.stride` must stay the layout pitch (`source/services/windowd/src/smoke.rs`
   `for_visible`) or the first frame write panics on the band buffer.
 - **The board never drops a power domain while it runs**: the stock kernel keeps the display
-  domain up; D3 measures the domain protocol on our chain, one write at a time.
+  domain up, so no on/off diff exists. Before planning a cycle for it, read the stock tree
+  from the pinned archive (`measurement-recipes.md` 3b): its power controller named the
+  control and status bits of all nine domains (2026-09-30, `2026-09-30-power-domains/`); the
+  transition itself is then judged on our chain from socd's before/after register words.
 - **Board cycles are slow and not free**: a cycle is flash → LED ladder → microSD → reset →
   `just board-log`; a USB-UART adapter would shorten every cycle more than any script
   (plan note 2026-09-29). Batch hypotheses so one cycle decides several.
