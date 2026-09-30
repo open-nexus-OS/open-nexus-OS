@@ -23,8 +23,8 @@ use crate::ids::{CallerCtx, CommitSeq, FenceId, FrameIndex, InputSeq, PresentSeq
 pub(crate) const DEFAULT_WIDTH: u32 = 64;
 pub(crate) const DEFAULT_HEIGHT: u32 = 48;
 pub(crate) const DEFAULT_HZ: u16 = 60;
-pub const VISIBLE_BOOTSTRAP_WIDTH: u32 = 1280;
-pub const VISIBLE_BOOTSTRAP_HEIGHT: u32 = 800;
+pub const VISIBLE_BOOTSTRAP_WIDTH: u32 = nexus_display_proto::LAYOUT_MAX.0;
+pub const VISIBLE_BOOTSTRAP_HEIGHT: u32 = nexus_display_proto::LAYOUT_MAX.1;
 pub const VISIBLE_BOOTSTRAP_HZ: u16 = 120;
 pub const VISIBLE_BOOTSTRAP_FORMAT: PixelFormat = PixelFormat::Bgra8888;
 pub const VISIBLE_CURSOR_BGRA: [u8; 4] = [0xff, 0xff, 0xff, 0xff];

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-09-30 (M-L: the display layout at the board's mode, 1920x1080, from ONE source)
+
+- **`nexus_display_proto::layout`** is the one home of the shared framebuffer resource's layout:
+  `LAYOUT_MAX = (1920, 1080)` (the SoC's HDMI maximum, measured 2026-09-29) and every plane row,
+  byte offset, atlas extent and stride derived from it. windowd (`atlas`, `compositor`,
+  `resource_pool`, `client_surface`, `smoke`, `server`), gpud (`service`, `transport`,
+  `virgl_composite`, `virgl_vector`, `virgl3d`, `raster`) and systemui (the shells' first frame,
+  the baked wallpaper) read these constants; their twelve local twins and the "MUST match"
+  comments between the crates are gone. The blur half of `virgl3d.rs` is its own module
+  (`virgl3d_blur.rs`, module-size ratchet).
+- QEMU lanes keep 1280x800 as their visible mode (clamped against the maximum); the new
+  **`visible-fhd` lane** (`just ci-os-visible-fhd`, in `test-all`) runs the same proof at
+  1920x1080 on virgl — greeter and desktop surface at full HD, pixel proof complete. The
+  harness's ready/mode literals follow `QEMU_GPU_XRES/YRES`.
+- The `visible` manifest profile now extends `headless` (its ladder IS the headless ladder plus
+  the display-truth gates), so `verify-uart` judges the `visible` and `visible-fhd` transcripts
+  for surprise and forbidden markers — before, `visible` was skipped in the harness and its
+  transcript never met the manifest.
+- Measured: the shared VMO grows from 49 MB to 100 MB (`vmo_bytes` 59 → 111 MB after boot; 157 MB
+  free at 320 MB, 358 MB free at the lane's 512 MB); present latency unchanged at 1280x800 and
+  22–25 µs at 1920x1080. Follow-ups: a wallpaper asset at or above 1920x1080 (the 1536x1024 source
+  is upscaled), the launcher's layout at full HD.
+
 ### Fixed - 2026-09-29 (TASK-0327B P4 H0d: the kernel console tears across harts)
 
 - **On the four-hart board, console lines from two harts interleaved byte by byte** — init's

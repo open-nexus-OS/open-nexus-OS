@@ -77,8 +77,9 @@ pub(crate) fn blur_backdrop_vmo(
     // Stack scratch — worst case a full-width row (1280·4) and a full-plane
     // column (800·4). No per-frame heap traffic.
     let _ = saturation_pct; // historical 2D path does not boost saturation
-    let mut scratch_row = [0u8; 5120];
-    let mut scratch_col = [0u8; 3200];
+    let mut scratch_row = [0u8; nexus_display_proto::layout::STRIDE_BYTES as usize];
+    let mut scratch_col = [0u8; (nexus_display_proto::layout::PLANE_ROWS
+        * nexus_display_proto::layout::BYTES_PER_PIXEL) as usize];
     let mut s = unsafe { surface(fb, fb_len, fb_w) };
     raster::blur_box(&mut s, x, y, w, h, radius, &mut scratch_row, &mut scratch_col)
         .map_err(|_| GfxError::ResourceExhausted)
@@ -97,8 +98,9 @@ pub(crate) fn blur_backdrop_separable_vmo(
     saturation_pct: u32,
 ) -> Result<(), GfxError> {
     let _ = saturation_pct; // historical separable path does not boost saturation
-    let mut scratch_row = [0u8; 5120];
-    let mut scratch_col = [0u8; 3200];
+    let mut scratch_row = [0u8; nexus_display_proto::layout::STRIDE_BYTES as usize];
+    let mut scratch_col = [0u8; (nexus_display_proto::layout::PLANE_ROWS
+        * nexus_display_proto::layout::BYTES_PER_PIXEL) as usize];
     let mut s = unsafe { surface(fb, fb_len, fb_w) };
     raster::blur_gaussian(&mut s, x, y, w, h, radius, &mut scratch_row, &mut scratch_col)
         .map_err(|_| GfxError::ResourceExhausted)
@@ -115,7 +117,7 @@ pub(crate) fn blit_vmo(
     w: u32,
     h: u32,
 ) -> Result<(), GfxError> {
-    let mut scratch_row = [0u8; 5120];
+    let mut scratch_row = [0u8; nexus_display_proto::layout::STRIDE_BYTES as usize];
     let mut s = unsafe { surface(fb, fb_len, fb_w) };
     raster::blit_within(&mut s, src_x, src_y, dst_x, dst_y, w, h, &mut scratch_row)
         .map_err(|_| GfxError::ResourceExhausted)
@@ -135,7 +137,7 @@ pub(crate) fn blit_blend_vmo(
     w: u32,
     h: u32,
 ) -> Result<(), GfxError> {
-    let mut scratch_row = [0u8; 5120];
+    let mut scratch_row = [0u8; nexus_display_proto::layout::STRIDE_BYTES as usize];
     let mut s = unsafe { surface(fb, fb_len, fb_w) };
     raster::blit_within_blend(&mut s, src_x, src_y, dst_x, dst_y, w, h, &mut scratch_row)
         .map_err(|_| GfxError::ResourceExhausted)

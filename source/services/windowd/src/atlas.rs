@@ -35,19 +35,18 @@
 //! STATUS: retained-surface compositor — 2D pack
 //! API_STABILITY: Unstable
 
-/// Display width in pixels (atlas surfaces share the framebuffer stride).
-pub(crate) const ATLAS_WIDTH: u32 = 1280;
-/// First atlas row (immediately after the four display planes, each 800 rows).
-pub(crate) const ATLAS_ROW_OFFSET: u32 = 3200;
-/// Atlas height in rows.
-// 6400 rows: a real desktop needs desktop band (800) + one resident scroll
-// band (chat ≈ 2568) + 3 floating windows (+ blur bands) + dock + fullscreen
-// round-trips. 4000 starved on the fullscreen re-create with 4 windows open
-// (`FAIL atlas need=1280x800 rows_remaining=24`).
-pub(crate) const ATLAS_ROWS: u32 = 6400;
-/// Total framebuffer-resource height including the atlas. windowd sizes the VMO
-/// to this; gpud's `RESOURCE_HEIGHT` MUST match (separate crate, no shared dep).
-pub(crate) const RESOURCE_HEIGHT: u32 = ATLAS_ROW_OFFSET + ATLAS_ROWS; // 9600
+/// Display width in pixels (atlas surfaces share the framebuffer stride) — the layout
+/// maximum, whose one home is `nexus_display_proto::layout` (every row below is its formula;
+/// gpud reads the same constants, so the two can no longer drift).
+pub(crate) const ATLAS_WIDTH: u32 = nexus_display_proto::layout::LAYOUT_MAX.0;
+/// First atlas row (immediately after the four display planes).
+pub(crate) const ATLAS_ROW_OFFSET: u32 = nexus_display_proto::layout::ATLAS_ROW;
+/// Atlas height in rows: eight display heights (a real desktop needs the desktop band, one
+/// resident scroll band, floating windows with their blur bands, the dock and fullscreen
+/// round-trips; five starved on the fullscreen re-create with four windows open).
+pub(crate) const ATLAS_ROWS: u32 = nexus_display_proto::layout::ATLAS_ROWS;
+/// Total framebuffer-resource height including the atlas: what windowd sizes the VMO to.
+pub(crate) const RESOURCE_HEIGHT: u32 = nexus_display_proto::layout::RESOURCE_HEIGHT;
 
 /// A cached layer surface: a packed rectangle in the atlas region.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,8 +235,8 @@ mod tests {
 
     #[test]
     fn resource_height_matches_layout() {
-        assert_eq!(RESOURCE_HEIGHT, 9600);
-        assert_eq!(ATLAS_ROW_OFFSET, 4 * 800);
+        assert_eq!(RESOURCE_HEIGHT, ATLAS_ROW_OFFSET + ATLAS_ROWS);
+        assert_eq!(ATLAS_ROW_OFFSET, 4 * nexus_display_proto::layout::PLANE_ROWS);
     }
 
     #[test]

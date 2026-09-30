@@ -41,12 +41,12 @@ const H_BLEND_ALPHA: u32 = 0x60;
 const H_FBSRC_SURF: u32 = 0x30;
 const QUAD_RES: u32 = 0xFA;
 
-const SCREEN_W: u32 = 1280;
-const SCREEN_H: u32 = 800;
-const FB_STRIDE: u32 = SCREEN_W * 4;
+const SCREEN_W: u32 = nexus_display_proto::layout::LAYOUT_MAX.0;
+const SCREEN_H: u32 = nexus_display_proto::layout::PLANE_ROWS;
+const FB_STRIDE: u32 = nexus_display_proto::layout::STRIDE_BYTES;
 /// Display rows start at this absolute fb row; the display texture (0xF8)
-/// aliases rows DISPLAY_ROW..DISPLAY_ROW+1600.
-const DISPLAY_ROW: u32 = 1600;
+/// aliases the two frame-ring planes from here.
+const DISPLAY_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
 
 /// SDF rounded-rect + vertical gradient + analytic-AA coverage.
 /// CONST[0] = (-cx, -cy, bx, by): negated rect center, half-extents minus r.

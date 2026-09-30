@@ -238,11 +238,11 @@ mod tests {
     #[test]
     fn first_frame_is_deterministic_desktop_shell() {
         let frame = compose_first_frame().expect("first frame");
-        assert_eq!(frame.width, 1280);
-        assert_eq!(frame.height, 800);
-        assert_eq!(frame.stride, 5120);
+        let (max_w, max_h) = nexus_display_proto::layout::LAYOUT_MAX;
+        assert_eq!((frame.width, frame.height), (max_w, max_h));
+        assert_eq!(frame.stride, nexus_display_proto::layout::STRIDE_BYTES);
         assert!(wallpaper_source_is_jpeg());
-        assert_eq!(wallpaper_decoded_size(), (1280, 800));
+        assert_eq!(wallpaper_decoded_size(), (max_w, max_h));
         assert_ne!(pixel(&frame, 12, 20), [0x24, 0x28, 0x34, 0xff]);
         assert_ne!(pixel(&frame, 4, 4), [0x80, 0x50, 0x20, 0xff]);
         assert_ne!(pixel(&frame, 4, 30), [0x40, 0x28, 0x18, 0xff]);
@@ -433,12 +433,12 @@ settings_entry = false
     #[test]
     fn shell_config_default_is_desktop_chrome() {
         // The compositor-facing config for the boot default: TABLET posture →
-        // touch shell without desktop chrome, not locked, 1280x800.
+        // touch shell without desktop chrome, not locked, the layout maximum.
         let sc = super::shell_config_default();
         assert_eq!(sc.shell_kind, "tablet");
         assert!(!sc.desktop_chrome);
         assert!(!sc.locked);
-        assert_eq!((sc.width, sc.height), (1280, 800));
+        assert_eq!((sc.width, sc.height), nexus_display_proto::layout::LAYOUT_MAX);
 
         // The desktop posture stays reachable as an explicit product.
         let dc = super::shell_config_for("default");

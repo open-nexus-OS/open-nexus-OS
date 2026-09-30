@@ -23,13 +23,11 @@ use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::types::{Rect, ResourceId};
 use nexus_gfx::core::types::PixelFormat;
 
-/// Fixed display-plane location within the framebuffer resource. The 4-plane
-/// layout is: wallpaper(0) / retained(800) / DISPLAY(1600) / blur-cache(2400),
-/// with the surface atlas at 3200+. This is a FIXED row — NOT `height/2` — since
-/// the resource grew to 6400 rows to host the atlas, but the display plane stays
-/// at 1600. Must match windowd's `DISPLAY_ROW_OFFSET`.
-pub(crate) const DISPLAY_PLANE_ROW: u32 = 1600;
-pub(crate) const DISPLAY_PLANE_HEIGHT: u32 = 800;
+/// Fixed display-plane location within the framebuffer resource: the 4-plane layout is
+/// wallpaper / retained / DISPLAY / blur-cache, each one display high, with the surface atlas
+/// after them — `nexus_display_proto::layout`'s rows, the same constants windowd addresses.
+pub(crate) const DISPLAY_PLANE_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
+pub(crate) const DISPLAY_PLANE_HEIGHT: u32 = nexus_display_proto::layout::PLANE_ROWS;
 pub(crate) fn ctrl_hdr(type_: u32) -> protocol::VirtioGpuCtrlHdr {
     protocol::VirtioGpuCtrlHdr { type_, flags: 0, fence_id: 0, ctx_id: 0, _padding: 0 }
 }

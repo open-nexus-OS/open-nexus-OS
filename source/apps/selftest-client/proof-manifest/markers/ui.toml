@@ -15,6 +15,11 @@
 phase = "end"
 proves = "windowd initialized the fixed visible desktop profile"
 
+# M-L: the same ready line at the layout maximum (the `visible-fhd` lane).
+[marker."windowd: ready (w=1920, h=1080, hz=120)"]
+phase = "bringup"
+proves = "windowd resolved the full-HD visible mode, the layout maximum, and is serving"
+
 [marker."windowd: backend=gpu"]
 phase = "bringup"
 proves = "windowd is the sole display owner — creates framebuffer VMO, hands off to gpud for scanout"
@@ -27,6 +32,10 @@ proves = "windowd emitted bootstrap display evidence only after the first compos
 [marker."display: mode 1280x800 argb8888"]
 phase = "end"
 proves = "GPU-only display path accepted exactly the fixed 1280x800 BGRA8888 virtio-gpu mode"
+
+[marker."display: mode 1920x1080 argb8888"]
+phase = "bringup"
+proves = "GPU-only display path accepted the full-HD visible mode (the `visible-fhd` lane)"
 
 [marker."windowd: compose ready"]
 phase = "end"

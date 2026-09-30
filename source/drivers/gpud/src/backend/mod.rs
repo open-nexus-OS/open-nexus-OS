@@ -52,6 +52,7 @@ pub(crate) mod scanout_policy;
 mod transport;
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 mod virgl3d;
+mod virgl3d_blur;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod virtqueue;
 
@@ -468,9 +469,9 @@ impl VirtioGpuBackend {
             next_resource_id: 1,
             probed: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
-            display_w: 1280,
+            display_w: nexus_display_proto::LAYOUT_MAX.0,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
-            display_h: 800,
+            display_h: nexus_display_proto::LAYOUT_MAX.1,
             virgl_capable: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             gl_device: false,

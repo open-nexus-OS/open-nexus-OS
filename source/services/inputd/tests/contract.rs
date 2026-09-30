@@ -42,7 +42,7 @@ fn fixture_server() -> (WindowServer, CallerCtx, windowd::SurfaceId) {
     (server, caller, surface)
 }
 
-// Full-display fixture at the production bootstrap resolution (1280×800), so the
+// Full-display fixture at the layout maximum (`nexus_display_proto::LAYOUT_MAX`), so the
 // windowd router bounds (= inputd's route space) match the live display space. This
 // mirrors the real path where inputd ships display-space pointer coordinates and
 // windowd hit-tests them directly — no 64×48 route quantization (TASK #52).
@@ -564,8 +564,8 @@ fn tablet_absolute_raw_ingress_pipeline_blocks_following_relative_mouse_batches(
             ],
         ),
         92,
-        1279,
-        799,
+        nexus_display_proto::LAYOUT_MAX.0 as i32 - 1,
+        nexus_display_proto::LAYOUT_MAX.1 as i32 - 1,
     );
     let tablet_batch =
         inputd::decode_wire_batch(tablet_wire, inputd.pointer_transform()).expect("tablet decode");
@@ -970,15 +970,15 @@ fn live_visible_pointer_speed_reaches_hover_target_without_edge_clamp() {
 fn absolute_pointer_scaling_covers_the_full_visible_input_area() {
     let transform = inputd::visible_pointer_transform().expect("visible transform");
     let calibration = inputd::AbsoluteAxisCalibration::new(0, 32_767).expect("calibration");
-    assert_eq!(transform.scale_absolute_axis(0, calibration, inputd::PointerAxis::X), 0);
-    assert_eq!(transform.scale_absolute_axis(32_767, calibration, inputd::PointerAxis::X), 1279);
-    assert_eq!(transform.scale_absolute_axis(0, calibration, inputd::PointerAxis::Y), 0);
-    assert_eq!(transform.scale_absolute_axis(32_767, calibration, inputd::PointerAxis::Y), 799);
-
-    let center_x = transform.scale_absolute_axis(16_384, calibration, inputd::PointerAxis::X);
-    let center_y = transform.scale_absolute_axis(16_384, calibration, inputd::PointerAxis::Y);
-    assert!((639..=640).contains(&center_x));
-    assert!((399..=400).contains(&center_y));
+    let (max_w, max_h) =
+        (nexus_display_proto::LAYOUT_MAX.0 as i32, nexus_display_proto::LAYOUT_MAX.1 as i32);
+    let sx = |v| transform.scale_absolute_axis(v, calibration, inputd::PointerAxis::X);
+    let sy = |v| transform.scale_absolute_axis(v, calibration, inputd::PointerAxis::Y);
+    assert_eq!((sx(0), sx(32_767)), (0, max_w - 1));
+    assert_eq!((sy(0), sy(32_767)), (0, max_h - 1));
+    let (center_x, center_y) = (sx(16_384), sy(16_384));
+    assert!((max_w / 2 - 1..=max_w / 2).contains(&center_x));
+    assert!((max_h / 2 - 1..=max_h / 2).contains(&center_y));
 }
 
 #[test]

@@ -435,8 +435,8 @@ mod tests {
     fn button_rect_is_top_right_and_matches_render_consts() {
         let m = mode();
         let r = button_rect(m.width);
-        // 1280 - (156 + 24) = 1100.
-        assert_eq!(r.x, 1100);
+        // width - (button width 156 + margin 24): flush with the top-right corner.
+        assert_eq!(r.x, m.width - (GLASS_BUTTON_W + 24));
         assert_eq!(r.y, GLASS_BUTTON_TOP);
         assert_eq!(r.width, GLASS_BUTTON_W);
         assert_eq!(r.height, GLASS_BUTTON_H);

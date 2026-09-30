@@ -14,8 +14,11 @@ dsl_root = "ui/shells/kiosk"
 supported_profiles = ["tablet", "desktop"]
 
 [first_frame]
-width = 1280
-height = 800
+# The layout maximum (`nexus_display_proto::layout::LAYOUT_MAX`, 1920x1080 = the board's HDMI
+# mode): the first frame and the baked wallpaper are composed at the maximum and cropped to
+# the visible mode by windowd (M-L, 2026-09-30).
+width = 1920
+height = 1080
 
 [features]
 launcher = false

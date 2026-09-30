@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use systemui;
 
 /// The widest supported source row (px) for the stack-side RLE decode.
-pub(crate) const MAX_SOURCE_W: usize = 1280;
+pub(crate) const MAX_SOURCE_W: usize = nexus_display_proto::layout::LAYOUT_MAX.0 as usize;
 
 /// Decode ONE source row into `out` (RLE) or borrow it (raw). Returns the
 /// row slice of `width * 4` bytes. Bounded, heap-free.

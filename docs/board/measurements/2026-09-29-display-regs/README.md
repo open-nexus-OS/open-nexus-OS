@@ -102,7 +102,15 @@ depth at `0x34` (`0xd | depth << 4`), PHY reset/enable `0xe4` = 0 then 3, then `
 words agree: `0xe0 = 0xae5c010f`, `0xe4 = 0x00010003`, `0xf0 = 0x0821`, `0x34 = 0x4d`,
 `0xec = 0x509d453e`, `0xe8 = 0x203f0000`. HPD: `0xc` bit 12; DDC through 0x0/0x4/0x8/0xc.
 
-### The power-down protocol (domain 7) — NOT measured yet
+### The encoder with the cable out (measured 2026-09-30, `*-unplug.*`)
+
+The driver logged `hdmi status disconnected` and changed nothing: the APMU is identical, `hmclk`
+stays enabled, the controller keeps scanning (only line counters, MMU statistics and the RDMA
+arbitration words moved), and in the encoder exactly one word differs — the PHY status `0xc`
+lost bits 12 and 14 (`0x20005000` → `0x20000000`): **HPD is bit 12 (with bit 14 following it)**;
+nothing else is touched on unplug. So the stock system never shows a power-down of the pipeline.
+
+### The power-down protocol (domain 7) — not observable on the stock system
 
 Unbinding the stock driver (`spacemit-drm-drv/unbind`) oopsed the vendor driver in
 `drm_dev_unregister` (`oops-pinctrl-dram-fb.txt`); the system survived, the pipeline stayed up.

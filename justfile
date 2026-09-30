@@ -348,6 +348,10 @@ ci-os-sdhci:
 ci-os-visible:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os visible
 
+# M-L: the visible lane at the layout maximum (1920x1080) — the board's mode on QEMU's virgl display.
+ci-os-visible-fhd:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os visible-fhd
+
 # TASK-0050: real system-reset lane — the guest SBI-reboots mid-run and the
 # harness proves BOTH boots in one uart stream (profile owns the topology;
 # timeout widening lives in qemu-test.sh's reset arm).
@@ -786,6 +790,7 @@ test-all:
     just ci-os-smp1
     just ci-os-sdhci
     just ci-os-visible
+    just ci-os-visible-fhd
     just input-flood
     just ci-os-reset
     just ci-os-ota

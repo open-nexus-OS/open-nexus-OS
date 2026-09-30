@@ -962,7 +962,7 @@ expected_sequence=(
   "SELFTEST: vfs ebadf ok"
   "vfsd: access denied"
   "SELFTEST: sandbox deny ok"
-  "windowd: ready (w=1280, h=800, hz=120)"
+  "windowd: ready (w=${QEMU_GPU_XRES:-1280}, h=${QEMU_GPU_YRES:-800}, hz=120)"
   "windowd: systemui loaded (profile=desktop)"
   "windowd: present ok (seq=1 dmg=1)"
   "launcher: first frame ok"
@@ -1144,7 +1144,7 @@ case "${PROFILE:-full}" in
   # gpud build provenance) on top of this ladder; the `full` display ladder
   # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
   # marker is a scheduler-determinism defect tracked in TASK-0324 P5.
-  headless|smp1|sdhci|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible)
+  headless|smp1|sdhci|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -2099,7 +2099,7 @@ fi
 # `windowd` present state and must not appear without their prerequisites.
 if grep -aFq "SELFTEST: ui launcher present ok" "$UART_LOG"; then
   for m in \
-    "windowd: ready (w=1280, h=800, hz=120)" \
+    "windowd: ready (w=${QEMU_GPU_XRES:-1280}, h=${QEMU_GPU_YRES:-800}, hz=120)" \
     "windowd: systemui loaded (profile=desktop)" \
     "windowd: present ok (seq=1 dmg=1)" \
     "launcher: first frame ok"; do
@@ -2483,7 +2483,7 @@ if profile_has_display; then
 if grep -aFq "SELFTEST: ui v2 present ok" "$UART_LOG"; then
   for m in \
     "display: bootstrap on" \
-    "display: mode 1280x800 argb8888" \
+    "display: mode ${QEMU_GPU_XRES:-1280}x${QEMU_GPU_YRES:-800} argb8888" \
     "windowd: present ok (seq=1 dmg=1)" \
     "windowd: fb handoff to gpud ok" \
     "gpud: scanout ok"; do
@@ -2508,7 +2508,7 @@ if grep -aFq "SELFTEST: ui visible present ok" "$UART_LOG"; then
     "gpud: cursor on" \
     "gpud: ready" \
     "display: bootstrap on" \
-    "display: mode 1280x800 argb8888" \
+    "display: mode ${QEMU_GPU_XRES:-1280}x${QEMU_GPU_YRES:-800} argb8888" \
     "windowd: backend=visible" \
     "windowd: present visible ok" \
     "layout: engine on" \
@@ -2721,9 +2721,10 @@ fi
 PM_VERIFY_UART=${PM_VERIFY_UART:-1}
 # Skip manifest verify-uart for the non-display lanes + display-gpu — manifest
 # markers are still being populated for them (same one list as the guards above).
-# `visible` runs the headless ladder + the display-truth gates (TASK-0324 P0),
-# not the `full` manifest ladder.
-if ! profile_has_display || [[ "${PROFILE:-full}" == "display-gpu" || "${PROFILE:-full}" == "visible" ]]; then
+# `visible` (and `visible-fhd`) run the headless ladder + the display-truth gates
+# (TASK-0324 P0); since M-L (2026-09-30) their manifest profiles extend `headless`, so
+# their marker expectations are exactly that ladder's and verify-uart judges them too.
+if ! profile_has_display || [[ "${PROFILE:-full}" == "display-gpu" ]]; then
   PM_VERIFY_UART=0
 fi
 if [[ "$PM_VERIFY_UART" == "1" ]]; then

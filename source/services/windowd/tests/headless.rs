@@ -241,20 +241,18 @@ fn visible_input_smoke_produces_cursor_focus_and_click_evidence() {
     assert_eq!(evidence.scheduled_present.damage_rects, 1);
     let mode = windowd::VisibleBootstrapMode::fixed().expect("fixed visible mode");
     let mut row = vec![0u8; mode.stride as usize];
-    evidence.copy_cursor_row(mode, 200, &mut row).expect("scaled cursor row");
-    let scaled_start_cursor_x = 480usize;
-    let cursor = scaled_start_cursor_x * 4;
-    assert_eq!(row[cursor..cursor + 4], windowd::VISIBLE_CURSOR_BGRA);
-    evidence.copy_hover_row(mode, 670, &mut row).expect("scaled hover row");
-    let scaled_hover_x = 160usize;
-    let hover = scaled_hover_x * 4;
-    assert_eq!(row[hover..hover + 4], windowd::VISIBLE_CURSOR_BGRA);
-    evidence.copy_composed_row(mode, 620, &mut row).expect("scaled visible input row");
-    let scaled_click_x = 100usize;
-    let click = scaled_click_x * 4;
-    assert_eq!(row[click..click + 4], windowd::VISIBLE_INPUT_CLICK_BGRA);
-    evidence.copy_keyboard_row(mode, 320, &mut row).expect("scaled keyboard row");
-    let scaled_keyboard_x = 1060usize;
-    let keyboard = scaled_keyboard_x * 4;
-    assert_eq!(row[keyboard..keyboard + 4], windowd::VISIBLE_INPUT_KEYBOARD_BGRA);
+    // The 64x48 proof frame is scaled onto the fixed mode; sample the CENTRE of a proof
+    // cell so the check holds for any layout maximum (1280x800 and 1920x1080 alike).
+    let cx = |px: u32| ((2 * px + 1) * mode.width / 128) as usize * 4;
+    let cy = |py: u32| (2 * py + 1) * mode.height / 96;
+    // The cursor at its start (24, 12) and its end (8, 40).
+    evidence.copy_cursor_row(mode, cy(12), &mut row).expect("scaled cursor row");
+    assert_eq!(row[cx(24)..cx(24) + 4], windowd::VISIBLE_CURSOR_BGRA);
+    evidence.copy_hover_row(mode, cy(40), &mut row).expect("scaled hover row");
+    assert_eq!(row[cx(8)..cx(8) + 4], windowd::VISIBLE_CURSOR_BGRA);
+    // The clicked left square (4..12, 36..44) and the keyboard-lit right square (52..60, 18..26).
+    evidence.copy_composed_row(mode, cy(38), &mut row).expect("scaled visible input row");
+    assert_eq!(row[cx(6)..cx(6) + 4], windowd::VISIBLE_INPUT_CLICK_BGRA);
+    evidence.copy_keyboard_row(mode, cy(20), &mut row).expect("scaled keyboard row");
+    assert_eq!(row[cx(54)..cx(54) + 4], windowd::VISIBLE_INPUT_KEYBOARD_BGRA);
 }

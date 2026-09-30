@@ -69,14 +69,14 @@ pub(crate) const ST_CONTENT_SVIEW: u32 = 0x46;
 const ATLAS_RES: u32 = 0xF3;
 const ATLAS_SVIEW: u32 = 0x48;
 const H_FBSRC_SURF: u32 = 0x30; // display-plane surface (created by virgl_blur_init)
-const FB_STRIDE: u32 = 1280 * 4;
-const ATLAS_ROW: u32 = 3200; // atlas start row in the VMO
-                             // MUST equal windowd's `atlas::ATLAS_ROWS`: every row windowd can hand out has
-                             // to be inside this GL alias. The two drifted once (windowd 6400, this 4000) —
-                             // bands past VMO row 7200 sampled outside the texture = garbage rows after
-                             // maximizing. The 9600-row backing (`service.rs::RESOURCE_HEIGHT`) covers it.
-const ATLAS_ROWS: u32 = 6400; // atlas height (rows 3200..9599)
-const DISPLAY_PLANE_ROW: u32 = 1600;
+const FB_STRIDE: u32 = nexus_display_proto::layout::STRIDE_BYTES;
+// The atlas rows and the display plane row are `nexus_display_proto::layout`'s — the same
+// constants windowd hands rows out from, so every row it can hand out is inside this GL alias
+// (the two drifted once when each crate kept its own number: bands past the alias sampled
+// outside the texture = garbage rows after maximizing).
+const ATLAS_ROW: u32 = nexus_display_proto::layout::ATLAS_ROW;
+const ATLAS_ROWS: u32 = nexus_display_proto::layout::ATLAS_ROWS;
+const DISPLAY_PLANE_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
 
 // Cursor sprite as a layer: its own self-backed sampler texture (BGRA), so the
 // pointer composites through the generic `submit_layer_pass` like any layer —
@@ -265,7 +265,7 @@ impl VirtioGpuBackend {
             target: PIPE_TEXTURE_2D,
             format: PIPE_FORMAT_B8G8R8A8_UNORM,
             bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
-            width: 1280,
+            width: nexus_display_proto::layout::LAYOUT_MAX.0,
             height: ATLAS_ROWS,
             depth: 1,
             array_size: 1,
@@ -359,7 +359,7 @@ impl VirtioGpuBackend {
         self.submit_layer_pass(
             H_FBSRC_SURF,
             ATLAS_SVIEW,
-            1280,
+            nexus_display_proto::layout::LAYOUT_MAX.0,
             ATLAS_ROWS,
             src_x,
             src_row_rel,
@@ -489,7 +489,7 @@ impl VirtioGpuBackend {
             self.submit_layer_pass_scaled(
                 self.rt_back_surface(),
                 ATLAS_SVIEW,
-                1280,
+                nexus_display_proto::layout::LAYOUT_MAX.0,
                 ATLAS_ROWS,
                 src_x,
                 src_row_rel,
@@ -507,7 +507,7 @@ impl VirtioGpuBackend {
             self.submit_layer_pass(
                 self.rt_back_surface(),
                 ATLAS_SVIEW,
-                1280,
+                nexus_display_proto::layout::LAYOUT_MAX.0,
                 ATLAS_ROWS,
                 src_x,
                 src_row_rel,

@@ -59,8 +59,20 @@ env = { NEXUS_SELFTEST_PROFILE = "full" }
 # start` shows, proven from the host side.
 [profile.visible]
 runner = "scripts/qemu-test.sh"
-extends = "full"
+# The headless ladder plus the display-truth gates (qemu-test.sh keys its expected
+# sequence on the profile NAME; the marker expectations follow this chain), so every marker
+# the headless ladder emits is expected here and in the lanes that extend this one.
+extends = "headless"
 env = { NEXUS_DISPLAY_BOOTSTRAP = "1", GPU_MODE = "virgl", QEMU_DISPLAY_BACKEND = "egl-headless", QEMU_VNC_DISPLAY = "79", NEXUS_PIXEL_PROOF = "1", REQUIRE_PIXEL_PROOF = "1", QEMU_PROOF_POINTER_SOURCE = "tablet" }
+
+# M-L (2026-09-30): the visible lane at the layout maximum — the board's mode, 1920x1080, on
+# QEMU's virgl display, so the full-HD resource layout (planes, atlas, GL aliases) is proven
+# before the board's own display controller exists. The 1280x800 lane above stays the
+# clamped-mode proof. Machine memory follows the resource (the shared VMO is ~100 MB here).
+[profile.visible-fhd]
+runner = "scripts/qemu-test.sh"
+extends = "visible"
+env = { QEMU_GPU_XRES = "1920", QEMU_GPU_YRES = "1080", QEMU_MEM = "512M" }
 
 [profile.smp]
 runner = "scripts/qemu-test.sh"

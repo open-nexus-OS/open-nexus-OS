@@ -303,7 +303,7 @@ mod tests {
             Err(WindowdError::InvalidDimensions)
         );
         assert_eq!(
-            VisibleBootstrapMode { width: 1281, ..mode }.validate(),
+            VisibleBootstrapMode { width: VISIBLE_BOOTSTRAP_WIDTH + 1, ..mode }.validate(),
             Err(WindowdError::InvalidDimensions)
         );
         assert_eq!(

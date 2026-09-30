@@ -90,7 +90,7 @@ impl Delivery {
 /// allocated at the CONTENT size (`app_window::open_app_window`, after the frame
 /// is content-sized), and fullscreen skips the cached-blur band, so the ceiling
 /// does NOT reserve display-sized rows per window.
-pub const MAX_SURFACE_W: u16 = 1280;
+pub const MAX_SURFACE_W: u16 = nexus_display_proto::layout::LAYOUT_MAX.0 as u16;
 // Raised for WebRender-style compositor scroll: a scrollable app uploads its
 // FULL resident content as one tall atlas band (bounded by the app's own resident
 // window, e.g. chat's tail(messages,64)), and gpud shifts only src_row per scroll

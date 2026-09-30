@@ -11,13 +11,16 @@
 #[test]
 fn systemui_checksum() {
     assert!(systemui::wallpaper_source_is_jpeg());
-    assert_eq!(systemui::wallpaper_decoded_size(), (1280, 800));
+    assert_eq!(systemui::wallpaper_decoded_size(), nexus_display_proto::layout::LAYOUT_MAX);
     // Golden updated when the wallpaper downscale moved from nearest-neighbour to
     // a box (area-average) filter — crisper background, deterministic output —
     // and again when the bake stopped STRETCHING the source onto the panel and
     // started covering it (centred crop to the target aspect, `object-fit:
     // cover` per the design contract). The source is 3:2 and the panel 8:5, so
     // the old mapping squashed the image ~7%; the new one crops 32 rows off the
-    // top and bottom instead. Different pixels, same determinism.
-    assert_eq!(systemui::checksum(), 3_519_376_773);
+    // top and bottom instead. Different pixels, same determinism. Updated once more
+    // for M-L (2026-09-30): the frame is baked at the layout maximum, 1920x1080 (the
+    // 1536x1024 source is covered onto 16:9 — an asset at or above the maximum is a
+    // follow-up), so every pixel moved.
+    assert_eq!(systemui::checksum(), 2_047_897_090);
 }

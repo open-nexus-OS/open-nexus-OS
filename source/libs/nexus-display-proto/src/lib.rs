@@ -34,6 +34,7 @@
 pub mod client_surface;
 pub mod control;
 pub mod envelope;
+pub mod layout;
 pub mod surface_settings;
 pub mod surface_text;
 pub mod surface_windows;
@@ -150,8 +151,9 @@ pub const CURSOR_SHAPE_SLOTS: usize = 16;
 
 /// The fixed shared-VMO layout maximum — the RESOURCE BUDGET every display
 /// consumer sizes against, not a "default mode". It lived three times (windowd's
-/// `DISPLAY_WIDTH/HEIGHT`, gpud's own pair, inputd's fallback); this is its one home.
-pub const LAYOUT_MAX: (u32, u32) = (1280, 800);
+/// `DISPLAY_WIDTH/HEIGHT`, gpud's own pair, inputd's fallback); its one home is
+/// [`layout`], together with every plane row and byte offset derived from it.
+pub use layout::LAYOUT_MAX;
 
 /// Resolve the VISIBLE display mode (RFC-0074 / ADR-0050).
 ///
@@ -487,6 +489,6 @@ mod tests {
         assert_eq!(resolve_display_mode(Some((1280, 0)), Some((0, 800)), LAYOUT_MAX), LAYOUT_MAX);
         // Oversized is clamped to the layout maximum, never enlarged.
         assert_eq!(resolve_display_mode(Some((5000, 5000)), None, LAYOUT_MAX), LAYOUT_MAX);
-        assert_eq!(resolve_display_mode(None, Some((99999, 1)), LAYOUT_MAX), (1280, 1));
+        assert_eq!(resolve_display_mode(None, Some((99999, 1)), LAYOUT_MAX), (LAYOUT_MAX.0, 1));
     }
 }

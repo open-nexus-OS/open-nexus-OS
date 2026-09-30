@@ -23,33 +23,37 @@
 // allow, not a module blanket (repo rule).
 // ---------------------------------------------------------------------------
 
-/// Total VMO size: 1280 × 3200 × 4 = 16,384,000 bytes (16 MB).
+/// Total size of the four display planes (the atlas follows them in the same VMO).
 #[allow(dead_code)]
-pub(crate) const VMO_TOTAL_BYTES: usize = 16_384_000;
+pub(crate) const VMO_TOTAL_BYTES: usize = 4 * nexus_display_proto::layout::PLANE_BYTES;
 
 /// Plane 0: wallpaper source (static, written once at boot).
 #[allow(dead_code)]
-pub(crate) const PLANE_WALLPAPER_OFFSET: usize = 0x000000;
+pub(crate) const PLANE_WALLPAPER_OFFSET: usize =
+    nexus_display_proto::layout::row_offset_bytes(nexus_display_proto::layout::WALLPAPER_ROW);
 #[allow(dead_code)]
-pub(crate) const PLANE_WALLPAPER_BYTES: usize = 4_096_000; // 1280×800×4
+pub(crate) const PLANE_WALLPAPER_BYTES: usize = nexus_display_proto::layout::PLANE_BYTES;
 
 /// Plane 1: retained scene (backdrop snapshots, frozen-glass surfaces).
 #[allow(dead_code)]
-pub(crate) const PLANE_RETAINED_OFFSET: usize = 0x3E8000; // 4,096,000
+pub(crate) const PLANE_RETAINED_OFFSET: usize =
+    nexus_display_proto::layout::row_offset_bytes(nexus_display_proto::layout::RETAINED_ROW);
 #[allow(dead_code)]
-pub(crate) const PLANE_RETAINED_BYTES: usize = 4_096_000; // 1280×800×4
+pub(crate) const PLANE_RETAINED_BYTES: usize = nexus_display_proto::layout::PLANE_BYTES;
 
 /// Plane 2: frame ring slot A (active scanout).
 #[allow(dead_code)]
-pub(crate) const PLANE_SLOT_A_OFFSET: usize = 0x7D0000; // 8,192,000
+pub(crate) const PLANE_SLOT_A_OFFSET: usize =
+    nexus_display_proto::layout::row_offset_bytes(nexus_display_proto::layout::DISPLAY_ROW);
 #[allow(dead_code)]
-pub(crate) const PLANE_SLOT_A_BYTES: usize = 4_096_000; // 1280×800×4
+pub(crate) const PLANE_SLOT_A_BYTES: usize = nexus_display_proto::layout::PLANE_BYTES;
 
 /// Plane 3: frame ring slot B (alternate scanout).
 #[allow(dead_code)]
-pub(crate) const PLANE_SLOT_B_OFFSET: usize = 0xBB8000; // 12,288,000
+pub(crate) const PLANE_SLOT_B_OFFSET: usize =
+    nexus_display_proto::layout::row_offset_bytes(nexus_display_proto::layout::SLOT_B_ROW);
 #[allow(dead_code)]
-pub(crate) const PLANE_SLOT_B_BYTES: usize = 4_096_000; // 1280×800×4
+pub(crate) const PLANE_SLOT_B_BYTES: usize = nexus_display_proto::layout::PLANE_BYTES;
 
 // ---------------------------------------------------------------------------
 // Resource pool budgets (all sizes in bytes)
@@ -175,7 +179,7 @@ mod tests {
         let total =
             PLANE_WALLPAPER_BYTES + PLANE_RETAINED_BYTES + PLANE_SLOT_A_BYTES + PLANE_SLOT_B_BYTES;
         assert_eq!(total, VMO_TOTAL_BYTES);
-        assert_eq!(VMO_TOTAL_BYTES, 16_384_000);
+        assert_eq!(VMO_TOTAL_BYTES, 4 * nexus_display_proto::layout::PLANE_BYTES);
     }
 
     #[test]
@@ -197,8 +201,10 @@ mod tests {
             + ICON_ATLAS_BUDGET
             + CURSOR_RESOURCE_BUDGET
             + COMMAND_METADATA_BUDGET;
-        // Pools plus framebuffer VMO should fit in 32 MB (reasonable QEMU config).
-        assert!(pool_total + VMO_TOTAL_BYTES <= 32_768_000);
+        // The pools alone stay small (16 MB); the four planes are the layout maximum's
+        // (`nexus_display_proto::layout`, ~33 MB at 1920x1080) and are budgeted there.
+        assert!(pool_total <= 16 * 1024 * 1024);
+        assert_eq!(VMO_TOTAL_BYTES, 4 * nexus_display_proto::layout::PLANE_BYTES);
     }
 
     #[test]

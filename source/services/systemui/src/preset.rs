@@ -14,7 +14,7 @@
 //! preset by adding a TOML + one registry line.
 //!
 //! Honest limits (v1): the display mode is bounded by the compositor's fixed
-//! layout maximum (the shared atlas/VMO layout is sized to 1280×800 — a
+//! layout maximum (the shared atlas/VMO layout is sized to `LAYOUT_MAX`, 1920×1080 — a
 //! larger mode would be clamped by gpud, so it is rejected here instead of
 //! silently shrinking), and only refresh rates the windowd pacer can deliver
 //! are accepted (`SUPPORTED_DISPLAY_HZ`). Guest-side preset ingestion
@@ -194,7 +194,7 @@ rotary = false
     #[test]
     fn test_reject_mode_exceeds_layout() {
         let err = parse_preset_manifest(&manifest(
-            "width = 1920\nheight = 1080\nhz = 120\norientation = \"landscape\"\ndpi_class = \"normal\"",
+            "width = 2560\nheight = 1440\nhz = 120\norientation = \"landscape\"\ndpi_class = \"normal\"",
         ))
         .expect_err("must reject");
         assert_eq!(err, SystemUiError::InvalidDisplayMode);

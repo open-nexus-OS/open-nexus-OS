@@ -80,13 +80,11 @@ const GPU_IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
 /// The former `DISPLAY_HEIGHT` pair was `#[allow(dead_code)]`-carried and is deleted:
 /// the attach path passes `RESOURCE_HEIGHT`.
 const DISPLAY_WIDTH: u32 = nexus_display_proto::LAYOUT_MAX.0;
-// 9600 rows: 4 display planes (wallpaper/retained/slot-A/slot-B, 3200) + surface
-// atlas (4000) for the retained-surface compositor's cached layers — grown by a
-// full display frame so full-screen system overlays (login greeter, later lock
-// screen) fit as ONE atlas-band layer. MUST match windowd
-// `crate::atlas::RESOURCE_HEIGHT` (separate crate, no shared dep).
-const RESOURCE_HEIGHT: u32 = 9600;
-const DISPLAY_PLANE_ROW: u32 = 1600;
+// Four display planes (wallpaper/retained/slot-A/slot-B) + the surface atlas for the
+// retained-surface compositor's cached layers — `nexus_display_proto::layout`'s rows, the
+// same constants windowd sizes its VMO to.
+const RESOURCE_HEIGHT: u32 = nexus_display_proto::layout::RESOURCE_HEIGHT;
+const DISPLAY_PLANE_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // Build provenance FIRST and RAW in every boot mode (entry already armed folding; debug_write never folds).
     let _ = nexus_abi::debug_write(crate::markers::GPUD_FEATURES_LINE.as_bytes());

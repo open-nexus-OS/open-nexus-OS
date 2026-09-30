@@ -80,6 +80,7 @@ use input_live_protocol::{
 #[cfg(nexus_env = "os")]
 use nexus_abi::vmo_create;
 use nexus_abi::{debug_println, debug_trace, nsec};
+use nexus_display_proto::layout;
 use nexus_ipc::{IpcError, KernelServer, Wait};
 
 use crate::markers::{ready_marker, WALLPAPER_FAIL};
@@ -97,31 +98,28 @@ use crate::telemetry::WindowdDisplayTelemetryReport;
 /// `nexus_display_proto::LAYOUT_MAX` (TASK-0324 P6-a; it lived three times before).
 pub(crate) const DISPLAY_WIDTH: u32 = nexus_display_proto::LAYOUT_MAX.0;
 pub(crate) const DISPLAY_HEIGHT: u32 = nexus_display_proto::LAYOUT_MAX.1;
-// 6400 rows: 4 display planes (3200) + surface atlas (3200) for cached layers.
-// SSOT for the atlas layout is `crate::atlas`. gpud mirrors this value.
+// Four display planes + the surface atlas (`nexus_display_proto::layout`'s rows, shared with gpud).
 pub(crate) const RESOURCE_HEIGHT: u32 = crate::atlas::RESOURCE_HEIGHT;
 // Byte twins of the live *_ROW_OFFSET values below — documented plane-layout
 // contract (RFC-0067 retained-plane); kept for the layout math even where only
 // the row form is consumed today.
 #[allow(dead_code)]
-pub(crate) const DISPLAY_OFFSET_BYTES: usize = 8_192_000; // Plane 2 / slot A
+pub(crate) const DISPLAY_OFFSET_BYTES: usize = layout::row_offset_bytes(layout::DISPLAY_ROW);
 #[allow(dead_code)]
-pub(crate) const DISPLAY_SLOT_B_OFFSET_BYTES: usize = 12_288_000;
+pub(crate) const DISPLAY_SLOT_B_OFFSET_BYTES: usize = layout::row_offset_bytes(layout::SLOT_B_ROW);
 /// Plane 1 — retained scene. The CPU compositor renders the full cursor-free
 /// scene (wallpaper + panels + text + glass) here. gpud blits damage regions
 /// from this plane to the display plane per frame and overlays the cursor.
-pub(crate) const RETAINED_OFFSET_BYTES: usize = 4_096_000; // Plane 1 (0x3E8000)
-/// Row offset of the retained plane within the VMO (RETAINED_OFFSET_BYTES / row_bytes).
-/// 4_096_000 / (1280*4) = 800. Used as the BlitSurface source row base.
-pub(crate) const RETAINED_ROW_OFFSET: u32 = 800;
-/// Absolute VMO row where the display plane starts (DISPLAY_OFFSET_BYTES / stride).
-/// 8_192_000 / (1280*4) = 1600. Used as the BlitAbsolute source/dst for blur cache writes.
-pub(crate) const DISPLAY_ROW_OFFSET: u32 = 1600;
-/// Absolute VMO row where Plane 3 (Slot B) starts — repurposed as blur cache.
-/// 12_288_000 / (1280*4) = 2400. (Documented plane-layout contract; the blur
-/// cache writers address Plane 3 through gpud blits today.)
+pub(crate) const RETAINED_OFFSET_BYTES: usize = layout::row_offset_bytes(layout::RETAINED_ROW);
+/// Row offset of the retained plane within the VMO. Used as the BlitSurface source row base.
+pub(crate) const RETAINED_ROW_OFFSET: u32 = layout::RETAINED_ROW;
+/// Absolute VMO row where the display plane starts. Used as the BlitAbsolute source/dst for
+/// blur cache writes.
+pub(crate) const DISPLAY_ROW_OFFSET: u32 = layout::DISPLAY_ROW;
+/// Absolute VMO row where Plane 3 (Slot B) starts — repurposed as blur cache. (Documented
+/// plane-layout contract; the blur cache writers address Plane 3 through gpud blits today.)
 #[allow(dead_code)]
-pub(crate) const BLUR_CACHE_ROW_OFFSET: u32 = 2400;
+pub(crate) const BLUR_CACHE_ROW_OFFSET: u32 = layout::SLOT_B_ROW;
 pub(crate) const PROOF_PANEL_H: u32 = 260;
 
 /// Shell-P2b: when `true`, source `proof_layouts` from the flat desktop-shell
