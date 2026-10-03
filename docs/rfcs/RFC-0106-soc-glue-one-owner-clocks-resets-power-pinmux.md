@@ -14,7 +14,7 @@
 - **Phase 0 (paper + measurement, the table with provenance)**: ✅ 2026-09-22 — TASK-0245B P0
 - **Phase 1 (`nexus-soc` library, tree bindings, specifier resolution)**: ✅ 2026-09-22 — TASK-0245B P1 (host-proven against the measured APMU state)
 - **Phase 2 (`socd`, protocol, policy class, init grants, first consumer)**: 🟨 — socd + protocol + policy + init grants ✅ 2026-09-22 (TASK-0245B P2, QEMU: `socd: ready (no soc glue in this tree)`, `SELFTEST: soc glue not needed ok` in every profile); TASK-0246 P4c (2026-09-25): socd runs in the core plane on declared slots (no route ask — it serves before init's responder does), the block owner asks it through the shared client `nexus_ipc::socd` to bring the disk's node up before touching the controller and, on the K1, for the `io` clock's rate (QEMU: `blkd: backend ok (… soc=not-needed …)` in every boot); the board's eMMC is the first `ok` (TASK-0246 P6). TASK-0246B P2 (2026-09-26): the two node operations live in `nexus-soc` once — `bring_up` (plan, then execute; an empty plan is `NotNeeded`) and `clock_rate` — and `socd` answers with them; the loader runs them for its boot disk before any service exists (the loader clause below). Open: the per-class floor below (`soc.glue.<class>`) is still the one `soc.glue` capability
-- **Phase 3 (power domains, display/USB/GPU sets)**: 🟨 — display set ✅ 2026-09-30 on the board (TASK-0245B P3): power domain 7 hardware-sequenced from the stock system's own tree (`docs/board/measurements/2026-09-30-power-domains/`), `hmclk` at the rate the node demands (`assigned-clock-rates`), the display node trimmed to what the pipeline uses, socd's marker with every touched register's words — one board cycle decided the protocol (`0x3f4 0x0>0x11`, `0x0f0` bit 15, `0x1b8` to the stock word), `SELFTEST: soc glue display ok` is a `board-headless` rung; pads, the USB set and the GPU set with TASK-0251 P2b/0328/0329
+- **Phase 3 (power domains, display/USB/GPU sets)**: 🟨 — display set ✅ 2026-09-30 on the board (TASK-0245B P3): power domain 7 hardware-sequenced from the stock system's own tree (`docs/board/measurements/2026-09-30-power-domains/`), `hmclk` at the rate the node demands (`assigned-clock-rates`), the display node trimmed to what the pipeline uses, socd's marker with every touched register's words — one board cycle decided the protocol (`0x3f4 0x0>0x11`, `0x0f0` bit 15, `0x1b8` to the stock word), `SELFTEST: soc glue display ok` is a `board-headless` rung; pads ✅ 2026-10-03 on the board for the display set (the encoder's four, the K1 pad map measured against the stock system, the live words reproduced; drive-strength tables still to measure); the USB set and the GPU set with TASK-0328/0329
 
 Definition: "Complete" = the contract below is implemented and the proof gates are green on
 QEMU and on the board.
@@ -92,12 +92,17 @@ clock-framework API (rates are read, not set, beyond what a node's binding deman
 - **Client** `nexus_soc::client::bring_up(node_path)` / `clock_rate(node_path, name)`; a driver
   calls `bring_up` before its first register access and treats `NotNeeded` as success.
 - **Markers**: `socd: ready (providers=N)` | `socd: ready (no soc glue in this tree)`;
-  `socd: bring-up <node> ok (domains=… resets=… clocks=… rates=… writes=…)`; `socd: bring-up
-  <node> FAIL (step=read-back|frequency-change|domain|range reg=<window>+0x… val=0x…)`, `FAIL
-  (refused: <why>)`, `FAIL (denied)`, `FAIL (no such node)`; both `ok` and `FAIL (step=…)` end
-  with every register the bring-up touched as `<window>+0x<offset>:0x<before>>0x<after>`
-  (one console line; words that do not fit are counted, never cut); selftest `SELFTEST: soc
-  glue not needed ok` on QEMU.
+  `socd: bring-up <node> ok (domains=… resets=… clocks=… rates=… pads=… writes=…)`; `socd:
+  bring-up <node> FAIL (step=read-back|frequency-change|domain|range reg=<window>+0x…
+  val=0x…)`, `FAIL (refused: <why>)`, `FAIL (denied)`, `FAIL (no such node)`; both `ok` and
+  `FAIL (step=…)` end with every register the bring-up touched as `<window>+<offset>:<before>>
+  <after>`, all hex (one console line; words that do not fit are counted, never cut); selftest
+  `SELFTEST: soc glue not needed ok` on QEMU.
+- **Pads** (Phase 3, 2026-10-03): `pinctrl-0` of the node — every pin of every group, placed by
+  the provider's pad map (the K1's measured against the stock system's `gpio-ranges` and live
+  pad words; an unplaced pin is refused) — sets the fields the stock words confirm (function,
+  pull and its direction, strong pull clear, edge detection cleared); drive strength and
+  schmitt stay as found until their tables are measured per IO domain.
 - **The node operations** (`nexus_soc::bring_up`, `nexus_soc::clock_rate`; TASK-0246B P2) are
   the one definition of "up" and of "the rate": `socd` answers `OP_BRING_UP` and
   `OP_CLOCK_RATE` with them, and nothing else re-derives them.

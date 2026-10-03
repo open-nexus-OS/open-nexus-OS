@@ -1,6 +1,6 @@
 ---
 title: TASK-0251 Display v1.0b (OS/board): the display controller + HDMI driver in gpud, the display mode's one authority is gpud (EDID on the board, virtio display-info on QEMU), syscall 50 and the fw_cfg path deleted — the first picture
-status: In Progress (P1 done 2026-09-30 — the mode authority is gpud on QEMU: request from gpud's tree slot, framebuffer owned and granted by gpud, windowd builds on the grant, inputd asks windowd once, syscall 50 deleted; P2/P3 follow on the board; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
+status: In Progress (P2a step 1 ✅ 2026-10-03 on the board — first light, gpud's splash through the controller and the encoder, every gate green; next step 2, windowd's desktop; P1 done 2026-09-30 — the mode authority is gpud on QEMU: request from gpud's tree slot, framebuffer owned and granted by gpud, windowd builds on the grant, inputd asks windowd once, syscall 50 deleted; P2/P3 follow on the board; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
 owner: @ui @runtime
 created: 2025-12-29
 updated: 2026-09-30
@@ -68,7 +68,7 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
 
 ## Packages
 
-- **P0** — this recut. **Measured 2026-09-29 (D0):** see `docs/board/measurements/2026-09-29-display-regs/README.md` — the pipeline needs `hmclk` + `hdmi_reset` + power domain 7 only; the scanout buffer may live in bank 0 (bus = CPU − 0x8000_0000); the controller is not cache-coherent; ONLINE IRQ 139.
+- **P0** — this recut. **Measured 2026-09-29 (D0):** see `docs/board/measurements/2026-09-29-display-regs/README.md` — the pipeline needs `hmclk` + `hdmi_reset` + power domain 7 only; the scanout buffer may live in either bank (bank 0 is identical on the controller's bus, bank 1 at bus 0x8000_0000 — corrected 2026-10-03; D0 first read "bus = CPU − 0x8000_0000"); the controller is not cache-coherent; ONLINE IRQ 139.
 - **P1 Mode authority = gpud** (QEMU) — **done 2026-09-30.** Built: gpud reads the lane's request
   from its own read-only tree slot (`NamedSlot::DeviceTree`, `slots::gpud::DEVICE_TREE`, pinned by
   init next to the harness's) and decides with `resolve_display_mode_sourced` (`gpud: display mode
@@ -97,6 +97,44 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
   power-domains/` H1–H4 decided), so P2 starts from a powered, clocked, released pipeline and
   its first read is the controller's version word (`0x03001030` at offset 0). P2b needs the
   encoder's DDC pads (`hdmi_0_grp`, measured) and their pad-number mapping in the table.
+  - **P2a step 1 — first light (gpud's boot splash through the controller): ✅ 2026-10-03 on the
+    board** (two cycles, `docs/board/measurements/2026-10-03-first-light/`: the first scanned
+    nothing — the composer's layer word named RDMA3 while the plane was fed through RDMA1 — and
+    the encoder saw no hot-plug — its pads unmuxed; the second passed every gate: pads =
+    the live words, `hpd=1`, the raw vsync, `[PASS] board-headless` with 20 rungs, the splash on
+    the monitor acknowledged as `board-visual: splash`). The MMIO seam first: `nexus_abi::MmioWindow` (the one mapped,
+    bounds-checked register window; a block inside its page is a `window` at the tree's
+    offset) + `nexus_driverkit::{Mmio, MmioSet}` (`nexus_hal::Bus` over it) — the six
+    per-driver volatile copies (sdhci, virtio-blk, socd, virtio-input, nexus-net-os, and the
+    harness's probe bus) deleted, `MmioBus` a retired name; sdhci and socd now forbid
+    `unsafe`. init: `device_tree::display_plane()` by compatible, `core_plane::
+    grant_display_plane` → `device.mmio.display` (policy: gpud) into `slots::gpud::
+    DISPLAY_CONTROLLER/ENCODER`, `init: display plane ok|none (…)`; gpud's declared legs (its
+    reply inbox + `slots::gpud::SOCD`, route `Gpud → Socd`). gpud `backend/dc/`: `glue` (socd
+    for both nodes, found by compatible in gpud's tree), `controller` (version check, the model's
+    `bring_up` over the window, the output line counter as the scan proof), `encoder` (HPD, the
+    measured sequence — `nexus_gfx::backend::dc::encoder`, goldens against the D0 dump — and a
+    bounded PLL-lock wait), `framebuffer` (`DmaVmo::contiguous` for the controller, the whole
+    layout, Zicbom clean of the display plane), `mod` (mode: `display_mode::resolve` + the
+    standard CEA timing — `cea_mode` — until P2b; the splash via `compose_splash_region`;
+    `gpud: dc scanout ok (WxH@60 cea bus=… lines a->b)`; windowd's framebuffer request refused
+    by name). The D0 reach was misread (bus = CPU − 0x8000_0000); corrected 2026-10-03 — bank 0
+    is identical on the controller's bus, bank 1 at bus 0x8000_0000, and the kernel names the
+    address. Gate: `gpud: dc scanout ok (` is a `board-headless` rung (red on the 2026-09-30
+    trace); `board-visual: splash` the operator's ack. H5 (the boot loader's minimal encoder
+    sequence gives a picture on this monitor) and H6 (the controller from reset — no display MMU,
+    no command list — scans a bus address in bank 0) confirmed by cycle 2. Between the cycles:
+    the encoder's pads through socd (TASK-0245B P3 pad half, the live words as the gate), the
+    scan proven by either witness (the post-processing line counter does not count without
+    post-processing — the raw vsync does), every written controller word read back (it found
+    the boot loader's background word outside its 12-bit field; the model no longer writes it),
+    the vendor boot loader's console captured in every flash session (`oem log`: it sees the
+    hot-plug and puts its framebuffer at CPU 0x7f700000 in bank 0), the status LED's pad
+    corrected (GPIO 96 is register 0x1e0, not 0x180).
+  - **P2a step 2 — windowd's desktop on the controller:** the framebuffer grant on the board is
+    the contiguous block; one `Backend` over virtio-gpu and the controller in gpud's service
+    loop; the CPU command executor shared by the 2D virtio path and the controller (one, not a
+    copy); present = Zicbom clean of the damage; `windowd: desktop revealed` on the board.
 - **P3 First picture** — on the board through the boot chain (TASK-0260B): markers + the
   operator ack; photo in the ledger. **Block 1 gate.**
 

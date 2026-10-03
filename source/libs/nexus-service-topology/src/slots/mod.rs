@@ -214,6 +214,18 @@ pub mod gpud {
     /// The device tree, read-only (RFC-0098 C3/C7): gpud, the display-mode authority, reads the
     /// lane's request (`/chosen/nexus,display-mode`) here.
     pub const DEVICE_TREE: u32 = 0x24;
+    /// The display controller's register window (TASK-0251 P2): the display plane init grants
+    /// from the tree (`device.mmio.display`) — empty on a tree without one, where the GPU's
+    /// window (`DEVICE_MMIO_SLOT`) is the plane.
+    pub const DISPLAY_CONTROLLER: u32 = 0x25;
+    /// The display encoder's register window: the pages its block lies in (the block's
+    /// in-page offset is its tree node's `reg`).
+    pub const DISPLAY_ENCODER: u32 = 0x26;
+    /// The CAP_MOVE reply inbox of gpud's one outbound call: socd's bring-up of the display
+    /// nodes (TASK-0251 P2, RFC-0106).
+    pub const REPLY: SlotPair = SlotPair::new(0x28, 0x27);
+    /// The route to socd.
+    pub const SOCD: SlotPair = SlotPair::new(0x29, REPLY.recv);
 }
 
 /// hidrawd (TASK-0324 P4d).

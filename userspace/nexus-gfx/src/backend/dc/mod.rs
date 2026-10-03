@@ -16,11 +16,14 @@
 //!   thirty registers; the live dump at 1920x1080@60 agrees with them word for word).
 //! - [`model`] — the bring-up, plane and flush sequence over [`model::RegWriter`]; the OS
 //!   driver (D4) implements the trait over its MMIO window, the host tests over a recorder.
+//! - [`encoder`] — the HDMI encoder's first-light sequence for each MEASURED pixel clock, as
+//!   data (TASK-0251 P2a); an unmeasured clock is refused.
 //!
 //! No display MMU, no command list (the splash path needs neither; the vendor kernel's
 //! contiguous-memory path is the same), one contiguous scanout plane addressed by its BUS
-//! address (CPU − the bus's `dma-ranges` base for bank 0). Everything here is host-tested;
-//! nothing here touches hardware.
+//! address — the address the kernel names for the controller's device (`vmo_dma_base`, the
+//! tree's `dma-ranges`: bank 0 identical, bank 1 at bus 0x8000_0000). Everything here is
+//! host-tested; nothing here touches hardware.
 //! OWNERS: @gpu @runtime
 //! STATUS: Functional (host half; the driver over it is TASK-0251 P2)
 //! API_STABILITY: Internal (the register map is the board's; the `Mode`/`Plane` types are
@@ -29,8 +32,9 @@
 //!   and the archived register dump
 
 pub mod edid;
+pub mod encoder;
 pub mod model;
 pub mod regs;
 
-pub use edid::{parse_edid, pick_mode, Edid, EdidError, Mode, ModeList};
+pub use edid::{cea_mode, parse_edid, pick_mode, Edid, EdidError, Mode, ModeList};
 pub use model::{bring_up, flush, set_plane_address, Plane, RegWriter, Sequence, Write};

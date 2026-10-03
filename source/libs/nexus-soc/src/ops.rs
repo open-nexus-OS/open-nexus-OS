@@ -65,6 +65,7 @@ pub struct Report {
     pub clocks_on: usize,
     pub rates_set: usize,
     pub domains: usize,
+    pub pads: usize,
 }
 
 pub struct Executor<'b, B: Bus> {
@@ -103,6 +104,12 @@ impl<'b, B: Bus> Executor<'b, B> {
                 Step::DomainOn { ctrl, mode, request, status, on, .. } => {
                     report.writes += self.domain_on(ctrl, mode, request, status, on)?;
                     report.domains += 1;
+                }
+                Step::PadSet { addr, mask, value } => {
+                    if self.set_bits(addr, mask, value)? {
+                        report.writes += 1;
+                    }
+                    report.pads += 1;
                 }
             }
         }

@@ -489,6 +489,10 @@ phase = "bringup"
 
 # RFC-0106 (TASK-0245B P2): the SoC glue owner names what the tree holds — on QEMU virt no
 # provider at all, on the board the six syscon/pinctrl windows init granted by compatible.
+[marker."init: display plane none ("]
+phase = "bringup"
+proves = "TASK-0251 P2: the tree names no display controller (QEMU virt: the GPU's window is the plane)"
+
 [marker."socd: ready ("]
 phase = "bringup"
 proves = "socd mapped the tree and every provider window the tree lists, or found none"

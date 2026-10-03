@@ -244,6 +244,24 @@ pub(crate) fn providers() -> impl Iterator<Item = (nexus_soc::ProviderKind, Devi
     KINDS.into_iter().zip(found).filter_map(|(k, w)| w.map(|w| (k, w)))
 }
 
+/// The display plane the tree names (TASK-0251 P2): a display controller and the HDMI encoder
+/// it drives, by compatible — the board's. QEMU virt names neither; its display is the virtio
+/// GPU (`VirtioDevices::gpu`).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct DisplayPlane {
+    pub controller: Option<DeviceWindow>,
+    pub encoder: Option<DeviceWindow>,
+}
+
+/// The display plane, from the tree (the first node of each compatible).
+pub(crate) fn display_plane() -> DisplayPlane {
+    let Some(fdt) = tree() else { return DisplayPlane::default() };
+    DisplayPlane {
+        controller: fdt.find_compatible(&["spacemit,dpu-online2"]).find_map(window_of),
+        encoder: fdt.find_compatible(&["spacemit,hdmi"]).find_map(window_of),
+    }
+}
+
 /// The real-time clock by compatible (QEMU virt: `google,goldfish-rtc`; the
 /// board's RTC arrives with TASK-0245B).
 pub(crate) fn rtc() -> Option<DeviceWindow> {

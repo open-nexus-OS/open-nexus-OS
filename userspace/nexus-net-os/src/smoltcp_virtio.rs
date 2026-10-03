@@ -25,7 +25,7 @@ use nexus_net::{
 };
 
 use net_virtio::{QueueSetup, VirtioNetMmio, VIRTIO_DEVICE_ID_NET, VIRTIO_MMIO_MAGIC};
-use nexus_abi::{mmio_map_auto, vm_map, vmo_create_contiguous, vmo_dma_base};
+use nexus_abi::{vm_map, vmo_create_contiguous, vmo_dma_base, MmioWindow};
 use nexus_hal::Bus;
 use smoltcp::iface::{Config as IfaceConfig, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
@@ -79,20 +79,9 @@ struct VqUsed<const N: usize> {
     avail_event: u16,
 }
 
-struct MmioBus {
-    base: usize,
-}
-
-impl Bus for MmioBus {
-    fn read(&self, addr: usize) -> u32 {
-        // SAFETY: MMIO mapped region; volatile read required.
-        unsafe { core::ptr::read_volatile((self.base + addr) as *const u32) }
-    }
-    fn write(&self, addr: usize, value: u32) {
-        // SAFETY: MMIO mapped region; volatile write required.
-        unsafe { core::ptr::write_volatile((self.base + addr) as *mut u32, value) }
-    }
-}
+/// The transport's registers: the ABI's mapped window through the shared bus (the MMIO seam,
+/// TASK-0251 P2) — the queue notifies, the interrupt ack and the config reads all go through it.
+use nexus_driverkit::Mmio;
 
 fn align4(x: usize) -> usize {
     (x + 3) & !3usize
@@ -109,10 +98,10 @@ const ACTIVE_BUFS: usize = 4;
 
 struct Inner {
     // Virtio device (MMIO)
-    dev: VirtioNetMmio<MmioBus>,
-    // Kernel-chosen MMIO window base (RFC-0085) — the poll path's queue
-    // notify writes go here; a stale fixed constant here page-faults.
-    mmio_va: usize,
+    dev: VirtioNetMmio<Mmio>,
+    // The kernel-chosen MMIO window (RFC-0085) — the poll path's interrupt ack reads and
+    // writes it through the shared bus.
+    mmio: Mmio,
     // Negotiated virtio-net RX/TX header length (10 vs 12).
     vnet_hdr_len: usize,
 
@@ -159,7 +148,7 @@ fn poll_inner_once(inner: &mut Inner, now: NetInstant) {
     // Keep polling on the negotiated modern virtio-mmio datapath.
     let mut devwrap = SmolDevice::<ACTIVE_BUFS> {
         dev: &inner.dev as *const _,
-        mmio_va: inner.mmio_va,
+        mmio: inner.mmio,
         vnet_hdr_len: inner.vnet_hdr_len,
         rx_desc: inner.rx_desc,
         rx_avail: inner.rx_avail,
@@ -190,21 +179,20 @@ impl SmoltcpVirtioNetStack {
         let mmio_cap_slot = nexus_service_topology::DEVICE_MMIO_SLOT;
         // RFC-0085: kernel-chosen va (the shared fixed 0x2000_e000 window —
         // one of six copies across the tree — is gone).
-        let mmio_va = mmio_map_auto(mmio_cap_slot, 0, 0x1000)
+        let window = MmioWindow::map(mmio_cap_slot, 0, 0x1000)
             .map_err(|_| NetError::Internal("mmio_map_auto failed"))?;
+        let mmio = Mmio::new(window);
 
         // VirtIO MMIO registers: magic @ 0x000, device_id @ 0x008
-        // SAFETY: MMIO is mapped above.
-        let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
+        let magic = mmio.read(0x000);
         if magic != VIRTIO_MMIO_MAGIC {
             return Err(NetError::Unsupported);
         }
-        let device_id = unsafe { core::ptr::read_volatile((mmio_va + 0x008) as *const u32) };
+        let device_id = mmio.read(0x008);
         if device_id != VIRTIO_DEVICE_ID_NET {
             return Err(NetError::Unsupported);
         }
-        let dev_va = mmio_va;
-        let dev = VirtioNetMmio::new(MmioBus { base: dev_va });
+        let dev = VirtioNetMmio::new(mmio);
         dev.probe().map_err(|_| NetError::Internal("virtio probe failed"))?;
 
         // Negotiate features:
@@ -311,8 +299,7 @@ impl SmoltcpVirtioNetStack {
 
         // Read MAC from config space (0x100).
         let mac = {
-            let w0 = unsafe { core::ptr::read_volatile((dev_va + 0x100) as *const u32) };
-            let w1 = unsafe { core::ptr::read_volatile((dev_va + 0x104) as *const u32) };
+            let (w0, w1) = (mmio.read(0x100), mmio.read(0x104));
             [
                 (w0 & 0xff) as u8,
                 ((w0 >> 8) & 0xff) as u8,
@@ -338,7 +325,7 @@ impl SmoltcpVirtioNetStack {
         // Temporary device wrapper for iface init.
         let mut devwrap: SmolDevice<ACTIVE_BUFS> = SmolDevice {
             dev: &dev as *const _,
-            mmio_va: dev_va,
+            mmio,
             vnet_hdr_len,
             rx_desc: rx_desc_va as *mut VqDesc,
             rx_avail: rx_avail_va as *mut VqAvail<Q_LEN>,
@@ -371,7 +358,7 @@ impl SmoltcpVirtioNetStack {
         Ok(Self {
             inner: Rc::new(RefCell::new(Inner {
                 dev,
-                mmio_va,
+                mmio,
                 mac,
                 vnet_hdr_len,
                 rx_desc: devwrap.rx_desc,
@@ -656,8 +643,8 @@ pub struct DhcpConfig {
 
 // smoltcp Device wrapper around our virtqueue implementation.
 struct SmolDevice<const ACTIVE: usize = 16> {
-    dev: *const VirtioNetMmio<MmioBus>,
-    mmio_va: usize,
+    dev: *const VirtioNetMmio<Mmio>,
+    mmio: Mmio,
     vnet_hdr_len: usize,
     rx_desc: *mut VqDesc,
     rx_avail: *mut VqAvail<Q_LEN>,
@@ -681,11 +668,9 @@ impl<const ACTIVE: usize> SmolDevice<ACTIVE> {
         // Acking is harmless even when we poll; some backends may rely on it for forward progress.
         const REG_ISR: usize = 0x060;
         const REG_ACK: usize = 0x064;
-        unsafe {
-            let isr = core::ptr::read_volatile((self.mmio_va + REG_ISR) as *const u32);
-            if isr != 0 {
-                core::ptr::write_volatile((self.mmio_va + REG_ACK) as *mut u32, isr);
-            }
+        let isr = self.mmio.read(REG_ISR);
+        if isr != 0 {
+            self.mmio.write(REG_ACK, isr);
         }
     }
 

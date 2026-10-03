@@ -95,9 +95,56 @@ emit_when = { profile = "board-headless" }
 phase = "bringup"
 emit_when = { profile = "board-headless" }
 
+[marker."init: display plane ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2: the tree names a display controller and its encoder, and policyd let init grant both windows to gpud (device.mmio.display)"
+
+[marker."gpud: dc glue ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2: socd brought the controller's and the encoder's nodes up at gpud's request (RFC-0106) before gpud touched a register"
+
+[marker."gpud: dc controller ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2: the controller's window maps and answers with the version the register map was measured on"
+
+[marker."gpud: dc encoder ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2a: the encoder ran its measured sequence for the mode's pixel clock and its PLL locked; the line names the monitor's hot-plug"
+
+[marker."gpud: dc encoder ok (hpd=1"]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2a: with the encoder's four pads muxed (socd, `hdmi_0_grp` as measured live), the encoder sees the monitor's hot-plug — the condition the boot loader's own display probe waits for"
+
+[marker."gpud: dc readback ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2a: every controller word the bring-up wrote reads back (observed before it becomes a rung: a shadowed word that latches at the frame boundary would read otherwise)"
+
+[marker."gpud: dc readback differs ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+
 [marker."gpud: dc scanout ok ("]
 phase = "bringup"
-proves = "TASK-0251 (Block 1 gate): the display controller scans out the desktop at the mode EDID and the SoC's maximum agree on"
+proves = "TASK-0251 P2a: the controller scans the display plane of a contiguous framebuffer at the mode named in the line — its output line counter moved; `cea` = a standard timing, `edid` = the monitor's own (the Block 1 gate requires the EDID form with windowd's desktop)"
+
+[marker."gpud: FAIL dc "]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+
+[marker."gpud: dc framebuffer request refused ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2a step 1: gpud names that windowd's desktop path on the display controller is not there yet; windowd runs display-less"
+
+[marker."board-visual: splash"]
+phase = "end"
+proves = "a person at the monitor confirmed gpud's boot splash on THIS boot's HDMI output (TASK-0251 P2a first light)"
 
 [marker."windowd: desktop revealed"]
 phase = "bringup"

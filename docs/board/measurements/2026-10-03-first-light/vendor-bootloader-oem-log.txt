@@ -1,0 +1,39 @@
+transfering log
+[  26.128] Have allocated memory for console log buffer
+[  26.133] In:    serial
+[  26.136] Out:   serial
+[  26.138] Err:   serial
+[  26.142] Default to 100kHz
+[  26.259] Found 2 valid MAC addresses.
+[  26.259] Serial number is valid.
+[  26.262] TLV item: serial# = <redacted>
+[  26.272] Found device 'hdmi@c0400500', disp_uc_priv=000000007dea3820
+[  26.283] hdmi_phy_wait_for_hpd() hdmi get hpd signal 
+[  26.285] fb=7f700000, size=1920x1080
+[  26.295] All buttons probed successfully
+[  26.300] k1x_qspi spi@d420c000: qspi iobase:0x0x00000000d420c000, ahb_addr:0x0x00000000b8000000, max_hz:26500000Hz
+[  26.308] k1x_qspi spi@d420c000: rx buf size:128, tx buf size:256, ahb buf size=512
+[  26.315] k1x_qspi spi@d420c000: AHB read enabled
+[  26.320] k1x_qspi spi@d420c000: bus clock: 26500000Hz, PMUap reg[0xd4282860]:0x0000075b
+[  26.328] k1x_qspi spi@d420c000: AHB buf size: 512
+[  26.332] jedec_spi_nor flash@0: unrecognized JEDEC id bytes: 00, 00, 00
+[  26.339] Could not find a valid device for d420c000.spi-0
+[  26.344] List of MTD devices:
+[  26.347] No MTD device found
+[  26.350] k1xci_udc: phy_init 
+[  26.355] k1xci_udc probe
+[  26.357] k1xci_udc: pullup 1 
+[  26.363] -- suspend --
+[  26.603] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x0 value 0x100 length 0x40
+[  26.730] handle setup SET_ADDRESS, 0x0, 0x5 index 0x0 value 0xa length 0x0
+[  26.750] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x0 value 0x100 length 0x12
+[  26.757] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x0 value 0x200 length 0x9
+[  26.764] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x0 value 0x200 length 0x20
+[  26.772] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x0 value 0x300 length 0xff
+[  26.779] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x409 value 0x302 length 0xff
+[  26.787] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x409 value 0x301 length 0xff
+[  26.796] handle setup SET_CONFIGURATION, 0x0, 0x9 index 0x0 value 0x1 length 0x0
+[  26.802] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x409 value 0x302 length 0xff
+[  26.810] handle setup GET_DESCRIPTOR, 0x80, 0x6 index 0x409 value 0x303 length 0xff
+OKAY [  0.002s]
+Finished. Total time: 0.002s

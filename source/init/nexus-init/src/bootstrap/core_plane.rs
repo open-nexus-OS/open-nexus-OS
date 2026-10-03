@@ -76,14 +76,75 @@ pub(crate) fn grant_mmio_with_wait(
     dev: DeviceWindow,
     cap_slot: u32,
 ) -> Result<()> {
+    grant_mmio_waited(stats, pol_route, pid, svc_name, cap_name, dev, cap_slot).map(|_| ())
+}
+
+/// [`grant_mmio_with_wait`] that also says whether policyd granted it (`false` = denied, named
+/// by the grant itself).
+#[allow(clippy::too_many_arguments)]
+fn grant_mmio_waited(
+    stats: &GrantStats,
+    pol_route: (u32, u32),
+    pid: u32,
+    svc_name: &str,
+    cap_name: &str,
+    dev: DeviceWindow,
+    cap_slot: u32,
+) -> Result<bool> {
     let grant_span = nexus_abi::Span::begin();
     // ONE waited policy exchange (TASK-0324 P8): policyd's verdict or its death — no retry
-    // cadence, no clock. `None` is a refused/absent authority: fail-closed, named.
-    if grant_mmio_cap(pid, svc_name, cap_name, dev, pol_route.0, pol_route.1, cap_slot)?.is_none() {
+    // cadence, no clock. `None` is a refused/absent authority: fail-closed, named. `false` is
+    // policyd's denial (named by the grant itself).
+    let Some(granted) =
+        grant_mmio_cap(pid, svc_name, cap_name, dev, pol_route.0, pol_route.1, cap_slot)?
+    else {
         return Err(InitError::Map("mmio policy unavailable"));
-    }
+    };
     stats.wait_ns.set(stats.wait_ns.get().saturating_add(grant_span.elapsed_ns()));
     stats.count.set(stats.count.get().saturating_add(1));
+    Ok(granted)
+}
+
+/// The board's display plane to gpud (TASK-0251 P2): the controller's and the encoder's windows
+/// in gpud's declared slots, each a policy-checked `device.mmio.display` grant carrying the
+/// node's line, coherence and DMA reach. A tree without the pair says so; the GPU's window is
+/// then the plane (`init: gpu plane …`).
+pub(crate) fn grant_display_plane(
+    stats: &GrantStats,
+    pol_route: (u32, u32),
+    gpud_pid: u32,
+) -> Result<()> {
+    use crate::service_topology::slots::gpud;
+    let plane = device_tree::display_plane();
+    let (Some(controller), Some(encoder)) = (plane.controller, plane.encoder) else {
+        debug_write_str(match (plane.controller, plane.encoder) {
+            (None, None) => "init: display plane none (no device in the tree)\n",
+            _ => "init: display plane none (the tree names one of controller and encoder)\n",
+        });
+        return Ok(());
+    };
+    let class = "device.mmio.display";
+    let c = grant_mmio_waited(
+        stats,
+        pol_route,
+        gpud_pid,
+        "gpud",
+        class,
+        controller,
+        gpud::DISPLAY_CONTROLLER,
+    )?;
+    let e = grant_mmio_waited(
+        stats,
+        pol_route,
+        gpud_pid,
+        "gpud",
+        class,
+        encoder,
+        gpud::DISPLAY_ENCODER,
+    )?;
+    if c && e {
+        debug_write_str("init: display plane ok (controller + encoder to gpud)\n");
+    }
     Ok(())
 }
 

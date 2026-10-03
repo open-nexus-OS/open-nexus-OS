@@ -311,6 +311,25 @@ pub static RESETS: &[ResetEntry] = &[
     apbc_reset(RESET_AIB, "aib", APBC_AIB_CLK_RST),
 ];
 
+/// The register offset of pad `pin` (the binding's pin number — the GPIO number) inside the
+/// pinctrl window: the pads are not laid out in pin order. Measured 2026-10-03 on the stock system
+/// (`docs/board/measurements/2026-10-03-first-light/`): its GPIO controller's `gpio-ranges` (GPIO
+/// 49 → index 50, 90 → 127, 96 → 120, 110 → 116, 111 → 131, 123 → 143) and its live pad
+/// registers through the pinctrl debugfs (uart0 68/69 at 0x114/0x118, mmc1 104/105 at
+/// 0x1b8/0x1bc, the HDMI encoder's 86..89 at 0x1ec..0x1f8, `sys-led` GPIO 96 at 0x1e0). Pins
+/// 98..103, which the stock layout orders differently, stay unmapped until measured.
+pub const fn pad_offset(pin: u32) -> Option<u16> {
+    let index = match pin {
+        0..=85 => pin + 1,
+        86..=92 => pin + 37,
+        93..=97 => pin + 24,
+        104..=110 => pin + 6,
+        111..=127 => pin + 20,
+        _ => return None,
+    };
+    Some((index * 4) as u16)
+}
+
 /// Every power domain the tables know. HDMI (the display controller and the encoder) is
 /// hardware-sequenced: mode bit 4 of its control word hands it to the power sequencer, a
 /// rising request bit 0 asks for power, bit 15 of the APMU power status word reports it up.

@@ -644,6 +644,7 @@ where
         )?,
         None => debug_write_bytes(b"init: gpu plane none (no device in the tree)\n"),
     }
+    crate::bootstrap::core_plane::grant_display_plane(&grant_stats, pol_route, gpud_pid)?;
     if let Some(net) = devices.net {
         crate::bootstrap::core_plane::grant_mmio_with_wait(
             &grant_stats,

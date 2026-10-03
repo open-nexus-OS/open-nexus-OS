@@ -50,6 +50,15 @@ and the boot loader's splash driver were read as a NAME reference only (never po
   (0x8000_0000 long) and child 0x8000_0000 → parent 0x1_0000_0000 (0x3_8000_0000 long). The
   stock framebuffer is at CPU 0x8fb7c000 = bus 0x0fb7c000 — **bank 0 is reachable; the scanout
   buffer does not have to live in bank 1** (the plan assumed it might).
+  **Corrected 2026-10-03 (TASK-0251 P2a):** the cells were misread. The stock tree's
+  `dram_range@1` (read from the pinned archive's tree, `../2026-09-30-power-domains/`) is
+  `<0x0 0x0  0x0 0x0  0x0 0x80000000>, <0x0 0x80000000  0x1 0x0  0x3 0x80000000>`: bus 0x0 →
+  CPU 0x0 for 2 GiB (bank 0 IDENTICAL) and bus 0x8000_0000 → CPU 0x1_0000_0000 (bank 1) — the
+  same as our tree's `multimedia-bus`. `0x8fb7c000` is not CPU RAM (`../2026-09-22-stock-system/
+  iomem.txt`: RAM is 0x0–0x7fff_ffff and 0x1_0000_0000–0x1_7fff_ffff); it is the framebuffer's
+  address on the controller's bus = CPU 0x1_0fb7_c000, in bank 1. Both banks are in the
+  controller's reach; a driver never computes the bus address — the kernel names it for the
+  controller's device (`vmo_dma_base`).
 
 ### The controller's block map (read from the live words; names from the vendor headers)
 
@@ -125,7 +134,8 @@ while it runs.
 1. **`hmclk` alone + `hdmi_reset` + domain 7** — the `dpu` node's five DSI clocks and three
    resets in `config/board/bpi-f3/board.dts` are trimmed to the measured truth (D3).
 2. **Direct MMIO, no command list, no display MMU** — the splash sequence is the model: one
-   contiguous XR24 buffer whose **bus address** (CPU − 0x8000_0000 for bank 0) goes to the RDMA,
+   contiguous XR24 buffer whose **bus address** (the kernel's answer for the controller's device;
+   corrected 2026-10-03: bank 0 is identical on the controller's bus, see "Reach") goes to the RDMA,
    composer 2 → output control 2 → HDMI. D2's register model is this table; D4 programs it.
 3. **The buffer is non-coherent** — `cbo.clean` of the damage before every flush; the mode's
    frame time (16.7 ms) is the pacing, the ONLINE IRQ (139) the fence.

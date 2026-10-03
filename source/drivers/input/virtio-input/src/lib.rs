@@ -22,7 +22,7 @@ use nexus_hal::Bus;
 use std::vec::Vec;
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-use nexus_abi::{mmio_map_auto, vm_map, vm_unmap, vmo_create_contiguous, vmo_dma_base};
+use nexus_abi::{vm_map, vm_unmap, vmo_create_contiguous, vmo_dma_base};
 
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976;
 pub const VIRTIO_MMIO_VERSION_MODERN: u32 = 2;
@@ -412,35 +412,16 @@ struct VqUsed<const N: usize> {
     ring: [VqUsedElem; N],
 }
 
+/// The transport's registers: the ABI's mapped window through the shared bus (the MMIO seam,
+/// TASK-0251 P2).
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-#[derive(Clone, Copy)]
-struct MmioBus {
-    base_va: usize,
-}
-
-#[cfg(all(feature = "os-lite", not(feature = "std")))]
-impl MmioBus {
-    const fn new(base_va: usize) -> Self {
-        Self { base_va }
-    }
-}
-
-#[cfg(all(feature = "os-lite", not(feature = "std")))]
-impl Bus for MmioBus {
-    fn read(&self, addr: usize) -> u32 {
-        unsafe { core::ptr::read_volatile((self.base_va + addr) as *const u32) }
-    }
-
-    fn write(&self, addr: usize, value: u32) {
-        unsafe { core::ptr::write_volatile((self.base_va + addr) as *mut u32, value) }
-    }
-}
+use nexus_driverkit::Mmio;
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
 pub struct MappedVirtioInputDevice {
     slot: DeviceSlot,
     role: DeviceRole,
-    bus: MmioBus,
+    bus: Mmio,
     queue: QueueState<{ DEFAULT_QUEUE_ENTRIES as usize }>,
     absolute_x: Option<AbsoluteAxisInfo>,
     absolute_y: Option<AbsoluteAxisInfo>,
@@ -455,9 +436,9 @@ impl MappedVirtioInputDevice {
         // service loop, and a leaked region per retry would exhaust the
         // per-space region table.
         const MMIO_WINDOW_LEN: usize = 0x1000;
-        let mmio_base_va = mmio_map_auto(mmio_cap_slot, 0, MMIO_WINDOW_LEN)
+        let window = nexus_abi::MmioWindow::map(mmio_cap_slot, 0, MMIO_WINDOW_LEN)
             .map_err(|_| VirtioInputError::MapFailed)?;
-        let bus = MmioBus::new(mmio_base_va);
+        let bus = Mmio::new(window);
         let inner = || -> Result<Self, VirtioInputError> {
             let mmio = VirtioInputMmio::new(bus);
             mmio.probe()?;
@@ -477,7 +458,7 @@ impl MappedVirtioInputDevice {
             Ok(Self { slot, role, bus, queue, absolute_x, absolute_y })
         };
         inner().inspect_err(|_| {
-            let _ = vm_unmap(mmio_base_va, MMIO_WINDOW_LEN);
+            let _ = vm_unmap(window.base(), MMIO_WINDOW_LEN);
         })
     }
 
@@ -561,7 +542,7 @@ struct QueueState<const N: usize> {
 impl<const N: usize> QueueState<N> {
     /// The event queue and its buffers, a page each, made for `device` (inside its DMA
     /// reach) and programmed with its bus addresses.
-    fn new(bus: &MmioBus, device: u32, queue_index: u32) -> Result<Self, VirtioInputError> {
+    fn new(bus: &Mmio, device: u32, queue_index: u32) -> Result<Self, VirtioInputError> {
         use nexus_abi::page_flags::{READ, USER, VALID, WRITE};
         let page = || -> Option<(u32, usize, u64)> {
             let vmo = vmo_create_contiguous(device, 4096).ok()?;
@@ -644,7 +625,7 @@ impl<const N: usize> QueueState<N> {
         Ok(Some((desc_id as u16, raw_event)))
     }
 
-    fn requeue_desc(&mut self, desc_id: u16, bus: &MmioBus) -> Result<(), VirtioInputError> {
+    fn requeue_desc(&mut self, desc_id: u16, bus: &Mmio) -> Result<(), VirtioInputError> {
         if usize::from(desc_id) >= N {
             return Err(VirtioInputError::InvalidDescriptor);
         }
@@ -676,7 +657,7 @@ const fn align4(value: usize) -> usize {
 }
 
 #[cfg(all(feature = "os-lite", not(feature = "std")))]
-fn write_u64_mmio_pair(bus: &MmioBus, low_reg: usize, high_reg: usize, value: u64) {
+fn write_u64_mmio_pair(bus: &Mmio, low_reg: usize, high_reg: usize, value: u64) {
     bus.write(low_reg, (value & 0xffff_ffff) as u32);
     bus.write(high_reg, (value >> 32) as u32);
 }

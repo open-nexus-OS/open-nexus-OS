@@ -128,7 +128,7 @@ impl<B: Bus, P: Platform, M: DmaMemory, C: CacheOps> BlockDevice for SdhciDevice
 /// The block face on the OS.
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub type OsSdhciDevice = SdhciDevice<
-    storage_sdhci::os::MmioBus,
+    nexus_driverkit::Mmio,
     storage_sdhci::os::OsPlatform,
     nexus_abi::DmaVmo,
     nexus_driverkit::Zicbom,

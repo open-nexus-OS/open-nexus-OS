@@ -43,15 +43,20 @@ pub(crate) const GPUD: ServiceSpec = ServiceSpec {
     id: ServiceId::Gpud,
     stage: Stage::DisplayReady,
     exposes_server: true,
-    reply_inbox: false,
-    // TASK-0324 P4c: a pure server — windowd calls it, it calls nobody. Its MMIO window
-    // uses the fleet-wide `DEVICE_MMIO_SLOT`; its IRQ notification deliberately reuses
-    // the control-reply endpoint (never the server endpoint, which would swallow
-    // windowd's present commands), so neither is a per-service grant to declare here.
-    routes_to: &[],
+    // TASK-0251 P2: its one outbound call is socd's bring-up of the board's display nodes
+    // (RFC-0106), answered on its own inbox. Its GPU window uses the fleet-wide
+    // `DEVICE_MMIO_SLOT`, the board's display plane `slots::gpud::DISPLAY_*`; its IRQ
+    // notification deliberately reuses the control-reply endpoint (never the server endpoint,
+    // which would swallow windowd's present commands).
+    reply_inbox: true,
+    routes_to: &[Route {
+        to: ServiceId::Socd,
+        kind: RouteKind::ReplyInbox,
+        slots: slots::gpud::SOCD,
+    }],
     announce: true,
     server_slots: slots::gpud::SERVER,
-    reply_slots: SlotPair::UNDECLARED,
+    reply_slots: slots::gpud::REPLY,
     extra_slots: &[
         NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::gpud::TIMER_RECV },
         NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::gpud::TIMER_SEND },

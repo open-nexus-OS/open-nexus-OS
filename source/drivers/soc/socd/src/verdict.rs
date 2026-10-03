@@ -17,8 +17,9 @@ use nexus_wire::soc;
 /// The largest reply any op produces.
 pub const REPLY_MAX: usize = 32;
 
-/// The most registers a bring-up marker names (the display pipeline touches three).
-pub const MAX_WORDS: usize = 6;
+/// The most registers a bring-up marker names (the encoder touches seven: three glue words and
+/// four pads).
+pub const MAX_WORDS: usize = 8;
 
 /// What the caller established about the requester before the verdict runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +59,7 @@ pub struct Outcome {
     pub resets: u8,
     pub clocks: u8,
     pub rates: u8,
+    pub pads: u8,
     pub writes: u8,
     pub failed: Option<Failed>,
     pub refused: Option<PlanError>,
@@ -73,6 +75,7 @@ impl Outcome {
             resets: 0,
             clocks: 0,
             rates: 0,
+            pads: 0,
             writes: 0,
             failed: None,
             refused: None,
@@ -143,8 +146,8 @@ pub fn answer<B: Bus>(
             let mut outcome = Outcome::of(soc::STATUS_NOT_NEEDED);
             let finish = |out: &mut [u8; REPLY_MAX], rsp: soc::BringUpReply, mut o: Outcome| {
                 let n = soc::encode_bring_up_rsp(out, &rsp).unwrap_or(0);
-                (o.status, o.domains, o.resets, o.clocks) =
-                    (rsp.status, rsp.domains, rsp.resets, rsp.clocks);
+                (o.status, o.domains, o.resets, o.clocks, o.pads) =
+                    (rsp.status, rsp.domains, rsp.resets, rsp.clocks, rsp.pads);
                 (n, o)
             };
             if access == Access::Denied {
@@ -171,6 +174,7 @@ pub fn answer<B: Bus>(
                     rsp.domains = sat(report.domains);
                     rsp.resets = sat(report.resets_released);
                     rsp.clocks = sat(report.clocks_on);
+                    rsp.pads = sat(report.pads);
                     outcome.rates = sat(report.rates_set);
                     outcome.writes = sat(report.writes);
                 }
@@ -279,9 +283,9 @@ impl fmt::Write for Marker {
 }
 
 /// The line `socd` prints for a bring-up (RFC-0106): the node and what happened —
-/// `ok (domains=… resets=… clocks=… rates=… writes=…)`, `not needed`, or `FAIL (step=…
+/// `ok (domains=… resets=… clocks=… rates=… pads=… writes=…)`, `not needed`, or `FAIL (step=…
 /// reg=<window>+0x… val=0x…)` — followed by every register the bring-up touched as
-/// `<window>+0x<offset>:0x<before>>0x<after>`.
+/// `<window>+<offset>:<before>><after>`, all hex — compact, so a node's glue fits one line.
 pub fn bring_up_marker(path: &str, o: &Outcome) -> Marker {
     let mut m = Marker::new();
     let words = o.words();
@@ -290,8 +294,8 @@ pub fn bring_up_marker(path: &str, o: &Outcome) -> Marker {
     }
     let head = match o.status {
         soc::STATUS_OK => m.try_push(format_args!(
-            "socd: bring-up {} ok (domains={} resets={} clocks={} rates={} writes={})",
-            path, o.domains, o.resets, o.clocks, o.rates, o.writes
+            "socd: bring-up {} ok (domains={} resets={} clocks={} rates={} pads={} writes={})",
+            path, o.domains, o.resets, o.clocks, o.rates, o.pads, o.writes
         )),
         soc::STATUS_NOT_NEEDED => m.try_push(format_args!("socd: bring-up {} not needed", path)),
         soc::STATUS_FAILED => match o.failed {
@@ -326,10 +330,8 @@ pub fn bring_up_marker(path: &str, o: &Outcome) -> Marker {
         if i + 1 == words.len() {
             m.limit = MARKER_MAX;
         }
-        let fits = m.try_push(format_args!(
-            " {}+0x{:x}:0x{:x}>0x{:x}",
-            w.window, w.offset, w.before, w.after
-        ));
+        let fits =
+            m.try_push(format_args!(" {}+{:x}:{:x}>{:x}", w.window, w.offset, w.before, w.after));
         if !fits {
             m.limit = MARKER_MAX;
             let _ = m.try_push(format_args!(" +{} more", words.len() - i));

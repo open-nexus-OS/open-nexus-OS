@@ -151,6 +151,10 @@ pub use syscall::*;
 
 pub mod device_tree;
 
+/// A device's mapped register window: bounds-checked volatile words (TASK-0251 P2).
+pub mod mmio;
+pub use mmio::MmioWindow;
+
 pub mod console_ring;
 #[cfg(nexus_env = "os")]
 pub mod slot_probe;

@@ -1261,11 +1261,13 @@ dependencies = [
  "nexus-driverkit",
  "nexus-fdt",
  "nexus-gfx",
+ "nexus-hal",
  "nexus-ipc",
  "nexus-sdf",
  "nexus-service-entry",
  "nexus-service-topology",
  "nexus-svg",
+ "nexus-wire",
 ]
 
 [[package]]
@@ -2028,6 +2030,7 @@ name = "nexus-driverkit"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-hal",
 ]
 
 [[package]]
@@ -2284,6 +2287,7 @@ version = "0.1.0"
 dependencies = [
  "net-virtio",
  "nexus-abi",
+ "nexus-driverkit",
  "nexus-hal",
  "nexus-net",
  "nexus-service-topology",
@@ -4234,6 +4238,7 @@ name = "socd"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-driverkit",
  "nexus-fdt",
  "nexus-hal",
  "nexus-ipc",
@@ -4365,6 +4370,7 @@ name = "storage-virtio-blk"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-driverkit",
  "nexus-hal",
  "nexus-ipc",
  "nexus-service-topology",
@@ -5000,6 +5006,7 @@ name = "virtio-input"
 version = "0.1.0"
 dependencies = [
  "nexus-abi",
+ "nexus-driverkit",
  "nexus-hal",
 ]
 

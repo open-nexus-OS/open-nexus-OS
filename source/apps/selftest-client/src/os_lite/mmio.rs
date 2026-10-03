@@ -2,33 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: MMIO selftest helpers — the RFC-0085 `vm_map` roundtrip proof and
-//!   the `cap_query` probes consumed by `phases::mmio`, plus the `MmioBus`
-//!   adapter used by the opt-in `smoltcp-probe` bring-up lane.
+//!   the `cap_query` probes consumed by `phases::mmio` (the opt-in `smoltcp-probe`
+//!   lane maps its device through `nexus_driverkit::Mmio`, the MMIO seam).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: QEMU marker ladder (just test-os) — mmio phase.
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
-
-/// MMIO bus adapter for the bounded smoltcp-over-virtio bring-up probe.
-/// `smoltcp-probe` is off by default (see Cargo.toml), and `net/smoltcp_probe.rs`
-/// is its only consumer — so the adapter is gated with it rather than left to
-/// warn as never-constructed in every default build.
-#[cfg(feature = "smoltcp-probe")]
-pub(crate) struct MmioBus {
-    pub(crate) base: usize,
-}
-
-#[cfg(feature = "smoltcp-probe")]
-impl nexus_hal::Bus for MmioBus {
-    fn read(&self, addr: usize) -> u32 {
-        unsafe { core::ptr::read_volatile((self.base + addr) as *const u32) }
-    }
-    fn write(&self, addr: usize, value: u32) {
-        unsafe { core::ptr::write_volatile((self.base + addr) as *mut u32, value) }
-    }
-}
 
 /// RFC-0085 vm_map roundtrip — the userspace end-to-end proof of the
 /// kernel-chosen-VA path: map a whole VMO in ONE syscall, write/read through

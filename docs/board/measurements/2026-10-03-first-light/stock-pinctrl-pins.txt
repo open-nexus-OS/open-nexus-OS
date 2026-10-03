@@ -1,0 +1,15 @@
+pin 69 (PIN69) 0:? d401e114 0000d042 pinctrl-single 
+pin 70 (PIN70) 0:? d401e118 0000d042 pinctrl-single 
+pin 110 (PIN110) 0:? d401e1b8 0000c440 pinctrl-single 
+pin 111 (PIN111) 0:? d401e1bc 0000c440 pinctrl-single 
+pin 120 (PIN120) 96:k1x-gpio d401e1e0 0000b041 pinctrl-single 
+pin 123 (PIN123) 0:? d401e1ec 0000d041 pinctrl-single 
+pin 124 (PIN124) 0:? d401e1f0 0000d041 pinctrl-single 
+pin 125 (PIN125) 0:? d401e1f4 0000b041 pinctrl-single 
+pin 126 (PIN126) 0:? d401e1f8 0000b041 pinctrl-single 
+pin 96 (PIN96): UNCLAIMED
+pin 120 (PIN120): GPIO k1x-gpio:96
+pin 123 (PIN123): device c0400500.hdmi function hdmi_0_grp group hdmi_0_grp
+pin 124 (PIN124): device c0400500.hdmi function hdmi_0_grp group hdmi_0_grp
+pin 125 (PIN125): device c0400500.hdmi function hdmi_0_grp group hdmi_0_grp
+pin 126 (PIN126): device c0400500.hdmi function hdmi_0_grp group hdmi_0_grp

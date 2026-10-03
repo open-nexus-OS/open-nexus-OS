@@ -11,6 +11,8 @@ os-lite = []
 [dependencies]
 nexus-hal = { path = "../../../libs/nexus-hal" }
 nexus-abi = { path = "../../../libs/nexus-abi" }
+# TASK-0251 P2 (the MMIO seam): the transport's registers through the shared `Mmio` bus.
+nexus-driverkit = { path = "../../../libs/nexus-driverkit" }
 # TASK-0054C P2-b: the completion wait's bound is a kernel timer on the declared
 # device-watchdog pair (`nexus_ipc::timer`), never a receive deadline.
 nexus-ipc = { path = "../../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"] }

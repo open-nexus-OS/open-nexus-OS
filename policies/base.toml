@@ -57,7 +57,7 @@ rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 # it asks policyd whether a requester holds `soc.glue` before touching a register.
 socd = ["device.mmio.syscon", "ipc.core", "policy.delegate"]
 "hidrawd" = ["device.mmio.input", "ipc.core"]
-"gpud" = ["device.mmio.gpu", "ipc.core", "soc.glue"]
+"gpud" = ["device.mmio.gpu", "device.mmio.display", "ipc.core", "soc.glue"]
 # RFC-0065/0066: the ability lifecycle broker may route, query the bundle registry,
 # and spawn apps (the "only abilitymgr spawns apps" invariant). windowd queries the
 # registry for the dynamic Apps menu. Without `ipc.core` here, their route requests

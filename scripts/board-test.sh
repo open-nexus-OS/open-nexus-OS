@@ -90,10 +90,11 @@ ladder_headless=(
   "policyd: ready"
   "stage: platform"
   "SELFTEST: soc glue display ok"
+  "gpud: dc encoder ok (hpd=1"
+  "gpud: dc scanout ok ("
 )
 ladder_visible=(
   "${ladder_headless[@]}"
-  "gpud: dc scanout ok ("
   "windowd: desktop revealed"
 )
 acks_headless=()

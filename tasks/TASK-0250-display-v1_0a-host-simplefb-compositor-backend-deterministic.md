@@ -93,8 +93,10 @@ beyond a boot-time detect, any composition on the controller beyond two planes.
   reading windowd's anonymous framebuffer as a list, if the controller's DMA takes one.
   **Decided 2026-09-30:** gpud makes it (TASK-0251 P1, RFC-0098 C7 amended) — the controller
   takes base + stride, no list (D0), so the board's kind is the contiguous one, made with the
-  controller's capability in TASK-0251 P2; D0 measured bank 0 in the controller's reach (bus =
-  CPU − 0x8000_0000), so the buffer need not live in the upper bank.
+  controller's capability in TASK-0251 P2; both banks are in the controller's reach — bank 0
+  identical on its bus, bank 1 at bus 0x8000_0000 (D0 first read "bus = CPU − 0x8000_0000";
+  corrected 2026-10-03 from the stock tree, `docs/board/measurements/2026-09-29-display-regs/`
+  "Reach") — and the kernel names the bus address (`vmo_dma_base`).
 
 ## Definition of Done
 

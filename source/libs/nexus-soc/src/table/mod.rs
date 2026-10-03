@@ -119,3 +119,11 @@ pub fn reset(provider: ProviderKind, id: u32) -> Option<&'static ResetEntry> {
 pub fn domain(provider: ProviderKind, id: u32) -> Option<&'static DomainEntry> {
     k1::DOMAINS.iter().find(|d| d.provider == provider && d.id == id)
 }
+
+/// The register offset of pad `pin` inside a pad controller's window.
+pub fn pad_offset(provider: ProviderKind, pin: u32) -> Option<u16> {
+    match provider {
+        ProviderKind::Pinctrl => k1::pad_offset(pin),
+        _ => None,
+    }
+}

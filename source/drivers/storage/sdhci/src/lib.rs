@@ -32,7 +32,8 @@
 //!   descriptor names memory the device cannot reach (below 4 GiB, 4-byte aligned).
 
 #![cfg_attr(not(test), no_std)]
-#![deny(unsafe_code)]
+// No `unsafe` anywhere: the OS glue maps its registers through the ABI's window (TASK-0251 P2).
+#![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 pub mod adma;

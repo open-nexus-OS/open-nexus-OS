@@ -72,7 +72,7 @@ src/os_lite/
 ├── probes/             ← NOUNS — focused proof primitives (rng, elf, device_key, ipc_kernel/*)
 ├── dsoftbus/           ← NOUNS — DSoftBus QUIC + cross-VM remote (resolve / statefs / pkgfs)
 ├── net/                ← NOUNS — netstackd helpers (local_addr, icmp_ping, smoltcp opt-in)
-├── mmio/               ← NOUNS — MmioBus + W^X reject path
+├── mmio/               ← NOUNS — vm_map roundtrip + W^X reject path
 ├── vfs/                ← NOUNS — verify_vfs() over kernel IPC
 ├── timed/              ← NOUNS — timed coalesce probe
 └── updated/            ← NOUNS — OTA helpers (stage / switch / status / health / reply pump)

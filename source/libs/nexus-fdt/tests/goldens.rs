@@ -112,7 +112,8 @@ fn the_board_names_its_boot_led_and_qemu_names_none() {
     assert_eq!((led.bank, led.line, led.flags), (3, 0, 0));
     assert!(led.gpio.is_compatible("spacemit,k1-gpio"));
     assert_eq!(led.gpio.reg(0).unwrap().unwrap().addr, 0xd401_9000);
-    assert_eq!(chosen.boot_led_pad(), Some((0xd401_e180, 0x440)));
+    // GPIO 96's pad and its GPIO mux word, read live 2026-10-03 (pin index 120, `sys-led`).
+    assert_eq!(chosen.boot_led_pad(), Some((0xd401_e1e0, 0xb041)));
     let virt = Fdt::new(VIRT).unwrap();
     assert!(virt.chosen().unwrap().boot_led().is_none());
     assert!(virt.chosen().unwrap().boot_led_pad().is_none());

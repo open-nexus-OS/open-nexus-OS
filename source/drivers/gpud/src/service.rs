@@ -92,6 +92,10 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // draw/gradient/scanout/…) into one `gpud N/N` grid line in interactive boots. Flushed at
     // GPUD_READY below; FAIL lines still print live; proof boots emit everything raw.
     nexus_abi::service_verdict_arm();
+    // TASK-0251 P2: the board grants its display plane instead of a GPU.
+    if crate::backend::dc::granted() {
+        return crate::backend::dc::service_main_loop();
+    }
     let mut backend = open_backend_once()?;
     // Branded splash FIRST (task #122): the same glow+wordmark image the GL
     // splash shows later — the scanout switch becomes invisible and the pulse
@@ -198,7 +202,7 @@ fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
     }
 }
 
-fn bind_server() -> Result<KernelServer, nexus_abi::AbiError> {
+pub(crate) fn bind_server() -> Result<KernelServer, nexus_abi::AbiError> {
     // The declared server pair (TASK-0324 P4), pinned before this task runs. No route ask at
     // start-up (P7-b): an ask has no clock and init may be blocked in a synchronous exchange
     // with a service that, in turn, waits for THIS server — the ask made that a deadlock.

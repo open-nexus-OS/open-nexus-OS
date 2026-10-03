@@ -78,3 +78,17 @@ driver; add a new one the day it is won, with its reference, never from memory.
 - **Board cycles are slow and not free**: a cycle is flash → LED ladder → microSD → reset →
   `just board-log`; a USB-UART adapter would shorten every cycle more than any script
   (plan note 2026-09-29). Batch hypotheses so one cycle decides several.
+- **Two working references do not make a working third** (2026-10-03, `2026-10-03-first-light/`):
+  the composer's layer word came from the boot loader (layer 0 reading RDMA3, `7`), the RDMA
+  channel from the stock kernel (RDMA1) — each source consistent, the mix scanned nothing. Take
+  a coupled group of words from ONE source, or derive the coupling (`cmps_layer_word(rdma)`) and
+  test it (`test_reject_a_layer_reading_a_channel_the_control_word_does_not_enable`).
+- **pinctrl-single's "pin N" is a register index, not GPIO N** (2026-10-03): the status LED's
+  pad was taken from debugfs `pin 96` (index 96, an unclaimed pad at 0x180); GPIO 96 is index
+  120 at 0x1e0 — `pinmux-pins` names the claiming GPIO, the GPIO controller's `gpio-ranges` the
+  mapping. The LED worked anyway (its real pad was already GPIO), which hid the error for a week.
+- **A counter that ticks on the stock system may stand still on yours** (2026-10-03): the
+  post-processing line counter moved with the stock kernel (it dithers) and never on the
+  first-light path (no post-processing) — a single witness made a scanning controller look dead
+  in the gate. Prove liveness with two independent witnesses.
+

@@ -24,7 +24,8 @@ use crate::{
     QueueSetup, VirtioBlk, VirtioError, REG_QUEUE_NUM_MAX, REG_QUEUE_SEL, VIRTIO_DEVICE_ID_BLK,
     VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN,
 };
-use nexus_abi::{cap_query, vmo_create_contiguous, vmo_dma_base, CapQuery};
+use nexus_abi::{cap_query, vmo_create_contiguous, vmo_dma_base, CapQuery, MmioWindow};
+use nexus_driverkit::Mmio;
 use nexus_hal::Bus;
 use nexus_ipc::timer::{NotifyTimer, Waitset};
 use nexus_service_topology::SlotPair;
@@ -80,19 +81,6 @@ struct BlkReq {
     req_type: u32,
     reserved: u32,
     sector: u64,
-}
-
-struct MmioBus {
-    base: usize,
-}
-
-impl Bus for MmioBus {
-    fn read(&self, addr: usize) -> u32 {
-        unsafe { core::ptr::read_volatile((self.base + addr) as *const u32) }
-    }
-    fn write(&self, addr: usize, value: u32) {
-        unsafe { core::ptr::write_volatile((self.base + addr) as *mut u32, value) }
-    }
 }
 
 fn align4(x: usize) -> usize {
@@ -182,7 +170,7 @@ struct DrvState {
 /// the host-proven request ring, IRQ completion with honest poll
 /// fallback (TASK-0314).
 pub struct VirtioBlkMmio {
-    dev: VirtioBlk<MmioBus>,
+    dev: VirtioBlk<Mmio>,
     state: RefCell<DrvState>,
     buf_va: usize,
     buf_pa: u64,
@@ -209,17 +197,18 @@ impl VirtioBlkMmio {
         // The window is reached through the kernel-chosen map only; its physical
         // base is nobody's business here (RFC-0098 C3: the line comes with the cap).
         let _ = cap_query_base_len(mmio_cap_slot)?;
-        let mmio_va = nexus_abi::mmio_map_auto(mmio_cap_slot, 0, 0x1000)
-            .map_err(|_| VirtioError::Unsupported)?;
-        let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
+        let window =
+            MmioWindow::map(mmio_cap_slot, 0, 0x1000).map_err(|_| VirtioError::Unsupported)?;
+        let bus = Mmio::new(window);
+        let magic = bus.read(0x000);
         if magic != VIRTIO_MMIO_MAGIC {
             return Err(VirtioError::BadMagic);
         }
-        let device_id = unsafe { core::ptr::read_volatile((mmio_va + 0x008) as *const u32) };
+        let device_id = bus.read(0x008);
         if device_id != VIRTIO_DEVICE_ID_BLK {
             return Err(VirtioError::NotBlockDevice);
         }
-        let version = unsafe { core::ptr::read_volatile((mmio_va + 0x004) as *const u32) };
+        let version = bus.read(0x004);
         if version != VIRTIO_MMIO_VERSION_LEGACY && version != VIRTIO_MMIO_VERSION_MODERN {
             return Err(VirtioError::UnsupportedVersion);
         }
@@ -229,7 +218,7 @@ impl VirtioBlkMmio {
             emit_line("virtio-blk: mmio legacy");
         }
 
-        let dev = VirtioBlk::new(MmioBus { base: mmio_va });
+        let dev = VirtioBlk::new(bus);
         dev.probe()?;
         dev.reset();
 

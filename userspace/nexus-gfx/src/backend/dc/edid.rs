@@ -248,7 +248,7 @@ fn parse_cea(block: &[u8], modes: &mut ModeList) {
             let end = (i + 1 + len).min(dtd_off.min(BLOCK));
             if tag == 2 {
                 for &svd in &block[i + 1..end] {
-                    if let Some(mode) = vic_mode(svd & 0x7f) {
+                    if let Some(mode) = cea_mode(svd & 0x7f) {
                         modes.push(mode);
                     }
                 }
@@ -268,8 +268,10 @@ fn parse_cea(block: &[u8], modes: &mut ModeList) {
 }
 
 /// The CEA-861 progressive timings this driver knows (interlaced identifiers are skipped —
-/// the controller scans progressive frames).
-fn vic_mode(vic: u8) -> Option<Mode> {
+/// the controller scans progressive frames): the standard timing of video identification code
+/// `vic` — what a mode without the monitor's own detailed timing is driven with (no EDID yet,
+/// TASK-0251 P2a).
+pub fn cea_mode(vic: u8) -> Option<Mode> {
     let t = |h, v, hfp, hsw, hbp, vfp, vsw, vbp, hp, vp, clk| Mode {
         h_active: h,
         v_active: v,

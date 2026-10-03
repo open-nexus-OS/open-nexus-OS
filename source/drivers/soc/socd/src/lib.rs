@@ -25,12 +25,11 @@
 //! RFC: docs/rfcs/RFC-0106-soc-glue-one-owner-clocks-resets-power-pinmux.md
 
 #![cfg_attr(not(any(test, nexus_env = "host")), no_std)]
-// The single unsafe allowance lives in `bus` (the mapped windows); everything else denies.
-#![deny(unsafe_code)]
+// No `unsafe`: the provider windows are the ABI's mapped windows behind
+// `nexus_driverkit::MmioSet` (the MMIO seam, TASK-0251 P2).
+#![forbid(unsafe_code)]
 
 pub mod verdict;
 
-#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-pub mod bus;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub mod os_lite;

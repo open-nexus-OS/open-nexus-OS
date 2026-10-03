@@ -53,6 +53,9 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // TASK-0246 P4c: the block owner has socd bring its disk's node up (and, on the K1, name
     // the `io` clock's rate) before it touches the controller.
     (ServiceId::Blkd, ServiceId::Socd),
+    // TASK-0251 P2: the display owner has socd bring the board's display nodes up (power
+    // domain, reset, the demanded clock rate) before it touches the controller.
+    (ServiceId::Gpud, ServiceId::Socd),
     (ServiceId::Vfsd, ServiceId::Packagefsd), // pkg:/ metadata + reads (reply inbox)
     (ServiceId::Packagefsd, ServiceId::Bundlemgrd), // slot/manifest queries via CAP_MOVE
     (ServiceId::Samgrd, ServiceId::Logd),     // structured logs via CAP_MOVE

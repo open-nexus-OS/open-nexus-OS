@@ -24,8 +24,9 @@ use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address};
 
-use super::super::mmio::MmioBus;
 use crate::markers::{emit_byte, emit_bytes, emit_line, emit_u64};
+use nexus_driverkit::Mmio;
+use nexus_hal::Bus;
 
 const VIRTQ_DESC_F_WRITE: u16 = 2;
 
@@ -87,7 +88,7 @@ struct VirtioQueues<const N: usize> {
 }
 
 impl<const N: usize> VirtioQueues<N> {
-    fn rx_replenish(&mut self, dev: &VirtioNetMmio<MmioBus>, count: usize) {
+    fn rx_replenish(&mut self, dev: &VirtioNetMmio<Mmio>, count: usize) {
         // Post the first `count` RX buffers once.
         let count = core::cmp::min(count, N);
         unsafe {
@@ -123,7 +124,7 @@ impl<const N: usize> VirtioQueues<N> {
         }
     }
 
-    fn rx_requeue(&mut self, dev: &VirtioNetMmio<MmioBus>, id: usize) {
+    fn rx_requeue(&mut self, dev: &VirtioNetMmio<Mmio>, id: usize) {
         unsafe {
             let avail = &mut *self.rx_avail;
             let idx = avail.idx as usize;
@@ -149,7 +150,7 @@ impl<const N: usize> VirtioQueues<N> {
         }
     }
 
-    fn tx_send(&mut self, dev: &VirtioNetMmio<MmioBus>, frame: &[u8]) -> bool {
+    fn tx_send(&mut self, dev: &VirtioNetMmio<Mmio>, frame: &[u8]) -> bool {
         self.tx_poll_reclaim();
         let mut slot: Option<usize> = None;
         for i in 0..N {
@@ -194,12 +195,12 @@ impl<const N: usize> VirtioQueues<N> {
 }
 
 struct SmolVirtio<const N: usize> {
-    dev: *const VirtioNetMmio<MmioBus>,
+    dev: *const VirtioNetMmio<Mmio>,
     q: *mut VirtioQueues<N>,
 }
 
 struct SmolRxToken<'a, const N: usize> {
-    dev: *const VirtioNetMmio<MmioBus>,
+    dev: *const VirtioNetMmio<Mmio>,
     q: *mut VirtioQueues<N>,
     id: usize,
     len: usize,
@@ -228,7 +229,7 @@ impl<'a, const N: usize> RxToken for SmolRxToken<'a, N> {
 }
 
 struct SmolTxToken<'a, const N: usize> {
-    dev: *const VirtioNetMmio<MmioBus>,
+    dev: *const VirtioNetMmio<Mmio>,
     q: *mut VirtioQueues<N>,
     _lt: core::marker::PhantomData<&'a mut ()>,
 }
@@ -293,14 +294,15 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     // NOTE: This is best-effort and bounded; the marker is emitted only on success.
     const MMIO_CAP_SLOT: u32 = nexus_service_topology::DEVICE_MMIO_SLOT;
     // RFC-0085: kernel-chosen va — the shared fixed 0x2000_e000 window is gone.
-    let mmio_va = nexus_abi::mmio_map_auto(MMIO_CAP_SLOT, 0, 0x1000).map_err(|_| ())?;
-    let magic = unsafe { core::ptr::read_volatile((mmio_va + 0x000) as *const u32) };
-    let device_id = unsafe { core::ptr::read_volatile((mmio_va + 0x008) as *const u32) };
+    let window = nexus_abi::MmioWindow::map(MMIO_CAP_SLOT, 0, 0x1000).map_err(|_| ())?;
+    let bus = Mmio::new(window);
+    let magic = bus.read(0x000);
+    let device_id = bus.read(0x008);
     if magic != VIRTIO_MMIO_MAGIC || device_id != VIRTIO_DEVICE_ID_NET {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_NO_VIRTIO_NET);
         return Err(());
     }
-    let dev = VirtioNetMmio::new(MmioBus { base: mmio_va });
+    let dev = VirtioNetMmio::new(bus);
     if dev.probe().is_err() {
         emit_line(crate::markers::M_SELFTEST_SMOLTCP_PROBE_FAIL);
         return Err(());
@@ -309,11 +311,10 @@ pub(crate) fn smoltcp_ping_probe() -> core::result::Result<(), ()> {
     // we must not invalidate earlier "net up" markers in the same selftest run.
 
     // Read MAC from virtio-net config space (offset 0x100).
-    // NOTE(task-0023b cut 6): pre-existing typo in dead code (`dev_va`) replaced with the
-    // already-mapped `mmio_va` so the `smoltcp-probe` cfg-gate compiles per RFC-0038.
+    // The same window, read through the shared bus (the MMIO seam, TASK-0251 P2).
     let mac = {
-        let w0 = unsafe { core::ptr::read_volatile((mmio_va + 0x100) as *const u32) };
-        let w1 = unsafe { core::ptr::read_volatile((mmio_va + 0x104) as *const u32) };
+        let config = Mmio::new(window);
+        let (w0, w1) = (config.read(0x100), config.read(0x104));
         [
             (w0 & 0xff) as u8,
             ((w0 >> 8) & 0xff) as u8,

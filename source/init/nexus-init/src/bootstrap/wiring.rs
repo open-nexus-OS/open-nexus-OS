@@ -102,6 +102,11 @@ pub(crate) fn wire_services(
                         debug_write_byte(b'\n');
                     }
                 }
+                // TASK-0251 P2: its reply inbox and its route to socd (the board's display
+                // nodes), from its declaration — the same legs every declarative service gets.
+                if let Some(spec) = crate::service_topology::spec_for(b"gpud") {
+                    declared_routes::wire_declared_legs(pid, spec, eps, chan);
+                }
             }
             "windowd" => {
                 // Already priority-wired before MMIO grants — skip re-wiring.

@@ -8,6 +8,7 @@
 
 use nexus_fdt::Node;
 
+use crate::pad::{pad_bits, split_pinmux, Bias, PAD_OWNED};
 use crate::provider::{ProviderKind, Providers};
 use crate::table::{self, ClockEntry, DomainOn};
 
@@ -47,6 +48,13 @@ pub enum Step {
         mux: u32,
         div: u32,
     },
+    /// One pad of a group the node names (`pinctrl-0`): the owned fields (`pad::PAD_OWNED` —
+    /// function, pull, edge-detect clear) set to `value`, the rest of the word left as found.
+    PadSet {
+        addr: usize,
+        mask: u32,
+        value: u32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +67,8 @@ pub enum PlanError {
     DomainUnsupported(u32),
     /// A demanded rate no parent and divider of the clock make exactly (provider, clock id).
     RateUnreachable(ProviderKind, u32),
+    /// A pad the pad map does not place (pin number) — not measured yet.
+    PadUnknown(u32),
     /// A provider node of an unknown kind.
     ProviderKindUnknown,
     TooManySteps,
@@ -115,6 +125,7 @@ impl Plan {
                         r.add(window + clock.fc_reg as usize);
                     }
                 }
+                Step::PadSet { addr, .. } => r.add(addr),
             }
         }
         r
@@ -208,6 +219,26 @@ pub fn plan(node: Node<'_>, providers: &Providers) -> Result<Plan, PlanError> {
         let entry = table::clock(kind, id).ok_or(PlanError::IdUnknown(kind, id))?;
         let (mux, div) = entry.select(u64::from(hz)).ok_or(PlanError::RateUnreachable(kind, id))?;
         p.push(Step::SetRate { clock: entry, window: base, mux, div })?;
+    }
+    // The pads, last (RFC-0106 order): every pin of every group the node names in `pinctrl-0`
+    // — a group is a pad controller's child whose pin nodes carry `pinmux` cells and a bias.
+    for spec in node.specifiers("pinctrl-0", "#pinctrl-cells") {
+        let group = spec.provider;
+        let controller = group.parent().ok_or(PlanError::ProviderKindUnknown)?;
+        let kind = ProviderKind::of(controller).ok_or(PlanError::ProviderKindUnknown)?;
+        let base = providers.get(kind).ok_or(PlanError::ProviderUnknown(kind))?.base;
+        for pins in group.children().chain(core::iter::once(group)) {
+            let bias = Bias::of(pins);
+            for cell in (0..).map_while(|i| pins.prop_cell("pinmux", i)) {
+                let (pin, func) = split_pinmux(cell);
+                let offset = table::pad_offset(kind, pin).ok_or(PlanError::PadUnknown(pin))?;
+                p.push(Step::PadSet {
+                    addr: base + offset as usize,
+                    mask: PAD_OWNED,
+                    value: pad_bits(func, bias),
+                })?;
+            }
+        }
     }
     Ok(p)
 }

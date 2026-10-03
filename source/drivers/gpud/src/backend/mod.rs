@@ -38,6 +38,9 @@ mod blur_cache;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod bootstrap;
 mod cursor;
+// TASK-0251 P2: the board's display controller + HDMI encoder (granted instead of a GPU).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod dc;
 mod display_mode;
 mod framebuffer;
 #[cfg(all(feature = "os-lite", target_os = "none"))]

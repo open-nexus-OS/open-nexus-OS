@@ -9,16 +9,16 @@
 //! owner's device-watchdog pair beside that endpoint in one waitset (never a receive
 //! deadline, never a clock compare), and the DMA memory made FOR the device — inside its
 //! reach, in its bus addresses — and maintained with Zicbom when the device does not snoop.
-//! The only `unsafe` in the crate is the volatile register access here.
+//! The crate carries no `unsafe`: the registers are the ABI's mapped window through
+//! `nexus_driverkit::Mmio` (the MMIO seam, TASK-0251 P2).
 //! OWNERS: @runtime @drivers
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the core under it is host-proven (`tests/sdhci`); this glue by the QEMU
 //!   lane `ci-os-sdhci` (TASK-0246 P5) and the board (P6)
 
-use nexus_abi::DmaVmo;
-use nexus_driverkit::{DmaBuffer, Zicbom};
-use nexus_hal::Bus;
+use nexus_abi::{DmaVmo, MmioWindow};
+use nexus_driverkit::{DmaBuffer, Mmio, Zicbom};
 use nexus_ipc::timer::{NotifyTimer, Waitset};
 use nexus_service_topology::SlotPair;
 
@@ -35,7 +35,7 @@ const POLL_US: u64 = crate::host::POLL_US;
 const DRAIN_MAX: usize = 8;
 
 /// A [`Disk`] on the OS.
-pub type OsDisk = Disk<MmioBus, OsPlatform, DmaVmo, Zicbom>;
+pub type OsDisk = Disk<Mmio, OsPlatform, DmaVmo, Zicbom>;
 
 /// Why a granted device did not become a disk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,34 +49,6 @@ pub enum OpenError {
     DmaMemory,
     /// The controller or the card refused.
     Core(Error),
-}
-
-/// The controller's registers, mapped from its device capability.
-pub struct MmioBus {
-    base: usize,
-    len: usize,
-}
-
-// The crate's one `unsafe`: volatile access to the mapped registers.
-#[allow(unsafe_code)]
-impl Bus for MmioBus {
-    fn read(&self, addr: usize) -> u32 {
-        if addr + 4 > self.len {
-            return u32::MAX;
-        }
-        // SAFETY: `base..base + len` is the window `mmio_map_auto` mapped for the device
-        // capability (USER|RW, never unmapped while the disk lives); `addr` is 4-byte aligned
-        // (the core's register offsets) and the word lies inside the window (checked above).
-        unsafe { core::ptr::read_volatile((self.base + addr) as *const u32) }
-    }
-
-    fn write(&self, addr: usize, value: u32) {
-        if addr + 4 > self.len {
-            return;
-        }
-        // SAFETY: as in `read`.
-        unsafe { core::ptr::write_volatile((self.base + addr) as *mut u32, value) }
-    }
 }
 
 /// Time and the interrupt: a kernel one-shot on the owner's watchdog pair and the owner's
@@ -179,7 +151,7 @@ pub fn open(
         return Err(OpenError::Window);
     }
     let len = usize::try_from(info.len).map_err(|_| OpenError::Window)?;
-    let base = nexus_abi::mmio_map_auto(device, 0, len).map_err(|_| OpenError::Window)?;
+    let window = MmioWindow::map(device, 0, len).map_err(|_| OpenError::Window)?;
 
     let timer = NotifyTimer::bind(watchdog).map_err(|_| OpenError::Timer)?;
     let mut waitset = Waitset::new().map_err(|_| OpenError::Timer)?;
@@ -189,7 +161,7 @@ pub fn open(
     let platform =
         OsPlatform { irq_num: info.irq, irq_ep, irq_member, timer, waitset, claimed: false };
 
-    let host = Host::new(MmioBus { base, len }, platform, config).map_err(OpenError::Core)?;
+    let host = Host::new(Mmio::new(window), platform, config).map_err(OpenError::Core)?;
     let (card, fallback) = Card::init_best(host).map_err(|f| OpenError::Core(f.error))?;
 
     let coherence = nexus_abi::device_dma_coherence(device).map_err(|_| OpenError::DmaMemory)?;

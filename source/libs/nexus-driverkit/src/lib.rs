@@ -47,10 +47,13 @@
 
 mod buffers;
 mod dma;
+mod mmio;
 mod qos;
 mod ring;
 
 pub use buffers::{BufferBudget, BufferError};
 pub use dma::{CacheOps, Direction, DmaBuffer, DmaError, DmaMemory, InFlight, Zicbom};
+// TASK-0251 P2 (the MMIO seam): the one register bus every driver maps its window through.
+pub use mmio::{Mmio, MmioSet, FLOATING};
 pub use qos::Qos;
 pub use ring::{RingError, Slot, SubmitRing, Ticket, MAX_SLOTS};

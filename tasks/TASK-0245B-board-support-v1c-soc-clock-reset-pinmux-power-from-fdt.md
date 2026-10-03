@@ -212,6 +212,18 @@ node up / this clock's rate".
   test-all` on the final tree: EXIT=0 (60 PASS, 0 FAIL). Pads stay
   open: the encoder's DDC group (`hdmi_0_grp`) is measured, its pad-number mapping lands with
   its consumer (TASK-0251 P2b).
+  **Pad half for the display set ✅ 2026-10-03 on the board:** `nexus_soc::pad` owns the fields
+  the stock words confirm (function, pull and direction, strong pull clear, edge-detect clear;
+  drive and schmitt left as found until their tables are measured per IO domain),
+  `table::k1::pad_offset` places a pin (the GPIO number) in the window — measured against the
+  stock system's `gpio-ranges` and its live pad words (`docs/board/measurements/
+  2026-10-03-first-light/`: uart0, mmc1, the encoder's pins 86..89, GPIO 96; pins 98..103
+  unplaced until measured, `PlanError::PadUnknown`) — `Step::PadSet` from `pinctrl-0` (every pin
+  of every group, last in the RFC-0106 order), `Report.pads`, socd's `pads=` and the pad words
+  in its line (compact hex now: `pinctrl+1ec:d040>d041`). The board's `hdmi_0_cfg` group (pins
+  86..89, function 1, the DDC pair pulled up, the status pair down): the reset left function 0,
+  socd set the stock words exactly, the encoder then saw the hot-plug. The tree's status-LED pad
+  was wrong (pinctrl-single's pin index 96 at 0x180, not GPIO 96 at 0x1e0) — corrected.
 
 ## Constraints / invariants
 

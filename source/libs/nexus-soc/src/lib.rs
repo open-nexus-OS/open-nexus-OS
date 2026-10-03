@@ -50,6 +50,6 @@ pub mod table;
 pub use field::Field;
 pub use node::{bring_up, clock_rate, BringUp, BringUpError, RateError};
 pub use ops::{Executor, Fault, Report};
-pub use pad::{pad_word, PadConf};
+pub use pad::{pad_bits, Bias, PAD_OWNED};
 pub use plan::{plan, Plan, PlanError, Registers, Step, MAX_STEPS};
 pub use provider::{Provider, ProviderKind, Providers};

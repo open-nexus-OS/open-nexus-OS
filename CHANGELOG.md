@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-03 (TASK-0251 P2a step 1: first light on the board — gpud's splash through the display controller and the HDMI encoder; one register bus; pads)
+
+- **One register bus.** `nexus_abi::MmioWindow` is the one mapped, bounds-checked register
+  window (a block inside its page is a `window` at the tree's offset);
+  `nexus_driverkit::{Mmio, MmioSet}` put `nexus_hal::Bus` on top. The six per-driver volatile
+  copies are gone (sdhci, virtio-blk, socd, virtio-input, nexus-net-os, the harness's probe
+  bus); sdhci and socd forbid `unsafe` now; `MmioBus` is a retired name.
+- **The display plane.** init finds the tree's display controller and HDMI encoder and grants
+  both windows to gpud as `device.mmio.display` (policy: gpud), or names `init: display plane
+  none (…)`. gpud got its declared legs: a reply inbox and the route to socd.
+- **First light, proven on the board.** On a granted display plane gpud has socd bring both
+  nodes up, checks the controller's version, programs the encoder from its measured sequence
+  (`nexus_gfx::backend::dc::encoder`, goldens against the 2026-09-29 dump; an unmeasured pixel
+  clock is refused) and waits for its PLL, makes the framebuffer as ONE contiguous block for the
+  controller, draws the boot splash into the display plane, cleans it out of the caches,
+  programs the pipeline and reports `gpud: dc scanout ok (…)` only once the scan shows — the
+  monitor showed the splash (`board-visual: splash`, `[PASS] board-headless` with 20 rungs;
+  `docs/board/measurements/2026-10-03-first-light/`). windowd's framebuffer request is refused
+  by name until the desktop path lands (step 2).
+- **The cycle that failed, and the gates it produced.** The first cycle scanned nothing: the
+  model wrote the boot loader's composer layer word (RDMA3) while feeding RDMA1 — the word is now
+  computed from the channel, and a host test rejects a layer reading an idle channel. The gates
+  for the second cycle came from measurements: the encoder's pads (socd's new pad step, the
+  stock system's live words as the target — the encoder then saw the hot-plug), the scan by
+  either witness (the post-processing line counter does not count on this path; the raw vsync
+  does), every written controller word read back (it found the boot loader's background word
+  outside its 12-bit field; the model no longer writes it), the vendor boot loader's console in
+  every flash session (`fastboot oem log`).
+- **Pads in the SoC glue** (TASK-0245B P3): `pinctrl-0` → every pin of every group, placed by
+  the K1 pad map measured against the stock system (`gpio-ranges` + live pad words); the fields
+  the stock words confirm are set, drive strength stays as found until measured. The tree's
+  status-LED pad was wrong (pinctrl-single's pin index 96, not GPIO 96) and is corrected.
+- **A measurement corrected.** D0 read the controller's `dma-ranges` as "bus = CPU −
+  0x8000_0000"; the stock tree says bank 0 is identical on the controller's bus and bank 1 sits
+  at bus 0x8000_0000 (the record, the ledgers and the bring-up skill carry the dated correction).
+- Gates: `SELFTEST: soc glue display ok`, `gpud: dc encoder ok (hpd=1`, `gpud: dc scanout ok (`
+  are `board-headless` rungs; `board-visual: splash` the operator's ack; the policy manifest
+  names the new class (`test_reject_a_second_holder_of_the_display`).
+
 ### Changed - 2026-09-30 (TASK-0245B P3 display half: power domain 7 and hmclk's rate from the tree; socd shows every register it touched)
 
 - **Power domain 7 comes up through the SoC glue.** Its protocol was read from the stock

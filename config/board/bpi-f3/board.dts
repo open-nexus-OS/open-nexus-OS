@@ -55,11 +55,13 @@
 		// docs/board/measurements/2026-09-28-dram-retention). nxboot brings the GPIO
 		// block up and pulses it once; the kernel pulses its boot milestones on it —
 		// the one channel a boot without a serial adapter leaves. The pad's mux
-		// register and the value the stock system runs it with (pinctrl-single
-		// `pins`: pin 96 at d401e180 = 0x440, mux 0 = GPIO), so the loader sets it
-		// before the first pulse.
+		// register and the value the stock system runs it with, so the loader sets it
+		// before the first pulse: GPIO 96 is pad register 0x1e0 (pinctrl debugfs,
+		// 2026-10-03: pin index 120, claimed by GPIO 96 `sys-led`, word 0xb041 — the
+		// stock tree's GPIO mux value for that pad). Corrected 2026-10-03: this read
+		// 0xd401e180 = 0x440, pinctrl-single's pin INDEX 96, an unclaimed pad.
 		nexus,boot-led = <&gpio 3 0 0>;
-		nexus,boot-led-pad = <0xd401e180 0x440>;
+		nexus,boot-led-pad = <0xd401e1e0 0xb041>;
 	};
 
 	// Measured: two banks, a 2 GiB hole between them (4 GiB board).
@@ -404,6 +406,23 @@
 					drive-strength = <21>;
 				};
 			};
+
+			// The HDMI encoder's four pads (the stock system's `hdmi_0_grp`, read live
+			// 2026-10-03, docs/board/measurements/2026-10-03-first-light/: function 1;
+			// words 0xd041 on the first two, pulled up — the DDC pair — and 0xb041 on the
+			// other two, pulled down). Without them the encoder sees no hot-plug.
+			hdmi_0_cfg: hdmi-0-cfg {
+				hdmi-0-ddc-pins {
+					pinmux = <K1_PADCONF(86, 1)>,
+						 <K1_PADCONF(87, 1)>;
+					bias-pull-up;
+				};
+				hdmi-0-status-pins {
+					pinmux = <K1_PADCONF(88, 1)>,
+						 <K1_PADCONF(89, 1)>;
+					bias-pull-down;
+				};
+			};
 		};
 
 		// The SoC watchdog (the vendor U-Boot's tree, `k1-x.dtsi`: the register window and
@@ -639,6 +658,8 @@
 			resets = <&syscon_apmu RESET_HDMI>;
 			reset-names = "hdmi_reset";
 			power-domains = <&syscon_apmu K1_PD_HDMI>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&hdmi_0_cfg>;
 			status = "okay";
 		};
 

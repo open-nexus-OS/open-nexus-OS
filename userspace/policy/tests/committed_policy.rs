@@ -26,6 +26,18 @@ fn the_committed_manifest_names_the_committed_tree() {
         .expect("policies/manifest.json is stale: run `nx policy validate --root policies --write-manifest`");
 }
 
+/// TASK-0251 P2: the board's display plane (controller + encoder windows) has one holder — the
+/// display owner; its client (windowd), the harness and the glue owner are denied.
+#[test]
+fn test_reject_a_second_holder_of_the_display() {
+    let tree = committed();
+    let holders: Vec<&str> = tree.policy().holders("device.mmio.display").collect();
+    assert_eq!(holders, ["gpud"]);
+    for subject in ["windowd", "selftest-client", "socd", "inputd", "hidrawd"] {
+        assert!(tree.policy().check(&["device.mmio.display"], subject).is_err(), "{subject}");
+    }
+}
+
 #[test]
 fn test_reject_a_second_holder_of_the_disk() {
     let tree = committed();

@@ -12,6 +12,7 @@ description = "The SoC glue owner (RFC-0106): the one writer of the syscon and p
 default = []
 os-lite = [
     "dep:nexus-abi",
+    "dep:nexus-driverkit",
     "dep:nexus-ipc",
     "dep:nexus-service-entry",
     "nexus-ipc/os-lite",
@@ -25,6 +26,8 @@ features = ["os-lite"]
 
 [dependencies]
 nexus-abi = { path = "../../../libs/nexus-abi", optional = true }
+# TASK-0251 P2 (the MMIO seam): the provider windows as one `MmioSet` — socd carries no `unsafe`.
+nexus-driverkit = { path = "../../../libs/nexus-driverkit", optional = true }
 nexus-fdt = { path = "../../../libs/nexus-fdt" }
 nexus-hal = { path = "../../../libs/nexus-hal" }
 nexus-ipc = { path = "../../../../userspace/nexus-ipc", optional = true, default-features = false }

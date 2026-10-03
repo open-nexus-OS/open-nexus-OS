@@ -157,7 +157,7 @@ fn the_bring_up_marker_names_every_register_before_and_after() {
     assert_eq!(
         bring_up_marker(EMMC, &outcome).as_str(),
         "socd: bring-up /soc/storage-bus/mmc@d4281000 ok (domains=1 resets=2 clocks=2 rates=0 \
-         writes=0) apmu+0x54:0x411b>0x411b apmu+0xe0:0x52>0x52"
+         pads=0 writes=0) apmu+54:411b>411b apmu+e0:52>52"
     );
     // From cold with no power sequencer answering: the domain step fails with the status word
     // it read, and the words show what the bring-up left — the request raised, nothing else.
@@ -168,7 +168,7 @@ fn the_bring_up_marker_names_every_register_before_and_after() {
     assert_eq!(
         bring_up_marker(DPU, &outcome).as_str(),
         "socd: bring-up /soc/multimedia-bus/display@c0440000 FAIL (step=domain reg=apmu+0xf0 \
-         val=0x0) apmu+0x3f4:0x0>0x11 apmu+0xf0:0x0>0x0 apmu+0x1b8:0x0>0x0"
+         val=0x0) apmu+3f4:0>11 apmu+f0:0>0 apmu+1b8:0>0"
     );
 }
 
@@ -179,14 +179,23 @@ fn a_marker_too_long_for_a_console_line_counts_the_words_it_drops() {
         bring_up_with_outcome(EMMC, Access::Allowed, BOARD, &bus).1
     };
     let wide = Word { addr: 0, window: "apbc2", offset: 0x3fc, before: u32::MAX, after: u32::MAX };
-    outcome.words = [wide; 6];
-    outcome.nwords = 6;
+    outcome.words = [wide; 8];
+    outcome.nwords = 8;
     let path = "/soc/a-very-long-bus-name-for-this-test/another-long-bus/device@deadbeef";
     let marker = bring_up_marker(path, &outcome);
     let line = marker.as_str();
     assert!(line.len() <= MARKER_MAX, "{} bytes", line.len());
     assert!(line.ends_with(" more"), "the dropped words are counted: {line}");
-    assert!(!line.contains(":0xffffffff>0xfff "), "no word is cut in half");
+    // Every word printed is whole: each token after the verdict is the full word, until the count.
+    let words: Vec<&str> = line
+        .split(") ")
+        .nth(1)
+        .unwrap_or("")
+        .split(' ')
+        .take_while(|t| !t.starts_with('+'))
+        .collect();
+    assert!(!words.is_empty(), "some words fit: {line}");
+    assert!(words.iter().all(|t| *t == "apbc2+3fc:ffffffff>ffffffff"), "no word is cut: {line}");
 }
 
 #[test]

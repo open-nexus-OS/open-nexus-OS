@@ -106,14 +106,26 @@ pub const RDMA_FORMAT_XRGB8888: u32 = 8;
 pub const CMPS_ENABLE_WIDTH: u32 = 0x00;
 /// Output height (measured 0x438).
 pub const CMPS_HEIGHT: u32 = 0x04;
-/// Background colour words the splash writes (G, A).
-pub const CMPS_BG_G: u32 = 0x10;
+/// The background colour: R, G and B are 12-bit fields at 0x08, 0x0c and 0x10, the alpha an
+/// 8-bit field at 0x14 (the vendor header's names; the stock dump holds G = 255 at 0x0c and
+/// A = 255 at 0x14). Only the alpha is written — an opaque black under the full-screen layer.
+/// Corrected 2026-10-03: the boot loader's splash writes `0xff0000` to 0x10, outside the 12-bit
+/// blue field; the board's read-back gate found it reading 0 (`gpud: dc readback differs (1 of
+/// 28): 4c10=ff0000/0`), so the model no longer copies it.
 pub const CMPS_BG_A: u32 = 0x14;
-pub const CMPS_BG_VALUE: u32 = 0x00ff_0000;
 pub const CMPS_BG_ALPHA: u32 = 0xff;
-/// Layer 7 enable word: 7 = enable + the RDMA layer id the splash uses.
+/// The first layer's enable word (`m_nl0_en` + `m_nl0_layer_id`): bit 0 enables the layer, the
+/// bits above name the RDMA channel it reads. Measured both ways: the boot loader's splash writes
+/// 7 here (layer 0 reading RDMA3, the channel it feeds); the stock kernel's layer 7 holds 0x3 at
+/// 0x4d18 (`m_nl7_layer_id=1`, its RDMA1). Corrected 2026-10-03: this was the constant 7 while
+/// the plane was fed through RDMA1 — the composer waited on a channel nobody ran, and the
+/// board's line counter stayed at 0 (`gpud: FAIL dc scanout (line counter stuck at 0)`).
 pub const CMPS_LAYER_EN: u32 = 0x38;
-pub const CMPS_LAYER_EN_VALUE: u32 = 7;
+
+/// The layer enable word for a plane read through RDMA channel `rdma`.
+pub const fn cmps_layer_word(rdma: u32) -> u32 {
+    1 | (rdma << 1)
+}
 /// Layer rectangle: left/top (0), right ((h−1) << 16), bottom (v−1), alpha word.
 pub const CMPS_LAYER_LT: u32 = 0x48;
 pub const CMPS_LAYER_RIGHT: u32 = 0x4c;
@@ -134,3 +146,19 @@ pub const CTL2_MODE_VALUE: u32 = 0x821;
 pub const CTL2_CFG_READY: u32 = 0x56c;
 /// ctl2 software start (write-1-clear): begins scanning.
 pub const CTL2_SW_START: u32 = 0x58c;
+
+// ── Liveness (read by the driver, never written) ───────────────────────────────────────────
+
+/// The controller's version word at the window's start (measured `0x03001030`: product 0x300,
+/// major 0x10, minor 0x30) — the register map above is that version's; another is refused.
+pub const TOP_VERSION: u32 = 0x0;
+pub const KNOWN_VERSION: u32 = 0x0300_1030;
+/// The output control's post-processing line counter (`postproc_ln_cnt`, relative to the
+/// output control's base): it moves while the timing generator scans (measured 857 with the
+/// picture on, 920 in the next capture).
+pub const OUTCTRL_LINE_COUNT: u32 = 0xc8;
+/// Pipeline 2's raw interrupt word (`onl2_nml_*_int_raw`): bit 0 vsync, 1 eof, 2 cfg-eof,
+/// 3 cfg-line (measured `0xd` with the picture on: vsync, cfg-eof and cfg-line raised). A raw
+/// vsync is the second witness that the timing generator scans.
+pub const INT_RAW_ONL2: u32 = 0x960;
+pub const INT_RAW_VSYNC: u32 = 1 << 0;

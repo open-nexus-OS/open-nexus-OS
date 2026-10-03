@@ -40,7 +40,10 @@
 - **Phase 5 (display controller scanout, mode authority = gpud)**: 🟨 — mode authority ✅
   2026-09-30 (TASK-0251 P1, C7): gpud decides the mode from the lane's request in the tree and
   the device's capability, owns the framebuffer and grants both to windowd; syscall 50 is
-  deleted. The controller's scanout on the board: TASK-0251 P2/P3 (host half TASK-0250 P1/P2 ✅).
+  deleted. The controller's scanout on the board: TASK-0251 P2/P3 (host half TASK-0250 P1/P2 ✅;
+  the display set's glue ✅ 2026-09-30, TASK-0245B P3; first light — gpud's splash through the
+  controller and the encoder — ✅ 2026-10-03 on the board, P2a step 1: `gpud: dc scanout ok
+  (1920x1080@60 cea …)`, `board-visual: splash`; windowd's desktop is step 2).
 
 Definition: "Complete" = every phase's proof gates are green on QEMU **and** on the board
 lane (`TASK-0327B`); the last QEMU-only literal is gone from the tree.
@@ -465,6 +468,27 @@ is deleted; RFC-0074's authority statement is amended to point here.
   reply inbox — windowd's hit-test space is gpud's mode.
 - **No display.** A stack without gpud (no display device: the board until TASK-0251 P2)
   is named — `windowd: display none (…)` — and runs display-less at the layout maximum.
+
+**Amended 2026-10-03 (TASK-0251 P2a step 1 — first light, built):**
+
+- **The display plane.** init grants the tree's display controller and its HDMI encoder to
+  gpud as two windows of the class `device.mmio.display` (policy-checked, `slots::gpud::
+  DISPLAY_CONTROLLER` / `DISPLAY_ENCODER`; the encoder's block at its node's in-page offset);
+  a tree without the pair is named `init: display plane none (…)` and the GPU's window is the
+  plane. gpud chooses its path by what it was granted.
+- **The glue.** gpud asks socd for both nodes (RFC-0106: domain 7, `hdmi_reset`, `hmclk` at the
+  demanded 491.52 MHz) over its declared route and reply inbox before it touches a register.
+- **The memory.** The board's framebuffer is ONE contiguous block made for the controller
+  (`DmaVmo::contiguous`: inside its reach — both banks; the bus address is the kernel's
+  answer), holding the whole shared layout; the controller scans the display plane's rows.
+  The controller does not snoop: the CPU's writes are cleaned out (Zicbom, the capability's
+  block size) before it reads them.
+- **The mode until EDID (P2b).** The decision as above (request, else the layout maximum),
+  driven with the standard CEA timing of that size; the encoder runs its MEASURED sequence for
+  that pixel clock (an unmeasured clock is refused).
+- **The proof.** `gpud: dc scanout ok (WxH@Hz cea …)` only once the output's line counter
+  moved; the boot splash on the monitor is an operator ack (`board-visual: splash`). windowd's
+  desktop on this path is step 2; until then gpud refuses the framebuffer request by name.
 
 ### C8 — Proof markers (contracts; registered in the proof manifest)
 

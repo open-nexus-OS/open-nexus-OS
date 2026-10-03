@@ -176,6 +176,17 @@ for v in product version-bootloader serialno blk-size mtd-size max-download-size
   case "$v" in product) product="$val" ;; max-download-size) max_download="$val" ;; esac
 done
 
+# The vehicle's own console, a measurement for free (TASK-0251 P2a, M3): the vendor U-Boot keeps
+# its log and answers `oem log` — what its display probe found (the hot-plug, the framebuffer)
+# in THIS session. Best effort: a U-Boot without it costs nothing.
+uboot_log_dir="$ROOT/build/logs/board-flash--$(date +%Y-%m-%dT%H-%M-%S)"
+mkdir -p "$uboot_log_dir"
+if timeout 10 fastboot oem log >"$uboot_log_dir/uboot-oem-log.txt" 2>&1 </dev/null; then
+  log "vehicle console: $uboot_log_dir/uboot-oem-log.txt ($(wc -l <"$uboot_log_dir/uboot-oem-log.txt") lines)"
+else
+  log "vehicle console: oem log not answered (kept: $uboot_log_dir/uboot-oem-log.txt)"
+fi
+
 if [ "$STAGE_ONLY" = 1 ] || [ -z "$PLAN" ]; then
   log "nothing written. The board sits in U-Boot fastboot mode until reset."
   exit 0

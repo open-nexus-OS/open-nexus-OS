@@ -16,6 +16,7 @@ os-lite = [
     "dep:nexus-service-entry",
     "dep:nexus-driverkit",
     "dep:nexus-fdt",
+    "dep:nexus-wire",
 ]
 # Enables GPU-accelerated backdrop blur via virgl (QEMU -device virtio-gpu-pci,virgl=on).
 # When enabled and virgl is detected at runtime, gpud emits "gpud: virgl ready".
@@ -46,6 +47,8 @@ nexus-gfx = { path = "../../../userspace/nexus-gfx" }
 # Gate 2: the windowd↔gpud wire SSOT (opcodes/status/cursor magics + control
 # frame codecs), shared with windowd so neither end hand-mirrors the other.
 nexus-display-proto = { path = "../../libs/nexus-display-proto" }
+# TASK-0251 P2: the board's display registers through `nexus_driverkit::Mmio` (`nexus_hal::Bus`).
+nexus-hal = { path = "../../libs/nexus-hal" }
 # RFC-0067 P5: the CPU vector fallback rasterizes via the one SDF math SSOT
 # (nexus-sdf fixed-point AA), matching the GPU shaders + the compositor.
 nexus-sdf = { path = "../../../userspace/ui/sdf" }
@@ -57,6 +60,8 @@ nexus-driverkit = { path = "../../libs/nexus-driverkit", optional = true }
 # RFC-0098 C7: gpud is the display-mode authority and reads the lane's request
 # (`/chosen/nexus,display-mode`) from its own read-only tree slot.
 nexus-fdt = { path = "../../libs/nexus-fdt", optional = true }
+# TASK-0251 P2: socd's bring-up verdict for the board's display nodes (`nexus_wire::soc`).
+nexus-wire = { path = "../../libs/nexus-wire", optional = true }
 
 # Build-time only: rasterize the boot-splash logo SVG → embedded BGRA bitmap (host std).
 [build-dependencies]

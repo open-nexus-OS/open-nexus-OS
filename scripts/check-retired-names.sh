@@ -19,6 +19,7 @@ cd "$(dirname "$0")/.."
 RETIRED=(
   'virtioblkd Virtioblkd VirtioBlkd VIRTIOBLKD;blkd;ADR-0067, TASK-0246 P4a: one block owner on every platform'
   'boot_display_mode SYSCALL_BOOT_DISPLAY_MODE resolve_boot_display_mode;gpud (the framebuffer grant, OP_FRAMEBUFFER_REQUEST);RFC-0098 C7, TASK-0251 P1: the display mode is gpud'"'"'s'
+  'MmioBus;nexus_driverkit::Mmio / MmioSet over nexus_abi::MmioWindow;TASK-0251 P2 (the MMIO seam): one register bus, no per-driver volatile copy'
 )
 # Dated records describe the tree as it was, so they keep the names it had.
 HISTORY=(tasks/ CHANGELOG.md docs/adr/ docs/rfcs/ docs/board/measurements/ scripts/check-retired-names.sh)

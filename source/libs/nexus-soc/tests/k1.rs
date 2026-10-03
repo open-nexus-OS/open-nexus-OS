@@ -156,8 +156,84 @@ fn usb_and_ethernet_are_up_on_the_stock_board_too() {
     ] {
         let node = fdt.node_at_path(path).unwrap();
         let plan = plan(node, &providers).unwrap();
-        let report = Executor::new(&bus).execute(&plan).unwrap();
-        assert_eq!(report.writes, 0, "{path} glue already on");
+        Executor::new(&bus).execute(&plan).unwrap();
+    }
+    // The APMU glue is on as the stock system left it; the register file holds no pad words
+    // (the capture is the APMU's), so the only writes are pads.
+    let pinctrl = providers.get(ProviderKind::Pinctrl).unwrap().base;
+    let not_a_pad: Vec<_> = bus
+        .writes()
+        .into_iter()
+        .filter(|(a, _)| !(pinctrl..pinctrl + 0x1000).contains(a))
+        .collect();
+    assert!(not_a_pad.is_empty(), "the USB and ethernet glue is already on: {not_a_pad:x?}");
+}
+
+// ---- Pads (TASK-0245B P3): the K1 pad map and the encoder's group, against the live words ----
+
+#[test]
+fn the_k1_pad_map_names_the_stock_registers() {
+    // Pin (the GPIO number) → register offset, read live on 2026-10-03 through the stock
+    // system's pinctrl debugfs: uart0, mmc1, the encoder's four, `sys-led`.
+    for (pin, offset) in [
+        (68, 0x114),
+        (69, 0x118),
+        (104, 0x1b8),
+        (105, 0x1bc),
+        (86, 0x1ec),
+        (87, 0x1f0),
+        (88, 0x1f4),
+        (89, 0x1f8),
+        (96, 0x1e0),
+    ] {
+        assert_eq!(k1::pad_offset(pin), Some(offset), "pin {pin}");
+    }
+    // The stock GPIO controller's `gpio-ranges`: GPIO 49 → index 50, 90 → 127, 110 → 116,
+    // 111 → 131, 123 → 143.
+    for (gpio, index) in [(49u32, 50u16), (90, 127), (110, 116), (111, 131), (123, 143)] {
+        assert_eq!(k1::pad_offset(gpio), Some(index * 4), "gpio {gpio}");
+    }
+}
+
+#[test]
+fn the_encoder_pads_come_up_with_the_stock_function_and_pull() {
+    let (fdt, providers) = board_providers();
+    let pinctrl = providers.get(ProviderKind::Pinctrl).unwrap().base;
+    let hdmi = fdt.node_at_path(HDMI).unwrap();
+    // A cold register file whose drive fields hold something else: only the owned fields move.
+    let bus = cold_with_sequencer();
+    for off in [0x1ecusize, 0x1f0, 0x1f4, 0x1f8] {
+        bus.regs.borrow_mut().insert(pinctrl + off, 2 << 10);
+    }
+    let Ok(BringUp::Up(report)) = bring_up(hdmi, &providers, &bus) else { panic!("hdmi up") };
+    assert_eq!(report.pads, 4);
+    // The live words (2026-10-03): 0xd041 on the DDC pair, 0xb041 on the status pair.
+    for (off, live) in [(0x1ecusize, 0xd041u32), (0x1f0, 0xd041), (0x1f4, 0xb041), (0x1f8, 0xb041)]
+    {
+        let word = bus.read(pinctrl + off);
+        assert_eq!(word & nexus_soc::PAD_OWNED, live & nexus_soc::PAD_OWNED, "pad 0x{off:x}");
+        assert_eq!(word & !nexus_soc::PAD_OWNED, 2 << 10, "pad 0x{off:x}: drive left as found");
+    }
+    // From the stock words themselves nothing is written.
+    let stock = cold_with_sequencer();
+    for (off, live) in [(0x1ecusize, 0xd041u32), (0x1f0, 0xd041), (0x1f4, 0xb041), (0x1f8, 0xb041)]
+    {
+        stock.regs.borrow_mut().insert(pinctrl + off, live);
+    }
+    let p = plan(hdmi, &providers).unwrap();
+    let before = stock.writes().len();
+    let report = Executor::new(&stock).execute(&p).unwrap();
+    let pad_writes = stock.writes()[before..]
+        .iter()
+        .filter(|(a, _)| (pinctrl..pinctrl + 0x1000).contains(a))
+        .count();
+    assert_eq!((report.pads, pad_writes), (4, 0), "the stock pads need no write");
+}
+
+#[test]
+fn test_reject_a_pad_the_map_does_not_place() {
+    for pin in [98u32, 101, 103, 128, u32::MAX] {
+        assert_eq!(k1::pad_offset(pin), None, "pin {pin} is not measured");
     }
 }
 
@@ -183,7 +259,7 @@ fn the_display_pipeline_names_what_the_stock_tree_names() {
     let (fdt, providers) = board_providers();
     for path in [DPU, HDMI] {
         let p = plan(fdt.node_at_path(path).unwrap(), &providers).unwrap();
-        let steps: Vec<Step> = p.steps().copied().collect();
+        let steps: Vec<Step> = p.steps().copied().take(4).collect();
         let hmclk = nexus_soc::table::clock(ProviderKind::Apmu, k1::CLK_HDMI).unwrap();
         assert_eq!(
             steps,
@@ -203,15 +279,41 @@ fn the_display_pipeline_names_what_the_stock_tree_names() {
             ],
             "{path}: domain 7, hdmi_reset, hmclk — none of the five DSI clocks"
         );
-        let regs: Vec<usize> = p.registers().iter().collect();
+        let regs: Vec<usize> = p.registers().iter().take(3).collect();
         assert_eq!(regs, vec![HDMI_PWR_CTRL, PWR_STATUS, HDMI_CLK_RES], "each register once");
     }
+    // The controller names nothing more; the encoder names its four pads besides: function 1,
+    // the DDC pair pulled up, the status pair pulled down (the stock words' owned fields).
+    assert_eq!(plan(fdt.node_at_path(DPU).unwrap(), &providers).unwrap().len(), 4);
+    let pinctrl = providers.get(ProviderKind::Pinctrl).unwrap().base;
+    let p = plan(fdt.node_at_path(HDMI).unwrap(), &providers).unwrap();
+    let pads: Vec<Step> = p.steps().copied().skip(4).collect();
+    let pad = |off: usize, live: u32| Step::PadSet {
+        addr: pinctrl + off,
+        mask: nexus_soc::PAD_OWNED,
+        value: live & nexus_soc::PAD_OWNED,
+    };
+    assert_eq!(
+        pads,
+        vec![pad(0x1ec, 0xd041), pad(0x1f0, 0xd041), pad(0x1f4, 0xb041), pad(0x1f8, 0xb041)]
+    );
+}
+
+/// The stock board's register file with the encoder's four pads as read live (2026-10-03).
+fn stock_with_encoder_pads(providers: &Providers) -> MockBus {
+    let bus = MockBus::stock();
+    let pinctrl = providers.get(ProviderKind::Pinctrl).unwrap().base;
+    for (off, live) in [(0x1ecusize, 0xd041u32), (0x1f0, 0xd041), (0x1f4, 0xb041), (0x1f8, 0xb041)]
+    {
+        bus.regs.borrow_mut().insert(pinctrl + off, live);
+    }
+    bus
 }
 
 #[test]
 fn the_display_pipeline_on_the_stock_board_is_up_without_a_write() {
     let (fdt, providers) = board_providers();
-    let bus = MockBus::stock();
+    let bus = stock_with_encoder_pads(&providers);
     for path in [DPU, HDMI] {
         let Ok(BringUp::Up(report)) = bring_up(fdt.node_at_path(path).unwrap(), &providers, &bus)
         else {
@@ -247,10 +349,14 @@ fn the_display_pipeline_from_cold_raises_the_domain_request_then_sets_the_rate()
     assert_eq!(bus.read(PWR_STATUS) & (1 << 15), 1 << 15, "domain 7 reports on");
     let hmclk = nexus_soc::table::clock(ProviderKind::Apmu, k1::CLK_HDMI).unwrap();
     assert_eq!(Executor::new(&bus).rate(hmclk, APMU_BASE), 491_520_000);
-    // The encoder shares all three: its bring-up after the controller's writes nothing.
+    // The encoder shares all three: its bring-up after the controller's writes only its pads.
     let hdmi = fdt.node_at_path(HDMI).unwrap();
+    let before = bus.writes().len();
     let Ok(BringUp::Up(again)) = bring_up(hdmi, &providers, &bus) else { panic!("hdmi up") };
-    assert_eq!(again.writes, 0);
+    let pinctrl = providers.get(ProviderKind::Pinctrl).unwrap().base;
+    let writes = bus.writes();
+    assert_eq!((again.writes, again.pads), (4, 4));
+    assert!(writes[before..].iter().all(|(a, _)| (pinctrl..pinctrl + 0x1000).contains(a)));
 }
 
 #[test]

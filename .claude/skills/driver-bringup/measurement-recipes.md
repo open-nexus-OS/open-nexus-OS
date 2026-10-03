@@ -41,8 +41,11 @@ bring-up marker, D3). Its register map usually needs no cycle at all: recipe 3b.
 searching every `phandle` file for the value (`2026-09-29-display-regs/dt-phandles-drm-dmesg.txt`:
 memory-region → the reserved pool, interconnect → the DRAM range with its `dma-ranges`,
 pinctrl → the pad group with mux values). The `dma-ranges` of the bus node translate CPU
-addresses to bus addresses — the framebuffer's bus address was CPU − 0x8000_0000, which
-decided that the scanout buffer may live in bank 0.
+addresses to bus addresses. Read them with the cells of BOTH sides (`#address-cells` of the bus
+and of its parent, then the size): `2026-09-29-display-regs` first read `<0x0 0x0 0x0 0x0 0x0
+0x80000000>` as "bus 0 → CPU 0x8000_0000" and concluded bus = CPU − 0x8000_0000; the entry
+says bus 0x0 → CPU 0x0 for 2 GiB (corrected 2026-10-03 from the stock tree in the pinned
+archive). A captured address that is not in `iomem.txt`'s RAM is a BUS address.
 
 ## 3b. The stock tree from the pinned archive — no board cycle (`2026-09-30-power-domains/`)
 

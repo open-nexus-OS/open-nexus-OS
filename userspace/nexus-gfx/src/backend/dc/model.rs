@@ -70,7 +70,7 @@ impl RegWriter for Sequence {
 }
 
 /// The one scanout plane: a contiguous XRGB8888 buffer the controller reads by its BUS
-/// address (CPU − the bus's `dma-ranges` base; bank 0 on the reference board), `stride`
+/// address (the kernel's answer for the controller's device, `vmo_dma_base`), `stride`
 /// bytes per row, `width`x`height` pixels — the layout maximum's stride is expected
 /// (`nexus_display_proto::layout::STRIDE_BYTES`), the visible size is the mode's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,9 +117,9 @@ pub fn bring_up<W: RegWriter>(w: &mut W, mode: &Mode, plane: &Plane, rdma: u32) 
     let cm = regs::cmps_base(regs::PIPELINE);
     w.write(cm + regs::CMPS_ENABLE_WIDTH, (h << 8) | 1);
     w.write(cm + regs::CMPS_HEIGHT, v);
-    w.write(cm + regs::CMPS_BG_G, regs::CMPS_BG_VALUE);
     w.write(cm + regs::CMPS_BG_A, regs::CMPS_BG_ALPHA);
-    w.write(cm + regs::CMPS_LAYER_EN, regs::CMPS_LAYER_EN_VALUE);
+    // The layer reads the channel the plane is fed through — never a channel left idle.
+    w.write(cm + regs::CMPS_LAYER_EN, regs::cmps_layer_word(rdma));
     w.write(cm + regs::CMPS_LAYER_LT, 0);
     w.write(cm + regs::CMPS_LAYER_RIGHT, h.saturating_sub(1) << 16);
     w.write(cm + regs::CMPS_LAYER_BOTTOM, v.saturating_sub(1));
@@ -170,7 +170,8 @@ mod tests {
         }
     }
 
-    /// The stock system's plane: CMA at CPU 0x8fb7c000 = bus 0x0fb7c000, pitch 7680.
+    /// A 1080p plane at an example bus address (the stock system scanned through its display
+    /// MMU, so the dump holds IO-virtual addresses, not this one), pitch 7680.
     fn plane_1080p() -> Plane {
         Plane { bus_addr: 0x0fb7_c000, stride: 7680, width: 1920, height: 1080 }
     }
@@ -215,10 +216,28 @@ mod tests {
         assert_eq!(s.value_at(0xda0), Some(0x0fb7_c000));
         assert_eq!(s.value_at(0xdb8), Some(7680));
         assert_eq!(s.value_at(0x560), Some(0x0004_0008));
+        assert_eq!(s.value_at(0x4c38), Some(7), "the splash's layer word: layer 0 reads RDMA3");
         let n = s.as_slice().len();
         assert_eq!(s.as_slice()[n - 2], Write { offset: 0x56c, value: 1 });
         assert_eq!(s.as_slice()[n - 1], Write { offset: 0x58c, value: 1 });
         assert!(n <= 40, "the first-light sequence is about thirty writes, got {n}");
+    }
+
+    /// The defect the board found (2026-10-03): the layer word named RDMA3 while the plane was
+    /// fed through RDMA1, so the composer waited on an idle channel and nothing scanned. The
+    /// layer must read exactly a channel the control word enables, for every channel.
+    #[test]
+    fn test_reject_a_layer_reading_a_channel_the_control_word_does_not_enable() {
+        for rdma in 0..12 {
+            let mut s = Sequence::new();
+            bring_up(&mut s, &mode_1080p60(), &plane_1080p(), rdma);
+            let layer = s.value_at(0x4c38).expect("the layer word");
+            let enabled = s.value_at(0x560).expect("the control word") & 0xfff;
+            assert_eq!(layer & 1, 1, "the layer is enabled");
+            assert_eq!(enabled, 1 << (layer >> 1), "rdma {rdma}: the layer reads the fed channel");
+        }
+        // The stock kernel's word for its RDMA1 layer, measured at 0x4d18.
+        assert_eq!(regs::cmps_layer_word(1), 0x3);
     }
 
     /// A flip writes only the address pair and the two latch words, in that order.

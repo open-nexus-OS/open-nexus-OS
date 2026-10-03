@@ -13,13 +13,12 @@ extern crate alloc;
 use alloc::format;
 
 use nexus_abi::yield_;
+use nexus_driverkit::MmioSet;
 use nexus_fdt::Fdt;
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_service_topology::{slots, SYSCON_MMIO_SLOTS};
 use nexus_soc::{Provider, ProviderKind, Providers};
 use nexus_wire::soc;
-
-use crate::bus::MmioBus;
 
 /// The grant's granularity (RFC-0017).
 const PAGE: usize = 4096;
@@ -35,8 +34,10 @@ fn emit(line: &str) {
 }
 
 /// Every provider kind whose window init granted into `SYSCON_MMIO_SLOTS[kind]`,
-/// mapped; a kind the tree does not list has an empty slot and is skipped.
-fn map_providers(tree: Option<&Fdt<'_>>) -> Providers {
+/// mapped: the providers (the block's address inside its window, for the plans) and the
+/// windows as one bus (bounds-checked; an address outside every window floats). A kind the
+/// tree does not list has an empty slot and is skipped.
+fn map_providers(tree: Option<&Fdt<'_>>) -> (Providers, MmioSet<6>) {
     const KINDS: [ProviderKind; 6] = [
         ProviderKind::Apbc,
         ProviderKind::Apmu,
@@ -46,7 +47,8 @@ fn map_providers(tree: Option<&Fdt<'_>>) -> Providers {
         ProviderKind::Pinctrl,
     ];
     let mut providers = Providers::new();
-    let Some(tree) = tree else { return providers };
+    let mut windows = MmioSet::new();
+    let Some(tree) = tree else { return (providers, windows) };
     for kind in KINDS {
         // Only a kind the tree names is expected in its slot.
         let Some(node) = tree.all_nodes().find(|n| ProviderKind::of(*n) == Some(kind)) else {
@@ -63,12 +65,15 @@ fn map_providers(tree: Option<&Fdt<'_>>) -> Providers {
             continue;
         }
         let len = usize::try_from(info.len).unwrap_or(0);
-        match nexus_abi::mmio_map_auto(slot, 0, len) {
-            Ok(base) => providers.set(Provider { kind, base: base + offset }),
+        match nexus_abi::MmioWindow::map(slot, 0, len) {
+            Ok(window) => {
+                providers.set(Provider { kind, base: window.base() + offset });
+                windows.set(kind as usize, window);
+            }
             Err(_) => emit(&format!("socd: window for {:?} map FAIL", kind)),
         }
     }
-    providers
+    (providers, windows)
 }
 
 /// socd's server on the slots init pins for it — the only source (no route ask: the core
@@ -97,8 +102,7 @@ fn access_of(sender_service_id: u64) -> Access {
 pub fn service_main_loop() -> Result<()> {
     let tree_bytes = nexus_abi::device_tree::map_read_only(slots::socd::DEVICE_TREE);
     let tree = tree_bytes.and_then(|b| Fdt::new(b).ok());
-    let providers = map_providers(tree.as_ref());
-    let bus = MmioBus;
+    let (providers, bus) = map_providers(tree.as_ref());
 
     if providers.count() == 0 {
         let _ = nexus_service_entry::ready("socd: ready (no soc glue in this tree)");

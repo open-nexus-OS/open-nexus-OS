@@ -9,6 +9,9 @@ description = "RFC-0033 DriverKit core: bounded submit ring + completion fence +
 # TASK-0286 P4b: `DmaBuffer` speaks the ABI's DMA vocabulary (`DmaRun`, `DmaCoherence`,
 # the Zicbom instructions, `DmaVmo` on the OS) instead of a parallel copy of it.
 nexus-abi = { path = "../nexus-abi" }
+# TASK-0251 P2 (the MMIO seam): `Mmio` / `MmioSet` are the drivers' `nexus_hal::Bus` over the
+# ABI's mapped `MmioWindow` — one implementation instead of a copy per driver.
+nexus-hal = { path = "../nexus-hal" }
 
 # The `nexus_env` cfg is declared here so a HOST compile without the workspace RUSTFLAGS (e.g.
 # through `storage` as a build-dependency of an OS service, TASK-0246 P4b) stays warning-free
