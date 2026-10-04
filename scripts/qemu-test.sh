@@ -1144,7 +1144,7 @@ case "${PROFILE:-full}" in
   # gpud build provenance) on top of this ladder; the `full` display ladder
   # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
   # marker is a scheduler-determinism defect tracked in TASK-0324 P5.
-  headless|smp1|sdhci|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd)
+  headless|smp1|sdhci|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1

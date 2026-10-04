@@ -32,47 +32,11 @@ pub use scrolled::{
     paint_row_scrolled, ScrollView,
 };
 
-use nexus_layout::LayoutBox;
-use nexus_layout_types::{PathShape, Rgba8, ShapeKind};
+mod shapes;
+use shapes::sqrt_f32;
 
-/// Unit circle as a 32-gon (precomputed — `no_std` core has no trig).
-// reason: hand-computed lookup table; every entry is an intentional literal at
-// matching precision — the 0.707107 entries must stay literal, not the constant.
-#[allow(clippy::approx_constant)]
-const CIRCLE_32: [(f32, f32); 32] = [
-    (1.0, 0.0),
-    (0.980785, 0.19509),
-    (0.92388, 0.382683),
-    (0.83147, 0.55557),
-    (0.707107, 0.707107),
-    (0.55557, 0.83147),
-    (0.382683, 0.92388),
-    (0.19509, 0.980785),
-    (0.0, 1.0),
-    (-0.19509, 0.980785),
-    (-0.382683, 0.92388),
-    (-0.55557, 0.83147),
-    (-0.707107, 0.707107),
-    (-0.83147, 0.55557),
-    (-0.92388, 0.382683),
-    (-0.980785, 0.19509),
-    (-1.0, 0.0),
-    (-0.980785, -0.19509),
-    (-0.92388, -0.382683),
-    (-0.83147, -0.55557),
-    (-0.707107, -0.707107),
-    (-0.55557, -0.83147),
-    (-0.382683, -0.92388),
-    (-0.19509, -0.980785),
-    (0.0, -1.0),
-    (0.19509, -0.980785),
-    (0.382683, -0.92388),
-    (0.55557, -0.83147),
-    (0.707107, -0.707107),
-    (0.83147, -0.55557),
-    (0.92388, -0.382683),
-    (0.980785, -0.19509),
-];
+use nexus_layout::LayoutBox;
+use nexus_layout_types::{Rgba8, ShapeKind};
 
 /// One BGRA scanline of the target surface.
 pub struct RowCanvas<'a> {
@@ -147,210 +111,6 @@ impl RowCanvas<'_> {
         self.buf[i + 1] = (c.g as u32 * a / 255) as u8;
         self.buf[i + 2] = (c.r as u32 * a / 255) as u8;
         self.buf[i + 3] = c.a;
-    }
-
-    /// This row's slice of an (optionally rounded) rect fill.
-    pub(crate) fn fill_round_rect_row(
-        &mut self,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-        radius: i32,
-        c: Rgba8,
-    ) {
-        if w <= 0 || h <= 0 || self.y < y || self.y >= y + h {
-            return;
-        }
-        let r = radius.max(0).min(w / 2).min(h / 2);
-        let yy = self.y;
-        for xx in x..x + w {
-            if r > 0 {
-                let cx = if xx < x + r {
-                    x + r
-                } else if xx >= x + w - r {
-                    x + w - r - 1
-                } else {
-                    xx
-                };
-                let cy = if yy < y + r {
-                    y + r
-                } else if yy >= y + h - r {
-                    y + h - r - 1
-                } else {
-                    yy
-                };
-                let (dx, dy) = ((xx - cx) as i64, (yy - cy) as i64);
-                if dx * dx + dy * dy > (r as i64) * (r as i64) {
-                    continue;
-                }
-            }
-            self.blend(xx, c);
-        }
-    }
-
-    /// This row's slice of an (optionally rounded) rect fill, REPLACING the
-    /// destination pixels (alpha included) instead of src-over blending.
-    /// Glass-material boxes use this: whatever the surface painted BENEATH a
-    /// glass region must not bake through its translucent fill — the
-    /// compositor supplies the backdrop (destination-so-far blur), so the
-    /// region's surface pixels start from the pure tint.
-    pub(crate) fn fill_round_rect_row_replace(
-        &mut self,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-        radius: i32,
-        c: Rgba8,
-    ) {
-        if w <= 0 || h <= 0 || self.y < y || self.y >= y + h {
-            return;
-        }
-        let yy = self.y;
-        for xx in x..x + w {
-            if Self::inside_round_rect(xx, yy, x, y, w, h, radius) {
-                self.set(xx, c);
-            }
-        }
-    }
-
-    /// True when `(xx, yy)` lies inside the rounded rect (corner-circle test).
-    fn inside_round_rect(xx: i32, yy: i32, x: i32, y: i32, w: i32, h: i32, radius: i32) -> bool {
-        if xx < x || yy < y || xx >= x + w || yy >= y + h {
-            return false;
-        }
-        let r = radius.max(0).min(w / 2).min(h / 2);
-        if r == 0 {
-            return true;
-        }
-        let cx = if xx < x + r {
-            x + r
-        } else if xx >= x + w - r {
-            x + w - r - 1
-        } else {
-            xx
-        };
-        let cy = if yy < y + r {
-            y + r
-        } else if yy >= y + h - r {
-            y + h - r - 1
-        } else {
-            yy
-        };
-        let (dx, dy) = ((xx - cx) as i64, (yy - cy) as i64);
-        dx * dx + dy * dy <= (r as i64) * (r as i64)
-    }
-
-    /// This row's slice of a rounded BORDER ring: pixels inside the outer
-    /// rounded rect but outside the (border-width-inset) inner one.
-    // reason: geometry primitive — the args are the box rect, radius, border
-    // width and colour; grouping into a struct would not improve clarity.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn stroke_round_rect_row(
-        &mut self,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-        radius: i32,
-        width: i32,
-        c: Rgba8,
-    ) {
-        if w <= 0 || h <= 0 || self.y < y || self.y >= y + h {
-            return;
-        }
-        let yy = self.y;
-        let inner_r = (radius - width).max(0);
-        for xx in x..x + w {
-            if Self::inside_round_rect(xx, yy, x, y, w, h, radius)
-                && !Self::inside_round_rect(
-                    xx,
-                    yy,
-                    x + width,
-                    y + width,
-                    w - 2 * width,
-                    h - 2 * width,
-                    inner_r,
-                )
-            {
-                self.blend(xx, c);
-            }
-        }
-    }
-
-    /// This row's slice of an even-odd polygon fill. Points are produced by
-    /// `pt(i)` for `i in 0..n` — the painter NEVER materializes a point list:
-    /// this runs per box per row on services with a non-freeing bump heap
-    /// (app-host hover repaints page-faulted at the heap end when every icon
-    /// contour allocated a `Vec` per row). Crossings land in a fixed array;
-    /// a 2D scanline crossing more than `MAX_ROW_CROSSINGS` edges of one
-    /// contour does not occur for the flattened icon/shape contours this
-    /// paints (quads, 32-gons, sampled curves).
-    fn fill_polygon_row(&mut self, n: usize, pt: impl Fn(usize) -> (f32, f32), c: Rgba8) {
-        const MAX_ROW_CROSSINGS: usize = 64;
-        if n < 3 {
-            return;
-        }
-        let cy = self.y as f32 + 0.5;
-        let mut xs = [0f32; MAX_ROW_CROSSINGS];
-        let mut m = 0usize;
-        for i in 0..n {
-            let (ax, ay) = pt(i);
-            let (bx, by) = pt((i + 1) % n);
-            if ((ay <= cy && by > cy) || (by <= cy && ay > cy)) && m < MAX_ROW_CROSSINGS {
-                xs[m] = ax + (cy - ay) / (by - ay) * (bx - ax);
-                m += 1;
-            }
-        }
-        let xs = &mut xs[..m];
-        xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
-        let mut k = 0;
-        while k + 1 < xs.len() {
-            let x0 = ceil_i32(xs[k]);
-            let x1 = floor_i32(xs[k + 1]);
-            for xx in x0..=x1 {
-                self.blend(xx, c);
-            }
-            k += 2;
-        }
-    }
-
-    /// One normalized `0..1000` contour mapped into a box, filled for this row
-    /// (the `ShapeKind::{Path,Vector}` fill) — point mapping is inline, no
-    /// intermediate list.
-    fn fill_contour_row(&mut self, ps: &PathShape, xf: f32, yf: f32, wf: f32, hf: f32, c: Rgba8) {
-        let pts = &ps.points;
-        self.fill_polygon_row(
-            pts.len(),
-            |i| {
-                let p = &pts[i];
-                (xf + p.x_milli as f32 / 1000.0 * wf, yf + p.y_milli as f32 / 1000.0 * hf)
-            },
-            c,
-        );
-    }
-}
-
-/// `no_std` floor/ceil (core `f32` has neither; trunc-and-adjust is exact for
-/// the pixel-coordinate range this painter works in).
-#[inline]
-fn floor_i32(v: f32) -> i32 {
-    let t = v as i32;
-    if (t as f32) > v {
-        t - 1
-    } else {
-        t
-    }
-}
-
-#[inline]
-fn ceil_i32(v: f32) -> i32 {
-    let t = v as i32;
-    if (t as f32) < v {
-        t + 1
-    } else {
-        t
     }
 }
 
@@ -458,17 +218,7 @@ pub(crate) fn paint_box_row_at(
                 let pts = [(xf, yf), (xf + wf, yf), (xf + wf / 2.0, yf + hf)];
                 canvas.fill_polygon_row(3, |i| pts[i], bg);
             }
-            ShapeKind::Circle => {
-                let (cx, cy, rx, ry) = (xf + wf / 2.0, yf + hf / 2.0, wf / 2.0, hf / 2.0);
-                canvas.fill_polygon_row(
-                    CIRCLE_32.len(),
-                    |i| {
-                        let (c, s) = CIRCLE_32[i];
-                        (cx + rx * c, cy + ry * s)
-                    },
-                    bg,
-                );
-            }
+            ShapeKind::Circle => canvas.fill_ellipse_row((xf, yf, wf, hf), bg),
             ShapeKind::Raster { w: sw, h: sh, rgba } => {
                 // Straight-alpha sprite blit, nearest-sampled onto the box
                 // (sprites are baked at the tile sizes, so this is normally
@@ -505,10 +255,20 @@ pub(crate) fn paint_box_row_at(
                     canvas.fill_contour_row(ps, xf, yf, wf, hf, bg);
                 }
             }
+            ShapeKind::Stroke { paths, width_milli } => {
+                canvas.stroke_paths_row(paths, (xf, yf, wf, hf), *width_milli, bg)
+            }
         }
     }
-    let radius =
-        (b.visual.corner_radius.top_left.0.max(0) as i64 * radius_pct.max(1) as i64 / 100) as i32;
+    // The outline the border ring and the shine follow: the corner radius, or the full one of a
+    // circle shape (a ring or a shine drawn by the corner radius would square a round element).
+    let radius = match b.visual.shape {
+        ShapeKind::Circle => w.min(h) / 2,
+        _ => {
+            (b.visual.corner_radius.top_left.0.max(0) as i64 * radius_pct.max(1) as i64 / 100)
+                as i32
+        }
+    };
     // The `inset 0 1px 0` top-shine goes UNDER the border ring: the hairline
     // is the outermost pixel, the shine the one just inside it.
     if let Some(shine) = b.visual.inset_highlight {
@@ -597,21 +357,6 @@ fn paint_shadow_row(
             },
         );
     }
-}
-
-/// `no_std` sqrt via Newton iterations (the painter has no libm; three
-/// rounds from a decent seed are exact to well under 8-bit alpha).
-#[inline]
-fn sqrt_f32(v: f32) -> f32 {
-    if v <= 0.0 {
-        return 0.0;
-    }
-    let mut r = if v >= 1.0 { v } else { 1.0 };
-    r = 0.5 * (r + v / r);
-    r = 0.5 * (r + v / r);
-    r = 0.5 * (r + v / r);
-    r = 0.5 * (r + v / r);
-    0.5 * (r + v / r)
 }
 
 /// Paint every box's contribution to this row, in box (z) order.

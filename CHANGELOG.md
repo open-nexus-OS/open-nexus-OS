@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-04 (TASK-0251 P2a step 3a: the picture at 1080p — an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane)
+
+- **Measured first** (`docs/board/measurements/2026-10-04-picture-1080p/`): the operator's notes
+  after step 2 against the 1:1 capture of QEMU's 2D scanout at 1920x1080 — the CPU executor the
+  board's controller shows — and the GL path's capture.
+- **The damage grid covers the layout.** windowd's tile grid was still the 1280x800 one
+  (20×13 tiles): rows past 832 never counted as dirty and the base pass never painted them. It
+  now derives from `nexus_display_proto::LAYOUT_MAX` (30×17 at 1080p) with a compile-time
+  proof (the compositor module is OS-only — its unit tests never ran, a finding of its own).
+- **Every shape edge anti-aliased** (`nexus-scene-raster` `shapes.rs`): rounded rects and the
+  glass reset (corner coverage from the signed distance; straight edges on whole pixels stay
+  hard), rings, ellipses, polygons (four sub-scanlines with exact span overlap).
+- **Line icons are strokes** (`ShapeKind::Stroke`): the import keeps the icon set's polylines
+  and its stroke width; the painter strokes them with round caps and joins as the anti-aliased
+  union of capsules. The old import cut every segment into a loose quad that the one-sample fill
+  turned into stair steps with gaps — the "chopped" icons the operator saw.
+- **The inset highlight follows the shape** — the top-facing edge band of the element's own
+  outline: an arc on a round button instead of the bar that overhung it.
+- **The wallpaper bake resamples with Lanczos-3** (widened when it shrinks): the box filter fell
+  back to nearest-neighbour above 1:1 (the 1536-wide source is upscaled 1.25× for 1080p).
+- **The pixel proof sees an unpainted band** (≥ 64 consecutive rows one flat colour —
+  calibrated: 181 on the old 2D capture, 0 on every GL capture) and a new `visible-2d` lane
+  (`just ci-os-visible-2d`, in `test-all`) judges the CPU path's picture at 1080p.
+- **Proof.** Host tests (painter, icons, goldens regenerated and reviewed side by side,
+  systemui's bake checksum measured twice), `visible-2d`, `visible` (GL pixel statistics
+  unchanged but for the edges), `just check`, `just test-all`; the board: `[PASS]
+  board-visible`, the operator: "icons and circles look good now". **Open, noted for their
+  topics** (TASK-0251 P2a step 3): the settled greeter still covers the wallpaper's bottom with
+  a flat band (a second 1280x800-era size in the desktop-surface path, or a bar built for the
+  smaller mode), the other hard-coded 1280x800 sizes, tearing at the splash and the reveal (no
+  flip at vertical blank), the long black before the splash (the kernel's LED pulses).
+
 ### Changed - 2026-10-04 (TASK-0251 P2a step 2: windowd's desktop on the display controller, proven on the board — one request loop over two displays, one CPU executor, the splash held until the reveal)
 
 - **One request loop, two displays.** gpud's request loop (`service.rs`) keeps the wire — every

@@ -81,6 +81,22 @@ def luma_stats(width: int, height: int, fb: bytes, black_below: int = 16):
     return total / npx, nonblack * 100.0 / npx
 
 
+def flat_band_rows(width: int, height: int, fb: bytes) -> int:
+    """The longest run of consecutive rows that are each ONE colour across the whole width — an
+    unpainted band (TASK-0251 P2a step 3: a damage grid smaller than the display left every row
+    past 832 untouched at 1080p, and no gate saw it). A real desktop always varies along a row
+    (wallpaper, chrome, text)."""
+    stride = width * 4
+    longest = run = 0
+    for y in range(height):
+        row = fb[y * stride:(y + 1) * stride]
+        first = row[0:3]
+        flat = all(row[i:i + 3] == first for i in range(4, stride, 4))
+        run = run + 1 if flat else 0
+        longest = max(longest, run)
+    return longest
+
+
 def mean_abs_diff(a: bytes, b: bytes) -> float:
     """Mean absolute per-channel difference of two equally sized BGRX frames."""
     if len(a) != len(b) or not a:

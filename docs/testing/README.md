@@ -59,8 +59,13 @@ The full layer reference — including the end-to-end coverage table and the per
    `REQUIRE_SMP`), and passing a contradicting `SMP=`/`QEMU_NO_ICOUNT=` in the
    environment is a hard error, not a silent override:
    - `just ci-os-visible` — display truth: the real virgl compositor on
-     egl-headless + VNC with a host-side pixel proof (desktop non-black and
-     ≠ splash), see [os-markers.md](os-markers.md) "Display truth".
+     egl-headless + VNC with a host-side pixel proof (desktop non-black,
+     ≠ splash, no unpainted band), see [os-markers.md](os-markers.md) "Display
+     truth"; `just ci-os-visible-fhd` the same at 1920x1080.
+   - `just ci-os-visible-2d` — the board's picture on QEMU (TASK-0251 P2a
+     step 3): the 2D virtio scanout — the CPU executor the board's display
+     controller shows — at 1920x1080 over VNC, judged by the same pixel proof
+     (`[profile.visible-2d]`: `GPU_MODE=mmio`, `-display none` + VNC).
    - `just ci-os-smp1` — deterministic gate: `-smp 1` + icount, no
      secondary-hart demands (`[profile.smp1]`).
    - `just ci-os-sdhci` — the SDHCI lane (TASK-0246 P5): the smp1 topology

@@ -1,0 +1,18 @@
+2-1 2109:2817 speed=480 class=09 prod=USB2.0 Hub              mfr=VIA Labs, Inc.         
+2-1.4 05e3:0608 speed=480 class=09 prod=USB2.0 Hub mfr=
+2-1.4.3 28bd:092d speed=12 class=00 prod=24 inch PenDisplay mfr=UGTABLET
+2-1.5 2109:8817 speed=480 class=11 prod=USB Billboard Device    mfr=VIA Labs, Inc.         
+3-1 2109:0817 speed=5000 class=09 prod=USB3.0 Hub              mfr=VIA Labs, Inc.         
+usb1 1d6b:0002 speed=480 class=09 prod=Spacemit EHCI mfr=Linux 6.6.63 ehci_hcd
+usb2 1d6b:0002 speed=480 class=09 prod=xHCI Host Controller mfr=Linux 6.6.63 xhci-hcd
+usb3 1d6b:0003 speed=5000 class=09 prod=xHCI Host Controller mfr=Linux 6.6.63 xhci-hcd
+1-0:1.0 if-class=09 sub=00 proto=00
+2-0:1.0 if-class=09 sub=00 proto=00
+2-1.4.3:1.0 if-class=03 sub=01 proto=02
+2-1.4.3:1.1 if-class=03 sub=01 proto=02
+2-1.4.3:1.2 if-class=03 sub=00 proto=00
+2-1.4:1.0 if-class=09 sub=00 proto=00
+2-1.5:1.0 if-class=11 sub=00 proto=00
+2-1:1.0 if-class=09 sub=00 proto=02
+3-0:1.0 if-class=09 sub=00 proto=00
+3-1:1.0 if-class=09 sub=00 proto=00

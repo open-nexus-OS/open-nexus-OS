@@ -10,16 +10,17 @@
 //! repo (lucide, ISC — licence-clean), `[icons.symbols]` maps OUR
 //! SwiftUI-style symbol names to file stems. Each SVG's stroke geometry
 //! (path M/L/H/V/C/S/Q/T/A + circle/rect/line/polyline/polygon elements) is
-//! flattened and stroked into filled quads, emitted as a multi-contour symbol
-//! (normalized `0..1000` viewbox → `ShapeKind::Vector`). Rendering reuses the
-//! existing vector fill — no runtime dependency, no core renderer change.
+//! flattened into polylines (normalized `0..1000` viewbox) and emitted with the
+//! set's own stroke width; the painter strokes them with round caps and joins,
+//! anti-aliased (`ShapeKind::Stroke`, TASK-0251 P2a step 3). The former import
+//! cut every segment into its own filled quad — no joins, no caps — which the
+//! one-sample fill turned into stair steps with gaps at 17 px.
 
 use std::path::Path;
 use std::{env, fs};
 
-/// Lucide viewbox is 24; stroke-width 2 → half-width 1 unit.
+/// Lucide viewbox is 24.
 const VIEW: f32 = 24.0;
-const STROKE_HALF: f32 = 1.0;
 /// Curve flattening steps (per Bézier/arc segment).
 const CURVE_STEPS: usize = 12;
 
@@ -50,28 +51,39 @@ fn main() {
     }
     out.push_str("}\n\n");
 
+    // The set's ONE stroke width (every file declares it on its root `<svg>`; a file that
+    // differs fails the build rather than painting at the wrong weight).
+    let mut stroke_milli: Option<u16> = None;
     for (variant, _, file) in &variants {
         let path = icons_dir.join(format!("{file}.svg"));
         let svg = fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("nexus-widget-icon: read {}: {e}", path.display()));
-        let mut contours: Vec<[(u16, u16); 4]> = Vec::new();
-        for poly in svg_polylines(&svg) {
-            for seg in poly.windows(2) {
-                if seg[0] != seg[1] {
-                    contours.push(stroke_quad(seg[0], seg[1]));
-                }
-            }
+        let width = svg_stroke_width_milli(&svg);
+        match stroke_milli {
+            None => stroke_milli = Some(width),
+            Some(w) => assert_eq!(w, width, "nexus-widget-icon: {file} has another stroke width"),
         }
-        assert!(!contours.is_empty(), "nexus-widget-icon: {file} produced no contours");
+        let polylines: Vec<Vec<(u16, u16)>> = svg_polylines(&svg)
+            .into_iter()
+            .map(|poly| {
+                let mut pts: Vec<(u16, u16)> = poly.into_iter().map(normalized).collect();
+                pts.dedup();
+                pts
+            })
+            .filter(|pts| !pts.is_empty())
+            .collect();
+        assert!(!polylines.is_empty(), "nexus-widget-icon: {file} produced no polylines");
         out.push_str(&format!("const LUCIDE_{}: &[&[(u16, u16)]] = &[\n", variant.to_uppercase()));
-        for q in &contours {
-            out.push_str(&format!(
-                "    &[({},{}),({},{}),({},{}),({},{})],\n",
-                q[0].0, q[0].1, q[1].0, q[1].1, q[2].0, q[2].1, q[3].0, q[3].1
-            ));
+        for pts in &polylines {
+            let body: Vec<String> = pts.iter().map(|(x, y)| format!("({x},{y})")).collect();
+            out.push_str(&format!("    &[{}],\n", body.join(",")));
         }
         out.push_str("];\n\n");
     }
+    let stroke_milli = stroke_milli.expect("nexus-widget-icon: no symbols");
+    out.push_str(&format!(
+        "/// The set's stroke width in the normalized `0..1000` viewbox.\npub(crate) const LUCIDE_STROKE_MILLI: u16 = {stroke_milli};\n\n"
+    ));
 
     out.push_str("pub(crate) fn lucide_contours(sym: LucideSymbol) -> &'static [&'static [(u16, u16)]] {\n    match sym {\n");
     for (variant, _, _) in &variants {
@@ -508,17 +520,15 @@ fn tokenize(d: &str) -> Vec<Tok> {
 }
 
 /// Stroke a segment into a filled quad (normalized `0..1000`, y down).
-fn stroke_quad(a: (f32, f32), b: (f32, f32)) -> [(u16, u16); 4] {
-    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-    let len = (dx * dx + dy * dy).sqrt().max(0.0001);
-    let (px, py) = (-dy / len * STROKE_HALF, dx / len * STROKE_HALF);
-    let pts =
-        [(a.0 + px, a.1 + py), (b.0 + px, b.1 + py), (b.0 - px, b.1 - py), (a.0 - px, a.1 - py)];
-    let mut out = [(0u16, 0u16); 4];
-    for (i, &(x, y)) in pts.iter().enumerate() {
-        let nx = (x / VIEW * 1000.0).round().clamp(0.0, 1000.0) as u16;
-        let ny = (y / VIEW * 1000.0).round().clamp(0.0, 1000.0) as u16;
-        out[i] = (nx, ny);
-    }
-    out
+/// A 24-space point in the normalized `0..1000` viewbox.
+fn normalized((x, y): (f32, f32)) -> (u16, u16) {
+    let n = |v: f32| (v / VIEW * 1000.0).round().clamp(0.0, 1000.0) as u16;
+    (n(x), n(y))
+}
+
+/// The root `<svg>`'s `stroke-width` in the normalized viewbox (the icon set's default 2).
+fn svg_stroke_width_milli(svg: &str) -> u16 {
+    let root = extract_tags(svg, "svg").into_iter().next().unwrap_or_default();
+    let width = attr_value(&root, "stroke-width").and_then(|v| v.parse().ok()).unwrap_or(2.0f32);
+    (width / VIEW * 1000.0).round() as u16
 }

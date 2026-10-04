@@ -21,6 +21,9 @@ fn systemui_checksum() {
     // top and bottom instead. Different pixels, same determinism. Updated once more
     // for M-L (2026-09-30): the frame is baked at the layout maximum, 1920x1080 (the
     // 1536x1024 source is covered onto 16:9 — an asset at or above the maximum is a
-    // follow-up), so every pixel moved.
-    assert_eq!(systemui::checksum(), 2_047_897_090);
+    // follow-up), so every pixel moved. And for TASK-0251 P2a step 3 (2026-10-04): the bake
+    // resamples with Lanczos-3 (the box filter fell back to nearest-neighbour above 1:1, so the
+    // 1.25× upscale of the 1536-wide source showed stair steps on every ridge); the checksum
+    // was measured twice, identical.
+    assert_eq!(systemui::checksum(), 1_717_839_154);
 }

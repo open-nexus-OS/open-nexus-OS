@@ -70,7 +70,6 @@
 604	userspace/nxfs/src/fs.rs
 1064	userspace/statefs/src/lib.rs
 1204	userspace/ui/layout/src/engine.rs
-763	userspace/ui/scene_raster/src/lib.rs
 1292	userspace/ui/svg/src/parse.rs
 626	userspace/ui/svg/src/raster.rs
 1268	userspace/ui/svg/src/tessellate.rs

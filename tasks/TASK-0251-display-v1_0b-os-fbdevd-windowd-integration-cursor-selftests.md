@@ -1,6 +1,6 @@
 ---
 title: TASK-0251 Display v1.0b (OS/board): the display controller + HDMI driver in gpud, the display mode's one authority is gpud (EDID on the board, virtio display-info on QEMU), syscall 50 and the fw_cfg path deleted — the first picture
-status: In Progress (P2a step 2 ✅ 2026-10-04 on the board — windowd's desktop through the controller in the first cycle, `[PASS] board-visible` with 24 rungs + `board-visual: desktop`; one request loop over the virtio GPU and the controller, one CPU executor, the splash held until the reveal; P2a step 1 ✅ 2026-10-03 first light; next: the CPU path's picture at 1080p (rounded masks, content scaling, glass) and P2b EDID over DDC; P1 done 2026-09-30 — the mode authority is gpud on QEMU; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
+status: In Progress (P2a step 3a ✅ 2026-10-04 on the board — the picture at 1080p: an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane; open findings noted for their topics; operator priority: USB input (Block 2) before step 3b and P2b EDID; P2a step 2 ✅ 2026-10-04 windowd's desktop through the controller; P2a step 1 ✅ 2026-10-03 first light; P1 done 2026-09-30 — the mode authority is gpud; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
 owner: @ui @runtime
 created: 2025-12-29
 updated: 2026-10-04
@@ -166,15 +166,70 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
     layer composite lacks the GPU path's rounded mask, content scaling, opacity and tinted blur.
     The monitor's own mode is 2560x1440 (EDID): a 1080p signal is scaled 4/3 inside it, which
     softens text (to be checked against the stock system at 1080p on the same monitor).
-  - **P2a step 3 — the CPU path's picture at 1080p** (next): the CPU layer composite reaches
-    the GL path's semantics — the rounded mask (`corner_radius`), the content scaling
-    (`content_w`/`content_h`), the opacity, the glass's blur and tint — with host goldens against
-    the GL compositor's shader math and the 2D capture at 1:1 as the lane's pixel proof (a
-    `visible-2d` profile: `GPU_MODE=mmio`, VNC capture); the board's photo of the monitor and a
-    display-plane probe (flush, then sample a grid — what the controller reads) to tell the
-    executor's picture from the scanout's and the monitor's; the scroll/transform overrides on
-    the CPU path (today they wait for windowd's next full present on the 2D scanout and on the
-    controller alike).
+  - **P2a step 3 — the picture at 1080p, as sharp as the hardware allows** (in progress
+    2026-10-04). Measured first (the operator's notes after step 2, then the 1:1 capture of the
+    2D scanout at 1920x1080 — the executor the board runs — against the GL path's, and the code):
+    - *The wallpaper stops at row 832 on the CPU path* (the operator: "full width, not full
+      height"; the capture: rows ≥ 840 one flat colour). windowd's damage tile grid is still the
+      1280x800 one (`TILES_X = 20`, `TILES_Y = 13` — an M-L leftover), so rows past 832 never
+      count as dirty and the base pass never paints them; the GL path draws Plane 0 directly.
+    - *The icons look chopped* (the operator: mainly the three bottom-right buttons). The icon
+      import cuts every stroke of the line-icon set into separate quads (no joins, no caps) and
+      the vector fill samples one point per pixel, even-odd — at 17 px the 1.4 px stroke turns
+      into stair steps with gaps, on every path (the content is the app's, CPU-rendered).
+    - *A straight bar above every round button*: the `inset 0 1px 0` highlight is a straight
+      1 px line inset by 30 % of the radius — on a circle it overhangs the shape.
+    - *The wallpaper source is 1536x1024* (3:2): the 16:9 crop is 1536x864, upscaled 1.25× by
+      a box filter that degenerates to nearest-neighbour when it scales up.
+    - *Soft text* is the monitor's: it scales 1080p to its 2560x1440 panel; the operator
+      confirmed the stock system's text equally soft (1080p is the SoC's maximum).
+    **3a** — the tile grid derived from `nexus_display_proto::layout::LAYOUT_MAX` (a test proves
+    it covers the layout); the line icons imported as polylines with their stroke width and
+    painted as anti-aliased capsules (round caps and joins — the icon set's own stroke model)
+    over the union of all strokes (`ShapeKind::Stroke`); the inset highlight as the top-facing
+    edge band of the element's own shape (an arc on a circle); the wallpaper bake resampling
+    with a reconstruction filter (separable Lanczos-3, widened when it scales down) — and a
+    native-resolution source asset when one exists; a `visible-2d` lane (the 2D scanout at
+    1920x1080 with the VNC pixel proof) so the CPU path's picture is judged in every
+    `test-all`. **3a ✅ 2026-10-04 on the board** (`[PASS] board-visible`, 24 rungs; the operator:
+    "icons and circles look good now"; `docs/board/measurements/2026-10-04-picture-1080p/`).
+    **Open findings, noted for their topics** (the operator's rule: record them, do not debug
+    legacy now — the priority is the picture with USB input; hard-coded sizes stay a problem):
+    1. *The settled greeter covers the bottom of the wallpaper* — on the board ("still not full
+       screen") and on QEMU's 2D scanout with the same windowd (bundle `c00ad8d6…`): at the
+       reveal the wallpaper reaches row 1080 (grab +0.4 s, no flat row), the settled greeter
+       (grab +6 s, with its clock) paints rows ≥ ~840 one flat dark colour — a 1280x800-era
+       size in the desktop-surface path (the greeter page's own height, app-host's band
+       geometry — `probe/scroll.rs` budgets "the desktop base's 800" rows —, or windowd's
+       desktop-surface composite) — or, the operator's hypothesis, an element built wrongly for
+       the larger mode: the shell's top bar or task bar, or the greeter's bottom row (the three
+       round buttons) as an opaque full-width container, which at 1280x800 falls off the
+       bottom edge or has no height and so never showed on QEMU. The pixel proof samples only
+       at the reveal and misses it: a settled snapshot belongs into the proof.
+    2. *Hard-coded 1280x800-era sizes* — sweep them before the layout changes again, with a
+       gate: windowd's tile grid (fixed in 3a), app-host `probe/env.rs` ("landscape 1280×800"),
+       `probe/scroll.rs` (the atlas budget from "the desktop base's 800"), `greeter.toml` (pixel
+       values "at the canonical 1280x800 mode"), windowd `markers.rs` (`READY_MARKER`,
+       `DISPLAY_MODE_MARKER`), `systemui_shell::DeviceProfile::qemu_default`; the display-ssot
+       gate's literal rule covers windowd and inputd only — extend it to app-host, systemui and
+       the manifests.
+    3. *Rows switching top to bottom* at the splash's first frame and at the reveal (the
+       operator: "like a scanline") — tearing: the controller scans while the CPU writes the
+       plane (no second plane) and the switch latches mid-frame (no flip at vertical blank).
+       The tear-free step with the compositor/GPU work: the ONLINE interrupt as vsync, a second
+       plane, flips at blank.
+    4. *The long black before the splash* — the kernel's LED milestone pulses alone run to
+       23.4 s (the no-UART desk's wait signal), and nothing can show before gpud (the display
+       driver is a userspace service; an on-screen boot console before it would need the loader
+       to drive the display). Quick lever when wanted: short LED blinks now that the eMMC trace
+       is the observation channel.
+    5. *The entry animation's first second* on the CPU path (a doubled password pill, a cut
+       avatar) — the transform overrides (3b).
+    **3b** — the CPU layer composite at the GL path's semantics (the rounded mask,
+    content scaling, opacity, the glass's blur and tint — the avatar circle's flat top, the flat
+    blue glass), host goldens against the GL compositor's math; on the board a display-plane
+    probe (flush, then sample a grid — what the controller reads); the scroll/transform
+    overrides on the CPU path (today they wait for windowd's next full present).
 - **P3 First picture** — on the board through the boot chain (TASK-0260B): markers + the
   operator ack; photo in the ledger. **Block 1 gate.**
 

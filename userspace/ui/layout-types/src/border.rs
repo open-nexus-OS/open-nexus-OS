@@ -228,9 +228,16 @@ pub enum ShapeKind {
     TriangleDown,
     /// A single filled contour (normalized `0..1000` viewbox).
     Path(PathShape),
-    /// A multi-contour vector symbol (each contour a filled sub-path) — the
-    /// model for icons with several strokes/holes (e.g. imported SVG symbols).
+    /// A multi-contour vector symbol (each contour a filled sub-path).
     Vector(alloc::vec::Vec<PathShape>),
+    /// A line symbol: polylines (normalized `0..1000` viewbox; `closed` adds the segment from the
+    /// last point back to the first) stroked `width_milli` wide (same viewbox units) with round
+    /// caps and round joins — the imported line-icon set's own stroke model. Painted as the
+    /// anti-aliased union of its segments' capsules: joins and overlaps are painted once.
+    Stroke {
+        paths: alloc::vec::Vec<PathShape>,
+        width_milli: u16,
+    },
     /// A pre-rasterized straight-alpha RGBA sprite (build-time baked app-icon
     /// artwork). `w × h` pixels, `[r,g,b,a]` per pixel, row-major; the
     /// painter samples nearest, so any box size renders.

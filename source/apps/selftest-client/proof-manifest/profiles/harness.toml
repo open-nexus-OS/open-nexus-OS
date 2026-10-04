@@ -74,6 +74,17 @@ runner = "scripts/qemu-test.sh"
 extends = "visible"
 env = { QEMU_GPU_XRES = "1920", QEMU_GPU_YRES = "1080", QEMU_MEM = "512M" }
 
+# TASK-0251 P2a step 3 (2026-10-04): the board's picture, proven on QEMU. The board's display
+# controller scans what gpud's CPU executor composes; QEMU's 2D virtio scanout runs that same
+# executor, so this lane captures the CPU path's 1:1 picture at the board's 1920x1080 over VNC
+# (no GL backend: `-display none` + the VNC listener the parent declares) and judges it like the
+# GL lanes — non-black, past the splash, no unpainted band (the damage grid that stopped at row
+# 832 was invisible to every lane until this one).
+[profile.visible-2d]
+runner = "scripts/qemu-test.sh"
+extends = "visible-fhd"
+env = { GPU_MODE = "mmio", QEMU_DISPLAY_BACKEND = "none" }
+
 [profile.smp]
 runner = "scripts/qemu-test.sh"
 extends = "headless"

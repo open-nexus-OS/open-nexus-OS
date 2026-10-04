@@ -71,7 +71,8 @@ def main() -> int:
             saved = rfb_grab.save_frame(os.path.join(out_dir, f"display-{name}.png"), w, h, fb)
             frames[name] = fb
             entry = {"marker": marker, "file": saved, "width": w, "height": h,
-                     "mean_luma": round(mean, 2), "nonblack_pct": round(nonblack, 2)}
+                     "mean_luma": round(mean, 2), "nonblack_pct": round(nonblack, 2),
+                     "flat_band_rows": rfb_grab.flat_band_rows(w, h, fb)}
             if name == "desktop" and "splash" in frames:
                 entry["diff_vs_splash"] = round(rfb_grab.mean_abs_diff(frames["splash"], fb), 2)
             proof["snapshots"][name] = entry

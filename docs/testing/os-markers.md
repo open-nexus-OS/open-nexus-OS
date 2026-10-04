@@ -240,8 +240,11 @@ judged on the host. Three contracts hold this together:
   snapshots the host framebuffer at `gpud: completion wait …` (splash — raw in
   every boot mode, right after gpud's bootstrap scanout) and
   `systemui: first frame visible` (desktop) into the run's log dir;
-  `tools/pixel_proof_judge.py` requires the desktop to be non-black AND to
-  differ from the splash. `just start-vnc` exposes the same VNC listener
+  `tools/pixel_proof_judge.py` requires the desktop to be non-black, to have
+  no unpainted band (fewer than 64 consecutive rows that are each one flat
+  colour across the width — `flat_band_rows` in the JSON) AND to differ from the
+  splash. `[profile.visible-2d]` (`just ci-os-visible-2d`) runs the same proof
+  on the 2D scanout at 1920x1080 — the CPU executor the board shows. `just start-vnc` exposes the same VNC listener
   (127.0.0.1:5979) so `tools/visual-postflight.py --out shot.png` judges an
   interactive boot the same way (a windowed gtk,gl=on context cannot share a
   VNC display — QEMU refuses the combination).

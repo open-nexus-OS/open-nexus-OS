@@ -46,8 +46,15 @@ the build through the **theme**, not hard-coded:
 - `[icons.symbols]` maps **our SwiftUI-style symbol vocabulary** to file
   stems, e.g. `"magnifyingglass" = "search"`.
 - `userspace/ui/widgets/icon/build.rs` reads the theme, imports **exactly the
-  mapped symbols** (path flattening → vector contours), and generates the
-  `LucideSymbol` enum, `LUCIDE_*` constants and `lucide_symbol_named(name)`.
+  mapped symbols** (path flattening → polylines, plus the set's own stroke
+  width), and generates the `LucideSymbol` enum, `LUCIDE_*` constants and
+  `lucide_symbol_named(name)`.
+- The painter strokes them as they were drawn: round caps, round joins, the
+  set's stroke width scaled to the icon size, anti-aliased (`ShapeKind::Stroke`,
+  `nexus-scene-raster` `shapes.rs` — the distance to the nearest segment, so a
+  join is painted once). The former import cut every segment into its own
+  filled quad and the fill sampled one point per pixel: at 17 px the 1.4 px
+  stroke turned into stair steps with gaps (TASK-0251 P2a step 3).
 
 Only names in `[icons.symbols]` exist at runtime — the other ~3400 Lucide
 files are not baked (binary size stays flat).

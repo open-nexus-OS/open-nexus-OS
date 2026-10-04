@@ -133,17 +133,18 @@ impl Icon {
         }
     }
 
-    /// An imported Lucide line symbol (multi-contour).
+    /// An imported line symbol: its polylines, stroked at the set's own width with round caps
+    /// and joins, anti-aliased (`ShapeKind::Stroke`).
     pub fn lucide(sym: LucideSymbol) -> Self {
-        let contours = lucide_contours(sym)
+        let paths = lucide_contours(sym)
             .iter()
             .map(|c| PathShape {
                 points: c.iter().map(|&(x, y)| PathPoint::new(x, y)).collect(),
-                closed: true,
+                closed: false,
             })
             .collect();
         Self {
-            shape: ShapeKind::Vector(contours),
+            shape: ShapeKind::Stroke { paths, width_milli: LUCIDE_STROKE_MILLI },
             size: FxPx::new(16),
             color: ColorToken::OnSurface,
             id: None,
@@ -243,20 +244,28 @@ mod tests {
     }
 
     #[test]
-    fn imported_lucide_symbols_are_multi_contour_vectors() {
+    fn imported_lucide_symbols_are_stroked_polylines() {
         let t = BaseTokens;
-        // "menu" (hamburger) = 3 stroke lines → 3 quad contours.
+        // "menu" (hamburger) = 3 lines → 3 two-point polylines, at the set's stroke width
+        // (2 of 24 → 83 of 1000).
         match Icon::lucide(LucideSymbol::Menu).size(24).build(&t) {
             LayoutNode::Stack(_, v, _) => match v.shape {
-                ShapeKind::Vector(contours) => assert_eq!(contours.len(), 3, "3 hamburger lines"),
-                _ => panic!("lucide icon must be a Vector"),
+                ShapeKind::Stroke { paths, width_milli } => {
+                    assert_eq!(paths.len(), 3, "3 hamburger lines");
+                    assert!(paths.iter().all(|p| p.points.len() == 2));
+                    assert_eq!(width_milli, 83);
+                }
+                _ => panic!("lucide icon must be a Stroke"),
             },
             _ => panic!(),
         }
-        // "check" = one 2-segment polyline → 2 quads.
+        // "check" = one polyline of three points (two segments joined, not two loose quads).
         match Icon::lucide(LucideSymbol::Check).build(&t) {
             LayoutNode::Stack(_, v, _) => match v.shape {
-                ShapeKind::Vector(contours) => assert_eq!(contours.len(), 2),
+                ShapeKind::Stroke { paths, .. } => {
+                    assert_eq!(paths.len(), 1);
+                    assert_eq!(paths[0].points.len(), 3);
+                }
                 _ => panic!(),
             },
             _ => panic!(),

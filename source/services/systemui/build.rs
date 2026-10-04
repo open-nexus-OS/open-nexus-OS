@@ -204,33 +204,97 @@ fn decode_wallpaper(path: &Path, target_width: u32, target_height: u32) -> Resul
     let win_x = (src_width - win_w) / 2;
     let win_y = (src_height - win_h) / 2;
 
-    // Box (area-average) downscale: each destination pixel averages every source
-    // pixel its footprint covers. Nearest-neighbour (sampling one source pixel)
-    // aliased/softened the result; averaging keeps the wallpaper crisp.
-    for y in 0..target_height {
-        let sy0 = win_y + y * win_h / target_height;
-        let sy1 = ((win_y + (y + 1) * win_h / target_height).max(sy0 + 1)).min(src_height);
-        for x in 0..target_width {
-            let sx0 = win_x + x * win_w / target_width;
-            let sx1 = ((win_x + (x + 1) * win_w / target_width).max(sx0 + 1)).min(src_width);
-            let (mut rs, mut gs, mut bs, mut n) = (0u32, 0u32, 0u32, 0u32);
-            for sy in sy0..sy1 {
-                for sx in sx0..sx1 {
-                    let (r, g, b) = rgb_at(&pixels, info.pixel_format, src_width, sx, sy)?;
-                    rs += u32::from(r);
-                    gs += u32::from(g);
-                    bs += u32::from(b);
-                    n += 1;
+    // Resample the window with a separable Lanczos-3 filter (`resample_axis`): upscaling
+    // reconstructs a smooth, sharp image (the former box filter degenerated to nearest-neighbour
+    // above 1:1 — blocky at the 1.25× a 1536-wide source needs for 1920), downscaling widens
+    // the kernel by the scale (an area-correct low-pass: no aliasing). TASK-0251 P2a step 3.
+    let mut src = vec![0f32; win_w * win_h * 3];
+    for y in 0..win_h {
+        for x in 0..win_w {
+            let (r, g, b) = rgb_at(&pixels, info.pixel_format, src_width, win_x + x, win_y + y)?;
+            let o = (y * win_w + x) * 3;
+            src[o..o + 3].copy_from_slice(&[f32::from(r), f32::from(g), f32::from(b)]);
+        }
+    }
+    // Horizontal pass: win_w → target_width, every window row.
+    let cols = resample_axis(win_w, target_width);
+    let mut wide = vec![0f32; target_width * win_h * 3];
+    for y in 0..win_h {
+        for (x, taps) in cols.iter().enumerate() {
+            let mut acc = [0f32; 3];
+            for &(sx, w) in taps {
+                let o = (y * win_w + sx) * 3;
+                for c in 0..3 {
+                    acc[c] += src[o + c] * w;
                 }
             }
-            let n = n.max(1);
-            let (r, g, b) = ((rs / n) as u8, (gs / n) as u8, (bs / n) as u8);
+            let o = (y * target_width + x) * 3;
+            wide[o..o + 3].copy_from_slice(&acc);
+        }
+    }
+    // Vertical pass: win_h → target_height.
+    let rows = resample_axis(win_h, target_height);
+    for (y, taps) in rows.iter().enumerate() {
+        for x in 0..target_width {
+            let mut acc = [0f32; 3];
+            for &(sy, w) in taps {
+                let o = (sy * target_width + x) * 3;
+                for c in 0..3 {
+                    acc[c] += wide[o + c] * w;
+                }
+            }
+            let channel = |v: f32| v.round().clamp(0.0, 255.0) as u8;
             let dst = (y * target_width + x) * 4;
-            out[dst..dst + 4].copy_from_slice(&[b, g, r, 0xff]);
+            out[dst..dst + 4].copy_from_slice(&[
+                channel(acc[2]),
+                channel(acc[1]),
+                channel(acc[0]),
+                0xff,
+            ]);
         }
     }
 
     Ok(out)
+}
+
+/// The Lanczos-3 kernel.
+fn lanczos3(x: f32) -> f32 {
+    let x = x.abs();
+    if x < 1e-6 {
+        return 1.0;
+    }
+    if x >= 3.0 {
+        return 0.0;
+    }
+    let px = core::f32::consts::PI * x;
+    3.0 * px.sin() * (px / 3.0).sin() / (px * px)
+}
+
+/// The taps of a 1-D resample from `src_len` to `dst_len` samples: per destination sample the
+/// `(source index, weight)` pairs, weights normalized to 1, sources clamped at the edges. The
+/// kernel is Lanczos-3 in destination units, widened by the scale when it shrinks.
+fn resample_axis(src_len: usize, dst_len: usize) -> Vec<Vec<(usize, f32)>> {
+    let scale = src_len as f32 / dst_len as f32;
+    let support = 3.0 * scale.max(1.0);
+    (0..dst_len)
+        .map(|i| {
+            let centre = (i as f32 + 0.5) * scale - 0.5;
+            let lo = (centre - support).ceil() as i64;
+            let hi = (centre + support).floor() as i64;
+            let mut taps: Vec<(usize, f32)> = (lo..=hi)
+                .map(|j| {
+                    let w = lanczos3((j as f32 - centre) / scale.max(1.0));
+                    (j.clamp(0, src_len as i64 - 1) as usize, w)
+                })
+                .filter(|&(_, w)| w != 0.0)
+                .collect();
+            let sum: f32 = taps.iter().map(|&(_, w)| w).sum();
+            for tap in &mut taps {
+                tap.1 /= sum;
+            }
+            taps
+        })
+        .collect()
 }
 
 fn rgb_at(

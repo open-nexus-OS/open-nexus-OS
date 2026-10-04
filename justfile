@@ -352,6 +352,11 @@ ci-os-visible:
 ci-os-visible-fhd:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os visible-fhd
 
+# TASK-0251 P2a step 3: the board's picture on QEMU — the 2D scanout (the CPU executor the board's
+# display controller shows) at 1920x1080, captured over VNC and judged like the GL lanes.
+ci-os-visible-2d:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os visible-2d
+
 # TASK-0050: real system-reset lane — the guest SBI-reboots mid-run and the
 # harness proves BOTH boots in one uart stream (profile owns the topology;
 # timeout widening lives in qemu-test.sh's reset arm).
@@ -791,6 +796,7 @@ test-all:
     just ci-os-sdhci
     just ci-os-visible
     just ci-os-visible-fhd
+    just ci-os-visible-2d
     just input-flood
     just ci-os-reset
     just ci-os-ota

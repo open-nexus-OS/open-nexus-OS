@@ -181,8 +181,15 @@ pub(crate) const LAYER_CACHE_MAX_BYTES: usize = 4 * 1024;
 #[allow(dead_code)]
 pub(crate) const LAYER_CACHE_MAX_LAYER_BYTES: usize = PATH_CACHE_MAX_PIXELS;
 pub(crate) const TILE_SIZE: u32 = 64;
-pub(crate) const TILES_X: usize = 20; // 1280 / 64
-pub(crate) const TILES_Y: usize = 13; // 800 / 64 rounded up
+/// The damage tile grid covers the layout's maximum (`nexus_display_proto::LAYOUT_MAX`): the base
+/// pass paints only rows with a dirty tile, so a row outside the grid is never painted (the
+/// 1280x800 grid left every row past 832 unpainted at 1920x1080 — TASK-0251 P2a step 3).
+pub(crate) const TILES_X: usize = DISPLAY_WIDTH.div_ceil(TILE_SIZE) as usize;
+pub(crate) const TILES_Y: usize = DISPLAY_HEIGHT.div_ceil(TILE_SIZE) as usize;
+// Every build of the compositor proves the grid covers the layout (this module is OS-only, so
+// a unit test of it would never run).
+const _: () = assert!(TILES_X as u32 * TILE_SIZE >= DISPLAY_WIDTH);
+const _: () = assert!(TILES_Y as u32 * TILE_SIZE >= DISPLAY_HEIGHT);
 pub(crate) const TILE_COUNT: usize = TILES_X * TILES_Y;
 pub(crate) const TILE_DIRTY_WORDS: usize = (TILE_COUNT + 63) / 64;
 // Shadow arena/scratch budget contract: documented bounded-memory ceilings for

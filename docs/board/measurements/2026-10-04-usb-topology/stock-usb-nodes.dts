@@ -1,0 +1,72 @@
+/* the stock system's live tree (/sys/firmware/fdt), USB nodes, 2026-10-04 */
+
+usb3@0 {
+			compatible = "spacemit,k1-x-dwc3";
+			#address-cells = <0x02>;
+			#size-cells = <0x02>;
+			reg = <0x00 0xd4282bc8 0x00 0x04>;
+			resets = <0x1d 0x4d>;
+			reset-names = "ctl_rst";
+			clocks = <0x03 0x8e>;
+			clock-names = "usbdrd30";
+			power-domains = <0x20 0x00>;
+			clk,pm-runtime,no-sleep;
+			cpuidle,pm-runtime,sleep;
+			phys = <0x49 0x04>;
+			phy-names = "usb3-phy";
+			usb-phy = <0x4a>;
+			interrupt-parent = <0x1e>;
+			interrupts = <0x95>;
+			ranges;
+			interconnects = <0x45>;
+			interconnect-names = "dma-mem";
+			status = "okay";
+			reset-on-resume;
+
+			dwc3@c0a00000 {
+				compatible = "snps,dwc3";
+				reg = <0x00 0xc0a00000 0x00 0x10000>;
+				interrupt-parent = <0x1e>;
+				interrupts = <0x7d>;
+				dr_mode = "host";
+				phy_type = "utmi";
+				snps,hsphy_interface = "utmi";
+				snps,dis_enblslpm_quirk;
+				snps,dis_u2_susphy_quirk;
+				snps,dis_u3_susphy_quirk;
+				snps,dis-del-phy-power-chg-quirk;
+				snps,dis-tx-ipgap-linecheck-quirk;
+				snps,parkmode-disable-ss-quirk;
+			};
+		};
+
+usb3hub@0 {
+			compatible = "spacemit,usb3-hub";
+			power-domains = <0x20 0x08>;
+			clk,pm-runtime,no-sleep;
+			cpuidle,pm-runtime,sleep;
+			status = "okay";
+			hub-gpios = <0x30 0x7b 0x00 0x30 0x7c 0x00>;
+			vbus-gpios = <0x30 0x61 0x00>;
+			vbus_delay_ms = <0xc8>;
+		};
+
+usb2phy@0xc0a30000 {
+			compatible = "spacemit,usb2-phy";
+			reg = <0x00 0xc0a30000 0x00 0x200>;
+			spacemit,handle_connect_change;
+			clocks = <0x03 0x8e>;
+			status = "okay";
+			phandle = <0x4a>;
+		};
+
+phy@c0b10000 {
+			compatible = "spacemit,k1x-combphy";
+			reg = <0x00 0xc0b10000 0x00 0x800 0x00 0xd4282910 0x00 0x400>;
+			reg-names = "puphy", "phy_sel";
+			resets = <0x1d 0x4c>;
+			reset-names = "phy_rst";
+			#phy-cells = <0x01>;
+			status = "okay";
+			phandle = <0x49>;
+		};
