@@ -1027,7 +1027,7 @@ impl VirtioGpuBackend {
         // (only the clear + splash blit present) until the desktop is ready.
         if should_reveal {
             // windowd's REAL atlas layers (the shell/panels) straight onto the scanout
-            // RT, over the wallpaper base. `present_committed` (run by the service before
+            // RT, over the wallpaper base. `Display::execute` (run by the request loop before
             // this) populated the pending layers from windowd's CompositeLayer commands.
             self.composite_pending_rt_layers();
 
@@ -1044,7 +1044,7 @@ impl VirtioGpuBackend {
             // Hotspot-corrected sprite origin: the pointer POSITION is
             // cursor_ox/oy; the sprite's top-left sits hotspot-left/up of it
             // (resize shapes center the hotspot — TASK-0070 Phase 3).
-            let (hot_x, hot_y) = self.cursor_hot;
+            let (hot_x, hot_y) = self.cpu.cursor_hot;
             let cx = (self.cursor_ox - hot_x as i32).clamp(0, self.display_w as i32 - 20) as u32;
             let cy = (self.cursor_oy - hot_y as i32).clamp(0, self.display_h as i32 - 28) as u32;
             if self.cursor_tex_ready() {

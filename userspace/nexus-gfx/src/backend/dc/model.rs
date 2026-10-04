@@ -137,10 +137,67 @@ pub fn flush<W: RegWriter>(w: &mut W) {
     w.write(regs::CTL2_SW_START, 1);
 }
 
-/// Points RDMA channel `rdma` at a new plane address (the frame-ring flip) and flushes.
-pub fn set_plane_address<W: RegWriter>(w: &mut W, rdma: u32, bus_addr: u64) {
-    write_plane_address(w, regs::rdma_base(rdma), bus_addr);
+/// Points RDMA channel `rdma` at another plane of the programmed mode — its bus address and its
+/// row stride — and latches it: the reveal's switch from the boot splash to the desktop
+/// (TASK-0251 P2a step 2), a frame-ring flip later. The plane's size is the mode's; a flip never
+/// changes the mode.
+pub fn flip<W: RegWriter>(w: &mut W, rdma: u32, plane: &Plane) {
+    let ch = regs::rdma_base(rdma);
+    write_plane_address(w, ch, plane.bus_addr);
+    w.write(ch + regs::RDMA_STRIDE_BYTES, plane.stride);
     flush(w);
+}
+
+/// Bytes per pixel of the controller's XRGB8888 plane.
+const BYTES_PER_PIXEL: usize = 4;
+
+/// The bytes of `plane` (offsets from its first byte) that the damage `x, y, w, h` covers, clamped
+/// to the plane's visible size: what the driver cleans out of the CPU caches before the controller
+/// reads them (it does not snoop them). A damage across the whole visible width is ONE run of
+/// whole rows; a narrower one is one run per row; a damage outside the plane covers nothing.
+pub fn damage_spans(plane: &Plane, x: u32, y: u32, w: u32, h: u32) -> DamageSpans {
+    let (width, height) = (u32::from(plane.width), u32::from(plane.height));
+    let x_end = x.saturating_add(w).min(width);
+    let y_end = y.saturating_add(h).min(height);
+    if x >= x_end || y >= y_end {
+        return DamageSpans { row: 0, end: 0, x_off: 0, len: 0, stride: 0, whole: false };
+    }
+    DamageSpans {
+        row: y,
+        end: y_end,
+        x_off: x as usize * BYTES_PER_PIXEL,
+        len: (x_end - x) as usize * BYTES_PER_PIXEL,
+        stride: plane.stride as usize,
+        whole: x == 0 && x_end == width,
+    }
+}
+
+/// The runs [`damage_spans`] yields, as byte ranges from the plane's first byte.
+#[derive(Clone, Debug)]
+pub struct DamageSpans {
+    row: u32,
+    end: u32,
+    x_off: usize,
+    len: usize,
+    stride: usize,
+    whole: bool,
+}
+
+impl Iterator for DamageSpans {
+    type Item = core::ops::Range<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.row >= self.end {
+            return None;
+        }
+        let start = self.row as usize * self.stride;
+        if self.whole {
+            self.row = self.end;
+            return Some(start..self.end as usize * self.stride);
+        }
+        self.row += 1;
+        Some(start + self.x_off..start + self.x_off + self.len)
+    }
 }
 
 fn write_plane_address<W: RegWriter>(w: &mut W, channel: u32, bus_addr: u64) {
@@ -240,20 +297,65 @@ mod tests {
         assert_eq!(regs::cmps_layer_word(1), 0x3);
     }
 
-    /// A flip writes only the address pair and the two latch words, in that order.
+    /// A flip writes the address pair and the stride, then the two latch words, in that order —
+    /// nothing of the mode.
     #[test]
-    fn a_plane_flip_is_four_writes() {
+    fn a_flip_is_the_address_the_stride_and_the_latch() {
         let mut s = Sequence::new();
-        set_plane_address(&mut s, 1, 0x1_0000_0000 + 0x8fb7_c000);
+        let plane = Plane { bus_addr: 0x1_8fb7_c000, ..plane_1080p() };
+        flip(&mut s, 1, &plane);
         assert_eq!(
             s.as_slice(),
             &[
                 Write { offset: 0xba0, value: 0x8fb7_c000 },
                 Write { offset: 0xba4, value: 1 },
+                Write { offset: 0xbb8, value: 7680 },
                 Write { offset: 0x56c, value: 1 },
                 Write { offset: 0x58c, value: 1 },
             ]
         );
+    }
+
+    /// A full-screen damage is ONE run of whole rows — one clean over the plane.
+    #[test]
+    fn a_full_screen_damage_is_one_run() {
+        let spans: Vec<_> = damage_spans(&plane_1080p(), 0, 0, 1920, 1080).collect();
+        assert_eq!(spans, [0..1080 * 7680]);
+    }
+
+    /// A pointer-sized damage is one run per row, each exactly the rectangle's bytes.
+    #[test]
+    fn a_narrow_damage_is_one_run_per_row() {
+        let spans: Vec<_> = damage_spans(&plane_1080p(), 100, 200, 32, 32).collect();
+        assert_eq!(spans.len(), 32);
+        assert_eq!(spans[0], 200 * 7680 + 400..200 * 7680 + 400 + 128);
+        assert_eq!(spans[31], 231 * 7680 + 400..231 * 7680 + 400 + 128);
+    }
+
+    /// A damage past the plane's edge is clipped to the visible size.
+    #[test]
+    fn a_damage_past_the_edge_is_clipped() {
+        let spans: Vec<_> = damage_spans(&plane_1080p(), 1900, 1070, 100, 100).collect();
+        assert_eq!(spans.len(), 10);
+        assert_eq!(spans[9], 1079 * 7680 + 1900 * 4..1079 * 7680 + 1920 * 4);
+    }
+
+    /// The bytes a damage names come from windowd's commands — untrusted. Outside the plane, or
+    /// empty, or at the integer edge, they name nothing; whatever they name lies inside the plane.
+    #[test]
+    fn test_reject_a_damage_outside_the_plane() {
+        let p = plane_1080p();
+        let max = u32::MAX;
+        for (x, y, w, h) in [(1920, 0, 10, 10), (0, 1080, 10, 10), (0, 0, 0, 10), (5, 5, 10, 0)] {
+            assert_eq!(damage_spans(&p, x, y, w, h).count(), 0, "({x},{y},{w},{h})");
+        }
+        assert_eq!(damage_spans(&p, max, max, max, max).count(), 0);
+        let plane_bytes = 1080 * 7680;
+        for (x, y, w, h) in [(0, 0, max, max), (1, 1, max, max), (1919, 1079, max, max)] {
+            for span in damage_spans(&p, x, y, w, h) {
+                assert!(span.start < span.end && span.end <= plane_bytes, "({x},{y}): {span:?}");
+            }
+        }
     }
 
     /// Every offset the sequence touches lies inside the controller window the tree names.

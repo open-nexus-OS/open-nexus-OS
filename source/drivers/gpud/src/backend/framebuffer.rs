@@ -21,7 +21,7 @@ use super::VirtioGpuBackend;
 impl VirtioGpuBackend {
     /// The framebuffer object, made on first use for this device, then kept. `None` when the
     /// kernel refused it (named on the console; the grant then refuses too).
-    pub(crate) fn framebuffer(&mut self) -> Option<u32> {
+    pub(crate) fn make_framebuffer(&mut self) -> Option<u32> {
         if let Some(vmo) = self.framebuffer_vmo {
             return Some(vmo);
         }

@@ -17,19 +17,9 @@ use nexus_gfx::core::fence::Fence;
 use nexus_gfx::core::types::PixelFormat;
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-use super::cursor::blend_cursor_vmo;
+use super::cpu_frame::{Blur, Target};
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-use super::raster::{
-    blit_blend_vmo, blit_vmo, blur_backdrop_separable_vmo, blur_backdrop_vmo, fill_rect_solid_vmo,
-    fill_sdf_rounded_vmo,
-};
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-use super::transport::{align_page, ctrl_hdr, DISPLAY_PLANE_HEIGHT, DISPLAY_PLANE_ROW};
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-#[allow(unused_imports)]
-use crate::markers::{
-    GPUD_DROPSHADOW_OK, GPUD_LAYER_COMPOSITE_LIVE, GPUD_RESOURCE_VMO_MAP_FAIL, GPUD_SDF_GRAD_OK,
-};
+use super::transport::DISPLAY_PLANE_ROW;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use crate::protocol;
 
@@ -77,27 +67,6 @@ impl VirtioGpuBackend {
     pub fn present_scanout_damage(&mut self, rect: Rect) -> Result<(), GfxError> {
         let scanout = self.scanout_resource.ok_or(GfxError::InvalidArgument)?;
         self.transfer_to_host(scanout, rect)
-    }
-
-    /// Present a borrowed `CommittedBuffer` (validate + execute) without taking
-    /// ownership. Mirrors [`GfxBackend::submit`] but borrows, so the caller can
-    /// hold one reusable buffer and `reload_from` it every frame — avoiding the
-    /// per-frame `Vec<Command>` that `submit(CommittedBuffer)` would require.
-    /// gpud runs on a non-freeing bump allocator, so that per-frame Vec would
-    /// otherwise exhaust the heap and crash mid-animation.
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) fn present_committed(&mut self, cmd: &CommittedBuffer) -> Result<Fence, GfxError> {
-        if !self.probed {
-            return Err(GfxError::DeviceNotFound);
-        }
-        cmd.validate().map_err(map_nexus_error)?;
-        let mut fence = Fence::new_unsignaled();
-        #[cfg(all(feature = "os-lite", target_os = "none"))]
-        {
-            self.execute_commands(cmd.commands())?;
-        }
-        fence.signal();
-        Ok(fence)
     }
 
     #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -201,36 +170,37 @@ impl VirtioGpuBackend {
         if record.backing_va == 0 {
             return Err(GfxError::MmioFault);
         }
-        let fb = record.backing_va as *mut u8;
-        let fb_len = record.backing_len;
-        let fb_w = record.width as usize;
-        let display_y_offset = DISPLAY_PLANE_ROW;
+        // SAFETY: the scanout resource's backing is this service's own mapping of
+        // `backing_len` bytes, kept for the resource's life; the commands run one at a time.
+        let target = unsafe {
+            Target::new(record.backing_va as *mut u8, record.backing_len, record.width as usize)
+        };
+        // The CPU blur the virgl build falls back to is the separable gaussian (its GPU kernel's
+        // shape); the 2D path keeps the box blur.
+        #[cfg(feature = "virgl")]
+        let blur = if self.virgl_capable { Blur::Separable } else { Blur::Box };
+        #[cfg(not(feature = "virgl"))]
+        let blur = Blur::Box;
         for cmd in cmds {
-            match cmd {
-                Command::SetFragmentBytes { offset, data } => {
-                    let end = offset.saturating_add(data.len());
-                    if end > self.fragment_data.len() {
-                        return Err(GfxError::CommandRejected);
-                    }
-                    self.fragment_data[*offset..end].copy_from_slice(data);
-                }
-                Command::DrawTiles { tiles, color } => {
-                    let c = color.as_array();
-                    for t in tiles {
-                        fill_rect_solid_vmo(
-                            fb,
-                            fb_len,
-                            fb_w,
-                            t.x,
-                            t.y.saturating_add(display_y_offset),
-                            t.width,
-                            t.height,
-                            c,
-                        );
-                    }
-                }
-                Command::FillSdfRoundedRect { rect, radius, color } => {
-                    fill_sdf_rounded_vmo(
+            #[cfg(feature = "virgl")]
+            if self.execute_on_gpu(&target, cmd)? {
+                continue;
+            }
+            self.cpu.execute(&target, cmd, blur)?;
+        }
+        Ok(())
+    }
+
+    /// The virgl path's GPU executors, tried before the CPU one: `Ok(true)` when the GPU took
+    /// the command (or deferred it to the scanout RT), `Ok(false)` to fall back to the CPU.
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn execute_on_gpu(&mut self, target: &Target, cmd: &Command) -> Result<bool, GfxError> {
+        let (fb, fb_len, fb_w) = target.raw();
+        let display_y_offset = DISPLAY_PLANE_ROW;
+        match cmd {
+            Command::BlurBackdrop { rect, radius, .. } => Ok(self.virgl_capable
+                && self
+                    .submit_virgl_blur(
                         fb,
                         fb_len,
                         fb_w,
@@ -239,184 +209,34 @@ impl VirtioGpuBackend {
                         rect.width,
                         rect.height,
                         *radius,
-                        *color,
-                    );
-                }
-                Command::BlurBackdrop { rect, radius, saturation_percent } => {
-                    // In the virgl build-up compositor the scanout is the GL render
-                    // target (`compositor_buildup_present`, which does its own pure-GL
-                    // Stage-3 glass blur by sampling a persistent texture — NO transfer),
-                    // NOT this CPU/VMO plane. Blurring the VMO here is therefore wasted
-                    // work, and `submit_virgl_blur`'s per-frame TRANSFER_TO_HOST_3D
-                    // intermittently stalls QEMU's virgl renderer (used-ring never
-                    // advances → the present-damage chain never reaches G4). Skip it and
-                    // let the GL-RT build-up own the blurred output.
-                    #[cfg(feature = "virgl")]
-                    let buildup_owns_scanout = crate::gl_scanout::COMPOSITOR_BUILDUP;
-                    #[cfg(not(feature = "virgl"))]
-                    let buildup_owns_scanout = false;
-                    if !buildup_owns_scanout {
-                        // GPU-accelerated shader when virgl is compiled in and the
-                        // context exists; otherwise separable gaussian → box-blur.
-                        #[cfg(feature = "virgl")]
-                        let virgl_ok = self.virgl_capable
-                            && self
-                                .submit_virgl_blur(
-                                    fb,
-                                    fb_len,
-                                    fb_w,
-                                    rect.x,
-                                    rect.y.saturating_add(display_y_offset),
-                                    rect.width,
-                                    rect.height,
-                                    *radius,
-                                    true,
-                                )
-                                .is_ok();
-                        #[cfg(not(feature = "virgl"))]
-                        let virgl_ok = false;
-
-                        if !virgl_ok {
-                            #[cfg(feature = "virgl")]
-                            let use_separable = self.virgl_capable;
-                            #[cfg(not(feature = "virgl"))]
-                            let use_separable = false;
-
-                            if use_separable {
-                                blur_backdrop_separable_vmo(
-                                    fb,
-                                    fb_len,
-                                    fb_w,
-                                    rect.x,
-                                    rect.y.saturating_add(display_y_offset),
-                                    rect.width,
-                                    rect.height,
-                                    *radius,
-                                    *saturation_percent,
-                                )?;
-                            } else {
-                                blur_backdrop_vmo(
-                                    fb,
-                                    fb_len,
-                                    fb_w,
-                                    rect.x,
-                                    rect.y.saturating_add(display_y_offset),
-                                    rect.width,
-                                    rect.height,
-                                    *radius,
-                                    *saturation_percent,
-                                )?;
-                            }
-                        }
-                    }
-                }
-                Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
-                    // Retained-surface composite: src_y is an absolute VMO row
-                    // (windowd points it at the retained plane, rows 800..1599).
-                    // dst_y is screen-relative; add display_y_offset so the copy
-                    // lands in the display plane (Plane 2, rows 1600..2399).
-                    blit_vmo(
-                        fb,
-                        fb_len,
-                        fb_w,
-                        *src_x,
-                        *src_y,
-                        *dst_x,
-                        dst_y.saturating_add(display_y_offset),
-                        *width,
-                        *height,
-                    )?;
-                }
-                Command::BlendCursor { x, y, width, height } => {
-                    blend_cursor_vmo(
-                        fb,
-                        fb_len,
-                        fb_w,
-                        *x,
-                        y.saturating_add(display_y_offset),
-                        *width,
-                        *height,
-                        &self.cursor_sprite,
-                        self.cursor_sprite_w,
-                        self.cursor_sprite_h,
-                    )?;
-                }
-                Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
-                    // Raw VMO blit — no display_y_offset added; caller passes absolute rows.
-                    blit_vmo(
-                        fb, fb_len, fb_w, *src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height,
-                    )?;
-                }
-                Command::FillSdfGradient { rect, radius, color_top, color_bottom } => {
-                    let y_abs = rect.y.saturating_add(display_y_offset);
-                    #[cfg(feature = "virgl")]
-                    let gpu_ok = self.virgl_capable
-                        && self
-                            .submit_virgl_sdf_gradient(
-                                rect.x,
-                                y_abs,
-                                rect.width,
-                                rect.height,
-                                *radius,
-                                *color_top,
-                                *color_bottom,
-                            )
-                            .is_ok();
-                    #[cfg(not(feature = "virgl"))]
-                    let gpu_ok = false;
-                    if gpu_ok {
-                        #[cfg(feature = "virgl")]
-                        if !self.virgl_grad_marker_done {
-                            self.virgl_grad_marker_done = true;
-                            let _ = nexus_abi::debug_println(crate::markers::GPUD_SDF_GRAD_OK);
-                        }
-                    } else {
-                        crate::cpu_vector::fill_sdf_gradient_vmo(
-                            fb,
-                            fb_len,
-                            fb_w,
+                        true,
+                    )
+                    .is_ok()),
+            Command::FillSdfGradient { rect, radius, color_top, color_bottom } => {
+                let gpu_ok = self.virgl_capable
+                    && self
+                        .submit_virgl_sdf_gradient(
                             rect.x,
-                            y_abs,
+                            rect.y.saturating_add(display_y_offset),
                             rect.width,
                             rect.height,
                             *radius,
                             *color_top,
                             *color_bottom,
-                        );
-                    }
+                        )
+                        .is_ok();
+                if gpu_ok && !self.virgl_grad_marker_done {
+                    self.virgl_grad_marker_done = true;
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_SDF_GRAD_OK);
                 }
-                Command::DropShadow { rect, radius, blur, offset_x, offset_y, color } => {
-                    let y_abs = rect.y.saturating_add(display_y_offset);
-                    #[cfg(feature = "virgl")]
-                    let gpu_ok = self.virgl_capable
-                        && self
-                            .submit_virgl_drop_shadow(
-                                rect.x,
-                                y_abs,
-                                rect.width,
-                                rect.height,
-                                *radius,
-                                *blur,
-                                *offset_x,
-                                *offset_y,
-                                *color,
-                            )
-                            .is_ok();
-                    #[cfg(not(feature = "virgl"))]
-                    let gpu_ok = false;
-                    if gpu_ok {
-                        #[cfg(feature = "virgl")]
-                        if !self.virgl_shadow_marker_done {
-                            self.virgl_shadow_marker_done = true;
-                            let _ = nexus_abi::debug_println(crate::markers::GPUD_DROPSHADOW_OK);
-                        }
-                    } else {
-                        crate::cpu_vector::drop_shadow_vmo(
-                            fb,
-                            fb_len,
-                            fb_w,
+                Ok(gpu_ok)
+            }
+            Command::DropShadow { rect, radius, blur, offset_x, offset_y, color } => {
+                let gpu_ok = self.virgl_capable
+                    && self
+                        .submit_virgl_drop_shadow(
                             rect.x,
-                            y_abs,
+                            rect.y.saturating_add(display_y_offset),
                             rect.width,
                             rect.height,
                             *radius,
@@ -424,171 +244,96 @@ impl VirtioGpuBackend {
                             *offset_x,
                             *offset_y,
                             *color,
-                            DISPLAY_PLANE_ROW,
-                            DISPLAY_PLANE_HEIGHT,
-                        );
-                    }
+                        )
+                        .is_ok();
+                if gpu_ok && !self.virgl_shadow_marker_done {
+                    self.virgl_shadow_marker_done = true;
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_DROPSHADOW_OK);
                 }
-                Command::CompositeLayer {
-                    src_row_abs,
-                    src_x,
-                    width,
-                    height,
-                    dst_x,
-                    dst_y,
-                    opacity,
-                    corner_radius,
-                    shadow_blur,
-                    shadow_offset_y,
-                    shadow_alpha,
-                    backdrop_blur,
-                    scroll_id,
-                    content_w,
-                    content_h,
-                    scroll_band_top_abs,
-                    scroll_band_h,
-                    layer_id,
-                    content_epoch,
-                } => {
-                    // `opacity` is honoured by the GPU path; the CPU fallback
-                    // relies on the content's own alpha (translucent panel bg).
-                    #[cfg(not(feature = "virgl"))]
-                    let _ = opacity;
-                    // `scroll_id` + the scroll-band bounds only drive the virgl
-                    // RT-direct fast path below.
-                    #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
-                    let _ = (
-                        scroll_id,
-                        scroll_band_top_abs,
-                        scroll_band_h,
-                        layer_id,
-                        content_w,
-                        content_h,
-                        content_epoch,
-                    );
-                    // RT-direct (Increment 1): defer non-glass layers and
-                    // composite them straight onto the scanout RT after the base
-                    // upload — no VMO render + re-upload. Glass (backdrop_blur>0)
-                    // still uses the VMO path below until the RT-backdrop lands.
-                    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-                    if self.rt_direct_layers
-                        && self.gl_scanout_active
-                        && *backdrop_blur == 0
-                        && self.pending_rt_count < MAX_PENDING_RT_LAYERS
-                    {
-                        self.pending_rt_layers[self.pending_rt_count] = PendingRtLayer {
-                            src_row_abs: *src_row_abs,
-                            src_x: *src_x,
-                            width: *width,
-                            height: *height,
-                            content_w: *content_w,
-                            content_h: *content_h,
-                            dst_x: *dst_x,
-                            dst_y: *dst_y,
-                            opacity: *opacity,
-                            corner_radius: *corner_radius,
-                            shadow_blur: *shadow_blur,
-                            shadow_offset_y: *shadow_offset_y,
-                            shadow_alpha: *shadow_alpha,
-                            backdrop_blur: *backdrop_blur,
-                            scroll_id: *scroll_id,
-                            scroll_band_top_abs: *scroll_band_top_abs,
-                            scroll_band_h: *scroll_band_h,
-                            layer_id: *layer_id,
-                            content_epoch: *content_epoch,
-                        };
-                        self.pending_rt_count += 1;
-                        continue; // composited onto the RT in gl_present, not here
-                    }
-                    // GPU layer compositor op (G2). On virgl the layer is
-                    // composited on the GPU into the display-plane surface
-                    // (shadow + optional backdrop blur + content texture +
-                    // rounded mask + opacity); on the 2D path it falls back to
-                    // CPU shadow + optional backdrop blur + an alpha-blended
-                    // (or opaque) content blit.
-                    let dst_y_abs = dst_y.saturating_add(display_y_offset);
-                    #[cfg(feature = "virgl")]
-                    let gpu_ok = self.virgl_capable
-                        && self.gl_scanout_active
-                        && self
-                            .composite_layer_gpu(
-                                *src_row_abs,
-                                *src_x,
-                                *width,
-                                *height,
-                                *dst_x,
-                                *dst_y,
-                                *opacity,
-                                *corner_radius,
-                                *shadow_blur,
-                                *shadow_offset_y,
-                                *shadow_alpha,
-                                *backdrop_blur,
-                            )
-                            .is_ok();
-                    #[cfg(not(feature = "virgl"))]
-                    let gpu_ok = false;
-                    if gpu_ok {
-                        #[cfg(feature = "virgl")]
-                        if !self.virgl_layer_marker_done {
-                            self.virgl_layer_marker_done = true;
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_LIVE);
-                        }
-                    } else {
-                        if *shadow_blur > 0 {
-                            crate::cpu_vector::drop_shadow_vmo(
-                                fb,
-                                fb_len,
-                                fb_w,
-                                *dst_x,
-                                dst_y_abs,
-                                *width,
-                                *height,
-                                *corner_radius,
-                                *shadow_blur,
-                                0,
-                                *shadow_offset_y,
-                                RgbaColor::from_u32(((*shadow_alpha).min(255)) << 24),
-                                DISPLAY_PLANE_ROW,
-                                DISPLAY_PLANE_HEIGHT,
-                            );
-                        }
-                        // Glass: when backdrop_blur>0 the backdrop is blurred
-                        // inline here; when 0 the caller already placed a
-                        // (cached) blurred backdrop in the display region. Either
-                        // way the content is ALPHA-BLENDED over it — opaque
-                        // content (alpha 255) blends to opaque, so this is
-                        // correct for both glass and solid layers.
-                        if *backdrop_blur > 0 {
-                            let _ = blur_backdrop_vmo(
-                                fb,
-                                fb_len,
-                                fb_w,
-                                *dst_x,
-                                dst_y_abs,
-                                *width,
-                                *height,
-                                *backdrop_blur,
-                                0,
-                            );
-                        }
-                        let _ = blit_blend_vmo(
-                            fb,
-                            fb_len,
-                            fb_w,
-                            *src_x,
+                Ok(gpu_ok)
+            }
+            Command::CompositeLayer {
+                src_row_abs,
+                src_x,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                opacity,
+                corner_radius,
+                shadow_blur,
+                shadow_offset_y,
+                shadow_alpha,
+                backdrop_blur,
+                scroll_id,
+                content_w,
+                content_h,
+                scroll_band_top_abs,
+                scroll_band_h,
+                layer_id,
+                content_epoch,
+            } => {
+                // RT-direct (Increment 1): defer non-glass layers and composite them straight
+                // onto the scanout RT after the base upload — no VMO render + re-upload. Glass
+                // (backdrop_blur>0) still uses the VMO path until the RT-backdrop lands.
+                if self.rt_direct_layers
+                    && self.gl_scanout_active
+                    && *backdrop_blur == 0
+                    && self.pending_rt_count < MAX_PENDING_RT_LAYERS
+                {
+                    self.pending_rt_layers[self.pending_rt_count] = PendingRtLayer {
+                        src_row_abs: *src_row_abs,
+                        src_x: *src_x,
+                        width: *width,
+                        height: *height,
+                        content_w: *content_w,
+                        content_h: *content_h,
+                        dst_x: *dst_x,
+                        dst_y: *dst_y,
+                        opacity: *opacity,
+                        corner_radius: *corner_radius,
+                        shadow_blur: *shadow_blur,
+                        shadow_offset_y: *shadow_offset_y,
+                        shadow_alpha: *shadow_alpha,
+                        backdrop_blur: *backdrop_blur,
+                        scroll_id: *scroll_id,
+                        scroll_band_top_abs: *scroll_band_top_abs,
+                        scroll_band_h: *scroll_band_h,
+                        layer_id: *layer_id,
+                        content_epoch: *content_epoch,
+                    };
+                    self.pending_rt_count += 1;
+                    return Ok(true); // composited onto the RT in gl_present, not here
+                }
+                // GPU layer compositor op (G2): composited on the GPU into the display-plane
+                // surface (shadow + optional backdrop blur + content texture + rounded mask +
+                // opacity); the CPU executor is the fallback.
+                let gpu_ok = self.virgl_capable
+                    && self.gl_scanout_active
+                    && self
+                        .composite_layer_gpu(
                             *src_row_abs,
-                            *dst_x,
-                            dst_y_abs,
+                            *src_x,
                             *width,
                             *height,
-                        );
-                    }
+                            *dst_x,
+                            *dst_y,
+                            *opacity,
+                            *corner_radius,
+                            *shadow_blur,
+                            *shadow_offset_y,
+                            *shadow_alpha,
+                            *backdrop_blur,
+                        )
+                        .is_ok();
+                if gpu_ok && !self.virgl_layer_marker_done {
+                    self.virgl_layer_marker_done = true;
+                    let _ = nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_LIVE);
                 }
+                Ok(gpu_ok)
             }
+            _ => Ok(false),
         }
-        Ok(())
     }
 
     /// Composite all layers deferred this frame (RT-direct, Increment 1) straight
@@ -722,7 +467,7 @@ impl VirtioGpuBackend {
         }
     }
 
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn scanout_fb(&self) -> Option<(*mut u8, usize, usize, u32)> {
         let scanout = self.scanout_resource?;
         let record = self.find_resource(scanout)?;

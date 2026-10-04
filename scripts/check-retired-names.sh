@@ -20,6 +20,9 @@ RETIRED=(
   'virtioblkd Virtioblkd VirtioBlkd VIRTIOBLKD;blkd;ADR-0067, TASK-0246 P4a: one block owner on every platform'
   'boot_display_mode SYSCALL_BOOT_DISPLAY_MODE resolve_boot_display_mode;gpud (the framebuffer grant, OP_FRAMEBUFFER_REQUEST);RFC-0098 C7, TASK-0251 P1: the display mode is gpud'"'"'s'
   'MmioBus;nexus_driverkit::Mmio / MmioSet over nexus_abi::MmioWindow;TASK-0251 P2 (the MMIO seam): one register bus, no per-driver volatile copy'
+  'cursor_take_ownership cursor_saveunder cursor_before_present cursor_after_present cursor_unpaint install_fallback_hw_cursor;the software cursor is windowd'"'"'s BlendCursor (gpud keeps the sprite, backend::cpu_frame);TASK-0251 P2a step 2: the save-under cursor gpud never armed is deleted'
+  'present_committed;backend::display::Display::execute (the request loop validates, the display executes);TASK-0251 P2a step 2: one request loop over the virtio GPU and the display controller'
+  'set_plane_address;nexus_gfx::backend::dc::flip (address + stride + latch);TASK-0251 P2a step 2: the reveal switch'
 )
 # Dated records describe the tree as it was, so they keep the names it had.
 HISTORY=(tasks/ CHANGELOG.md docs/adr/ docs/rfcs/ docs/board/measurements/ scripts/check-retired-names.sh)

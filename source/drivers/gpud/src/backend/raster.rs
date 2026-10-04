@@ -86,6 +86,7 @@ pub(crate) fn blur_backdrop_vmo(
 }
 
 /// Separable gaussian blur — the virgl GPU path's CPU reference/fallback.
+#[cfg(feature = "virgl")]
 pub(crate) fn blur_backdrop_separable_vmo(
     fb: *mut u8,
     fb_len: usize,

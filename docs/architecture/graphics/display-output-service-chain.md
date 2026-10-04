@@ -52,7 +52,15 @@ contains the required evidence.
 - `gpud` is the display driver and the display-mode authority: probes the device, decides
   the visible mode (the lane's request from its own tree slot, the device's capability, one
   policy), makes the framebuffer FOR its device and grants it, performs `ATTACH_BACKING` +
-  `SET_SCANOUT`. It does not own scene composition or a second cursor truth.
+  `SET_SCANOUT`. It does not own scene composition or a second cursor truth. Since TASK-0251
+  P2a step 2 (2026-10-04) its ONE request loop (`service.rs`: the wire, the chain trace, the
+  stats, the reveal latch) drives ONE display behind `backend::display::Display` — the virtio
+  GPU on QEMU (`backend/virtio_display.rs`: its 2D scanout or its virgl GL scanout) or the
+  board's display controller (`backend/dc/`: a contiguous framebuffer made for the controller,
+  each present's damage cleaned out of the caches, the boot splash held until the first
+  present after windowd's reveal and then switched to the display plane). A present's commands
+  run through ONE CPU executor (`backend/cpu_frame.rs`) on every display that composites on the
+  CPU — the 2D scanout, the virgl path's per-command fallbacks, the controller.
 - `init-lite` owns capability routing and endpoint rights.
 
 ## GPU-only Display Architecture (RFC-0059 Phase 6)

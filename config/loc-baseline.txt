@@ -1,10 +1,9 @@
 # Grandfathered .rs files over 600 LOC (ratchet: may shrink, never grow).
 # Regenerate ONLY after real splits: scripts/check-structure.sh --update-loc-baseline
-737	source/drivers/gpud/src/backend/mod.rs
-739	source/drivers/gpud/src/backend/present.rs
+723	source/drivers/gpud/src/backend/mod.rs
 905	source/drivers/gpud/src/backend/virgl3d.rs
 1164	source/drivers/gpud/src/gl_scanout.rs
-1029	source/drivers/gpud/src/service.rs
+692	source/drivers/gpud/src/service.rs
 768	source/drivers/gpud/src/virgl_composite.rs
 705	source/drivers/gpud/src/virgl.rs
 873	source/drivers/input/virtio-input/src/lib.rs

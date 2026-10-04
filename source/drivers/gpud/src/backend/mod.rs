@@ -37,10 +37,17 @@ mod backing;
 mod blur_cache;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod bootstrap;
+// The CPU executor + the software cursor's state, shared by the 2D virtio path and the board's
+// display controller (TASK-0251 P2a step 2). The sprite store is host-tested.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod cpu_frame;
 mod cursor;
 // TASK-0251 P2: the board's display controller + HDMI encoder (granted instead of a GPU).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod dc;
+// What the request loop drives: the virtio GPU or the board's display controller.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) mod display;
 mod display_mode;
 mod framebuffer;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -52,17 +59,23 @@ mod resources;
 // Pure policy, host-tested; the OS probe/attach paths consume it.
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod scanout_policy;
+// RFC-0093 §5 on a display that switches what it scans (the board's controller); host-tested.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod splash_hold;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod transport;
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 mod virgl3d;
 mod virgl3d_blur;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
+mod virtio_display;
+#[cfg(all(feature = "os-lite", target_os = "none"))]
 mod virtqueue;
 
 // The validation + error-mapping helpers live in `resources`; the GfxBackend
 // trait impl below resolves them by bare name.
-use resources::{map_nexus_error, resource_byte_len, validate_rect, ResourceRecord};
+pub(crate) use resources::map_nexus_error;
+use resources::{resource_byte_len, validate_rect, ResourceRecord};
 
 // The os-lite transport + virtqueue layer (MMIO map, reg helpers, ring types +
 // `CtrlQueue`) is shared by the GfxBackend command methods still in this file.
@@ -97,9 +110,6 @@ use raster::*;
 // `cpu_vector.rs`; keep it resolving after the move into `raster`.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) use raster::blend_pixel_vmo;
-
-/// One cached cursor shape: `(premultiplied BGRA, w, h, hot_x, hot_y)`.
-pub(crate) type CursorShapeEntry = (alloc::vec::Vec<u8>, u32, u32, u32, u32);
 
 /// Wraps a virtio-gpu MMIO device and implements GfxBackend.
 /// On real hardware, this would be replaced by a different GfxBackend impl
@@ -138,19 +148,11 @@ pub struct VirtioGpuBackend {
     pub(crate) virgl_ctx_id: u32,
     resources: alloc::vec::Vec<ResourceRecord>,
     pub(crate) scanout_resource: Option<ResourceId>,
-    /// Fragment uniforms (SetFragmentBytes): windowd-pushed shader params.
+    /// What the CPU executor reads besides the framebuffer: windowd's fragment uniforms and the
+    /// software cursor (sprite, hotspot, shape cache) — shared with the board's display
+    /// controller (`cpu_frame`).
     #[cfg(all(feature = "os-lite", target_os = "none"))]
-    fragment_data: [u8; 64],
-    /// Software cursor sprite (premultiplied BGRA), uploaded once by windowd;
-    /// BlendCursor composites it per frame. Empty → procedural arrow fallback.
-    pub(crate) cursor_sprite: alloc::vec::Vec<u8>,
-    pub(crate) cursor_sprite_w: u32,
-    pub(crate) cursor_sprite_h: u32,
-    /// Cursor shape cache (OP_UPLOAD_CURSOR_SHAPE): pre-uploaded sprites, so a
-    /// shape change is a 2-byte OP_SELECT_CURSOR_SHAPE instead of a blocking
-    /// 4KB re-upload. Slot = shape id; entry = (BGRA, w, h, hot_x, hot_y).
-    pub(crate) cursor_shape_cache:
-        [Option<CursorShapeEntry>; nexus_display_proto::CURSOR_SHAPE_SLOTS],
+    pub(crate) cpu: cpu_frame::CpuFrame,
     /// Real icon sprite (premultiplied BGRA), windowd-rendered from SVG and
     /// uploaded once; composited as a GPU sprite layer at
     /// (`icon_dst_x`,`icon_dst_y`) in the virgl buildup (the cursor's layer
@@ -168,23 +170,10 @@ pub struct VirtioGpuBackend {
     /// `upload_cursor` arms the overlay. Unused on backends whose overlay is
     /// not in the captured scanout — there the software cursor is live.
     cursor_resource_id: Option<ResourceId>,
-    pub(crate) cursor_hot: (u32, u32),
-    /// Save-under software cursor (composited into the scanout, so it is visible
-    /// on every display backend). `cursor_ox/oy` are the screen-space top-left of
-    /// the drawn sprite; `cursor_saveunder` holds the scene pixels it covers.
-    cursor_owned: bool,
-    // The paint/unpaint/suspend cursor paths live in os-lite-only methods
-    // (backend/cursor.rs); host builds only initialize these fields.
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    cursor_drawn: bool,
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    cursor_suspended: bool,
+    /// The pointer position windowd last sent (`OP_MOVE_CURSOR`): where the GL scanout's build-up
+    /// draws the cursor sprite each present.
     pub(crate) cursor_ox: i32,
     pub(crate) cursor_oy: i32,
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    cursor_dw: u32,
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    cursor_dh: u32,
     /// Frame counter for the build-up spin-blur demo animation (incremented each
     /// build-up present; drives a circular panel offset so the blur re-computes
     /// per frame — a reactive GPU/blur performance test, no input needed). Read
@@ -198,7 +187,6 @@ pub struct VirtioGpuBackend {
     /// path, so mmio/init keep the exact synchronous behaviour.
     #[allow(dead_code)]
     ctrl_batch: bool,
-    cursor_saveunder: alloc::vec::Vec<u8>,
     /// True while the early 2D bootstrap text scanout is what's on screen — the
     /// window where the boot-splash pulse breathes the title line. Set by
     /// `attach_bootstrap_text_scanout`, cleared when windowd's framebuffer
@@ -333,6 +321,15 @@ pub struct VirtioGpuBackend {
     /// and the GL scanout — both OS-only — so it carries their gate.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) reveal_requested: bool,
+    /// The ring's deadline-expiry count when the current present began (`Display::present_lost`).
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) deadline_expiries_at_present: u32,
+    /// One-shot: the frame clock's hold tick was logged (`gpud: hold tick alive`).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) hold_tick_logged: bool,
+    /// The last 2D bootstrap-splash pulse (~30 Hz redraw of the title band).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    pub(crate) last_splash_pulse_ns: u64,
     /// RT-direct layer compositing (true GPU compositing, Increment 1): when set,
     /// `backdrop_blur == 0` CompositeLayer ops are deferred and composited
     /// straight onto the scanout RT after the base upload, instead of rendered
@@ -486,11 +483,7 @@ impl VirtioGpuBackend {
             resources: alloc::vec::Vec::new(),
             scanout_resource: None,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
-            fragment_data: [0u8; 64],
-            cursor_sprite: alloc::vec::Vec::new(),
-            cursor_sprite_w: 0,
-            cursor_sprite_h: 0,
-            cursor_shape_cache: [const { None }; nexus_display_proto::CURSOR_SHAPE_SLOTS],
+            cpu: cpu_frame::CpuFrame::new(),
             icon_sprite: alloc::vec::Vec::new(),
             icon_sprite_w: 0,
             icon_sprite_h: 0,
@@ -499,21 +492,10 @@ impl VirtioGpuBackend {
             icon_dst_w: 0,
             icon_dst_h: 0,
             cursor_resource_id: None,
-            cursor_hot: (0, 0),
-            cursor_owned: false,
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
-            cursor_drawn: false,
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
-            cursor_suspended: false,
             cursor_ox: 0,
             cursor_oy: 0,
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
-            cursor_dw: 0,
             buildup_frame: 0,
             ctrl_batch: false,
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
-            cursor_dh: 0,
-            cursor_saveunder: alloc::vec::Vec::new(),
             bootstrap_splash_live: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             ctrlq: None,
@@ -586,6 +568,12 @@ impl VirtioGpuBackend {
             wallpaper_reupload_pending: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
             reveal_requested: false,
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            deadline_expiries_at_present: 0,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            hold_tick_logged: false,
+            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+            last_splash_pulse_ns: 0,
             // RT-direct layer compositing on by default for the virgl path; the
             // field is the kill-switch if a regression shows up in the thumbnail.
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

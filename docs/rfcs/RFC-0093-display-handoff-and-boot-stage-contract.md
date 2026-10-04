@@ -308,8 +308,18 @@ Rules:
   over its declared reply inbox (`OP_GET_DISPLAY_SPACE`, `input-live-protocol`; `inputd:
   display space from windowd (WxH)`) — no retry, no default `(1280, 800)` anywhere. A stack
   without gpud is named (`windowd: display none (…)`) and runs display-less at `LAYOUT_MAX`.
-- The framebuffer is gpud's (v3): made at the first grant FOR the scanout device, kept for
-  gpud's lifetime, granted to windowd by clone; windowd allocates no framebuffer.
+- The framebuffer is gpud's (v3): made FOR the scanout device — at the first grant, or at
+  bring-up where the device needs one contiguous run (the board's display controller, amended
+  2026-10-04 by TASK-0251 P2a step 2: the run is found most surely before the fleet takes
+  memory) — kept for gpud's lifetime, granted to windowd by clone; windowd allocates no
+  framebuffer.
+- One request loop, one display (amended 2026-10-04): gpud's loop owns this wire for every
+  display behind `backend::display::Display` — the virtio GPU (2D or virgl) and the board's
+  display controller. A display that switches what it scans holds the splash until the first
+  present after `OP_REVEAL` and acks `STATUS_REVEALED` only once its switch took
+  (`splash_hold`: a switch that does not read back keeps the splash and acks no reveal). The
+  virtio 2D scanout replaces the splash at the attach (its frames before the reveal are visible;
+  the 2D path is the headless proof path, the GL scanout holds).
 - Reveal is a handshake, not a heuristic: `REVEAL_FALLBACK_NS`, `REVEAL_HARD_CAP_NS`, the
   3-pixel `plane0_has_content` probe and the three `gpud: desktop reveal (…)` variants are
   deleted; one marker `gpud: desktop reveal (handshake seq=<n>)`. Never-black (ADR-0041) holds

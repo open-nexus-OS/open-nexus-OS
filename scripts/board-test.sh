@@ -93,8 +93,13 @@ ladder_headless=(
   "gpud: dc encoder ok (hpd=1"
   "gpud: dc scanout ok ("
 )
+# Block 1's desktop (TASK-0251 P2a step 2): windowd granted the controller's framebuffer, the
+# reveal switched the controller from the splash to it, windowd heard the reveal ack.
 ladder_visible=(
   "${ladder_headless[@]}"
+  "gpud: framebuffer granted ("
+  "windowd: display mode from gpud ("
+  "gpud: dc reveal flip ok ("
   "windowd: desktop revealed"
 )
 acks_headless=()

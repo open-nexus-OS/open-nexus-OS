@@ -527,9 +527,9 @@ impl VirtioGpuBackend {
     /// sample. Issues create/attach/transfer ctrl commands — call OUTSIDE a present
     /// batch (like the wallpaper upload), never interleaved with batched draws.
     pub(crate) fn cursor_tex_init(&mut self) -> Result<bool, GfxError> {
-        let w = self.cursor_sprite_w;
-        let h = self.cursor_sprite_h;
-        if w == 0 || h == 0 || self.cursor_sprite.is_empty() {
+        let w = self.cpu.cursor_w;
+        let h = self.cpu.cursor_h;
+        if w == 0 || h == 0 || self.cpu.cursor.is_empty() {
             return Ok(false); // windowd hasn't uploaded the sprite yet
         }
         if self.cursor_tex_va != 0 {
@@ -564,9 +564,9 @@ impl VirtioGpuBackend {
         let va = self.virgl_attach_backing(H_CURSOR_TEX, byte_len)?;
         // Copy the sprite into the texture backing (tight stride = w*4).
         let dst = va as *mut u8;
-        if !dst.is_null() && self.cursor_sprite.len() >= byte_len {
+        if !dst.is_null() && self.cpu.cursor.len() >= byte_len {
             unsafe {
-                core::ptr::copy_nonoverlapping(self.cursor_sprite.as_ptr(), dst, byte_len);
+                core::ptr::copy_nonoverlapping(self.cpu.cursor.as_ptr(), dst, byte_len);
             }
         }
         self.virgl_transfer_to_host(H_CURSOR_TEX, 0, 0, w, h, w * 4)?;
@@ -594,16 +594,16 @@ impl VirtioGpuBackend {
         if self.cursor_tex_va == 0 {
             return Ok(()); // init (lazy, at next present) picks up the sprite
         }
-        let w = self.cursor_sprite_w;
-        let h = self.cursor_sprite_h;
+        let w = self.cpu.cursor_w;
+        let h = self.cpu.cursor_h;
         if w != self.cursor_tex_w || h != self.cursor_tex_h {
             return Ok(()); // dims fixed at init — keep the old shape visible
         }
         let byte_len = (w as usize) * (h as usize) * 4;
         let dst = self.cursor_tex_va as *mut u8;
-        if !dst.is_null() && self.cursor_sprite.len() >= byte_len {
+        if !dst.is_null() && self.cpu.cursor.len() >= byte_len {
             unsafe {
-                core::ptr::copy_nonoverlapping(self.cursor_sprite.as_ptr(), dst, byte_len);
+                core::ptr::copy_nonoverlapping(self.cpu.cursor.as_ptr(), dst, byte_len);
             }
         }
         self.virgl_transfer_to_host(H_CURSOR_TEX, 0, 0, w, h, w * 4)?;

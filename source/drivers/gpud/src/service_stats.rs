@@ -121,6 +121,41 @@ pub(crate) fn emit_present_deadline_fail(expired: u32) {
     l.emit();
 }
 
+/// The present-stats window (`gpud: present us …`): each present's cost and the present rate,
+/// accumulated alloc-free over [`PresentStats::WINDOW`] presents and emitted once per window.
+#[derive(Default)]
+pub(crate) struct PresentStats {
+    count: u32,
+    sum_ns: u64,
+    max_ns: u64,
+    window_start_ns: u64,
+}
+
+impl PresentStats {
+    /// Presents per window: 120 = one second of a 120 Hz train.
+    const WINDOW: u32 = 120;
+
+    /// One present ran from `t0` to `t_end` (monotonic ns).
+    pub(crate) fn record(&mut self, t0: u64, t_end: u64) {
+        let dt = t_end.saturating_sub(t0);
+        if self.count == 0 {
+            self.window_start_ns = t0;
+        }
+        self.sum_ns = self.sum_ns.saturating_add(dt);
+        self.max_ns = self.max_ns.max(dt);
+        self.count += 1;
+        if self.count >= Self::WINDOW {
+            emit_present_stats(
+                (self.sum_ns / u64::from(self.count) / 1000) as u32,
+                (self.max_ns / 1000) as u32,
+                self.count,
+                (t_end.saturating_sub(self.window_start_ns) / 1_000_000) as u32,
+            );
+            *self = Self::default();
+        }
+    }
+}
+
 /// Present-stats window line. `win_ms` is the window's wall-clock: n presents
 /// over win_ms → the actual present RATE (120 presents / ~1000ms = a healthy
 /// 120Hz train; a much larger win_ms during continuous drag = the cadence is
@@ -128,7 +163,7 @@ pub(crate) fn emit_present_deadline_fail(expired: u32) {
 /// health: waits woken by the GPU ring-buffer IRQ vs waits that ran into the
 /// 500ms deadline net — a healthy boot has dlx=0; dlx climbing while irqw
 /// stays flat = the IRQ path is wedged/unbound again.
-pub(crate) fn emit_present_stats(avg_us: u32, max_us: u32, n: u32, win_ms: u32) {
+fn emit_present_stats(avg_us: u32, max_us: u32, n: u32, win_ms: u32) {
     let mut l = DecLine::<160>::new();
     l.put(b"gpud: present us avg=");
     l.put_dec(avg_us);

@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-04 (TASK-0251 P2a step 2: windowd's desktop on the display controller, proven on the board — one request loop over two displays, one CPU executor, the splash held until the reveal)
+
+- **One request loop, two displays.** gpud's request loop (`service.rs`) keeps the wire — every
+  decode, the command validation, the damage, the chain trace (G1–G4), the present statistics,
+  the reveal latch, every answer — and drives ONE display behind `backend::display::Display`:
+  the virtio GPU on QEMU (`backend/virtio_display.rs`, the 2D scanout or the virgl GL scanout;
+  its hardware cursor, its GL cursor, its frame-clock phases moved there unchanged) or the
+  board's display controller (`backend/dc/`). The controller's own loop with its named refusal
+  is gone.
+- **One CPU executor.** `backend/cpu_frame.rs` executes a present's commands on every display
+  that composites on the CPU — the 2D scanout, the virgl path's per-command fallbacks (its GPU
+  passes are tried first), the controller — together with the state they read: windowd's
+  fragment uniforms and the software cursor (sprite, hotspot, shape cache; host-tested,
+  `test_reject_*` for sizes and slots).
+- **The desktop path on the controller.** windowd's framebuffer is ONE contiguous block for the
+  controller (the whole shared layout); a present runs through the CPU executor and its damage
+  is cleaned out of the caches (`nexus_gfx::backend::dc::damage_spans`: one run for a full-width
+  damage, one per row otherwise, clipped to the plane; `test_reject_a_damage_outside_the_plane`).
+  The boot splash lives in a plane of its own and holds the glass until the first present after
+  windowd's reveal (RFC-0093 §5, `splash_hold`, host-tested): that present cleans the whole
+  display plane and switches the controller to it (`nexus_gfx::backend::dc::flip`: address,
+  stride, latch), reads the words back and records whether the controller cleared config-ready
+  (`gpud: dc reveal flip ok (…)`); a switch that does not read back keeps the splash and acks no
+  reveal. The cursor is windowd's software sprite (`CURSOR_REPLY_SW`). The first present's cost
+  on the board's harts prints once (`gpud: dc first present (…)`).
+- **Deleted:** the save-under cursor gpud never armed (`cursor_take_ownership`,
+  `cursor_saveunder`, the before/after-present hooks), the unused fallback overlay cursor,
+  `present_committed` (the loop validates, the display executes), the model's
+  `set_plane_address` (→ `flip`) — all retired names now. `backend/present.rs` fell under the
+  module-size limit; `service.rs` shrank 1018 → 692 lines.
+- **The contiguous block is made at bring-up**, right after the splash: one run of the whole
+  layout (99.5 MB at 1080p) is found most surely before the fleet takes memory; the grant hands
+  it to windowd at its first request (RFC-0093 §5 amended).
+- **Proof.** QEMU: the 2D scanout at the board's mode (`smp1` at 1920x1080 — the executor the
+  controller runs) before and after, `visible` (virgl; the pixel statistics equal every run since
+  2026-09-30), `just check`, `just test-all` EXIT=0. **The board, first cycle:** `[PASS]
+  board-visible: 24 rungs, 1 operator marker(s)` — `gpud: framebuffer granted (1920x1080)`,
+  `gpud: dc first present (exec_us=14044 clean_us=824 …)`, `gpud: dc reveal flip ok
+  (bus=0x8fd2000 stride=7680 readback 3/3 …)`, `windowd: desktop revealed (seq=4)`, the greeter
+  on the monitor (`board-visual: desktop`); the hypotheses and gates were written before the
+  cycle (`docs/board/measurements/2026-10-04-desktop-path/`). What the operator saw beyond the
+  gate — a long black before the splash, chopped vector graphics, soft text — is the next step's
+  input: the 2D scanout captured at 1:1 shows the CPU layer composite without the GPU path's
+  rounded mask and content scaling, and the monitor scales the 1080p signal to its 2560x1440.
+
 ### Changed - 2026-10-03 (TASK-0251 P2a step 1: first light on the board — gpud's splash through the display controller and the HDMI encoder; one register bus; pads)
 
 - **One register bus.** `nexus_abi::MmioWindow` is the one mapped, bounds-checked register

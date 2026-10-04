@@ -1,7 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: OS-lite gpud service entry for the QEMU virtio-gpu proof path.
+//! CONTEXT: gpud's service entry and its request loop (RFC-0093 §5) over ONE display
+//! (`backend::display::Display`): the virtio GPU on QEMU, the board's display controller when init
+//! granted it instead (TASK-0251 P2a). The loop owns the wire — it decodes every request,
+//! validates a present's commands, derives its damage, prints the chain trace and the present
+//! statistics, latches the reveal and encodes every answer; the display owns its device.
 //! OWNERS: @ui @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
@@ -12,20 +16,16 @@ use nexus_display_proto::PRESENT_HEADER_LEN;
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
 use nexus_gfx::backend::error::GfxError;
-use nexus_gfx::backend::traits::GfxBackend;
 use nexus_gfx::backend::types::Rect;
 use nexus_gfx::command::buffer::{Command, CommittedBuffer};
 
+use crate::backend::display::Display;
 use crate::backend::VirtioGpuBackend;
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-use crate::backend::IRQ_DEADLINE_EXPIRED_COUNT;
 use crate::markers::{
     GPUD_CURSOR_ON, GPUD_DISPLAY_READY, GPUD_MMIO_FAULT, GPUD_NO_DEVICE, GPUD_READY,
     GPUD_SCANOUT_MODE, GPUD_SCANOUT_OK, GPUD_VIRTIO_GPU_PROBED,
 };
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-use crate::service_stats::emit_present_deadline_fail;
-use crate::service_stats::{emit_handoff_timing, emit_present_stats};
+use crate::service_stats::{emit_handoff_timing, PresentStats};
 
 // Wire opcodes/status/cursor magics are the shared SSOT in `nexus-display-proto`
 // (Gate 2) — re-exported here under the historical local names so call sites and
@@ -51,15 +51,6 @@ pub const OP_UPLOAD_ICON: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 /// 2-byte fire-and-forget select (hyper-smooth pointer at window edges).
 pub const OP_UPLOAD_CURSOR_SHAPE: u8 = nexus_display_proto::OP_UPLOAD_CURSOR_SHAPE;
 pub const OP_SELECT_CURSOR_SHAPE: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHAPE;
-/// Reply payloads for OP_UPLOAD_CURSOR (magic-tagged — distinguishable from
-/// present acks, whose u32 slot carries a small handoff id).
-pub const CURSOR_REPLY_HW: u32 = nexus_display_proto::CURSOR_REPLY_HW;
-pub const CURSOR_REPLY_SW: u32 = nexus_display_proto::CURSOR_REPLY_SW;
-/// virgl GL scanout: the build-up present draws a *procedural* cursor at
-/// `cursor_ox/oy` each frame (no resource transfer — safe on the GL scanout,
-/// unlike the HW overlay). windowd must ship `OP_MOVE_CURSOR` on every move
-/// AND a present so the procedural arrow re-renders at the new position.
-pub const CURSOR_REPLY_GL: u32 = nexus_display_proto::CURSOR_REPLY_GL;
 pub const STATUS_OK: u8 = nexus_display_proto::STATUS_OK;
 pub const STATUS_MALFORMED: u8 = nexus_display_proto::STATUS_MALFORMED;
 pub const STATUS_DEVICE_ERROR: u8 = nexus_display_proto::STATUS_DEVICE_ERROR;
@@ -74,16 +65,8 @@ const GPUD_SEND_SLOT: u32 = nexus_service_topology::slots::gpud::SERVER.send;
 /// there would intercept windowd's present commands and break the channel.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
-/// The shared-VMO layout maximum (one home: `nexus_display_proto::LAYOUT_MAX`) — the
-/// resource budget the scanout is sized against, NOT a default mode. The visible mode
-/// itself is gpud's decision at probe (`backend::display_mode`, RFC-0098 C7).
-/// The former `DISPLAY_HEIGHT` pair was `#[allow(dead_code)]`-carried and is deleted:
-/// the attach path passes `RESOURCE_HEIGHT`.
-const DISPLAY_WIDTH: u32 = nexus_display_proto::LAYOUT_MAX.0;
-// Four display planes (wallpaper/retained/slot-A/slot-B) + the surface atlas for the
-// retained-surface compositor's cached layers — `nexus_display_proto::layout`'s rows, the
-// same constants windowd sizes its VMO to.
-const RESOURCE_HEIGHT: u32 = nexus_display_proto::layout::RESOURCE_HEIGHT;
+/// The display plane's first row in the shared layout (`nexus_display_proto::layout`): an
+/// absolute blit at or below it lands on screen.
 const DISPLAY_PLANE_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // Build provenance FIRST and RAW in every boot mode (entry already armed folding; debug_write never folds).
@@ -92,9 +75,14 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // draw/gradient/scanout/…) into one `gpud N/N` grid line in interactive boots. Flushed at
     // GPUD_READY below; FAIL lines still print live; proof boots emit everything raw.
     nexus_abi::service_verdict_arm();
-    // TASK-0251 P2: the board grants its display plane instead of a GPU.
+    // TASK-0251 P2: the board grants its display plane instead of a GPU. The controller needs
+    // no frame clock: it scans by itself and nothing is self-presented.
     if crate::backend::dc::granted() {
-        return crate::backend::dc::service_main_loop();
+        let mut display = crate::backend::dc::DcDisplay::bring_up();
+        let server = bind_server()?;
+        nexus_service_entry::ready(GPUD_READY)?;
+        nexus_abi::service_verdict_flush("gpud");
+        return service_requests(server, &mut display, crate::frame_clock::FrameClock::default());
     }
     let mut backend = open_backend_once()?;
     // Branded splash FIRST (task #122): the same glow+wordmark image the GL
@@ -175,7 +163,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     } else {
         "gpud: completion wait spin fallback (irq unbound)"
     });
-    service_requests(server, backend, clock)
+    service_requests(server, &mut backend, clock)
 }
 
 fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
@@ -212,7 +200,7 @@ pub(crate) fn bind_server() -> Result<KernelServer, nexus_abi::AbiError> {
 
 fn service_requests(
     server: KernelServer,
-    mut backend: VirtioGpuBackend,
+    display: &mut dyn Display,
     mut clock: crate::frame_clock::FrameClock,
 ) -> Result<(), nexus_abi::AbiError> {
     // 8192 bytes: large enough for full cursor upload (32×32×4 = 4096B BGRA + 9B header).
@@ -220,43 +208,19 @@ fn service_requests(
     let mut active_handoff_id: u32 = 0;
     // RFC-0093 §5: `STATUS_REVEALED` is acked exactly once per boot (see `reply::present_status`).
     let mut reveal_acked = false;
-    // One-shot flag for the hold-tick liveness marker below (diagnosis: do the
-    // recv-timeout self-ticks actually fire while the boot splash is held?).
-    #[cfg(all(nexus_env = "os", feature = "virgl"))]
-    let mut hold_tick_logged = false;
-    // Rate limiter for the 2D bootstrap-splash pulse (~30Hz redraw of the title
-    // band; the frame clock ticks faster than the curve needs).
-    #[cfg(all(nexus_env = "os", feature = "virgl"))]
-    let mut last_splash_pulse_ns: u64 = 0;
     // Persistent present buffer: reused (reload_from) for every frame so gpud
     // does NOT allocate a fresh Vec<Command> per present. gpud runs on a
     // non-freeing bump allocator; a per-frame deserialize Vec would leak and
     // exhaust the 384KB heap after a few hundred animation frames (`alloc-fail
     // svc=gpud`), which is exactly what crashed the GPU pipeline mid-animation.
     let mut scene_cb = CommittedBuffer::with_capacity(32);
-    // Present-time telemetry (frame budget for 120Hz = 8333us). Accumulated over
-    // a window and emitted as a no-alloc marker every PRESENT_STATS_WINDOW
-    // presents — gpud runs on a non-freeing bump allocator, so no per-frame
-    // format!/heap. Lets us measure where the glass/compositor frame cost goes.
-    const PRESENT_STATS_WINDOW: u32 = 120;
-    let mut present_count: u32 = 0;
-    let mut present_ns_sum: u64 = 0;
-    let mut present_ns_max: u64 = 0;
-    // Wall-clock start of the stats window: `win_ms` in the emitted line makes
-    // the present RATE (n / win_ms) readable, not just per-present cost —
-    // 120 presents over ~1000ms = a healthy 120Hz train; over 3000ms = the
-    // cadence itself is starving (SMP-flicker triage).
-    let mut present_window_start_ns: u64 = 0;
+    // Present-time telemetry (frame budget for 120Hz = 8333us), alloc-free, one line per window:
+    // where the glass/compositor frame cost goes and the present RATE.
+    let mut stats = PresentStats::default();
     // Present-chain hop trace (graphical-output bisection): emit the per-frame
     // hops once a frame gets all the way through, but keep re-tracing every frame
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
     let mut chain_trace_done = false;
-    // Build-up spin-blur demo: when active, the frame clock (`FrameClock`, TASK-0324 P7-d)
-    // paces an idle gpud to re-present the orbiting build-up every ~8.33ms (120Hz),
-    // recomputing the GPU blur/shadow and driving the reactive ring-buffer IRQ.
-    #[cfg(all(nexus_env = "os", feature = "virgl"))]
-    let spin_demo_active =
-        crate::gl_scanout::COMPOSITOR_BUILDUP && crate::gl_scanout::BUILDUP_SPIN_DEMO;
     // Scroll coalescing: `OP_SET_LAYER_SCROLL` requests only RECORD their row;
     // this flag makes the next recv NonBlocking so the whole queued burst drains
     // (latest row wins), and the single re-composite happens in the WouldBlock
@@ -266,17 +230,11 @@ fn service_requests(
     loop {
         // Reactive by default: BLOCK until windowd sends a command (framebuffer VMO,
         // present damage, or animation submit) — no polling, no busy-wait; the kernel
-        // wakes us on message arrival. Exception: while the boot splash is still held (or
-        // the spin demo runs), wake on a frame-paced timeout so gpud self-re-presents and
-        // re-evaluates the reveal gate. windowd stalls its present loop after its first
-        // frame, so gpud must drive the reveal itself rather than block until windowd
-        // recovers (seconds later). Once revealed, this reverts to Blocking (fully reactive).
-        #[cfg(all(nexus_env = "os", feature = "virgl"))]
-        let pacing = spin_demo_active
-            || backend.is_holding_boot_splash()
-            || backend.bootstrap_splash_active();
-        #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
-        let pacing = false;
+        // wakes us on message arrival. Exception: while the display self-presents (the
+        // virtio GPU's boot-splash hold, its spin demo), the frame clock paces a frame so
+        // gpud re-evaluates the reveal gate itself — windowd stalls its present loop after
+        // its first frame. Once revealed this reverts to Blocking (fully reactive).
+        let pacing = display.pacing();
         // A recorded scroll row awaits its composite, or a frame is due: drain any further
         // queued requests first (latest wins), then act in the WouldBlock arm. Otherwise WAIT
         // on the waitset (server + frame clock) — no recv timeout.
@@ -309,15 +267,10 @@ fn service_requests(
                         let handoff_id =
                             decode_handoff_id_attach(frame).unwrap_or(active_handoff_id);
                         // RFC-0098 C7: the framebuffer is gpud's (granted before); no cap moves.
-                        match crate::framebuffer_grant::attach(
-                            &mut backend,
-                            moved_cap.take(),
-                            DISPLAY_WIDTH,
-                            RESOURCE_HEIGHT,
-                        ) {
+                        match crate::framebuffer_grant::attach(display, moved_cap.take()) {
                             Ok(()) => {
                                 active_handoff_id = handoff_id;
-                                let _ = backend.move_cursor(0, 0);
+                                display.attached();
                                 let _ = debug_println("gpud: handoff attach ack");
                                 let _ = debug_println(GPUD_CURSOR_ON);
                                 let _ = debug_println(GPUD_DISPLAY_READY);
@@ -325,19 +278,13 @@ fn service_requests(
                                     (nsec().unwrap_or(handoff_t0).saturating_sub(handoff_t0)
                                         / 1_000_000) as u32,
                                 );
-                                // The GL scanout now exists, so the recv-timeout
-                                // path may re-present the build-up (spin-blur demo).
-                                #[cfg(all(nexus_env = "os", feature = "virgl"))]
-                                if spin_demo_active {
-                                    let _ = debug_println("gpud: spin-blur demo armed (120Hz)");
-                                }
                                 (STATUS_OK, Some(active_handoff_id))
                             }
                             Err(status) => (status, Some(handoff_id)),
                         }
                     }
                     nexus_display_proto::OP_FRAMEBUFFER_REQUEST => {
-                        (crate::framebuffer_grant::grant(&mut backend), None)
+                        (crate::framebuffer_grant::grant(display), None)
                     }
                     OP_PRESENT_DAMAGE => {
                         // This present composites the recorded scroll rows — the
@@ -346,17 +293,7 @@ fn service_requests(
                         // Phase 6c: carries a serialized CommittedBuffer with batched
                         // BlitSurface commands describing all damage regions.
                         let seq = nexus_display_proto::decode_present_seq(frame).unwrap_or(0);
-                        // P0.3 present truth: snapshot the ring's deadline-expiry
-                        // counter around the whole present. The ring's degraded
-                        // recovery (reset/abandon after GPU_WAIT_DEADLINE_NS)
-                        // deliberately returns success so the loop never wedges —
-                        // but a present that lost commands that way must NOT be
-                        // acked as shown. The counter delta catches every such
-                        // case, including error paths swallowed inside optional
-                        // draws (`let _ =`), at the one seam they all share.
-                        #[cfg(all(feature = "os-lite", target_os = "none"))]
-                        let deadline_expiries_before =
-                            IRQ_DEADLINE_EXPIRED_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+                        display.begin_present();
                         let trace = !chain_trace_done;
                         if trace {
                             let _ = debug_println(crate::markers::GPUD_CHAIN_RECV);
@@ -368,104 +305,14 @@ fn service_requests(
                                     if trace {
                                         let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
                                     }
-                                    let damage_rect = damage_rect_from_cb(
-                                        &scene_cb,
-                                        backend.display_w,
-                                        backend.display_h,
-                                    );
-                                    // Lift the save-under cursor so scene blits land on
-                                    // a cursor-free plane, present, then re-apply it on
-                                    // top so the pointer always stays visible.
                                     let t0 = nsec().unwrap_or(0);
-                                    backend.cursor_before_present();
-                                    // present_committed's result was previously discarded;
-                                    // capture it so a failed composite is no longer silent.
-                                    match backend.present_committed(&scene_cb) {
-                                        Ok(_) => {
-                                            if trace {
-                                                let _ = debug_println(
-                                                    crate::markers::GPUD_CHAIN_EXEC_OK,
-                                                );
-                                            }
-                                        }
-                                        Err(e) => {
-                                            let _ =
-                                                debug_println(crate::markers::GPUD_CHAIN_EXEC_FAIL);
-                                            let _ = debug_println(gfx_error_label(e));
-                                        }
+                                    let st = present(display, &scene_cb, trace);
+                                    if trace && st == STATUS_OK {
+                                        // Whole chain reached the end: stop tracing.
+                                        chain_trace_done = true;
+                                        display.first_frame_shown();
                                     }
-                                    let st = present_scanout_damage(&mut backend, damage_rect);
-                                    backend.cursor_after_present();
-                                    if trace {
-                                        if st == STATUS_OK {
-                                            let _ = debug_println(
-                                                crate::markers::GPUD_CHAIN_SCANOUT_OK,
-                                            );
-                                            // Whole chain reached the end: stop tracing.
-                                            chain_trace_done = true;
-                                            // P0.3 display truth (one-shot): the centre strip
-                                            // of the frame the display shows, read through
-                                            // the probe RT (RFC-0093 §5 — never a scanout
-                                            // transfer). A black sample with a green marker
-                                            // chain = the silent scanout class — loud, inside.
-                                            #[cfg(feature = "virgl")]
-                                            {
-                                                match backend.probe_sample() {
-                                                    Some(px)
-                                                        if (px[0] as u32
-                                                            + px[1] as u32
-                                                            + px[2] as u32)
-                                                            > 24 =>
-                                                    {
-                                                        let _ =
-                                                            debug_println("gpud: probe sample ok");
-                                                        // P0.3c: MEASURED display
-                                                        // truth (host-GPU readback
-                                                        // through the probe RT),
-                                                        // not a compositor claim —
-                                                        // #98 discipline.
-                                                        let _ = debug_println(
-                                                            "SELFTEST: display nonblack ok",
-                                                        );
-                                                    }
-                                                    Some(_) => {
-                                                        let _ =
-                                                            debug_println("gpud: FAIL probe black");
-                                                    }
-                                                    None => {
-                                                        let _ = debug_println(
-                                                            "gpud: probe sample unavailable",
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            let _ = debug_println(
-                                                crate::markers::GPUD_CHAIN_SCANOUT_FAIL,
-                                            );
-                                        }
-                                    }
-                                    let t_end = nsec().unwrap_or(t0);
-                                    let dt = t_end.saturating_sub(t0);
-                                    if present_count == 0 {
-                                        present_window_start_ns = t0;
-                                    }
-                                    present_ns_sum += dt;
-                                    present_ns_max = present_ns_max.max(dt);
-                                    present_count += 1;
-                                    if present_count >= PRESENT_STATS_WINDOW {
-                                        emit_present_stats(
-                                            (present_ns_sum / present_count as u64 / 1000) as u32,
-                                            (present_ns_max / 1000) as u32,
-                                            present_count,
-                                            (t_end.saturating_sub(present_window_start_ns)
-                                                / 1_000_000)
-                                                as u32,
-                                        );
-                                        present_count = 0;
-                                        present_ns_sum = 0;
-                                        present_ns_max = 0;
-                                    }
+                                    stats.record(t0, nsec().unwrap_or(t0));
                                     st
                                 }
                                 Err(_) => {
@@ -475,49 +322,28 @@ fn service_requests(
                                     }
                                     // Fixed-rect fallback: exactly header + 16-byte rect.
                                     if frame.len() == nexus_display_proto::DAMAGE_FRAME_LEN {
-                                        handle_present_damage(&mut backend, frame)
+                                        handle_present_damage(display, frame)
                                     } else {
                                         STATUS_MALFORMED
                                     }
                                 }
                             }
                         } else {
-                            handle_present_damage(&mut backend, frame)
+                            handle_present_damage(display, frame)
                         };
-                        // P0.3: honest present outcome — commands that ran into the
-                        // 500ms deadline net were abandoned by the ring's degraded
-                        // recovery; the frame is (partially) lost even though every
-                        // call above returned "success". NACK it so windowd requeues
-                        // the damage instead of booking a black frame as presented.
-                        #[cfg(all(feature = "os-lite", target_os = "none"))]
-                        let status = {
-                            let expired = IRQ_DEADLINE_EXPIRED_COUNT
-                                .load(core::sync::atomic::Ordering::Relaxed)
-                                .wrapping_sub(deadline_expiries_before);
-                            if expired > 0 {
-                                emit_present_deadline_fail(expired);
-                                // The abandoned batch may have dropped an atlas
-                                // TRANSFER — invalidate the uploaded epoch so
-                                // the re-presented frame uploads fresh content.
-                                #[cfg(feature = "virgl")]
-                                {
-                                    backend.atlas_uploaded_epoch = 0;
-                                    backend.rt_layers_dirty = true;
-                                }
-                                STATUS_DEVICE_ERROR
-                            } else {
-                                status
-                            }
-                        };
+                        // P0.3: honest present outcome — a present whose commands the device
+                        // lost (while every call returned success) is NACKed, so windowd
+                        // requeues the damage instead of booking a frame nobody saw.
                         let status =
-                            crate::reply::present_status(&backend, status, seq, &mut reveal_acked);
+                            if display.present_lost() { STATUS_DEVICE_ERROR } else { status };
+                        let status =
+                            crate::reply::present_status(display, status, seq, &mut reveal_acked);
                         (status, Some(seq))
                     }
                     OP_UPLOAD_CURSOR => {
                         let _ = debug_println("gpud: recv OP_UPLOAD_CURSOR");
                         // Frame: [op, w(4), h(4), hot_x(4), hot_y(4), bgra]. The reply's
-                        // u32 payload reports the active cursor path: 1 = hardware
-                        // overlay (cursor queue), 0 = software BlendCursor fallback.
+                        // u32 payload names the cursor path (overlay, GL or software).
                         if frame.len() < 17 {
                             (STATUS_MALFORMED, None)
                         } else {
@@ -527,8 +353,7 @@ fn service_requests(
                                 u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
                             let hot_y =
                                 u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
-                            let bgra = &frame[17..];
-                            arm_cursor(&mut backend, bgra, w, h, hot_x, hot_y)
+                            display.upload_cursor(&frame[17..], w, h, (hot_x, hot_y))
                         }
                     }
                     OP_UPLOAD_ICON => {
@@ -541,17 +366,17 @@ fn service_requests(
                         } else {
                             let w = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
                             let h = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-                            let dx =
-                                u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
-                            let dy =
-                                u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]);
-                            let dw =
-                                u32::from_le_bytes([frame[17], frame[18], frame[19], frame[20]]);
-                            let dh =
-                                u32::from_le_bytes([frame[21], frame[22], frame[23], frame[24]]);
-                            let bgra = &frame[25..];
-                            let status = match backend.store_icon_sprite(bgra, w, h, dx, dy, dw, dh)
-                            {
+                            let dst = Rect {
+                                x: u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]),
+                                y: u32::from_le_bytes([frame[13], frame[14], frame[15], frame[16]]),
+                                width: u32::from_le_bytes([
+                                    frame[17], frame[18], frame[19], frame[20],
+                                ]),
+                                height: u32::from_le_bytes([
+                                    frame[21], frame[22], frame[23], frame[24],
+                                ]),
+                            };
+                            let status = match display.upload_icon(&frame[25..], w, h, dst) {
                                 Ok(()) => STATUS_OK,
                                 Err(_) => STATUS_MALFORMED,
                             };
@@ -562,25 +387,19 @@ fn service_requests(
                         // RFC-0093 §5: windowd reports the desktop complete (wallpaper in
                         // Plane 0, cursor uploaded, first frame presented). Latch it — the
                         // next present reveals and is acked STATUS_REVEALED. No probe, no cap.
-                        backend.reveal_requested = true;
+                        display.request_reveal();
                         (STATUS_OK, None)
                     }
                     nexus_display_proto::OP_WALLPAPER_DIRTY => {
-                        // windowd rewrote the wallpaper SOURCE plane (theme
-                        // swap): re-upload the wallpaper texture on the next
-                        // buildup present (self-tick picks it up).
-                        #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-                        {
-                            backend.wallpaper_reupload_pending = true;
-                        }
+                        display.wallpaper_dirty();
                         (STATUS_OK, None)
                     }
-                    _ => (handle_frame(&mut backend, frame, &mut scroll_flush_pending), None),
+                    _ => (handle_frame(display, frame, &mut scroll_flush_pending), None),
                 };
                 drop(moved_cap);
                 crate::reply::send(
                     &server,
-                    &backend,
+                    display,
                     op,
                     status,
                     response_handoff_id,
@@ -593,64 +412,16 @@ fn service_requests(
                 // ONCE at the final position, then return to reactive blocking.
                 if scroll_flush_pending {
                     scroll_flush_pending = false;
-                    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-                    {
-                        let _ = backend.flush_layer_scroll();
-                    }
+                    display.flush_layer_overrides();
                     continue;
                 }
-                // Frame due (the frame clock fired, windowd idle): re-present so the reveal
-                // gate re-evaluates and the desktop appears the instant the wallpaper +
-                // cursor are ready — gpud drives this itself because windowd stalls its
-                // present loop after the first frame. Also serves the spin-blur demo. Once
-                // the desktop is revealed `is_holding_boot_splash()` goes false and the
-                // clock stays disarmed (back to a purely reactive wait).
+                // Frame due (the frame clock fired, windowd idle): the display self-presents
+                // (the reveal gate re-evaluates the instant the desktop is ready; the spin demo).
+                // Once nothing paces, the clock stays disarmed (a purely reactive wait).
                 if !clock.due {
                     continue;
                 }
-                // One-shot liveness proof: pin that the frame clock drives the hold.
-                #[cfg(all(nexus_env = "os", feature = "virgl"))]
-                if !hold_tick_logged && backend.is_holding_boot_splash() {
-                    hold_tick_logged = true;
-                    let _ = debug_println("gpud: hold tick alive");
-                }
-                // The hold-phase tick gates on `is_holding_boot_splash()` alone —
-                // holding implies the GL scanout is attached (gl_scanout_active),
-                // which is what the old `active_handoff_id != 0` guard was meant to
-                // prove. The id stays 0 in the running id-less handoff flow, so
-                // that guard had silently disabled every hold tick (reveals only
-                // ever rode on windowd presents). The spin demo keeps the id gate.
-                #[cfg(all(nexus_env = "os", feature = "virgl"))]
-                let presented = if backend.bootstrap_splash_active() {
-                    // 2D text phase (before windowd's handoff): breathe the title
-                    // line so the very first thing on screen already lives. ~30Hz
-                    // redraw is plenty for the slow curve; the wall-clock pulse
-                    // stays continuous into the GL splash after the switch.
-                    let now = nsec().unwrap_or(0);
-                    if now.saturating_sub(last_splash_pulse_ns) >= 33_000_000 {
-                        last_splash_pulse_ns = now;
-                        let _ =
-                            backend.pulse_bootstrap_splash(crate::backend::splash_pulse_q8(now));
-                    }
-                    true
-                } else {
-                    ((spin_demo_active && active_handoff_id != 0)
-                        || backend.is_holding_boot_splash())
-                        && {
-                            present_buildup_tick(
-                                &mut backend,
-                                &mut present_count,
-                                &mut present_ns_sum,
-                                &mut present_ns_max,
-                                &mut present_window_start_ns,
-                                PRESENT_STATS_WINDOW,
-                            );
-                            true
-                        }
-                };
-                #[cfg(not(all(nexus_env = "os", feature = "virgl")))]
-                let presented = false;
-                let _ = presented;
+                display.frame_tick(active_handoff_id != 0, &mut stats);
                 clock.frame_presented(nsec().unwrap_or(0));
             }
             Err(nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint))
@@ -663,9 +434,38 @@ fn service_requests(
     }
 }
 
-/// Emit `gpud: present us avg=A max=M n=N` without heap allocation (gpud's
-/// bump allocator never frees). 120Hz budget = 8333us; this surfaces the
-/// per-present compositor cost so glass/layer optimisations can be measured.
+/// One present of validated commands: execute (G3), then scan the damage out (G4). The chain
+/// hops print while `trace`; the status is the present's before the reveal check.
+fn present(display: &mut dyn Display, cb: &CommittedBuffer, trace: bool) -> u8 {
+    let (w, h) = display.mode();
+    let damage_rect = damage_rect_from_cb(cb, w, h);
+    // A failed composite is never silent: the hop and the reason print.
+    let executed = cb
+        .validate()
+        .map_err(crate::backend::map_nexus_error)
+        .and_then(|()| display.execute(cb.commands()));
+    match executed {
+        Ok(()) => {
+            if trace {
+                let _ = debug_println(crate::markers::GPUD_CHAIN_EXEC_OK);
+            }
+        }
+        Err(e) => {
+            let _ = debug_println(crate::markers::GPUD_CHAIN_EXEC_FAIL);
+            let _ = debug_println(gfx_error_label(e));
+        }
+    }
+    let st = present_scanout_damage(display, damage_rect);
+    if trace {
+        let _ = debug_println(if st == STATUS_OK {
+            crate::markers::GPUD_CHAIN_SCANOUT_OK
+        } else {
+            crate::markers::GPUD_CHAIN_SCANOUT_FAIL
+        });
+    }
+    st
+}
+
 /// Human-readable reason for a present-chain hop failure (G3 exec). Static
 /// strings only — no alloc on gpud's bump heap.
 fn gfx_error_label(e: GfxError) -> &'static str {
@@ -676,46 +476,6 @@ fn gfx_error_label(e: GfxError) -> &'static str {
         GfxError::ResourceExhausted => "gpud: chain reason: resource exhausted (bump heap?)",
         GfxError::Unsupported => "gpud: chain reason: unsupported command",
         GfxError::InvalidArgument => "gpud: chain reason: invalid argument",
-    }
-}
-
-/// Re-present the orbiting build-up panel once (spin-blur demo tick) and fold the
-/// GPU/blur cost into the present-stats window. Driven by the recv-timeout path so
-/// an idle gpud keeps the GPU pipeline + reactive ring-buffer IRQ exercised.
-#[cfg(all(nexus_env = "os", feature = "virgl"))]
-fn present_buildup_tick(
-    backend: &mut VirtioGpuBackend,
-    present_count: &mut u32,
-    present_ns_sum: &mut u64,
-    present_ns_max: &mut u64,
-    present_window_start_ns: &mut u64,
-    window: u32,
-) {
-    let t0 = nsec().unwrap_or(0);
-    let _ = backend.present_scanout_damage(Rect {
-        x: 0,
-        y: 0,
-        width: backend.display_w,
-        height: backend.display_h,
-    });
-    let t_end = nsec().unwrap_or(t0);
-    let dt = t_end.saturating_sub(t0);
-    if *present_count == 0 {
-        *present_window_start_ns = t0;
-    }
-    *present_ns_sum = present_ns_sum.saturating_add(dt);
-    *present_ns_max = (*present_ns_max).max(dt);
-    *present_count += 1;
-    if *present_count >= window {
-        emit_present_stats(
-            (*present_ns_sum / *present_count as u64 / 1000) as u32,
-            (*present_ns_max / 1000) as u32,
-            *present_count,
-            (t_end.saturating_sub(*present_window_start_ns) / 1_000_000) as u32,
-        );
-        *present_count = 0;
-        *present_ns_sum = 0;
-        *present_ns_max = 0;
     }
 }
 
@@ -806,55 +566,8 @@ fn damage_rect_from_cb(cb: &CommittedBuffer, display_w: u32, display_h: u32) -> 
     }
 }
 
-/// Handle an `OP_UPLOAD_CURSOR` payload: on the CPU/mmio scanout, arm the virtio-gpu
-/// **hardware cursor overlay** (cursor virtqueue) so the host composites the pointer at
-/// scanout — cursor moves then never touch windowd's present pipeline (reactive, decoupled).
-/// Reply `CURSOR_REPLY_HW` so windowd suppresses its software BlendCursor.
-///
-/// On the virgl GL scanout `upload_cursor`'s `transfer_to_host` blanks the present, so there
-/// (and if arming the overlay fails for any reason) we fall back to storing the sprite for
-/// windowd's BlendCursor and reply `CURSOR_REPLY_SW` — preserving the prior behaviour.
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-fn arm_cursor(
-    backend: &mut VirtioGpuBackend,
-    bgra: &[u8],
-    w: u32,
-    h: u32,
-    hot_x: u32,
-    hot_y: u32,
-) -> (u8, Option<u32>) {
-    #[cfg(not(feature = "virgl"))]
-    if backend.upload_cursor(bgra, w, h, hot_x, hot_y).is_ok() {
-        let _ = debug_println("gpud: hw cursor armed");
-        return (STATUS_OK, Some(CURSOR_REPLY_HW));
-    }
-    // virgl GL scanout, or HW arm failed: the GL/SW draw subtracts the
-    // hotspot, so record it (resize shapes center it at 16,16).
-    backend.set_cursor_hot(hot_x, hot_y);
-    // On virgl the build-up present owns the scanout and draws a procedural
-    // cursor at `cursor_ox/oy` — reply GL so windowd ships moves + a present
-    // (its software BlendCursor into the VMO would be ignored here). Elsewhere
-    // (HW arm failed) fall back to windowd's BlendCursor (SW).
-    #[cfg(feature = "virgl")]
-    const NON_HW_REPLY: u32 = CURSOR_REPLY_GL;
-    #[cfg(not(feature = "virgl"))]
-    const NON_HW_REPLY: u32 = CURSOR_REPLY_SW;
-    match backend.store_cursor_sprite(bgra, w, h) {
-        Ok(()) => {
-            // Pointer-shape switch (TASK-0070 Phase 3): if the GL cursor
-            // texture is already live, refresh it from the new sprite now
-            // (outside any present batch) so the shape changes immediately.
-            #[cfg(feature = "virgl")]
-            let _ = backend.cursor_tex_refresh();
-            let _ = debug_println("gpud: cursor uploaded");
-            (STATUS_OK, Some(NON_HW_REPLY))
-        }
-        Err(_) => (STATUS_DEVICE_ERROR, None),
-    }
-}
-
-fn present_scanout_damage(backend: &mut VirtioGpuBackend, rect: Rect) -> u8 {
-    match backend.present_scanout_damage(rect) {
+fn present_scanout_damage(display: &mut dyn Display, rect: Rect) -> u8 {
+    match display.scan_out(rect) {
         Ok(()) => STATUS_OK,
         Err(e) => {
             let _ = debug_println("gpud: present scanout damage FAIL");
@@ -872,27 +585,26 @@ fn present_scanout_damage(backend: &mut VirtioGpuBackend, rect: Rect) -> u8 {
     }
 }
 
-fn handle_present_damage(backend: &mut VirtioGpuBackend, frame: &[u8]) -> u8 {
+fn handle_present_damage(display: &mut dyn Display, frame: &[u8]) -> u8 {
     let Some((x, y, width, height)) = nexus_display_proto::decode_damage_frame(frame) else {
         return STATUS_MALFORMED;
     };
-    present_scanout_damage(backend, Rect { x, y, width, height })
+    present_scanout_damage(display, Rect { x, y, width, height })
 }
 
-fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut bool) -> u8 {
+fn handle_frame(display: &mut dyn Display, frame: &[u8], scroll_flush: &mut bool) -> u8 {
     let Some(op) = frame.first().copied() else {
         return STATUS_MALFORMED;
     };
     match op {
         OP_SUBMIT_ANIMATION_FRAME => {
             // Animation frames carry a serialized CommittedBuffer after the opcode.
-            // Deserialize and submit to the GPU backend for execution.
             if frame.len() <= 1 {
                 return STATUS_MALFORMED;
             }
             match CommittedBuffer::deserialize_from(&frame[1..]) {
                 Ok((cmd, _consumed)) => {
-                    let _ = backend.submit(cmd);
+                    let _ = display.submit(cmd);
                     STATUS_OK
                 }
                 Err(_) => STATUS_MALFORMED,
@@ -909,7 +621,7 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut
             let h = u32::from_le_bytes([frame[6], frame[7], frame[8], frame[9]]);
             let hot_x = u32::from_le_bytes([frame[10], frame[11], frame[12], frame[13]]);
             let hot_y = u32::from_le_bytes([frame[14], frame[15], frame[16], frame[17]]);
-            match backend.cache_cursor_shape(shape_id, &frame[18..], w, h, hot_x, hot_y) {
+            match display.cache_cursor_shape(shape_id, &frame[18..], w, h, (hot_x, hot_y)) {
                 Ok(()) => STATUS_OK,
                 Err(_) => STATUS_MALFORMED,
             }
@@ -920,7 +632,7 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut
             if frame.len() < 2 {
                 return STATUS_MALFORMED;
             }
-            match backend.select_cursor_shape(frame[1]) {
+            match display.select_cursor_shape(frame[1]) {
                 Ok(()) => STATUS_OK,
                 Err(_) => STATUS_MALFORMED,
             }
@@ -931,28 +643,10 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut
             }
             let x = i32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
             let y = i32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-            // Record the pointer position for the GL-scanout fallback cursor (the
-            // Stage-4 build-up draws a procedural arrow at cursor_ox/oy each present
-            // — no transfer_to_host, so it is safe on the virgl GL scanout, unlike
-            // the hardware-cursor overlay whose resource transfer blanks the GL
-            // present). windowd also sends OP_PRESENT_DAMAGE on move, re-rendering.
-            backend.set_pointer_pos(x, y);
-            // HW cursor overlay armed → reposition via the cursor virtqueue
-            // (submit-no-response): no scanout re-render, no present, no per-move log.
-            // This is the reactive hot path — cursor moves are fully decoupled from
-            // compositing.
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
-            if backend.hw_cursor_active() && x >= 0 && y >= 0 {
-                return match backend.move_hw_cursor(x as u32, y as u32) {
-                    Ok(()) => STATUS_OK,
-                    Err(_) => STATUS_DEVICE_ERROR,
-                };
+            match display.move_cursor(x, y) {
+                Ok(()) => STATUS_OK,
+                Err(_) => STATUS_DEVICE_ERROR,
             }
-            // Legacy save-under SW path (no-op while cursor ownership is unclaimed).
-            if backend.cursor_move(x, y).is_err() {
-                return STATUS_DEVICE_ERROR;
-            }
-            STATUS_OK
         }
         OP_SET_LAYER_SCROLL => {
             if frame.len() < 9 {
@@ -960,25 +654,14 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut
             }
             let scroll_id = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
             let src_row = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-            // RECORD the override only — the service loop drains the whole queued
-            // burst (latest row wins) and re-composites ONCE via
-            // `flush_layer_scroll` when the queue is empty. Presenting per request
-            // turned a fling into a backlog of full re-composites of stale
-            // positions (seconds of dead UI).
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            {
-                return match backend.record_layer_scroll(scroll_id, src_row) {
-                    Ok(()) => {
-                        *scroll_flush = true;
-                        STATUS_OK
-                    }
-                    Err(_) => STATUS_DEVICE_ERROR,
-                };
-            }
-            #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
-            {
-                let _ = (backend, scroll_id, src_row, scroll_flush);
-                STATUS_OK
+            // RECORD the override only — the loop drains the whole queued burst (latest row
+            // wins) and re-composites ONCE when the queue is empty.
+            match display.set_layer_scroll(scroll_id, src_row) {
+                Ok(retained) => {
+                    *scroll_flush |= retained;
+                    STATUS_OK
+                }
+                Err(_) => STATUS_DEVICE_ERROR,
             }
         }
         OP_SET_LAYER_TRANSFORM => {
@@ -990,28 +673,19 @@ fn handle_frame(backend: &mut VirtioGpuBackend, frame: &[u8], scroll_flush: &mut
             else {
                 return STATUS_MALFORMED;
             };
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            {
-                let t = crate::backend::LayerTransform { dx, dy, opacity, scale_pct };
-                return match backend.record_layer_transform(layer_id, t) {
-                    Ok(()) => {
-                        *scroll_flush = true;
-                        STATUS_OK
-                    }
-                    Err(_) => STATUS_DEVICE_ERROR,
-                };
-            }
-            #[cfg(not(all(feature = "virgl", feature = "os-lite", target_os = "none")))]
-            {
-                let _ = (backend, layer_id, dx, dy, opacity, scale_pct, scroll_flush);
-                STATUS_OK
+            match display.set_layer_transform(layer_id, (dx, dy), opacity, scale_pct) {
+                Ok(retained) => {
+                    *scroll_flush |= retained;
+                    STATUS_OK
+                }
+                Err(_) => STATUS_DEVICE_ERROR,
             }
         }
         OP_PRESENT_DAMAGE => {
             // A full present composites the recorded scroll/transform overrides
             // anyway — the deferred flush would be a redundant re-composite.
             *scroll_flush = false;
-            handle_present_damage(backend, frame)
+            handle_present_damage(display, frame)
         }
         _ => STATUS_MALFORMED,
     }

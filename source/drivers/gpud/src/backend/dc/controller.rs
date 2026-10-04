@@ -3,7 +3,8 @@
 
 //! The board's display controller: its window, its version (the register map is the measured
 //! version's; another is refused), the pipeline programmed from TASK-0250's model over the
-//! window, and the proof that it scans — the output's line counter moves.
+//! window, the proof that it scans — the output's line counter moves — and the switch of the
+//! scanned plane (the reveal, TASK-0251 P2a step 2).
 
 use nexus_abi::MmioWindow;
 use nexus_driverkit::Mmio;
@@ -63,6 +64,16 @@ pub(super) struct Scan {
     pub vsync: bool,
 }
 
+/// What a plane switch did: its words read back, and whether the controller took the
+/// configuration — it clears config-ready when it latches the shadowed words at a frame boundary
+/// (the interrupt the stock driver unmasks is named `cfg_rdy_clr`). Observed, not yet a gate: the
+/// first switch on the board measures it (TASK-0251 P2a step 2).
+pub(super) struct Flip {
+    pub readback: Readback,
+    /// Reads of config-ready until it read 0, or `None` when it stayed set within the bound.
+    pub latched_after: Option<usize>,
+}
+
 /// The words the bring-up wrote that read back otherwise (`offset`, wrote, read), and how many
 /// were compared — the latch and start words (`CFG_READY`, `SW_START`) are commands, not state.
 pub(super) struct Readback {
@@ -96,6 +107,16 @@ impl Controller {
         let mut w = Writer { bus: &self.regs, written: Sequence::new() };
         dc::bring_up(&mut w, mode, plane, RDMA);
         w.written
+    }
+
+    /// Switch the scan to `plane` (the same mode): its address and stride, then the latch.
+    pub(super) fn flip(&self, plane: &Plane) -> Flip {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::flip(&mut w, RDMA, plane);
+        let readback = self.read_back(&w.written);
+        let latched_after =
+            (0..SCAN_POLL_READS).find(|_| self.regs.read(regs::CTL2_CFG_READY as usize) & 1 == 0);
+        Flip { readback, latched_after }
     }
 
     /// Read every word `written` names back (the last value per offset).

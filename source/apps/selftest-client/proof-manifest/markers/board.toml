@@ -131,16 +131,26 @@ emit_when = { profile = "board-headless" }
 
 [marker."gpud: dc scanout ok ("]
 phase = "bringup"
-proves = "TASK-0251 P2a: the controller scans the display plane of a contiguous framebuffer at the mode named in the line — its output line counter moved; `cea` = a standard timing, `edid` = the monitor's own (the Block 1 gate requires the EDID form with windowd's desktop)"
+proves = "TASK-0251 P2a: the controller scans the boot splash's plane — a contiguous block made for it — at the mode named in the line, by either witness (the output line counter moved, the raw vsync raised); `cea` = a standard timing, `edid` = the monitor's own (the Block 1 gate requires the EDID form with windowd's desktop)"
 
 [marker."gpud: FAIL dc "]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
 
-[marker."gpud: dc framebuffer request refused ("]
+[marker."gpud: dc framebuffer refused ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0251 P2a step 1: gpud names that windowd's desktop path on the display controller is not there yet; windowd runs display-less"
+proves = "TASK-0251 P2a step 2: the display did not come up, so gpud refuses windowd's framebuffer by name and windowd runs display-less (never a grant of a framebuffer nothing scans)"
+
+[marker."gpud: dc first present ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2a step 2: the cost of windowd's first present on the board's harts — the CPU executor's run over the framebuffer and the cache clean of its damage (a measurement, printed once; the stats window needs 120 presents)"
+
+[marker."gpud: dc reveal flip ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0251 P2a step 2 (RFC-0093 §5): on the first present after windowd's reveal the whole display plane was cleaned and the controller switched from the boot splash to windowd's framebuffer — the plane's words read back; the line records whether the controller cleared config-ready (the latch, observed)"
 
 [marker."board-visual: splash"]
 phase = "end"

@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: gpud's half of the framebuffer grant (RFC-0093 §5 as amended 2026-09-30, RFC-0098 C7,
-//! TASK-0251 P1). windowd asks once (`OP_FRAMEBUFFER_REQUEST`); gpud makes its framebuffer (once,
-//! for its device — `backend::framebuffer`) and answers on its response endpoint with the mode it
-//! decided at probe and a clone of the framebuffer object moved along. The attach that follows
-//! (`OP_SET_FRAMEBUFFER_VMO`) names no cap: the framebuffer it scans out is the one it granted,
-//! and an attach that carries a cap is a peer from before the amendment — refused, cap closed.
+//! TASK-0251 P1). windowd asks once (`OP_FRAMEBUFFER_REQUEST`); the display makes its framebuffer
+//! (once, for its scanout device — the virtio GPU's runs, the board controller's one contiguous
+//! block) and gpud answers on its response endpoint with the mode the display decided and a clone
+//! of the framebuffer object moved along. The attach that follows (`OP_SET_FRAMEBUFFER_VMO`) names
+//! no cap: the framebuffer it scans out is the one it granted, and an attach that carries a cap is
+//! a peer from before the amendment — refused, cap closed.
 //! OWNERS: @gpu @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -18,11 +19,11 @@ use nexus_display_proto::{
 };
 use nexus_ipc::{KernelServer, ReplyCap, Server as _, Wait};
 
-use crate::backend::VirtioGpuBackend;
+use crate::backend::display::Display;
 
 /// `OP_FRAMEBUFFER_REQUEST`: make (once) the framebuffer; the status the answer carries.
-pub(crate) fn grant(backend: &mut VirtioGpuBackend) -> u8 {
-    if backend.framebuffer().is_some() {
+pub(crate) fn grant(display: &mut dyn Display) -> u8 {
+    if display.framebuffer().is_some() {
         STATUS_OK
     } else {
         STATUS_DEVICE_ERROR
@@ -32,17 +33,17 @@ pub(crate) fn grant(backend: &mut VirtioGpuBackend) -> u8 {
 /// The grant's answer on gpud's response endpoint (windowd reads it on its declared gpud route):
 /// for an OK status the decided mode and a clone of the framebuffer moved along; otherwise — or
 /// when the clone cannot travel — a refusal without a mode, which windowd names.
-pub(crate) fn answer(server: &KernelServer, backend: &VirtioGpuBackend, status: u8) {
+pub(crate) fn answer(server: &KernelServer, display: &mut dyn Display, status: u8) {
     let len = nexus_display_proto::layout::RESOURCE_BYTES as u32;
-    let mode_w = u16::try_from(backend.display_w).unwrap_or(0);
-    let mode_h = u16::try_from(backend.display_h).unwrap_or(0);
+    let (w, h) = display.mode();
+    let mode_w = u16::try_from(w).unwrap_or(0);
+    let mode_h = u16::try_from(h).unwrap_or(0);
     if status == STATUS_OK {
-        if let Some(clone) = backend.framebuffer_vmo.and_then(|vmo| nexus_abi::cap_clone(vmo).ok())
-        {
+        if let Some(clone) = display.framebuffer().and_then(|vmo| nexus_abi::cap_clone(vmo).ok()) {
             let frame = encode_framebuffer_grant(&FramebufferGrant { status, mode_w, mode_h, len });
             let send = nexus_service_topology::slots::gpud::SERVER.send;
             if nexus_ipc::exchange::send_with_cap(send, &frame, clone).is_ok() {
-                emit_granted(backend.display_w, backend.display_h);
+                emit_granted(w, h);
                 return;
             }
             let _ = nexus_abi::cap_close(clone);
@@ -59,28 +60,16 @@ pub(crate) fn answer(server: &KernelServer, backend: &VirtioGpuBackend, status: 
     let _ = nexus_abi::debug_println("gpud: FAIL framebuffer grant refused");
 }
 
-/// `OP_SET_FRAMEBUFFER_VMO`: windowd's first frame is in the granted framebuffer — scan it out
-/// (`width`×`height` is the resource the attach maps: the layout's stride and rows).
-pub(crate) fn attach(
-    backend: &mut VirtioGpuBackend,
-    moved: Option<ReplyCap>,
-    width: u32,
-    height: u32,
-) -> Result<(), u8> {
+/// `OP_SET_FRAMEBUFFER_VMO`: windowd's first frame is in the granted framebuffer — the display
+/// scans it out (or holds it behind the splash until the reveal).
+pub(crate) fn attach(display: &mut dyn Display, moved: Option<ReplyCap>) -> Result<(), u8> {
     if let Some(cap) = moved {
         cap.close();
         let _ =
             nexus_abi::debug_println("gpud: FAIL attach carried a cap (the framebuffer is gpud's)");
         return Err(STATUS_MALFORMED);
     }
-    let Some(vmo) = backend.framebuffer_vmo else {
-        let _ = nexus_abi::debug_println("gpud: FAIL attach before a grant");
-        return Err(STATUS_MALFORMED);
-    };
-    backend.attach_external_framebuffer(vmo, width, height).map_err(|_| {
-        let _ = nexus_abi::debug_println("gpud: ERROR attach framebuffer failed");
-        STATUS_DEVICE_ERROR
-    })
+    display.attach()
 }
 
 /// `gpud: framebuffer granted (WxH)` — alloc-free, one atomic line.

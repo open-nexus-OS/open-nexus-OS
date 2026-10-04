@@ -43,7 +43,12 @@
   deleted. The controller's scanout on the board: TASK-0251 P2/P3 (host half TASK-0250 P1/P2 ✅;
   the display set's glue ✅ 2026-09-30, TASK-0245B P3; first light — gpud's splash through the
   controller and the encoder — ✅ 2026-10-03 on the board, P2a step 1: `gpud: dc scanout ok
-  (1920x1080@60 cea …)`, `board-visual: splash`; windowd's desktop is step 2).
+  (1920x1080@60 cea …)`, `board-visual: splash`; windowd's desktop, P2a step 2, ✅ 2026-10-04 on
+  the board in its first cycle — one request loop over the virtio GPU and the controller, one
+  CPU executor, the contiguous framebuffer for the controller, the splash held until the reveal
+  and switched by `nexus_gfx::backend::dc::flip`; `[PASS] board-visible` with 24 rungs and
+  `board-visual: desktop`, `docs/board/measurements/2026-10-04-desktop-path/`; open: the CPU
+  path's picture at 1080p, the EDID form of the scanout line, P3's "real hardware: yes").
 
 Definition: "Complete" = every phase's proof gates are green on QEMU **and** on the board
 lane (`TASK-0327B`); the last QEMU-only literal is gone from the tree.

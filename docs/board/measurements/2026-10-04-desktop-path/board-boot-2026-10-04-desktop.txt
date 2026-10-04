@@ -1,0 +1,1414 @@
+nxboot: platform=bananapi,bpi-f3 tree=0x26b000 size=13376
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: cores awake (apmu=0xd4282800 cores=8 was=0x0)
+nxboot: boot led ok (gpio=0xd4019000 bank=3 line=0)
+nxboot: disk sdhci mode=hs52 bus=8
+nxboot: trace slot=1 seq=2
+nxboot: dram probe lost
+nxboot: rescue ok (seq=1 bytes=0 lost=0)
+nxboot: bsb ok (slot=a seq=2)
+nxboot: verify ok (slot=a build=dev-029f rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
+[INFO boot] boot: ok
+[INFO boot] KINIT: milestone 1 at 3732 ms (uart stalls=0)
+[INFO boot] traps: ok
+[INFO boot] KINIT: mm frames (banks=2 total=1043833 free=1043833 reserved=256 excluded=4615)
+[INFO boot] KINIT: kernel high half (base=0xffffffc000400000 load=0x400000 len=0x1202940)
+[INFO boot] KINIT: milestone 2 at 4771 ms (uart stalls=0)
+[INFO boot] boot: returning to wrapper
+[INFO selftest] KSELFTEST: boot handoff ok (measured)
+[INFO boot] neuron: boot handoff slot=a rbidx=1 seq=2 (qemu-soft-root)
+[INFO boot] KINIT: milestone 3 at 6128 ms (uart stalls=0)
+[INFO as] AS: trampoline enter val=0x8000100000001603
+AS: post-satp OK
+[INFO selftest] KSELFTEST: platform from fdt ok (uart=0xd4017000 plic=0xe0000000 ndev=159 tb=24000000Hz harts=8 banks=2 boot_hart=0 timer=sstc ticks_per_us=24 chosen.slot=a chosen.profile=- chosen.display=-)
+[INFO selftest] KSELFTEST: kernel image ok (base=0x400000 va=0xffffffc000400000 len=0x1202940 relocs=1105)
+[INFO mm] KINIT: mm frames in use (free=1043823 allocs=10 frees=0 pt_live=10 vmos=0 vmo_bytes=0)
+SCHED: timeslice=1000000
+SCHED: new exit
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO smp] KINIT: cpu0 online
+[INFO boot] KINIT: milestone 4 at 7848 ms (uart stalls=0)
+[INFO smp] KINIT: cpu1 online
+[INFO smp] KINIT: cpu2 online
+[INFO smp] KINIT: cpu3 online
+[INFO smp] KGATE: smp hart1 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp hart2 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp hart3 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp bringup ok mask=0xf
+[INFO boot] KINIT: milestone 5 at 9858 ms (uart stalls=0)
+
+     _ __   ___ _   _ _ __ ___  _ __
+    | '_ \ / _ \ | | | '__/ _ \| '_ \
+    | | | |  __/ |_| | | | (_) | | | |
+    |_| |_|\___|\__,_|_|  \___/|_| |_|
+
+    neuron vers. 0.1.0  ·  One OS. Many Devices.
+
+[INFO boot] KINIT: milestone 6 at 11379 ms (uart stalls=0)
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO selftest] KSELFTEST: as create ok
+[INFO selftest] KSELFTEST: vmo zero ok
+[INFO selftest] KSELFTEST: userptr guard ok
+[INFO selftest] KSELFTEST: as map ok
+[INFO selftest] KSELFTEST: vm map ok
+[INFO smp] KINIT: cpu1 ssoft trap
+[INFO selftest] KSELFTEST: vm unmap ok
+[INFO smp] KINIT: cpu2 ssoft trap
+[INFO smp] KINIT: cpu3 ssoft trap
+[ERROR pt] VA-FIXED-REFUSED va=0x51000000 (managed window or tracked region)
+[INFO smp] KINIT: cpu1 ssoft trap
+[INFO selftest] KSELFTEST: vm map reject ok
+[INFO selftest] KSELFTEST: vmo runs ok (runs=2 deny=4)
+[INFO selftest] KSELFTEST: vmo reach ok (window=0x7c000000+0x4000000 bus=0x4000000000 runs=1 deny=2)
+[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x8000100000001603
+[INFO selftest] KSELFTEST: direct-run begin
+[INFO as] AS: trampoline enter val=0x800020000000024d
+AS: post-satp OK
+[INFO selftest] KSELFTEST: direct-run set SUM
+[INFO selftest] KSELFTEST: direct-run calling entry sp=0x40000000
+[INFO selftest] KSELFTEST: direct call begin
+[INFO selftest] KSELFTEST: child entry
+[INFO selftest] KSELFTEST: child newas running
+[INFO selftest] KSELFTEST: child exit
+[INFO selftest] KSELFTEST: direct call return
+[INFO selftest] KSELFTEST: returned from child entry
+[INFO as] AS: trampoline enter val=0x8000100000001603
+AS: post-satp OK
+[INFO selftest] KSELFTEST: spawn ok
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO selftest] KSELFTEST: w^x enforced
+[INFO selftest] KSELFTEST: ipc queue full ok
+[INFO selftest] KSELFTEST: ipc bytes full ok
+[INFO selftest] KSELFTEST: ipc global bytes budget ok
+[INFO selftest] KSELFTEST: ipc owner bytes budget ok
+[INFO selftest] KSELFTEST: ipc recv waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send unblock ok
+[INFO selftest] KSELFTEST: ipc endpoint quota ok (created=384)
+[INFO selftest] KSELFTEST: ipc close wakes ok
+[INFO selftest] KSELFTEST: ipc owner-exit wakes ok
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO selftest] KSELFTEST: timer cap lifecycle ok
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO selftest] KSELFTEST: waitset wake ok
+[INFO selftest] KSELFTEST: waitset timeout ok
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO selftest] KSELFTEST: fence wait ok
+[INFO selftest] KSELFTEST: fence timeout ok
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO selftest] KSELFTEST: fence transfer ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason oom ok
+[INFO selftest] KSELFTEST: spawn reason cap-table-full ok
+[INFO selftest] KSELFTEST: spawn reason endpoint-quota ok
+[INFO selftest] KSELFTEST: spawn reason map-failed ok
+[INFO selftest] KSELFTEST: spawn reasons ok
+[INFO selftest] KSELFTEST: resource sentinel ok
+[INFO selftest] KSELFTEST: cpuid tp ok
+[INFO selftest] KSELFTEST: cpuid fallback counterfactual ok
+[INFO selftest] KSELFTEST: sched affinity reject ok
+[INFO selftest] KSELFTEST: sched abi ok
+[INFO selftest] KSELFTEST: smp online ok
+[INFO selftest] KSELFTEST: kernel lock contention bounded ok
+[INFO selftest] KSELFTEST: ipi counterfactual ok
+[INFO selftest] KSELFTEST: ipi resched ok
+[INFO selftest] KSELFTEST: test_reject_invalid_ipi_target_cpu ok
+[INFO selftest] KSELFTEST: test_reject_offline_cpu_resched ok
+[INFO selftest] KSELFTEST: runtime ipi budget ok
+[INFO selftest] KSELFTEST: runtime stress ok
+[INFO selftest] KSELFTEST: work stealing ok
+[INFO selftest] KSELFTEST: edt arm ok
+[INFO selftest] KSELFTEST: steal park ok
+[INFO selftest] KSELFTEST: test_reject_steal_above_bound ok
+[INFO selftest] KSELFTEST: test_reject_steal_higher_qos ok
+[INFO selftest] KSELFTEST: tlb shootdown counterfactual ok
+[INFO selftest] KSELFTEST: tlb shootdown ok
+[INFO selftest] KSELFTEST: sched affinity clamp ok
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO selftest] KSELFTEST: exit ok
+[INFO selftest] KSELFTEST: wait ok
+[INFO boot] KINIT: milestone 7 at 13588 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: spawn init begin
+SYSCALL install debug_putc=0xffffffc000448792
+SYSCALL install ep_create=0xffffffc000441f6a
+[INFO boot] KINIT: milestone 8 at 15742 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x2cd42 flags=0x5
+[INFO selftest] KSELFTEST: map flags bits=0x1b
+[INFO selftest] KSELFTEST: segment copied (pages=45 first_pa=0x1612000 last_pa=0x1620000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1042cd48 memsz=0x871e44 flags=0x4
+[INFO selftest] KSELFTEST: map flags bits=0x13
+[INFO selftest] KSELFTEST: shared page va=0x1042c000 entry=0x58805b pa=0x1620000
+[INFO selftest] KSELFTEST: shared page copied va=0x1042c000
+[INFO selftest] KSELFTEST: segment copied (pages=2162 first_pa=0x1621000 last_pa=0x1b56000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10c9eb8c memsz=0x80475 flags=0x6
+[INFO selftest] KSELFTEST: map flags bits=0x17
+[INFO selftest] KSELFTEST: shared page va=0x10c9e000 entry=0x6d5853 pa=0x1b56000
+[INFO selftest] KSELFTEST: shared page copied va=0x10c9e000
+[INFO selftest] KSELFTEST: segment copied (pages=129 first_pa=0x1b57000 last_pa=0x1bd7000)
+[INFO boot] KINIT: milestone 9 at 18294 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: derived gp=0x10c9f38c from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10c9f38c
+[INFO selftest] KSELFTEST: spawn ok pid=17
+[INFO boot] KINIT: milestone 10 at 21093 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: init spawned successfully
+[INFO selftest] KSELFTEST: returning to idle loop for scheduling
+[INFO smp] KSELFTEST: plic ctx cpu0 ok
+[INFO smp] KSELFTEST: plic ctx cpu1 ok
+[INFO smp] KSELFTEST: plic ctx cpu2 ok
+[INFO smp] KSELFTEST: plic ctx cpu3 ok
+[INFO smp] KSELFTEST: plic isolation ok
+[INFO smp] KINIT: timer sstc
+[INFO smp] KINIT: user cache maintenance zicbom block=64
+[INFO boot] KINIT: milestone 11 at 23432 ms (uart stalls=0)
+[INFO boot] KINIT: irq state before runtime sstatus=0x8000000200006622 sie=0x220 sip=0x0
+[INFO smp] KINIT: cpu1 sched loop
+[INFO smp] KINIT: cpu2 sched loop
+[INFO smp] KINIT: cpu1 pick pid=16 as=true sstatus=0x40120 sepc=0xffffffc00043917c
+[INFO smp] KSELFTEST: smp per-hart ticks ok
+[INFO smp] KSELFTEST: smp per-hart ticks ok
+[INFO smp] KINIT: cpu3 sched loop
+[INFO smp] KINIT: cpu1 pick pid=17 as=true sstatus=0x40020 sepc=0x10400000
+[INFO smp] KSELFTEST: smp per-hart ticks ok
+[INFO smp] KINIT: cpu0 sched loop
+[INFO as] AS: trampoline enter val=0x8000600000001611
+AS: post-satp OK
+[INFO smp] KSELFTEST: smp exec cpu1 ok
+[INFO smp] KINIT: bkl wait 23908us cpu0
+[INFO smp] KINIT: bkl wait 8695us cpu1
+[INFO smp] KINIT: bkl wait 8439us cpu0
+[INFO smp] KINIT: bkl wait 8447us cpu1
+!init-lite entry
+[INFO smp] KINIT: bkl wait 12254us cpu0
+[INFO smp] KINIT: bkl wait 147692us cpu2
+init: entry
+log topics mask=0x0000000000000001
+init: start
+init: start keystored
+init: start rngd
+init: start socd
+init: start policyd
+init: start logd
+init: start samgrd
+init: start bundlemgrd
+[INFO smp] KSELFTEST: runtime timer budget ok
+init: start statefsd
+init: start updated
+init: updated ctrl slots send=0x0000000000000001 recv=0x0000000000000002
+[INFO smp] KINIT: long ecall nr=16 14ms cpu1
+init: start packagefsd
+init: start vfsd
+init: start execd
+init: start selftest-client
+init: start bootctld
+init: start blkd
+init: ready
+!init-lite ready
+init: blk plane wired svc=bundlemgrd
+init: blk irq ep wired
+init: blkd route->socd ok
+init: policyd priority-wired
+[INFO smp] KINIT: enqueue cpu3 pid=21
+[INFO smp] KINIT: cpu3 pick pid=21 as=true sstatus=0x40020 sepc=0x1538e
+[INFO as] AS: trampoline enter val=0x8000a00000001d2f
+AS: post-satp OK
+[INFO smp] KSELFTEST: smp exec cpu3 ok
+[INFO as] AS: trampoline enter val=0x8000100000001603
+AS: post-satp OK
+[INFO smp] KINIT: long ecall nr=18 15ms cpu1
+policyd: ready
+abi-profile: ready (server=policyd|abi-filterd)
+[INFO smp] KINIT: long ecall nr=44 10ms cpu3
+policyd: audit emit deferred
+policyd: mmio blk deny priv
+[INFO smp] KINIT: enqueue cpu1 pid=17
+[INFO as] AS: trampoline enter val=0x8000600000001611
+AS: post-satp OK
+init: mmio policy deny ok
+[INFO as] AS: trampoline enter val=0x8000100000001603
+AS: post-satp OK
+[INFO smp] KINIT: long ecall nr=40 15ms cpu3
+init: devices from fdt ok (virtio=0000000000000000 blk_irq=0000000000000000 gpu_irq=0000000000000000 input_irqs=0000000000000000,0000000000000000,0000000000000000, rtc=0000000000000000)
+[INFO smp] KINIT: long ecall nr=44 39ms cpu0
+init: devices from pci ok (hosts=0 functions=0 sd=none)
+[INFO smp] KINIT: long ecall nr=44 11ms cpu0
+init: device tree grant ok svc=socd
+[INFO smp] KINIT: enqueue cpu3 pid=21
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+[INFO smp] KSELFTEST: smp exec cpu2 ok
+init: device tree grant ok svc=blkd
+init: console ring grant ok svc=blkd
+policyd: audit emit deferred
+init: boot disk ok (kind=spacemit,k1-sdhci record=/soc/storage-bus/mmc@d4281000 irq=101)
+[INFO smp] KINIT: long ecall nr=44 18ms cpu0
+bundlemgrd: ready
+init: start metricsd
+[INFO bundlemgrd] core service log probe: bundlemgrd
+[INFO smp] KINIT: long ecall nr=16 11ms cpu1
+socd: ready (providers=6)
+socd: bring-up /soc/storage-bus/mmc@d4281000 ok (domains=1 resets=2 clocks=2 rates=0 pads=0 writes=0) apmu+54:411b>411b apmu+e0:112>112
+blkd: backend ok (kind=spacemit,k1-sdhci soc=ok record=/soc/storage-bus/mmc@d4281000 mode=hs400es bus=8 sectors=30535680)
+blkd: gpt ok (parts=7)
+blkd: irq endpoint bound
+blkd: ready
+bundlemgrd: system volume verified (slot=a build=dev-029f bundles=23)
+bundlemgrd: bundle served (name=metricsd read_ms=1 hash_ms=2)
+init: spawn from volume svc=metricsd bundle=metricsd@1.0.0 sha=a813d9408249f18c
+init: start settingsd
+bundlemgrd: bundle served (name=settingsd read_ms=0 hash_ms=1)
+init: spawn from volume svc=settingsd bundle=settingsd@1.0.0 sha=9d75031c637a6f56
+init: start timed
+bundlemgrd: bundle served (name=timed read_ms=0 hash_ms=0)
+init: spawn from volume svc=timed bundle=timed@1.0.0 sha=4285dc01a8e139df
+init: start abilitymgr
+bundlemgrd: bundle served (name=abilitymgr read_ms=0 hash_ms=1)
+init: spawn from volume svc=abilitymgr bundle=abilitymgr@1.0.0 sha=cb38f1cf9240313e
+init: start sessiond
+bundlemgrd: bundle served (name=sessiond read_ms=0 hash_ms=1)
+init: spawn from volume svc=sessiond bundle=sessiond@1.0.0 sha=a093ee81ccda0f32
+init: start netstackd
+bundlemgrd: bundle served (name=netstackd read_ms=1 hash_ms=3)
+init: spawn from volume svc=netstackd bundle=netstackd@1.0.0 sha=b4e2bc2257c5fed4
+init: start ingressd
+bundlemgrd: bundle served (name=ingressd read_ms=0 hash_ms=1)
+init: spawn from volume svc=ingressd bundle=ingressd@1.0.0 sha=c519429928cead8b
+init: start dsoftbusd
+bundlemgrd: bundle served (name=dsoftbusd read_ms=1 hash_ms=4)
+init: spawn from volume svc=dsoftbusd bundle=dsoftbusd@1.0.0 sha=0e5cdcb79a9488da
+init: start hidrawd
+bundlemgrd: bundle served (name=hidrawd read_ms=0 hash_ms=1)
+init: spawn from volume svc=hidrawd bundle=hidrawd@1.0.0 sha=62e4d121d1a7adbb
+init: start touchd
+bundlemgrd: bundle served (name=touchd read_ms=0 hash_ms=0)
+init: spawn from volume svc=touchd bundle=touchd@1.0.0 sha=7a512d6a04d679ca
+init: start gpud
+bundlemgrd: bundle served (name=gpud read_ms=5 hash_ms=14)
+init: spawn from volume svc=gpud bundle=gpud@1.0.0 sha=1ec86d6790324b18
+init: start windowd
+blkd: trace os ok (slot=1 seq=2)
+bundlemgrd: bundle served (name=windowd read_ms=72 hash_ms=231)
+init: spawn from volume svc=windowd bundle=windowd@1.0.0 sha=c1394c7bac42e7ac
+init: start inputd
+bundlemgrd: bundle served (name=inputd read_ms=1 hash_ms=1)
+init: spawn from volume svc=inputd bundle=inputd@1.0.0 sha=fb66c96c0585115f
+init: start imed
+bundlemgrd: bundle served (name=imed read_ms=1 hash_ms=3)
+init: spawn from volume svc=imed bundle=imed@1.0.0 sha=550ff56ed9528abd
+init: start pinched
+bundlemgrd: bundle served (name=pinched read_ms=2 hash_ms=5)
+init: spawn from volume svc=pinched bundle=pinched@1.0.0 sha=0a043f7b9550ecaa
+init: probe key_req self-xfer pid=0x0000000000000011 cap=0x0000000000000068
+init: probe key_req self-xfer SEND ok slot=0x0000000000000069
+init: probe key_req self-xfer RECV ok slot=0x0000000000000069
+init: blk plane wired svc=statefsd
+init: blk plane wired svc=updated
+init: blk plane wired svc=vfsd
+init: blk plane wired svc=bootctld
+init: selftest-client route->vfsd ok
+init: selftest-client route->packagefsd ok
+init: selftest-client route->policyd ok
+init: selftest-client route->bundlemgrd ok
+init: selftest-client route->updated ok
+init: selftest-client route->samgrd ok
+init: selftest-client route->execd ok
+init: selftest-client route->keystored ok
+init: selftest-client route->statefsd ok
+init: selftest-client route->logd ok
+init: selftest-client route->inputd ok
+init: selftest-client route->netstackd ok
+init: selftest-client route->dsoftbusd ok
+init: selftest-client route->rngd ok
+init: selftest-client route->socd ok
+init: selftest-client route->timed ok
+init: selftest-client route->metricsd ok
+init: selftest-client route->pinched ok
+init: selftest-client route->settingsd ok
+init: selftest-client route->ingressd ok
+init: selftest-client route->imed ok
+init: selftest-client route->imed-osk ok
+init: selftest-client route->bootctld ok
+init: selftest-client route->blkd ok
+init: windowd priority-wired
+init: inputd priority-wired
+init: keystored slots recv=0x0000000000000003 send=0x0000000000000004
+init: keystored route->statefsd ok
+init: keystored route->logd ok
+init: keystored route->policyd ok
+init: keystored route->rngd ok
+init: policyd slots recv=0x0000000000000003 send=0x0000000000000004
+init: policyd route->logd ok
+init: logd slots recv=0x0000000000000003 send=0x0000000000000004
+init: logd route->statefsd ok
+init: samgrd slots recv=0x0000000000000003 send=0x0000000000000004
+init: samgrd route->logd ok
+init: bundlemgrd slots recv=0x0000000000000003 send=0x0000000000000004
+init: bundlemgrd route->logd ok
+init: bundlemgrd route->metricsd ok
+init: statefsd slots recv=0x0000000000000003 send=0x0000000000000004
+init: statefsd route->policyd ok
+init: statefsd route->logd ok
+init: updated slots recv=0x0000000000000003 send=0x0000000000000004
+init: updated route->bundlemgrd ok
+init: updated route->keystored ok
+init: updated route->statefsd ok
+init: updated route->vfsd ok
+init: updated route->bootctld ok
+init: updated route->policyd ok
+init: updated route->logd ok
+init: execd reply slots recv=0x0000000000000005 send=0x0000000000000006
+init: execd logd slots send=0x0000000000000007 recv=0x0000000000000005
+init: execd windowd slots send=0x0000000000000008 recv=0x0000000000000009
+init: execd bundle slot send=0x000000000000000a
+init: execd recv-wake slots ping=0x000000000000000b/0x000000000000000c reply=0x000000000000000d/0x000000000000000e
+init: execd route->abilitymgr ok
+init: execd route->sessiond ok
+init: execd route->settingsd ok
+init: execd route->timed ok
+init: execd route->imed-osk ok
+init: execd route->vfsd ok
+init: execd route->updated ok
+init: execd route->statefsd ok
+init: execd route->policyd ok
+init: bootctld slots recv=0x0000000000000003 send=0x0000000000000004
+init: bootctld route->statefsd ok
+init: bootctld route->policyd ok
+init: blkd slots recv=0x0000000000000003 send=0x0000000000000004
+init: metricsd slots recv=0x0000000000000003 send=0x0000000000000004
+init: metricsd route->statefsd ok
+init: metricsd route->logd ok
+init: abilitymgr slots recv=0x0000000000000003 send=0x0000000000000004
+init: abilitymgr route->bundlemgrd ok
+init: abilitymgr route->execd ok
+init: abilitymgr route->sessiond ok
+init: sessiond slots recv=0x0000000000000003 send=0x0000000000000004
+init: netstackd slots recv=0x0000000000000003 send=0x0000000000000004
+init: netstackd route->policyd ok
+init: ingressd slots recv=0x0000000000000003 send=0x0000000000000004
+init: ingressd route->policyd ok
+init: ingressd route->netstackd ok
+init: dsoftbusd slots recv=0x0000000000000003 send=0x0000000000000004
+init: dsoftbusd route->netstackd ok
+init: dsoftbusd route->samgrd ok
+init: dsoftbusd route->bundlemgrd ok
+init: dsoftbusd route->packagefsd ok
+init: dsoftbusd route->statefsd ok
+init: dsoftbusd route->logd ok
+init: hidrawd inputd slots send=0x0000000000000003 recv=0x0000000000000004
+init: gpud slots recv=0x0000000000000003 send=0x0000000000000004
+init: gpud route->socd ok
+init: windowd already priority-wired, skip
+init: windowd route->bundlemgrd ok
+init: windowd route->sessiond ok
+init: windowd route->settingsd ok
+init: windowd route->abilitymgr ok
+init: windowd route->imed ok
+init: windowd settings-watch ok
+init: inputd already priority-wired, skip
+init: inputd windowd slots send=0x0000000000000005 recv=0x0000000000000006
+init: inputd route->imed ok
+init: inputd settings-watch ok
+init: inputd reply inbox ok
+init: imed osk recv ok
+init: imed route->windowd ok
+init: imed route->settingsd ok
+init: imed route->statefsd ok
+init: net plane none (no device in the tree)
+statefsd: entry
+init: rng plane none (no device in the tree)
+statefsd: journal v2 mounted (2PC)
+init: rtc not in the device tree (walltime unavailable)
+init: gpu plane none (no device in the tree)
+vfsd: ready
+vfsd: namespace ready
+execd: entry
+execd: ready
+policyd: audit emit ok
+policyd: audit emit ok
+init: display plane ok (controller + encoder to gpud)
+init: device tree grant ok svc=selftest-client
+statefsd: ready
+init: device tree grant ok svc=gpud
+statefsd: write hardening on (auth-envelope)
+statefsd: encryption off
+keystored: ready
+keystored: statefs backend ok
+rngd: ready
+logd: ready
+logd: rx first
+logd: append rx
+samgrd: ready
+samgrd: mode os-lite
+samgrd: slots logging
+logd: append rsp status=0x00
+blk: virtio-blk up
+blk: virtio-blk up (ss=512 nsec=131072)
+samgrd: slots 00000003 00000004
+packagefsd: ready
+bootctld: ready
+bundlemgrd: volume status served
+RECVWAKE: woke from blocking recv
+packagefsd: mounted (system volume slot=a bundles=23 files=115)
+statefsd: virtio upgrade ok
+bootctld: target=normal next=none
+init: stage graph target=normal
+updated: entry
+init: deferred resume hidrawd
+init: deferred resume gpud
+init: deferred resume windowd
+updated: slots 0003 0004
+RECVWAKE: woke twice (park/wake cycle repeats)
+init: deferred resume inputd
+execd: recv-wake probe ok
+netstackd: ready
+ingressd: ready
+SELFTEST: exec child blocking recv wake ok
+init: affinity applied n=0x000000000000001e clamped=0x0000000000000000 fail=0x0000000000000000
+execd: recv-wake probe eof on exit ok
+SELFTEST: exec child eof on exit ok
+pinched: ready
+samgrd: rx
+init: timing spawn_ms=44 volume_ms=614 grants_at_ms=1304 wiring_at_ms=1304 total_ms=1413 (grant_wait_ms=30 grants=9 wiring_ms=0 tail_ms=109)
+samgrd: register seen
+init: up keystored
+init: up rngd
+init: up socd
+init: up policyd
+init: up logd
+updated: ready (bootctl client)
+init: up samgrd
+init: up bundlemgrd
+init: up statefsd
+init: up packagefsd
+init: up vfsd
+init: up execd
+init: up bootctld
+init: up blkd
+stage: platform
+init: up netstackd
+init: up ingressd
+init: up pinched
+init: ctrl req from updated
+init: up updated
+timed: ready
+execd: atlas vmo ready
+init: up timed
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0032
+pinched: workpool ready
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+child: exit0 start
+[USER-PF] regs gp=0x0000000000001800
+metricsd: ready
+[USER-PF] regs a0=0x0000000000000000
+settingsd: load prefs (n=0)
+[USER-PF] regs a1=0x0000000000000000
+metricsd: mm snapshot ok (total=4275539968 free=4211728384 vmo_bytes=15572992 dma_bytes=4096 own_rss=565248 gauges=5)
+[USER-PF] regs a2=0x0000000000000000
+settingsd: ready
+[USER-PF] regs a3=0x0000000000000000
+[INFO smp] KINIT: wake pid=17 not-blocked
+[USER-PF] regs t0=0x0000000000000000
+[USER-PF] regs t1=0x0000000000000000
+[USER-PF] regs t2=0x0000000000000000
+[USER-PF] regs s0=0x0000000000001043
+[USER-PF] regs s1=0x0000000000000000
+[USER-PF] regs s2=0x0000000000000000
+[USER-PF] regs s3=0x0000000000000000
+[USER-PF] regs s4=0x0000000000000000
+[USER-PF] regs s5=0x0000000000000000
+[USER-PF] regs s6=0x0000000000000000
+[USER-PF] regs s7=0x0000000000000000
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+[USER-PF] regs s11=0x0000000000000000
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+[USER-PF] regs t6=0x0000000000000000
+[USER-PF] stack +0x0000 = 0x0000000000000000
+[USER-PF] stack +0x0008 = 0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+[USER-PF] stack +0x0018 = 0x0000000000000000
+[USER-PF] stack +0x0020 = 0x0000000000000000
+[USER-PF] stack +0x0028 = 0x0000000000000000
+[USER-PF] stack +0x0030 = 0x0000000000000000
+[USER-PF] stack +0x0038 = 0x0000000000000000
+[USER-PF] task sepc=0x0000000000001018
+[USER-PF] task sp=0x0000000020008000
+hidrawd: input slot missing 50
+hidrawd: input slot missing 51
+gpud: features=os-lite
+gpud: display mode 1920x1080 (maximum)
+SELFTEST: init supervision sweep ok
+init: up metricsd
+hidrawd: input slot missing 52
+hidrawd: os service payload ready
+init: up settingsd
+imed: ready
+[INFO smp] KINIT: wake pid=17 not-blocked
+init: restart svc=fault-probe attempt=0x0000000000000001
+socd: bring-up /soc/multimedia-bus/display@c0440000 ok (domains=1 resets=1 clocks=1 rates=1 pads=0 writes=5) apmu+3f4:0>11 apmu+f0:8>8008 apmu+1b8:1040304>1040321
+init: up imed
+touchd: os service payload ready
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0035
+init: service exit name=touchd reason=clean code=0x0000000000000000
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+init: up touchd
+[USER-PF] regs gp=0x0000000000001800
+socd: bring-up /soc/hdmi@c0400500 ok (domains=1 resets=1 clocks=1 rates=1 pads=4 writes=4) apmu+3f4:11>11 apmu+f0:8008>8008 apmu+1b8:1040321>1040321 pinctrl+1ec:d040>d041 pinctrl+1f0:d040>d041 pinctrl+1f4:b040>b041 pinctrl+1f8:b040>b041
+[USER-PF] regs a0=0x0000000000000000
+gpud: dc glue ok (controller + encoder up through socd)
+[USER-PF] regs a1=0x0000000000000000
+gpud: dc controller ok (version=0x03001030)
+[USER-PF] regs a2=0x0000000000000000
+gpud: dc encoder ok (hpd=1 pll=locked)
+[USER-PF] regs a3=0x0000000000000000
+[USER-PF] regs t0=0x0000000000000000
+[USER-PF] regs t1=0x0000000000000000
+[USER-PF] regs t2=0x0000000000000000
+[USER-PF] regs s0=0x0000000000001043
+[USER-PF] regs s1=0x0000000000000000
+[USER-PF] regs s2=0x0000000000000000
+[USER-PF] regs s3=0x0000000000000000
+[USER-PF] regs s4=0x0000000000000000
+[USER-PF] regs s5=0x0000000000000000
+[USER-PF] regs s6=0x0000000000000000
+[USER-PF] regs s7=0x0000000000000000
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+[USER-PF] regs s11=0x0000000000000000
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+[USER-PF] regs t6=0x0000000000000000
+[USER-PF] stack +0x0000 = 0x0000000000000000
+[USER-PF] stack +0x0008 = 0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+[USER-PF] stack +0x0018 = 0x0000000000000000
+gpud: dc census encoder+0x0: 4=ee 8=1000 c=e0003000 18=51158080 20=32028420 24=25803274 28=1c208000 30=2000304 34=8000004d 60=f1151 7c=800a0184 e0=ae5c010f e4=10003 e8=203f0000 ec=509d453e f0=821 100=ff
+[USER-PF] stack +0x0020 = 0x0000000000000000
+gpud: dc census encoder+0x0: 110=e9b77bde 114=298ebf2e 118=ff5f5734 11c=fd0fad00 128=1d0000 13c=a
+[USER-PF] stack +0x0028 = 0x0000000000000000
+gpud: dc readback ok (27 words)
+[USER-PF] stack +0x0030 = 0x0000000000000000
+gpud: dc scanout ok (1920x1080@60 cea bus=0x5000000 vsync)
+[USER-PF] stack +0x0038 = 0x0000000000000000
+[USER-PF] task sepc=0x0000000000001018
+[USER-PF] task sp=0x0000000020008000
+dsoftbusd: entry
+dsoftbusd: waiting for local ip
+gpud: ready
+gpud: framebuffer granted (1920x1080)
+SELFTEST: supervision restart ok
+windowd: display mode from gpud (1920x1080)
+init: up gpud
+windowd: runtime init start
+windowd: font family=inter sizes=13,16
+windowd: shell config product=tablet profile=tablet shell=tablet kind=tablet chrome=false locked=false
+windowd: wallpaper loaded (jpeg)
+windowd: runtime init ok
+init: restart svc=fault-probe attempt=0x0000000000000002
+windowd: ready (w=1920, h=1080, hz=120)
+windowd: backend=gpu
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0036
+init: up windowd
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+[USER-PF] regs gp=0x0000000000001800
+[USER-PF] regs a0=0x0000000000000000
+[USER-PF] regs a1=0x0000000000000000
+[USER-PF] regs a2=0x0000000000000000
+[USER-PF] regs a3=0x0000000000000000
+[USER-PF] regs t0=0x0000000000000000
+[USER-PF] regs t1=0x0000000000000000
+[USER-PF] regs t2=0x0000000000000000
+[USER-PF] regs s0=0x0000000000001043
+[USER-PF] regs s1=0x0000000000000000
+[USER-PF] regs s2=0x0000000000000000
+[USER-PF] regs s3=0x0000000000000000
+[USER-PF] regs s4=0x0000000000000000
+[USER-PF] regs s5=0x0000000000000000
+[USER-PF] regs s6=0x0000000000000000
+[USER-PF] regs s7=0x0000000000000000
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+[USER-PF] regs s11=0x0000000000000000
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+layout: engine on
+[USER-PF] regs t6=0x0000000000000000
+text: wrapping on
+[USER-PF] stack +0x0000 = 0x0000000000000000
+display: bootstrap on
+[USER-PF] stack +0x0008 = 0x0000000000000000
+display: mode 1920x1080 argb8888
+[USER-PF] stack +0x0010 = 0x0000000000000000
+windowd: backend=visible
+[USER-PF] stack +0x0018 = 0x0000000000000000
+windowd: compose ready
+[USER-PF] stack +0x0020 = 0x0000000000000000
+windowd: present queued
+[USER-PF] stack +0x0028 = 0x0000000000000000
+windowd: gpud route wired slots
+[USER-PF] stack +0x0030 = 0x0000000000000000
+windowd: handoff attach sent
+[USER-PF] stack +0x0038 = 0x0000000000000000
+gpud: recv OP_SET_FRAMEBUFFER_VMO
+[USER-PF] task sepc=0x0000000000001018
+gpud: handoff attach ack
+[USER-PF] task sp=0x0000000020008000
+gpud: cursor on
+gpud: display ready
+gpud: timing handoff_to_ready_ms=12
+windowd: handoff attach ack
+windowd: fb handoff to gpud ok
+windowd: handoff present sent
+gpud: chain G1 recv present-damage
+gpud: chain G2 parse ok
+windowd: present ok (seq=1 dmg=1)
+windowd: present scheduler on
+SELFTEST: ui v2 present ok
+windowd: cursor svg loaded
+windowd: wallpaper visible
+gpud: chain G3 exec ok (commands applied)
+windowd: text target visible
+windowd: icon target visible
+gpud: dc first present (exec_us=14044 clean_us=824 damage=1920x1080)
+windowd: effects on
+windowd: effect blur ok
+SELFTEST: ime ranking persist ok
+gpud: chain G4 scanout ok (frame presented)
+SELFTEST: ui v3 effect ok
+gpud: recv OP_UPLOAD_CURSOR
+gpud: cursor uploaded
+windowd: cursor shape cache pushed
+windowd: session watch subscribed
+[INFO smp] KINIT: wake pid=44 not-blocked
+inputd: display space from windowd (1920x1080)
+inputd: ready
+settingsd: watch registered (sync 2/2)
+[INFO smp] KINIT: wake pid=44 not-blocked
+inputd: keymap=de
+init: restart svc=fault-probe attempt=0x0000000000000003
+[INFO smp] KINIT: wake pid=44 not-blocked
+inputd: os service payload ready
+inputd: settings watch subscribed
+[INFO smp] KINIT: wake pid=44 not-blocked
+inputd: windowd visible-state pushed
+windowd: chain I6 input recv (state applied)
+inputd: chain I5 delivered to windowd
+settingsd: watch registered (sync 5/5)
+windowd: full-window color visible
+chsettingsd: watch registered (sync 1/1)
+init: up inputd
+windowd: cursor move visible
+stage: display-ready
+abilitymgr: ready
+sessiond: ready
+ild: settingsd: watch registered (sync 1/1)
+inputd: keymap set de
+sessiond: greeter (n=1)
+stage: session-start
+fault start
+windowd: launch request app=greeter
+windowd: greeter on (dsl)
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0037
+abilitymgr: registry ok (n=4)
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+[INFO metricsd] metrics init: up abilitymgr
+[USER-PF] regs gp=0x0000000000001800
+abilitymgr: caps ok app=calculator (n=1)
+[USER-PF] regs a0=0x0000000000000000
+abilitymgr: caps ok app=chat (n=1)
+[USER-PF] regs a1=0x0000000000000000
+snapshot counter nainit: up sessiond
+[USER-PF] regs a2=0x0000000000000000
+abilitymgr: caps ok app=desktop-shell (n=5)
+[USER-PF] regs a3=0x0000000000000000
+abilitymgr: caps ok app=greeter (n=3)
+[USER-PF] regs t0=0x0000000000000000
+me=bundlemgrd.list_apps.ok value=1
+[USER-PF] regs t1=0x0000000000000000
+abilitymgr: caps ok app=ime-ui (n=2)
+[USER-PF] regs t2=0x0000000000000000
+abilitymgr: caps ok app=settings (n=3)
+[USER-PF] regs s0=0x0000000000001043
+policyd: audit emit ok
+[USER-PF] regs s1=0x0000000000000000
+abilitymgr: caps ok app=stash (n=2)
+[USER-PF] regs s2=0x0000000000000000
+[INFO metricsd] retention wal active
+[USER-PF] regs s3=0x0000000000000000
+inputd: settings watch resync
+[USER-PF] regs s4=0x0000000000000000
+abilitymgr: caps ok app=window-kit (n=0)
+[USER-PF] regs s5=0x0000000000000000
+abilitymgr: launch (app=greeter, inst=1)
+[USER-PF] regs s6=0x0000000000000000
+execd: exit pid=48 reason=clean code=0
+[USER-PF] regs s7=0x0000000000000000
+execd: reaped pid=48 code=0
+[USER-PF] regs s8=0x0000000000000000
+execd: app payload requested
+[USER-PF] regs s9=0x0000000000000000
+execd: sched recipe applied (img=4 mask=0xf shares=100)
+[USER-PF] regs s10=0x0000000000000000
+execd: apphost windowd route granted
+[USER-PF] regs s11=0x0000000000000000
+execd: app payload granted
+[USER-PF] regs t3=0x0000000000000000
+execd: app event channel granted (minted)
+[USER-PF] regs t4=0x0000000000000000
+execd: atlas vmo granted
+[USER-PF] regs t5=0x0000000000000000
+statefsd: drop reply (no cap moved)
+[USER-PF] regs t6=0x0000000000000000
+execd: app reply inbox granted (minted)
+[USER-PF] stack +0x0000 = 0x0000000000000000
+execd: app route granted svc=session
+[USER-PF] stack +0x0008 = 0x0000000000000000
+execd: app route granted svc=time
+[USER-PF] stack +0x0010 = 0x0000000000000000
+bundlemgrd: payload served
+[USER-PF] stack +0x0018 = 0x0000000000000000
+apphost: start
+[USER-PF] stack +0x0020 = 0x0000000000000000
+APPHOST: atlas mapped
+[USER-PF] stack +0x0028 = 0x0000000000000000
+APPHOST: events source=dedicated
+[USER-PF] stack +0x0030 = 0x0000000000000000
+APPHOST: events attached (nonce)
+[USER-PF] stack +0x0038 = 0x0000000000000000
+WINDOWD: app event channel attached nonce=0x71724cf7a
+[USER-PF] task sepc=0x0000000000001018
+APPHOST: settings received
+[USER-PF] task sp=0x0000000020008000
+APPHOST: payload source=bundle
+WINDOWD: surface intent style=2 level=1 mode=0 -> 1920x1080
+APPHOST: content rect received
+APPHOST: mounted hash=d7b31eb67c1e8038
+apphost: window intent style=plain mode=auto level=desktop resizable=false
+abilitymgr: spawn ok
+apphost: dsl svc session.users ok
+apphost: dsl svc session.active ok
+APPHOST: initial effects ran
+alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000001000 align=0x0000000000000008 class=0
+alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000002000 align=0x0000000000000008 class=0
+alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000004000 align=0x0000000000000008 class=0
+apphost: scroll window texts=6
+apphost: 6 text runs
+apphost: run '' face=BodySemi px=None box=Some((960, 16, 0, 20))
+apphost: run '--:--' face=Hero px=None box=Some((835, 40, 250, 126))
+apphost: run 'J' face=DisplaySemi px=None box=Some((949, 506, 21, 44))
+apphost: run 'Jenning' face=TitleSemi px=None box=Some((919, 584, 81, 26))
+apphost: run 'Enter password' face=Small px=None box=Some((869, 640, 156, 16))
+apphost: run 'Press Enter to sign in' face=Small px=None box=Some((893, 686, 133, 16))
+apphost: frame arena (layouts=1 gen=2 base=108440 peak=76475 of=1048576 spill=0 free=340 carve=
+init: restart svc=fault-probe attempt=0x0000000000000004
+apphost: scroll window texts=6
+apphost: locale de-DE applied
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0039
+apphost: scroll window texts=6
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+[USER-PF] regs gp=0x0000000000001800
+[USER-PF] regs a0=0x0000000000000000
+[USER-PF] regs a1=0x0000000000000000
+[USER-PF] regs a2=0x0000000000000000
+[USER-PF] regs a3=0x0000000000000000
+[USER-PF] regs t0=0x0000000000000000
+[USER-PF] regs t1=0x0000000000000000
+[USER-PF] regs t2=0x0000000000000000
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+[USER-PF] regs s0=0x0000000000001043
+[USER-PF] regs s1=0x0000000000000000
+[USER-PF] regs s2=0x0000000000000000
+[USER-PF] regs s3=0x0000000000000000
+[USER-PF] regs s4=0x0000000000000000
+[USER-PF] regs s5=0x0000000000000000
+[USER-PF] regs s6=0x0000000000000000
+[USER-PF] regs s7=0x0000000000000000
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+[USER-PF] regs s11=0x0000000000000000
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+[USER-PF] regs t6=0x0000000000000000
+[USER-PF] stack +0x0000 = 0x0000000000000000
+[USER-PF] stack +0x0008 = 0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+[USER-PF] stack +0x0018 = 0x0000000000000000
+[USER-PF] stack +0x0020 = 0x0000000000000000
+[USER-PF] stack +0x0028 = 0x0000000000000000
+[USER-PF] stack +0x0030 = 0x0000000000000000
+[USER-PF] stack +0x0038 = 0x0000000000000000
+[USER-PF] task sepc=0x0000000000001018
+[USER-PF] task sp=0x0000000020008000
+init: crash-loop blocked svc=fault-probe reason=fault
+SELFTEST: crash-loop cap ok
+bootctld: denied op=0x02 sender=0x52c6c4a34ffb3f69
+SELFTEST: nxra require ok
+statefsd: compaction done (gen=25, entries=55)
+[INFO metricsd] retention wal verified sender=0x4dac7c5bc8db33eb
+metricsd: drop reply (no cap moved)
+[INFO metricsd] metrics snapshot counter name=bundlemgrd.get_payload.ok value=1
+bootctld: nxra accept (key=197f6b23 action=slot-switch)
+SELFTEST: nxra accept ok
+bootctld: nxra reject (reason=replay)
+bootctld: denied op=0x02 sender=0x52c6c4a34ffb3f69
+SELFTEST: nxra replay deny ok
+SELFTEST: ipc routing keystored ok
+SELFTEST: keystored v1 ok
+SELFTEST: qos ok
+timed: audit register decision=allow reason=applied
+timed: audit register decision=deny reason=over_limit
+timed: audit register decision=deny reason=invalid_args
+SELFTEST: timed coalesce ok
+imed: reject foreign key source
+SELFTEST: imed reject foreign ok
+SELFTEST: ime v2 osk ok
+settingsd: set key=input.keymap value=jp
+inputd: keymap set jp
+settingsd: set key=input.keymap value=de
+inputd: keymap set de
+SELFTEST: ime v2 cjk jp ok
+settingsd: set key=input.keymap value=zh
+inputd: keymap set zh
+settingsd: set key=input.keymap value=de
+inputd: keymap set de
+SELFTEST: ime v2 candidates ok
+SELFTEST: ime ranking ok
+SELFTEST: walltime rtc FAIL
+SELFTEST: clock tz ok
+settingsd: watch registered (sync 1/1)
+settingsd: set key=input.keymap value=us
+inputd: keymap set us
+settingsd: set key=input.keymap value=de
+inputd: keymap set de
+settingsd: persist ok
+APPHOST: dsl frame rendered
+apphost: vmo filled
+windowd: focus id=desktop z=0
+windowd: windows push (n=0)
+WINDOWD: desktop surface created id=1 1920x1080
+systemui: dsl shell on
+APPHOST: surface created
+SELFTEST: settings watch ok
+settingsd: watch registered (sync 1/1)
+settingsd: set key=ui.locale value=en-US
+settingsd: set key=ui.locale value=de-DE
+WINDOWD: surface presented id=1 seq=1
+APPHOST: probe surface presented
+apphost: submitted 5 layers
+APPHOST: event loop armed
+WINDOWD: desktop layers=5
+apphost: presentation gen=13 applied
+SELFTEST: i18n switch ok
+SELFTEST: rng entropy send
+rngd: policy check
+SELFTEST: rng entropy FAIL (status=0000000000000003)
+socd: bring-up /soc/virtio_mmio@10001000 FAIL (no such node)
+SELFTEST: soc glue not needed ok
+socd: bring-up /soc/multimedia-bus/display@c0440000 ok (domains=1 resets=1 clocks=1 rates=1 pads=0 writes=0) apmu+3f4:11>11 apmu+f0:8008>8008 apmu+1b8:1040321>1040321
+socd: bring-up /soc/hdmi@c0400500 ok (domains=1 resets=1 clocks=1 rates=1 pads=4 writes=0) apmu+3f4:11>11 apmu+f0:8008>8008 apmu+1b8:1040321>1040321 pinctrl+1ec:d041>d041 pinctrl+1f0:d041>d041 pinctrl+1f4:b041>b041 pinctrl+1f8:b041>b041
+SELFTEST: soc glue display ok
+SELFTEST: rng entropy oversized ok
+keystored: reload from statefs (not found)
+rngd: policy check
+keystored: entropy request failed
+SELFTEST: device key pubkey FAIL (keygen status=0000000000000004)
+SELFTEST: statefs put ok
+policyd: audit emit ok
+statefsd: access denied path=/state/keystore/deny sender=0x52c6c4a34ffb3f69
+SELFTEST: statefs unauthorized access rejected
+SELFTEST: statefs persist begin
+SELFTEST: statefs persist put ok
+settingsd: persist ok
+SELFTEST: statefs persist sync ok
+WINDOWD: surface presented id=1 seq=2
+SELFTEST: statefs persist reopen ok
+SELFTEST: statefs persist ok
+statefs: quota warn subject=0x52c6c4a34ffb3f69 used=414 soft=256
+statefs: quota deny subject=0x52c6c4a34ffb3f69 used=414 hard=512 reason=quota-exceeded
+statefs: quota warn subject=0x52c6c4a34ffb3f69 used=414 soft=256
+SELFTEST: quota deny ok
+keystored: reload from statefs (not found)
+rngd: policy check
+keystored: entropy request failed
+SELFTEST: statefs auth put FAIL
+SELFTEST: statefs tamper deny FAIL
+SELFTEST: statefs rollback deny FAIL
+SELFTEST: statefs v2 crash-atomic ok
+gpud: dc reveal flip ok (bus=0x8fd2000 stride=7680 readback 3/3 cfg-ready cleared after 0 reads)
+gpud: desktop reveal (handshake seq=4)
+windowd: desktop revealed (seq=4)
+display: first scanout ok
+systemui: first frame visible
+windowd: present visible ok
+SELFTEST: ui visible present ok
+stage: shell-visible
+[INFO stage] shell-visible
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=19
+statefsd: compaction done (gen=26, entries=55)
+statefsd: compaction done (gen=27, entries=55)
+statefsd: compaction done (gen=28, entries=55)
+statefsd: compaction done (gen=29, entries=55)
+logd: evidence spill backlog overflow (drop-oldest)
+statefsd: compaction done (gen=30, entries=55)
+statefsd: compaction done (gen=31, entries=55)
+statefsd: compaction done (gen=32, entries=55)
+statefsd: compaction done (gen=33, entries=55)
+statefsd: compaction done (gen=34, entries=55)
+statefsd: compaction done (gen=35, entries=55)
+statefsd: compaction done (gen=36, entries=55)
+statefsd: compaction done (gen=37, entries=55)
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+statefsd: compaction done (gen=38, entries=55)
+SELFTEST: statefs v2 compact ok
+SELFTEST: statefs cold-boot persist ok
+rngd: policy check
+SELFTEST: statefs enc roundtrip FAIL
+SELFTEST: device key persist FAIL
+SELFTEST: reply slots 0000000000000018 0000000000000017
+SELFTEST: reply loopback ok
+SELFTEST: keystored capmove begin
+keystored: capmove seen
+keystored: capmove req
+SELFTEST: keystored capmove ok
+SELFTEST: samgrd slots 000000000000000d 000000000000000e
+SELFTEST: ipc routing samgrd ok
+init: route vfsd from selftest-client
+SELFTEST: routing vfsd st=0x0000000000000000 send=0x0000000000000003 recv=0x0000000000000004
+SELFTEST: samgrd register send
+SELFTEST: samgrd register rsp len 000000000000000d head=0000000081014d53
+SELFTEST: samgrd v1 register ok
+SELFTEST: samgrd lookup rsp len 000000000000000d head=0000000081014d53
+SELFTEST: samgrd v1 lookup ok
+SELFTEST: samgrd lookup rsp len 000000000000000d head=0000000182014d53
+SELFTEST: samgrd v1 unknown ok
+SELFTEST: samgrd v1 malformed ok
+SELFTEST: ipc routing policyd ok
+SELFTEST: bundlemgrd slots 0000000000000009 000000000000000a
+SELFTEST: ipc routing bundlemgrd ok
+init: route updated rsp status=0x0000000000000000 send=0x000000000000000b recv=0x000000000000000c
+SELFTEST: updated slots 000000000000000b 000000000000000c
+SELFTEST: ipc routing updated ok
+updated: rx
+updated: rx head 55 44 01
+updated: rx op 7f
+[INFO updated] core service log probe: updated
+updated: log probe
+SELFTEST: updated probe ok
+SELFTEST: bundlemgrd list send
+SELFTEST: bundlemgrd list sent
+SELFTEST: bundlemgrd list recv
+SELFTEST: bundlemgrd list recv ok
+SELFTEST: bundlemgrd v1 list ok
+bundlemgrd: volume status served
+SELFTEST: bundlemgrd volume ok
+SELFTEST: bundlemgrd v1 malformed ok
+dbg: phase ota skipped
+init: policyd route bundlemgrd->execd status=0x0000000000000001
+!route-deny: bundlemgrd -> execd (policy: missing ipc.core grant in base.toml?)
+[INFO metricsd] metrics snapshot counter name=bundlemgrd.list.ok value=1
+SELFTEST: bundlemgrd route execd denied ok
+policyd: audit emit ok
+SELFTEST: policy allow ok
+policyd: audit emit ok
+SELFTEST: policy deny ok
+[INFO metricsd] metrics snapshot counter name=bundlemgrd.route_status.fail value=1
+policyd: audit emit ok
+policyd: mmio blk deny nonpriv
+SELFTEST: mmio policy deny ok
+policyd: audit emit ok
+abi-filter: deny (subject=selftest-client syscall=statefs.put)
+SELFTEST: abi filter deny ok
+SELFTEST: abi filter allow ok
+abi-filter: deny (subject=selftest-client syscall=net.bind)
+SELFTEST: abi netbind deny ok
+SELFTEST: logd slots 0000000000000015 0000000000000016
+SELFTEST: logd record count=000000000000001f
+SELFTEST: logd has audit records
+SELFTEST: policy allow audit ok
+SELFTEST: policy deny audit ok
+SELFTEST: abi stale epoch reject ok
+policyd: audit emit ok
+statefsd: abi deny path=/state/app/selftest/secrets/probe subject=0x52c6c4a34ffb3f69
+policyd: abi mode subject=52c6c4a34ffb3f69 mode=learn epoch=2
+policyd: audit emit ok
+SELFTEST: abi enforce allow ok
+policyd: abi learn emitted (class=statefs)
+policyd: audit emit ok
+statefsd: abi deny path=/state/app/selftest/secrets/probe subject=0x52c6c4a34ffb3f69
+SELFTEST: abi enforce deny ok
+SELFTEST: abi learn collected ok
+SELFTEST: abi learn delivered ok
+SELFTEST: statefsd audit delivered ok
+policyd: abi mode subject=52c6c4a34ffb3f69 mode=enforce epoch=2
+policyd: audit emit ok
+SELFTEST: abi mode switch auth ok
+policyd: audit emit ok
+SELFTEST: keystored sign denied ok
+SELFTEST: policyd requester spoof denied ok
+SELFTEST: policy malformed ok
+[INFO smp] KINIT: bkl bring-up burst max_wait=61538us max_hold=23ms nr=44 gt10ms=382
+[INFO smp] KINIT: sweep bring-up max=12us tasks=58 calls=1 mean=12us skipped=491491 wakes=0 wakeus=0
+[INFO smp] KINIT: wake ipi max=19us mean=3us n=4509 sent=3910 elided=646
+regsoak: spin ms=0x000000000000000b
+SELFTEST: regsoak ok
+SELFTEST: ui runtime floor ok
+SELFTEST: affinity applied ok
+SELFTEST: qos shares ratio ok
+SELFTEST: svg local determinism ok
+SELFTEST: f32 soak ok
+SELFTEST: alloc soak ok
+SELFTEST: memset soak ok
+SELFTEST: thread spawn ok
+SELFTEST: workpool bounded ok
+SELFTEST: workpool determinism ok
+SELFTEST: workpool affinity ok
+pinched: job reject (oversize total)
+SELFTEST: pinched bounded ok
+pinched: svg raster done (par)
+SELFTEST: pinched svg ok
+pinched: inet reject (depth)
+SELFTEST: inet bounded ok
+SELFTEST: inet determinism ok
+SELFTEST: inet parallel exec ok
+SELFTEST: pinched determinism ok
+SELFTEST: ipc routing execd ok
+HELLOHDR
+^hello entry=0x0000000000010130 phoff=0x0000000000000040
+^hello p_offset=0x0000000000000130 p_vaddr=0x0000000000010130
+execd: sched recipe applied (img=1 mask=0xf shares=100)
+child: hello-elf
+execd: elf load ok
+SELFTEST: e2e exec-elf ok
+child: exit0 start
+execd: exit pid=62 reason=clean code=0
+execd: reaped pid=62 code=0
+execd: child exited pid=62 code=0
+SELFTEST: child exit ok
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x003f
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+[USER-PF] regs gp=0x0000000000001800
+[USER-PF] regs a0=0x0000000000000000
+[USER-PF] regs a1=0x0000000000000000
+[USER-PF] regs a2=0x0000000000000000
+[USER-PF] regs a3=0x0000000000000000
+[USER-PF] regs t0=0x0000000000000000
+[USER-PF] regs t1=0x0000000000000000
+[USER-PF] regs t2=0x0000000000000000
+[USER-PF] regs s0=0x0000000000001043
+[USER-PF] regs s1=0x0000000000000000
+[USER-PF] regs s2=0x0000000000000000
+[USER-PF] regs s3=0x0000000000000000
+[USER-PF] regs s4=0x0000000000000000
+[USER-PF] regs s5=0x0000000000000000
+[USER-PF] regs s6=0x0000000000000000
+[USER-PF] regs s7=0x0000000000000000
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+[USER-PF] regs s11=0x0000000000000000
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+[USER-PF] regs t6=0x0000000000000000
+[USER-PF] stack +0x0000 = 0x0000000000000000
+[USER-PF] stack +0x0008 = 0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+[USER-PF] stack +0x0018 = 0x0000000000000000
+[USER-PF] stack +0x0020 = 0x0000000000000000
+[USER-PF] stack +0x0028 = 0x0000000000000000
+[USER-PF] stack +0x0030 = 0x0000000000000000
+[USER-PF] stack +0x0038 = 0x0000000000000000
+[USER-PF] task sepc=0x0000000000001018
+[USER-PF] task sp=0x0000000020008000
+execd: exit pid=63 reason=fault code=-22
+init: route statefsd from execd
+init: route statefsd OK send=0x0000000000000016
+crash: retention gc on (budget=256KiB)
+policyd: audit emit ok
+policyd: audit emit ok
+policyd: audit emit ok
+policyd: audit emit ok
+crash: dump written (id=31590816250.63.demo.fault.nxcd bytes=284)
+execd: crash report pid=63 code=-22 name=demo.fault
+[WARN execd] crash pid=63 code=-22 name=demo.fault
+execd: crash logd append ok
+execd: reaped pid=63 code=-22
+init: route statefsd from logd
+SELFTEST: exit reason ok
+init: route statefsd OK send=0x0000000000000007
+init: route statefsd from execd
+init: route statefsd OK send=0x0000000000000016
+execd: minidump statefs route granted
+child: minidump start
+execd: exit pid=64 reason=error code=42
+execd: child exited pid=64 code=42
+execd: minidump written /state/crash/child.demo.minidump.nmd
+init: route statefsd from execd
+init: route statefsd OK send=0x0000000000000016
+policyd: audit emit ok
+policyd: audit emit ok
+crash: dump written (id=child.demo.minidump.nxcd bytes=278)
+execd: crash report pid=64 code=42 name=demo.minidump
+[INFO execd] crash pid=64 code=42 name=demo.minidump
+execd: crash logd append ok
+logd: evidence persist on (loaded=0x15)
+SELFTEST: crash report ok
+SELFTEST: minidump ok
+SELFTEST: crash artifact ok
+SELFTEST: crash redaction ok
+SELFTEST: minidump forged metadata rejected
+SELFTEST: minidump no-artifact metadata rejected
+SELFTEST: minidump mismatched build_id rejected
+execd: spawn id mismatch sender=5964670962199379817 expected=15410752674378784678 requester=demo.testsvc
+execd: spawn denied (id mismatch)
+SELFTEST: exec denied ok
+SELFTEST: execd malformed ok
+logd: reject invalid_args
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+logd: reject over_limit
+logd: reject rate_limited
+SELFTEST: logd hardening rejects ok
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+init: route samgrd from selftest-client
+init: route samgrd rsp status=0x0000000000000000 send=0x000000000000000d recv=0x000000000000000e
+samgrd: capmove seen
+metricsd: reject invalid_args
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] retention wal verified sender=0x52c6c4a34ffb3f69
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] retention rollup 10s active
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+metricsd: reject over_limit
+metricsd: reject rate_limited
+statefsd: compaction done (gen=39, entries=56)
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+[INFO metricsd] tracing span end name=selftest.sanity parent_span_id=0 duration_ns=10 status=0 start_attrs= end_attrs=
+SELFTEST: metrics security rejects ok
+[INFO metricsd] metrics snapshot counter name=selftest.counter value=3
+[INFO metricsd] metrics snapshot counter name=selftest.counter value=7
+[INFO metricsd] metrics snapshot gauge name=selftest.gauge value=7
+[INFO metricsd] metrics snapshot gauge name=selftest.gauge value=-3
+[INFO metricsd] metrics snapshot histogram name=selftest.hist count=1 sum=1000
+[INFO metricsd] metrics snapshot histogram name=selftest.hist count=2 sum=13000
+[INFO metricsd] tracing span end name=selftest.span parent_span_id=0 duration_ns=80 status=0 start_attrs=phase=selftest\n end_attrs=result=ok\n
+SELFTEST: metrics counters ok
+SELFTEST: metrics gauges ok
+SELFTEST: metrics histograms ok
+SELFTEST: tracing spans ok
+SELFTEST: metrics retention ok
+SELFTEST: log query ok
+[INFO selftest-client] nexus-log sink-logd probe
+logd: selftest append rx
+SELFTEST: nexus-log sink-logd ok
+SELFTEST: core services log ok
+SELFTEST: evidence query ok
+statefsd: compaction done (gen=40, entries=56)
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+statefsd: compaction done (gen=41, entries=56)
+SELFTEST: evidence budget ok
+SELFTEST: ipc payload roundtrip ok
+SELFTEST: nexus-ipc kernel loopback ok
+SELFTEST: ipc cap move reply ok
+SELFTEST: ipc sender pid ok
+SELFTEST: ipc sender service_id ok
+SELFTEST: ipc call ok
+SELFTEST: irq bind deny ok
+SELFTEST: ipc reply_recv ok
+SELFTEST: ipc oversize rejected ok
+SELFTEST: ipc soak ok
+SELFTEST: ipc bench (rt=33us n=64)
+SELFTEST: ipc call bench (rt=33us n=64)
+KSELFTEST: ipc call budget ok (rt=33us budget=64)
+SELFTEST: vm map roundtrip ok
+SELFTEST: dma buffer skipped (no device granted)
+SELFTEST: cap query vmo skipped (no device granted)
+init: route vfsd from selftest-client
+SELFTEST: ipc routing ok
+SELFTEST: ipc routing packagefsd ok
+init: route vfsd from selftest-client
+SELFTEST: vfs stat ok
+SELFTEST: pkgimg mount ok
+vfsd: capfd grant ok
+SELFTEST: vfs read ok
+SELFTEST: capfd read ok
+vfsd: capfd grant ok
+SELFTEST: vfs real data ok
+SELFTEST: pkgimg stat/read ok
+vfsd: readdir ok (mount=/packages entries=23)
+SELFTEST: vfs readdir ok
+SELFTEST: vfs readdir deny ok
+vfsd: capfd grant ok
+SELFTEST: vfs splice roundtrip ok
+packagefsd: read vmo forwarded (bytes=19 n=1)
+vfsd: vmo splice forwarded ok (bytes=19, fallbacks=0)
+SELFTEST: vfs inline oversize deny ok
+SELFTEST: pkgimg vmo oversize deny ok
+SELFTEST: pkgimg vmo ok (bytes=0x000000000003f610)
+SELFTEST: sandbox deny ok
+packagefsd: read vmo forwarded (bytes=259600 n=2)
+vfsd: vmo splice forwarded ok (bytes=259600, fallbacks=1)
+vfsd: access denied
+SELFTEST: vfs ebadf ok
+dbg: phase net skipped
+dbg: phase remote skipped
+[INFO mm] KSELFTEST: mm frames (banks=2 total=1043833 free=989453 reserved=256 excluded=4615 allocs=3183 frees=127 exhausted=0 pt_frames=215 vmos=39 vmo_bytes=132710400 dma_bytes=107831296 spaces=37 rss_sum=168017920 rss_max=108871680)
+[INFO ipc] KSELFTEST: ipc stats (sends=4875 heap_allocs=1578 copies=13179 copy_bytes=1250942 wake_ipis=583 handoff_miss=4573 kheap_used=1155696 calls_in_regs=1636 wake_enq_ticks=23/82354)
+[INFO ipc] KSELFTEST: ipc payload hist (zero=0 le32=3302 le64=174 le128=367 le256=73 le512=211 le1k=746 gt1k=7)
+[INFO smp] KINIT: bkl histogram le100us=2133562 le1ms=7203 le10ms=463 gt10ms=139
+[INFO smp] KINIT: sweep steady max=6us tasks=61 calls=1 mean=6us skipped=1699101 wakes=1 wakeus=3
+[INFO smp] KINIT: wake ipi max=19us mean=2us n=6350
+[ERROR smp] KSELFTEST: bkl budget FAIL max_wait=25811us max_hold=23ms nr=48
+SELFTEST: crash-loop persist ok
+pinched: selftest crash requested
+init: service exit name=pinched reason=error code=0x0000000000000065
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=19
+policyd: audit emit ok
+init: supervision persist restarts=0x0000000000000004
+init: service restarted name=pinched pid=0x0000000000000041
+init: route resumed svc=selftest-client -> pinched
+pinched: ready
+init: up pinched
+pinched: workpool ready
+pinched: selftest crash requested
+init: service exit name=pinched reason=error code=0x0000000000000065
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+policyd: audit emit ok
+init: supervision persist restarts=0x0000000000000005
+init: service restarted name=pinched pid=0x0000000000000044
+init: route resumed svc=selftest-client -> pinched
+pinched: ready
+init: up pinched
+pinched: workpool ready
+pinched: selftest crash requested
+init: service exit name=pinched reason=error code=0x0000000000000065
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+policyd: audit emit ok
+init: supervision persist restarts=0x0000000000000006
+init: service restarted name=pinched pid=0x0000000000000047
+init: route resumed svc=selftest-client -> pinched
+pinched: ready
+init: up pinched
+pinched: workpool ready
+SELFTEST: service restart ok
+SELFTEST: crash-loop count ok
+windowd: ready (w=1280, h=800, hz=120)
+windowd: systemui loaded (profile=desktop)
+windowd: present ok (seq=1 dmg=1)
+launcher: first frame ok
+SELFTEST: ui launcher present ok
+SELFTEST: ui resize ok
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+netstackd: mmio cap48 missing
+netstackd: net FAIL internal
+netstackd: net fail-code 0x01ff
+netstackd: halt net-init-fail
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=0 wire_batches=0 wire_skip=0 raw_events=0 norm_events=0 kbd_batches=0 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0 idle_yields=20
+board-visual: desktop

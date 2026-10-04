@@ -12,7 +12,7 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal
 
-use crate::backend::VirtioGpuBackend;
+use crate::backend::display::Display;
 use nexus_display_proto::{
     encode_attach_ack, encode_present_ack, AttachAck, OP_SET_FRAMEBUFFER_VMO,
 };
@@ -22,7 +22,7 @@ use nexus_ipc::{KernelServer, Server as _, Wait};
 /// `None` means a bare status byte.
 pub(crate) fn send(
     server: &KernelServer,
-    backend: &VirtioGpuBackend,
+    display: &mut dyn Display,
     op: u8,
     status: u8,
     payload: Option<u32>,
@@ -30,12 +30,13 @@ pub(crate) fn send(
 ) {
     if op == nexus_display_proto::OP_FRAMEBUFFER_REQUEST {
         // RFC-0098 C7: the answer moves the framebuffer along — its own sender.
-        crate::framebuffer_grant::answer(server, backend, status);
+        crate::framebuffer_grant::answer(server, display, status);
         return;
     }
     if op == OP_SET_FRAMEBUFFER_VMO {
-        let w = backend.display_w.min(u16::MAX as u32) as u16;
-        let h = backend.display_h.min(u16::MAX as u32) as u16;
+        let (mode_w, mode_h) = display.mode();
+        let w = mode_w.min(u16::MAX as u32) as u16;
+        let h = mode_h.min(u16::MAX as u32) as u16;
         let ack = AttachAck {
             status,
             handoff_id: payload.unwrap_or(active_handoff_id),
@@ -61,15 +62,15 @@ pub(crate) fn send(
 /// uploaded the wallpaper. The ONE reveal marker prints here, with the seq of a frame that
 /// was actually presented.
 pub(crate) fn present_status(
-    backend: &VirtioGpuBackend,
+    display: &dyn Display,
     status: u8,
     seq: u32,
     reveal_acked: &mut bool,
 ) -> u8 {
     if status == nexus_display_proto::STATUS_OK
-        && backend.reveal_requested
+        && display.reveal_requested()
         && !*reveal_acked
-        && !backend.is_holding_boot_splash()
+        && !display.holding_splash()
     {
         *reveal_acked = true;
         crate::markers::emit_desktop_reveal(seq);

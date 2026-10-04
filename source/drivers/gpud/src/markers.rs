@@ -133,9 +133,9 @@ pub const GPUD_CHAIN_RECV: &str = "gpud: chain G1 recv present-damage";
 pub const GPUD_CHAIN_PARSE_OK: &str = "gpud: chain G2 parse ok";
 /// G2 fail: the command buffer was rejected (truncated / bad tag / over cap).
 pub const GPUD_CHAIN_PARSE_FAIL: &str = "gpud: chain G2 parse FAIL (command buffer rejected)";
-/// G3: present_committed executed every blit/composite command.
+/// G3: the display executed every blit/composite command of the present.
 pub const GPUD_CHAIN_EXEC_OK: &str = "gpud: chain G3 exec ok (commands applied)";
-/// G3 fail: a command failed during present_committed (reason follows).
+/// G3 fail: a command failed while the display executed the present (reason follows).
 pub const GPUD_CHAIN_EXEC_FAIL: &str = "gpud: chain G3 exec FAIL";
 /// G4: the frame was transferred/blitted to the scanout and flushed.
 pub const GPUD_CHAIN_SCANOUT_OK: &str = "gpud: chain G4 scanout ok (frame presented)";

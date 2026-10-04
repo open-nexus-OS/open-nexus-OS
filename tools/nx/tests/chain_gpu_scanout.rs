@@ -96,11 +96,11 @@ mod tests {
         runner
             .expect_marker("gpud: chain G3 exec ok (commands applied)", ms(200))
             .after(1)
-            .describe("G3: present_committed executed every command");
+            .describe("G3: the display executed every command of the present");
         runner
             .expect_marker("gpud: chain G4 scanout ok (frame presented)", ms(200))
             .after(2)
-            .describe("G4: frame transferred + flushed to the scanout");
+            .describe("G4: the damage reached the glass (transfer + flush, or a cache clean)");
 
         let report = runner.run().await;
         if report.status != ChainStatus::Passed {

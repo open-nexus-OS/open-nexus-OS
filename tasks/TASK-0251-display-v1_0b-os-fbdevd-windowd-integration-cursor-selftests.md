@@ -1,9 +1,9 @@
 ---
 title: TASK-0251 Display v1.0b (OS/board): the display controller + HDMI driver in gpud, the display mode's one authority is gpud (EDID on the board, virtio display-info on QEMU), syscall 50 and the fw_cfg path deleted — the first picture
-status: In Progress (P2a step 1 ✅ 2026-10-03 on the board — first light, gpud's splash through the controller and the encoder, every gate green; next step 2, windowd's desktop; P1 done 2026-09-30 — the mode authority is gpud on QEMU: request from gpud's tree slot, framebuffer owned and granted by gpud, windowd builds on the grant, inputd asks windowd once, syscall 50 deleted; P2/P3 follow on the board; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
+status: In Progress (P2a step 2 ✅ 2026-10-04 on the board — windowd's desktop through the controller in the first cycle, `[PASS] board-visible` with 24 rungs + `board-visual: desktop`; one request loop over the virtio GPU and the controller, one CPU executor, the splash held until the reveal; P2a step 1 ✅ 2026-10-03 first light; next: the CPU path's picture at 1080p (rounded masks, content scaling, glass) and P2b EDID over DDC; P1 done 2026-09-30 — the mode authority is gpud on QEMU; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
 owner: @ui @runtime
 created: 2025-12-29
-updated: 2026-09-30
+updated: 2026-10-04
 depends-on:
   - tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
   - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
@@ -131,10 +131,50 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
     the vendor boot loader's console captured in every flash session (`oem log`: it sees the
     hot-plug and puts its framebuffer at CPU 0x7f700000 in bank 0), the status LED's pad
     corrected (GPIO 96 is register 0x1e0, not 0x180).
-  - **P2a step 2 — windowd's desktop on the controller:** the framebuffer grant on the board is
-    the contiguous block; one `Backend` over virtio-gpu and the controller in gpud's service
-    loop; the CPU command executor shared by the 2D virtio path and the controller (one, not a
-    copy); present = Zicbom clean of the damage; `windowd: desktop revealed` on the board.
+  - **P2a step 2 — windowd's desktop on the controller: ✅ 2026-10-04 on the board, first
+    cycle** (`docs/board/measurements/2026-10-04-desktop-path/`: hypotheses and gates written
+    before the cycle; `[PASS] board-visible: 24 rungs, 1 operator marker(s)`, `[PASS]
+    board-headless`; the operator saw the greeter). gpud's request loop (`service.rs`) keeps
+    the wire — decode, command validation, damage, the chain trace, the present statistics,
+    the reveal latch, every answer — and drives ONE display behind `backend::display::Display`:
+    the virtio GPU (`backend/virtio_display.rs`, the 2D and the virgl scanout unchanged) or the
+    controller (`backend/dc/`); the controller's own loop and its named refusal are gone. ONE
+    CPU executor (`backend/cpu_frame.rs`) for the 2D scanout, the virgl path's per-command
+    fallbacks and the controller, with the software cursor's state (host-tested,
+    `test_reject_*`). On the board: windowd's framebuffer is one contiguous block for the
+    controller (the whole layout), made at bring-up right after the splash (one run of 99.5 MB is
+    found most surely before the fleet takes memory) and granted at windowd's first request; a
+    present runs through the executor and its damage is cleaned
+    (`nexus_gfx::backend::dc::damage_spans`, `test_reject_a_damage_outside_the_plane`); the boot
+    splash lives in a plane of its own and holds the glass until the first present after
+    windowd's reveal (`splash_hold`, RFC-0093 §5 amended), which cleans the display plane and
+    switches the controller to it (`nexus_gfx::backend::dc::flip`: address, stride, latch;
+    `gpud: dc reveal flip ok (bus=0x8fd2000 stride=7680 readback 3/3 …)`); a switch that does
+    not read back keeps the splash and acks no reveal (`test_reject_a_reveal_after_a_refused_switch`);
+    the cursor is windowd's software sprite. Measured on the board: a full-screen present costs
+    14.0 ms of CPU plus 0.8 ms of cache clean (`gpud: dc first present (…)`). Deleted: the
+    never-armed save-under cursor, the unused overlay fallback, `present_committed`,
+    `set_plane_address` (retired names); `service.rs` 1018 → 692 lines, `backend/present.rs`
+    under the module-size limit. Proof: host tests (gpud, nexus-gfx), the 2D scanout at
+    1920x1080 before and after (`smp1`, the executor the controller runs), `visible` (virgl,
+    pixel statistics equal to every run since 2026-09-30), `just check`, `just test-all`
+    EXIT=0 (60 PASS). **What the operator saw, the next step's input:** a long black before the
+    splash (the kernel's LED milestones run to 23.4 s), a short flicker as the splash appears,
+    the wallpaper not over the whole screen, chopped vector graphics, soft text. The 2D scanout
+    captured at 1:1 (M3) shows the executor's picture: the wallpaper covers the screen and the
+    text is crisp; the avatar circle's top is cut flat and the glass is flat blue — the CPU
+    layer composite lacks the GPU path's rounded mask, content scaling, opacity and tinted blur.
+    The monitor's own mode is 2560x1440 (EDID): a 1080p signal is scaled 4/3 inside it, which
+    softens text (to be checked against the stock system at 1080p on the same monitor).
+  - **P2a step 3 — the CPU path's picture at 1080p** (next): the CPU layer composite reaches
+    the GL path's semantics — the rounded mask (`corner_radius`), the content scaling
+    (`content_w`/`content_h`), the opacity, the glass's blur and tint — with host goldens against
+    the GL compositor's shader math and the 2D capture at 1:1 as the lane's pixel proof (a
+    `visible-2d` profile: `GPU_MODE=mmio`, VNC capture); the board's photo of the monitor and a
+    display-plane probe (flush, then sample a grid — what the controller reads) to tell the
+    executor's picture from the scanout's and the monitor's; the scroll/transform overrides on
+    the CPU path (today they wait for windowd's next full present on the 2D scanout and on the
+    controller alike).
 - **P3 First picture** — on the board through the boot chain (TASK-0260B): markers + the
   operator ack; photo in the ledger. **Block 1 gate.**
 

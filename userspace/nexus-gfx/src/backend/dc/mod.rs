@@ -37,4 +37,6 @@ pub mod model;
 pub mod regs;
 
 pub use edid::{cea_mode, parse_edid, pick_mode, Edid, EdidError, Mode, ModeList};
-pub use model::{bring_up, flush, set_plane_address, Plane, RegWriter, Sequence, Write};
+pub use model::{
+    bring_up, damage_spans, flip, flush, DamageSpans, Plane, RegWriter, Sequence, Write,
+};
