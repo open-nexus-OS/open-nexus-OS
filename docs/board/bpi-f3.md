@@ -68,6 +68,14 @@ declared in the vehicle's environment (`oem env:set fastboot_raw_partition_<name
 image for this board"). The stock system on the microSD card is not touched (the boot ROM tries
 the card first).
 
+**The vehicle sniffs every download for gzip** (measured 2026-10-04): it inflates what it takes
+for a gzip stream, and its check reads only the header's method byte (offset 2, 8 = deflate),
+never the magic. A user-area chunk that began `44 e4 08 00` failed with `unzip gzip data fail`.
+`nx image flash-plan` therefore starts no region on such a sector — a chunk boundary moves back to
+the nearest sector the vehicle does not sniff. A write that stops mid-plan leaves the board in the
+vehicle: `just board-flash --skip-stage --plan …` writes again without a new download-mode entry
+(`docs/board/measurements/2026-10-04-boot-led-flag/`).
+
 Vendor pieces: `just board-inputs` (→ `scripts/fetch-board-inputs.sh`) fetches them pinned;
 `resources/board/bpi-f3/PROVENANCE.md` lists versions, hashes and licenses.
 
@@ -170,8 +178,18 @@ written back per byte) and from the LED ladder below.
 The board's reset scrubs DRAM (`docs/board/measurements/2026-09-28-dram-retention/`), so the
 boot trace can only show what the block owner wrote — nothing of a kernel that stops before it.
 The user LED (`sys-led`, GPIO bank 3 line 0, named in `/chosen/nexus,boot-led`) is the channel
-that remains, a few bits per boot. Watch it during an eMMC boot (microSD out, reset); the power
-LED stays on regardless.
+that remains, a few bits per boot. The power LED stays on regardless.
+
+**Default (since 2026-10-04): no waits.** nxboot lights the LED; the kernel turns it off when its
+runtime begins (milestone 11). Lit for good = the boot stopped before the runtime; dark = the
+runtime runs (the eMMC trace and the picture tell the rest); a flicker = a panic. Every milestone
+still stamps the console (`KINIT: milestone k at N ms`).
+
+**The slow ladder is a DEPRECATED diagnostic** — ~22 s of busy waits per boot, needed only for a
+kernel that stops before the trace reaches the disk. A diagnostic image asks for it with
+`nexus,boot-led-ladder;` in `/chosen` (`config/board/bpi-f3/board.dts`, golden regenerated); the
+kernel then prints `KINIT: boot led ladder on (deprecated diagnostic: …)` and nxboot's line ends
+`ladder=deprecated`. With it:
 
 | Group | Who | Milestone |
 |---|---|---|

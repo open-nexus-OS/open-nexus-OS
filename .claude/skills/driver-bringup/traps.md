@@ -75,9 +75,15 @@ driver; add a new one the day it is won, with its reference, never from memory.
   from the pinned archive (`measurement-recipes.md` 3b): its power controller named the
   control and status bits of all nine domains (2026-09-30, `2026-09-30-power-domains/`); the
   transition itself is then judged on our chain from socd's before/after register words.
-- **Board cycles are slow and not free**: a cycle is flash → LED ladder → microSD → reset →
+- **Board cycles are slow and not free**: a cycle is flash → LED → microSD → reset →
   `just board-log`; a USB-UART adapter would shorten every cycle more than any script
   (plan note 2026-09-29). Batch hypotheses so one cycle decides several.
+- **The flash vehicle sniffs gzip by one byte** (2026-10-04, `2026-10-04-boot-led-flag/`):
+  every download whose byte 2 is 8 is "inflated" and refused (`unzip gzip data fail`) — the
+  check skips the magic, so it depends on the image's CONTENT and appears in one build, not
+  the next. `nx image flash-plan` places region starts around it. A write that stops
+  mid-plan leaves the board in the vehicle: re-plan, then `just board-flash --skip-stage
+  --plan …` — no second download-mode entry.
 - **Two working references do not make a working third** (2026-10-03, `2026-10-03-first-light/`):
   the composer's layer word came from the boot loader (layer 0 reading RDMA3, `7`), the RDMA
   channel from the stock kernel (RDMA1) — each source consistent, the mix scanned nothing. Take

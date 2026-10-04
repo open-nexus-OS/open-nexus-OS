@@ -38,6 +38,10 @@ proves = "TASK-0327B P4 H0a: the mode and bus width the loader reads the boot di
 phase = "bringup"
 proves = "TASK-0260B P3: each LED milestone with the boot's own clock and the console's UART stall count"
 
+[marker."KINIT: boot led ladder on ("]
+phase = "bringup"
+proves = "the tree asked for the DEPRECATED slow LED ladder (`/chosen/nexus,boot-led-ladder`, a diagnostic image only): ~22 s of pulse groups; without it the LED only marks kernel coming up / runtime running"
+
 [marker."KINIT: irq state before runtime"]
 phase = "bringup"
 proves = "TASK-0260B P3: the interrupt state the runtime begins with (sstatus, sie, sip)"

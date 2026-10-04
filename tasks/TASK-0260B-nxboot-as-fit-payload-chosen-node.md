@@ -121,6 +121,17 @@ Measured before building (the pinned vendor FIT, `dumpimage -l`/`fdtget`, and nx
     2 high half, 3 kmain, 4 init's segments copied, 5 init's image loaded, 6 init spawned, 7 selftests done + runtime. Busy waits on `time`; ~13 s on the board,
     a no-op on QEMU. How to read it: `docs/board/bpi-f3.md`.
   - `nexus-fdt`: `Chosen::boot_led()` / `boot_led_pad()`, golden-tested for both trees.
+  - **Amended 2026-10-04 — the ladder is a deprecated flag.** It cost every board boot ~22 s of
+    busy waits (milestone 11 at 23.4 s), and the eMMC trace (TASK-0327B P2) has observed every
+    boot since. The slow ladder now runs only under `/chosen/nexus,boot-led-ladder` (an empty
+    property; `Chosen::boot_led_ladder()`, golden-tested absent on both trees and present on a
+    copy) and announces itself as deprecated (`KINIT: boot led ladder on (deprecated diagnostic:
+    …)`, nxboot's line ends `ladder=deprecated`). By default the LED is a two-state witness: lit
+    at milestone 1 (nxboot lights it, no hold), dark at milestone 11 (the runtime); a kernel that
+    stops early leaves it lit, a panic still flickers it. The kernel's milestones are eleven now
+    (`hal/boot_led.rs`; the seven above are the P3 history). Measured on the board (image
+    dev-a94fe976): milestone 1 at 988 ms (was 3 713), milestone 11 at 1 716 ms (was 23 412),
+    `[PASS] board-visible` (`docs/board/measurements/2026-10-04-boot-led-flag/`).
   - Not done: the kernel's tree-driven init (`hal::platform::init_from_fdt`) is not host-testable
     against the board golden — `mod hal` is target-only; its pure part would have to move out
     (as `phys.rs` did). A follow-up.

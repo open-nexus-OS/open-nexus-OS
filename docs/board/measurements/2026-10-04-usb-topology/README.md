@@ -32,13 +32,18 @@ word, the USB2 PHY, the combo PHY and the GPIO bank of the hub's lines (`stock-u
   behind an on-board hub whose power and reset are GPIOs.**
 
 **The topology** (`lsusb -t`): one xHCI with TWO root ports — port 1 USB 2.0, port 2 USB 3.0
-(the Supported-Protocol capabilities at 0x890 / 0x8a0). Port 1: the on-board VIA hub
-`2109:2817` (HS, 5 ports; its SS twin `2109:0817` on port 2) → port 4: a Genesys hub
-`05e3:0608` (HS) → port 3: the attached device `28bd:092d` (full speed, interfaces 0 and 1 HID
-boot-protocol mouse, interface 2 a generic HID digitizer). A keyboard and a mouse will sit at
-least one hub deep, at full or low speed behind a high-speed hub.
+(the Supported-Protocol capabilities at 0x890 / 0x8a0). Port 1: the on-board hub
+`2109:2817` (HS, 5 ports, multi-TT — interface protocol 2; its SS twin `2109:0817` on port 2).
+First read (`stock-lsusb-tree.txt`): on its port 4 a second hub `05e3:0608` (HS) → port 3 a pen
+display `28bd:092d` (full speed; interfaces 0 and 1 HID boot mouse, 2 a generic HID digitizer).
+With the operator's keyboard and mouse (`stock-lsusb-tree-kbd-mouse.txt`,
+`stock-usb-devices-kbd-mouse.txt`): the keyboard `3434:0123` on hub port 2 and the mouse's radio
+receiver `046d:c53f` on hub port 3, **both full speed (12 Mbit/s) one hub deep**; the keyboard's
+interface 0 is a boot keyboard (3/1/1, interfaces 1–2 vendor/consumer HID), the receiver's
+interface 0 a boot keyboard and interface 1 a boot mouse (3/1/2), interface 2 vendor HID. Both
+speak the boot protocol — HID v1 needs nothing else.
 
-**The registers** (`stock-usb-regs.txt`, stock Linux running, host mode):
+**The registers** (`stock-usb-regs.txt`, the stock system running, host mode):
 - xHCI: version 1.10, CAPLENGTH 0x20, `HCSPARAMS1 = 0x02000140` (64 slots, 1 interrupter, 2
   ports), `HCSPARAMS2 = 0x0c0000f1` (**1 scratchpad buffer**, scratchpad restore), `HCCPARAMS1 =
   0x0220fe6d` (64-bit addresses, **64-byte contexts** (CSZ=1), port power control, extended

@@ -129,7 +129,7 @@ if [ -z "$LOG" ]; then
   else
     prompt "microSD out, reset: the board boots the eMMC"
   fi
-  prompt "watch the user LED: nxboot 2 s solid, then the kernel's groups (long = 5, short = 1) up to 2 long + 1 short; when the ladder has ended and a minute has passed, put the microSD in and reset — Enter when the stock system's green heartbeat shows"
+  prompt "watch the user LED: it lights while the boot comes up and goes dark when the kernel's runtime starts (lit for good = stopped early; flicker = panic; the slow milestone ladder only with the deprecated /chosen/nexus,boot-led-ladder); when the desktop shows and a minute has passed, put the microSD in and reset — Enter when the stock system's green heartbeat shows"
   log "waiting for the stock system on adb (up to ${ADB_WAIT_S}s)"
   waited=0
   until [ "$(timeout 5 adb get-state 2>/dev/null)" = "device" ]; do

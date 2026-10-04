@@ -3,26 +3,30 @@
 
 //! CONTEXT: The boot LED (TASK-0260B P3): on a board without a serial adapter, the user LED is
 //! the one channel the kernel's earliest phase has — the boot trace (RFC-0107) starts only when
-//! the block owner runs, and the board's reset scrubs the console ring in RAM. At milestone `k`
-//! the kernel pulses the LED, then pauses: the last group a person sees is the last milestone
-//! the kernel reached. Encoding: `k / 5` long pulses (600 ms), then `k % 5` short pulses
-//! (120 ms), then a 700 ms pause — long counts five, short counts one. A fatal stop (panic)
-//! flickers the LED forever (60 ms on/off), unmistakable next to any group.
+//! the block owner runs, and the board's reset scrubs the console ring in RAM. By default
+//! (2026-10-04) the LED costs nothing: on at milestone 1 ("kernel coming up"), off at the last
+//! ("runtime running") — a kernel that stops before the runtime leaves it lit. The slow ladder
+//! is a DEPRECATED diagnostic behind `/chosen/nexus,boot-led-ladder` (~22 s of busy waits per
+//! boot; the eMMC trace and the picture observe everything after the trace starts): at
+//! milestone `k` the kernel pulses the LED, then pauses — the last group a person sees is the
+//! last milestone the kernel reached. Encoding: `k / 5` long pulses (600 ms), then `k % 5` short
+//! pulses (120 ms), then a 700 ms pause — long counts five, short counts one. Either way a fatal
+//! stop (panic) flickers the LED forever (60 ms on/off), unmistakable next to any group.
 //! Milestones: 1 platform from the tree · 2 high half · 3 kmain, handoff captured · 4 trap
 //! runtime installed · 5 secondary harts gated · 6 kernel selftests begin · 7 child task ran,
 //! exited, was waited · 8 init's address space created · 9 init's segments copied · 10 init
-//! spawned · 11 runtime begins. The tree names the LED (`/chosen/nexus,boot-led`, a bank and
+//! spawned · 11 runtime begins (`LAST_MILESTONE`). The tree names the LED (`/chosen/nexus,boot-led`, a bank and
 //! line of a GPIO block; RFC-0098: never an address in code); the loader brought the block up,
 //! muxed the pad and set the direction, so the kernel only sets and clears the line
 //! (mainline v6.16 `gpio-spacemit-k1`: banks at 0x0/0x4/0x8/0x100, GPSR 0x18, GPCR 0x24).
-//! Without a LED in the tree (QEMU) every milestone is a no-op. Pure timing: busy waits on
-//! `time`, before the timer exists; ~25 s over the whole ladder, on the board only.
+//! Without a LED in the tree (QEMU) every milestone is a no-op. The ladder is pure timing: busy
+//! waits on `time`, before the timer exists; ~22 s over the whole ladder, on the board only.
 //! OWNERS: @kernel-team @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the tree side in nexus-fdt's goldens; the pulses on the desk board (a person)
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// The GPIO block's window (0 = no LED) and its length: the runtime kernel table maps it
 /// like the console's (`mm::kernel_layout`) — the boot table's gigabyte leaves covered it by
@@ -32,6 +36,11 @@ static LEN: AtomicUsize = AtomicUsize::new(0);
 /// The bank's register base inside the window and the line's bit.
 static BANK_OFF: AtomicUsize = AtomicUsize::new(0);
 static BIT: AtomicUsize = AtomicUsize::new(0);
+/// The tree asked for the deprecated slow ladder (`/chosen/nexus,boot-led-ladder`).
+static LADDER: AtomicBool = AtomicBool::new(false);
+
+/// The milestone the runtime begins at: the LED goes dark there (without the ladder).
+const LAST_MILESTONE: u32 = 11;
 
 const BANK_BASE: [usize; 4] = [0x0, 0x4, 0x8, 0x100];
 const GPSR: usize = 0x18;
@@ -47,9 +56,11 @@ const FLICKER_MS: u64 = 60;
 pub fn init(bytes: Option<&[u8]>) {
     let Some(bytes) = bytes else { return };
     let Ok(fdt) = nexus_fdt::Fdt::new(bytes) else { return };
-    let Some(led) = fdt.chosen().ok().and_then(|c| c.boot_led()) else { return };
+    let Some(chosen) = fdt.chosen().ok() else { return };
+    let Some(led) = chosen.boot_led() else { return };
     let Some(reg) = led.gpio.reg(0).ok().flatten() else { return };
     let (Some(&bank), true) = (BANK_BASE.get(led.bank as usize), led.line < 32) else { return };
+    LADDER.store(chosen.boot_led_ladder(), Ordering::Relaxed);
     BANK_OFF.store(bank, Ordering::Relaxed);
     BIT.store(1usize << led.line, Ordering::Relaxed);
     LEN.store(reg.size as usize, Ordering::Relaxed);
@@ -92,9 +103,10 @@ fn pulse(bit: u32, on_ms: u64) {
     wait_ms(OFF_MS);
 }
 
-/// Milestone `k`: `k / 5` long pulses, `k % 5` short ones, then a pause. A no-op without a LED.
-/// Every milestone also stamps the console with the time since the counter's zero — on the
-/// board the one clock the ring keeps, so a boot cut short by a reset reads as a duration.
+/// Milestone `k`. Every milestone stamps the console with the time since the counter's zero —
+/// on the board the one clock the ring keeps, so a boot cut short by a reset reads as a
+/// duration. The LED: on at the first milestone, off at the last; with the deprecated ladder
+/// `k / 5` long pulses, `k % 5` short ones, then a pause. A no-op without a LED.
 pub fn milestone(k: u32) {
     let hz = super::platform::timebase_hz();
     if hz != 0 {
@@ -106,6 +118,18 @@ pub fn milestone(k: u32) {
         return;
     }
     let bit = BIT.load(Ordering::Relaxed) as u32;
+    if !LADDER.load(Ordering::Relaxed) {
+        match k {
+            1 => write(GPSR, bit),
+            LAST_MILESTONE => write(GPCR, bit),
+            _ => {}
+        }
+        return;
+    }
+    if k == 1 {
+        log_info!(target: "boot",
+            "KINIT: boot led ladder on (deprecated diagnostic: the eMMC boot trace observes the boot)");
+    }
     for _ in 0..k / 5 {
         pulse(bit, LONG_MS);
     }

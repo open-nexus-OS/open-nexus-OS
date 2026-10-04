@@ -15,9 +15,6 @@
 [    4.373699] mv-ehci mv-ehci1: USB 2.0 started, EHCI 1.00
 [    4.379240] usb usb1: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 6.06
 [    4.387615] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
-[    4.394918] usb usb1: Product: Spacemit EHCI
-[    4.399233] usb usb1: Manufacturer: Linux 6.6.63 ehci_hcd
-[    4.404696] usb usb1: SerialNumber: mv-ehci1
 [    4.409451] hub 1-0:1.0: USB hub found
 [    4.413288] hub 1-0:1.0: 1 port detected
 [    4.418231] xhci-hcd xhci-hcd.0.auto: xHCI Host Controller
@@ -29,17 +26,11 @@
 [    4.460900] xhci-hcd xhci-hcd.0.auto: Host supports USB 3.0 SuperSpeed
 [    4.467604] usb usb2: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 6.06
 [    4.475976] usb usb2: New USB device strings: Mfr=3, Product=2, SerialNumber=1
-[    4.483286] usb usb2: Product: xHCI Host Controller
-[    4.488216] usb usb2: Manufacturer: Linux 6.6.63 xhci-hcd
-[    4.493679] usb usb2: SerialNumber: xhci-hcd.0.auto
 [    4.499023] hub 2-0:1.0: USB hub found
 [    4.502864] hub 2-0:1.0: 1 port detected
 [    4.507119] usb usb3: We don't know the algorithms for LPM for this host, disabling LPM.
 [    4.515374] usb usb3: New USB device found, idVendor=1d6b, idProduct=0003, bcdDevice= 6.06
 [    4.523740] usb usb3: New USB device strings: Mfr=3, Product=2, SerialNumber=1
-[    4.531118] usb usb3: Product: xHCI Host Controller
-[    4.536062] usb usb3: Manufacturer: Linux 6.6.63 xhci-hcd
-[    4.541516] usb usb3: SerialNumber: xhci-hcd.0.auto
 [    4.546839] hub 3-0:1.0: USB hub found
 [    4.550665] hub 3-0:1.0: 1 port detected
 [    4.555136] usbcore: registered new interface driver uas
@@ -56,6 +47,4 @@
 [    5.497136] usbhid: USB HID core driver
 [    5.591714] usb 2-1: New USB device found, idVendor=2109, idProduct=2817, bcdDevice= 7.00
 [    5.599968] usb 2-1: New USB device strings: Mfr=1, Product=2, SerialNumber=0
-[    5.607170] usb 2-1: Product: USB2.0 Hub             
-[    5.612268] usb 2-1: Manufacturer: VIA Labs, Inc.         
 grep: write error: Broken pipe

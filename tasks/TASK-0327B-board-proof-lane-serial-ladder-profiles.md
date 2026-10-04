@@ -205,6 +205,9 @@ P2 read the eMMC back over adb.
     `verify-uart --profile=board-*` on the pulled trace; never green by timeout (no `nxboot:` banner
     = FAIL); `board-visual:` acks through `scripts/board-ack.sh`; `just board-test PROFILE=`; in
     `test-all` only under `NEXUS_BOARD=1`.
+    **Amended 2026-10-04:** the wait signal is the LED lit while the boot comes up and dark once
+    the kernel's runtime starts — the milestone ladder is a deprecated flag (TASK-0260B P3
+    amendment), 21.7 s less per cycle.
     **Built 2026-09-29:** `scripts/board-test.sh` (`--log=` judges a capture without a board; the
     live path flashes, prompts with the LED ladder as the wait signal, pulls the trace), profiles
     `board-headless` (extends `smp`: the board is a four-hart machine) and `board-visible`,

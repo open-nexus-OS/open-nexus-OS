@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-04 (the boot LED behind a deprecated flag; the flash plan dodges the vehicle's gzip sniff)
+
+- **The kernel reaches its runtime 21.7 s sooner on the board.** The LED milestone ladder — the
+  no-UART desk's wait signal, ~22 s of busy waits per boot — is a deprecated diagnostic behind
+  `/chosen/nexus,boot-led-ladder` (`nexus_fdt::Chosen::boot_led_ladder()`, golden-tested); the
+  eMMC boot trace observes every boot instead. By default the LED is lit while the boot comes up
+  and dark once the runtime starts (lit for good = stopped early; a panic still flickers it).
+  Measured: milestone 11 at 1 716 ms (was 23 412), `[PASS] board-visible`
+  (`docs/board/measurements/2026-10-04-boot-led-flag/`).
+- **The flash plan avoids the vendor vehicle's gzip sniff.** The vehicle takes any download
+  whose byte 2 is 8 (a gzip header's deflate method; it never checks the magic) for gzip and
+  refuses it — a data-partition chunk starting `44 e4 08 00` failed `unzip gzip data fail`.
+  `nx image flash-plan` starts no region on such a sector (a chunk boundary moves back, the
+  backup GPT's region grows back, a sniffed sector 0 is refused); host tests incl. a
+  `test_reject_*`, proven on the desk board.
+- **The USB topology measurement** gains the operator's keyboard and mouse (both full speed,
+  boot protocol, one hub deep behind the on-board multi-TT hub) and loses the device strings.
+
 ### Changed - 2026-10-04 (TASK-0251 P2a step 3a: the picture at 1080p — an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane)
 
 - **Measured first** (`docs/board/measurements/2026-10-04-picture-1080p/`): the operator's notes

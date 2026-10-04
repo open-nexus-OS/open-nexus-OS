@@ -5,11 +5,12 @@
 //! TASK-0260 P2): its raw regions rebuild the disk exactly — the user area from sector 0 to the
 //! end of its last partition in chunks no larger than one download, the backup GPT in the disk's
 //! last 33 sectors, boot0 on hardware partition 1 — each file's digest the plan's; the same image
-//! gives the same plan byte for byte; and what is no board disk is refused.
+//! gives the same plan byte for byte; no region starts on a sector the vendor vehicle sniffs as
+//! gzip; and what is no board disk is refused.
 //! OWNERS: @reliability @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 3 integration tests
+//! TEST_COVERAGE: 5 integration tests
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -24,6 +25,8 @@ const BOARD_SECTORS: u64 = 2 * 1024 * 1024;
 const BOOT0_SECTORS: u64 = 2048;
 /// 128 MiB chunks: the fixture's 373 MiB span becomes three.
 const CHUNK_SECTORS: u64 = 262_144;
+/// How far the planner moves a region's start back to escape the vehicle's gzip sniff.
+const SNIFF_SLACK: u64 = 2048;
 
 fn run_nx(args: &[&str], cwd: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_nx"))
@@ -79,6 +82,19 @@ fn plan(dir: &Path, image: &str, out_dir: &str, chunk: &str) -> Output {
         &["image", "flash-plan", "--image", image, "--out-dir", out_dir, "--chunk-bytes", chunk],
         dir,
     )
+}
+
+/// Overwrites the first bytes of sector `lba` of the image at `path`.
+fn poke(path: &Path, lba: u64, bytes: &[u8]) {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().write(true).open(path).expect("open");
+    f.seek(SeekFrom::Start(lba * 512)).expect("seek");
+    f.write_all(bytes).expect("poke");
+}
+
+/// The vehicle's sniff: byte 2 of a download is a gzip header's deflate method (8).
+fn sniffed(first: &[u8]) -> bool {
+    first[2] == 8
 }
 
 /// Streamed digest of `len` bytes at `offset` of each (file, offset, len), in order.
@@ -206,4 +222,80 @@ fn test_reject_what_is_no_board_disk() {
     );
     std::fs::write(dir.path().join("z.img"), vec![0u8; 1 << 20]).expect("zeros");
     assert_eq!(plan(dir.path(), "z.img", "z", "128M").status.code(), Some(3), "no GPT");
+}
+
+/// The vendor vehicle took a chunk whose first sector held `44 e4 08 00` for gzip and refused it
+/// (2026-10-04): the boundary moves back to the nearest sector it does not sniff, the chunks still
+/// rebuild the disk, and no region file starts with what it would sniff.
+#[test]
+fn no_region_starts_where_the_vehicle_sniffs_gzip() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    setup(dir.path());
+    assert!(build(dir.path(), "b.img", true).status.success(), "board image");
+    let image = dir.path().join("b.img");
+    poke(&image, CHUNK_SECTORS, &[0x44, 0xe4, 0x08, 0x00]);
+    poke(&image, CHUNK_SECTORS - 1, &[0x00, 0x00, 0x08, 0x00]);
+    poke(&image, CHUNK_SECTORS - 2, &[0x44, 0xe4, 0x07, 0x00]);
+    // The backup GPT's first entry sector, too: its region grows back into the free space.
+    poke(&image, BOARD_SECTORS - 33, &[0x00, 0x00, 0x08, 0x00]);
+    let out = plan(dir.path(), "b.img", "flash", "128M");
+    assert!(out.status.success(), "plan: {}", String::from_utf8_lossy(&out.stdout));
+    let text = std::fs::read_to_string(dir.path().join("flash/plan.json")).expect("plan.json");
+    let plan: serde_json::Value = serde_json::from_str(&text).expect("json");
+    let regions = plan["regions"].as_array().expect("regions");
+    let field = |r: &serde_json::Value, k: &str| r[k].as_u64().expect(k);
+    let disk: Vec<&serde_json::Value> =
+        regions.iter().filter(|r| r["name"] != "nxgpt" && r["name"] != "nxboot0").collect();
+    assert_eq!(field(disk[1], "start_lba"), CHUNK_SECTORS - 2, "two sectors back");
+    assert_eq!(field(disk[0], "sectors"), CHUNK_SECTORS - 2, "the first chunk ends sooner");
+    let mut next = 0;
+    for r in &disk {
+        assert_eq!(field(r, "start_lba"), next, "back to back: {}", r["name"]);
+        assert!(field(r, "sectors") <= CHUNK_SECTORS);
+        next += field(r, "sectors");
+    }
+    let span =
+        storage::layout::plan().expect("layout").iter().map(|p| p.last_lba + 1).max().unwrap();
+    assert_eq!(next, span, "chunks up to the end of the last partition");
+    let files: Vec<std::path::PathBuf> =
+        disk.iter().map(|r| dir.path().join("flash").join(r["file"].as_str().unwrap())).collect();
+    let chunks: Vec<(&Path, u64, u64)> =
+        files.iter().zip(&disk).map(|(f, r)| (f.as_path(), 0, field(r, "sectors") * 512)).collect();
+    assert_eq!(digest_of(&chunks), digest_of(&[(image.as_path(), 0, span * 512)]));
+    let gpt = regions.iter().find(|r| r["name"] == "nxgpt").expect("nxgpt");
+    assert_eq!((field(gpt, "start_lba"), field(gpt, "sectors")), (BOARD_SECTORS - 34, 34));
+    assert_eq!(
+        gpt["sha256"].as_str().unwrap(),
+        digest_of(&[(image.as_path(), (BOARD_SECTORS - 34) * 512, 34 * 512)])
+    );
+    for r in regions {
+        let mut first = [0u8; 4];
+        let file = dir.path().join("flash").join(r["file"].as_str().unwrap());
+        std::fs::File::open(&file).expect("region").read_exact(&mut first).expect("read");
+        assert!(!sniffed(&first), "{} starts with {:02x?}", r["name"], first);
+    }
+}
+
+#[test]
+fn test_reject_a_boundary_the_vehicle_sniffs_all_the_way_back() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    setup(dir.path());
+    assert!(build(dir.path(), "b.img", true).status.success(), "board image");
+    let image = dir.path().join("b.img");
+    for lba in CHUNK_SECTORS - SNIFF_SLACK..=CHUNK_SECTORS {
+        poke(&image, lba, &[0x44, 0xe4, 0x08, 0x00]);
+    }
+    let sniff_refused = |out: &Output| {
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(3), "{text}");
+        assert!(text.contains("reads as gzip to the vehicle"), "{text}");
+    };
+    sniff_refused(&plan(dir.path(), "b.img", "flash", "128M"));
+    // One sector inside the slack the vehicle does not sniff is enough.
+    poke(&image, CHUNK_SECTORS - SNIFF_SLACK, &[0x44, 0xe4, 0x07, 0x00]);
+    let out = plan(dir.path(), "b.img", "flash", "128M");
+    assert!(out.status.success(), "plan: {}", String::from_utf8_lossy(&out.stdout));
+    // The user area's first region cannot move: a sniffed sector 0 is refused.
+    poke(&image, 0, &[0x00, 0x00, 0x08, 0x00]);
+    sniff_refused(&plan(dir.path(), "b.img", "flash", "128M"));
 }

@@ -114,9 +114,18 @@ fn the_board_names_its_boot_led_and_qemu_names_none() {
     assert_eq!(led.gpio.reg(0).unwrap().unwrap().addr, 0xd401_9000);
     // GPIO 96's pad and its GPIO mux word, read live 2026-10-03 (pin index 120, `sys-led`).
     assert_eq!(chosen.boot_led_pad(), Some((0xd401_e1e0, 0xb041)));
+    // The slow milestone ladder is a deprecated diagnostic: the shipped tree does not ask for
+    // it (a diagnostic image adds `nexus,boot-led-ladder;`).
+    assert!(!chosen.boot_led_ladder());
     let virt = Fdt::new(VIRT).unwrap();
     assert!(virt.chosen().unwrap().boot_led().is_none());
     assert!(virt.chosen().unwrap().boot_led_pad().is_none());
+    assert!(!virt.chosen().unwrap().boot_led_ladder());
+    // A diagnostic image asks for the ladder with the empty property.
+    let mut buf = BOARD.to_vec();
+    let mut w = ChosenWriter::new(&mut buf).unwrap();
+    w.set_nexus_bytes("boot-led-ladder", &[]).unwrap();
+    assert!(Fdt::new(&buf).unwrap().chosen().unwrap().boot_led_ladder());
 }
 
 /// On the board the SPL hands this very tree to the pinned OpenSBI (TASK-0260B), so it carries

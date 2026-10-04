@@ -75,6 +75,15 @@ vendor pieces (`docs/board/measurements/2026-09-26-boot-medium/`):
   included), checks its size, writes it; `--verify` reads every region back from the stock
   system. The vehicle's JSON GPT and JSON regions are never used. The eMMC is written only with
   the user's go.
+  **Amended 2026-10-04:** the vehicle sniffs every download for gzip by the header's method byte
+  alone (offset 2 = 8, no magic check) and inflates what it takes for one: a user-area chunk that
+  began `44 e4 08 00` failed `unzip gzip data fail`. The plan starts no region on such a sector —
+  a chunk boundary moves back to the nearest one the vehicle does not sniff (within 1 MiB, else
+  refused), the backup GPT's region grows back into the free space, a sniffed sector 0 is refused
+  (`image_flash_cli`: `no_region_starts_where_the_vehicle_sniffs_gzip`,
+  `test_reject_a_boundary_the_vehicle_sniffs_all_the_way_back`; five mutations each killed).
+  Proven on the desk board: the corrected plan (boundary at sector 524 287) written with
+  `--skip-stage` (`docs/board/measurements/2026-10-04-boot-led-flag/`).
 
 ### Packages
 

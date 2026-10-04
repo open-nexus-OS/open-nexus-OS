@@ -1,0 +1,12 @@
+/:  Bus 001.Port 001: Dev 001, Class=root_hub, Driver=mv-ehci/1p, 480M
+/:  Bus 002.Port 001: Dev 001, Class=root_hub, Driver=xhci-hcd/1p, 480M
+    |__ Port 001: Dev 002, If 0, Class=Hub, Driver=hub/5p, 480M
+        |__ Port 002: Dev 007, If 0, Class=Human Interface Device, Driver=usbhid, 12M
+        |__ Port 002: Dev 007, If 1, Class=Human Interface Device, Driver=usbhid, 12M
+        |__ Port 002: Dev 007, If 2, Class=Human Interface Device, Driver=usbhid, 12M
+        |__ Port 003: Dev 006, If 0, Class=Human Interface Device, Driver=usbhid, 12M
+        |__ Port 003: Dev 006, If 1, Class=Human Interface Device, Driver=usbhid, 12M
+        |__ Port 003: Dev 006, If 2, Class=Human Interface Device, Driver=usbhid, 12M
+        |__ Port 005: Dev 004, If 0, Class=Billboard, Driver=[none], 480M
+/:  Bus 003.Port 001: Dev 001, Class=root_hub, Driver=xhci-hcd/1p, 5000M
+    |__ Port 001: Dev 002, If 0, Class=Hub, Driver=hub/4p, 5000M

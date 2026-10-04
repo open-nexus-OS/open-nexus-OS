@@ -5,9 +5,11 @@
 //! the one channel the boot's earliest phase has. The tree names it (`/chosen/nexus,boot-led`,
 //! a bank and line of a GPIO block, and the pad's mux register with the value the stock system
 //! runs it with). The loader brings the block up through the SoC glue (its clocks, RFC-0106's
-//! loader clause), muxes the pad, sets the line's direction and lights it for two seconds — "the
-//! loader is alive" — so the channel itself is proven before the kernel's ladder begins (one pulse per
-//! milestone, `neuron::hal::boot_led`). Register model: mainline v6.16 `gpio-spacemit-k1`
+//! loader clause), muxes the pad, sets the line's direction and lights it: "the boot is coming
+//! up" until the kernel's runtime turns it off (`neuron::hal::boot_led`). With the DEPRECATED
+//! diagnostic `/chosen/nexus,boot-led-ladder` it lights it for two seconds and pauses, so the
+//! channel itself is proven before the kernel's slow ladder begins (2026-10-04: the eMMC boot
+//! trace observes the boot; the ladder's ~22 s of waits are opt-in). Register model: mainline v6.16 `gpio-spacemit-k1`
 //! (banks at 0x0/0x4/0x8/0x100; GSDR 0x54 sets direction out, GPSR 0x18 sets, GPCR 0x24
 //! clears). Diagnostics only: nothing here stops the boot.
 //! OWNERS: @runtime
@@ -81,14 +83,20 @@ pub fn prepare(t: &Tree) {
     let base = reg.addr as usize + bank;
     let bit = 1u32 << led.line;
     arch::mmio_write32(base + GSDR, bit);
-    // The loader's signal: on for two seconds — long enough to be seen after a reset — then a
-    // pause before the kernel's first group.
     arch::mmio_write32(base + GPSR, bit);
-    wait_ms(hz, LOADER_ON_MS);
-    arch::mmio_write32(base + GPCR, bit);
-    wait_ms(hz, GAP_MS);
+    let ladder = chosen.boot_led_ladder();
+    if ladder {
+        // The deprecated ladder's start: on for two seconds — long enough to be seen after a
+        // reset — then a pause before the kernel's first group.
+        wait_ms(hz, LOADER_ON_MS);
+        arch::mmio_write32(base + GPCR, bit);
+        wait_ms(hz, GAP_MS);
+    }
     arch::uart_puts(&format!(
-        "nxboot: boot led ok (gpio=0x{:x} bank={} line={})\n",
-        reg.addr, led.bank, led.line
+        "nxboot: boot led ok (gpio=0x{:x} bank={} line={}{})\n",
+        reg.addr,
+        led.bank,
+        led.line,
+        if ladder { " ladder=deprecated" } else { "" }
     ));
 }

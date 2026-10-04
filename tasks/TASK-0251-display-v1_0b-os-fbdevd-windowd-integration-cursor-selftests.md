@@ -222,7 +222,10 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
        23.4 s (the no-UART desk's wait signal), and nothing can show before gpud (the display
        driver is a userspace service; an on-screen boot console before it would need the loader
        to drive the display). Quick lever when wanted: short LED blinks now that the eMMC trace
-       is the observation channel.
+       is the observation channel. **Lever pulled 2026-10-04:** the ladder is a deprecated flag
+       (TASK-0260B P3 amendment) — the kernel's runtime at 1.7 s instead of 23.4 s. Left: the
+       userspace bring-up up to gpud's first frame (unmeasured; the trace has no clock after
+       the kernel's last milestone).
     5. *The entry animation's first second* on the CPU path (a doubled password pill, a cut
        avatar) — the transform overrides (3b).
     **3b** — the CPU layer composite at the GL path's semantics (the rounded mask,

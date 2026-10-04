@@ -257,6 +257,19 @@ impl<'a> Chosen<'a> {
         let key = key.as_str();
         Some((u64::from(self.node.prop_cell(key, 0)?), self.node.prop_cell(key, 1)?))
     }
+
+    /// DEPRECATED diagnostic (2026-10-04): `nexus,boot-led-ladder` (an empty property) asks the
+    /// loader and the kernel for the slow milestone ladder of the desk without a serial adapter
+    /// — pulse groups worth ~22 s of busy waits per boot. The boot trace on the eMMC (RFC-0107)
+    /// and the picture are the observation channels now; the ladder stays for the one case
+    /// they cannot see: a kernel that stops before the trace reaches the disk. Absent (the
+    /// default), the LED only marks "kernel coming up" (on) and "runtime running" (off).
+    pub fn boot_led_ladder(&self) -> bool {
+        let Some(mut key) = NexusKey::new("boot-led-ladder") else {
+            return false;
+        };
+        self.node.prop(key.as_str()).is_some()
+    }
 }
 
 /// The boot LED as `/chosen` names it: a line of a GPIO controller node.

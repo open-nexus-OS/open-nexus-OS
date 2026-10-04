@@ -94,12 +94,15 @@ of a crashed boot from RAM. `just board-log` pulls it over adb once the stock sy
 back (microSD in, reset); `scripts/board-test.sh --log=<uart.log>` judges it. A warm reset
 keeps this board's DRAM, a cold one does not (`2026-09-28-dram-retention/`).
 
-## 7. The LED ladder (`source/kernel/neuron/src/hal/boot_led.rs`)
+## 7. The LED (`source/kernel/neuron/src/hal/boot_led.rs`)
 
-Before the block owner runs the kernel has one channel: the user LED. At milestone k it
-pulses k/5 long and k%5 short; a panic flickers forever. The operator reads the last
-group; `scripts/board-test.sh` prompts with it. It found the kernel's silent stop
-(2026-09-28: milestone 11, then a pending timer) that no marker could have shown.
+Before the block owner runs the kernel has one channel: the user LED. By default it is a
+two-state witness: lit at milestone 1, dark at milestone 11 (the runtime) — lit for good
+means the kernel stopped early; a panic flickers it forever. The slow ladder (milestone k =
+k/5 long and k%5 short pulses, ~22 s per boot) is a DEPRECATED diagnostic since 2026-10-04:
+set `/chosen/nexus,boot-led-ladder` (an empty property) in the board tree only when a
+kernel dies before the eMMC trace starts and the position matters. It found the kernel's
+silent stop (2026-09-28: milestone 11, then a pending timer) that no marker could have shown.
 
 ## 8. Reading a transcript honestly
 
