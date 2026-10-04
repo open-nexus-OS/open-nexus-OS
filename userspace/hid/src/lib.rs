@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: No direct tests (covered by 5 integration tests in `tests/input_v1_0_host/tests/hid_contract.rs`).
+//! TEST_COVERAGE: No direct tests (covered by the integration tests in `tests/input_v1_0_host/tests/hid_contract.rs`).
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 //! CONTEXT: TASK-0252 transport-neutral USB-HID boot parser primitives.

@@ -72,15 +72,16 @@ fn test_reject_duplicate_keyboard_usage() {
 }
 
 #[test]
-fn test_reject_mouse_buttons_out_of_range() {
+fn test_reject_mouse_report_in_another_format() {
     let mut service = HidrawdService::new();
     let mouse_id = DeviceId::new(2);
     service.register_mouse(mouse_id);
 
+    // A report-protocol frame (report id first, nine bytes) is not a boot report.
     let err = service
-        .ingest_mouse_report(mouse_id, TimestampNs::new(3), &[0b1000, 0, 0])
-        .expect_err("must reject out-of-range button bits");
-    assert_eq!(err.code(), "hid.mouse.button_bits");
+        .ingest_mouse_report(mouse_id, TimestampNs::new(3), &[2, 0, 0, 3, 0, 0, 0, 0, 0])
+        .expect_err("must reject a frame longer than a boot report");
+    assert_eq!(err.code(), "hid.mouse.length");
 }
 
 #[test]

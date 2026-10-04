@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-04 (TASK-0328 U0: the USB host contract, measured — RFC-0099; the HID boot parsers take the desk's real reports)
+
+- **Measured before designing** (`docs/board/measurements/2026-10-04-usb-boot-protocol/`, read-only
+  on the stock system): the HID endpoints (1 ms; EP0 max packet 32 on the mouse's receiver), the
+  on-board hub (5 ports, TT think time 32 FS bit times, 350 ms power-good, single/multi TT), the
+  report descriptors, and over usbfs what the devices send in the **boot protocol** our stack will
+  use: the mouse sends **4-byte** reports (wheel in byte 3, thumb buttons on bits 3–4) at ~1000/s,
+  STALLs SET_IDLE, and its first frame after the switch is still in the report format (9 bytes);
+  the keyboard sends 8 bytes and drops keys past six. What the operator typed is not archived.
+- **RFC-0099 (Draft, Phase 0 ✅)**: `xhcid` is the one owner of a USB host controller, class
+  services are its IPC clients (ADR-0039 amended: USB as a bus service); a reactive driver — one
+  waitset (IRQ, clients, a one-shot timer), the event ring drained per interrupt, interrupt-IN TRBs
+  pre-queued so the controller schedules the bus and the CPU sleeps, interrupt moderation bounding
+  the rate; a shared DMA region with explicit publish/observe for rings and contexts on the
+  non-coherent board; enumeration through hubs with the transaction-translator fields; the HID v1
+  class contract and its markers. TASK-0328 at end state, TASK-0253B seeded.
+- **The HID boot parsers take the measured reports** (`userspace/hid`): mouse reports of 3..=8
+  bytes with the wheel and eight buttons (side/extra), a longer frame refused (the stale
+  report-format frame); the keyboard's reserved byte ignored, the error usages hold the keys. The
+  old parser (exactly three bytes, bits 3–7 rejected) would have refused every report of the desk's
+  mouse. 5 new contract tests with the measured reports as goldens, 7 mutations each killed.
+
 ### Changed - 2026-10-04 (the boot LED behind a deprecated flag; the flash plan dodges the vehicle's gzip sniff)
 
 - **The kernel reaches its runtime 21.7 s sooner on the board.** The LED milestone ladder — the

@@ -5,7 +5,7 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: No direct tests (covered by 5 integration tests in `tests/input_v1_0_host/tests/hid_contract.rs`).
+//! TEST_COVERAGE: No direct tests (covered by the integration tests in `tests/input_v1_0_host/tests/hid_contract.rs`).
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -131,29 +131,54 @@ impl AbsoluteAxis {
     }
 }
 
+/// The eight buttons of a boot mouse report's first byte, bit 0 first. Side and extra (bits
+/// 3 and 4) are the thumb buttons a measured receiver sends (2026-10-04,
+/// `docs/board/measurements/2026-10-04-usb-boot-protocol/`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {
     Left,
     Right,
     Middle,
+    Side,
+    Extra,
+    Forward,
+    Back,
+    Task,
 }
 
 impl MouseButton {
+    /// Bit order of the boot report's button byte.
+    pub const ALL: [Self; 8] = [
+        Self::Left,
+        Self::Right,
+        Self::Middle,
+        Self::Side,
+        Self::Extra,
+        Self::Forward,
+        Self::Back,
+        Self::Task,
+    ];
+
     #[must_use]
     pub const fn event_code(self) -> u16 {
-        match self {
-            Self::Left => 0x110,
-            Self::Right => 0x111,
-            Self::Middle => 0x112,
-        }
+        0x110 + self.bit() as u16
     }
 
     #[must_use]
     pub const fn mask(self) -> u8 {
+        1 << self.bit()
+    }
+
+    const fn bit(self) -> u8 {
         match self {
-            Self::Left => 0b001,
-            Self::Right => 0b010,
-            Self::Middle => 0b100,
+            Self::Left => 0,
+            Self::Right => 1,
+            Self::Middle => 2,
+            Self::Side => 3,
+            Self::Extra => 4,
+            Self::Forward => 5,
+            Self::Back => 6,
+            Self::Task => 7,
         }
     }
 }

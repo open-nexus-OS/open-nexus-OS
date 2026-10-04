@@ -1,0 +1,368 @@
+# RFC-0099: USB host contract — `xhcid` owns the controller, a reactive event-ring driver, class services as its clients
+
+- Status: Draft (seed 2026-10-04 — TASK-0328 U0; the measurements it rests on are archived)
+- Owners: @runtime
+- Created: 2026-10-04
+- Last Updated: 2026-10-04
+- Links:
+  - Tasks: `tasks/TASK-0328-usb-host-stack-v1-xhci-hub-enumeration-class-clients.md` (execution + proof,
+    U0–U3), `tasks/TASK-0253B-hid-ingress-hidsource-usb-and-virtio.md` (the HID class client, U2)
+  - ADRs: `docs/adr/0039-device-class-driver-architecture.md` (layering; amended for USB as a bus service)
+  - Related RFCs: `RFC-0017` (device MMIO access model), `RFC-0098` (the FDT is the one hardware truth;
+    DMA reach C4), `RFC-0106` (socd — the one owner of SoC glue), `RFC-0096` (IPC contract v2),
+    `RFC-0052` (input v1.0a host HID contract)
+  - Measurements: `docs/board/measurements/2026-10-04-usb-topology/`,
+    `docs/board/measurements/2026-10-04-usb-boot-protocol/`
+
+## Status at a Glance
+
+- **Phase 0 (contract seed + measurements + HID boot parser fixed to the measured reports)**: ✅ 2026-10-04
+- **Phase 1 (`xhcid` + `nexus-usb` on QEMU: controller, hub, enumeration, HID boot interfaces)**: ⬜
+- **Phase 2 (the HID class client: `hidrawd` sources over one contract)**: ⬜
+- **Phase 3 (the board: socd glue + hub power + TT; keyboard and mouse drive the desktop)**: ⬜
+
+Definition: "Complete" means the contract is defined and the proof gates are green (tests/markers).
+
+## Scope boundaries (anti-drift)
+
+- **This RFC owns**:
+  - who owns a USB host controller (one service, `xhcid`) and how class services reach devices
+    (IPC clients, never MMIO);
+  - the driver's execution model: interrupt-driven event rings, no polling in steady state, bounded
+    waits as kernel timers on a waitset;
+  - the DMA discipline for memory the CPU and the controller share for the controller's lifetime,
+    on coherent and non-coherent machines;
+  - enumeration through hubs, including the transaction-translator fields of full/low-speed devices
+    behind a high-speed hub;
+  - the HID boot-protocol class contract v1 (what xhcid hands to the HID client) and its markers.
+- **This RFC does NOT own**:
+  - the HID event model, keymaps, repeat, pointer acceleration (RFC-0052; `userspace/hid`);
+  - SoC clocks/resets/power-domain/pad writes (RFC-0106 — socd), only what xhcid asks socd for;
+  - mass storage, isochronous classes, USB gadget mode, SuperSpeed link features (non-goals below);
+  - the report-protocol HID descriptor parser (a follow-up, see Open questions).
+
+### Relationship to tasks (single execution truth)
+
+TASK-0328 carries the stop conditions and proofs of Phases 0, 1 and 3; TASK-0253B those of Phase 2.
+
+## Context
+
+The OS has no USB code. Input on the board is USB only: the desk's keyboard and mouse sit on the
+USB-A ports. Measured on the stock system (`2026-10-04-usb-topology/`, `2026-10-04-usb-boot-protocol/`):
+
+- **One xHCI 1.10 controller** at `0xc0a00000` (the `snps,dwc3` node with `dr_mode = "host"`, IRQ
+  125), 64 slots, 1 interrupter, 2 root ports (1: USB 2.0, 2: USB 3.0), **64-byte contexts**
+  (HCCPARAMS1.CSZ = 1), **1 scratchpad buffer**, 64-bit addressing, port power control.
+- **The USB-A ports are behind an on-board high-speed hub** (`2109:2817`, 5 ports, per-port power,
+  TT think time 32 FS bit times, bPwrOn2PwrGood 350 ms) whose supply and reset are GPIO lines (97,
+  123, 124; `vbus_delay_ms = 200`).
+- **Both HID devices are full speed one hub deep** — their slot contexts need the
+  transaction-translator fields; QEMU's `usb-hub` is itself full speed, so QEMU cannot exercise TT.
+- **DMA reach**: the controller's bus maps only the first 2 GiB identity (stock `dram_range@0`, our
+  `storage-bus`); the SoC bus is **not coherent** (the tree's `dma-noncoherent`).
+- **Boot protocol, as the devices really answer**: every boot interface accepts SET_PROTOCOL(0);
+  the mouse interface STALLs SET_IDLE; the mouse sends **4-byte** reports (wheel in byte 3, thumb
+  buttons on bits 3–4) at **~1000 reports/s**; the first report after the protocol switch is still in
+  the report format (9 bytes); EP0's max packet is 32 on one device and 64 on the others.
+
+## Goals
+
+- One service owns the controller; every USB class reaches its devices through it.
+- Zero CPU time when no device produces data: the driver sleeps on its waitset; the controller
+  schedules the bus by itself (the endpoints' intervals) and interrupts only when transfers complete
+  or ports change.
+- The same driver on QEMU (`qemu-xhci` over PCI, coherent) and the board (platform node, not coherent).
+- Enumeration through hubs (route strings, hub class, TT) from the first version.
+- Keyboard and mouse in the boot protocol as the first class (HID v1).
+
+## Non-Goals
+
+- Mass storage, isochronous transfers (audio/video), USB gadget/device mode (`TASK-0261`, parked).
+- SuperSpeed link management beyond reporting it: v1 serves HS/FS/LS through the USB 2.0 root port;
+  a USB 3.0 port that trains is logged, never fatal.
+- MSI/MSI-X (QEMU's `virt` PCI host offers INTx; the board has a platform interrupt).
+- Report-protocol HID (touchpads, gamepads, consumer keys) — a follow-up behind the descriptor parser.
+
+## Constraints / invariants (hard requirements)
+
+- **No fake success**: `xhcid: ready` only after the controller runs (USBCMD.R/S = 1 and
+  USBSTS.HCH = 0) and every root port is powered; `device enumerated` only after a successful
+  Address Device and the device descriptor read back; `SELFTEST: input usb hid ok` only for a real
+  report inside a bounded wait.
+- **No polling in steady state**: the service blocks on ONE waitset (IRQ endpoint, client endpoint,
+  one-shot timer). Waits the specification mandates during reset (HCRST, CNR, HCH) are bounded by
+  the kernel timer on that waitset — never a spin against the clock (`scripts/check-wait-not-poll.sh`).
+- **Bounded resources**: slots enabled ≤ 16 (`CONFIG.MaxSlotsEn`), hub depth ≤ 5 (route string),
+  hub ports ≤ 15, configuration descriptor ≤ 1024 bytes, interfaces per configuration ≤ 8,
+  endpoints per interface ≤ 4, interrupt-IN TRBs queued per endpoint = 4, one event-ring segment of
+  256 TRBs, one command-ring segment of 64 TRBs, report frames to a client ≤ 16 reports.
+- **The FDT/PCI plan is the one hardware truth**: the controller's window, IRQ, reach and
+  coherence arrive inside the device capability init grants (RFC-0098); no address in code.
+- **Security floor**: descriptors and reports are untrusted input, bounded before parsing; a
+  device's strings are never read in v1 and never logged; class clients are identified by
+  `sender_service_id` and admitted by policyd (deny by default).
+
+## Proposed design
+
+### 1. Ownership and layering (normative)
+
+```
+inputd ── hidrawd (HID class client: boot parsers → WireHidBatch)
+              │  IPC: attach / reports / detach  (identity = sender_service_id, policy-gated)
+              ▼
+           xhcid  (the bus service: controller, rings, hubs, enumeration, class dispatch)
+              │  nexus-usb (descriptors, setup packets, hub class, TT, route strings — host-tested)
+              │  nexus-driverkit (MMIO, DMA regions + buffers, cache maintenance)
+              ▼
+kernel ── DeviceMmio cap (window + IRQ + reach + coherence), irq_bind/irq_complete, timer, waitset
+```
+
+`xhcid` is the only holder of the controller's MMIO window and IRQ. A USB class service (HID now,
+storage later) is an IPC client that is told about devices of its class and receives their data;
+it never sees an MMIO window or a TRB. This is ADR-0039's layering with USB as a **bus service**
+between the device-class service and the hardware (ADR-0039 amendment).
+
+**Grants** (init): QEMU — the PCI function of class `0x0c03`, prog-if `0x30` (xHCI) from init's PCI
+plan, bus mastering enabled after the grant (the boot-disk pattern); board — the `snps,dwc3` node
+with `dr_mode = "host"`. Either becomes ONE `device.mmio.usb` capability for xhcid (a new policy
+class). On the board xhcid asks socd to bring its node up (RFC-0106) before touching the window;
+the dual-role controller's global registers (port capability = host) are xhcid's, the APMU glue
+word, clocks, resets and power domain are socd's.
+
+### 2. The reactive loop (normative)
+
+xhcid's main loop waits on one waitset with three members and does work only when one fires:
+
+1. **IRQ endpoint** (the controller's line, `irq_bind`): clear USBSTS.EINT and IMAN.IP (both
+   write-1-to-clear), then **drain the event ring**: while the TRB at the dequeue pointer carries
+   the consumer cycle state, dispatch it and advance (toggling the cycle state at the segment end).
+   After the drain write ERDP with the new dequeue pointer and EHB set (clearing it), then
+   `irq_complete`. Events that arrive after the drain set IP again and re-assert the line once the
+   moderation interval has passed, so no wakeup is lost.
+2. **Client endpoint**: class clients' requests (subscribe, a control transfer on behalf of a
+   class, ack/credit).
+3. **One-shot timer** (a kernel timer on a declared notify pair): the deadline of the earliest
+   pending wait — a command's timeout, a port's power-good or reset recovery time, a reset step of
+   the controller. Armed only while such a wait exists; disarmed otherwise.
+
+Event dispatch:
+
+| event | owner | effect |
+|---|---|---|
+| Command Completion | the command queue | completes the head command (one in flight; the ring is serial) and advances the device state machine that issued it |
+| Transfer Event (EP0) | the device's control pipe | completes the control transfer's TD; a STALL completion is recovered (Reset Endpoint, Set TR Dequeue Pointer) and reported to the transfer's issuer |
+| Transfer Event (interrupt IN) | the endpoint's report queue | report length = requested − residual; the report is appended to the client's frame; the TRB is requeued at once |
+| Port Status Change | the root-port state machine | connect → reset → enabled (speed) → enumerate; disconnect → Disable Slot → detach to clients |
+| Host Controller | the controller | HSE/HCE → bounded controller reset + `xhcid: FAIL (…)` |
+
+Every state machine (controller init, root port, hub port, device enumeration, HID setup) is a
+plain enum advanced by completions and timer deadlines — no thread, no future executor, no busy
+wait. The controller schedules interrupt endpoints by their intervals: with four Normal TRBs queued
+per HID endpoint (IOC set), the CPU sleeps between reports.
+
+**Interrupt moderation**: IMOD bounds the interrupt rate the controller can produce. One measured
+mouse completes ~1000 transfers/s; v1 sets IMODI = 4000 (1 ms), which keeps the added latency under
+a millisecond and caps the rate at 1 kHz however many devices report. Phase 3 measures the board's
+interrupt rate and input latency (counters in the `fps:`-style telemetry line) and records the
+value it keeps.
+
+### 3. Rings, contexts and DMA (normative)
+
+Memory the controller reads or writes:
+
+| structure | size / alignment | written by | read by | non-coherent maintenance |
+|---|---|---|---|---|
+| DCBAA (+ scratchpad array) | (MaxSlotsEn + 1) × 8 B, 64 B | CPU | controller | clean after write |
+| scratchpad buffers | PAGESIZE each, page | controller | controller | flush once at setup; the CPU never touches them |
+| command ring | 64 TRBs (1 KiB), 64 B, one segment | CPU | controller | clean each TRB before the doorbell |
+| event ring + ERST | 256 TRBs (4 KiB) + 1 entry, 64 B | controller | CPU | flush (invalidate) the line before reading a TRB; the CPU never writes it after setup |
+| input context | 33 × CSZ, 64 B | CPU | controller | clean before the command |
+| output device context | 32 × CSZ, 64 B | controller | CPU | flush before reading |
+| transfer rings (EP0, interrupt IN) | 64 / 16 TRBs, 64 B, one segment | CPU | controller | clean each TRB before the doorbell |
+| report buffers | max packet each | controller | CPU | flush before requeue and before reading |
+
+- Every structure lives in a **contiguous** VMO made for the controller's device capability
+  (`vmo_create_contiguous`): a block of ≤ 64 KiB is aligned to its own power-of-two size, so no
+  ring segment crosses a 64 KiB boundary and every structure is 64-byte aligned (kernel buddy
+  invariant; asserted by xhcid at setup from the runs the kernel reports). The bus address comes
+  from the kernel (`vmo_runs`) — xhcid never computes one; the reach (the first 2 GiB on the board)
+  is the kernel's to honour.
+- **TRB publication order** (non-coherent): write the TRB's words except the cycle bit, clean the
+  line, fence; write the cycle bit, clean, fence; then the doorbell (an MMIO write after the
+  fence). The controller never sees a TRB whose cycle bit is valid before its fields.
+- **Two DMA shapes in nexus-driverkit**: per-transfer buffers keep `DmaBuffer`'s ownership
+  typestate (CPU XOR device); memory both sides use for the controller's lifetime (rings, contexts,
+  DCBAA, ERST) is a **shared DMA region** with explicit `publish(range)` (clean) and
+  `observe(range)` (flush) of entry ranges — the one seam where a driver maps such memory, host-tested
+  against a model of a non-coherent cache (the TASK-0246 P2 model). On a coherent device both are
+  no-ops.
+
+### 4. Enumeration (normative)
+
+- **Controller init** (xHCI §4.2): wait CNR = 0; stop (R/S = 0, wait HCH = 1); HCRST, wait HCRST = 0
+  and CNR = 0; MaxSlotsEn; DCBAAP (+ scratchpad array from HCSPARAMS2); CRCR with RCS = 1;
+  interrupter 0 (ERSTSZ, ERDP, ERSTBA last, IMOD, IMAN.IE); USBCMD.INTE + R/S; wait HCH = 0; power
+  every root port (PORTSC.PP when HCCPARAMS1.PPC = 1). Context size from HCCPARAMS1.CSZ; the
+  Supported Protocol capabilities name each root port's USB revision.
+- **A device** (root or hub port): port reset → speed → Enable Slot → Address Device (slot
+  context: route string, speed, root-hub port number, and for a full/low-speed device behind a
+  high-speed hub the **TT hub slot ID, TT port number and MTT** of that hub; EP0 context with the
+  speed's default max packet — 8 for full speed until the first eight bytes of the device descriptor
+  name `bMaxPacketSize0`, then Evaluate Context) → device descriptor → configuration descriptor
+  (bounded) → Configure Endpoint for the chosen interfaces' endpoints (interval exponent from
+  `bInterval` per speed: full/low speed `3 + floor(log2(bInterval))`, high speed `bInterval − 1`)
+  → SET_CONFIGURATION.
+- **A hub** (class 9): GET_DESCRIPTOR(hub) → its slot context becomes a hub (Hub = 1, number of
+  ports, TTT from `wHubCharacteristics`, MTT = 0: v1 keeps alternate setting 0, single TT) →
+  SET_PORT_FEATURE(PORT_POWER) on every port → wait `bPwrOn2PwrGood × 2 ms` (the timer) → the
+  hub's status-change endpoint is queued like a HID endpoint; a change bit → GET_PORT_STATUS →
+  clear the change → PORT_RESET → wait the reset change → speed → enumerate the child with the
+  route string extended by the port.
+- **HID boot interfaces** (class 3, subclass 1, protocol 1 keyboard / 2 mouse): SET_PROTOCOL(0),
+  SET_IDLE(0) best effort (a STALL is recovered and ignored — measured on a mouse), then four
+  Normal TRBs per interrupt-IN endpoint with buffers of its max packet, and the device is announced
+  to the HID client.
+
+### 5. The class-client contract — HID v1 (normative, wire in `nexus-wire`)
+
+- **Subscribe**: a client sends `OP_SUBSCRIBE { class = HID_BOOT }` on xhcid's server endpoint;
+  xhcid admits it if policyd grants the client's `sender_service_id` the class (`usb.hid`; only
+  hidrawd). One subscriber per class.
+- **Attach**: `OP_DEVICE_ATTACHED { device: u16, vid: u16, pid: u16, interface: u8, role:
+  keyboard|mouse, max_packet: u16 }` — sent once the interface's TRBs are queued.
+- **Reports**: `OP_HID_REPORTS { device: u16, count: u8, [len: u8, bytes…] }` — all reports a drain
+  produced for that device, at most 16 per frame (a fuller drain sends more frames); fire-and-forget,
+  no capability moved. A report is the controller's bytes, unparsed — the ONE parser is
+  `userspace/hid` in the client (it refuses lengths outside the boot formats, which also drops the
+  stale report-format frame right after the protocol switch).
+- **Detach**: `OP_DEVICE_DETACHED { device }` when the port disconnects or the device is disabled.
+- **Backpressure**: a send that finds the client's queue full drops the frame and counts it
+  (`dropped=` in xhcid's telemetry). A boot keyboard report carries the whole key state, so the next
+  report heals a dropped one; a dropped mouse frame loses its deltas only.
+
+### 6. Board specifics (normative for Phase 3)
+
+- socd brings `usb@c0a00000` up: power domain 0, `usbdrd30` clock, the three resets, the APMU glue
+  word measured as `0x0b008000`; the USB 2.0 PHY's tuning as the stock system leaves it, diffed on
+  the first board cycle (the D3 method).
+- **Hub power**: the board tree names the hub's supply and reset lines the standard way (fixed
+  regulators with an enable GPIO and a startup delay: lines 97 → 200 ms, 123, 124; pads as measured
+  — 97 mux 1, 123/124 mux 0); socd gains the GPIO output step that powers a node's supplies
+  (RFC-0106 amendment at U3). No driver drives a GPIO directly.
+- The USB 3.0 root port (the hub's SuperSpeed twin) may train; xhcid logs it and leaves it alone in v1.
+
+### 7. Markers (normative)
+
+- `xhcid: controller ok (version=… ports=… slots=… csz=… scratch=… irq=…)`
+- `xhcid: ready (ports=… powered=…)`
+- `xhcid: hub (slot=… port=… speed=… ports=… ttt=…)`
+- `xhcid: device enumerated (slot=… route=0x… speed=… vid=… pid=… class=…)`
+- `xhcid: hid boot interface (slot=… if=… role=… ep=0x… mps=… interval=…)`
+- `xhcid: FAIL (step=… cc=…)` — the failing command or transfer and its completion code
+- `hidrawd: usb hid device (vid=… pid=… role=…)` (Phase 2)
+- `SELFTEST: input usb hid ok (…)` — a real report inside a bounded wait, else `FAIL (no event in 30s)`
+
+### Phases / milestones (contract-level)
+
+- **Phase 0**: this contract + the two measurements + the HID boot parsers taking the measured
+  reports (3..=8-byte mouse reports with the wheel, eight buttons; the keyboard's reserved byte and
+  error usages) — proof: `cargo test -p input_v1_0_host --test hid_contract`, `-p hidrawd --test contract`.
+- **Phase 1** (TASK-0328 U1): `nexus-usb` + `xhcid` host-tested against an xHCI behavioural model
+  (command/event/transfer rings, port changes, a hub); QEMU profile `usb` (`qemu-xhci`, a `usb-hub`,
+  `usb-kbd` and `usb-mouse` behind it) — `xhcid: ready`, `xhcid: hub`, two `device enumerated`, two
+  `hid boot interface`; in `test-all`.
+- **Phase 2** (TASK-0253B): hidrawd's ingress generic over sources (virtio-input, USB HID); QMP
+  input to the USB devices moves the desktop — `SELFTEST: ui v2 input ok` over USB.
+- **Phase 3** (TASK-0328 U3): the board — socd glue, hub power, TT; `[PASS] board-visible` with
+  `SELFTEST: input usb hid ok` and `board-visual: typed`. **Block 2 gate.**
+
+## Security considerations
+
+- **Threat model**: a malicious or broken USB device (descriptor overruns, absurd sizes, endless
+  hubs, report floods, stalls); a confused-deputy client asking xhcid to act on a device of another
+  class; a spoofed client identity.
+- **Mitigations**: descriptor parsing in `nexus-usb` bounded before use — `test_reject_*` for a
+  `bLength` below 2 or past the buffer, `wTotalLength` past 1024, more interfaces or endpoints than
+  the bounds, a `bMaxPacketSize0` outside {8, 16, 32, 64}, a max packet of 0 or past 1024, a hub with
+  0 or more than 15 ports, a route deeper than 5 hubs; a transfer's residual larger than its request
+  refused; report frames bounded; class admission by `sender_service_id` + policyd; MMIO `USER|RW`,
+  never exec; DMA only inside the capability's reach (kernel-checked); device strings never read.
+- **Open risks**: a device that floods reports at its interval is bounded by IMOD and the frame
+  drop counter, not refused; a hub that lies about TT parameters breaks only its own children.
+
+## Failure model (normative)
+
+- A command that does not complete before its deadline is aborted (CRCR.CA) → `xhcid: FAIL
+  (step=<command> cc=timeout)`; the owning device is disabled, the controller keeps running.
+- A STALL on EP0 → Reset Endpoint + Set TR Dequeue Pointer; the control transfer returns the stall
+  to its issuer (SET_IDLE: ignored; anything else: the interface is not used, with a marker).
+- A transaction error on an interrupt endpoint → Reset Endpoint + requeue, at most 3 in a row,
+  then the device is disabled with a marker.
+- Host System Error / Host Controller Error → one bounded controller reset (the init sequence);
+  a second failure stops xhcid with `xhcid: FAIL (step=controller …)`.
+- No silent fallback: no device is ever reported attached that did not complete enumeration.
+
+## Proof / validation strategy (required)
+
+### Proof (Host)
+
+```bash
+cd /home/jenning/open-nexus-OS && cargo test -p input_v1_0_host --test hid_contract && cargo test -p hidrawd --test contract
+cd /home/jenning/open-nexus-OS && cargo test -p nexus-usb && cargo test -p xhcid   # Phase 1
+```
+
+### Proof (OS/QEMU)
+
+```bash
+cd /home/jenning/open-nexus-OS && just test-os usb        # Phase 1 (profile `usb`)
+cd /home/jenning/open-nexus-OS && just test-all           # the usb lane included
+```
+
+### Proof (board)
+
+```bash
+cd /home/jenning/open-nexus-OS && bash scripts/board-test.sh --profile=board-visible --log=build/logs/latest-board/uart.log
+```
+
+## Alternatives considered
+
+- **A timer that polls the event ring**: wakes an idle system for nothing and trades latency for
+  CPU; the controller already schedules the bus and interrupts on completion. Rejected.
+- **Each class driver owns the controller**: the controller, its rings and its slots are shared by
+  every device on the bus. Rejected (ADR-0039: one owner per device, classes as clients).
+- **A USB stack in the kernel**: drivers live in userspace (microkernel). Rejected.
+- **An async executor (futures) inside xhcid**: the state machines are few and small; plain enums
+  advanced by events are deterministic, testable on the host and need no runtime. Rejected for v1.
+- **Report protocol with a full HID descriptor parser in v1**: the boot protocol covers keyboards
+  and mice with a fixed, measured format. Deferred.
+- **The board's separate EHCI controller**: it does not serve the USB-A ports. Not used.
+
+**Prior art** (described generically): a production-grade capability OS drives xHCI from a
+userspace driver with per-interrupter event rings and completion-driven asynchronous transfers,
+choosing its interrupt moderation from a scheduler trace and polling only during reset; a research
+Rust microkernel runs xHCI as a userspace daemon that receives the IRQ as an event and wakes the
+waiters of specific TRBs, with ring buffers to its class drivers; classic boot-protocol mouse
+drivers read the fourth byte as the wheel — as the measured mouse sends it.
+
+## Open questions
+
+- **The report-protocol parser** (touchpads, consumer keys, gamepads): a follow-up task after
+  Block 2, behind a bounded HID descriptor parser in `userspace/hid`.
+- **Multi-TT**: v1 runs the hub single-TT (alternate setting 0); multi-TT once two full-speed
+  devices on one hub contend for bandwidth (measure first).
+- **IMOD**: 1 ms in v1; the board's interrupt-rate and latency counters decide (Phase 3).
+- **A shared-memory report ring to the client** (instead of IPC frames) when a bulk class (mass
+  storage) arrives; HID's reports are a few bytes.
+
+---
+
+## Implementation Checklist
+
+- [x] **Phase 0**: contract seed, measurements, HID boot parsers on the measured reports — proof:
+  `cargo test -p input_v1_0_host --test hid_contract`, `cargo test -p hidrawd --test contract`
+- [ ] **Phase 1**: xhcid + nexus-usb on QEMU — proof: `just test-os usb`, `just test-all`
+- [ ] **Phase 2**: hidrawd sources, USB input moves the desktop — proof: the usb visible lane
+- [ ] **Phase 3**: the board — proof: `[PASS] board-visible` with `SELFTEST: input usb hid ok` + `board-visual: typed`
+- [x] Task(s) linked with stop conditions + proof commands.
+- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] Security-relevant negative tests exist (`test_reject_*`) — Phase 0's parsers; Phase 1 adds the descriptor rejects.

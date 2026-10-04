@@ -68,10 +68,22 @@ net-virtio is the minimal reference (transport + a userspace data plane, no ring
 | **Audio** (future) | nexus-virtio (virtio-sound) | period/buffer ring + **timeline fence for A/V sync** + buffer budget | period/format config | NexusMedia |
 | **NPU** (future) | bus HAL (virtio / PCIe) | inference submit ring + completion fence + model/tensor budget + **power-profile QoS** | command encode/validate | NexusInfer |
 | **Camera/ISP** (future) | bus HAL | frame ring + **per-frame deadline QoS** + VMO frame budget + privacy gates | sensor/ISP config | NexusMedia |
+| **USB HID** (TASK-0328/0253B) | the **bus service** `xhcid` (below) | xhcid: shared DMA region for rings/contexts + `DmaBuffer` per transfer | hidrawd: the boot-report parsers (`userspace/hid`) | — (input → inputd) |
 
 The mobile/tile-aware stance (TRACK-NEXUSGFX-SDK) is preserved at the SDK layer (pass locality,
 bandwidth-first), not hard-coded into any vendor API; real GPU/NPU backends plug in behind the SDK
 without changing this layering.
+
+## Amendment 2026-10-04 — USB is a bus with its own service (RFC-0099)
+
+A USB host controller is shared by every device on its bus — its rings, slots and hubs are not any
+one class's — so for USB the "bus HAL" layer is a **service**, not a library: `xhcid` is the one
+holder of the controller's MMIO window and IRQ, enumerates through hubs and hands each device's
+data to the class service that subscribed for its class (HID now; storage later). A USB class
+service is an IPC client of xhcid (identity = `sender_service_id`, admitted by policyd) and never
+sees an MMIO window or a TRB. The library half stays a library: `nexus-usb` (descriptors, hub
+class, xHCI encodings, the state machines — host-tested) under xhcid, `nexus-driverkit` for MMIO
+and DMA. Other buses keep the library shape until they too are shared by several classes.
 
 ## Consequences
 
