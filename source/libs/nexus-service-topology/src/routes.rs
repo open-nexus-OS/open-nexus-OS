@@ -45,6 +45,10 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Inputd, ServiceId::Windowd),     // visible-state push (pointer/keyboard)
     (ServiceId::Inputd, ServiceId::Imed),        // key-forward leg (RFC-0075)
     (ServiceId::Hidrawd, ServiceId::Inputd),     // normalized HID events (RFC-0053)
+    // TASK-0253B (RFC-0099 §5): hidrawd subscribes to xhcid's HID boot class; xhcid admits a
+    // subscriber by asking policyd for `usb.hid` of the kernel-attributed sender.
+    (ServiceId::Hidrawd, ServiceId::Xhcid),
+    (ServiceId::Xhcid, ServiceId::Policyd),
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks

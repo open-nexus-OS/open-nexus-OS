@@ -129,6 +129,17 @@ OS/QEMU proof state now landed:
   the time-capped interactive minimal/full runner paths backed by the real
   `virtio-input -> hidrawd -> inputd -> windowd` chain.
 
+`TASK-0253B` (2026-10-05) gives `hidrawd` one ingress loop over its sources
+(RFC-0099 §5): the virtio-input devices of QEMU's virt machine and the USB HID
+boot interfaces `xhcid` serves. hidrawd subscribes once (policy-gated:
+`usb.hid`); xhcid pushes each interface's attach, every drain's reports and its
+detach on hidrawd's push channel. Both sources feed the one batch path, so inputd
+receives the same `WireHidBatch` frames from either. The boot parsers live in one
+device table (`HidrawdService`). A detach releases held keys and buttons. There
+is no timer and no re-probe; the loop waits on the sources' endpoints. Proof:
+`cargo test -p hidrawd --test usb_source`, and `just ci-os-usb-visible`, which
+drives the desktop over USB alone.
+
 Still intentionally out of scope for this slice:
 
 - perf / latency-budget closure (`TASK-0056C`),

@@ -7,7 +7,7 @@
 //! stale across three edits before this test existed), and the disk has ONE holder (ADR-0044,
 //! ADR-0067, TASK-0246 P4b): only the block owner may be granted a virtio disk or an SD/MMC
 //! host, so a second service that asked would be denied by policyd — likewise the display plane
-//! (gpud) and the USB host controller (xhcid).
+//! (gpud), the USB host controller (xhcid) and the USB HID class it serves (hidrawd).
 //! OWNERS: @runtime @security
 
 use std::path::Path;
@@ -48,6 +48,19 @@ fn test_reject_a_second_holder_of_the_usb_host() {
     assert_eq!(holders, ["xhcid"]);
     for subject in ["hidrawd", "inputd", "selftest-client", "socd", "gpud"] {
         assert!(tree.policy().check(&["device.mmio.usb"], subject).is_err(), "{subject}");
+    }
+}
+
+/// TASK-0253B (RFC-0099 §5): xhcid serves the HID boot class to ONE subscriber, admitted by
+/// `usb.hid` — keystrokes go to the HID client and nowhere else; the input router, the harness,
+/// the controller's owner itself and the glue owner are denied.
+#[test]
+fn test_reject_a_second_subscriber_of_usb_hid() {
+    let tree = committed();
+    let holders: Vec<&str> = tree.policy().holders("usb.hid").collect();
+    assert_eq!(holders, ["hidrawd"]);
+    for subject in ["inputd", "selftest-client", "xhcid", "socd", "windowd"] {
+        assert!(tree.policy().check(&["usb.hid"], subject).is_err(), "{subject}");
     }
 }
 

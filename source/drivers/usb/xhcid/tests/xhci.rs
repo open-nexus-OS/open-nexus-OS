@@ -6,12 +6,15 @@
 //! through the board's high-speed hub with the desk's devices as measured (descriptors from
 //! `docs/board/measurements/2026-10-04-usb-boot-protocol/stock-descriptors.txt`, the TT fields
 //! the machine checks, the mouse that STALLs SET_IDLE), reports end to end, an idle bus that
-//! costs nothing, detach and re-attach, and the refusals.
+//! costs nothing, detach and re-attach, the refusals — and the HID class server's subscriber
+//! (TASK-0253B): what it hears, in which order, with a client that is full or dead.
 //! OWNERS: @runtime @drivers
 
 // The modules live in `tests/xhci/` (one test target; `tests/*.rs` would make each its own).
 #[path = "xhci/bringup.rs"]
 mod bringup;
+#[path = "xhci/class.rs"]
+mod class;
 #[path = "xhci/detach.rs"]
 mod detach;
 #[path = "xhci/enumerate.rs"]
@@ -36,13 +39,19 @@ pub fn measured(name: &str) -> Vec<u8> {
 }
 
 /// QEMU's shape: a full-speed hub with eight ports on root port 1, a boot keyboard on its
-/// port 1 and a boot mouse on its port 2.
-pub fn qemu_rig() -> (Shared, Rig) {
+/// port 1 and a boot mouse on its port 2 — not started.
+pub fn qemu_machine() -> Shared {
     let m = machine(Config::qemu());
     let mut hub = dev::hub(Speed::Full, 8, 0);
     hub.plug(1, Dev::Hid(dev::hid(Speed::Full, dev::hid_descriptors(0x0627, 0x0001, &[(1, 8)]))));
     hub.plug(2, Dev::Hid(dev::hid(Speed::Full, dev::hid_descriptors(0x0627, 0x0001, &[(2, 4)]))));
     m.borrow_mut().plug(1, Dev::Hub(hub));
+    m
+}
+
+/// QEMU's shape, started and settled.
+pub fn qemu_rig() -> (Shared, Rig) {
+    let m = qemu_machine();
     let mut rig = Rig::new(&m);
     rig.start();
     (m, rig)

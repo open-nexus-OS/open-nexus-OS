@@ -35,11 +35,27 @@ impl BootKeyboardParser {
         Self { previous_modifiers: 0, previous_keys: [0; MAX_KEYS] }
     }
 
+    /// The report's events as a fresh list — [`Self::parse_report_into`] for a caller without
+    /// a buffer of its own.
     pub fn parse_report(
         &mut self,
         timestamp: TimestampNs,
         report: &[u8],
     ) -> Result<Vec<HidEvent>, HidError> {
+        let mut events = Vec::new();
+        self.parse_report_into(timestamp, report, &mut events)?;
+        Ok(events)
+    }
+
+    /// Appends the report's events to `out`: releases, modifier changes, presses. Nothing is
+    /// allocated once `out` holds a report's worth (the live ingress reuses one buffer for
+    /// every report). A refused report leaves `out` and the key state untouched.
+    pub fn parse_report_into(
+        &mut self,
+        timestamp: TimestampNs,
+        report: &[u8],
+        out: &mut Vec<HidEvent>,
+    ) -> Result<(), HidError> {
         if report.len() != KEYBOARD_REPORT_LEN {
             return Err(HidError::InvalidKeyboardReportLength { actual: report.len() });
         }
@@ -50,15 +66,32 @@ impl BootKeyboardParser {
             current_keys = self.previous_keys;
         }
         validate_no_duplicates(&current_keys)?;
+        self.advance(timestamp, report[0], current_keys, out);
+        Ok(())
+    }
 
-        let mut events = Vec::new();
-        for released in key_deltas(&self.previous_keys, &current_keys) {
-            events.push(HidEvent::key(timestamp, released as u16, 0));
+    /// Releases everything held — keys, then modifiers, as key-up events — and forgets it: a
+    /// keyboard that went away (unplugged, its pipe dropped) leaves nothing pressed.
+    pub fn release_all_into(&mut self, timestamp: TimestampNs, out: &mut Vec<HidEvent>) {
+        self.advance(timestamp, 0, [0; MAX_KEYS], out);
+    }
+
+    /// Moves from the held state to (`modifiers`, `keys`), appending the difference.
+    fn advance(
+        &mut self,
+        timestamp: TimestampNs,
+        modifiers: u8,
+        keys: [u8; MAX_KEYS],
+        out: &mut Vec<HidEvent>,
+    ) {
+        let (released, n) = key_deltas(&self.previous_keys, &keys);
+        for &usage in &released[..n] {
+            out.push(HidEvent::key(timestamp, u16::from(usage), 0));
         }
         for bit in 0..8 {
             let mask = 1u8 << bit;
-            if self.previous_modifiers & mask != 0 && report[0] & mask == 0 {
-                events.push(HidEvent::key(
+            if self.previous_modifiers & mask != 0 && modifiers & mask == 0 {
+                out.push(HidEvent::key(
                     timestamp,
                     KeyboardUsage::modifier_from_bit(bit).event_code(),
                     0,
@@ -67,21 +100,21 @@ impl BootKeyboardParser {
         }
         for bit in 0..8 {
             let mask = 1u8 << bit;
-            if self.previous_modifiers & mask == 0 && report[0] & mask != 0 {
-                events.push(HidEvent::key(
+            if self.previous_modifiers & mask == 0 && modifiers & mask != 0 {
+                out.push(HidEvent::key(
                     timestamp,
                     KeyboardUsage::modifier_from_bit(bit).event_code(),
                     1,
                 ));
             }
         }
-        for pressed in key_deltas(&current_keys, &self.previous_keys) {
-            events.push(HidEvent::key(timestamp, pressed as u16, 1));
+        let (pressed, n) = key_deltas(&keys, &self.previous_keys);
+        for &usage in &pressed[..n] {
+            out.push(HidEvent::key(timestamp, u16::from(usage), 1));
         }
 
-        self.previous_modifiers = report[0];
-        self.previous_keys = current_keys;
-        Ok(events)
+        self.previous_modifiers = modifiers;
+        self.previous_keys = keys;
     }
 }
 
@@ -97,13 +130,16 @@ fn validate_no_duplicates(keys: &[u8; MAX_KEYS]) -> Result<(), HidError> {
     Ok(())
 }
 
-fn key_deltas(lhs: &[u8; MAX_KEYS], rhs: &[u8; MAX_KEYS]) -> Vec<u8> {
-    let mut out = Vec::new();
+/// The usages in `lhs` that `rhs` lacks, ascending, and how many (at most six: no allocation).
+fn key_deltas(lhs: &[u8; MAX_KEYS], rhs: &[u8; MAX_KEYS]) -> ([u8; MAX_KEYS], usize) {
+    let mut out = [0u8; MAX_KEYS];
+    let mut n = 0;
     for usage in lhs.iter().copied().filter(|usage| *usage != 0) {
         if !rhs.contains(&usage) {
-            out.push(usage);
+            out[n] = usage;
+            n += 1;
         }
     }
-    out.sort_unstable();
-    out
+    out[..n].sort_unstable();
+    (out, n)
 }

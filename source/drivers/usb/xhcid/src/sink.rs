@@ -1,9 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! What the driver tells its host (the OS loop prints markers and, from U2 on, forwards
-//! reports; a test records everything): one [`Note`] per thing that happened, through a
-//! [`Sink`] — the core never prints, allocates or blocks.
+//! What the driver tells its host (the OS loop prints markers and hands the HID notes to the
+//! class server, `hid_class`; a test records everything): one [`Note`] per thing that
+//! happened, through a [`Sink`] — the core never prints, allocates or blocks.
 
 use nexus_usb::{HidRole, Speed};
 
@@ -64,7 +64,7 @@ pub enum Note<'a> {
     Hub { slot: u8, root_port: u8, speed: Speed, ports: u8, ttt: u8 },
     /// A device answered its descriptors.
     Enumerated { slot: u8, route: u32, speed: Speed, vendor: u16, product: u16, class: u8 },
-    /// A HID boot interface reports.
+    /// A HID boot interface reports (its device's identity along, for the class's client).
     HidInterface {
         slot: u8,
         interface: u8,
@@ -72,9 +72,14 @@ pub enum Note<'a> {
         endpoint: u8,
         max_packet: u16,
         interval: u8,
+        vendor: u16,
+        product: u16,
     },
     /// A boot report as the controller delivered it (unparsed).
     Report { slot: u8, interface: u8, role: HidRole, bytes: &'a [u8] },
+    /// A HID interface's pipe was given up (it kept failing): the interface reports no more,
+    /// though its device stays (the [`Note::Fail`] before it names the step and the code).
+    HidLost { slot: u8, interface: u8 },
     /// A device went away.
     Detached { slot: u8 },
     /// Something failed: the step and the completion code (or 0).

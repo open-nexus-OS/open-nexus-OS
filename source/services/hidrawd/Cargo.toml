@@ -26,6 +26,8 @@ stack_pages = 8
 [dependencies]
 hid = { path = "../../../userspace/hid" }
 input-live-protocol = { path = "../../../userspace/input-live-protocol" }
+# The USB class-client wire (RFC-0099 §5): xhcid's frames on the subscription's channel.
+nexus-wire = { path = "../../libs/nexus-wire" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }

@@ -1,6 +1,6 @@
 ---
 title: TASK-0328 USB host stack v1: `nexus-usb` + `xhcid` (xHCI rings, hub, enumeration) with device-class services as clients
-status: In Progress (U1 ✅ 2026-10-05 — xhcid + nexus-usb on QEMU: the `usb` lane enumerates a hub, a keyboard and a mouse driven by the interrupt alone; U2 next; U0 ✅ 2026-10-04 — measured on the stock system (topology, registers, endpoints, the hub, what the devices send in the boot protocol), RFC-0099 seeded, the HID boot parsers fixed to the measured reports, TASK-0253B seeded; U1 next; rewritten to end state at U0; seeded 2026-09-21 by the hardware fast track)
+status: In Progress (U2 ✅ 2026-10-05 — TASK-0253B P1–P3: xhcid serves the HID boot class to hidrawd (policyd `usb.hid`), the `usb-visible` lane drives the desktop over USB alone; U3 next — the board; U1 ✅ 2026-10-05 — xhcid + nexus-usb on QEMU: the `usb` lane enumerates a hub, a keyboard and a mouse driven by the interrupt alone; U0 ✅ 2026-10-04 — measured on the stock system (topology, registers, endpoints, the hub, what the devices send in the boot protocol), RFC-0099 seeded, the HID boot parsers fixed to the measured reports, TASK-0253B seeded; U1 next; rewritten to end state at U0; seeded 2026-09-21 by the hardware fast track)
 owner: @runtime
 created: 2026-09-21
 depends-on: []
@@ -138,8 +138,14 @@ report-protocol HID (a follow-up behind a descriptor parser).
     `xhcid: ready (ports=8 connected=1)`, the hub (`slot=1 port=5 … ports=8 ttt=0`), both devices
     enumerated and both HID boot interfaces; every other full-ladder lane (smp1, sdhci, reset,
     headless) requires `usb plane none`; a `xhcid: FAIL` fails any lane.
-- **U2 — HID ingress** (`TASK-0253B`): hidrawd's sources behind one trait, the USB source as
-  xhcid's client; QMP input to the USB devices moves the desktop (`SELFTEST: ui v2 input ok` over USB).
+- **U2 — HID ingress** (`TASK-0253B`) ✅ 2026-10-05: hidrawd's sources behind one trait, the USB
+  source as xhcid's client; QMP input to the USB devices moves the desktop (`SELFTEST: ui v2 input
+  ok` over USB, the `usb-visible` lane). xhcid's side (RFC-0099 §5, amended): a server endpoint in
+  its waitset and `@ready` at once (a DisplayReady server on every lane), the pure class server
+  `src/hid_class.rs` (owed attaches/detaches, fire-and-forget reports, replay, device names never
+  reused; 10 tests over the real core), admission by policyd (`usb.hid` of the kernel-attributed
+  sender); the core's notes carry the device identity and a lost HID pipe. Details, proofs and
+  findings in `TASK-0253B`.
 - **U3 — The board.** init grants the tree's host-mode node (`snps,dwc3` with `dr_mode = "host"`,
   the board's `usb@c0a00000`) as the USB plane — only now, together with its glue: socd brings
   `usb@c0a00000` up (domain 0, `usbdrd30`, the resets, the glue word; the USB 2.0 PHY diffed

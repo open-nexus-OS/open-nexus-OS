@@ -3,7 +3,7 @@
 - Status: Draft (seed 2026-10-04 — TASK-0328 U0; the measurements it rests on are archived)
 - Owners: @runtime
 - Created: 2026-10-04
-- Last Updated: 2026-10-04
+- Last Updated: 2026-10-05
 - Links:
   - Tasks: `tasks/TASK-0328-usb-host-stack-v1-xhci-hub-enumeration-class-clients.md` (execution + proof,
     U0–U3), `tasks/TASK-0253B-hid-ingress-hidsource-usb-and-virtio.md` (the HID class client, U2)
@@ -18,7 +18,7 @@
 
 - **Phase 0 (contract seed + measurements + HID boot parser fixed to the measured reports)**: ✅ 2026-10-04
 - **Phase 1 (`xhcid` + `nexus-usb` on QEMU: controller, hub, enumeration, HID boot interfaces)**: ✅ 2026-10-05 (the `usb` lane, `test-all`)
-- **Phase 2 (the HID class client: `hidrawd` sources over one contract)**: ⬜
+- **Phase 2 (the HID class client: `hidrawd` sources over one contract)**: ✅ 2026-10-05 (the `usb-visible` lane, `test-all`; §5 amended)
 - **Phase 3 (the board: socd glue + hub power + TT; keyboard and mouse drive the desktop)**: ⬜
 
 Definition: "Complete" means the contract is defined and the proof gates are green (tests/markers).
@@ -223,22 +223,53 @@ Memory the controller reads or writes:
   Normal TRBs per interrupt-IN endpoint with buffers of its max packet, and the device is announced
   to the HID client.
 
-### 5. The class-client contract — HID v1 (normative, wire in `nexus-wire`)
+### 5. The class-client contract — HID v1 (normative, wire `nexus_wire::usb`)
 
-- **Subscribe**: a client sends `OP_SUBSCRIBE { class = HID_BOOT }` on xhcid's server endpoint;
-  xhcid admits it if policyd grants the client's `sender_service_id` the class (`usb.hid`; only
-  hidrawd). One subscriber per class.
-- **Attach**: `OP_DEVICE_ATTACHED { device: u16, vid: u16, pid: u16, interface: u8, role:
-  keyboard|mouse, max_packet: u16 }` — sent once the interface's TRBs are queued.
-- **Reports**: `OP_HID_REPORTS { device: u16, count: u8, [len: u8, bytes…] }` — all reports a drain
-  produced for that device, at most 16 per frame (a fuller drain sends more frames); fire-and-forget,
-  no capability moved. A report is the controller's bytes, unparsed — the ONE parser is
-  `userspace/hid` in the client (it refuses lengths outside the boot formats, which also drops the
-  stale report-format frame right after the protocol switch).
-- **Detach**: `OP_DEVICE_DETACHED { device }` when the port disconnects or the device is disabled.
-- **Backpressure**: a send that finds the client's queue full drops the frame and counts it
-  (`dropped=` in xhcid's telemetry). A boot keyboard report carries the whole key state, so the next
-  report heals a dropped one; a dropped mouse frame loses its deltas only.
+Amended at Phase 2 (TASK-0253B, 2026-10-05) with what the implementation had to decide: the push
+channel, the replay, the delivery classes, the device names, the client's refusals, readiness.
+
+- **Subscribe**: the client sends `SUBSCRIBE { class = HID_BOOT }` (`[U, B, 1, OP_SUBSCRIBE, class]`)
+  on xhcid's server endpoint, moving the SEND half of its own push channel along. Init mints that
+  channel for the client from its declaration (`NamedSlot::UsbHidRecv`/`UsbHidSend`, queue depth
+  32); the client keeps the RECV half as a waitset member, and after the move xhcid is the
+  channel's only sender. xhcid admits the subscriber if policyd grants its kernel-attributed
+  `sender_service_id` the class (`usb.hid`; only hidrawd holds it) — never a payload string. One
+  subscriber per class: an admitted one replaces the one before (whose channel is closed).
+- **The answer** is the first frame on the push channel: `[U, B, 1, OP_SUBSCRIBE|0x80, status]`
+  (OK, MALFORMED, DENIED, UNSUPPORTED). A refused subscriber hears its status and nothing else; the
+  subscription it tried to take is untouched. A SUBSCRIBE that came without a channel is answered
+  MALFORMED on xhcid's shared response endpoint.
+- **Replay**: an admitted subscriber is told every interface attached so far (an attach each,
+  after the answer). The client may subscribe before, during or after enumeration; nothing depends
+  on the order.
+- **Attach**: `OP_DEVICE_ATTACHED { device: u16, vendor: u16, product: u16, interface: u8, role:
+  keyboard|mouse, max_packet: u16 }` — sent once the interface's TRBs are queued. `device` names
+  the attachment and is never reused while the client could still hold it: a re-plugged keyboard
+  is a new device, so a stale report can never be read as the new one's.
+- **Reports**: `OP_HID_REPORTS { device: u16, count: u8, len: u8, list }` — the reports one drain
+  produced for that interface, each `len: u8` + 1..=64 bytes, at most 16 reports and 240 list
+  bytes per frame (a fuller drain sends more frames). A report is the controller's bytes, unparsed
+  — the ONE parser is `userspace/hid` in the client (it refuses lengths outside the boot formats,
+  which also drops the stale report-format frame right after the protocol switch). A list that does
+  not add up to `count` refuses the whole frame.
+- **Detach**: `OP_DEVICE_DETACHED { device }` when the port disconnects, the device is disabled or
+  the interface's pipe is given up after repeated errors. The interface's last reports go out
+  before its detach; the client releases what the device held (key-ups, button-ups) — nothing
+  stays pressed.
+- **Delivery**: the answer, attaches and detaches are OWED — kept in order until the channel takes
+  them; a full channel is tried again on the next wake or after 4 ms (a one-shot on xhcid's
+  timer). An attach not yet delivered when its interface goes away is withdrawn (the client never
+  hears of it). Reports are not owed: a frame the full channel refuses is dropped and counted
+  (`xhcid: hid client full (reports dropped)`, said once). A boot keyboard report carries the whole
+  key state, so the next report heals a dropped one; a dropped mouse frame loses its deltas only. A
+  report never overtakes its interface's attach. A dead channel ends the subscription; the
+  interfaces stay attached for the next subscriber.
+- **The client's side** (hidrawd's USB source): frames are taken from xhcid's kernel identity
+  only; anything else — a frame that does not decode or add up, a device never attached, a role
+  outside the boot protocol, an attach past the client's bound (16) — is refused whole and
+  counted, and a report its parser refuses is counted, never half-parsed.
+- **Readiness**: serving the class makes xhcid a member of the DisplayReady barrier (RFC-0093): it
+  announces `@ready` as soon as its endpoints are set up, with a controller or without one.
 
 ### 6. Board specifics (normative for Phase 3)
 
@@ -264,7 +295,13 @@ Memory the controller reads or writes:
 - `xhcid: no host controller (usb plane none)` — xhcid holds no window and parks
 - `xhcid: FAIL (step=… cc=…)` — the failing step and its completion code (for a refused
   descriptor: the `nexus_usb::UsbError` code); the harness FAIL gate fails any lane on it
-- `hidrawd: usb hid device (vid=… pid=… role=…)` (Phase 2)
+- Phase 2 (the class): `xhcid: serving (class=hid-boot)` (the `@ready` line, every lane),
+  `xhcid: hid class subscribed (interfaces=…)` / `xhcid: hid class subscriber refused (status=…)`,
+  `xhcid: hid interface lost (slot=… if=…)`, `xhcid: hid client full (reports dropped)`
+- Phase 2 (the client): `hidrawd: usb hid subscribed` / `hidrawd: usb hid subscribe refused
+  (status=…)`, `hidrawd: usb hid device (vid=… pid=… role=…)`, `hidrawd: usb hid device gone
+  (vid=… pid=… role=…)`, `hidrawd: usb hid report seen`, `hidrawd: usb hid report refused (not a
+  boot report)`, `hidrawd: usb hid frame rejected (…)`
 - `SELFTEST: input usb hid ok (…)` — a real report inside a bounded wait, else `FAIL (no event in 30s)`
 
 ### Phases / milestones (contract-level)
@@ -277,7 +314,9 @@ Memory the controller reads or writes:
   `usb-kbd` and `usb-mouse` behind it) — `xhcid: ready`, `xhcid: hub`, two `device enumerated`, two
   `hid boot interface`; in `test-all`.
 - **Phase 2** (TASK-0253B): hidrawd's ingress generic over sources (virtio-input, USB HID); QMP
-  input to the USB devices moves the desktop — `SELFTEST: ui v2 input ok` over USB.
+  input to the USB devices moves the desktop — `SELFTEST: ui v2 input ok` over USB (profile
+  `usb-visible`: the visible lane without a virtio input device); on every lane the class is served
+  and hidrawd's subscription admitted.
 - **Phase 3** (TASK-0328 U3): the board — socd glue, hub power, TT; `[PASS] board-visible` with
   `SELFTEST: input usb hid ok` and `board-visual: typed`. **Block 2 gate.**
 
@@ -286,6 +325,13 @@ Memory the controller reads or writes:
 - **Threat model**: a malicious or broken USB device (descriptor overruns, absurd sizes, endless
   hubs, report floods, stalls); a confused-deputy client asking xhcid to act on a device of another
   class; a spoofed client identity.
+- **The class boundary** (Phase 2): keystrokes reach exactly one client — the subscriber policyd
+  admitted by its kernel identity (`usb.hid`, held by hidrawd alone: `test_reject_a_second_
+  subscriber_of_usb_hid`); a refused subscriber hears its status and nothing else
+  (`test_reject_a_refused_subscriber_hears_its_status_and_nothing_else`); the push channel's SEND
+  half is moved, so xhcid is its only sender, and the client still takes frames from xhcid's
+  identity only (`test_reject_frames_not_from_xhcid`); frames are bounded and checked whole on
+  both sides (`nexus_wire::usb` `test_reject_*`, hidrawd's `test_reject_frames_that_do_not_add_up`).
 - **Mitigations**: descriptor parsing in `nexus-usb` bounded before use — `test_reject_*` for a
   `bLength` below 2 or past the buffer, `wTotalLength` past 1024, more interfaces or endpoints than
   the bounds, a `bMaxPacketSize0` outside {8, 16, 32, 64}, a max packet of 0 or past 1024, a hub with
@@ -314,13 +360,15 @@ Memory the controller reads or writes:
 ```bash
 cd /home/jenning/open-nexus-OS && cargo test -p input_v1_0_host --test hid_contract && cargo test -p hidrawd --test contract
 cd /home/jenning/open-nexus-OS && cargo test -p nexus-usb && cargo test -p xhcid   # Phase 1
+cd /home/jenning/open-nexus-OS && cargo test -p nexus-wire usb && cargo test -p hidrawd --test usb_source   # Phase 2
 ```
 
 ### Proof (OS/QEMU)
 
 ```bash
-cd /home/jenning/open-nexus-OS && just test-os usb        # Phase 1 (profile `usb`)
-cd /home/jenning/open-nexus-OS && just test-all           # the usb lane included
+cd /home/jenning/open-nexus-OS && just test-os usb          # Phase 1 (profile `usb`)
+cd /home/jenning/open-nexus-OS && just test-os usb-visible  # Phase 2 (the desktop over USB alone)
+cd /home/jenning/open-nexus-OS && just test-all             # both lanes included
 ```
 
 ### Proof (board)
@@ -358,6 +406,9 @@ drivers read the fourth byte as the wheel — as the measured mouse sends it.
 - **IMOD**: 1 ms in v1; the board's interrupt-rate and latency counters decide (Phase 3).
 - **A shared-memory report ring to the client** (instead of IPC frames) when a bulk class (mass
   storage) arrives; HID's reports are a few bytes.
+- **The other push channels** (the settings and session watches) predate the declared push pair
+  (`pin_declared_waits`) and are minted by bespoke init code; moving them onto the declaration is
+  a follow-up of their own, not this contract's.
 
 ---
 
@@ -369,8 +420,12 @@ drivers read the fourth byte as the wheel — as the measured mouse sends it.
   (2026-10-05: QEMU's xHCI 1.00, a full-speed hub on root port 5, a boot keyboard and mouse;
   host: nexus-usb 19 tests, xhcid 14 against the model, 14 of 16 mutants killed — the two
   survivors are the electrical waits the model cannot express)
-- [ ] **Phase 2**: hidrawd sources, USB input moves the desktop — proof: the usb visible lane
+- [x] **Phase 2**: hidrawd sources, USB input moves the desktop — proof: `just test-os usb-visible`
+  (2026-10-05: the desktop over USB alone — no virtio input device; `SELFTEST: ui v2 input ok`,
+  the keyboard route, chain contract incl. `input-live` 15/15, pixel proof; host: xhcid's class
+  server 10 tests over the real core, hidrawd's USB source 9, `nexus_wire::usb` 7)
 - [ ] **Phase 3**: the board — proof: `[PASS] board-visible` with `SELFTEST: input usb hid ok` + `board-visual: typed`
 - [x] Task(s) linked with stop conditions + proof commands.
-- [ ] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass.
+- [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass (`USB_MARKERS`,
+  `USB_CLASS_MARKERS`, `USB_INPUT_MARKERS`; the board's in Phase 3).
 - [x] Security-relevant negative tests exist (`test_reject_*`) — Phase 0's parsers; Phase 1 adds the descriptor rejects.

@@ -85,7 +85,20 @@ The full layer reference — including the end-to-end coverage table and the per
      `init: usb plane none (no host controller)` + `xhcid: no host controller
      (usb plane none)`; a `xhcid: FAIL (…)` line fails any lane (FAIL gate).
      QEMU's hub is full speed, so the transaction translator is the board's to
-     prove (U3).
+     prove (U3). Since TASK-0253B every full-ladder lane also requires the HID
+     class served and hidrawd's subscription admitted (`USB_CLASS_MARKERS`:
+     `xhcid: serving (class=hid-boot)`, `xhcid: hid class subscribed (…`,
+     `hidrawd: usb hid subscribed`); the `usb` lanes add hidrawd's two devices.
+   - `just ci-os-usb-visible` — the desktop driven over USB alone (TASK-0253B,
+     RFC-0099 §5): the visible lane without a single virtio input device
+     (`[profile.usb-visible]`: launcher env `QEMU_INPUT_TRANSPORT=usb`), the
+     `usb` lane's controller, hub, keyboard and mouse instead, and the
+     injector's QMP input reaching them (`QEMU_INPUT_AUTOINJECT=1`; the mouse is
+     relative — the injector walks from inputd's start point). The ladder
+     (`USB_INPUT_MARKERS`) requires the chain end to end: hidrawd's USB source
+     (`hidrawd: usb hid report seen`, I1, I2), inputd's live routes, the cursor
+     moved on screen and `SELFTEST: ui v2 input ok`; the chain-marker contract
+     checks the `input-live` group here at every run.
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
      proofs required, bounded retry (`[profile.smp]`).
 

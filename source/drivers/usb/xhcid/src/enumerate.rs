@@ -397,9 +397,18 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
             ..
         }) = dev.pipes[usize::from(i)]
         {
-            let slot = dev.slot;
+            let (slot, vendor, product) = (dev.slot, dev.vendor, dev.product);
             self.start_pipe(idx, usize::from(i));
-            sink.note(Note::HidInterface { slot, interface, role, endpoint, max_packet, interval });
+            sink.note(Note::HidInterface {
+                slot,
+                interface,
+                role,
+                endpoint,
+                max_packet,
+                interval,
+                vendor,
+                product,
+            });
         }
         self.next_hid(idx, i + 1);
     }

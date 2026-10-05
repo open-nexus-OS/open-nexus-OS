@@ -255,9 +255,8 @@ fn batch_to_wire_events(batch: &HidBatch) -> Vec<WireHidEvent> {
 
 /// Map one normalized `HidEvent` to its wire form. The single source of the
 /// HID→wire encoding, shared by the Vec-returning host path
-/// ([`batch_to_wire_events`]) and the zero-alloc OS path
-/// ([`normalize_ingress_into`]) so the two cannot diverge.
-fn wire_event_from_hid(event: &HidEvent) -> WireHidEvent {
+/// ([`batch_to_wire_events`]) and the OS batch path (`batch`) so the two cannot diverge.
+pub(crate) fn wire_event_from_hid(event: &HidEvent) -> WireHidEvent {
     let kind = match event.kind() {
         HidEventKind::Key => EVENT_KIND_KEY,
         HidEventKind::Rel => EVENT_KIND_REL,
@@ -273,36 +272,29 @@ fn wire_event_from_hid(event: &HidEvent) -> WireHidEvent {
 }
 
 /// Allocation-free ingress normalization for the OS hot path: translate raw
-/// events straight into caller-owned scratch buffers (cleared + refilled, so a
-/// reused pair allocates nothing in steady state) and return the gate evidence.
+/// events straight into a caller-owned scratch buffer (cleared + refilled, so a
+/// reused buffer allocates nothing in steady state) and return the gate evidence.
 ///
-/// Shares [`translate_raw_event`] + [`wire_event_from_hid`] with the Vec-based
-/// [`normalize_ingress_batch`] (host path), so normalization is identical. It
-/// deliberately bypasses `HidBatch`/`HidrawdService::recent_batches` — those exist
-/// only for host diagnostics and would each cost a per-batch `Vec` clone on the
-/// non-freeing bump heap (the hidrawd OOM, "maus kaum benutzbar"). The caller fills
-/// the `WireHidBatch` header (device kind/id, pointer source, abs maxima) from
-/// `wire_out` + the returned evidence.
+/// Shares [`translate_raw_event`] with the Vec-based [`normalize_ingress_batch`]
+/// (host path), so normalization is identical. It deliberately bypasses
+/// `HidBatch`/`HidrawdService::recent_batches` — those exist only for host
+/// diagnostics and would each cost a per-batch `Vec` clone. The one batch path
+/// (`source::Emit`) frames the events for inputd.
 pub fn normalize_ingress_into(
     role: IngressRole,
     raw: &[RawIngressEvent],
     timestamp: TimestampNs,
-    hid_scratch: &mut Vec<HidEvent>,
-    wire_out: &mut Vec<WireHidEvent>,
+    hid_out: &mut Vec<HidEvent>,
 ) -> IngressGateEvidence {
-    hid_scratch.clear();
+    hid_out.clear();
     for raw_event in raw {
         if let Some(event) = translate_raw_event(role, *raw_event, timestamp) {
-            hid_scratch.push(event);
+            hid_out.push(event);
         }
-    }
-    wire_out.clear();
-    for event in hid_scratch.iter() {
-        wire_out.push(wire_event_from_hid(event));
     }
     IngressGateEvidence::new(
         raw.len().min(u16::MAX as usize) as u16,
-        wire_out.len().min(u16::MAX as usize) as u16,
+        hid_out.len().min(u16::MAX as usize) as u16,
     )
 }
 

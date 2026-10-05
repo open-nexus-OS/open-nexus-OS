@@ -37,6 +37,8 @@
 #   NEXUS_RESET_ON_MARKER   – marker string: QMP system_reset per NEW occurrence (power-cycle actor)
 #   NEXUS_RESET_ON_MARKER_COUNT – resets to fire (default 2)
 #   QEMU_PROOF_POINTER_SOURCE – mouse | tablet | keyboard | mixed
+#   QEMU_INPUT_TRANSPORT    – virtio (default: virtio-input devices on a display lane) | usb
+#                              (none: the USB HID devices of QEMU_USB_DEVICE are the input)
 #   QEMU_ICOUNT_ARGS        – icount args (default: 1,sleep=on)
 #   QEMU_NO_ICOUNT          – when "1", disable icount
 #   QEMU_FORCE_LEGACY       – when "1", force legacy virtio-mmio
@@ -84,6 +86,7 @@ NEXUS_DISPLAY_BOOTSTRAP=${NEXUS_DISPLAY_BOOTSTRAP:-0}
 QEMU_INPUT_AUTOINJECT=${QEMU_INPUT_AUTOINJECT:-0}
 QEMU_QMP_SOCKET=${QEMU_QMP_SOCKET:-$ROOT/build/qemu.qmp}
 QEMU_PROOF_POINTER_SOURCE=${QEMU_PROOF_POINTER_SOURCE:-mouse}
+QEMU_INPUT_TRANSPORT=${QEMU_INPUT_TRANSPORT:-virtio}
 QEMU_GPU_XRES=${QEMU_GPU_XRES:-1280}
 QEMU_GPU_YRES=${QEMU_GPU_YRES:-800}
 QEMU_ICOUNT_ARGS=${QEMU_ICOUNT_ARGS:-"1,sleep=on"}
@@ -340,23 +343,39 @@ build_qemu_args() {
       args+=(-display "$display_backend" -serial mon:stdio)
       args+=(-device "virtio-gpu-device,max_outputs=1,xres=${QEMU_GPU_XRES},yres=${QEMU_GPU_YRES}")
     fi
-    # Visible bootstrap needs deterministic virtio-input MMIO devices so
-    # hidrawd can own the real input-driver hop under the selected proof mode.
-    input_args+=(-device virtio-keyboard-device)
-    case "$QEMU_PROOF_POINTER_SOURCE" in
-      mouse|"")
-        input_args+=(-device virtio-mouse-device)
+    # Visible bootstrap needs deterministic input devices so hidrawd owns the real
+    # input-driver hop under the selected proof mode: virtio-input MMIO devices, or
+    # (TASK-0253B) none at all — the USB HID devices `QEMU_USB_DEVICE` attaches are the
+    # input then, and QMP's input reaches them because they are the only handlers.
+    case "$QEMU_INPUT_TRANSPORT" in
+      virtio)
+        input_args+=(-device virtio-keyboard-device)
+        case "$QEMU_PROOF_POINTER_SOURCE" in
+          mouse|"")
+            input_args+=(-device virtio-mouse-device)
+            ;;
+          tablet)
+            input_args+=(-device virtio-tablet-device)
+            ;;
+          keyboard)
+            ;;
+          mixed)
+            input_args+=(-device virtio-mouse-device -device virtio-tablet-device)
+            ;;
+          *)
+            echo "[error] Unknown QEMU_PROOF_POINTER_SOURCE='$QEMU_PROOF_POINTER_SOURCE' (supported: mouse tablet keyboard mixed)" >&2
+            exit 1
+            ;;
+        esac
         ;;
-      tablet)
-        input_args+=(-device virtio-tablet-device)
-        ;;
-      keyboard)
-        ;;
-      mixed)
-        input_args+=(-device virtio-mouse-device -device virtio-tablet-device)
+      usb)
+        if [[ -z "$QEMU_USB_DEVICE" ]]; then
+          echo "[error] QEMU_INPUT_TRANSPORT=usb without QEMU_USB_DEVICE: the lane would have no input" >&2
+          exit 1
+        fi
         ;;
       *)
-        echo "[error] Unknown QEMU_PROOF_POINTER_SOURCE='$QEMU_PROOF_POINTER_SOURCE' (supported: mouse tablet keyboard mixed)" >&2
+        echo "[error] Unknown QEMU_INPUT_TRANSPORT='$QEMU_INPUT_TRANSPORT' (supported: virtio usb)" >&2
         exit 1
         ;;
     esac

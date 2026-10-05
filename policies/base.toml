@@ -56,9 +56,11 @@ rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 # RFC-0106: the ONE holder of the syscon/pinctrl windows; `policy.delegate` because
 # it asks policyd whether a requester holds `soc.glue` before touching a register.
 socd = ["device.mmio.syscon", "ipc.core", "policy.delegate"]
-"hidrawd" = ["device.mmio.input", "ipc.core"]
-# TASK-0328 U1 (RFC-0099): the USB host controller's one owner — its window, nothing else.
-"xhcid" = ["device.mmio.usb", "ipc.core"]
+# TASK-0253B (RFC-0099 §5): `usb.hid` — the HID boot class xhcid serves to one subscriber.
+"hidrawd" = ["device.mmio.input", "ipc.core", "usb.hid"]
+# TASK-0328 U1 (RFC-0099): the USB host controller's one owner — its window. TASK-0253B:
+# `policy.delegate` because it asks policyd whether a subscriber holds the class's capability.
+"xhcid" = ["device.mmio.usb", "ipc.core", "policy.delegate"]
 "gpud" = ["device.mmio.gpu", "device.mmio.display", "ipc.core", "soc.glue"]
 # RFC-0065/0066: the ability lifecycle broker may route, query the bundle registry,
 # and spawn apps (the "only abilitymgr spawns apps" invariant). windowd queries the

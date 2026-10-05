@@ -601,9 +601,16 @@ esac
 # (00:01.0, its 64-bit BAR high, INTA on line 33), a full-speed hub on QEMU's first USB 2 port
 # (root port 5: `qemu-xhci` numbers its four USB 3 ports first), a boot keyboard on hub port 1
 # and a boot mouse on hub port 2. The values are the lane's own, measured 2026-10-04; every
-# other lane has no host controller and says so.
+# other lane has no host controller and says so. TASK-0253B (RFC-0099 §5): on every lane xhcid
+# serves the HID boot class and hidrawd's subscription is admitted (policyd: `usb.hid`); on the
+# USB lanes hidrawd's USB source names both devices.
+USB_CLASS_MARKERS=(
+  "xhcid: serving (class=hid-boot)"
+  "xhcid: hid class subscribed (interfaces="
+  "hidrawd: usb hid subscribed"
+)
 case "${PROFILE:-full}" in
-  usb)
+  usb|usb-visible)
     USB_MARKERS=(
       "init: usb host from pci (00:01.0 bar=0x400000000 irq=33)"
       "xhcid: controller ok (version=1.00 ports=8 slots=64 csz=32 scratch=0 irq=33)"
@@ -614,15 +621,34 @@ case "${PROFILE:-full}" in
       "xhcid: hid boot interface (slot=2 if=0 role=keyboard ep=0x81 mps=8 interval=10)"
       "xhcid: device enumerated (slot=3 route=0x2 speed=full vid=0627 pid=0001 class=3)"
       "xhcid: hid boot interface (slot=3 if=0 role=mouse ep=0x81 mps=4 interval=10)"
+      "${USB_CLASS_MARKERS[@]}"
+      "hidrawd: usb hid device (vid=0627 pid=0001 role=keyboard)"
+      "hidrawd: usb hid device (vid=0627 pid=0001 role=mouse)"
     )
     ;;
   *)
     USB_MARKERS=(
       "init: usb plane none (no host controller)"
       "xhcid: no host controller (usb plane none)"
+      "${USB_CLASS_MARKERS[@]}"
     )
     ;;
 esac
+# TASK-0253B: the desktop driven over USB alone (`usb-visible`: no virtio input device). The
+# injector's QMP input reaches the USB keyboard and mouse; the input chain must run through
+# xhcid and hidrawd's USB source end to end — raw report in (I1), wire batch out (I2), inputd's
+# live routes, the cursor moved on screen, the launcher click routed (`SELFTEST: ui v2 input ok`).
+USB_INPUT_MARKERS=(
+  "hidrawd: ready"
+  "hidrawd: usb hid report seen"
+  "hidrawd: chain I1 device event (raw HID polled)"
+  "hidrawd: ingress adapter ready"
+  "hidrawd: chain I2 wire sent to inputd"
+  "inputd: live pointer route on"
+  "inputd: live keyboard route on"
+  "windowd: cursor move visible"
+  "SELFTEST: ui v2 input ok"
+)
 
 expected_sequence=(
   "neuron vers."
@@ -1171,7 +1197,7 @@ case "${PROFILE:-full}" in
   # gpud build provenance) on top of this ladder; the `full` display ladder
   # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
   # marker is a scheduler-determinism defect tracked in TASK-0324 P5.
-  headless|smp1|sdhci|usb|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d)
+  headless|smp1|sdhci|usb|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d|usb-visible)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -1394,10 +1420,13 @@ case "${PROFILE:-full}" in
 esac
 
 # TASK-0328 U1: the USB plane on every lane that runs the whole fleet — the `usb` lane's host
-# stack, every other one's honest none.
+# stack, every other one's honest none. TASK-0253B: `usb-visible` adds the input chain over USB.
 case "${PROFILE:-full}" in
   headless|smp1|sdhci|usb|reset)
     expected_sequence+=("${USB_MARKERS[@]}")
+    ;;
+  usb-visible)
+    expected_sequence+=("${USB_MARKERS[@]}" "${USB_INPUT_MARKERS[@]}")
     ;;
 esac
 
@@ -2633,13 +2662,26 @@ fi
 
 # TASK-0056B visible-input fake-green guard: the visible-input marker summarizes
 # routed pointer movement, focus transfer, launcher click, and visible frame state.
+# The device hop is the lane's transport's (TASK-0253B): virtio-input, or the USB
+# HID devices xhcid serves on `usb-visible` (no virtio input device there).
 if grep -aFq "SELFTEST: ui visible input ok" "$UART_LOG"; then
+  if [[ "${QEMU_INPUT_TRANSPORT:-virtio}" == "usb" ]]; then
+    device_hop=(
+      "hidrawd: usb hid device (vid=0627 pid=0001 role=keyboard)"
+      "hidrawd: usb hid device (vid=0627 pid=0001 role=mouse)"
+      "hidrawd: usb hid report seen"
+    )
+  else
+    device_hop=(
+      "hidrawd: virtio-input mmio ready"
+      "hidrawd: virtio-input keyboard ready"
+      "hidrawd: virtio-input pointer ready"
+      "hidrawd: virtio-input raw event seen"
+    )
+  fi
   for m in \
     "SELFTEST: ui visible present ok" \
-    "hidrawd: virtio-input mmio ready" \
-    "hidrawd: virtio-input keyboard ready" \
-    "hidrawd: virtio-input pointer ready" \
-    "hidrawd: virtio-input raw event seen" \
+    "${device_hop[@]}" \
     "hidrawd: ingress adapter ready" \
     "inputd: live pointer route on" \
     "inputd: live keyboard route on" \
@@ -3072,6 +3114,11 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
   case "${PROFILE:-full}" in
     headless|full|smp|smp1|sdhci|usb|display-gpu)
       bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,gpu-core,display || exit 1
+      ;;
+    # TASK-0253B: the one lane whose device-event hops (I1/I2) must fire at every run — its
+    # injector drives the USB devices; the simulated chain and the real one must agree.
+    usb-visible)
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,gpu-core,display || exit 1
       ;;
   esac
 fi

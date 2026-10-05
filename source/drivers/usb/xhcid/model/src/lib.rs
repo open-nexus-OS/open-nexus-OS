@@ -24,7 +24,7 @@ pub mod ctrl;
 pub mod dev;
 mod exec;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use dma_model::{Dram, HasDram, ModelCache, ModelMem};
@@ -32,7 +32,7 @@ use nexus_abi::DmaCoherence;
 use nexus_driverkit::DmaShared;
 use nexus_hal::Bus;
 use nexus_usb::HidRole;
-use xhcid::{DmaAlloc, Note, Sink, Step, Xhci};
+use xhcid::{Channel, DmaAlloc, HidClass, Note, Pushed, Sink, Step, Xhci};
 
 pub use ctrl::{Config, Faults, RootPort};
 pub use dev::Dev;
@@ -109,15 +109,48 @@ pub enum Seen {
     Report(u8, u8, HidRole, Vec<u8>),
 }
 
-/// Everything the driver noted.
+/// The HID class subscriber's push channel as a test sees it (TASK-0253B): every frame it
+/// took, and switches that make it full (the client is not draining) or gone (it died). The
+/// class owns the channel, so the test keeps a clone of the shared handles.
+#[derive(Clone, Default)]
+pub struct Frames {
+    pub taken: Rc<RefCell<Vec<Vec<u8>>>>,
+    pub full: Rc<Cell<bool>>,
+    pub gone: Rc<Cell<bool>>,
+}
+
+impl Frames {
+    /// The frames taken so far, and forgets them (a test that only forgets ignores the list).
+    pub fn drain(&self) -> Vec<Vec<u8>> {
+        core::mem::take(&mut *self.taken.borrow_mut())
+    }
+}
+
+impl Channel for Frames {
+    fn push(&mut self, frame: &[u8]) -> Pushed {
+        if self.gone.get() {
+            return Pushed::Gone;
+        }
+        if self.full.get() {
+            return Pushed::Full;
+        }
+        self.taken.borrow_mut().push(frame.to_vec());
+        Pushed::Sent
+    }
+}
+
+/// Everything the driver noted — and, as the OS loop does, every note handed to the HID class
+/// server too (TASK-0253B), whose subscriber is a [`Frames`] when a test subscribes one.
 #[derive(Default)]
 pub struct Recorder {
     pub seen: Vec<Seen>,
     pub fails: Vec<(Step, u8)>,
+    pub class: HidClass<Frames>,
 }
 
 impl Sink for Recorder {
     fn note(&mut self, note: Note<'_>) {
+        self.class.note(&note);
         match note {
             Note::Report { slot, interface, role, bytes } => {
                 self.seen.push(Seen::Report(slot, interface, role, bytes.to_vec()));
@@ -184,22 +217,43 @@ impl Rig {
         self.settle();
     }
 
-    /// Run until no interrupt is pending and no deadline is left (bounded).
+    /// Run until no interrupt is pending and no deadline is left (bounded). After every wake
+    /// the HID class flushes what it owes, as the OS loop does; its retry deadline is left to
+    /// the test ([`Self::retry`]) — a client that never drains would never let it settle.
     pub fn settle(&mut self) {
         for _ in 0..1_000_000 {
             if self.m.borrow().irq() {
                 self.xhci.on_interrupt(self.now, &mut self.sink);
+                self.sink.class.flush(self.now);
                 continue;
             }
             match self.xhci.deadline() {
                 Some(at) => {
                     self.now = self.now.max(at);
                     self.xhci.on_timer(self.now, &mut self.sink);
+                    self.sink.class.flush(self.now);
                 }
                 None => return,
             }
         }
         panic!("the driver never settled");
+    }
+
+    /// Subscribes a fresh [`Frames`] to the HID class (as an admitted SUBSCRIBE does) and
+    /// flushes: the answer and every interface attached so far go out. Returns the handles.
+    pub fn subscribe(&mut self) -> Frames {
+        let frames = Frames::default();
+        drop(self.sink.class.subscribe(frames.clone()));
+        self.sink.class.flush(self.now);
+        frames
+    }
+
+    /// Time moves to the HID class's retry deadline (if any), which fires.
+    pub fn retry(&mut self) {
+        if let Some(at) = self.sink.class.deadline() {
+            self.now = self.now.max(at);
+            self.sink.class.on_timer(self.now);
+        }
     }
 
     /// A report from the device at (`root`, `route`) on endpoint `address`, then settle.

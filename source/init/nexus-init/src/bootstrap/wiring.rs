@@ -84,6 +84,11 @@ pub(crate) fn wire_services(
                     debug_write_hex(recv_slot as usize);
                     debug_write_byte(b'\n');
                 }
+                // TASK-0253B: the rest of its declared legs (the SUBSCRIBE to xhcid's HID class);
+                // the inputd leg pinned above is kept.
+                if let Some(spec) = crate::service_topology::spec_for(b"hidrawd") {
+                    declared_routes::wire_declared_legs(pid, spec, eps, chan);
+                }
             }
             "gpud" => {
                 // TASK-0324 P4c: pinned to the declared slots — gpud hardcodes the same

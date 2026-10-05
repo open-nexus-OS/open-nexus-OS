@@ -117,6 +117,7 @@ help:
     @echo "  just ci-os-smp1          # deterministic 1-hart boot gate (profile smp1: -smp 1 + icount; the test-all boot proof)"
     @echo "  just ci-os-sdhci         # the SDHCI lane: boot + every store over QEMU's sdhci-pci + emmc, no virtio disk"
     @echo "  just ci-os-usb           # the USB lane: QEMU's xHCI, a hub, a boot keyboard + mouse — xhcid enumerates them"
+    @echo "  just ci-os-usb-visible   # the desktop driven over USB alone: injected input via xhcid + hidrawd's USB source"
     @echo "  just ci-os-smp           # SMP=2 real-parallelism lane (MTTCG, bounded retry; CI coverage)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
@@ -349,6 +350,12 @@ ci-os-sdhci:
 # icount.
 ci-os-usb:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os usb
+# TASK-0253B (RFC-0099 §5): the desktop driven over USB alone — the visible lane without a virtio
+# input device (`[profile.usb-visible]`): the injector's QMP input reaches QEMU's USB keyboard and
+# mouse, xhcid pushes their boot reports to hidrawd's USB source, and the input chain runs to the
+# launcher click (`SELFTEST: ui v2 input ok`).
+ci-os-usb-visible:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os usb-visible
 # TASK-0324 P0: display truth — the real GL compositor (virgl, egl-headless +
 # VNC) with a HOST-side pixel proof: the desktop snapshot must be non-black and
 # must differ from the boot splash. Markers alone shipped a black screen.
@@ -803,6 +810,7 @@ test-all:
     just ci-os-sdhci
     just ci-os-usb
     just ci-os-visible
+    just ci-os-usb-visible
     just ci-os-visible-fhd
     just ci-os-visible-2d
     just input-flood

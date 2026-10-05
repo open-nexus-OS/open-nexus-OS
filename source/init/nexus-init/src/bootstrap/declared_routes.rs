@@ -134,14 +134,15 @@ pub(crate) fn wire_declared_legs(
     }
 }
 
-/// The declared wait endpoints of a service (TASK-0324 P7-d, TASK-0054C P2-b, TASK-0328 U1):
-/// the pacing timer-notify pair, the device-watchdog pair and a driver's interrupt notify
-/// endpoint. Minted HERE, from the declaration — a spec that binds the RECV name gets an
-/// endpoint owned by the service, pinned into its declared slots (a timer pair's SEND half too:
-/// the service binds its kernel timer cap there; the interrupt endpoint's RECV half alone: the
-/// service binds its line to it with `irq_bind`), and init's own cap closed at once. No
-/// per-service field, no bespoke mint: adding a timer or a line to a service is one
-/// declaration. Runs ONCE per service in the spawn-time distribution
+/// The declared wait endpoints of a service (TASK-0324 P7-d, TASK-0054C P2-b, TASK-0328 U1,
+/// TASK-0253B): the pacing timer-notify pair, the device-watchdog pair, a push channel a
+/// service subscribes with (its SEND half moved to the server that pushes) and a driver's
+/// interrupt notify endpoint. Minted HERE, from the declaration — a spec that binds the RECV
+/// name gets an endpoint owned by the service, pinned into its declared slots (a pair's SEND
+/// half too: the service binds its kernel timer cap there, or moves it to its server; the
+/// interrupt endpoint's RECV half alone: the service binds its line to it with `irq_bind`), and
+/// init's own cap closed at once. No per-service field, no bespoke mint: adding a timer, a
+/// push channel or a line to a service is one declaration. Runs ONCE per service in the spawn-time distribution
 /// (`distribute_server_pair_for`; the core plane's `transfer_server_pair` for the services
 /// resumed before it), i.e. before the service runs.
 pub(crate) fn pin_declared_waits(pid: u32, svc: ServiceId) {
@@ -165,15 +166,19 @@ pub(crate) fn pin_declared_waits(pid: u32, svc: ServiceId) {
             ),
         }
     }
-    const PAIRS: [(NamedSlot, NamedSlot, &[u8]); 2] = [
-        (NamedSlot::TimerNotifyRecv, NamedSlot::TimerNotifySend, b"timer-notify"),
-        (NamedSlot::DeviceWatchdogRecv, NamedSlot::DeviceWatchdogSend, b"device-watchdog"),
+    // (RECV, SEND, what, queue depth). A push channel (TASK-0253B: xhcid's HID class pushes a
+    // frame per drain) is deeper than a timer's one pending fire.
+    const PAIRS: [(NamedSlot, NamedSlot, &[u8], usize); 3] = [
+        (NamedSlot::TimerNotifyRecv, NamedSlot::TimerNotifySend, b"timer-notify", 8),
+        (NamedSlot::DeviceWatchdogRecv, NamedSlot::DeviceWatchdogSend, b"device-watchdog", 8),
+        (NamedSlot::UsbHidRecv, NamedSlot::UsbHidSend, b"usb-hid", 32),
     ];
-    for (recv_name, send_name, what) in PAIRS {
+    for (recv_name, send_name, what, depth) in PAIRS {
         if extra_slot(svc, recv_name).is_none() {
             continue;
         }
-        let Ok(ep) = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) else {
+        let Ok(ep) = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, depth)
+        else {
             crate::bootstrap::diag::emit_marker_atomic(
                 &[b"init: ", what, b" mint FAIL svc=", svc.name().as_bytes()],
                 None,

@@ -1,91 +1,57 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: OS-lite `hidrawd` live backend owning virtio-input MMIO windows.
+//! CONTEXT: OS-lite `hidrawd` (TASK-0253, its sources since TASK-0253B): ONE loop over the input
+//! sources — the virtio-input devices (`virtio_source`) and the USB HID boot interfaces xhcid
+//! serves (`usb_source` behind the subscription made here) — on ONE waitset of the endpoints
+//! that wake them: the virtio lines' notify endpoint and the USB push channel. Whichever woke
+//! is drained into the one batch path to inputd (`batch`). No timer and no polling: every grant
+//! is in place before hidrawd runs, a USB device arrives as an attach frame, and an idle
+//! hidrawd costs nothing.
 //! OWNERS: @runtime @ui
-//! STATUS: Experimental
+//! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: `cargo test -p hidrawd -- --nocapture`
+//! TEST_COVERAGE: `cargo test -p hidrawd -- --nocapture`; QEMU: the visible lanes (virtio) and
+//!   the `usb-visible` lane (USB)
 //! ADR: docs/adr/0029-input-v1-host-core-architecture.md
 
 extern crate alloc;
 
-use alloc::{format, vec::Vec};
+use alloc::format;
 
-use hid::{HidEvent, TimestampNs};
-use input_live_protocol::{
-    encode_push_hid_batch_into, WireHidBatch, WireHidEvent, HID_KIND_KEYBOARD, HID_KIND_MOUSE,
-    MAX_HID_BATCH_EVENTS, MAX_HID_BATCH_FRAME_LEN, POINTER_SOURCE_NONE,
-};
-use nexus_abi::{
-    cap_clone, cap_close, debug_println, debug_trace, ipc_recv_v1, irq_bind, irq_complete, nsec,
-    yield_, Cap, MsgHeader, IPC_SYS_TRUNCATE,
-};
-use nexus_ipc::timer::NotifyTimer;
-use nexus_ipc::{Client as _, KernelClient, Wait};
-use virtio_input::{
-    DeviceRole, DeviceSlot, InputEventKind, MappedVirtioInputDevice, RawInputEvent,
-};
+use hid::TimestampNs;
+use nexus_abi::{debug_println, nsec, MsgHeader};
+use nexus_ipc::timer::Waitset;
+use nexus_service_topology::slots;
+use nexus_wire::usb as wire;
 
-use crate::{
-    classify_live_route_send_error, normalize_ingress_into, resolve_absolute_axis_max, DeviceId,
-    HidrawdService, IngressGateEvidence, IngressRole, LiveRouteSendAction, LiveRouteSendErrorClass,
-    PointerSource, RawIngressEvent, RawIngressEventKind,
-};
+use crate::batch::Batch;
+use crate::source::{Emit, HidSource};
+use crate::usb_source::{Heard, Rejected, UsbHid};
+use crate::virtio_source::VirtioSource;
 
-const INPUT_CAP_SLOTS: [u32; 3] = nexus_service_topology::INPUT_MMIO_SLOTS;
-
-use crate::telemetry::HidrawChainTelemetry;
+/// Push frames taken per wake (the waitset is level-triggered: a rest wakes the loop again).
+const FRAMES_PER_WAKE: usize = 16;
 
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
-    // NOTE: hidrawd is currently resumed by init BEFORE its input MMIO is granted + the inputd
-    // route is wired, so the loop below busy-yields until both land (measured by `load_span`).
     let load_span = nexus_abi::Span::begin();
-    let mut service = HidrawdService::new();
-    // The live loop reads input via `normalize_ingress_into` and never inspects
-    // `recent_batches`; recording there only burns the non-freeing bump heap.
-    service.disable_recent_recording();
-    // Reusable per-poll buffers — cleared + refilled each iteration so the hot path
-    // allocates nothing in steady state (the hidrawd OOM fix, "maus kaum benutzbar").
-    let mut scratch = IngressScratch::new();
-    let mut missing_slots_logged = [false; INPUT_CAP_SLOTS.len()];
-    let mut live_devices = open_live_devices(&mut missing_slots_logged);
-    let mut client = route_inputd_blocking();
-    let mut ready_emitted = false;
-    let mut payload_ready_emitted = false;
-    let mut raw_gate_emitted = false;
-    let mut normalized_gate_emitted = false;
-    let mut send_ok_emitted = false;
-    let mut send_fail_emitted = false;
-    let mut chain = HidrawChainTelemetry::new();
-    // Reactive input: endpoint the kernel routes device IRQs to (via irq_bind), so
-    // we block on it instead of busy-polling the virtio-input queues. Bound lazily
-    // once devices are open.
-    let mut irq_endpoint: Option<Cap> = None;
-    // TASK-0054C P2-b: the idle re-probe cadence is a kernel one-shot on the declared pair.
-    let mut idle_timer = NotifyTimer::bind(nexus_service_topology::slots::hidrawd::TIMER).ok();
-
+    debug_println("hidrawd: os service payload ready")?;
+    let mut batch = Batch::new();
+    let mut virtio = VirtioSource::open();
+    let mut usb = UsbSource::subscribe();
+    let mut sources: [&mut dyn HidSource; 2] = [&mut virtio, &mut usb];
+    let mut waitset = Waitset::new().map_err(|_| nexus_abi::AbiError::Unsupported)?;
+    let mut members = [u32::MAX; 2];
+    for (member, source) in members.iter_mut().zip(sources.iter()) {
+        *member = waitset.add(source.wake()).map_err(|_| nexus_abi::AbiError::Unsupported)?;
+    }
+    let mut ready = false;
+    // Whatever arrived before the waits were set up is drained once; from then on, wakes.
+    for source in sources.iter_mut() {
+        source.drain(now(), &mut batch);
+    }
     loop {
-        if !payload_ready_emitted {
-            debug_println("hidrawd: os service payload ready")?;
-            payload_ready_emitted = true;
-        }
-        // Caps are guaranteed after initial yield — reprobe is only needed
-        // if a device was hot-unplugged (rare). Simple bounded retry.
-        if live_devices.is_empty() {
-            live_devices = open_live_devices(&mut missing_slots_logged);
-        }
-        if client.is_none() {
-            client = route_inputd_blocking();
-            if client.is_none() {
-                chain.idle_yields = chain.idle_yields.saturating_add(1);
-                chain.report_if_due();
-                let _ = yield_();
-                continue;
-            }
-            chain.route_rebinds = chain.route_rebinds.saturating_add(1);
-        }
-        if !ready_emitted && !live_devices.is_empty() {
+        if !ready && sources.iter().any(|source| source.live()) {
             nexus_service_entry::ready("hidrawd: ready")?;
             let _ = debug_println(&format!(
                 "hidrawd: timing entry_to_ready_ms={}",
@@ -93,513 +59,129 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             ));
             // RFC-0068: ready reached — emit the folded `hidrawd N/N` verdict (interactive only).
             nexus_abi::service_verdict_flush("hidrawd");
-            ready_emitted = true;
+            ready = true;
         }
-        if live_devices.is_empty() {
-            chain.idle_yields = chain.idle_yields.saturating_add(1);
-            chain.report_if_due();
-            // No input devices to service (e.g. a headless lane with no virtio-input):
-            // PARK off the run queue on the re-probe timer instead of yield-spinning at
-            // Normal QoS (a busy-yield starved Idle background work — the ~12k
-            // idle_yields/window class). The timer's frame wakes us to re-probe.
-            idle_park(idle_timer.as_mut());
-            continue;
-        }
-
-        // Bind each device's PLIC IRQ to our control-reply endpoint (slot 2),
-        // which we already own + recv on and which is idle after routing. The
-        // kernel then wakes us reactively on input (irq_bind) instead of polling.
-        // (A dedicated endpoint via init's EndpointFactory is a later refinement;
-        // plain ipc_endpoint_create is a deprecated, permission-denied ABI.)
-        if irq_endpoint.is_none() {
-            const IRQ_NOTIFY_SLOT: Cap = nexus_service_topology::CTRL_SLOTS.recv;
-            let mut bound_any = false;
-            for device in &live_devices {
-                if device.irq != 0 && irq_bind(device.irq, IRQ_NOTIFY_SLOT).is_ok() {
-                    bound_any = true;
-                }
-            }
-            if bound_any {
-                irq_endpoint = Some(IRQ_NOTIFY_SLOT);
-                debug_println("hidrawd: irq endpoint bound (reactive input)")?;
+        let woken = waitset.wait().map_err(|_| nexus_abi::AbiError::Unsupported)?;
+        batch.chain.note_wake_for_rate_line();
+        for (member, source) in members.iter().zip(sources.iter_mut()) {
+            if *member == woken {
+                source.drain(now(), &mut batch);
             }
         }
-
-        chain.note_wake_for_rate_line();
-        let mut sent_any = false;
-        // Level-triggered drain protocol (the input-rate ceiling fix): ACK the
-        // ISR latch FIRST, then drain — an event landing during the drain sets
-        // the latch FRESH, so it is either caught by the next pass of this loop
-        // or stays pending for immediate redelivery after `irq_complete` below.
-        // The old order (drain, then ack) wiped exactly those late events'
-        // latch: with QEMU refilling the ring the moment we requeue, the chain
-        // collapsed to backstop-paced ~30 wakes/s under a move storm.
-        'drain: loop {
-            for device in &live_devices {
-                device.driver.ack_interrupt();
-            }
-            let mut polled_any = false;
-            for device in &mut live_devices {
-                let Some(polled) = device.poll_batch(&mut service, &mut scratch) else {
-                    continue;
-                };
-                polled_any = true;
-                chain.raw_batches = chain.raw_batches.saturating_add(1);
-                chain.raw_events =
-                    chain.raw_events.saturating_add(u64::from(polled.evidence.raw_event_count()));
-                chain.note_rx_for_rate_line(u32::from(polled.evidence.raw_event_count()));
-                chain.normalized_events = chain
-                    .normalized_events
-                    .saturating_add(u64::from(polled.evidence.normalized_event_count()));
-                match polled.pointer_source {
-                    None => chain.keyboard_batches = chain.keyboard_batches.saturating_add(1),
-                    Some(PointerSource::MouseRelative) => {
-                        chain.mouse_relative_batches =
-                            chain.mouse_relative_batches.saturating_add(1)
-                    }
-                    Some(PointerSource::TabletAbsolute) => {
-                        chain.tablet_absolute_batches =
-                            chain.tablet_absolute_batches.saturating_add(1)
-                    }
-                    Some(PointerSource::TouchAbsolute) => {
-                        chain.touch_absolute_batches =
-                            chain.touch_absolute_batches.saturating_add(1)
-                    }
-                }
-                if !raw_gate_emitted && polled.evidence.raw_event_count() > 0 {
-                    debug_println("hidrawd: virtio-input raw event seen")?;
-                    // Input-chain hop I1: a raw HID event reached us from the device.
-                    debug_println("hidrawd: chain I1 device event (raw HID polled)")?;
-                    raw_gate_emitted = true;
-                }
-                if !normalized_gate_emitted && polled.evidence.normalized_event_count() > 0 {
-                    debug_println("hidrawd: ingress adapter ready")?;
-                    normalized_gate_emitted = true;
-                }
-                let Some(meta) = polled.wire_meta else {
-                    chain.wire_batches_skipped = chain.wire_batches_skipped.saturating_add(1);
-                    // Bounded triage: WHY does a polled batch produce no wire
-                    // events? (raw>0 with norm=0 = the normalize filter; the
-                    // storm-collapse signature tx=0.)
-                    if chain.wire_batches_skipped <= 3 {
-                        let _ = debug_println(&format!(
-                            "hidrawd: wire skip raw={} norm={} role={:?}",
-                            polled.evidence.raw_event_count(),
-                            polled.evidence.normalized_event_count(),
-                            polled.pointer_source,
-                        ));
-                    }
-                    continue;
-                };
-                chain.wire_batches = chain.wire_batches.saturating_add(1);
-                // CHUNKED send: a burst drain (device-ring backlog) can exceed
-                // MAX_HID_BATCH_EVENTS per frame — the encoder returns None for
-                // oversize batches, and dropping the whole burst silently was
-                // the input-storm collapse (tx=0 while events kept arriving).
-                // The reusable chunk Vec keeps the hot path alloc-free.
-                let mut chunk_start = 0usize;
-                while chunk_start < scratch.wire.len() {
-                    let chunk_end = (chunk_start + MAX_HID_BATCH_EVENTS).min(scratch.wire.len());
-                    scratch.wire_chunk.clear();
-                    scratch.wire_chunk.extend(scratch.wire[chunk_start..chunk_end].iter().copied());
-                    let chunk_len = (chunk_end - chunk_start) as u16;
-                    let mut frame_buf = [0u8; MAX_HID_BATCH_FRAME_LEN];
-                    // Move the reusable chunk buffer into a transient batch for
-                    // encoding, then straight back (capacity survives, no alloc).
-                    let mut batch = WireHidBatch {
-                        device_kind: meta.device_kind,
-                        device_id: meta.device_id,
-                        pointer_source: meta.pointer_source,
-                        abs_max_x: meta.abs_max_x,
-                        abs_max_y: meta.abs_max_y,
-                        raw_event_count: chunk_len,
-                        normalized_event_count: chunk_len,
-                        events: core::mem::take(&mut scratch.wire_chunk),
-                    };
-                    let encoded = encode_push_hid_batch_into(&batch, &mut frame_buf);
-                    scratch.wire_chunk = core::mem::take(&mut batch.events);
-                    chunk_start = chunk_end;
-                    let Some(frame_len) = encoded else {
-                        continue;
-                    };
-                    let frame = &frame_buf[..frame_len];
-                    let Some(current_client) = client.as_ref() else {
-                        break 'drain;
-                    };
-                    // Drain inputd's acks into a stack buffer (the allocating `recv`
-                    // would leak a `Vec` per ack on the non-freeing bump heap).
-                    let mut drain = [0u8; 64];
-                    while current_client.recv_into(Wait::NonBlocking, &mut drain).is_ok() {}
-                    match current_client.send(&frame, Wait::NonBlocking) {
-                        Ok(()) => {
-                            if !send_ok_emitted {
-                                debug_trace("dbg: hidrawd inputd send ok")?;
-                                // Input-chain hop I2: normalized wire batch sent to inputd.
-                                debug_println("hidrawd: chain I2 wire sent to inputd")?;
-                                send_ok_emitted = true;
-                            }
-                        }
-                        Err(err) => {
-                            chain.send_failures = chain.send_failures.saturating_add(1);
-                            if !send_fail_emitted {
-                                debug_println(live_route_send_fail_label(err))?;
-                                // Input-chain hop I2 fail: inputd unreachable (reason above).
-                                debug_println("hidrawd: chain I2 wire send FAIL (inputd route)")?;
-                                send_fail_emitted = true;
-                            }
-                            if classify_live_route_send_error(map_live_route_send_error(err))
-                                == LiveRouteSendAction::ResetRoute
-                            {
-                                client = None;
-                                break 'drain;
-                            }
-                            continue;
-                        }
-                    }
-                    chain.sent_batches = chain.sent_batches.saturating_add(1);
-                    chain.note_tx_for_rate_line();
-                    sent_any = true;
-                }
-            }
-            // A pass that drained nothing after an ack ⇒ ring empty AND latch
-            // clear — safe to unmask + park. (Bounded: each pass consumes real
-            // ring entries; an idle chain exits on its first pass.)
-            if !polled_any {
-                break 'drain;
-            }
-        }
-
-        // Reactive idle: the ISR latch was acked BEFORE the final (empty) drain
-        // pass above; re-arm the PLIC source and BLOCK until the next device
-        // IRQ. The kernel routes the virtio-input IRQ to our endpoint
-        // (immediately via S_EXT, or within a tick via the timer backstop) and
-        // wakes this recv — no busy-poll.
-        chain.report_if_due();
-        if let Some(ep) = irq_endpoint {
-            for device in &live_devices {
-                let _ = irq_complete(device.irq);
-            }
-            let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
-            let mut buf = [0u8; 32];
-            // Blocking recv (no NONBLOCK): parks until a device IRQ notification.
-            let _ = ipc_recv_v1(ep, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0);
-        } else if !sent_any {
-            chain.idle_yields = chain.idle_yields.saturating_add(1);
-            // Devices present but no IRQ endpoint bound yet + nothing to send: one
-            // re-probe interval on the timer (same Idle-starvation reason as above).
-            idle_park(idle_timer.as_mut());
-        }
+        batch.chain.report_if_due();
     }
 }
 
-/// Idle back-off for the hidrawd loop when there is nothing to service — 50ms.
-/// Bounded so hot-plugged devices are picked up within a re-probe cycle while the
-/// service stays OFF the run queue between wakes (no Normal-QoS busy-yield that
-/// would starve Idle background work on the strict-priority scheduler).
-const HIDRAWD_IDLE_PARK_NS: u64 = 50_000_000;
-
-/// PARK for one re-probe interval: a kernel one-shot on the declared timer-notify pair,
-/// waited for on its frame (TASK-0054C P2-b) — zero CPU, no receive deadline. Without the
-/// timer (its bind failed) the task parks on its owned control endpoint.
-fn idle_park(timer: Option<&mut NotifyTimer>) {
-    let Some(t) = timer else {
-        let (mut hdr, mut buf) = (MsgHeader::new(0, 0, 0, 0, 0), [0u8; 32]);
-        let ctrl = nexus_service_topology::CTRL_SLOTS.recv;
-        let _ = ipc_recv_v1(ctrl, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0);
-        return;
-    };
-    t.arm_in(HIDRAWD_IDLE_PARK_NS);
-    let _ = t.wait_fired();
+fn now() -> TimestampNs {
+    TimestampNs::new(nsec().unwrap_or(0))
 }
 
-fn map_live_route_send_error(err: nexus_ipc::IpcError) -> LiveRouteSendErrorClass {
-    match err {
-        nexus_ipc::IpcError::WouldBlock
-        | nexus_ipc::IpcError::Timeout
-        | nexus_ipc::IpcError::NoSpace => LiveRouteSendErrorClass::Backpressure,
-        nexus_ipc::IpcError::Disconnected
-        | nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint) => {
-            LiveRouteSendErrorClass::Disconnected
-        }
-        _ => LiveRouteSendErrorClass::Fatal,
-    }
+/// The USB source on the OS: the subscription to xhcid's HID boot class, and the push channel's
+/// frames — taken with their kernel-attributed sender — through the core (`UsbHid`).
+struct UsbSource {
+    core: UsbHid,
+    subscribed: bool,
+    report_said: bool,
+    refused_said: bool,
 }
 
-fn live_route_send_fail_label(err: nexus_ipc::IpcError) -> &'static str {
-    match map_live_route_send_error(err) {
-        LiveRouteSendErrorClass::Backpressure => "dbg: hidrawd inputd send fail backpressure",
-        LiveRouteSendErrorClass::Disconnected => "dbg: hidrawd inputd send fail disconnected",
-        LiveRouteSendErrorClass::Fatal => "dbg: hidrawd inputd send fail fatal",
-    }
-}
-
-fn open_live_devices(missing_slots_logged: &mut [bool; INPUT_CAP_SLOTS.len()]) -> Vec<LiveDevice> {
-    let mut devices = Vec::new();
-    let mut emitted_mmio_ready = false;
-    for (idx, slot) in INPUT_CAP_SLOTS.into_iter().enumerate() {
-        if !slot_present(slot) {
-            if !missing_slots_logged[idx] {
-                let _ = debug_println(&format!("hidrawd: input slot missing {}", slot));
-                missing_slots_logged[idx] = true;
-            }
-            continue;
-        }
-        if missing_slots_logged[idx] {
-            let _ = debug_println(&format!("hidrawd: input slot ready {}", slot));
-            missing_slots_logged[idx] = false;
-        }
-        let driver = match MappedVirtioInputDevice::open(slot, DeviceSlot::new(idx as u8)) {
-            Ok(driver) => driver,
-            Err(err) => {
-                let _ = debug_println(&format!("hidrawd: input open fail slot={} err={err}", slot));
-                continue;
-            }
-        };
-        if !emitted_mmio_ready {
-            let _ = debug_println("hidrawd: virtio-input mmio ready");
-            emitted_mmio_ready = true;
-        }
-        let device_id = DeviceId::new((idx + 1) as u16);
-        let abs_max_x = driver.absolute_x().map_or(0, |info| info.max());
-        let abs_max_y = driver.absolute_y().map_or(0, |info| info.max());
-        let provisional_class = match driver.role() {
-            DeviceRole::Keyboard => LiveDeviceClass::Keyboard,
-            DeviceRole::AbsolutePointer => LiveDeviceClass::Pointer(PointerSource::TabletAbsolute),
-            DeviceRole::RelativePointer if abs_max_x > 0 && abs_max_y > 0 => {
-                LiveDeviceClass::Pointer(PointerSource::TabletAbsolute)
-            }
-            DeviceRole::RelativePointer => LiveDeviceClass::Pointer(PointerSource::MouseRelative),
-        };
-        devices.push(LiveDevice {
-            driver,
-            device_id,
-            provisional_class,
-            confirmed_class: None,
-            abs_max_x,
-            abs_max_y,
-            // RFC-0098 C3: the line the granted capability carries (init read it
-            // from the node's `interrupts`); 0 = none, never derived from an address.
-            irq: nexus_abi::device_irq(slot),
-        });
-    }
-    devices
-}
-
-fn slot_present(slot: u32) -> bool {
-    match cap_clone(slot) {
-        Ok(tmp) => {
-            let _ = cap_close(tmp);
-            true
-        }
-        Err(_) => false,
-    }
-}
-
-/// The declared inputd leg (TASK-0324 P4d) — no route ask (P7-b): the leg is pinned before
-/// this task runs, and an ask has no clock.
-fn route_inputd_blocking() -> Option<KernelClient> {
-    let leg = nexus_service_topology::slots::hidrawd::INPUTD;
-    KernelClient::new_with_slots(leg.send, leg.recv).ok()
-}
-
-struct LiveDevice {
-    driver: MappedVirtioInputDevice,
-    device_id: DeviceId,
-    provisional_class: LiveDeviceClass,
-    confirmed_class: Option<LiveDeviceClass>,
-    abs_max_x: i32,
-    abs_max_y: i32,
-    /// PLIC interrupt source for this device, as carried by its MMIO capability
-    /// (RFC-0098 C3). 0 = the tree lists none.
-    irq: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LiveDeviceClass {
-    Keyboard,
-    Pointer(PointerSource),
-}
-
-impl LiveDevice {
-    /// Poll one device into the shared reusable `scratch` buffers (zero steady-state
-    /// alloc). On success `scratch.wire` holds the normalized wire events; the returned
-    /// frame carries the `WireHidBatch` header fields the caller needs to emit them.
-    fn poll_batch(
-        &mut self,
-        service: &mut HidrawdService,
-        scratch: &mut IngressScratch,
-    ) -> Option<PolledDeviceFrame> {
-        // Drain the device used-ring into the reusable raw buffer; bail if nothing new.
-        if !self.driver.poll_batch_into(&mut scratch.raw_input).ok()? {
-            return None;
-        }
-        let timestamp = TimestampNs::new(nsec().unwrap_or(0));
-        scratch.raw_ingress.clear();
-        scratch.raw_ingress.extend(scratch.raw_input.iter().copied().map(raw_ingress_event));
-        let active_class =
-            infer_device_class(self.provisional_class, self.confirmed_class, &scratch.raw_ingress);
-        let active_pointer_source = pointer_source_for_class(active_class);
-        let active_role = ingress_role_for_source(active_pointer_source);
-        if self.confirmed_class != Some(active_class) {
-            match active_class {
-                LiveDeviceClass::Keyboard => {
-                    service.register_keyboard(self.device_id);
-                    let _ = debug_println("hidrawd: device kbd");
-                    let _ = debug_println("hidrawd: virtio-input keyboard ready");
-                }
-                LiveDeviceClass::Pointer(PointerSource::MouseRelative) => {
-                    service.register_mouse(self.device_id);
-                    let _ = debug_println("hidrawd: device mouse");
-                    let _ = debug_println("hidrawd: source mouse-relative");
-                    let _ = debug_println("hidrawd: virtio-input pointer ready");
-                }
-                LiveDeviceClass::Pointer(PointerSource::TabletAbsolute) => {
-                    service.register_mouse(self.device_id);
-                    let _ = debug_println("hidrawd: device tablet");
-                    let _ = debug_println("hidrawd: source tablet-absolute");
-                    let _ = debug_println("hidrawd: virtio-input pointer ready");
-                }
-                LiveDeviceClass::Pointer(PointerSource::TouchAbsolute) => {
-                    service.register_mouse(self.device_id);
-                    let _ = debug_println("hidrawd: device touch");
-                    let _ = debug_println("hidrawd: source touch-absolute");
-                    let _ = debug_println("hidrawd: virtio-input pointer ready");
-                }
-            }
-            self.confirmed_class = Some(active_class);
-        }
-        self.abs_max_x = resolve_absolute_axis_max(
-            active_pointer_source,
-            self.abs_max_x,
-            &scratch.raw_ingress,
-            0,
+impl UsbSource {
+    /// SUBSCRIBE once, moving the push channel's SEND half to xhcid (its only holder from then
+    /// on); the answer arrives on the channel. A waited send without a clock: xhcid's endpoint
+    /// exists before either service runs.
+    fn subscribe() -> Self {
+        let request = wire::encode_subscribe(wire::CLASS_HID_BOOT);
+        let sent = nexus_ipc::exchange::send_with_cap(
+            slots::hidrawd::XHCID.send,
+            &request,
+            slots::hidrawd::USB_HID.send,
         );
-        self.abs_max_y = resolve_absolute_axis_max(
-            active_pointer_source,
-            self.abs_max_y,
-            &scratch.raw_ingress,
-            1,
-        );
-        // Disjoint field borrows: `raw_ingress` (read) + `hid`/`wire` (written).
-        let evidence = normalize_ingress_into(
-            active_role,
-            &scratch.raw_ingress,
-            timestamp,
-            &mut scratch.hid,
-            &mut scratch.wire,
-        );
-        let wire_meta = (evidence.normalized_event_count() > 0).then(|| WireMeta {
-            device_kind: wire_kind_for(active_role),
-            device_id: self.device_id.raw(),
-            pointer_source: active_pointer_source
-                .map_or(POINTER_SOURCE_NONE, PointerSource::wire_value),
-            abs_max_x: self.abs_max_x,
-            abs_max_y: self.abs_max_y,
-        });
-        Some(PolledDeviceFrame { evidence, pointer_source: active_pointer_source, wire_meta })
-    }
-}
-
-/// Reusable per-poll scratch buffers for the live ingest loop. Each is `clear()`ed
-/// and refilled per poll, so capacity is retained and the hot path allocates nothing
-/// in steady state (the hidrawd OOM fix). Pre-sized to comfortably hold one frame
-/// (`MAX_HID_BATCH_FRAME_LEN` bounds a batch to ≤15 events).
-struct IngressScratch {
-    raw_input: Vec<RawInputEvent>,
-    raw_ingress: Vec<RawIngressEvent>,
-    hid: Vec<HidEvent>,
-    wire: Vec<WireHidEvent>,
-    /// Reusable per-frame chunk of `wire` (burst drains split at
-    /// `MAX_HID_BATCH_EVENTS` — see the chunked send).
-    wire_chunk: Vec<WireHidEvent>,
-}
-
-impl IngressScratch {
-    fn new() -> Self {
+        if sent.is_err() {
+            let _ = debug_println("hidrawd: usb hid subscribe FAIL (no route to xhcid)");
+        }
         Self {
-            raw_input: Vec::with_capacity(64),
-            wire_chunk: Vec::with_capacity(MAX_HID_BATCH_EVENTS),
-            raw_ingress: Vec::with_capacity(64),
-            hid: Vec::with_capacity(64),
-            wire: Vec::with_capacity(64),
+            core: UsbHid::new(nexus_abi::service_id_from_name(b"xhcid")),
+            subscribed: false,
+            report_said: false,
+            refused_said: false,
+        }
+    }
+
+    fn heard(&mut self, heard: Result<crate::usb_source::Heard, Rejected>) {
+        match heard {
+            Ok(Heard::Subscribed) => {
+                self.subscribed = true;
+                let _ = debug_println("hidrawd: usb hid subscribed");
+            }
+            Ok(Heard::Refused(status)) => {
+                let _ =
+                    debug_println(&format!("hidrawd: usb hid subscribe refused (status={status})"));
+            }
+            Ok(Heard::Attached(device)) => {
+                let _ = debug_println(&format!(
+                    "hidrawd: usb hid device (vid={:04x} pid={:04x} role={})",
+                    device.vendor,
+                    device.product,
+                    role(device.kind)
+                ));
+            }
+            Ok(Heard::Reports { refused, .. }) => {
+                if !self.report_said {
+                    let _ = debug_println("hidrawd: usb hid report seen");
+                    self.report_said = true;
+                }
+                if refused > 0 && !self.refused_said {
+                    let _ = debug_println("hidrawd: usb hid report refused (not a boot report)");
+                    self.refused_said = true;
+                }
+            }
+            Ok(Heard::Detached(device)) => {
+                let _ = debug_println(&format!(
+                    "hidrawd: usb hid device gone (vid={:04x} pid={:04x} role={})",
+                    device.vendor,
+                    device.product,
+                    role(device.kind)
+                ));
+            }
+            Err(rejected) => {
+                let _ = debug_println(&format!("hidrawd: usb hid frame rejected ({rejected:?})"));
+            }
         }
     }
 }
 
-#[derive(Clone, Copy)]
-struct PolledDeviceFrame {
-    evidence: IngressGateEvidence,
-    pointer_source: Option<PointerSource>,
-    /// `Some` when `scratch.wire` holds events to emit; carries the wire header fields.
-    wire_meta: Option<WireMeta>,
-}
+impl HidSource for UsbSource {
+    fn wake(&self) -> u32 {
+        slots::hidrawd::USB_HID.recv
+    }
 
-#[derive(Clone, Copy)]
-struct WireMeta {
-    device_kind: u8,
-    device_id: u16,
-    pointer_source: u8,
-    abs_max_x: i32,
-    abs_max_y: i32,
-}
+    fn live(&self) -> bool {
+        self.core.attached() > 0
+    }
 
-fn infer_device_class(
-    provisional_class: LiveDeviceClass,
-    confirmed_class: Option<LiveDeviceClass>,
-    raw_events: &[RawIngressEvent],
-) -> LiveDeviceClass {
-    if let Some(class) = confirmed_class {
-        return class;
-    }
-    if raw_events.iter().any(|event| event.kind() == RawIngressEventKind::Absolute) {
-        return match provisional_class {
-            LiveDeviceClass::Pointer(PointerSource::TouchAbsolute) => {
-                LiveDeviceClass::Pointer(PointerSource::TouchAbsolute)
-            }
-            _ => LiveDeviceClass::Pointer(PointerSource::TabletAbsolute),
-        };
-    }
-    if raw_events.iter().any(|event| event.kind() == RawIngressEventKind::Relative) {
-        return LiveDeviceClass::Pointer(PointerSource::MouseRelative);
-    }
-    if raw_events
-        .iter()
-        .any(|event| event.kind() == RawIngressEventKind::Key && event.code() >= 0x110)
-    {
-        return LiveDeviceClass::Pointer(PointerSource::MouseRelative);
-    }
-    provisional_class
-}
-
-const fn pointer_source_for_class(class: LiveDeviceClass) -> Option<PointerSource> {
-    match class {
-        LiveDeviceClass::Keyboard => None,
-        LiveDeviceClass::Pointer(source) => Some(source),
+    fn drain(&mut self, now: TimestampNs, emit: &mut dyn Emit) {
+        let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
+        let mut frame = [0u8; wire::FRAME_MAX];
+        for _ in 0..FRAMES_PER_WAKE {
+            let mut sender = 0u64;
+            let received = nexus_abi::ipc_recv_v2(
+                slots::hidrawd::USB_HID.recv,
+                &mut hdr,
+                &mut frame,
+                &mut sender,
+                nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE,
+                0,
+            );
+            let Ok(n) = received else { return };
+            let heard = self.core.on_frame(sender, &frame[..n.min(frame.len())], now, emit);
+            self.heard(heard);
+        }
     }
 }
 
-const fn ingress_role_for_source(pointer_source: Option<PointerSource>) -> IngressRole {
-    match pointer_source {
-        None => IngressRole::Keyboard,
-        Some(PointerSource::MouseRelative) => IngressRole::RelativePointer,
-        Some(PointerSource::TabletAbsolute) => IngressRole::AbsolutePointer,
-        Some(PointerSource::TouchAbsolute) => IngressRole::AbsolutePointer,
+const fn role(kind: crate::HidDeviceKind) -> &'static str {
+    match kind {
+        crate::HidDeviceKind::Keyboard => "keyboard",
+        crate::HidDeviceKind::Mouse => "mouse",
     }
-}
-
-fn wire_kind_for(role: IngressRole) -> u8 {
-    match role {
-        IngressRole::Keyboard => HID_KIND_KEYBOARD,
-        IngressRole::RelativePointer | IngressRole::AbsolutePointer => HID_KIND_MOUSE,
-    }
-}
-
-fn raw_ingress_event(event: RawInputEvent) -> RawIngressEvent {
-    let kind = match event.kind() {
-        InputEventKind::Key => RawIngressEventKind::Key,
-        InputEventKind::Relative => RawIngressEventKind::Relative,
-        InputEventKind::Absolute => RawIngressEventKind::Absolute,
-        InputEventKind::Syn | InputEventKind::Unknown(_) => RawIngressEventKind::Key,
-    };
-    RawIngressEvent::new(kind, event.code(), event.value())
 }

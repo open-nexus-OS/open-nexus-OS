@@ -24,34 +24,50 @@ pub(crate) const HIDRAWD: ServiceSpec = ServiceSpec {
     // TASK-0324 P4d: a pure producer — it pushes normalized HID events to inputd and
     // exposes no endpoint of its own. Its three virtio-input MMIO windows come from the
     // fleet-wide `INPUT_MMIO_SLOT_BASE` block, so they are not per-service grants.
-    routes_to: &[Route {
-        to: ServiceId::Inputd,
-        kind: RouteKind::SharedResponse,
-        slots: slots::hidrawd::INPUTD,
-    }],
+    // TASK-0253B: its sources wake it — the virtio-input lines on one notify endpoint, xhcid's
+    // HID boot class on a push channel it subscribes to once (RFC-0099 §5).
+    routes_to: &[
+        Route {
+            to: ServiceId::Inputd,
+            kind: RouteKind::SharedResponse,
+            slots: slots::hidrawd::INPUTD,
+        },
+        Route {
+            to: ServiceId::Xhcid,
+            kind: RouteKind::SharedResponse,
+            slots: slots::hidrawd::XHCID,
+        },
+    ],
     announce: false,
     server_slots: SlotPair::UNDECLARED,
     reply_slots: SlotPair::UNDECLARED,
     extra_slots: &[
-        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::hidrawd::TIMER.recv },
-        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::hidrawd::TIMER.send },
+        NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::hidrawd::IRQ_NOTIFY },
+        NamedSlotBinding { name: NamedSlot::UsbHidRecv, slot: slots::hidrawd::USB_HID.recv },
+        NamedSlotBinding { name: NamedSlot::UsbHidSend, slot: slots::hidrawd::USB_HID.send },
     ],
 };
 
 /// The declaration of `xhcid` (TASK-0328 U1, RFC-0099): the USB host controller's one owner.
 /// Its controller window is the fleet-wide `DEVICE_MMIO_SLOT` (`device.mmio.usb`); the
-/// reactive loop waits on the controller's line and a one-shot, both pinned before it runs. U1
-/// serves no one and calls no one, so it gates no stage; the HID client contract (U2) and
-/// socd's bring-up of the board's node (U3) add a server and a route.
+/// reactive loop waits on the controller's line, a one-shot and its server endpoint, all pinned
+/// before it runs. TASK-0253B: it serves the HID boot class to one subscriber (RFC-0099 §5),
+/// admitted by policyd (`usb.hid` of the kernel-attributed sender) — so it is a member of the
+/// DisplayReady barrier and announces as soon as it serves, on every lane (without a
+/// controller too). socd's bring-up of the board's node (U3) adds a route.
 pub(crate) const XHCID: ServiceSpec = ServiceSpec {
     id: ServiceId::Xhcid,
     stage: Stage::DisplayReady,
-    exposes_server: false,
-    reply_inbox: false,
-    routes_to: &[],
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[Route {
+        to: ServiceId::Policyd,
+        kind: RouteKind::ReplyInbox,
+        slots: slots::xhcid::POLICYD,
+    }],
     announce: false,
-    server_slots: SlotPair::UNDECLARED,
-    reply_slots: SlotPair::UNDECLARED,
+    server_slots: slots::xhcid::SERVER,
+    reply_slots: slots::xhcid::REPLY,
     extra_slots: &[
         NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::xhcid::IRQ_NOTIFY },
         NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::xhcid::TIMER.recv },

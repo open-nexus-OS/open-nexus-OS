@@ -146,7 +146,11 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
             pipe.errors += 1;
             if pipe.errors > MAX_PIPE_ERRORS {
                 dev.pipes[i] = None;
-                return sink.note(Note::Fail { step: Step::Interrupt, code: cc });
+                sink.note(Note::Fail { step: Step::Interrupt, code: cc });
+                if let PipeKind::Hid { interface, .. } = pipe.kind {
+                    sink.note(Note::HidLost { slot: dev.slot, interface });
+                }
+                return;
             }
             dev.pipes[i] = Some(pipe);
             dev.recovery = Some(Recovery { dci, step: RecoveryStep::Reset, failed: cc });

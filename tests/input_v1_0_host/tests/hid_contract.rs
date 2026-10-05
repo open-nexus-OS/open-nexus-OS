@@ -5,11 +5,12 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Stable
-//! TEST_COVERAGE: 10 integration tests.
+//! TEST_COVERAGE: 13 integration tests.
 //!
 //! TEST_SCOPE:
 //!   - keyboard press/release and modifier deltas, the reserved byte, the error usages
 //!   - mouse relative/button/wheel parsing, the boot reports a measured receiver sends
+//!   - the allocation-free form (events appended to a caller's buffer) and release-all
 //!   - malformed keyboard/mouse reject behavior
 //!
 //! TEST_SCENARIOS:
@@ -18,7 +19,9 @@
 //!   - keyboard_error_usages_keep_the_keys_and_move_the_modifiers()
 //!   - mouse_relative_and_button_reports_are_deterministic()
 //!   - mouse_boot_reports_as_measured_on_the_board()
-//!   - test_reject_* keyboard and mouse rejects
+//!   - reports_append_into_one_reused_buffer()
+//!   - release_all_lets_go_of_every_held_key_and_button()
+//!   - test_reject_* keyboard and mouse rejects (a refused report leaves the buffer untouched)
 //!
 //! DEPENDENCIES:
 //!   - `hid` crate boot keyboard/mouse parsers
@@ -191,6 +194,81 @@ fn test_reject_mouse_report_protocol_frame_after_the_switch() {
     // Nothing leaked into the state: the next real report presses nothing that was not pressed.
     let next = parser.parse_report(ts(77), &[0x00, 0x01, 0x00, 0x00]).expect("motion");
     assert_eq!(logical(&next), vec![(HidEventKind::Rel, RelativeAxis::X.event_code(), 1)]);
+}
+
+/// The live ingress keeps ONE buffer for every report (a mouse reports every millisecond): the
+/// events of each report are appended after what is already there.
+#[test]
+fn reports_append_into_one_reused_buffer() {
+    let mut keyboard = BootKeyboardParser::new();
+    let mut mouse = BootMouseParser::new();
+    let mut out = Vec::with_capacity(16);
+    keyboard
+        .parse_report_into(ts(90), &[0, 0, KeyboardUsage::A.raw(), 0, 0, 0, 0, 0], &mut out)
+        .expect("A");
+    mouse.parse_report_into(ts(91), &[0x01, 0x02, 0x00, 0x00], &mut out).expect("click + motion");
+    assert_eq!(
+        logical(&out),
+        vec![
+            (HidEventKind::Key, KeyboardUsage::A.raw() as u16, 1),
+            (HidEventKind::Btn, MouseButton::Left.event_code(), 1),
+            (HidEventKind::Rel, RelativeAxis::X.event_code(), 2),
+        ]
+    );
+    let capacity = out.capacity();
+    out.clear();
+    mouse.parse_report_into(ts(92), &[0x01, 0x00, 0x03, 0x00], &mut out).expect("motion");
+    assert_eq!(out.capacity(), capacity, "no allocation on the second report");
+}
+
+/// A device that went away leaves nothing pressed: every held key, modifier and button is
+/// released once, and the parser starts from nothing.
+#[test]
+fn release_all_lets_go_of_every_held_key_and_button() {
+    let mut keyboard = BootKeyboardParser::new();
+    let mut out = Vec::new();
+    let held = [0x02, 0, KeyboardUsage::A.raw(), 0x05, 0, 0, 0, 0];
+    keyboard.parse_report_into(ts(93), &held, &mut out).expect("shift + a + b");
+    out.clear();
+    keyboard.release_all_into(ts(94), &mut out);
+    assert_eq!(
+        logical(&out),
+        vec![
+            (HidEventKind::Key, KeyboardUsage::A.raw() as u16, 0),
+            (HidEventKind::Key, 0x05, 0),
+            (HidEventKind::Key, KeyboardUsage::modifier_from_bit(1).event_code(), 0),
+        ]
+    );
+    out.clear();
+    keyboard.release_all_into(ts(95), &mut out);
+    assert!(out.is_empty(), "released once");
+
+    let mut mouse = BootMouseParser::new();
+    mouse.parse_report_into(ts(96), &[0b101, 0, 0, 0], &mut out).expect("left + middle");
+    out.clear();
+    mouse.release_all_into(ts(97), &mut out);
+    assert_eq!(
+        logical(&out),
+        vec![
+            (HidEventKind::Btn, MouseButton::Left.event_code(), 0),
+            (HidEventKind::Btn, MouseButton::Middle.event_code(), 0),
+        ]
+    );
+}
+
+/// A refused report appends nothing: the buffer keeps the events of the reports before it.
+#[test]
+fn test_reject_refused_report_leaves_the_buffer_untouched() {
+    let mut keyboard = BootKeyboardParser::new();
+    let mut mouse = BootMouseParser::new();
+    let mut out = Vec::new();
+    mouse.parse_report_into(ts(98), &[0x00, 0x01, 0x00], &mut out).expect("motion");
+    let before = logical(&out);
+    assert!(mouse.parse_report_into(ts(99), &[0; 9], &mut out).is_err());
+    let duplicate = [0, 0, KeyboardUsage::A.raw(), KeyboardUsage::A.raw(), 0, 0, 0, 0];
+    assert!(keyboard.parse_report_into(ts(99), &duplicate, &mut out).is_err());
+    assert!(keyboard.parse_report_into(ts(99), &[0; 7], &mut out).is_err());
+    assert_eq!(logical(&out), before);
 }
 
 #[test]

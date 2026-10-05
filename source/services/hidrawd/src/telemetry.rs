@@ -31,7 +31,6 @@ pub(crate) struct HidrawChainTelemetry {
     pub(crate) touch_absolute_batches: u64,
     pub(crate) send_failures: u64,
     pub(crate) route_rebinds: u64,
-    pub(crate) idle_yields: u64,
 }
 
 impl HidrawChainTelemetry {
@@ -57,14 +56,13 @@ impl HidrawChainTelemetry {
             touch_absolute_batches: 0,
             send_failures: 0,
             route_rebinds: 0,
-            idle_yields: 0,
         }
     }
 
     /// Plain (unfolded) rate lines, >=8/s gate — the input-rate triage
     /// counterparts of `inputd: push hz` / `windowd: loop hz` (the folded
     /// `fps:` dump is invisible in interactive boots). One combined line:
-    /// `wake` = loop passes (IRQ/park wakes), `rx` = raw batches, `ev` = raw
+    /// `wake` = loop passes (one per waitset wake), `rx` = raw batches, `ev` = raw
     /// events, `tx` = wire batches sent to inputd. wake high + rx low = ring/
     /// device dry; wake low under a storm = IRQ starvation; rx high + tx low =
     /// wire-path loss.
@@ -120,7 +118,7 @@ impl HidrawChainTelemetry {
         // (recall `NEXUS_LOG_EXPAND=hidrawd`) and prints raw in proof. Gated via `service_trace`
         // directly (NOT trace_line) because the `send_fail=` field would trip the failure safety net.
         let _ = (!nexus_abi::service_trace()).then(|| debug_println(&format!(
-            "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} kbd_batches={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={} idle_yields={}",
+            "fps: hidrawd ingress_hz={} sent_hz={} raw_batches={} wire_batches={} wire_skip={} raw_events={} norm_events={} kbd_batches={} mouse_rel={} tablet_abs={} touch_abs={} send_fail={} rebinds={}",
             ingress_hz,
             sent_hz,
             self.raw_batches,
@@ -133,8 +131,7 @@ impl HidrawChainTelemetry {
             self.tablet_absolute_batches,
             self.touch_absolute_batches,
             self.send_failures,
-            self.route_rebinds,
-            self.idle_yields
+            self.route_rebinds
         )));
         // #endregion
         self.last_report_ns = now_ns;
@@ -150,6 +147,5 @@ impl HidrawChainTelemetry {
         self.touch_absolute_batches = 0;
         self.send_failures = 0;
         self.route_rebinds = 0;
-        self.idle_yields = 0;
     }
 }

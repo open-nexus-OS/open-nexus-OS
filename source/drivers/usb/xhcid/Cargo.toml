@@ -30,6 +30,8 @@ nexus-abi = { path = "../../../libs/nexus-abi" }
 nexus-driverkit = { path = "../../../libs/nexus-driverkit" }
 nexus-hal = { path = "../../../libs/nexus-hal" }
 nexus-usb = { path = "../../../libs/nexus-usb" }
+# The class-client wire (RFC-0099 §5): what the HID class server frames for its subscriber.
+nexus-wire = { path = "../../../libs/nexus-wire" }
 nexus-ipc = { path = "../../../../userspace/nexus-ipc", optional = true, default-features = false }
 nexus-service-entry = { path = "../../../libs/nexus-service-entry", optional = true }
 nexus-service-topology = { path = "../../../libs/nexus-service-topology" }

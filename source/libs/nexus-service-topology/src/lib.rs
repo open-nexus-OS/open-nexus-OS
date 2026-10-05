@@ -114,6 +114,11 @@ pub enum NamedSlot {
     SessionWatchRecv,
     /// Session push channel: the SEND half, moved once with sessiond's `OP_WATCH`.
     SessionWatchSend,
+    /// USB HID push channel (hidrawd, TASK-0253B, RFC-0099 §5): the RECV half, a waitset
+    /// member — xhcid pushes the HID boot class's attaches, reports and detaches here.
+    UsbHidRecv,
+    /// USB HID push channel: the SEND half, moved once with the SUBSCRIBE to xhcid.
+    UsbHidSend,
     /// Timer-notify endpoint (TASK-0324 P7-d): the RECV half, a waitset member. Pacing
     /// without a recv timeout — the kernel one-shot timer fires a frame here.
     TimerNotifyRecv,

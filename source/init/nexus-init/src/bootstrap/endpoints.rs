@@ -94,6 +94,10 @@ pub(crate) struct Endpoints {
     pub input_req: u32,
     /// inputd server response endpoint (owned by hidrawd).
     pub input_rsp: u32,
+    /// xhcid server request endpoint (TASK-0253B: a class client's SUBSCRIBE).
+    pub usb_req: u32,
+    /// xhcid server response endpoint (owned by hidrawd, its one class client).
+    pub usb_rsp: u32,
     /// gpud server request endpoint.
     pub gpud_req: u32,
     /// gpud server response endpoint.
@@ -169,6 +173,7 @@ impl Endpoints {
             ServiceId::Policyd => Some((self.pol_req, self.pol_rsp)),
             ServiceId::Rngd => Some((self.rng_req, self.rng_rsp)),
             ServiceId::Socd => Some((self.soc_req, self.soc_rsp)),
+            ServiceId::Xhcid => Some((self.usb_req, self.usb_rsp)),
             ServiceId::Timed => Some((self.timed_req, self.timed_rsp)),
             ServiceId::Imed => Some((self.imed_req, self.imed_rsp)),
             ServiceId::Vfsd => Some((self.vfs_req, self.vfs_rsp)),

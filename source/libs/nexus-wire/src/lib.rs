@@ -9,8 +9,8 @@
 //! OWNERS: @runtime
 //! PUBLIC API: codec::{Writer, Reader, put_hdr, check_hdr, request_op}, frames! DSL,
 //!             per-protocol modules (execd, updated, routing, bundlemgrd, sessiond,
-//!             settingsd, bundleimg, policy, policyd, imed), the ONE payload-VMO
-//!             header (payload_vmo) and the ONE storage status table (status)
+//!             settingsd, bundleimg, policy, policyd, imed, soc, usb), the ONE
+//!             payload-VMO header (payload_vmo) and the ONE storage status table (status)
 //! DEPENDS_ON: nothing (no_std, alloc-free, zero deps)
 //! INVARIANTS: all scalar fields little-endian; decoders are fail-closed (`None` on
 //!             malformed input, exact-length by default); wire bytes are locked by
@@ -34,3 +34,4 @@ pub mod settingsd;
 pub mod soc;
 pub mod status;
 pub mod updated;
+pub mod usb;

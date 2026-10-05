@@ -228,15 +228,24 @@ pub mod gpud {
     pub const SOCD: SlotPair = SlotPair::new(0x29, REPLY.recv);
 }
 
-/// hidrawd (TASK-0324 P4d).
+/// hidrawd (TASK-0324 P4d; its sources, TASK-0253B). Its loop waits on two endpoints and
+/// nothing else — no timer: every grant is in place before it runs, so there is nothing to
+/// re-probe, and input is never paced.
 pub mod hidrawd {
     use super::SlotPair;
 
     /// Normalized HID events to inputd (inputd answers on its own endpoint).
     pub const INPUTD: SlotPair = SlotPair::new(3, 4);
-    /// Timer-notify endpoint (TASK-0054C P2-b): the hot-plug re-probe cadence while no
-    /// device is live — a periodic timer on a waitset beside the control endpoint.
-    pub const TIMER: SlotPair = SlotPair::new(6, 5);
+    /// RECV half of the virtio-input interrupt endpoint: every granted virtio-input line is
+    /// bound to it (`irq_bind`) — a waitset member.
+    pub const IRQ_NOTIFY: u32 = 0xF3;
+    /// The SUBSCRIBE to xhcid's HID boot class (RFC-0099 §5) on xhcid's server endpoint; the
+    /// RECV half is xhcid's shared response endpoint (the answer to a frame it could not read).
+    pub const XHCID: SlotPair = SlotPair::new(0xF4, 0xF5);
+    /// The USB HID push channel: RECV `0xF6` — a waitset member xhcid pushes the class's
+    /// attaches, reports and detaches to — and SEND `0xF7`, moved with the SUBSCRIBE (xhcid
+    /// is its only holder from then on).
+    pub const USB_HID: SlotPair = SlotPair::new(0xF7, 0xF6);
 }
 
 /// imed (TASK-0324 P4f-1b).

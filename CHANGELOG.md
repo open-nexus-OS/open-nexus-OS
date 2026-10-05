@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-05 (TASK-0328 U2 / TASK-0253B: USB HID input — xhcid serves the HID boot class, hidrawd is one loop over its sources; the `usb-visible` lane)
+
+- **The desktop driven over USB alone** (RFC-0099 Phase 2): the new `usb-visible` lane (`just
+  ci-os-usb-visible`, in `test-all`) runs the visible desktop without a single virtio input device;
+  the injector's QMP input reaches QEMU's USB keyboard and mouse behind a hub, xhcid pushes their
+  boot reports to hidrawd, and the input chain runs to the click and the key (`SELFTEST: ui v2
+  input ok`, `inputd: live keyboard route on`) — chain contract incl. `input-live` 15/15, pixel
+  proof ok.
+- **xhcid serves the HID boot class** (RFC-0099 §5, amended): a server endpoint in its one
+  waitset and `@ready` at once (`xhcid: serving (class=hid-boot)` — a DisplayReady server on every
+  lane, controller or not). A client SUBSCRIBEs once, moving its push channel's SEND half; policyd
+  must grant the kernel-attributed sender `usb.hid` (hidrawd alone). The pure class server
+  (`hid_class.rs`, 10 tests over the real core): attaches, detaches and the answer owed in order
+  (a full channel retried after 4 ms), reports fire-and-forget per drain, a new subscriber told
+  every interface attached so far, device names never reused while the client could hold them.
+- **hidrawd is one loop over its sources** (TASK-0253B): `HidSource` — the virtio-input devices
+  (opened once; their lines on a declared notify endpoint) and the USB HID interfaces xhcid serves
+  — on one waitset, into one batch path to inputd. No timer remains (the device-less lane's 20 Hz
+  re-probe is gone); the old loop's names are retired. `HidrawdService` is the one table of every
+  device's boot parser; a detach releases what the device held (nothing stays pressed); frames are
+  taken from xhcid's identity only, a refused frame counted whole, a refused report never half-
+  parsed (9 host tests incl. the `test_reject_*`).
+- **`nexus_wire::usb`**: the class-client wire (golden bytes, reject matrices, a checked report-list
+  iterator and an allocation-free builder). **`userspace/hid`**: `parse_report_into` (a reused
+  buffer, a refusal leaves it untouched) and `release_all_into`.
+- **init**: push channels are declared wait pairs (`UsbHidRecv/UsbHidSend`, the pairs carry their
+  queue depth); xhcid's server pair is minted; hidrawd's arm provisions its declared legs.
+- **Findings recorded** (TASK-0253B): inputd accepts HID batches from any sender holding its
+  request endpoint; the QMP injector's greeter step never runs (marker drift); its relative-mouse
+  dead reckoning is unverified.
+
 ### Added - 2026-10-05 (TASK-0328 U1: xhcid — the USB host controller service, reactive, on QEMU; nexus-usb; the `usb` lane)
 
 - **`xhcid` drives an xHCI controller by its interrupt alone** (RFC-0099 Phase 1): one waitset

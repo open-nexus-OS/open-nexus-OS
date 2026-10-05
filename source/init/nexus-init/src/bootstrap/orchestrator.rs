@@ -263,12 +263,9 @@ where
     let upd_req = mint(updated_pid, 8)?;
     let upd_rsp = mint(selftest_pid, 8)?;
     let sam_req = mint(samgrd_pid, 8)?;
-    let sam_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
-    let exe_req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, execd_pid, 8)
-        .map_err(InitError::Abi)?;
-    let exe_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
+    let sam_rsp = mint(selftest_pid, 8)?;
+    let exe_req = mint(execd_pid, 8)?;
+    let exe_rsp = mint(selftest_pid, 8)?;
     // Create init-owned endpoints so init-lite can deterministically distribute RECV/SEND rights.
     // `ipc_endpoint_create_for(... owner=keystored ...)` does not guarantee the creator holds RECV,
     // and `cap_transfer(... Rights::RECV)` can be rejected by the kernel.
@@ -317,14 +314,12 @@ where
         debug_write_bytes(b"init: probe key_req self-xfer pid() failed\n");
     }
     // #endregion agent log
-    let key_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
+    let key_rsp = mint(selftest_pid, 8)?;
     // NOTE: keep this endpoint init-owned so statefsd's cap table stays clear at slot 0x30
     // until the policy-gated MMIO grant is transferred there (statefsd probes MMIO at slot 48).
     let state_req =
         nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).map_err(InitError::Abi)?;
-    let state_rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, selftest_pid, 8)
-        .map_err(InitError::Abi)?;
+    let state_rsp = mint(selftest_pid, 8)?;
 
     // rngd <-> clients endpoints:
     // - rng_req owned by rngd (server receives requests)
@@ -345,6 +340,9 @@ where
     let window_rsp = mint(windowd_pid, 8)?;
     let input_req = mint(inputd_pid, 8)?;
     let input_rsp = mint(hidrawd_pid, 8)?;
+    // TASK-0253B: xhcid's server (a class client subscribes); the response side is hidrawd's.
+    let usb_req = mint(xhcid_pid, 8)?;
+    let usb_rsp = mint(hidrawd_pid, 8)?;
 
     // Priority-wire display services early (right after their endpoints exist)
     // so they get scheduled by the existing yield after MMIO grants.
@@ -517,6 +515,8 @@ where
         window_rsp,
         input_req,
         input_rsp,
+        usb_req,
+        usb_rsp,
         gpud_req,
         gpud_rsp,
         net_req,

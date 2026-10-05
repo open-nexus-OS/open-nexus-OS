@@ -27,6 +27,7 @@ pub mod context;
 pub mod controller;
 pub mod device;
 mod enumerate;
+pub mod hid_class;
 mod hub;
 pub mod memory;
 mod pipe;
@@ -39,5 +40,6 @@ pub mod trb;
 pub mod os_lite;
 
 pub use controller::{PortRef, Xhci};
+pub use hid_class::{Channel, HidClass, Pushed};
 pub use memory::{DmaAlloc, Region};
 pub use sink::{Note, Sink, Step};

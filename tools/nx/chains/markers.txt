@@ -17,9 +17,10 @@
 inputd: chain I5 delivered to windowd
 windowd: chain I6 input recv (state applied)
 
-# group: input-live — hidrawd device-event path (RFC-0053); fires only when
-# virtio-input devices deliver real/injected events — check against
-# interactive/virgl boots: just check-markers --groups input-live
+# group: input-live — hidrawd device-event path (RFC-0053); fires only when an
+# input device delivers real/injected events (virtio-input, or the USB HID devices
+# xhcid serves — TASK-0253B): the `usb-visible` lane checks it at every run; for
+# the others check interactive/virgl boots: just check-markers --groups input-live
 # NOTE: "inputd: chain I3/I4" exist only in the simulation today — the live
 # recv/normalize hops moved to the 111Hz push path without re-emitting them
 # (see tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md item 6); re-add here once the

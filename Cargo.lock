@@ -1365,6 +1365,7 @@ dependencies = [
  "nexus-ipc",
  "nexus-service-entry",
  "nexus-service-topology",
+ "nexus-wire",
  "virtio-input",
 ]
 
@@ -5300,6 +5301,7 @@ dependencies = [
  "nexus-service-entry",
  "nexus-service-topology",
  "nexus-usb",
+ "nexus-wire",
  "xhcid-model",
 ]
 

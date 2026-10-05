@@ -25,8 +25,8 @@ fn a_keyboard_and_a_mouse_behind_qemus_full_speed_hub() {
     assert_eq!(
         rig.sink.notes("HidInterface"),
         [
-            "HidInterface { slot: 2, interface: 0, role: Keyboard, endpoint: 129, max_packet: 8, interval: 10 }",
-            "HidInterface { slot: 3, interface: 0, role: Mouse, endpoint: 129, max_packet: 4, interval: 10 }",
+            "HidInterface { slot: 2, interface: 0, role: Keyboard, endpoint: 129, max_packet: 8, interval: 10, vendor: 1575, product: 1 }",
+            "HidInterface { slot: 3, interface: 0, role: Mouse, endpoint: 129, max_packet: 4, interval: 10, vendor: 1575, product: 1 }",
         ]
     );
 }
@@ -58,9 +58,9 @@ fn the_desk_devices_behind_the_boards_high_speed_hub_with_tt() {
     assert_eq!(
         rig.sink.notes("HidInterface"),
         [
-            "HidInterface { slot: 2, interface: 0, role: Keyboard, endpoint: 129, max_packet: 8, interval: 1 }",
-            "HidInterface { slot: 3, interface: 0, role: Keyboard, endpoint: 129, max_packet: 12, interval: 1 }",
-            "HidInterface { slot: 3, interface: 1, role: Mouse, endpoint: 130, max_packet: 32, interval: 1 }",
+            "HidInterface { slot: 2, interface: 0, role: Keyboard, endpoint: 129, max_packet: 8, interval: 1, vendor: 13364, product: 291 }",
+            "HidInterface { slot: 3, interface: 0, role: Keyboard, endpoint: 129, max_packet: 12, interval: 1, vendor: 1133, product: 50495 }",
+            "HidInterface { slot: 3, interface: 1, role: Mouse, endpoint: 130, max_packet: 32, interval: 1, vendor: 1133, product: 50495 }",
         ]
     );
     // Every boot interface was asked for the boot protocol; the mouse's STALLed SET_IDLE was

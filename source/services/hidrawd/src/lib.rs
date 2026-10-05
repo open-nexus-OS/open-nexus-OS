@@ -1,7 +1,9 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: `hidrawd` service crate for bounded boot-protocol keyboard/mouse ingest.
+//! CONTEXT: `hidrawd` service crate: the HID ingress — one loop over its input sources
+//! (virtio-input, USB HID boot interfaces via xhcid; TASK-0253B) into the one batch path to
+//! inputd, with the bounded boot-protocol parsers in one device table.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
@@ -12,14 +14,20 @@
 #![forbid(unsafe_code)]
 
 mod adapter;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod batch;
 mod error;
-mod ingest;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod os_lite;
 mod service;
+pub mod source;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod telemetry;
 mod types;
+pub mod usb_source;
+pub mod virtio_class;
+#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+mod virtio_source;
 
 pub use adapter::{
     normalize_ingress_batch, normalize_ingress_into, resolve_absolute_axis_max,
@@ -31,6 +39,7 @@ pub use error::HidrawdError;
 pub use os_lite::service_main_loop;
 pub use service::{
     classify_live_route_send_error, HidrawdService, LiveRouteSendAction, LiveRouteSendErrorClass,
+    MAX_DEVICES,
 };
 pub use types::{DeviceId, HidBatch, HidDeviceKind};
 

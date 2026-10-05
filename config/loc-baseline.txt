@@ -35,7 +35,6 @@
 1106	source/services/dsoftbusd/src/os/session/cross_vm.rs
 1279	source/services/execd/src/os_lite.rs
 716	source/services/execd/src/std_server.rs
-605	source/services/hidrawd/src/os_lite.rs
 860	source/services/inputd/src/os_lite.rs
 1049	source/services/inputd/tests/contract.rs
 649	source/services/keystored/src/full_impl.rs

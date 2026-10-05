@@ -35,40 +35,64 @@ impl BootMouseParser {
         Self { previous_buttons: 0 }
     }
 
+    /// The report's events as a fresh list — [`Self::parse_report_into`] for a caller without
+    /// a buffer of its own.
     pub fn parse_report(
         &mut self,
         timestamp: TimestampNs,
         report: &[u8],
     ) -> Result<Vec<HidEvent>, HidError> {
+        let mut events = Vec::new();
+        self.parse_report_into(timestamp, report, &mut events)?;
+        Ok(events)
+    }
+
+    /// Appends the report's events to `out`: button changes, then motion, then the wheel.
+    /// Nothing is allocated once `out` holds a report's worth (a mouse reports every
+    /// millisecond). A refused report leaves `out` and the button state untouched.
+    pub fn parse_report_into(
+        &mut self,
+        timestamp: TimestampNs,
+        report: &[u8],
+        out: &mut Vec<HidEvent>,
+    ) -> Result<(), HidError> {
         if !(MOUSE_REPORT_MIN..=MOUSE_REPORT_MAX).contains(&report.len()) {
             return Err(HidError::InvalidMouseReportLength { actual: report.len() });
         }
 
-        let mut events = Vec::new();
-        for button in MouseButton::ALL {
-            let was_pressed = self.previous_buttons & button.mask() != 0;
-            let is_pressed = report[0] & button.mask() != 0;
-            if was_pressed != is_pressed {
-                events.push(HidEvent::btn(timestamp, button.event_code(), i32::from(is_pressed)));
-            }
-        }
-
+        self.buttons(timestamp, report[0], out);
         let dx = i32::from(i8::from_ne_bytes([report[1]]));
         let dy = i32::from(i8::from_ne_bytes([report[2]]));
         if dx != 0 {
-            events.push(HidEvent::rel(timestamp, RelativeAxis::X.event_code(), dx));
+            out.push(HidEvent::rel(timestamp, RelativeAxis::X.event_code(), dx));
         }
         if dy != 0 {
-            events.push(HidEvent::rel(timestamp, RelativeAxis::Y.event_code(), dy));
+            out.push(HidEvent::rel(timestamp, RelativeAxis::Y.event_code(), dy));
         }
         if let Some(&wheel) = report.get(WHEEL_AT) {
             let wheel = i32::from(i8::from_ne_bytes([wheel]));
             if wheel != 0 {
-                events.push(HidEvent::rel(timestamp, RelativeAxis::Wheel.event_code(), wheel));
+                out.push(HidEvent::rel(timestamp, RelativeAxis::Wheel.event_code(), wheel));
             }
         }
+        Ok(())
+    }
 
-        self.previous_buttons = report[0];
-        Ok(events)
+    /// Releases every held button and forgets it: a mouse that went away (unplugged, its pipe
+    /// dropped) leaves nothing pressed.
+    pub fn release_all_into(&mut self, timestamp: TimestampNs, out: &mut Vec<HidEvent>) {
+        self.buttons(timestamp, 0, out);
+    }
+
+    /// Moves the held buttons to `buttons`, appending the changes.
+    fn buttons(&mut self, timestamp: TimestampNs, buttons: u8, out: &mut Vec<HidEvent>) {
+        for button in MouseButton::ALL {
+            let was_pressed = self.previous_buttons & button.mask() != 0;
+            let is_pressed = buttons & button.mask() != 0;
+            if was_pressed != is_pressed {
+                out.push(HidEvent::btn(timestamp, button.event_code(), i32::from(is_pressed)));
+            }
+        }
+        self.previous_buttons = buttons;
     }
 }
