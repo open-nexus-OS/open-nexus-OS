@@ -87,7 +87,8 @@ done < <(grep $'\t' "$BASELINE")
 while read -r svc; do
     case "$svc" in ''|'#'*) continue ;; esac
     dir=""
-    for cand in "source/services/$svc" "source/drivers/$svc"; do
+    # A driver may sit in its device class's directory (`source/drivers/usb/xhcid`).
+    for cand in "source/services/$svc" "source/drivers/$svc" source/drivers/*/"$svc"; do
         [ -d "$cand" ] && { dir="$cand"; break; }
     done
     if [ -z "$dir" ]; then

@@ -1,0 +1,18 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "xhcid-model"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "The behavioural xHCI controller, hub and HID devices xhcid is proven against on the host (TASK-0328 U1): registers, command/transfer/event rings in non-coherent DMA memory, port changes; host only"
+
+[dependencies]
+dma-model = { path = "../../../dma-model" }
+nexus-abi = { path = "../../../../libs/nexus-abi" }
+nexus-driverkit = { path = "../../../../libs/nexus-driverkit" }
+nexus-hal = { path = "../../../../libs/nexus-hal" }
+nexus-usb = { path = "../../../../libs/nexus-usb" }
+xhcid = { path = ".." }

@@ -6,7 +6,8 @@
 //! `nx policy validate --write-manifest` fails here, not months later — the manifest had gone
 //! stale across three edits before this test existed), and the disk has ONE holder (ADR-0044,
 //! ADR-0067, TASK-0246 P4b): only the block owner may be granted a virtio disk or an SD/MMC
-//! host, so a second service that asked would be denied by policyd.
+//! host, so a second service that asked would be denied by policyd — likewise the display plane
+//! (gpud) and the USB host controller (xhcid).
 //! OWNERS: @runtime @security
 
 use std::path::Path;
@@ -35,6 +36,18 @@ fn test_reject_a_second_holder_of_the_display() {
     assert_eq!(holders, ["gpud"]);
     for subject in ["windowd", "selftest-client", "socd", "inputd", "hidrawd"] {
         assert!(tree.policy().check(&["device.mmio.display"], subject).is_err(), "{subject}");
+    }
+}
+
+/// TASK-0328 U1 (RFC-0099): the USB host controller has one holder — its owner; the HID
+/// client (hidrawd), the input router, the harness and the glue owner are denied.
+#[test]
+fn test_reject_a_second_holder_of_the_usb_host() {
+    let tree = committed();
+    let holders: Vec<&str> = tree.policy().holders("device.mmio.usb").collect();
+    assert_eq!(holders, ["xhcid"]);
+    for subject in ["hidrawd", "inputd", "selftest-client", "socd", "gpud"] {
+        assert!(tree.policy().check(&["device.mmio.usb"], subject).is_err(), "{subject}");
     }
 }
 

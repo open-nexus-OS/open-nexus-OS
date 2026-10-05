@@ -83,15 +83,18 @@ pub enum ServiceId {
     /// SoC glue owner (RFC-0106 / TASK-0245B): the ONE writer of the syscon and
     /// pinctrl windows; consumers ask for their node by path.
     Socd = 31,
+    /// USB host controller owner (RFC-0099 / TASK-0328): the ONE holder of an xHCI
+    /// controller; USB class services are its clients.
+    Xhcid = 32,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=31`, so the array spans `0..=31`; index 0 is unused).
-    pub const COUNT: usize = 32;
+    /// (discriminants are `1..=32`, so the array spans `0..=32`; index 0 is unused).
+    pub const COUNT: usize = 33;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 31] = [
+    pub const ALL: [ServiceId; 32] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -123,6 +126,7 @@ impl ServiceId {
         Self::Blkd,
         Self::Ingressd,
         Self::Socd,
+        Self::Xhcid,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -159,6 +163,7 @@ impl ServiceId {
             b"blkd" => Self::Blkd,
             b"ingressd" => Self::Ingressd,
             b"socd" => Self::Socd,
+            b"xhcid" => Self::Xhcid,
             _ => return None,
         })
     }
@@ -197,6 +202,7 @@ impl ServiceId {
             Self::Blkd => "blkd",
             Self::Ingressd => "ingressd",
             Self::Socd => "socd",
+            Self::Xhcid => "xhcid",
         }
     }
 }

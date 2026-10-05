@@ -10,6 +10,8 @@ publish = false
 description = "The behavioural SDHCI controller + eMMC + non-coherent DMA memory the SDHCI core and its consumers are proven against on the host (TASK-0246); host only"
 
 [dependencies]
+# DMA memory behind a non-coherent cache — the one memory model every driver model shares.
+dma-model = { path = "../../../dma-model" }
 nexus-abi = { path = "../../../../libs/nexus-abi" }
 nexus-driverkit = { path = "../../../../libs/nexus-driverkit" }
 nexus-hal = { path = "../../../../libs/nexus-hal" }

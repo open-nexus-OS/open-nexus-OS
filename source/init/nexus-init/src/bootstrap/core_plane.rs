@@ -59,10 +59,20 @@ pub(crate) struct CorePlane {
     pub pol_ctl_exec_req: u32,
     /// The virtio transports the tree lists, classified (RFC-0098 C3).
     pub devices: VirtioDevices,
+    /// The USB host controller (TASK-0328 U1), if the machine has one.
+    pub usb: Option<UsbPlane>,
     pub volume: Vec<VolumeSpawned>,
     /// Wall time of the volume pass (query → stream → map → exec, all
     /// services) — the boot cost of serving services from the volume.
     pub volume_ms: u64,
+}
+
+/// The USB host controller (TASK-0328 U1): QEMU's PCI xHCI or the board's tree node — the
+/// window xhcid is granted and, for a PCI function, what that grant turns bus mastering on for.
+#[derive(Clone, Copy)]
+pub(crate) struct UsbPlane {
+    pub window: DeviceWindow,
+    pub pci: Option<crate::bootstrap::pci::PciFunction>,
 }
 
 /// One policy-gated DeviceMmio grant, waited to a 1 s deadline (policyd
@@ -194,8 +204,9 @@ impl crate::bootstrap::declared_routes::LegEndpoints for CoreEndpoints {
 /// services the plane needs; the bulk pass later skips a pair already set).
 fn transfer_server_pair(chan: &mut CtrlChannel, id: ServiceId, req: u32, rsp: u32, blk_req: u32) {
     // TASK-0324 P4f: all three core-plane services are declared — pinned before they run.
-    // TASK-0054C P2-b: their declared timer endpoints too (blkd's device watchdog).
-    crate::bootstrap::declared_routes::pin_declared_timers(chan.pid, id);
+    // TASK-0054C P2-b, TASK-0328 U1: their declared wait endpoints too (blkd's device watchdog
+    // and interrupt notify endpoint).
+    crate::bootstrap::declared_routes::pin_declared_waits(chan.pid, id);
     if let Some(pair) = crate::bootstrap::declared_slots::pin_server_pair(chan.pid, id, req, rsp) {
         chan.set_send(id, pair.send);
         chan.set_recv(id, pair.recv);
@@ -252,7 +263,7 @@ fn grant_boot_disk(
         DEVICE_MMIO_CAP_SLOT,
     )?;
     if let Some(sd) = disk.pci {
-        crate::bootstrap::pci::enable_bus_master(&sd).map_err(|reason| {
+        crate::bootstrap::pci::enable_bus_master(sd.function()).map_err(|reason| {
             boot_disk::refused(reason);
             InitError::Map("bus mastering")
         })?;
@@ -369,6 +380,10 @@ pub(crate) fn bring_up(
     // TASK-0246 P3: the tree's ECAM hosts are a device source too (the boot disk may be one's).
     let pci = crate::bootstrap::pci::discover();
     crate::bootstrap::pci::report(&pci);
+    // TASK-0328 U1: the USB plane — QEMU's PCI xHCI. The board's tree node joins in U3 with
+    // socd's bring-up of its clocks, resets and power: before that its window is not live, and a
+    // read of a gated block can stall the bus.
+    let usb = pci.usb.map(|host| UsbPlane { window: host.window, pci: Some(host.function) });
 
     // RFC-0106 (TASK-0246 P4c): the SoC glue owner — the tree alias and every provider window —
     // runs before the disk is granted: the disk's owner asks it to bring the disk's node up
@@ -411,6 +426,7 @@ pub(crate) fn bring_up(
         pol_ctl_route_req,
         pol_ctl_exec_req,
         devices,
+        usb,
         volume,
         volume_ms,
     })

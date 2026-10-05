@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-05 (TASK-0328 U1: xhcid — the USB host controller service, reactive, on QEMU; nexus-usb; the `usb` lane)
+
+- **`xhcid` drives an xHCI controller by its interrupt alone** (RFC-0099 Phase 1): one waitset
+  (the controller's line, a one-shot for the bounded waits), the event ring drained per
+  interrupt, four interrupt TRBs queued per HID endpoint and requeued per report — an idle bus
+  costs not one register access (a host test counts them). It brings the controller up,
+  enumerates through hubs (one port reset and addressing at a time; hub-port resets re-read every
+  10 ms because the board's hub reports changes only every 256 ms), configures HID boot
+  interfaces (SET_PROTOCOL, best-effort SET_IDLE with halted-EP0 recovery), keeps a detached
+  device's memory until Disable Slot completes. The core is pure and host-tested against
+  `xhcid-model` (a behavioural xHCI, a hub and HID devices in non-coherent DMA memory that refuses
+  what hardware refuses: an unpublished DCBAA entry, a wrong TT field or interval exponent, a data
+  stage at the wrong EP0 max packet, a full event ring); 14 tests incl. the board's measured
+  devices with TT, 14 of 16 mutants killed — two real bugs found on the way (a port queued twice
+  that only the attach debounce hid; a short configuration parsed with stale buffer bytes).
+- **`nexus-usb`**: the USB protocol vocabulary — descriptors bounded before use, setup packets,
+  the hub class, route strings; 19 tests with the desk's devices and QEMU's hub as goldens.
+- **`nexus-driverkit::DmaShared`** (rings and contexts maintained per entry) and **`dma-model`**
+  (the non-coherent DRAM model extracted from the SDHCI model — one copy for every driver model).
+- **init**: QEMU's PCI xHCI becomes `device.mmio.usb` for xhcid (bus mastering after the grant;
+  policy: xhcid the only holder, test-pinned); declared wait endpoints (timers and the interrupt
+  notify endpoint) pinned from the spec for every service — blkd's bespoke mint deleted; the
+  device grants split out of the orchestrator (`bootstrap/device_planes.rs`). The board's tree
+  node stays ungranted until U3 brings its clocks and power up through socd (a read of a gated
+  block can stall the bus): the board says `usb plane none`.
+- **The `usb` lane** (`just ci-os-usb`, in `test-all`): `qemu-xhci`, a full-speed hub, a boot
+  keyboard and mouse; the ladder pins the values the lane measured (xHCI 1.00, the hub on root
+  port 5 — `qemu-xhci` numbers its USB 3 ports first —, QEMU's 10-byte hub descriptor, which the
+  first run refused and nexus-usb now takes). Every other full-ladder lane requires the honest
+  `usb plane none`; a `xhcid: FAIL` line fails any lane.
+
 ### Added - 2026-10-04 (TASK-0328 U0: the USB host contract, measured — RFC-0099; the HID boot parsers take the desk's real reports)
 
 - **Measured before designing** (`docs/board/measurements/2026-10-04-usb-boot-protocol/`, read-only

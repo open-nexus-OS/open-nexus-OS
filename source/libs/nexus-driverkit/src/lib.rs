@@ -22,7 +22,9 @@
 //! [`BufferBudget`] is bounded counters, [`Qos`] is an enum + depth policy, [`DmaBuffer`]
 //! (TASK-0286 P4b) moves DMA memory between CPU and device ownership by value and does the
 //! cache maintenance a non-coherent device needs at exactly those transitions (the memory and
-//! the instructions come from `nexus-abi`: `DmaVmo`, Zicbom). None of it touches
+//! the instructions come from `nexus-abi`: `DmaVmo`, Zicbom); [`DmaShared`] (TASK-0328) is
+//! memory a controller and the CPU share for its lifetime — rings, contexts — maintained per
+//! entry (`publish` / `observe`) instead of per hand-over. None of it touches
 //! MMIO, the router, or the scheduler: the device server drives `try_alloc`/`complete` from
 //! its own submit/harvest path, and signals a kernel timeline fence (`nexus_abi::fence_signal`)
 //! to [`SubmitRing::completed`] so consumers can `fence_wait`. Keeping the contract pure makes
@@ -50,9 +52,12 @@ mod dma;
 mod mmio;
 mod qos;
 mod ring;
+mod shared;
 
 pub use buffers::{BufferBudget, BufferError};
 pub use dma::{CacheOps, Direction, DmaBuffer, DmaError, DmaMemory, InFlight, Zicbom};
+// TASK-0328 U1 (RFC-0099 §3): memory a controller and the CPU share for its lifetime.
+pub use shared::DmaShared;
 // TASK-0251 P2 (the MMIO seam): the one register bus every driver maps its window through.
 pub use mmio::{Mmio, MmioSet, FLOATING};
 pub use qos::Qos;

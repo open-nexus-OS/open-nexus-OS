@@ -161,7 +161,7 @@ if [ "$verify_rc" != 0 ]; then
 fi
 
 # ---- 3. the FAIL gate, as the QEMU harness keeps it ------------------------------------------
-fail_lines="$(grep -aE "^(K?SELFTEST): .* FAIL|^gpud: FAIL" "$LOG" || true)"
+fail_lines="$(grep -aE "^(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL" "$LOG" || true)"
 for allow in "$ALLOW" "$ALLOW_BOARD"; do
   if [ -n "$fail_lines" ] && [ -f "$allow" ]; then
     fail_lines="$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$allow" | sed '/^[[:space:]]*$/d') || true)"

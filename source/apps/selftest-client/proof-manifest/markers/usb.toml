@@ -1,0 +1,52 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The USB host stack's vocabulary (TASK-0328 U1, RFC-0099 §7): init's USB plane (a PCI
+# xHCI on QEMU; the board's tree node from U3 on) and the host controller service's lines — the
+# controller running, the root ports scanned, a hub and its ports, every device enumerated, every
+# HID boot interface reporting. Only the `usb` lane attaches a controller; every other lane says
+# `usb plane none` and xhcid parks. The REQUIRED ladder lives in `scripts/qemu-test.sh`
+# (`USB_MARKERS`); a `xhcid: FAIL (…)` line fails any lane through its FAIL gate.
+# OWNERS: @runtime @drivers
+# STATUS: Functional
+# API_STABILITY: Stable (marker literals are contracts)
+
+[marker."init: usb host from pci ("]
+phase = "bringup"
+proves = "TASK-0328 U1: init found the xHCI host controller (class 0c03, interface 30) behind the tree's ECAM host and placed it; xhcid is granted its window and bus mastering follows the grant"
+emit_when = { profile = "usb" }
+
+[marker."init: usb plane none ("]
+phase = "bringup"
+proves = "TASK-0328 U1: the machine has no USB host controller init grants (QEMU without qemu-xhci; the board until U3 brings its node up through socd)"
+forbidden_when = { profile = "usb" }
+
+[marker."xhcid: no host controller (usb plane none)"]
+phase = "bringup"
+proves = "TASK-0328 U1: xhcid holds no controller window and parks on its waitset (no polling, no FAIL)"
+forbidden_when = { profile = "usb" }
+
+[marker."xhcid: controller ok ("]
+phase = "bringup"
+proves = "RFC-0099 §4: the controller was reset, set up (DCBAA, command ring, event ring, interrupter) and runs (HCH clear) with its line bound"
+emit_when = { profile = "usb" }
+
+[marker."xhcid: ready ("]
+phase = "bringup"
+proves = "RFC-0099 §4: every root port powered and scanned; enumeration begins"
+emit_when = { profile = "usb" }
+
+[marker."xhcid: hub ("]
+phase = "bringup"
+proves = "RFC-0099 §4: a hub is configured (its slot carries hub fields), its ports powered past their power-good time, its status-change pipe running"
+emit_when = { profile = "usb" }
+
+[marker."xhcid: device enumerated ("]
+phase = "bringup"
+proves = "RFC-0099 §4: a device got a slot and an address and its device and configuration descriptors passed nexus-usb's bounds"
+emit_when = { profile = "usb" }
+
+[marker."xhcid: hid boot interface ("]
+phase = "bringup"
+proves = "RFC-0099 §4: a HID boot interface is in the boot protocol and its interrupt pipe has its TRBs queued"
+emit_when = { profile = "usb" }

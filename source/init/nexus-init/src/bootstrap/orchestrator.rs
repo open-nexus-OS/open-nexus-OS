@@ -12,7 +12,6 @@
 use crate::bootstrap::diag::{expanded, il, iw};
 use crate::bootstrap::endpoints;
 use crate::bootstrap::route_builder;
-use crate::bootstrap::route_provision::grant_rtc_mmio_to_timed;
 use crate::bootstrap::{BootstrapState, CtrlChannel};
 use crate::os_payload::*;
 use crate::service_topology::ServiceId;
@@ -214,6 +213,7 @@ where
         pol_ctl_route_req,
         pol_ctl_exec_req,
         devices,
+        usb,
         volume: volume_spawned,
         volume_ms,
     } = crate::bootstrap::core_plane::bring_up(
@@ -243,6 +243,7 @@ where
     let timed_pid = find_pid(&ctrl_channels, "timed").ok_or(InitError::MissingElf)?;
     let imed_pid = find_pid(&ctrl_channels, "imed").ok_or(InitError::MissingElf)?;
     let hidrawd_pid = find_pid(&ctrl_channels, "hidrawd").ok_or(InitError::MissingElf)?;
+    let xhcid_pid = find_pid(&ctrl_channels, "xhcid").ok_or(InitError::MissingElf)?;
     let windowd_pid = find_pid(&ctrl_channels, "windowd").ok_or(InitError::MissingElf)?;
     let inputd_pid = find_pid(&ctrl_channels, "inputd").ok_or(InitError::MissingElf)?;
     let gpud_pid = find_pid(&ctrl_channels, "gpud").ok_or(InitError::MissingElf)?;
@@ -601,91 +602,24 @@ where
     endpoints::close_wired_eps(&eps);
     crate::bootstrap::resume::resume_core(&ctrl_channels);
 
-    // RFC-0098 C3: every grant below carries a window + PLIC line read from the
-    // device's tree node (ADR-0044: blk[0] = the ONE disk, granted in the CORE-plane
-    // stage; a second blk device is nobody's — `/data` is a partition on the one disk).
-    // RFC-0098: the tree decides which device planes exist. A plane without a device is
-    // declared absent and its owner runs without a window (the board has no virtio-net,
-    // virtio-rng or virtio-gpu; TASK-0260B P3: `init` died on the first of them).
-    match devices.net {
-        Some(net) => crate::bootstrap::core_plane::grant_mmio_with_wait(
-            &grant_stats,
-            pol_route,
-            netstackd_pid,
-            "netstackd",
-            "device.mmio.net",
-            net,
-            DEVICE_MMIO_CAP_SLOT,
-        )?,
-        None => debug_write_bytes(b"init: net plane none (no device in the tree)\n"),
-    }
-    match devices.rng {
-        Some(rng) => crate::bootstrap::core_plane::grant_mmio_with_wait(
-            &grant_stats,
-            pol_route,
-            rngd_pid,
-            "rngd",
-            "device.mmio.rng",
-            rng,
-            DEVICE_MMIO_CAP_SLOT,
-        )?,
-        None => debug_write_bytes(b"init: rng plane none (no device in the tree)\n"),
-    }
-    grant_rtc_mmio_to_timed(timed_pid, pol_ctl_route_req, pol_ctl_route_rsp)?;
-    match devices.gpu {
-        Some(gpu) => crate::bootstrap::core_plane::grant_mmio_with_wait(
-            &grant_stats,
-            pol_route,
-            gpud_pid,
-            "gpud",
-            "device.mmio.gpu",
-            gpu,
-            DEVICE_MMIO_CAP_SLOT,
-        )?,
-        None => debug_write_bytes(b"init: gpu plane none (no device in the tree)\n"),
-    }
-    crate::bootstrap::core_plane::grant_display_plane(&grant_stats, pol_route, gpud_pid)?;
-    if let Some(net) = devices.net {
-        crate::bootstrap::core_plane::grant_mmio_with_wait(
-            &grant_stats,
-            pol_route,
-            selftest_pid,
-            "selftest-client",
-            "device.mmio.net",
-            net,
-            DEVICE_MMIO_CAP_SLOT,
-        )?;
-    }
-
-    // The tree, read-only: the harness reads its boot mode and profile there; gpud, the display-
-    // mode authority, the lane's display-mode request (RFC-0098 C7).
-    for (pid, svc, subject) in [
-        (selftest_pid, ServiceId::SelftestClient, "init:selftest-client"),
-        (gpud_pid, ServiceId::Gpud, "init:gpud"),
-    ] {
-        let (tree, slot) =
-            (crate::service_topology::NamedSlot::DeviceTree, nexus_abi::INIT_DEVICE_TREE_SLOT);
-        let pinned = crate::bootstrap::declared_slots::pin_named(pid, svc, tree, slot, Rights::MAP);
-        if pinned.is_some() && iw(&mut init_wire, init_fold, subject) {
-            let svc_name = subject.trim_start_matches("init:").as_bytes();
-            let line: [&[u8]; 2] = [b"init: device tree grant ok svc=", svc_name];
-            crate::bootstrap::diag::emit_marker_atomic(&line, None);
-        }
-    }
-
-    for (idx, input) in devices.input.iter().copied().enumerate() {
-        if let Some(input) = input {
-            crate::bootstrap::core_plane::grant_mmio_with_wait(
-                &grant_stats,
-                pol_route,
-                hidrawd_pid,
-                "hidrawd",
-                "device.mmio.input",
-                input,
-                INPUT_MMIO_CAP_SLOT_BASE + u32::try_from(idx).unwrap_or(0),
-            )?;
-        }
-    }
+    let owners = crate::bootstrap::device_planes::PlaneOwners {
+        netstackd: netstackd_pid,
+        rngd: rngd_pid,
+        timed: timed_pid,
+        gpud: gpud_pid,
+        hidrawd: hidrawd_pid,
+        xhcid: xhcid_pid,
+        selftest: selftest_pid,
+    };
+    let (devices, wire) = (&devices, (&mut init_wire, init_fold));
+    crate::bootstrap::device_planes::grant_device_planes(
+        &grant_stats,
+        pol_route,
+        &owners,
+        devices,
+        usb,
+        wire,
+    )?;
 
     // TASK-0315: statefsd is a blockproto CLIENT — the double MMIO grant
     // (the ADR-0044 one-owner violation) is gone; blkd above is the

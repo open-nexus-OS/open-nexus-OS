@@ -108,6 +108,9 @@ pub const SUPERVISION: &[(ServiceId, Criticality, RestartPolicy)] = &[
     (ServiceId::Dsoftbusd, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Metricsd, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Hidrawd, Criticality::Standard, RestartPolicy::OnFailure),
+    // TASK-0328 (RFC-0099): the USB host controller's owner — the input path's source on a
+    // machine whose keyboard and mouse are USB; its HID client re-attaches after a restart.
+    (ServiceId::Xhcid, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Touchd, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Pinched, Criticality::Standard, RestartPolicy::OnFailure),
 ];

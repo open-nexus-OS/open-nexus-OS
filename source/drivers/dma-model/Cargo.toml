@@ -1,0 +1,14 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "dma-model"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "DMA memory as a non-coherent machine has it, for the host models drivers are proven against (TASK-0246, TASK-0328): device DRAM by bus address, the CPU's view behind a write-back cache, clean/flush on any block range; host only"
+
+[dependencies]
+nexus-abi = { path = "../../libs/nexus-abi" }
+nexus-driverkit = { path = "../../libs/nexus-driverkit" }

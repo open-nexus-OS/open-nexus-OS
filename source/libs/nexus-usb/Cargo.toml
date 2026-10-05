@@ -1,0 +1,11 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-usb"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The USB protocol vocabulary of the host stack (TASK-0328, RFC-0099): descriptors parsed with every bound checked, the setup packets of the standard, HID and hub requests, the hub class, speeds and route strings — pure, no_std, controller-agnostic"
+
+[dependencies]

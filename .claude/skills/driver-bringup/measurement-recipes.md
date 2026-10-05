@@ -104,7 +104,19 @@ set `/chosen/nexus,boot-led-ladder` (an empty property) in the board tree only w
 kernel dies before the eMMC trace starts and the position matters. It found the kernel's
 silent stop (2026-09-28: milestone 11, then a pending timer) that no marker could have shown.
 
-## 8. Reading a transcript honestly
+## 8. A device in the protocol YOUR stack will use (usbfs)
+
+The stock system drives a USB HID device in the report protocol; our stack uses the boot
+protocol — what the device sends there is not on any stock screen. `boot_capture.py`
+(`docs/board/measurements/2026-10-04-usb-boot-protocol/`) detaches the stock driver from ONE
+interface over usbfs, sends exactly our requests (SET_PROTOCOL(0), SET_IDLE(0)), reads the
+interrupt endpoint for a bounded time, restores the report protocol and hands the interface back.
+Dry-run it first (no input), then capture while the operator acts. It found the 4-byte mouse
+reports, the STALLed SET_IDLE and the stale report-format first frame (2026-10-04).
+**Privacy: never archive what a person types** — warn BEFORE a keyboard capture ("test keys
+only, no password"), analyse without printing key codes, delete raw copies, keep aggregates.
+
+## 9. Reading a transcript honestly
 
 Before assuming a marker was never printed, search for it TORN: on a multi-hart board two
 writers interleaved byte by byte until 2026-09-29 (`grep -E 's.?t.?a.?g.?e.?:.? .?p…'`

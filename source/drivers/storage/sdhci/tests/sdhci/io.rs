@@ -54,14 +54,18 @@ fn every_transfer_takes_both_buffers_through_the_cache_protocol() {
     disk.read(0, &mut [0u8; 1024]).expect("read");
     assert_eq!(
         m.borrow().mem.ops,
-        [CacheOp::Clean(table, 4096), CacheOp::Flush(bounce, 65536), CacheOp::Flush(bounce, 65536)],
+        [
+            CacheOp::Clean(table, 0, 4096),
+            CacheOp::Flush(bounce, 0, 65536),
+            CacheOp::Flush(bounce, 0, 65536)
+        ],
         "descriptors cleaned; the bounce flushed before the device writes and again after"
     );
     m.borrow_mut().mem.ops.clear();
     disk.write(0, &[7u8; 1024]).expect("write");
     assert_eq!(
         m.borrow().mem.ops,
-        [CacheOp::Clean(table, 4096), CacheOp::Clean(bounce, 65536)],
+        [CacheOp::Clean(table, 0, 4096), CacheOp::Clean(bounce, 0, 65536)],
         "descriptors and data cleaned; nothing to do after the device read"
     );
 }

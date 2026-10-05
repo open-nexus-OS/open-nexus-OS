@@ -57,6 +57,8 @@ rngd = ["device.mmio.rng", "ipc.core", "policy.delegate"]
 # it asks policyd whether a requester holds `soc.glue` before touching a register.
 socd = ["device.mmio.syscon", "ipc.core", "policy.delegate"]
 "hidrawd" = ["device.mmio.input", "ipc.core"]
+# TASK-0328 U1 (RFC-0099): the USB host controller's one owner — its window, nothing else.
+"xhcid" = ["device.mmio.usb", "ipc.core"]
 "gpud" = ["device.mmio.gpu", "device.mmio.display", "ipc.core", "soc.glue"]
 # RFC-0065/0066: the ability lifecycle broker may route, query the bundle registry,
 # and spawn apps (the "only abilitymgr spawns apps" invariant). windowd queries the

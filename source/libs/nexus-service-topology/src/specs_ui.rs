@@ -38,6 +38,27 @@ pub(crate) const HIDRAWD: ServiceSpec = ServiceSpec {
     ],
 };
 
+/// The declaration of `xhcid` (TASK-0328 U1, RFC-0099): the USB host controller's one owner.
+/// Its controller window is the fleet-wide `DEVICE_MMIO_SLOT` (`device.mmio.usb`); the
+/// reactive loop waits on the controller's line and a one-shot, both pinned before it runs. U1
+/// serves no one and calls no one, so it gates no stage; the HID client contract (U2) and
+/// socd's bring-up of the board's node (U3) add a server and a route.
+pub(crate) const XHCID: ServiceSpec = ServiceSpec {
+    id: ServiceId::Xhcid,
+    stage: Stage::DisplayReady,
+    exposes_server: false,
+    reply_inbox: false,
+    routes_to: &[],
+    announce: false,
+    server_slots: SlotPair::UNDECLARED,
+    reply_slots: SlotPair::UNDECLARED,
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::xhcid::IRQ_NOTIFY },
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::xhcid::TIMER.recv },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::xhcid::TIMER.send },
+    ],
+};
+
 /// The declaration of `gpud`.
 pub(crate) const GPUD: ServiceSpec = ServiceSpec {
     id: ServiceId::Gpud,

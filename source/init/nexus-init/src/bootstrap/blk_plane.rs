@@ -45,23 +45,7 @@ pub(crate) fn wire_blk_plane_for_with(chan: &CtrlChannel, blk_req: u32) {
         | ServiceId::Bundlemgrd => {
             wire_blk_plane_client(chan.pid, chan.svc_name, blk_req);
         }
-        ServiceId::Blkd => {
-            if let Ok(irq_ep) =
-                nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, chan.pid, 8)
-            {
-                let r = crate::bootstrap::declared_slots::pin_named(
-                    chan.pid,
-                    ServiceId::Blkd,
-                    crate::service_topology::NamedSlot::IrqNotify,
-                    irq_ep,
-                    Rights::RECV,
-                );
-                let _ = nexus_abi::cap_close(irq_ep);
-                if r.is_some() {
-                    debug_write_bytes(b"init: blk irq ep wired\n");
-                }
-            }
-        }
+        // blkd's interrupt notify endpoint is a declaration (`pin_declared_waits`).
         _ => {}
     }
 }

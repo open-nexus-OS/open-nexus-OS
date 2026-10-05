@@ -17,7 +17,7 @@
 ## Status at a Glance
 
 - **Phase 0 (contract seed + measurements + HID boot parser fixed to the measured reports)**: ✅ 2026-10-04
-- **Phase 1 (`xhcid` + `nexus-usb` on QEMU: controller, hub, enumeration, HID boot interfaces)**: ⬜
+- **Phase 1 (`xhcid` + `nexus-usb` on QEMU: controller, hub, enumeration, HID boot interfaces)**: ✅ 2026-10-05 (the `usb` lane, `test-all`)
 - **Phase 2 (the HID class client: `hidrawd` sources over one contract)**: ⬜
 - **Phase 3 (the board: socd glue + hub power + TT; keyboard and mouse drive the desktop)**: ⬜
 
@@ -253,12 +253,17 @@ Memory the controller reads or writes:
 
 ### 7. Markers (normative)
 
+- `init: usb host from pci (<bdf> bar=0x… irq=…)` / `init: usb plane none (no host controller)`
 - `xhcid: controller ok (version=… ports=… slots=… csz=… scratch=… irq=…)`
-- `xhcid: ready (ports=… powered=…)`
-- `xhcid: hub (slot=… port=… speed=… ports=… ttt=…)`
+- `xhcid: ready (ports=… connected=…)` — every root port powered and scanned
+- `xhcid: superspeed port left alone (port=…)` — a USB 3 root port with a link (v1 leaves it)
+- `xhcid: hub (slot=… port=… speed=… ports=… ttt=…)` — `port` is the hub's root port
 - `xhcid: device enumerated (slot=… route=0x… speed=… vid=… pid=… class=…)`
 - `xhcid: hid boot interface (slot=… if=… role=… ep=0x… mps=… interval=…)`
-- `xhcid: FAIL (step=… cc=…)` — the failing command or transfer and its completion code
+- `xhcid: device detached (slot=…)`
+- `xhcid: no host controller (usb plane none)` — xhcid holds no window and parks
+- `xhcid: FAIL (step=… cc=…)` — the failing step and its completion code (for a refused
+  descriptor: the `nexus_usb::UsbError` code); the harness FAIL gate fails any lane on it
 - `hidrawd: usb hid device (vid=… pid=… role=…)` (Phase 2)
 - `SELFTEST: input usb hid ok (…)` — a real report inside a bounded wait, else `FAIL (no event in 30s)`
 
@@ -360,7 +365,10 @@ drivers read the fourth byte as the wheel — as the measured mouse sends it.
 
 - [x] **Phase 0**: contract seed, measurements, HID boot parsers on the measured reports — proof:
   `cargo test -p input_v1_0_host --test hid_contract`, `cargo test -p hidrawd --test contract`
-- [ ] **Phase 1**: xhcid + nexus-usb on QEMU — proof: `just test-os usb`, `just test-all`
+- [x] **Phase 1**: xhcid + nexus-usb on QEMU — proof: `just test-os usb`, `just test-all`
+  (2026-10-05: QEMU's xHCI 1.00, a full-speed hub on root port 5, a boot keyboard and mouse;
+  host: nexus-usb 19 tests, xhcid 14 against the model, 14 of 16 mutants killed — the two
+  survivors are the electrical waits the model cannot express)
 - [ ] **Phase 2**: hidrawd sources, USB input moves the desktop — proof: the usb visible lane
 - [ ] **Phase 3**: the board — proof: `[PASS] board-visible` with `SELFTEST: input usb hid ok` + `board-visual: typed`
 - [x] Task(s) linked with stop conditions + proof commands.

@@ -56,6 +56,7 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
     crate::specs_storage::KEYSTORED,
     crate::specs_security::POLICYD,
     crate::specs_ui::HIDRAWD,
+    crate::specs_ui::XHCID,
     crate::specs_ui::GPUD,
     crate::specs_ui::INPUTD,
     crate::specs_ui::WINDOWD,

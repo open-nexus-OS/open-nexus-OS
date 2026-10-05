@@ -37,6 +37,7 @@ pub const fn affinity_for(name: &str) -> u8 {
         || eq(name, "windowd")
         || eq(name, "inputd")
         || eq(name, "hidrawd")
+        || eq(name, "xhcid")
         || eq(name, "touchd")
         || eq(name, "imed")
     {

@@ -134,16 +134,37 @@ pub(crate) fn wire_declared_legs(
     }
 }
 
-/// The declared timer endpoints of a service (TASK-0324 P7-d, TASK-0054C P2-b): the pacing
-/// timer-notify pair and the device-watchdog pair. Minted HERE, from the declaration — a spec
-/// that binds the RECV name gets an endpoint owned by the service, both halves pinned into its
-/// declared slots (it binds its kernel timer cap to the SEND half and waits on the RECV half
-/// as a waitset member), and init's own cap closed at once. No per-service field, no bespoke
-/// mint: adding a timer to a service is one declaration. Runs ONCE per service in the
-/// spawn-time distribution (`distribute_server_pair_for`; the core plane's
-/// `transfer_server_pair` for the services resumed before it), i.e. before the service runs.
-pub(crate) fn pin_declared_timers(pid: u32, svc: ServiceId) {
+/// The declared wait endpoints of a service (TASK-0324 P7-d, TASK-0054C P2-b, TASK-0328 U1):
+/// the pacing timer-notify pair, the device-watchdog pair and a driver's interrupt notify
+/// endpoint. Minted HERE, from the declaration — a spec that binds the RECV name gets an
+/// endpoint owned by the service, pinned into its declared slots (a timer pair's SEND half too:
+/// the service binds its kernel timer cap there; the interrupt endpoint's RECV half alone: the
+/// service binds its line to it with `irq_bind`), and init's own cap closed at once. No
+/// per-service field, no bespoke mint: adding a timer or a line to a service is one
+/// declaration. Runs ONCE per service in the spawn-time distribution
+/// (`distribute_server_pair_for`; the core plane's `transfer_server_pair` for the services
+/// resumed before it), i.e. before the service runs.
+pub(crate) fn pin_declared_waits(pid: u32, svc: ServiceId) {
     use crate::service_topology::{extra_slot, NamedSlot};
+    if extra_slot(svc, NamedSlot::IrqNotify).is_some() {
+        match nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8) {
+            Ok(ep) => {
+                let pinned =
+                    declared_slots::pin_named(pid, svc, NamedSlot::IrqNotify, ep, Rights::RECV);
+                let _ = nexus_abi::cap_close(ep);
+                if pinned.is_none() {
+                    crate::bootstrap::diag::emit_marker_atomic(
+                        &[b"init: irq-notify FAIL svc=", svc.name().as_bytes()],
+                        None,
+                    );
+                }
+            }
+            Err(_) => crate::bootstrap::diag::emit_marker_atomic(
+                &[b"init: irq-notify mint FAIL svc=", svc.name().as_bytes()],
+                None,
+            ),
+        }
+    }
     const PAIRS: [(NamedSlot, NamedSlot, &[u8]); 2] = [
         (NamedSlot::TimerNotifyRecv, NamedSlot::TimerNotifySend, b"timer-notify"),
         (NamedSlot::DeviceWatchdogRecv, NamedSlot::DeviceWatchdogSend, b"device-watchdog"),

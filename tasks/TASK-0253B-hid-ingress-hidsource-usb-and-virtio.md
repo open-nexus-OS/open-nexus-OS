@@ -44,7 +44,9 @@ normalization of USB reports; the hardwired virtio-only loop is deleted (no seco
   member, drain into events, role, device identity), `src/virtio_source.rs` (today's open/ack/drain
   behind it); the loop generic over sources; the old loop deleted with a retired-name entry.
   Proof: hidrawd host tests; the visible lanes unchanged (input ladder, pixel proof).
-- **P2 — the USB source**: subscribe to xhcid (`usb.hid`, policy-gated), a parser per attached
+- **P2 — the USB source**: xhcid exposes its server (its spec's `exposes_server`) and announces
+  `@ready` — from then on it gates `DisplayReady` like every serving member of that stage
+  (`nexus-init` `stage::gates`); hidrawd subscribes (`usb.hid`, policy-gated), a parser per attached
   interface (keyboard/mouse by protocol), reports → events → the batch path; detach drops the
   device's parser and releases its held keys/buttons (key-up/btn-up events, so nothing sticks).
   Marker `hidrawd: usb hid device (vid=… pid=… role=…)`.

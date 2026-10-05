@@ -9,7 +9,9 @@
 //! controller (class 0805) becomes a `DeviceWindow` like a tree node's: its BAR's pages, its
 //! line, the host's coherence and DMA reach — a candidate for the boot disk the loader names
 //! (`bootstrap::boot_disk`, TASK-0246 P4b), which is granted and only then given bus
-//! mastering ([`enable_bus_master`], that function alone). One line names what was found; a
+//! mastering ([`enable_bus_master`], that function alone). The first xHCI host controller
+//! (class 0c03, interface 30) becomes the USB plane the same way (TASK-0328 U1: xhcid's
+//! `device.mmio.usb`, bus mastering at its grant). One line names what was found; a
 //! malformed host is named in a FAIL line and skipped, so the rest of the boot does not
 //! depend on it.
 //! OWNERS: @runtime
@@ -30,12 +32,33 @@ use crate::bootstrap::diag::Line;
 /// The class code of an SD host controller.
 const SD_HOST: u16 = 0x0805;
 
+/// The class code of a USB host controller, and an xHCI one's programming interface.
+const USB_HOST: u16 = 0x0c03;
+const XHCI: u32 = 0x30;
+
 /// The SD host controller's capability register (SDHCI `CAPS`): read through the placed BAR,
 /// it proves the function decodes where the plan put it.
 const SDHCI_CAPS: usize = 0x40;
 
 /// SD host controllers init keeps as boot-disk candidates.
 const MAX_SD_HOSTS: usize = 4;
+
+/// A function a grant hands out: its host's root-bus configuration space and where it
+/// answers — what bus mastering is turned on through.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PciFunction {
+    pub ecam: (usize, usize),
+    pub first_bus: u8,
+    pub bdf: Bdf,
+}
+
+/// An xHCI host controller the plan placed (TASK-0328 U1).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct UsbHost {
+    pub function: PciFunction,
+    /// The window it is granted by.
+    pub window: DeviceWindow,
+}
 
 /// An SD host controller the plan placed.
 #[derive(Clone, Copy, Debug)]
@@ -52,6 +75,13 @@ pub(crate) struct SdHost {
     pub caps: u32,
 }
 
+impl SdHost {
+    /// The function its grant turns bus mastering on for.
+    pub(crate) fn function(&self) -> PciFunction {
+        PciFunction { ecam: self.ecam, first_bus: self.first_bus, bdf: self.bdf }
+    }
+}
+
 /// What init found behind the tree's ECAM hosts.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PciDevices {
@@ -61,6 +91,8 @@ pub(crate) struct PciDevices {
     pub functions: usize,
     /// The SD host controllers, in host and bus order.
     pub sd: [Option<SdHost>; MAX_SD_HOSTS],
+    /// The first xHCI host controller.
+    pub usb: Option<UsbHost>,
 }
 
 impl PciDevices {
@@ -141,6 +173,20 @@ fn plan_host(
         let caps = read_word(&window, SDHCI_CAPS)?;
         *free = Some(SdHost { ecam, first_bus: host.first_bus, bdf: f.bdf, window, caps });
     }
+    for f in plan.of_class(USB_HOST).filter(|f| f.class & 0xff == XHCI) {
+        let (Some(bar), None) = (f.bars[0], found.usb) else { continue };
+        let base = usize::try_from(bar.cpu).map_err(|_| "bar")?;
+        let len = usize::try_from(bar.span).map_err(|_| "bar")?;
+        let window = DeviceWindow {
+            base,
+            len,
+            irq: f.irq,
+            dma_noncoherent: !host.coherent,
+            reach: host.reach,
+        };
+        let function = PciFunction { ecam, first_bus: host.first_bus, bdf: f.bdf };
+        found.usb = Some(UsbHost { function, window });
+    }
     Ok(())
 }
 
@@ -173,12 +219,12 @@ fn with_config<T>(
 
 /// Bus mastering for the one function a grant just handed out (RFC-0098 C3: the plan never
 /// sets it; the grant does, for that function only), read back from its command register.
-pub(crate) fn enable_bus_master(sd: &SdHost) -> Result<(), &'static str> {
+pub(crate) fn enable_bus_master(f: PciFunction) -> Result<(), &'static str> {
     use nexus_pci::config::{CMD_MASTER, COMMAND};
     use nexus_pci::ConfigSpace as _;
-    let on = with_config(sd.ecam, sd.first_bus, |cfg| {
-        nexus_pci::enable_bus_master(cfg, sd.bdf);
-        cfg.read(sd.bdf, COMMAND) & CMD_MASTER != 0
+    let on = with_config(f.ecam, f.first_bus, |cfg| {
+        nexus_pci::enable_bus_master(cfg, f.bdf);
+        cfg.read(f.bdf, COMMAND) & CMD_MASTER != 0
     })?;
     if on {
         Ok(())
@@ -219,4 +265,14 @@ pub(crate) fn report(found: &PciDevices) {
         None => line.write_str(" sd=none)"),
     };
     line.emit();
+    if let Some(usb) = found.usb {
+        let (f, w) = (usb.function.bdf, usb.window);
+        let mut line = Line::new();
+        let _ = write!(
+            line,
+            "init: usb host from pci ({:02x}:{:02x}.{} bar=0x{:x} irq={})",
+            f.bus, f.dev, f.func, w.base, w.irq
+        );
+        line.emit();
+    }
 }

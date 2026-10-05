@@ -834,6 +834,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dma-model"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-driverkit",
+]
+
+[[package]]
 name = "dsl_apps_conformance"
 version = "0.1.0"
 dependencies = [
@@ -2463,6 +2471,10 @@ dependencies = [
  "nexus-layout-types",
  "nexus-theme",
 ]
+
+[[package]]
+name = "nexus-usb"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-vfs"
@@ -4359,6 +4371,7 @@ dependencies = [
 name = "storage-sdhci-model"
 version = "0.1.0"
 dependencies = [
+ "dma-model",
  "nexus-abi",
  "nexus-driverkit",
  "nexus-hal",
@@ -5274,6 +5287,32 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix",
+]
+
+[[package]]
+name = "xhcid"
+version = "0.1.0"
+dependencies = [
+ "nexus-abi",
+ "nexus-driverkit",
+ "nexus-hal",
+ "nexus-ipc",
+ "nexus-service-entry",
+ "nexus-service-topology",
+ "nexus-usb",
+ "xhcid-model",
+]
+
+[[package]]
+name = "xhcid-model"
+version = "0.1.0"
+dependencies = [
+ "dma-model",
+ "nexus-abi",
+ "nexus-driverkit",
+ "nexus-hal",
+ "nexus-usb",
+ "xhcid",
 ]
 
 [[package]]

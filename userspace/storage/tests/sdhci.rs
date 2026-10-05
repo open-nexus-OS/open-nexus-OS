@@ -19,8 +19,12 @@ const VIRT: &[u8] = include_bytes!("../../../source/libs/nexus-fdt/tests/goldens
 const BOARD: &[u8] = include_bytes!("../../../source/libs/nexus-fdt/tests/goldens/bpi-f3.dtb");
 const FIXTURE: &[u8] = include_bytes!("fixtures/boot-disk.dtb");
 
-type Device =
-    SdhciDevice<model::ModelBus, model::SimPlatform, model::mem::ModelMem, model::mem::ModelCache>;
+type Device = SdhciDevice<
+    model::ModelBus,
+    model::SimPlatform,
+    model::mem::ModelMem,
+    model::mem::ModelCache<model::Machine>,
+>;
 
 fn device(config: model::Config) -> (model::Shared, Device) {
     let m = model::machine(config);

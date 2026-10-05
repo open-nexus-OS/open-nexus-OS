@@ -74,6 +74,18 @@ The full layer reference — including the end-to-end coverage table and the per
      ADMA2, every store mounts over it (`[profile.sdhci]`; the image is grown
      past 2 GiB with `QEMU_BLK_IMG_BYTES`). It needs a QEMU with both device
      models (`make doctor` checks); like smp1 it runs in `test-all`, not in CI.
+   - `just ci-os-usb` — the USB lane (TASK-0328 U1, RFC-0099): the smp1
+     topology with QEMU's `qemu-xhci`, a full-speed `usb-hub` on its first USB 2
+     port (root port 5 — `qemu-xhci` numbers its USB 3 ports first) and a boot
+     keyboard and mouse behind the hub (`[profile.usb]`, launcher env
+     `QEMU_USB_DEVICE`). `xhcid` brings the controller up, enumerates through the
+     hub and runs both HID boot interfaces, woken by the controller's line and a
+     one-shot only; the ladder (`USB_MARKERS` in `scripts/qemu-test.sh`) pins the
+     values the lane measured. Every other full-ladder lane requires the honest
+     `init: usb plane none (no host controller)` + `xhcid: no host controller
+     (usb plane none)`; a `xhcid: FAIL (…)` line fails any lane (FAIL gate).
+     QEMU's hub is full speed, so the transaction translator is the board's to
+     prove (U3).
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
      proofs required, bounded retry (`[profile.smp]`).
 

@@ -11,6 +11,7 @@ pub(crate) mod boot_disk;
 pub(crate) mod core_plane;
 pub(crate) mod declared_routes;
 pub(crate) mod declared_slots;
+pub(crate) mod device_planes;
 pub(crate) mod device_tree;
 pub(crate) mod diag;
 pub(crate) mod distribute;

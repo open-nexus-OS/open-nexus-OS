@@ -146,6 +146,14 @@ runner = "scripts/qemu-test.sh"
 extends = "smp1"
 env = { QEMU_BLK_DEVICE = "-device sdhci-pci,sd-spec-version=3,capareg=0x057c34b4 -device emmc,drive=drvblk", QEMU_BLK_IMG_BYTES = "4G" }
 
+# TASK-0328 U1 (RFC-0099): the USB host stack — QEMU's xHCI on the ECAM host, a full-speed hub on
+# root port 1, a boot keyboard on its port 1 and a boot mouse on its port 2 (QEMU's hub is full
+# speed: the transaction translator is the board's to prove, U3).
+[profile.usb]
+runner = "scripts/qemu-test.sh"
+extends = "smp1"
+env = { QEMU_USB_DEVICE = "-device qemu-xhci,id=xhci -device usb-hub,bus=xhci.0,port=1 -device usb-kbd,bus=xhci.0,port=1.1 -device usb-mouse,bus=xhci.0,port=1.2" }
+
 # TASK-0050 PR-3: real system-reset lane. The guest requests an SBI cold
 # reboot EARLY in bringup (sentinel discipline over statefs); QEMU restarts
 # the same machine (no -no-reboot), the uart log carries BOTH boots, and

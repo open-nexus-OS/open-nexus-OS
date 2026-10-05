@@ -116,6 +116,7 @@ help:
     @echo "  just test-os smp         # SMP-gated QEMU smoke (2 harts; REQUIRE_SMP declared by the manifest)"
     @echo "  just ci-os-smp1          # deterministic 1-hart boot gate (profile smp1: -smp 1 + icount; the test-all boot proof)"
     @echo "  just ci-os-sdhci         # the SDHCI lane: boot + every store over QEMU's sdhci-pci + emmc, no virtio disk"
+    @echo "  just ci-os-usb           # the USB lane: QEMU's xHCI, a hub, a boot keyboard + mouse — xhcid enumerates them"
     @echo "  just ci-os-smp           # SMP=2 real-parallelism lane (MTTCG, bounded retry; CI coverage)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
@@ -342,6 +343,12 @@ ci-os-smp1:
 # the block owner serves it by ADMA2, every store mounts over it. One hart + icount.
 ci-os-sdhci:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os sdhci
+# TASK-0328 U1 (RFC-0099): the USB lane — QEMU's xHCI (`qemu-xhci`) with a full-speed hub and a
+# boot keyboard and mouse behind it (`[profile.usb]`): xhcid brings the controller up, enumerates
+# through the hub and runs both HID boot interfaces, driven by its interrupt alone. One hart +
+# icount.
+ci-os-usb:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-240s} just test-os usb
 # TASK-0324 P0: display truth — the real GL compositor (virgl, egl-headless +
 # VNC) with a HOST-side pixel proof: the desktop snapshot must be non-black and
 # must differ from the boot splash. Markers alone shipped a black screen.
@@ -794,6 +801,7 @@ test-all:
     just test-kernel
     just ci-os-smp1
     just ci-os-sdhci
+    just ci-os-usb
     just ci-os-visible
     just ci-os-visible-fhd
     just ci-os-visible-2d

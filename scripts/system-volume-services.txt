@@ -22,6 +22,7 @@ netstackd
 ingressd
 dsoftbusd
 hidrawd
+xhcid
 touchd
 gpud
 windowd

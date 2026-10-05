@@ -48,10 +48,11 @@ pub(crate) fn distribute_server_pair_for(chan: &mut CtrlChannel, eps: &Endpoints
         if chan.send(id).is_some() && chan.recv(id).is_some() {
             return;
         }
-        // TASK-0054C P2-b: the declared timer endpoints (pacing timer, device watchdog), minted
-        // and pinned HERE — before the service is resumed — for every service that is not on
-        // the core plane (`core_plane::transfer_server_pair` pins those, earlier still).
-        crate::bootstrap::declared_routes::pin_declared_timers(chan.pid, id);
+        // TASK-0054C P2-b, TASK-0328 U1: the declared wait endpoints (pacing timer, device
+        // watchdog, interrupt notify), minted and pinned HERE — before the service is resumed —
+        // for every service that is not on the core plane (`core_plane::transfer_server_pair`
+        // pins those, earlier still).
+        crate::bootstrap::declared_routes::pin_declared_waits(chan.pid, id);
         // No minted pair: nothing to distribute. For a declared server that is a bootstrap defect,
         // which `wire_services` reports; the fresh-endpoint fallback that used to hide it would
         // have orphaned every client of the minted pair (TASK-0324 P4f-6).

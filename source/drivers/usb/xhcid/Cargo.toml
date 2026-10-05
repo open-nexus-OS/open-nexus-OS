@@ -1,0 +1,51 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "xhcid"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The USB host controller service (TASK-0328, RFC-0099): the one owner of an xHCI controller — rings, hubs, enumeration, HID boot interfaces — woken by its interrupt and a one-shot timer, never polled"
+
+[features]
+default = []
+# The OS glue: the window and line from the device capability, DMA memory made for it, one
+# waitset over the line and a kernel one-shot.
+os-lite = [
+    "dep:nexus-ipc",
+    "dep:nexus-service-entry",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
+
+[package.metadata.nexus-service]
+kind = "service"
+stack_pages = 8
+features = ["os-lite"]
+
+[dependencies]
+# `DmaRun`/`DmaCoherence` (the DMA vocabulary) and, on the OS, the syscalls.
+nexus-abi = { path = "../../../libs/nexus-abi" }
+nexus-driverkit = { path = "../../../libs/nexus-driverkit" }
+nexus-hal = { path = "../../../libs/nexus-hal" }
+nexus-usb = { path = "../../../libs/nexus-usb" }
+nexus-ipc = { path = "../../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-service-entry = { path = "../../../libs/nexus-service-entry", optional = true }
+nexus-service-topology = { path = "../../../libs/nexus-service-topology" }
+
+[dev-dependencies]
+# The behavioural controller + hub + HID devices + non-coherent DMA memory.
+xhcid-model = { path = "model" }
+
+[[bin]]
+name = "xhcid"
+path = "src/main.rs"
+test = false
+bench = false
+doctest = false
+
+# The `nexus_env` cfg is declared here so a HOST compile without the workspace RUSTFLAGS stays
+# warning-free under the hard warning gate.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(nexus_env, values("host", "os"))'] }

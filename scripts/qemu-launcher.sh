@@ -131,6 +131,9 @@ NEXUS_KEEP_BLK=${NEXUS_KEEP_BLK:-0}
 # cards only. TASK-0260 P1: `nx image build --disk-bytes` builds the image for
 # that disk — its GPT's backup at the disk's end. Empty = the layout's 384 MiB.
 QEMU_BLK_IMG_BYTES=${QEMU_BLK_IMG_BYTES:-}
+# TASK-0328 U1 (RFC-0099): a USB host controller and the devices behind it — the `usb` lane
+# attaches `qemu-xhci` with a hub and HID devices on it; empty (the default) attaches none.
+QEMU_USB_DEVICE=${QEMU_USB_DEVICE:-}
 
 INTERACTIVE_READY_SENTINEL=${INTERACTIVE_READY_SENTINEL:-$ROOT/build/.interactive-scene-ready}
 
@@ -410,6 +413,9 @@ build_qemu_args() {
   args+=(${QEMU_RNG_OBJECT} ${QEMU_RNG_DEVICE})
   args+=(${QEMU_BLK_DRIVE} ${QEMU_BLK_DEVICE})
   args+=("${input_args[@]}")
+  # A PCI function on the ECAM host: it takes no virtio-mmio transport slot.
+  # shellcheck disable=SC2206
+  args+=(${QEMU_USB_DEVICE})
   # nxfs `/data` device LAST: keep it after the virtio-input devices so their
   # virtio-mmio transport slots stay identical to the single-blk layout (a
   # 2nd device inserted before them shifts input slots and breaks the pointer).

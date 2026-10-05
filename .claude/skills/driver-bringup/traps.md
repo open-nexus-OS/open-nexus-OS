@@ -97,4 +97,19 @@ driver; add a new one the day it is won, with its reference, never from memory.
   post-processing line counter moved with the stock kernel (it dithers) and never on the
   first-light path (no post-processing) — a single witness made a scanning controller look dead
   in the gate. Prove liveness with two independent witnesses.
+- **A model built from your assumptions repeats your bugs** (2026-10-05, TASK-0328 U1): the xHCI
+  model's hub descriptor followed the parser's own length rule, so the host tests agreed with a
+  wrong parser — QEMU's real hub (10 bytes for 8 ports) refused it on the first lane run. Build a
+  model's device data from the device (measured bytes, the emulator's source behaviour), never
+  from the driver under test; the lane is the measurement, set its gates from what it printed.
+- **A wait that makes a race disappear is hiding it** (2026-10-05): the mutant without the 100 ms
+  attach debounce re-enumerated a hub — a root port queued by the scan AND by its power-change
+  event; the debounce had only kept the first task waiting long enough to be deduplicated. Run the
+  mutation suite with every timing wait removed: what still fails is a real ordering bug.
+- **`qemu-xhci` numbers its USB 3 ports first** (2026-10-05): with four of each, a device on
+  `bus=xhci.0,port=1` appears on xHCI root port 5. Read the Supported Protocol capabilities;
+  never assume a port's revision from its number.
+- **A gated block's window is not a window** (2026-10-05): granting the board's USB node before
+  socd powered and clocked it would let the driver's first read stall the bus — a tree node joins
+  its plane together with its glue, never ahead of it.
 

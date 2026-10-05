@@ -16,6 +16,7 @@ abilitymgr
 timed
 metricsd
 hidrawd
+xhcid
 touchd
 inputd
 imed

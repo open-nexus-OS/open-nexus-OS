@@ -143,7 +143,7 @@ pub(crate) fn resume_wave2(ctrls: &[CtrlChannel], graph: crate::boot_graph::Boot
 /// The display + input device drivers: resumed after their MMIO grants and route wiring, never
 /// in a hand-picked order (ADR-0062).
 pub(crate) fn is_driver(name: &str) -> bool {
-    matches!(name, "gpud" | "windowd" | "inputd" | "hidrawd")
+    matches!(name, "gpud" | "windowd" | "inputd" | "hidrawd" | "xhcid")
 }
 
 fn resume_non_drivers_where(ctrls: &[CtrlChannel], pred: impl Fn(&str) -> bool) {

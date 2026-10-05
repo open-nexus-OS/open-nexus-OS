@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: The machine the SDHCI core runs against on the host (TASK-0246): a controller
-//! (`ctrl`), an eMMC (`card`), DMA memory behind a non-coherent cache (`mem`), simulated time,
+//! (`ctrl`), an eMMC (`card`), DMA memory behind a non-coherent cache (`mem` — the shared
+//! `dma-model` every driver model uses), simulated time,
 //! a log of what the driver did, and faults a test can inject. Time moves only when the
 //! driver lets it (`delay_us`, `wait_irq`); a wait with nothing pending jumps to its deadline,
 //! so a fault that never completes costs no real time and every run is identical. One machine
@@ -22,7 +23,8 @@
 
 pub mod card;
 pub mod ctrl;
-pub mod mem;
+/// DMA memory behind a non-coherent cache: the shared driver-model memory (`dma-model`).
+pub use dma_model as mem;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -129,6 +131,12 @@ pub fn measured() -> [u8; 512] {
     raw
 }
 
+impl mem::HasDram for Machine {
+    fn dram(&mut self) -> &mut mem::Dram {
+        &mut self.mem
+    }
+}
+
 pub fn machine(config: Config) -> Shared {
     Rc::new(RefCell::new(Machine {
         ctrl: ctrl::Ctrl::new(config.version, config.caps, config.base_hz, config.k1),
@@ -208,7 +216,7 @@ pub fn commands(m: &Shared) -> Vec<(u8, u32)> {
 }
 
 pub type ModelCard = Card<ModelBus, SimPlatform>;
-pub type ModelDisk = Disk<ModelBus, SimPlatform, ModelMem, ModelCache>;
+pub type ModelDisk = Disk<ModelBus, SimPlatform, ModelMem, ModelCache<Machine>>;
 
 /// The harts' cache block: every buffer is maintained (the K1's `soc` bus is non-coherent).
 pub const NONCOHERENT: DmaCoherence = DmaCoherence::Maintained { block: 64 };
@@ -219,7 +227,7 @@ pub fn card(m: &Shared, ceiling: Ceiling) -> ModelCard {
 }
 
 /// A DMA buffer over model memory, maintained like the K1's.
-pub fn buffer(m: &Shared, mem: ModelMem) -> DmaBuffer<ModelMem, ModelCache> {
+pub fn buffer(m: &Shared, mem: ModelMem) -> DmaBuffer<ModelMem, ModelCache<Machine>> {
     DmaBuffer::new(mem, NONCOHERENT, ModelCache(m.clone())).expect("buffer")
 }
 

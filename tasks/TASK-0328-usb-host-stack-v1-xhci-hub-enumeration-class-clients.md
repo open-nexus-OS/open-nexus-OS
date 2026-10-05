@@ -1,6 +1,6 @@
 ---
 title: TASK-0328 USB host stack v1: `nexus-usb` + `xhcid` (xHCI rings, hub, enumeration) with device-class services as clients
-status: In Progress (U0 ✅ 2026-10-04 — measured on the stock system (topology, registers, endpoints, the hub, what the devices send in the boot protocol), RFC-0099 seeded, the HID boot parsers fixed to the measured reports, TASK-0253B seeded; U1 next; rewritten to end state at U0; seeded 2026-09-21 by the hardware fast track)
+status: In Progress (U1 ✅ 2026-10-05 — xhcid + nexus-usb on QEMU: the `usb` lane enumerates a hub, a keyboard and a mouse driven by the interrupt alone; U2 next; U0 ✅ 2026-10-04 — measured on the stock system (topology, registers, endpoints, the hub, what the devices send in the boot protocol), RFC-0099 seeded, the HID boot parsers fixed to the measured reports, TASK-0253B seeded; U1 next; rewritten to end state at U0; seeded 2026-09-21 by the hardware fast track)
 owner: @runtime
 created: 2026-09-21
 depends-on: []
@@ -78,29 +78,72 @@ report-protocol HID (a follow-up behind a descriptor parser).
   would have refused every report of the desk's mouse. Proof: `hid_contract` 10 tests (5 new, the
   measured reports as goldens, `test_reject_mouse_report_protocol_frame_after_the_switch`,
   `test_reject_keyboard_overlong_report`), hidrawd `contract` updated, 7 mutations each killed.
-- **U1 — Host stack on QEMU.**
-  - `source/libs/nexus-usb` (no_std, `forbid(unsafe_code)`): descriptor parsing with bounds
-    (`test_reject_*` per RFC-0099 §Security), setup packets, the hub class (descriptor, port
-    status/feature requests, TT parameters), route strings, the xHCI context/TRB encodings, the
-    enumeration and HID-setup state machines — driven by events, host-tested.
-  - nexus-driverkit: the shared DMA region (`publish`/`observe` of entry ranges) beside
-    `DmaBuffer`, host-tested against the non-coherent cache model (TASK-0246 P2).
-  - `source/drivers/usb/xhcid`: the controller (init, rings, interrupter, doorbells), the reactive
-    loop (one waitset: IRQ, clients, one-shot timer), root ports, the class dispatch; tested
-    against an xHCI behavioural model in the sdhci-model style (commands, events, transfers, port
-    changes, a hub, a STALL on EP0).
-  - init: the PCI plan's class `0x0c03`/prog-if `0x30` function and the `snps,dwc3` node with
-    `dr_mode = "host"` become one `device.mmio.usb` grant (bus mastering after the grant);
-    `ServiceId::Xhcid`, its spec and slots in `nexus-service-topology` (`check-slot-ssot.sh`), the
-    policy class `device.mmio.usb` and the client class `usb.hid` in `policies/base.toml`.
-  - Lane: harness profile `usb` (`qemu-xhci`, a `usb-hub`, `usb-kbd` and `usb-mouse` behind it —
-    QEMU's hub is full speed, so TT is the board's to prove), `just ci-os-usb` in `test-all`.
-  - Gate: `xhcid: controller ok (…)`, `xhcid: ready (…)`, `xhcid: hub (…)`, two `xhcid: device
-    enumerated (…)`, two `xhcid: hid boot interface (…)`; no `xhcid: FAIL`.
+- **U1 — Host stack on QEMU ✅ 2026-10-05** (`[profile.usb]`, `just ci-os-usb` in `test-all`).
+  - `source/libs/nexus-usb`: the USB protocol only (descriptors bounded before use — bLength,
+    `wTotalLength` ≤ 1024, ≤ 8 interfaces / 16 interface descriptors, ≤ 4 endpoints, EP0 max packet
+    8/16/32/64 (512 on USB 3), endpoint max packet 1..=1024 —, setup packets, the hub class,
+    speeds, route strings ≤ 5 tiers). 19 tests: the desk's three devices and both hub
+    descriptors (the board's and QEMU's) as goldens from the measurement, every refusal by code.
+    The xHCI encodings live with the driver (they are the controller's, not USB's).
+  - nexus-driverkit `DmaShared`: memory a controller and the CPU share for its lifetime,
+    `publish`/`observe` of block-rounded entry ranges (3 unit tests); `dma-model` — the
+    non-coherent DRAM model extracted from the SDHCI model (no second copy), now with sub-range
+    clean/flush and memory reuse (the newest region at an address wins); sdhci, storage and
+    nxboot run on it unchanged.
+  - `source/drivers/usb/xhcid`: the core is a pure event-driven state machine (`forbid(unsafe)`,
+    no heap): controller bring-up paced by the one-shot (CNR/halt/HCRST/run, re-read at 1 ms,
+    bounded), the event ring drained per interrupt (IMAN.IP, ERDP+EHB), one command in flight,
+    ONE port reset/addressing at a time (two devices never share the default address), the
+    enumeration stages, hubs (descriptor, hub slot fields, port power + power-good, the
+    status-change pipe, GET_PORT_STATUS work, hub-port resets re-read every 10 ms — the board's hub
+    reports changes only every 256 ms), HID boot interfaces (SET_PROTOCOL, best-effort SET_IDLE,
+    four TRBs queued and requeued per report), halted-endpoint recovery (Reset Endpoint + Set TR
+    Dequeue Pointer), detach keeping the memory until Disable Slot completes. `os_lite`: one
+    waitset (line + one-shot), contiguous DMA objects, stack-formatted markers, an honest park
+    without a controller.
+  - `xhcid-model`: a behavioural xHCI (registers, the three ring kinds in the non-coherent DRAM
+    model, port changes), a hub and HID devices; it refuses what hardware refuses — an unpublished
+    DCBAA entry, a speed or TT field that does not match the device, an endpoint the device lacks,
+    a wrong interval exponent, a data stage at the wrong EP0 max packet (babble), a full event
+    ring. 14 tests: both machines (QEMU's shape; the board's with the measured descriptors, TT,
+    the STALLed SET_IDLE), reports end to end (1000 reports wrap every ring), an idle bus costs
+    not one register access, detach + re-attach, four `test_reject_*`.
+  - init: the PCI plan's xHCI (class 0c03/30) → `device.mmio.usb` to xhcid, bus mastering after
+    the grant (`pci::enable_bus_master` generic over any function now); the declared wait
+    endpoints are pinned from the spec for every service (`pin_declared_waits`: timers AND the
+    interrupt notify endpoint — blkd's bespoke mint deleted); the device grants split out of the
+    orchestrator (`bootstrap/device_planes.rs`, orchestrator 803 → 735 LOC, baseline tightened).
+    `ServiceId::Xhcid` (32), `slots::xhcid` (windowd's table split out of `slots/mod.rs` at its
+    600-line limit), the spec, the supervision tier (standard, restart on failure), policy
+    `"xhcid" = ["device.mmio.usb", "ipc.core"]` with `test_reject_a_second_holder_of_the_usb_host`,
+    `config/os-services.txt`, the volume list.
+  - **The board's tree node is NOT granted in U1**: its window is gated (clocks/resets/power)
+    until socd brings it up, and a read of a gated block can stall the bus — the board says
+    `usb plane none` until U3 adds the tree path together with the glue.
+  - **Measured in the lane** (the gates are the measured values): `qemu-xhci` is xHCI 1.00, 8
+    ports with the four USB 3 ports first (the hub on root port 5), 64 slots, 32-byte contexts, no
+    scratchpad, its 64-bit BAR at 0x4_0000_0000, INTA on line 33; QEMU's hub `0409:55aa` sends a
+    10-byte hub descriptor for 8 ports (`PortPwrCtrlMask` ⌈ports/8⌉, not ⌈(ports+1)/8⌉ — the first
+    lane run refused it; fixed in nexus-usb, golden added); its keyboard and mouse are `0627:0001`,
+    max packet 8 and 4, bInterval 10.
+  - **Found by the mutation run** (16 mutants, 14 killed; the 2 survivors are the electrical waits
+    the model cannot express — attach debounce, hub power-good): without the 100 ms debounce the
+    board scenario re-enumerated its hub (the scan and the port-power change event queued the same
+    root port twice; the debounce had hidden it) → a port is queued once, never while active or
+    occupied; and a configuration shorter than it claims was parsed with the buffer's older bytes
+    behind it → only the bytes the data stage moved are parsed
+    (`test_reject_a_configuration_shorter_than_it_claims`).
+  - Gate: `[PASS]` of `just ci-os-usb` with `init: usb host from pci (00:01.0 bar=0x400000000
+    irq=33)`, `xhcid: controller ok (version=1.00 ports=8 slots=64 csz=32 scratch=0 irq=33)`,
+    `xhcid: ready (ports=8 connected=1)`, the hub (`slot=1 port=5 … ports=8 ttt=0`), both devices
+    enumerated and both HID boot interfaces; every other full-ladder lane (smp1, sdhci, reset,
+    headless) requires `usb plane none`; a `xhcid: FAIL` fails any lane.
 - **U2 — HID ingress** (`TASK-0253B`): hidrawd's sources behind one trait, the USB source as
   xhcid's client; QMP input to the USB devices moves the desktop (`SELFTEST: ui v2 input ok` over USB).
-- **U3 — The board.** socd brings `usb@c0a00000` up (domain 0, `usbdrd30`, the resets, the glue
-  word; the USB 2.0 PHY diffed against the stock words on the first cycle); the tree names the hub's
+- **U3 — The board.** init grants the tree's host-mode node (`snps,dwc3` with `dr_mode = "host"`,
+  the board's `usb@c0a00000`) as the USB plane — only now, together with its glue: socd brings
+  `usb@c0a00000` up (domain 0, `usbdrd30`, the resets, the glue word; the USB 2.0 PHY diffed
+  against the stock words on the first cycle) before xhcid's first register read; the tree names the hub's
   supply and reset lines as fixed regulators with enable GPIOs and startup delays, and socd gains
   the GPIO output step that powers them (RFC-0106 amendment); xhcid on the board's window with TT.
   Gates (set before the cycle from this ledger's measurements): `xhcid: hub (… ports=5 ttt=32)`,
