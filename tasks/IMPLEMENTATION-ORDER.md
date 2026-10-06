@@ -161,7 +161,22 @@ Phase 2's ✅ 0054C, ✅ 0033, ✅ 0326, ✅ 0077B, ✅ 0077C (2026-09-18 … 09
 | 2 | TASK-0066 | WM zones: halves + occupancy-driven thirds, `zones.rs` replaces `snap.rs`, reflow on mode change, snap state in the window feed (RFC-0086 bits), fail-closed deny, registered markers — verify the snap-release → fullscreen wedge first | M | 0324 P4a/P6 ✅ |
 | 3 | TASK-0067 | `clipboardd` = single content-transfer authority (multi-MIME, history 16, focus-gated reads pushed by windowd), `svc.clipboard.*` binding, DnD routing in windowd (RFC-0094, ADR); placeholders deleted; absorbs 0087 + the 0122C clipboard bridge | L | 0324 P3/P4 ✅; 0054C ✅; 0033 ✅; 0066 |
 | 4 | TASK-0067B | Clipboard history panel in the desktop shell (DSL) + copy-back | S | 0067; 0074 |
-| 5 | TASK-0068 | `screencapd` over the ONE readback authority (gpud `OP_READBACK` from 0324 P6; P0's `scanout_sample` replaced), windowd geometry/secure gate, consent = policy, caps (RFC-0095) | M | 0324 P6 ✅ (hard); 0074; 0033 ✅; 0054C ✅ |
+| 5 | TASK-0068 | `screencapd` over the ONE readback authority (gpud `OP_READBACK` BUILT HERE in P1 — verified 2026-10-06: no readback op exists, only `OP_REVEAL`; the pixel proofs are host screendumps), windowd geometry/secure gate, consent = policy, caps (RFC-0095) | M | 0324 P6 ✅ (hard); 0074; 0033 ✅; 0054C ✅ |
+
+**The fence (2026-10-06, binding for Block 3 — the block must END, not grow):** (1) each task
+ships exactly its ledger's DoD (marker literals + host tests + docs), nothing beyond; (2) what is
+found on the way is NOTED in the ledger's open findings, never built — the one exception is a
+blocking defect in the same code path (0066's snap-release → fullscreen wedge), capped at one
+package; (3) proof = the QEMU lanes (`visible`, `smp1`, `input-live`, `usb-visible` where input
+is involved); NO board cycles inside Block 3 — ONE board smoke (`[PASS] board-visible`) is the
+block's gate; (4) no services beyond clipboardd and screencapd, no widget crates, nothing drawn
+in windowd; (5) a package that goes red twice for scope (not flake) stops the task for a recut;
+(6) protection zones named per task up front; (7) closure per task before the next starts.
+Stale items fixed at P0: 0074 D1 "IR v1.3" → the current IR version; 0067 D6 / 0068 D5 service
+ids → the next free ids (xhcid took one); 0068's readback primitive is built by 0068 P1. After
+the block's gate — not before — one measurement package (memory: RSS/commit per service, VMO
+arena headroom at 1080p; GPU: CPU present vs GL on QEMU; SMP: R9 on the board, `-smp 8` ×10)
+decides the order of M, G and S.
 
 ---
 

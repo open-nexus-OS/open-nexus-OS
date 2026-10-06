@@ -80,7 +80,7 @@ anything.
 
 ### Packages
 
-- **P0** ADR + IR v1.3 changelog (`docs/dev/dsl/ir.md`). Blast: paper.
+- **P0** ADR + IR changelog (`docs/dev/dsl/ir.md`; **the current IR version — TASK-0077B took it to v1.7, "v1.3" above is stale**, append-only). Blast: paper.
 - **P1** core + runtime (`overlay.rs`, NX0412, conformance fixtures: depth cap, trap,
   ESC/backdrop, nested). Blast: `dsl_conformance`, `dsl_goldens`, `dsl_apps_conformance`.
 - **P2** app-host integration (ESC path replaced, hit-test confinement, `svc.time.after`).

@@ -91,7 +91,7 @@ windowd drawing anything.
 
 ### Packages
 
-- **P0** RFC-0094 + ADR + capnp surface (approval zones). Blast: paper.
+- **P0** RFC-0094 + ADR + capnp surface (approval zones); **`ServiceId::Clipboardd` = the next free id at P0 ("31" in D6 predates xhcid), COUNT bump, `check-slot-ssot`**. Blast: paper.
 - **P1** Wire module + clipboardd core (ring/gate/transfer) + host tests. Blast: `just check`,
   nexus-wire tests.
 - **P2** os-lite entry + topology/policy/volume entries + markers. Blast: smp1 + visible lanes,

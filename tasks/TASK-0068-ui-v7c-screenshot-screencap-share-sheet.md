@@ -74,7 +74,7 @@ honestly in the RFC); capture UI in windowd or screencapd.
 
 ### Packages
 
-- **P0** RFC-0095 (after TASK-0324 P1's RFC-0093 fixes the readback/seq contract). Blast: paper.
+- **P0** RFC-0095 (RFC-0093's seq contract is in place — TASK-0324 Done). **Verified 2026-10-06: no `OP_READBACK` and no `scanout_sample` exist (only `OP_REVEAL = 13`; the lanes' pixel proofs are host screendumps) — P1 BUILDS the one readback authority (dc: a CPU copy of the scanout block; virtio 2D: the scanout VMO; GL: the front RT); nothing to delete.** `ServiceId::Screencapd` = the next free id at P0. Blast: paper.
 - **P1** gpud `OP_READBACK` + host fixture (checkerboard RT → rect checksum; oversize / OOB
   reject) + `scanout_sample` deletion. Blast: display lanes (visible, gpu-pci), `gpud: chain G*`,
   the nonblack marker.

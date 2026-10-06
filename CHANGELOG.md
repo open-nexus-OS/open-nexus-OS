@@ -53,6 +53,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   USB works** — the PHY released, its PLL locked in 5 ms (calibrated), `controller ok`, the
   hub, the keyboard and the receiver enumerated, the operator moved the mouse and typed
   (`docs/board/measurements/2026-10-05-usb-cycle1/`, cycles 1–10 with their gates).
+- **Planning: Block 3 (Sub-80 remainder) fenced** (2026-10-06, no code): each task ships exactly
+  its ledger's DoD, findings are noted not built, proof = QEMU lanes with one board smoke as
+  the block's gate, no services beyond clipboardd/screencapd; stale items fixed at P0 (0074's
+  IR version, 0067/0068 service ids, 0068 builds the readback primitive — none exists today);
+  after the block one measurement package decides the M/G/S order (`tasks/IMPLEMENTATION-ORDER.md`).
 - **Planning: the SMP lane recut to the end state** (2026-10-06, no code): not `MAX_CPUS` 4 → 8
   but n harts from the FDT with boot-sized per-hart state, a 64-bit `CpuSet` ABI as the one
   ceiling, the cluster topology exported, the HSM retry bug named, the lock decomposition in a
