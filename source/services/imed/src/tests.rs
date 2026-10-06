@@ -24,6 +24,34 @@ fn unfocused_keys_compose_but_deliver_nothing() {
     assert_eq!(echo.commit.as_str(), "a", "the probe echo sees the step");
 }
 
+/// TASK-0074 D3: window focus without a field (`FIELD_KIND_NONE`) delivers
+/// Escape to the surface — how an app-modal hears ESC with no text field.
+#[test]
+fn surface_focus_without_a_field_passes_escape_only() {
+    let mut core = ImedCore::new();
+    core.set_focus(9, true, wire::FIELD_KIND_NONE);
+    let push = key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_ESCAPE).unwrap();
+    assert_eq!(push.surface_id, 9);
+    assert_eq!(push.action, Some(wire::ACTION_ESCAPE));
+    assert_eq!(push.commit, None);
+    assert_eq!(push.preedit, None);
+    assert_eq!(push.candidates, None);
+}
+
+/// …and NOTHING else reaches it: no text, no other action, no learning.
+#[test]
+fn test_reject_surface_focus_without_a_field_never_delivers_text() {
+    let mut core = ImedCore::new();
+    core.set_focus(9, true, wire::FIELD_KIND_NONE);
+    assert_eq!(key(&mut core, wire::KEY_KIND_TEXT, u32::from('a'), 0), None);
+    assert_eq!(key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_ENTER), None);
+    assert_eq!(key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_BACKSPACE), None);
+    assert_eq!(core.learned_count(), 0, "no learning without a field");
+    // A real field afterwards works as before.
+    core.set_focus(9, true, wire::FIELD_KIND_TEXT);
+    assert!(key(&mut core, wire::KEY_KIND_TEXT, u32::from('a'), 0).is_some());
+}
+
 #[test]
 fn plain_text_commits_directly() {
     let mut core = focused();

@@ -34,6 +34,8 @@ mod settings_client;
 /// host-tested (`test_reject_*` tables), like `window_scene`.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod control_gate;
+/// TASK-0074 D4: the app-modal routing gate (pure, host-tested from `tests/`).
+pub mod modal_gate;
 /// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod snap;

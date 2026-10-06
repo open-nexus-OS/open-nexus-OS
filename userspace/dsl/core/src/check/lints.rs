@@ -283,6 +283,7 @@ fn view_lints(node: &ViewNode, diags: &mut Vec<Diagnostic>) {
         ViewNode::Widget(widget) => {
             duplicate_modifiers(&widget.modifiers, diags);
             a11y_label(widget, diags);
+            overlay_dismiss(widget, diags);
             for child in &widget.children {
                 view_lints(child, diags);
             }
@@ -392,6 +393,35 @@ fn a11y_label(widget: &WidgetNode, diags: &mut Vec<Diagnostic>) {
                 spec.label_prop.unwrap_or("label")
             ),
         ));
+    }
+}
+
+/// TASK-0074 D2 (NX0413): a kinded overlay is dismissed ONLY through its own
+/// `on Dismiss` handler (ESC, backdrop tap, the transient's timeout all fire
+/// it) — a `.overlay(modal|transient)` without one could never close, and a
+/// `.dismissAfter(ms)` off a transient layer would be a timer nothing hears.
+fn overlay_dismiss(widget: &WidgetNode, diags: &mut Vec<Diagnostic>) {
+    let kind = widget.modifiers.iter().find(|m| m.name.text == "overlay").and_then(|m| {
+        m.args.first().and_then(|arg| match &arg.value {
+            Expr::Path { segments, .. } if segments.len() == 1 => Some(segments[0].text.as_str()),
+            _ => None,
+        })
+    });
+    let has_dismiss = widget.handlers.iter().any(|h| h.trigger.text == "Dismiss");
+    let has_timeout = widget.modifiers.iter().any(|m| m.name.text == "dismissAfter");
+    match kind {
+        Some(kind @ ("modal" | "transient")) if !has_dismiss => diags.push(Diagnostic::new(
+            DiagCode::OverlayDismiss,
+            widget.span,
+            format!("`.overlay({kind})` needs `on Dismiss -> …` (ESC / backdrop / timeout dismiss through it)"),
+        )),
+        Some("transient") => {}
+        _ if has_timeout => diags.push(Diagnostic::new(
+            DiagCode::OverlayDismiss,
+            widget.span,
+            String::from("`.dismissAfter(ms)` belongs on a `.overlay(transient)` layer"),
+        )),
+        _ => {}
     }
 }
 

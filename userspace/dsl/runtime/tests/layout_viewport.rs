@@ -548,11 +548,8 @@ fn control_center_toggles_reach_settings_set() {
         .expect("pointer")
         .expect("status pill navigates");
 
-    // The Control-Center PANEL is open (top right, an `.overlay()` layer):
-    // tap only handlers INSIDE the panel region — the appearance/mode tiles
-    // dispatch SetTheme/SetMode → settings.set with presentation keys.
-    // (Tapping arbitrary handlers would hit the overlay's backdrop closer —
-    // the layer wins every overlap by node-id order — and close the panel.)
+    // The Control-Center PANEL is open (an `.overlay()` layer): tap only handlers
+    // INSIDE it — the appearance/mode tiles dispatch SetTheme/SetMode → settings.set.
     let boxes = layout(&view);
     let handler_ids: Vec<usize> = view.handlers().iter().map(|(id, _)| *id).collect();
     for id in handler_ids {
@@ -560,10 +557,8 @@ fn control_center_toggles_reach_settings_set() {
         if b.rect.width.as_i32() <= 0 || b.rect.height.as_i32() <= 0 {
             continue;
         }
-        // Panel region only: the right-anchored 328-wide panel hangs below
-        // the top bar (44..~450). Anything else (nav icons bottom right, the
-        // grid) would hit the overlay's BACKDROP closer instead — the layer
-        // wins every overlap by node-id order — and close the panel mid-loop.
+        // Panel region only (right-anchored, 328 wide, 44..~450): anything else
+        // would hit the overlay's BACKDROP closer and close the panel mid-loop.
         if b.rect.y.as_i32() < 44
             || b.rect.y.as_i32() > 450
             || b.rect.x.as_i32() < 900
@@ -574,6 +569,16 @@ fn control_center_toggles_reach_settings_set() {
         let cx = b.rect.x + nexus_layout_types::FxPx::new(b.rect.width.as_i32() / 2);
         let cy = b.rect.y + nexus_layout_types::FxPx::new(b.rect.height.as_i32() / 2);
         let _ = view.pointer(&tokens, &device, &locale, &mut host, &boxes, "Tap", cx, cy);
+        // The power button opens the shutdown ALERT (TASK-0074, confines taps): ESC it.
+        if view.overlays().modal_depth() > 0 {
+            let _ = view.dismiss_top(
+                &tokens,
+                &device,
+                &locale,
+                &mut host,
+                nexus_dsl_runtime::DismissReason::Escape,
+            );
+        }
     }
     assert!(
         host.sets.iter().any(|(k, _)| k == "ui.theme.mode"),

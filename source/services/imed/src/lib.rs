@@ -396,6 +396,25 @@ impl ImedCore {
         let Some(key) = decode_key(kind, ch, action) else {
             return (None, empty_echo);
         };
+        // TASK-0074 D3: a surface with WINDOW focus but no text field (windowd's
+        // `FIELD_KIND_NONE` relay) hears Escape — the modal's dismissal — and
+        // nothing else: no commit, no composition, no strip, no learning. Text
+        // typed there is dropped exactly as it is without any focus; the
+        // engine does not even see it (no half-typed accent can leak into the
+        // next field).
+        if let Some(focus) = self.focus.filter(|f| f.field_kind == wire::FIELD_KIND_NONE) {
+            return match key {
+                ImeKey::Action(ImeAction::Escape) => (
+                    Some(KeyPushes {
+                        surface_id: focus.surface_id,
+                        action: Some(wire::ACTION_ESCAPE),
+                        ..KeyPushes::default()
+                    }),
+                    empty_echo,
+                ),
+                _ => (None, empty_echo),
+            };
+        }
         // Password bypass: no composition, no preview, no learning — text
         // commits directly, actions pass through.
         if self.password_focused() {

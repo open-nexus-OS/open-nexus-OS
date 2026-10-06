@@ -31,6 +31,10 @@ pub enum ModArg {
     Expr,
     /// Translatable string (`.label(@t("…"))` or literal).
     Text,
+    /// OPTIONAL token: the call may omit it (`.overlay()` / `.overlay(modal)`,
+    /// TASK-0074 D1). Arity counts it as 0..=1; the vocabulary check applies
+    /// when present.
+    OptToken,
 }
 
 pub struct ModifierSpec {
@@ -112,7 +116,12 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // panels, dialogs — design_handoff_launcher). Anchor inside the layer
     // with ordinary flex (rows/Spacer/justify); paint and hit-testing prefer
     // the layer naturally (later node ids win).
-    ModifierSpec { name: "overlay", args: &[], class: FieldClass::Layout },
+    // TASK-0074 D1: an optional KIND — `.overlay(modal)` (bounded modal stack:
+    // hit-testing/focus confined to the topmost modal, ESC/backdrop → `on
+    // Dismiss`) or `.overlay(transient)` (a toast-class layer that dismisses
+    // itself by `on Dismiss` after `.dismissAfter(ms)`). Bare `.overlay()` is
+    // the plain layer it always was.
+    ModifierSpec { name: "overlay", args: &[ModArg::OptToken], class: FieldClass::Layout },
     // -- gradient fill (paint, APPEND-ONLY id): `.bgGradient(top, bottom)` —
     // a vertical linear background gradient (the design system's
     // `linear-gradient(to bottom, …)`). Args are EXPRESSIONS evaluating to
@@ -165,6 +174,12 @@ pub const MODIFIERS: &[ModifierSpec] = &[
         args: &[ModArg::Int, ModArg::Int, ModArg::Int],
         class: FieldClass::Layout,
     },
+    // -- transient overlays (layout, APPEND-ONLY id 56, TASK-0074 D5):
+    // `.dismissAfter(ms)` on a `.overlay(transient)` container — the HOST's
+    // one-shot timer fires the layer's `on Dismiss` after `ms` (the DSL holds
+    // no clock; the duration is declared, the timer is the host's). Bounded
+    // to 0..=60000 ms at emit.
+    ModifierSpec { name: "dismissAfter", args: &[ModArg::Int], class: FieldClass::Layout },
 ];
 
 #[must_use]
@@ -194,6 +209,11 @@ pub const TRIGGERS: &[&str] = &[
     // minimized, restored or took focus) — the shell re-reads the registry
     // so its taskbar/dock markers follow.
     "WindowsChanged",
+    // TASK-0074 D3: dismissal of a `.overlay(modal|transient)` layer — ESC,
+    // backdrop tap or the transient's timeout. Fired BY NAME on the layer's
+    // node by the runtime (`View::dismiss_top`); the handler is the ONE
+    // mutation path (the runtime never hides an overlay by itself).
+    "Dismiss",
 ];
 
 /// The curated **motion token** vocabulary (docs/dev/ui/foundations/animation.md
@@ -308,6 +328,7 @@ pub const TOKEN_VOCABULARIES: &[(&str, &[&str])] = &[
     ("direction", &["row", "column"]),
     ("overflow", &["visible", "hidden"]),
     ("scroll", &["vertical", "horizontal", "paged"]),
+    ("overlay", &["modal", "transient"]),
 ];
 
 /// The closed token vocabulary of `name`, if it has one.

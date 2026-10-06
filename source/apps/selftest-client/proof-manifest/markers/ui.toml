@@ -274,3 +274,38 @@ proves = "canonical inputd startup path selected deterministic de keymap"
 [marker."apphost: heap steady"]
 phase = "end"
 proves = "the app-host base heap is flat across frames: frame output recycles in the generation arena and durable state frees by size class (ADR-0065)"
+
+# --- TASK-0074 / ADR-0068: modal semantics — the DSL runtime owns the modal stack, ESC /
+# backdrop / timeout dismissal and the focus trap; app-host names them; windowd keeps ONE
+# routing verb (`CONTROL_WIN_MODAL`). Emitted wherever an app opens a modal (the `usb-visible`
+# lane's injector opens the shell's shutdown alert with the pointer and closes it with ESC;
+# `scripts/qemu-test.sh` requires the rungs there).
+[marker."apphost: modal open (depth="]
+phase = "end"
+proves = "the runtime's overlay stack holds a modal: the app-host named the depth and mirrored the 0→n edge to windowd's verb"
+
+[marker."apphost: modal dismiss (reason="]
+phase = "end"
+proves = "a runtime-fired `on Dismiss` ran — escape (imed's ESC on the focused surface, no text field needed), backdrop (a tap the modal's layer took and no handler claimed) or timeout (the transient's declared `.dismissAfter`)"
+
+[marker."apphost: modal control FAIL (send)"]
+phase = "end"
+
+[marker."windowd: win modal on (id="]
+phase = "end"
+proves = "windowd set the app-modal flag on the SENDER'S OWN window (own-window gate, RFC-0086); its press/hover/wheel routing refuses the owner's other windows while set — nothing is drawn"
+
+[marker."windowd: win modal off (id="]
+phase = "end"
+
+[marker."windowd: press refused (modal id="]
+phase = "end"
+proves = "a press on a window whose owner has a modal open was refused by windowd's routing and died there (the app-modal leak check, TASK-0074 D4)"
+
+[marker."SELFTEST: ui v10 dialog ok"]
+phase = "end"
+proves = "one app-modal round trip through windowd's verb (on → off) — the dialog contract end to end: app-host mirrored the runtime's stack, windowd gated and released"
+
+[marker."SELFTEST: ui v10 live modal ok"]
+phase = "end"
+proves = "a modal opened and closed through LIVE input: presses were routed to the modal window while the flag was on with a live input route up (the injector's pointer opened the shell's alert, its ESC closed it)"

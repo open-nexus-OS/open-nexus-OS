@@ -1,0 +1,71 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design handoff's MODAL: a centered glass dialog with a header (title +
+// close), a body slot and a footer slot. An app-modal layer (TASK-0074 /
+// ADR-0068): hit-testing and text focus are confined to it while it is open,
+// windowd refuses input on the app's other windows.
+//
+// `dismissOnBackdrop` is the handoff's default and the runtime's rule: a tap
+// on the layer that no handler takes fires `on Dismiss`; the panel eats its
+// own taps (`WinNoop`) so reaching into the body never closes it. ESC and the
+// close glyph take the same path — `ModalClose(id)` is the ONE way out.
+//
+// STORE CONTRACT (the consuming app declares these — the kit dispatches):
+//   events  ModalClose(Str) · WinNoop
+//   slots   body · footer
+
+Component WinModal {
+    props: {
+        id: Str,
+        title: Str,
+    }
+    slot body
+    slot footer
+    Stack {
+        Stack {
+            Spacer
+            Stack {
+                Panel {
+                    Stack {
+                        Text($props.title).textSize(md).fontWeight(semibold).fg(onGlass)
+                        Spacer
+                        Circle { size: 28
+                            Icon { symbol: "xmark", size: 12 }
+                                .fg(onGlassMuted)
+                        }
+                        .hitSlop(2)
+                        on Tap -> dispatch(ModalClose($props.id))
+                    }
+                    .direction(row)
+                    .align(center)
+                    Stack {
+                        Slot body
+                    }
+                    .gap(2)
+                    Stack {
+                        Slot footer
+                    }
+                    .direction(row)
+                    .justify(end)
+                    .gap(2)
+                    .paddingTop(1)
+                }
+                .material(overlay)
+                .rounded(xl)
+                .gap(3)
+                .padding(4)
+                on Tap -> dispatch(WinNoop)
+            }
+            .width(480)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        .grow(1)
+    }
+    .overlay(modal)
+    .bg(scrim)
+    .transition(fade)
+    on Dismiss -> dispatch(ModalClose($props.id))
+}

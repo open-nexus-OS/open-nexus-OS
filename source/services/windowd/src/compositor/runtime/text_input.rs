@@ -71,6 +71,60 @@ impl DisplayServerRuntime {
         }
         self.relay_focus_to_imed(u64::from(surface_id), focused, field_kind, caret);
         self.update_osk_visibility();
+        // A text blur hands imed's focus back to the WINDOW (ESC still reaches it).
+        self.sync_surface_focus_to_imed();
+    }
+
+    /// TASK-0074 D3: imed delivers keys ONLY to a focused surface. Without a
+    /// text field the focused WINDOW still has to hear ESC (the modal's
+    /// dismissal), so windowd tells imed which surface holds window focus with
+    /// `FIELD_KIND_NONE` — imed then passes Escape and nothing else (no
+    /// commits, no strip, no OSK). A text-field focus REPLACES it (the text
+    /// relay above owns imed's focus while a field is focused), a text blur
+    /// hands it back. One relay per change; called after input, focus and
+    /// window-set changes.
+    pub(crate) fn sync_surface_focus_to_imed(&mut self) {
+        let want = if self.text_focus.is_some() { None } else { self.focused_surface_id() };
+        if want == self.imed_surface_focus {
+            return;
+        }
+        if self.text_focus.is_some() {
+            // The text relay already replaced imed's focus — nothing to send.
+            self.imed_surface_focus = None;
+            return;
+        }
+        match (want, self.imed_surface_focus) {
+            (Some(sid), _) => {
+                self.relay_focus_to_imed(
+                    u64::from(sid),
+                    true,
+                    ime_wire::FIELD_KIND_NONE,
+                    (0, 0, 0, 0),
+                );
+            }
+            (None, Some(prev)) => {
+                self.relay_focus_to_imed(
+                    u64::from(prev),
+                    false,
+                    ime_wire::FIELD_KIND_NONE,
+                    (0, 0, 0, 0),
+                );
+            }
+            (None, None) => {}
+        }
+        self.imed_surface_focus = want;
+    }
+
+    /// The surface of the focused window (the desktop surface when the shell
+    /// holds focus), if its surface is live.
+    fn focused_surface_id(&self) -> Option<u32> {
+        // Focus follows raise; before any raise the topmost on-screen window
+        // (the shell) is what a key would reach.
+        match self.windows.focused().or_else(|| self.windows.top()) {
+            Some(crate::window_scene::WindowId::App(i)) => self.apps[usize::from(i)].surface_id,
+            Some(crate::window_scene::WindowId::Desktop) => self.desktop_surface_id,
+            None => None,
+        }
     }
 
     /// OSK show/hide (RFC-0075 Phase 8c policy): text focus shows the
@@ -226,13 +280,28 @@ impl DisplayServerRuntime {
         }
         // Route ONLY to the recorded focus holder — a surface id in the push
         // that doesn't match the focus route is dropped (stale focus race).
-        let Some(route) = self.text_focus else {
-            return;
+        // Without a text field, the WINDOW-focus relay (`FIELD_KIND_NONE`,
+        // TASK-0074 D3) is the holder — and imed sends it ACTIONS only
+        // (Escape, the modal's dismissal); anything else is dropped here too.
+        let target = match self.text_focus {
+            Some(route) if u64::from(route.surface_id) == surface_id => route.target,
+            Some(_) => return,
+            None => {
+                if kind != surface_text::SURFACE_TEXT_ACTION
+                    || self.imed_surface_focus.map(u64::from) != Some(surface_id)
+                {
+                    return;
+                }
+                if self.desktop_surface_id.map(u64::from) == Some(surface_id) {
+                    TextFocusTarget::Desktop
+                } else if let Some(idx) = self.app_index_by_surface(surface_id as u32) {
+                    TextFocusTarget::App(idx)
+                } else {
+                    return;
+                }
+            }
         };
-        if u64::from(route.surface_id) != surface_id {
-            return;
-        }
-        match route.target {
+        match target {
             TextFocusTarget::App(idx) => {
                 let _ = self.send_app_frame(idx, &buf[..len]);
             }

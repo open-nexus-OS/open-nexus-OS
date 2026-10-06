@@ -151,6 +151,11 @@ impl AppEffectHost {
             "mode.fullscreen" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN),
             "mode.freeform" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FREEFORM),
             "mode.split" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_SPLIT),
+            // TASK-0074 D4: the app-modal edge — windowd refuses input on the
+            // sender's OTHER windows while set (`probe/overlay.rs` mirrors
+            // the runtime's modal depth here on the 0↔n edge).
+            "modal.on" => (wire::CONTROL_WIN_MODAL, sid << 4 | 1),
+            "modal.off" => (wire::CONTROL_WIN_MODAL, sid << 4),
             _ => {
                 raw_marker("apphost: dsl svc settings.set FAIL (window control)");
                 return Err(ERR_SVC_UNAVAILABLE);

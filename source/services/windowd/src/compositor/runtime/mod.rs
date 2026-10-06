@@ -82,9 +82,11 @@ use crate::present_acks as acks;
 mod framebuffer;
 pub(crate) mod gpud;
 mod input;
+mod input_hover;
 mod input_scroll;
 pub(crate) mod intent;
 mod marker_emit;
+mod observer;
 mod present;
 mod presentation;
 mod region;
@@ -224,6 +226,8 @@ pub(crate) struct AppWindowSlot {
     /// separate so a surface re-create (which re-sends the static declared
     /// intent) cannot revert a user-chosen mode; a FRESH launch resets it.
     pub(crate) wm_mode: Option<u8>,
+    /// TASK-0074 D4: app-modal (`CONTROL_WIN_MODAL`) — the owner's other windows take no input.
+    pub(crate) app_modal: bool,
     pub(crate) intent_resizable: bool,
     /// The app's DEDICATED event channel (SEND cap slot, `OP_SURFACE_EVENTS`).
     #[cfg(nexus_env = "os")]
@@ -326,6 +330,7 @@ impl AppWindowSlot {
             intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
             owner_sid: 0,
             wm_mode: None,
+            app_modal: false,
             intent_resizable: true,
             #[cfg(nexus_env = "os")]
             event_channel: None,
@@ -563,6 +568,12 @@ pub(crate) struct DisplayServerRuntime {
     abilitymgr_client: Option<nexus_ipc::KernelClient>,
     /// Text-focus route (RFC-0075, identity-derived — see `text_input.rs`).
     text_focus: Option<text_input::TextFocusRoute>,
+    /// imed's WINDOW-focus relay (`FIELD_KIND_NONE`, TASK-0074 D3; `None` while a field owns it).
+    imed_surface_focus: Option<u32>,
+    /// TASK-0074 proof bookkeeping for the `SELFTEST: ui v10 …` rungs.
+    modal_proof: crate::modal_gate::ModalProof,
+    /// The desktop surface's (the shell's) modal flag — it gates no sibling, it records the edge.
+    desktop_modal: bool,
     /// Cached IME-authority route (lazy; fire-and-forget focus relays).
     #[cfg(nexus_env = "os")]
     imed_client: Option<nexus_ipc::KernelClient>,
@@ -886,6 +897,9 @@ impl DisplayServerRuntime {
             #[cfg(nexus_env = "os")]
             abilitymgr_client: None,
             text_focus: None,
+            imed_surface_focus: None,
+            modal_proof: crate::modal_gate::ModalProof::default(),
+            desktop_modal: false,
             region: region::RegionState::new(),
             #[cfg(nexus_env = "os")]
             imed_client: None,
@@ -938,45 +952,6 @@ impl DisplayServerRuntime {
             crate::window_scene::WindowId::App(i) => self.apps.get(i as usize),
             crate::window_scene::WindowId::Desktop => None,
         }
-    }
-
-    /// Mutable [`Self::app_slot`].
-    fn refresh_observer_state(&mut self) {
-        self.observer_state.backend_visible |= self.state.backend_visible;
-        self.observer_state.display_scanout_ready |= self.state.display_scanout_ready;
-        self.observer_state.systemui_first_frame_visible |= self.state.systemui_first_frame_visible;
-        self.observer_state.virtio_raw_seen |= self.state.virtio_raw_seen;
-        self.observer_state.hid_normalized_seen |= self.state.hid_normalized_seen;
-        self.observer_state.scene_ready |= self.state.scene_ready;
-        self.observer_state.full_window_visible |= self.state.full_window_visible;
-        self.observer_state.click_target_visible |= self.state.click_target_visible;
-        self.observer_state.keyboard_target_visible |= self.state.keyboard_target_visible;
-        self.observer_state.input_visible_on |= self.state.input_visible_on;
-        self.observer_state.cursor_move_visible |= self.state.cursor_move_visible;
-        self.observer_state.hover_visible |= self.state.hover_visible;
-        self.observer_state.sidebar_open_visible |= self.state.sidebar_open_visible;
-        self.observer_state.focus_visible |= self.state.focus_visible;
-        self.observer_state.launcher_click_visible |= self.state.launcher_click_visible;
-        self.observer_state.keyboard_visible |= self.state.keyboard_visible;
-        self.observer_state.wheel_up_visible |= self.state.wheel_up_visible;
-        self.observer_state.wheel_down_visible |= self.state.wheel_down_visible;
-        self.observer_state.pointer_route_live |= self.state.pointer_route_live;
-        self.observer_state.keyboard_route_live |= self.state.keyboard_route_live;
-        self.observer_state.cursor_svg_visible |= self.state.cursor_svg_visible;
-        self.observer_state.text_target_visible |= self.state.text_target_visible;
-        self.observer_state.icon_target_visible |= self.state.icon_target_visible;
-        self.observer_state.wallpaper_visible |= self.state.wallpaper_visible;
-        self.observer_state.cursor_overlay_visible |= self.state.cursor_overlay_visible;
-        self.observer_state.cursor_x = self.state.cursor_x;
-        self.observer_state.cursor_y = self.state.cursor_y;
-        self.observer_state.text_input_len = self.state.text_input_len;
-        self.observer_state.text_input_bytes = self.state.text_input_bytes;
-    }
-
-    fn reset_effect_caches(&mut self) {
-        // The CPU glass caches are DELETED (GPU path composites live); the
-        // seam stays for the mode-switch call site until the Plane-1 CPU
-        // path retires with the evidence-contract move.
     }
 
     // ── Window stack sync (TASK-0070 Phase 1) ──

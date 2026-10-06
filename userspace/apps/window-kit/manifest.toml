@@ -22,6 +22,15 @@
 #           WinTool(Str) · WinAct(Str)
 #   (WinNoop = consume-tap for panel bodies inside the menu overlay; the
 #   overlay layer itself dispatches WinMenu("") as the outside-close.)
+#
+# OVERLAYS (TASK-0074 / ADR-0068 — the design handoff's Alert · Modal · Toast
+# as `.overlay(modal|transient)` compositions; the runtime owns confinement,
+# ESC/backdrop/timeout dismissal, windowd owns ONE routing verb):
+#   WinAlert   props id/title/message/cancelLabel/confirmLabel/destructive
+#              events AlertConfirm(Str) · AlertCancel(Str) · WinNoop
+#   WinModal   props id/title · slots body · footer
+#              events ModalClose(Str) · WinNoop
+#   WinToast   props id/icon/title/subtitle · events ToastDismiss(Str)
 
 name = "window-kit"
 version = "0.1.0"

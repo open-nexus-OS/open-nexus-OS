@@ -143,6 +143,25 @@ impl DisplayServerRuntime {
                         None,
                     ),
                 };
+                // TASK-0074 D4: while a sibling window of the same owner is
+                // app-modal, this window takes NO press — the press dies here
+                // (it must not fall through to whatever lies beneath).
+                if let Some(idx) = app_idx {
+                    if let crate::modal_gate::Verdict::RefusedByModal { modal_idx } =
+                        crate::modal_gate::input_verdict(idx, &self.modal_facts())
+                    {
+                        let _ = debug_println(&crate::markers::press_refused_marker(
+                            self.apps[modal_idx].surface_id.unwrap_or(0),
+                        ));
+                        window_consumed_press = true;
+                        break;
+                    }
+                    if self.apps[idx].app_modal {
+                        self.modal_proof.press();
+                    }
+                } else if self.desktop_modal {
+                    self.modal_proof.press();
+                }
                 // Edge/corner grab RESIZES (floating windows only) — resolved
                 // before the title/body press so the border band wins.
                 if app_idx.is_some() && !self.windows.is_fullscreen(wid) {
@@ -494,117 +513,10 @@ impl DisplayServerRuntime {
             let _ = debug_println(crate::markers::SELFTEST_UI_V3_IME_OK_MARKER);
             self.selftest_v3b_emitted = true;
         }
+        // Focus may have moved with this event (click-to-raise): keep imed's
+        // window-focus relay current before the next key arrives (TASK-0074 D3).
+        self.sync_surface_focus_to_imed();
 
         STATUS_OK
-    }
-
-    /// Resolve the surface under the pointer with the SAME z-order/press
-    /// geometry the tap routing uses (input and hover can never disagree),
-    /// send it a MOVE, and send the previous target a LEAVE when the route
-    /// changes. Drags/resizes capture the pointer — no hover while active.
-    /// Title bars/buttons are windowd chrome (its own title hover), not app
-    /// hover. One-time proof marker: `windowd: hover routing on`.
-    pub(crate) fn forward_pointer_hover(&mut self, cursor_x: i32, cursor_y: i32) {
-        use nexus_display_proto::client_surface::{INPUT_KIND_LEAVE, INPUT_KIND_MOVE};
-        let mut route = HOVER_ROUTE_NONE;
-        let mut local = (cursor_x, cursor_y);
-        let mut route_idx = 0usize;
-        let any_drag = self.apps.iter().any(|a| a.win.is_dragging());
-        if !any_drag && self.resize_drag.is_none() {
-            use crate::compositor::shell_window::WindowPress;
-            use crate::window_scene::WindowId;
-            let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
-            for i in 0..hit_n {
-                let wid = hit[i];
-                // Shell chrome contract (mirrors the press loop): the top-bar
-                // strip hovers the SHELL, never a window behind it.
-                if matches!(wid, WindowId::App(_)) && cursor_y < super::SHELL_TOPBAR_H as i32 {
-                    continue;
-                }
-                match wid {
-                    WindowId::App(a) => {
-                        let idx = a as usize;
-                        let frame = self.apps[idx].win.frame();
-                        match frame.press(cursor_x, cursor_y) {
-                            WindowPress::Miss => continue,
-                            WindowPress::Body => {
-                                let body_y = cursor_y - frame.y - self.apps[idx].win.title_h as i32;
-                                if body_y >= 0 {
-                                    route = HOVER_ROUTE_APP;
-                                    route_idx = idx;
-                                    local = (cursor_x - frame.x, body_y);
-                                }
-                            }
-                            // Title bar / window buttons: windowd chrome hover.
-                            _ => {}
-                        }
-                    }
-                    WindowId::Desktop => {
-                        if self.windows.is_visible(WindowId::Desktop) {
-                            route = HOVER_ROUTE_DESKTOP;
-                        }
-                    }
-                }
-                break;
-            }
-        }
-        // Route change = target change: leaving one APP window for another is
-        // a change too (the old window must clear its hover wash).
-        let route_changed = route != self.hover_route
-            || (route == HOVER_ROUTE_APP && route_idx != self.hover_app_idx);
-        if route_changed {
-            let (lx, ly) = self.hover_last;
-            match self.hover_route {
-                HOVER_ROUTE_APP => {
-                    let prev = self.hover_app_idx;
-                    self.send_app_input_kind(prev, INPUT_KIND_LEAVE, lx, ly);
-                }
-                HOVER_ROUTE_DESKTOP => {
-                    self.send_desktop_input_kind(INPUT_KIND_LEAVE, lx, ly);
-                }
-                _ => {}
-            }
-        }
-        // Throttle MOVE forwarding to the frame pace (120Hz): app-side hover
-        // washes track the pointer at display rate. The historical flood risk
-        // (unthrottled per-EVENT forwarding filled the client queue and starved
-        // TAP delivery) is gone twice over: moves apply frame-aligned (once per
-        // staged sample) and `send_input_frame` drops MOVEs on a full queue
-        // while TAPs retry — so display-rate forwarding is safe.
-        let now = nexus_abi::nsec().unwrap_or(0);
-        let move_due = now.saturating_sub(self.hover_last_move_ns) >= PACER_INTERVAL_NS;
-        if move_due {
-            match route {
-                HOVER_ROUTE_APP => {
-                    self.send_app_input_kind(route_idx, INPUT_KIND_MOVE, local.0, local.1);
-                }
-                HOVER_ROUTE_DESKTOP => {
-                    self.send_desktop_input_kind(INPUT_KIND_MOVE, local.0, local.1);
-                }
-                _ => {}
-            }
-            if route != HOVER_ROUTE_NONE {
-                self.hover_last_move_ns = now;
-            }
-        }
-        if route != HOVER_ROUTE_NONE && !self.hover_marker_emitted {
-            let _ = debug_println("windowd: hover routing on");
-            self.hover_marker_emitted = true;
-        }
-        self.hover_route = route;
-        self.hover_app_idx = route_idx;
-        self.hover_last = local;
-    }
-
-    pub(super) fn note_filter_text_changed(&mut self) {
-        self.filter_cycle = self.filter_cycle.wrapping_add(1);
-
-        if !self.clipping_marker_emitted {
-            let _ = debug_println(crate::markers::CLIPPING_ON_MARKER);
-            self.clipping_marker_emitted = true;
-        }
-        let _ = debug_println(crate::markers::TEXT_INPUT_ON_MARKER);
-        let _ = debug_println(crate::markers::FILTER_LIST_OK_MARKER);
-        // C1: the proof filter panel is gone — no filter rects to damage.
     }
 }

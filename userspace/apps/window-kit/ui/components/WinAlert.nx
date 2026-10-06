@@ -1,0 +1,70 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design handoff's ALERT: a compact glass confirmation — title, one
+// sentence, two side-by-side buttons (cancel · confirm). An app-modal layer
+// (TASK-0074 / ADR-0068): while it is open the runtime confines hit-testing
+// and text focus to it and windowd refuses input on the app's other windows.
+//
+// An alert is EXPLICIT: it never closes on a backdrop tap (the layer absorbs
+// its own taps with `WinNoop`); ESC and the cancel button cancel it. Both
+// paths dispatch the same `AlertCancel(id)` — the handler is the ONE way out.
+//
+// STORE CONTRACT (the consuming app declares these — the kit dispatches):
+//   events  AlertConfirm(Str) · AlertCancel(Str) · WinNoop
+// `destructive: true` paints the confirm button in the danger style.
+
+Component WinAlert {
+    props: {
+        id: Str,
+        title: Str,
+        message: Str,
+        cancelLabel: Str,
+        confirmLabel: Str,
+        destructive: Bool,
+    }
+    Stack {
+        Stack {
+            Spacer
+            Stack {
+                Panel {
+                    Text($props.title).textSize(md).fontWeight(semibold).fg(onGlass)
+                    Text($props.message).textSize(sm).fg(onGlassMuted)
+                    Stack {
+                        Button { label: $props.cancelLabel }
+                            .bg(surfaceVariant)
+                            .grow(1)
+                            on Tap -> dispatch(AlertCancel($props.id))
+                        if $props.destructive {
+                            Button { label: $props.confirmLabel }
+                                .bg(danger)
+                                .grow(1)
+                                on Tap -> dispatch(AlertConfirm($props.id))
+                        } else {
+                            Button { label: $props.confirmLabel }
+                                .grow(1)
+                                on Tap -> dispatch(AlertConfirm($props.id))
+                        }
+                    }
+                    .direction(row)
+                    .gap(2)
+                    .paddingTop(1)
+                }
+                .material(overlay)
+                .rounded(xl)
+                .gap(2)
+                .padding(4)
+            }
+            .width(320)
+            Spacer
+        }
+        .direction(row)
+        .align(center)
+        .grow(1)
+    }
+    .overlay(modal)
+    .bg(scrim)
+    .transition(fade)
+    on Tap -> dispatch(WinNoop)
+    on Dismiss -> dispatch(AlertCancel($props.id))
+}

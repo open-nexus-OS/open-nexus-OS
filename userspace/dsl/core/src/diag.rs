@@ -86,6 +86,7 @@ pub enum DiagCode {
     QueryShape,     // NX0410 (query outside the v1 shape contract)
     SlotShape,      // NX0411 (slot declaration/placeholder/binding misuse)
     RetiredTimeout, // NX0412 (`timeoutMs:` on a service call — the exchange has no clock)
+    OverlayDismiss, // NX0413 (`.overlay(modal|transient)` without `on Dismiss`, or `.dismissAfter` off a transient)
     // --- lowering (NX05xx)
     LoweringUnsupported, // NX0501 (a construct outside the v0.1 lowering subset)
 }
@@ -133,6 +134,7 @@ impl DiagCode {
             DiagCode::QueryShape => "NX0410",
             DiagCode::SlotShape => "NX0411",
             DiagCode::RetiredTimeout => "NX0412",
+            DiagCode::OverlayDismiss => "NX0413",
             DiagCode::LoweringUnsupported => "NX0501",
         }
     }

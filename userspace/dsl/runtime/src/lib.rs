@@ -28,6 +28,7 @@ mod initial;
 pub mod interact;
 pub mod nav;
 mod numfmt;
+pub mod overlay;
 pub mod persist;
 pub mod reduce;
 pub mod registry;
@@ -46,6 +47,7 @@ pub use i18n::{Catalog, CatalogOverBaked, LocaleChain};
 pub use interact::HandlerEntry;
 pub use nav::{Nav, NavEntry};
 pub use nexus_theme_tokens as theme_tokens;
+pub use overlay::{DismissReason, OverlayEntry, OverlayKind, OverlayStack, MODAL_DEPTH_MAX};
 pub use store::{StoreSlot, StoreState, Value, ROOT_INSTANCE};
 pub use view::{FrameScope, FrameScopeGuard, View};
 
@@ -70,6 +72,8 @@ pub enum RtError {
     Budget,
     /// Two collection items evaluated to the same `.key(expr)` value.
     DuplicateKey,
+    /// A fifth `.overlay(modal)` layer (TASK-0074 `MODAL_DEPTH_MAX`).
+    OverlayDepth,
 }
 
 /// Read-only device environment (fed from the shell-config registry on OS,

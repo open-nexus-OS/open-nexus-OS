@@ -13,6 +13,12 @@ import sys
 import time
 from pathlib import Path
 
+# A sibling module import would write `tools/__pycache__`, which breaks the
+# cargo workspace glob — never write bytecode from the harness.
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import qmp_inject_modal  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOG_DIR = Path(os.environ.get("LOG_DIR", str(REPO_ROOT / "build/logs/manual-inject")))
 HYPOTHESIS_LOG = LOG_DIR / "hypothesis.json"
@@ -698,6 +704,31 @@ def main() -> int:
                 {"enabled": True, "button": "wheel-up", "sequence": ["down", "up"]},
             )
             time.sleep(WHEEL_PULSE_SETTLE_S)
+
+        # TASK-0074 / ADR-0068: the shell's first modal, driven LIVE — its own
+        # module (`qmp_inject_modal.py`): login from the greeter's handler
+        # dump, closed-loop relative positioning on app-host's tap trace, the
+        # board's sequence (Confirm → toast → timeout → alert → background
+        # press → ESC). Targets = tests/dsl_apps_conformance/tests/shell_power_alert.rs.
+        if (
+            (effective_mouse_enabled or effective_touch_enabled)
+            and keyboard_enabled
+            and os.environ.get("QEMU_INPUT_INJECT_MODAL", "1") == "1"
+        ):
+            qmp_inject_modal.run_modal_phase(
+                qmp_inject_modal.ModalEnv(
+                    sock=sock,
+                    uart_log_path=uart_log_path,
+                    display=(VISIBLE_DISPLAY_WIDTH, VISIBLE_DISPLAY_HEIGHT),
+                    mouse=effective_mouse_enabled,
+                    touch=effective_touch_enabled,
+                    rel_step_limit=REL_STEP_LIMIT,
+                    send_input_events=send_input_events,
+                    wait_for_uart_marker=wait_for_uart_marker,
+                    append_debug_log=append_debug_log,
+                    qemu_abs_value=qemu_abs_value,
+                )
+            )
         # region agent log
         append_debug_log(
             "H4",

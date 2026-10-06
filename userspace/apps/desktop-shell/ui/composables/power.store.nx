@@ -9,14 +9,29 @@
 // 78% / "Netzbetrieb" as literal text and this store holds only what the user
 // can actually change here.
 
+//
+// SHUT DOWN (TASK-0074 — the shell's first modal, through the kit's `WinAlert`
+// and `WinToast`): the Control-Center power button asks (`powerPrompt`); the
+// alert's confirm answers with a SYSTEM TOAST that says the honest thing —
+// there is no power service to call yet — and cancel/ESC just closes it. The
+// kit's store contract (`AlertConfirm/AlertCancel/ToastDismiss/WinNoop`) is
+// declared here because this store owns the two fields they write.
+
 Store PowerStore {
     powerProfile: Str = "balanced",
     noStandby: Bool = false,
+    powerPrompt: Bool = false,
+    toast: Str = "",
 }
 
 Event PowerEvent {
     PickProfile(Str),
     ToggleNoStandby,
+    PowerAsk,
+    AlertConfirm(Str),
+    AlertCancel(Str),
+    ToastDismiss(Str),
+    WinNoop,
 }
 
 reduce PowerEvent {
@@ -28,4 +43,22 @@ reduce PowerEvent {
             state.noStandby = true;
         }
     },
+    PowerAsk => state.powerPrompt = true,
+    AlertConfirm(id) => {
+        if id == "power" {
+            state.powerPrompt = false;
+            state.toast = "power";
+        }
+    },
+    AlertCancel(id) => {
+        if id == "power" {
+            state.powerPrompt = false;
+        }
+    },
+    ToastDismiss(id) => {
+        if id == state.toast {
+            state.toast = "";
+        }
+    },
+    WinNoop => state.toast = state.toast,
 }

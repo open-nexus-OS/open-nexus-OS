@@ -1,6 +1,6 @@
 ---
 title: TASK-0074 UI v10b: modal semantics in the DSL runtime (bounded overlay stack, dismissal contract, focus trap, one windowd routing verb, toast unification)
-status: Draft (end-state rewrite 2026-09-09 — residual of the 2026-08-14 rebase: modal-manager semantics only)
+status: Done (2026-10-06 — P0–P4 in one go as Block 3's first task; proof chain + board smoke in "Delivered" below; end-state rewrite 2026-09-09)
 owner: @ui
 created: 2025-12-23
 updated: 2026-07-05
@@ -17,6 +17,128 @@ links:
   - WM baseline: tasks/TASK-0064; Notifications baseline: tasks/TASK-0069; Search/Settings: TASK-0071/0072
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Delivered 2026-10-06 (what was built, where the decisions above were corrected by measurement)
+
+- **D1 — no IR bump.** `.overlay(modal|transient)` rides modId 48's existing token arg
+  (`ModArg::OptToken`, vocabulary `modal|transient`), `.dismissAfter(ms)` = modId 56 (append-only);
+  `ViewNode.overlayKind` was unnecessary. Runtime: `userspace/dsl/runtime/src/overlay.rs`
+  (`OverlayStack`, `MODAL_DEPTH_MAX = 4`, `DismissReason`), built by every emit, box ids resolved
+  like handlers; confinement = the `confine` argument of the ONE hit-test
+  (`interact::hit_scrolled`) — press, hover, focus and the backdrop rule cannot disagree.
+- **D2 — lint is NX0413 `OverlayDismiss`** (NX0412 was already `RetiredTimeout`): a kinded overlay
+  without `on Dismiss`, or `.dismissAfter` off a transient. New trigger `Dismiss`.
+- **D3 — ESC route.** The "Escape drops widget focus" branch did not exist at HEAD (only a doc
+  comment); the real gap was that imed drops every key without a focused FIELD. Built: windowd
+  relays WINDOW focus to imed as `FIELD_KIND_NONE` (`sync_surface_focus_to_imed`, after input /
+  text-focus / close), imed delivers Escape to that surface and nothing else (`test_reject_*`).
+  app-host: `ACTION_ESCAPE` → `View::dismiss_top(Escape)`; no modal → nothing.
+- **D4 — as decided.** `CONTROL_WIN_MODAL = 8` (`value = sid << 4 | on`), own-window gated,
+  `AppWindowSlot.app_modal` (reset on close + fresh launch), `modal_gate.rs` (pure verdict + the
+  `ModalProof` edge counter), applied in the press, hover and wheel loops; a refused press dies
+  (`windowd: press refused (modal id=…)`). Markers `windowd: win modal on/off (id=…)`,
+  `SELFTEST: ui v10 dialog ok` (first on→off round trip), `SELFTEST: ui v10 live modal ok`
+  (presses routed to the modal window while on, live route up).
+- **D5 — `svc.time.after` does not exist and would block the app's loop for the toast's
+  lifetime.** Built instead: the declared `.dismissAfter(ms)`; app-host merges it with the clock's
+  one-shot (`timer_deadline_ns`, `timer_fired`, `probe/overlay.rs`) and fires `dismiss_at(Timeout)`.
+- **D6 — inventory fixed; ADR-0068.** The elements live in the shared DSL library `window-kit`:
+  `WinAlert` (absorbs backdrop, ESC/cancel → `AlertCancel(id)`, confirm → `AlertConfirm(id)`),
+  `WinModal` (slots body/footer, backdrop + ✕ + ESC → `ModalClose(id)`), `WinToast` (left edge,
+  `.dismissAfter(4000)`, tap or timeout → `ToastDismiss(id)`). **The compiler now pulls only the
+  library components an app references** (transitive closure, `project.rs`): compiling the whole
+  shelf into every consumer would have forced settings to declare the alert events and the shell
+  to declare every window event — the kit could never have grown.
+- **Shell demo (operator rule: every visual task ships a shell entry + ack rung):** Control Center
+  power button → `PowerAsk` → `WinAlert` ("Ausschalten?") → ESC/Cancel close; Confirm → `WinToast`
+  "Noch kein Energiedienst angebunden." (4 s). `ShellOverlays.nx` (plain full-bleed layer mounted
+  last on both `ShellPage`s), `power.store.nx`, i18n ×5. Board rung `board-visual: modal`.
+- **Proof:** host — core/runtime unit tests, `dsl_apps_conformance` (`overlays.rs`: depth 5 refused,
+  background tap → backdrop dismiss, focus/hover confined, absorbing layer leaks nothing, nested
+  ESC innermost-first, transient timeout; `shell_power_alert.rs`: the shell flow + the injector
+  targets' SSOT), `dsl_goldens` `kit_{alert,modal,toast}_{light,dark}`, windowd
+  `tests/modal_routing.rs`, imed `test_reject_*`, nx `contract_covers_markers`; QEMU —
+  `usb-visible` lane requires the modal rungs (injector: pill → power → background press → ESC);
+  board — `[PASS] board-visible` with the `modal` ack. See the proof table at the end.
+
+- **ONE project loader.** `nexus_dsl_core::load_project` (ui/**.nx + referenced library
+  components + platform merge) now feeds the build, the CLI's directory mode (`nx-dsl
+  build/run <app>`) and the `systemui_bootstrap_shell_host` tests, which had their own walker
+  (no libraries → `WinAlert` unknown) and asserted i18n KEY names; they assert the baked
+  default texts now.
+
+### Live proof on the `usb-visible` lane (2026-10-06, green after seven iterations)
+
+`apphost: modal open (depth=1)` → `windowd: win modal on (id=2)` → background press absorbed
+(`apphost: tap (400,400) hit=…` on the alert's layer) → ESC → `apphost: modal dismiss
+(reason=escape)` → `windowd: win modal off (id=2)` → `SELFTEST: ui v10 dialog ok` + `… live modal
+ok`; chain-marker contract 20/20 incl. the new `ui-modal` group. What the lane taught (fixed at
+the root, no workarounds):
+
+- **windowd dropped imed's push without a text focus** (`handle_imed_push` routed only through
+  `text_focus`): now an ACTION push to the window-focus holder (`imed_surface_focus`) is routed;
+  commits/preedits without a field stay dropped. **The desktop surface takes the modal verb**
+  (`desktop_modal`, `taskbar_gate` = its own-window law) — it gates no sibling, it records the edge.
+- **Relative-mouse positioning is not a sum of steps on the one-hart TCG guest**: QEMU's USB
+  boot mouse merges queued reports with int8 clamping while the guest polls slowly, and inputd's
+  acceleration caps a delta at 256. The injector now homes into the corner (the clamp makes
+  (0,0) exact), travels in ≤40-px steps, and corrects from app-host's own tap trace (`apphost:
+  tap (x,y) …`, now also for quiet taps); a press that never surfaced is pressed again.
+- **The harness's greeter login was dead** (`windowd: greeter visible` no longer exists): the
+  injector logs in from the greeter's handler-box dump (its Submit circle), waits for `windowd:
+  session shell visible`. The session shell is the DESKTOP product (`product=default`) — the
+  targets' SSOT is `shell_power_alert.rs` with `FixtureEnv::desktop()`.
+- **The run ended before the choreography**: the launcher's early stop now also waits for the
+  marker a lane names in `QEMU_LADDER_ALSO_WAIT` (harness.toml: the live-modal rung) inside a
+  320 s grace; `ci-os-usb-visible` RUN_TIMEOUT 240 → 360 s.
+
+### Board cycles 2026-10-06 (pre-commit smoke, operator rule)
+
+| Cycle | Result |
+|---|---|
+| 1 (SD-boot without the user's wait) | alert opens, ESC closes (operator); log not pulled |
+| 2 | alert → Cancel; alert → Confirm → toast → `dismiss (reason=timeout)`; `dialog ok` + `live modal ok`; no keyboard rung (no key typed) |
+| 3 | alert → Confirm → toast → timeout → second alert → **USER-PF in app-host** (`AnimationDriver::tick_emit`, timeline.rs:71, from `anim_tick`) → shell dead, input chain backed up; cursor sprite breaks up over the Control Center (F7 mechanism: sprite re-upload on shape change during scanout) |
+| 4 (identical sequence) | **all functional rungs green**: open/on → ESC `dismiss (reason=escape)` → off → `dialog ok`; open → Confirm → toast → `timeout`; `live modal ok`; `live keyboard route on`; acks desktop/typed/pointer/modal. Ladder verdict red ONLY on `KSELFTEST: ipc call budget FAIL (rt=85us budget=64)` |
+
+The cycle-3 fault did not reproduce in cycle 4 nor on QEMU with the identical choreography
+(`usb-visible`, confirm → toast → timeout → alert → background → ESC, green); the Vec header the
+driver iterates was corrupt, the allocator's arena handling is correct (deallocs of arena blocks
+are ignored), no fixed-size array neighbours it. **Decision (user, 2026-10-06): leave it until
+the GPU optimisation lane; recorded here, not allow-listed.**
+
+The IPC call budget on the board was 33–55 µs in every Block-2 cycle and 85–98 µs in all three
+logged cycles today, also when the benchmark ran BEFORE any input (cycle 4); QEMU shows 42 µs
+before and after this task — not attributable to this change from the evidence; goes into the
+M/G/S measurement package. Not allow-listed.
+
+### Open findings (recorded, not built)
+
+- `KSELFTEST: ipc call budget` measures IPC round trips while live input may already be
+  flowing (board cycle 2026-10-06: 98 µs vs 64 µs with the mouse moving during the benchmark;
+  QEMU: 4972 µs with the injector's homing burst) — the benchmark does not serialize against
+  input, so its verdict depends on the operator's hands. Not allow-listed; the injector now
+  starts after the ladder, the board operator waits ~90 s before touching the input.
+- **Board: one app-host fault in `AnimationDriver::tick_emit`** after toast → alert (cycle 3 of
+  4, not reproducible) — see the cycle table; deferred to the GPU lane by decision.
+- **Board: `KSELFTEST: ipc call budget` 85–98 µs (budget 64) in every cycle today**, 33–55 µs in
+  Block 2, QEMU unchanged at 42 µs — M/G/S measurement package.
+- **F7 detail**: the pointer sprite tears over hover fields — the dc cursor sprite is re-uploaded
+  in place on a shape change while the controller scans it; fix = double-buffered sprite swapped
+  at cfg-ready (gpud dc, GPU lane).
+- QEMU HID report merging under slow guest polling (one hart + TCG) loses pointer distance
+  for ANY fast injector; the harness's own first-move/close steps land exactly only when the
+  guest keeps up (seen both ways across runs) — a lane-level nondeterminism the proof markers
+  tolerate; the modal phase is closed-loop and immune.
+
+- `emitProp` handlers (`emit($props.onX)`) are still unwired in the runtime (`emit.rs` "wired with
+  the instance/params work") — the kit therefore uses the store-event contract (`AlertCancel(id)`
+  …), like `WinAppWindow`. A follow-up when component callbacks land.
+- `ActionSheet` (bottom, grouped) is not written as a kit element; the contract covers it
+  (`.overlay(modal)` composition) — write it with its first consumer.
+- The toast is the SURFACE only; the 5-surface routing / notifd feed is TASK-0123..0125.
+- windowd relays window focus to imed on input/text-focus/close; a focus change by a
+  programmatic raise with no input frame after it is picked up at the next input frame.
 
 ## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
 

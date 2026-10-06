@@ -648,6 +648,16 @@ USB_INPUT_MARKERS=(
   "inputd: live keyboard route on"
   "windowd: cursor move visible"
   "SELFTEST: ui v2 input ok"
+  # TASK-0074 / ADR-0068: the injector opens the shell's shutdown alert with the pointer
+  # (Control-Center pill → power button) and closes it with ESC over the USB keyboard — the
+  # runtime's modal stack mirrored to windowd's ONE verb and back off, ESC delivered to a
+  # surface WITHOUT a text field (imed `FIELD_KIND_NONE`), presses routed while the flag was on.
+  "apphost: modal open (depth=1)"
+  "windowd: win modal on (id="
+  "apphost: modal dismiss (reason=escape)"
+  "windowd: win modal off (id="
+  "SELFTEST: ui v10 dialog ok"
+  "SELFTEST: ui v10 live modal ok"
 )
 
 expected_sequence=(
@@ -3118,7 +3128,7 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
     # TASK-0253B: the one lane whose device-event hops (I1/I2) must fire at every run — its
     # injector drives the USB devices; the simulated chain and the real one must agree.
     usb-visible)
-      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,gpu-core,display || exit 1
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,gpu-core,display || exit 1
       ;;
   esac
 fi

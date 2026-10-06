@@ -28,6 +28,17 @@ windowd: chain I6 input recv (state applied)
 hidrawd: chain I1 device event (raw HID polled)
 hidrawd: chain I2 wire sent to inputd
 
+# group: ui-modal — TASK-0074 / ADR-0068 modal semantics: the app's modal depth mirrored to
+# windowd's ONE verb and released again (app-host → windowd → app-host). Fires when an app
+# opens a modal: the `usb-visible` lane's injector opens the shell's shutdown alert with the
+# pointer and closes it with ESC; for the others check interactive boots:
+# just check-markers --groups ui-modal
+apphost: modal open (depth=1)
+windowd: win modal on (id=
+apphost: modal dismiss (reason=escape)
+windowd: win modal off (id=
+SELFTEST: ui v10 dialog ok
+
 # group: gpu-core — gpud present-damage → parse → exec → scanout (ADR-0032;
 # fires in every boot incl. headless 2D)
 gpud: chain G1 recv present-damage

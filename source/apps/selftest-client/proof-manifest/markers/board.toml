@@ -175,6 +175,10 @@ proves = "a person confirmed that a USB keyboard and mouse move THIS boot's desk
 phase = "end"
 proves = "a person confirmed that the arrow follows the mouse at once on THIS boot (the pointer is the controller's layer, no present per move — TASK-0251 P2a step 3c)"
 
+[marker."board-visual: modal"]
+phase = "end"
+proves = "a person confirmed on THIS boot that the Control Center's power button opens the shutdown alert over a scrim, that ESC and Cancel close it, and that Confirm answers with the system toast at the left edge which leaves by itself (TASK-0074 — the shell's first modal, every visual task ships such a rung)"
+
 # --- TASK-0251 P2a step 3c: the pointer is a layer of the display controller ------------------
 
 [marker."gpud: dc cursor layer ok ("]

@@ -146,7 +146,10 @@ impl DisplayServerRuntime {
         self.update_app_title_overlay(idx); // frees (band drops below)
         self.hide_window(crate::window_scene::WindowId::App(idx as u8));
         self.apps[idx].win.end_drag();
+        // A closed window gates nobody (TASK-0074 D4).
+        self.apps[idx].app_modal = false;
         self.release_app_surface_band(idx);
+        self.sync_surface_focus_to_imed();
         // The backdrop blur is destination-so-far: any window whose cached
         // blur was captured while the closed window overlapped it keeps a
         // GHOST of it under the glass. Invalidate every intersecting window's

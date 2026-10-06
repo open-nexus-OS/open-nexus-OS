@@ -98,6 +98,15 @@ impl Contract for WindowdContract {
         bus.emit_marker(id, "windowd: live transition ok");
         bus.emit_marker(id, "uianim: spring converge ok");
         bus.emit_marker(id, "SELFTEST: ui v5 transition ok");
+        // TASK-0074 / ADR-0068: an app opened a modal — app-host mirrored the
+        // runtime's depth to windowd's ONE verb, ESC closed it, the flag came
+        // off. String-identical to app-host `probe/overlay.rs` and windowd
+        // `markers.rs` (surface id 1 = the lane's shell).
+        bus.emit_marker(id, "apphost: modal open (depth=1)");
+        bus.emit_marker(id, "windowd: win modal on (id=1)");
+        bus.emit_marker(id, "apphost: modal dismiss (reason=escape)");
+        bus.emit_marker(id, "windowd: win modal off (id=1)");
+        bus.emit_marker(id, "SELFTEST: ui v10 dialog ok");
 
         // 4. Phase 1-8: GPU-first display pipeline (reactive, no polling)
         if self.gpud_available {

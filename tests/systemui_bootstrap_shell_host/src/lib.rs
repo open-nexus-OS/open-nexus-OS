@@ -21,39 +21,18 @@ use nexus_dsl_runtime::{Damage, FixtureEnv, IdentityLocale, Value, View};
 use nexus_theme_tokens::BaseTokens;
 use std::path::Path;
 
-/// Compiles a `userspace/apps/<app>` project tree to canonical `.nxir`
-/// bytes (the CLI project mode chain: walk `ui/`, merge, check, lower).
+/// Compiles a `userspace/apps/<app>` project tree to canonical `.nxir` bytes
+/// through the ONE build-time compile path (`compile_project_dir`: walk `ui/`,
+/// pull the referenced library components, merge, check, lower) — the same
+/// chain the system image uses, so a shell that compiles here compiles there.
 ///
 /// # Panics
 /// On any parse/check/lower failure — the shell sources must stay valid.
 #[must_use]
 pub fn compile_project(app_root: &str) -> Vec<u8> {
-    use nexus_dsl_core::{canonical_source_set, merge_project, SourceFile};
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../userspace/apps").join(app_root);
-    let mut files = Vec::new();
-    let mut stack = vec![root.join("ui")];
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir).expect("readable project dir").flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.extension().and_then(|e| e.to_str()) == Some("nx") {
-                files.push(SourceFile {
-                    path: p
-                        .strip_prefix(&root)
-                        .expect("under root")
-                        .to_string_lossy()
-                        .replace('\\', "/"),
-                    source: std::fs::read_to_string(&p).expect("readable source"),
-                });
-            }
-        }
-    }
-    let merged = merge_project(&files).expect("project merges");
-    let (model, diags) = nexus_dsl_core::check_file(&merged);
-    assert!(!nexus_dsl_core::has_errors(&diags), "shell check errors: {diags:?}");
-    let canonical = canonical_source_set(&files);
-    nexus_dsl_core::lower_file(&merged, &model, &canonical).expect("shell lowers").nxir
+    nexus_dsl_core::compile_project_dir(&root)
+        .unwrap_or_else(|e| panic!("shell check errors: {app_root}: {e}"))
 }
 
 /// A mounted shell program under a specific device profile.

@@ -23,3 +23,6 @@ abilities = ["desktop-shell.ShellAbility"]
 caps = ["nexus.permission.WINDOW", "nexus.permission.LAUNCH", "nexus.permission.ENUMERATE", "nexus.permission.TIME", "nexus.permission.SETTINGS"]
 provides = []
 resources = []
+# The shared DSL component library (window-kit): the Alert/Toast overlays the
+# Control Center's power button drives (TASK-0074) compile INTO this program.
+dependencies = ["window-kit"]

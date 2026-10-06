@@ -62,6 +62,8 @@ pub(crate) struct EmitCtx<'a, 'p> {
     /// Animation intents collected during emission — `(node path, intent)`,
     /// resolved to a pre-order box id after emit (same walk as `handlers`).
     pub anim_intents: &'a mut Vec<(Vec<u32>, AnimIntent)>,
+    /// Kinded overlays in emit order (TASK-0074), box ids resolved after emit like `handlers`.
+    pub overlays: &'a mut crate::overlay::OverlayStack,
     /// Absolute child-index path of the node currently being emitted.
     pub path: Vec<u32>,
     pub components: capnp::struct_list::Reader<'p, ir::component::Owned>,
@@ -254,6 +256,7 @@ pub(crate) fn emit_view<'p>(
                 deps: ctx.deps,
                 handlers: ctx.handlers,
                 anim_intents: ctx.anim_intents,
+                overlays: ctx.overlays,
                 path,
                 components: ctx.components,
                 slots: frame.as_ref(),
@@ -358,6 +361,9 @@ fn emit_widget<'p>(
     for modifier in widget.get_modifiers().map_err(|_| RtError::Malformed)?.iter() {
         apply_modifier(ctx, modifier, &mut mods)?;
     }
+
+    // A kinded overlay joins the scene's overlay stack (TASK-0074).
+    crate::overlay::note_kinded(ctx, &mods)?;
 
     // Handlers: capture at emit time (payloads snapshot the current state /
     // loop bindings — see module docs). Disabled nodes take no input.

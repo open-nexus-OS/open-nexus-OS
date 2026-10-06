@@ -605,6 +605,13 @@ monitor_uart_stream() {
       # used to waste up to ~85s per run; the fixed window stays as the
       # fallback when the ladder never finishes).
       local ladder_done_at=0
+      # A lane whose injector keeps driving the guest AFTER the selftest ladder
+      # (TASK-0074: the `usb-visible` lane logs in and opens/closes the shell's
+      # modal) names the marker that ends ITS work in `QEMU_LADDER_ALSO_WAIT`;
+      # the early stop then needs both — the ladder's end AND that marker. The
+      # grace window stays the cap (`QEMU_READY_GRACE_SECS`).
+      local also_wait="${QEMU_LADDER_ALSO_WAIT:-}" saw_also=0 ladder_end_seen=0
+      [[ -z "$also_wait" ]] && saw_also=1
       # PARTIAL-LINE ACCUMULATOR. `read -t` leaves whatever arrived so far in
       # the variable and returns non-zero on timeout; echoing that as if it
       # were a finished line SPLITS markers mid-token. Slow producers hit
@@ -629,8 +636,14 @@ monitor_uart_stream() {
           pending=""
           echo "$line"
           case "$line" in
-            *"SELFTEST: ui resize ok"*|*"SELFTEST: Completed"*) ladder_done_at=$now ;;
+            *"SELFTEST: ui resize ok"*|*"SELFTEST: Completed"*) ladder_end_seen=1 ;;
           esac
+          if [[ -n "$also_wait" && "$line" == *"$also_wait"* ]]; then
+            saw_also=1
+          fi
+          if [[ "$ladder_end_seen" -eq 1 && "$saw_also" -eq 1 && "$ladder_done_at" -eq 0 ]]; then
+            ladder_done_at=$now
+          fi
         else
           # Timeout or EOF: keep the fragment, do NOT publish it.
           pending="$pending$line"

@@ -56,6 +56,7 @@ pub(crate) fn cmd_explain(args: &[String]) -> ExitCode {
         "NX0408" => "The same route path is declared twice.",
         "NX0409" => "RETIRED. It meant `timeoutMs:` was missing; a service call has no client clock now — see NX0412.",
         "NX0412" => "`timeoutMs:` on a service call. The exchange ends with the reply or the service's death, so a client timeout is a number that looks like a bound but is not one (RFC-0096).",
+        "NX0413" => "A kinded overlay dismisses ONLY through its own handler: `.overlay(modal|transient)` needs `on Dismiss -> dispatch(..)` (ESC, backdrop tap and the transient's `.dismissAfter(ms)` all fire it), and `.dismissAfter` belongs on a transient layer.",
         "NX0410" => "Query outside the v1 shape: eq/>=/<= only, ranges on the orderBy column, literal-or-param values, limit 1..=1000.",
         "NX0411" => "Slot misuse: slot blocks belong on a component that declares them, `Slot x` only inside that component, and a slot body cannot forward its host's slots (RFC-0084).",
         "NX0501" => "Valid syntax, but outside the v0.1 lowering subset (see the task notes).",

@@ -42,6 +42,7 @@ Page ShellPage {
                 DockCompact { }
             }
         }
+        ShellOverlays { }
     }
     .gap(0)
     on WindowsChanged -> dispatch(WindowsMoved)

@@ -310,7 +310,7 @@ impl super::DslApp {
 }
 
 /// The monotonic clock the timer deadlines are expressed in (0 off-target).
-fn mono_now_ns() -> u64 {
+pub(super) fn mono_now_ns() -> u64 {
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     {
         nexus_abi::nsec().unwrap_or(0)

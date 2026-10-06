@@ -151,9 +151,22 @@ pub(super) fn apply_modifier(
                 _ => registry::ScrollAxis::Vertical,
             });
         } // scroll
-        48 => mods.overlay = true, // overlay(): full-bleed out-of-flow layer
+        // overlay(kind?): full-bleed out-of-flow layer; the kind is the modal
+        // contract (TASK-0074 D1) — `.overlay(modal)` / `.overlay(transient)`.
+        48 => {
+            mods.overlay = Some(match token_name(ctx).as_str() {
+                "modal" => crate::overlay::OverlayKind::Modal,
+                "transient" => crate::overlay::OverlayKind::Transient,
+                _ => crate::overlay::OverlayKind::Plain,
+            });
+        }
+        // dismissAfter(ms): the transient layer's declared lifetime (host timer).
+        56 => {
+            mods.dismiss_after =
+                Some(int_arg().clamp(0, i64::from(crate::overlay::DISMISS_AFTER_MAX_MS)) as u32);
+        }
         52 => mods.columns = Some(int_arg().clamp(1, 12) as usize), // columns(n): grid tracks
-        53 => mods.row_gap = Some(registry::spacing(int_arg())), // rowGap(n)
+        53 => mods.row_gap = Some(registry::spacing(int_arg())),    // rowGap(n)
         // basis(n): raw px like `.width`, NOT a spacing step — it names a
         // geometry the layout divides, not a design-system rhythm.
         54 => mods.basis = Some(FxPx::new(int_arg().clamp(0, 16384) as i32)), // basis(n)

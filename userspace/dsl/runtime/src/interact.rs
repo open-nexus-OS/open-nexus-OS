@@ -140,7 +140,7 @@ pub fn hit<'h>(
     x: FxPx,
     y: FxPx,
 ) -> Option<Hit<'h>> {
-    hit_scrolled(handlers, boxes, trigger_sym, x, y, None)
+    hit_scrolled(handlers, boxes, trigger_sym, x, y, None, None)
 }
 
 /// Paint-time scroll transform for hit-testing, mirroring exactly what the
@@ -161,6 +161,11 @@ pub fn hit<'h>(
 ///     whose tap fell outside the ONE viewport the caller picked, which read
 ///     as "the whole content area is dead".
 #[must_use]
+///
+/// `confine` (TASK-0074): the topmost modal's node path — while a modal is
+/// open only handlers under it are candidates, whatever the geometry says.
+/// The hit-test is the ONE place this is decided, so hover, press, focus and
+/// the backdrop rule can never disagree about what is reachable.
 pub fn hit_scrolled<'h>(
     handlers: &'h [(usize, HandlerEntry)],
     boxes: &[nexus_layout::LayoutBox],
@@ -168,12 +173,13 @@ pub fn hit_scrolled<'h>(
     x: FxPx,
     y: FxPx,
     scroll: Option<ScrollView>,
+    confine: Option<&[u32]>,
 ) -> Option<Hit<'h>> {
     let mut best: Option<Hit<'h>> = None;
     // (edge distance², hit) — the runner-up pass, see below.
     let mut slop_best: Option<(i64, Hit<'h>)> = None;
     for (box_id, entry) in handlers {
-        if entry.trigger != trigger_sym {
+        if entry.trigger != trigger_sym || !crate::overlay::reachable(&entry.path, confine) {
             continue;
         }
         let Some(layout_box) = boxes.iter().find(|b| b.node_id == *box_id) else {
@@ -294,7 +300,7 @@ mod hit_slop_tests {
         x: i32,
         y: i32,
     ) -> Option<usize> {
-        hit_scrolled(handlers, boxes, TAP, FxPx::new(x), FxPx::new(y), None).map(|h| h.box_id)
+        hit_scrolled(handlers, boxes, TAP, FxPx::new(x), FxPx::new(y), None, None).map(|h| h.box_id)
     }
 
     /// The bug this exists for: a 29x28 status pill in a 36px-tall top bar is
@@ -409,7 +415,7 @@ mod multi_viewport_tests {
         ];
         // Sidebar row: identity hit inside its own viewport.
         let hit = |x: i32, y: i32| {
-            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active))
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active), None)
                 .map(|h| h.box_id)
         };
         assert_eq!(hit(50, 120), Some(3), "static sidebar viewport must hit");
@@ -431,7 +437,7 @@ mod multi_viewport_tests {
         // 150..230.
         let boxes = [clipped(5, 270, 210, 600, 40, (260, 200, 960, 280))];
         let hit = |x: i32, y: i32| {
-            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active))
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active), None)
                 .map(|h| h.box_id)
         };
         // Box model y 210..250 → surface 160..200.

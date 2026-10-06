@@ -1,0 +1,44 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The shell's overlay layer (TASK-0074 / ADR-0068): ONE component for both
+// `ShellPage`s, mounted LAST on the page root so its layers cover the bar and
+// the dock too. A plain full-bleed `.overlay()` with no handler of its own —
+// it blocks nothing — carrying the kinded layers the kit provides:
+//
+//   WinAlert  (modal)      — "Ausschalten?" from the Control-Center power button
+//   WinToast  (transient)  — the system toast the confirm answers with: there
+//                            is no power service yet, and the shell says so
+//                            instead of pretending (4 s, left edge).
+//
+// Each layer is emitted by exactly one store field (`powerPrompt`, `toast`)
+// and leaves only through the kit's dispatched events — the runtime never
+// hides an overlay by itself.
+
+Component ShellOverlays {
+    Stack {
+        if $state.powerPrompt {
+            WinAlert {
+                id: "power",
+                title: @t("power.askTitle"),
+                message: @t("power.askBody"),
+                cancelLabel: @t("power.cancel"),
+                confirmLabel: @t("power.confirm"),
+                destructive: true,
+            }
+        } else {
+            Stack { }
+        }
+        if $state.toast == "power" {
+            WinToast {
+                id: "power",
+                icon: "power",
+                title: @t("power.toastTitle"),
+                subtitle: @t("power.toastBody"),
+            }
+        } else {
+            Stack { }
+        }
+    }
+    .overlay()
+}

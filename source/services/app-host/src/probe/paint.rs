@@ -96,6 +96,9 @@ impl super::DslApp {
     }
 
     pub(super) fn render(&mut self, vmo: u32) -> bool {
+        // Every dispatch path presents through here: mirror the modal depth to
+        // windowd and keep the transient timer honest BEFORE the pixels (TASK-0074).
+        self.overlay_sync();
         self.render_rows(vmo, 0, self.h as i32)
     }
 
@@ -103,6 +106,7 @@ impl super::DslApp {
     /// path (hover washes re-render two box spans, not 1280×800). The
     /// full render is `render()` = the whole surface span.
     pub(super) fn render_rows(&mut self, vmo: u32, y0: i32, y1: i32) -> bool {
+        self.overlay_sync();
         use nexus_dsl_runtime::theme_tokens::ColorToken;
         let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
         // Page base = the theme Surface token: OPAQUE for a desktop/

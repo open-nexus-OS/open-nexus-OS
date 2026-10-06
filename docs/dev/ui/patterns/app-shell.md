@@ -109,6 +109,21 @@ Contract:
 
 See also: `docs/dev/ui/foundations/visual/materials.md` (cheap glass recipe + update policy + reduce-transparency).
 
+## Modal semantics (TASK-0074, ADR-0068)
+
+Dialogs, alerts and toasts are the app's own `.overlay(modal|transient)` layers — compositions
+of system primitives, shipped as `window-kit` components (`WinAlert`, `WinModal`, `WinToast`).
+The contract the runtime enforces:
+
+- **Bounded stack**: at most 4 modals; the last emitted is on top.
+- **Confinement**: while a modal is open, hit-testing, hover and text focus are confined to
+  its subtree (one hit-test decides); windowd refuses input on the app's OTHER windows
+  (`CONTROL_WIN_MODAL`, the compositor's one verb — nothing is drawn there).
+- **Dismissal is an event**: ESC, a backdrop tap (a tap inside the layer no handler claims)
+  and a transient's `.dismissAfter(ms)` fire the layer's `on Dismiss`; the reducer decides.
+  An alert that must not close on the backdrop absorbs its own taps.
+- **Toast** = transient layer at the left edge, 3–5 s, system acks only (the feed is notifd's).
+
 ## Extensibility (allow other schemas)
 
 We recommend the default shell above, but allow alternative schemas if they:

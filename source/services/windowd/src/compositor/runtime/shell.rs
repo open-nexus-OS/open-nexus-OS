@@ -112,6 +112,51 @@ impl DisplayServerRuntime {
                     let _ = debug_println("WINDOWD: control win (no window for id)");
                 }
             }
+            // TASK-0074 D4: the ONE modal verb — `value = sid << 4 | on`.
+            // Own-window gated; the flag only steers the routing loops
+            // (`modal_gate`), nothing is drawn. The proof rungs ride on the
+            // on/off edges (`SELFTEST: ui v10 dialog ok` after a round trip,
+            // `… live modal ok` when live presses landed in between).
+            wire::CONTROL_WIN_MODAL => {
+                let (sid, on) = (u32::from(value >> 4), value & 1 == 1);
+                // The sender's own window: an app slot, or the DESKTOP surface
+                // (the shell's modal — it has no sibling windows to gate, the
+                // flag records the round trip; `taskbar_gate` is its own-window
+                // law). Fail-closed on no match or a foreign sid.
+                let changed = if let Some(idx) = self.app_idx_by_surface(sid) {
+                    if !self.win_control_allowed(idx, sender_sid) {
+                        return;
+                    }
+                    let changed = self.apps[idx].app_modal != on;
+                    self.apps[idx].app_modal = on;
+                    changed
+                } else if self.desktop_surface_id == Some(sid) {
+                    if !matches!(
+                        crate::control_gate::taskbar_gate(self.desktop_owner_sid, sender_sid),
+                        crate::control_gate::GateVerdict::Allow
+                    ) {
+                        let _ = debug_println("WINDOWD: control win REJECT (desktop modal)");
+                        return;
+                    }
+                    let changed = self.desktop_modal != on;
+                    self.desktop_modal = on;
+                    changed
+                } else {
+                    let _ = debug_println("WINDOWD: control win (no window for id)");
+                    return;
+                };
+                if changed {
+                    let _ = debug_println(&crate::markers::win_modal_marker(sid, on));
+                    let live = self.state.pointer_route_live || self.state.keyboard_route_live;
+                    let (dialog, live_ok) = self.modal_proof.edge(on, live);
+                    if dialog {
+                        let _ = debug_println(crate::markers::SELFTEST_UI_V10_DIALOG_OK_MARKER);
+                    }
+                    if live_ok {
+                        let _ = debug_println(crate::markers::SELFTEST_UI_V10_LIVE_MODAL_OK_MARKER);
+                    }
+                }
+            }
             wire::CONTROL_WIN_MOVE => {
                 // The chromeless-window drag handle: the app's own chrome row
                 // took the press and asks windowd to move the window. Anchor

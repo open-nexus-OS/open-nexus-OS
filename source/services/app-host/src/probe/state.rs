@@ -98,6 +98,12 @@ pub(super) struct DslApp {
     pub(super) clock_hour24: bool,
     /// Absolute monotonic deadline of the next clock tick (0 = tick as soon as possible).
     pub(super) clock_deadline_ns: u64,
+    /// The modal depth last mirrored to windowd (`CONTROL_WIN_MODAL` on the 0↔n edge) and
+    /// named in the `apphost: modal open` marker (TASK-0074, `probe/overlay.rs`).
+    pub(super) modal_depth_sent: usize,
+    /// The transient overlay whose `.dismissAfter` is armed: (its node path, the absolute
+    /// monotonic deadline). Re-armed only when a DIFFERENT transient layer appears.
+    pub(super) transient_armed: Option<(alloc::vec::Vec<u32>, u64)>,
     /// EndReached latch: fired once per approach to the content end;
     /// re-armed whenever layout re-runs (content grew/shrank).
     pub(super) end_fired: bool,

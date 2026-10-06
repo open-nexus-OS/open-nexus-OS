@@ -18,6 +18,7 @@ Page ShellPage {
         }
         .grow(1)
         Taskbar { }
+        ShellOverlays { }
     }
     .gap(0)
     on WindowsChanged -> dispatch(WindowsMoved)

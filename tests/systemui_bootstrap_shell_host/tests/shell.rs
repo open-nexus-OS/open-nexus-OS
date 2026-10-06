@@ -42,8 +42,8 @@ fn shell_page_renders_across_profiles_with_chrome_texts() {
         assert!(t.contains(&"--:--".to_string()), "top-bar clock placeholder shown: {t:?}");
         // The battery percentage is `control.batteryPct` since
         // design_handoff_panels: the bar and the Control Center show ONE
-        // charge string, so the shell-only `shell.battery` key retired.
-        assert!(t.contains(&"control.batteryPct".to_string()), "battery status shown: {t:?}");
+        // charge string (the baked default catalog renders it: "78%").
+        assert!(t.contains(&"78%".to_string()), "battery status shown: {t:?}");
     }
 }
 
@@ -136,13 +136,14 @@ fn launcher_phone_override_diverges_structurally() {
     let p = texts(phone.view.scene());
     assert_ne!(d, p, "profiles must not collapse to one layout");
     let idx = |t: &[String], key: &str| t.iter().position(|s| s == key);
-    let (d_header, d_footer) = (idx(&d, "launcher.allApps"), idx(&d, "launcher.userName"));
+    // Texts are the baked default catalog's (`i18n/en.json`), not key names.
+    let (d_header, d_footer) = (idx(&d, "All apps"), idx(&d, "Jenning Schaefer"));
     assert!(d_header.is_some(), "desktop panel leads with the section header: {d:?}");
     assert!(d_footer.is_some(), "desktop panel ends with the user identity: {d:?}");
     assert!(d_header < d_footer, "header leads, identity footer ends: {d:?}");
-    assert!(!d.contains(&"launcher.greeting".to_string()), "desktop has no greeting: {d:?}");
-    assert!(p.contains(&"launcher.greeting".to_string()), "phone list has its greeting: {p:?}");
-    assert!(!p.contains(&"launcher.allApps".to_string()), "phone list has no header: {p:?}");
+    assert!(!d.contains(&"Good morning, Jenning".to_string()), "desktop has no greeting: {d:?}");
+    assert!(p.contains(&"Good morning, Jenning".to_string()), "phone list has its greeting: {p:?}");
+    assert!(!p.contains(&"All apps".to_string()), "phone list has no header: {p:?}");
     assert!(!p.contains(&"launcher.userName".to_string()), "phone list has no footer: {p:?}");
 }
 
@@ -157,7 +158,7 @@ fn greeter_login_success_and_failure_drive_the_contract_states() {
     // centre block belongs to whoever `selected` points at.
     // RFC-0076: live clock state — placeholder until the first tick.
     assert!(t.contains(&"--:--".to_string()), "greeter clock placeholder renders: {t:?}");
-    assert!(t.contains(&"greeter.hint".to_string()), "idle hint shown: {t:?}");
+    assert!(t.contains(&"Press Enter to sign in".to_string()), "idle hint shown: {t:?}");
 
     // `session.users()` returns RECORDS {id, label}: `login` takes the id, the
     // UI shows the label. Field symbols are IR-table indices, so they come
@@ -225,7 +226,7 @@ fn greeter_login_success_and_failure_drive_the_contract_states() {
     mounted.dispatch(&mut host, "SessionEvent", "Submit", vec![]);
     assert_eq!(mounted.view.runtime.field("SessionStore", "phase"), Some(&Value::Int(2)));
     assert_eq!(mounted.view.runtime.field("SessionStore", "lastError"), Some(&Value::Int(7)));
-    assert!(texts(mounted.view.scene()).contains(&"greeter.failed".to_string()));
+    assert!(texts(mounted.view.scene()).contains(&"Wrong password — please try again".to_string()));
     assert!(host.is_clean(), "misses: {:?}", host.misses);
 }
 

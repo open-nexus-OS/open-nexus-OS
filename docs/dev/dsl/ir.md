@@ -115,6 +115,12 @@ never a partial mount.
 
 ## Changelog
 
+- **v1.8 unchanged (2026-10-06, TASK-0074)** — no bump: `.overlay(modal|transient)` rides the
+  existing `Modifier.args` token of modId 48 and `.dismissAfter(ms)` is a new catalog entry
+  (modId 56, append-only, `TokenArg.int`); the new trigger `Dismiss` is a symbol like every
+  trigger. The modal stack, confinement and dismissal are runtime-derived from the emitted
+  scene (ADR-0068) — nothing new is serialized, every v1.8 program reads as before. Goldens
+  unchanged.
 - **v1.8 (2026-09-20, TASK-0077B)** — `Handler.bind` carries `BindWrite { target, value }`.
   A two-way bind now states BOTH halves: the state path it writes, and the `BindValue` rule
   that turns the interaction into a value — `toggleBool` (the current Bool is inverted),

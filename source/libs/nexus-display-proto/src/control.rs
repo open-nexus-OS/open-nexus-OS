@@ -32,3 +32,10 @@ pub const CONTROL_WIN_MODE: u8 = 6;
 /// raises + tracks the pointer to release (same clamp/snap path as a WM title
 /// drag). Fire-and-forget; ignored for fullscreen windows.
 pub const CONTROL_WIN_MOVE: u8 = 7;
+/// App-modal gate (TASK-0074 D4, the ONE windowd verb for modal semantics): value =
+/// `surface_id << 4 | on` (0 = off, 1 = on). While a window of a sender is modal, windowd's
+/// input routing refuses presses, hover and wheel on the sender's OTHER windows (the same
+/// `owner_sid`) — the modal's own window and every other owner's windows are untouched.
+/// Nothing is drawn: the modal overlay itself is app-owned (`.overlay(modal)` in the DSL
+/// runtime). Own-window gated like the other `CONTROL_WIN_*` verbs; reset on close.
+pub const CONTROL_WIN_MODAL: u8 = 8;

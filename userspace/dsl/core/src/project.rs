@@ -173,8 +173,16 @@ pub fn compile_project_dir(root: &std::path::Path) -> Result<alloc::vec::Vec<u8>
 }
 
 /// Compiles a project tree keeping the lowering metadata (RFC-0077 packs).
+/// Loads a project tree — `<root>/ui/**.nx` plus the library components the
+/// app references (`project_libs`) — into ONE merged file and its canonical
+/// source set. The single project-loading path: the build (`compile_project_build`)
+/// and the CLI's directory mode (`nx-dsl check/lint <app>`) both go through it,
+/// so a shell that lints clean also builds.
+///
+/// # Errors
+/// A human-readable reason (unreadable tree, parse/merge diagnostics).
 #[cfg(feature = "std")]
-pub fn compile_project_build(root: &std::path::Path) -> Result<ProjectBuild, String> {
+pub fn load_project(root: &std::path::Path) -> Result<(File, String), String> {
     let ui = root.join("ui");
     let mut files: alloc::vec::Vec<SourceFile> = alloc::vec::Vec::new();
     let mut stack = alloc::vec![ui.clone()];
@@ -202,53 +210,17 @@ pub fn compile_project_build(root: &std::path::Path) -> Result<ProjectBuild, Str
     if files.is_empty() {
         return Err(alloc::format!("no .nx sources under {}", ui.display()));
     }
-    // Widget libraries (TASK-0081 C3): the app manifest's `dependencies`
-    // name SIBLING library folders (`userspace/apps/<lib>/`, bundleType
-    // library). Their components are compiled INTO this app's one canonical
-    // `.nxir` at build time — no runtime component loading, the
-    // one-program-one-hash model and AOT parity stay intact. Governance is
-    // enforced HERE: a library contributes ONLY `Component` declarations
-    // (compositions of system primitives); anything else fails the build.
-    for dep in manifest_dependencies(root)? {
-        let lib_root = root
-            .parent()
-            .map(|parent| parent.join(&dep))
-            .filter(|p| p.join("manifest.toml").is_file())
-            .ok_or_else(|| alloc::format!("dependency `{dep}`: no sibling app folder"))?;
-        let components = lib_root.join("ui/components");
-        let entries = std::fs::read_dir(&components).map_err(|e| {
-            alloc::format!("dependency `{dep}`: read {}: {e}", components.display())
-        })?;
-        let mut contributed = 0usize;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("nx") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path)
-                .map_err(|e| alloc::format!("read {}: {e}", path.display()))?;
-            let parsed = crate::parse_file(&source)
-                .map_err(|d| alloc::format!("dependency `{dep}`: parse: {d:?}"))?;
-            if !parsed.decls.iter().all(|decl| matches!(decl, crate::ast::Decl::Component(_))) {
-                return Err(alloc::format!(
-                    "dependency `{dep}`: {} declares more than components — libraries                      are compositions of system primitives ONLY (TASK-0081 C3)",
-                    path.display()
-                ));
-            }
-            files.push(SourceFile {
-                path: alloc::format!(
-                    "dep:{dep}/{}",
-                    path.file_name().and_then(|n| n.to_str()).unwrap_or("component.nx")
-                ),
-                source,
-            });
-            contributed += 1;
-        }
-        if contributed == 0 {
-            return Err(alloc::format!("dependency `{dep}`: no components under ui/components"));
-        }
-    }
+    // Library components (TASK-0081 C3 / TASK-0074): only the ones this app
+    // references, transitively — see `project_libs`.
+    crate::project_libs::resolve_library_components(root, &mut files)?;
     let merged = merge_project(&files).map_err(|d| alloc::format!("merge: {d:?}"))?;
+    let canonical = canonical_source_set(&files);
+    Ok((merged, canonical))
+}
+
+#[cfg(feature = "std")]
+pub fn compile_project_build(root: &std::path::Path) -> Result<ProjectBuild, String> {
+    let (merged, canonical) = load_project(root)?;
     // Companion surface (TASK-0081 C1): `native/surface.toml` extends the
     // checker's svc table with `svc.<app>.*` for THIS project's check —
     // the app id is the folder name (the manifest SSOT next to it). The
@@ -276,7 +248,6 @@ pub fn compile_project_build(root: &std::path::Path) -> Result<ProjectBuild, Str
     if crate::has_errors(&diags) {
         return Err(alloc::format!("check: {diags:?}"));
     }
-    let canonical = canonical_source_set(&files);
     // Default-locale catalog (`i18n/en.json`): baked into the program so
     // `@t()` renders real text (keys never leak to the screen). Missing
     // catalog = keys as text (the pre-catalog behavior); a MALFORMED catalog
@@ -285,42 +256,6 @@ pub fn compile_project_build(root: &std::path::Path) -> Result<ProjectBuild, Str
     crate::lower_file_with_catalog(&merged, &model, &canonical, &catalog)
         .map(|l| ProjectBuild { nxir: l.nxir, i18n_keys: l.i18n_keys })
         .map_err(|d| alloc::format!("lower: {d:?}"))
-}
-
-/// Reads the app manifest's `dependencies = ["lib", "lib@^1.0", …]` names
-/// (the version constraint after `@` is nxb-pack's concern; the build
-/// resolver only needs the folder name). Missing manifest = no deps.
-#[cfg(feature = "std")]
-fn manifest_dependencies(root: &std::path::Path) -> Result<alloc::vec::Vec<String>, String> {
-    let manifest = root.join("manifest.toml");
-    if !manifest.is_file() {
-        return Ok(alloc::vec::Vec::new());
-    }
-    let text = std::fs::read_to_string(&manifest)
-        .map_err(|e| alloc::format!("read {}: {e}", manifest.display()))?;
-    let mut deps = alloc::vec::Vec::new();
-    let mut in_deps = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with('#') {
-            continue;
-        }
-        let starts = line.starts_with("dependencies") && line.contains('=');
-        if starts || in_deps {
-            in_deps = true;
-            let mut chunks = line.split('"');
-            while let (Some(_), Some(value)) = (chunks.next(), chunks.next()) {
-                let name = value.split('@').next().unwrap_or(value);
-                if !name.is_empty() {
-                    deps.push(String::from(name));
-                }
-            }
-            if line.ends_with(']') {
-                in_deps = false;
-            }
-        }
-    }
-    Ok(deps)
 }
 
 /// Parses a companion `native/surface.toml` (TASK-0081 C1) — the ONE place
@@ -556,6 +491,32 @@ mod widget_library_tests {
         let first = compile_project_dir(&root.join("app")).expect("compiles with lib");
         let second = compile_project_dir(&root.join("app")).expect("recompiles");
         assert_eq!(first, second, "byte-deterministic with resolved library");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// TASK-0074: only the components the app references (transitively) compile in. The
+    /// shelf's `Unused` dispatches an event the app never declares — it must stay out; the
+    /// `Inner` one is reached only through `FancyCard` and must come along.
+    #[test]
+    fn only_referenced_library_components_compile_in() {
+        let root = apps_root("closure");
+        scaffold(&root, "Component FancyCard {\n    Card { Inner { } }\n}\n");
+        write(
+            &root.join("widgets/ui/components/Inner.nx"),
+            "Component Inner {\n    Text(\"inner\")\n}\n",
+        );
+        write(
+            &root.join("widgets/ui/components/Unused.nx"),
+            "Component Unused {\n    Button { label: \"x\" } on Tap -> dispatch(NeverDeclared)\n}\n",
+        );
+        compile_project_dir(&root.join("app")).expect("unused shelf parts stay out");
+        // An app that references nothing of the library is told so.
+        write(
+            &root.join("app/ui/pages/Main.nx"),
+            "Store S { n: Int = 0, }\nEvent E { Tick, }\nreduce E { Tick => state.n += 1, }\nPage Main { Stack { Text(\"plain\") } }\n",
+        );
+        let err = compile_project_dir(&root.join("app")).expect_err("unused dependency");
+        assert!(err.contains("references none"), "got: {err}");
         let _ = std::fs::remove_dir_all(&root);
     }
 

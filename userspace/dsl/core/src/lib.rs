@@ -25,6 +25,8 @@ pub mod locale_pack;
 pub mod lower;
 pub mod parser;
 pub mod project;
+#[cfg(feature = "std")]
+mod project_libs;
 pub mod registry;
 
 pub use check::{check_file, has_errors};
@@ -38,7 +40,7 @@ pub use parser::parse_file;
 pub use project::compile_project_build;
 pub use project::{canonical_source_set, merge_project, SourceFile};
 #[cfg(feature = "std")]
-pub use project::{compile_project_dir, parse_native_surface};
+pub use project::{compile_project_dir, load_project, parse_native_surface};
 
 #[cfg(test)]
 mod tests {
@@ -317,6 +319,29 @@ Page P {
 
         let unlabeled_button = "Page P { Button { on Tap -> dispatch(Go) } }";
         assert!(codes_of(unlabeled_button).contains(&DiagCode::MissingLabel));
+    }
+
+    /// TASK-0074 D2: NX0413 — a modal/transient overlay without `on Dismiss`,
+    /// and a `.dismissAfter` off a transient; the declared forms check clean,
+    /// a bare `.overlay()` stays the plain layer (no lint), a foreign kind is
+    /// a vocabulary error, and a second argument is an arity error.
+    #[test]
+    fn overlay_kind_lints_fire_and_declared_forms_check_clean() {
+        let modal_without_dismiss = "Page P { Stack { Stack { Text(\"x\") }.overlay(modal) } }";
+        assert!(codes_of(modal_without_dismiss).contains(&DiagCode::OverlayDismiss));
+        let timeout_off_transient =
+            "Page P { Stack { Stack { Text(\"x\") }.overlay().dismissAfter(3000) } }";
+        assert!(codes_of(timeout_off_transient).contains(&DiagCode::OverlayDismiss));
+        let declared = "Store S { open: Bool = true, }\nEvent E { Close, Hide, }\nreduce E { Close => state.open = false, Hide => state.open = false, }\nPage P { Stack { Stack { Text(\"m\") }.overlay(modal) on Dismiss -> dispatch(Close)\n Stack { Text(\"t\") }.overlay(transient).dismissAfter(3000) on Dismiss -> dispatch(Hide) } }";
+        let codes = codes_of(declared);
+        assert!(!codes.contains(&DiagCode::OverlayDismiss), "declared forms: {codes:?}");
+        assert!(!codes.contains(&DiagCode::WrongArity), "optional kind: {codes:?}");
+        let plain = "Page P { Stack { Stack { Text(\"x\") }.overlay() } }";
+        assert!(!codes_of(plain).contains(&DiagCode::OverlayDismiss));
+        let foreign_kind = "Page P { Stack { Stack { Text(\"x\") }.overlay(sheet) } }";
+        assert!(codes_of(foreign_kind).contains(&DiagCode::UnknownName));
+        let two_args = "Page P { Stack { Stack { Text(\"x\") }.overlay(modal, modal) } }";
+        assert!(codes_of(two_args).contains(&DiagCode::WrongArity));
     }
 
     #[test]

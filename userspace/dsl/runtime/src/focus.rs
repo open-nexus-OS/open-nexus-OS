@@ -72,8 +72,12 @@ impl View<'_> {
     ) -> Option<TextFocusSnapshot> {
         let trigger_sym =
             self.runtime.symbols().iter().position(|s| s == "Change").map(|i| i as u32);
-        let hit = trigger_sym
-            .and_then(|sym| interact::hit_scrolled(&self.handlers, boxes, sym, x, y, scroll));
+        // Confined like every pointer hit: a field behind the open modal
+        // cannot take focus (TASK-0074 focus trap).
+        let confine = self.modal_confine();
+        let hit = trigger_sym.and_then(|sym| {
+            interact::hit_scrolled(&self.handlers, boxes, sym, x, y, scroll, confine)
+        });
         match hit {
             Some(hit) => {
                 let (box_id, entry) = (hit.box_id, hit.entry);

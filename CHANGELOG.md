@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-06 (TASK-0074: modal semantics in the DSL runtime — ADR-0068; the shell's first modal)
+
+- **`.overlay(modal|transient)` + `.dismissAfter(ms)` + `on Dismiss`** (no IR bump): the runtime
+  derives a bounded overlay stack from the emitted scene (`View::overlays()`, max 4 modals),
+  confines hit-testing, hover and text focus to the topmost modal in the ONE hit-test, and fires
+  the layer's `on Dismiss` for ESC (`dismiss_top`), a backdrop tap and a transient's timeout —
+  never hiding a layer itself. Lint NX0413 refuses a kinded overlay without `on Dismiss`.
+- **app-host**: mirrors the modal depth to windowd on the 0↔n edge (`apphost: modal open
+  (depth=…)`), names every dismissal (`apphost: modal dismiss (reason=escape|backdrop|timeout)`),
+  merges the transient's lifetime into its one one-shot timer; ESC = `dismiss_top`.
+- **windowd**: ONE verb `CONTROL_WIN_MODAL` (own-window gated) — while set, press/hover/wheel
+  on the owner's other windows are refused (`modal_gate`, pure + host-tested); `windowd: win
+  modal on/off (id=…)`, `SELFTEST: ui v10 dialog ok` / `live modal ok`. Nothing drawn.
+- **imed/windowd**: `FIELD_KIND_NONE` — windowd relays WINDOW focus to imed; imed delivers
+  Escape to a surface without a text field and nothing else (one key path).
+- **window-kit** gains the design handoff's overlay elements as DSL compositions: `WinAlert`,
+  `WinModal` (slots body/footer), `WinToast` (left edge, 4 s). The compiler now pulls only the
+  library components an app references (transitive closure) — a kit can grow without every
+  consumer declaring every kit event.
+- **desktop-shell**: the Control Center's power button opens the shutdown alert; ESC/Cancel
+  close it; Confirm answers with the honest system toast ("no power service yet"). Live proof
+  on the `usb-visible` lane (injector: pill → power → background press → ESC) and the operator
+  rung `board-visual: modal` on the board.
+- Goldens `kit_{alert,modal,toast}_{light,dark}`; conformance `overlays.rs`,
+  `shell_power_alert.rs` (also the injector targets' SSOT); windowd `tests/modal_routing.rs`.
+- **Harness**: the `usb-visible` injector logs in (greeter Submit from app-host's handler
+  dump), positions the relative mouse closed-loop on app-host's tap trace (QEMU merges HID
+  reports while a one-hart TCG guest polls slowly), and the launcher's early stop waits for
+  `QEMU_LADDER_ALSO_WAIT` (the live-modal rung); `ci-os-usb-visible` budget 240 → 360 s. windowd
+  routes imed's Escape to the window-focus holder when no text field is focused.
+- **One project loader** (`nexus_dsl_core::load_project`): the build, `nx-dsl build/run <app>`
+  and the bootstrap-shell host tests share it (the tests' own walker is gone).
+
 ### Added - 2026-10-05 (TASK-0328 U3: USB on the board — the host node and the on-board hub through socd, the DWC3 in host mode; RFC-0106 amended)
 
 - **socd drives a node's supply lines** (RFC-0106 amendment): the GPIO block is a provider kind

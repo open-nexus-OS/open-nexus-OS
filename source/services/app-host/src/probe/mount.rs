@@ -128,6 +128,8 @@ impl DslApp {
             clock_tz: alloc::string::String::from("Europe/Berlin"),
             clock_hour24: true,
             clock_deadline_ns: 0,
+            modal_depth_sent: 0,
+            transient_armed: None,
             end_fired: false,
             vis_pick: alloc::vec::Vec::new(),
             vis_anim: alloc::vec::Vec::new(),

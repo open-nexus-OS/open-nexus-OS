@@ -140,3 +140,15 @@ pub const SELFTEST_UI_V3_SCROLL_OK_MARKER: &str = "SELFTEST: ui v3 scroll ok";
 pub const SELFTEST_UI_V3_IME_OK_MARKER: &str = "SELFTEST: ui v3 ime ok";
 pub const SELFTEST_UI_V3_EFFECT_OK_MARKER: &str = "SELFTEST: ui v3 effect ok";
 pub const SELFTEST_UI_V3_FILTER_OK_MARKER: &str = "SELFTEST: ui v3 filter ok";
+
+// --- TASK-0074 / ADR-0068: modal semantics — windowd's ONE routing verb ---
+/// `windowd: win modal on (id=N)` / `… off (id=N)`: the app-modal flag's edge.
+pub fn win_modal_marker(surface_id: u32, on: bool) -> String {
+    format!("windowd: win modal {} (id={surface_id})", if on { "on" } else { "off" })
+}
+/// A press on a window the gate refused (its owner's modal is `id`).
+pub fn press_refused_marker(modal_surface_id: u32) -> String {
+    format!("windowd: press refused (modal id={modal_surface_id})")
+}
+pub const SELFTEST_UI_V10_DIALOG_OK_MARKER: &str = "SELFTEST: ui v10 dialog ok";
+pub const SELFTEST_UI_V10_LIVE_MODAL_OK_MARKER: &str = "SELFTEST: ui v10 live modal ok";

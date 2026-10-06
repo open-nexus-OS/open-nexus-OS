@@ -22,14 +22,21 @@ pub(super) fn check_modifiers(modifiers: &[ModifierCall], diags: &mut Vec<Diagno
                 format!("unknown modifier `.{}`", modifier.name.text),
             )),
             Some((_, spec)) => {
-                if modifier.args.len() != spec.args.len() {
+                // An `OptToken` arg may be omitted: arity is `required..=all`.
+                let required =
+                    spec.args.iter().filter(|a| !matches!(a, registry::ModArg::OptToken)).count();
+                if modifier.args.len() < required || modifier.args.len() > spec.args.len() {
+                    let takes = if required == spec.args.len() {
+                        format!("{required}")
+                    } else {
+                        format!("{required}..={}", spec.args.len())
+                    };
                     diags.push(Diagnostic::new(
                         DiagCode::WrongArity,
                         modifier.span,
                         format!(
-                            "`.{}` takes {} argument(s), got {}",
+                            "`.{}` takes {takes} argument(s), got {}",
                             spec.name,
-                            spec.args.len(),
                             modifier.args.len()
                         ),
                     ));

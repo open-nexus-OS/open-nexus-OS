@@ -221,6 +221,32 @@ Stack {                       // content, tinted
 .bg(wallpaperTint)
 ```
 
+### Modal and transient layers (`on Dismiss`, ADR-0068)
+
+```nx
+if $state.confirm {
+    Stack {
+        Stack { Button { label: "Cancel" } on Tap -> dispatch(Cancel) }.width(320)
+            on Tap -> dispatch(Noop)        // the panel absorbs its own taps
+    }
+    .overlay(modal)                        // bounded stack (max 4), focus trap, confinement
+    .bg(scrim)
+    on Dismiss -> dispatch(Cancel)         // ESC and the backdrop fire THIS — the one way out
+} else { Stack { } }
+
+if $state.toast != "" {
+    Stack { Text($state.toast) }
+    .overlay(transient)                    // confines nothing
+    .dismissAfter(4000)                    // the host's timer fires `on Dismiss`
+    on Dismiss -> dispatch(HideToast)
+} else { Stack { } }
+```
+
+The runtime never hides a layer by itself: `on Dismiss` dispatches, the reducer changes the
+state, the layer leaves with the next emit. A kinded overlay without `on Dismiss` is NX0413.
+The shared library (`window-kit`) ships the design handoff's elements on this contract —
+`WinAlert`, `WinModal` (slots `body`/`footer`), `WinToast` — with a declared store contract.
+
 
 Reduced-motion behavior is part of each token's contract. There are no CSS-style
 keyframes, no free-form animation variables, no magic one-off utilities.

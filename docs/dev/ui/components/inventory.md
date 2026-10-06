@@ -69,7 +69,7 @@ then C collapses surface-by-surface (boot-gated). The library SSOT home is the p
 |---|---|---|---|
 | `Spinner` (12 spokes) | — | **new** | full |
 | `ProgressBar` (determinate/indeterminate) | — | **new** | full |
-| `Toast` (auto-dismiss, action) | — (design: system-toast surface) | **new** — feeds 0074 toast unification + 5-surface routing | full |
+| `Toast` (auto-dismiss, action) | `window-kit/WinToast.nx` (`.overlay(transient).dismissAfter(4000)`) + widget `toast` | **converged (0074)** — the surface; the feed is notifd's (0123–0125) | feed routing |
 | `Skeleton` / `SkeletonText` | — | **new** | full |
 | `Banner` (4 variants, inline) | — | **new** | full |
 | `Refresher` (pull-to-refresh) | A `nexus-virtual-list` scroll host | **virtual-list + new gesture** | threshold, spinner |
@@ -90,13 +90,13 @@ then C collapses surface-by-surface (boot-gated). The library SSOT home is the p
 | `Avatar` (image/initials/status) | — | **new** | full |
 | `Chip` (selectable/removable) | — | **new** | full |
 
-## OVERLAYS (9) — modal-manager targets (0074)
+## OVERLAYS (9) — app-owned `.overlay()` compositions (0074 semantics, ADR-0068)
 
 | Component | Exists | Best src → promote | Gap |
 |---|---|---|---|
-| `Modal` (backdrop, header, footer, close) | — (windowd has fullscreen/window mgmt, not modal) | **new — 0074 modal manager** | focus trap, backdrop, ESC |
-| `ActionSheet` (bottom, grouped) | — | **new — 0074** | full |
-| `Alert` (1–2 buttons) | — | **new — 0074** | full |
+| `Modal` (backdrop, header, footer, close) | `window-kit/WinModal.nx` (`.overlay(modal)`, slots body/footer) | **converged (0074 semantics, ADR-0068)** — app-owned `.nx`, runtime confinement/ESC/backdrop, windowd one verb | — |
+| `ActionSheet` (bottom, grouped) | — | app-owned `.overlay(modal)` composition when a page needs it (same contract) | element not yet written |
+| `Alert` (1–2 buttons) | `window-kit/WinAlert.nx` (`.overlay(modal)`, absorbs backdrop) | **converged (0074 semantics)** | — |
 | `Popover` / `PopoverItem` (anchored) | C windowd dropdown (bespoke) | **C anchor/dismiss → new Popover** | placement, offset |
 | `Menu` / `ContextMenu` (submenu, shortcuts) | C windowd topbar menu (`AppMenu`, bespoke) | **C `AppMenu` → new Menu** | submenu, shortcuts, checked, dividers |
 | `Tooltip` (hover/focus) | — | **new** | full |

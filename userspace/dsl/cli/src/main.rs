@@ -87,33 +87,10 @@ pub(crate) fn load_input(
         let canonical = format_file(&file);
         return Ok((file, canonical, source));
     }
-    // Project directory: collect ui/**.nx (sorted paths, deterministic).
-    let mut files: Vec<nexus_dsl_core::SourceFile> = Vec::new();
-    let root = Path::new(path);
-    let mut stack = vec![root.join("ui")];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.extension().and_then(|e| e.to_str()) == Some("nx") {
-                let rel = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/");
-                let source = std::fs::read_to_string(&p).map_err(|e| {
-                    eprintln!("nx-dsl: cannot read `{}`: {e}", p.display());
-                    ExitCode::from(2)
-                })?;
-                files.push(nexus_dsl_core::SourceFile { path: rel, source });
-            }
-        }
-    }
-    if files.is_empty() {
-        eprintln!("nx-dsl: no ui/**.nx files under `{path}`");
-        return Err(ExitCode::from(2));
-    }
-    let canonical = nexus_dsl_core::canonical_source_set(&files);
-    let merged = nexus_dsl_core::merge_project(&files).map_err(|diag| {
-        eprintln!("{path}: error[{}]: {}", diag.code, diag.message);
+    // Project directory: the ONE project loader (ui/**.nx + the referenced
+    // library components, merged with platform overrides).
+    let (merged, canonical) = nexus_dsl_core::load_project(Path::new(path)).map_err(|e| {
+        eprintln!("nx-dsl: {path}: {e}");
         ExitCode::from(1)
     })?;
     Ok((merged, canonical, String::new()))

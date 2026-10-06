@@ -76,6 +76,11 @@ pub const FIELD_KIND_TEXT: u8 = 0;
 /// `OP_SET_FOCUS` field kind: password field — no preedit push, no
 /// candidates, no learning (RFC-0075 security invariant, enforced in imed).
 pub const FIELD_KIND_PASSWORD: u8 = 1;
+/// `OP_SET_FOCUS` field kind: NO text field — the surface holds WINDOW focus
+/// only (TASK-0074 D3, relayed by windowd on window-focus changes). imed
+/// delivers Escape to it and nothing else: no commits, no strip, no learning;
+/// windowd shows no OSK for it. How an app-modal hears ESC.
+pub const FIELD_KIND_NONE: u8 = 2;
 
 /// Maximum committed/preedit text bytes per frame (RFC-0075 bound).
 pub const TEXT_MAX_BYTES: usize = 64;

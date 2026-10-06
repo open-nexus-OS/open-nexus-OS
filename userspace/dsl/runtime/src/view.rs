@@ -82,6 +82,12 @@ pub struct View<'p> {
     pub(crate) handlers: Vec<(usize, HandlerEntry)>,
     /// The focused text field (tap-to-focus; None = no field focused).
     pub(crate) focused_text: Option<crate::focus::FocusedText>,
+    /// The scene's kinded overlays (TASK-0074): rebuilt by every emit, read by
+    /// the routing (`modal_confine`) and the host (depth, transient timeouts).
+    pub(crate) overlays: crate::overlay::OverlayStack,
+    /// The reason of the last `on Dismiss` the runtime fired, until the host
+    /// takes it for its marker (`take_dismissed`).
+    pub(crate) last_dismiss: Option<crate::overlay::DismissReason>,
     /// Motion intents of the current scene: (pre-order box id, intent). The
     /// host reads these each frame, seeds its `AnimationDriver` on a change,
     /// and paints the interpolated result (docs/dev/ui/foundations/animation.md).
@@ -135,6 +141,8 @@ impl<'p> View<'p> {
             deps: Vec::new(),
             handlers: Vec::new(),
             focused_text: None,
+            overlays: crate::overlay::OverlayStack::new(),
+            last_dismiss: None,
             animations: Vec::new(),
             nav,
             keys,
@@ -224,6 +232,25 @@ impl<'p> View<'p> {
     #[must_use]
     pub fn handlers(&self) -> &[(usize, HandlerEntry)] {
         &self.handlers
+    }
+
+    /// The scene's kinded overlays (TASK-0074): modal depth, the topmost
+    /// modal, the transient layers and their declared timeouts.
+    #[must_use]
+    pub fn overlays(&self) -> &crate::overlay::OverlayStack {
+        &self.overlays
+    }
+
+    /// The path every pointer/focus hit must lie under while a modal is open:
+    /// the topmost modal's subtree. `None` = nothing is confined.
+    #[must_use]
+    pub fn modal_confine(&self) -> Option<&[u32]> {
+        self.overlays.top_modal().map(|e| e.path.as_slice())
+    }
+
+    /// The reason of the last runtime-fired `on Dismiss`, once (host marker).
+    pub fn take_dismissed(&mut self) -> Option<crate::overlay::DismissReason> {
+        self.last_dismiss.take()
     }
 
     /// Motion intents of the current scene (`.animate`/`.transition`/
@@ -318,7 +345,7 @@ impl<'p> View<'p> {
         device: &dyn DeviceEnv,
         locale: &dyn LocaleSource,
     ) -> Result<(), RtError> {
-        let (scene, deps, handlers, animations, live_instances) = {
+        let (scene, deps, handlers, animations, live_instances, overlays) = {
             let _scope = self.frame_scope.map(FrameScope::enter);
             let bytes_reader = self.runtime.reader();
             let root = bytes_reader.root().map_err(|_| RtError::Malformed)?;
@@ -332,6 +359,7 @@ impl<'p> View<'p> {
             let mut deps: Vec<Dep> = Vec::new();
             let mut raw_handlers: Vec<HandlerEntry> = Vec::new();
             let mut anim_intents: Vec<(Vec<u32>, AnimIntent)> = Vec::new();
+            let mut overlays = crate::overlay::OverlayStack::new();
             let mut ctx = EmitCtx {
                 stores: self.runtime.stores(),
                 // A component body starts at the root instance; a keyed
@@ -347,6 +375,7 @@ impl<'p> View<'p> {
                 deps: &mut deps,
                 handlers: &mut raw_handlers,
                 anim_intents: &mut anim_intents,
+                overlays: &mut overlays,
                 path: Vec::new(),
                 components,
                 // The entry page has no caller, so no slot frame.
@@ -374,12 +403,19 @@ impl<'p> View<'p> {
                     animations.push((box_id, intent));
                 }
             }
-            (scene, deps, handlers, animations, live_instances)
+            // The overlay layers' own box ids (the backdrop test needs the
+            // layer's rect; `0` = the node did not resolve, which never
+            // happens for an emitted container).
+            for entry in overlays.entries_mut() {
+                entry.box_id = interact::path_to_box_id(&scene, &entry.path).unwrap_or(0);
+            }
+            (scene, deps, handlers, animations, live_instances, overlays)
         };
         self.scene = scene;
         self.deps = deps;
         self.handlers = handlers;
         self.animations = animations;
+        self.overlays = overlays;
         // Per-instance state is dropped for instances this emit did NOT
         // produce (TASK-0077B P1): a row that left the collection takes its
         // fields with it, so storage tracks the live set instead of growing

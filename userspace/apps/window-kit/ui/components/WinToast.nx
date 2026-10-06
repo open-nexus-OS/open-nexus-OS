@@ -1,0 +1,59 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The design handoff's SYSTEM TOAST (5-surface routing, "System ack"): a
+// transient confirmation at the LEFT edge — glyph, title, one line — that
+// needs no action and leaves by itself after 3–5 s. A transient layer
+// (TASK-0074 / ADR-0068): it confines nothing; the HOST's one-shot timer fires
+// `on Dismiss` after `.dismissAfter(ms)` (the DSL holds no clock), a tap on
+// the card dismisses it early — both through `ToastDismiss(id)`, the ONE way
+// out. The notification feed that will route system events here is notifd's
+// (TASK-0123..0125); this is the surface, not the feed.
+//
+// STORE CONTRACT (the consuming app declares these — the kit dispatches):
+//   events  ToastDismiss(Str)
+
+Component WinToast {
+    props: {
+        id: Str,
+        icon: Str,
+        title: Str,
+        subtitle: Str,
+    }
+    Stack {
+        Stack { }
+            .height(12)
+        Stack {
+            Stack {
+                Panel {
+                    Circle { size: 32
+                        Icon { symbol: $props.icon, size: 14 }
+                            .fg(onGlass)
+                    }
+                    .material(subtle)
+                    Stack {
+                        Text($props.title).textSize(sm).fontWeight(semibold).fg(onGlass)
+                        Text($props.subtitle).textSize(xs).fg(onGlassMuted)
+                    }
+                    .gap(0)
+                }
+                .direction(row)
+                .align(center)
+                .gap(2)
+                .material(overlay)
+                .rounded(lg)
+                .padding(2)
+                on Tap -> dispatch(ToastDismiss($props.id))
+            }
+            .width(320)
+            Spacer
+        }
+        .direction(row)
+        .align(start)
+        .paddingX(3)
+    }
+    .overlay(transient)
+    .dismissAfter(4000)
+    .transition(slideUp)
+    on Dismiss -> dispatch(ToastDismiss($props.id))
+}

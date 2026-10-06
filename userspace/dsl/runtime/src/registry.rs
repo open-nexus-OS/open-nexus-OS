@@ -83,10 +83,13 @@ pub struct Mods {
     /// viewport — the layout clips it (`Overflow::Hidden`) and the HOST owns
     /// a paint-time scroll offset over the retained boxes (never a re-layout).
     pub scroll: Option<ScrollAxis>,
-    /// `.overlay()`: lift this container OUT OF FLOW as a full-bleed layer
-    /// over its parent's content (drop-down panels / dialogs). Anchoring
-    /// happens INSIDE the layer with ordinary flex.
-    pub overlay: bool,
+    /// `.overlay(kind?)`: lift this container OUT OF FLOW as a full-bleed
+    /// layer over its parent's content (drop-down panels / dialogs). Anchoring
+    /// happens INSIDE the layer with ordinary flex. The kind (TASK-0074) adds
+    /// modal/transient semantics on top; `None` = in flow.
+    pub overlay: Option<crate::overlay::OverlayKind>,
+    /// `.dismissAfter(ms)` of a transient overlay (bounded at emit).
+    pub dismiss_after: Option<u32>,
     /// `.columns(n)`: this container is an n-column GRID (`LayoutNode::Grid`,
     /// row-major 1fr tracks). On a `List` the items are the cells — the
     /// data-driven launcher/workspace grids.
@@ -140,7 +143,8 @@ impl Default for Mods {
             disabled: false,
             material: None,
             scroll: None,
-            overlay: false,
+            overlay: None,
+            dismiss_after: None,
             columns: None,
             row_gap: None,
         }
@@ -269,7 +273,7 @@ fn plain_stack(
     if let Some(shrink) = mods.shrink {
         item.flex_shrink = shrink;
     }
-    if mods.overlay {
+    if mods.overlay.is_some() {
         // Out-of-flow layer: absolute + grow = the engine's overlay contract
         // (the layer FILLS the parent's content box — definite constraints,
         // the viewport-root fill semantic). Anchoring happens inside.
@@ -335,7 +339,7 @@ fn plain_grid(
     if let Some(shrink) = mods.shrink {
         item.flex_shrink = shrink;
     }
-    if mods.overlay {
+    if mods.overlay.is_some() {
         item.position = nexus_layout_types::Position::Absolute;
         item.flex_grow = item.flex_grow.max(1);
     }

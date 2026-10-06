@@ -31,6 +31,7 @@ mod interaction;
 mod layers;
 mod locale;
 mod mount;
+mod overlay;
 mod paint;
 mod presentation;
 mod scroll;
@@ -427,7 +428,7 @@ pub(super) fn run() -> Result<(), &'static str> {
             // The wait — no clock: the timer for the clock (if the app declares one), then
             // the waitset; the recv that follows is non-blocking and EOF-opted.
             if let (Some(t), Some(dsl)) = (timer.as_mut(), app.as_ref()) {
-                t.arm_at(dsl.clock_deadline_ns().unwrap_or(0));
+                t.arm_at(dsl.timer_deadline_ns());
             }
             let wait = match waitset {
                 Some(ws) => {
@@ -442,13 +443,13 @@ pub(super) fn run() -> Result<(), &'static str> {
                     len
                 }
                 Err(nexus_ipc::IpcError::Timeout) | Err(nexus_ipc::IpcError::WouldBlock) => {
-                    // Not an event: the clock's one-shot fired (its notify frame is drained
-                    // here; the kernel disarmed it) — or a spurious wake, which is nothing.
+                    // Not an event: the one-shot fired (drained; the kernel disarmed it) — or
+                    // a spurious wake, which is nothing. `timer_fired` runs the due deadline(s).
                     if !timer.as_mut().is_some_and(|t| t.drain()) {
                         continue;
                     }
                     if let Some(dsl) = app.as_mut() {
-                        if dsl.clock_supported() && dsl.clock_tick() {
+                        if dsl.timer_fired() {
                             dirty = true;
                             dirty_rows = None;
                         }

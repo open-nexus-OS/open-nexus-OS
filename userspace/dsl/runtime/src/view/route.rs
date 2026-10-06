@@ -70,8 +70,36 @@ impl View<'_> {
         else {
             return Ok(None);
         };
-        let Some(hit) = interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll)
+        let confine = self.modal_confine();
+        let Some(hit) =
+            interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll, confine)
         else {
+            // TASK-0074 D3, the backdrop rule: a Tap inside the topmost
+            // modal's LAYER that no handler takes is a tap on its backdrop —
+            // the layer's own `on Dismiss` fires (reason Backdrop). A modal
+            // that must not close that way absorbs the tap itself
+            // (`on Tap -> dispatch(Noop)` on the layer), the ordinary
+            // PickerSheet pattern. Points outside the layer's box (nothing
+            // lies there while it is full-bleed) stay dead.
+            if trigger == "Tap" {
+                if let Some(top) = self.overlays.top_modal() {
+                    let inside = boxes
+                        .iter()
+                        .find(|b| b.node_id == top.box_id)
+                        .is_some_and(|b| point_in(b.rect, x, y));
+                    if inside {
+                        let path = top.path.clone();
+                        return self.dismiss_at(
+                            tokens,
+                            device,
+                            locale,
+                            host,
+                            &path,
+                            crate::overlay::DismissReason::Backdrop,
+                        );
+                    }
+                }
+            }
             return Ok(None);
         };
         // The instance the hit handler belongs to (TASK-0077B P1): a tap inside
@@ -195,7 +223,75 @@ impl View<'_> {
     ) -> Option<usize> {
         let trigger_sym =
             self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)?;
-        interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll).map(|h| h.box_id)
+        let confine = self.modal_confine();
+        interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll, confine)
+            .map(|h| h.box_id)
+    }
+
+    /// TASK-0074 D3: fires the topmost modal's `on Dismiss` (ESC). `None` when
+    /// no modal is open — ESC then changes nothing, by contract: there is no
+    /// second "Escape drops focus" path.
+    ///
+    /// # Errors
+    /// Runtime errors from the dispatch.
+    pub fn dismiss_top(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        reason: crate::overlay::DismissReason,
+    ) -> Result<Option<Damage>, RtError> {
+        let Some(path) = self.overlays.top_modal().map(|e| e.path.clone()) else {
+            return Ok(None);
+        };
+        self.dismiss_at(tokens, device, locale, host, &path, reason)
+    }
+
+    /// Fires the `on Dismiss` handler of the kinded overlay at `path` (the
+    /// modal's ESC/backdrop, a transient's timeout). The handler is the ONE
+    /// mutation path: the runtime dispatches, the reducer decides, the layer
+    /// leaves when the state that emitted it changes. `None` when the scene
+    /// holds no such layer or it declares no handler (the NX0413 lint makes
+    /// that a compile error).
+    ///
+    /// # Errors
+    /// Runtime errors from the dispatch.
+    pub fn dismiss_at(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        path: &[u32],
+        reason: crate::overlay::DismissReason,
+    ) -> Result<Option<Damage>, RtError> {
+        let Some(sym) =
+            self.runtime.symbols().iter().position(|s| s == "Dismiss").map(|i| i as u32)
+        else {
+            return Ok(None);
+        };
+        if self.overlays.at_path(path).is_none() {
+            return Ok(None);
+        }
+        let Some((instance, action)) = self
+            .handlers
+            .iter()
+            .find(|(_, e)| e.trigger == sym && e.path == path)
+            .map(|(_, e)| (e.instance, e.action.clone()))
+        else {
+            return Ok(None);
+        };
+        self.last_dismiss = Some(reason);
+        match action {
+            HandlerAction::Dispatch { event, case, payload } => self
+                .dispatch_in(instance, tokens, device, locale, host, event, case, payload)
+                .map(Some),
+            HandlerAction::Navigate { path } => {
+                self.navigate(tokens, device, locale, &path).map(Some)
+            }
+            HandlerAction::Bind { .. } => Ok(None),
+        }
     }
 
     /// Writes text into the innermost Change-bound field containing (x, y)
@@ -239,4 +335,13 @@ impl View<'_> {
             &bind::Interaction::Text(text),
         )
     }
+}
+
+/// Point-in-rect in surface space (the layer's box is never scrolled).
+fn point_in(
+    rect: nexus_layout_types::Rect,
+    x: nexus_layout_types::FxPx,
+    y: nexus_layout_types::FxPx,
+) -> bool {
+    x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height
 }
