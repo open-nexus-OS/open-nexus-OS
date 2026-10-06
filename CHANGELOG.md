@@ -53,6 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   USB works** — the PHY released, its PLL locked in 5 ms (calibrated), `controller ok`, the
   hub, the keyboard and the receiver enumerated, the operator moved the mouse and typed
   (`docs/board/measurements/2026-10-05-usb-cycle1/`, cycles 1–10 with their gates).
+- **Planning: the SMP lane recut to the end state** (2026-10-06, no code): not `MAX_CPUS` 4 → 8
+  but n harts from the FDT with boot-sized per-hart state, a 64-bit `CpuSet` ABI as the one
+  ceiling, the cluster topology exported, the HSM retry bug named, the lock decomposition in a
+  measured order; no distributed kernel — the distribution seam is pinched's job backend and an
+  ADR; the first parallel consumer (the band-parallel CPU present) rides on the display track.
+  The order among M, G and S is decided after Block 3 (`tasks/IMPLEMENTATION-ORDER.md`,
+  `tasks/TASK-0330-*`).
 - **Block 2's gate passed** (2026-10-06, board cycle 20 of 20): `[PASS] board-visible` — 46 rungs,
   the operator's `desktop` / `typed` / `pointer` acks, no FAIL marker — and `[PASS] board-headless`
   (38 rungs). TASK-0328 and TASK-0253B are Done; RFC-0099 Phase 3 ✅; the hardware fast track

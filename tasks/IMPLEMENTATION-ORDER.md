@@ -43,7 +43,7 @@ SMP, a real browser with a real network — interleaved, because they depend on 
 | 1 | **Block 1 — First picture** (the OS boots from eMMC over the target boot chain and shows the desktop on the HDMI monitor) | **In Progress** — B1.0–B1.6 ✅ (**B1.6 P3 ✅ 2026-09-29**: the board boots into a living userspace — `init: ready`, blkd on the SDHCI, the OS trace on the eMMC, the fleet `ready`). Open: **B1.7 Display** — D0 measure → M-L layout 1920x1080 (measured) → D1 mode authority + scanout buffer = gpud (QEMU) → D2 host `dc` model + EDID → D3 domain 7/`hmclk` via socd → D4 `dc` driver (P2a requested mode, P2b EDID) → D5 first picture 1920x1080@60 edid | **Operator priority 2026-10-04: the picture with USB input next — Block 2 (U0–U3) before P2b EDID and step 3b**; D4 = TASK-0251 P2: step 3a ✅ 2026-10-04 on the board (an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane; open findings noted in the ledger: the settled greeter's flat band, hard-coded 1280x800 sizes, tearing, the long black before the splash — its LED part gone 2026-10-04: the ladder is a deprecated flag, the kernel's runtime at 1.7 s instead of 23.4 s) → **step 3c the controller's cursor layer — inside the USB lane, before U3 closes (operator 2026-10-05: "no parallel implementations, no dead paths; the fast path by the end of the USB lane"); proven on the board 2026-10-06 (cycles 14–20: the arrow follows at once, `windowd: hw cursor on`, no present per move)**: on the controller path the pointer is a software sprite blended in every present (`CURSOR_REPLY_SW`, every move a CPU present, `windowd: loop hz=14` on the board), while the virtio path moves a hardware overlay; measured on the stock system (`docs/board/measurements/2026-10-05-cursor-layer/`: RDMA channel 2 → composer layer 6, 64×64 ARGB8888, blend mode 5, a move = the layer's rectangle) → gpud's `dc` arms the overlay, replies `CURSOR_REPLY_HW`, `move_cursor` writes the rectangle + latch, and the controller path's software cursor is deleted with a gate → step 3b the CPU layer composite at the GL path's semantics, **with the 1280x800-era size sweep (TASK-0251 finding 2) — app-host's frame arena generation outgrown at 1080p while typing (`SELFTEST: frame arena spill FAIL`, tolerated on the board since 2026-10-06 in `config/fail-marker-allow-board.txt` ONLY until this step lands; the entry leaves with it)** → P2b EDID over DDC — step 2 ✅ 2026-10-04 on the board, first cycle (windowd's desktop through the controller: one request loop over the virtio GPU and the controller, one CPU executor, the splash held until the reveal; `[PASS] board-visible` 24 rungs + `board-visual: desktop`; `docs/board/measurements/2026-10-04-desktop-path/`) — step 1 first light ✅ 2026-10-03 on the board (gpud's splash on the monitor, `docs/board/measurements/2026-10-03-first-light/`) — D3 ✅ 2026-09-30 on the board (`[PASS] board-headless` with the display rung, H1–H4 decided in one cycle; power domain 7 from the stock tree: control `0x3f4` mode/request, status `0x0f0` bit 15; `hmclk` at 491.52 MHz from `assigned-clock-rates`; the display node trimmed to `hmclk` + `hdmi_reset`; `docs/board/measurements/2026-09-30-power-domains/`), D1 ✅ + D2 ✅ 2026-09-30 (gpud is the mode authority and owns the framebuffer, syscall 50 deleted; `nexus_gfx::backend::dc` EDID + register model with goldens), M-L ✅ 2026-09-30 (`nexus_display_proto::layout`: one home for the 1920x1080 resource layout, the `visible-fhd` lane green), D0 ✅ 2026-09-29 (`docs/board/measurements/2026-09-29-display-regs/`: `hmclk` alone, direct MMIO first-light sequence, bus address from the kernel (bank 0 identical on the controller's bus — corrected 2026-10-03), non-coherent; the encoder's power-down diff via HDMI unplug still open) |
 | 2 | **Block 2 — USB input** (keyboard + mouse over USB; proven in QEMU first) | **Done 2026-10-06** (U3 ✅: the desk's keyboard and mouse drive the desktop over USB, `[PASS] board-visible`; the pointer on the controller's layer; 20 board cycles) — **U0 ✅ 2026-10-04**: measured on the stock system (`docs/board/measurements/2026-10-04-usb-topology/`, `…-usb-boot-protocol/`: xHCI 1.10, 64-byte contexts, the USB-A ports behind an on-board high-speed hub with GPIO power, both HID devices full speed → TT; the mouse sends 4-byte boot reports at ~1000/s, STALLs SET_IDLE, and its first frame after the switch is still report-format), RFC-0099 seeded (xhcid the one owner, a reactive event-ring driver, class services as clients; ADR-0039 amended), 0328 at end state, 0253B seeded, the HID boot parsers fixed to the measured reports (the old one refused every report of the desk's mouse) — **U1 ✅ 2026-10-05**: `nexus-usb` + `xhcid` (pure event-driven core + behavioural model, 14 of 16 mutants killed, two real bugs found) + the `usb` lane in `test-all` (QEMU's xHCI, a hub, a boot keyboard and mouse enumerated by the interrupt alone; every other lane `usb plane none`) — **U2 ✅ 2026-10-05**: xhcid serves the HID boot class (policyd `usb.hid`, owed attaches/detaches, fire-and-forget reports), hidrawd is one loop over its sources (virtio-input, USB HID) on one waitset, no timer; the `usb-visible` lane drives the desktop over USB alone (`SELFTEST: ui v2 input ok`) → U3 board | **now (operator priority 2026-10-04)**: U3 next (the board: socd glue, hub power, TT) |
 | 3 | **Block 3 — Sub-80 remainder** (`0074 → 0066 → 0067 → 0067B → 0068`) | ledgers are end-state | **next — Block 2's gate passed 2026-10-06** (`board-visual: typed` + `pointer`); order unchanged 0074 → 0066 → 0067 → 0067B → 0068 |
-| 4 | **Target pictures M/G/S/N/W** (memory, GPU, SMP, network, web) | 24 packages, interleaved | after Block 3 |
+| 4 | **Target pictures M/G/S/N/W** (memory, GPU, SMP, network, web) | 24 packages, interleaved | after Block 3 — **the order among M, G and S is decided after Block 3 from measurements** (operator 2026-10-06: S recut to the end state — n harts from the FDT, no distributed kernel; not to grow beyond kernel + placement + the distribution seam) |
 
 Process per task (since 2026-09-15): review the idea against the code AND its philosophy docs
 → measure before deciding → rewrite the ledger to the end state → build → prove green (`just
@@ -196,15 +196,32 @@ bundle (no on-device compiler in this track). windowd and app-host never see the
 (RFC-0067 boundary). The virgl backend on QEMU implements the same v2 trait; the CPU raster path
 survives only for headless/QEMU proofs. Gaming is out of scope.
 
-**S — Real SMP (8 harts, work genuinely spread; RFC-0102 lock decomposition, ADR-0072
-cluster-aware spreading, ADR-0073 split order).** `MAX_CPUS` 4 → 8 with the cluster topology
-from the FDT `cpu-map`; PLIC contexts and IRQ affinity on every hart (the display chain no
-longer needs cpu0); the big kernel lock is decomposed in a measured order — scheduler → IPC
-router + waitsets → address spaces (with per-ASID targeted shootdown instead of the full flush)
-→ timers/fences last; the placement policy spreads by load within a cluster first, across
-clusters second, with the interactive chain protected by the 0288 budgets; the affinity SSOT
-keeps only hard pins; pinched/workpool run on 8 workers. Gate per step: the BKL budgets shrink
-monotonically, the ipc call budget holds, the board runs all 8 harts.
+**S — Real SMP (n harts from the FDT, work genuinely spread; recut 2026-10-06 to the end
+state — RFC-0102 lock decomposition, RFC-0107 `CpuSet` ABI, ADR-0072 cluster-aware spreading,
+ADR-0073 split order, ADR-0074 compute-distribution seam).** Not `MAX_CPUS` 4 → 8: the hart
+count comes from the FDT at boot and every per-hart structure (secondary stacks, IRQ stash, PLIC
+contexts, deadline shadow, console lines, counters, TLB mailboxes, run queues, `current`) is
+allocated from a boot slab sized by it; the only compile-time ceiling is the CPU-set width
+(`CpuSet` = 64 bits, replacing the `u8` affinity mask — the one true limit, an ABI), `HART_LOCALS`
+stays static at that width (fixed address for `trap.S`), `MAX_CPUS` is deleted with a gate. The
+cluster topology from the FDT `cpu-map` (the board: 2 × 4 harts, an L2 per cluster) is a kernel
+model exported to init/execd (no literal masks in userspace); PLIC contexts and IRQ affinity on
+every hart (the display chain no longer needs cpu0); the HSM retry bug (a virtual start address)
+fixed — the likely MTTCG "lost hart" flake; the big kernel lock is decomposed in a MEASURED
+order (R9: hold histogram + IPC rate per hart first) — scheduler → IPC router + waitsets →
+address spaces (per-ASID targeted shootdown) → timers/fences last; placement spreads by load
+within a cluster first, across clusters second, the interactive chain on cluster 0 protected by
+the 0288 budgets, the affinity SSOT keeps only hard pins; workpool/pinched take their worker
+count from the topology (never a worker on the soft-RT hart). **No distributed kernel** (operator
+decision 2026-10-06): one kernel per machine, capabilities never travel; the distribution unit
+is pinched's job (VMO bytes + descriptor + determinism), and the lane lays only the seam —
+`Backend::{Local, Remote}` with `Remote` refused by name — and the ADR. **No consumer in this
+lane** (operator: the lane must not grow): the first real parallel consumer — the band-parallel
+CPU present (gpud's executor on the workpool, disjoint rows, fence join; the measured 30 ms
+full-frame present and the typing flicker) — belongs to G3/G4 / TASK-0251 finding 6 and rides on
+S5. Gate per step: the BKL budgets shrink monotonically, the ipc call budget holds, the board
+runs all 8 harts (`KSELFTEST: smp online ok harts=8 clusters=2`), QEMU `smp` (2 harts) stays
+the deterministic lane, `smp8` is best-effort until the retry fix is proven over ten boots.
 
 **N — Network (RFC-0105 network onboarding, ADR-0070 TLS choice, ADR-0071 FullMAC WiFi).**
 **WiFi first (user decision 2026-09-21):** the SDIO function on the SDHCI driver + a FullMAC
@@ -245,9 +262,9 @@ deleted from the plan — no dual structure.
 | G | ↻ 0280 | DriverKit v1 core contracts (queues, fences, buffers) | **G2** explicit VM/BO/sync API: driver-kit contracts + `GfxBackend` v2 (`create_bo / vm_bind / submit(fences)`), cpu_mock implements v2 |
 | G | ↻ 0169B, ↻ 0170B, ↻ 0171 | nexus-gfx resource/fence core; windowd handoff + pass planning; wgpu host parity | **G3** the nexus-gfx GPU driver: resources/fences over the real backend, command encoder, offline shader pipeline; the host parity backend is the host-first proof of the same `CommandBuffer` |
 | G | ↻ 0215, ↻ 0216 | compositor v2.2 planes / async present / color (host, OS) | **G4** the whole desktop on the GPU: plane planner, async present, cursor plane, color; CPU compositing deleted on the board; display chain unpinned |
-| S | ⬜ 0330 (+ ⬜ at P0 0330B / 0330C) | — (0012, 0012B, 0042, 0247, 0277, 0283, 0288 ✅) | **S1** 8 harts + cluster topology from FDT + per-hart PLIC/IRQ affinity (0330) · **S3** IPC router + waitsets off the BKL (0330B) · **S4** address spaces off the BKL + per-ASID shootdown (0330C) |
+| S | ⬜ 0330 (+ ⬜ at P0 0330B / 0330C) | — (0012, 0012B, 0042, 0247, 0277, 0283, 0288 ✅) | **S0** measure (per-hart static inventory, `-smp 8` ×10 boots vs the HSM retry bug, R9 BKL histogram + IPC rate per hart on the board, the `cpu-map`) · **S1** n harts from the FDT (boot slab, `CpuSet` 64-bit ABI = RFC-0107, `MAX_CPUS` deleted) + cluster topology exported + per-hart PLIC/IRQ affinity (0330) · **S3** IPC router + waitsets off the BKL (0330B) · **S4** address spaces off the BKL + per-ASID shootdown (0330C) |
 | S | ↻ 0306 Phase 3 | BKL hold reduction (Phases 1–2 delivered) | **S2** scheduler off the BKL: per-hart runqueue locks + lock-free wake/IPI |
-| S | ⬜ at P0 0042B | (0042 ✅ affinity/QoS ABI) | **S5** timers/fences last + placement v2 (spread by load, cluster-aware, hard pins only), pinched/workpool to 8 |
+| S | ⬜ at P0 0042B | (0042 ✅ affinity/QoS ABI) | **S5** timers/fences last + placement v2 (spread by load, cluster-aware, hard pins only), workpool/pinched workers from the topology (none on the soft-RT hart) · **S6** the compute-distribution seam: ADR-0074 (jobs travel, capabilities never; one kernel per machine; brokers compose), pinched `Backend::Remote` declared and refused by name, the job's determinism contract host-tested — no network code |
 | N | ↻ 0248 (+ ⬜ at P0 0248B), ↻ 0249 | virtio-net host core / virtionetd OS | **N1** SDIO function + FullMAC WiFi driver core + firmware contract (0248), `wifid` + netstackd on the real NIC (0249); **N2a** Ethernet MAC + PHY (0248B) |
 | N | ↻ 0138, ↻ 0139 | offline netcfgd / sim-dhcp / dnsd; Settings page | **N2b** `netcfgd` real DHCP + DNS in netstackd (0138); network Settings page + `nx net` (0139, lands with W3) |
 | N | ↻ 0193, ↻ 0194 | devnet TLS / fetchd | **N3** TLS on device + `getrandom` over rngd + ingress TLS slot |
@@ -273,7 +290,7 @@ prerequisite edge. M1 (0286) is already in Block 1.
 
 | # | Pkg | Ledger | Needs | Gate (short) |
 |---|---|---|---|---|
-| 1 | S1 | 0330 | B1.2 | `ci-os-smp` at `-smp 8`; board `KSELFTEST: smp online ok harts=8`, IRQs served on non-boot harts |
+| 1 | S1 | 0330 | B1.2 | S0 measured first; `ci-os-smp` (2 harts) green, `smp8` best-effort until the retry fix holds ×10; board `KSELFTEST: smp online ok harts=8 clusters=2`, IRQs served on non-boot harts; `MAX_CPUS` retired-name gate |
 | 2 | M2 | 0286B | M1 | host fault-model tests; QEMU CoW proof marker |
 | 3 | G0 | 0329 P0 | B1.0 | GPU compatible/revision, firmware + license, register/IRQ map, power sequence archived (R6) |
 | 4 | S2 | 0306 P3 | S1 | BKL hold budgets shrink (`KSELFTEST: bkl budget ok`), ADR-0073 order confirmed by R9 |
