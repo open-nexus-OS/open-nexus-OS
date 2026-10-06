@@ -233,6 +233,46 @@ plan's chunk (256 MiB: the plan's chunks are exactly that). Leaving the board in
 reboot` boots the microSD system again — its adb gadget (`361c:0008`) reappears after ~65 s (measured), so
 a lane waiting for it must allow that long.
 
+## USB on the board (TASK-0328 U3, RFC-0099 §6, RFC-0106 amended)
+
+The USB-A ports sit behind an on-board high-speed hub whose power and reset are GPIOs
+(97 = VBUS, 123 and 124 = the hub's lines, measured 2026-10-04:
+`docs/board/measurements/2026-10-04-usb-topology/`). Our chain brings USB up like this, in
+order, each step read back:
+
+1. init finds the DWC3 host node (`usb@c0a00000`, `dr_mode = "host"`) and the USB 2.0 PHY node
+   in the tree and grants both windows to `xhcid` (`init: usb host from tree (…)`).
+2. `xhcid` has `socd` bring the host node up — bus domain, the resets `ahb`/`vcc`/`phy`, the
+   `usbdrd30` clock, the APMU glue word `0xd4282bc8 = 0x0b008000` — and the hub node
+   (`/usb-hub`): pads 97/123/124 on the GPIO function, lines 123 and 124 driven high, a 200 ms
+   settle on socd's one-shot, then VBUS (`socd: bring-up … ok (… gpios=3 writes=N)` — `writes=`
+   says what the loader had left undone).
+3. `socd` also brings both PHY nodes up: the USB 2.0 PHY's clock, and the SuperSpeed (combo)
+   PHY's global reset — PCIe port A's, APMU `0x3cc` bit 8, SET = held (the loader leaves it
+   set; the block reads zeros and the xHCI's reset waits on its PIPE clock forever) — plus the
+   port's hold-PHY-reset bit cleared and the lane select (`socd: bring-up … phy@c0b10000 ok`).
+   `xhcid` sets the USB 2.0 PHY's words to the stock values in the vendor init's order (the
+   PLL divider first, the lock waited for: `xhcid: usb2 phy set (…)`), runs the SuperSpeed
+   PHY's USB-mode PLL sequence (`xhcid: ss phy pll ready (after … ms calibrated=…)`), soft-resets
+   the DWC3 and puts it in host mode (`xhcid: dwc3 host (… writes=N)`), then
+   runs the xHCI: `controller ok (version=1.10 ports=2 slots=64 csz=64 scratch=1 irq=125)`, the
+   hub `(slot=1 port=1 speed=high ports=5 ttt=3)`, the keyboard `3434:0123` on hub port 2 and the
+   mouse's receiver `046d:c53f` on port 3 through the hub's transaction translator.
+4. `hidrawd` names both (`hidrawd: usb hid device (…)`); on `board-visible` the ladder requires
+   inputd's own `inputd: live pointer route on` / `inputd: live keyboard route on` (a real event
+   reached its live routes) and the operator acks `just board-ack typed`.
+5. The pointer is the display controller's own layer (ADR-0034 Tier 1b, measured in
+   `docs/board/measurements/2026-10-05-cursor-layer/`): windowd's cursor upload arms DMA channel
+   2 → composer layer 6 above the desktop's layer 7 (`gpud: dc cursor layer ok (…)`, `windowd:
+   hw cursor on`), every pointer move is a handful of register writes and a config-ready latch —
+   no present. The operator acks `just board-ack pointer` (the arrow follows at once). xhcid's
+   `xhcid: irq hz=… reports hz=… dry=…` and inputd's `travel dx= dy=` lines say, per second,
+   whether the device's reports and counts arrive whole (cycle 14: ~1 kHz, `dry≈0`).
+
+Judge a cycle: `bash scripts/board-test.sh --profile=board-visible --log=build/logs/latest-board/uart.log`.
+The USB 3.0 root port (the hub's SuperSpeed twin) may train once its PHY runs; v1 serves the
+devices through the USB 2.0 root port and only logs the SuperSpeed one.
+
 ## Pitfalls
 
 - **An eMMC boot right after the stock system ran loops in the loader** (`verify FAIL (slot=a

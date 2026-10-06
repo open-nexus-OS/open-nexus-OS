@@ -16,8 +16,11 @@ use crate::ring::Producer;
 pub const MAX_DEVICES: usize = 16;
 /// Interrupt pipes per device.
 pub const MAX_PIPES: usize = 4;
-/// TRBs kept queued on an interrupt pipe (a measured mouse reports every millisecond).
-pub const PIPE_TRBS: usize = 4;
+/// TRBs kept queued on an interrupt pipe (a measured mouse reports every millisecond). Four
+/// ran dry on the board (TASK-0328 U3 cycle 11: `dry=44` of 162 drains a second — the driver
+/// woke every ~6 ms); eight cover that wake interval, the counters say whether they still run
+/// dry (RFC-0099 Phase 3).
+pub const PIPE_TRBS: usize = 8;
 /// TRBs in an interrupt pipe's ring.
 pub const PIPE_RING_TRBS: usize = 16;
 
@@ -120,6 +123,11 @@ pub struct Pipe {
     pub next_buffer: u8,
     /// Failed transfers in a row.
     pub errors: u8,
+    /// The event-ring drain the last completion came in, and how many of this pipe's TRBs
+    /// completed in it: all [`PIPE_TRBS`] in one drain means the ring had run dry — the device
+    /// went unpolled until the requeue (board telemetry, RFC-0099 Phase 3).
+    pub drain: u32,
+    pub drained: u8,
 }
 
 /// A control transfer in flight on EP0.

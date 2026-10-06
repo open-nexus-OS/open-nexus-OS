@@ -66,6 +66,9 @@ pub struct InputdService<R> {
     pointer_state: PointerState,
     pointer_transform: PointerTransform,
     active_pointer_source: Option<PointerSource>,
+    /// The relative pointer travel since last taken (|dx|, |dy| summed, batches with motion):
+    /// the board's rate line prints it — aggregates only, never a position.
+    travel: (u64, u64, u32),
     primary_pointer_held: bool,
     held_non_modifier_keys: [bool; 256],
     held_non_modifier_key_count: usize,
@@ -103,6 +106,7 @@ impl<R: RouteTarget> InputdService<R> {
             pointer_state,
             pointer_transform,
             active_pointer_source: None,
+            travel: (0, 0, 0),
             primary_pointer_held: false,
             held_non_modifier_keys: [false; 256],
             held_non_modifier_key_count: 0,
@@ -135,6 +139,11 @@ impl<R: RouteTarget> InputdService<R> {
     }
 
     #[must_use]
+    /// The relative pointer travel since last taken: (Σ|dx|, Σ|dy|, batches with motion).
+    pub fn take_travel(&mut self) -> (u64, u64, u32) {
+        core::mem::take(&mut self.travel)
+    }
+
     pub fn display_pointer_position(&self) -> PointerPosition {
         self.pointer_state.display_position()
     }
@@ -405,6 +414,9 @@ impl<R: RouteTarget> InputdService<R> {
             {
                 return self.finish_pointer_side_effects(pointer_down, wheel_delta);
             }
+            self.travel.0 = self.travel.0.saturating_add(dx.unsigned_abs().into());
+            self.travel.1 = self.travel.1.saturating_add(dy.unsigned_abs().into());
+            self.travel.2 = self.travel.2.saturating_add(1);
             let display = self.pointer_state.apply_relative(
                 self.pointer_accel.apply_axis(dx).map_err(InputdError::from)?,
                 self.pointer_accel.apply_axis(dy).map_err(InputdError::from)?,

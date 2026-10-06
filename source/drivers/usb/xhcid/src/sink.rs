@@ -82,6 +82,9 @@ pub enum Note<'a> {
     HidLost { slot: u8, interface: u8 },
     /// A device went away.
     Detached { slot: u8 },
+    /// A controller wait ran out (just before the [`Note::Fail`]): which one (1 ready, 2 halt,
+    /// 3 reset, 4 start) and the command and status words it read last.
+    ControllerStuck { phase: u8, usbcmd: u32, usbsts: u32 },
     /// Something failed: the step and the completion code (or 0).
     Fail { step: Step, code: u8 },
 }

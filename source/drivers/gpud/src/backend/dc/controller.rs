@@ -8,7 +8,9 @@
 
 use nexus_abi::MmioWindow;
 use nexus_driverkit::Mmio;
-use nexus_gfx::backend::dc::{self, regs, Mode, Plane, RegWriter, Sequence};
+use nexus_gfx::backend::dc::{
+    self, regs, CursorPlane, CursorRect, Mode, Plane, RegWriter, Sequence,
+};
 use nexus_hal::Bus;
 use nexus_service_topology::slots::gpud as topo;
 
@@ -119,6 +121,28 @@ impl Controller {
         Flip { readback, latched_after }
     }
 
+    /// Put the pointer's layer on the composer, reading `cursor` at `rect` (TASK-0251 P2a step
+    /// 3c): the stock pointer channel's words, the layer's rectangle, blend and alpha, the
+    /// pipeline's enable word with the pointer's channel — read back.
+    pub(super) fn cursor_on(&self, cursor: &CursorPlane, rect: &CursorRect) -> Readback {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::cursor_layer_on(&mut w, cursor, RDMA, rect);
+        self.read_back(&w.written)
+    }
+
+    /// Move the pointer's layer to `rect`: the channel's crop, the rectangle, the latch — bus
+    /// writes only, nothing read back (a move per pointer event).
+    pub(super) fn cursor_move(&self, rect: &CursorRect) {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::cursor_move(&mut w, rect);
+    }
+
+    /// Take the pointer's layer off the composer (the sprite is wholly off screen).
+    pub(super) fn cursor_off(&self) {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::cursor_layer_off(&mut w, RDMA);
+    }
+
     /// Read every word `written` names back (the last value per offset).
     pub(super) fn read_back(&self, written: &Sequence) -> Readback {
         let mut rb = Readback { compared: 0, differ: [(0, 0, 0); 8], ndiffer: 0 };
@@ -138,6 +162,15 @@ impl Controller {
             }
         }
         rb
+    }
+
+    /// The live words of the pointer's channel and the composer (its layer block among them) —
+    /// what an armed layer that shows nothing is judged by, against the stock dump
+    /// (`docs/board/measurements/2026-10-05-cursor-layer/`).
+    pub(super) fn cursor_census(&self) {
+        super::census(&self.regs, "pointer", regs::rdma_base(regs::CURSOR_RDMA), regs::RDMA_STRIDE);
+        super::census(&self.regs, "pointer", regs::cmps_base(regs::PIPELINE), regs::CMPS_STRIDE);
+        super::census(&self.regs, "pointer", regs::DPU_CTL_BASE, 0x100);
     }
 
     /// The live words of the regions first light touches — the top, the control words, the

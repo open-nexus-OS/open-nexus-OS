@@ -127,3 +127,11 @@ pub fn pad_offset(provider: ProviderKind, pin: u32) -> Option<u16> {
         _ => None,
     }
 }
+
+/// The offset of GPIO bank `bank`'s registers inside the GPIO block's window.
+pub fn gpio_bank(provider: ProviderKind, bank: u32) -> Option<u16> {
+    match provider {
+        ProviderKind::Gpio => k1::gpio_bank(bank),
+        _ => None,
+    }
+}

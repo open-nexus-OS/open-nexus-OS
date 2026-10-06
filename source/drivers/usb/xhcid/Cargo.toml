@@ -15,13 +15,18 @@ default = []
 os-lite = [
     "dep:nexus-ipc",
     "dep:nexus-service-entry",
+    "dep:nexus-fdt",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
 ]
 
 [package.metadata.nexus-service]
 kind = "service"
-stack_pages = 8
+# The driver's state lives on the stack (no heap): ~22 KiB (`tests/budget.rs` measures it), and
+# the move from the bring-up's frame into the loop's holds two copies for a moment. 8 pages
+# (32 KiB) overflowed once a frame grew (TASK-0328 U3: a user page fault below the stack);
+# 16 pages hold both copies and every frame with room.
+stack_pages = 24
 features = ["os-lite"]
 
 [dependencies]
@@ -33,6 +38,8 @@ nexus-usb = { path = "../../../libs/nexus-usb" }
 # The class-client wire (RFC-0099 §5): what the HID class server frames for its subscriber.
 nexus-wire = { path = "../../../libs/nexus-wire" }
 nexus-ipc = { path = "../../../../userspace/nexus-ipc", optional = true, default-features = false }
+# The board's tree (TASK-0328 U3): the host node and the on-board hub, their paths for socd.
+nexus-fdt = { path = "../../../libs/nexus-fdt", optional = true }
 nexus-service-entry = { path = "../../../libs/nexus-service-entry", optional = true }
 nexus-service-topology = { path = "../../../libs/nexus-service-topology" }
 

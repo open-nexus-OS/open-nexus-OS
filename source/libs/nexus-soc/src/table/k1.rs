@@ -49,6 +49,9 @@ const APMU_GPU_CLK_RES_CTRL: u16 = 0x0cc;
 const APMU_SDH2_CLK_RES_CTRL: u16 = 0x0e0;
 const APMU_HDMI_CLK_RES_CTRL: u16 = 0x1b8;
 const APMU_ACLK_CLK_CTRL: u16 = 0x388;
+// The PCIe port A word: its application clocks and resets, and the combo PHY's global reset
+// (the SuperSpeed USB lane shares the PHY — TASK-0328 U3, board cycle 10). Stock 0x480.
+const APMU_PCIE_CLK_RES_CTRL_0: u16 = 0x3cc;
 const APMU_EMAC0_CLK_RES_CTRL: u16 = 0x3e4;
 const APMU_EMAC1_CLK_RES_CTRL: u16 = 0x3ec;
 const APMU_PWR_STATUS: u16 = 0x0f0;
@@ -77,6 +80,9 @@ pub const CLK_USB30: u32 = 16;
 pub const CLK_GPU: u32 = 22;
 pub const CLK_HDMI: u32 = 26;
 pub const CLK_PMUA_ACLK: u32 = 27;
+pub const CLK_PCIE0_MASTER: u32 = 28;
+pub const CLK_PCIE0_SLAVE: u32 = 29;
+pub const CLK_PCIE0_DBI: u32 = 30;
 pub const CLK_EMAC0_BUS: u32 = 37;
 pub const CLK_EMAC0_PTP: u32 = 38;
 pub const CLK_EMAC1_BUS: u32 = 39;
@@ -94,8 +100,40 @@ pub const RESET_USB30_VCC: u32 = 9;
 pub const RESET_USB30_PHY: u32 = 10;
 pub const RESET_GPU: u32 = 16;
 pub const RESET_HDMI: u32 = 22;
+pub const RESET_PCIE0_MASTER: u32 = 23;
+pub const RESET_PCIE0_SLAVE: u32 = 24;
+pub const RESET_PCIE0_DBI: u32 = 25;
+pub const RESET_PCIE0_GLOBAL: u32 = 26;
 pub const RESET_EMAC0: u32 = 35;
 pub const RESET_EMAC1: u32 = 36;
+// ---- The GPIO block (TASK-0328 U3): four banks of 32 lines; the first three at 4-byte strides,
+// the fourth at +0x100 (the kernel's boot LED and the loader drive bank 3 line 0 through the
+// same map). Per bank: the level register, the direction register, set/clear the level, set
+// the direction — the set/clear forms are masked writes, so two writers of one bank never
+// clobber each other's lines. Measured on the stock system 2026-10-04 (`docs/board/
+// measurements/2026-10-04-usb-topology/`): bank 3's level word 0x38184002 and direction word
+// 0x981ac003 show the hub's lines 97, 123 and 124 (bits 1, 27, 28) as outputs driven high.
+const GPIO_BANKS: [u16; 4] = [0x000, 0x004, 0x008, 0x100];
+/// The level of every line of the bank (an output reads its driven level).
+pub const GPIO_LEVEL: u16 = 0x00;
+/// The direction of every line (set = output).
+pub const GPIO_DIRECTION: u16 = 0x0c;
+/// Set the level of the masked lines.
+pub const GPIO_SET: u16 = 0x18;
+/// Clear the level of the masked lines.
+pub const GPIO_CLEAR: u16 = 0x24;
+/// Make the masked lines outputs.
+pub const GPIO_SET_DIRECTION: u16 = 0x54;
+
+/// The offset of `bank`'s registers inside the GPIO window (`None`: no such bank).
+pub const fn gpio_bank(bank: u32) -> Option<u16> {
+    if (bank as usize) < GPIO_BANKS.len() {
+        Some(GPIO_BANKS[bank as usize])
+    } else {
+        None
+    }
+}
+
 // ---- power-domain ids (config/board/include/dt-bindings/power/spacemit,k1-pmu.h) ----
 pub const PD_BUS: u32 = 0;
 pub const PD_GPU: u32 = 2;
@@ -214,6 +252,25 @@ pub static CLOCKS: &[ClockEntry] = &[
     gate(Apmu, CLK_USB_AXI, "usb_axi_clk", APMU_USB_CLK_RES_CTRL, BIT1, PMUA_ACLK_STOCK_HZ),
     gate(Apmu, CLK_USB_P1, "usb_p1_aclk", APMU_USB_CLK_RES_CTRL, BIT5, PMUA_ACLK_STOCK_HZ),
     gate(Apmu, CLK_USB30, "usb30_clk", APMU_USB_CLK_RES_CTRL, BIT8, PMUA_ACLK_STOCK_HZ),
+    // PCIe port A's application clocks (the combo PHY's calibration runs on them). Stock
+    // 0x480: all three off once the stock PHY driver has calibrated.
+    gate(Apmu, CLK_PCIE0_DBI, "pcie0_dbi_clk", APMU_PCIE_CLK_RES_CTRL_0, BIT0, PMUA_ACLK_STOCK_HZ),
+    gate(
+        Apmu,
+        CLK_PCIE0_SLAVE,
+        "pcie0_slave_clk",
+        APMU_PCIE_CLK_RES_CTRL_0,
+        BIT1,
+        PMUA_ACLK_STOCK_HZ,
+    ),
+    gate(
+        Apmu,
+        CLK_PCIE0_MASTER,
+        "pcie0_master_clk",
+        APMU_PCIE_CLK_RES_CTRL_0,
+        BIT2,
+        PMUA_ACLK_STOCK_HZ,
+    ),
     // GPU: gate BIT4, div 12..14, FC BIT15, mux 18..20. Stock 0x12.
     mux_div_gate(
         Apmu,
@@ -291,7 +348,9 @@ const fn apbc_reset(id: u32, name: &'static str, reg: u16) -> ResetEntry {
     ResetEntry { provider: Apbc, id, name, reg, mask: BIT2, assert_sets: true }
 }
 
-/// Every reset line the tables know. APMU: the bit SET means released; APBC:
+/// Every reset line the tables know. APMU: the bit SET means released — except the combo
+/// PHY's global reset (`pcie0_global`), whose bit SET asserts (the stock word 0x480 runs it
+/// clear; our loader left it set and the PHY block read all zeros — board cycle 9); APBC:
 /// bit 2 SET asserts.
 pub static RESETS: &[ResetEntry] = &[
     apmu_reset(RESET_SDH_AXI, "sdh_axi", APMU_SDH0_CLK_RES_CTRL, BIT0),
@@ -303,6 +362,17 @@ pub static RESETS: &[ResetEntry] = &[
     apmu_reset(RESET_USB30_AHB, "usb30_ahb", APMU_USB_CLK_RES_CTRL, BIT9),
     apmu_reset(RESET_USB30_VCC, "usb30_vcc", APMU_USB_CLK_RES_CTRL, BIT10),
     apmu_reset(RESET_USB30_PHY, "usb30_phy", APMU_USB_CLK_RES_CTRL, BIT11),
+    apmu_reset(RESET_PCIE0_DBI, "pcie0_dbi", APMU_PCIE_CLK_RES_CTRL_0, BIT3),
+    apmu_reset(RESET_PCIE0_SLAVE, "pcie0_slave", APMU_PCIE_CLK_RES_CTRL_0, BIT4),
+    apmu_reset(RESET_PCIE0_MASTER, "pcie0_master", APMU_PCIE_CLK_RES_CTRL_0, BIT5),
+    ResetEntry {
+        provider: Apmu,
+        id: RESET_PCIE0_GLOBAL,
+        name: "pcie0_global",
+        reg: APMU_PCIE_CLK_RES_CTRL_0,
+        mask: BIT8,
+        assert_sets: true,
+    },
     apmu_reset(RESET_GPU, "gpu", APMU_GPU_CLK_RES_CTRL, BIT1),
     apmu_reset(RESET_HDMI, "hdmi", APMU_HDMI_CLK_RES_CTRL, BIT9),
     apmu_reset(RESET_EMAC0, "emac0", APMU_EMAC0_CLK_RES_CTRL, BIT1),

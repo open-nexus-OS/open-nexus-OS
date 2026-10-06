@@ -21,7 +21,8 @@ use nexus_service_topology::{slots, DEVICE_MMIO_SLOT};
 use nexus_usb::{HidRole, Speed};
 use nexus_wire::usb as wire;
 
-use crate::{Channel, DmaAlloc, HidClass, Note, Pushed, Sink, Xhci};
+use crate::glue::{self, Glue};
+use crate::{dwc3, phy, ss_phy, Channel, DmaAlloc, HidClass, Note, Pushed, Sink, Stats, Xhci};
 
 pub type Result<T> = core::result::Result<T, &'static str>;
 
@@ -60,7 +61,7 @@ impl fmt::Write for Line {
     }
 }
 
-fn emit(args: fmt::Arguments<'_>) {
+pub(crate) fn emit(args: fmt::Arguments<'_>) {
     let mut line = Line::new();
     let _ = line.write_fmt(args);
     line.emit();
@@ -137,17 +138,32 @@ impl Sink for OsSink {
                 "xhcid: hub (slot={slot} port={root_port} speed={} ports={ports} ttt={ttt})",
                 speed(s)
             )),
+            // The device's identity leads, the slot and route (which depend on the order the
+            // ports answered in — board cycle 10 enumerated the receiver before the keyboard)
+            // trail: a ladder rung anchors on the identity, never on the order.
             Note::Enumerated { slot, route, speed: s, vendor, product, class } => emit(format_args!(
-                "xhcid: device enumerated (slot={slot} route={route:#x} speed={} vid={vendor:04x} pid={product:04x} class={class})",
+                "xhcid: device enumerated (vid={vendor:04x} pid={product:04x} class={class} speed={} slot={slot} route={route:#x})",
                 speed(s)
             )),
-            Note::HidInterface { slot, interface, role: r, endpoint, max_packet, interval, .. } => {
+            Note::HidInterface {
+                slot,
+                interface,
+                role: r,
+                endpoint,
+                max_packet,
+                interval,
+                vendor,
+                product,
+            } => {
                 emit(format_args!(
-                    "xhcid: hid boot interface (slot={slot} if={interface} role={} ep={endpoint:#04x} mps={max_packet} interval={interval})",
+                    "xhcid: hid boot interface (vid={vendor:04x} pid={product:04x} role={} if={interface} ep={endpoint:#04x} mps={max_packet} interval={interval} slot={slot})",
                     role(r)
                 ));
             }
             Note::Report { .. } => {}
+            Note::ControllerStuck { phase, usbcmd, usbsts } => emit(format_args!(
+                "xhcid: controller stuck (phase={phase} usbcmd={usbcmd:#x} usbsts={usbsts:#x})"
+            )),
             Note::HidLost { slot, interface } => {
                 emit(format_args!("xhcid: hid interface lost (slot={slot} if={interface})"));
             }
@@ -195,11 +211,74 @@ struct Controller {
     xhci: Xhci<Mmio, OsAlloc>,
     irq: u32,
     member: u32,
+    rates: Rates,
+}
+
+/// The one-second window of the controller's counters (RFC-0099 Phase 3): printed under
+/// traffic (eight interrupts or more) as `xhcid: irq hz=… events hz=… reports hz=…
+/// per_irq_max=… dry=… dropped=… refused=…` — `dry` counts drains in which a pipe's every
+/// TRB had completed (the device went unpolled: reports lost), `dropped`/`refused` are the
+/// class server's running totals.
+struct Rates {
+    since: u64,
+    stats: Stats,
+    /// The longest and the summed time a drain took (the wake's own cost, against the wake
+    /// interval the interrupt rate shows).
+    drain_ns_max: u64,
+    drain_ns_sum: u64,
+}
+
+const RATE_WINDOW_NS: u64 = 1_000_000_000;
+const RATE_MIN_INTERRUPTS: u32 = 8;
+
+impl Rates {
+    fn add(&mut self, now: u64, drain_ns: u64, stats: Stats, class: &HidClass<OsChannel>) {
+        let s = &mut self.stats;
+        s.interrupts = s.interrupts.saturating_add(stats.interrupts);
+        s.events = s.events.saturating_add(stats.events);
+        s.events_per_interrupt_max = s.events_per_interrupt_max.max(stats.events_per_interrupt_max);
+        s.reports = s.reports.saturating_add(stats.reports);
+        s.pipes_dry = s.pipes_dry.saturating_add(stats.pipes_dry);
+        self.drain_ns_max = self.drain_ns_max.max(drain_ns);
+        self.drain_ns_sum = self.drain_ns_sum.saturating_add(drain_ns);
+        if self.since == 0 {
+            self.since = now;
+            return;
+        }
+        if now.saturating_sub(self.since) < RATE_WINDOW_NS {
+            return;
+        }
+        if s.interrupts >= RATE_MIN_INTERRUPTS {
+            emit(format_args!(
+                "xhcid: irq hz={} events hz={} reports hz={} per_irq_max={} dry={} dropped={} refused={} drain_us avg={} max={}",
+                s.interrupts,
+                s.events,
+                s.reports,
+                s.events_per_interrupt_max,
+                s.pipes_dry,
+                class.dropped(),
+                class.refused(),
+                self.drain_ns_sum / u64::from(s.interrupts.max(1)) / 1000,
+                self.drain_ns_max / 1000
+            ));
+        }
+        self.since = now;
+        self.stats = Stats::default();
+        self.drain_ns_max = 0;
+        self.drain_ns_sum = 0;
+    }
 }
 
 /// The window init granted, mapped; its line bound into the waitset; the controller started.
-/// `None` — said — when the tree has no host controller or its line cannot be bound.
-fn controller(waitset: &mut Waitset, sink: &mut OsSink) -> Option<Controller> {
+/// `None` — said — when the tree has no host controller or its line cannot be bound. On the
+/// board (`glued`: socd brought the node up) the DWC3 around the xHCI is put in host mode
+/// first and the USB 2.0 PHY's words are compared with the stock system's.
+fn controller(
+    waitset: &mut Waitset,
+    timer: &mut NotifyTimer,
+    sink: &mut OsSink,
+    glued: bool,
+) -> Option<Controller> {
     let device = DEVICE_MMIO_SLOT;
     let mut info = CapQuery::default();
     if nexus_abi::cap_query(device, &mut info).is_err() || info.kind_tag != 2 {
@@ -208,6 +287,37 @@ fn controller(waitset: &mut Waitset, sink: &mut OsSink) -> Option<Controller> {
     }
     let len = usize::try_from(info.len).ok()?;
     let window = MmioWindow::map(device, 0, len).ok()?;
+    let bus = Mmio::new(window);
+    if glued {
+        usb2_phy_words(timer);
+        ss_phy(timer);
+        if let Err(e) = dwc3::core_soft_reset(&bus, |ms| hold(timer, ms)) {
+            emit(format_args!("xhcid: FAIL (step=dwc3-reset cc=1) {e:?}"));
+            return None;
+        }
+        emit(format_args!("xhcid: dwc3 reset ok (core + phys, 2x{} ms)", dwc3::SOFT_RESET_HOLD_MS));
+        match dwc3::host_mode(&bus) {
+            Ok(core) => emit(format_args!(
+                "xhcid: dwc3 host (id={:#x} gctl={:#x}>{:#x} usb2phycfg={:#x}>{:#x} usb3pipectl={:#x}>{:#x} writes={})",
+                core.id,
+                core.gctl.0,
+                core.gctl.1,
+                core.usb2phycfg.0,
+                core.usb2phycfg.1,
+                core.usb3pipectl.0,
+                core.usb3pipectl.1,
+                core.writes
+            )),
+            Err(dwc3::Dwc3Error::NotADwc3(id)) => {
+                emit(format_args!("xhcid: FAIL (step=dwc3 cc=0) id={id:#x}"));
+                return None;
+            }
+            Err(dwc3::Dwc3Error::ReadBack(reg, value)) => {
+                emit(format_args!("xhcid: FAIL (step=dwc3 cc=1) reg={reg:#x} val={value:#x}"));
+                return None;
+            }
+        }
+    }
     let coherence = nexus_abi::device_dma_coherence(device).ok()?;
     let irq_ep = slots::xhcid::IRQ_NOTIFY;
     let member = (info.irq != 0 && nexus_abi::irq_bind(info.irq, irq_ep).is_ok())
@@ -218,10 +328,131 @@ fn controller(waitset: &mut Waitset, sink: &mut OsSink) -> Option<Controller> {
         return None;
     };
     sink.irq = info.irq;
-    let mut xhci = Xhci::new(Mmio::new(window), OsAlloc { device, coherence });
+    let mut xhci = Xhci::new(bus, OsAlloc { device, coherence });
     xhci.start(now(), sink);
-    Some(Controller { xhci, irq: info.irq, member })
+    Some(Controller {
+        xhci,
+        irq: info.irq,
+        member,
+        rates: Rates { since: 0, stats: Stats::default(), drain_ns_max: 0, drain_ns_sum: 0 },
+    })
 }
+
+/// The USB 2.0 PHY's words against the stock system's, then the differing ones set to them
+/// (RFC-0099 §6: board cycle 3 measured five of twelve apart after our loader) — before the
+/// DWC3 and the controller, whose reset waits on the PHY's clock. The window init granted from
+/// the tree's PHY node, if any.
+/// A bounded hold on xhcid's one-shot (a PHY's lock, a reset's settle): never a spin.
+fn hold(timer: &mut NotifyTimer, ms: u32) {
+    timer.arm_in(u64::from(ms) * 1_000_000);
+    let _ = timer.wait_fired();
+}
+
+/// The SuperSpeed PHY's words against the stock system's, then its USB-mode PLL sequence
+/// (`ss_phy::init`; socd released the PHY's reset from the tree first): the xHCI's reset
+/// waits on this PHY's PIPE clock, so a PLL that never locks is said — and the controller's
+/// reset that follows measures it.
+fn ss_phy(timer: &mut NotifyTimer) {
+    let slot = slots::xhcid::SS_PHY;
+    let mut info = CapQuery::default();
+    if nexus_abi::cap_query(slot, &mut info).is_err() || info.kind_tag != 2 {
+        emit(format_args!("xhcid: ss phy (no window)"));
+        return;
+    }
+    let window = usize::try_from(info.len).ok().and_then(|len| MmioWindow::map(slot, 0, len).ok());
+    let Some(window) = window else {
+        emit(format_args!("xhcid: ss phy (map FAIL)"));
+        return;
+    };
+    let bus = Mmio::new(window);
+    let words = ss_phy::compare(&bus);
+    let mut line = Line::new();
+    let _ = write!(
+        line,
+        "xhcid: ss phy (stock words {}/{} match",
+        words.matches,
+        ss_phy::SS_STOCK.len()
+    );
+    for (offset, value) in words.diffs() {
+        let _ = write!(line, " {offset:#x}={value:#x}");
+    }
+    let _ = write!(line, ")");
+    line.emit();
+    match ss_phy::init(&bus, |ms| hold(timer, ms)) {
+        Ok(init) if init.pll_ready => emit(format_args!(
+            "xhcid: ss phy pll ready (after {} ms calibrated={} writes={} cfg={:#x})",
+            init.waited_ms,
+            u8::from(init.calibrated),
+            init.writes,
+            init.cfg
+        )),
+        Ok(init) => emit(format_args!(
+            "xhcid: ss phy pll NOT ready (after {} ms calibrated={} writes={} cfg={:#x})",
+            init.waited_ms,
+            u8::from(init.calibrated),
+            init.writes,
+            init.cfg
+        )),
+        Err(ss_phy::SsError::ReadBack(offset, value)) => {
+            emit(format_args!("xhcid: ss phy init FAIL (read-back {offset:#x}={value:#x})"));
+        }
+    }
+}
+
+fn usb2_phy_words(timer: &mut NotifyTimer) {
+    let slot = slots::xhcid::PHY;
+    let mut info = CapQuery::default();
+    if nexus_abi::cap_query(slot, &mut info).is_err() || info.kind_tag != 2 {
+        emit(format_args!("xhcid: usb2 phy (no window)"));
+        return;
+    }
+    let window = usize::try_from(info.len).ok().and_then(|len| MmioWindow::map(slot, 0, len).ok());
+    let Some(window) = window else {
+        emit(format_args!("xhcid: usb2 phy (map FAIL)"));
+        return;
+    };
+    let bus = Mmio::new(window);
+    let words = phy::compare(&bus);
+    let total = phy::STOCK.len();
+    let mut line = Line::new();
+    let _ = write!(line, "xhcid: usb2 phy (stock words {}/{total} match", words.matches);
+    for (offset, value) in words.diffs() {
+        let _ = write!(line, " {offset:#x}={value:#x}");
+    }
+    let _ = write!(line, ")");
+    line.emit();
+    if words.ndiffs == 0 {
+        return;
+    }
+    let set = phy::set_stock(&bus, |ms| hold(timer, ms));
+    match set.failed {
+        None => emit(format_args!(
+            "xhcid: usb2 phy set (writes={} read back, pll wait {} ms)",
+            set.writes, set.pll_wait_ms
+        )),
+        Some((offset, value)) => emit(format_args!(
+            "xhcid: FAIL (step=phy cc=1) {offset:#x}={value:#x} after {} writes, pll wait {} ms",
+            set.writes, set.pll_wait_ms
+        )),
+    }
+    // The PLL's lock (the status word) takes its time: read again after a hold.
+    hold(timer, PHY_SETTLE_MS);
+    let after = phy::compare(&bus);
+    let mut line = Line::new();
+    let _ = write!(
+        line,
+        "xhcid: usb2 phy after {PHY_SETTLE_MS} ms (stock words {}/{total} match",
+        after.matches
+    );
+    for (offset, value) in after.diffs() {
+        let _ = write!(line, " {offset:#x}={value:#x}");
+    }
+    let _ = write!(line, ")");
+    line.emit();
+}
+
+/// The hold after the PHY's words are set (its PLL's lock).
+const PHY_SETTLE_MS: u32 = 20;
 
 /// SUBSCRIBEs on the server endpoint: policy first (`usb.hid` of the kernel-attributed sender,
 /// never a payload), then the class. The answer goes on the moved channel; a frame without one
@@ -288,7 +519,12 @@ pub fn service_main_loop() -> Result<()> {
     // or without one.
     let _ = nexus_service_entry::ready("xhcid: serving (class=hid-boot)");
     let mut sink = OsSink { irq: 0, class: HidClass::new(), full_said: false };
-    let mut controller = controller(&mut waitset, &mut sink);
+    // The board's glue first (TASK-0328 U3): socd brings the host node and the hub up; a
+    // refusal leaves the controller untouched (its window may be gated).
+    let mut controller = match glue::bring_up() {
+        Glue::Failed => None,
+        glued => controller(&mut waitset, &mut timer, &mut sink, glued == Glue::Up),
+    };
     let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
     let mut notification = [0u8; 16];
     loop {
@@ -315,6 +551,8 @@ pub fn service_main_loop() -> Result<()> {
                 }
                 c.xhci.on_interrupt(t, &mut sink);
                 let _ = nexus_abi::irq_complete(c.irq);
+                let done = now();
+                c.rates.add(done, done.saturating_sub(t), c.xhci.take_stats(), &sink.class);
             }
             _ if member == timer_member => {
                 let _ = timer.drain();

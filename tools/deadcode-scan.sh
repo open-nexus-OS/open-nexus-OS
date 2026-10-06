@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-rg -n --no-heading -g '!*target*' -e '#\[allow\((dead_code|unused)[^)]*\)\]' || true
+rg -n --no-heading -g '!*target*' -g '!tools/qemu-src/**' -e '#\[allow\((dead_code|unused)[^)]*\)\]' . || true
 echo "--- allowlist ---"
 test -f config/deadcode.allow && cat config/deadcode.allow || true
 # Fail if any allow(...) not whitelisted (format: <path>:<line> # until:YYYY-MM-DD reason)
-if rg -n -g '!*target*' -e '#\[allow\((dead_code|unused)[^)]*\)\]' | \
+if rg -n -g '!*target*' -g '!tools/qemu-src/**' -e '#\[allow\((dead_code|unused)[^)]*\)\]' . | \
    grep -vFf <(sed -E 's/#.*$//' config/deadcode.allow 2>/dev/null || true) | \
    grep .; then
   echo "[deadcode] unapproved allow(...) found"; exit 1

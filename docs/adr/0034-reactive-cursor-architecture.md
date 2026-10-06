@@ -49,6 +49,23 @@ blanks the **virgl** GL scanout, so Tier 1 is gated to the CPU/mmio scanout
 (`#[cfg(not(feature = "virgl"))]`); virgl keeps the software path, and any arm failure falls back
 to it too — preserving prior behaviour.
 
+### Tier 1b — The display controller's cursor layer (the board) — amendment 2026-10-05, proven on the board 2026-10-06
+
+On the board the display is a controller gpud drives directly (TASK-0251 P2a, `backend::dc`),
+and the same decision holds: the pointer is the controller's own layer, never a present. The
+first desktop on the board (step 2, 2026-10-04) had answered `CURSOR_REPLY_SW` there — every
+pointer move a CPU present at 8–14 Hz, the regression this ADR was written against, on the
+hardware. Measured on the stock system (`docs/board/measurements/2026-10-05-cursor-layer/`):
+the pointer is one DMA channel (2) feeding one composer layer (6) with a 64×64 ARGB8888 block,
+positioned by the layer's rectangle, composited above the desktop's layer 7 (a lower composer
+index lies above). gpud's controller path arms it at `OP_UPLOAD_CURSOR` and replies
+`CURSOR_REPLY_HW` (`gpud: dc cursor layer ok (…)`); `OP_MOVE_CURSOR` writes the channel's
+composer row, the crop and the rectangle and latches config-ready — bus writes only, no
+present; a `BlendCursor` in a present is refused and counted (`gpud: dc refused BlendCursor`,
+forbidden on the board). windowd's side is unchanged: `windowd: hw cursor on`, the 9-byte
+fire-and-forget move per pointer update. The board ladder requires both markers and the
+operator's `board-visual: pointer`.
+
 ### Tier 2 — Correct software fallback (virgl / no HW plane) — planned
 
 When no HW plane is available, the cursor must still not trigger a full scene present. The fallback

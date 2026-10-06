@@ -43,12 +43,32 @@ const HALT_NS: u64 = 20_000_000;
 const RUN_NS: u64 = 20_000_000;
 /// Root ports' power-good after PP (xHCI 1.2 §4.19.4).
 const POWER_NS: u64 = 20_000_000;
-/// IMODI in 250 ns: 1 ms (RFC-0099 §2).
-const IMOD_INTERVAL: u32 = 4000;
+/// IMODI in 250 ns. Was 1 ms (4000); 0 — no moderation — since TASK-0328 U3 cycle 12: the board
+/// woke the driver only ~160 times a second with events pending (cycle 11), and the counters
+/// decide whether the moderation or the wake path set that rate (RFC-0099 Phase 3 keeps the
+/// value the measurement names).
+const IMOD_INTERVAL: u32 = 0;
 /// Events handled per interrupt before ERDP moves (the ring's size).
 const EVENTS_PER_WAKE: usize = EVENT_TRBS;
 /// Port tasks waiting at most.
 const TASKS: usize = 32;
+
+/// What the controller did since the counters were last taken (RFC-0099 Phase 3: the board's
+/// interrupt rate and input loss, printed once a second by the OS loop under traffic).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Stats {
+    /// Interrupts handled (event-ring drains).
+    pub interrupts: u32,
+    /// Events dispatched.
+    pub events: u32,
+    /// The most events one drain dispatched.
+    pub events_per_interrupt_max: u32,
+    /// Boot reports delivered to the sink.
+    pub reports: u32,
+    /// Drains in which an interrupt pipe's every queued TRB had completed: the ring had run
+    /// dry and the device went unpolled until the requeue (reports lost at the device).
+    pub pipes_dry: u32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
@@ -94,6 +114,8 @@ pub struct Xhci<B: Bus, A: DmaAlloc> {
     events: EventRing,
     pub(crate) queue: Queue,
     revisions: [u8; MAX_PORTS],
+    /// USB 3 root ports already said to be left alone (once per link, not per scan).
+    superspeed_said: [bool; MAX_PORTS],
     pub(crate) devices: [Option<Device<A::Mem, A::Cache>>; MAX_DEVICES],
     /// The device on each root port (index = port − 1).
     pub(crate) root: [Option<usize>; MAX_PORTS],
@@ -101,6 +123,10 @@ pub struct Xhci<B: Bus, A: DmaAlloc> {
     task_head: usize,
     task_count: usize,
     pub(crate) active: Option<Active>,
+    pub(crate) stats: Stats,
+    /// The current event-ring drain (counted per interrupt; the pipes note the one they
+    /// completed in).
+    pub(crate) drain: u32,
 }
 
 impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
@@ -119,17 +145,29 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
             events: EventRing::new(EVENT_RING, EVENT_TRBS),
             queue: Queue::new(),
             revisions: [0; MAX_PORTS],
+            superspeed_said: [false; MAX_PORTS],
             devices: core::array::from_fn(|_| None),
             root: [None; MAX_PORTS],
             tasks: [None; TASKS],
             task_head: 0,
             task_count: 0,
             active: None,
+            stats: Stats::default(),
+            drain: 0,
         }
+    }
+
+    /// The counters since they were last taken.
+    pub fn take_stats(&mut self) -> Stats {
+        core::mem::take(&mut self.stats)
     }
 
     /// Begin the bring-up.
     pub fn start(&mut self, now: u64, sink: &mut impl Sink) {
+        // The ports' USB revisions first: a USB 3 root port whose link trains before the run
+        // phase raises its change before `run` read them (board cycle 18: the SuperSpeed hub was
+        // enumerated as a USB 2 device and STALLed its hub descriptor) — the capability is static.
+        self.revisions = self.regs.port_revisions();
         self.phase = Phase::WaitReady { give_up: now + READY_NS, next: now };
         self.step(now, sink);
     }
@@ -208,11 +246,17 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
             self.phase = Phase::Failed;
             return;
         }
+        self.stats.interrupts = self.stats.interrupts.saturating_add(1);
+        self.drain = self.drain.wrapping_add(1);
+        let mut dispatched = 0u32;
         for _ in 0..EVENTS_PER_WAKE {
             let Some(ctrl) = self.ctrl.as_mut() else { return };
             let Some(event) = self.events.next(ctrl) else { break };
+            dispatched += 1;
             self.dispatch(event, now, sink);
         }
+        self.stats.events = self.stats.events.saturating_add(dispatched);
+        self.stats.events_per_interrupt_max = self.stats.events_per_interrupt_max.max(dispatched);
         if let Some(ctrl) = self.ctrl.as_ref() {
             self.regs.set_rt64(ERDP, self.events.dequeue_pointer(ctrl) | ERDP_EHB);
         }
@@ -316,10 +360,23 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
         }
     }
 
-    /// Re-read at the next step, or give up.
+    /// Re-read at the next step, or give up — saying which wait and what the controller's
+    /// words read (the board's diagnosis: a reset that never completes is a PHY without a
+    /// clock).
     fn wait_or_fail(&mut self, give_up: u64, now: u64, sink: &mut impl Sink) {
         if now >= give_up {
-            sink.note(Note::Fail { step: Step::Controller, code: 0 });
+            let phase = match self.phase {
+                Phase::WaitReady { .. } => 1,
+                Phase::Halting { .. } => 2,
+                Phase::Resetting { .. } => 3,
+                _ => 4,
+            };
+            sink.note(Note::ControllerStuck {
+                phase,
+                usbcmd: self.regs.op(USBCMD),
+                usbsts: self.regs.op(USBSTS),
+            });
+            sink.note(Note::Fail { step: Step::Controller, code: phase });
             self.phase = Phase::Failed;
             return;
         }
@@ -394,13 +451,22 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
             connected += 1;
             self.regs.set_portsc(port, port_neutral(sc) | PORT_CSC);
             if self.revisions[usize::from(port) - 1] == 3 {
-                sink.note(Note::SuperSpeedPort { port });
+                self.leave_superspeed(port, sink);
                 continue;
             }
             self.queue_port(PortRef::Root(port), now);
         }
         sink.note(Note::Ready { ports: self.port_count(), connected });
         self.pump(now);
+    }
+
+    /// A USB 3 root port with a link: said once, left alone (RFC-0099 v1).
+    fn leave_superspeed(&mut self, port: u8, sink: &mut impl Sink) {
+        let said = &mut self.superspeed_said[usize::from(port) - 1];
+        if !*said {
+            *said = true;
+            sink.note(Note::SuperSpeedPort { port });
+        }
     }
 
     fn root_port_changed(&mut self, port: u8, now: u64, sink: &mut impl Sink) {
@@ -416,7 +482,7 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
             }
             if sc & PORT_CCS != 0 {
                 if usb3 {
-                    sink.note(Note::SuperSpeedPort { port });
+                    self.leave_superspeed(port, sink);
                 } else {
                     self.queue_port(PortRef::Root(port), now);
                 }

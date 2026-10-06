@@ -427,7 +427,7 @@ pub mod recv_wake_probe {
     pub const REPLY_SEND: u32 = 6;
 }
 
-/// `socd` (RFC-0106): the SoC glue owner. Its six window slots are the fleet
+/// `socd` (RFC-0106): the SoC glue owner. Its seven window slots are the fleet
 /// constant `SYSCON_MMIO_SLOTS`.
 pub mod socd {
     use super::SlotPair;
@@ -441,7 +441,10 @@ pub mod socd {
     /// Log sink (optional target).
     pub const LOGD: SlotPair = SlotPair::new(8, REPLY.recv);
     /// The read-only device tree (the alias the kernel gave init).
-    pub const DEVICE_TREE: u32 = 0x66;
+    pub const DEVICE_TREE: u32 = 0x67;
+    /// The one-shot a bring-up's settle is spent on (TASK-0328 U3: a supply's start-up delay,
+    /// `vbus-delay-ms`) — a kernel timer waited for on its frame, never a spin.
+    pub const TIMER: SlotPair = SlotPair::new(0x69, 0x68);
 }
 
 /// rngd (TASK-0324 P4f-1a). Its policyd leg used to land on 7 or 8 depending on whether logd

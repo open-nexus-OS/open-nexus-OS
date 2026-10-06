@@ -7,6 +7,109 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-05 (TASK-0328 U3: USB on the board — the host node and the on-board hub through socd, the DWC3 in host mode; RFC-0106 amended)
+
+- **socd drives a node's supply lines** (RFC-0106 amendment): the GPIO block is a provider kind
+  (`spacemit,k1-gpio`, granted like the syscons), and a node binding `hub-gpios` / `vbus-gpios` /
+  `vbus-delay-ms` (the stock on-board-hub shape) gets its pads on the GPIO function, each line
+  made an output and driven through the bank's masked set/clear registers (never another
+  writer's lines — the loader and the kernel pulse the LED on the same bank), read back, and
+  the start-up delay spent on socd's new declared one-shot (`Settle`, never a spin). A node may
+  also name whole glue words (`nexus,glue-words = <&provider offset value>`, written after the
+  clocks, read back). Refused before any bus access: a bank or line off the block, a delay over
+  1 s, a settle without a pause, glue words from a provider without cells (`test_reject_*`;
+  nexus-soc 29 tests, the stock board writing nothing, a cold board every line in order).
+- **The board tree**: the USB host's glue word (`0xd4282bc8 = 0x0b008000` as measured), the USB
+  2.0 PHY node, the hub node `/usb-hub` (GPIO 97 VBUS, 123, 124; 200 ms) and its pad group.
+- **xhcid on the board**: reads its tree slot and has socd bring the host node and the hub up
+  before it maps the controller (a refusal leaves the window untouched); puts the DWC3 around
+  the xHCI in host mode (`dwc3.rs`: PRTCAPDIR, the PHY suspend bits the stock tree disables by
+  quirk — exactly the measured words, read back; a window that is no DWC3 refused); compares
+  the USB 2.0 PHY's tuning words with the stock system's twelve (`phy.rs`, nothing written — the
+  first cycle's measurement decides whether a PHY step exists). init grants the host node and
+  the PHY window from the tree (`init: usb host from tree (…)`).
+- **The board ladder** (`board-headless`): the glue, the DWC3, the PHY line, the xHCI as measured
+  (1.10, two ports, 64-byte contexts, one scratchpad, line 125), the high-speed hub with TT, the
+  desk's keyboard and receiver with their boot interfaces, hidrawd's two devices;
+  `board-visible` adds inputd's own `inputd: live pointer route on` / `… keyboard route on` (a
+  real event reached its live routes) and the operator's `board-visual: typed` — Block 2's gate.
+  (A selftest-client probe that polled windowd's visible state for the same was retired in board
+  cycle 16: the topology declares no selftest-client → windowd route, so it observed nothing.) Proven on QEMU (`xhcid: soc glue not needed`); the board cycle is next.
+- **xhcid's stack is a budget**: its state (~22 KiB, no heap) is measured by a test against
+  `stack_pages`; 8 pages overflowed once the glue's frames grew (a user page fault below the
+  stack, found by the `usb` lane) — 16 now hold two copies of the state and every frame.
+- **The SuperSpeed PHY is brought up, not measured** (board cycles 4–9: the xHCI's reset never
+  completed with the PHY block reading zeros — held in PCIe port A's global reset, APMU `0x3cc`
+  bit 8, the one APMU reset whose bit SET asserts; found by reading the vendor PHY/reset drivers
+  as a reference against the stock dumps). The K1 table knows that reset's polarity and PCIe
+  port A's application clocks/resets; the combo PHY node names the reset and its two real glue
+  words (the hold-PHY-reset bit cleared, the lane select), the four guessed words go; xhcid runs
+  the PHY's USB-mode PLL sequence (`ss_phy.rs`: test word, timer, 24 MHz reference, init-done,
+  the lock polled ≤ 500 ms on its one-shot, calibration measured; `xhcid: ss phy pll ready (…)`)
+  and sets the USB 2.0 PHY's words in the vendor init's order (the PLL divider first, the lock
+  waited for; the dump's remaining words compared, never written). The glue summary names
+  every node socd did not bring up. Host tests: nexus-soc 30, xhcid's PHY modules 7
+  (`test_reject_*`: a PLL that never locks, a word that does not read back). **Board cycle 10:
+  USB works** — the PHY released, its PLL locked in 5 ms (calibrated), `controller ok`, the
+  hub, the keyboard and the receiver enumerated, the operator moved the mouse and typed
+  (`docs/board/measurements/2026-10-05-usb-cycle1/`, cycles 1–10 with their gates).
+- **Block 2's gate passed** (2026-10-06, board cycle 20 of 20): `[PASS] board-visible` — 46 rungs,
+  the operator's `desktop` / `typed` / `pointer` acks, no FAIL marker — and `[PASS] board-headless`
+  (38 rungs). TASK-0328 and TASK-0253B are Done; RFC-0099 Phase 3 ✅; the hardware fast track
+  moves to Block 3 (`0074 → 0066 → 0067 → 0067B → 0068`).
+- **`just deadcode` scans the tree now** (2026-10-06): `tools/deadcode-scan.sh` ran `rg` without a
+  path, so with a non-terminal stdin ripgrep read stdin instead of the tree — the gate was inert
+  in CI and hung for good under a never-closing stdin (a `test-all` run from a harness). Both
+  invocations take `.` and exclude the vendored `tools/qemu-src/`; the scan is clean.
+- **A USB 3 root port that trains before the run phase is left alone** (board cycle 18): the
+  ports' USB revisions are read at `start` (the capability is static), not first in `run` — a
+  SuperSpeed hub whose link came up early had been enumerated as a USB 2 device and STALLed the
+  hub-descriptor request; the leave-alone is said once per link; modelled.
+- **The enumeration markers lead with the device** (`xhcid: device enumerated (vid= pid= class=
+  speed= slot= route=)`, `xhcid: hid boot interface (vid= pid= role= if= ep= mps= interval=
+  slot=)`): the slot and route depend on the order the hub's ports answer in (cycle 10
+  enumerated the receiver first and the exact rungs failed a green boot), so the board ladder's
+  rungs now stop before them. The QEMU lane's literals follow the same shape.
+- **xhcid's one-second counters** (RFC-0099 Phase 3, `xhcid: irq hz= events hz= reports hz=
+  per_irq_max= dry= dropped= refused=`): printed under traffic; `dry` counts drains in which an
+  interrupt pipe's every queued TRB had completed — the device went unpolled until the requeue.
+  Cycle 10 measured ≤ 325 reports/s at hidrawd against the stock capture's ~1000/s for the same
+  mouse with nothing dropping between hidrawd and windowd; the counters say where the reports go
+  (modelled: one report per drain, a dry ring of four).
+- **Cycle 11 measured the loss**: `xhcid: irq hz=162 events hz=401 reports hz=401 per_irq_max=4
+  dry=44` under movement — the driver wakes every ~6 ms with events pending and the four queued
+  TRBs run dry 44 times a second (reports lost at the device; nothing between xhcid and windowd
+  drops). Cycle 12: eight TRBs per pipe (RFC-0099 §Bounded resources; xhcid's `stack_pages`
+  16 → 24, the budget test now encodes the rule), `IMODI = 0`, and the drain's own cost in the
+  line (`drain_us avg= max=`) — the interrupt rate against the report rate decides whether the
+  moderation or the kernel's wake path sets the interval.
+- **The pointer is the display controller's layer on the board** (TASK-0251 P2a step 3c, pulled
+  into the USB lane: "no parallel implementations, no dead paths"). Measured on the stock system
+  (`docs/board/measurements/2026-10-05-cursor-layer/`: DRM plane-1 ARGB8888 64×64 pitch 256 =
+  RDMA channel 2 → composer layer 6, blend mode 5, alpha factor 10; a move is the layer's
+  rectangle). `nexus_gfx::backend::dc`: `cursor_layer_on` / `cursor_move` / `cursor_layer_off` /
+  `cursor_rect` (the sprite's hotspot at the pointer, clipped to the mode, cropped at the left/top
+  edge) / `lay_cursor` (a sprite into the 64×64 block) — goldens against the measured words.
+  gpud's controller path: a 16 KiB block for the controller (`dc/cursor.rs`), `OP_UPLOAD_CURSOR`
+  arms the layer and answers `CURSOR_REPLY_HW` (`gpud: dc cursor layer ok (…readback N/N)`),
+  `OP_MOVE_CURSOR` writes the rectangle and config-ready (no present), a shape select re-lays
+  the block; the path's software pointer is deleted — a `BlendCursor` in a present is refused
+  (`gpud: dc refused BlendCursor`, forbidden on the board). The board ladder requires the layer
+  and `windowd: hw cursor on`; the operator acks `board-visual: pointer` (the arrow follows at
+  once). Board cycle 12: the two word groups the stock dump holds beyond the desktop channel's
+  set are channel state (they took only once the channel ran) — not written any more; the
+  arming latches like the proven plane switch; a `BlendCursor` is skipped and counted, never
+  fails the present; a pointer census after the arming (`gpud: dc census pointer+…`) is the
+  witness when the eye sees nothing. inputd's rate line carries the relative travel per second
+  (`travel dx= dy= rel=`, aggregates only). Cycle 13: the channel's composer row (`+0x04`,
+  the vendor header's `compsr_y_offset`, read as a name) written per move; the layer armed and
+  running — and under the desktop: first light had put the desktop on the loader's composer
+  layer 0, and a lower index composites above. **The desktop now runs on the stock kernel's
+  layer 7** (`0x4d18 = 0x3`, blend mode 1, `0x4d34 = 0x00ff0037`; the goldens follow), layer 0
+  switched off at the bring-up, the pointer on layer 6 above it. USB in the same cycle: ~1 kHz
+  reaches xhcid (`irq hz=915 reports hz=953 dry=1`), inputd's travel shows the device's whole
+  counts (~1.8 per report) — the pointer's speed is now a scaling question, not a loss.
+
 ### Added - 2026-10-05 (TASK-0328 U2 / TASK-0253B: USB HID input — xhcid serves the HID boot class, hidrawd is one loop over its sources; the `usb-visible` lane)
 
 - **The desktop driven over USB alone** (RFC-0099 Phase 2): the new `usb-visible` lane (`just

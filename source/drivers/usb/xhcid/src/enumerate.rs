@@ -363,6 +363,8 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
                     head: 0,
                     next_buffer: 0,
                     errors: 0,
+                    drain: 0,
+                    drained: 0,
                 }
             });
         }

@@ -12,13 +12,29 @@ extern crate alloc;
 
 use alloc::format;
 
+use core::cell::RefCell;
+
 use nexus_abi::yield_;
 use nexus_driverkit::MmioSet;
 use nexus_fdt::Fdt;
+use nexus_ipc::timer::NotifyTimer;
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_service_topology::{slots, SYSCON_MMIO_SLOTS};
-use nexus_soc::{Provider, ProviderKind, Providers};
+use nexus_soc::{Pause, Provider, ProviderKind, Providers};
 use nexus_wire::soc;
+
+/// A bring-up's settle (TASK-0328 U3: a supply's start-up delay) spent on socd's declared
+/// kernel one-shot, waited for on its frame — never a spin. Without the timer (its bind
+/// failed) no pause exists and a plan with a settle faults honestly (`step=settle`).
+struct OneShot(RefCell<NotifyTimer>);
+
+impl Pause for OneShot {
+    fn pause_ms(&self, ms: u32) {
+        let mut timer = self.0.borrow_mut();
+        timer.arm_in(u64::from(ms) * 1_000_000);
+        let _ = timer.wait_fired();
+    }
+}
 
 /// The grant's granularity (RFC-0017).
 const PAGE: usize = 4096;
@@ -37,18 +53,23 @@ fn emit(line: &str) {
 /// mapped: the providers (the block's address inside its window, for the plans) and the
 /// windows as one bus (bounds-checked; an address outside every window floats). A kind the
 /// tree does not list has an empty slot and is skipped.
-fn map_providers(tree: Option<&Fdt<'_>>) -> (Providers, MmioSet<6>) {
-    const KINDS: [ProviderKind; 6] = [
+fn map_providers(
+    tree: Option<&Fdt<'_>>,
+) -> (Providers, MmioSet<{ ProviderKind::COUNT }>, [usize; ProviderKind::COUNT]) {
+    const KINDS: [ProviderKind; ProviderKind::COUNT] = [
         ProviderKind::Apbc,
         ProviderKind::Apmu,
         ProviderKind::Mpmu,
         ProviderKind::Apbc2,
         ProviderKind::Pll,
         ProviderKind::Pinctrl,
+        ProviderKind::Gpio,
     ];
     let mut providers = Providers::new();
     let mut windows = MmioSet::new();
-    let Some(tree) = tree else { return (providers, windows) };
+    // Each block's size as the tree names it (the stock comparison reads inside it).
+    let mut sizes = [0usize; ProviderKind::COUNT];
+    let Some(tree) = tree else { return (providers, windows, sizes) };
     for kind in KINDS {
         // Only a kind the tree names is expected in its slot.
         let Some(node) = tree.all_nodes().find(|n| ProviderKind::of(*n) == Some(kind)) else {
@@ -57,7 +78,9 @@ fn map_providers(tree: Option<&Fdt<'_>>) -> (Providers, MmioSet<6>) {
         // The grant covers the pages the block's registers occupy (init's `window_of`);
         // the block itself may start inside its page (the APMU at 0xd4282800) — the
         // offset is the tree's, read here from the same node (TASK-0260B P3).
-        let offset = node.reg(0).ok().flatten().map_or(0, |r| (r.addr % PAGE as u64) as usize);
+        let reg = node.reg(0).ok().flatten();
+        let offset = reg.map_or(0, |r| (r.addr % PAGE as u64) as usize);
+        sizes[kind as usize] = reg.map_or(0, |r| usize::try_from(r.size).unwrap_or(0));
         let slot = SYSCON_MMIO_SLOTS[kind as usize];
         let mut info = nexus_abi::CapQuery::default();
         if nexus_abi::cap_query(slot, &mut info).is_err() || info.kind_tag != 2 {
@@ -73,7 +96,7 @@ fn map_providers(tree: Option<&Fdt<'_>>) -> (Providers, MmioSet<6>) {
             Err(_) => emit(&format!("socd: window for {:?} map FAIL", kind)),
         }
     }
-    (providers, windows)
+    (providers, windows, sizes)
 }
 
 /// socd's server on the slots init pins for it — the only source (no route ask: the core
@@ -102,7 +125,17 @@ fn access_of(sender_service_id: u64) -> Access {
 pub fn service_main_loop() -> Result<()> {
     let tree_bytes = nexus_abi::device_tree::map_read_only(slots::socd::DEVICE_TREE);
     let tree = tree_bytes.and_then(|b| Fdt::new(b).ok());
-    let (providers, bus) = map_providers(tree.as_ref());
+    let (providers, bus, sizes) = map_providers(tree.as_ref());
+    // A measurement (TASK-0328 U3): the loader's SoC state against the stock system's, before
+    // any bring-up — the words that differ name the gates our tables do not cover.
+    for (kind, name, dump) in [
+        (ProviderKind::Apmu, "apmu", crate::stock::APMU),
+        (ProviderKind::Mpmu, "mpmu", crate::stock::MPMU),
+    ] {
+        if let Some(p) = providers.get(kind) {
+            crate::stock::report(name, p.base, sizes[kind as usize], dump, &bus, emit);
+        }
+    }
 
     if providers.count() == 0 {
         let _ = nexus_service_entry::ready("socd: ready (no soc glue in this tree)");
@@ -112,6 +145,11 @@ pub fn service_main_loop() -> Result<()> {
     }
 
     let server = declared_server().ok_or("server slots missing")?;
+    let one_shot = NotifyTimer::bind(slots::socd::TIMER).ok().map(|t| OneShot(RefCell::new(t)));
+    if one_shot.is_none() {
+        emit("socd: settle timer FAIL (a bring-up with a start-up delay will fail)");
+    }
+    let pause = one_shot.as_ref().map(|p| p as &dyn Pause);
     nexus_abi::service_verdict_flush("socd");
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
@@ -129,8 +167,15 @@ pub fn service_main_loop() -> Result<()> {
                 } else {
                     Access::Denied
                 };
-                let (n, outcome) =
-                    verdict::answer(frame, access, tree.as_ref(), &providers, &bus, &mut out);
+                let (n, outcome) = verdict::answer(
+                    frame,
+                    access,
+                    tree.as_ref(),
+                    &providers,
+                    &bus,
+                    pause,
+                    &mut out,
+                );
                 if let Some((_, path)) = soc::decode_bring_up_req(frame) {
                     emit(verdict::bring_up_marker(path, &outcome).as_str());
                 }

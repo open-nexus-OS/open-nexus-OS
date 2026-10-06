@@ -113,3 +113,67 @@ driver; add a new one the day it is won, with its reference, never from memory.
   socd powered and clocked it would let the driver's first read stall the bus — a tree node joins
   its plane together with its glue, never ahead of it.
 
+- **The board ladder's mirror check wants the rung whole** (2026-10-05): `board-test.sh` greps each
+  ladder literal inside the manifest's declared markers — a rung with exact values (`xhcid:
+  controller ok (version=1.10 …)`) is not covered by its prefix marker (`xhcid: controller ok (`);
+  declare the full line (gated on the board profile) or the ladder fails before it judges.
+- **A supply is glue, and it waits** (2026-10-05): an on-board hub's power lines are GPIO outputs
+  with a measured start-up delay; the glue owner drives them through the bank's masked set
+  registers (the loader and the kernel pulse the LED on the same bank — no read-modify-write of
+  another writer's lines) and spends the delay on its kernel one-shot. A plan with a settle and no
+  timer must fail (`step=settle`), never silently skip the wait.
+- **A node without registers is not a bus device** (2026-10-05): `dtc` warns (`simple_bus_reg`)
+  for a hub or regulator node under `/soc`; it belongs at the root, like a regulator.
+- **A heap-less driver's state is a stack budget** (2026-10-05): xhcid's 22 KiB of device table
+  and rings live on its stack, and a by-value move out of a bring-up function holds two copies;
+  8 pages held until one more frame tipped it (`[USER-PF] STORE` just below the stack, the
+  service exits with `reason=fault`). Measure `size_of` the state in a test, set `stack_pages`
+  from it, and read a service exit with a stack-adjacent fault address as an overflow first.
+- **`just board-image` packs, it does not build** (2026-10-05): it takes "the artifacts the
+  last OS build left" — a cycle flashed after a code change without `just build-os-workspace`
+  boots the previous OS volume and repeats the previous result (USB cycle 2 was cycle 1
+  again). Always `just build-os-workspace && just board-image`; after flashing, `scripts/
+  board-flash.sh --verify` only matches before the OS has booted (it writes its own regions).
+- **Read the vendor driver before the tenth cycle, not after** (2026-10-05): nine USB cycles
+  measured one glue word each; the vendor PHY and reset tables (names and bits only) named the
+  gate in one reading — a PHY held in a reset whose polarity is the one inverted entry of its
+  table (`0x3cc` bit 8: SET = held). A block that reads all zeros is in reset or unclocked;
+  look for its reset before its clocks.
+- **An armed layer that shows nothing: read the composer's z-order** (2026-10-06): the pointer
+  layer was programmed, running (its state words appeared) and read back — under the desktop,
+  which first light had put on composer layer 0. A lower layer index composites ABOVE a higher
+  one on this controller; the stock desktop runs on layer 7 under the pointer's 6. Put the
+  desktop where the stock puts it.
+- **Not every word of a stock dump is glue** (2026-10-05): a running channel shows state
+  words (`0xcc`, `0xe0..=0xfc`) that a fresh channel refuses to take (read back unchanged); the
+  desktop's own channel holds neither. Compare the channel against a sibling channel before
+  copying a word; write what a vendor driver writes, read back what a running block shows.
+- **A channel has a composer row** (2026-10-06): the DMA channel's `+0x04` (`compsr_y_offset`)
+  is the row of the composer its first line lands on — write it with the layer's top on every
+  move, or the layer shows nothing (the vendor header named it; the dump showed it as `971`).
+- **A forbidden marker must not fire on the path's own start** (2026-10-06): the first
+  present carries windowd's software pointer before the overlay is armed (ADR-0034 restores
+  that region after); refusing it whole stopped the desktop, and naming it tripped the
+  forbidden gate on a correct boot. Skip and count before the arming, name it only after.
+- **A human's wait is longer than a lane's** (2026-10-06): a 60 s bounded wait for the
+  operator's first mouse move ran out during the SD swap and reset; the probe polls 180 s now.
+- **Interrupt pipes run dry at the driver's wake interval, not the device's** (2026-10-05): four
+  queued TRBs covered 4 ms; the board woke the driver every ~6 ms under load (`dry=44/s`,
+  reports lost at the device, "the mouse moves very slowly"). Count the drains that find a
+  pipe's every TRB complete and print them per second; eight TRBs covered it.
+- **A byte-wise marker never reaches the board's trace** (2026-10-06): the kernel's
+  `debug_putc` writes the raw UART only (`sys_debug_putc` → `uart::raw_writer()`), while
+  `debug_write` goes through the console line funnel the eMMC trace records. On the desk with
+  no UART adapter, a marker emitted byte by byte (`emit_bytes` + `emit_u64`) is on no trace at
+  all — cycle 15's `SELFTEST: input usb hid ok (…)` — while the `FAIL` line of the cycle
+  before, emitted whole, was. Build a marker line whole and emit it in one write; grep the
+  selftest-client for `emit_bytes(` when a board marker goes missing.
+- **A gate that reads stdin is no gate** (2026-10-06): `tools/deadcode-scan.sh` ran `rg` with
+  no path — under a terminal it scans the tree, under a harness it reads stdin: inert in CI
+  ("`just deadcode` can never fail", noted 2026-07-31) and hung for 80 minutes under a
+  never-closing stdin. A scanner names its path; run a gate once with `< /dev/null` to see
+  what it really does.
+- **Read the static capabilities at start, not at run** (2026-10-06): the USB 3 root port's
+  link can train before the driver's run phase; its change arrived with the ports' revisions
+  still unread, and the SuperSpeed hub was enumerated as a USB 2 device. Anything an event
+  handler consults must be known before the first event can arrive.

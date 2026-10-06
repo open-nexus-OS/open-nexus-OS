@@ -16,42 +16,42 @@
 [marker."init: usb host from pci ("]
 phase = "bringup"
 proves = "TASK-0328 U1: init found the xHCI host controller (class 0c03, interface 30) behind the tree's ECAM host and placed it; xhcid is granted its window and bus mastering follows the grant"
-emit_when = { profile = ["usb", "usb-visible"] }
+emit_when = { profile = ["usb", "usb-visible", "board-headless"] }
 
 [marker."init: usb plane none ("]
 phase = "bringup"
 proves = "TASK-0328 U1: the machine has no USB host controller init grants (QEMU without qemu-xhci; the board until U3 brings its node up through socd)"
-forbidden_when = { profile = ["usb", "usb-visible"] }
+forbidden_when = { profile = ["usb", "usb-visible", "board-headless", "board-visible"] }
 
 [marker."xhcid: no host controller (usb plane none)"]
 phase = "bringup"
 proves = "TASK-0328 U1: xhcid holds no controller window and parks on its waitset (no polling, no FAIL)"
-forbidden_when = { profile = ["usb", "usb-visible"] }
+forbidden_when = { profile = ["usb", "usb-visible", "board-headless", "board-visible"] }
 
 [marker."xhcid: controller ok ("]
 phase = "bringup"
 proves = "RFC-0099 §4: the controller was reset, set up (DCBAA, command ring, event ring, interrupter) and runs (HCH clear) with its line bound"
-emit_when = { profile = ["usb", "usb-visible"] }
+emit_when = { profile = ["usb", "usb-visible", "board-headless"] }
 
 [marker."xhcid: ready ("]
 phase = "bringup"
 proves = "RFC-0099 §4: every root port powered and scanned; enumeration begins"
-emit_when = { profile = ["usb", "usb-visible"] }
+emit_when = { profile = ["usb", "usb-visible", "board-headless"] }
 
 [marker."xhcid: hub ("]
 phase = "bringup"
 proves = "RFC-0099 §4: a hub is configured (its slot carries hub fields), its ports powered past their power-good time, its status-change pipe running"
-emit_when = { profile = ["usb", "usb-visible"] }
+emit_when = { profile = ["usb", "usb-visible", "board-headless"] }
 
 [marker."xhcid: device enumerated ("]
 phase = "bringup"
 proves = "RFC-0099 §4: a device got a slot and an address and its device and configuration descriptors passed nexus-usb's bounds"
-emit_when = { profile = ["usb", "usb-visible"] }
+emit_when = { profile = ["usb", "usb-visible", "board-headless"] }
 
 [marker."xhcid: hid boot interface ("]
 phase = "bringup"
 proves = "RFC-0099 §4: a HID boot interface is in the boot protocol and its interrupt pipe has its TRBs queued"
-emit_when = { profile = ["usb", "usb-visible"] }
+emit_when = { profile = ["usb", "usb-visible", "board-headless"] }
 
 # --- TASK-0253B: the HID boot class (RFC-0099 §5) -------------------------------------------------
 
@@ -66,12 +66,12 @@ proves = "RFC-0099 §5: a SUBSCRIBE arrived with its push channel and policyd gr
 [marker."xhcid: hid class subscriber refused ("]
 phase = "bringup"
 proves = "RFC-0099 §5: a SUBSCRIBE was refused (malformed, an unknown class, or the sender lacks `usb.hid`) — answered on its own channel, the subscription untouched"
-forbidden_when = { profile = ["usb", "usb-visible"] }
+forbidden_when = { profile = ["usb", "usb-visible", "board-headless", "board-visible"] }
 
 [marker."xhcid: hid interface lost ("]
 phase = "bringup"
 proves = "RFC-0099 §5: a HID interface's pipe was given up after repeated errors; its client was told the interface is gone"
-forbidden_when = { profile = ["usb", "usb-visible"] }
+forbidden_when = { profile = ["usb", "usb-visible", "board-headless", "board-visible"] }
 
 [marker."hidrawd: usb hid subscribed"]
 phase = "bringup"
@@ -80,14 +80,90 @@ proves = "TASK-0253B: hidrawd's SUBSCRIBE (its push channel's SEND half moved to
 [marker."hidrawd: usb hid device ("]
 phase = "bringup"
 proves = "TASK-0253B: xhcid attached a HID boot interface and hidrawd registered its parser (keyboard or mouse) under a device name of its own"
-emit_when = { profile = ["usb", "usb-visible"] }
+emit_when = { profile = ["usb", "usb-visible", "board-headless"] }
 
 [marker."hidrawd: usb hid report seen"]
 phase = "bringup"
 proves = "TASK-0253B: a boot report from a USB device reached hidrawd through xhcid's push channel and its parser"
-emit_when = { profile = ["usb", "usb-visible"] }
+emit_when = { profile = ["usb", "usb-visible", "board-headless"] }
 
 [marker."hidrawd: usb hid frame rejected ("]
 phase = "bringup"
 proves = "TASK-0253B: a frame on the push channel was refused whole (not xhcid's, malformed, an unknown device, a role or table bound)"
-forbidden_when = { profile = ["usb", "usb-visible"] }
+forbidden_when = { profile = ["usb", "usb-visible", "board-headless", "board-visible"] }
+
+# --- TASK-0328 U3: the board's glue (RFC-0099 §6) -----------------------------------------------
+
+[marker."xhcid: soc glue not needed ("]
+phase = "bringup"
+proves = "TASK-0328 U3: the tree names no DWC3 host node (QEMU's PCI controller): nothing for socd to bring up"
+forbidden_when = { profile = ["board-headless", "board-visible"] }
+
+[marker."xhcid: soc glue ok (host + hub up through socd)"]
+phase = "bringup"
+proves = "TASK-0328 U3 (RFC-0106): socd brought the host node (resets, clock, the glue word) and the on-board hub (pads, lines, the VBUS delay) up before xhcid touched the controller"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: dwc3 host ("]
+phase = "bringup"
+proves = "TASK-0328 U3: the DWC3 around the board's xHCI identified itself (GSNPSID) and is in host mode with its PHYs never suspended — each word before and after, the writes it took (0 = the loader left it so)"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: usb2 phy ("]
+phase = "bringup"
+proves = "TASK-0328 U3 (the first cycle's measurement): the USB 2.0 PHY's tuning words read under our chain against the stock system's twelve — how many match, which differs first; nothing written"
+emit_when = { profile = "board-headless" }
+
+[marker."init: usb host from tree ("]
+phase = "bringup"
+proves = "TASK-0328 U3: init found the DWC3 host node (`snps,dwc3`, host mode) and the USB 2.0 PHY node in the tree and granted both windows to xhcid"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: usb2 phy set ("]
+phase = "bringup"
+proves = "TASK-0328 U3 (RFC-0099 §6, the PHY step): the USB 2.0 PHY's words that differed from the stock system's were written to them in the vendor init's order (the PLL divider first, the lock waited for) and read back, before the DWC3 and the controller"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: controller stuck ("]
+phase = "bringup"
+proves = "a controller wait ran out — which (1 ready, 2 halt, 3 reset, 4 start) and the command and status words read last; the `xhcid: FAIL (step=controller cc=<phase>)` that follows fails the lane"
+forbidden_when = { profile = ["usb", "usb-visible", "board-headless", "board-visible"] }
+
+[marker."xhcid: usb2 phy after "]
+phase = "bringup"
+proves = "TASK-0328 U3: the USB 2.0 PHY's words read again after the hold that follows the step (its status word shows the PLL's lock, or not)"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: ss phy ("]
+phase = "bringup"
+proves = "TASK-0328 U3 (a measurement): the SuperSpeed PHY's words against the stock system's twenty-three before its PLL sequence runs — whether socd's release of its reset made the block answer"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: irq hz="]
+phase = "bringup"
+proves = "TASK-0328 U3 (RFC-0099 Phase 3, telemetry): the controller's one-second counters under traffic — interrupts, events, boot reports, the fullest drain, drains that found a pipe's ring run dry (reports lost at the device), the class server's drop/refuse totals"
+
+[marker."xhcid: ss phy pll ready ("]
+phase = "bringup"
+proves = "TASK-0328 U3 (RFC-0099 §6, board cycle 10): the SuperSpeed PHY's USB-mode PLL sequence ran (test word, timer, 24 MHz reference, init-done; every write read back) and the PLL reported locked within the bound — the PIPE clock the xHCI's reset waits on; the line says whether the loader left the PHY calibrated"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: ss phy pll NOT ready ("]
+phase = "bringup"
+proves = "the SuperSpeed PHY's PLL did not lock within 500 ms (its configuration word as left): the controller's reset that follows measures it"
+forbidden_when = { profile = ["board-headless", "board-visible"] }
+
+[marker."xhcid: ss phy init FAIL ("]
+phase = "bringup"
+proves = "a SuperSpeed PHY word did not take the write (the block held in reset reads zeros): the sequence stopped at it"
+forbidden_when = { profile = ["board-headless", "board-visible"] }
+
+[marker."xhcid: dwc3 reset ok ("]
+phase = "bringup"
+proves = "TASK-0328 U3: the DWC3 core soft reset the dwc3 driver does first — core and both PHYs held, released in order with two bounded holds on xhcid's one-shot, every write read back"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: soc glue (host up through socd; not up:"]
+phase = "bringup"
+proves = "TASK-0328 U3: socd brought the host node up but refused or failed the named nodes' (a PHY, the hub) — the controller's own bring-up goes on (a measurement), no device can show"
+forbidden_when = { profile = ["board-headless", "board-visible"] }

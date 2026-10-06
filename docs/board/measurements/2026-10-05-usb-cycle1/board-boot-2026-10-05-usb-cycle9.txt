@@ -1,0 +1,1401 @@
+nxboot: platform=bananapi,bpi-f3 tree=0x26c000 size=17472
+nxboot: watchdog off (0xd4080000 was=0x0)
+nxboot: cores awake (apmu=0xd4282800 cores=8 was=0x0)
+nxboot: boot led ok (gpio=0xd4019000 bank=3 line=0)
+nxboot: disk sdhci mode=hs52 bus=8
+nxboot: trace slot=1 seq=2
+nxboot: dram probe lost
+nxboot: rescue ok (seq=1 bytes=0 lost=0)
+nxboot: bsb ok (slot=a seq=2)
+nxboot: verify ok (slot=a build=dev-6bed rbidx=1)
+nxboot: fdt ok (harts=8 tb=24000000Hz slot=a disk=/soc/storage-bus/mmc@d4281000)
+nxboot: jump slot=a base=0x400000
+[INFO boot] boot: ok
+[INFO boot] KINIT: milestone 1 at 1033 ms (uart stalls=0)
+[INFO boot] traps: ok
+[INFO boot] KINIT: mm frames (banks=2 total=1043835 free=1043835 reserved=256 excluded=4613)
+[INFO boot] KINIT: kernel high half (base=0xffffffc000400000 load=0x400000 len=0x11ff940)
+[INFO boot] KINIT: milestone 2 at 1055 ms (uart stalls=0)
+[INFO boot] boot: returning to wrapper
+[INFO selftest] KSELFTEST: boot handoff ok (measured)
+[INFO boot] neuron: boot handoff slot=a rbidx=1 seq=2 (qemu-soft-root)
+[INFO boot] KINIT: milestone 3 at 1075 ms (uart stalls=0)
+[INFO as] AS: trampoline enter val=0x8000100000000246
+AS: post-satp OK
+[INFO selftest] KSELFTEST: platform from fdt ok (uart=0xd4017000 plic=0xe0000000 ndev=159 tb=24000000Hz harts=8 banks=2 boot_hart=0 timer=sstc ticks_per_us=24 chosen.slot=a chosen.profile=- chosen.display=-)
+[INFO selftest] KSELFTEST: kernel image ok (base=0x400000 va=0xffffffc000400000 len=0x11ff940 relocs=1106)
+[INFO mm] KINIT: mm frames in use (free=1043826 allocs=9 frees=0 pt_live=9 vmos=0 vmo_bytes=0)
+SCHED: timeslice=1000000
+SCHED: new exit
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO smp] KINIT: cpu0 online
+[INFO boot] KINIT: milestone 4 at 1138 ms (uart stalls=0)
+[INFO smp] KINIT: cpu1 online
+[INFO smp] KINIT: cpu2 online
+[INFO smp] KGATE: smp hart1 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KINIT: cpu3 online
+[INFO smp] KGATE: smp hart2 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp hart3 online=1 asm=1 stage=4 hsm=0
+[INFO smp] KGATE: smp bringup ok mask=0xf
+[INFO boot] KINIT: milestone 5 at 1171 ms (uart stalls=0)
+
+     _ __   ___ _   _ _ __ ___  _ __
+    | '_ \ / _ \ | | | '__/ _ \| '_ \
+    | | | |  __/ |_| | | | (_) | | | |
+    |_| |_|\___|\__,_|_|  \___/|_| |_|
+
+    neuron vers. 0.1.0  ·  One OS. Many Devices.
+
+[INFO boot] KINIT: milestone 6 at 1195 ms (uart stalls=0)
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO selftest] KSELFTEST: as create ok
+[INFO selftest] KSELFTEST: vmo zero ok
+[INFO selftest] KSELFTEST: userptr guard ok
+[INFO selftest] KSELFTEST: as map ok
+[INFO selftest] KSELFTEST: vm map ok
+[INFO smp] KINIT: cpu1 ssoft trap
+[INFO selftest] KSELFTEST: vm unmap ok
+[INFO smp] KINIT: cpu1 ssoft trap
+[ERROR pt] VA-FIXED-REFUSED va=0x51000000 (managed window or tracked region)
+[INFO smp] KINIT: cpu3 ssoft trap
+[INFO selftest] KSELFTEST: vm map reject ok
+[INFO smp] KINIT: cpu2 ssoft trap
+[INFO selftest] KSELFTEST: vmo runs ok (runs=2 deny=4)
+[INFO selftest] KSELFTEST: vmo reach ok (window=0x7c000000+0x4000000 bus=0x4000000000 runs=1 deny=2)
+[INFO selftest] KSELFTEST: no child progress yet pid=1 satp=0x8000100000000246
+[INFO selftest] KSELFTEST: direct-run begin
+[INFO as] AS: trampoline enter val=0x800020000000024e
+AS: post-satp OK
+[INFO selftest] KSELFTEST: direct-run set SUM
+[INFO selftest] KSELFTEST: direct-run calling entry sp=0x40000000
+[INFO selftest] KSELFTEST: direct call begin
+[INFO selftest] KSELFTEST: child entry
+[INFO selftest] KSELFTEST: child newas running
+[INFO selftest] KSELFTEST: child exit
+[INFO selftest] KSELFTEST: direct call return
+[INFO selftest] KSELFTEST: returned from child entry
+[INFO as] AS: trampoline enter val=0x8000100000000246
+AS: post-satp OK
+[INFO selftest] KSELFTEST: spawn ok
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO selftest] KSELFTEST: w^x enforced
+[INFO selftest] KSELFTEST: ipc queue full ok
+[INFO selftest] KSELFTEST: ipc bytes full ok
+[INFO selftest] KSELFTEST: ipc global bytes budget ok
+[INFO selftest] KSELFTEST: ipc owner bytes budget ok
+[INFO selftest] KSELFTEST: ipc recv waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send waiter fifo ok
+[INFO selftest] KSELFTEST: ipc send unblock ok
+[INFO selftest] KSELFTEST: ipc endpoint quota ok (created=384)
+[INFO selftest] KSELFTEST: ipc close wakes ok
+[INFO selftest] KSELFTEST: ipc owner-exit wakes ok
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO selftest] KSELFTEST: timer cap lifecycle ok
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO selftest] KSELFTEST: waitset wake ok
+[INFO selftest] KSELFTEST: waitset timeout ok
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO selftest] KSELFTEST: fence wait ok
+[INFO selftest] KSELFTEST: fence timeout ok
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO selftest] KSELFTEST: fence transfer ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason invalid-payload ok
+[INFO selftest] KSELFTEST: spawn reason oom ok
+[INFO selftest] KSELFTEST: spawn reason cap-table-full ok
+[INFO selftest] KSELFTEST: spawn reason endpoint-quota ok
+[INFO selftest] KSELFTEST: spawn reason map-failed ok
+[INFO selftest] KSELFTEST: spawn reasons ok
+[INFO selftest] KSELFTEST: resource sentinel ok
+[INFO selftest] KSELFTEST: cpuid tp ok
+[INFO selftest] KSELFTEST: cpuid fallback counterfactual ok
+[INFO selftest] KSELFTEST: sched affinity reject ok
+[INFO selftest] KSELFTEST: sched abi ok
+[INFO selftest] KSELFTEST: smp online ok
+[INFO selftest] KSELFTEST: kernel lock contention bounded ok
+[INFO selftest] KSELFTEST: ipi counterfactual ok
+[INFO selftest] KSELFTEST: ipi resched ok
+[INFO selftest] KSELFTEST: test_reject_invalid_ipi_target_cpu ok
+[INFO selftest] KSELFTEST: test_reject_offline_cpu_resched ok
+[INFO selftest] KSELFTEST: runtime ipi budget ok
+[INFO selftest] KSELFTEST: runtime stress ok
+[INFO selftest] KSELFTEST: work stealing ok
+[INFO selftest] KSELFTEST: edt arm ok
+[INFO selftest] KSELFTEST: steal park ok
+[INFO selftest] KSELFTEST: test_reject_steal_above_bound ok
+[INFO selftest] KSELFTEST: test_reject_steal_higher_qos ok
+[INFO selftest] KSELFTEST: tlb shootdown counterfactual ok
+[INFO selftest] KSELFTEST: tlb shootdown ok
+[INFO selftest] KSELFTEST: sched affinity clamp ok
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO selftest] KSELFTEST: exit ok
+[INFO selftest] KSELFTEST: wait ok
+[INFO boot] KINIT: milestone 7 at 1586 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: spawn init begin
+SYSCALL install debug_putc=0xffffffc00044883e
+SYSCALL install ep_create=0xffffffc000442016
+[INFO boot] KINIT: milestone 8 at 1603 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10400000 memsz=0x2e9c4 flags=0x5
+[INFO selftest] KSELFTEST: map flags bits=0x1b
+[INFO selftest] KSELFTEST: segment copied (pages=47 first_pa=0x26f000 last_pa=0x21f000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x1042e9c8 memsz=0x86c83c flags=0x4
+[INFO selftest] KSELFTEST: map flags bits=0x13
+[INFO selftest] KSELFTEST: shared page va=0x1042e000 entry=0x87c5b pa=0x21f000
+[INFO selftest] KSELFTEST: shared page copied va=0x1042e000
+[INFO selftest] KSELFTEST: segment copied (pages=2157 first_pa=0x220000 last_pa=0x1b50000)
+[INFO selftest] KSELFTEST: PT_LOAD segment vaddr=0x10c9b204 memsz=0x80dfd flags=0x6
+[INFO selftest] KSELFTEST: map flags bits=0x17
+[INFO selftest] KSELFTEST: shared page va=0x10c9b000 entry=0x6d4053 pa=0x1b50000
+[INFO selftest] KSELFTEST: shared page copied va=0x10c9b000
+[INFO selftest] KSELFTEST: segment copied (pages=129 first_pa=0x1b51000 last_pa=0x1bd1000)
+[INFO boot] KINIT: milestone 9 at 1697 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: derived gp=0x10c9ba04 from .sdata/.data
+[INFO selftest] KSELFTEST: init loaded entry=0x10400000 sp=0x20008000 gp=0x10c9ba04
+[INFO selftest] KSELFTEST: spawn ok pid=17
+[INFO boot] KINIT: milestone 10 at 1719 ms (uart stalls=0)
+[INFO selftest] KSELFTEST: init spawned successfully
+[INFO selftest] KSELFTEST: returning to idle loop for scheduling
+[INFO smp] KSELFTEST: plic ctx cpu0 ok
+[INFO smp] KSELFTEST: plic ctx cpu1 ok
+[INFO smp] KSELFTEST: plic ctx cpu2 ok
+[INFO smp] KSELFTEST: plic ctx cpu3 ok
+[INFO smp] KSELFTEST: plic isolation ok
+[INFO smp] KINIT: timer sstc
+[INFO smp] KINIT: user cache maintenance zicbom block=64
+[INFO boot] KINIT: milestone 11 at 1761 ms (uart stalls=0)
+[INFO boot] KINIT: irq state before runtime sstatus=0x8000000200006622 sie=0x220 sip=0x0
+[INFO smp] KINIT: cpu1 sched loop
+[INFO smp] KINIT: cpu2 sched loop
+[INFO smp] KINIT: cpu3 sched loop
+[INFO smp] KINIT: cpu0 sched loop
+[INFO smp] KINIT: cpu1 pick pid=16 as=true sstatus=0x40120 sepc=0xffffffc000439228
+[INFO smp] KSELFTEST: smp per-hart ticks ok
+[INFO smp] KSELFTEST: smp per-hart ticks ok
+[INFO smp] KINIT: bkl wait 17773us cpu0
+[INFO smp] KSELFTEST: smp per-hart ticks ok
+[INFO as] AS: trampoline enter val=0x800060000000026e
+AS: post-satp OK
+[INFO smp] KINIT: bkl wait 15446us cpu1
+[INFO smp] KINIT: bkl wait 8663us cpu0
+[INFO smp] KINIT: bkl wait 95016us cpu3
+[INFO smp] KINIT: bkl wait 8659us cpu0
+!init-lite entry
+[INFO smp] KINIT: bkl wait 123354us cpu2
+init: entry
+log topics mask=0x0000000000000001
+init: start
+init: start keystored
+init: start rngd
+init: start socd
+init: start policyd
+init: start logd
+init: start samgrd
+init: start bundlemgrd
+init: start statefsd
+init: start updated
+init: updated ctrl slots send=0x0000000000000001 recv=0x0000000000000002
+[INFO smp] KINIT: long ecall nr=16 14ms cpu0
+init: start packagefsd
+[INFO smp] KSELFTEST: runtime timer budget ok
+init: start vfsd
+init: start execd
+init: start selftest-client
+init: start bootctld
+init: start blkd
+init: ready
+!init-lite ready
+init: blk plane wired svc=bundlemgrd
+init: blkd route->socd ok
+init: policyd priority-wired
+[INFO smp] KINIT: enqueue cpu3 pid=21
+[INFO smp] KINIT: cpu3 pick pid=21 as=true sstatus=0x40020 sepc=0x154b6
+[INFO as] AS: trampoline enter val=0x8000a00000001d38
+AS: post-satp OK
+[INFO smp] KSELFTEST: smp exec cpu3 ok
+[INFO as] AS: trampoline enter val=0x8000100000000246
+AS: post-satp OK
+[INFO smp] KINIT: long ecall nr=18 15ms cpu0
+policyd: ready
+abi-profile: ready (server=policyd|abi-filterd)
+[INFO smp] KINIT: long ecall nr=44 10ms cpu3
+policyd: audit emit deferred
+policyd: mmio blk deny priv
+[INFO as] AS: trampoline enter val=0x800060000000026e
+AS: post-satp OK
+[INFO as] AS: trampoline enter val=0x8000100000000246
+AS: post-satp OK
+[INFO smp] KINIT: long ecall nr=40 15ms cpu3
+init: mmio policy deny ok
+init: devices from fdt ok (virtio=0000000000000000 blk_irq=0000000000000000 gpu_irq=0000000000000000 input_irqs=0000000000000000,0000000000000000,0000000000000000, rtc=0000000000000000)
+[INFO smp] KINIT: long ecall nr=44 38ms cpu0
+init: devices from pci ok (hosts=0 functions=0 sd=none)
+[INFO smp] KINIT: long ecall nr=44 11ms cpu0
+init: usb host from tree (base=0xc0a00000 irq=125 phy=yes ss-phy=yes)
+[INFO smp] KINIT: long ecall nr=44 12ms cpu0
+init: device tree grant ok svc=socd
+[INFO smp] KINIT: enqueue cpu3 pid=21
+[INFO smp] KINIT: cpu3 pick pid=21 as=true sstatus=0x200040020 sepc=0x1a9c2
+policyd: audit emit deferred
+[INFO smp] KINIT: enqueue cpu3 pid=21
+[INFO smp] KSELFTEST: smp exec cpu1 ok
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+policyd: audit emit deferred
+[INFO smp] KSELFTEST: smp exec cpu2 ok
+policyd: audit emit deferred
+policyd: audit emit deferred
+init: device tree grant ok svc=blkd
+init: console ring grant ok svc=blkd
+policyd: audit emit deferred
+init: boot disk ok (kind=spacemit,k1-sdhci record=/soc/storage-bus/mmc@d4281000 irq=101)
+[INFO smp] KINIT: long ecall nr=44 18ms cpu1
+bundlemgrd: ready
+init: start metricsd
+socd: apmu vs stock (40 differ) 024:2c86800/28a6800 038:1040010/410010 044:804080/8805180 04c:1040304/1040104 050:46800/1006800 058:100/52 05c:0/f33 060:f5b/75b 07c:8008000/b008000 090:b6db2080/24812492 0a4:2000/801 0c4:3f00/3f40
+socd: apmu vs stock (cont) 0cc:1000/12 0d0:0/e 0e0:112/52 0f0:8/8009 110:0/8 144:890789c0/894fffe8 14c:b8002804/b980380d 1b8:1040304/1040321 300:110/11 314:4/0 318:4/0 31c:4/0 320:4/0 388:0/1 3c0:3ef1/3ff1 3c4:8000/208000
+socd: apmu vs stock (cont) 3c8:8008000/b008000 3cc:40000780/480 3d0:3f0000/3f0800 3d4:40000780/800006ff 3d8:3f0000/3f0004 3dc:40000780/800006ff 3e0:3f0000/3f0004 3e4:4/a007 3e8:0/3c014901 3ec:4/a007 3f0:0/5a014901 3f4:0/11
+[INFO bundlemgrd] core service log probe: bundlemgrd
+socd: mpmu vs stock (21 differ) 000:2dffff/2dfeff 008:0/20000000 010:2bb83c00/3bb83c00 014:1fbd0600/7d0018 030:0/180000f0 044:5820130b/40a37f58 048:0/177000f0 200:0/3 204:0/3 208:0/3 20c:0/3 1020:c00081c3/c00080d3 1024:2dffff/2dfeff
+socd: mpmu vs stock (cont) 1050:1/3 1054:1/3 1058:1/3 105c:1/3 1060:1/3 1098:ee086008/62004008 10a0:7/3 10a4:0/22
+socd: ready (providers=7)
+socd: bring-up /soc/storage-bus/mmc@d4281000 ok (domains=1 resets=2 clocks=2 rates=0 pads=0 gpios=0 writes=0) apmu+54:411b>411b apmu+e0:112>112
+blkd: backend ok (kind=spacemit,k1-sdhci soc=ok record=/soc/storage-bus/mmc@d4281000 mode=hs400es bus=8 sectors=30535680)
+blkd: gpt ok (parts=7)
+blkd: irq endpoint bound
+blkd: ready
+bundlemgrd: system volume verified (slot=a build=dev-6bed bundles=24)
+bundlemgrd: bundle served (name=metricsd read_ms=1 hash_ms=2)
+init: spawn from volume svc=metricsd bundle=metricsd@1.0.0 sha=0aaf16915560cffc
+init: start settingsd
+bundlemgrd: bundle served (name=settingsd read_ms=0 hash_ms=1)
+init: spawn from volume svc=settingsd bundle=settingsd@1.0.0 sha=2e2b4ad8025dd021
+init: start timed
+bundlemgrd: bundle served (name=timed read_ms=0 hash_ms=0)
+init: spawn from volume svc=timed bundle=timed@1.0.0 sha=2dba92258856e0f1
+init: start abilitymgr
+bundlemgrd: bundle served (name=abilitymgr read_ms=0 hash_ms=1)
+init: spawn from volume svc=abilitymgr bundle=abilitymgr@1.0.0 sha=cf25f4a078c1f429
+init: start sessiond
+bundlemgrd: bundle served (name=sessiond read_ms=0 hash_ms=1)
+init: spawn from volume svc=sessiond bundle=sessiond@1.0.0 sha=00987bdf479a86ec
+init: start netstackd
+bundlemgrd: bundle served (name=netstackd read_ms=1 hash_ms=3)
+init: spawn from volume svc=netstackd bundle=netstackd@1.0.0 sha=5f972fd8be23e064
+init: start ingressd
+bundlemgrd: bundle served (name=ingressd read_ms=0 hash_ms=1)
+init: spawn from volume svc=ingressd bundle=ingressd@1.0.0 sha=874736685564a9eb
+init: start dsoftbusd
+bundlemgrd: bundle served (name=dsoftbusd read_ms=1 hash_ms=4)
+init: spawn from volume svc=dsoftbusd bundle=dsoftbusd@1.0.0 sha=a2be1f416c2eb438
+init: start hidrawd
+bundlemgrd: bundle served (name=hidrawd read_ms=0 hash_ms=1)
+init: spawn from volume svc=hidrawd bundle=hidrawd@1.0.0 sha=c0c7175418dd4d1d
+init: start xhcid
+bundlemgrd: bundle served (name=xhcid read_ms=1 hash_ms=2)
+init: spawn from volume svc=xhcid bundle=xhcid@1.0.0 sha=64a91758902f3110
+init: start touchd
+bundlemgrd: bundle served (name=touchd read_ms=0 hash_ms=0)
+init: spawn from volume svc=touchd bundle=touchd@1.0.0 sha=b5a58530c45c2f2f
+init: start gpud
+bundlemgrd: bundle served (name=gpud read_ms=5 hash_ms=14)
+init: spawn from volume svc=gpud bundle=gpud@1.0.0 sha=044e84099831c2c9
+init: start windowd
+blkd: trace os ok (slot=1 seq=2)
+bundlemgrd: bundle served (name=windowd read_ms=83 hash_ms=237)
+init: spawn from volume svc=windowd bundle=windowd@1.0.0 sha=986d18b59622768b
+init: start inputd
+bundlemgrd: bundle served (name=inputd read_ms=1 hash_ms=1)
+init: spawn from volume svc=inputd bundle=inputd@1.0.0 sha=219917f4385035a6
+init: start imed
+bundlemgrd: bundle served (name=imed read_ms=1 hash_ms=3)
+init: spawn from volume svc=imed bundle=imed@1.0.0 sha=fd797b05959401d1
+init: start pinched
+bundlemgrd: bundle served (name=pinched read_ms=2 hash_ms=5)
+init: spawn from volume svc=pinched bundle=pinched@1.0.0 sha=22a18eee327b61a3
+init: probe key_req self-xfer pid=0x0000000000000011 cap=0x000000000000006b
+init: probe key_req self-xfer SEND ok slot=0x000000000000006c
+init: probe key_req self-xfer RECV ok slot=0x000000000000006c
+init: blk plane wired svc=statefsd
+init: blk plane wired svc=updated
+init: blk plane wired svc=vfsd
+init: blk plane wired svc=bootctld
+init: selftest-client route->vfsd ok
+init: selftest-client route->packagefsd ok
+init: selftest-client route->policyd ok
+init: selftest-client route->bundlemgrd ok
+init: selftest-client route->updated ok
+init: selftest-client route->samgrd ok
+init: selftest-client route->execd ok
+init: selftest-client route->keystored ok
+init: selftest-client route->statefsd ok
+init: selftest-client route->logd ok
+init: selftest-client route->inputd ok
+init: selftest-client route->netstackd ok
+init: selftest-client route->dsoftbusd ok
+init: selftest-client route->rngd ok
+init: selftest-client route->socd ok
+init: selftest-client route->timed ok
+init: selftest-client route->metricsd ok
+init: selftest-client route->pinched ok
+init: selftest-client route->settingsd ok
+init: selftest-client route->ingressd ok
+init: selftest-client route->imed ok
+init: selftest-client route->imed-osk ok
+init: selftest-client route->bootctld ok
+init: selftest-client route->blkd ok
+init: windowd priority-wired
+init: inputd priority-wired
+init: keystored slots recv=0x0000000000000003 send=0x0000000000000004
+init: keystored route->statefsd ok
+init: keystored route->logd ok
+init: keystored route->policyd ok
+init: keystored route->rngd ok
+init: FAIL declared slot route send slot=0x0000000000000008
+init: policyd slots recv=0x0000000000000003 send=0x0000000000000004
+init: policyd route->logd ok
+init: logd slots recv=0x0000000000000003 send=0x0000000000000004
+init: logd route->statefsd ok
+init: samgrd slots recv=0x0000000000000003 send=0x0000000000000004
+init: samgrd route->logd ok
+init: bundlemgrd slots recv=0x0000000000000003 send=0x0000000000000004
+init: bundlemgrd route->logd ok
+init: bundlemgrd route->metricsd ok
+init: statefsd slots recv=0x0000000000000003 send=0x0000000000000004
+init: statefsd route->policyd ok
+init: statefsd route->logd ok
+init: updated slots recv=0x0000000000000003 send=0x0000000000000004
+init: updated route->bundlemgrd ok
+init: updated route->keystored ok
+init: updated route->statefsd ok
+init: updated route->vfsd ok
+init: updated route->bootctld ok
+init: updated route->policyd ok
+init: updated route->logd ok
+init: execd reply slots recv=0x0000000000000005 send=0x0000000000000006
+init: execd logd slots send=0x0000000000000007 recv=0x0000000000000005
+init: execd windowd slots send=0x0000000000000008 recv=0x0000000000000009
+init: execd bundle slot send=0x000000000000000a
+init: execd recv-wake slots ping=0x000000000000000b/0x000000000000000c reply=0x000000000000000d/0x000000000000000e
+init: execd route->abilitymgr ok
+init: execd route->sessiond ok
+init: execd route->settingsd ok
+init: execd route->timed ok
+init: execd route->imed-osk ok
+init: execd route->vfsd ok
+init: execd route->updated ok
+init: execd route->statefsd ok
+init: execd route->policyd ok
+init: bootctld slots recv=0x0000000000000003 send=0x0000000000000004
+init: bootctld route->statefsd ok
+init: bootctld route->policyd ok
+init: blkd slots recv=0x0000000000000003 send=0x0000000000000004
+init: metricsd slots recv=0x0000000000000003 send=0x0000000000000004
+init: metricsd route->statefsd ok
+init: metricsd route->logd ok
+init: abilitymgr slots recv=0x0000000000000003 send=0x0000000000000004
+init: abilitymgr route->bundlemgrd ok
+init: abilitymgr route->execd ok
+init: abilitymgr route->sessiond ok
+init: sessiond slots recv=0x0000000000000003 send=0x0000000000000004
+init: netstackd slots recv=0x0000000000000003 send=0x0000000000000004
+init: netstackd route->policyd ok
+init: ingressd slots recv=0x0000000000000003 send=0x0000000000000004
+init: ingressd route->policyd ok
+init: ingressd route->netstackd ok
+init: dsoftbusd slots recv=0x0000000000000003 send=0x0000000000000004
+init: dsoftbusd route->netstackd ok
+init: dsoftbusd route->samgrd ok
+init: dsoftbusd route->bundlemgrd ok
+init: dsoftbusd route->packagefsd ok
+init: dsoftbusd route->statefsd ok
+init: dsoftbusd route->logd ok
+init: hidrawd inputd slots send=0x0000000000000003 recv=0x0000000000000004
+init: gpud slots recv=0x0000000000000003 send=0x0000000000000004
+init: gpud route->socd ok
+init: windowd already priority-wired, skip
+init: windowd route->bundlemgrd ok
+init: windowd route->sessiond ok
+init: windowd route->settingsd ok
+init: windowd route->abilitymgr ok
+init: windowd route->imed ok
+init: windowd settings-watch ok
+init: inputd already priority-wired, skip
+init: inputd windowd slots send=0x0000000000000005 recv=0x0000000000000006
+init: inputd route->imed ok
+init: inputd settings-watch ok
+init: inputd reply inbox ok
+init: imed osk recv ok
+init: imed route->windowd ok
+init: imed route->settingsd ok
+init: imed route->statefsd ok
+vfsd: ready
+vfsd: namespace ready
+init: net plane none (no device in the tree)
+init: rng plane none (no device in the tree)
+keystored: ready
+init: rtc not in the device tree (walltime unavailable)
+init: gpu plane none (no device in the tree)
+keystored: statefs backend ok
+logd: ready
+rngd: ready
+samgrd: ready
+packagefsd: ready
+samgrd: mode os-lite
+samgrd: slots logging
+bootctld: ready
+statefsd: entry
+statefsd: journal v2 mounted (2PC)
+policyd: audit emit ok
+statefsd: ready
+logd: rx first
+statefsd: write hardening on (auth-envelope)
+logd: append rx
+samgrd: slots 00000003 00000004
+statefsd: encryption off
+bundlemgrd: volume status served
+execd: entry
+execd: ready
+logd: append rsp status=0x00
+policyd: audit emit ok
+init: display plane ok (controller + encoder to gpud)
+init: device tree grant ok svc=selftest-client
+init: device tree grant ok svc=gpud
+packagefsd: mounted (system volume slot=a bundles=24 files=120)
+init: device tree grant ok svc=xhcid
+policyd: audit emit ok
+blk: virtio-blk up
+blk: virtio-blk up (ss=512 nsec=131072)
+policyd: audit emit ok
+policyd: audit emit ok
+statefsd: virtio upgrade ok
+bootctld: target=normal next=none
+init: stage graph target=normal
+updated: entry
+init: deferred resume hidrawd
+init: deferred resume xhcid
+pinched: ready
+updated: slots 0003 0004
+updated: ready (bootctl client)
+settingsd: load prefs (n=0)
+settingsd: ready
+init: deferred resume gpudnetstackd: ready
+
+ingressd: ready
+init: deferred resume windowd
+init: deferred resume inputd
+dsoftbusd: entry
+dsoftbusd: waiting for local ip
+RECVWAKE: woke from blocking recv
+init: affinity applied n=0x000000000000001f clamped=0x0000000000000000 fail=0x0000000000000000
+samgrd: rx
+samgrd: register seen
+init: timing spawn_ms=45 volume_ms=734 grants_at_ms=1504 wiring_at_ms=1504 total_ms=1566 (grant_wait_ms=96 grants=13 wiring_ms=0 tail_ms=62)
+init: up keystored
+child: exit0 start
+init: up rngd
+init: up socd
+init: up policyd
+init: up logd
+child: fault start
+init: up samgrd
+init: up bundlemgrd
+init: up statefsd
+init: ctrl req from updated
+RECVWAKE: woke twice (park/wake cycle repeats)
+execd: recv-wake probe ok
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0033
+init: up updated
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+init: up packagefsd
+[USER-PF] regs gp=0x0000000000001800
+SELFTEST: exec child blocking recv wake ok
+[USER-PF] regs a0=0x0000000000000000
+init: up vfsd
+[USER-PF] regs a1=0x0000000000000000
+init: up execd
+[USER-PF] regs a2=0x0000000000000000
+init: up bootctld
+[USER-PF] regs a3=0x0000000000000000
+init: up blkd
+[USER-PF] regs t0=0x0000000000000000
+stage: platform
+[USER-PF] regs t1=0x0000000000000000
+hidrawd: os service payload ready
+[USER-PF] regs t2=0x0000000000000000
+metricsd: ready
+[USER-PF] regs s0=0x0000000000001043
+gpud: features=os-lite
+[USER-PF] regs s1=0x0000000000000000
+metricsd: mm snapshot ok (total=4275548160 free=4214607872 vmo_bytes=11321344 dma_bytes=4096 own_rss=565248 gauges=5)
+[USER-PF] regs s2=0x0000000000000000
+init: up settingsd
+[USER-PF] regs s3=0x0000000000000000
+xhcid: serving (class=hid-boot)
+[USER-PF] regs s4=0x0000000000000000
+gpud: display mode 1920x1080 (maximum)
+[USER-PF] regs s5=0x0000000000000000
+init: up netstackd
+[USER-PF] regs s6=0x0000000000000000
+init: up ingressd
+[USER-PF] regs s7=0x0000000000000000
+init: up xhcid
+[USER-PF] regs s8=0x0000000000000000
+timed: ready
+[USER-PF] regs s9=0x0000000000000000
+init: up pinched
+[USER-PF] regs s10=0x0000000000000000
+imed: ready
+[USER-PF] regs s11=0x0000000000000000
+SELFTEST: init supervision sweep ok
+[USER-PF] regs t3=0x0000000000000000
+init: up metricsd
+[USER-PF] regs t4=0x0000000000000000
+init: up timed
+[USER-PF] regs t5=0x0000000000000000
+init: up imed
+[USER-PF] regs t6=0x0000000000000000
+socd: bring-up /soc/storage-bus/usb@c0a00000 ok (domains=1 resets=4 clocks=2 rates=0 pads=0 gpios=0 writes=6) apmu+5c:0>f03 apmu+3c8:8008000>8008000
+[USER-PF] stack +0x0000 = 0x0000000000000000
+touchd: os service payload ready
+[USER-PF] stack +0x0008 = 0x0000000000000000
+init: service exit name=touchd reason=clean code=0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+init: up touchd
+[USER-PF] stack +0x0018 = 0x0000000000000000
+pinched: workpool ready
+[USER-PF] stack +0x0020 = 0x0000000000000000
+socd: bring-up /soc/multimedia-bus/display@c0440000 ok (domains=1 resets=1 clocks=1 rates=1 pads=0 gpios=0 writes=5) apmu+3f4:0>11 apmu+f0:8>8008 apmu+1b8:1040304>1040321
+[USER-PF] stack +0x0028 = 0x0000000000000000
+socd: bring-up /soc/storage-bus/phy@c0a30000 ok (domains=0 resets=0 clocks=1 rates=0 pads=0 gpios=0 writes=1) apmu+5c:f03>f03 mpmu+14:1fbd0600>7d0018
+[USER-PF] stack +0x0030 = 0x0000000000000000
+socd: bring-up /soc/hdmi@c0400500 ok (domains=1 resets=1 clocks=1 rates=1 pads=4 gpios=0 writes=4) apmu+3f4:11>11 apmu+f0:8008>8008 apmu+1b8:1040321>1040321 pinctrl+1ec:d040>d041 pinctrl+1f0:d040>d041 pinctrl+1f4:b040>b041 +1 more
+[USER-PF] stack +0x0038 = 0x0000000000000000
+gpud: dc glue ok (controller + encoder up through socd)
+[USER-PF] task sepc=0x0000000000001018
+gpud: dc controller ok (version=0x03001030)
+[USER-PF] task sp=0x0000000020008000
+gpud: dc encoder ok (hpd=1 pll=locked)
+execd: recv-wake probe eof on exit ok
+SELFTEST: exec child eof on exit ok
+socd: bring-up /soc/storage-bus/phy@c0b10000 FAIL (step=read-back reg=apmu+0x3c0 val=0x3ef1) apmu+110:0>8 apmu+3c0:3ef1>3ef1 apmu+3c4:8000>8000 apmu+144:890789c0>890789c0 apmu+14c:b8002804>b8002804
+xhcid: FAIL (step=glue-ss-phy cc=4)
+SELFTEST: ime ranking persist ok
+execd: atlas vmo ready
+gpud: dc census encoder+0x0: 4=fe 8=1000 c=e0003000 18=51158080 20=32028420 24=25803274 28=1c208000 30=2000304 34=8000004d 60=f1151 7c=800a0184 e0=ae5c010f e4=10003 e8=203f0000 ec=509d453e f0=821 100=ff
+gpud: dc census encoder+0x0: 110=a9bf0bde 114=6b8ebf2e 118=ff5f5734 11c=7d9ea900 128=1d0000 13c=a
+gpud: dc readback ok (27 words)
+gpud: dc scanout ok (1920x1080@60 cea bus=0x5000000 lines 72876446->74318238 vsync)
+gpud: ready
+gpud: framebuffer granted (1920x1080)
+windowd: display mode from gpud (1920x1080)
+windowd: runtime init start
+windowd: font family=inter sizes=13,16
+windowd: shell config product=tablet profile=tablet shell=tablet kind=tablet chrome=false locked=false
+windowd: wallpaper loaded (jpeg)
+init: up gpud
+windowd: runtime init ok
+windowd: ready (w=1920, h=1080, hz=120)
+windowd: backend=gpu
+init: restart svc=fault-probe attempt=0x0000000000000001
+init: up windowd
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0036
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+[USER-PF] regs gp=0x0000000000001800
+[USER-PF] regs a0=0x0000000000000000
+[USER-PF] regs a1=0x0000000000000000
+[USER-PF] regs a2=0x0000000000000000
+[USER-PF] regs a3=0x0000000000000000
+[USER-PF] regs t0=0x0000000000000000
+[USER-PF] regs t1=0x0000000000000000
+[USER-PF] regs t2=0x0000000000000000
+socd: bring-up /usb-hub ok (domains=0 resets=0 clocks=0 rates=0 pads=3 gpios=3 writes=8) pinctrl+1e4:b040>b041 pinctrl+23c:b040>b040 pinctrl+240:b040>d040 gpio+100:20294000>38294002 gpio+10c:1>18000003
+[USER-PF] regs s0=0x0000000000001043
+xhcid: soc glue (host up through socd; the hub not powered)
+[USER-PF] regs s1=0x0000000000000000
+xhcid: usb2 phy (stock words 7/12 match 0x4=0x60e9 0x10=0x11 0x18=0x105 0x34=0x10 0x38=0x0)
+[USER-PF] regs s2=0x0000000000000000
+xhcid: usb2 phy set (writes=4 read back)
+[USER-PF] regs s3=0x0000000000000000
+[USER-PF] regs s4=0x0000000000000000
+[USER-PF] regs s5=0x0000000000000000
+[USER-PF] regs s6=0x0000000000000000
+[USER-PF] regs s7=0x0000000000000000
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+xhcid: usb2 phy after 20 ms (stock words 11/12 match 0x38=0x0)
+[USER-PF] regs s11=0x0000000000000000
+xhcid: ss phy (stock words 0/23 match 0x0=0x0 0x8=0x0 0xc=0x0 0x10=0x0 0x1c=0x0 0x20=0x0 0x40=0x0 0x48=0x0 0x4c=0x0 0x50=0x0 0x54=0x0 0x58=0x0 0x5c=0x0 0x60=0x0 0x64=0x0 0x80=0x0 0x84=0x0 0x88
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+[USER-PF] regs t6=0x0000000000000000
+[USER-PF] stack +0x0000 = 0x0000000000000000
+[USER-PF] stack +0x0008 = 0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+layout: engine on
+[USER-PF] stack +0x0018 = 0x0000000000000000
+text: wrapping on
+[USER-PF] stack +0x0020 = 0x0000000000000000
+display: bootstrap on
+[USER-PF] stack +0x0028 = 0x0000000000000000
+display: mode 1920x1080 argb8888
+[USER-PF] stack +0x0030 = 0x0000000000000000
+windowd: backend=visible
+[USER-PF] stack +0x0038 = 0x0000000000000000
+windowd: compose ready
+[USER-PF] task sepc=0x0000000000001018
+windowd: present queued
+[USER-PF] task sp=0x0000000020008000
+windowd: gpud route wired slots
+windowd: handoff attach sent
+gpud: recv OP_SET_FRAMEBUFFER_VMO
+gpud: handoff attach ack
+gpud: cursor on
+gpud: display ready
+gpud: timing handoff_to_ready_ms=5
+windowd: handoff attach ack
+windowd: fb handoff to gpud ok
+windowd: handoff present sent
+windowd: present ok (seq=1 dmg=1)
+gpud: chain G1 recv present-damage
+gpud: chain G2 parse ok
+windowd: present scheduler on
+SELFTEST: ui v2 present ok
+SELFTEST: supervision restart ok
+windowd: cursor svg loaded
+windowd: wallpaper visible
+windowd: text target visible
+gpud: chain G3 exec ok (commands applied)
+windowd: icon target visible
+windowd: effects on
+windowd: effect blur ok
+gpud: dc first present (exec_us=12815 clean_us=749 damage=1920x1080)
+SELFTEST: ui v3 effect ok
+gpud: chain G4 scanout ok (frame presented)
+gpud: recv OP_UPLOAD_CURSOR
+gpud: cursor uploaded
+init: restart svc=fault-probe attempt=0x0000000000000002
+windowd: cursor shape cache pushed
+windowd: session watch subscribed
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0037
+inputd: display space from windowd (1920x1080)
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+[INFO smp] KINIT: wake pid=45 not-blocked
+[USER-PF] regs gp=0x0000000000001800
+settingsd: watch registered (sync 2/2)
+[USER-PF] regs a0=0x0000000000000000
+inputd: ready
+[USER-PF] regs a1=0x0000000000000000
+inputd: keymap=de
+[USER-PF] regs a2=0x0000000000000000
+inputd: os service payload ready
+[USER-PF] regs a3=0x0000000000000000
+inputd: settings watch subscribed
+[USER-PF] regs t0=0x0000000000000000
+init: up inputd
+[USER-PF] regs t1=0x0000000000000000
+[INFO smp] KINIT: wake pid=45 not-blocked
+[USER-PF] regs t2=0x0000000000000000
+xhcid: dwc3 reset ok (core + phys, 2x100 ms)
+[USER-PF] regs s0=0x0000000000001043
+inputd: windowd visible-state pushed
+[USER-PF] regs s1=0x0000000000000000
+sessiond: ready
+[USER-PF] regs s2=0x0000000000000000
+stage: display-ready
+[USER-PF] regs s3=0x0000000000000000
+inputd: chain I5 delivered to windowd
+[USER-PF] regs s4=0x0000000000000000
+windowd: chain I6 input recv (state applied)
+[USER-PF] regs s5=0x0000000000000000
+xhcid: dwc3 host (id=0x5533330a gctl=0x32c92004>0x32c91004 usb2phycfg=0x40102400>0x40102400 usb3pipectl=0x10c0003>0x1080003 writes=2)
+[USER-PF] regs s6=0x0000000000000000
+sessiond: greeter (n=1)
+[USER-PF] regs s7=0x0000000000000000
+stage: session-start
+[USER-PF] regs s8=0x0000000000000000
+abilitymgr: ready
+[USER-PF] regs s9=0x0000000000000000
+settingsd: watch registered (sync 5/5)
+[USER-PF] regs s10=0x0000000000000000
+windowd: launch request app=greeter
+[USER-PF] regs s11=0x0000000000000000
+windowd: greeter on (dsl)
+[USER-PF] regs t3=0x0000000000000000
+windowd: full-window color visible
+[USER-PF] regs t4=0x0000000000000000
+settingsd: watch registered (sync 1/1)
+[USER-PF] regs t5=0x0000000000000000
+windowd: cursor move visible
+[USER-PF] regs t6=0x0000000000000000
+init: up abilitymgr
+[USER-PF] stack +0x0000 = 0x0000000000000000
+inputd: keymap set de
+[USER-PF] stack +0x0008 = 0x0000000000000000
+settingsd: watch registered (sync 1/1)
+[USER-PF] stack +0x0010 = 0x0000000000000000
+init: up sessiond
+[USER-PF] stack +0x0018 = 0x0000000000000000
+windowd: cursor ring on
+[USER-PF] stack +0x0020 = 0x0000000000000000
+[INFO smp] KINIT: wake pid=21 not-blocked
+[USER-PF] stack +0x0028 = 0x0000000000000000
+[USER-PF] stack +0x0030 = 0x0000000000000000
+[USER-PF] stack +0x0038 = 0x0000000000000000
+gpud: present us avg=422 max=33059 n=120 win_ms=264 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] task sepc=0x0000000000001018
+[USER-PF] task sp=0x0000000020008000
+policyd: audit emit ok
+inputd: settings watch resync
+xhcid: hid class subscribed (interfaces=0)
+hidrawd: usb hid subscribed
+abilitymgr: registry ok (n=4)
+[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=1
+abilitymgr: caps ok app=calculator (n=1)
+[INFO metricsd] retention wal active
+abilitymgr: caps ok app=chat (n=1)
+abilitymgr: caps ok app=desktop-shell (n=5)
+abilitymgr: caps ok app=greeter (n=3)
+abilitymgr: caps ok app=ime-ui (n=2)
+abilitymgr: caps ok app=settings (n=3)
+abilitymgr: caps ok app=stash (n=2)
+abilitymgr: caps ok app=window-kit (n=0)
+abilitymgr: launch (app=greeter, inst=1)
+execd: exit pid=49 reason=clean code=0
+execd: reaped pid=49 code=0
+execd: app payload requested
+statefsd: drop reply (no cap moved)
+[INFO smp] KINIT: wake pid=21 not-blocked
+bundlemgrd: payload served
+gpud: present us avg=38 max=204 n=120 win_ms=81 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+execd: sched recipe applied (img=4 mask=0xf shares=100)
+execd: apphost windowd route granted
+execd: app payload granted
+[INFO metricsd] retention wal verified sender=0x4dac7c5bc8db33eb
+metricsd: drop reply (no cap moved)
+init: restart svc=fault-probe attempt=0x0000000000000003
+[INFO metricsd] metrics snexecd: app event channel granted (minted)
+apshot counter name=bundlemchild: fault start
+grd.get_payload.ok value=1
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0039
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+gpud: present us avg=36 max=76 n=120 win_ms=42 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] regs gp=0x0000000000001800
+[USER-PF] regs a0=0x0000000000000000
+[USER-PF] regs a1=0x0000000000000000
+[USER-PF] regs a2=0x0000000000000000
+gpud: present us avg=34 max=71 n=120 win_ms=11 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] regs a3=0x0000000000000000
+[USER-PF] regs t0=0x0000000000000000
+[USER-PF] regs t1=0x0000000000000000
+[USER-PF] regs t2=0x0000000000000000
+gpud: present us avg=36 max=75 n=120 win_ms=12 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] regs s0=0x0000000000001043
+[USER-PF] regs s1=0x0000000000000000
+[USER-PF] regs s2=0x0000000000000000
+[USER-PF] regs s3=0x0000000000000000
+gpud: present us avg=35 max=80 n=120 win_ms=12 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] regs s4=0x0000000000000000
+[USER-PF] regs s5=0x0000000000000000
+[USER-PF] regs s6=0x0000000000000000
+[USER-PF] regs s7=0x0000000000000000
+gpud: present us avg=35 max=82 n=120 win_ms=11 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+[USER-PF] regs s11=0x0000000000000000
+gpud: present us avg=34 max=70 n=120 win_ms=11 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+[USER-PF] regs t6=0x0000000000000000
+gpud: present us avg=34 max=72 n=120 win_ms=11 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] stack +0x0000 = 0x0000000000000000
+[USER-PF] stack +0x0008 = 0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+[USER-PF] stack +0x0018 = 0x0000000000000000
+gpud: present us avg=35 max=71 n=120 win_ms=12 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] stack +0x0020 = 0x0000000000000000
+[USER-PF] stack +0x0028 = 0x0000000000000000
+[USER-PF] stack +0x0030 = 0x0000000000000000
+[USER-PF] stack +0x0038 = 0x0000000000000000
+gpud: present us avg=35 max=72 n=120 win_ms=12 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+[USER-PF] task sepc=0x0000000000001018
+[USER-PF] task sp=0x0000000020008000
+execd: atlas vmo granted
+execd: app reply inbox granted (minted)
+execd: app route granted svc=session
+execd: app route granted svc=time
+apphost: start
+APPHOST: atlas mapped
+APPHOST: events source=dedicated
+WINDOWD: app event channel attached nonce=0xa3ce6c4b
+APPHOST: events attached (nonce)
+APPHOST: settings received
+APPHOST: payload source=bundle
+[INFO smp] KINIT: wake pid=45 not-blocked
+WINDOWD: surface intent style=2 level=1 mode=0 -> 1920x1080
+APPHOST: content rect received
+APPHOST: mounted hash=d7b31eb67c1e8038
+apphost: window intent style=plain mode=auto level=desktop resizable=false
+abilitymgr: spawn ok
+[INFO smp] KINIT: wake pid=45 not-blocked
+init: restart svc=fault-probe attempt=0x0000000000000004
+apphost: dsl svc session.users ok
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x003a
+apphost: dsl svc session.active ok
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+APPHOST: initial effects ran
+[USER-PF] regs gp=0x0000000000001800
+alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000000840 align=0x0000000000000008 class=0
+[USER-PF] regs a0=0x0000000000000000
+alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000001080 align=0x0000000000000008 class=0
+[USER-PF] regs a1=0x0000000000000000
+alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000002100 align=0x0000000000000008 class=0
+[USER-PF] regs a2=0x0000000000000000
+alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000004200 align=0x0000000000000008 class=0
+[USER-PF] regs a3=0x0000000000000000
+apphost: scroll window texts=6
+[USER-PF] regs t0=0x0000000000000000
+apphost: 6 text runs
+[USER-PF] regs t1=0x0000000000000000
+apphost: run '' face=BodySemi px=None box=Some((960, 16, 0, 20))
+[USER-PF] regs t2=0x0000000000000000
+apphost: run '--:--' face=Hero px=None box=Some((835, 40, 250, 126))
+[USER-PF] regs s0=0x0000000000001043
+apphost: run 'J' face=DisplaySemi px=None box=Some((949, 506, 21, 44))
+[USER-PF] regs s1=0x0000000000000000
+apphost: run 'Jenning' face=TitleSemi px=None box=Some((919, 584, 81, 26))
+[USER-PF] regs s2=0x0000000000000000
+apphost: run 'Enter password' face=Small px=None box=Some((869, 640, 156, 16))
+[USER-PF] regs s3=0x0000000000000000
+apphost: run 'Press Enter to sign in' face=Small px=None box=Some((893, 686, 133, 16))
+[USER-PF] regs s4=0x0000000000000000
+apphost: frame arena (layouts=1 gen=2 base=106944 peak=70299 of=1048576 spill=0 free=255 carve=
+[USER-PF] regs s5=0x0000000000000000
+apphost: scroll window texts=6
+[USER-PF] regs s6=0x0000000000000000
+apphost: locale de-DE applied
+[USER-PF] regs s7=0x0000000000000000
+apphost: scroll window texts=6
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+[USER-PF] regs s11=0x0000000000000000
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+[USER-PF] regs t6=0x0000000000000000
+[USER-PF] stack +0x0000 = 0x0000000000000000
+[USER-PF] stack +0x0008 = 0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+[USER-PF] stack +0x0018 = 0x0000000000000000
+[USER-PF] stack +0x0020 = 0x0000000000000000
+[USER-PF] stack +0x0028 = 0x0000000000000000
+[USER-PF] stack +0x0030 = 0x0000000000000000
+[USER-PF] stack +0x0038 = 0x0000000000000000
+[USER-PF] task sepc=0x0000000000001018
+[USER-PF] task sp=0x0000000020008000
+gpud: present us avg=37 max=102 n=120 win_ms=307 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=74 n=120 win_ms=12 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+init: crash-loop blocked svc=fault-probe reason=fault
+SELFTEST: crash-loop cap ok
+bootctld: denied op=0x02 sender=0x52c6c4a34ffb3f69
+SELFTEST: nxra require ok
+gpud: present us avg=38 max=106 n=120 win_ms=23 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+bootctld: nxra accept (key=197f6b23 action=slot-switch)
+SELFTEST: nxra accept ok
+bootctld: nxra reject (reason=replay)
+bootctld: denied op=0x02 sender=0x52c6c4a34ffb3f69
+SELFTEST: nxra replay deny ok
+gpud: present us avg=38 max=229 n=120 win_ms=28 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=84 n=120 win_ms=12 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=36 max=84 n=120 win_ms=12 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=35 max=74 n=120 win_ms=12 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+windowd: loop hz=2178 apply=1 present=2174 nack=0 fullrq=0 reply(ch=0 cap=1 shared=0)
+gpud: present us avg=34 max=79 n=120 win_ms=18 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=36 max=81 n=120 win_ms=13 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+SELFTEST: ipc routing keystored ok
+SELFTEST: keystored v1 ok
+SELFTEST: qos ok
+timed: audit register decision=allow reason=applied
+gpud: present us avg=36 max=99 n=120 win_ms=25 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+timed: audit register decision=deny reason=over_limit
+timed: audit register decision=deny reason=invalid_args
+SELFTEST: timed coalesce ok
+imed: reject foreign key source
+SELFTEST: imed reject foreign ok
+SELFTEST: ime v2 osk ok
+settingsd: set key=input.keymap value=jp
+inputd: keymap set jp
+settingsd: set key=input.keymap value=de
+inputd: keymap set de
+SELFTEST: ime v2 cjk jp ok
+settingsd: set key=input.keymap value=zh
+inputd: keymap set zh
+gpud: present us avg=41 max=289 n=120 win_ms=46 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+settingsd: set key=input.keymap value=de
+xhcid: controller stuck (phase=3 usbcmd=0x2 usbsts=0x11)
+inputd: keymap set de
+SELFTEST: ime v2 candidates ok
+SELFTEST: ime ranking ok
+xhcid: FAIL (step=controller cc=3)
+SELFTEST: walltime rtc FAIL
+SELFTEST: clock tz ok
+settingsd: watch registered (sync 1/1)
+settingsd: set key=input.keymap value=us
+inputd: keymap set us
+settingsd: set key=input.keymap value=de
+inputd: keymap set de
+settingsd: persist ok
+gpud: present us avg=36 max=66 n=120 win_ms=48 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=49 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=49 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=34 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=69 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=35 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=53 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=52 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=33 max=34 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+SELFTEST: settings watch ok
+settingsd: watch registered (sync 1/1)
+settingsd: set key=ui.locale value=en-US
+settingsd: set key=ui.locale value=de-DE
+gpud: present us avg=34 max=55 n=120 win_ms=20 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=52 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=57 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=58 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=50 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=33 max=35 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=51 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=34 max=59 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: present us avg=33 max=35 n=120 win_ms=10 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+SELFTEST: i18n switch ok
+SELFTEST: rng entropy send
+rngd: policy check
+SELFTEST: rng entropy FAIL (status=0000000000000003)
+socd: bring-up /soc/virtio_mmio@10001000 FAIL (no such node)
+SELFTEST: soc glue not needed ok
+gpud: present us avg=34 max=52 n=120 win_ms=26 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+socd: bring-up /soc/multimedia-bus/display@c0440000 ok (domains=1 resets=1 clocks=1 rates=1 pads=0 gpios=0 writes=0) apmu+3f4:11>11 apmu+f0:8008>8008 apmu+1b8:1040321>1040321
+socd: bring-up /soc/hdmi@c0400500 ok (domains=1 resets=1 clocks=1 rates=1 pads=4 gpios=0 writes=0) apmu+3f4:11>11 apmu+f0:8008>8008 apmu+1b8:1040321>1040321 pinctrl+1ec:d041>d041 pinctrl+1f0:d041>d041 pinctrl+1f4:b041>b041 +1 more
+SELFTEST: soc glue display ok
+SELFTEST: rng entropy oversized ok
+keystored: reload from statefs (not found)
+rngd: policy check
+keystored: entropy request failed
+SELFTEST: device key pubkey FAIL (keygen status=0000000000000004)
+SELFTEST: statefs put ok
+policyd: audit emit ok
+statefsd: access denied path=/state/keystore/deny sender=0x52c6c4a34ffb3f69
+SELFTEST: statefs unauthorized access rejected
+SELFTEST: statefs persist begin
+SELFTEST: statefs persist put ok
+SELFTEST: statefs persist sync ok
+gpud: present us avg=42 max=159 n=120 win_ms=74 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+SELFTEST: statefs persist reopen ok
+SELFTEST: statefs persist ok
+statefs: quota warn subject=0x52c6c4a34ffb3f69 used=414 soft=256
+statefs: quota deny subject=0x52c6c4a34ffb3f69 used=414 hard=512 reason=quota-exceeded
+statefs: quota warn subject=0x52c6c4a34ffb3f69 used=414 soft=256
+SELFTEST: quota deny ok
+keystored: reload from statefs (not found)
+rngd: policy check
+keystored: entropy request failed
+SELFTEST: statefs auth put FAIL
+gpud: present us avg=41 max=62 n=120 win_ms=40 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+SELFTEST: statefs tamper deny FAIL
+SELFTEST: statefs rollback deny FAIL
+settingsd: persist ok
+gpud: present us avg=41 max=93 n=120 win_ms=20 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+APPHOST: dsl frame rendered
+apphost: vmo filled
+windowd: focus id=desktop z=0
+windowd: windows push (n=0)
+WINDOWD: desktop surface created id=1 1920x1080
+systemui: dsl shell on
+APPHOST: surface created
+SELFTEST: statefs v2 crash-atomic ok
+WINDOWD: surface presented id=1 seq=1
+APPHOST: probe surface presented
+apphost: submitted 5 layers
+APPHOST: event loop armed
+WINDOWD: desktop layers=5
+statefsd: compaction done (gen=25, entries=55)
+statefsd: compaction done (gen=26, entries=55)
+windowd: cursor ring off
+statefsd: compaction done (gen=27, entries=55)
+statefsd: compaction done (gen=28, entries=55)
+windowd: loop hz=3129 apply=0 present=3123 nack=0 fullrq=0 reply(ch=2 cap=1 shared=0)
+WINDOWD: surface presented id=1 seq=2
+gpud: dc reveal flip ok (bus=0x8fd2000 stride=7680 readback 3/3 cfg-ready cleared after 0 reads)
+gpud: desktop reveal (handshake seq=5297)
+windowd: desktop revealed (seq=5297)
+display: first scanout ok
+systemui: first frame visible
+windowd: present visible ok
+SELFTEST: ui visible present ok
+stage: shell-visible
+[INFO stage] shell-visible
+statefsd: compaction done (gen=29, entries=55)
+logd: evidence spill backlog overflow (drop-oldest)
+statefsd: compaction done (gen=30, entries=55)
+statefsd: compaction done (gen=31, entries=55)
+statefsd: compaction done (gen=32, entries=55)
+statefsd: compaction done (gen=33, entries=55)
+statefsd: compaction done (gen=34, entries=55)
+statefsd: compaction done (gen=35, entries=55)
+statefsd: compaction done (gen=36, entries=55)
+statefsd: compaction done (gen=37, entries=55)
+statefsd: compaction done (gen=38, entries=55)
+SELFTEST: statefs v2 compact ok
+SELFTEST: statefs cold-boot persist ok
+rngd: policy check
+SELFTEST: statefs enc roundtrip FAIL
+SELFTEST: device key persist FAIL
+SELFTEST: reply slots 0000000000000018 0000000000000017
+SELFTEST: reply loopback ok
+SELFTEST: keystored capmove begin
+keystored: capmove seen
+keystored: capmove req
+SELFTEST: keystored capmove ok
+SELFTEST: samgrd slots 000000000000000d 000000000000000e
+SELFTEST: ipc routing samgrd ok
+init: route vfsd from selftest-client
+SELFTEST: routing vfsd st=0x0000000000000000 send=0x0000000000000003 recv=0x0000000000000004
+SELFTEST: samgrd register send
+SELFTEST: samgrd register rsp len 000000000000000d head=0000000081014d53
+SELFTEST: samgrd v1 register ok
+SELFTEST: samgrd lookup rsp len 000000000000000d head=0000000081014d53
+SELFTEST: samgrd v1 lookup ok
+SELFTEST: samgrd lookup rsp len 000000000000000d head=0000000182014d53
+SELFTEST: samgrd v1 unknown ok
+SELFTEST: samgrd v1 malformed ok
+SELFTEST: ipc routing policyd ok
+SELFTEST: bundlemgrd slots 0000000000000009 000000000000000a
+SELFTEST: ipc routing bundlemgrd ok
+init: route updated rsp status=0x0000000000000000 send=0x000000000000000b recv=0x000000000000000c
+SELFTEST: updated slots 000000000000000b 000000000000000c
+SELFTEST: ipc routing updated ok
+updated: rx
+updated: rx head 55 44 01
+updated: rx op 7f
+[INFO updated] core service log probe: updated
+updated: log probe
+SELFTEST: updated probe ok
+SELFTEST: bundlemgrd list send
+SELFTEST: bundlemgrd list sent
+SELFTEST: bundlemgrd list recv
+[INFO metricsd] metrics snapshot counter name=bundlemgrd.list.ok value=1
+SELFTEST: bundlemgrd list recv ok
+SELFTEST: bundlemgrd v1 list ok
+bundlemgrd: volume status served
+SELFTEST: bundlemgrd volume ok
+SELFTEST: bundlemgrd v1 malformed ok
+dbg: phase ota skipped
+init: policyd route bundlemgrd->execd status=0x0000000000000001
+!route-deny: bundlemgrd -> execd (policy: missing ipc.core grant in base.toml?)
+SELFTEST: bundlemgrd route execd denied ok
+policyd: audit emit ok
+SELFTEST: policy allow ok
+policyd: audit emit ok
+SELFTEST: policy deny ok
+policyd: audit emit ok
+[INFO metricsd] metrics snapshot counter name=bundlemgrd.route_status.fail value=1
+v
+SELFTEST: mmio policy deny ok
+policyd: audit emit ok
+abi-filter: deny (subject=selftest-client syscall=statefs.put)
+SELFTEST: abi filter deny ok
+SELFTEST: abi filter allow ok
+abi-filter: deny (subject=selftest-client syscall=net.bind)
+SELFTEST: abi netbind deny ok
+SELFTEST: logd slots 0000000000000015 0000000000000016
+SELFTEST: logd record count=0000000000000022
+SELFTEST: logd has audit records
+SELFTEST: policy allow audit ok
+SELFTEST: policy deny audit ok
+SELFTEST: abi stale epoch reject ok
+policyd: audit emit ok
+policyd: mmio blk deny nonpristatefsd: abi deny path=/state/app/selftest/secrets/probe subject=0x52c6c4a34ffb3f69
+policyd: abi mode subject=52c6c4a34ffb3f69 mode=learn epoch=2
+policyd: audit emit ok
+SELFTEST: abi enforce allow ok
+policyd: abi learn emitted (class=statefs)
+policyd: audit emit ok
+statefsd: abi deny path=/state/app/selftest/secrets/probe subject=0x52c6c4a34ffb3f69
+SELFTEST: abi enforce deny ok
+SELFTEST: abi learn collected ok
+SELFTEST: abi learn delivered ok
+SELFTEST: statefsd audit delivered ok
+policyd: abi mode subject=52c6c4a34ffb3f69 mode=enforce epoch=2
+policyd: audit emit ok
+SELFTEST: abi mode switch auth ok
+policyd: audit emit ok
+SELFTEST: keystored sign denied ok
+SELFTEST: policyd requester spoof denied ok
+SELFTEST: policy malformed ok
+[INFO smp] KINIT: bkl bring-up burst max_wait=51397us max_hold=22ms nr=44 gt10ms=572
+[INFO smp] KINIT: sweep bring-up max=3us tasks=59 calls=1 mean=3us skipped=438932 wakes=0 wakeus=0
+[INFO smp] KINIT: wake ipi max=21us mean=3us n=3978 sent=3144 elided=881
+regsoak: spin ms=0x000000000000000c
+SELFTEST: regsoak ok
+SELFTEST: ui runtime floor ok
+SELFTEST: affinity applied ok
+SELFTEST: qos shares ratio ok
+SELFTEST: svg local determinism ok
+SELFTEST: f32 soak ok
+SELFTEST: alloc soak ok
+SELFTEST: memset soak ok
+SELFTEST: thread spawn ok
+SELFTEST: workpool bounded ok
+SELFTEST: workpool determinism ok
+SELFTEST: workpool affinity ok
+pinched: job reject (oversize total)
+SELFTEST: pinched bounded ok
+pinched: svg raster done (par)
+SELFTEST: pinched svg ok
+pinched: inet reject (depth)
+SELFTEST: inet bounded ok
+SELFTEST: inet determinism ok
+SELFTEST: inet parallel exec ok
+SELFTEST: pinched determinism ok
+SELFTEST: ipc routing execd ok
+HELLOHDR
+^hello entry=0x0000000000010130 phoff=0x0000000000000040
+^hello p_offset=0x0000000000000130 p_vaddr=0x0000000000010130
+execd: sched recipe applied (img=1 mask=0xf shares=100)
+child: hello-elf
+execd: elf load ok
+SELFTEST: e2e exec-elf ok
+child: exit0 start
+execd: exit pid=63 reason=clean code=0
+execd: reaped pid=63 code=0
+execd: child exited pid=63 code=0
+SELFTEST: child exit ok
+child: fault start
+[USER-PF] LOAD @ sepc=0x0000000000001020 stval=0x0000000000000000 pid=0x0040
+[USER-PF] regs ra=0x0000000000000000 sp=0x0000000020008000
+[USER-PF] regs gp=0x0000000000001800
+[USER-PF] regs a0=0x0000000000000000
+[USER-PF] regs a1=0x0000000000000000
+[USER-PF] regs a2=0x0000000000000000
+[USER-PF] regs a3=0x0000000000000000
+[USER-PF] regs t0=0x0000000000000000
+[USER-PF] regs t1=0x0000000000000000
+[USER-PF] regs t2=0x0000000000000000
+[USER-PF] regs s0=0x0000000000001043
+[USER-PF] regs s1=0x0000000000000000
+[USER-PF] regs s2=0x0000000000000000
+[USER-PF] regs s3=0x0000000000000000
+[USER-PF] regs s4=0x0000000000000000
+[USER-PF] regs s5=0x0000000000000000
+[USER-PF] regs s6=0x0000000000000000
+[USER-PF] regs s7=0x0000000000000000
+[USER-PF] regs s8=0x0000000000000000
+[USER-PF] regs s9=0x0000000000000000
+[USER-PF] regs s10=0x0000000000000000
+[USER-PF] regs s11=0x0000000000000000
+[USER-PF] regs t3=0x0000000000000000
+[USER-PF] regs t4=0x0000000000000000
+[USER-PF] regs t5=0x0000000000000000
+[USER-PF] regs t6=0x0000000000000000
+[USER-PF] stack +0x0000 = 0x0000000000000000
+[USER-PF] stack +0x0008 = 0x0000000000000000
+[USER-PF] stack +0x0010 = 0x0000000000000000
+[USER-PF] stack +0x0018 = 0x0000000000000000
+[USER-PF] stack +0x0020 = 0x0000000000000000
+[USER-PF] stack +0x0028 = 0x0000000000000000
+[USER-PF] stack +0x0030 = 0x0000000000000000
+[USER-PF] stack +0x0038 = 0x0000000000000000
+[USER-PF] task sepc=0x0000000000001018
+[USER-PF] task sp=0x0000000020008000
+execd: exit pid=64 reason=fault code=-22
+init: route statefsd from execd
+init: route statefsd OK send=0x0000000000000016
+crash: retention gc on (budget=256KiB)
+policyd: audit emit ok
+policyd: audit emit ok
+policyd: audit emit ok
+policyd: audit emit ok
+crash: dump written (id=7835638916.64.demo.fault.nxcd bytes=283)
+execd: crash report pid=64 code=-22 name=demo.fault
+[WARN execd] crash pid=64 code=-22 name=demo.fault
+execd: crash logd append ok
+SELFTEST: exit reason ok
+init: route statefsd from logd
+init: route statefsd OK send=0x0000000000000007
+init: route statefsd from execd
+init: route statefsd OK send=0x0000000000000016
+execd: minidump statefs route granted
+child: minidump start
+execd: exit pid=65 reason=error code=42
+execd: child exited pid=65 code=42
+execd: minidump written /state/crash/child.demo.minidump.nmd
+init: route statefsd from execd
+init: route statefsd OK send=0x0000000000000016
+policyd: audit emit ok
+policyd: audit emit ok
+crash: dump written (id=child.demo.minidump.nxcd bytes=278)
+execd: crash report pid=65 code=42 name=demo.minidump
+[INFO execd] crash pid=65 code=42 name=demo.minidump
+execd: crash logd append ok
+logd: evidence persist on (loaded=0x15)
+SELFTEST: crash report ok
+SELFTEST: minidump ok
+SELFTEST: crash artifact ok
+SELFTEST: crash redaction ok
+SELFTEST: minidump forged metadata rejected
+SELFTEST: minidump no-artifact metadata rejected
+SELFTEST: minidump mismatched build_id rejected
+execd: spawn id mismatch sender=5964670962199379817 expected=15410752674378784678 requester=demo.testsvc
+execd: spawn denied (id mismatch)
+SELFTEST: exec denied ok
+SELFTEST: execd malformed ok
+logd: reject invalid_args
+logd: reject over_limit
+logd: reject rate_limited
+SELFTEST: logd hardening rejects ok
+init: route samgrd from selftest-client
+init: route samgrd rsp status=0x0000000000000000 send=0x000000000000000d recv=0x000000000000000e
+samgrd: capmove seen
+metricsd: reject invalid_args
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] retention wal verified sender=0x52c6c4a34ffb3f69
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] retention rollup 10s active
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+[INFO metricsd] metrics snapshot counter name=selftest.cap value=1
+metricsd: reject over_limit
+metricsd: reject rate_limited
+statefsd: compaction done (gen=39, entries=56)
+[INFO metricsd] tracing span end name=selftest.sanity parent_span_id=0 duration_ns=10 status=0 start_attrs= end_attrs=
+SELFTEST: metrics security rejects ok
+[INFO metricsd] metrics snapshot counter name=selftest.counter value=3
+[INFO metricsd] metrics snapshot counter name=selftest.counter value=7
+[INFO metricsd] metrics snapshot gauge name=selftest.gauge value=7
+[INFO metricsd] metrics snapshot gauge name=selftest.gauge value=-3
+[INFO metricsd] metrics snapshot histogram name=selftest.hist count=1 sum=1000
+[INFO metricsd] metrics snapshot histogram name=selftest.hist count=2 sum=13000
+[INFO metricsd] tracing span end name=selftest.span parent_span_id=0 duration_ns=80 status=0 start_attrs=phase=selftest\n end_attrs=result=ok\n
+SELFTEST: metrics counters ok
+SELFTEST: metrics gauges ok
+SELFTEST: metrics histograms ok
+SELFTEST: tracing spans ok
+SELFTEST: metrics retention ok
+SELFTEST: log query ok
+[INFO selftest-client] nexus-log sink-logd probe
+logd: selftest append rx
+SELFTEST: nexus-log sink-logd ok
+SELFTEST: core services log ok
+SELFTEST: evidence query ok
+statefsd: compaction done (gen=40, entries=56)
+statefsd: compaction done (gen=41, entries=56)
+SELFTEST: evidence budget ok
+SELFTEST: ipc payload roundtrip ok
+SELFTEST: nexus-ipc kernel loopback ok
+SELFTEST: ipc cap move reply ok
+SELFTEST: ipc sender pid ok
+SELFTEST: ipc sender service_id ok
+SELFTEST: ipc call ok
+SELFTEST: irq bind deny ok
+SELFTEST: ipc reply_recv ok
+SELFTEST: ipc oversize rejected ok
+SELFTEST: ipc soak ok
+SELFTEST: ipc bench (rt=33us n=64)
+SELFTEST: ipc call bench (rt=31us n=64)
+KSELFTEST: ipc call budget ok (rt=31us budget=64)
+SELFTEST: vm map roundtrip ok
+SELFTEST: dma buffer skipped (no device granted)
+SELFTEST: cap query vmo skipped (no device granted)
+init: route vfsd from selftest-client
+SELFTEST: ipc routing ok
+SELFTEST: ipc routing packagefsd ok
+init: route vfsd from selftest-client
+SELFTEST: vfs stat ok
+SELFTEST: pkgimg mount ok
+vfsd: capfd grant ok
+SELFTEST: vfs read ok
+SELFTEST: capfd read ok
+vfsd: capfd grant ok
+SELFTEST: vfs real data ok
+SELFTEST: pkgimg stat/read ok
+vfsd: readdir ok (mount=/packages entries=24)
+SELFTEST: vfs readdir ok
+SELFTEST: vfs readdir deny ok
+vfsd: capfd grant ok
+SELFTEST: vfs splice roundtrip ok
+packagefsd: read vmo forwarded (bytes=19 n=1)
+vfsd: vmo splice forwarded ok (bytes=19, fallbacks=0)
+SELFTEST: vfs inline oversize deny ok
+SELFTEST: pkgimg vmo oversize deny ok
+packagefsd: read vmo forwarded (bytes=259600 n=2)
+SELFTEST: pkgimg vmo ok (bytes=0x000000000003f610)
+SELFTEST: sandbox deny ok
+vfsd: vmo splice forwarded ok (bytes=259600, fallbacks=1)
+vfsd: access denied
+SELFTEST: vfs ebadf ok
+dbg: phase net skipped
+dbg: phase remote skipped
+[INFO mm] KSELFTEST: mm frames (banks=2 total=1043835 free=989176 reserved=256 excluded=4613 allocs=3215 frees=129 exhausted=0 pt_frames=221 vmos=40 vmo_bytes=133083136 dma_bytes=107831296 spaces=38 rss_sum=169197568 rss_max=108883968)
+[INFO ipc] KSELFTEST: ipc stats (sends=5153 heap_allocs=1714 copies=13623 copy_bytes=1301606 wake_ipis=610 handoff_miss=4852 kheap_used=1167416 calls_in_regs=1755 wake_enq_ticks=17/81526)
+[INFO ipc] KSELFTEST: ipc payload hist (zero=0 le32=3442 le64=174 le128=477 le256=73 le512=223 le1k=760 gt1k=7)
+[INFO smp] KINIT: bkl histogram le100us=1884600 le1ms=5964 le10ms=303 gt10ms=96
+[INFO smp] KINIT: sweep steady max=6us tasks=62 calls=1 mean=6us skipped=1535279 wakes=1 wakeus=2
+[INFO smp] KINIT: wake ipi max=21us mean=3us n=5863
+[ERROR smp] KSELFTEST: bkl budget FAIL max_wait=22595us max_hold=22ms nr=48
+SELFTEST: crash-loop persist ok
+pinched: selftest crash requested
+init: service exit name=pinched reason=error code=0x0000000000000065
+policyd: audit emit ok
+init: supervision persist restarts=0x0000000000000004
+init: service restarted name=pinched pid=0x0000000000000042
+pinched: ready
+init: route resumed svc=selftest-client -> pinched
+init: up pinched
+pinched: workpool ready
+pinched: selftest crash requested
+init: service exit name=pinched reason=error code=0x0000000000000065
+policyd: audit emit ok
+init: supervision persist restarts=0x0000000000000005
+init: service restarted name=pinched pid=0x0000000000000045
+init: route resumed svc=selftest-client -> pinched
+pinched: ready
+init: up pinched
+pinched: workpool ready
+pinched: selftest crash requested
+init: service exit name=pinched reason=error code=0x0000000000000065
+policyd: audit emit ok
+init: supervision persist restarts=0x0000000000000006
+init: service restarted name=pinched pid=0x0000000000000048
+init: route resumed svc=selftest-client -> pinched
+pinched: ready
+init: up pinched
+pinched: workpool ready
+SELFTEST: service restart ok
+SELFTEST: crash-loop count ok

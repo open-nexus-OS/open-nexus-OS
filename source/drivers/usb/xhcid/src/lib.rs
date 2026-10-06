@@ -10,7 +10,8 @@
 //! (`os_lite`) prints the markers, the host tests record them against the behavioural model
 //! (`xhcid-model`: the controller, a hub, HID devices, non-coherent DMA memory).
 //! OWNERS: @runtime @drivers
-//! STATUS: Functional (U1: QEMU's controller, hubs, HID boot interfaces; the board in U3)
+//! STATUS: Functional (U1: QEMU's controller, hubs, HID boot interfaces; U3: the board's DWC3
+//!   host behind socd's glue — `glue`, `dwc3`, `phy`, `ss_phy`)
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: `tests/xhci` against the model — bring-up, enumeration through a hub (the
 //!   desk's measured descriptors, TT fields), the HID set-up incl. a STALLed SET_IDLE, reports
@@ -26,20 +27,25 @@ pub mod command;
 pub mod context;
 pub mod controller;
 pub mod device;
+pub mod dwc3;
 mod enumerate;
 pub mod hid_class;
 mod hub;
 pub mod memory;
+pub mod phy;
 mod pipe;
 pub mod regs;
 pub mod ring;
 pub mod sink;
+pub mod ss_phy;
 pub mod trb;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
+mod glue;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none", feature = "os-lite"))]
 pub mod os_lite;
 
-pub use controller::{PortRef, Xhci};
+pub use controller::{PortRef, Stats, Xhci};
 pub use hid_class::{Channel, HidClass, Pushed};
 pub use memory::{DmaAlloc, Region};
 pub use sink::{Note, Sink, Step};

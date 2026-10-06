@@ -66,7 +66,14 @@ and IME work must reuse instead of duplicating:
 - `userspace/key-repeat/` provides deterministic repeat scheduling over an
   injectable monotonic time source,
 - `userspace/pointer-accel/` provides a bounded monotonic linear acceleration
-  curve.
+  curve. Units (stated 2026-10-05, TASK-0328 U3): a relative delta is the
+  device's own count (one count of a 1000-cpi mouse is one pixel); the live
+  configuration is the identity below its threshold (`threshold=1`,
+  `numerator/denominator=1/1`, `max_output=256`) — inputd sums every delta into
+  its absolute display position (`travel dx= dy=` in its rate line is that sum
+  per second) and nothing on the way scales or drops one. A pointer speed /
+  deceleration (the seeded `pointer.accel` key) is a later package: the curve
+  must carry its fractional remainder so a sub-unity slope loses no distance.
 
 Host closure for this slice is behavior-first and marker-free:
 

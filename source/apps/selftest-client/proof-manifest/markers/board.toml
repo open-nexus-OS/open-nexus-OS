@@ -170,3 +170,126 @@ proves = "a person at the monitor confirmed the desktop of THIS boot (scripts/bo
 [marker."board-visual: typed"]
 phase = "end"
 proves = "a person confirmed that a USB keyboard and mouse move THIS boot's desktop (Block 2 gate)"
+
+[marker."board-visual: pointer"]
+phase = "end"
+proves = "a person confirmed that the arrow follows the mouse at once on THIS boot (the pointer is the controller's layer, no present per move — TASK-0251 P2a step 3c)"
+
+# --- TASK-0251 P2a step 3c: the pointer is a layer of the display controller ------------------
+
+[marker."gpud: dc cursor layer ok ("]
+phase = "bringup"
+proves = "TASK-0251 P2a step 3c: windowd's pointer sprite laid into the controller's pointer block (64x64 ARGB8888), the pointer channel and composer layer programmed as measured on the stock system (channel 2, layer 6, blend mode 5), every word read back — the display answered CURSOR_REPLY_HW"
+emit_when = { profile = "board-headless" }
+
+[marker."gpud: FAIL dc cursor layer ("]
+phase = "bringup"
+proves = "the pointer layer could not be armed (no block, a sprite that does not fit, a word that did not read back): no software pointer stands in — the lane fails"
+forbidden_when = { profile = ["board-headless", "board-visible"] }
+
+[marker."gpud: dc refused BlendCursor"]
+phase = "bringup"
+proves = "a present on the controller path carried a software-blended pointer: the second implementation the pointer layer replaced — refused, never drawn"
+forbidden_when = { profile = ["board-headless", "board-visible"] }
+
+[marker."windowd: hw cursor on"]
+phase = "bringup"
+proves = "windowd runs the pointer on the display's overlay (OP_MOVE_CURSOR per move, no software BlendCursor in its presents)"
+emit_when = { profile = "board-headless" }
+
+# --- TASK-0328 U3: USB on the board (RFC-0099 Phase 3, RFC-0106 amended) ----------------------
+
+[marker."socd: bring-up /soc/storage-bus/usb@c0a00000 ok ("]
+phase = "bringup"
+proves = "TASK-0328 U3 (RFC-0106): the host node's three resets released, its clock on and the APMU glue word at 0x3c8 as the stock system runs it (0x0b008000), every write read back — `writes=` says what our loader had left undone"
+emit_when = { profile = "board-headless" }
+
+[marker."socd: bring-up /soc/storage-bus/phy@c0a30000 ok ("]
+phase = "bringup"
+proves = "TASK-0328 U3 (RFC-0106): the USB 2.0 PHY's clock on and the PMU word it takes its clock control from as the stock system runs it (0x007d0018), read back"
+emit_when = { profile = "board-headless" }
+
+[marker."socd: bring-up /soc/storage-bus/phy@c0b10000 ok ("]
+phase = "bringup"
+proves = "TASK-0328 U3 (RFC-0106, board cycle 10): the SuperSpeed PHY's global reset released (PCIe port A's, bit 8 of 0x3cc, SET = held — the one APMU reset of inverted polarity), the port's hold-PHY-reset bit cleared and the lane select on USB, read back, before xhcid runs its PLL sequence"
+emit_when = { profile = "board-headless" }
+
+[marker."socd: bring-up /usb-hub ok ("]
+phase = "bringup"
+proves = "TASK-0328 U3 (RFC-0106 amended): the on-board hub's pads on the GPIO function, its two lines and VBUS driven high as outputs (read back), the measured 200 ms VBUS delay spent on socd's one-shot"
+emit_when = { profile = "board-headless" }
+
+# The board's input proof is inputd's own word (TASK-0253B P4 / TASK-0328 U3, Block 2's gate):
+# the markers it emits the moment a real event reaches its live routes. A selftest-client probe
+# that polled windowd's visible state for them was retired in cycle 16 — the topology declares
+# no selftest-client → windowd route (`route_matches` test), so it could never observe anything.
+[marker."inputd: live pointer route on"]
+phase = "end"
+proves = "a real pointer event from the operator's USB mouse — over xhcid and hidrawd's USB source — reached inputd's live pointer route (the board's input proof, with the operator's `board-visual: typed` / `pointer` acks)"
+
+[marker."inputd: live keyboard route on"]
+phase = "end"
+proves = "a real key from the operator's USB keyboard reached inputd's live keyboard route"
+
+# The board's USB values as measured on the stock system (2026-10-04) and modelled in xhcid's
+# host tests (`tests/xhci/enumerate.rs`, the board rig): the ladder's exact rungs. Each is a
+# full form of a prefix marker declared in `usb.toml` (the mirror check wants the rung's
+# literal declared whole).
+
+[marker."xhcid: controller ok (version=1.10 ports=2 slots=64 csz=64 scratch=1 irq=125)"]
+phase = "bringup"
+proves = "TASK-0328 U3: the board's xHCI as measured — version 1.10, two root ports (USB 2.0 and 3.0), 64 slots, 64-byte contexts, one scratchpad buffer, line 125 from the tree"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: hub (slot=1 port=1 speed=high ports=5 ttt=3)"]
+phase = "bringup"
+proves = "TASK-0328 U3: the on-board high-speed hub on the USB 2.0 root port, its five ports powered, its TT think time programmed into its slot (RFC-0099 §4)"
+emit_when = { profile = "board-headless" }
+
+# The rungs anchor on the device's identity: the slot and route depend on the order the hub's
+# ports answered in (cycle 10 enumerated the receiver before the keyboard), so they trail the
+# line and the rung stops before them.
+[marker."xhcid: device enumerated (vid=3434 pid=0123 class=3 speed=full"]
+phase = "bringup"
+proves = "TASK-0328 U3: the desk's keyboard, full speed behind the hub, addressed through the hub's TT"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: hid boot interface (vid=3434 pid=0123 role=keyboard if=0 ep=0x81 mps=8 interval=1"]
+phase = "bringup"
+proves = "TASK-0328 U3: the keyboard's boot interface in the boot protocol, its interrupt pipe running at 1 ms"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: device enumerated (vid=046d pid=c53f class=3 speed=full"]
+phase = "bringup"
+proves = "TASK-0328 U3: the mouse's radio receiver, full speed behind the hub, addressed through the hub's TT"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: hid boot interface (vid=046d pid=c53f role=mouse if=1 ep=0x82 mps=32 interval=1"]
+phase = "bringup"
+proves = "TASK-0328 U3: the receiver's mouse interface in the boot protocol (its SET_IDLE STALL recovered), its pipe running at 1 ms"
+emit_when = { profile = "board-headless" }
+
+[marker."hidrawd: usb hid device (vid=3434 pid=0123 role=keyboard)"]
+phase = "bringup"
+proves = "TASK-0253B P4: hidrawd registered the desk's keyboard from xhcid's attach"
+emit_when = { profile = "board-headless" }
+
+[marker."hidrawd: usb hid device (vid=046d pid=c53f role=mouse)"]
+phase = "bringup"
+proves = "TASK-0253B P4: hidrawd registered the receiver's mouse interface from xhcid's attach"
+emit_when = { profile = "board-headless" }
+
+[marker."xhcid: ready (ports=2 connected="]
+phase = "bringup"
+proves = "TASK-0328 U3: both root ports powered and scanned; the connected count is the cycle's own (the hub on the USB 2.0 port; whether the SuperSpeed twin links is left alone in v1)"
+emit_when = { profile = "board-headless" }
+
+[marker."socd: apmu vs stock ("]
+phase = "bringup"
+proves = "a measurement (TASK-0328 U3): every APMU word of the stock dump that reads unlike it after our loader, `off:ours/stock` — where a block our tables do not cover stays gated"
+emit_when = { profile = "board-headless" }
+
+[marker."socd: mpmu vs stock ("]
+phase = "bringup"
+proves = "a measurement (TASK-0328 U3): every MPMU word of the stock dump that reads unlike it after our loader"
+emit_when = { profile = "board-headless" }

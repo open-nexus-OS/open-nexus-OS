@@ -60,7 +60,8 @@ socd = ["device.mmio.syscon", "ipc.core", "policy.delegate"]
 "hidrawd" = ["device.mmio.input", "ipc.core", "usb.hid"]
 # TASK-0328 U1 (RFC-0099): the USB host controller's one owner — its window. TASK-0253B:
 # `policy.delegate` because it asks policyd whether a subscriber holds the class's capability.
-"xhcid" = ["device.mmio.usb", "ipc.core", "policy.delegate"]
+# TASK-0328 U3: `soc.glue` — it has socd bring the board's host node and hub up (RFC-0106).
+"xhcid" = ["device.mmio.usb", "ipc.core", "policy.delegate", "soc.glue"]
 "gpud" = ["device.mmio.gpu", "device.mmio.display", "ipc.core", "soc.glue"]
 # RFC-0065/0066: the ability lifecycle broker may route, query the bundle registry,
 # and spawn apps (the "only abilitymgr spawns apps" invariant). windowd queries the

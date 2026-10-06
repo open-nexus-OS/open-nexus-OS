@@ -1,6 +1,6 @@
 ---
 title: TASK-0253B HID ingress v2: hidrawd's sources behind one trait — virtio-input and USB HID (xhcid's client) — onto the one `WireHidBatch` contract
-status: In Progress (P1–P3 ✅ 2026-10-05 — TASK-0328 U2: hidrawd is one loop over its sources, xhcid serves the HID boot class to it, and the `usb-visible` lane drives the desktop over USB alone (`SELFTEST: ui v2 input ok`); P4 rides on TASK-0328 U3 (the board); seeded 2026-10-04 at TASK-0328 U0 — the parsers it relies on were fixed to the measured reports there)
+status: Done (P4 ✅ 2026-10-06 — the board: `inputd: live pointer route on` / `… keyboard route on` from the operator's USB mouse and keyboard, `[PASS] board-visible` in TASK-0328 U3 cycle 20; P1–P3 ✅ 2026-10-05 — TASK-0328 U2: hidrawd is one loop over its sources, xhcid serves the HID boot class to it, and the `usb-visible` lane drives the desktop over USB alone (`SELFTEST: ui v2 input ok`); P4 rides on TASK-0328 U3 (the board); seeded 2026-10-04 at TASK-0328 U0 — the parsers it relies on were fixed to the measured reports there)
 owner: @runtime
 created: 2026-10-04
 depends-on:
@@ -83,7 +83,7 @@ normalization of USB reports; the hardwired virtio-only loop is deleted (no seco
   guard is transport-aware, the chain-marker contract checks `input-live` there at every run.
   Every full-ladder lane requires the class served and the subscription admitted
   (`USB_CLASS_MARKERS`).
-- **P4 — the board** (with TASK-0328 U3): `SELFTEST: input usb hid ok (…)` — a real report inside
+- **P4 — the board** (with TASK-0328 U3): `inputd: live pointer route on` — a real report inside
   a bounded wait — and `board-visual: typed`. **Block 2 gate.**
 
 ## Proof (2026-10-05)
@@ -138,6 +138,6 @@ normalization of USB reports; the hardwired virtio-only loop is deleted (no seco
    `usb_source` against xhcid's frames), detach releases held keys, the measured report formats as
    goldens.
 3. ✅ QEMU: the `usb-visible` lane in `test-all` with `SELFTEST: ui v2 input ok` over USB.
-4. ⬜ Board: `SELFTEST: input usb hid ok` + `board-visual: typed` (with TASK-0328 U3).
+4. ✅ 2026-10-06 Board: `inputd: live pointer route on` / `… keyboard route on` + `board-visual: typed` + `pointer` (TASK-0328 U3 cycle 20, `[PASS] board-visible`).
 5. ✅ Docs sweep: RFC-0099 Phase 2 (§5 amended, §7 markers, the checklist), CHANGELOG,
    IMPLEMENTATION-ORDER, `docs/testing/README.md`, `docs/dev/ui/input/input.md`.

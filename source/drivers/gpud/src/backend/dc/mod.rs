@@ -24,6 +24,7 @@
 //!   `windowd: desktop revealed`)
 
 mod controller;
+mod cursor;
 mod encoder;
 mod framebuffer;
 mod glue;
@@ -86,13 +87,16 @@ pub(crate) struct DcDisplay {
     live: Option<Live>,
     /// The mode the controller drives.
     mode: (u16, u16),
-    /// What the CPU executor reads besides the framebuffer (the cursor sprite windowd blends).
+    /// The CPU executor's state (the pointer shape cache the controller's layer takes its
+    /// sprites from; its blend sprite is never used on this path — the layer is the pointer).
     cpu: CpuFrame,
     /// RFC-0093 §5: the splash holds until the first present after windowd's reveal.
     hold: SplashHold,
     /// The first present's cost, printed once with its clean (`gpud: dc first present (`).
     first_exec_ns: u64,
     first_reported: bool,
+    /// Software-blended pointers refused in presents (said once; the pointer is the layer).
+    blend_cursor_refused: u32,
 }
 
 struct Live {
@@ -107,6 +111,8 @@ struct Live {
     /// surely before the fleet takes memory. `None` after a named failure — the splash stays,
     /// the grant is refused by name.
     framebuffer: Option<Framebuffer>,
+    /// The pointer's layer (TASK-0251 P2a step 3c), made at windowd's first cursor upload.
+    cursor: Option<cursor::CursorLayer>,
 }
 
 /// The standard CEA timing for a mode of `w`x`h` at 60 Hz (VIC 16: 1080p60, VIC 4: 720p60).
@@ -130,6 +136,7 @@ impl DcDisplay {
             hold: SplashHold::default(),
             first_exec_ns: 0,
             first_reported: false,
+            blend_cursor_refused: 0,
         }
     }
 }
@@ -208,7 +215,7 @@ impl Live {
                 None
             }
         };
-        Some(Live { controller, _encoder: encoder, _splash: splash, framebuffer })
+        Some(Live { controller, _encoder: encoder, _splash: splash, framebuffer, cursor: None })
     }
 }
 

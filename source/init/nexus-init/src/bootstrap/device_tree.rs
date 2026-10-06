@@ -24,6 +24,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use nexus_fdt::Fdt;
 
+use crate::bootstrap::diag::Line;
 use crate::bootstrap::helpers::{debug_write_bytes, debug_write_hex};
 use crate::os_payload::{InitError, Result};
 
@@ -224,7 +225,8 @@ pub(crate) fn discover_virtio() -> Result<VirtioDevices> {
 /// grant lands in is the one socd maps. At most one window per kind; a provider
 /// without a page-aligned `reg` is skipped (the tree, not a guess, is wrong then).
 pub(crate) fn providers() -> impl Iterator<Item = (nexus_soc::ProviderKind, DeviceWindow)> {
-    let mut found: [Option<DeviceWindow>; 6] = [None; 6];
+    const COUNT: usize = nexus_soc::ProviderKind::COUNT;
+    let mut found: [Option<DeviceWindow>; COUNT] = [None; COUNT];
     if let Some(fdt) = tree() {
         for node in fdt.all_nodes() {
             let Some(kind) = nexus_soc::ProviderKind::of(node) else { continue };
@@ -233,13 +235,15 @@ pub(crate) fn providers() -> impl Iterator<Item = (nexus_soc::ProviderKind, Devi
             }
         }
     }
-    const KINDS: [nexus_soc::ProviderKind; 6] = [
+    // TASK-0328 U3: the GPIO block joins the glue owner's windows (a node's supply lines).
+    const KINDS: [nexus_soc::ProviderKind; COUNT] = [
         nexus_soc::ProviderKind::Apbc,
         nexus_soc::ProviderKind::Apmu,
         nexus_soc::ProviderKind::Mpmu,
         nexus_soc::ProviderKind::Apbc2,
         nexus_soc::ProviderKind::Pll,
         nexus_soc::ProviderKind::Pinctrl,
+        nexus_soc::ProviderKind::Gpio,
     ];
     KINDS.into_iter().zip(found).filter_map(|(k, w)| w.map(|w| (k, w)))
 }
@@ -260,6 +264,34 @@ pub(crate) fn display_plane() -> DisplayPlane {
         controller: fdt.find_compatible(&["spacemit,dpu-online2"]).find_map(window_of),
         encoder: fdt.find_compatible(&["spacemit,hdmi"]).find_map(window_of),
     }
+}
+
+/// The USB host the tree names (TASK-0328 U3): a DWC3 in host mode (`snps,dwc3`,
+/// `dr_mode = "host"` — the board's `usb@c0a00000`) and the USB 2.0 PHY it drives the ports
+/// through (`spacemit,usb2-phy`), both as windows for xhcid. QEMU virt names neither (its
+/// controller is a PCI function). One line says what was found.
+pub(crate) fn usb_plane() -> Option<crate::bootstrap::core_plane::UsbPlane> {
+    let fdt = tree()?;
+    let host = fdt
+        .find_compatible(&["snps,dwc3"])
+        .find(|node| node.prop_str("dr_mode") == Some("host"))?;
+    let window = window_of(host)?;
+    let phy = fdt.find_compatible(&["spacemit,usb2-phy"]).find_map(window_of);
+    let ss_phy = fdt.find_compatible(&["spacemit,k1x-combphy"]).find_map(window_of);
+    let yes_no = |w: &Option<DeviceWindow>| if w.is_some() { "yes" } else { "none" };
+    let mut line = Line::new();
+    let _ = core::fmt::Write::write_fmt(
+        &mut line,
+        format_args!(
+            "init: usb host from tree (base=0x{:x} irq={} phy={} ss-phy={})",
+            window.base,
+            window.irq,
+            yes_no(&phy),
+            yes_no(&ss_phy)
+        ),
+    );
+    line.emit();
+    Some(crate::bootstrap::core_plane::UsbPlane { window, pci: None, phy, ss_phy })
 }
 
 /// The real-time clock by compatible (QEMU virt: `google,goldfish-rtc`; the

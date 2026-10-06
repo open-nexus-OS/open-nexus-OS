@@ -91,11 +91,12 @@ pub const BLK_PLANE_REPLY: SlotPair = SlotPair::new(0xF2, 0xF1);
 /// in init and a literal array in hidrawd that had to agree by hand.
 pub const INPUT_MMIO_SLOTS: [u32; 3] = [50, 51, 52];
 
-/// The syscon/pinctrl window slots of the SoC glue owner (RFC-0106): one per provider kind,
-/// indexed by `nexus_soc::ProviderKind as usize` — init grants a window into the slot of the
-/// node's kind (by compatible), `socd` maps the slot of each kind it finds in the tree. A tree
-/// without providers (QEMU virt) leaves all six empty.
-pub const SYSCON_MMIO_SLOTS: [u32; 6] = [0x60, 0x61, 0x62, 0x63, 0x64, 0x65];
+/// The syscon/pinctrl/GPIO window slots of the SoC glue owner (RFC-0106): one per provider
+/// kind, indexed by `nexus_soc::ProviderKind as usize` — init grants a window into the slot of
+/// the node's kind (by compatible), `socd` maps the slot of each kind it finds in the tree. A
+/// tree without providers (QEMU virt) leaves all seven empty. The GPIO block joined at
+/// TASK-0328 U3 (the lines a node's supplies are driven on).
+pub const SYSCON_MMIO_SLOTS: [u32; 7] = [0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66];
 
 /// A capability a service receives that is neither its server pair nor a route.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

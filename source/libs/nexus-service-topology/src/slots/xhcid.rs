@@ -22,8 +22,22 @@ pub const IRQ_NOTIFY: u32 = 0xF3;
 /// a command's deadline, a class frame owed to a full client) — a waitset member beside the
 /// interrupt endpoint.
 pub const TIMER: SlotPair = SlotPair::new(0xF5, 0xF4);
-/// The CAP_MOVE reply inbox of its one outbound call: policyd's verdict on a subscriber.
+/// The CAP_MOVE reply inbox of its outbound calls: policyd's verdict on a subscriber, socd's
+/// on the board's host node and hub.
 pub const REPLY: SlotPair = SlotPair::new(0xF8, 0xF7);
 /// Delegated policy checks: does the subscriber (kernel-attributed) hold the class's
 /// capability (`usb.hid`)?
 pub const POLICYD: SlotPair = SlotPair::new(0xF9, REPLY.recv);
+/// The route to socd (RFC-0106; TASK-0328 U3): `BRING_UP` of the board's host node (its
+/// resets, clock and glue word) and of the on-board hub (its lines and VBUS) before the
+/// controller is touched.
+pub const SOCD: SlotPair = SlotPair::new(0xFA, REPLY.recv);
+/// The read-only device tree (RFC-0098 C3): the host node and the hub by compatible, their
+/// paths for socd.
+pub const DEVICE_TREE: u32 = 0xFB;
+/// The USB 2.0 PHY's window (`device.mmio.usb`, the board's `spacemit,usb2-phy` node): read
+/// and compared with the stock system's words on the board (U3's first cycle).
+pub const PHY: u32 = 0xFC;
+/// The SuperSpeed (combo) PHY's window (`spacemit,k1x-combphy`): compared with the stock
+/// system's words, a measurement — v1 leaves the SuperSpeed port alone.
+pub const SS_PHY: u32 = 0xFD;

@@ -94,6 +94,32 @@ fn the_measured_reports_arrive_unparsed() {
     assert_eq!(rig.xhci.deadline(), None, "nothing waits between reports");
 }
 
+/// The counters the OS loop prints once a second (RFC-0099 Phase 3): one report per drain is
+/// the steady state; a device that filled every queued TRB before the drain — four reports
+/// waiting — is a pipe that ran dry (the device went unpolled until the requeue), counted.
+#[test]
+fn the_counters_say_how_full_a_drain_was_and_when_a_pipe_ran_dry() {
+    let (m, mut rig) = board_rig();
+    let _ = rig.xhci.take_stats();
+    rig.report(1, 0x3, 0x82, &[0x00, 0x01, 0x00, 0x00]);
+    let one = rig.xhci.take_stats();
+    assert_eq!((one.reports, one.pipes_dry, one.events_per_interrupt_max), (1, 0, 1));
+    assert!(one.interrupts >= 1 && one.events >= 1);
+    let depth = xhcid::device::PIPE_TRBS as u32;
+    for n in 0..depth as u8 {
+        m.borrow_mut().report(1, 0x3, 0x82, &[0x00, n, 0x00, 0x00]);
+    }
+    rig.settle();
+    let full = rig.xhci.take_stats();
+    assert_eq!((full.reports, full.pipes_dry, full.events_per_interrupt_max), (depth, 1, depth));
+    assert_eq!(
+        rig.sink.reports().len(),
+        depth as usize + 1,
+        "every report delivered, the ring requeued"
+    );
+    assert_eq!(rig.xhci.take_stats(), xhcid::Stats::default(), "taken means reset");
+}
+
 #[test]
 fn a_thousand_reports_wrap_every_ring() {
     // The event ring (256), the interrupt ring (16) and the report buffers (4) all wrap many

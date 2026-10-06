@@ -739,8 +739,14 @@ impl LiveRouteRuntime {
         if self.hid_rx_rate_window_ns == 0 {
             self.hid_rx_rate_window_ns = now_ns;
         } else if now_ns.saturating_sub(self.hid_rx_rate_window_ns) >= 1_000_000_000 {
+            let (dx, dy, batches) = self.input.take_travel();
             if self.hid_rx_rate_count >= 8 {
-                let _ = debug_println(&format!("inputd: hid rx hz={}", self.hid_rx_rate_count));
+                // The travel the relative pointer covered this second (|dx| and |dy| summed over
+                // the batches with motion): against the device's counts, the lost distance.
+                let _ = debug_println(&format!(
+                    "inputd: hid rx hz={} travel dx={dx} dy={dy} rel={batches}",
+                    self.hid_rx_rate_count
+                ));
             }
             self.hid_rx_rate_window_ns = now_ns;
             self.hid_rx_rate_count = 0;

@@ -11,7 +11,10 @@ use core::fmt::{self, Write as _};
 
 use nexus_fdt::{Fdt, Node};
 use nexus_hal::Bus;
-use nexus_soc::{bring_up, clock_rate, BringUp, BringUpError, PlanError, Providers, RateError};
+use nexus_soc::{
+    bring_up, bring_up_with, clock_rate, BringUp, BringUpError, Pause, PlanError, Providers,
+    RateError,
+};
 use nexus_wire::soc;
 
 /// The largest reply any op produces.
@@ -60,6 +63,8 @@ pub struct Outcome {
     pub clocks: u8,
     pub rates: u8,
     pub pads: u8,
+    /// GPIO lines driven (TASK-0328 U3).
+    pub gpios: u8,
     pub writes: u8,
     pub failed: Option<Failed>,
     pub refused: Option<PlanError>,
@@ -76,6 +81,7 @@ impl Outcome {
             clocks: 0,
             rates: 0,
             pads: 0,
+            gpios: 0,
             writes: 0,
             failed: None,
             refused: None,
@@ -117,6 +123,7 @@ pub fn answer<B: Bus>(
     tree: Option<&Fdt<'_>>,
     providers: &Providers,
     bus: &B,
+    pause: Option<&dyn Pause>,
     out: &mut [u8; REPLY_MAX],
 ) -> (usize, Outcome) {
     let short = |out: &mut [u8; REPLY_MAX], op: u8, status: u8, nonce: u32| {
@@ -163,7 +170,10 @@ pub fn answer<B: Bus>(
                 return finish(out, rsp, outcome);
             };
             words_before(node, providers, bus, &mut outcome);
-            let result = bring_up(node, providers, bus);
+            let result = match pause {
+                Some(pause) => bring_up_with(node, providers, bus, pause),
+                None => bring_up(node, providers, bus),
+            };
             for w in outcome.words.iter_mut().take(outcome.nwords) {
                 w.after = bus.read(w.addr);
             }
@@ -175,6 +185,7 @@ pub fn answer<B: Bus>(
                     rsp.resets = sat(report.resets_released);
                     rsp.clocks = sat(report.clocks_on);
                     rsp.pads = sat(report.pads);
+                    outcome.gpios = sat(report.gpios);
                     outcome.rates = sat(report.rates_set);
                     outcome.writes = sat(report.writes);
                 }
@@ -250,9 +261,21 @@ pub struct Marker {
     limit: usize,
 }
 
+impl Default for Marker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Marker {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Marker { buf: [0; MARKER_MAX], len: 0, limit: MARKER_MAX }
+    }
+
+    /// Append `args` whole, or not at all: `false` when it does not fit (the caller starts the
+    /// next line).
+    pub fn push_fmt(&mut self, args: fmt::Arguments<'_>) -> bool {
+        self.try_push(args)
     }
 
     pub fn as_str(&self) -> &str {
@@ -283,7 +306,7 @@ impl fmt::Write for Marker {
 }
 
 /// The line `socd` prints for a bring-up (RFC-0106): the node and what happened —
-/// `ok (domains=… resets=… clocks=… rates=… pads=… writes=…)`, `not needed`, or `FAIL (step=…
+/// `ok (domains=… resets=… clocks=… rates=… pads=… gpios=… writes=…)`, `not needed`, or `FAIL (step=…
 /// reg=<window>+0x… val=0x…)` — followed by every register the bring-up touched as
 /// `<window>+<offset>:<before>><after>`, all hex — compact, so a node's glue fits one line.
 pub fn bring_up_marker(path: &str, o: &Outcome) -> Marker {
@@ -294,8 +317,8 @@ pub fn bring_up_marker(path: &str, o: &Outcome) -> Marker {
     }
     let head = match o.status {
         soc::STATUS_OK => m.try_push(format_args!(
-            "socd: bring-up {} ok (domains={} resets={} clocks={} rates={} pads={} writes={})",
-            path, o.domains, o.resets, o.clocks, o.rates, o.pads, o.writes
+            "socd: bring-up {} ok (domains={} resets={} clocks={} rates={} pads={} gpios={} writes={})",
+            path, o.domains, o.resets, o.clocks, o.rates, o.pads, o.gpios, o.writes
         )),
         soc::STATUS_NOT_NEEDED => m.try_push(format_args!("socd: bring-up {} not needed", path)),
         soc::STATUS_FAILED => match o.failed {

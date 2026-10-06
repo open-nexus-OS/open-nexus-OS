@@ -1,0 +1,49 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// A synthetic tree for what the SoC glue planner refuses before any bus access
+// (TASK-0328 U3, RFC-0106 amended): a hub line on a GPIO bank the block does not have, a
+// line past the bank's 32, a start-up delay longer than a settle may be, and glue words
+// from a provider that declares no cells for them. Compiled with
+//   dtc -I dts -O dtb -o soc-rejects.dtb soc-rejects.dts
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	gpio: gpio@d4019000 {
+		compatible = "spacemit,k1-gpio";
+		reg = <0x0 0xd4019000 0x0 0x800>;
+		gpio-controller;
+		#gpio-cells = <3>;
+	};
+
+	apmu: syscon@d4282800 {
+		compatible = "spacemit,k1-syscon-apmu";
+		reg = <0x0 0xd4282800 0x0 0x400>;
+		#clock-cells = <1>;
+	};
+
+	hub-bad-bank {
+		hub-gpios = <&gpio 4 0 0>;
+	};
+
+	hub-bad-line {
+		hub-gpios = <&gpio 3 32 0>;
+	};
+
+	hub-long-settle {
+		hub-gpios = <&gpio 3 27 0>;
+		vbus-gpios = <&gpio 3 1 0>;
+		vbus-delay-ms = <5000>;
+	};
+
+	hub-active-low {
+		hub-gpios = <&gpio 3 27 1>;
+	};
+
+	glue-no-cells {
+		nexus,glue-words = <&apmu 0x3c8 0x8000 0x8000>;
+	};
+};

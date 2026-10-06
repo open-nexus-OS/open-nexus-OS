@@ -108,6 +108,14 @@ impl CpuFrame {
         Ok(())
     }
 
+    /// The cached shape `id`: its sprite, size and hotspot (for a display that composites the
+    /// pointer itself and takes the bytes from the cache — the board's controller path).
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) fn shape(&self, id: u8) -> Option<(&[u8], u32, u32, (u32, u32))> {
+        let (buf, w, h, hx, hy) = self.shapes.get(id as usize)?.as_ref()?;
+        Some((buf.as_slice(), *w, *h, (*hx, *hy)))
+    }
+
     /// Make the cached shape `id` the cursor sprite (and its hotspot the active one). Alloc-free:
     /// the sprite's own allocation takes the copy.
     pub(crate) fn select_shape(&mut self, id: u8) -> Result<(), GfxError> {

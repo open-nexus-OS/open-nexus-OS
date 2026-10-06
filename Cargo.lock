@@ -5296,6 +5296,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-abi",
  "nexus-driverkit",
+ "nexus-fdt",
  "nexus-hal",
  "nexus-ipc",
  "nexus-service-entry",

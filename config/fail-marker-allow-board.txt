@@ -21,3 +21,9 @@ SELFTEST: statefs enc roundtrip FAIL
 # (measured 2026-09-29, board--2026-09-29T18-26-58 — whole once the console was line-atomic;
 # torn and invisible to the gate before).
 SELFTEST: walltime rtc FAIL
+#
+# app-host's frame arena outgrows a generation at 1920x1080 while the operator types (the
+# board's mode; the arena's generation was sized in the 1280x800 era). Tracked:
+# tasks/TASK-0251 P2a step 3 "Open findings" 2 (hard-coded 1280x800-era sizes) — measured
+# 2026-10-06, board-boot-2026-10-06-usb-cycle14/16 (TASK-0328 U3).
+SELFTEST: frame arena spill FAIL

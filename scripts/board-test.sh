@@ -92,18 +92,49 @@ ladder_headless=(
   "SELFTEST: soc glue display ok"
   "gpud: dc encoder ok (hpd=1"
   "gpud: dc scanout ok ("
+  # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
+  # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
+  # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its
+  # five ports and TT think time on root port 1, the desk's keyboard (3434:0123) and the
+  # mouse's receiver (046d:c53f) enumerated through it, hidrawd naming both.
+  "init: usb host from tree ("
+  "socd: bring-up /soc/storage-bus/usb@c0a00000 ok ("
+  "socd: bring-up /soc/storage-bus/phy@c0a30000 ok ("
+  "socd: bring-up /soc/storage-bus/phy@c0b10000 ok ("
+  "socd: bring-up /usb-hub ok ("
+  "xhcid: soc glue ok (host + hub up through socd)"
+  "xhcid: dwc3 host ("
+  "xhcid: usb2 phy ("
+  "xhcid: ss phy pll ready ("
+  "xhcid: controller ok (version=1.10 ports=2 slots=64 csz=64 scratch=1 irq=125)"
+  "xhcid: ready (ports=2 connected="
+  "xhcid: hub (slot=1 port=1 speed=high ports=5 ttt=3)"
+  "xhcid: device enumerated (vid=3434 pid=0123 class=3 speed=full"
+  "xhcid: hid boot interface (vid=3434 pid=0123 role=keyboard if=0 ep=0x81 mps=8 interval=1"
+  "xhcid: device enumerated (vid=046d pid=c53f class=3 speed=full"
+  "xhcid: hid boot interface (vid=046d pid=c53f role=mouse if=1 ep=0x82 mps=32 interval=1"
+  "hidrawd: usb hid device (vid=3434 pid=0123 role=keyboard)"
+  "hidrawd: usb hid device (vid=046d pid=c53f role=mouse)"
 )
 # Block 1's desktop (TASK-0251 P2a step 2): windowd granted the controller's framebuffer, the
-# reveal switched the controller from the splash to it, windowd heard the reveal ack.
+# reveal switched the controller from the splash to it, windowd heard the reveal ack. Block 2's
+# gate (TASK-0253B P4): a real USB HID event inside the harness's bounded wait, and the
+# operator's ack that keyboard and mouse move the desktop.
 ladder_visible=(
   "${ladder_headless[@]}"
   "gpud: framebuffer granted ("
   "windowd: display mode from gpud ("
   "gpud: dc reveal flip ok ("
   "windowd: desktop revealed"
+  # TASK-0251 P2a step 3c: the pointer is the controller's layer — armed and read back, and
+  # windowd on the overlay path (moves are `OP_MOVE_CURSOR`, no present).
+  "gpud: dc cursor layer ok ("
+  "windowd: hw cursor on"
+  "inputd: live pointer route on"
+  "inputd: live keyboard route on"
 )
 acks_headless=()
-acks_visible=("desktop")
+acks_visible=("desktop" "typed" "pointer")
 
 case "$PROFILE" in
   board-headless) ladder=("${ladder_headless[@]}"); acks=("${acks_headless[@]}") ;;

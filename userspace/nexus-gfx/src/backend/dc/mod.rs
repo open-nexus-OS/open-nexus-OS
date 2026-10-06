@@ -31,11 +31,16 @@
 //! TEST_COVERAGE: unit tests per module + `tests/dc_goldens.rs` against the archived EDID
 //!   and the archived register dump
 
+pub mod cursor;
 pub mod edid;
 pub mod encoder;
 pub mod model;
 pub mod regs;
 
+pub use cursor::{
+    cursor_layer_off, cursor_layer_on, cursor_move, cursor_rect, latch, lay_cursor, CursorPlane,
+    CursorRect,
+};
 pub use edid::{cea_mode, parse_edid, pick_mode, Edid, EdidError, Mode, ModeList};
 pub use model::{
     bring_up, damage_spans, flip, flush, DamageSpans, Plane, RegWriter, Sequence, Write,

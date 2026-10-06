@@ -261,9 +261,14 @@ payload. See `docs/architecture/11-policyd-and-policy-flow.md`.
 
 ### Does the RISC-V desktop run on real hardware?
 
-Not yet. The proof target is QEMU `virt` with virtio devices; the GUI path uses
-virtio-gpu (2D) and virgl (3D). Porting to a physical board means new drivers,
-not a new kernel.
+Yes, first steps: since 2026-10 the desk's RISC-V single-board computer boots
+the OS from its eMMC through the vendor boot chain, shows the desktop at
+1920x1080 on its HDMI output through the SoC's display controller, and a USB
+keyboard and mouse drive it (the pointer rides the controller's own hardware
+layer) — proven by the board ladder (`just board-test`,
+`docs/board/`). The proof target for every lane is still QEMU `virt` with
+virtio devices (virtio-gpu 2D and virgl 3D); the board added drivers and SoC
+glue, not a new kernel.
 
 ### How does it relate to other RISC-V operating systems?
 

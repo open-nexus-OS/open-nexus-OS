@@ -129,7 +129,7 @@ pub(crate) const BLKD: ServiceSpec = ServiceSpec {
 /// The declaration of `socd` (RFC-0106): the SoC glue owner. Its server pair is
 /// pre-minted (the harness's client side is distributed at boot); it asks policyd
 /// whether a requester holds `soc.glue`; the tree alias lands in its declared
-/// slot; the six provider windows land in `SYSCON_MMIO_SLOTS` by kind.
+/// slot; the seven provider windows land in `SYSCON_MMIO_SLOTS` by kind.
 pub(crate) const SOCD: ServiceSpec = ServiceSpec {
     id: ServiceId::Socd,
     stage: Stage::Platform,
@@ -142,10 +142,12 @@ pub(crate) const SOCD: ServiceSpec = ServiceSpec {
     announce: false,
     server_slots: slots::socd::SERVER,
     reply_slots: slots::socd::REPLY,
-    extra_slots: &[NamedSlotBinding {
-        name: NamedSlot::DeviceTree,
-        slot: slots::socd::DEVICE_TREE,
-    }],
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::DeviceTree, slot: slots::socd::DEVICE_TREE },
+        // TASK-0328 U3: a bring-up's settle (a supply's start-up delay) on a kernel one-shot.
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::socd::TIMER.recv },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::socd::TIMER.send },
+    ],
 };
 
 // Batch 4 (amended by TASK-0049C): logd persists evidence-class records

@@ -49,6 +49,8 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     // subscriber by asking policyd for `usb.hid` of the kernel-attributed sender.
     (ServiceId::Hidrawd, ServiceId::Xhcid),
     (ServiceId::Xhcid, ServiceId::Policyd),
+    // TASK-0328 U3: the USB host has socd bring the board's host node and hub up (RFC-0106).
+    (ServiceId::Xhcid, ServiceId::Socd),
     // RFC-0069 batches 1+2 (regular services migrated onto the declarative arm).
     (ServiceId::Rngd, ServiceId::Logd), // log sink (optional target)
     (ServiceId::Rngd, ServiceId::Policyd), // delegated policy checks

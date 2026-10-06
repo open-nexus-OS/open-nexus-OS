@@ -19,7 +19,7 @@
 - **Phase 0 (contract seed + measurements + HID boot parser fixed to the measured reports)**: ✅ 2026-10-04
 - **Phase 1 (`xhcid` + `nexus-usb` on QEMU: controller, hub, enumeration, HID boot interfaces)**: ✅ 2026-10-05 (the `usb` lane, `test-all`)
 - **Phase 2 (the HID class client: `hidrawd` sources over one contract)**: ✅ 2026-10-05 (the `usb-visible` lane, `test-all`; §5 amended)
-- **Phase 3 (the board: socd glue + hub power + TT; keyboard and mouse drive the desktop)**: ⬜
+- **Phase 3 (the board: socd glue + hub power + TT; keyboard and mouse drive the desktop)**: ✅ 2026-10-06 — `[PASS] board-visible` (46 rungs) + `board-headless` (38) on the desk board, cycle 20 of 20 (`docs/board/measurements/2026-10-05-usb-cycle1/`): the SuperSpeed PHY released from its inverted-polarity reset, both PHYs' PLL sequences, DWC3 host mode, the xHCI at ~1 kHz with eight TRBs per pipe, the hub + keyboard + receiver, inputd's live routes from the operator's hand, the pointer on the controller's own layer
 
 Definition: "Complete" means the contract is defined and the proof gates are green (tests/markers).
 
@@ -87,14 +87,15 @@ USB-A ports. Measured on the stock system (`2026-10-04-usb-topology/`, `2026-10-
 
 - **No fake success**: `xhcid: ready` only after the controller runs (USBCMD.R/S = 1 and
   USBSTS.HCH = 0) and every root port is powered; `device enumerated` only after a successful
-  Address Device and the device descriptor read back; `SELFTEST: input usb hid ok` only for a real
+  Address Device and the device descriptor read back; `inputd: live pointer route on` only for a real
   report inside a bounded wait.
 - **No polling in steady state**: the service blocks on ONE waitset (IRQ endpoint, client endpoint,
   one-shot timer). Waits the specification mandates during reset (HCRST, CNR, HCH) are bounded by
   the kernel timer on that waitset — never a spin against the clock (`scripts/check-wait-not-poll.sh`).
 - **Bounded resources**: slots enabled ≤ 16 (`CONFIG.MaxSlotsEn`), hub depth ≤ 5 (route string),
   hub ports ≤ 15, configuration descriptor ≤ 1024 bytes, interfaces per configuration ≤ 8,
-  endpoints per interface ≤ 4, interrupt-IN TRBs queued per endpoint = 4, one event-ring segment of
+  endpoints per interface ≤ 4, interrupt-IN TRBs queued per endpoint = 8 (4 until board cycle 11
+  measured them running dry at the board's ~6 ms wake interval), one event-ring segment of
   256 TRBs, one command-ring segment of 64 TRBs, report frames to a client ≤ 16 reports.
 - **The FDT/PCI plan is the one hardware truth**: the controller's window, IRQ, reach and
   coherence arrive inside the device capability init grants (RFC-0098); no address in code.
@@ -161,10 +162,16 @@ wait. The controller schedules interrupt endpoints by their intervals: with four
 per HID endpoint (IOC set), the CPU sleeps between reports.
 
 **Interrupt moderation**: IMOD bounds the interrupt rate the controller can produce. One measured
-mouse completes ~1000 transfers/s; v1 sets IMODI = 4000 (1 ms), which keeps the added latency under
+mouse completes ~1000 transfers/s; v1 set IMODI = 4000 (1 ms), which keeps the added latency under
 a millisecond and caps the rate at 1 kHz however many devices report. Phase 3 measures the board's
-interrupt rate and input latency (counters in the `fps:`-style telemetry line) and records the
-value it keeps.
+interrupt rate and input latency (the `xhcid: irq hz=…` counters) and records the value it keeps.
+**Measured (board cycle 11, 2026-10-05)**: with IMODI = 4000 and four TRBs per pipe the board
+woke the driver ~160 times a second with events pending (`irq hz=162 events hz=401 per_irq_max=4
+dry=44`) — the pipes ran dry 44 times a second, reports lost at the device. Cycle 12 runs
+IMODI = 0 (no moderation) and eight TRBs per pipe (§Bounded resources), with the drain's own cost
+in the line (`drain_us avg= max=`): the interrupt rate against the report rate says whether the
+moderation or the kernel's wake path set the interval; the value kept is the one that measurement
+names.
 
 ### 3. Rings, contexts and DMA (normative)
 
@@ -271,16 +278,49 @@ channel, the replay, the delivery classes, the device names, the client's refusa
 - **Readiness**: serving the class makes xhcid a member of the DisplayReady barrier (RFC-0093): it
   announces `@ready` as soon as its endpoints are set up, with a controller or without one.
 
-### 6. Board specifics (normative for Phase 3)
+### 6. Board specifics (normative for Phase 3; built 2026-10-05, TASK-0328 U3)
 
-- socd brings `usb@c0a00000` up: power domain 0, `usbdrd30` clock, the three resets, the APMU glue
-  word measured as `0x0b008000`; the USB 2.0 PHY's tuning as the stock system leaves it, diffed on
-  the first board cycle (the D3 method).
-- **Hub power**: the board tree names the hub's supply and reset lines the standard way (fixed
-  regulators with an enable GPIO and a startup delay: lines 97 → 200 ms, 123, 124; pads as measured
-  — 97 mux 1, 123/124 mux 0); socd gains the GPIO output step that powers a node's supplies
-  (RFC-0106 amendment at U3). No driver drives a GPIO directly.
-- The USB 3.0 root port (the hub's SuperSpeed twin) may train; xhcid logs it and leaves it alone in v1.
+- **Order on the board**: xhcid reads its tree slot, finds the host node (`snps,dwc3` in host
+  mode) and the hub node (`spacemit,usb3-hub`) and has socd bring both up (`BRING_UP` by path,
+  RFC-0106) BEFORE it maps or reads the controller — a read of a gated block can stall the bus.
+  socd's refusal or fault leaves the controller untouched (`xhcid: FAIL (step=glue-host|glue-hub
+  cc=<status>)`); a tree without the host node (QEMU's PCI controller) needs no glue.
+- **The host node** (`/soc/storage-bus/usb@c0a00000`): bus domain, the three resets (`ahb`,
+  `vcc`, `phy`), the `usbdrd30` clock — our loader leaves the word at 0 (cycle 1: `apmu+5c:
+  0>f00`) — then the APMU glue word's bit 15 (`nexus,glue-words = <&syscon_apmu 0x3c8 0x8000
+  0x8000>`): the stock word is `0x0b008000`, but bits 24..25 ignore a write (status bits the
+  stock PHY drivers raise; cycle 1 read `0x08008000` back), so only bit 15 is glue.
+- **The DWC3 around the xHCI** (same window, `0xc100` on): xhcid identifies it (`GSNPSID`
+  `0x5533330a`) and makes the three measured fields so — `GCTL.PRTCAPDIR` = host, the PHY
+  suspend bits the stock tree disables by quirk clear (`GUSB2PHYCFG` bits 6 and 8,
+  `GUSB3PIPECTL` bit 17) — read back, every other bit left; a window that is no DWC3 is refused.
+- **The USB 2.0 PHY** (`/soc/storage-bus/phy@c0a30000`, its window a second `device.mmio.usb`
+  grant): socd gates its clock; xhcid reads its words against the stock system's (`xhcid: usb2
+  phy (…)`: how many match, which differ) and writes the differing writable ones to the stock
+  values in the order the vendor PHY driver's init runs them (reference only: the PLL divider
+  word `0x98` first, the PLL's lock — `0x04` bit 0 — waited for on the one-shot, bounded, then
+  the reset/mode word and the rest), each read back (`xhcid: usb2 phy set (…)`); `0x38` is
+  status, the dump's words past `0x4c` are compared, never written.
+- **The SuperSpeed (combo) PHY** (`/soc/storage-bus/phy@c0b10000`, a third grant): the xHCI's
+  reset inside the DWC3 waits on this PHY's PIPE clock, so it is brought up, not only measured
+  (board cycles 4–9, 2026-10-05: HCRST never completed with the block reading zeros). socd
+  releases its global reset — PCIe port A's, bit 8 of APMU `0x3cc`, SET = held (RFC-0106's one
+  inverted-polarity APMU reset) — clears the port's hold-PHY-reset bit (bit 30) and selects the
+  lane for USB (`0x110` bit 3); xhcid then compares the block's words with the stock twenty-three
+  (`xhcid: ss phy (…)`) and runs the USB-mode PLL sequence as the vendor PHY driver does it
+  (reference only; `ss_phy.rs`): the test word zeroed, the internal timer for USB, the 24 MHz
+  reference and the 5000 ppm spread-spectrum depth, the software init-done bit, then the lock
+  polled up to 500 ms on the one-shot — `xhcid: ss phy pll ready (after … ms calibrated=…)`, or
+  `… pll NOT ready (…)` (said, never fatal: the controller's reset that follows measures it).
+  Calibration (`0x84` bit 10) is measured; running it (PCIe port A's application clocks and
+  resets, in the table) is a cycle's step only if a board reads `calibrated=0`.
+- **Hub power** (`/usb-hub`, the stock binding's shape): socd puts the three pads on the GPIO
+  function (97 mux 1, 123/124 mux 0, the stock words' pulls), drives the hub's two lines (GPIO
+  123, 124) high as outputs, settles the measured 200 ms on its one-shot, then VBUS (GPIO 97) —
+  each through the bank's masked set registers, read back (RFC-0106 amendment). No driver
+  drives a GPIO.
+- The USB 3.0 root port (the hub's SuperSpeed twin) may train; xhcid logs it and leaves it alone
+  in v1.
 
 ### 7. Markers (normative)
 
@@ -289,8 +329,14 @@ channel, the replay, the delivery classes, the device names, the client's refusa
 - `xhcid: ready (ports=… connected=…)` — every root port powered and scanned
 - `xhcid: superspeed port left alone (port=…)` — a USB 3 root port with a link (v1 leaves it)
 - `xhcid: hub (slot=… port=… speed=… ports=… ttt=…)` — `port` is the hub's root port
-- `xhcid: device enumerated (slot=… route=0x… speed=… vid=… pid=… class=…)`
-- `xhcid: hid boot interface (slot=… if=… role=… ep=0x… mps=… interval=…)`
+- `xhcid: device enumerated (vid=… pid=… class=… speed=… slot=… route=0x…)` — the identity
+  leads, the slot and route (the order the ports answered in) trail; a lane's rung stops before
+  them
+- `xhcid: hid boot interface (vid=… pid=… role=… if=… ep=0x… mps=… interval=… slot=…)`
+- `xhcid: irq hz=… events hz=… reports hz=… per_irq_max=… dry=… dropped=… refused=…` — the
+  one-second counters under traffic (Phase 3): `dry` counts drains in which a pipe's every TRB
+  had completed (the device went unpolled — reports lost at the device), `dropped`/`refused`
+  the class server's running totals
 - `xhcid: device detached (slot=…)`
 - `xhcid: no host controller (usb plane none)` — xhcid holds no window and parks
 - `xhcid: FAIL (step=… cc=…)` — the failing step and its completion code (for a refused
@@ -302,7 +348,10 @@ channel, the replay, the delivery classes, the device names, the client's refusa
   (status=…)`, `hidrawd: usb hid device (vid=… pid=… role=…)`, `hidrawd: usb hid device gone
   (vid=… pid=… role=…)`, `hidrawd: usb hid report seen`, `hidrawd: usb hid report refused (not a
   boot report)`, `hidrawd: usb hid frame rejected (…)`
-- `SELFTEST: input usb hid ok (…)` — a real report inside a bounded wait, else `FAIL (no event in 30s)`
+- `inputd: live pointer route on` / `inputd: live keyboard route on` — inputd's own word that a
+  real report reached its live routes (the board's input proof; a selftest-client probe that
+  polled windowd for it was retired in board cycle 16 — the topology declares no
+  selftest-client → windowd route, so it observed nothing)
 
 ### Phases / milestones (contract-level)
 
@@ -318,7 +367,7 @@ channel, the replay, the delivery classes, the device names, the client's refusa
   `usb-visible`: the visible lane without a virtio input device); on every lane the class is served
   and hidrawd's subscription admitted.
 - **Phase 3** (TASK-0328 U3): the board — socd glue, hub power, TT; `[PASS] board-visible` with
-  `SELFTEST: input usb hid ok` and `board-visual: typed`. **Block 2 gate.**
+  `inputd: live pointer route on` / `… keyboard route on` and `board-visual: typed`. **Block 2 gate.**
 
 ## Security considerations
 
@@ -424,7 +473,7 @@ drivers read the fourth byte as the wheel — as the measured mouse sends it.
   (2026-10-05: the desktop over USB alone — no virtio input device; `SELFTEST: ui v2 input ok`,
   the keyboard route, chain contract incl. `input-live` 15/15, pixel proof; host: xhcid's class
   server 10 tests over the real core, hidrawd's USB source 9, `nexus_wire::usb` 7)
-- [ ] **Phase 3**: the board — proof: `[PASS] board-visible` with `SELFTEST: input usb hid ok` + `board-visual: typed`
+- [x] **Phase 3** ✅ 2026-10-06: the board — `[PASS] board-visible` with `inputd: live pointer route on` / `… keyboard route on` + `board-visual: typed` / `pointer` (cycle 20)
 - [x] Task(s) linked with stop conditions + proof commands.
 - [x] QEMU markers (if any) appear in `scripts/qemu-test.sh` and pass (`USB_MARKERS`,
   `USB_CLASS_MARKERS`, `USB_INPUT_MARKERS`; the board's in Phase 3).

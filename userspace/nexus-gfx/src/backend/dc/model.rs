@@ -118,12 +118,19 @@ pub fn bring_up<W: RegWriter>(w: &mut W, mode: &Mode, plane: &Plane, rdma: u32) 
     w.write(cm + regs::CMPS_ENABLE_WIDTH, (h << 8) | 1);
     w.write(cm + regs::CMPS_HEIGHT, v);
     w.write(cm + regs::CMPS_BG_A, regs::CMPS_BG_ALPHA);
-    // The layer reads the channel the plane is fed through — never a channel left idle.
-    w.write(cm + regs::CMPS_LAYER_EN, regs::cmps_layer_word(rdma));
-    w.write(cm + regs::CMPS_LAYER_LT, 0);
-    w.write(cm + regs::CMPS_LAYER_RIGHT, h.saturating_sub(1) << 16);
-    w.write(cm + regs::CMPS_LAYER_BOTTOM, v.saturating_sub(1));
-    w.write(cm + regs::CMPS_LAYER_ALPHA, regs::CMPS_LAYER_ALPHA_VALUE);
+    // The desktop on the stock kernel's layer 7 (the pointer's layer 6 composites above it);
+    // the loader's splash layer 0 off. The layer reads the channel the plane is fed through —
+    // never a channel left idle.
+    w.write(cm + regs::cmps_layer_en(regs::SPLASH_LAYER), 0);
+    let layer = cm + regs::cmps_layer_en(regs::DESKTOP_LAYER);
+    w.write(layer + regs::LAYER_LEFT, 0);
+    w.write(layer + regs::LAYER_RIGHT_TOP, h.saturating_sub(1) << 16);
+    w.write(
+        layer + regs::LAYER_BOTTOM_BLEND,
+        (regs::DESKTOP_BLEND_MODE << 16) | v.saturating_sub(1),
+    );
+    w.write(layer + regs::LAYER_ALPHA, regs::DESKTOP_ALPHA_WORD);
+    w.write(layer, regs::cmps_layer_word(rdma));
 
     w.write(regs::CTL2_ENABLE, (1 << rdma) | regs::CTL_OUTCTL_EN);
     w.write(regs::CTL2_MODE, regs::CTL2_MODE_VALUE);
@@ -200,7 +207,7 @@ impl Iterator for DamageSpans {
     }
 }
 
-fn write_plane_address<W: RegWriter>(w: &mut W, channel: u32, bus_addr: u64) {
+pub(super) fn write_plane_address<W: RegWriter>(w: &mut W, channel: u32, bus_addr: u64) {
     w.write(channel + regs::RDMA_ADDR_LO, bus_addr as u32);
     w.write(channel + regs::RDMA_ADDR_HI, (bus_addr >> 32) as u32);
 }
@@ -273,7 +280,8 @@ mod tests {
         assert_eq!(s.value_at(0xda0), Some(0x0fb7_c000));
         assert_eq!(s.value_at(0xdb8), Some(7680));
         assert_eq!(s.value_at(0x560), Some(0x0004_0008));
-        assert_eq!(s.value_at(0x4c38), Some(7), "the splash's layer word: layer 0 reads RDMA3");
+        assert_eq!(s.value_at(0x4c38), Some(0), "the loader's layer 0 is switched off");
+        assert_eq!(s.value_at(0x4d18), Some(7), "the desktop's layer 7 reads RDMA3 here");
         let n = s.as_slice().len();
         assert_eq!(s.as_slice()[n - 2], Write { offset: 0x56c, value: 1 });
         assert_eq!(s.as_slice()[n - 1], Write { offset: 0x58c, value: 1 });
@@ -288,13 +296,23 @@ mod tests {
         for rdma in 0..12 {
             let mut s = Sequence::new();
             bring_up(&mut s, &mode_1080p60(), &plane_1080p(), rdma);
-            let layer = s.value_at(0x4c38).expect("the layer word");
+            let layer = s.value_at(0x4d18).expect("the layer word");
             let enabled = s.value_at(0x560).expect("the control word") & 0xfff;
             assert_eq!(layer & 1, 1, "the layer is enabled");
             assert_eq!(enabled, 1 << (layer >> 1), "rdma {rdma}: the layer reads the fed channel");
         }
-        // The stock kernel's word for its RDMA1 layer, measured at 0x4d18.
-        assert_eq!(regs::cmps_layer_word(1), 0x3);
+        // The stock kernel's words for its desktop layer 7 on RDMA1 (`dpu-regs-on-annotated.txt`:
+        // 0x4d18 = 0x3, 0x4d2c = 0x077f0000, 0x4d30 = 0x00010437, 0x4d34 = 0x00ff0037).
+        let mut s = Sequence::new();
+        bring_up(&mut s, &mode_1080p60(), &plane_1080p(), 1);
+        assert_eq!(s.value_at(0x4d18), Some(0x3));
+        assert_eq!(s.value_at(0x4d28), Some(0));
+        assert_eq!(s.value_at(0x4d2c), Some(0x077f_0000));
+        assert_eq!(s.value_at(0x4d30), Some(0x0001_0437));
+        assert_eq!(s.value_at(0x4d34), Some(0x00ff_0037));
+        let en = s.as_slice().iter().position(|w| w.offset == 0x4d18).unwrap();
+        let alpha = s.as_slice().iter().position(|w| w.offset == 0x4d34).unwrap();
+        assert!(alpha < en, "the layer shows complete: its words before its enable");
     }
 
     /// A flip writes the address pair and the stride, then the two latch words, in that order —

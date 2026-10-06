@@ -97,6 +97,8 @@ pub(crate) fn grant_device_planes(
     for (pid, svc, subject) in [
         (o.selftest, ServiceId::SelftestClient, "init:selftest-client"),
         (o.gpud, ServiceId::Gpud, "init:gpud"),
+        // TASK-0328 U3: the USB host reads its node and the on-board hub's for socd.
+        (o.xhcid, ServiceId::Xhcid, "init:xhcid"),
     ] {
         let (tree, slot) =
             (crate::service_topology::NamedSlot::DeviceTree, nexus_abi::INIT_DEVICE_TREE_SLOT);
@@ -141,6 +143,24 @@ pub(crate) fn grant_device_planes(
                         &[b"init: usb bus master FAIL (", reason.as_bytes(), b")"],
                         None,
                     );
+                }
+            }
+            // TASK-0328 U3: the board's USB 2.0 PHY window, read by xhcid (the stock words
+            // compared on the first cycle), under the same class.
+            for (phy, slot) in [
+                (usb.phy, crate::service_topology::slots::xhcid::PHY),
+                (usb.ss_phy, crate::service_topology::slots::xhcid::SS_PHY),
+            ] {
+                if let Some(phy) = phy {
+                    grant_mmio_with_wait(
+                        stats,
+                        pol_route,
+                        o.xhcid,
+                        "xhcid",
+                        "device.mmio.usb",
+                        phy,
+                        slot,
+                    )?;
                 }
             }
         }

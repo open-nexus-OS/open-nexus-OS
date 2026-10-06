@@ -54,21 +54,22 @@ pub(crate) const HIDRAWD: ServiceSpec = ServiceSpec {
 /// before it runs. TASK-0253B: it serves the HID boot class to one subscriber (RFC-0099 §5),
 /// admitted by policyd (`usb.hid` of the kernel-attributed sender) — so it is a member of the
 /// DisplayReady barrier and announces as soon as it serves, on every lane (without a
-/// controller too). socd's bring-up of the board's node (U3) adds a route.
+/// controller too). On the board (U3) it has socd bring the host node and the on-board hub up
+/// (RFC-0106) before it touches the controller, reading both nodes from its own tree slot.
 pub(crate) const XHCID: ServiceSpec = ServiceSpec {
     id: ServiceId::Xhcid,
     stage: Stage::DisplayReady,
     exposes_server: true,
     reply_inbox: true,
-    routes_to: &[Route {
-        to: ServiceId::Policyd,
-        kind: RouteKind::ReplyInbox,
-        slots: slots::xhcid::POLICYD,
-    }],
+    routes_to: &[
+        Route { to: ServiceId::Policyd, kind: RouteKind::ReplyInbox, slots: slots::xhcid::POLICYD },
+        Route { to: ServiceId::Socd, kind: RouteKind::ReplyInbox, slots: slots::xhcid::SOCD },
+    ],
     announce: false,
     server_slots: slots::xhcid::SERVER,
     reply_slots: slots::xhcid::REPLY,
     extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::DeviceTree, slot: slots::xhcid::DEVICE_TREE },
         NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::xhcid::IRQ_NOTIFY },
         NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::xhcid::TIMER.recv },
         NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::xhcid::TIMER.send },

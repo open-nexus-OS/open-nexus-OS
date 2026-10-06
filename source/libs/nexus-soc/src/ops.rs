@@ -10,7 +10,14 @@ use nexus_hal::Bus;
 
 use crate::field::Field;
 use crate::plan::{Plan, Step};
-use crate::table::ClockEntry;
+use crate::table::{k1, ClockEntry};
+
+/// What holds the executor for a settle step (a supply's start-up delay): `socd`'s kernel
+/// one-shot; a test's recorder. The executor has no clock of its own.
+pub trait Pause {
+    /// Return after `ms` milliseconds.
+    fn pause_ms(&self, ms: u32);
+}
 
 /// Bound on polling a self-clearing bit (bus reads, not time: the executor has
 /// no clock; `socd` bounds the wall-clock around it).
@@ -20,6 +27,10 @@ pub const FC_POLL_READS: usize = 1000;
 /// (the rail ramps before the sequencer lifts isolation); at a few hundred nanoseconds per
 /// APMU read this caps the wait at tens of milliseconds.
 pub const DOMAIN_POLL_READS: usize = 100_000;
+
+/// Bound on reading a GPIO bank's level word after a set/clear (bus reads): the word reports
+/// the pin, which follows the driver after the pad's propagation.
+pub const GPIO_LEVEL_POLL_READS: usize = 1000;
 
 /// Why a step failed: the register and what it read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,16 +43,20 @@ pub enum Fault {
     DomainStuck { addr: usize, value: u32 },
     /// A mux/div value outside the field.
     Range,
+    /// The plan holds a settle and the executor was given nothing to pause with.
+    NoPause,
 }
 
 impl Fault {
-    /// The step kind that failed, for markers: `read-back`, `frequency-change`, `domain`, `range`.
+    /// The step kind that failed, for markers: `read-back`, `frequency-change`, `domain`,
+    /// `range`, `settle`.
     pub fn step(&self) -> &'static str {
         match self {
             Fault::ReadBack { .. } => "read-back",
             Fault::FcStuck { .. } => "frequency-change",
             Fault::DomainStuck { .. } => "domain",
             Fault::Range => "range",
+            Fault::NoPause => "settle",
         }
     }
 
@@ -51,7 +66,7 @@ impl Fault {
             Fault::ReadBack { addr, value }
             | Fault::FcStuck { addr, value }
             | Fault::DomainStuck { addr, value } => Some((addr, value)),
-            Fault::Range => None,
+            Fault::Range | Fault::NoPause => None,
         }
     }
 }
@@ -66,15 +81,28 @@ pub struct Report {
     pub rates_set: usize,
     pub domains: usize,
     pub pads: usize,
+    /// GPIO lines driven (TASK-0328 U3).
+    pub gpios: usize,
+    /// Whole words written as the binding names them (`nexus,glue-words`).
+    pub words: usize,
+    /// Milliseconds held in settles.
+    pub settled_ms: u32,
 }
 
 pub struct Executor<'b, B: Bus> {
     bus: &'b B,
+    pause: Option<&'b dyn Pause>,
 }
 
 impl<'b, B: Bus> Executor<'b, B> {
+    /// An executor without a clock: a plan with a settle faults (`NoPause`).
     pub fn new(bus: &'b B) -> Self {
-        Executor { bus }
+        Executor { bus, pause: None }
+    }
+
+    /// An executor that can hold for a settle.
+    pub fn with_pause(bus: &'b B, pause: &'b dyn Pause) -> Self {
+        Executor { bus, pause: Some(pause) }
     }
 
     /// Run a plan in order; stop at the first fault.
@@ -83,6 +111,21 @@ impl<'b, B: Bus> Executor<'b, B> {
         for step in plan.steps() {
             report.steps += 1;
             match *step {
+                Step::SetWord { addr, mask, value } => {
+                    if self.set_bits(addr, mask, value)? {
+                        report.writes += 1;
+                    }
+                    report.words += 1;
+                }
+                Step::GpioOut { bank, bit, high } => {
+                    report.writes += self.gpio_out(bank, bit, high)?;
+                    report.gpios += 1;
+                }
+                Step::Settle { ms } => {
+                    let Some(pause) = self.pause else { return Err(Fault::NoPause) };
+                    pause.pause_ms(ms);
+                    report.settled_ms = report.settled_ms.saturating_add(ms);
+                }
                 Step::ReleaseReset { addr, mask, assert_sets } => {
                     let want = if assert_sets { 0 } else { mask };
                     if self.set_bits(addr, mask, want)? {
@@ -114,6 +157,44 @@ impl<'b, B: Bus> Executor<'b, B> {
             }
         }
         Ok(report)
+    }
+
+    /// Drive one line of the bank at `bank` as an output at `high`; returns the writes it took.
+    /// The direction and the level are set through the bank's masked set/clear registers (no
+    /// read-modify-write: another writer's lines are never touched) and read back from its
+    /// direction and level words; a line already there is left alone.
+    fn gpio_out(&self, bank: usize, bit: u32, high: bool) -> Result<usize, Fault> {
+        let mut writes = 0;
+        let direction = bank + k1::GPIO_DIRECTION as usize;
+        if self.bus.read(direction) & bit == 0 {
+            self.bus.write(bank + k1::GPIO_SET_DIRECTION as usize, bit);
+            let back = self.bus.read(direction);
+            if back & bit == 0 {
+                return Err(Fault::ReadBack { addr: direction, value: back });
+            }
+            writes += 1;
+        }
+        let level = bank + k1::GPIO_LEVEL as usize;
+        let want = if high { bit } else { 0 };
+        if self.bus.read(level) & bit != want {
+            let reg = if high { k1::GPIO_SET } else { k1::GPIO_CLEAR };
+            self.bus.write(bank + reg as usize, bit);
+            // The level word follows the pin, not the write: board cycle 5 (2026-10-05) read the
+            // old level right after the set and the new one a moment later — a bounded number
+            // of reads, never one.
+            let mut back = self.bus.read(level);
+            for _ in 0..GPIO_LEVEL_POLL_READS {
+                if back & bit == want {
+                    break;
+                }
+                back = self.bus.read(level);
+            }
+            if back & bit != want {
+                return Err(Fault::ReadBack { addr: level, value: back });
+            }
+            writes += 1;
+        }
+        Ok(writes)
     }
 
     /// Bring a hardware-sequenced domain up; returns the writes it took. A domain that

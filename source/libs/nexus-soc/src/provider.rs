@@ -14,6 +14,10 @@ pub enum ProviderKind {
     Apbc2,
     Pll,
     Pinctrl,
+    /// The GPIO block (TASK-0328 U3): the lines a node's supplies and resets are driven on —
+    /// an on-board USB hub's power and VBUS. The glue owner drives them like a pad: an
+    /// output set, read back.
+    Gpio,
 }
 
 impl ProviderKind {
@@ -26,18 +30,20 @@ impl ProviderKind {
             ProviderKind::Apbc2 => "apbc2",
             ProviderKind::Pll => "pll",
             ProviderKind::Pinctrl => "pinctrl",
+            ProviderKind::Gpio => "gpio",
         }
     }
 
     /// The kind of a node, from its compatible list.
     pub fn of(node: Node<'_>) -> Option<Self> {
-        const KINDS: [(&str, ProviderKind); 6] = [
+        const KINDS: [(&str, ProviderKind); 7] = [
             ("spacemit,k1-syscon-apbc", ProviderKind::Apbc),
             ("spacemit,k1-syscon-apmu", ProviderKind::Apmu),
             ("spacemit,k1-syscon-mpmu", ProviderKind::Mpmu),
             ("spacemit,k1-syscon-apbc2", ProviderKind::Apbc2),
             ("spacemit,k1-pll", ProviderKind::Pll),
             ("spacemit,k1-pinctrl", ProviderKind::Pinctrl),
+            ("spacemit,k1-gpio", ProviderKind::Gpio),
         ];
         KINDS.iter().find(|(c, _)| node.is_compatible(c)).map(|(_, k)| *k)
     }
@@ -54,12 +60,17 @@ pub struct Provider {
 /// The providers of one tree (at most one per kind).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Providers {
-    slots: [Option<Provider>; 6],
+    slots: [Option<Provider>; ProviderKind::COUNT],
+}
+
+impl ProviderKind {
+    /// How many kinds there are (the size of every per-kind table and slot block).
+    pub const COUNT: usize = 7;
 }
 
 impl Providers {
     pub const fn new() -> Self {
-        Providers { slots: [None; 6] }
+        Providers { slots: [None; ProviderKind::COUNT] }
     }
 
     /// Every provider the tree lists, its base taken from `base_of` (the node's

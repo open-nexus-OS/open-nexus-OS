@@ -9,7 +9,7 @@
 use nexus_fdt::Node;
 use nexus_hal::Bus;
 
-use crate::ops::{Executor, Fault, Report};
+use crate::ops::{Executor, Fault, Pause, Report};
 use crate::plan::{plan, PlanError};
 use crate::provider::{ProviderKind, Providers};
 use crate::table;
@@ -33,17 +33,36 @@ pub enum BringUpError {
 }
 
 /// Bring `node` up — power domain, resets released, clocks on — every write read back; a step
-/// already satisfied writes nothing.
+/// already satisfied writes nothing. A node whose plan holds a settle (a supply's start-up
+/// delay) needs [`bring_up_with`]; here it faults.
 pub fn bring_up<B: Bus>(
     node: Node<'_>,
     providers: &Providers,
     bus: &B,
 ) -> Result<BringUp, BringUpError> {
+    run(node, providers, Executor::new(bus))
+}
+
+/// [`bring_up`] with a `pause` for the plan's settles (`socd`'s kernel one-shot).
+pub fn bring_up_with<B: Bus>(
+    node: Node<'_>,
+    providers: &Providers,
+    bus: &B,
+    pause: &dyn Pause,
+) -> Result<BringUp, BringUpError> {
+    run(node, providers, Executor::with_pause(bus, pause))
+}
+
+fn run<B: Bus>(
+    node: Node<'_>,
+    providers: &Providers,
+    executor: Executor<'_, B>,
+) -> Result<BringUp, BringUpError> {
     let plan = plan(node, providers).map_err(BringUpError::Plan)?;
     if plan.is_empty() {
         return Ok(BringUp::NotNeeded);
     }
-    Executor::new(bus).execute(&plan).map(BringUp::Up).map_err(BringUpError::Fault)
+    executor.execute(&plan).map(BringUp::Up).map_err(BringUpError::Fault)
 }
 
 /// Why a clock has no rate.

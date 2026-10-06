@@ -29,6 +29,8 @@
 // `nexus_driverkit::MmioSet` (the MMIO seam, TASK-0251 P2).
 #![forbid(unsafe_code)]
 
+/// The loader's SoC state against the stock system's (a measurement).
+pub mod stock;
 pub mod verdict;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

@@ -1,0 +1,48 @@
+framebuffer[135]:
+	allocated by = gnome-shell
+	refcount=2
+	format=XR24 little-endian (0x34325258)
+	modifier=0x0
+	size=1920x1080
+	layers:
+		size[0]=1920x1080
+		pitch[0]=7680
+		offset[0]=0
+		obj[0]:
+			name=0
+			refcount=3
+			start=001017bf
+			size=8294400
+			imported=no
+framebuffer[137]:
+	allocated by = KMS thread
+	refcount=2
+	format=AR24 little-endian (0x34325241)
+	modifier=0x0
+	size=64x64
+	layers:
+		size[0]=64x64
+		pitch[0]=256
+		offset[0]=0
+		obj[0]:
+			name=0
+			refcount=3
+			start=001017bb
+			size=16384
+			imported=no
+framebuffer[132]:
+	allocated by = [fbcon]
+	refcount=1
+	format=XR24 little-endian (0x34325258)
+	modifier=0x0
+	size=1920x1080
+	layers:
+		size[0]=1920x1080
+		pitch[0]=7680
+		offset[0]=0
+		obj[0]:
+			name=0
+			refcount=2
+			start=00100000
+			size=8294400
+			imported=no

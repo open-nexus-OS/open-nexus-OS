@@ -226,6 +226,19 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
        (TASK-0260B P3 amendment) — the kernel's runtime at 1.7 s instead of 23.4 s. Left: the
        userspace bring-up up to gpud's first frame (unmeasured; the trace has no clock after
        the kernel's last milestone).
+    6. *Typing flickers the whole screen* (board, 2026-10-06, USB cycle 14): with the keyboard
+       active windowd presents 10–16 times a second (`windowd: loop hz=115 apply=97 present=15`),
+       each a CPU present of the display plane with the switch mid-frame (finding 3, no flip at
+       vertical blank) — and those presents starve xhcid's wakes (`irq hz=23 … dry=10..29`, the
+       interrupt pipes run dry while the harts compose). Not a workaround in the sense of the
+       pointer (it is the present path itself), but the same coupling: text input must not
+       cost a full-plane present; the tear-free step (vsync flip, a second plane) and damage
+       that is the text field's, not the frame's.
+    7. *The pointer looks odd over a hover field* (board, 2026-10-06): the shape select swaps
+       the layer's sprite (`cursor: shape=text`, hot 16,16) and the layer shows what windowd
+       cached — whether the I-beam's bytes, the blend mode (stock `blend_mode=1` + `alpha_sel`
+       on the pointer layer) or the premultiplication is what looks wrong is unmeasured; a
+       photo against the stock pointer's rendering decides. Deferred with the display track.
     5. *The entry animation's first second* on the CPU path (a doubled password pill, a cut
        avatar) — the transform overrides (3b).
     **3b** — the CPU layer composite at the GL path's semantics (the rounded mask,
@@ -233,6 +246,23 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
     blue glass), host goldens against the GL compositor's math; on the board a display-plane
     probe (flush, then sample a grid — what the controller reads); the scroll/transform
     overrides on the CPU path (today they wait for windowd's next full present).
+    **3c — the controller's cursor layer (next after TASK-0328 U3; the operator 2026-10-05:
+    "no parallel implementations, no dead paths")**. Step 2 answered `CURSOR_REPLY_SW` on the
+    controller path, so windowd blends the pointer into every present: every pointer move is a
+    present through the CPU executor and the cache clean (`windowd: loop hz=14 apply=9
+    present=8` on the board, U3 cycle 10) — a second implementation beside the virtio path's
+    hardware overlay (`OP_MOVE_CURSOR`, no present), and the slow one runs on the hardware.
+    Measured on the stock system (`docs/board/measurements/2026-10-05-cursor-layer/`): the
+    pointer is DRM plane-1, ARGB8888 64×64 pitch 256, fed through RDMA channel 2 into composer
+    layer 6 (blend mode 5, alpha factor 10, layer alpha 255), positioned by the layer's
+    rectangle (`0x4d08`/`0x4d0c`/`0x4d10`). Build: `dc` arms the overlay at `upload_cursor`
+    (a device buffer of its own, channel 2, layer 6, `CURSOR_REPLY_HW`), `move_cursor` writes
+    the rectangle and the latch, shape changes swap the buffer; the controller path's software
+    cursor (`CURSOR_REPLY_SW` from `dc`, `BlendCursor` in its presents) is deleted with a
+    retired-name gate. Gates, measured: the stock words read back (`gpud: dc cursor layer ok
+    (rdma=2 layer=6 fmt=0x10000008 blend=5)`), `windowd: loop hz` under mouse movement not
+    rising with the pointer rate, the operator's `board-visual: pointer`. First: a second stock
+    sample at another pointer position pins the left word's packing.
 - **P3 First picture** — on the board through the boot chain (TASK-0260B): markers + the
   operator ack; photo in the ledger. **Block 1 gate.**
 

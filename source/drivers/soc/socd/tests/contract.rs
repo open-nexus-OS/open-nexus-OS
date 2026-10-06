@@ -72,7 +72,7 @@ fn bring_up_with_outcome(
     let mut req = [0u8; 128];
     let n = soc::encode_bring_up_req(&mut req, 0xabcd, frame_path).unwrap();
     let mut out = [0u8; REPLY_MAX];
-    let (len, outcome) = answer(&req[..n], access, Some(&fdt), &providers, bus, &mut out);
+    let (len, outcome) = answer(&req[..n], access, Some(&fdt), &providers, bus, None, &mut out);
     (soc::decode_bring_up_rsp(&out[..len]).expect("a bring-up reply"), outcome)
 }
 
@@ -122,7 +122,7 @@ fn test_reject_an_unknown_node_and_a_malformed_frame() {
     let providers = providers_of(&fdt);
     let mut out = [0u8; REPLY_MAX];
     let (len, outcome) =
-        answer(b"RG\x01\x01", Access::Allowed, Some(&fdt), &providers, &bus, &mut out);
+        answer(b"RG\x01\x01", Access::Allowed, Some(&fdt), &providers, &bus, None, &mut out);
     assert_eq!(outcome.status, soc::STATUS_MALFORMED);
     assert!(len > 0);
 }
@@ -157,7 +157,7 @@ fn the_bring_up_marker_names_every_register_before_and_after() {
     assert_eq!(
         bring_up_marker(EMMC, &outcome).as_str(),
         "socd: bring-up /soc/storage-bus/mmc@d4281000 ok (domains=1 resets=2 clocks=2 rates=0 \
-         pads=0 writes=0) apmu+54:411b>411b apmu+e0:52>52"
+         pads=0 gpios=0 writes=0) apmu+54:411b>411b apmu+e0:52>52"
     );
     // From cold with no power sequencer answering: the domain step fails with the status word
     // it read, and the words show what the bring-up left — the request raised, nothing else.
@@ -206,6 +206,6 @@ fn clock_rate_reads_the_emmc_io_clock_from_the_stock_registers() {
     let mut req = [0u8; 160];
     let n = soc::encode_clock_rate_req(&mut req, 5, "/soc/storage-bus/mmc@d4281000", "io").unwrap();
     let mut out = [0u8; REPLY_MAX];
-    let (len, _) = answer(&req[..n], Access::Allowed, Some(&fdt), &providers, &bus, &mut out);
+    let (len, _) = answer(&req[..n], Access::Allowed, Some(&fdt), &providers, &bus, None, &mut out);
     assert_eq!(soc::decode_clock_rate_rsp(&out[..len]), Some((soc::STATUS_OK, 5, 375_000_000)));
 }

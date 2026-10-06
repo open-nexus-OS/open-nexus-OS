@@ -159,6 +159,13 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
             return;
         }
         pipe.errors = 0;
+        if pipe.drain != self.drain {
+            pipe.drain = self.drain;
+            pipe.drained = 0;
+        }
+        pipe.drained = pipe.drained.saturating_add(1);
+        let dry = usize::from(pipe.drained) == PIPE_TRBS;
+        let report = matches!(pipe.kind, PipeKind::Hid { .. });
         let Some(mem) = dev.pipes_mem.as_mut() else { return };
         let n = usize::from(pipe.max_packet).saturating_sub(event.residual() as usize);
         let at = pipe.buffers + usize::from(buffer) * pipe.stride;
@@ -181,6 +188,8 @@ impl<B: Bus, A: DmaAlloc> Xhci<B, A> {
         pipe.head = (pipe.head + 1) % PIPE_TRBS;
         dev.pipes[i] = Some(pipe);
         self.regs.ring(slot, dci);
+        self.stats.reports = self.stats.reports.saturating_add(u32::from(report));
+        self.stats.pipes_dry = self.stats.pipes_dry.saturating_add(u32::from(dry));
         if pipe.kind == PipeKind::HubStatus {
             self.hub_changed(idx, &bitmap[..n.min(2)], now);
         }

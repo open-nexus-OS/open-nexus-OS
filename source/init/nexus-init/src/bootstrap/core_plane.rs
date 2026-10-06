@@ -73,6 +73,10 @@ pub(crate) struct CorePlane {
 pub(crate) struct UsbPlane {
     pub window: DeviceWindow,
     pub pci: Option<crate::bootstrap::pci::PciFunction>,
+    /// The USB 2.0 PHY's window (the board's tree names it; a PCI controller has none).
+    pub phy: Option<DeviceWindow>,
+    /// The SuperSpeed (combo) PHY's window, read for a measurement (v1 leaves the port alone).
+    pub ss_phy: Option<DeviceWindow>,
 }
 
 /// One policy-gated DeviceMmio grant, waited to a 1 s deadline (policyd
@@ -380,10 +384,18 @@ pub(crate) fn bring_up(
     // TASK-0246 P3: the tree's ECAM hosts are a device source too (the boot disk may be one's).
     let pci = crate::bootstrap::pci::discover();
     crate::bootstrap::pci::report(&pci);
-    // TASK-0328 U1: the USB plane — QEMU's PCI xHCI. The board's tree node joins in U3 with
-    // socd's bring-up of its clocks, resets and power: before that its window is not live, and a
-    // read of a gated block can stall the bus.
-    let usb = pci.usb.map(|host| UsbPlane { window: host.window, pci: Some(host.function) });
+    // TASK-0328 U1: the USB plane — QEMU's PCI xHCI, or (U3) the board's tree node: its owner
+    // has socd bring its clocks, resets and glue up before it touches the window (a read of a
+    // gated block can stall the bus), so the grant alone is safe.
+    let usb = pci
+        .usb
+        .map(|host| UsbPlane {
+            window: host.window,
+            pci: Some(host.function),
+            phy: None,
+            ss_phy: None,
+        })
+        .or_else(device_tree::usb_plane);
 
     // RFC-0106 (TASK-0246 P4c): the SoC glue owner — the tree alias and every provider window —
     // runs before the disk is granted: the disk's owner asks it to bring the disk's node up

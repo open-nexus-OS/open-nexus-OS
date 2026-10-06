@@ -126,12 +126,21 @@ pub const CMPS_LAYER_EN: u32 = 0x38;
 pub const fn cmps_layer_word(rdma: u32) -> u32 {
     1 | (rdma << 1)
 }
-/// Layer rectangle: left/top (0), right ((h−1) << 16), bottom (v−1), alpha word.
+/// Layer 0's rectangle and alpha words (the boot loader's splash layer): left/top, right/top,
+/// bottom/blend, alpha. Kept for the splash's reading; the desktop runs on layer 7.
 pub const CMPS_LAYER_LT: u32 = 0x48;
 pub const CMPS_LAYER_RIGHT: u32 = 0x4c;
 pub const CMPS_LAYER_BOTTOM: u32 = 0x50;
 pub const CMPS_LAYER_ALPHA: u32 = 0x54;
-pub const CMPS_LAYER_ALPHA_VALUE: u32 = 0x00ff_0000;
+/// The desktop's layer (TASK-0251 P2a step 3c): the stock kernel's desktop plane runs on
+/// composer layer 7 (`0x4d18 = 0x3`, blend mode 1, `0x4d34 = 0x00ff0037`) and its pointer on
+/// layer 6 — a lower index composites ABOVE a higher one (board cycle 13: the desktop on layer
+/// 0 hid the pointer's layer 6). The boot loader's splash on layer 0 is switched off at the
+/// bring-up.
+pub const DESKTOP_LAYER: u32 = 7;
+pub const DESKTOP_BLEND_MODE: u32 = 1;
+pub const DESKTOP_ALPHA_WORD: u32 = 0x00ff_0037;
+pub const SPLASH_LAYER: u32 = 0;
 
 // ── Control words (absolute; the pipeline-2 words the splash writes) ───────────────────────
 
@@ -157,6 +166,53 @@ pub const KNOWN_VERSION: u32 = 0x0300_1030;
 /// output control's base): it moves while the timing generator scans (measured 857 with the
 /// picture on, 920 in the next capture).
 pub const OUTCTRL_LINE_COUNT: u32 = 0xc8;
+// ── The pointer layer (TASK-0251 P2a step 3c) ──────────────────────────────────────────────
+// Measured on the stock system with its pointer on the monitor (2026-10-05,
+// `docs/board/measurements/2026-10-05-cursor-layer/`): DRM plane-1 (ARGB8888 64×64, pitch 256)
+// is RDMA channel 2 feeding composer layer 6; a move is the layer's rectangle.
+
+/// The channel the pointer's buffer is read through and the composer layer that shows it.
+pub const CURSOR_RDMA: u32 = 2;
+pub const CURSOR_LAYER: u32 = 6;
+/// The pointer buffer: 64×64 ARGB8888, 256 bytes per row (the stock framebuffer 137).
+pub const CURSOR_SIZE: u32 = 64;
+pub const CURSOR_STRIDE_BYTES: u32 = CURSOR_SIZE * 4;
+pub const CURSOR_BYTES: usize = (CURSOR_STRIDE_BYTES * CURSOR_SIZE) as usize;
+/// The stock kernel's channel control word (its desktop channel 1 and the pointer's channel 2
+/// both read `0x001e203c`: outstanding 15, burst 15, `layer_cmpsr_id` 2 — the splash's
+/// `0x202040` drives channel 1 for us, the pointer's channel takes the kernel's word).
+pub const RDMA_CTRL_CURSOR: u32 = 0x001e_203c;
+/// Pixel format 4: ARGB8888 (the desktop's XRGB8888 channel reads 8; the pointer's reads 4 —
+/// measured at `0xcf0`).
+pub const RDMA_FORMAT_ARGB8888: u32 = 4;
+/// The channel's memory word after the format (`fbc_mem_size` in the dump's names): the
+/// desktop's channel holds 0x570, the pointer's `0x10000008` — the 64×64 buffer's size with
+/// bit 28 (measured; its fields are not named).
+pub const RDMA_CURSOR_WORD_78: u32 = 0x78;
+pub const RDMA_CURSOR_WORD_78_VALUE: u32 = 0x1000_0008;
+/// The channel's composer y offset (`compsr_y_offset`, the vendor header's name): the row of
+/// the composer the channel's first line lands on — measured `0x3cb` (971) on the pointer's
+/// channel with the layer at top 971 (board cycle 12 showed nothing with it left at 0).
+pub const RDMA_COMPOSER_Y: u32 = 0x04;
+/// The composer's layer blocks are 0x20 apart from layer 0's enable word (layer 7's enable at
+/// 0x118, measured `0x3`; layer 6's at 0xf8, measured `0x5` = channel 2).
+pub const CMPS_LAYER_STRIDE: u32 = 0x20;
+/// Layer `n`'s enable word, relative to the composer's base.
+pub const fn cmps_layer_en(n: u32) -> u32 {
+    CMPS_LAYER_EN + n * CMPS_LAYER_STRIDE
+}
+/// The rectangle words relative to a layer's enable word: left (`left << 8`, measured
+/// `0x0006bd00` at 1725), right/top (`right << 16 | top`, measured `0x06fc03cb`), bottom with
+/// the blend mode (`blend << 16 | bottom`, measured `0x0005040a`), the alpha word
+/// (`layer_alpha << 16 | alpha_factor`, measured `0x00ff000a`; the desktop's layer 7 runs
+/// `0x00ff0037` with blend mode 1).
+pub const LAYER_LEFT: u32 = 0x10;
+pub const LAYER_RIGHT_TOP: u32 = 0x14;
+pub const LAYER_BOTTOM_BLEND: u32 = 0x18;
+pub const LAYER_ALPHA: u32 = 0x1c;
+pub const CURSOR_BLEND_MODE: u32 = 5;
+pub const CURSOR_ALPHA_WORD: u32 = 0x00ff_000a;
+
 /// Pipeline 2's raw interrupt word (`onl2_nml_*_int_raw`): bit 0 vsync, 1 eof, 2 cfg-eof,
 /// 3 cfg-line (measured `0xd` with the picture on: vsync, cfg-eof and cfg-line raised). A raw
 /// vsync is the second witness that the timing generator scans.

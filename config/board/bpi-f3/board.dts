@@ -245,6 +245,21 @@
 		};
 	};
 
+	// The on-board USB hub (TASK-0328 U3, the stock `usb3hub@0` binding's shape; measured
+	// 2026-10-04: GPIO 97 = VBUS, 123 and 124 = the hub's lines, all outputs driven high;
+	// pads 97 mux 1 `0xa041`, 123 `0xa040`, 124 `0xd040`; the stock driver raises VBUS
+	// 200 ms after the hub's lines). Bank 3 line n = GPIO 96 + n. socd drives the lines
+	// (RFC-0106, amended): hub lines, the settle, then VBUS — before xhcid scans the port.
+	// Not a bus device (no registers of its own), so it lives at the root like a regulator.
+	usb_hub: usb-hub {
+		compatible = "spacemit,usb3-hub";
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb_hub_cfg>;
+		hub-gpios = <&gpio 3 27 0>, <&gpio 3 28 0>;
+		vbus-gpios = <&gpio 3 1 0>;
+		vbus-delay-ms = <200>;
+	};
+
 	soc {
 		compatible = "simple-bus";
 		#address-cells = <2>;
@@ -303,6 +318,9 @@
 			compatible = "spacemit,k1-syscon-mpmu";
 			reg = <0x0 0xd4050000 0x0 0x209c>;
 			#clock-cells = <1>;
+			// A consumer's glue words in the MPMU (`<&syscon_mpmu offset mask value>`,
+			// TASK-0328 U3: the USB PHYs' clock control word at 0x14).
+			#nexus,glue-cells = <3>;
 			#reset-cells = <1>;
 			#power-domain-cells = <1>;
 		};
@@ -316,6 +334,10 @@
 			reg = <0x0 0xd4282800 0x0 0x400>;
 			#clock-cells = <1>;
 			#reset-cells = <1>;
+			// A consumer's glue words (`nexus,glue-words = <&syscon_apmu offset mask value>`):
+			// a vendor driver's one-word controller glue, its `mask` bits set by socd, the
+			// rest (status bits) left alone (TASK-0328 U3: the USB host's word at 0x3c8).
+			#nexus,glue-cells = <3>;
 			#power-domain-cells = <1>;
 		};
 		syscon_apbc2: syscon@f0610000 {
@@ -339,6 +361,24 @@
 						 <K1_PADCONF(69, 2)>;	/* uart0_rxd */
 					bias-pull-up = <0>;
 					drive-strength = <32>;
+				};
+			};
+
+			// The on-board USB hub's lines as GPIOs (TASK-0328 U3; the owned fields of
+			// the stock words: 97 `0xa041` = function 1 pull-down, 123 `0xa040` = function 0
+			// pull-down, 124 `0xd040` = function 0 pull-up).
+			usb_hub_cfg: usb-hub-cfg {
+				usb-hub-vbus-pins {
+					pinmux = <K1_PADCONF(97, 1)>;	/* gpio 97: VBUS */
+					bias-pull-down = <0>;
+				};
+				usb-hub-ctl-pins {
+					pinmux = <K1_PADCONF(123, 0)>;	/* gpio 123 */
+					bias-pull-down = <0>;
+				};
+				usb-hub-ctl2-pins {
+					pinmux = <K1_PADCONF(124, 0)>;	/* gpio 124 */
+					bias-pull-up = <0>;
 				};
 			};
 
@@ -535,17 +575,67 @@
 			};
 
 			// USB: the DWC3 host (xHCI), the EHCI host, the OTG gadget.
+			// TASK-0328 U3 (RFC-0099 §6): the host's glue as measured on the stock system
+			// (docs/board/measurements/2026-10-04-usb-topology/): the APMU glue word at
+			// 0x3c8 (the stock glue node's own register, `0xd4282bc8 = 0x0b008000`), the
+			// USB 2.0 PHY it drives the USB-A ports through (the SuperSpeed lane is left
+			// alone in v1), and the on-board hub on its USB 2.0 root port (`usb_hub`).
 			usb3: usb@c0a00000 {
 				compatible = "spacemit,k1-dwc3", "snps,dwc3";
 				reg = <0x0 0xc0a00000 0x0 0x10000>;
 				interrupts = <125>;
+				// The USB AXI clock and reset too (bits 1 and 0 of the APMU USB word): the
+				// stock system runs the word as 0x0f33; cycle 6 of U3 had 0xf00 and an xHCI
+				// that never left its reset.
+				clocks = <&syscon_apmu CLK_USB30>, <&syscon_apmu CLK_USB_AXI>;
+				clock-names = "usbdrd30", "axi";
+				resets = <&syscon_apmu RESET_USB30_AHB>, <&syscon_apmu RESET_USB30_VCC>,
+					 <&syscon_apmu RESET_USB30_PHY>, <&syscon_apmu RESET_USB_AXI>;
+				reset-names = "ahb", "vcc", "phy", "axi";
+				power-domains = <&syscon_apmu K1_PD_BUS>;
+				// The stock word is 0x0b008000; its bits 24..25 are status (cycle 1,
+				// 2026-10-05: written, they read back clear — docs/board/measurements/
+				// 2026-10-05-usb-cycle1/), so only bit 15 is the glue.
+				nexus,glue-words = <&syscon_apmu 0x3c8 0x00008000 0x00008000>;
+				usb-phy = <&usb2phy>;
+				dr_mode = "host";
+				status = "okay";
+			};
+
+			// The USB 2.0 PHY of the DWC3 host (stock `usb2phy@0xc0a30000`): xhcid reads its
+			// tuning words and compares them with the stock system's (U3's first cycle).
+			usb2phy: phy@c0a30000 {
+				compatible = "spacemit,usb2-phy";
+				reg = <0x0 0xc0a30000 0x0 0x200>;
 				clocks = <&syscon_apmu CLK_USB30>;
 				clock-names = "usbdrd30";
-				resets = <&syscon_apmu RESET_USB30_AHB>, <&syscon_apmu RESET_USB30_VCC>,
-					 <&syscon_apmu RESET_USB30_PHY>;
-				reset-names = "ahb", "vcc", "phy";
-				power-domains = <&syscon_apmu K1_PD_BUS>;
-				dr_mode = "host";
+				// The MPMU word at 0x14 as the stock system runs it (cycle 8 of U3 measured
+				// ours as 0x1fbd0600 with both USB PHYs dead; the stock desktop 0x007d0018):
+				// the PHYs' clock control by the look of it — written whole, each bit
+				// read back, through socd before xhcid touches the PHY.
+				nexus,glue-words = <&syscon_mpmu 0x14 0xffffffff 0x007d0018>;
+				#phy-cells = <0>;
+				status = "okay";
+			};
+
+			// The SuperSpeed (combo) PHY of the host's USB 3.0 root port (stock
+			// `phy@c0b10000`, its `puphy` block; the stock `phy_sel` block is the APMU's
+			// own words). The xHCI's reset waits on this PHY's PIPE clock (cycles 4-9 of
+			// U3: HCRST never completed with the block reading all zeros), so it is
+			// brought up, not only measured: the PHY shares PCIe port A's global reset
+			// (bit 8 of the APMU's 0x3cc, SET = held — our loader leaves it set, the
+			// stock word 0x480 runs it clear) and the port's "hold PHY reset" bit (bit 30
+			// of the same word, the vendor PHY driver clears it before calibrating); the
+			// lane select at 0x110 (stock 0x8) puts the lane on USB. socd writes them
+			// before xhcid runs the PHY's PLL sequence (`ss_phy.rs`).
+			combphy: phy@c0b10000 {
+				compatible = "spacemit,k1x-combphy";
+				reg = <0x0 0xc0b10000 0x0 0x800>;
+				resets = <&syscon_apmu RESET_PCIE0_GLOBAL>;
+				reset-names = "phy";
+				nexus,glue-words = <&syscon_apmu 0x3cc 0x40000000 0x00000000>,
+						   <&syscon_apmu 0x110 0x00000008 0x00000008>;
+				#phy-cells = <1>;
 				status = "okay";
 			};
 

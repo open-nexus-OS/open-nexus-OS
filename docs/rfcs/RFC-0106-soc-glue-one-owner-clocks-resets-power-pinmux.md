@@ -3,7 +3,7 @@
 - Status: Draft (seeded 2026-09-22 at TASK-0245B P0)
 - Owners: @runtime @kernel-team
 - Created: 2026-09-22
-- Last Updated: 2026-09-30
+- Last Updated: 2026-10-05 (amended: glue words, GPIO lines and settles — TASK-0328 U3)
 - Links:
   - Tasks: `tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md` (execution + proof); consumers `tasks/TASK-0246-*` (SDHCI), `TASK-0251-*` (DPU/HDMI), `TASK-0328-*` (USB), `TASK-0329-*` (GPU), `TASK-0248-*` (GMAC)
   - Related RFCs: `docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md` (C3: the tree is the truth; this RFC is its SoC-glue arm), `docs/rfcs/RFC-0017-device-mmio-access-model-v1.md` (grant model; new class `device.mmio.syscon`), `docs/rfcs/RFC-0093-*` (service topology / declared slots)
@@ -92,8 +92,8 @@ clock-framework API (rates are read, not set, beyond what a node's binding deman
 - **Client** `nexus_soc::client::bring_up(node_path)` / `clock_rate(node_path, name)`; a driver
   calls `bring_up` before its first register access and treats `NotNeeded` as success.
 - **Markers**: `socd: ready (providers=N)` | `socd: ready (no soc glue in this tree)`;
-  `socd: bring-up <node> ok (domains=… resets=… clocks=… rates=… pads=… writes=…)`; `socd:
-  bring-up <node> FAIL (step=read-back|frequency-change|domain|range reg=<window>+0x…
+  `socd: bring-up <node> ok (domains=… resets=… clocks=… rates=… pads=… gpios=… writes=…)`;
+  `socd: bring-up <node> FAIL (step=read-back|frequency-change|domain|range|settle reg=<window>+0x…
   val=0x…)`, `FAIL (refused: <why>)`, `FAIL (denied)`, `FAIL (no such node)`; both `ok` and
   `FAIL (step=…)` end with every register the bring-up touched as `<window>+<offset>:<before>>
   <after>`, all hex (one console line; words that do not fit are counted, never cut); selftest
@@ -103,6 +103,28 @@ clock-framework API (rates are read, not set, beyond what a node's binding deman
   pad words; an unplaced pin is refused) — sets the fields the stock words confirm (function,
   pull and its direction, strong pull clear, edge detection cleared); drive strength and
   schmitt stay as found until their tables are measured per IO domain.
+- **Glue words** (amendment 2026-10-05, TASK-0328 U3): a consumer may name provider words
+  its vendor driver writes as one value — `nexus,glue-words = <&provider offset mask value>`
+  (the provider declares `#nexus,glue-cells = <3>`): the `mask` bits set to `value` after the
+  clocks run, read back, the rest of the word left as found; bits already so write nothing.
+  The mask exists because a word mixes glue with status: the USB host's APMU word at 0x3c8 is
+  `0x0b008000` on the stock system, but its bits 24..25 ignore a write (board cycle 1,
+  `docs/board/measurements/2026-10-05-usb-cycle1/`) — the glue is bit 15. A provider without
+  the cells, or a mask of 0, refuses the node.
+- **GPIO lines and settles** (amendment 2026-10-05, TASK-0328 U3): the GPIO block is a
+  provider kind (`spacemit,k1-gpio`, granted like the syscons into `SYSCON_MMIO_SLOTS`), and a
+  node's supply and reset lines are glue — the on-board USB hub's binding (the stock
+  `usb3hub@0` shape: `hub-gpios`, `vbus-gpios`, `vbus-delay-ms`, `<&gpio bank line flags>`):
+  after the pads, each hub line is made an output and driven (high; low for an active-low
+  flag) through the bank's masked set/clear registers — never a read-modify-write of another
+  writer's lines (the loader and the kernel drive the LED on the same bank) — and read back
+  from the bank's direction and level words (the level word follows the pin: it is read again,
+  a bounded number of times, before a miss is a fault — board cycle 5); then the start-up
+  delay (`vbus-delay-ms`, at most
+  1000) is spent on `socd`'s declared kernel one-shot (a settle, never a spin), then VBUS. A
+  bank the block does not have, a line past 32 or a longer delay is refused before any bus
+  access; without the timer a plan with a settle fails as `step=settle`. The marker gains
+  `gpios=`. The loader never drives a supply.
 - **The node operations** (`nexus_soc::bring_up`, `nexus_soc::clock_rate`; TASK-0246B P2) are
   the one definition of "up" and of "the rate": `socd` answers `OP_BRING_UP` and
   `OP_CLOCK_RATE` with them, and nothing else re-derives them.
@@ -117,8 +139,11 @@ clock-framework API (rates are read, not set, beyond what a node's binding deman
 
 ### Register semantics (facts transcribed from the mainline documentation and measured)
 
-Gates: set the bit to enable. APMU resets: the bit SET means released (deassert = set).
-APBC/APBC2 resets: bit 2 SET asserts. Mux/div changes: write the fields, set the
+Gates: set the bit to enable. APMU resets: the bit SET means released (deassert = set) —
+except PCIe port A's global reset (`0x3cc` bit 8, shared by the SuperSpeed USB PHY), whose
+bit SET asserts (the vendor reset table's one inverted entry; the stock word `0x480` runs it
+clear, our loader left it set — TASK-0328 U3, board cycle 10). The table carries the polarity
+per entry; a tree names the reset, never the bit. APBC/APBC2 resets: bit 2 SET asserts. Mux/div changes: write the fields, set the
 frequency-change bit, poll until it clears. Pads: one 32-bit register per pad at `pad * 4`
 (mux bits 0..2, pull/drive/schmitt/slew fields). Power domains: undocumented in mainline;
 the stock system's own tree describes each domain's control word (mode, request, two sleep

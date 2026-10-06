@@ -44,7 +44,11 @@ fn the_bring_up_waits_are_timer_paced_and_bounded() {
     let mut rig = Rig::new(&m);
     rig.start();
     assert!(rig.xhci.failed());
-    assert_eq!(rig.sink.fails, [(Step::Controller, 0)]);
+    // The code names the wait (1 = ready), and the words it read last come first.
+    assert_eq!(rig.sink.fails, [(Step::Controller, 1)]);
+    let stuck = rig.sink.notes("ControllerStuck");
+    assert_eq!(stuck.len(), 1);
+    assert!(stuck[0].starts_with("ControllerStuck { phase: 1, usbcmd:"), "{}", stuck[0]);
     assert!((1_000_000_000..1_100_000_000).contains(&rig.now), "{} ns", rig.now);
 }
 
@@ -56,4 +60,22 @@ fn an_idle_bus_costs_nothing() {
     let before = m.borrow().hc.accesses;
     rig.settle();
     assert_eq!(m.borrow().hc.accesses, before, "not one register access while idle");
+}
+
+/// The board's USB 3 root port trains on its own time (cycle 18: before the run phase, with the
+/// hub's SuperSpeed twin on it): its change arrives before `run` — and the port is still left
+/// alone, never reset or enumerated as a USB 2 device (the SuperSpeed hub STALLs the USB 2 hub
+/// descriptor request). The ports' revisions are known from the start, not from the run.
+#[test]
+fn a_superspeed_port_that_trains_before_the_run_is_left_alone() {
+    use nexus_usb::Speed;
+    use xhcid_model::dev::{self, Dev};
+    let m = machine(Config::board());
+    let mut rig = Rig::new(&m);
+    rig.xhci.start(rig.now, &mut rig.sink);
+    m.borrow_mut().plug(2, Dev::Hub(dev::hub(Speed::Super, 4, 0)));
+    rig.settle();
+    assert_eq!(rig.sink.notes("SuperSpeedPort { port: 2 }").len(), 1, "left alone, said once");
+    assert!(rig.sink.notes("Enumerated").is_empty(), "nothing enumerated on the USB 3 port");
+    assert!(rig.sink.notes("Fail").is_empty());
 }
