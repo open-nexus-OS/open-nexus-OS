@@ -78,3 +78,4 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0066: On hardware the booted chain is boot ROM → vendor SPL → OpenSBI → nxboot as the FIT payload — no vendor U-Boot in the booted system](0066-boot-chain-on-hardware-nxboot-as-fit-payload.md) — Proposed
 - [ADR-0067: ONE block owner (`blkd`) whose backend the FDT selects — virtio-blk on QEMU, SDHCI on the board; the GPT plane above it never learns the difference](0067-one-block-owner-backend-selected-by-fdt.md) — Proposed
 - [ADR-0068: Modal semantics live in the DSL runtime on the app-owned `.overlay()`; windowd keeps ONE routing verb](0068-modal-semantics-in-the-dsl-runtime-windowd-keeps-one-routing-verb.md) — Accepted
+- [ADR-0069: Window tiling — geometry in windowd's WM, chords normalized by inputd, every UI element in the window kit](0069-tiling-chords-normalized-by-inputd-applied-by-windowd-ui-in-the-kit.md) — Accepted

@@ -1,0 +1,159 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The tiling preview (TASK-0066 / ADR-0069): while a window's title bar is
+// dragged, windowd tells the DESKTOP surface which zone a release would take
+// (`OP_SURFACE_TILE_PREVIEW` → `device.tilePreview`, one push per change),
+// and THIS layer paints that area as a translucent pane — the desktop
+// reference's drop hint. windowd draws nothing; the shell owns the look.
+//
+// Mounted in both `ShellPage`s' middle stack (the work area between the top
+// bar and the dock/taskbar — the band windowd tiles into), as a full-bleed
+// `.overlay()` with no handler of its own, so it never takes a tap. The zone
+// names are windowd's `zones` names; "" = no preview (the drag left every
+// edge, or ended). Halves and quarters are flex splits of the band.
+
+Component TilePreview {
+    Stack {
+        if device.tilePreview == "" {
+            Stack { }
+        } else {
+            if device.tilePreview == "fill" {
+                Stack { }
+                    .grow(1)
+                    .bg(accentSoft)
+                    .border(thin)
+                    .borderColor(accent)
+                    .rounded(lg)
+            } else {
+                if device.tilePreview == "left-half" {
+                    Stack {
+                        Stack { }
+                            .grow(1)
+                            .bg(accentSoft)
+                            .border(thin)
+                            .borderColor(accent)
+                            .rounded(lg)
+                        Stack { }
+                            .grow(1)
+                    }
+                    .direction(row)
+                    .gap(2)
+                    .grow(1)
+                } else {
+                    if device.tilePreview == "right-half" {
+                        Stack {
+                            Stack { }
+                                .grow(1)
+                            Stack { }
+                                .grow(1)
+                                .bg(accentSoft)
+                                .border(thin)
+                                .borderColor(accent)
+                                .rounded(lg)
+                        }
+                        .direction(row)
+                        .gap(2)
+                        .grow(1)
+                    } else {
+                        if device.tilePreview == "top-half" {
+                            Stack {
+                                Stack { }
+                                    .grow(1)
+                                    .bg(accentSoft)
+                                    .border(thin)
+                                    .borderColor(accent)
+                                    .rounded(lg)
+                                Stack { }
+                                    .grow(1)
+                            }
+                            .gap(2)
+                            .grow(1)
+                        } else {
+                            if device.tilePreview == "bottom-half" {
+                                Stack {
+                                    Stack { }
+                                        .grow(1)
+                                    Stack { }
+                                        .grow(1)
+                                        .bg(accentSoft)
+                                        .border(thin)
+                                        .borderColor(accent)
+                                        .rounded(lg)
+                                }
+                                .gap(2)
+                                .grow(1)
+                            } else {
+                                TilePreviewQuarter { }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    .overlay()
+    .padding(2)
+}
+
+// The four quarter hints: a 2×2 flex grid with ONE painted cell.
+Component TilePreviewQuarter {
+    Stack {
+        Stack {
+            if device.tilePreview == "top-left" {
+                Stack { }
+                    .grow(1)
+                    .bg(accentSoft)
+                    .border(thin)
+                    .borderColor(accent)
+                    .rounded(lg)
+            } else {
+                Stack { }
+                    .grow(1)
+            }
+            if device.tilePreview == "top-right" {
+                Stack { }
+                    .grow(1)
+                    .bg(accentSoft)
+                    .border(thin)
+                    .borderColor(accent)
+                    .rounded(lg)
+            } else {
+                Stack { }
+                    .grow(1)
+            }
+        }
+        .direction(row)
+        .gap(2)
+        .grow(1)
+        Stack {
+            if device.tilePreview == "bottom-left" {
+                Stack { }
+                    .grow(1)
+                    .bg(accentSoft)
+                    .border(thin)
+                    .borderColor(accent)
+                    .rounded(lg)
+            } else {
+                Stack { }
+                    .grow(1)
+            }
+            if device.tilePreview == "bottom-right" {
+                Stack { }
+                    .grow(1)
+                    .bg(accentSoft)
+                    .border(thin)
+                    .borderColor(accent)
+                    .rounded(lg)
+            } else {
+                Stack { }
+                    .grow(1)
+            }
+        }
+        .direction(row)
+        .gap(2)
+        .grow(1)
+    }
+    .gap(2)
+    .grow(1)
+}

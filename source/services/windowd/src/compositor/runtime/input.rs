@@ -220,6 +220,9 @@ impl DisplayServerRuntime {
                         window_consumed_press = true;
                         self.raise_window(wid);
                         if let Some(idx) = app_idx {
+                            // A tiled window comes off its tile at its pre-tile
+                            // size, under the pointer (TASK-0066 Return).
+                            self.untile_for_drag(idx, cursor_x);
                             self.apps[idx].win.begin_drag(cursor_x, cursor_y);
                         }
                     }
@@ -265,6 +268,8 @@ impl DisplayServerRuntime {
             if !self.apps[idx].win.is_dragging() {
                 continue;
             }
+            // TASK-0066: the shell previews the zone a release here would take.
+            self.push_tile_preview(idx, Some((cursor_x, cursor_y)));
             if let Some(old) = self.drag_app_window(idx, cursor_x, cursor_y) {
                 let rect = self.app_window_rect(idx);
                 self.queue_gpu_blit_rect(old.merge(rect));
@@ -282,15 +287,12 @@ impl DisplayServerRuntime {
             self.apply_window_resize(cursor_x, cursor_y);
         }
         if primary_release {
-            // Drag-to-edge snap: releasing a TITLE drag with the pointer at a
-            // display edge snaps the window (left/right half, top=fullscreen).
+            // Drag-to-edge tiling (TASK-0066): releasing a TITLE drag with the
+            // pointer at an edge or corner tiles the window (halves, quarters,
+            // top = Fill).
             for idx in 0..self.apps.len() {
                 if self.apps[idx].win.is_dragging() {
-                    let _ = self.apply_release_snap(
-                        crate::window_scene::WindowId::App(idx as u8),
-                        cursor_x,
-                        cursor_y,
-                    );
+                    let _ = self.apply_release_tile(idx, cursor_x, cursor_y);
                     self.apps[idx].win.end_drag();
                 }
             }
@@ -512,6 +514,10 @@ impl DisplayServerRuntime {
             let _ = debug_println(crate::markers::SELFTEST_UI_V3_FILTER_OK_MARKER);
             let _ = debug_println(crate::markers::SELFTEST_UI_V3_IME_OK_MARKER);
             self.selftest_v3b_emitted = true;
+        }
+        // TASK-0066: a tiling chord (one-shot fact from inputd) tiles the FOCUSED window.
+        if upstream.wm_chord != 0 {
+            self.apply_chord(upstream.wm_chord);
         }
         // Focus may have moved with this event (click-to-raise): keep imed's
         // window-focus relay current before the next key arrives (TASK-0074 D3).

@@ -16,7 +16,8 @@
 //! TEST_COVERAGE: unit tests below.
 
 use nexus_display_proto::surface_windows::{
-    WindowEntry, WINDOWS_MAX, WINDOW_FLAG_FOCUSED, WINDOW_FLAG_MINIMIZED,
+    WindowEntry, WINDOWS_MAX, WINDOW_FLAG_FOCUSED, WINDOW_FLAG_MINIMIZED, WINDOW_ZONE_MASK,
+    WINDOW_ZONE_SHIFT,
 };
 
 /// One compositor app slot, reduced to what the feed cares about.
@@ -28,6 +29,8 @@ pub struct SlotInfo {
     pub open: bool,
     pub minimized: bool,
     pub focused: bool,
+    /// The tile zone code (`zones::CODE_*`, 0 = floating) — RFC-0086 bits 2..=5.
+    pub zone: u8,
 }
 
 /// Derives the feed entry set from the compositor's app slots. Returns the
@@ -51,6 +54,7 @@ pub fn build_window_set(slots: &[SlotInfo], out: &mut [WindowEntry; WINDOWS_MAX]
         if s.focused && !s.minimized {
             flags |= WINDOW_FLAG_FOCUSED;
         }
+        flags |= (s.zone << WINDOW_ZONE_SHIFT) & WINDOW_ZONE_MASK;
         out[n] = WindowEntry { owner_sid: s.owner_sid, flags };
         n += 1;
     }
@@ -62,7 +66,7 @@ mod tests {
     use super::*;
 
     fn slot(owner_sid: u64, open: bool, minimized: bool, focused: bool) -> SlotInfo {
-        SlotInfo { owner_sid, open, minimized, focused }
+        SlotInfo { owner_sid, open, minimized, focused, zone: 0 }
     }
 
     #[test]
@@ -104,5 +108,22 @@ mod tests {
         let slots = [slot(9, true, false, false); WINDOWS_MAX + 3];
         let mut out = [WindowEntry::default(); WINDOWS_MAX];
         assert_eq!(build_window_set(&slots, &mut out), WINDOWS_MAX);
+    }
+
+    /// TASK-0066: the tile zone rides bits 2..=5, beside the minimized/focused bits.
+    #[test]
+    fn tile_zone_rides_the_flag_bits() {
+        let mut out = [WindowEntry::default(); WINDOWS_MAX];
+        let mut s = slot(11, true, false, true);
+        s.zone = 9; // Fill
+        let n = build_window_set(&[s], &mut out);
+        assert_eq!(n, 1);
+        assert_eq!(out[0].flags & WINDOW_FLAG_FOCUSED, WINDOW_FLAG_FOCUSED);
+        assert_eq!(nexus_display_proto::surface_windows::window_zone(out[0].flags), 9);
+        let mut s = slot(11, true, false, false);
+        s.zone = 0xFF; // a bogus code is masked, never spills into other bits
+        let _ = build_window_set(&[s], &mut out);
+        assert_eq!(nexus_display_proto::surface_windows::window_zone(out[0].flags), 15);
+        assert_eq!(out[0].flags & 0b11, 0);
     }
 }

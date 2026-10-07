@@ -17,7 +17,7 @@ Current entry points:
 
 - `docs/dev/ui/patterns/app-shell.md`
 - `docs/dev/ui/patterns/app-structure/search-first.md`
-- `docs/dev/ui/patterns/wm-snap.md`
+- `docs/dev/ui/patterns/wm-tiling.md`
 - `docs/dev/ui/navigation/recents.md`
 
 Related DSL contract:

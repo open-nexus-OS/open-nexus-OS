@@ -313,7 +313,7 @@ impl DisplayServerRuntime {
 
     /// Fire-and-forget frame to the desktop surface's event channel.
     #[allow(unused_variables)]
-    fn send_desktop_frame(&mut self, frame: &[u8]) {
+    pub(super) fn send_desktop_frame(&mut self, frame: &[u8]) {
         #[cfg(nexus_env = "os")]
         if let Some(slot) = self.desktop_channel {
             let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);

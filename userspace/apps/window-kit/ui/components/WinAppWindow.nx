@@ -31,6 +31,17 @@
 // CONSEQUENCE OF THE APP OWNING THE SURFACE: an overlay pane is the app's own
 // `Panel`, floating. A region whose body has no panel therefore floats
 // unframed. If a region can become an overlay pane, give it a panel.
+//
+// THE WINDOW MENU (TASK-0066) is the window's, not the app's: the app chip in
+// `WinTopBar` dispatches `WinMenu("app")`, and THIS component mounts the kit's
+// `WinAppMenu` as an overlay under the chip whenever `$state.menu == "app"` —
+// every window-kit app gets the tiling rows, fullscreen, minimize and close
+// without copying the dropdown. The overlay fills the body (right below the
+// chrome): a 6px lead = the handoff's `top: calc(100% + 6px)`; the backdrop
+// closes (`WinMenu("")`), the panel eats its taps (`WinNoop`). The four text
+// rows' labels are props (a library owns no i18n). An app's own menus
+// (`more…`) stay the app's, and must not mount a backdrop while `menu ==
+// "app"` — a later overlay would sit ABOVE this one and swallow the taps.
 
 Component WinAppWindow {
     props: {
@@ -38,6 +49,10 @@ Component WinAppWindow {
         showProps: Bool,
         sidebarOverlay: Bool,
         propsOverlay: Bool,
+        menuFullscreen: Str,
+        menuMoveDevice: Str,
+        menuMinimize: Str,
+        menuClose: Str,
     }
     slot sidebarLeft
     slot contentArea
@@ -134,6 +149,31 @@ Component WinAppWindow {
             } else {
                 Stack { }
             }
+        }
+        // ── the window menu (app chip) ───────────────────────────────
+        if $state.menu == "app" {
+            Stack {
+                Stack { }
+                    .height(6)
+                Stack {
+                    WinAppMenu {
+                        fullscreen: $props.menuFullscreen,
+                        moveDevice: $props.menuMoveDevice,
+                        minimize: $props.menuMinimize,
+                        close: $props.menuClose,
+                    }
+                    Spacer
+                }
+                .direction(row)
+                .align(start)
+                .paddingX(2)
+                .grow(1)
+            }
+            .overlay()
+            .transition(fade)
+            on Tap -> dispatch(WinMenu(""))
+        } else {
+            Stack { }
         }
     }
     .grow(1)

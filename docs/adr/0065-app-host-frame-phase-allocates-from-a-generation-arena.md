@@ -167,3 +167,15 @@ allocator owns that scope.**
   scope does not — the phase boundary is already exact.
 - **Reference-count or GC the scene.** Rejected: it trades a bounded, deterministic reset for
   per-object bookkeeping in the hot path, against a project invariant.
+
+## Amendment 2026-10-06 (TASK-0066/0074 board cycle): durable state syncs OUTSIDE the generation
+
+`relayout_retained` used to reconcile the animation driver (`anim_sync`) while its layout
+generation was still open. The driver's collections — the active list, a keyframe track's
+waypoints, the `seen`/`anims`/`loops` tables — are durable state that outlives many layouts,
+so every push or realloc made in there landed in arena memory the layout two frames later
+reset underneath a still-running fade; `AnimationDriver::tick_emit` then dereferenced the
+recycled bytes (a user page fault in app-host on the board, reproduced on the `usb-visible`
+lane: toast timeout → alert). The rule, now explicit: inside a generation only the frame's own
+outputs are built; anything that persists across frames is touched after the guard drops.
+`relayout_retained` = `relayout_in_generation()` (the guard) + `anim_sync()` (after).

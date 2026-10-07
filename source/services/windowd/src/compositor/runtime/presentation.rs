@@ -115,6 +115,20 @@ impl DisplayServerRuntime {
                             debug_println(&alloc::format!("uitheme: accent switched (to={idx})"));
                     }
                 }
+                // TASK-0066 tiling settings — apply-only, settingsd validated them.
+                "ui.tile.edges" => self.tile_edges = value == "on",
+                "ui.tile.chords" => self.tile_chords = value == "on",
+                "ui.tile.margin" => {
+                    let margin = match value {
+                        "8" => 8,
+                        "16" => 16,
+                        _ => 0,
+                    };
+                    if margin != self.tile_margin {
+                        self.tile_margin = margin;
+                        self.reflow_tiled();
+                    }
+                }
                 "ui.shell.mode" => {
                     use nexus_display_proto::client_surface as wire;
                     let profile = if value == "desktop" {

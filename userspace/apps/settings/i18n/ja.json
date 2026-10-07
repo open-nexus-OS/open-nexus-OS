@@ -28,6 +28,14 @@
   "lang.ko": "한국어",
   "lang.zh": "中文",
   "per.appearance": "外観",
+  "per.chordsNote": "Super+Ctrl+←/→ 半分 · Super+Ctrl+Shift+←/→ と ↑/↓ 四分の一 · Super+Ctrl+F 全体 · Super+Ctrl+R 戻す",
+  "per.gWindows": "ウインドウ",
+  "per.tileChords": "タイル表示のキーボードショートカット",
+  "per.tileEdges": "ウインドウを画面の端にドラッグしてタイル表示",
+  "per.tileMargin": "タイル表示のウインドウに余白を付ける",
+  "per.tileMarginV0": "なし",
+  "per.tileMarginV16": "大",
+  "per.tileMarginV8": "小",
   "sec.accounts": "アカウント",
   "sec.accounts.d": "管理",
   "sec.accounts.n": "管理",
@@ -109,6 +117,7 @@
   "win.jump": "セクション",
   "win.minimize": "最小化",
   "win.mode": "ウィンドウモード",
+  "win.moveDevice": "別のデバイスに移動",
   "win.overview": "概要",
   "win.split": "分割"
 }

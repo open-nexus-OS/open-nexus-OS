@@ -67,6 +67,10 @@ impl KeyboardUsage {
     pub const SLASH: Self = Self(0x38);
     pub const CAPS_LOCK: Self = Self(0x39);
     pub const F1: Self = Self(0x3a);
+    pub const RIGHT_ARROW: Self = Self(0x4f);
+    pub const LEFT_ARROW: Self = Self(0x50);
+    pub const DOWN_ARROW: Self = Self(0x51);
+    pub const UP_ARROW: Self = Self(0x52);
     pub const LEFT_CTRL: Self = Self(0xe0);
     pub const LEFT_SHIFT: Self = Self(0xe1);
     pub const LEFT_ALT: Self = Self(0xe2);

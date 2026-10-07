@@ -82,3 +82,13 @@ Runtime-varying axes fed by the windowd region push (`ui.locale` /
 change. Use them for RARE structural decisions only — repeated per-language
 content belongs in DATA (locale packs for text, `svc.ime.rows` for key
 layouts), never in per-language `if` trees.
+
+## Shell axis: `device.tilePreview` (TASK-0066 / ADR-0069)
+
+The tile zone a window's title-bar drag would take if released now — windowd's
+zone names (`left-half` · `right-half` · `top-half` · `bottom-half` ·
+`top-left` · `top-right` · `bottom-left` · `bottom-right` · `fill`), `""` when
+no drag is near an edge. Pushed by windowd to the DESKTOP surface only
+(`OP_SURFACE_TILE_PREVIEW`, one push per change) and re-selected on reemit; the
+desktop shell's `overlays/TilePreview.nx` paints the hint. Apps never see a
+non-empty value — it is a shell axis, not an app one.

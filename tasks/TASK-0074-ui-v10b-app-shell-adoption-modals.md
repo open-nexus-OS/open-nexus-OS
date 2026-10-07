@@ -120,7 +120,12 @@ M/G/S measurement package. Not allow-listed.
   input, so its verdict depends on the operator's hands. Not allow-listed; the injector now
   starts after the ladder, the board operator waits ~90 s before touching the input.
 - **Board: one app-host fault in `AnimationDriver::tick_emit`** after toast → alert (cycle 3 of
-  4, not reproducible) — see the cycle table; deferred to the GPU lane by decision.
+  4). Reproduced on the `usb-visible` lane with the identical registers (2026-10-06 evening,
+  while proving TASK-0066) and **fixed at the root**: `relayout_retained` reconciled the
+  animation driver INSIDE its layout generation, so the driver's Vec pushes landed in arena
+  memory that the layout two frames later reset under the running fade (ADR-0065 amendment;
+  `anim_sync` now runs after the generation closes). Latent since the arena landed; the toast →
+  alert sequence was the first to span two layouts with a live keyframe.
 - **Board: `KSELFTEST: ipc call budget` 85–98 µs (budget 64) in every cycle today**, 33–55 µs in
   Block 2, QEMU unchanged at 42 µs — M/G/S measurement package.
 - **F7 detail**: the pointer sprite tears over hover fields — the dc cursor sprite is re-uploaded

@@ -55,6 +55,10 @@ Page StashPage {
             showProps: $state.rightOpen == 1 && $state.settingsOpen == 0,
             sidebarOverlay: $state.paneL == 1,
             propsOverlay: $state.paneR == 1 && $state.settingsOpen == 0,
+            menuFullscreen: @t("win.fullscreen"),
+            menuMoveDevice: @t("win.moveDevice"),
+            menuMinimize: @t("win.minimize"),
+            menuClose: @t("win.close"),
         } {
             sidebarLeft {
               Panel {
@@ -499,37 +503,19 @@ Page StashPage {
         // The menus used to sit at y=0, i.e. ON TOP of the chrome they belong
         // to. A leading spacer of chrome-height + 6 puts them where the handoff
         // draws a dropdown (`top: calc(100% + 6px)`), and the row's `Spacer`
-        // keeps the app menu under the app chip (left) while "Mehr" and its
-        // submenus stay under the ⋯ (right).
+        // keeps "Mehr" and its submenus under the ⋯ (right). The app-chip
+        // window menu is the kit's (`WinAppWindow` mounts it, TASK-0066); this
+        // layer mounts no backdrop while it is open — it would sit above it.
         if $state.menu == "" {
             Stack { }
         } else {
+          if $state.menu == "app" {
+            Stack { }
+          } else {
             Stack {
                 Stack { }
                     .height(46)
                 Stack {
-                    if $state.menu == "app" {
-                        Stack {
-                            Panel {
-                                Text(@t("win.mode")).textSize(xs).fg(onGlassMuted)
-                                WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
-                                WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "check", act: true }
-                                WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "", act: true }
-                                Stack { }
-                                    .height(1)
-                                    .bg(divider)
-                                WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
-                                WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
-                            }
-                            .material(overlay)
-                            .width(230)
-                            .gap(0)
-                            .padding(1)
-                        }
-                        on Tap -> dispatch(WinNoop)
-                    } else {
-                        Stack { }
-                    }
                     Spacer
                     if $state.menu == "more.datei" {
                         Stack {
@@ -591,6 +577,7 @@ Page StashPage {
             }
             .overlay()
             on Tap -> dispatch(WinMenu(""))
+          }
         }
         // Move-destination picker: tap a folder to move the selection there
         // (svc.files.rename across directories); tap the backdrop to cancel.

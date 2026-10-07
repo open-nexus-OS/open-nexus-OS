@@ -93,43 +93,8 @@ const PAYLOAD_MAX_LEN: usize = 512 * 1024;
 const SURFACE_W: u16 = 320;
 const SURFACE_H: u16 = 240;
 
-/// A per-process address salt for the nonce (ASLR-independent uniqueness
-/// helper; the time component does the heavy lifting).
-fn payload_addr() -> usize {
-    (&PAYLOAD_BUDGET_NS) as *const u64 as usize
-}
-
-/// RFC-0080: slot execd grants the shared atlas VMO into (=execd `CHILD_ATLAS_VMO_SLOT`; clear of sdk-routes child_slots 11..=18).
-const ATLAS_VMO_SLOT: u32 = nexus_service_topology::slots::app_child::ATLAS_VMO;
-
-/// Maps the shared atlas VMO READ-only and installs it as the text atlas
-/// base, so this app-host renders from ONE shared copy instead of its own
-/// embedded 4.25 MB (the blob is not in this image). Best-effort: any
-/// failure falls back to blank text (never a crash) with a loud marker.
-#[allow(unsafe_code)]
-fn map_atlas_base() {
-    use nexus_abi::page_flags;
-    let len = nexus_text_baked::atlas_len();
-    // RFC-0085: one whole-range map at a KERNEL-CHOSEN va (was a ~1100-call
-    // per-page loop at fixed 0x3000_0000 — the slot-15 scar class). The RO
-    // alias force-maps read-only kernel-side regardless of flags.
-    let mapped_len = len.div_ceil(4096) * 4096;
-    let flags = page_flags::VALID | page_flags::USER | page_flags::READ;
-    let atlas_va = match nexus_abi::vm_map(ATLAS_VMO_SLOT, 0, mapped_len, flags) {
-        Ok(va) => va,
-        Err(_) => {
-            raw_marker("APPHOST: FAIL atlas map");
-            return;
-        }
-    };
-    // SAFETY: the range [atlas_va, atlas_va + len) is now mapped read-only
-    // from the shared VMO and stays valid for the process lifetime; `len`
-    // is the baked atlas size.
-    unsafe {
-        nexus_text_baked::set_atlas_base(atlas_va as *const u8, len);
-    }
-    raw_marker("APPHOST: atlas mapped");
-}
+mod boot_env;
+use boot_env::{map_atlas_base, nsec_now, payload_addr};
 
 pub(super) fn run() -> Result<(), &'static str> {
     raw_marker("apphost: start");
@@ -695,6 +660,14 @@ pub(super) fn run() -> Result<(), &'static str> {
                 dirty = true;
                 dirty_rows = None; // presentation change: full repaint
             }
+        } else if let Some(code) =
+            nexus_display_proto::surface_windows::decode_surface_tile_preview(&event_frame[..len])
+        {
+            // TASK-0066: the zone a window drag would tile into — the shell draws it.
+            if app.as_mut().is_some_and(|d| d.apply_tile_preview(code)) {
+                dirty = true;
+                dirty_rows = None;
+            }
         } else if nexus_display_proto::surface_text::decode_surface_text(&event_frame[..len])
             .is_some()
         {
@@ -896,17 +869,5 @@ pub(super) fn run() -> Result<(), &'static str> {
                 dsl.submit_layers(&client, surface_id);
             }
         }
-    }
-}
-
-/// Monotonic now (ns) for physics dt; 0 on ABI failure (tick clamps dt).
-fn nsec_now() -> u64 {
-    #[cfg(nexus_env = "os")]
-    {
-        nexus_abi::nsec().unwrap_or(0)
-    }
-    #[cfg(not(nexus_env = "os"))]
-    {
-        0
     }
 }

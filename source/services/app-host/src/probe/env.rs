@@ -115,5 +115,32 @@ pub(crate) fn device_for(
         wire::THEME_LIGHT => "light",
         _ => "dark",
     };
+    env.tile_preview = tile_preview_name();
     env
+}
+
+/// The tile-preview axis (`device.tilePreview`, TASK-0066): the zone windowd says a title-bar
+/// drag would take if released now, pushed to the DESKTOP surface only. One app-host per
+/// process, so a process-wide cell is its honest home — every `device_for` reads it.
+static TILE_PREVIEW: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// Records the pushed zone code; returns whether it changed (a re-emit is due).
+pub(crate) fn set_tile_preview(code: u8) -> bool {
+    TILE_PREVIEW.swap(code, core::sync::atomic::Ordering::Relaxed) != code
+}
+
+/// The zone name the shell's `TilePreview` draws ("" = none) — windowd's `zones` names.
+pub(crate) fn tile_preview_name() -> &'static str {
+    match TILE_PREVIEW.load(core::sync::atomic::Ordering::Relaxed) {
+        1 => "left-half",
+        2 => "right-half",
+        3 => "top-half",
+        4 => "bottom-half",
+        5 => "top-left",
+        6 => "top-right",
+        7 => "bottom-left",
+        8 => "bottom-right",
+        9 => "fill",
+        _ => "",
+    }
 }

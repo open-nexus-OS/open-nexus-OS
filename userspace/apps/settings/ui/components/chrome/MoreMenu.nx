@@ -1,12 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The window-chrome menus: the app-chip window-mode menu, the ⋯ menu and its
-// jump-to-section submenu (handoff §"Structure & interactions").
+// The app's window-chrome menus: the ⋯ menu and its jump-to-section submenu
+// (handoff §"Structure & interactions"). The app-chip window menu (tiling,
+// fullscreen, minimize, close) is the kit's — `WinAppWindow` mounts it.
 //
-// The window controls stay on window-kit's `WinMenuItem` with `act: true`,
-// which dispatches `WinAct(id)` — a real control forwarded to windowd. Every
-// other entry uses this app's `MenuRow`, because `WinMenuItem` would bake
+// Every entry uses this app's `MenuRow`, because `WinMenuItem` would bake
 // `WinMenuPick(id)` and these entries need to dispatch navigation events or
 // open a submenu instead.
 //
@@ -18,29 +17,6 @@
 Component MoreMenu {
     Stack {
         Stack {
-            if $state.menu == "app" {
-                Stack {
-                    Panel {
-                        Text(@t("win.mode")).textSize(xs).fg(onGlassMuted)
-                        WinMenuItem { id: "mode.split", label: @t("win.split"), icon: "columns.2", kind: "", act: true }
-                        WinMenuItem { id: "mode.fullscreen", label: @t("win.fullscreen"), icon: "maximize", kind: "", act: true }
-                        WinMenuItem { id: "mode.freeform", label: @t("win.freeform"), icon: "square", kind: "check", act: true }
-                        Stack { }
-                            .height(1)
-                            .bg(divider)
-                        WinMenuItem { id: "minimize", label: @t("win.minimize"), icon: "minimize", kind: "", act: true }
-                        WinMenuItem { id: "close", label: @t("win.close"), icon: "xmark", kind: "danger", act: true }
-                    }
-                    .material(overlay)
-                    .rounded(xl)
-                    .width(230)
-                    .gap(0)
-                    .padding(1)
-                }
-                on Tap -> dispatch(WinNoop)
-            } else {
-                Stack { }
-            }
             Spacer
             if $state.menu == "more.jump" {
                 Stack {

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-06 (TASK-0066: window tiling — the desktop default model; ADR-0069)
+
+- **windowd WM**: `zones.rs` (halves, quarters, Fill, Return, arrangements; frames as a pure
+  function of mode, work area and margin) + `runtime/tiling.rs` — drag release at an edge/corner
+  tiles (top edge FILLS; the fullscreen gesture is retired), a tiled window dragged off its tile
+  Returns to its pre-tile frame under the pointer, ONE verb `CONTROL_WIN_ZONE` carries zones,
+  Return and arrangements (Left&Right, Top&Bottom, Quarters over the z-order), reflow on a
+  work-area change, deny by named reason. `snap.rs` deleted; the legacy "split" mode is the
+  left-half tile. Feed bits 2..=5 carry the zone (RFC-0086 amendment). Markers `windowd: wm
+  tile/return/arrange/chord/tile deny`, `SELFTEST: ui v7 tile ok`.
+- **Keyboard chords** (inputd → windowd): Super+Ctrl + ←/→ halves, ↑/F Fill, ↓/R Return, +Shift
+  ←/→ top quarters, +Alt ←/→ bottom quarters — recognized by inputd on the press, carried as a
+  one-shot `VisibleState.wm_chord` fact (RFC-0053 amendment), applied by windowd to the focused
+  window; the chord's key never reaches imed or an app.
+- **window-kit**: `WinAppMenu` (the app-chip dropdown: two `WinTileGlyph` rows — move & resize,
+  fill & arrange — without text headers, Vollbild, the inert "Auf anderes Gerät bewegen",
+  Minimieren, Schließen) is mounted by `WinAppWindow` for EVERY window-kit app (labels as props);
+  the per-app menu panels in settings and the file manager are gone.
+- **Drag preview** (board cycle 1 feedback): while a title bar is dragged, windowd pushes the
+  candidate zone to the desktop surface (`OP_SURFACE_TILE_PREVIEW` = 29, one push per change);
+  app-host exposes it as `device.tilePreview`; the desktop shell's `TilePreview` overlay paints
+  the zone as a translucent pane. windowd draws nothing. Corners: a release within 64 px of both
+  edges is the quarter (the 4-px edge was never hit at 1080p).
+- **Settings → Personalisierung → Fenster**: `ui.tile.edges`, `ui.tile.margin` (0/8/16),
+  `ui.tile.chords` — settingsd keys windowd applies live.
+- **Fixed (ADR-0065 amendment)**: app-host reconciled the animation driver inside the layout
+  arena generation; a running fade's keyframe track and the driver's list could be recycled
+  under it — the user page fault in `AnimationDriver::tick_emit` seen on the board (TASK-0074
+  cycle 3) and reproduced on the `usb-visible` lane (toast timeout → alert). `anim_sync` now
+  runs after the generation closes.
+- Proof: windowd `tests/tile_zones.rs`, inputd `tests/tiling_chords.rs`, kit menu goldens
+  light/dark, settings menu conformance (every tile → `window.control` zone verb), the global
+  menu in settings AND stash (`window_menu_global.rs`), the shell's preview pane per zone,
+  lane-target SSOT tests; the `usb-visible` injector launches the settings app and tiles it with
+  chords (`wm-tile` chain group).
+
 ### Added - 2026-10-06 (TASK-0074: modal semantics in the DSL runtime — ADR-0068; the shell's first modal)
 
 - **`.overlay(modal|transient)` + `.dismissAfter(ms)` + `on Dismiss`** (no IR bump): the runtime

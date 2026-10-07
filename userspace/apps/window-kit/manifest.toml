@@ -22,6 +22,10 @@
 #           WinTool(Str) · WinAct(Str)
 #   (WinNoop = consume-tap for panel bodies inside the menu overlay; the
 #   overlay layer itself dispatches WinMenu("") as the outside-close.)
+#   WinAppWindow mounts the WINDOW MENU itself (`menu == "app"`, TASK-0066):
+#   the tile glyph rows (WinAct("zone.<name>")), fullscreen, move-to-device
+#   (inert), minimize, close — labels via props menuFullscreen/menuMoveDevice/
+#   menuMinimize/menuClose. Apps mount no app-chip dropdown of their own.
 #
 # OVERLAYS (TASK-0074 / ADR-0068 — the design handoff's Alert · Modal · Toast
 # as `.overlay(modal|transient)` compositions; the runtime owns confinement,

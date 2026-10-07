@@ -240,6 +240,23 @@ this lands — the pre-identity code path was `sender_service_id == 0`:
 - Any future service adding an `sid == 0` allowance for app children should
   use the same registry-derived check instead.
 
+## Amendment 2026-10-06 (TASK-0066, ADR-0069): tile zone in the feed
+
+`WindowEntry.flags` bits 2..=5 (`WINDOW_ZONE_SHIFT = 2`, `WINDOW_ZONE_MASK = 0b1111 << 2`)
+carry the window's TILE zone — windowd's `zones::CODE_*`: 0 = floating, 1/2 left/right half,
+3/4 top/bottom half (arrangements only), 5..=8 the quarters (TL, TR, BL, BR), 9 = Fill. The
+wire layout is unchanged (9 B/entry, append-only bits); a reader that predates them sees zero.
+`surface_windows::window_zone(flags)` decodes; app-host exposes `window_zone_of(app_id)`.
+The window verbs gain `CONTROL_WIN_ZONE = 9` (`value = surface_id << 4 | code`; codes 10..=13
+are Return and the three arrangements) under the same own-window gate as `CONTROL_WIN_MODE`.
+
+**2026-10-07 — `OP_SURFACE_TILE_PREVIEW = 29`** (windowd → the DESKTOP surface only, same
+envelope, next free after 28): `[hdr:4][zone]` — the zone a title-bar drag would take if
+released now (`zones::CODE_*` 1..=9, 0 = none). Fire-and-forget, latest wins, one push per
+change and 0 on release; a receiver that is not the desktop surface never sees it. The shell
+paints the hint (`device.tilePreview`); windowd draws nothing. Fail-closed decode: exact
+length, zone masked to four bits.
+
 ## Open questions
 
 - Per-tile minimize-animation targets (shell → windowd geometry hints) —

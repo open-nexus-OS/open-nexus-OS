@@ -15,7 +15,6 @@
 
 use super::*;
 use crate::compositor::shell_window::{Frame, ResizeEdge};
-use crate::snap;
 use crate::window_scene::WindowId;
 
 /// Minimum resizable window size: the three title buttons + a label sliver
@@ -301,15 +300,10 @@ impl DisplayServerRuntime {
                 if self.windows.is_fullscreen(wid) {
                     self.toggle_fullscreen(wid);
                 }
-                let (x, y, w, h) = snap::snap_frame(
-                    snap::SnapTarget::LeftHalf,
-                    self.mode.width,
-                    self.work_area_h(),
-                    self.full_surface_frame(idx).0,
-                );
                 self.apps[idx].win.title_h = self.app_title_h(idx);
-                self.apply_window_frame(wid, x, y, w, h);
-                self.push_app_content_rect(idx);
+                // The legacy "split" mode IS the left-half tile (TASK-0066): one
+                // geometry path, the feed learns the zone, Return knows the way back.
+                self.apply_zone(idx, crate::zones::Zone::LeftHalf);
                 let _ = debug_println("windowd: win mode split");
             }
             _ => {
@@ -357,44 +351,6 @@ impl DisplayServerRuntime {
         let inset = self.content_top_inset(idx).min(u32::from(u16::MAX)) as u16;
         let rect = nexus_display_proto::client_surface::encode_surface_rect(0, inset, cw, ch);
         let _ = self.send_app_frame(idx, &rect);
-    }
-
-    /// A title-bar drag released with the pointer at a display edge snaps the
-    /// window (left/right half, top = fullscreen). Returns true when a snap
-    /// was applied (the caller skips the plain drag release).
-    pub(super) fn apply_release_snap(&mut self, id: WindowId, cx: i32, cy: i32) -> bool {
-        let Some(target) = snap::snap_target_at(cx, cy, self.mode.width) else {
-            return false;
-        };
-        match target {
-            snap::SnapTarget::Fullscreen => {
-                // Route through the fullscreen transition: chrome-cover +
-                // restore semantics live in ONE place (toggle inside).
-                if !self.windows.is_fullscreen(id) {
-                    self.start_fullscreen_transition(id);
-                }
-                let _ = debug_println(&alloc::format!(
-                    "windowd: snap edge=top id={}",
-                    Self::window_name(id)
-                ));
-            }
-            half => {
-                // A half-snapped window is still FLOATING: it starts below the
-                // status bar like every other one.
-                let top = match id {
-                    WindowId::App(i) => self.full_surface_frame(i as usize).0,
-                    _ => 0,
-                };
-                let (x, y, w, h) = snap::snap_frame(half, self.mode.width, self.work_area_h(), top);
-                self.apply_window_frame(id, x, y, w, h);
-                let _ = debug_println(&alloc::format!(
-                    "windowd: snap edge={} id={}",
-                    if half == snap::SnapTarget::LeftHalf { "left" } else { "right" },
-                    Self::window_name(id)
-                ));
-            }
-        }
-        true
     }
 
     /// Apply a display-space frame to a window: damage the vacated region,

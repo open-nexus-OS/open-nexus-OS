@@ -107,6 +107,12 @@ impl Contract for WindowdContract {
         bus.emit_marker(id, "apphost: modal dismiss (reason=escape)");
         bus.emit_marker(id, "windowd: win modal off (id=1)");
         bus.emit_marker(id, "SELFTEST: ui v10 dialog ok");
+        // TASK-0066 / ADR-0069: a Super+Ctrl chord (inputd's one-shot fact) tiled
+        // the focused window and Return brought its frame back.
+        bus.emit_marker(id, "windowd: wm chord (zone=left-half id=app0)");
+        bus.emit_marker(id, "windowd: wm tile (zone=left-half id=app0)");
+        bus.emit_marker(id, "windowd: wm return (id=app0)");
+        bus.emit_marker(id, "SELFTEST: ui v7 tile ok");
 
         // 4. Phase 1-8: GPU-first display pipeline (reactive, no polling)
         if self.gpud_available {

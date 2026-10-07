@@ -55,7 +55,7 @@ pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
 /// Max wire events per frame — burst producers MUST chunk here: the encoder
 /// returns `None` oversize, and dropping a burst was the input-storm collapse.
 pub const MAX_HID_BATCH_EVENTS: usize = (MAX_HID_BATCH_FRAME_LEN - HEADER_LEN - 16) / EVENT_LEN;
-const STATE_LEN: usize = 62;
+const STATE_LEN: usize = 63;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 pub const MAX_TEXT_INPUT_BYTES: usize = 24;
 
@@ -116,6 +116,10 @@ pub struct VisibleState {
     pub cursor_y: i32,
     pub text_input_len: u8,
     pub text_input_bytes: [u8; MAX_TEXT_INPUT_BYTES],
+    /// TASK-0066: a window-tiling CHORD the keyboard produced (windowd's `zones::CODE_*`,
+    /// 0 = none) — one-shot: inputd sets it for exactly one push, windowd applies it to the
+    /// focused window; apps never see the chord's keys. Appended (RFC-0052/0053 amendment).
+    pub wm_chord: u8,
 }
 
 impl VisibleState {
@@ -354,6 +358,7 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
     out[41] = state.text_input_len.min(MAX_TEXT_INPUT_BYTES as u8);
     out[42..42 + MAX_TEXT_INPUT_BYTES].copy_from_slice(&state.text_input_bytes);
     out[66..70].copy_from_slice(&state.wheel_delta_y.to_le_bytes());
+    out[70] = state.wm_chord;
     out
 }
 
@@ -417,6 +422,7 @@ fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
             bytes
         },
         wheel_delta_y: i32::from_le_bytes([frame[66], frame[67], frame[68], frame[69]]),
+        wm_chord: frame[70],
     })
 }
 
@@ -504,6 +510,7 @@ mod tests {
             wheel_delta_y: 7,
             text_input_len: 0,
             text_input_bytes: [0; MAX_TEXT_INPUT_BYTES],
+            wm_chord: 0,
         };
         state.set_text_input("ap");
         assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));

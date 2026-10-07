@@ -28,6 +28,14 @@
   "lang.ko": "한국어",
   "lang.zh": "中文",
   "per.appearance": "外观",
+  "per.chordsNote": "Super+Ctrl+←/→ 半屏 · Super+Ctrl+Shift+←/→ 配合 ↑/↓ 四分之一 · Super+Ctrl+F 填充 · Super+Ctrl+R 还原",
+  "per.gWindows": "窗口",
+  "per.tileChords": "平铺的键盘快捷键",
+  "per.tileEdges": "拖动窗口到屏幕边缘时平铺",
+  "per.tileMargin": "平铺窗口留有边距",
+  "per.tileMarginV0": "无",
+  "per.tileMarginV16": "大",
+  "per.tileMarginV8": "小",
   "sec.accounts": "账户",
   "sec.accounts.d": "管理",
   "sec.accounts.n": "管理",
@@ -109,6 +117,7 @@
   "win.jump": "分区",
   "win.minimize": "最小化",
   "win.mode": "窗口模式",
+  "win.moveDevice": "移到其他设备",
   "win.overview": "总览",
   "win.split": "分屏"
 }

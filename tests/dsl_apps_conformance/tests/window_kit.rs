@@ -16,26 +16,39 @@ use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, View};
 use nexus_layout_types::{FxPx, LayoutNode, SurfaceMaterial};
 
 /// The kit component under test, inlined so the fixture stays one file (the
-/// real app pulls it through `dependencies = ["window-kit"]`).
+/// real app pulls it through `dependencies = ["window-kit"]`) — with the window
+/// menu it mounts (TASK-0066) and that menu's parts.
 const KIT: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinAppWindow.nx");
+const MENU: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinAppMenu.nx");
+const GLYPH: &str =
+    include_str!("../../../userspace/apps/window-kit/ui/components/WinTileGlyph.nx");
+const ITEM: &str = include_str!("../../../userspace/apps/window-kit/ui/components/WinMenuItem.nx");
 
 fn program(page: &str) -> String {
     // Minimal store: the kit's overlay scrim/pane dispatch `WinPaneClose`/
-    // `WinNoop`, which must be declared event cases in the mounting app.
+    // `WinNoop`, the window menu `WinMenu`/`WinAct`/`WinMenuPick`, which must
+    // be declared event cases in the mounting app; `menu` is the kit's field.
     const STORE: &str = r#"Store S {
     x: Int = 0,
+    menu: Str = "",
 }
 
 Event E {
     WinNoop,
     WinPaneClose,
+    WinMenu(Str),
+    WinAct(Str),
+    WinMenuPick(Str),
 }
 
 reduce E {
     WinNoop => state.x = state.x,
     WinPaneClose => state.x = state.x,
+    WinMenu(m) => state.menu = m,
+    WinAct(a) => state.x = state.x,
+    WinMenuPick(id) => state.x = state.x,
 }"#;
-    format!("{KIT}\n{STORE}\n{page}\n")
+    format!("{GLYPH}\n{ITEM}\n{MENU}\n{KIT}\n{STORE}\n{page}\n")
 }
 
 fn compile(src: &str) -> Vec<u8> {
@@ -119,7 +132,7 @@ fn env(size_class: &'static str) -> FixtureEnv {
 fn page(flags: &str, content: &str) -> String {
     format!(
         r#"Page P {{
-    WinAppWindow {{ {flags} }} {{
+    WinAppWindow {{ {flags}, menuFullscreen: "Full screen", menuMoveDevice: "Move to another device", menuMinimize: "Minimise", menuClose: "Close" }} {{
         sidebarLeft {{
             Text("nav")
         }}

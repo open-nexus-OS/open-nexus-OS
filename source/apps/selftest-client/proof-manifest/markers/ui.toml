@@ -309,3 +309,29 @@ proves = "one app-modal round trip through windowd's verb (on → off) — the d
 [marker."SELFTEST: ui v10 live modal ok"]
 phase = "end"
 proves = "a modal opened and closed through LIVE input: presses were routed to the modal window while the flag was on with a live input route up (the injector's pointer opened the shell's alert, its ESC closed it)"
+
+# --- TASK-0066 / ADR-0069: window tiling — geometry in windowd's WM, chords from inputd, UI in
+# the kit. Emitted when a window is tiled (drag release at an edge/corner, the kit's window
+# menu, a Super+Ctrl chord); the `usb-visible` lane's injector opens an app and chords it.
+[marker."windowd: wm tile (zone="]
+phase = "end"
+proves = "a window took a tile zone through the ONE geometry path (edge/corner release, menu verb or chord); the feed carries the zone"
+
+[marker."windowd: wm return (id="]
+phase = "end"
+proves = "a tiled window went back to its pre-tile frame (drag off the tile, menu Return or Super+Ctrl+↓)"
+
+[marker."windowd: wm arrange (kind="]
+phase = "end"
+
+[marker."windowd: wm chord (zone="]
+phase = "end"
+proves = "a Super+Ctrl chord reached windowd as inputd's one-shot fact and was applied to the focused window — the key itself never became input"
+
+[marker."windowd: wm tile deny (reason="]
+phase = "end"
+proves = "a refused tile, by its named reason (not-resizable, no-window, edges-off, chords-off, no-focus)"
+
+[marker."SELFTEST: ui v7 tile ok"]
+phase = "end"
+proves = "a tile followed by a Return on one boot: the frame bookkeeping (pre-tile frame, zone, feed bits) round-tripped"

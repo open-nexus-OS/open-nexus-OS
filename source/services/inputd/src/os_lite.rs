@@ -46,6 +46,9 @@ const IPC_BATCH_LIMIT: usize = 64;
 
 use crate::chain_stats::InputdChainTelemetry;
 
+/// Wheel indicator + HID-rate telemetry (a pure move, structure ratchet).
+mod indicators;
+
 pub fn service_main_loop() -> Result<(), &'static str> {
     // Caps are pre-granted by init before resume — no yield needed.
 
@@ -701,56 +704,18 @@ impl LiveRouteRuntime {
         // and windowd coalesces frame-aligned regardless.
         let button_changed = previous_launcher_click != self.visible_state.launcher_click_visible;
         let focus_changed = previous_focus_visible != self.visible_state.focus_visible;
+        // TASK-0066: a tiling chord is a one-shot WM fact on this push.
+        let chord = self.input.take_wm_chord();
+        if chord != 0 {
+            self.visible_state.wm_chord = chord;
+        }
         let immediate_push = pointer_down_dispatched
             || pointer_wheel_delta != 0
             || keyboard_dispatched
             || button_changed
-            || focus_changed;
+            || focus_changed
+            || chord != 0;
         self.push_visible_state_to_windowd(now_ns, immediate_push);
-    }
-
-    fn note_wheel_indicator(&mut self, delta_y: i32, now_ns: u64) {
-        self.wheel_indicator_direction = if delta_y > 0 {
-            WheelIndicatorDirection::Up
-        } else if delta_y < 0 {
-            WheelIndicatorDirection::Down
-        } else {
-            WheelIndicatorDirection::None
-        };
-        self.wheel_indicator_deadline_ns = now_ns.saturating_add(WHEEL_INDICATOR_PULSE_NS);
-    }
-
-    fn sync_wheel_indicator(&mut self, now_ns: u64) {
-        let active = now_ns <= self.wheel_indicator_deadline_ns;
-        self.visible_state.wheel_up_visible =
-            active && self.wheel_indicator_direction == WheelIndicatorDirection::Up;
-        self.visible_state.wheel_down_visible =
-            active && self.wheel_indicator_direction == WheelIndicatorDirection::Down;
-        if !active {
-            self.wheel_indicator_direction = WheelIndicatorDirection::None;
-        }
-    }
-
-    /// Plain (unfolded) HID-batch RX-rate line, >=8/s gate — pairs with
-    /// `hidrawd: tx hz` and `inputd: push hz` to localize input-rate loss.
-    fn note_hid_rx_for_rate_line(&mut self) {
-        let now_ns = nexus_abi::nsec().unwrap_or(0);
-        self.hid_rx_rate_count = self.hid_rx_rate_count.saturating_add(1);
-        if self.hid_rx_rate_window_ns == 0 {
-            self.hid_rx_rate_window_ns = now_ns;
-        } else if now_ns.saturating_sub(self.hid_rx_rate_window_ns) >= 1_000_000_000 {
-            let (dx, dy, batches) = self.input.take_travel();
-            if self.hid_rx_rate_count >= 8 {
-                // The travel the relative pointer covered this second (|dx| and |dy| summed over
-                // the batches with motion): against the device's counts, the lost distance.
-                let _ = debug_println(&format!(
-                    "inputd: hid rx hz={} travel dx={dx} dy={dy} rel={batches}",
-                    self.hid_rx_rate_count
-                ));
-            }
-            self.hid_rx_rate_window_ns = now_ns;
-            self.hid_rx_rate_count = 0;
-        }
     }
 
     fn expire_transient_input_state(&mut self) {
@@ -804,6 +769,8 @@ impl LiveRouteRuntime {
                 // next (possibly move-throttled) push cannot replay it.
                 self.pending_wheel_delta = 0;
                 self.visible_state.wheel_delta_y = 0;
+                // …and the chord: delivered once, never replayed.
+                self.visible_state.wm_chord = 0;
                 self.last_windowd_push_state = Some(self.visible_state);
                 self.last_windowd_push_ns = now_ns;
                 // Push-cadence telemetry (hyper-smooth diagnosis): report the

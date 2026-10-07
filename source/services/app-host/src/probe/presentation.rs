@@ -104,6 +104,12 @@ impl super::DslApp {
     /// One reemit under the CURRENT env (tokens + device + locale) with the
     /// standard follow-ups: relayout the retained boxes, drop the stale hover
     /// anchor, reconcile animations. The shared tail of every settings arm.
+    /// windowd's tile-preview push (TASK-0066): the desktop surface re-emits with the new
+    /// `device.tilePreview`; returns whether a repaint is due.
+    pub(super) fn apply_tile_preview(&mut self, code: u8) -> bool {
+        super::env::set_tile_preview(code) && self.reemit_current("tile preview")
+    }
+
     fn reemit_current(&mut self, what: &str) -> bool {
         let tokens = tokens_for(self.theme_mode);
         let device =

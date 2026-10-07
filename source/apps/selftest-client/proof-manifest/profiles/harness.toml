@@ -165,7 +165,7 @@ extends = "visible"
 # TASK-0074: the injector keeps driving the guest after the ladder (login, the shell's modal:
 # pill → power → background press → ESC) — the launcher's early stop waits for the live-modal
 # rung too, inside a wider grace window (one-hart TCG; the recipe's RUN_TIMEOUT bounds the run).
-env = { QEMU_USB_DEVICE = "-device qemu-xhci,id=xhci -device usb-hub,bus=xhci.0,port=1 -device usb-kbd,bus=xhci.0,port=1.1 -device usb-mouse,bus=xhci.0,port=1.2", QEMU_INPUT_TRANSPORT = "usb", QEMU_PROOF_POINTER_SOURCE = "mouse", QEMU_INPUT_AUTOINJECT = "1", QEMU_LADDER_ALSO_WAIT = "apphost: modal dismiss (reason=escape)", QEMU_READY_GRACE_SECS = "320" }
+env = { QEMU_USB_DEVICE = "-device qemu-xhci,id=xhci -device usb-hub,bus=xhci.0,port=1 -device usb-kbd,bus=xhci.0,port=1.1 -device usb-mouse,bus=xhci.0,port=1.2", QEMU_INPUT_TRANSPORT = "usb", QEMU_PROOF_POINTER_SOURCE = "mouse", QEMU_INPUT_AUTOINJECT = "1", QEMU_LADDER_ALSO_WAIT = "SELFTEST: ui v7 tile ok", QEMU_READY_GRACE_SECS = "480" }
 
 # TASK-0050 PR-3: real system-reset lane. The guest requests an SBI cold
 # reboot EARLY in bringup (sentinel discipline over statefs); QEMU restarts

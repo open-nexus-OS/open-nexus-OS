@@ -40,6 +40,17 @@ pub const WINDOWS_MAX: usize = 8;
 pub const WINDOW_FLAG_MINIMIZED: u8 = 1 << 0;
 /// `flags` bit: the window is the focused/topmost floating window.
 pub const WINDOW_FLAG_FOCUSED: u8 = 1 << 1;
+/// `flags` bits 2..=5 (TASK-0066, RFC-0086 append-only): the window's TILE zone — windowd's
+/// `zones::CODE_*` (0 = not tiled, 1..=9 = halves / quarters / Fill). The wire layout is
+/// unchanged (9 B/entry); a reader that predates the bits sees them as zero.
+pub const WINDOW_ZONE_SHIFT: u8 = 2;
+pub const WINDOW_ZONE_MASK: u8 = 0b1111 << WINDOW_ZONE_SHIFT;
+
+/// The tile zone code carried in `flags` (0 = not tiled).
+#[must_use]
+pub const fn window_zone(flags: u8) -> u8 {
+    (flags & WINDOW_ZONE_MASK) >> WINDOW_ZONE_SHIFT
+}
 
 /// One feed entry: a window owned by the app-host with kernel service id
 /// `owner_sid` (execd's `app:<bundle_id>` naming).
@@ -91,6 +102,30 @@ pub fn decode_surface_windows(frame: &[u8], out: &mut [WindowEntry; WINDOWS_MAX]
         *slot = WindowEntry { owner_sid: u64::from_le_bytes(sid), flags: frame[n + 8] };
     }
     Some(count)
+}
+
+/// windowd → the DESKTOP surface (TASK-0066): the tile zone a title-bar drag would take if
+/// released now — the shell draws the preview (`device.tilePreview`), windowd draws nothing.
+/// `[hdr:4][zone]` with windowd's `zones::CODE_*`; 0 = no preview (the drag left every edge
+/// or ended). Fire-and-forget, latest wins.
+pub const OP_SURFACE_TILE_PREVIEW: u8 = 29;
+pub const SURFACE_TILE_PREVIEW_FRAME_LEN: usize = HEADER_LEN + 1;
+
+#[must_use]
+pub fn encode_surface_tile_preview(zone: u8) -> [u8; SURFACE_TILE_PREVIEW_FRAME_LEN] {
+    let mut f = [0u8; SURFACE_TILE_PREVIEW_FRAME_LEN];
+    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_TILE_PREVIEW));
+    f[HEADER_LEN] = zone & 0x0F;
+    f
+}
+
+/// Fail-closed decode: exact length; the zone code is returned as sent (0 = none).
+#[must_use]
+pub fn decode_surface_tile_preview(frame: &[u8]) -> Option<u8> {
+    if !has_op(frame, OP_SURFACE_TILE_PREVIEW) || frame.len() != SURFACE_TILE_PREVIEW_FRAME_LEN {
+        return None;
+    }
+    Some(frame[HEADER_LEN] & 0x0F)
 }
 
 /// Taskbar verb: restore the window if minimized, else raise + focus it.
@@ -178,5 +213,21 @@ mod tests {
         let mut bad = f;
         bad[HEADER_LEN] = 9; // unknown verb
         assert!(decode_surface_taskbar(&bad).is_none(), "unknown verb");
+    }
+
+    #[test]
+    fn tile_preview_roundtrip_and_rejects() {
+        for zone in 0..=9u8 {
+            let f = encode_surface_tile_preview(zone);
+            assert_eq!(decode_surface_tile_preview(&f), Some(zone));
+        }
+        let f = encode_surface_tile_preview(5);
+        assert!(decode_surface_tile_preview(&f[..f.len() - 1]).is_none(), "short");
+        let mut long = [0u8; SURFACE_TILE_PREVIEW_FRAME_LEN + 1];
+        long[..SURFACE_TILE_PREVIEW_FRAME_LEN].copy_from_slice(&f);
+        assert!(decode_surface_tile_preview(&long).is_none(), "long");
+        let other = encode_surface_taskbar(TASKBAR_ACTIVATE, 1);
+        assert!(decode_surface_tile_preview(&other).is_none(), "other op");
+        assert_eq!(encode_surface_tile_preview(0xF5)[HEADER_LEN], 5, "high bits never leak");
     }
 }

@@ -13,6 +13,7 @@ Page ShellPage {
         TopBar { }
         Stack {
             WorkspaceColumn { }
+            TilePreview { }
             PanelHost { }
             LauncherHost { }
         }

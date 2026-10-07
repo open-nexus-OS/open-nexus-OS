@@ -156,6 +156,19 @@ impl AppEffectHost {
             // the runtime's modal depth here on the 0↔n edge).
             "modal.on" => (wire::CONTROL_WIN_MODAL, sid << 4 | 1),
             "modal.off" => (wire::CONTROL_WIN_MODAL, sid << 4),
+            // TASK-0066 tiling (the kit's window menu + chords): ONE verb, the
+            // zone/arrangement in the low 4 bits (windowd `zones::CODE_*`).
+            "zone.left-half" => (wire::CONTROL_WIN_ZONE, sid << 4 | 1),
+            "zone.right-half" => (wire::CONTROL_WIN_ZONE, sid << 4 | 2),
+            "zone.top-left" => (wire::CONTROL_WIN_ZONE, sid << 4 | 5),
+            "zone.top-right" => (wire::CONTROL_WIN_ZONE, sid << 4 | 6),
+            "zone.bottom-left" => (wire::CONTROL_WIN_ZONE, sid << 4 | 7),
+            "zone.bottom-right" => (wire::CONTROL_WIN_ZONE, sid << 4 | 8),
+            "zone.fill" => (wire::CONTROL_WIN_ZONE, sid << 4 | 9),
+            "zone.return" => (wire::CONTROL_WIN_ZONE, sid << 4 | 10),
+            "zone.left-right" => (wire::CONTROL_WIN_ZONE, sid << 4 | 11),
+            "zone.top-bottom" => (wire::CONTROL_WIN_ZONE, sid << 4 | 12),
+            "zone.quarters" => (wire::CONTROL_WIN_ZONE, sid << 4 | 13),
             _ => {
                 raw_marker("apphost: dsl svc settings.set FAIL (window control)");
                 return Err(ERR_SVC_UNAVAILABLE);

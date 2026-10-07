@@ -658,6 +658,13 @@ USB_INPUT_MARKERS=(
   "windowd: win modal off (id="
   "SELFTEST: ui v10 dialog ok"
   "SELFTEST: ui v10 live modal ok"
+  # TASK-0066 / ADR-0069: the injector then opens the launcher, launches the settings app and
+  # tiles its window with Super+Ctrl chords over the USB keyboard — inputd's one-shot fact,
+  # windowd's one geometry path, Return brings the frame back.
+  "windowd: wm chord (zone=left-half"
+  "windowd: wm tile (zone=left-half"
+  "windowd: wm return (id="
+  "SELFTEST: ui v7 tile ok"
 )
 
 expected_sequence=(
@@ -3128,7 +3135,7 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
     # TASK-0253B: the one lane whose device-event hops (I1/I2) must fire at every run — its
     # injector drives the USB devices; the simulated chain and the real one must agree.
     usb-visible)
-      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,gpu-core,display || exit 1
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,wm-tile,gpu-core,display || exit 1
       ;;
   esac
 fi

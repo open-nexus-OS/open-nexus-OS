@@ -1,6 +1,6 @@
 ---
-title: TASK-0066 UI v7a: windowd WM zones — halves + thirds, occupancy map, reflow on display-mode change, snap state in the window feed, fail-closed policy
-status: Draft (end-state rewrite 2026-09-09 — halves shipped by TASK-0070; residual = thirds/occupancy/reflow/feed/policy/markers)
+title: TASK-0066 UI v7a: window tiling — halves, quarters, fill, return, arrangements; edge/corner drag, zoom-button hover menu, keyboard chords, settings "Fenster"; zone state in the window feed
+status: Done (2026-10-07 — model "A" delivered and board-proven over two cycles; polish continues in the GPU lane per user decision; supersedes the 2026-09-09 halves+thirds rewrite)
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -15,7 +15,176 @@ links:
   - Testing contract: scripts/qemu-test.sh
 ---
 
-## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
+## Delivered 2026-10-06 (model "A"; proof chain in the table at the end)
+
+- **P0**: the 2026-07-29 wedge path (drag release at the top edge → `toggle_fullscreen`
+  mid-drag) no longer exists — the top edge FILLS through `apply_window_frame`; fullscreen is
+  reached only from the app-icon menu / zoom control. RFC-0086 + RFC-0053 amended, ADR-0069,
+  `docs/dev/ui/patterns/wm-tiling.md` (the `wm-snap.md` stub never existed; references fixed).
+- **P1**: `windowd/src/zones.rs` (pure; inline tests) + `runtime/tiling.rs` (`apply_zone`,
+  `return_window`, `apply_release_tile`, `untile_for_drag`, `apply_zone_code`, `arrange`,
+  `reflow_tiled`, `apply_chord`), `CONTROL_WIN_ZONE = 9`, `snap.rs` deleted, split mode → left
+  half, markers registered, `tests/tile_zones.rs`.
+- **P2**: settingsd `ui.tile.edges|margin|chords`; windowd applies them from the `ui.` watch
+  (margin change reflows); reflow on shell-profile change.
+- **P3**: inputd `ModifierState` tracks Super + Left Alt; `wm_chord_for` fixed table; the chord
+  key is consumed (no keyboard dispatch) and parked for one state push
+  (`VisibleState.wm_chord`, `STATE_LEN` 62 → 63); windowd `apply_chord` on the focused window
+  (`ui.tile.chords` gate, `no-focus` deny). `tests/tiling_chords.rs` (+ `test_reject_*`).
+- **P4**: window-kit `WinTileGlyph` + `WinAppMenu`; settings `MoreMenu` and stash `StashPage`
+  mount it (their duplicated panels are gone); settings `tiling.store.nx` + the "Fenster" group
+  in Personalisierung; i18n ×5 in settings and stash; feed bits (`surface_windows::window_zone`; the app-host accessor lands with its first shell consumer — the warning gate forbids a dead one); goldens
+  `kit_window_menu_{light,dark}`; `settings_tiling_menu.rs` (every tile forwards its verb, the
+  inert entry registers no handler).
+- **P5**: `usb-visible` injector tiling phase (launcher → settings app → Super+Ctrl+← →
+  Super+Ctrl+↓), lane requires the `wm-tile` rungs; board ack `tile` pending the cycle.
+- **P6 (board cycle 1 feedback, 2026-10-07)**: (a) the window menu is the WINDOW's — `WinAppWindow`
+  mounts `WinAppMenu` for every window-kit app (labels as props; settings `MoreMenu` and stash
+  keep only their own `more…` menus and mount no backdrop above the kit's); the glyph rows carry
+  no text headers (the glyph is the label). `window_menu_global.rs` (settings AND stash open the
+  same eleven verbs, one backdrop; `test_reject_*` for a closed menu). (b) Corners: a release
+  within `TILE_CORNER_PX = 64` of BOTH edges is the quarter — the pointer need not touch the
+  4-px edge (it did at 1080p, and the corner was never recognized: no `wm tile (zone=top-…)` and
+  no deny in the log). A no-zone release traces `windowd: wm release at (x,y)` (user-driven,
+  bounded). (c) Drag preview: windowd pushes `OP_SURFACE_TILE_PREVIEW` (op 29, one push per
+  candidate-zone change, 0 on release/none) to the DESKTOP surface; app-host turns it into the
+  device axis `device.tilePreview`; the desktop shell's `overlays/TilePreview.nx` paints the
+  zone as a translucent pane in both `ShellPage`s. windowd draws nothing. Proof: proto
+  roundtrip + reject, shell host test (every zone paints exactly one pane, "" none, no handler).
+
+### Board cycles
+
+| Cycle | Image | Result |
+|---|---|---|
+| 1 (2026-10-07) | dev-828f47ef | boots, desktop + pointer + keyboard; left/right edge tiles work; **corners never tile** (no marker, no deny); the app-chip menu existed only in settings/stash; window drags present at 8–10/s (`gpud: present us avg=263138…414322 max≈1.2 s`, dc CPU path) — F6 below; `KSELFTEST: ipc call budget FAIL (85–98 µs/64)` again |
+| 2 (2026-10-07) | dev-82f3a12d | `windowd: wm tile (zone=top-right id=app0)` from a corner drag, `wm return` + `SELFTEST: ui v7 tile ok`, `wm tile (zone=fill)`; ack `board-visual: tile`; the user's verdict "noch nicht rund, aber soweit ok" — the rest during the GPU lane (F6/F7). `gpud: present us avg=121371 max=287537` (dc CPU path). Board smoke: 45 of 46 rungs — `inputd: live keyboard route on` absent because no key was pressed in this cycle (user-driven rung), every other rung present |
+
+### Open findings (recorded, not built)
+
+- **F7 — drag feel and preview polish** (board cycle 2, user: "noch nicht rund"): the drag runs at the
+  dc present rate (F6), so the preview pane and the window lag the pointer; tuning the preview's
+  look (margin-aware frames, fade) and the corner band waits for the GPU lane's present path,
+  where the feel can be judged at a real frame rate. Decided with the user on 2026-10-07.
+
+- **F6 — the board's present cost during window drags** (measured, cycle 1): gpud's dc (CPU)
+  present path costs 263–414 ms per present (max ≈ 1.2 s); windowd presents 8–10×/s only while
+  a title bar is DRAGGED (the window follows the pointer; the backdrop blur is recomputed per
+  move), so a drag runs at 2–3 fps. Idle pointer moves present nothing (`apphost: submitted` 15
+  in the whole session, `WINDOWD: desktop input routed` 5; the cursor rides the display
+  controller's layer, xhcid `dropped=0`). There is no Block-2 baseline line for the present
+  cost (the stats line is newer than Block 2), so a regression cannot be shown or excluded
+  from logs; the cost is the dc CPU path's and belongs to the GPU lane (first hypothesis to
+  measure there: a full-frame convert per present instead of the dirty rect).
+
+- A tile makes the app re-create its surface at the new size (destroy → create); windowd
+  parks focus on the desktop for that window and a chord in that gap is refused with
+  `no-focus` (sub-second; the injector waits for `windowd: focus id=app…` after a tile). A
+  resize that keeps the surface would remove the gap — the WM resize path's business.
+- The root cause of the TASK-0074 board hang surfaced while proving this lane and is fixed
+  here (ADR-0065 amendment: `anim_sync` after the layout generation closes).
+
+## End-state rewrite 2026-10-06 — model "A": the desktop default tiling (binding; supersedes everything below)
+
+**User decision 2026-10-06:** rebuild the current desktop OS's built-in tiling exactly — not the
+third-party utility's zone flood. Pointer AND keyboard. The hover menu lives on the window's
+zoom control (window-kit chrome), one row "Move & Resize", then "Fill & Arrange"; **Fullscreen
+stays in the app-icon dropdown** (design handoff, `WinMenuItem mode.fullscreen`), never in the
+hover menu. Settings get a "Fenster" group in Personalisierung (our "Desktop & Dock").
+
+### Goal (end system)
+
+- **Zones** (`windowd/src/zones.rs`, replaces `snap.rs` in the same package): `LeftHalf`,
+  `RightHalf`, `TopLeft`, `TopRight`, `BottomLeft`, `BottomRight` (quarters), `Fill`
+  (work-area maximize, NOT fullscreen), `Return` (the frame before the first tile).
+  **Arrangements** tile several windows at once: `LeftRight` (focused + next), `TopBottom`,
+  `Quarters` (up to four). `zone_frame(zone, mode_w, work_h, top, margin)` is a pure function;
+  `ZoneMap` = per-window zone + the pre-tile frame for Return.
+- **Pointer**: drag release at the left/right edge → half, in a corner → quarter, at the top
+  edge → Fill (replaces today's top = fullscreen); dragging a tiled window off its zone →
+  Return. `SNAP_EDGE_PX` stays 4; corners = both edges within the margin.
+- **Keyboard chords** (inputd normalizes, windowd applies to the FOCUSED window, apps never
+  see them): Super+Ctrl+←/→/↑/↓ = halves (↑ = Fill? no: ↑/↓ = top/bottom half are NOT zones;
+  ↑ = Fill, ↓ = Return), Super+Ctrl+Shift+←/→ with ↑/↓ = quarters, Super+Ctrl+F = Fill,
+  Super+Ctrl+R = Return. v1 fixed; a chord editor is out.
+- **Window menu = the existing app-chip dropdown** (window-kit `WinTopBar` app icon +
+  chevron; user decision 2026-10-06 — nothing new is built, the menu we have gets its real
+  job): row 1 "Bewegen & Größe ändern" (left half, right half, 4 quarters), row 2 "Ausfüllen &
+  Anordnen" (Fill, Left&Right, Top&Bottom, Quarters, Return) as TILE GLYPHS like the desktop
+  OS's tiling menu (a frame with the filled part — drawn from DSL primitives, `WinTileGlyph`,
+  no text, no new icon assets), then the existing "Vollbild" row, then "Auf anderes Gerät
+  bewegen" (future, inert, dsoftbus). Tiles dispatch `WinAct("zone.<name>")` → app-host
+  `window.control` → windowd `CONTROL_WIN_ZONE` (value = `sid << 4 | code`, 16 codes). No
+  hover menu on the zoom control; the zoom control keeps its fullscreen toggle.
+- **Settings → Personalisierung → Fenster**: `wm.tile.edges` (on/off), `wm.tile.margin`
+  (`0|8|16` px), `wm.tile.chords` (on/off) — settingsd keys, windowd watches them like
+  `ui.theme.mode`; the chord list shown read-only.
+- **Feed**: zone state rides RFC-0086 flag bits `WINDOW_ZONE_SHIFT = 2`, 4 bits, wire layout
+  unchanged; app-host `window_state_of` exposes it.
+- **Markers registered**, ungated prints deleted; `SELFTEST: ui v7 tile ok`.
+
+### Non-goals
+
+Thirds / two-thirds (the utility's extra zones), a chord editor, a drag preview outline, zone
+highlight overlays, top/bottom halves as single zones, kernel changes, windowd drawing anything.
+
+### Decisions (replace the 2026-09-09 D1–D6)
+
+- **D1 Explicit zones, no occupancy magic.** A tile is what the user chose (edge, chord, menu);
+  the map only remembers zones + pre-tile frames (Return) and reflows them on a work-area
+  change.
+- **D2 One geometry verb.** `CONTROL_WIN_ZONE = 9` (`control.rs`, approval zone) carries every
+  zone and arrangement; `CONTROL_WIN_MODE`'s fullscreen stays the app-icon menu's.
+- **D3 Chords are inputd facts on the state push** (`input-live-protocol` `VisibleState`
+  gains `wm_chord: u8`, append-only; RFC-0052/0053 amendment): inputd tracks Super (GUI) and
+  the arrows, recognizes the fixed table, emits the zone code once per press; windowd applies
+  it to `windows.focused()` through the same `apply_zone`. ADR "WM chords: normalized by
+  inputd, applied by windowd, invisible to apps" (next free number).
+- **D4 No new UI primitive.** The app-chip dropdown (a `.overlay()` the kit already owns) hosts
+  the tile rows; `WinTileGlyph` draws each zone from Stacks (frame + filled region). Keyboard
+  chords and the menu are the two explicit entry points; edges/corners the implicit one.
+- **D5 Settings keys are the only configuration**; defaults edges=on, margin=0, chords=on.
+- **D6 `snap.rs` deleted** in the package that lands `zones.rs`; `config/loc-baseline.txt`
+  never re-lists it; the top-edge-fullscreen gesture is retired (Fill instead).
+
+### Packages
+
+- **P0** Wedge check of the fullscreen transition path (2026-07-29 finding; host test first,
+  visible lane second) + RFC-0086 amendment (zone bits) + RFC-0052/0053 amendment (chord
+  field) + ADR + `wm-snap.md` → `wm-tiling.md`. Blast: paper (+ the wedge fix if real).
+- **P1** `zones.rs` (+ inline tests: frames for every zone and margin, odd widths, Return
+  frames, arrangements) and `CONTROL_WIN_ZONE`; `wm.rs::apply_zone`, edge/corner release,
+  `snap.rs` deleted; markers; `tests/tile_zones.rs`. Blast: windowd host tests, smp1/visible.
+- **P2** settingsd keys `wm.tile.*` + windowd watch (edges/margin/chords) + reflow on
+  work-area change. Blast: settings lanes.
+- **P3** inputd chords (Super/arrow tracking, fixed table) → state push → windowd focused
+  window; `test_reject_*` (chords off, no focused window, non-resizable). Blast: input lanes.
+- **P4** window-kit: tile rows + `WinTileGlyph` in the app-chip dropdown, "Vollbild" kept,
+  "Auf anderes Gerät bewegen" inert; `WinAct("zone.*")` mapping; Settings "Fenster" group;
+  feed bits + app-host decode; goldens (menu light/dark). Blast: settings/stash apps, shell.
+- **P5** Proof: visible lane injector step (open two apps, drag one to an edge, chord the
+  other), `SELFTEST: ui v7 tile ok`, test-all, board cycle with ack `board-visual: tile`.
+
+### Definition of Done
+
+Host: every zone/arrangement frame deterministic (incl. margins, odd widths); Return restores
+the pre-tile frame; reflow on work-area change; deny table (`test_reject_not_resizable`,
+`test_reject_chords_off`, `test_reject_no_focus`); menu goldens (light/dark).
+QEMU (registered in `ui.toml`, `qemu-test.sh`, `markers.txt` group `wm-tile` + windowd
+contract): `windowd: wm tile (zone=left-half id=…)`, `windowd: wm tile (zone=fill id=…)`,
+`windowd: wm return (id=…)`, `windowd: wm chord (zone=… id=…)`, `windowd: wm tile deny
+(reason=…)`, `SELFTEST: ui v7 tile ok`. Board: ack `tile`. Docs: `wm-tiling.md`,
+`os-markers.md`, settings docs.
+
+### Touched paths
+
+windowd `src/{zones.rs (new), snap.rs (deleted), compositor/runtime/{wm.rs, input.rs,
+windows_feed.rs, presentation.rs}, markers.rs}` + `tests/tile_zones.rs`; `nexus-display-proto`
+`control.rs` + `surface_windows.rs` (approval); `userspace/input-live-protocol`; inputd
+`service.rs`/`os_lite.rs`; settingsd `registry.rs`; app-host `effect_ime.rs` (zone verbs),
+`effect_windows.rs`; window-kit `WinTopBar.nx` + `WinTileGlyph.nx`; settings
+`SecPersonalization.nx` + i18n; RFC-0086/0052/0053 amendments (approval); ADR.
+
+## End-state rewrite 2026-09-09 (superseded by the 2026-10-06 rewrite above; kept for history)
 
 **Ground truth 2026-09-09 (verified in code):** halves + fullscreen pointer snap exist
 (`source/services/windowd/src/snap.rs`, 109 LOC, `SnapTarget::{LeftHalf,RightHalf,Fullscreen}`,

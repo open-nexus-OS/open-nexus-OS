@@ -97,7 +97,14 @@ The full layer reference — including the end-to-end coverage table and the per
      relative — the injector walks from inputd's start point). The ladder
      (`USB_INPUT_MARKERS`) requires the chain end to end: hidrawd's USB source
      (`hidrawd: usb hid report seen`, I1, I2), inputd's live routes, the cursor
-     moved on screen and `SELFTEST: ui v2 input ok`; the chain-marker contract
+     moved on screen and `SELFTEST: ui v2 input ok`; then (TASK-0074/0066) the
+     injector logs in from the greeter's handler dump, opens the shell's
+     shutdown alert (pill → power → Confirm → toast → timeout → alert →
+     background press → ESC: `SELFTEST: ui v10 dialog ok` / `live modal ok`),
+     opens the launcher, launches the settings app and tiles it with
+     Super+Ctrl+← / ↓ (`windowd: wm chord/tile/return`, `SELFTEST: ui v7 tile
+     ok` — the launcher's early stop waits for it, `QEMU_LADDER_ALSO_WAIT`); the
+     chain-marker contract
      checks the `input-live` group here at every run.
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
      proofs required, bounded retry (`[profile.smp]`).

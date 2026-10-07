@@ -266,3 +266,57 @@ fn launcher_grid_reorders_and_inserts_by_key() {
     let chat = t.iter().position(|s| s == "Chat").expect("chat");
     assert!(search < counter && counter < chat, "keyed order followed: {t:?}");
 }
+
+/// How many nodes paint a solid background — the tile preview's pane is one.
+fn painted(node: &nexus_layout_types::LayoutNode) -> usize {
+    fn walk(node: &nexus_layout_types::LayoutNode, out: &mut usize) {
+        if let nexus_layout_types::LayoutNode::Stack(_, visual, children) = node {
+            if visual.background.is_some() {
+                *out += 1;
+            }
+            for child in children {
+                walk(child, out);
+            }
+        }
+    }
+    let mut out = 0;
+    walk(node, &mut out);
+    out
+}
+
+/// TASK-0066: the desktop shell paints windowd's tiling drop hint from `device.tilePreview`
+/// (both pages); "" paints nothing, every zone paints exactly one pane, and the layer carries
+/// no handler (it never takes a tap).
+#[test]
+fn tile_preview_paints_one_pane_per_zone_and_nothing_when_idle() {
+    let nxir = compile_project("desktop-shell");
+    for profile in ["desktop", "touch"] {
+        let env = |zone: &'static str| {
+            let mut env = if profile == "desktop" {
+                FixtureEnv::desktop()
+            } else {
+                FixtureEnv::tablet("landscape")
+            };
+            env.tile_preview = zone;
+            env
+        };
+        let idle = Mounted::new(&nxir, env(""));
+        let base = painted(idle.view.scene());
+        let handlers = idle.view.handlers().len();
+        for zone in [
+            "left-half",
+            "right-half",
+            "top-half",
+            "bottom-half",
+            "top-left",
+            "top-right",
+            "bottom-left",
+            "bottom-right",
+            "fill",
+        ] {
+            let shown = Mounted::new(&nxir, env(zone));
+            assert_eq!(painted(shown.view.scene()), base + 1, "{profile}: {zone} paints one pane");
+            assert_eq!(shown.view.handlers().len(), handlers, "{profile}: {zone} adds no handler");
+        }
+    }
+}

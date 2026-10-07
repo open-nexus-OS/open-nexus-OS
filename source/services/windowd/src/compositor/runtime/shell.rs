@@ -157,6 +157,19 @@ impl DisplayServerRuntime {
                     }
                 }
             }
+            // TASK-0066: the ONE tiling verb — `value = sid << 4 | zones::CODE_*`
+            // (a zone, Return or an arrangement); own-window gated.
+            wire::CONTROL_WIN_ZONE => {
+                let (sid, code) = (u32::from(value >> 4), value & 0x0F);
+                if let Some(idx) = self.app_idx_by_surface(sid) {
+                    if !self.win_control_allowed(idx, sender_sid) {
+                        return;
+                    }
+                    self.apply_zone_code(idx, code);
+                } else {
+                    let _ = debug_println("WINDOWD: control win (no window for id)");
+                }
+            }
             wire::CONTROL_WIN_MOVE => {
                 // The chromeless-window drag handle: the app's own chrome row
                 // took the press and asks windowd to move the window. Anchor
@@ -232,6 +245,8 @@ impl DisplayServerRuntime {
         }
         let cfg = systemui::shell_config_for(product);
         self.apply_shell_config(cfg);
+        // The work area changed with the profile (taskbar): tiled windows follow (TASK-0066).
+        self.reflow_tiled();
     }
 
     /// Launch an installed app that windowd does not host directly (e.g. a real

@@ -492,6 +492,14 @@ impl super::DslApp {
     /// scroll state: offsets clamp to the new content, the EndReached
     /// latch re-arms. Shared by tap/EndReached layout damage.
     pub(super) fn relayout_retained(&mut self) {
+        self.relayout_in_generation();
+        // OUTSIDE the generation: the animation driver's Vecs are DURABLE state.
+        // Synced inside it, their pushes landed in arena memory the layout two
+        // frames later reset under a running fade (ADR-0065 amendment, 2026-10-06).
+        self.anim_sync();
+    }
+
+    fn relayout_in_generation(&mut self) {
         // ADR-0065: THIS is the frame phase. Everything allocated from here to
         // the end of the function comes from the generation arena and is freed
         // wholesale two frames later — measured at 226 560 B per layout call
@@ -565,10 +573,8 @@ impl super::DslApp {
             self.scroll_y = 0;
             self.pager.set_offset(0.0);
         }
-        // A relayout follows a re-emit (tap Layout damage / EndReached
-        // LoadMore): reconcile the animation driver with the new intents.
-        // Idempotent when the tap path also calls it (values already `seen`).
-        self.anim_sync();
+        // The animation driver is reconciled by `relayout_retained` AFTER this
+        // generation closes (see there) — never in here.
     }
 
     /// Compositor-owned scroll position push (`INPUT_KIND_SCROLL_POS`):

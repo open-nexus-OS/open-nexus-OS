@@ -38,6 +38,10 @@ Page SettingsPage {
             showProps: $state.rightOpen == 1,
             sidebarOverlay: $state.paneL == 1,
             propsOverlay: $state.paneR == 1,
+            menuFullscreen: @t("win.fullscreen"),
+            menuMoveDevice: @t("win.moveDevice"),
+            menuMinimize: @t("win.minimize"),
+            menuClose: @t("win.close"),
         } {
             sidebarLeft {
                 NavSidebar { }
@@ -108,10 +112,16 @@ Page SettingsPage {
         // PLAIN surface path: its side panes share rows with the scroll
         // viewport, so app-host refuses the 3-slice band — and that is what
         // makes a full-window overlay renderable here at all.)
-        if $state.menu != "" {
-            MoreMenu { }
-        } else {
+        // The app-chip menu is the kit's (`WinAppWindow`); only the ⋯ menus
+        // are this app's — and they mount no backdrop over the kit's layer.
+        if $state.menu == "app" {
             Stack { }
+        } else {
+            if $state.menu != "" {
+                MoreMenu { }
+            } else {
+                Stack { }
+            }
         }
         if $state.picker == "language" {
             PickerSheet { title: @t("gen.language") } {

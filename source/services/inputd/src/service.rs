@@ -27,6 +27,10 @@ struct ModifierState {
     shift: bool,
     control: bool,
     alt_gr: bool,
+    /// Left Alt (TASK-0066 chords: the bottom quarters).
+    alt: bool,
+    /// Super / GUI (TASK-0066 chords: the window-tiling modifier).
+    gui: bool,
 }
 
 impl ModifierState {
@@ -34,6 +38,8 @@ impl ModifierState {
         match usage.raw() {
             0xe0 | 0xe4 => self.control = pressed,
             0xe1 | 0xe5 => self.shift = pressed,
+            0xe2 => self.alt = pressed,
+            0xe3 | 0xe7 => self.gui = pressed,
             0xe6 => self.alt_gr = pressed,
             _ => {}
         }
@@ -72,6 +78,8 @@ pub struct InputdService<R> {
     primary_pointer_held: bool,
     held_non_modifier_keys: [bool; 256],
     held_non_modifier_key_count: usize,
+    /// A tiling chord recognized since the last state push (`zones::CODE_*`, 0 = none).
+    pending_wm_chord: u8,
     modifiers: ModifierState,
     text_focus: bool,
     ime_visible: bool,
@@ -110,6 +118,7 @@ impl<R: RouteTarget> InputdService<R> {
             primary_pointer_held: false,
             held_non_modifier_keys: [false; 256],
             held_non_modifier_key_count: 0,
+            pending_wm_chord: 0,
             modifiers: ModifierState::default(),
             text_focus: false,
             ime_visible: false,
@@ -176,6 +185,11 @@ impl<R: RouteTarget> InputdService<R> {
     #[must_use]
     pub const fn held_non_modifier_key_count(&self) -> usize {
         self.held_non_modifier_key_count
+    }
+
+    /// The tiling chord recognized since the last call (one-shot), 0 = none.
+    pub fn take_wm_chord(&mut self) -> u8 {
+        core::mem::take(&mut self.pending_wm_chord)
     }
 
     #[must_use]
@@ -307,6 +321,15 @@ impl<R: RouteTarget> InputdService<R> {
                 continue;
             }
             self.update_non_modifier_key_hold(usage, pressed);
+            // TASK-0066 window-tiling chords (Super+Ctrl+…): a WM fact, not a
+            // key — it rides the state push to windowd and never reaches imed
+            // or an app. Recognized on the press only; releases are ignored.
+            if pressed {
+                if let Some(code) = wm_chord_for(usage, &self.modifiers) {
+                    self.pending_wm_chord = code;
+                    continue;
+                }
+            }
             if pressed {
                 // Per-EVENT resilience: fast typing packs several keys into
                 // one batch (chunked hidraw drains), and any `?` here threw
@@ -503,6 +526,29 @@ impl<R: RouteTarget> InputdService<R> {
 
 fn is_modifier(usage: KeyboardUsage) -> bool {
     matches!(usage.raw(), 0xe0..=0xe7)
+}
+
+/// The fixed tiling chord table (TASK-0066, v1): Super+Ctrl + ←/→ = halves, ↑ = Fill,
+/// ↓ = Return, F = Fill, R = Return; + Shift ←/→ = top quarters; + Alt ←/→ = bottom
+/// quarters. Codes are windowd's `zones::CODE_*`. `None` = not a chord.
+fn wm_chord_for(usage: KeyboardUsage, mods: &ModifierState) -> Option<u8> {
+    if !(mods.gui && mods.control) {
+        return None;
+    }
+    let (left, right) = if mods.shift {
+        (5u8, 6u8)
+    } else if mods.alt {
+        (7, 8)
+    } else {
+        (1, 2)
+    };
+    match usage {
+        KeyboardUsage::LEFT_ARROW => Some(left),
+        KeyboardUsage::RIGHT_ARROW => Some(right),
+        KeyboardUsage::UP_ARROW | KeyboardUsage::F => Some(9),
+        KeyboardUsage::DOWN_ARROW | KeyboardUsage::R => Some(10),
+        _ => None,
+    }
 }
 
 fn infer_pointer_source(events: &[HidEvent]) -> Option<PointerSource> {

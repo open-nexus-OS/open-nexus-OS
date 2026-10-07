@@ -36,6 +36,9 @@ MODAL_CC_PILL = (1253, 18)
 MODAL_POWER_BUTTON = (1169, 71)
 MODAL_CONFIRM_BUTTON = (714, 428)
 MODAL_BACKGROUND = (400, 400)
+# TASK-0066 tiling phase — SSOT: tests/dsl_apps_conformance/tests/shell_tiling_lane.rs.
+TILE_LAUNCHER_BUTTON = (30, 772)
+TILE_LAUNCH_SETTINGS = (914, 662)
 
 # Relative travel: steps well under inputd's 256-px cap and QEMU's int8 report.
 MODAL_STEP = 40
@@ -207,11 +210,14 @@ class ModalPhase:
     def go_click(self, target: tuple[int, int]) -> None:
         target_x, target_y = target
         self.travel(target_x, target_y)
-        for attempt in range(5):
-            seen = self.click_observed()
+        for attempt in range(2):
+            # A press that does not surface for a while is almost always
+            # DELAYED (the one-hart TCG guest is repainting), not lost: a
+            # second press would land later on whatever is under the pointer
+            # by then (it closed the Control Center once). Wait long, retry once.
+            seen = self.click_observed(timeout_s=45.0)
             self.log("modal phase click observed", {"target": [target_x, target_y], "seen": seen, "attempt": attempt + 1})
             if seen is None:
-                # The press never surfaced (merged away while the guest was busy).
                 time.sleep(1.0)
                 continue
             if abs(seen[0] - target_x) <= 6 and abs(seen[1] - target_y) <= 6:
@@ -220,6 +226,16 @@ class ModalPhase:
             self.pointer_at = list(seen)
             self.travel(target_x, target_y)
         self.wait_settled()
+
+    def wait_marker_after(self, marker: str, since: int, timeout_s: float) -> bool:
+        """Wait for a NEW occurrence of `marker` written after byte offset `since`."""
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if marker in self.uart_tail(since):
+                return True
+            time.sleep(0.2)
+        self.log("marker missing", {"marker": marker, "since": since})
+        return False
 
     def wait_marker(self, marker: str, timeout_s: float) -> bool:
         try:
@@ -285,5 +301,51 @@ class ModalPhase:
             self.log("modal phase complete (confirm → toast timeout → alert → background → ESC)")
 
 
+    # -- tiling (TASK-0066 / ADR-0069) ------------------------------------------
+    def chord(self, qcodes: list[str]) -> None:
+        """Hold the modifiers, tap the key, release in reverse — one Super+Ctrl chord."""
+        *mods, key = qcodes
+        for m in mods:
+            self.env.send_input_events(
+                self.env.sock, [{"type": "key", "data": {"down": True, "key": {"type": "qcode", "data": m}}}]
+            )
+            time.sleep(0.08)
+        self.key(key)
+        for m in reversed(mods):
+            self.env.send_input_events(
+                self.env.sock, [{"type": "key", "data": {"down": False, "key": {"type": "qcode", "data": m}}}]
+            )
+            time.sleep(0.08)
+
+    def run_tiling(self) -> None:
+        """Open the launcher from the taskbar, launch the settings app from its footer, then
+        tile that window with Super+Ctrl+← and bring it back with Super+Ctrl+↓: inputd's
+        one-shot chord fact → windowd's one geometry path → `SELFTEST: ui v7 tile ok` (the
+        phase's LAST marker, which the launcher's early stop waits for)."""
+        timeout_s = float(os.environ.get("QEMU_INPUT_INJECT_MODAL_TIMEOUT_S", "12"))
+        self.go_click(TILE_LAUNCHER_BUTTON)
+        self.go_click(TILE_LAUNCH_SETTINGS)
+        if not self.wait_marker("windowd: transition open", 40.0):
+            return
+        # The new window renders its first frame; let it settle before the chord.
+        self.wait_settled(30.0)
+        time.sleep(1.5)
+        since = self.uart_size()
+        self.chord(["ctrl", "meta_l", "left"])
+        if not self.wait_marker("windowd: wm tile (zone=left-half", timeout_s):
+            return
+        # The tiled window re-creates its surface at the new size (destroy →
+        # create); windowd parks focus meanwhile and would refuse a chord with
+        # `no-focus`. Wait for the re-created window to take focus back.
+        self.wait_marker_after("windowd: focus id=app", since, 40.0)
+        self.wait_settled(20.0)
+        time.sleep(1.0)
+        self.chord(["ctrl", "meta_l", "down"])
+        if self.wait_marker("SELFTEST: ui v7 tile ok", timeout_s):
+            self.log("tiling phase complete (launcher → settings → Super+Ctrl+← → Super+Ctrl+↓)")
+
+
 def run_modal_phase(env: ModalEnv) -> None:
-    ModalPhase(env).run()
+    phase = ModalPhase(env)
+    phase.run()
+    phase.run_tiling()

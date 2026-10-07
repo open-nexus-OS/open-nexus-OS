@@ -9,4 +9,4 @@ Window management covers:
 - tiling/snap patterns,
 - scene transitions.
 
-See also: `docs/dev/ui/foundations/transitions.md`, `docs/dev/ui/patterns/wm-snap.md`.
+See also: `docs/dev/ui/foundations/transitions.md`, `docs/dev/ui/patterns/wm-tiling.md`.

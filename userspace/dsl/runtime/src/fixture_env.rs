@@ -19,7 +19,7 @@ use crate::{DeviceEnv, Value};
 /// (docs/dev/dsl/profiles.md), host-injectable per golden variant. Field ids
 /// index `nexus-dsl-core::registry::DEVICE_FIELDS`:
 /// 0 profile, 1 posture, 2 orientation, 3 shellMode, 4 sizeClass,
-/// 5 dpiClass, 6 input, 7 locale, 8 keymap, 9 theme.
+/// 5 dpiClass, 6 input, 7 locale, 8 keymap, 9 theme, 10 tilePreview.
 pub struct FixtureEnv {
     pub profile: &'static str,
     pub posture: &'static str,
@@ -43,6 +43,9 @@ pub struct FixtureEnv {
     /// and a sun in light, instead of two buttons because the tree was blind.
     /// Defaults to `dark`, matching settingsd's `ui.theme.mode` default.
     pub theme: &'static str,
+    /// The tile zone a window drag would take if released now (TASK-0066; "" = none) — the
+    /// desktop shell's preview axis, pushed by windowd to the desktop surface only.
+    pub tile_preview: &'static str,
 }
 
 impl Default for FixtureEnv {
@@ -65,6 +68,7 @@ impl FixtureEnv {
             locale: String::new(),
             keymap: String::new(),
             theme: "dark",
+            tile_preview: "",
         }
     }
 
@@ -81,6 +85,7 @@ impl FixtureEnv {
             locale: String::new(),
             keymap: String::new(),
             theme: "dark",
+            tile_preview: "",
         }
     }
 
@@ -100,6 +105,7 @@ impl FixtureEnv {
             locale: String::new(),
             keymap: String::new(),
             theme: "dark",
+            tile_preview: "",
         }
     }
 
@@ -117,6 +123,7 @@ impl FixtureEnv {
             locale: String::new(),
             keymap: String::new(),
             theme: "dark",
+            tile_preview: "",
         }
     }
 }
@@ -136,6 +143,7 @@ impl DeviceEnv for FixtureEnv {
             7 => Value::Str(self.locale.clone()),
             8 => Value::Str(self.keymap.clone()),
             9 => Value::Str(String::from(self.theme)),
+            10 => Value::Str(String::from(self.tile_preview)),
             _ => Value::Str(String::new()),
         }
     }

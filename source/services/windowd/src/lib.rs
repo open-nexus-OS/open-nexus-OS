@@ -36,9 +36,6 @@ mod settings_client;
 mod control_gate;
 /// TASK-0074 D4: the app-modal routing gate (pure, host-tested from `tests/`).
 pub mod modal_gate;
-/// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.
-#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod snap;
 /// Declarative window-presentation SSOT (intent ⟂ policy → compositing props) —
 /// host-tested, like `window_scene`. windowd reads this instead of hardcoding
 /// per-window-type behaviour (RFC-0065 / Umbau #17). Same cfg gate as
@@ -54,6 +51,9 @@ mod window_feed;
 mod window_scene;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod window_state;
+/// Pure drag-to-edge snap geometry (TASK-0070 Phase 3) — host-tested.
+/// TASK-0066: window tiling geometry — zones, arrangements, the verb's codes (pure, host-tested).
+pub mod zones;
 // Per-app surface lifecycle model (RFC-0065 — own VMO per app, lazy load/free).
 // Host-proven now; the gate widens to the OS build when the compositor runtime
 // drives it from the abilitymgr launch handoff (TASK-0065 P4b).

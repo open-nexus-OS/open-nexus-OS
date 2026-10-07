@@ -39,3 +39,8 @@ pub const CONTROL_WIN_MOVE: u8 = 7;
 /// Nothing is drawn: the modal overlay itself is app-owned (`.overlay(modal)` in the DSL
 /// runtime). Own-window gated like the other `CONTROL_WIN_*` verbs; reset on close.
 pub const CONTROL_WIN_MODAL: u8 = 8;
+/// Window TILING (TASK-0066, the ONE geometry verb): value = `surface_id << 4 | code`, the
+/// code being windowd's `zones::CODE_*` — a zone (halves, quarters, Fill), Return (the
+/// pre-tile frame) or an arrangement (the sender's window plus the next ones in z-order:
+/// Left&Right, Top&Bottom, Quarters). Own-window gated; an unknown code is refused.
+pub const CONTROL_WIN_ZONE: u8 = 9;

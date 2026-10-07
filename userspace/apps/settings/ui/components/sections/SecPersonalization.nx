@@ -47,6 +47,66 @@ Component SecPersonalization {
                 }
             }
         }
+        // Fenster (TASK-0066): the tiling keys windowd applies live — the desktop
+        // default model's three switches, same tap-cycle rows as the IME toggle.
+        SetGroup { label: @t("per.gWindows"), note: @t("per.chordsNote") } {
+            rows {
+                if $state.tileEdges == "on" {
+                    Stack {
+                        SetRow { title: @t("per.tileEdges"), subtitle: "", icon: "square.grid", showChevron: false } {
+                            trailing { SetValue { value: @t("set.on") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetTileEdges("off"))
+                } else {
+                    Stack {
+                        SetRow { title: @t("per.tileEdges"), subtitle: "", icon: "square.grid", showChevron: false } {
+                            trailing { SetValue { value: @t("set.off") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetTileEdges("on"))
+                }
+                SetHairline { }
+                if $state.tileMargin == "8" {
+                    Stack {
+                        SetRow { title: @t("per.tileMargin"), subtitle: "", icon: "columns.2", showChevron: false } {
+                            trailing { SetValue { value: @t("per.tileMarginV8") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetTileMargin("16"))
+                } else if $state.tileMargin == "16" {
+                    Stack {
+                        SetRow { title: @t("per.tileMargin"), subtitle: "", icon: "columns.2", showChevron: false } {
+                            trailing { SetValue { value: @t("per.tileMarginV16") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetTileMargin("0"))
+                } else {
+                    Stack {
+                        SetRow { title: @t("per.tileMargin"), subtitle: "", icon: "columns.2", showChevron: false } {
+                            trailing { SetValue { value: @t("per.tileMarginV0") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetTileMargin("8"))
+                }
+                SetHairline { }
+                if $state.tileChords == "on" {
+                    Stack {
+                        SetRow { title: @t("per.tileChords"), subtitle: "", icon: "keyboard", showChevron: false } {
+                            trailing { SetValue { value: @t("set.on") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetTileChords("off"))
+                } else {
+                    Stack {
+                        SetRow { title: @t("per.tileChords"), subtitle: "", icon: "keyboard", showChevron: false } {
+                            trailing { SetValue { value: @t("set.off") } }
+                        }
+                    }
+                    on Tap -> dispatch(SetTileChords("on"))
+                }
+            }
+        }
         SetGroup { label: @t("per.gEffects"), note: "" } {
             rows {
                 SetRow { title: @t("per.reduceTransparency"), subtitle: "", icon: "eye", showChevron: false } {

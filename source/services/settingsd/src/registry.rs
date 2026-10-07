@@ -121,7 +121,20 @@ const SPECS: &[KeySpec] = &[
     KeySpec { key: "time.zone", default: "Europe/Berlin", validate: is_time_zone },
     KeySpec { key: "time.format", default: "24h", validate: is_time_format },
     KeySpec { key: "ime.personalization", default: "on", validate: is_personalization },
+    // TASK-0066 window tiling (Settings → Personalisierung → Fenster); windowd applies them.
+    KeySpec { key: "ui.tile.edges", default: "on", validate: is_on_off },
+    KeySpec { key: "ui.tile.margin", default: "0", validate: is_tile_margin },
+    KeySpec { key: "ui.tile.chords", default: "on", validate: is_on_off },
 ];
+
+fn is_on_off(v: &str) -> bool {
+    matches!(v, "on" | "off")
+}
+
+/// `ui.tile.margin`: the px gap around a tiled window — the three steps the settings offer.
+fn is_tile_margin(v: &str) -> bool {
+    matches!(v, "0" | "8" | "16")
+}
 
 /// The typed registry: current values per registered key (default until set).
 pub struct SettingsRegistry {

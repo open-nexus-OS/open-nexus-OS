@@ -124,8 +124,7 @@ impl DisplayServerRuntime {
         if fresh_launch {
             self.end_cursor_wait();
             // A NEW window follows its declared intent: clear the slot's stale WM override + modal flag.
-            self.apps[idx].wm_mode = None;
-            self.apps[idx].app_modal = false;
+            self.apps[idx].reset_wm_state();
         }
         let wid = crate::window_scene::WindowId::App(idx as u8);
         // The declared intent rides ATOMICALLY on the create frame (the old

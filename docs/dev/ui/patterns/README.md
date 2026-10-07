@@ -22,7 +22,7 @@ Current entry points:
 - `docs/dev/ui/patterns/data-surfaces/README.md`
 - `docs/dev/ui/patterns/app-shell.md`
 - `docs/dev/ui/patterns/wm.md`
-- `docs/dev/ui/patterns/wm-snap.md`
+- `docs/dev/ui/patterns/wm-tiling.md`
 - `docs/dev/ui/patterns/wm-resize-move.md`
 - `docs/dev/ui/patterns/app-structure/lifecycle.md`
 - `docs/dev/ui/patterns/app-structure/search-first.md`

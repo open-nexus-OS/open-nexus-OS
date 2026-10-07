@@ -1,0 +1,87 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Window tiling settings (TASK-0066; Personalisierung → Fenster — our
+// "Desktop & Dock → Windows"): three settingsd keys windowd applies live —
+// `ui.tile.edges` (drag to edges/corners tiles), `ui.tile.margin` (0 | 8 | 16
+// px around a tiled window), `ui.tile.chords` (the Super+Ctrl shortcuts).
+// Same shape as RegionStore: `svc.settings` is write-through, a root effect
+// reads the keys back at mount, the fields mirror settingsd's strings and the
+// rows tap-cycle them. The chord table itself is fixed in v1 (shown as a note).
+
+Store TilingStore {
+    tileEdges: Str = "on",
+    tileMargin: Str = "0",
+    tileChords: Str = "on",
+    tileError: Int = 0,
+}
+
+Event TilingEvent {
+    TileLoad,
+    TileEdgesLoaded(Str),
+    TileMarginLoaded(Str),
+    TileChordsLoaded(Str),
+    SetTileEdges(Str),
+    SetTileMargin(Str),
+    SetTileChords(Str),
+    TileApplied(Bool),
+    TileFailed(Int),
+}
+
+reduce TilingEvent {
+    TileLoad => state.tileError = 0,
+    TileEdgesLoaded(v) => state.tileEdges = v,
+    TileMarginLoaded(v) => state.tileMargin = v,
+    TileChordsLoaded(v) => state.tileChords = v,
+    SetTileEdges(v) => {
+        state.tileEdges = v;
+        state.tileError = 0;
+    },
+    SetTileMargin(v) => {
+        state.tileMargin = v;
+        state.tileError = 0;
+    },
+    SetTileChords(v) => {
+        state.tileChords = v;
+        state.tileError = 0;
+    },
+    TileApplied(ok) => state.tileError = 0,
+    TileFailed(code) => state.tileError = code,
+}
+
+// Root effect (nothing dispatches `TileLoad`): read the three keys at mount.
+@effect on TileLoad {
+    match svc.settings.get("ui.tile.edges") {
+        Ok(v) => dispatch(TileEdgesLoaded(v)),
+        Err(e) => dispatch(TileFailed(e)),
+    }
+    match svc.settings.get("ui.tile.margin") {
+        Ok(v) => dispatch(TileMarginLoaded(v)),
+        Err(e) => dispatch(TileFailed(e)),
+    }
+    match svc.settings.get("ui.tile.chords") {
+        Ok(v) => dispatch(TileChordsLoaded(v)),
+        Err(e) => dispatch(TileFailed(e)),
+    }
+}
+
+@effect on SetTileEdges(v) {
+    match svc.settings.set("ui.tile.edges", v) {
+        Ok(ok) => dispatch(TileApplied(ok)),
+        Err(e) => dispatch(TileFailed(e)),
+    }
+}
+
+@effect on SetTileMargin(v) {
+    match svc.settings.set("ui.tile.margin", v) {
+        Ok(ok) => dispatch(TileApplied(ok)),
+        Err(e) => dispatch(TileFailed(e)),
+    }
+}
+
+@effect on SetTileChords(v) {
+    match svc.settings.set("ui.tile.chords", v) {
+        Ok(ok) => dispatch(TileApplied(ok)),
+        Err(e) => dispatch(TileFailed(e)),
+    }
+}

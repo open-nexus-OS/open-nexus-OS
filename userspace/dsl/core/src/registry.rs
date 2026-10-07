@@ -355,6 +355,9 @@ pub const DEVICE_FIELDS: &[(&str, &[&str])] = &[
     // for controls that must NAME the mode — an appearance toggle showing the
     // state it is in rather than two buttons for two states.
     ("theme", &["dark", "light"]),
+    // TASK-0066: the tile zone a window drag would take if released now (windowd's zone
+    // names, "" = none) — the desktop shell draws the preview; apps have no use for it.
+    ("tilePreview", &[]),
 ];
 
 #[must_use]

@@ -50,6 +50,7 @@ impl DisplayServerRuntime {
                 open: slot.surface_id.is_some() && self.windows.is_visible(id),
                 minimized: self.windows.is_minimized(id),
                 focused: self.windows.is_top(id),
+                zone: slot.zone.code(),
             };
         }
         let mut entries = [feed::WindowEntry::default(); feed::WINDOWS_MAX];

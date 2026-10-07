@@ -39,6 +39,15 @@ apphost: modal dismiss (reason=escape)
 windowd: win modal off (id=
 SELFTEST: ui v10 dialog ok
 
+# group: wm-tile — TASK-0066 / ADR-0069 window tiling: a Super+Ctrl chord normalized by inputd
+# reaches windowd and tiles the focused window, Return brings the pre-tile frame back. Fires
+# when the `usb-visible` lane's injector opens an app and chords it; interactive boots:
+# just check-markers --groups wm-tile
+windowd: wm chord (zone=
+windowd: wm tile (zone=
+windowd: wm return (id=
+SELFTEST: ui v7 tile ok
+
 # group: gpu-core — gpud present-damage → parse → exec → scanout (ADR-0032;
 # fires in every boot incl. headless 2D)
 gpud: chain G1 recv present-damage

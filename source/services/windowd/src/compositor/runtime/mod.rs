@@ -95,6 +95,7 @@ mod session;
 mod shell;
 mod slots;
 pub(crate) mod text_input;
+mod tiling;
 mod transitions;
 mod windows_feed;
 mod wm;
@@ -105,53 +106,10 @@ mod wm;
 // (TASK-0063 modularization; pure path plumbing, no behavior change).
 use super::DISPLAY_SLOT_B_OFFSET_BYTES;
 
-fn log_gpud_ipc_error(prefix: &str, err: nexus_ipc::IpcError) {
-    let label = match err {
-        nexus_ipc::IpcError::WouldBlock => "would-block",
-        nexus_ipc::IpcError::Timeout => "timeout",
-        nexus_ipc::IpcError::Disconnected => "disconnected",
-        nexus_ipc::IpcError::NoSpace => "no-space",
-        nexus_ipc::IpcError::Unsupported => "unsupported",
-        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSuchEndpoint) => "kernel-no-endpoint",
-        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::QueueFull) => "kernel-queue-full",
-        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::QueueEmpty) => "kernel-queue-empty",
-        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied) => {
-            "kernel-permission-denied"
-        }
-        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::TimedOut) => "kernel-timeout",
-        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::NoSpace) => "kernel-no-space",
-        nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::Unsupported) => "kernel-unsupported",
-        _ => "other",
-    };
-    let _ = debug_println(&alloc::format!("{prefix} {label}"));
-}
-
-/// Like [`log_gpud_ipc_error`] but for the cap-sensitive gpud sends (the VMO
-/// cap-move handoff + present). On a `kernel-permission-denied` — the classic
-/// "the cap at this slot lacks SEND, or the send slot points at the wrong cap" —
-/// it names the gpud SEND slot and the slot contract, so a future cap regression
-/// (e.g. init displacing the gpud caps off slots 5/6) is diagnosable from one
-/// boot line instead of a log dig. Other errors defer to the generic logger.
-fn log_gpud_cap_error(prefix: &str, err: nexus_ipc::IpcError, send_slot: u32) {
-    if matches!(err, nexus_ipc::IpcError::Kernel(nexus_abi::IpcError::PermissionDenied)) {
-        let _ = debug_println(&alloc::format!(
-            "{prefix} kernel-permission-denied (gpud send_slot={send_slot}: cap lacks SEND or slot \
-             points at the wrong cap — windowd→gpud handoff contract is slots \
-             {GPUD_WIRED_SEND_SLOT}/{GPUD_WIRED_RECV_SLOT}, declared in nexus-service-topology — \
-             look for init: FAIL declared slot)"
-        ));
-    } else {
-        log_gpud_ipc_error(prefix, err);
-    }
-}
-
-fn encode_gpud_damage_frame(rect: DamageRect) -> [u8; nexus_display_proto::DAMAGE_FRAME_LEN] {
-    nexus_display_proto::encode_damage_frame(rect.x, rect.y, rect.width, rect.height)
-}
-
-fn encode_gpud_attach_frame(handoff_id: u32) -> [u8; 5] {
-    nexus_display_proto::encode_attach_frame(handoff_id)
-}
+mod gpud_wire;
+use gpud_wire::{
+    encode_gpud_attach_frame, encode_gpud_damage_frame, log_gpud_cap_error, log_gpud_ipc_error,
+};
 
 #[derive(Clone, Copy)]
 struct AnimatedSceneState {
@@ -228,6 +186,10 @@ pub(crate) struct AppWindowSlot {
     pub(crate) wm_mode: Option<u8>,
     /// TASK-0074 D4: app-modal (`CONTROL_WIN_MODAL`) — the owner's other windows take no input.
     pub(crate) app_modal: bool,
+    /// TASK-0066: the tile zone this window occupies (`Zone::None` = floating).
+    pub(crate) zone: crate::zones::Zone,
+    /// The floating frame before the first tile — Return's target (`None` = never tiled).
+    pub(crate) pre_tile: Option<crate::zones::TileFrame>,
     pub(crate) intent_resizable: bool,
     /// The app's DEDICATED event channel (SEND cap slot, `OP_SURFACE_EVENTS`).
     #[cfg(nexus_env = "os")]
@@ -301,6 +263,15 @@ pub(crate) enum PendingWm {
 }
 
 impl AppWindowSlot {
+    /// Clears the per-tenant WM state a reused slot must not inherit: the user-chosen mode
+    /// override, the modal flag (TASK-0074) and the tile zone + pre-tile frame (TASK-0066).
+    pub(crate) fn reset_wm_state(&mut self) {
+        self.wm_mode = None;
+        self.app_modal = false;
+        self.zone = crate::zones::Zone::None;
+        self.pre_tile = None;
+    }
+
     /// A fresh (unbound) slot. Windows CASCADE by slot index so several apps
     /// opened in sequence never stack pixel-exactly on top of each other.
     fn new(index: usize) -> Self {
@@ -331,6 +302,8 @@ impl AppWindowSlot {
             owner_sid: 0,
             wm_mode: None,
             app_modal: false,
+            zone: crate::zones::Zone::None,
+            pre_tile: None,
             intent_resizable: true,
             #[cfg(nexus_env = "os")]
             event_channel: None,
@@ -574,6 +547,14 @@ pub(crate) struct DisplayServerRuntime {
     modal_proof: crate::modal_gate::ModalProof,
     /// The desktop surface's (the shell's) modal flag — it gates no sibling, it records the edge.
     desktop_modal: bool,
+    /// TASK-0066 tiling settings (`ui.tile.*`): edge tiling, the tile margin (px), chords.
+    tile_edges: bool,
+    tile_margin: u32,
+    tile_chords: bool,
+    /// `SELFTEST: ui v7 tile ok` said once: a tile followed by a Return on this boot.
+    tile_proof_said: bool,
+    /// The tile-preview zone last pushed to the desktop surface (0 = none) — TASK-0066.
+    tile_preview_sent: u8,
     /// Cached IME-authority route (lazy; fire-and-forget focus relays).
     #[cfg(nexus_env = "os")]
     imed_client: Option<nexus_ipc::KernelClient>,
@@ -900,6 +881,11 @@ impl DisplayServerRuntime {
             imed_surface_focus: None,
             modal_proof: crate::modal_gate::ModalProof::default(),
             desktop_modal: false,
+            tile_edges: true,
+            tile_margin: 0,
+            tile_chords: true,
+            tile_proof_said: false,
+            tile_preview_sent: 0,
             region: region::RegionState::new(),
             #[cfg(nexus_env = "os")]
             imed_client: None,

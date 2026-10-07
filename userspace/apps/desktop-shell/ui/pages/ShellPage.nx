@@ -12,8 +12,9 @@
 // Thin composition only — the pieces live in `ui/components/`:
 // topbar/TopBar (36px bar + pills + island), workspace/WorkspaceGrid (the
 // 6-column §3.2 icon field), panels/PanelHost (the six drop-downs),
-// launcher/LauncherHost (fullscreen launcher overlay), and the dock family
-// per width class (dock/DockWide · DockRegular · DockCompact — §8).
+// launcher/LauncherHost (fullscreen launcher overlay), overlays/TilePreview
+// (the tiling drop hint windowd pushes, TASK-0066), and the dock family per
+// width class (dock/DockWide · DockRegular · DockCompact — §8).
 
 // The shell is the desktop: chromeless, full-screen, desktop z-band, on a
 // transparent base over the wallpaper plane (no page-wide `.bg()`).
@@ -28,6 +29,7 @@ Page ShellPage {
         TopBar { }
         Stack {
             WorkspaceGrid { }
+            TilePreview { }
             PanelHost { }
             LauncherHost { }
         }

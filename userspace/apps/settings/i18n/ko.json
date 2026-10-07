@@ -28,6 +28,14 @@
   "lang.ko": "한국어",
   "lang.zh": "中文",
   "per.appearance": "화면 모드",
+  "per.chordsNote": "Super+Ctrl+←/→ 절반 · Super+Ctrl+Shift+←/→ 및 ↑/↓ 사분면 · Super+Ctrl+F 채우기 · Super+Ctrl+R 되돌리기",
+  "per.gWindows": "윈도우",
+  "per.tileChords": "타일 배치 키보드 단축키",
+  "per.tileEdges": "윈도우를 화면 가장자리로 드래그하여 타일 배치",
+  "per.tileMargin": "타일 배치된 윈도우에 여백 추가",
+  "per.tileMarginV0": "없음",
+  "per.tileMarginV16": "크게",
+  "per.tileMarginV8": "작게",
   "sec.accounts": "계정",
   "sec.accounts.d": "관리",
   "sec.accounts.n": "관리",
@@ -109,6 +117,7 @@
   "win.jump": "섹션",
   "win.minimize": "최소화",
   "win.mode": "창 모드",
+  "win.moveDevice": "다른 기기로 이동",
   "win.overview": "개요",
   "win.split": "분할"
 }

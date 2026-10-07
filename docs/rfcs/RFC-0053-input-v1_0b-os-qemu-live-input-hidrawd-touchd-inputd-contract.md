@@ -273,6 +273,18 @@ Perf boundary honesty:
 - 0253 proves bounded/measurable live-input behavior only,
 - perf-budget closure is explicit follow-up (`TASK-0056C`).
 
+## Amendment 2026-10-06 (TASK-0066, ADR-0069): the `wm_chord` fact
+
+`VisibleState` (the inputd → windowd state push, `input-live-protocol`) gains one trailing
+byte, `wm_chord` (`STATE_LEN` 62 → 63, append-only, both ends in the one crate): a window
+TILING chord inputd recognized on a key press — Super+Ctrl + ←/→ (halves), ↑/F (Fill), ↓/R
+(Return), +Shift ←/→ (top quarters), +Alt ←/→ (bottom quarters) — as windowd's
+`zones::CODE_*`, 0 = none. It is a one-shot fact: inputd sets it for exactly one push (an
+immediate push, like a button edge) and clears it on delivery; windowd applies it to the
+focused app window and never forwards it; the chord's key is NOT a keyboard dispatch, so imed
+and the focused app never see it. inputd now tracks Super (GUI) and Left Alt in its modifier
+state for this; `is_modifier` already covered 0xe0..=0xe7.
+
 ## Alternatives considered
 
 - Build live-input behavior directly inside `windowd` (rejected: authority blur and maintenance drift).
