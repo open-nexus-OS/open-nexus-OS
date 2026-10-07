@@ -155,6 +155,11 @@ pub(crate) struct Endpoints {
     /// ingressd server response endpoint (nominal: the gateway replies via
     /// CAP_MOVE; kept so the pair shape matches every other declared server).
     pub ingress_rsp: Option<u32>,
+    /// clipboardd server request endpoint (TASK-0067): pre-minted so windowd's focus leg,
+    /// execd's `svc.clipboard` grants and the harness clone the pair clipboardd serves.
+    pub clip_req: Option<u32>,
+    /// clipboardd server response endpoint (nominal: replies ride the CAP_MOVE cap).
+    pub clip_rsp: Option<u32>,
 }
 
 impl Endpoints {
@@ -210,6 +215,8 @@ impl Endpoints {
             ServiceId::Pinched => self.pinch_req.zip(self.pinch_rsp),
             // Inbound gateway (RFC-0092): pre-minted for the selftest route.
             ServiceId::Ingressd => self.ingress_req.zip(self.ingress_rsp),
+            // Clipboard authority (TASK-0067): windowd, execd and the harness hold legs.
+            ServiceId::Clipboardd => self.clip_req.zip(self.clip_rsp),
             _ => None,
         }
     }
@@ -261,6 +268,26 @@ pub(crate) fn close_wired_eps(eps: &Endpoints) {
             let _ = nexus_abi::cap_close(cap);
         }
     }
+}
+
+/// Pre-mints a declared server's (request, response) pair inside the service's own process,
+/// so every client leg granted before the service runs targets the endpoints it serves (a
+/// fresh per-arm pair would orphan them). `(None, None)` when the image does not carry the
+/// service. One body for sessiond, abilitymgr, settingsd, ingressd and clipboardd — the
+/// orchestrator used to spell it out four times (TASK-0067, module-size ratchet).
+pub(crate) fn mint_server_pair(
+    ctrl_channels: &[crate::bootstrap::CtrlChannel],
+    name: &str,
+) -> crate::os_payload::Result<(Option<u32>, Option<u32>)> {
+    use crate::os_payload::{InitError, ENDPOINT_FACTORY_CAP_SLOT};
+    let Some(pid) = ctrl_channels.iter().find(|c| c.svc_name == name).map(|c| c.pid) else {
+        return Ok((None, None));
+    };
+    let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+        .map_err(InitError::Abi)?;
+    let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
+        .map_err(InitError::Abi)?;
+    Ok((Some(req), Some(rsp)))
 }
 
 /// Compute broker (SMP track Phase D): pre-mint pinched's server pair so the

@@ -40,6 +40,14 @@ pub const IPC_SHORT_MAX: usize = 32;
 /// MIRROR: see [`IPC_SHORT_MAX`].
 pub const IPC_PAYLOAD_MAX: usize = 8 * 1024;
 
+/// Most endpoint members one waitset holds ([`waitset_add`] past it fails with
+/// `NoSpace`). init's responder needs one member per control channel plus its respawn timer
+/// — the bound nexus-init's host test checks the service set against.
+///
+/// MIRROR: the kernel's `MAX_WAITSET_MEMBERS` in `source/kernel/neuron/src/waitset.rs`;
+/// `scripts/check-ipc-bounds.sh` fails the build if the two ever differ.
+pub const WAITSET_MEMBERS_MAX: usize = 64;
+
 /// Errors surfaced by IPC syscalls.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IpcError {

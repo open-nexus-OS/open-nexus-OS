@@ -15,6 +15,28 @@ pub enum KeyAction {
     Backspace,
     Tab,
     ImeSwitch,
+    /// A text-field editing command (TASK-0067B): the navigation keys (Shift selects) and
+    /// the Ctrl shortcuts by the layout's letter. Composition never consumes it — imed
+    /// passes it to the focused field.
+    Edit(EditKey),
+}
+
+/// The editing commands a keyboard sends a focused text field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditKey {
+    Left,
+    Right,
+    Home,
+    End,
+    SelectLeft,
+    SelectRight,
+    SelectHome,
+    SelectEnd,
+    Delete,
+    SelectAll,
+    Copy,
+    Cut,
+    Paste,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

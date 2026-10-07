@@ -1,0 +1,83 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The search's result panel (TASK-0067B), one panel-glass surface under the
+// field. Clipboard mode shows the history from clipboardd as CARDS, newest
+// first (a press = copy-back: the item becomes the newest again); every other
+// state shows the apps the registry matched as tiles (a press launches the
+// app and closes the search). Both lists were filtered AT the service.
+
+Component SearchResults {
+    Panel {
+        if $state.searchMode == "clipboard" {
+            Stack {
+                Text(@t("search.clipboard")).textSize(sm).fontWeight(semibold).fg(onGlass)
+                Spacer
+                if $state.clipCopied {
+                    Stack {
+                        Icon { symbol: "checkmark", size: 12 }
+                            .fg(accent)
+                        Text(@t("search.copied")).textSize(xs).fg(onGlassMuted)
+                    }
+                    .direction(row)
+                    .align(center)
+                    .gap(1)
+                } else {
+                    Stack { }
+                }
+            }
+            .direction(row)
+            .align(center)
+            if $state.clipsDenied {
+                Text(@t("search.clipDenied")).textSize(sm).fg(onGlassMuted)
+            } else {
+                if len($state.clips) == 0 {
+                    if $state.searchQuery != "" {
+                        Text(@t("search.clipNoMatch")).textSize(sm).fg(onGlassMuted)
+                    } else {
+                        Text(@t("search.clipEmpty")).textSize(sm).fg(onGlassMuted)
+                    }
+                } else {
+                    List($state.clips) { clip in
+                        Stack {
+                            Text(clip.text).textSize(sm).fg(onSurface)
+                        }
+                        .key(clip.seq)
+                        .grow(1)
+                        .height(72)
+                        .padding(2)
+                        .overflow(hidden)
+                        .material(card)
+                        .rounded(lg)
+                        .label(@t("search.copyBack"))
+                        on Tap -> dispatch(ClipRestore(clip.seq))
+                    }
+                    .columns(3)
+                    .rowGap(2)
+                    .gap(2)
+                }
+            }
+        } else {
+            Text(@t("search.apps")).textSize(sm).fontWeight(semibold).fg(onGlass)
+            if len($state.searchApps) == 0 {
+                Text(@t("search.noApps")).textSize(sm).fg(onGlassMuted)
+            } else {
+                List($state.searchApps) { app in
+                    Stack {
+                        AppTile { label: app.label, icon: app.icon, iconTop: app.iconTop, iconBottom: app.iconBottom, iconArt: app.iconArt }
+                    }
+                    .key(app.id)
+                    .align(center)
+                    on Tap -> dispatch(SearchLaunch(app.id))
+                }
+                .columns(6)
+                .rowGap(3)
+                .gap(2)
+            }
+        }
+    }
+    .material(panel)
+    .rounded(xl)
+    .gap(2)
+    .padding(3)
+}

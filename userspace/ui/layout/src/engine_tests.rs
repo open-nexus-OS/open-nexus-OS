@@ -188,6 +188,42 @@ mod tests {
         assert_eq!(r.boxes[1].rect.y, px(8));
         assert_eq!(r.boxes[4].rect.y, px(32));
     }
+    /// TASK-0067B: a cell that declares `.grow(1)` fills its track (cards in a grid); a
+    /// cell without it keeps its content width — existing grids are unchanged.
+    #[test]
+    fn grid_grow_cell_fills_its_track() {
+        let cell = |grow: u32| {
+            let LayoutNode::Stack(mut stack, vs, kids) = s_col(vec![txt("x")]) else {
+                unreachable!("s_col builds a stack")
+            };
+            stack.item.flex_grow = grow;
+            LayoutNode::Stack(stack, vs, kids)
+        };
+        let g = LayoutNode::Grid(
+            Grid {
+                id: None,
+                columns: vec![Fraction(1), Fraction(1)],
+                gap: px(8),
+                row_gap: None,
+                padding: EdgeInsets::zero(),
+                overflow: nexus_layout_types::Overflow::Visible,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                item: FlexItem::default(),
+                text_fit: None,
+            },
+            VisualStyle::default(),
+            vec![cell(1), cell(0)],
+        );
+        let r =
+            LayoutEngine::new().layout(&g, px(408), &MockMeasure { char_width: px(10) }).unwrap();
+        // Track width = (408 - 8) / 2 = 200. Box 1 = the growing cell, box 3 = the other.
+        assert_eq!(r.boxes[1].rect.width, px(200), "the grow cell fills its track");
+        assert_eq!(r.boxes[3].rect.x, px(208));
+        assert_eq!(r.boxes[3].rect.width, px(26), "content width: 10 + 2x8 padding");
+    }
     #[test]
     fn grid_div0() {
         let g = LayoutNode::Grid(

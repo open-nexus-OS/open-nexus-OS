@@ -75,6 +75,9 @@ socd = ["device.mmio.syscon", "ipc.core", "policy.delegate"]
 "windowd" = ["ipc.core", "bundle.query", "session.query", "settings.query"]
 # sessiond answers session queries only; it calls nobody.
 sessiond = ["ipc.core"]
+# TASK-0067 (RFC-0094): the clipboard authority answers only; identity = the kernel
+# sender id, the focus truth arrives as windowd's push. It calls nobody.
+clipboardd = ["ipc.core"]
 # TASK-0072 Phase 8: settingsd persists the typed prefs registry via statefsd
 # (state:/prefs) — needs ipc.core to route + statefs read/write to load at boot
 # and store on change.

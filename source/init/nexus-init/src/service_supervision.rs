@@ -113,6 +113,9 @@ pub const SUPERVISION: &[(ServiceId, Criticality, RestartPolicy)] = &[
     (ServiceId::Xhcid, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Touchd, Criticality::Standard, RestartPolicy::OnFailure),
     (ServiceId::Pinched, Criticality::Standard, RestartPolicy::OnFailure),
+    // TASK-0067: the clipboard authority — ephemeral by contract (nothing persists), so a
+    // restart loses the history and windowd's next focus push re-arms the gate.
+    (ServiceId::Clipboardd, Criticality::Standard, RestartPolicy::OnFailure),
 ];
 
 /// Supervision entry for a service, if it is a supervised boot service.
@@ -143,6 +146,22 @@ mod tests {
                 "supervision coverage wrong for {id:?}"
             );
         }
+    }
+
+    /// TASK-0067: init's responder waits on ONE waitset — a member per control channel plus
+    /// its respawn timer. The kernel refuses members past `nexus_abi::WAITSET_MEMBERS_MAX`
+    /// (mirrored, `check-ipc-bounds.sh`); at 33 services the old bound of 32 dropped the
+    /// timer silently and a crashed service was never restarted. Every topology service, the
+    /// timer and headroom for init's non-topology children (test payloads) must fit.
+    #[test]
+    fn the_responder_waitset_holds_every_service_and_the_timer() {
+        const NON_TOPOLOGY_CHILDREN: usize = 8;
+        let needed = ServiceId::ALL.len() + 1 + NON_TOPOLOGY_CHILDREN;
+        assert!(
+            needed <= nexus_abi::WAITSET_MEMBERS_MAX,
+            "{needed} waitset members needed, the kernel allows {}",
+            nexus_abi::WAITSET_MEMBERS_MAX
+        );
     }
 
     /// RFC-0087 §2: the critical-boot tier restarts unconditionally, and a

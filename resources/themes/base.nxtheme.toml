@@ -406,6 +406,11 @@ path = "resources/icons/lucide/icons"
 "key" = "key-round"
 "cpu" = "cpu"
 "plus.magnifyingglass" = "zoom-in"
+# Clipboard surfaces (TASK-0067B): the search's Clipboard button + the keyboard
+# toolbar's clipboard, emoji and keyboard-return entries.
+"doc.on.clipboard" = "clipboard"
+"face.smiling" = "smile"
+"app.window" = "app-window"
 # Status panels + topbar (design_handoff_panels). The Control Center, WiFi,
 # Sound and Battery drop-downs need the muted/level variants of glyphs already
 # here, the three energy-profile marks, and the topbar's mail/chat pair.

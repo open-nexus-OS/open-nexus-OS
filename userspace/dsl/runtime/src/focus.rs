@@ -19,13 +19,29 @@ use nexus_theme_tokens::Tokens;
 
 /// Snapshot of the focused text field for the host (RFC-0075): the box id
 /// resolves the caret-anchor rect in the current layout; `secure` fields get
-/// no IME preview/candidates/learning downstream.
+/// no IME preview/candidates/learning downstream. The caret and the selection
+/// (TASK-0067B) are CHAR indices into the field's value — the host paints them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextFocusSnapshot {
     /// Pre-order box id of the field's handler node (`LayoutBox::node_id`).
     pub box_id: usize,
     /// Password field (from the widget's `secure` prop).
     pub secure: bool,
+    /// The caret: before char `caret` of the value.
+    pub caret: usize,
+    /// The selected char range `[start, end)`, if any.
+    pub selection: Option<(usize, usize)>,
+}
+
+/// What an editing command did (TASK-0067B).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditResult {
+    /// Nothing (no focus, or the command changed nothing).
+    None,
+    /// Only the caret or the selection moved — repaint the field, no re-emit.
+    Caret,
+    /// The value changed — the re-emit's damage.
+    Value(Damage),
 }
 
 /// The focused field's binding target (survives re-emits by identity, not id).
@@ -37,6 +53,8 @@ pub(crate) struct FocusedText {
     pub(crate) path: Vec<u32>,
     pub(crate) box_id: usize,
     pub(crate) secure: bool,
+    /// Caret + selection (TASK-0067B), char indices into the value.
+    pub(crate) edit: nexus_textedit::Edit,
     /// The enclosing `on Change -> dispatch(E)` handler, resolved ONCE per
     /// focus. Typing writes the binding; without this it did nothing else, so
     /// `on Change` was dead on every keystroke in every app — a store field
@@ -60,8 +78,10 @@ const TEXT_VALUE_MAX_CHARS: usize = 256;
 impl View<'_> {
     /// Tap-to-focus (RFC-0075): focuses the innermost Change-bound text field
     /// under (x, y) and returns its snapshot; a tap that hits no field CLEARS
-    /// the focus and returns `None`. The host announces every transition
-    /// upward (`OP_SURFACE_TEXT_FOCUS`) — widget focus is app authority.
+    /// the focus and returns `None` — unless the focused field is an
+    /// `.autofocus(true)` field still on screen, which keeps the keyboard (see
+    /// [`Self::autofocus_holds`]). The host announces every transition upward
+    /// (`OP_SURFACE_TEXT_FOCUS`) — widget focus is app authority.
     #[must_use]
     pub fn focus_text_at(
         &mut self,
@@ -89,26 +109,26 @@ impl View<'_> {
                 let HandlerAction::Bind { store, path, value: BindValue::Text } =
                     entry.action.clone()
                 else {
-                    self.focused_text = None;
-                    return None;
+                    return self.keep_or_clear_focus();
                 };
                 let secure = subtree_is_secure(&self.scene, box_id);
                 let change_dispatch =
                     trigger_sym.and_then(|sym| self.enclosing_change_dispatch(sym, &node_path));
+                // A tap focuses with the caret at the end (pointer placement is TASK-0095's).
+                let len = self.bound_text(store, entry.instance, &path).chars().count();
+                let edit = nexus_textedit::Edit::at_end(len);
                 self.focused_text = Some(FocusedText {
                     store,
                     instance: entry.instance,
                     path,
                     box_id,
                     secure,
+                    edit,
                     change_dispatch,
                 });
-                Some(TextFocusSnapshot { box_id, secure })
+                Some(TextFocusSnapshot { box_id, secure, caret: edit.caret, selection: None })
             }
-            None => {
-                self.focused_text = None;
-                None
-            }
+            None => self.keep_or_clear_focus(),
         }
     }
 
@@ -147,10 +167,64 @@ impl View<'_> {
         best.map(|(_, d)| d)
     }
 
+    /// A tap that hit no text field: the focus stays with a holding autofocus field and
+    /// is cleared otherwise.
+    fn keep_or_clear_focus(&mut self) -> Option<TextFocusSnapshot> {
+        if self.autofocus_holds() {
+            return self.text_focus();
+        }
+        self.focused_text = None;
+        None
+    }
+
+    /// `.autofocus(true)` holds the keyboard while its field is reachable: a press on a
+    /// control beside it (the search's category buttons) leaves the focus where it is.
+    /// Clearing it would hand it back one present later through [`Self::autofocus_box`] —
+    /// and a key typed in that gap would land nowhere (TASK-0067B board round). A press on
+    /// another field still moves the focus; a press that closes the layer drops the field,
+    /// and revalidation clears the focus with it.
+    fn autofocus_holds(&self) -> bool {
+        let Some(focused) = self.focused_text.as_ref() else {
+            return false;
+        };
+        let confine = self.modal_confine();
+        self.handlers.iter().any(|(box_id, entry)| {
+            *box_id == focused.box_id
+                && entry.autofocus
+                && crate::overlay::reachable(&entry.path, confine)
+        })
+    }
+
+    /// The text field that should take focus now (`.autofocus(true)`, TASK-0067B): the
+    /// first autofocus text-field bind reachable under the topmost modal, while NO field
+    /// holds focus. Returns its pre-order box id; the host focuses it through the tap path
+    /// (`focus_text_at` at the box centre) and announces the transition like a tap, so
+    /// one code path owns focus whichever way it arrives.
+    #[must_use]
+    pub fn autofocus_box(&self) -> Option<usize> {
+        if self.focused_text.is_some() {
+            return None;
+        }
+        let confine = self.modal_confine();
+        self.handlers
+            .iter()
+            .find(|(_, entry)| {
+                entry.autofocus
+                    && matches!(entry.action, HandlerAction::Bind { value: BindValue::Text, .. })
+                    && crate::overlay::reachable(&entry.path, confine)
+            })
+            .map(|(box_id, _)| *box_id)
+    }
+
     /// The current text focus, if any.
     #[must_use]
     pub fn text_focus(&self) -> Option<TextFocusSnapshot> {
-        self.focused_text.as_ref().map(|f| TextFocusSnapshot { box_id: f.box_id, secure: f.secure })
+        self.focused_text.as_ref().map(|f| TextFocusSnapshot {
+            box_id: f.box_id,
+            secure: f.secure,
+            caret: f.edit.caret,
+            selection: f.edit.selection(),
+        })
     }
 
     /// Clears the text focus (surface focus loss, Escape) — the host
@@ -175,18 +249,12 @@ impl View<'_> {
         let Some(focused) = self.focused_text.clone() else {
             return Ok(None);
         };
-        let mut value =
-            match self.runtime.read_binding(focused.store, focused.instance, &focused.path) {
-                Some(Value::Str(s)) => s.clone(),
-                _ => alloc::string::String::new(),
-            };
-        for ch in text.chars() {
-            if value.chars().count() >= TEXT_VALUE_MAX_CHARS {
-                break;
-            }
-            value.push(ch);
-        }
-        self.write_focused(tokens, device, locale, host, &focused, value).map(Some)
+        let value = self.bound_text(focused.store, focused.instance, &focused.path);
+        let applied = nexus_textedit::insert(&value, focused.edit, text, TEXT_VALUE_MAX_CHARS);
+        self.commit_edit(tokens, device, locale, host, &focused, applied).map(|r| match r {
+            EditResult::Value(d) => Some(d),
+            _ => None,
+        })
     }
 
     /// Deletes the last character of the FOCUSED field. No-op without focus
@@ -201,16 +269,91 @@ impl View<'_> {
         locale: &dyn LocaleSource,
         host: &mut dyn EffectHost,
     ) -> Result<Option<Damage>, RtError> {
+        match self.edit_text(tokens, device, locale, host, nexus_textedit::Command::Backspace)? {
+            EditResult::Value(d) => Ok(Some(d)),
+            _ => Ok(None),
+        }
+    }
+
+    /// One editing command on the FOCUSED field (TASK-0067B): caret moves, Shift-selection,
+    /// select-all, backspace/delete at the caret or over the selection.
+    ///
+    /// # Errors
+    /// Runtime errors from the write/emission.
+    pub fn edit_text(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        cmd: nexus_textedit::Command,
+    ) -> Result<EditResult, RtError> {
         let Some(focused) = self.focused_text.clone() else {
-            return Ok(None);
+            return Ok(EditResult::None);
         };
-        let mut value =
-            match self.runtime.read_binding(focused.store, focused.instance, &focused.path) {
-                Some(Value::Str(s)) if !s.is_empty() => s.clone(),
-                _ => return Ok(None),
-            };
-        value.pop();
-        self.write_focused(tokens, device, locale, host, &focused, value).map(Some)
+        let value = self.bound_text(focused.store, focused.instance, &focused.path);
+        let applied = nexus_textedit::apply(&value, focused.edit, cmd);
+        self.commit_edit(tokens, device, locale, host, &focused, applied)
+    }
+
+    /// The focused field's selected text — `None` without a selection, and ALWAYS `None` for
+    /// a password field (nothing is ever copied out of one).
+    #[must_use]
+    pub fn selected_text(&self) -> Option<alloc::string::String> {
+        let focused = self.focused_text.as_ref().filter(|f| !f.secure)?;
+        let value = self.bound_text(focused.store, focused.instance, &focused.path);
+        nexus_textedit::selected_text(&value, focused.edit)
+    }
+
+    /// Removes the focused field's selection (the cut) — never in a password field.
+    ///
+    /// # Errors
+    /// Runtime errors from the write/emission.
+    pub fn cut_selection(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+    ) -> Result<EditResult, RtError> {
+        let Some(focused) = self.focused_text.clone().filter(|f| !f.secure) else {
+            return Ok(EditResult::None);
+        };
+        let value = self.bound_text(focused.store, focused.instance, &focused.path);
+        let applied = nexus_textedit::delete_selection(&value, focused.edit);
+        self.commit_edit(tokens, device, locale, host, &focused, applied)
+    }
+
+    /// The bound value of a text field ("" when unset or not a string).
+    fn bound_text(&self, store: u32, instance: u64, path: &[u32]) -> alloc::string::String {
+        match self.runtime.read_binding(store, instance, path) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => alloc::string::String::new(),
+        }
+    }
+
+    /// Applies an engine result: writes a changed value (with the field's `on Change`), then
+    /// records the caret — AFTER the write, whose re-emit re-anchors the focus.
+    fn commit_edit(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        focused: &FocusedText,
+        applied: nexus_textedit::Applied,
+    ) -> Result<EditResult, RtError> {
+        let result = match applied.value {
+            Some(value) => {
+                EditResult::Value(self.write_focused(tokens, device, locale, host, focused, value)?)
+            }
+            None if applied.edit != focused.edit => EditResult::Caret,
+            None => EditResult::None,
+        };
+        if let Some(f) = self.focused_text.as_mut() {
+            f.edit = applied.edit;
+        }
+        Ok(result)
     }
 
     /// Writes the focused field AND runs its enclosing `on Change ->
@@ -273,12 +416,15 @@ impl View<'_> {
             (entry.trigger == sym && *store == focused.store && *path == focused.path)
                 .then(|| (*box_id, entry.path.clone()))
         });
+        // The caret survives the re-emit, clamped: a reducer may have shortened the value.
+        let len = self.bound_text(focused.store, focused.instance, &focused.path).chars().count();
         self.focused_text = found.map(|(box_id, node_path)| FocusedText {
             store: focused.store,
             instance: focused.instance,
             path: focused.path.clone(),
             box_id,
             secure: subtree_is_secure(&self.scene, box_id),
+            edit: focused.edit.clamped(len),
             change_dispatch: self.enclosing_change_dispatch(sym, &node_path),
         });
     }

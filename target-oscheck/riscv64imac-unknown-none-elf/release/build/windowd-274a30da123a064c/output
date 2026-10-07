@@ -1,0 +1,4 @@
+cargo:rerun-if-changed=../../../resources/fonts/inter/docs/font-files/InterVariable.ttf
+cargo:rerun-if-changed=../../../resources/cursors/mocu/src/svg/default.svg
+cargo:rerun-if-changed=../../../resources/themes
+cargo:rerun-if-changed=src/proof_panel_spec.rs

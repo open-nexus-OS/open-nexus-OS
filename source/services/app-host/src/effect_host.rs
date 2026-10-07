@@ -81,13 +81,13 @@ pub(crate) struct AppEffectHost {
     /// `iconArt` — the app id again IFF `nexus-app-icons` baked real artwork
     /// for it (bundle `assets/icon.svg`); empty = gradient+glyph fallback.
     pub(crate) icon_art_sym: Option<u32>,
-    seq_sym: Option<u32>,
+    pub(crate) seq_sym: Option<u32>,
     /// The ReadDir page the last `svc.files.list` read, kept for the
     /// `svc.files.count` that every `FilesLoaded` dispatches one step later.
     /// Populated ONLY by `files_list`, dropped by every write — so it can
     /// never serve a listing, only the count that belongs to one.
     pub(crate) readdir_cache: Option<(alloc::string::String, nexus_vfs_types::ReadDirPage)>,
-    text_sym: Option<u32>,
+    pub(crate) text_sym: Option<u32>,
     /// `svc.files` FileEntry record fields (RFC-0073): `name`/`kind`/`size`
     /// (+ `sizeText`, the human-formatted size for direct UI binding). Only
     /// pages that read a field have its symbol interned.
@@ -182,7 +182,7 @@ impl AppEffectHost {
     /// `svc.bundlemgr.enumerate(query)` → `List<AppEntry{ id, label }>` from
     /// the installed-bundle registry. Records are FIELD-SORTED by symbol id
     /// (the `Value::Record` contract).
-    fn enumerate(&self) -> Result<Value, u32> {
+    fn enumerate(&self, query: &str) -> Result<Value, u32> {
         let (Some(id_sym), Some(label_sym)) = (self.id_sym, self.label_sym) else {
             raw_marker("apphost: dsl svc bundlemgr.enumerate FAIL (no id/label symbol)");
             return Err(ERR_SVC_SHAPE);
@@ -201,6 +201,7 @@ impl AppEffectHost {
         };
         let rows: Vec<Value> = entries
             .into_iter()
+            .filter(|(id, label, _)| crate::file_filter::app_matches(id, label, query))
             .map(|(id, label, icon)| {
                 // Baked-artwork check BEFORE `id` moves into the record.
                 let icon_art = if nexus_app_icons::has_artwork(&id) {
@@ -598,7 +599,9 @@ impl EffectHost for AppEffectHost {
         // knob no longer means anything here; TASK-0077B retires it from the language
         // (NX0409 becomes the error that the argument is not accepted).
         match (service, method) {
-            ("bundlemgr", "enumerate") => self.enumerate(),
+            ("bundlemgr", "enumerate") => {
+                self.enumerate(args.first().and_then(str_of).unwrap_or(""))
+            }
             ("settings", "get") => {
                 let key = args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?;
                 self.settings_get(key)
@@ -619,6 +622,9 @@ impl EffectHost for AppEffectHost {
             }
             ("ime", "layout") => {
                 self.ime_layout(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
+            }
+            ("ime", "insert") => {
+                self.ime_insert(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?)
             }
             ("ime", "cycle") => self.ime_cycle(args.first().and_then(str_of).ok_or(ERR_SVC_SHAPE)?),
             ("ime", "rows") => {
@@ -702,19 +708,20 @@ impl EffectHost for AppEffectHost {
             }
             ("updates", "switch") => self.updates_switch(),
             ("updates", "rollback") => self.updates_rollback(),
+            ("clipboard", method) => self.clipboard_call(method, args), // effect_clipboard.rs
             _ => Err(ERR_SVC_UNKNOWN),
         }
     }
 }
 
-fn int_of(v: &Value) -> Option<i64> {
+pub(crate) fn int_of(v: &Value) -> Option<i64> {
     match v {
         Value::Int(n) => Some(*n),
         _ => None,
     }
 }
 
-fn str_of(v: &Value) -> Option<&str> {
+pub(crate) fn str_of(v: &Value) -> Option<&str> {
     match v {
         Value::Str(s) => Some(s.as_str()),
         _ => None,

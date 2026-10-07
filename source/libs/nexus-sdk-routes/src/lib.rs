@@ -111,11 +111,24 @@ pub const SERVICE_ROUTES: &[ServiceRoute] = &[
     // updated on the policyd `updates.manage` grant (deny-by-default;
     // holding this route is deliberately NOT mutation authority). UPDATES
     // is ceiling-gated to the `settings` bundle type at pack time.
+    // Child slot 22, not 19: 19 is the shared glyph atlas (`app_child::ATLAS_VMO`) and
+    // 20/21 the timer pair — the grant into 19 failed on every boot
+    // (`execd: FAIL app route grant svc=updates`, found 2026-10-07 by TASK-0067);
+    // `test_reject_child_slot_collision` now checks every fixed child slot.
     ServiceRoute {
         svc: "updates",
         route: "updated",
         permission: "nexus.permission.UPDATES",
-        child_slot: 19,
+        child_slot: 22,
+    },
+    // Clipboard (TASK-0067, RFC-0094): text items in a bounded history. Holding the route
+    // is the WRITE capability; reads are gated INSIDE clipboardd by the focus truth windowd
+    // pushes (the focused window pastes; the shell and the keyboard browse the history).
+    ServiceRoute {
+        svc: "clipboard",
+        route: "clipboardd",
+        permission: "nexus.permission.CLIPBOARD",
+        child_slot: 23,
     },
 ];
 
@@ -193,10 +206,24 @@ mod topology_agreement {
     }
 
     /// Child slots are a per-app space: fixed, unique, and never colliding with the
-    /// reserved windowd/payload/events slots or the shared reply inbox.
+    /// reserved windowd/payload/events/atlas/timer slots or the shared reply inbox —
+    /// EVERY fixed `app_child` slot, not only the reply pair (the updates route sat on the
+    /// atlas slot until 2026-10-07 because this list named two of them).
     #[test]
     fn test_reject_child_slot_collision() {
-        let reserved = [CHILD_REPLY_RECV_SLOT, CHILD_REPLY_SEND_SLOT];
+        use nexus_service_topology::slots::app_child;
+        let reserved = [
+            CHILD_REPLY_RECV_SLOT,
+            CHILD_REPLY_SEND_SLOT,
+            app_child::WINDOWD.send,
+            app_child::WINDOWD.recv,
+            app_child::PAYLOAD_VMO,
+            app_child::EVENTS_RECV,
+            app_child::EVENTS_SEND,
+            app_child::ATLAS_VMO,
+            app_child::TIMER_RECV,
+            app_child::TIMER_SEND,
+        ];
         let mut seen: alloc::vec::Vec<u32> = alloc::vec::Vec::new();
         for row in SERVICE_ROUTES {
             assert!(
@@ -207,8 +234,9 @@ mod topology_agreement {
             );
             assert!(
                 !reserved.contains(&row.child_slot),
-                "svc.{} collides with the reply inbox",
-                row.svc
+                "svc.{} collides with a fixed app-child slot ({})",
+                row.svc,
+                row.child_slot
             );
             assert!(!seen.contains(&row.child_slot), "child slot {} claimed twice", row.child_slot);
             seen.push(row.child_slot);

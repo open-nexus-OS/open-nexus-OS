@@ -113,6 +113,16 @@ impl Contract for WindowdContract {
         bus.emit_marker(id, "windowd: wm tile (zone=left-half id=app0)");
         bus.emit_marker(id, "windowd: wm return (id=app0)");
         bus.emit_marker(id, "SELFTEST: ui v7 tile ok");
+        // TASK-0067 / RFC-0094: windowd's focus truth reached clipboardd; in the shell's
+        // search a typed word was copied (Ctrl+C) and pasted (Ctrl+V), and a card was
+        // copied back. String-identical to clipboardd `answer.rs` and app-host
+        // `effect_clipboard.rs` / `probe/interaction/text_edit.rs`.
+        bus.emit_marker(id, "clipboardd: focus truth live");
+        bus.emit_marker(id, "apphost: text copy ok");
+        bus.emit_marker(id, "apphost: text paste ok");
+        bus.emit_marker(id, "apphost: dsl svc clipboard.restore ok (seq=7)");
+        bus.emit_marker(id, "clipboardd: restore ok (seq=7)");
+        bus.emit_marker(id, "SELFTEST: ui v7 clipboard ok");
 
         // 4. Phase 1-8: GPU-first display pipeline (reactive, no polling)
         if self.gpud_available {

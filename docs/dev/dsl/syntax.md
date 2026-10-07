@@ -247,6 +247,22 @@ state, the layer leaves with the next emit. A kinded overlay without `on Dismiss
 The shared library (`window-kit`) ships the design handoff's elements on this contract —
 `WinAlert`, `WinModal` (slots `body`/`footer`), `WinToast` — with a declared store contract.
 
+### Host triggers
+
+Most triggers come from a press on the node (`Tap`, `LongPress`, `Change`, …). Three are fired
+BY NAME by the host on whichever node declares them — the page reacts to something that
+happened outside its own input:
+
+| Trigger | Fired when |
+|---|---|
+| `WindowsChanged` | the compositor's window set moved (opened, closed, minimized, restored, focused) |
+| `Dismiss` | ESC, a backdrop press or a transient's timeout closes the topmost layer (above) |
+| `ClipboardChanged` | this app copied or cut text from one of its fields into the clipboard |
+
+```nx
+on ClipboardChanged -> dispatch(ClipsReload)   // the open history re-reads at once
+```
+
 
 Reduced-motion behavior is part of each token's contract. There are no CSS-style
 keyframes, no free-form animation variables, no magic one-off utilities.

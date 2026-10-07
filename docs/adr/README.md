@@ -17,7 +17,7 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0005: DSoftBus-lite Architecture](0005-dsoftbus-architecture.md) — Accepted
 - [ADR-0006: Device Identity Architecture](0006-device-identity-architecture.md) — Accepted
 - [ADR-0007: Executable Payloads Architecture](0007-executable-payloads-architecture.md) — Accepted
-- [ADR-0008: Clipboard Architecture](0008-clipboard-architecture.md) — Accepted
+- [ADR-0008: Clipboard Architecture](0008-clipboard-architecture.md) — Superseded by ADR-0070
 - [ADR-0009: Bundle Manager Architecture](0009-bundle-manager-architecture.md) — Accepted (updated 2026-01-22 for manifest.nxb unification)
 - [ADR-0010: Search Architecture](0010-search-architecture.md) — Accepted
 - [ADR-0011: Settings Architecture](0011-settings-architecture.md) — Accepted
@@ -79,3 +79,4 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0067: ONE block owner (`blkd`) whose backend the FDT selects — virtio-blk on QEMU, SDHCI on the board; the GPT plane above it never learns the difference](0067-one-block-owner-backend-selected-by-fdt.md) — Proposed
 - [ADR-0068: Modal semantics live in the DSL runtime on the app-owned `.overlay()`; windowd keeps ONE routing verb](0068-modal-semantics-in-the-dsl-runtime-windowd-keeps-one-routing-verb.md) — Accepted
 - [ADR-0069: Window tiling — geometry in windowd's WM, chords normalized by inputd, every UI element in the window kit](0069-tiling-chords-normalized-by-inputd-applied-by-windowd-ui-in-the-kit.md) — Accepted
+- [ADR-0070: The clipboard is ONE authority (`clipboardd`) whose reads windowd's focus truth gates; its UI lives in the shell search and the keyboard](0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md) — Accepted

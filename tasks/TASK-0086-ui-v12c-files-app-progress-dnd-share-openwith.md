@@ -22,10 +22,19 @@ links:
   - Document picker/open-with: tasks/TASK-0083-ui-v11c-document-picker-open-save-openwith.md
   - Scoped grants: tasks/TASK-0084-ui-v12a-scoped-uri-grants.md
   - FileOps/Trash: tasks/TASK-0085-ui-v12b-fileops-trash-services.md
-  - DnD controller: tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md
+  - Clipboard authority (transfer items for DnD): tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md, docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md
   - Share sheet: tasks/TASK-0068-ui-v7c-screenshot-screencap-share-sheet.md
   - Testing contract: scripts/qemu-test.sh
 ---
+
+## Drag and drop moved here (2026-10-07, operator decision with the TASK-0067 recut)
+
+The windowd half of drag and drop — hit-test/routing of enter/over/leave/drop, focus semantics
+during a drag (no input leak to non-targets), the source-owned drag image positioned by windowd
+and never drawn by it — and the one-shot transfer items in clipboardd are THIS task's, built
+with the first real source of a drag (Files → app, `text/uri-list` + grant tokens). Contract:
+RFC-0094 §Phases (Phase 4, append-only on the `'C','B'` wire); the windowd routing ops take the
+next free surface op numbers when this task seeds them (29 is TASK-0066's tile preview).
 
 ## Context
 

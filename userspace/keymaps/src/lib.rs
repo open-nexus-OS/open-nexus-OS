@@ -31,4 +31,4 @@ pub use error::KeymapError;
 pub use layout::{Keymap, LayoutId};
 pub use modifiers::Modifiers;
 pub use osk::{osk_rows, OskKey, OSK_ROWS};
-pub use output::{KeyAction, KeyOutput};
+pub use output::{EditKey, KeyAction, KeyOutput};

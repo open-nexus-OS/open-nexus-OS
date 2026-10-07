@@ -54,7 +54,7 @@ Rules:
 |---|---|---|
 | `.width(v)` / `.height(v)` | length token \| `full` \| `Int` px | fixed or full-bleed |
 | `.minWidth(v)` / `.maxWidth(v)` / `.minHeight(v)` / `.maxHeight(v)` | length token \| `Int` px | constraints |
-| `.grow(n)` / `.shrink(n)` | `Int` weight | flex participation |
+| `.grow(n)` / `.shrink(n)` | `Int` weight | flex participation; on a GRID cell (a `List` item of a `.columns(n)` grid), `.grow(1)` makes the cell fill its track instead of hugging its content (TASK-0067B — cards) |
 | `.basis(n)` | `Int` px | flex BASE SIZE on the parent's main axis, replacing the child's measured content size in the parent's distribution |
 | `.aspect(w, h)` | `Int, Int` | aspect ratio |
 
@@ -180,6 +180,7 @@ plus weight and color**, not from the token number you wrote.
 |---|---|---|
 | `.disabled(b)` | `Bool` | disables input + applies disabled styling |
 | `.focusable(b)` | `Bool` | keyboard focus participation (class: semantics) |
+| `.autofocus(b)` | `Bool` | on a text field (`TextField`/`SearchBar`): while it is on screen — inside the topmost modal, if one is open — and NO field holds text focus, the host gives it focus through the same path a tap takes (the keyboard goes to it without a click). It also HOLDS the keyboard: a press on a control beside it (a category button) leaves the focus in the field — a press on another text field still moves it. Use it where typing is the surface's purpose (the shell search). (class: semantics, TASK-0067B) |
 | `.hitSlop(n)` | spacing step | grows the INPUT rect outward by n steps; layout and pixels unchanged (class: layout) |
 
 ## Accessibility (class: semantics)

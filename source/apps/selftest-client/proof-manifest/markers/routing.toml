@@ -42,6 +42,14 @@ proves = "the jp engine composes through the REAL service path: OP_SET_LAYOUT jp
 phase = "routing"
 proves = "candidate machinery end-to-end in imed: pinyin nihao + space opens candidates, OP_CANDIDATE_SELECT(0) commits 你好 (RFC-0075 Phase 3; strip rendering is the interactive proof)"
 
+[marker."SELFTEST: ime insert ok"]
+phase = "routing"
+proves = "imed's osk endpoint commits a whole text as one OP_INSERT (the keyboard's clipboard card) and echoes exactly it, while the main endpoint refuses the op (TASK-0067B, RFC-0075 amendment)"
+
+[marker."SELFTEST: clipboard gate ok"]
+phase = "routing"
+proves = "clipboardd stores six items from a route holder under strictly increasing seq and refuses READ and LIST to a sender that is no focused window, shell or keyboard; a lying length is MALFORMED (TASK-0067, RFC-0094 — the items stay as the history's prefill)"
+
 [marker."SELFTEST: ime ranking ok"]
 phase = "routing"
 proves = "the deterministic ime-ranker runs in the OS runtime: one commit lifts a table-last candidate to the front, and that learned order survives an NDJSON export→import round trip (RFC-0075 Phase 4; the statefs-backed transport + live imed wiring are follow-up cuts)"

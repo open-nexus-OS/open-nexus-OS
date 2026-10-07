@@ -26,7 +26,7 @@
 //!
 //! INVARIANTS:
 //! - Bounded table: at most `MAX_WAITSETS` live waitsets; over-limit → `ResourceExhausted`.
-//! - Bounded members: at most `MAX_WAITSET_MEMBERS` (32) per waitset; over-limit → `ResourceExhausted`.
+//! - Bounded members: at most `MAX_WAITSET_MEMBERS` (64) per waitset; over-limit → `ResourceExhausted`.
 //! - Member set is deduplicated: adding an endpoint already present is a no-op (`Ok`).
 //! - Ownership: a waitset records its owner pid; the syscall layer rejects cross-owner use.
 //! - Cap lifecycle: closing a waitset cap frees its table entry (no dangling members).
@@ -45,10 +45,17 @@ use core::fmt;
 /// Maximum number of concurrent waitsets (matches the timer table bound).
 pub(crate) const MAX_WAITSETS: usize = 64;
 
-/// Maximum number of endpoint members per waitset (RFC-0033 hard bound). 32 covers init's
-/// full control-channel set (~23 services) so its routing responder can block reactively on
-/// all of them at once instead of busy-polling.
-pub(crate) const MAX_WAITSET_MEMBERS: usize = 32;
+/// Maximum number of endpoint members per waitset (RFC-0033 hard bound). It must cover
+/// init's full control-channel set PLUS its respawn timer, so the routing responder blocks
+/// reactively on all of them at once. 32 was sized for ~23 services; at 33 services the
+/// timer no longer fit, the add failed silently and a crashed service was never restarted
+/// (TASK-0067, measured on the smp1 lane) — 64 gives room, init now adds its timer first and
+/// says so loudly when a member does not fit. The wait path snapshots members into a stack
+/// buffer of this size (256 bytes).
+///
+/// MIRROR: `nexus_abi::WAITSET_MEMBERS_MAX`; `scripts/check-ipc-bounds.sh` fails the build if
+/// the two differ.
+pub(crate) const MAX_WAITSET_MEMBERS: usize = 64;
 
 /// Opaque kernel-local waitset identifier (type-safe currency for the table API).
 ///

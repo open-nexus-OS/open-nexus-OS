@@ -1,0 +1,106 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The shell search (TASK-0067B), shaped like the desktop reference's search
+// bar: one rounded field in the upper third of the screen — the greeter's
+// field recipe (panel glass, fully round, bare text field, deep shadow) with
+// a magnifier where the greeter has its avatar — and three round glass
+// buttons beside it: Apps, Files, Clipboard. Results open below the field
+// only once there is something to show (a query or a chosen category).
+//
+// A MODAL layer (ADR-0068): ESC and a press outside every panel close it
+// (`on Dismiss`), and windowd hands the shell every press while it is open
+// (a system modal captures input — `shell_band`). Each panel absorbs its own
+// presses (`SearchNoop`). The field holds the keyboard while the layer is
+// open (`.autofocus(true)`): no click is needed to type.
+//
+// Every visible piece is PANEL-level glass on purpose: the compositor draws
+// the desktop surface's panel glass ABOVE the app windows (the Control
+// Center does the same), so the search floats over whatever window is open.
+//
+// Files is inert until the file search exists — drawn dimmed; its press is
+// absorbed so it neither closes the search nor pretends to do something.
+
+Component SearchOverlay {
+    Stack {
+        Stack { }
+            .height(120)
+        Stack {
+            Stack {
+                Stack {
+                    Icon { symbol: "magnifyingglass", size: 17 }
+                        .fg(onGlassMuted)
+                    Stack {
+                        TextField {
+                            placeholder: @t("search.placeholder"),
+                            value: $state.searchQuery,
+                            variant: "bare",
+                        }
+                        .grow(1)
+                        .autofocus(true)
+                        .label(@t("search.placeholder"))
+                    }
+                    .direction(row)
+                    .grow(1)
+                    on Change -> dispatch(SearchTyped)
+                }
+                .direction(row)
+                .align(center)
+                .gap(2)
+                .height(44)
+                .paddingLeading(4)
+                .paddingTrailing(4)
+                .material(panel)
+                .rounded(full)
+                .shadow(xl)
+                .grow(1)
+                on Tap -> dispatch(SearchNoop)
+                Stack {
+                    SearchModeButton {
+                        icon: "square.grid",
+                        label: @t("search.apps"),
+                        selected: $state.searchMode == "apps",
+                        inert: false,
+                    }
+                }
+                on Tap -> dispatch(SearchMode("apps"))
+                Stack {
+                    SearchModeButton {
+                        icon: "doc",
+                        label: @t("search.files"),
+                        selected: false,
+                        inert: true,
+                    }
+                }
+                on Tap -> dispatch(SearchNoop)
+                Stack {
+                    SearchModeButton {
+                        icon: "doc.on.clipboard",
+                        label: @t("search.clipboard"),
+                        selected: $state.searchMode == "clipboard",
+                        inert: false,
+                    }
+                }
+                on Tap -> dispatch(SearchMode("clipboard"))
+            }
+            .direction(row)
+            .align(center)
+            .gap(2)
+            if $state.searchQuery != "" || $state.searchMode != "" {
+                Stack {
+                    SearchResults { }
+                }
+                on Tap -> dispatch(SearchNoop)
+            } else {
+                Stack { }
+            }
+        }
+        .width(680)
+        .gap(3)
+        Spacer
+    }
+    .overlay(modal)
+    .align(center)
+    on Dismiss -> dispatch(SearchClose)
+    on ClipboardChanged -> dispatch(ClipsReload)
+}

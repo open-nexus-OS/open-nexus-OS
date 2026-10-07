@@ -333,6 +333,25 @@ pub(crate) fn provision_execd_named_routes(
             }
         }
     }
+    // svc.clipboard.* (TASK-0067, RFC-0094): the pre-minted clipboardd request endpoint.
+    // Named route, replies ride the child's CAP_MOVE inbox; reads are gated INSIDE
+    // clipboardd by windowd's focus truth (the route itself is the write capability).
+    if let Some((clip_req, _)) = eps.server_pair(ServiceId::Clipboardd) {
+        if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Execd,
+            ServiceId::Clipboardd,
+            clip_req,
+        ) {
+            chan.set_send(ServiceId::Clipboardd, s);
+            chan.set_recv(ServiceId::Clipboardd, reply_recv_slot);
+            if iw(init_wire, init_fold, "init:execd") {
+                if crate::bootstrap::diag::raw_or_expanded("execd") {
+                    debug_write_bytes(b"init: execd route->clipboardd ok\n");
+                }
+            }
+        }
+    }
     // TASK-0049 reanimation: execd's statefsd route — (a) execd
     // clones this pair into demo.minidump children BEFORE resume
     // (grant_minidump_statefs_route, child slots 7/8) and (b)

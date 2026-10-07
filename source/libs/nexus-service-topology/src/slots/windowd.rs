@@ -27,6 +27,8 @@ pub const SETTINGSD: SlotPair = SlotPair::new(11, REPLY.recv);
 pub const ABILITYMGR: SlotPair = SlotPair::new(12, 13);
 /// Focus relay `OP_SET_FOCUS`.
 pub const IMED: SlotPair = SlotPair::new(14, REPLY.recv);
+/// Focus truth `OP_FOCUS` to the clipboard authority (RFC-0094; fire-and-forget).
+pub const CLIPBOARDD: SlotPair = SlotPair::new(15, REPLY.recv);
 /// Settings push channel (RFC-0083): RECV half, drained per frame.
 pub const WATCH_RECV: u32 = 0x40;
 /// Settings push channel: SEND half, cloned per `OP_WATCH`.

@@ -560,6 +560,10 @@ impl LiveRouteRuntime {
                 }
                 // Layout switching is inputd's own concern, never composition's.
                 KeyOutput::Action(KeyAction::ImeSwitch) => continue,
+                // TASK-0067B: text-field editing commands (navigation, Ctrl+A/C/X/V).
+                KeyOutput::Action(KeyAction::Edit(key)) => {
+                    (ime_wire::KEY_KIND_ACTION, 0, crate::edit_keys::action_code(*key))
+                }
             };
             frames[count] =
                 Some(ime_wire::encode_key(ime_wire::KEY_SOURCE_HW, kind, ch, action, 0));

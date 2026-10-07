@@ -55,6 +55,9 @@ pub struct HandlerEntry {
     /// stretches the knob along the travel axis instead of squeezing the
     /// whole track.
     pub press_offset: u32,
+    /// The node carries `.autofocus(true)` (TASK-0067B): a text-field bind that takes
+    /// focus while no field holds it — see `View::autofocus_box`.
+    pub autofocus: bool,
 }
 
 /// Pre-order box id (1-based, matches `LayoutBox::node_id`) for a path.
@@ -290,6 +293,7 @@ mod hit_slop_tests {
                 trigger: TAP,
                 action: HandlerAction::Dispatch { event: 0, case: 0, payload: alloc::vec![] },
                 press_offset: 0,
+                autofocus: false,
             },
         )
     }
@@ -394,6 +398,7 @@ mod multi_viewport_tests {
                 trigger: TAP,
                 action: HandlerAction::Dispatch { event: 0, case: 0, payload: alloc::vec![] },
                 press_offset: 0,
+                autofocus: false,
             },
         )
     }

@@ -3,7 +3,10 @@
 //
 // The on-screen keyboard surface (RFC-0075 Phase 8b): a chromeless OVERLAY
 // window docked by windowd to the bottom display edge. Top line = the
-// composition STRIP (preedit + up to 8 candidates; tap commits). The key
+// TOOLBAR while nothing composes (emoji · clipboard · voice · settings ·
+// more, TASK-0067B — the clipboard swaps the keys for CARDS of the history,
+// a tap inserts one) and the composition STRIP while the IME composes
+// (preedit + up to 8 candidates; tap commits). The key
 // rows are pure DATA (`svc.ime.rows` from the keymaps SSOT, reloaded on
 // `KeymapEvent::Changed`) — 180 languages are 180 data tables, never an
 // `if` tree here. The globe key cycles the SYSTEM layout (order = platform
@@ -18,135 +21,19 @@ Window {
 
 Page OskPage {
     Stack {
-        Stack {
-            if $state.preedit != "" {
-                Text($state.preedit).textSize(sm).fg(onSurface)
-            } else {
-                Stack { }
-            }
-            if $state.c1 != "" {
-                Stack {
-                    Chip { label: $state.c1, selected: false }
-                }
-                on Tap -> dispatch(Select(0))
-            } else {
-                Stack { }
-            }
-            if $state.c2 != "" {
-                Stack {
-                    Chip { label: $state.c2, selected: false }
-                }
-                on Tap -> dispatch(Select(1))
-            } else {
-                Stack { }
-            }
-            if $state.c3 != "" {
-                Stack {
-                    Chip { label: $state.c3, selected: false }
-                }
-                on Tap -> dispatch(Select(2))
-            } else {
-                Stack { }
-            }
-            if $state.c4 != "" {
-                Stack {
-                    Chip { label: $state.c4, selected: false }
-                }
-                on Tap -> dispatch(Select(3))
-            } else {
-                Stack { }
-            }
-            if $state.c5 != "" {
-                Stack {
-                    Chip { label: $state.c5, selected: false }
-                }
-                on Tap -> dispatch(Select(4))
-            } else {
-                Stack { }
-            }
-            if $state.c6 != "" {
-                Stack {
-                    Chip { label: $state.c6, selected: false }
-                }
-                on Tap -> dispatch(Select(5))
-            } else {
-                Stack { }
-            }
-            if $state.c7 != "" {
-                Stack {
-                    Chip { label: $state.c7, selected: false }
-                }
-                on Tap -> dispatch(Select(6))
-            } else {
-                Stack { }
-            }
-            if $state.c8 != "" {
-                Stack {
-                    Chip { label: $state.c8, selected: false }
-                }
-                on Tap -> dispatch(Select(7))
-            } else {
-                Stack { }
-            }
+        // TASK-0067B: while nothing composes, the line above the keys is the
+        // toolbar (emoji · clipboard · voice · settings · more); while the IME
+        // composes it is the candidate strip.
+        if $state.preedit == "" && $state.c1 == "" {
+            OskToolbar { }
+        } else {
+            CandidateStrip { }
         }
-        .direction(row)
-        .gap(1)
-        .align(center)
-        .height(24)
-        List($state.row0) { cell in
-            Stack {
-                Button { label: cell.label }
-            }
-            .key(cell.label)
-            on Tap -> dispatch(Key(cell.key))
+        if $state.oskPanel == "clipboard" {
+            ClipboardCards { }
+        } else {
+            KeyRows { }
         }
-        .direction(row)
-        .gap(1)
-        .justify(center)
-        List($state.row1) { cell in
-            Stack {
-                Button { label: cell.label }
-            }
-            .key(cell.label)
-            on Tap -> dispatch(Key(cell.key))
-        }
-        .direction(row)
-        .gap(1)
-        .justify(center)
-        List($state.row2) { cell in
-            Stack {
-                Button { label: cell.label }
-            }
-            .key(cell.label)
-            on Tap -> dispatch(Key(cell.key))
-        }
-        .direction(row)
-        .gap(1)
-        .justify(center)
-        Stack {
-            List($state.row3) { cell in
-                Stack {
-                    if cell.action == "" {
-                        Stack {
-                            Button { label: cell.label }
-                        }
-                        on Tap -> dispatch(Key(cell.key))
-                    } else {
-                        Stack {
-                            Button { label: cell.label }
-                        }
-                        on Tap -> dispatch(Action(cell.action))
-                    }
-                }
-                .key(cell.label)
-            }
-            .direction(row)
-            .gap(1)
-            .justify(center)
-        }
-        .direction(row)
-        .gap(1)
-        .align(center)
         Stack {
             Stack {
                 Button { label: $state.keymap }

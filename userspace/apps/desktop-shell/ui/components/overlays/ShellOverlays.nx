@@ -10,6 +10,8 @@
 //   WinToast  (transient)  — the system toast the confirm answers with: there
 //                            is no power service yet, and the shell says so
 //                            instead of pretending (4 s, left edge).
+//   SearchOverlay (modal)  — the top-bar magnifier's search: field, Apps /
+//                            Files / Clipboard, results (TASK-0067B).
 //
 // Each layer is emitted by exactly one store field (`powerPrompt`, `toast`)
 // and leaves only through the kit's dispatched events — the runtime never
@@ -26,6 +28,11 @@ Component ShellOverlays {
                 confirmLabel: @t("power.confirm"),
                 destructive: true,
             }
+        } else {
+            Stack { }
+        }
+        if $state.searchOpen {
+            SearchOverlay { }
         } else {
             Stack { }
         }

@@ -76,6 +76,7 @@ mod anim;
 mod app_surface;
 pub(crate) mod app_window;
 mod chrome_widget;
+mod clipboard_focus;
 mod cursor;
 mod desktop_surface;
 use crate::present_acks as acks;
@@ -558,6 +559,8 @@ pub(crate) struct DisplayServerRuntime {
     /// Cached IME-authority route (lazy; fire-and-forget focus relays).
     #[cfg(nexus_env = "os")]
     imed_client: Option<nexus_ipc::KernelClient>,
+    /// The clipboard authority's focus truth (TASK-0067, `clipboard_focus.rs`).
+    clip_focus: clipboard_focus::ClipFocusState,
     /// Region relay cache (RFC-0076/0077 — see `region.rs`).
     pub(crate) region: region::RegionState,
     /// Atlas allocator, kept live so windows can acquire surfaces on show and
@@ -889,6 +892,7 @@ impl DisplayServerRuntime {
             region: region::RegionState::new(),
             #[cfg(nexus_env = "os")]
             imed_client: None,
+            clip_focus: clipboard_focus::ClipFocusState::new(),
             atlas_alloc: atlas,
             pending_input: None,
             desktop_layers: [nexus_display_proto::client_surface::LayerDesc::default();

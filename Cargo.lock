@@ -555,14 +555,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3e64b0cc0439b12df2fa678eae89a1c56a529fd067a9115f7827f1fffd22b32"
 
 [[package]]
-name = "clipboard"
-version = "0.1.0"
-
-[[package]]
 name = "clipboardd"
 version = "0.1.0"
 dependencies = [
- "clipboard",
+ "nexus-abi",
+ "nexus-ipc",
+ "nexus-service-entry",
+ "nexus-service-topology",
+ "nexus-wire",
 ]
 
 [[package]]
@@ -2073,6 +2073,7 @@ dependencies = [
  "nexus-mime-icons",
  "nexus-style",
  "nexus-text-baked",
+ "nexus-textedit",
  "nexus-theme-tokens",
  "nexus-widget-avatar",
  "nexus-widget-badge",
@@ -2456,6 +2457,10 @@ dependencies = [
  "nexus-layout-types",
  "ttf-parser 0.24.1",
 ]
+
+[[package]]
+name = "nexus-textedit"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-theme"

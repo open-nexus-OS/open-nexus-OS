@@ -11,7 +11,7 @@ use super::*;
 mod collect;
 pub(super) use collect::collect_texts;
 pub(super) use collect::dump_text_runs as collect_dump_text_runs;
-use collect::{caret_input, paint_caret_row};
+use collect::{caret_input, paint_caret_row, paint_selection_row, CaretPaint};
 
 impl super::DslApp {
     /// The paint-time hover wash for the currently hovered control, or `None`
@@ -295,6 +295,19 @@ impl super::DslApp {
                             .take(cut)
                             .chain(core::iter::once(nexus_text_baked::ELLIPSIS).take(ell as usize))
                     };
+                    // TASK-0067B: the selection BEHIND the run.
+                    if let Some(c) = caret.filter(|c| c.nid == b.node_id) {
+                        paint_selection_row(
+                            &mut row,
+                            y_eff,
+                            by,
+                            bh,
+                            bx_glyph,
+                            c.selection,
+                            right,
+                            c.highlight,
+                        );
+                    }
                     // RFC-0082: `.textShadow(soft|strong)` — one extra glyph
                     // pass at the offset, BEFORE the run itself. Not a blur
                     // (the row painter has no offscreen buffer); it is the
@@ -322,10 +335,10 @@ impl super::DslApp {
                         *font,
                         color,
                     );
-                    if let Some((cnid, cw, ccol)) = caret {
-                        if b.node_id == cnid {
-                            paint_caret_row(&mut row, y_eff, by, bh, bx_glyph, cw, right, ccol);
-                        }
+                    if let Some(c) = caret.filter(|c| c.nid == b.node_id) {
+                        paint_caret_row(
+                            &mut row, y_eff, by, bh, bx_glyph, c.caret_x, right, c.color,
+                        );
                     }
                 }
             }
@@ -474,6 +487,18 @@ impl super::DslApp {
                             }
                             None => (*color, bx),
                         };
+                    if let Some(c) = caret.filter(|c| c.nid == b.node_id) {
+                        paint_selection_row(
+                            &mut row,
+                            model_y,
+                            by,
+                            bh,
+                            bx_glyph,
+                            c.selection,
+                            self.w,
+                            c.highlight,
+                        );
+                    }
                     nexus_text_baked::draw_text_row(
                         &mut row,
                         model_y as u32,
@@ -484,10 +509,10 @@ impl super::DslApp {
                         *font,
                         color,
                     );
-                    if let Some((cnid, cw, ccol)) = caret {
-                        if b.node_id == cnid {
-                            paint_caret_row(&mut row, model_y, by, bh, bx_glyph, cw, self.w, ccol);
-                        }
+                    if let Some(c) = caret.filter(|c| c.nid == b.node_id) {
+                        paint_caret_row(
+                            &mut row, model_y, by, bh, bx_glyph, c.caret_x, self.w, c.color,
+                        );
                     }
                 }
             }
@@ -506,11 +531,22 @@ impl super::DslApp {
     /// color)` of the focused TextInput — `None` without focus. The focus
     /// snapshot names the HANDLER box; the input node lives in its subtree
     /// (same containment contract as `subtree_is_secure`).
-    fn caret_probe(&self) -> Option<(usize, i32, [u8; 4])> {
+    fn caret_probe(&self) -> Option<CaretPaint> {
+        use nexus_dsl_runtime::theme_tokens::ColorToken;
         let f = self.view.text_focus()?;
         let mut idx = 0usize;
         let (nid, content, font, color) =
             caret_input(self.view.scene(), &mut idx, f.box_id, false)?;
-        Some((nid, nexus_text_baked::measure(content.chars(), font) as i32, color))
+        // TASK-0067B: the caret at its char index and the selection as an x span — prefix
+        // widths of the DISPLAYED run (a masked password has the same char count).
+        let x_at = |n: usize| nexus_text_baked::measure(content.chars().take(n), font) as i32;
+        let a = tokens_for(self.theme_mode).color(ColorToken::Accent);
+        Some(CaretPaint {
+            nid,
+            caret_x: x_at(f.caret),
+            selection: f.selection.map(|(s, e)| (x_at(s), x_at(e))),
+            color,
+            highlight: [a.b, a.g, a.r, 96],
+        })
     }
 }

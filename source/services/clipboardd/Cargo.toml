@@ -1,9 +1,38 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
 [package]
 name = "clipboardd"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+description = "The clipboard authority (RFC-0094, TASK-0067): text items in a bounded history, writes held by the route, reads gated by the focus truth windowd pushes"
+
+[features]
+default = []
+os-lite = [
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "dep:nexus-service-entry",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
+
+[package.metadata.nexus-service]
+kind = "service"
+stack_pages = 0
+features = ["os-lite"]
 
 [dependencies]
-clipboard = { path = "../../../userspace/clipboard" }
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
+nexus-wire = { path = "../../libs/nexus-wire" }
 
+[[bin]]
+name = "clipboardd"
+path = "src/main.rs"
+test = false
+bench = false
+doctest = false

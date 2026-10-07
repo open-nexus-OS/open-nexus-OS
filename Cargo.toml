@@ -38,6 +38,7 @@ members = [
     "userspace/ui/msdf",
     "userspace/ui/sdf",
     "userspace/ui/text-baked",
+    "userspace/ui/textedit_core",
     "userspace/ui/animation",
     "userspace/ui/style",
     "userspace/ui/theme-tokens",

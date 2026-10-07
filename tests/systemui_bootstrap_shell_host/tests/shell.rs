@@ -320,3 +320,64 @@ fn tile_preview_paints_one_pane_per_zone_and_nothing_when_idle() {
         }
     }
 }
+
+/// Records every service call; answers lists empty and everything else `true`.
+struct Recorder {
+    calls: Vec<String>,
+}
+
+impl nexus_dsl_runtime::EffectHost for Recorder {
+    fn call(&mut self, service: &str, method: &str, args: &[Value]) -> Result<Value, u32> {
+        let arg = match args.first() {
+            Some(Value::Str(s)) => format!("{s:?}"),
+            Some(other) => format!("{other:?}"),
+            None => String::new(),
+        };
+        self.calls.push(format!("{service}.{method}({arg})"));
+        match (service, method) {
+            ("bundlemgr", "enumerate") | ("clipboard", "list") => Ok(Value::List(Vec::new())),
+            _ => Ok(Value::Bool(true)),
+        }
+    }
+}
+
+/// TASK-0067B: typing in the shell search re-asks BOTH services with the query — the apps
+/// registry and the clipboard history are filtered AT the service, never in the page; the
+/// launcher's own query stays untouched (the fields are program-global, so they must differ).
+#[test]
+fn search_typing_filters_apps_and_clipboard_at_the_services() {
+    let nxir = compile_project("desktop-shell");
+    let mut mounted = Mounted::new(&nxir, FixtureEnv::desktop());
+    let mut host = Recorder { calls: Vec::new() };
+    mounted.dispatch(&mut host, "SearchEvent", "SearchOpen", vec![]);
+    let (store, path) = (mounted.store_index("SearchStore"), vec![mounted.sym("searchQuery")]);
+    mounted
+        .view
+        .runtime
+        .write_binding(store, nexus_dsl_runtime::ROOT_INSTANCE, &path, Value::Str("milch".into()))
+        .expect("writes");
+    host.calls.clear();
+    mounted.dispatch(&mut host, "SearchEvent", "SearchTyped", vec![]);
+    assert_eq!(
+        host.calls,
+        ["bundlemgr.enumerate(\"milch\")", "clipboard.list(\"milch\")"],
+        "one keystroke re-asks the registry, then the history"
+    );
+    assert_eq!(
+        mounted.view.runtime.field("LauncherStore", "query").cloned(),
+        Some(Value::Str(String::new())),
+        "the launcher's query is not the search's"
+    );
+    // The clipboard filtered by a query that matches nothing says so — it is not "empty".
+    mounted.dispatch(&mut host, "SearchEvent", "SearchMode", vec![Value::Str("clipboard".into())]);
+    let t = texts(mounted.view.scene());
+    let no_match = "Nothing in the clipboard matches this search.";
+    assert!(t.iter().any(|s| s == no_match), "no-match, not empty: {t:?}");
+    assert!(!t.iter().any(|s| s.starts_with("The clipboard is empty")), "{t:?}");
+    // Closing clears the query and the category.
+    mounted.dispatch(&mut host, "SearchEvent", "SearchClose", vec![]);
+    assert_eq!(
+        mounted.view.runtime.field("SearchStore", "searchQuery").cloned(),
+        Some(Value::Str(String::new()))
+    );
+}

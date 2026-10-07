@@ -145,8 +145,50 @@ pub(in crate::probe) fn caret_input<'a>(
     }
 }
 
-/// Paints the caret's 2-px slice of one row (vertical inset 2 px; clipped to
-/// `right` and the row buffer).
+/// The focused field's caret and selection for the row painters (TASK-0067B): the text
+/// node they belong to, the caret's x and the selection's x span (both relative to the
+/// run's origin), the run's color and the selection highlight (accent, translucent).
+#[derive(Clone, Copy)]
+pub(in crate::probe) struct CaretPaint {
+    pub(in crate::probe) nid: usize,
+    pub(in crate::probe) caret_x: i32,
+    pub(in crate::probe) selection: Option<(i32, i32)>,
+    pub(in crate::probe) color: [u8; 4],
+    pub(in crate::probe) highlight: [u8; 4],
+}
+
+/// Blends the selection highlight over `[bx + x0, bx + x1)` of one row inside the field's
+/// box — drawn BEFORE the glyphs so the text stays on top.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::probe) fn paint_selection_row(
+    row: &mut [u8],
+    y: i32,
+    by: i32,
+    bh: i32,
+    bx: i32,
+    selection: Option<(i32, i32)>,
+    right: u32,
+    color: [u8; 4],
+) {
+    let Some((x0, x1)) = selection else { return };
+    if y < by + 2 || y >= by + bh - 2 || x1 <= x0 {
+        return;
+    }
+    let a = u32::from(color[3]);
+    for px in (bx + x0).max(0)..(bx + x1 + 1).max(0) {
+        let o = px as usize * 4;
+        if px as u32 >= right || o + 4 > row.len() {
+            break;
+        }
+        for c in 0..3 {
+            row[o + c] =
+                ((u32::from(row[o + c]) * (255 - a) + u32::from(color[c]) * a) / 255) as u8;
+        }
+    }
+}
+
+/// Paints the caret's 2-px slice of one row at `caret_x` (the prefix width before the
+/// caret; vertical inset 2 px; clipped to `right` and the row buffer).
 #[allow(clippy::too_many_arguments)]
 pub(in crate::probe) fn paint_caret_row(
     row: &mut [u8],
@@ -154,14 +196,14 @@ pub(in crate::probe) fn paint_caret_row(
     by: i32,
     bh: i32,
     bx: i32,
-    content_w: i32,
+    caret_x: i32,
     right: u32,
     color: [u8; 4],
 ) {
     if y < by + 2 || y >= by + bh - 2 {
         return;
     }
-    let x = (bx + content_w + 1).max(0);
+    let x = (bx + caret_x + 1).max(0);
     for px in x..x + 2 {
         if px < 0 || px as u32 >= right {
             continue;

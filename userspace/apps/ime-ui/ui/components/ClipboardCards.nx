@@ -1,0 +1,44 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The keyboard's clipboard (TASK-0067B — the mobile reference's clipboard
+// view): the newest items of the history as CARDS in place of the keys; a tap
+// inserts that item into the focused field (`svc.clipboard.read` for the full
+// text → `svc.ime.insert`, which imed commits like typed text). The history
+// comes from clipboardd, which lets the keyboard read it because windowd
+// names the keyboard's overlay as the IME owner. Six cards fit the band; the
+// newest six are shown.
+
+Component ClipboardCards {
+    Stack {
+        if $state.oskClipsDenied {
+            Text(@t("osk.clipDenied")).textSize(sm).fg(onSurfaceVariant)
+        } else {
+            if len($state.oskClips) == 0 {
+                Text(@t("osk.clipEmpty")).textSize(sm).fg(onSurfaceVariant)
+            } else {
+                List(take($state.oskClips, 6)) { clip in
+                    Stack {
+                        Text(clip.text).textSize(sm).fg(onSurface)
+                    }
+                    .key(clip.seq)
+                    .grow(1)
+                    .height(84)
+                    .padding(2)
+                    .overflow(hidden)
+                    .bg(surfaceVariant)
+                    .rounded(lg)
+                    .label(@t("osk.paste"))
+                    on Tap -> dispatch(ClipPaste(clip.seq))
+                }
+                .columns(3)
+                .rowGap(2)
+                .gap(2)
+            }
+        }
+    }
+    .width(full)
+    .height(188)
+    .paddingX(2)
+    .justify(center)
+}

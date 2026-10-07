@@ -665,6 +665,16 @@ USB_INPUT_MARKERS=(
   "windowd: wm tile (zone=left-half"
   "windowd: wm return (id="
   "SELFTEST: ui v7 tile ok"
+  # TASK-0067B: then it opens the top-bar search, picks Clipboard, types a word no prefill
+  # item contains, selects it (Ctrl+A), copies it (Ctrl+C), pastes it back (Ctrl+V) and
+  # presses the first card — which exists only because the copy re-read the history at once.
+  # windowd's focus truth reached clipboardd; the copy and the paste crossed app-host's
+  # editing path; the card was copied back through app-host.
+  "clipboardd: focus truth live"
+  "apphost: text copy ok"
+  "apphost: text paste ok"
+  "apphost: dsl svc clipboard.restore ok (seq="
+  "SELFTEST: ui v7 clipboard ok"
 )
 
 expected_sequence=(
@@ -783,6 +793,11 @@ expected_sequence=(
   "SELFTEST: ime v2 osk ok"
   "SELFTEST: ime v2 cjk jp ok"
   "SELFTEST: ime v2 candidates ok"
+  # TASK-0067B: the keyboard's clipboard card = one OP_INSERT on imed's osk endpoint.
+  "SELFTEST: ime insert ok"
+  # TASK-0067 (RFC-0094): clipboardd stores the harness's items (the history's prefill)
+  # and refuses READ/LIST to a sender windowd never named.
+  "SELFTEST: clipboard gate ok"
   "SELFTEST: ime ranking ok"
   "SELFTEST: ime ranking persist ok"
   "SELFTEST: settings watch ok"
@@ -1317,6 +1332,8 @@ case "${PROFILE:-full}" in
       "SELFTEST: ime v2 osk ok"
       "SELFTEST: ime v2 cjk jp ok"
       "SELFTEST: ime v2 candidates ok"
+      "SELFTEST: ime insert ok"
+      "SELFTEST: clipboard gate ok"
       "SELFTEST: settings watch ok"
       "SELFTEST: i18n switch ok"
       "SELFTEST: walltime rtc ok"
@@ -3135,7 +3152,7 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
     # TASK-0253B: the one lane whose device-event hops (I1/I2) must fire at every run — its
     # injector drives the USB devices; the simulated chain and the real one must agree.
     usb-visible)
-      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,wm-tile,gpu-core,display || exit 1
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,wm-tile,clipboard,gpu-core,display || exit 1
       ;;
   esac
 fi

@@ -86,15 +86,18 @@ pub enum ServiceId {
     /// USB host controller owner (RFC-0099 / TASK-0328): the ONE holder of an xHCI
     /// controller; USB class services are its clients.
     Xhcid = 32,
+    /// Clipboard authority (RFC-0094 / TASK-0067): text items in a bounded history;
+    /// writes held by the route, reads gated by the focus truth windowd pushes.
+    Clipboardd = 33,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=32`, so the array spans `0..=32`; index 0 is unused).
-    pub const COUNT: usize = 33;
+    /// (discriminants are `1..=33`, so the array spans `0..=33`; index 0 is unused).
+    pub const COUNT: usize = 34;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 32] = [
+    pub const ALL: [ServiceId; 33] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -127,6 +130,7 @@ impl ServiceId {
         Self::Ingressd,
         Self::Socd,
         Self::Xhcid,
+        Self::Clipboardd,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -164,6 +168,7 @@ impl ServiceId {
             b"ingressd" => Self::Ingressd,
             b"socd" => Self::Socd,
             b"xhcid" => Self::Xhcid,
+            b"clipboardd" => Self::Clipboardd,
             _ => return None,
         })
     }
@@ -203,6 +208,7 @@ impl ServiceId {
             Self::Ingressd => "ingressd",
             Self::Socd => "socd",
             Self::Xhcid => "xhcid",
+            Self::Clipboardd => "clipboardd",
         }
     }
 }

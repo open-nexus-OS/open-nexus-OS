@@ -1,0 +1,1 @@
+{"rustc":12566551907739784458,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[1300840060292147818,"build_script_build",false,14171920208761480841]],"local":[{"RerunIfChanged":{"output":"release/build/nexus-dsl-core-2c59d2f3f12254cb/output","paths":["../../../tools/nexus-idl/schemas/dsl_services.capnp"]}}],"rustflags":[],"config":0,"compile_kind":0}

@@ -8,6 +8,7 @@
 use super::*;
 
 /// RFC-0075 text delivery (focus, commit, actions, IME strip) — its own file.
+mod text_edit;
 mod text_io;
 
 /// What a tap actually did — the three cases the single `bool` used to

@@ -22,8 +22,10 @@
 const VOLUME_SERVICES_TXT: &str = include_str!("../../../../scripts/system-volume-services.txt");
 
 /// Hard cap on the volume service set (init holds one VMO mapping per
-/// volume service for the process lifetime — bounded cap-table use).
-pub const MAX_VOLUME_SERVICES: usize = 16;
+/// volume service for the process lifetime — bounded cap-table use). 24 since
+/// TASK-0067: the list had reached 16 and a 17th entry was silently dropped by
+/// the `take` below — `list_fits_the_cap` now fails the build instead.
+pub const MAX_VOLUME_SERVICES: usize = 24;
 
 /// Iterates the volume service names in file order.
 pub fn volume_services() -> impl Iterator<Item = &'static str> {
@@ -54,6 +56,22 @@ mod tests {
                 "service name must be a plain identifier: {n:?}"
             );
         }
+    }
+
+    /// The cap bounds init's cap-table use; it must never cut the list — a service past
+    /// it would be neither embedded nor spawned, with no line saying so.
+    #[test]
+    fn list_fits_the_cap() {
+        let listed = VOLUME_SERVICES_TXT
+            .lines()
+            .map(|line| line.split('#').next().unwrap_or("").trim())
+            .filter(|name| !name.is_empty())
+            .count();
+        assert!(
+            listed <= MAX_VOLUME_SERVICES,
+            "{listed} volume services listed, cap {MAX_VOLUME_SERVICES}: raise the cap with a reason"
+        );
+        assert!(is_volume_service("clipboardd"), "the clipboard authority ships on the volume");
     }
 
     #[test]

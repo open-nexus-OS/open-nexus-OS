@@ -193,6 +193,8 @@ pub mod execd {
     /// Timer-notify endpoint (TASK-0054C P2-b): the recv-wake probe's FAIL witness — a
     /// one-shot on a waitset beside the probe reply endpoint, never a recv deadline.
     pub const TIMER: SlotPair = SlotPair::new(26, 25);
+    /// `svc.clipboard.*` (TASK-0067): cloned into app children holding `CLIPBOARD`.
+    pub const CLIPBOARDD: SlotPair = SlotPair::new(27, REPLY.recv);
 }
 
 /// gpud (TASK-0324 P4c).
@@ -483,6 +485,15 @@ pub mod samgrd {
 /// and the harness checks init's routing answers against this table. The numbers are the
 /// effective ones of the order-based layout, so the move is behaviour-neutral by construction.
 pub mod selftest_client;
+
+/// clipboardd (TASK-0067, RFC-0094): the clipboard authority. A pure server — it asks
+/// nobody; identity is the kernel sender id, focus truth arrives as windowd's push.
+pub mod clipboardd {
+    use super::SlotPair;
+
+    /// clipboardd's own server endpoint.
+    pub const SERVER: SlotPair = crate::SERVER_SLOTS;
+}
 
 /// sessiond (TASK-0324 P4f-1a). A pure server.
 pub mod sessiond {

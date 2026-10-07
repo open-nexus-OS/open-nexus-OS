@@ -39,6 +39,14 @@ MODAL_BACKGROUND = (400, 400)
 # TASK-0066 tiling phase — SSOT: tests/dsl_apps_conformance/tests/shell_tiling_lane.rs.
 TILE_LAUNCHER_BUTTON = (30, 772)
 TILE_LAUNCH_SETTINGS = (914, 662)
+# TASK-0067B clipboard phase — SSOT: tests/dsl_apps_conformance/tests/shell_search_clipboard.rs.
+CLIP_SEARCH_PILL = (1220, 18)
+CLIP_SEARCH_CLIPBOARD = (958, 142)
+CLIP_CARD = (419, 240)
+# The word typed before Ctrl+A / Ctrl+C: no prefill item contains it, so no card exists until
+# the copy re-reads the history (SSOT: INJECT_COPY_WORD in the same test). Letters that sit on
+# the same keys in every lane layout.
+CLIP_COPY_WORD = "kiwi"
 
 # Relative travel: steps well under inputd's 256-px cap and QEMU's int8 report.
 MODAL_STEP = 40
@@ -94,6 +102,17 @@ class ModalPhase:
                 return fh.read().decode("utf-8", errors="replace")
         except OSError:
             return ""
+
+    def marker_end(self, marker: str, since: int) -> int | None:
+        """The byte offset just past the first `marker` written after `since` — the anchor
+        for "the next event after THIS one" (the log's own order, never a clock)."""
+        try:
+            with self.env.uart_log_path.open("rb") as fh:
+                fh.seek(since)
+                at = fh.read().find(marker.encode())
+        except OSError:
+            return None
+        return None if at < 0 else since + at + len(marker)
 
     @staticmethod
     def parse_tap(tail: str) -> tuple[int, int] | None:
@@ -345,7 +364,51 @@ class ModalPhase:
             self.log("tiling phase complete (launcher → settings → Super+Ctrl+← → Super+Ctrl+↓)")
 
 
+    # -- clipboard (TASK-0067B / RFC-0094) ----------------------------------------
+    def run_clipboard(self) -> None:
+        """Open the top-bar search and pick Clipboard; the field holds the keyboard
+        (`.autofocus(true)` — a press on a category button leaves it there). Type a word no
+        prefill item contains, so the history shows no card; Ctrl+A selects it and Ctrl+C
+        copies it — app-host writes the selection to clipboardd and the open search re-reads
+        the history at once (`ClipboardChanged`), so the copied word becomes the first card.
+        Ctrl+V pastes it back over the selection (clipboardd's focus-gated read). Then press
+        the first card: it exists ONLY because the copy re-read the history, and its
+        copy-back yields `SELFTEST: ui v7 clipboard ok` (the lane's LAST marker, which the
+        launcher's early stop waits for); ESC closes the search. The search is a shell modal
+        floating above the settings window the tiling phase left open, so these presses
+        also prove windowd routes the shell's panels above app windows."""
+        timeout_s = float(os.environ.get("QEMU_INPUT_INJECT_MODAL_TIMEOUT_S", "12"))
+        since = self.uart_size()
+        self.go_click(CLIP_SEARCH_PILL)
+        if not self.wait_marker_after("apphost: modal open (depth=1)", since, 40.0):
+            return
+        if not self.wait_marker_after("apphost: text focus set", since, 30.0):
+            return
+        self.go_click(CLIP_SEARCH_CLIPBOARD)
+        since = self.uart_size()
+        for qcode in CLIP_COPY_WORD:
+            self.key(qcode)
+        self.chord(["ctrl", "a"])
+        self.chord(["ctrl", "c"])
+        if not self.wait_marker_after("apphost: text copy ok", since, 40.0 + timeout_s):
+            return
+        # The re-read history reaches the screen with the present AFTER the copy line.
+        copied = self.marker_end("apphost: text copy ok", since)
+        if copied is not None:
+            self.wait_marker_after("apphost: submitted", copied, 30.0)
+        time.sleep(0.5)
+        since = self.uart_size()
+        self.chord(["ctrl", "v"])
+        if not self.wait_marker_after("apphost: text paste ok", since, 30.0 + timeout_s):
+            return
+        self.go_click(CLIP_CARD)
+        if self.wait_marker("SELFTEST: ui v7 clipboard ok", 30.0 + timeout_s):
+            self.log("clipboard phase complete (magnifier → Clipboard → type → Ctrl+A/C/V → first card)")
+        self.key("esc")
+
+
 def run_modal_phase(env: ModalEnv) -> None:
     phase = ModalPhase(env)
     phase.run()
     phase.run_tiling()
+    phase.run_clipboard()

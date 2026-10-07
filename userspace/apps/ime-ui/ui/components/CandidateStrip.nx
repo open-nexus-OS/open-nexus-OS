@@ -1,0 +1,84 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The composition strip (RFC-0075 Phase 8b): preedit + up to 8 candidates,
+// a tap commits one. Shown while the IME composes; otherwise the toolbar
+// takes this line (TASK-0067B). Moved out of `OskPage` unchanged.
+
+Component CandidateStrip {
+    Stack {
+        if $state.preedit != "" {
+            Text($state.preedit).textSize(sm).fg(onSurface)
+        } else {
+            Stack { }
+        }
+        if $state.c1 != "" {
+            Stack {
+                Chip { label: $state.c1, selected: false }
+            }
+            on Tap -> dispatch(Select(0))
+        } else {
+            Stack { }
+        }
+        if $state.c2 != "" {
+            Stack {
+                Chip { label: $state.c2, selected: false }
+            }
+            on Tap -> dispatch(Select(1))
+        } else {
+            Stack { }
+        }
+        if $state.c3 != "" {
+            Stack {
+                Chip { label: $state.c3, selected: false }
+            }
+            on Tap -> dispatch(Select(2))
+        } else {
+            Stack { }
+        }
+        if $state.c4 != "" {
+            Stack {
+                Chip { label: $state.c4, selected: false }
+            }
+            on Tap -> dispatch(Select(3))
+        } else {
+            Stack { }
+        }
+        if $state.c5 != "" {
+            Stack {
+                Chip { label: $state.c5, selected: false }
+            }
+            on Tap -> dispatch(Select(4))
+        } else {
+            Stack { }
+        }
+        if $state.c6 != "" {
+            Stack {
+                Chip { label: $state.c6, selected: false }
+            }
+            on Tap -> dispatch(Select(5))
+        } else {
+            Stack { }
+        }
+        if $state.c7 != "" {
+            Stack {
+                Chip { label: $state.c7, selected: false }
+            }
+            on Tap -> dispatch(Select(6))
+        } else {
+            Stack { }
+        }
+        if $state.c8 != "" {
+            Stack {
+                Chip { label: $state.c8, selected: false }
+            }
+            on Tap -> dispatch(Select(7))
+        } else {
+            Stack { }
+        }
+    }
+    .direction(row)
+    .gap(1)
+    .align(center)
+    .height(24)
+}

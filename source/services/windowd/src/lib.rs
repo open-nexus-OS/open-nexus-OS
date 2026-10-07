@@ -36,6 +36,8 @@ mod settings_client;
 mod control_gate;
 /// TASK-0074 D4: the app-modal routing gate (pure, host-tested from `tests/`).
 pub mod modal_gate;
+/// TASK-0067: which pointer positions belong to the shell above every window (pure).
+pub mod shell_band;
 /// Declarative window-presentation SSOT (intent ⟂ policy → compositing props) —
 /// host-tested, like `window_scene`. windowd reads this instead of hardcoding
 /// per-window-type behaviour (RFC-0065 / Umbau #17). Same cfg gate as

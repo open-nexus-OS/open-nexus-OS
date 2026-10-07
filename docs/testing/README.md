@@ -103,9 +103,16 @@ The full layer reference — including the end-to-end coverage table and the per
      background press → ESC: `SELFTEST: ui v10 dialog ok` / `live modal ok`),
      opens the launcher, launches the settings app and tiles it with
      Super+Ctrl+← / ↓ (`windowd: wm chord/tile/return`, `SELFTEST: ui v7 tile
-     ok` — the launcher's early stop waits for it, `QEMU_LADDER_ALSO_WAIT`); the
-     chain-marker contract
-     checks the `input-live` group here at every run.
+     ok`), then (TASK-0067B) opens the top bar's search over that window, picks
+     Clipboard, types a word no prefill item contains, selects and copies it
+     (Ctrl+A, Ctrl+C — the open history re-reads at once), pastes it (Ctrl+V)
+     and presses the first card, which exists only because of that re-read
+     (`clipboardd: focus truth live`, `apphost: text copy ok`, `apphost: text
+     paste ok`, `apphost: dsl svc clipboard.restore ok`, `SELFTEST: ui v7
+     clipboard ok` — the launcher's early stop waits for it,
+     `QEMU_LADDER_ALSO_WAIT`, inside a 780 s budget); the chain-marker contract
+     checks the `input-live`, `ui-modal`, `wm-tile` and `clipboard` groups here
+     at every run.
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
      proofs required, bounded retry (`[profile.smp]`).
 

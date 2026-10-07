@@ -32,6 +32,17 @@ const dslSurface :List(DslMethod) = [
   (service = "bundlemgr", method = "enumerate", args = ["Str"], result = "List<AppEntry>"),
   # -- demo/test surface (conformance corpus + example apps)
   (service = "catalog", method = "list", args = [], result = "List<Str>"),
+  # -- clipboard authority (clipboardd, RFC-0094; CLIPBOARD permission). Text v1.
+  #    `write` = every route holder; `read` = the focused window, the shell and
+  #    the keyboard; `list`/`restore`/`clear` (the history) = the shell and the
+  #    keyboard only — the gate is clipboardd's, by kernel sender id. `list`
+  #    filters AT the service (`query` = case-insensitive substring, "" = all),
+  #    newest first; `read(0)` = the newest item (the paste).
+  (service = "clipboard", method = "clear", args = [], result = "Bool"),
+  (service = "clipboard", method = "list", args = ["Str"], result = "List<ClipEntry>"),
+  (service = "clipboard", method = "read", args = ["Int"], result = "Str"),
+  (service = "clipboard", method = "restore", args = ["Int"], result = "Bool"),
+  (service = "clipboard", method = "write", args = ["Str"], result = "Bool"),
   (service = "db", method = "put", args = ["Str", "Str"], result = "Bool"),
   # -- file surface (vfsd via RFC-0073; FILES permission, filemanager role)
   # `list`/`count` take the SAME filter pair so the object counter can never
@@ -78,6 +89,7 @@ const dslSurface :List(DslMethod) = [
   (service = "ime", method = "action", args = ["Str"], result = "Bool"),
   (service = "ime", method = "select", args = ["Int"], result = "Bool"),
   (service = "ime", method = "layout", args = ["Str"], result = "Bool"),
+  (service = "ime", method = "insert", args = ["Str"], result = "Bool"),
   # OSK row DATA (RFC-0075 Phase 8b): rows come from the keymaps SSOT —
   # adding a language is adding data, never an if-arm in an app.
   (service = "ime", method = "rows", args = ["Str", "Int"], result = "List<OskKey>"),

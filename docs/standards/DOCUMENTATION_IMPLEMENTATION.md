@@ -44,7 +44,7 @@ This document describes the implementation of documentation standards across the
 - `0005-dsoftbus-architecture.md`: DSoftBus-lite distributed fabric
 - `0006-device-identity-architecture.md`: Device identity and signing
 - `0007-executable-payloads-architecture.md`: Executable payloads
-- `0008-clipboard-architecture.md`: Clipboard management
+- `0008-clipboard-architecture.md`: Clipboard management (superseded by `0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md`)
 - `0009-bundle-manager-architecture.md`: Bundle manager
 - `0010-search-architecture.md`: Search functionality
 - `0011-settings-architecture.md`: Settings management
@@ -110,7 +110,7 @@ This document describes the implementation of documentation standards across the
 
 **Functional**: Fully implemented and tested
 
-- Examples: `nexus-loader`, `clipboard`, `keystore`
+- Examples: `nexus-loader`, `clipboardd`, `keystore`
 - Characteristics: Complete implementation, working tests
 
 **Experimental**: Works but API may change
@@ -140,7 +140,7 @@ This document describes the implementation of documentation standards across the
 **Examples**:
 
 - `nexus-loader`: "11 tests" (actual count)
-- `clipboard`: "1 unit test, 1 integration test"
+- `clipboardd`: "tests/contract.rs — history, gate matrix, markers"
 - `nexus-vfs`: "No tests"
 - `samgr`: "5 unit tests in lib.rs, 2 in cli.rs, 1 integration test"
 

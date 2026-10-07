@@ -1,6 +1,7 @@
 # ADR-0008: Clipboard Architecture
 
-Status: Accepted
+Status: Superseded by ADR-0070 (2026-10-07 — `userspace/clipboard` and the placeholder
+`clipboardd` entry are deleted; `clipboardd` is the clipboard authority of RFC-0094)
 Date: 2025-01-27
 Owners: @runtime
 

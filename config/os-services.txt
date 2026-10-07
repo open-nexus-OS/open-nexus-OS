@@ -22,3 +22,4 @@ inputd
 imed
 gpud
 windowd
+clipboardd

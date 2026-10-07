@@ -42,10 +42,12 @@ pub use anim::{
 pub use bind::{next_value, Interaction};
 pub use emit::{Damage, Dep};
 pub use fixture_env::FixtureEnv;
-pub use focus::TextFocusSnapshot;
+pub use focus::{EditResult, TextFocusSnapshot};
 pub use i18n::{Catalog, CatalogOverBaked, LocaleChain};
 pub use interact::HandlerEntry;
 pub use nav::{Nav, NavEntry};
+/// The focused field's editing commands (TASK-0067B) — re-exported for hosts.
+pub use nexus_textedit::Command as EditCommand;
 pub use nexus_theme_tokens as theme_tokens;
 pub use overlay::{DismissReason, OverlayEntry, OverlayKind, OverlayStack, MODAL_DEPTH_MAX};
 pub use store::{StoreSlot, StoreState, Value, ROOT_INSTANCE};

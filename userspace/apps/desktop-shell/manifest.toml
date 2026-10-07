@@ -20,7 +20,7 @@ min_sdk = "1.0.0"
 bundle_type = "shell"
 payload_kind = "ui-program"
 abilities = ["desktop-shell.ShellAbility"]
-caps = ["nexus.permission.WINDOW", "nexus.permission.LAUNCH", "nexus.permission.ENUMERATE", "nexus.permission.TIME", "nexus.permission.SETTINGS"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.LAUNCH", "nexus.permission.ENUMERATE", "nexus.permission.TIME", "nexus.permission.SETTINGS", "nexus.permission.CLIPBOARD"]
 provides = []
 resources = []
 # The shared DSL component library (window-kit): the Alert/Toast overlays the

@@ -179,6 +179,10 @@ proves = "a person confirmed that the arrow follows the mouse at once on THIS bo
 phase = "end"
 proves = "a person confirmed on THIS boot that a window tiles by dragging it to an edge/corner, that Super+Ctrl+←/→ and ↓ tile and return it, and that the app-icon menu's glyph rows do the same (TASK-0066 — the desktop default tiling model)"
 
+[marker."board-visual: clipboard"]
+phase = "end"
+proves = "a person confirmed on THIS boot that the top bar's magnifier opens the search field with the Apps, Files and Clipboard buttons, that Apps filters by the typed text, that Clipboard shows the history as cards and a pressed card moves to the top, and that text selected with Ctrl+A or Shift+arrows and copied with Ctrl+C appears in the open history at once and pastes back with Ctrl+V (TASK-0067B — the clipboard's desktop surface and the keyboard editing core)"
+
 [marker."board-visual: modal"]
 phase = "end"
 proves = "a person confirmed on THIS boot that the Control Center's power button opens the shutdown alert over a scrim, that ESC and Cancel close it, and that Confirm answers with the system toast at the left edge which leaves by itself (TASK-0074 — the shell's first modal, every visual task ships such a rung)"

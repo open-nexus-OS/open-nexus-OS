@@ -17,11 +17,21 @@ pub(crate) fn build_ctrl_waitset(
     timer_ep: Option<u32>,
 ) -> Option<nexus_abi::Cap> {
     let ws = nexus_abi::waitset_create().ok()?;
-    for chan in ctrl_channels {
-        let _ = nexus_abi::waitset_add(ws, chan.ctrl_req_parent_slot);
-    }
+    // The respawn timer FIRST: when the set is too small it must never be the member that
+    // falls off — without it a crashed service waits for an unrelated wake that may never
+    // come (TASK-0067: the 33rd service pushed it past the kernel's old 32-member bound and
+    // pinched was never restarted). Every refused add is said, by name.
     if let Some(ep) = timer_ep {
-        let _ = nexus_abi::waitset_add(ws, ep);
+        if nexus_abi::waitset_add(ws, ep).is_err() {
+            crate::os_payload::debug_write_bytes(b"init: FAIL responder waitset add (timer)\n");
+        }
+    }
+    for chan in ctrl_channels {
+        if nexus_abi::waitset_add(ws, chan.ctrl_req_parent_slot).is_err() {
+            crate::os_payload::debug_write_bytes(b"init: FAIL responder waitset add svc=");
+            crate::os_payload::debug_write_bytes(chan.svc_name.as_bytes());
+            crate::os_payload::debug_write_bytes(b"\n");
+        }
     }
     Some(ws)
 }

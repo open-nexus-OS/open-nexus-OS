@@ -1,0 +1,78 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The keyboard toolbar (TASK-0067B — the mobile reference's row above the
+// keys): emoji · clipboard · voice input · settings, and "more" at the far
+// end. Only the clipboard exists today; it toggles the CARDS of the history
+// in place of the keys (the active state fills an accent disc). The others
+// are drawn dimmed and take no press — a control that does nothing must not
+// look like one that does.
+
+Component OskToolbar {
+    Stack {
+        Stack {
+            Icon { symbol: "face.smiling", size: 17 }
+                .fg(onSurfaceVariant)
+        }
+        .width(40)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .opacity(110)
+        .label(@t("osk.emoji"))
+        Stack {
+            if $state.oskPanel == "clipboard" {
+                Circle { size: 30
+                    Icon { symbol: "doc.on.clipboard", size: 16 }
+                        .fg(onAccent)
+                }
+                .bg(accent)
+            } else {
+                Icon { symbol: "doc.on.clipboard", size: 17 }
+                    .fg(onSurface)
+            }
+        }
+        .width(40)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .label(@t("osk.clipboard"))
+        on Tap -> dispatch(ClipToggle)
+        Stack {
+            Icon { symbol: "mic", size: 17 }
+                .fg(onSurfaceVariant)
+        }
+        .width(40)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .opacity(110)
+        .label(@t("osk.voice"))
+        Stack {
+            Icon { symbol: "gearshape", size: 17 }
+                .fg(onSurfaceVariant)
+        }
+        .width(40)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .opacity(110)
+        .label(@t("osk.settings"))
+        Spacer
+        Stack {
+            Icon { symbol: "ellipsis", size: 17 }
+                .fg(onSurfaceVariant)
+        }
+        .width(40)
+        .height(32)
+        .align(center)
+        .justify(center)
+        .opacity(110)
+        .label(@t("osk.more"))
+    }
+    .direction(row)
+    .align(center)
+    .gap(1)
+    .height(32)
+    .width(full)
+}

@@ -99,32 +99,11 @@ impl DslApp {
     /// it changes nothing). Enter/Tab are page-level concerns (deferred — no
     /// focus traversal yet). Returns re-render need.
     pub(crate) fn text_action(&mut self, action: u8) -> bool {
-        use nexus_dsl_runtime::Damage;
         match action {
             nexus_wire::imed::ACTION_ESCAPE => self.dismiss_escape(),
-            nexus_wire::imed::ACTION_BACKSPACE => {
-                let tokens = tokens_for(self.theme_mode);
-                let device = device_for(
-                    self.shell_profile,
-                    self.w,
-                    &self.locale_tag,
-                    &self.keymap,
-                    self.theme_mode,
-                );
-                let locale = super::app_locale!(self);
-                let damage =
-                    match self.view.backspace_text(tokens, &device, &locale, &mut self.host) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            raw_marker(&alloc::format!("apphost: text action ERR {e:?}"));
-                            None
-                        }
-                    };
-                if matches!(damage, Some(Damage::Layout)) {
-                    self.relayout_retained();
-                }
-                matches!(damage, Some(Damage::Paint) | Some(Damage::Layout))
-            }
+            // Backspace and the TASK-0067B editing commands: `text_edit.rs`.
+            nexus_wire::imed::ACTION_BACKSPACE => self.edit_action(action),
+            a if nexus_wire::imed::is_edit_action(a) => self.edit_action(a),
             _ => false,
         }
     }
@@ -149,6 +128,16 @@ impl DslApp {
         let f = surface_text::encode_surface_text_focus(surface_id, focused, field_kind, caret);
         let _ = client.send(&f, Wait::NonBlocking);
         raw_marker(if focused { "apphost: text focus set" } else { "apphost: text focus cleared" });
+    }
+
+    /// `.autofocus(true)` (TASK-0067B): while no field holds focus and an autofocus
+    /// field is on screen, focus it through the tap path and announce it. Called after a
+    /// present — the layout its box comes from is the one on screen.
+    pub(crate) fn apply_autofocus(&mut self, client: &KernelClient, surface_id: u32) {
+        let Some(box_id) = self.view.autofocus_box() else { return };
+        let Some(b) = self.layout.boxes.iter().find(|b| b.node_id == box_id) else { return };
+        let (cx, cy) = (b.rect.x.0 + b.rect.width.0 / 2, b.rect.y.0 + b.rect.height.0 / 2);
+        self.announce_text_focus(client, surface_id, cx, cy);
     }
 
     /// RFC-0075 composed-text delivery: decode an `OP_SURFACE_TEXT` frame and

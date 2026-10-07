@@ -19,6 +19,7 @@
 extern crate alloc;
 
 mod boot_cfg;
+mod clipboard;
 mod context;
 mod dispatch;
 #[path = "display_bootstrap_observer.rs"]

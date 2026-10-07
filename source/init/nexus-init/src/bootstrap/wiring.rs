@@ -157,6 +157,11 @@ pub(crate) fn wire_services(
                         provision_windowd_imed_route(pid, imed_req, chan);
                         provision_windowd_settings_watch(pid, eps, chan);
                     }
+                    // TASK-0067: the rest of its declared legs (the clipboard focus push);
+                    // every leg pinned above is kept.
+                    if let Some(spec) = crate::service_topology::spec_for(b"windowd") {
+                        declared_routes::wire_declared_legs(pid, spec, eps, chan);
+                    }
                     continue;
                 }
                 let slots = declared_slots::pin_server_pair(
@@ -200,6 +205,10 @@ pub(crate) fn wire_services(
                     provision_windowd_imed_route(pid, imed_req, chan);
                 }
                 provision_windowd_settings_watch(pid, eps, chan);
+                // TASK-0067: the remaining declared legs (the clipboard focus push).
+                if let Some(spec) = crate::service_topology::spec_for(b"windowd") {
+                    declared_routes::wire_declared_legs(pid, spec, eps, chan);
+                }
                 if iw(init_wire, init_fold, "init:windowd") {
                     debug_write_bytes(b"init: windowd slots recv=0x");
                     debug_write_hex(slots.recv as usize);

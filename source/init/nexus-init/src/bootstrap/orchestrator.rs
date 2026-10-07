@@ -409,45 +409,18 @@ where
     // sessiond server endpoints (request/response), pre-minted (TASK-0065B):
     // sessiond spawns LAST, but windowd's greeter route and abilitymgr's launch
     // gate are wired much earlier — the pair must exist from bootstrap.
-    let sessiond_pid = find_pid(&ctrl_channels, "sessiond");
-    let (sess_req, sess_rsp) = if let Some(pid) = sessiond_pid {
-        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        (Some(req), Some(rsp))
-    } else {
-        (None, None)
-    };
+    let (sess_req, sess_rsp) = endpoints::mint_server_pair(&ctrl_channels, "sessiond")?;
     // Ability-lifecycle route (TASK-0080D launch path): pre-mint abilitymgr's
     // server pair — like sessiond's — so windowd's launch-request route can
     // be granted from the SAME endpoints the declarative arm hands abilitymgr
     // (a fresh per-arm pair would orphan the client side).
-    let abilitymgr_pid = find_pid(&ctrl_channels, "abilitymgr");
-    let (abil_req, abil_rsp) = if let Some(pid) = abilitymgr_pid {
-        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        (Some(req), Some(rsp))
-    } else {
-        (None, None)
-    };
+    let (abil_req, abil_rsp) = endpoints::mint_server_pair(&ctrl_channels, "abilitymgr")?;
     // Settings authority: pre-mint settingsd's server pair — like sessiond's —
     // so windowd's theme route and execd's per-app `svc.settings` grants clone
     // the SAME endpoints settingsd serves. `server_pair(Settingsd)` returned
     // None before this, so BOTH routes silently never wired ("theme default
     // (settingsd unavailable)" + "execd: FAIL app route resolve svc=settings").
-    let settingsd_pid = find_pid(&ctrl_channels, "settingsd");
-    let (sett_req, sett_rsp) = if let Some(pid) = settingsd_pid {
-        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        (Some(req), Some(rsp))
-    } else {
-        (None, None)
-    };
+    let (sett_req, sett_rsp) = endpoints::mint_server_pair(&ctrl_channels, "settingsd")?;
 
     let boot_req = nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).ok(); // TASK-0050: init-owned (init calls the early handshake)
     let boot_rsp = nexus_abi::ipc_endpoint_create_v2(ENDPOINT_FACTORY_CAP_SLOT, 8).ok();
@@ -456,16 +429,9 @@ where
     // Inbound gateway (RFC-0092 / TASK-0052 P3): pre-mint ingressd's server
     // pair — like sessiond's — so the selftest's intent route clones the
     // SAME endpoints the declarative arm hands the gateway.
-    let ingressd_pid = find_pid(&ctrl_channels, "ingressd");
-    let (ingress_req, ingress_rsp) = if let Some(pid) = ingressd_pid {
-        let req = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        let rsp = nexus_abi::ipc_endpoint_create_for(ENDPOINT_FACTORY_CAP_SLOT, pid, 8)
-            .map_err(InitError::Abi)?;
-        (Some(req), Some(rsp))
-    } else {
-        (None, None)
-    };
+    let (ingress_req, ingress_rsp) = endpoints::mint_server_pair(&ctrl_channels, "ingressd")?;
+    // Clipboard authority (TASK-0067): windowd's focus leg, execd's app grants and the harness.
+    let (clip_req, clip_rsp) = endpoints::mint_server_pair(&ctrl_channels, "clipboardd")?;
 
     // Bundle the minted endpoint caps NOW — before the policy-gated grant phase —
     // and distribute every declared service's server pair immediately (RFC-0069
@@ -541,6 +507,8 @@ where
         pinch_rsp,
         ingress_req,
         ingress_rsp,
+        clip_req,
+        clip_rsp,
     };
     crate::bootstrap::distribute::distribute_server_pairs(&mut ctrl_channels, &eps);
     // TASK-0324 P4f-5: the proof harness runs from wave 1 on, so its declared legs are pinned

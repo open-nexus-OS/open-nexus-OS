@@ -207,7 +207,7 @@ impl DisplayServerRuntime {
     }
 
     /// The OSK overlay's app slot, when its surface is live.
-    fn osk_idx(&self) -> Option<usize> {
+    pub(super) fn osk_idx(&self) -> Option<usize> {
         (0..self.apps.len()).find(|&i| self.apps[i].surface_id.is_some() && self.app_is_overlay(i))
     }
 

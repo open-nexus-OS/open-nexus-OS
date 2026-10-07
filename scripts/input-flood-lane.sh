@@ -36,7 +36,11 @@ rm -f "$SOCKET"
 # injector's proof step finished later in the ladder, the early stop fired mid-flood
 # and the QMP socket reset under the flood script. The VM lives to RUN_TIMEOUT.
 before=$(date +%s)
-RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-320s} QEMU_INPUT_AUTOINJECT=1 just test-os visible &
+# The injector's UI choreography (login, modal, tiling, clipboard — TASK-0074/0066/0067B) is the
+# `usb-visible` lane's proof; here it only ate the budget the flood needs (the clipboard phase
+# pushed QEMU's timeout into the flood: BrokenPipe, 2026-10-07). The flood starts right after
+# the plain pointer/keyboard proof.
+RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-320s} QEMU_INPUT_AUTOINJECT=1 QEMU_INPUT_INJECT_MODAL=0 just test-os visible &
 lane=$!
 
 # Wait for the SOCKET, never for a marker in `build/logs/latest` — that symlink

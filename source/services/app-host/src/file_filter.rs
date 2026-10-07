@@ -42,9 +42,26 @@ pub(crate) fn name_visible(name: &str, query: &str, show_hidden: bool) -> bool {
     hay.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle))
 }
 
+/// Does an installed app match the search query (`svc.bundlemgr.enumerate(query)`,
+/// TASK-0067B)? Its label OR its id contains the query (the same ASCII-folded substring
+/// rule as file names); `""` matches every app. The registry wire carries no query, so the
+/// binding applies it to the registry's answer — a page never filters.
+#[must_use]
+pub(crate) fn app_matches(id: &str, label: &str, query: &str) -> bool {
+    name_visible(label, query, true) || name_visible(id, query, true)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::name_visible;
+    use super::{app_matches, name_visible};
+
+    #[test]
+    fn apps_match_by_label_or_id_ignoring_ascii_case() {
+        assert!(app_matches("settings", "Einstellungen", ""), "empty query = every app");
+        assert!(app_matches("settings", "Einstellungen", "einst"), "label");
+        assert!(app_matches("settings", "Einstellungen", "SETT"), "id");
+        assert!(!app_matches("settings", "Einstellungen", "rechner"));
+    }
 
     #[test]
     fn an_empty_query_matches_everything_visible() {

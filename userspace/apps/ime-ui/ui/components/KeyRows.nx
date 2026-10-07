@@ -1,0 +1,67 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The key rows (RFC-0075 Phase 8b): pure DATA from the keymaps SSOT
+// (`svc.ime.rows`). The clipboard panel takes their place while it is open
+// (TASK-0067B). Moved out of `OskPage` unchanged.
+
+Component KeyRows {
+    Stack {
+        List($state.row0) { cell in
+            Stack {
+                Button { label: cell.label }
+            }
+            .key(cell.label)
+            on Tap -> dispatch(Key(cell.key))
+        }
+        .direction(row)
+        .gap(1)
+        .justify(center)
+        List($state.row1) { cell in
+            Stack {
+                Button { label: cell.label }
+            }
+            .key(cell.label)
+            on Tap -> dispatch(Key(cell.key))
+        }
+        .direction(row)
+        .gap(1)
+        .justify(center)
+        List($state.row2) { cell in
+            Stack {
+                Button { label: cell.label }
+            }
+            .key(cell.label)
+            on Tap -> dispatch(Key(cell.key))
+        }
+        .direction(row)
+        .gap(1)
+        .justify(center)
+        Stack {
+            List($state.row3) { cell in
+                Stack {
+                    if cell.action == "" {
+                        Stack {
+                            Button { label: cell.label }
+                        }
+                        on Tap -> dispatch(Key(cell.key))
+                    } else {
+                        Stack {
+                            Button { label: cell.label }
+                        }
+                        on Tap -> dispatch(Action(cell.action))
+                    }
+                }
+                .key(cell.label)
+            }
+            .direction(row)
+            .gap(1)
+            .justify(center)
+        }
+        .direction(row)
+        .gap(1)
+        .align(center)
+    }
+    .gap(1)
+    .align(center)
+}

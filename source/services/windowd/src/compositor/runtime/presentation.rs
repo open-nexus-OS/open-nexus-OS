@@ -51,6 +51,8 @@ impl DisplayServerRuntime {
     pub(crate) fn pump_presentation(&mut self) {
         // RFC-0086 rides the same retained-delivery pass (owed → retry).
         self.pump_window_feed();
+        // RFC-0094: the clipboard authority's focus truth, deduped the same way.
+        self.push_clipboard_focus();
         #[cfg(nexus_env = "os")]
         {
             let desktop_slot = self.desktop_channel;

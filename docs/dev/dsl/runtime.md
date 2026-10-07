@@ -79,6 +79,12 @@ On the host the same runtime mounts under a fixture environment: `FixtureEnv`
 the pseudo-locale), and scripted/`NoIo` effect hosts. `View::dispatch` returns
 the damage class — `Paint` means the existing layout geometry stays valid
 (repaint only), `Layout` means re-layout, `None` means nothing visible changed.
+The class comes from the dependencies the last emit recorded: every store field
+an emitted site reads — in a binding, a branch condition, a modifier argument,
+a component prop — including reads through list operations (`len`, `take`,
+`skip`, `map`/`filter` lambdas) and record literals. A read the walk missed is
+a site that never repaints when only that field changes
+(`tests/list_op_deps.rs` pins the list case).
 The scene-golden suite (`tests/dsl_goldens`) renders retained scenes through
 the shared BGRA painter; the conformance corpus (`tests/dsl_conformance`)
 pins `(state, event) → state'` semantics as the runtime's semantics contract.

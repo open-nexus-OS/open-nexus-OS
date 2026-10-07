@@ -1,4 +1,12 @@
 {
+  "osk.clipDenied": "剪贴板不可用。",
+  "osk.clipEmpty": "剪贴板为空。",
+  "osk.clipboard": "剪贴板",
+  "osk.emoji": "表情（即将推出）",
+  "osk.enter": "回车",
+  "osk.more": "更多（即将推出）",
+  "osk.paste": "插入",
+  "osk.settings": "键盘设置（即将推出）",
   "osk.space": "空格",
-  "osk.enter": "回车"
+  "osk.voice": "语音输入（即将推出）"
 }

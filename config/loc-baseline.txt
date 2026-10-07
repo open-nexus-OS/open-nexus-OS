@@ -9,7 +9,7 @@
 873	source/drivers/input/virtio-input/src/lib.rs
 656	source/drivers/rng/virtio-rng/src/lib.rs
 633	source/init/nexus-init/src/bootstrap/helpers.rs
-735	source/init/nexus-init/src/bootstrap/orchestrator.rs
+702	source/init/nexus-init/src/bootstrap/orchestrator.rs
 689	source/init/nexus-init/src/std_server.rs
 1224	source/kernel/neuron/src/core/trap/handler.rs
 695	source/kernel/neuron/src/ipc/mod.rs
@@ -68,7 +68,7 @@
 664	userspace/nexus-vfs/src/lib.rs
 604	userspace/nxfs/src/fs.rs
 1064	userspace/statefs/src/lib.rs
-1204	userspace/ui/layout/src/engine.rs
+991	userspace/ui/layout/src/engine.rs
 1292	userspace/ui/svg/src/parse.rs
 626	userspace/ui/svg/src/raster.rs
 1268	userspace/ui/svg/src/tessellate.rs

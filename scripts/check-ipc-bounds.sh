@@ -26,9 +26,9 @@ KERNEL_SRC="source/kernel/neuron/src/ipc/payload.rs"
 ABI_SRC="source/libs/nexus-abi/src/lib.rs"
 fail=0
 
-value_of() { # <file> <const-name> -> the literal, evaluated
+value_of() { # <file> <const-name> -> the literal, evaluated (`pub` or `pub(crate)`)
   local v
-  v=$(grep -oE "pub const $2: usize = [^;]+;" "$1" | head -1 | sed -E "s/.*= (.*);/\1/")
+  v=$(grep -oE "pub(\(crate\))? const $2: usize = [^;]+;" "$1" | head -1 | sed -E "s/.*= (.*);/\1/")
   [ -n "$v" ] && echo $(( v )) || echo ""
 }
 
@@ -67,6 +67,21 @@ for name in IPC_SHORT_MAX IPC_PAYLOAD_MAX; do
     fail=1
   fi
 done
+
+# --- rule 1b: the waitset member bound (TASK-0067) -----------------------------
+# init's responder holds one member per control channel plus its respawn timer; the kernel
+# refuses a member past the bound. A userspace copy that drifts below the kernel's lets
+# init's host test pass while the boot silently loses its timer (measured on smp1: a crashed
+# service was never restarted).
+k=$(value_of "source/kernel/neuron/src/waitset.rs" MAX_WAITSET_MEMBERS)
+a=$(value_of "$ABI_SRC" WAITSET_MEMBERS_MAX)
+if [ -z "$k" ] || [ -z "$a" ]; then
+  echo "[FAIL] ipc-bounds: waitset member bound missing (kernel='${k:-none}' abi='${a:-none}')" >&2
+  fail=1
+elif [ "$k" != "$a" ]; then
+  echo "[FAIL] ipc-bounds: waitset member bound drifted — kernel=$k abi=$a" >&2
+  fail=1
+fi
 
 # --- rule 2: nobody re-declares the frame cap ----------------------------------
 # The private `8 * 1024` literals P3b/P2-g deleted (ipc_msg.rs, ipc_recv_v2.rs,
@@ -108,6 +123,6 @@ if [ -n "$hits" ]; then
 fi
 
 if [ "$fail" == "0" ]; then
-  echo "[PASS] ipc-bounds: IPC_SHORT_MAX + IPC_PAYLOAD_MAX identical in kernel and ABI, no private frame cap"
+  echo "[PASS] ipc-bounds: IPC_SHORT_MAX + IPC_PAYLOAD_MAX + the waitset member bound identical in kernel and ABI, no private frame cap"
 fi
 exit "$fail"

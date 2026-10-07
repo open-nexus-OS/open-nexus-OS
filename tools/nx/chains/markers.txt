@@ -48,6 +48,18 @@ windowd: wm tile (zone=
 windowd: wm return (id=
 SELFTEST: ui v7 tile ok
 
+# group: clipboard — TASK-0067 / RFC-0094 the clipboard authority: windowd's focus truth reached
+# clipboardd; in the shell's search a typed word was selected, copied (Ctrl+C: the history
+# re-read at once) and pasted (Ctrl+V), and a card was copied back (shell → app-host →
+# clipboardd). Fires when the `usb-visible` lane's injector drives the search; interactive
+# boots: just check-markers --groups clipboard
+clipboardd: focus truth live
+apphost: text copy ok
+apphost: text paste ok
+apphost: dsl svc clipboard.restore ok (seq=
+clipboardd: restore ok (seq=
+SELFTEST: ui v7 clipboard ok
+
 # group: gpu-core — gpud present-damage → parse → exec → scanout (ADR-0032;
 # fires in every boot incl. headless 2D)
 gpud: chain G1 recv present-damage

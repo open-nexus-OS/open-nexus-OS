@@ -122,6 +122,32 @@ pub(crate) fn imed_osk_probe() -> Result<(), ()> {
     Ok(())
 }
 
+/// TASK-0067B: the osk endpoint inserts a whole text as ONE commit (the keyboard's
+/// clipboard card) — the echo is exactly that text; the MAIN endpoint refuses the op (it
+/// is the keyboard's alone). Fixture text; delivery stays focus-gated.
+pub(crate) fn imed_insert_probe() -> Result<(), ()> {
+    use nexus_abi::imed as wire;
+    use nexus_ipc::{Client, Wait as IpcWait};
+    let client = route_with_retry("imed-osk").map_err(|_| ())?;
+    let (osk_send, _) = client.slots();
+    let mut req = [0u8; 4 + 1 + wire::TEXT_MAX_BYTES];
+    let n = wire::encode_insert("Zwischenablage", &mut req).ok_or(())?;
+    let (status, echo, len) = osk_call(osk_send, &req[..n])?;
+    if status != 0 || &echo[..len] != "Zwischenablage".as_bytes() {
+        return Err(());
+    }
+    // The main endpoint (inputd's keys, windowd's focus) does not serve OP_INSERT.
+    let main = route_with_retry("imed").map_err(|_| ())?;
+    main.send(&req[..n], IpcWait::Blocking).map_err(|_| ())?;
+    let rsp = main.recv(IpcWait::Blocking).map_err(|_| ())?;
+    let refused = rsp.len() == 5 && rsp[3] == (wire::OP_INSERT | 0x80) && rsp[4] != 0;
+    if refused {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
 /// RFC-0075 Phase 3: the REAL jp engine behind the service path — romaji
 /// `nn` + Enter must echo ん (fixture text, no user data). Composition is
 /// focus-independent; delivery stays focus-gated (nothing reaches apps).

@@ -165,6 +165,12 @@ pub(super) fn apply_modifier(
             mods.dismiss_after =
                 Some(int_arg().clamp(0, i64::from(crate::overlay::DISMISS_AFTER_MAX_MS)) as u32);
         }
+        // autofocus(b): the host's text-focus target while no field holds focus (TASK-0067B).
+        57 => {
+            if let Some(Ok(ir::token_arg::Which::Boolean(b))) = first.map(|a| a.which()) {
+                mods.autofocus = b;
+            }
+        }
         52 => mods.columns = Some(int_arg().clamp(1, 12) as usize), // columns(n): grid tracks
         53 => mods.row_gap = Some(registry::spacing(int_arg())),    // rowGap(n)
         // basis(n): raw px like `.width`, NOT a spacing step — it names a

@@ -180,6 +180,11 @@ pub const MODIFIERS: &[ModifierSpec] = &[
     // no clock; the duration is declared, the timer is the host's). Bounded
     // to 0..=60000 ms at emit.
     ModifierSpec { name: "dismissAfter", args: &[ModArg::Int], class: FieldClass::Layout },
+    // -- text focus (semantics, APPEND-ONLY id 57, TASK-0067B): `.autofocus(true)` on a
+    // text field — while it is on screen (inside the topmost modal, if one is open) and
+    // no field holds focus, the HOST gives it text focus through the same path a tap
+    // takes. The shell search's field keeps the keyboard while the search is open.
+    ModifierSpec { name: "autofocus", args: &[ModArg::Bool], class: FieldClass::Semantics },
 ];
 
 #[must_use]
@@ -214,6 +219,10 @@ pub const TRIGGERS: &[&str] = &[
     // node by the runtime (`View::dismiss_top`); the handler is the ONE
     // mutation path (the runtime never hides an overlay by itself).
     "Dismiss",
+    // TASK-0067B: this app copied or cut text into the clipboard (Ctrl+C/X in one of its
+    // fields) — fired BY NAME by the host after clipboardd stored it, so a history the page
+    // shows re-reads at once.
+    "ClipboardChanged",
 ];
 
 /// The curated **motion token** vocabulary (docs/dev/ui/foundations/animation.md

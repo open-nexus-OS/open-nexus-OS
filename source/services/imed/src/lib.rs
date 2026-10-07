@@ -15,6 +15,8 @@
 
 extern crate alloc;
 
+/// TASK-0067B: whole-text inserts and the text-field editing commands.
+mod editing;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub mod os_lite;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
@@ -393,6 +395,10 @@ impl ImedCore {
     /// plus the probe echo.
     pub fn key(&mut self, kind: u8, ch: u32, action: u8) -> (Option<KeyPushes>, StepEcho) {
         let empty_echo = StepEcho { commit: CommitText::default() };
+        // TASK-0067B: text-field editing commands pass composition (`editing.rs`).
+        if kind == wire::KEY_KIND_ACTION && wire::is_edit_action(action) {
+            return (self.edit(action), empty_echo);
+        }
         let Some(key) = decode_key(kind, ch, action) else {
             return (None, empty_echo);
         };

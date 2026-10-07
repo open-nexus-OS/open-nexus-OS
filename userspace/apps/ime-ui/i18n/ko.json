@@ -1,4 +1,12 @@
 {
+  "osk.clipDenied": "클립보드를 사용할 수 없습니다.",
+  "osk.clipEmpty": "클립보드가 비어 있습니다.",
+  "osk.clipboard": "클립보드",
+  "osk.emoji": "이모티콘 (준비 중)",
+  "osk.enter": "입력",
+  "osk.more": "더 보기 (준비 중)",
+  "osk.paste": "삽입",
+  "osk.settings": "키보드 설정 (준비 중)",
   "osk.space": "공백",
-  "osk.enter": "입력"
+  "osk.voice": "음성 입력 (준비 중)"
 }

@@ -1,0 +1,1 @@
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/dsl/ir/../../../tools/nexus-idl/schemas/ui_ir.capnp

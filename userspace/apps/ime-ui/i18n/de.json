@@ -1,4 +1,12 @@
 {
+  "osk.clipDenied": "Die Zwischenablage ist nicht verfügbar.",
+  "osk.clipEmpty": "Die Zwischenablage ist leer.",
+  "osk.clipboard": "Zwischenablage",
+  "osk.emoji": "Emoji (folgt)",
+  "osk.enter": "Eingabe",
+  "osk.more": "Mehr (folgt)",
+  "osk.paste": "Einfügen",
+  "osk.settings": "Tastatureinstellungen (folgt)",
   "osk.space": "Leerzeichen",
-  "osk.enter": "Eingabe"
+  "osk.voice": "Spracheingabe (folgt)"
 }

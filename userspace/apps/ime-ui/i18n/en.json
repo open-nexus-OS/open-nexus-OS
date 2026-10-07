@@ -1,4 +1,12 @@
 {
+  "osk.clipDenied": "The clipboard is not available.",
+  "osk.clipEmpty": "The clipboard is empty.",
+  "osk.clipboard": "Clipboard",
+  "osk.emoji": "Emoji (coming soon)",
+  "osk.enter": "Enter",
+  "osk.more": "More (coming soon)",
+  "osk.paste": "Insert",
+  "osk.settings": "Keyboard settings (coming soon)",
   "osk.space": "Space",
-  "osk.enter": "Enter"
+  "osk.voice": "Voice input (coming soon)"
 }

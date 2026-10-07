@@ -113,11 +113,11 @@ impl DisplayServerRuntime {
             let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
             for i in 0..hit_n {
                 let wid = hit[i];
-                // Shell chrome contract: the strip above SHELL_TOPBAR_H
-                // belongs to the SHELL — its top bar composites above every
-                // window and stays usable (windows sit BEHIND it). Presses
+                // Shell chrome contract: the strip above SHELL_TOPBAR_H, the
+                // shell's panel glass and a shell modal belong to the SHELL —
+                // they composite above every window (`shell_band`). Presses
                 // there skip app windows and fall through to the desktop.
-                if matches!(wid, WindowId::App(_)) && cursor_y < super::SHELL_TOPBAR_H as i32 {
+                if matches!(wid, WindowId::App(_)) && self.shell_owns_point(cursor_x, cursor_y) {
                     continue;
                 }
                 // A visible app window's frame; the desktop base is chromeless

@@ -4,6 +4,7 @@
 //! View emission: IR view tree + committed state → `LayoutNode` scene,
 //! recording state→node dependencies with their invalidation class.
 
+mod deps;
 mod modifiers;
 mod slots;
 use modifiers::apply_modifier;
@@ -87,61 +88,6 @@ impl EmitCtx<'_, '_> {
 
     fn symbol(&self, id: u32) -> &str {
         self.symbols.get(id as usize).map(String::as_str).unwrap_or("")
-    }
-
-    /// Records every state read inside `expr` as a dependency of `damage`.
-    fn record_deps(&mut self, expr: ir::expr::Reader<'_>, damage: Damage) {
-        use ir::expr::Which;
-        match expr.which() {
-            Ok(Which::FieldGet(Ok(get))) => {
-                if let (store, Ok(path)) = (get.get_store(), get.get_path()) {
-                    if !path.is_empty() {
-                        // Field symbol → index resolution happens at damage
-                        // time; store the *symbol* so deps survive re-emits.
-                        self.deps.push(Dep { store, field: path.get(0), damage });
-                    }
-                }
-            }
-            Ok(Which::LitList(Ok(items))) => {
-                for item in items.iter() {
-                    self.record_deps(item, damage);
-                }
-            }
-            Ok(Which::LitEnum(Ok(lit))) => {
-                if let Ok(payload) = lit.get_payload() {
-                    for item in payload.iter() {
-                        self.record_deps(item, damage);
-                    }
-                }
-            }
-            Ok(Which::UnOp(Ok(un))) => {
-                if let Ok(operand) = un.get_operand() {
-                    self.record_deps(operand, damage);
-                }
-            }
-            Ok(Which::BinOp(Ok(bin))) => {
-                if let Ok(lhs) = bin.get_lhs() {
-                    self.record_deps(lhs, damage);
-                }
-                if let Ok(rhs) = bin.get_rhs() {
-                    self.record_deps(rhs, damage);
-                }
-            }
-            Ok(Which::RecordGet(Ok(get))) => {
-                if let Ok(base) = get.get_base() {
-                    self.record_deps(base, damage);
-                }
-            }
-            Ok(Which::FmtI18n(Ok(fmt))) => {
-                if let Ok(args) = fmt.get_args() {
-                    for arg in args.iter() {
-                        self.record_deps(arg, damage);
-                    }
-                }
-            }
-            Ok(Which::OptionSome(Ok(inner))) => self.record_deps(inner, damage),
-            _ => {}
-        }
     }
 }
 
@@ -416,6 +362,7 @@ fn emit_widget<'p>(
                     trigger: handler.get_trigger(),
                     action,
                     press_offset: registry::press_offset(&kind),
+                    autofocus: mods.autofocus,
                 });
             }
         }

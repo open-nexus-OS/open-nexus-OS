@@ -44,6 +44,8 @@ fn main() {
 
 // The DSL `EffectHost` over execd-provisioned fixed slots (TASK-0080C #16).
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod effect_clipboard;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_files;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_host;

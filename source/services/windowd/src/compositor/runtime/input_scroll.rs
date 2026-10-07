@@ -37,6 +37,10 @@ impl DisplayServerRuntime {
         let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
         for i in 0..hit_n {
             let wid = hit[i];
+            // The shell's bar, panels and modal take the wheel above any window (`shell_band`).
+            if matches!(wid, WindowId::App(_)) && self.shell_owns_point(cursor_x, cursor_y) {
+                continue;
+            }
             match wid {
                 WindowId::App(a) => {
                     let idx = a as usize;

@@ -1,4 +1,12 @@
 {
+  "osk.clipDenied": "クリップボードを利用できません。",
+  "osk.clipEmpty": "クリップボードは空です。",
+  "osk.clipboard": "クリップボード",
+  "osk.emoji": "絵文字（近日対応）",
+  "osk.enter": "確定",
+  "osk.more": "その他（近日対応）",
+  "osk.paste": "挿入",
+  "osk.settings": "キーボード設定（近日対応）",
   "osk.space": "空白",
-  "osk.enter": "確定"
+  "osk.voice": "音声入力（近日対応）"
 }

@@ -448,12 +448,12 @@ When updating existing files:
 // Copyright 2024 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Clipboard storage and management
-//! OWNERS: @runtime
+//! CONTEXT: the clipboard history — bounded, newest first, fixed storage
+//! OWNERS: @ui @runtime
 //! STATUS: Functional
-//! API_STABILITY: Stable
-//! TEST_COVERAGE: 1 unit test, 1 integration test
-//! ADR: docs/adr/0008-clipboard-architecture.md
+//! API_STABILITY: Internal
+//! TEST_COVERAGE: tests/contract.rs
+//! ADR: docs/adr/0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md
 ```
 
 ### Library Module (lib.rs)

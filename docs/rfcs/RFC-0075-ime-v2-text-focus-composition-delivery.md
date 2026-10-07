@@ -292,6 +292,61 @@ cd /home/jenning/open-nexus-OS && RUN_UNTIL_MARKER=1 RUN_TIMEOUT=190s just test-
   identity needed. Original question: app-host instance id vs
   bundle id — decide in TASK-0147 Part 2 (owner @ui) before the gate lands.
 
+## Amendment 2026-10-07 (TASK-0067B, RFC-0094): `OP_INSERT` on the OSK endpoint
+
+The keyboard's clipboard cards insert a whole text, not keys. `OP_INSERT = 9`
+(`[I, E, 1, 9, text_len:u8, text]`, 1..=`TEXT_MAX_BYTES`) is served on the DEDICATED
+OSK endpoint only — possession of that endpoint stays the authorization; the main endpoint
+answers it `MALFORMED`. imed commits the text as ONE commit into the focused field: delivery
+is focus-gated exactly like a typed commit (no focus or a `FIELD_KIND_NONE` focus takes
+nothing), a half-typed composition is dropped first and the strip cleared, nothing is learned
+(a pasted card is not a typed word). The step's commit is echoed to a reply-cap probe whether
+or not a field took it, like a key's. The commit bound stays the bound: app-host cuts a longer
+text into consecutive pieces on char boundaries (`nexus_wire::imed::insert_chunks`) and sends
+each kernel-parked, so a full queue waits instead of dropping a piece. Proof: imed host tests
+(`insert_commits_the_text_alone_into_the_focused_field`, `test_reject_insert_without_text_focus`),
+the wire's `insert_round_trip_and_rejects` / `insert_chunks_respect_the_commit_bound_and_char_boundaries`,
+QEMU `SELFTEST: ime insert ok` (the echo on the OSK endpoint + the main endpoint's refusal).
+
+## Amendment 2026-10-07 (TASK-0067B board round): editing actions 4..=16
+
+A hardware keyboard edits text, not only types it: caret moves, selection, copy/cut/paste.
+These are `OP_KEY` actions (`kind = 2`), appended after `ACTION_TAB = 3` — the codes are
+append-only and `nexus_wire::imed::is_edit_action` names the range:
+
+| Action | Code | Key (layout-independent unless noted) |
+|--------|------|---------------------------------------|
+| `LEFT` / `RIGHT` | 4 / 5 | arrows |
+| `HOME` / `END` | 6 / 7 | Home / End |
+| `SELECT_LEFT` / `SELECT_RIGHT` / `SELECT_HOME` / `SELECT_END` | 8–11 | the same keys with Shift |
+| `SELECT_ALL` | 12 | Ctrl + the layout's `A` |
+| `DELETE` | 13 | Delete (forward) |
+| `COPY` / `CUT` / `PASTE` | 14 / 15 / 16 | Ctrl + the layout's `C` / `X` / `V` |
+
+The keymap resolves Ctrl shortcuts by the LETTER the active layout puts on the key (Ctrl+C is
+the key that types `c`), with the US key position as the fallback where a layout's key types
+no Latin letter; any other Ctrl combination is refused (no stray character reaches a field),
+and Ctrl+Space stays the engine switch. inputd forwards them as `KEY_KIND_ACTION`.
+
+imed semantics (normative): an editing action reaches the focused field only — no focus or a
+`FIELD_KIND_NONE` focus takes nothing, so ESC-style handling of non-text targets is untouched.
+A running composition is COMMITTED first (the engine sees Enter, its commit precedes the
+action in the same push), so a caret move never strands a half-typed word. `COPY` and `CUT`
+are refused out of a password field (`FIELD_KIND_PASSWORD`) — the secret never leaves its
+field; the app side refuses the same (defence in depth: `selected_text()` is `None` for a
+secure field). The action travels the existing `OP_ACTION = 7` push and `OP_SURFACE_TEXT`
+`kind = 2`; no new op. The app owns the caret and the selection (the `nexus-textedit` engine
+inside the DSL runtime, TASK-0095 core); copy/cut write the selection to clipboardd through the
+app's own `CLIPBOARD` route (RFC-0094), paste reads the history's newest entry the same way —
+imed never sees clipboard contents. Proof: imed host tests
+(`editing_commands_pass_to_the_focused_field`,
+`an_editing_command_commits_the_running_composition_first`,
+`test_reject_copy_and_cut_out_of_a_password_field`,
+`test_reject_editing_commands_without_a_text_field`), keymaps contract
+(`editing_commands_resolve_by_key_and_by_layout_letter`, `test_reject_other_ctrl_combinations`),
+inputd `every_editing_command_maps_to_a_distinct_edit_action`, the DSL runtime's
+`tests/text_editing.rs`.
+
 ## RFC Quality Guidelines (for authors)
 
 When writing this RFC, ensure:

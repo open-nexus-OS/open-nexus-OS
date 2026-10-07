@@ -61,8 +61,11 @@ and IME work must reuse instead of duplicating:
 - `userspace/touch/` normalizes transport-neutral touch samples into bounded
   `down -> move* -> up` sequences,
 - `userspace/keymaps/` is the shared base keymap authority for `us`, `de`,
-  `jp`, `kr`, and `zh`, including deterministic modifier handling and the
-  shared `Ctrl+Space` IME-switch primitive,
+  `jp`, `kr`, and `zh`, including deterministic modifier handling, the
+  shared `Ctrl+Space` IME-switch primitive and the text-editing keys
+  (`KeyAction::Edit`, TASK-0067B: arrows/Home/End/Delete with Shift selecting,
+  layout-independent; Ctrl+A/C/X/V by the layout's letter with the US
+  position as fallback; every other Ctrl combination refused),
 - `userspace/key-repeat/` provides deterministic repeat scheduling over an
   injectable monotonic time source,
 - `userspace/pointer-accel/` provides a bounded monotonic linear acceleration

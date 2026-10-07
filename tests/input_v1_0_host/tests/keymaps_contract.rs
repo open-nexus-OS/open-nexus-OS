@@ -149,3 +149,66 @@ fn osk_rows_are_data_complete_and_aligned() {
     assert_eq!(osk_rows(LayoutId::Jp, 1), osk_rows(LayoutId::Us, 1));
     assert_eq!(osk_rows(LayoutId::Zh, 2), osk_rows(LayoutId::Us, 2));
 }
+
+/// TASK-0067B: the navigation keys are editing commands in every layout (Shift selects), and
+/// Ctrl+A/C/X/V follow the layout's letter (falling back to the US key position where the
+/// layout types no Latin letter); every other Ctrl combination stays refused.
+#[test]
+fn editing_commands_resolve_by_key_and_by_layout_letter() {
+    use keymaps::{EditKey, KeyAction};
+    let none = Modifiers::default();
+    let shift = Modifiers::default().with_shift();
+    let ctrl = Modifiers::default().with_control();
+    let edit = |out: KeyOutput| match out {
+        KeyOutput::Action(KeyAction::Edit(k)) => k,
+        other => panic!("expected an editing command, got {other:?}"),
+    };
+    for layout in [LayoutId::Us, LayoutId::De, LayoutId::Jp, LayoutId::Kr, LayoutId::Zh] {
+        let km = Keymap::new(layout);
+        assert_eq!(edit(km.resolve(KeyboardUsage::LEFT_ARROW, none).expect("left")), EditKey::Left);
+        assert_eq!(
+            edit(km.resolve(KeyboardUsage::LEFT_ARROW, shift).expect("shift left")),
+            EditKey::SelectLeft
+        );
+        assert_eq!(
+            edit(km.resolve(KeyboardUsage::END, shift).expect("shift end")),
+            EditKey::SelectEnd
+        );
+        assert_eq!(
+            edit(km.resolve(KeyboardUsage::DELETE_FORWARD, none).expect("del")),
+            EditKey::Delete
+        );
+        assert_eq!(
+            edit(km.resolve(KeyboardUsage::A, ctrl).expect("ctrl a")),
+            EditKey::SelectAll,
+            "{layout:?}"
+        );
+        assert_eq!(
+            edit(km.resolve(KeyboardUsage::C, ctrl).expect("ctrl c")),
+            EditKey::Copy,
+            "{layout:?}"
+        );
+        assert_eq!(
+            edit(km.resolve(KeyboardUsage::X, ctrl).expect("ctrl x")),
+            EditKey::Cut,
+            "{layout:?}"
+        );
+        assert_eq!(
+            edit(km.resolve(KeyboardUsage::V, ctrl).expect("ctrl v")),
+            EditKey::Paste,
+            "{layout:?}"
+        );
+    }
+}
+
+#[test]
+fn test_reject_other_ctrl_combinations() {
+    let ctrl = Modifiers::default().with_control();
+    let us = Keymap::new(LayoutId::Us);
+    for usage in [KeyboardUsage::B, KeyboardUsage::Z, KeyboardUsage::DIGIT_1] {
+        let err = us.resolve(usage, ctrl).unwrap_err();
+        assert_eq!(err.code(), KeymapError::UnsupportedModifierCombination.code());
+    }
+    let ctrl_shift = Modifiers::default().with_control().with_shift();
+    assert!(us.resolve(KeyboardUsage::C, ctrl_shift).is_err(), "Ctrl+Shift+C is no copy");
+}

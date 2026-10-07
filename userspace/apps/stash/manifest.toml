@@ -19,7 +19,7 @@ payload_kind = "ui-program"
 abilities = ["stash.MainAbility"]
 # FILES is ceiling-gated to the filemanager role (nxb-pack). window.control
 # rides the windowd presentation channel, so SETTINGS is not needed.
-caps = ["nexus.permission.WINDOW", "nexus.permission.FILES"]
+caps = ["nexus.permission.WINDOW", "nexus.permission.FILES", "nexus.permission.CLIPBOARD"]
 dependencies = ["window-kit"]
 provides = []
 resources = []

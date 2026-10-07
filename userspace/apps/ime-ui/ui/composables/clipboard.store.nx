@@ -1,0 +1,65 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The keyboard's clipboard panel (TASK-0067B). `ClipToggle` swaps the keys for
+// the history's cards and back; opening re-asks clipboardd (`svc.clipboard.list`,
+// newest first). A card's press reads the item's FULL text (the list carries
+// previews) and inserts it into the focused field through imed
+// (`svc.ime.insert` — a commit like typed text, delivered by the same path).
+// The panel stays open: several cards can be inserted in a row, as in the
+// mobile reference.
+
+Store OskClipStore {
+    // "" = the keys · "clipboard" = the cards.
+    oskPanel: Str = "",
+    oskClips: List<ClipEntry> = [],
+    oskClipsDenied: Bool = false,
+}
+
+Event OskClipEvent {
+    ClipToggle,
+    OskClips(List<ClipEntry>),
+    OskClipsFailed(Int),
+    ClipPaste(Int),
+    ClipText(Str),
+    ClipPasteFailed(Int),
+}
+
+reduce OskClipEvent {
+    ClipToggle => {
+        if state.oskPanel == "clipboard" {
+            state.oskPanel = "";
+        } else {
+            state.oskPanel = "clipboard";
+        }
+    },
+    OskClips(items) => {
+        state.oskClips = items;
+        state.oskClipsDenied = false;
+    },
+    OskClipsFailed(e) => state.oskClipsDenied = true,
+    ClipPaste(seq) => state.oskPanel = state.oskPanel,
+    ClipText(t) => state.oskPanel = state.oskPanel,
+    ClipPasteFailed(e) => state.oskPanel = state.oskPanel,
+}
+
+@effect on ClipToggle {
+    match svc.clipboard.list("") {
+        Ok(items) => dispatch(OskClips(items)),
+        Err(e) => dispatch(OskClipsFailed(e)),
+    }
+}
+
+@effect on ClipPaste(seq) {
+    match svc.clipboard.read(seq) {
+        Ok(text) => dispatch(ClipText(text)),
+        Err(e) => dispatch(ClipPasteFailed(e)),
+    }
+}
+
+@effect on ClipText(t) {
+    match svc.ime.insert(t) {
+        Ok(ok) => dispatch(Sent(ok)),
+        Err(e) => dispatch(SendFailed(e)),
+    }
+}

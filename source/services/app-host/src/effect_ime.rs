@@ -56,6 +56,28 @@ impl AppEffectHost {
         self.ime_send(&frame)
     }
 
+    /// `svc.ime.insert(text)` → commits `text` into the focused field (the OSK's clipboard
+    /// cards, TASK-0067B). A text longer than one commit (`TEXT_MAX_BYTES`) goes as
+    /// consecutive pieces cut on char boundaries; each is a KERNEL-PARKED send, so a full
+    /// queue waits instead of dropping a piece out of the middle of the paste.
+    pub(crate) fn ime_insert(&self, text: &str) -> Result<Value, u32> {
+        let send_slot = Self::svc_send_slot("ime").ok_or(ERR_SVC_UNKNOWN)?;
+        if text.is_empty() {
+            return Err(ERR_SVC_SHAPE);
+        }
+        let mut buf = [0u8; 4 + 1 + nexus_wire::imed::TEXT_MAX_BYTES];
+        for piece in nexus_wire::imed::insert_chunks(text) {
+            let n = nexus_wire::imed::encode_insert(piece, &mut buf).ok_or(ERR_SVC_SHAPE)?;
+            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, n as u32);
+            if nexus_abi::ipc_send_v1(send_slot, &hdr, &buf[..n], 0, 0).is_err() {
+                raw_marker("apphost: dsl svc ime.insert FAIL (send)");
+                return Ok(Value::Bool(false));
+            }
+        }
+        raw_marker("apphost: dsl svc ime.insert ok");
+        Ok(Value::Bool(true))
+    }
+
     /// `svc.ime.layout(tag)` → switches the composition engine (globe key).
     pub(crate) fn ime_layout(&self, layout: &str) -> Result<Value, u32> {
         let mut buf = [0u8; 16];

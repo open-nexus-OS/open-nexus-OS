@@ -64,6 +64,11 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     // mutating ops additionally require the policyd `updates.manage`
     // grant inside updated (deny-by-default).
     "nexus.permission.UPDATES",
+    // Reach clipboardd (`svc.clipboard.*`, TASK-0067 / RFC-0094): holding the route
+    // is the WRITE capability; reads are gated INSIDE clipboardd by windowd's focus
+    // truth (the focused window pastes; only the shell and the keyboard browse the
+    // history). No bundle-type ceiling — copy and paste are every app's.
+    "nexus.permission.CLIPBOARD",
 ];
 
 /// `true` if `cap` is a recognized platform permission — OR an app-owned

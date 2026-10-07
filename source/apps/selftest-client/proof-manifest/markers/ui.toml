@@ -335,3 +335,55 @@ proves = "a refused tile, by its named reason (not-resizable, no-window, edges-o
 [marker."SELFTEST: ui v7 tile ok"]
 phase = "end"
 proves = "a tile followed by a Return on one boot: the frame bookkeeping (pre-tile frame, zone, feed bits) round-tripped"
+
+# --- TASK-0067 / 0067B (RFC-0094, ADR-0070): the clipboard authority and its two surfaces.
+# `clipboardd: ready` and the harness's writes fire on every boot; the focus truth once windowd
+# names an owner; the copy-back when the shell's search (or the keyboard) uses the history —
+# the `usb-visible` lane's injector opens the search, picks Clipboard and presses a card.
+[marker."clipboardd: ready"]
+phase = "bringup"
+proves = "the clipboard authority bound its declared server with an empty history and a closed gate (no owner known)"
+
+[marker."clipboardd: write ok (seq="]
+phase = "bringup"
+proves = "an item was stored under a fresh seq (the line names the seq only — never contents, never a length)"
+
+[marker."clipboardd: read deny (reason=clipboard-focus)"]
+phase = "bringup"
+proves = "a read from a sender that is no focused window, shell or keyboard was refused by kernel identity"
+
+[marker."clipboardd: list deny (reason=clipboard-focus)"]
+phase = "bringup"
+proves = "the history was refused to a sender that is neither the shell nor the keyboard"
+
+[marker."clipboardd: request malformed"]
+phase = "bringup"
+proves = "a frame that broke a bound was answered MALFORMED and stored nothing"
+
+[marker."clipboardd: focus truth live"]
+phase = "end"
+proves = "windowd's first OP_FOCUS reached the authority: the owners of the focused window, the desktop surface and the IME overlay are known by kernel sid"
+
+[marker."clipboardd: restore ok (seq="]
+phase = "end"
+proves = "a history item became the newest again under a fresh seq (the copy-back)"
+
+[marker."apphost: text copy ok"]
+phase = "end"
+proves = "a hardware Ctrl+C in a focused text field wrote its selection to clipboardd over the app's own CLIPBOARD route (keymap → inputd → imed → app-host → runtime selection); the line carries no text and no length"
+
+[marker."apphost: text paste ok"]
+phase = "end"
+proves = "a hardware Ctrl+V read the history's newest item — clipboardd allowed it by the focused owner's kernel sid — and app-host inserted it at the caret; the line carries no text"
+
+[marker."apphost: dsl svc clipboard.restore ok (seq="]
+phase = "end"
+proves = "a DSL page's svc.clipboard.restore crossed app-host → clipboardd and came back OK (the shell's search card or the keyboard)"
+
+[marker."apphost: dsl svc ime.insert ok"]
+phase = "end"
+proves = "the keyboard inserted a clipboard card into the focused field through imed's osk endpoint (commit-sized pieces)"
+
+[marker."SELFTEST: ui v7 clipboard ok"]
+phase = "end"
+proves = "the history was listed and an item copied back by an owner windowd named (the shell or the keyboard) on one boot — the clipboard's allow side end to end"

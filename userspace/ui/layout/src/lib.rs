@@ -23,6 +23,7 @@ pub mod engine;
 mod engine_tests;
 pub mod error;
 mod geometry;
+mod grid;
 mod textfit;
 
 pub use boxes::{compute_scroll_damage, LayoutBox, LayoutResult, ScrollDamage};

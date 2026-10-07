@@ -171,6 +171,11 @@ pub(crate) const WINDOWD: ServiceSpec = ServiceSpec {
             slots: slots::windowd::ABILITYMGR,
         },
         Route { to: ServiceId::Imed, kind: RouteKind::ReplyInbox, slots: slots::windowd::IMED },
+        Route {
+            to: ServiceId::Clipboardd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::windowd::CLIPBOARDD,
+        },
     ],
     announce: true,
     server_slots: slots::windowd::SERVER,

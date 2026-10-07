@@ -355,9 +355,11 @@ ci-os-usb:
 # mouse, xhcid pushes their boot reports to hidrawd's USB source, and the input chain runs to the
 # launcher click (`SELFTEST: ui v2 input ok`).
 # TASK-0074: the lane also logs in and drives the shell's modal (pill → power → ESC) on the
-# one-hart TCG guest; the extra choreography needs the longer budget.
+# one-hart TCG guest; the extra choreography needs the longer budget. TASK-0066 tiles a window,
+# TASK-0067B types into the shell's search, copies, pastes and presses the copied card — the
+# last run reached its final marker at ~605 s of 660 s before the copy steps were added.
 ci-os-usb-visible:
-    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-540s} just test-os usb-visible
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-780s} just test-os usb-visible
 # TASK-0324 P0: display truth — the real GL compositor (virgl, egl-headless +
 # VNC) with a HOST-side pixel proof: the desktop snapshot must be non-black and
 # must differ from the boot splash. Markers alone shipped a black screen.

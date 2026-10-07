@@ -37,6 +37,12 @@ pub const OP_ACTION: u8 = 7;
 /// it on the DEDICATED osk endpoint (capability-gated). The tag selects the
 /// composition engine (`us`/`de` → Latin, `jp`, `kr`, `zh`).
 pub const OP_SET_LAYOUT: u8 = 8;
+/// OSK insert (RFC-0075 amendment, TASK-0067B): commit a given UTF-8 string
+/// into the focused field — the on-screen keyboard's clipboard cards. Only
+/// on the DEDICATED osk endpoint (capability-gated); the main endpoint
+/// refuses it. Delivery stays focus-gated and password-field aware like
+/// every commit.
+pub const OP_INSERT: u8 = 9;
 
 /// Maximum layout-tag bytes (`OP_SET_LAYOUT`).
 pub const LAYOUT_MAX_BYTES: usize = 8;
@@ -70,6 +76,41 @@ pub const ACTION_ESCAPE: u8 = 1;
 pub const ACTION_BACKSPACE: u8 = 2;
 /// Tab.
 pub const ACTION_TAB: u8 = 3;
+// Text-field editing commands (TASK-0067B, RFC-0075 amendment; append-only). Composition
+// never consumes them: imed commits a running composition first, then passes the command to
+// the focused field (`OP_ACTION`), which owns caret, selection and the clipboard calls.
+/// Caret one char left (collapses a selection to its start).
+pub const ACTION_LEFT: u8 = 4;
+/// Caret one char right (collapses a selection to its end).
+pub const ACTION_RIGHT: u8 = 5;
+/// Caret to the start.
+pub const ACTION_HOME: u8 = 6;
+/// Caret to the end.
+pub const ACTION_END: u8 = 7;
+/// Extend the selection one char left (Shift+Left).
+pub const ACTION_SELECT_LEFT: u8 = 8;
+/// Extend the selection one char right (Shift+Right).
+pub const ACTION_SELECT_RIGHT: u8 = 9;
+/// Extend the selection to the start (Shift+Home).
+pub const ACTION_SELECT_HOME: u8 = 10;
+/// Extend the selection to the end (Shift+End).
+pub const ACTION_SELECT_END: u8 = 11;
+/// Select everything (Ctrl+A).
+pub const ACTION_SELECT_ALL: u8 = 12;
+/// Delete the char after the caret, or the selection.
+pub const ACTION_DELETE: u8 = 13;
+/// Copy the selection to the clipboard (Ctrl+C) — never out of a password field.
+pub const ACTION_COPY: u8 = 14;
+/// Cut the selection to the clipboard (Ctrl+X) — never out of a password field.
+pub const ACTION_CUT: u8 = 15;
+/// Paste the newest clipboard item at the caret (Ctrl+V).
+pub const ACTION_PASTE: u8 = 16;
+
+/// Whether `action` is a text-field editing command (passes composition untouched).
+#[must_use]
+pub const fn is_edit_action(action: u8) -> bool {
+    action >= ACTION_LEFT && action <= ACTION_PASTE
+}
 
 /// `OP_SET_FOCUS` field kind: plain text field.
 pub const FIELD_KIND_TEXT: u8 = 0;
@@ -142,6 +183,10 @@ crate::frames! {
     request encode_set_layout / decode_set_layout (op = OP_SET_LAYOUT) {
         layout: str8(min = 1, max = LAYOUT_MAX_BYTES),
     }
+    /// OSK insert: `[I, E, ver, OP_INSERT, text_len:u8, text...]`.
+    request encode_insert / decode_insert (op = OP_INSERT) {
+        text: str8(min = 1, max = TEXT_MAX_BYTES),
+    }
     /// Action push: `[I, E, ver, OP_ACTION, surface_id:u64, action:u8]`
     /// (`ACTION_*` code that passed through composition).
     request fixed encode_action / decode_action (op = OP_ACTION) {
@@ -160,6 +205,26 @@ crate::frames! {
         status: u8,
         text: str8(min = 0, max = TEXT_MAX_BYTES),
     }
+}
+
+/// Splits `text` into `OP_INSERT` pieces of at most [`TEXT_MAX_BYTES`], cut
+/// on char boundaries, in order (TASK-0067B: a clipboard card longer than one
+/// commit is inserted as consecutive commits — the RFC-0075 bound stays the
+/// bound). Empty text yields nothing.
+pub fn insert_chunks(text: &str) -> impl Iterator<Item = &str> + '_ {
+    let mut rest = text;
+    core::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let mut cut = rest.len().min(TEXT_MAX_BYTES);
+        while !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let (head, tail) = rest.split_at(cut);
+        rest = tail;
+        Some(head)
+    })
 }
 
 /// Packs candidate strings into the `OP_CANDIDATES` list payload.
@@ -311,6 +376,34 @@ mod tests {
         assert_eq!(encode_set_layout("wayyytoolong", &mut buf), None);
         // Truncation rejects.
         assert_eq!(decode_set_layout(&buf[..n - 1]), None);
+    }
+
+    #[test]
+    fn insert_round_trip_and_rejects() {
+        let mut buf = [0u8; 4 + 1 + TEXT_MAX_BYTES];
+        let n = encode_insert("Hallo Welt", &mut buf).expect("encodes");
+        assert_eq!(decode_insert(&buf[..n]), Some("Hallo Welt"));
+        assert_eq!(encode_insert("", &mut buf), None, "empty");
+        let long = "x".repeat(TEXT_MAX_BYTES + 1);
+        assert_eq!(encode_insert(&long, &mut buf), None, "over the text bound");
+        assert_eq!(decode_insert(&buf[..n - 1]), None, "truncated");
+        assert_eq!(decode_set_layout(&buf[..n]), None, "op mismatch");
+    }
+
+    #[test]
+    fn insert_chunks_respect_the_commit_bound_and_char_boundaries() {
+        assert_eq!(insert_chunks("").count(), 0);
+        assert_eq!(insert_chunks("kurz").collect::<Vec<_>>(), ["kurz"]);
+        // 200 bytes of two-byte chars: every piece ≤ the bound, cut between chars.
+        let text = "ä".repeat(100);
+        let pieces: Vec<_> = insert_chunks(&text).collect();
+        assert!(pieces.iter().all(|p| p.len() <= TEXT_MAX_BYTES && !p.is_empty()));
+        assert_eq!(pieces.concat(), text, "order and content preserved");
+        assert_eq!(pieces.len(), 4, "200 bytes in ≤64-byte pieces of whole chars");
+        let mut buf = [0u8; 4 + 1 + TEXT_MAX_BYTES];
+        for p in pieces {
+            assert!(encode_insert(p, &mut buf).is_some(), "every piece encodes");
+        }
     }
 
     #[test]

@@ -213,6 +213,17 @@ fn handle_osk_frame(
             }
             Some((op, wire::STATUS_OK, echo))
         }
+        wire::OP_INSERT => {
+            // TASK-0067B: the OSK's clipboard card → one commit into the focused field.
+            let Some(text) = wire::decode_insert(frame) else {
+                return Some((op, wire::STATUS_MALFORMED, empty));
+            };
+            let (pushes, echo) = core.insert(text);
+            if let Some(pushes) = pushes {
+                push_to_windowd(windowd, &pushes);
+            }
+            Some((op, wire::STATUS_OK, echo))
+        }
         _ => Some((op, wire::STATUS_DENIED, empty)),
     }
 }

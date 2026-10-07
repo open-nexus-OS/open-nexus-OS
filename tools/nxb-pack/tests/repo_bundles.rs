@@ -64,7 +64,11 @@ fn chat_bundle_packs_with_launch_ability() {
     let (name, abilities, caps) = pack_and_read("chat");
     assert_eq!(name, "chat");
     assert_eq!(abilities, vec!["chat.MainAbility".to_string()]);
-    assert_eq!(caps, vec!["nexus.permission.WINDOW".to_string()]);
+    // CLIPBOARD (TASK-0067B): the message field copies and pastes over chat's own route.
+    assert_eq!(
+        caps,
+        vec!["nexus.permission.WINDOW".to_string(), "nexus.permission.CLIPBOARD".to_string()]
+    );
 }
 
 #[test]

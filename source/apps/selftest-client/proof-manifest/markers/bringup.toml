@@ -1164,6 +1164,12 @@ phase = "bringup"
 [marker."SELFTEST: ime v2 candidates FAIL"]
 phase = "bringup"
 
+[marker."SELFTEST: ime insert FAIL"]
+phase = "bringup"
+
+[marker."SELFTEST: clipboard gate FAIL"]
+phase = "bringup"
+
 [marker."SELFTEST: ime ranking FAIL"]
 phase = "bringup"
 

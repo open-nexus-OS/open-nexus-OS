@@ -1,0 +1,3 @@
+cargo:rerun-if-changed=../../../resources/wallpapers/base/default.jpeg
+cargo:rerun-if-changed=../../../resources/wallpapers/base/default.dark.jpg
+cargo:rerun-if-changed=manifests/shells/desktop/shell.toml

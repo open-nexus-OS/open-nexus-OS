@@ -172,7 +172,24 @@ the exact `svc.*` mechanics above:
   (no broker in the data path). The consumer sees generated
   `svc.app_<bundle>.<method>()` signatures.
 
+## The clipboard (`svc.clipboard`, RFC-0094)
+
+`list(query)` → `List<ClipEntry>` (`seq: Int`, `text: Str` preview), newest first, filtered
+at the service; `read(seq)` → `Str` (full text, `0` = newest); `write(text)`,
+`restore(seq)`, `clear()` → `Bool`. The manifest permission is `nexus.permission.CLIPBOARD`;
+clipboardd decides by the kernel sender id: any holder may write, the focused window, the
+shell and the keyboard may read, only the shell and the keyboard may list, restore and clear
+(a refusal is `ERR_SVC_DENIED`). The keyboard inserts a card with `svc.ime.insert(text)` (the
+OSK endpoint's `OP_INSERT`, RFC-0075 amendment; app-host cuts long text into commit-sized
+pieces). Text fields copy, cut and paste with Ctrl+C/X/V without any page code (the host
+calls `write`/`read(0)` over the app's own route) and then fire the host trigger
+`ClipboardChanged`, so a page that shows the history re-lists with `on ClipboardChanged`.
+
 ## Changelog
+
+- **2026-10-07 (TASK-0067/0067B)** — `svc.clipboard.{list,read,write,restore,clear}`,
+  `svc.ime.insert`; text-field copy/cut/paste and the `ClipboardChanged` trigger; the
+  registry's `enumerate(query)` filters by id and label.
 
 - **v0.2b (2026-07-06, TASK-0078/0078B)** — generated signature table from
   `dsl_services.capnp` (NX0207/NX0208/NX0302), TranscriptHost record/replay +

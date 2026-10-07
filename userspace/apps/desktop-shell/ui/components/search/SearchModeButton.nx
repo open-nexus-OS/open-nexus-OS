@@ -1,0 +1,47 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// One round category button beside the search field (TASK-0067B): panel
+// glass like the field, the glyph centred; the chosen category fills an inner
+// accent disc. `inert` draws the button dimmed (a category that does not exist
+// yet must not look like one that does). The press handler is the use site's.
+
+Component SearchModeButton {
+    props: {
+        icon: Str,
+        label: Str,
+        selected: Bool,
+        inert: Bool,
+    }
+    if $props.inert {
+        Circle { size: 44
+            Icon { symbol: $props.icon, size: 17 }
+                .fg(onGlassMuted)
+        }
+        .material(panel)
+        .shadow(xl)
+        .opacity(140)
+        .label($props.label)
+    } else {
+        if $props.selected {
+            Circle { size: 44
+                Circle { size: 36
+                    Icon { symbol: $props.icon, size: 17 }
+                        .fg(onAccent)
+                }
+                .bg(accent)
+            }
+            .material(panel)
+            .shadow(xl)
+            .label($props.label)
+        } else {
+            Circle { size: 44
+                Icon { symbol: $props.icon, size: 17 }
+                    .fg(onGlass)
+            }
+            .material(panel)
+            .shadow(xl)
+            .label($props.label)
+        }
+    }
+}

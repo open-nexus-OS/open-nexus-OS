@@ -93,6 +93,14 @@ Component TopBar {
                 }
                 .hitSlop(2)
                 on Tap -> dispatch(SetPanel("battery"))
+                // TASK-0067B: the search — beside the Control Center like the
+                // desktop reference; it opens a field, not a drop-down.
+                Stack {
+                    GlyphPill { icon: "magnifyingglass" }
+                }
+                .hitSlop(2)
+                .label(@t("search.open"))
+                on Tap -> dispatch(SearchOpen)
                 Stack {
                     GlyphPill { icon: "slider.horizontal.3" }
                 }

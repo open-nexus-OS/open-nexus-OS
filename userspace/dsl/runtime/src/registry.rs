@@ -90,6 +90,8 @@ pub struct Mods {
     pub overlay: Option<crate::overlay::OverlayKind>,
     /// `.dismissAfter(ms)` of a transient overlay (bounded at emit).
     pub dismiss_after: Option<u32>,
+    /// `.autofocus(true)`: the host focuses this text field whenever none holds focus.
+    pub autofocus: bool,
     /// `.columns(n)`: this container is an n-column GRID (`LayoutNode::Grid`,
     /// row-major 1fr tracks). On a `List` the items are the cells — the
     /// data-driven launcher/workspace grids.
@@ -145,6 +147,7 @@ impl Default for Mods {
             scroll: None,
             overlay: None,
             dismiss_after: None,
+            autofocus: false,
             columns: None,
             row_gap: None,
         }

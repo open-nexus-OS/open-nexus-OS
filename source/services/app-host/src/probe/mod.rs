@@ -868,6 +868,8 @@ pub(super) fn run() -> Result<(), &'static str> {
                 // closed one would keep frosting thin air.
                 dsl.submit_layers(&client, surface_id);
             }
+            // `.autofocus(true)` (TASK-0067B): the shown layout names the field to focus.
+            dsl.apply_autofocus(&client, surface_id);
         }
     }
 }

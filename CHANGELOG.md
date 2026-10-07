@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-07 (TASK-0067 + 0067B: the clipboard — one authority, the shell search, the keyboard's cards; RFC-0094, ADR-0070)
+
+- **clipboardd** — the ONE clipboard authority (replaces the placeholder service and the
+  host-only `userspace/clipboard`, ADR-0008 superseded): a newest-first text history in fixed
+  storage (16 items, dedupe-to-top, `seq` never reused, writer sid + origin device per item for
+  the later sync), writes held by the route (`nexus.permission.CLIPBOARD`), reads gated by the
+  kernel sender id against the owners windowd pushes — the focused window pastes, the shell
+  and the keyboard also browse and copy back; markers carry numbers, never contents. Wire
+  `nexus_wire::clipboardd` (`'C','B'` v1); topology id 33, a system-volume bundle (the volume
+  cap 16 → 24 with a test instead of a silent cut), policy, supervision, init's pre-mint
+  helper (four duplicated blocks folded into one).
+- **windowd**: the focus truth (`OP_FOCUS`: focused / desktop / IME owners) on the frame
+  pass, deduped with an owed retry; presses, hover and wheel inside the shell's panel glass —
+  which the scene already drew above app windows — and anywhere during a shell modal now reach
+  the shell (`shell_band`), so the Control Center and the search work above open windows.
+- **The shell search** (top-bar magnifier, desktop profile): one field in the greeter's style
+  with round Apps / Files (inert for now) / Clipboard buttons, a shell modal (ESC or an
+  outside press closes); Apps lists the registry's matches, Clipboard shows the history as
+  cards — a press copies the item back; one keystroke re-asks both services.
+- **The keyboard's clipboard** (`ime-ui`): a toolbar above the keys (emoji, clipboard, voice,
+  settings, more — clipboard live, the rest dimmed) while nothing composes; the clipboard swaps
+  the keys for cards of the newest six items, a press reads the full text and inserts it
+  through imed's new `OP_INSERT` (RFC-0075 amendment; long text in commit-sized pieces).
+- **DSL**: `.autofocus(true)` (the field takes the keyboard while no field holds it, inside the
+  topmost modal); grid cells that `.grow(1)` fill their track (layout grid code moved to
+  `grid.rs`); `svc.clipboard.{list,read,write,restore,clear}`, `svc.ime.insert`.
+- **Prefill**: the selftest-client's clipboard probe leaves six example texts in the history,
+  so both surfaces show cards on every boot.
+- **Fixed**: `svc.updates` sat on the glyph atlas's child slot (19) and was never granted
+  (`execd: FAIL app route grant svc=updates`) — moved to 22; the collision test now covers
+  every fixed app-child slot.
+- **Fixed (kernel bound)**: a waitset held at most 32 members and init added its respawn timer
+  last with the error ignored — the 33rd service pushed the timer out, so a crashed service was
+  never restarted (smp1: pinched). The bound is 64, mirrored in `nexus_abi::WAITSET_MEMBERS_MAX`
+  and held equal by `check-ipc-bounds.sh`; init adds the timer first and names every refused
+  member; a host test checks the service set against the bound.
+- **Text editing with the keyboard** (board round 1 — "Ctrl+C puts nothing in the clipboard"):
+  arrows, Home/End, Delete, Shift-selection and Ctrl+A/C/X/V in every DSL text field. The
+  keymap resolves them (Ctrl shortcuts by the layout's letter, other Ctrl combinations refused),
+  inputd forwards them, imed passes them to the focused field (RFC-0075 amendment: actions
+  4..=16; a running composition commits first; copy/cut refused in a password field), and the
+  DSL runtime keeps a caret and a selection on the new `nexus-textedit` engine (TASK-0095's
+  keyboard core) — typing replaces the selection, app-host paints caret and highlight. Copy/cut
+  write the selection to clipboardd over the app's own route, paste reads the newest item; a
+  selection over the item bound is stored cut short and a cut keeps it. The copying app fires
+  the new host trigger `ClipboardChanged`, so the open search shows the copy at once.
+- **Fixed (DSL runtime)**: the emitter's dependency walk skipped list operations — a site that
+  read a list only through `len(...)` / `take(...)` / `skip(...)` never re-emitted when only that
+  list changed (the search's clipboard panel after a copy; the launcher pager and the keyboard's
+  cards read lists the same way). `emit/deps.rs` covers list operations and record literals.
+- **Fixed (focus)**: an `.autofocus(true)` field keeps the keyboard when a control beside it is
+  pressed; before, the press cleared the focus and autofocus restored it one present later, and a
+  key typed in between was lost.
+- **Fixed (board round 1)**: the search's Apps filter ignored the query (app-host's
+  `bundlemgr.enumerate` now filters by id and label); a clipboard filter that matches nothing
+  says so instead of "empty".
+- **Privacy**: clipboardd's `write ok` line carries the seq only (no item length); app-host's
+  `text copy ok` / `text paste ok` fire once per process.
+- Proof: clipboardd contract (10 tests incl. six `test_reject_*`), wire + imed tests, the
+  search and keyboard conformance suites (incl. the injector's targets and the lane's copy step
+  at the layout), the shell-host typing test, goldens `shell_search_buttons_{light,dark}`, the
+  layout grid rule, the editing core (`nexus-textedit`, runtime `text_editing` /
+  `autofocus_hold` / `list_op_deps`, keymaps contract, inputd); QEMU: `SELFTEST: clipboard gate
+  ok` + `SELFTEST: ime insert ok` in every lane, the `usb-visible` clipboard phase — type, Ctrl+A,
+  Ctrl+C, Ctrl+V, press the copied card (`apphost: text copy ok`, `apphost: text paste ok`,
+  `SELFTEST: ui v7 clipboard ok`, chain group `clipboard`; budget 780 s); board rung
+  `board-visual: clipboard`.
+
 ### Added - 2026-10-06 (TASK-0066: window tiling — the desktop default model; ADR-0069)
 
 - **windowd WM**: `zones.rs` (halves, quarters, Fill, Return, arrangements; frames as a pure

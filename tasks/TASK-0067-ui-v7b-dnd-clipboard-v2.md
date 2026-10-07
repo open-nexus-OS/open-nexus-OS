@@ -1,6 +1,6 @@
 ---
-title: TASK-0067 UI v7b: clipboardd (single content-transfer authority, multi-MIME, history, focus-gated) + `svc.clipboard` binding + windowd DnD routing
-status: Draft (end-state rewrite 2026-09-09 — absorbs TASK-0087 clipboard v3 flavors and the 0122C clipboard bridge; RFC seed required)
+title: TASK-0067 UI v7b: clipboardd (the one clipboard authority — text history, focus-gated reads) + `svc.clipboard` binding + windowd focus truth
+status: In Progress (2026-10-07 — recut with the operator: text only, drag and drop moved to TASK-0086, flavors stay TASK-0087's; RFC-0094 + ADR-0070; implemented and QEMU-proven; board cycle 1 done, its findings fixed under TASK-0067B — board cycle 2 pending)
 owner: @ui
 created: 2025-12-23
 depends-on: []
@@ -14,7 +14,81 @@ links:
   - Policy as Code (clipboard guards): tasks/TASK-0047-policy-as-code-v1-unified-engine.md
   - Config broker (clipboard budgets): tasks/TASK-0046-config-v1-configd-schemas-layering-2pc-nx-config.md
   - Testing contract: scripts/qemu-test.sh
+  - Contract: docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md · Decision: docs/adr/0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md
+  - Drag and drop (moved here 2026-10-07): tasks/TASK-0086-ui-v12c-files-app-progress-dnd-share-openwith.md
 ---
+
+## Recut 2026-10-07 — text clipboard, no drag and drop (binding; supersedes the 2026-09-09 rewrite below where they differ)
+
+Operator decisions (2026-10-07): 0067 and 0067B ship together; **drag and drop moves to
+TASK-0086** (the Files app — the first real source of a drag, `text/uri-list` + grant tokens;
+its windowd routing ops take numbers there, not 29–31: op 29 is TASK-0066's tile preview);
+**text only** for now (flavors and the VMO path stay TASK-0087's); **sync over dsoftbus
+with same-account devices is a non-goal but shapes the item** (every entry carries `seq`,
+writer sid and origin device; sync becomes a consumer of the same history).
+
+### Goal (end system)
+
+ONE clipboard authority `clipboardd`: a bounded newest-first text history in fixed storage;
+writes held by the route; reads gated by the kernel sender id against the owners windowd
+pushes (focused window = paste; shell and keyboard = paste + history); a `svc.clipboard.*`
+DSL binding; nothing in the shell, the keyboard or windowd keeps its own copy.
+
+### Delivered 2026-10-07
+
+- **Wire** `nexus_wire::clipboardd` (`'C','B'` v1): `OP_WRITE/READ/LIST(query)/RESTORE/CLEAR`,
+  `OP_FOCUS` (windowd → clipboardd, never answered); bounds text 248 B, preview 120 B, query
+  64 B, history 16; round-trip + `test_reject_*` tests.
+- **clipboardd** (`source/services/clipboardd`, replaces the placeholder): `history.rs` (fixed
+  storage, dedupe-to-top, eviction, restore re-stamps, `seq` never reused), `gate.rs` (Write =
+  route holder; Read = focused/shell/keyboard; History = shell/keyboard; Focus = windowd's sid;
+  sid 0 = nobody), `answer.rs` (request → reply + an `Outcome` the markers come from — never
+  contents), `os_lite.rs` (declared server, `serve_next`, no reply without a cap, bounded
+  noisy lines, circuit breaker); `tests/contract.rs` (10 tests). `userspace/clipboard` deleted;
+  ADR-0008 superseded.
+- **Topology** `ServiceId::Clipboardd = 33` (COUNT 34), routes windowd/execd/harness →
+  clipboardd, slots (windowd 15, execd 27, harness 0x3B), spec (Platform stage, pure server),
+  policy `clipboardd = ["ipc.core"]`, `config/os-services.txt`, the system volume (cap raised
+  16 → 24 with a test instead of a silent `take`), supervision `Standard/OnFailure`, init's
+  pre-minted pair (the four identical pre-mint blocks folded into one helper — the
+  orchestrator shrank 734 → 702 LOC), windowd's leg via its declared spec, execd's named route.
+- **SDK route** `svc.clipboard` → child slot 23, permission `nexus.permission.CLIPBOARD`
+  (abilitymgr knows it). Found on the way: `svc.updates` sat on child slot 19 — the glyph
+  atlas's — and failed every boot (`execd: FAIL app route grant svc=updates`); moved to 22,
+  and `test_reject_child_slot_collision` now checks every fixed app-child slot.
+- **windowd** `runtime/clipboard_focus.rs`: the (focused, desktop, IME) owners recomputed on the
+  frame pass, deduped, NONBLOCK with an owed retry. `shell_band.rs` (pure, tested): presses,
+  hover and wheel inside the shell's panel glass — which the scene already composites above
+  app windows — and anywhere while the shell holds a modal go to the shell; before, the
+  Control Center over a window was visible but its presses reached the window.
+- **app-host** `effect_clipboard.rs` (`list/read/write/restore/clear`, denials →
+  `ERR_SVC_DENIED`, marker `apphost: dsl svc clipboard.restore ok (seq=…)`).
+- **Proof**: `SELFTEST: clipboard gate ok` (every lane: six stored items — the operator's
+  prefill — plus READ/LIST refused to the harness and a lying length MALFORMED);
+  `usb-visible`: `clipboardd: focus truth live`, `apphost: dsl svc clipboard.restore ok`,
+  `SELFTEST: ui v7 clipboard ok` (chain group `clipboard`); board rung `board-visual: clipboard`.
+
+- **Found and fixed by the first full gate (blocking, same code path — init's service set)**:
+  the 33rd service pushed init's respawn TIMER out of its responder waitset — the kernel
+  capped a waitset at 32 members and init added every control channel first, the timer last,
+  ignoring the error. On smp1 pinched's deliberate crash was never followed by a restart and
+  init slept (the run ended on the grace timer, `init: supervision persist restarts=0x`
+  missing). Fix at the root: the kernel bound is 64 (`MAX_WAITSET_MEMBERS`, the wait path's
+  stack snapshot 256 B), mirrored as `nexus_abi::WAITSET_MEMBERS_MAX` and held equal by
+  `check-ipc-bounds.sh` (rule 1b); init adds its timer FIRST and names every refused member
+  (`init: FAIL responder waitset add …`); nexus-init's host test
+  `the_responder_waitset_holds_every_service_and_the_timer` checks the topology against the
+  bound.
+
+- **Board cycle 1 (2026-10-07)**: copy and paste inside text fields were missing — built in
+  the TASK-0067B board round (keyboard editing core, Ctrl+A/C/X/V over the app's own route,
+  the `ClipboardChanged` trigger; RFC-0094 "Copy, cut and paste in text fields"). The
+  service side changed in one place: `clipboardd: write ok` names the seq only — a length per
+  copy would trace what the user typed (`markers_name_numbers_never_contents`).
+
+### Open findings (recorded, not built)
+- Background writes by permission holders are allowed (the mobile reference's model);
+  a policy for them is TASK-0087's together with flavors.
 
 ## End-state rewrite 2026-09-09 (binding; supersedes older sections where they differ)
 

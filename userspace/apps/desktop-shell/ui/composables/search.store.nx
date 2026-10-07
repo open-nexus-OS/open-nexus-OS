@@ -1,0 +1,150 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The shell search (TASK-0067B — the desktop reference's search bar): the
+// top-bar magnifier opens ONE field in the upper third of the screen with
+// three round mode buttons beside it — Apps (a filter over the installed-app
+// registry), Files (inert until the file search exists) and Clipboard (the
+// history from clipboardd, as cards).
+//
+// Nothing is filtered HERE: `svc.bundlemgr.enumerate(query)` and
+// `svc.clipboard.list(query)` both match AT the service, so every keystroke
+// re-asks and stale answers lose by the per-(event,case) generation rule.
+// Tapping a card is the copy-back (`svc.clipboard.restore`): the item becomes
+// the newest again and the list re-asks, so the card moves to the top.
+//
+// The fields are program-global (one namespace per app): `search*`/`clip*`
+// keep them apart from the launcher's own `query`/`apps`.
+
+Store SearchStore {
+    searchOpen: Bool = false,
+    // "" = no category chosen (typing shows apps) · "apps" · "clipboard".
+    searchMode: Str = "",
+    searchQuery: Str = "",
+    searchApps: List<AppEntry> = [],
+    clips: List<ClipEntry> = [],
+    // clipboardd refused the history (the gate) — shown, never hidden.
+    clipsDenied: Bool = false,
+    // A card was copied back since the last keystroke: the header's "copied" mark.
+    clipCopied: Bool = false,
+}
+
+Event SearchEvent {
+    SearchOpen,
+    SearchClose,
+    SearchNoop,
+    SearchTyped,
+    SearchMode(Str),
+    SearchAppsLoaded(List<AppEntry>),
+    SearchAppsFailed(Int),
+    ClipsLoaded(List<ClipEntry>),
+    ClipsFailed(Int),
+    ClipRestore(Int),
+    ClipRestored(Bool),
+    ClipsReload,
+    ClipRestoreFailed(Int),
+    SearchLaunch(Str),
+    SearchLaunched(Bool),
+    SearchLaunchFailed(Int),
+}
+
+reduce SearchEvent {
+    SearchOpen => {
+        state.searchOpen = true;
+        state.searchQuery = "";
+        state.searchMode = "";
+        state.clipCopied = false;
+    },
+    SearchClose => {
+        state.searchOpen = false;
+        state.searchQuery = "";
+        state.searchMode = "";
+    },
+    SearchNoop => state.searchOpen = state.searchOpen,
+    SearchTyped => state.clipCopied = false,
+    SearchMode(m) => {
+        if state.searchMode == m {
+            state.searchMode = "";
+        } else {
+            state.searchMode = m;
+        }
+    },
+    SearchAppsLoaded(apps) => state.searchApps = apps,
+    // A failed registry read keeps the last list (never a fake empty one).
+    SearchAppsFailed(e) => state.searchOpen = state.searchOpen,
+    ClipsLoaded(items) => {
+        state.clips = items;
+        state.clipsDenied = false;
+    },
+    ClipsFailed(e) => state.clipsDenied = true,
+    ClipRestore(seq) => state.clipCopied = true,
+    ClipRestored(ok) => state.searchOpen = state.searchOpen,
+    ClipsReload => state.searchOpen = state.searchOpen,
+    ClipRestoreFailed(e) => state.clipCopied = false,
+    SearchLaunch(id) => {
+        state.searchOpen = false;
+        state.searchQuery = "";
+        state.searchMode = "";
+    },
+    SearchLaunched(ok) => state.searchOpen = state.searchOpen,
+    SearchLaunchFailed(e) => state.searchOpen = state.searchOpen,
+}
+
+// Opening lists every app and the whole history; typing narrows both.
+@effect on SearchOpen {
+    match svc.bundlemgr.enumerate(state.searchQuery) {
+        Ok(apps) => dispatch(SearchAppsLoaded(apps)),
+        Err(e) => dispatch(SearchAppsFailed(e)),
+    }
+}
+
+@effect on SearchTyped {
+    match svc.bundlemgr.enumerate(state.searchQuery) {
+        Ok(apps) => dispatch(SearchAppsLoaded(apps)),
+        Err(e) => dispatch(SearchAppsFailed(e)),
+    }
+}
+
+// The history follows the apps answer, so one keystroke refreshes both.
+@effect on SearchAppsLoaded(apps) {
+    match svc.clipboard.list(state.searchQuery) {
+        Ok(items) => dispatch(ClipsLoaded(items)),
+        Err(e) => dispatch(ClipsFailed(e)),
+    }
+}
+
+@effect on SearchMode(m) {
+    match svc.clipboard.list(state.searchQuery) {
+        Ok(items) => dispatch(ClipsLoaded(items)),
+        Err(e) => dispatch(ClipsFailed(e)),
+    }
+}
+
+@effect on ClipRestore(seq) {
+    match svc.clipboard.restore(seq) {
+        Ok(ok) => dispatch(ClipRestored(ok)),
+        Err(e) => dispatch(ClipRestoreFailed(e)),
+    }
+}
+
+@effect on ClipRestored(ok) {
+    match svc.clipboard.list(state.searchQuery) {
+        Ok(items) => dispatch(ClipsLoaded(items)),
+        Err(e) => dispatch(ClipsFailed(e)),
+    }
+}
+
+// Something was copied in this app (Ctrl+C in the search field): the history re-reads.
+@effect on ClipsReload {
+    match svc.clipboard.list(state.searchQuery) {
+        Ok(items) => dispatch(ClipsLoaded(items)),
+        Err(e) => dispatch(ClipsFailed(e)),
+    }
+}
+
+@effect on SearchLaunch(id) {
+    match svc.ability.launch(id) {
+        Ok(ok) => dispatch(SearchLaunched(ok)),
+        Err(e) => dispatch(SearchLaunchFailed(e)),
+    }
+}

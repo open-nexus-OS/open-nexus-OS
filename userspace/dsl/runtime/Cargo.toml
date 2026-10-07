@@ -23,6 +23,8 @@ nexus-dsl-ir = { path = "../ir", default-features = false }
 capnp = { version = "0.24", default-features = false, features = ["alloc"] }
 nexus-layout-types = { path = "../../ui/layout-types" }
 nexus-layout = { path = "../../ui/layout" }
+# TASK-0067B: the focused field's caret + selection engine (TASK-0095 core).
+nexus-textedit = { path = "../../ui/textedit_core" }
 nexus-style = { path = "../../ui/style" }
 nexus-widget-button = { path = "../../ui/widgets/button" }
 nexus-widget-card = { path = "../../ui/widgets/card" }

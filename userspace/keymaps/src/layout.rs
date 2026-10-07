@@ -13,7 +13,7 @@ use hid::KeyboardUsage;
 
 use crate::{
     table::{self, lookup, MappingEntry},
-    KeyAction, KeyOutput, KeymapError, Modifiers,
+    EditKey, KeyAction, KeyOutput, KeymapError, Modifiers,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,9 +56,20 @@ impl Keymap {
         usage: KeyboardUsage,
         modifiers: Modifiers,
     ) -> Result<KeyOutput, KeymapError> {
+        // The navigation keys edit a text field in every layout; Shift selects.
+        if !modifiers.control() && !modifiers.alt_gr() {
+            if let Some(key) = navigation(usage, modifiers.shift()) {
+                return Ok(KeyOutput::Action(KeyAction::Edit(key)));
+            }
+        }
         if modifiers.control() {
             if usage == KeyboardUsage::SPACE && !modifiers.alt_gr() {
                 return Ok(KeyOutput::Action(KeyAction::ImeSwitch));
+            }
+            if !modifiers.alt_gr() && !modifiers.shift() {
+                if let Some(key) = self.shortcut(usage) {
+                    return Ok(KeyOutput::Action(KeyAction::Edit(key)));
+                }
             }
             return Err(KeymapError::UnsupportedModifierCombination);
         }
@@ -76,6 +87,47 @@ impl Keymap {
         let entry = lookup(tables.as_slice(), usage).ok_or(KeymapError::UnsupportedKey)?;
         resolve_entry(self.layout, entry, modifiers)
     }
+}
+
+impl Keymap {
+    /// Ctrl+A / C / X / V by the LAYOUT's letter (Ctrl+C is the key that types `c` in the
+    /// active layout, as on every desktop); a layout whose key types no Latin letter there
+    /// falls back to the key's US position, so the shortcuts work in every layout.
+    fn shortcut(&self, usage: KeyboardUsage) -> Option<EditKey> {
+        let letter = match self.resolve(usage, Modifiers::default()) {
+            Ok(KeyOutput::Text(ch)) if ch.is_ascii_alphabetic() => ch.to_ascii_lowercase(),
+            _ => match usage {
+                KeyboardUsage::A => 'a',
+                KeyboardUsage::C => 'c',
+                KeyboardUsage::X => 'x',
+                KeyboardUsage::V => 'v',
+                _ => return None,
+            },
+        };
+        match letter {
+            'a' => Some(EditKey::SelectAll),
+            'c' => Some(EditKey::Copy),
+            'x' => Some(EditKey::Cut),
+            'v' => Some(EditKey::Paste),
+            _ => None,
+        }
+    }
+}
+
+/// The navigation keys as editing commands (layout-independent); Shift extends a selection.
+fn navigation(usage: KeyboardUsage, shift: bool) -> Option<EditKey> {
+    Some(match (usage, shift) {
+        (KeyboardUsage::LEFT_ARROW, false) => EditKey::Left,
+        (KeyboardUsage::RIGHT_ARROW, false) => EditKey::Right,
+        (KeyboardUsage::HOME, false) => EditKey::Home,
+        (KeyboardUsage::END, false) => EditKey::End,
+        (KeyboardUsage::LEFT_ARROW, true) => EditKey::SelectLeft,
+        (KeyboardUsage::RIGHT_ARROW, true) => EditKey::SelectRight,
+        (KeyboardUsage::HOME, true) => EditKey::SelectHome,
+        (KeyboardUsage::END, true) => EditKey::SelectEnd,
+        (KeyboardUsage::DELETE_FORWARD, _) => EditKey::Delete,
+        _ => return None,
+    })
 }
 
 enum Tables {

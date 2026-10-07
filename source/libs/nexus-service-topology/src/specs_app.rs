@@ -93,6 +93,11 @@ pub(crate) const EXECD: ServiceSpec = ServiceSpec {
         Route { to: ServiceId::Vfsd, kind: RouteKind::ReplyInbox, slots: slots::execd::VFSD },
         Route { to: ServiceId::Updated, kind: RouteKind::ReplyInbox, slots: slots::execd::UPDATED },
         Route {
+            to: ServiceId::Clipboardd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::execd::CLIPBOARDD,
+        },
+        Route {
             to: ServiceId::Statefsd,
             kind: RouteKind::SharedResponse,
             slots: slots::execd::STATEFSD,
@@ -157,6 +162,22 @@ pub(crate) const SESSIOND: ServiceSpec = ServiceSpec {
     routes_to: &[],
     announce: true,
     server_slots: slots::sessiond::SERVER,
+    reply_slots: SlotPair::UNDECLARED,
+    extra_slots: &[],
+};
+
+// TASK-0067 (RFC-0094): the clipboard authority. A pure server: windowd pushes the focus
+// truth, app children (`svc.clipboard`) and the harness call it; it calls nobody.
+// Platform stage — it gates no display barrier, and the shell asks only after login.
+/// The declaration of `clipboardd`.
+pub(crate) const CLIPBOARDD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Clipboardd,
+    stage: Stage::Platform,
+    exposes_server: true,
+    reply_inbox: false,
+    routes_to: &[],
+    announce: false,
+    server_slots: slots::clipboardd::SERVER,
     reply_slots: SlotPair::UNDECLARED,
     extra_slots: &[],
 };

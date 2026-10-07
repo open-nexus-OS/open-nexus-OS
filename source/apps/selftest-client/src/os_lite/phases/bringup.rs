@@ -24,7 +24,9 @@ use nexus_ipc::{Client, Wait as IpcWait};
 use crate::markers::{emit_byte, emit_bytes, emit_hex_u64, emit_line};
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::{route_slots_from_responder, route_with_retry};
-use crate::os_lite::{ime_ranking, imed, imed_osk, probes, services, settings_watch, timed};
+use crate::os_lite::{
+    clipboard, ime_ranking, imed, imed_osk, probes, services, settings_watch, timed,
+};
 
 pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     // TASK-0050 PR-3..5: reset/target cycle — reset lane ONLY (raw fw_cfg
@@ -136,6 +138,18 @@ pub(crate) fn run(ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_IME_V2_CANDIDATES_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_IME_V2_CANDIDATES_FAIL);
+    }
+    // TASK-0067B: the keyboard's clipboard card is one OP_INSERT on the osk endpoint.
+    if imed_osk::imed_insert_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_IME_INSERT_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_IME_INSERT_FAIL);
+    }
+    // TASK-0067 (RFC-0094): the clipboard gate's deny side + the history's prefill.
+    if clipboard::clipboard_gate_probe().is_ok() {
+        emit_line(crate::markers::M_SELFTEST_CLIPBOARD_GATE_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_CLIPBOARD_GATE_FAIL);
     }
     // RFC-0075 Phase 4: the deterministic ranker runs in the OS runtime — one
     // commit lifts a table-last candidate, and that order survives an NDJSON

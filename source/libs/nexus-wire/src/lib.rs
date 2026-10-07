@@ -21,6 +21,7 @@
 
 pub mod bundleimg;
 pub mod bundlemgrd;
+pub mod clipboardd;
 pub mod codec;
 pub mod execd;
 mod frames;

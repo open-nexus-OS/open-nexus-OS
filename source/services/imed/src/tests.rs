@@ -269,3 +269,75 @@ fn relay_ignore_budget_self_terminates() {
     assert!(core.relay_layout("jp"), "budget exhausted: the relay applies");
     assert_eq!(core.layout_tag(), "jp", "external change can never be starved");
 }
+
+#[test]
+fn insert_commits_the_text_alone_into_the_focused_field() {
+    let mut core = focused();
+    // A half-typed composition is dropped first; the strip clears if it showed.
+    let _ = key(&mut core, wire::KEY_KIND_TEXT, u32::from('a'), 0);
+    let (pushes, echo) = core.insert("Hallo Welt");
+    let pushes = pushes.expect("focused: delivers");
+    assert_eq!(pushes.surface_id, 7);
+    assert_eq!(pushes.commit.map(|c| c.as_str().to_string()), Some("Hallo Welt".to_string()));
+    assert_eq!(echo.commit.as_str(), "Hallo Welt");
+    assert!(pushes.action.is_none());
+}
+
+#[test]
+fn test_reject_insert_without_text_focus() {
+    let mut core = ImedCore::new();
+    let (pushes, echo) = core.insert("x");
+    assert!(pushes.is_none(), "no focus: nothing delivered");
+    assert_eq!(echo.commit.as_str(), "x", "the step's commit is echoed like a typed key's");
+    core.set_focus(9, true, wire::FIELD_KIND_NONE);
+    assert!(core.insert("x").0.is_none(), "window focus without a field: nothing delivered");
+    let mut core = focused();
+    assert!(core.insert("").0.is_none(), "empty text: nothing delivered");
+}
+
+#[test]
+fn editing_commands_pass_to_the_focused_field() {
+    let mut core = focused();
+    for action in
+        [wire::ACTION_LEFT, wire::ACTION_SELECT_ALL, wire::ACTION_COPY, wire::ACTION_PASTE]
+    {
+        let push = key(&mut core, wire::KEY_KIND_ACTION, 0, action).expect("delivered");
+        assert_eq!((push.surface_id, push.action, push.commit), (7, Some(action), None));
+    }
+}
+
+#[test]
+fn an_editing_command_commits_the_running_composition_first() {
+    let mut core = focused();
+    core.set_layout("jp");
+    let _ = key(&mut core, wire::KEY_KIND_TEXT, u32::from('k'), 0);
+    let push = key(&mut core, wire::KEY_KIND_TEXT, u32::from('a'), 0).expect("composing");
+    assert_eq!(push.preedit.map(|p| p.as_str().to_string()), Some("か".to_string()));
+    // Ctrl+C now: the composed か reaches the field BEFORE the copy acts, the strip clears.
+    let push = key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_COPY).expect("delivered");
+    assert_eq!(push.commit.map(|c| c.as_str().to_string()), Some("か".to_string()));
+    assert_eq!(push.action, Some(wire::ACTION_COPY), "the command, not the Enter that committed");
+    assert!(push.preedit.is_some_and(|p| p.is_empty()), "the strip is cleared");
+}
+
+#[test]
+fn test_reject_copy_and_cut_out_of_a_password_field() {
+    let mut core = ImedCore::new();
+    core.set_focus(7, true, wire::FIELD_KIND_PASSWORD);
+    assert!(key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_COPY).is_none());
+    assert!(key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_CUT).is_none());
+    // Moving the caret and pasting INTO a password field stay allowed.
+    assert!(key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_PASTE).is_some());
+    assert!(key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_LEFT).is_some());
+}
+
+#[test]
+fn test_reject_editing_commands_without_a_text_field() {
+    let mut core = ImedCore::new();
+    assert!(
+        key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_SELECT_ALL).is_none(),
+        "no focus"
+    );
+    core.set_focus(9, true, wire::FIELD_KIND_NONE);
+    assert!(key(&mut core, wire::KEY_KIND_ACTION, 0, wire::ACTION_PASTE).is_none(), "window only");
+}

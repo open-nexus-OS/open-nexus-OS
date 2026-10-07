@@ -1,0 +1,13 @@
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/chat/manifest.toml
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/chat/assets/icon.svg
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/desktop-shell/manifest.toml
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/greeter/manifest.toml
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/settings/manifest.toml
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/settings/assets/icon.svg
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/window-kit/manifest.toml
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/stash/manifest.toml
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/stash/assets/icon.svg
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/calculator/manifest.toml
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/calculator/assets/icon.svg
+cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/ui/app-icons/../../apps/ime-ui/manifest.toml
