@@ -112,10 +112,10 @@ smoke reports it missing.
   once-per-process proofs (`app-host/src/proof_line.rs`), change-only layer counts,
   power-of-two metric snapshots (`docs/standards/SECURITY_STANDARDS.md` §1); the 228
   per-keystroke lines in the archived board logs were scrubbed (CHANGELOG 2026-10-08).
-- **Paste on the board**: no `apphost: text paste ok` on this boot (QEMU proves the path). A
-  failed paste is silent today — no route, a refusal and an empty history all look the same
-  to the operator; a bounded `apphost: text paste FAIL (reason=…)` line would make it
-  diagnosable.
+- **Paste on the board**: confirmed 2026-10-08 (the privacy-fix board cycle: `apphost: text
+  paste ok` in two apps). Still open: a failed paste is silent — no route, a refusal and an
+  empty history all look the same to the operator; a bounded `apphost: text paste FAIL
+  (reason=…)` line would make it diagnosable.
 - Files search waits for an indexed file query (svc.files has listing, not search).
 - The keyboard shows the newest six cards; scrolling the band is the OSK's next step.
 - A copy in ANOTHER app does not refresh an already open history (e.g. the keyboard's cards):
