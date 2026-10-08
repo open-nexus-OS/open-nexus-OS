@@ -51,7 +51,6 @@
 
 // RFC-0067 P5-Final G3: CPU glass blur (`backdrop`) deleted — GPU-rendered.
 mod damage;
-mod filter;
 mod framebuffer_grant;
 #[cfg(nexus_env = "os")]
 mod loop_telemetry;
@@ -130,7 +129,6 @@ pub(crate) const USE_DESKTOP_SHELL: bool = false;
 // (`DisplayServerRuntime.shell_config.desktop_chrome`), so the active shell —
 // not a hardcoded constant — decides whether the desktop chrome is composited.
 
-pub(crate) const LIVE_FILTER_VARIANTS: [&str; 5] = ["", "a", "ap", "c", "b"];
 #[cfg(nexus_env = "os")]
 pub(crate) const ROW_WRITE_CHUNK: usize = 40;
 #[cfg(not(nexus_env = "os"))]

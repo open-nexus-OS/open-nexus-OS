@@ -1450,20 +1450,10 @@ inputd: imed forward ok
 inputd: live keyboard route on
 inputd: push hz=64
 windowd: clipping on
-windowd: text input on
-windowd: filter list ok
 windowd: keyboard visible
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 hidrawd: wake hz=9 rx hz=9 ev hz=9 tx hz=9
 fps: hidrawd ingress_hz=8 sent_hz=8 raw_batches=9 wire_batches=9 wire_skip=0 raw_events=9 norm_events=9 kbd_batches=9 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=9
-windowd: text input on
-windowd: filter list ok
 inputd: push hz=9
 windowd: loop hz=14 apply=9 present=8 nack=0 fullrq=0 reply(ch=4 cap=1 shared=0)
 policyd: audit emit ok
@@ -1475,25 +1465,11 @@ init: up pinched
 pinched: workpool ready
 SELFTEST: service restart ok
 SELFTEST: crash-loop count ok
-windowd: text input on
-windowd: filter list ok
 hidrawd: wake hz=6 rx hz=6 ev hz=6 tx hz=6
 fps: hidrawd ingress_hz=5 sent_hz=5 raw_batches=6 wire_batches=6 wire_skip=0 raw_events=6 norm_events=6 kbd_batches=6 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 hidrawd: wake hz=12 rx hz=12 ev hz=12 tx hz=12
 fps: hidrawd ingress_hz=11 sent_hz=11 raw_batches=12 wire_batches=12 wire_skip=0 raw_events=12 norm_events=12 kbd_batches=12 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=12
-windowd: text input on
-windowd: filter list ok
 inputd: push hz=9
 hidrawd: wake hz=5 rx hz=5 ev hz=5 tx hz=5
 fps: hidrawd ingress_hz=4 sent_hz=4 raw_batches=5 wire_batches=5 wire_skip=0 raw_events=5 norm_events=6 kbd_batches=4 mouse_rel=1 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0

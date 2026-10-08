@@ -140,6 +140,8 @@ impl DslApp {
             last_band: None,
             alloc_band_h: 0,
             band_pick: alloc::vec::Vec::new(),
+            taps_are_keystrokes: false,
+            tap_present_owed: false,
         };
         // Seed the animation state from the mounted scene: resting
         // transforms for value-tracked nodes, enter transitions for

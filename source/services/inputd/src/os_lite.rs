@@ -439,7 +439,8 @@ impl LiveRouteRuntime {
         self.chain.dispatch_events = self.chain.dispatch_events.saturating_add(dispatch_count);
         self.chain.delivered_events =
             self.chain.delivered_events.saturating_add(delivered_count as u64);
-        self.apply_visible_text_input();
+        // Keys reach apps through imed only (RFC-0075); the visible state carries no
+        // typed text (input-live-protocol v2).
         self.forward_keys_to_imed();
         if !self.absolute_source_debug_emitted
             && matches!(
@@ -487,26 +488,6 @@ impl LiveRouteRuntime {
             active_source,
         );
         STATUS_OK
-    }
-
-    fn apply_visible_text_input(&mut self) {
-        if self.input.router().focused_surface() != Some(self.surface) {
-            return;
-        }
-        for dispatch in self.input.recent_dispatches() {
-            let InputDispatch::Keyboard { output, .. } = dispatch else {
-                continue;
-            };
-            match output {
-                KeyOutput::Text(ch) => {
-                    let _ = self.visible_state.push_text_char(*ch);
-                }
-                KeyOutput::Action(KeyAction::Backspace) => {
-                    let _ = self.visible_state.pop_text_char();
-                }
-                _ => {}
-            }
-        }
     }
 
     /// RFC-0075 key branch: forward every resolved key of this batch to the

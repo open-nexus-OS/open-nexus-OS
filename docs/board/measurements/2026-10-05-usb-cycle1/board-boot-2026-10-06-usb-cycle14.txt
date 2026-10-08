@@ -1687,27 +1687,19 @@ inputd: imed forward ok
 inputd: live keyboard route on
 inputd: push hz=87
 windowd: clipping on
-windowd: text input on
-windowd: filter list ok
 apphost: text commit applied
 apphost: scroll window texts=6
 apphost: frame arena (layouts=4 gen=8 base=106944 peak=70517 of=1048576 spill=0 free=246 carve=
 apphost: heap steady (layouts=4 base=106944 peak=70517)
-windowd: text input on
-windowd: filter list ok
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
 WINDOWD: surface presented id=1 seq=3
 apphost: scroll window texts=6
 WINDOWD: desktop layers=5
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=8 events hz=8 reports hz=8 per_irq_max=1 dry=0 dropped=0 refused=0 drain_us avg=46 max=56
 hidrawd: wake hz=8 rx hz=8 ev hz=8 tx hz=8
 fps: hidrawd ingress_hz=7 sent_hz=7 raw_batches=8 wire_batches=8 wire_skip=0 raw_events=8 norm_events=8 kbd_batches=8 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=8 travel dx=0 dy=0 rel=0
-windowd: text input on
-windowd: filter list ok
 inputd: push hz=8
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
@@ -1715,10 +1707,6 @@ WINDOWD: surface presented id=1 seq=4
 apphost: scroll window texts=6
 apphost: scroll window texts=6
 WINDOWD: desktop layers=5
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
 apphost: scroll window texts=6
@@ -1730,20 +1718,12 @@ WINDOWD: surface presented id=1 seq=5
 WINDOWD: desktop layers=5
 hidrawd: wake hz=7 rx hz=7 ev hz=7 tx hz=7
 fps: hidrawd ingress_hz=6 sent_hz=6 raw_batches=7 wire_batches=7 wire_skip=0 raw_events=7 norm_events=7 kbd_batches=7 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
 WINDOWD: surface presented id=1 seq=6
 WINDOWD: desktop layers=5
 apphost: scroll window texts=6
 apphost: scroll window texts=6
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
 apphost: scroll window texts=6
@@ -1752,8 +1732,6 @@ apphost: heap steady (layouts=12 base=106944 peak=70597)
 WINDOWD: surface presented id=1 seq=7
 WINDOWD: desktop layers=5
 apphost: scroll window texts=6
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=9 events hz=10 reports hz=10 per_irq_max=2 dry=0 dropped=0 refused=0 drain_us avg=48 max=65
 hidrawd: wake hz=9 rx hz=9 ev hz=10 tx hz=9
 fps: hidrawd ingress_hz=8 sent_hz=8 raw_batches=9 wire_batches=9 wire_skip=0 raw_events=10 norm_events=10 kbd_batches=9 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
@@ -1763,8 +1741,6 @@ apphost: submitted 5 layers
 apphost: scroll window texts=6
 WINDOWD: desktop layers=5
 inputd: push hz=8
-windowd: text input on
-windowd: filter list ok
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
 apphost: scroll window texts=6
@@ -1774,8 +1750,6 @@ apphost: submitted 5 layers
 WINDOWD: desktop layers=5
 hidrawd: wake hz=5 rx hz=5 ev hz=5 tx hz=5
 fps: hidrawd ingress_hz=1 sent_hz=1 raw_batches=5 wire_batches=5 wire_skip=0 raw_events=5 norm_events=5 kbd_batches=5 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
-windowd: text input on
-windowd: filter list ok
 apphost: scroll window texts=6
 apphost: frame arena (layouts=16 gen=32 base=106944 peak=70637 of=1048576 spill=0 free=246 carv
 apphost: heap steady (layouts=16 base=106944 peak=70637)
@@ -1784,15 +1758,7 @@ apphost: submitted 5 layers
 WINDOWD: desktop layers=5
 hidrawd: wake hz=1 rx hz=1 ev hz=1 tx hz=1
 fps: hidrawd ingress_hz=0 sent_hz=0 raw_batches=1 wire_batches=1 wire_skip=0 raw_events=1 norm_events=1 kbd_batches=1 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
-windowd: text input on
-windowd: filter list ok
 apphost: scroll window texts=6
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
 WINDOWD: desktop layers=5
@@ -1801,29 +1767,17 @@ apphost: scroll window texts=6
 apphost: scroll window texts=6
 apphost: frame arena (layouts=20 gen=40 base=106944 peak=70637 of=1048576 spill=0 free=246 carv
 apphost: heap steady (layouts=20 base=106944 peak=70637)
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=12 events hz=12 reports hz=12 per_irq_max=1 dry=0 dropped=0 refused=0 drain_us avg=48 max=59
 hidrawd: wake hz=12 rx hz=12 ev hz=12 tx hz=12
 fps: hidrawd ingress_hz=11 sent_hz=11 raw_batches=12 wire_batches=12 wire_skip=0 raw_events=12 norm_events=12 kbd_batches=12 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=12 travel dx=0 dy=0 rel=0
 inputd: push hz=12
-windowd: text input on
-windowd: filter list ok
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
 WINDOWD: desktop layers=5
 apphost: scroll window texts=6
 apphost: scroll window texts=6
 apphost: scroll window texts=6
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 APPHOST: interactive frame presented
 apphost: submitted 5 layers
 WINDOWD: desktop layers=5
@@ -1832,8 +1786,6 @@ apphost: frame arena (layouts=24 gen=48 base=106944 peak=70637 of=1048576 spill=
 apphost: heap steady (layouts=24 base=106944 peak=70637)
 apphost: scroll window texts=6
 apphost: scroll window texts=6
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=12 events hz=12 reports hz=12 per_irq_max=1 dry=0 dropped=0 refused=0 drain_us avg=48 max=61
 hidrawd: wake hz=12 rx hz=12 ev hz=12 tx hz=12
 fps: hidrawd ingress_hz=11 sent_hz=11 raw_batches=12 wire_batches=12 wire_skip=0 raw_events=12 norm_events=12 kbd_batches=12 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
@@ -1942,7 +1894,6 @@ APPHOST: mounted hash=3e9c7a0b282ab58a
 apphost: window intent style=plain mode=auto level=desktop resizable=false
 settingsd: set key=ui.shell.mode value=desktop
 apphost: dsl svc settings.set ok
-[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=2
 apphost: dsl svc bundlemgr.enumerate ok n=4
 APPHOST: initial effects ran
 alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000000840 align=0x0000000000000008 class=0
@@ -2306,8 +2257,6 @@ apphost: submitted 4 layers
 APPHOST: event loop armed
 WINDOWD: app layers=4
 windowd: cursor ring off
-apphost: dsl svc bundlemgr.enumerate ok n=4
-[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=3
 apphost: scroll window texts=24
 statefsd: compaction done (gen=25, entries=57)
 xhcid: irq hz=23 events hz=112 reports hz=112 per_irq_max=8 dry=10 dropped=0 refused=0 drain_us avg=610 max=13140

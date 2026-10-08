@@ -76,23 +76,27 @@ impl super::DslApp {
     /// handler ran and changed nothing (wrong event, or a reducer that wrote
     /// the same value); `dmg=Layout` with unchanged `txt` = the store moved
     /// but the view did not. Bounded so a tap storm cannot flood the
-    /// non-freeing bump heap.
+    /// non-freeing bump heap. Never in the keyboard overlay, where a tap is a
+    /// keystroke. Returns whether the tap was traced (it then owes a settle line).
     pub(super) fn trace_tap(
         &self,
         x: i32,
         y: i32,
         hit: Option<usize>,
         damage: Option<nexus_dsl_runtime::Damage>,
-    ) {
+    ) -> bool {
         static TAPS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-        if TAPS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 16 {
-            return;
+        if self.taps_are_keystrokes
+            || TAPS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 16
+        {
+            return false;
         }
         let mut txt = alloc::string::String::new();
         for (_, content, _, _, _) in self.texts.iter().take(2) {
             let _ = core::fmt::write(&mut txt, format_args!("'{content}' "));
         }
         raw_marker(&alloc::format!("apphost: tap ({x},{y}) hit={hit:?} dmg={damage:?} txt={txt}"));
+        true
     }
 
     pub(super) fn render(&mut self, vmo: u32) -> bool {

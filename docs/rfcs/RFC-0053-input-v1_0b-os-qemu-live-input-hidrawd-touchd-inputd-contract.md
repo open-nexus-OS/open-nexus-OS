@@ -285,6 +285,18 @@ focused app window and never forwards it; the chord's key is NOT a keyboard disp
 and the focused app never see it. inputd now tracks Super (GUI) and Left Alt in its modifier
 state for this; `is_modifier` already covered 0xe0..=0xe7.
 
+## Amendment 2026-10-08 (the keystroke privacy rule): the visible state carries no typed text
+
+`VisibleState` lost `text_input_len` + `text_input_bytes` (25 bytes; `STATE_LEN` 63 → 38, the
+wheel delta and the chord move up), and the protocol `VERSION` is 2 — a v1 frame is refused by
+its version, never misread (`test_reject_v1_frames_and_text_in_the_visible_state`). v1 had inputd
+append every typed character to the state it pushes to windowd, for a text-filter proof panel
+that no longer exists (RFC-0067 C1): keystrokes crossed into windowd and into the observer state
+windowd serves, and windowd wrote two UART lines per keystroke. Typed text reaches an app only
+through imed (RFC-0075) and its focus-gated delivery; the state push carries flags, the cursor,
+the wheel delta and the chord. The retired identifiers are held out of the tree by
+`scripts/check-retired-names.sh`.
+
 ## Alternatives considered
 
 - Build live-input behavior directly inside `windowd` (rejected: authority blur and maintenance drift).

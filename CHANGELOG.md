@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-10-08 (privacy: no keystroke reaches a log — not its text, not its rhythm)
+
+- **The visible state carries no typed text** (input-live-protocol v2, RFC-0053 amendment):
+  inputd appended every typed character to the state it pushes to windowd — for a text-filter
+  proof panel deleted long ago — so keystrokes crossed into windowd and the observer state it
+  serves, and windowd wrote two lines per keystroke (`windowd: text input on` / `filter list
+  ok`). The field, inputd's copy, windowd's filter remnants (`compositor/filter.rs`, the counters,
+  a dead-code field) and six unregistered markers are gone; the frame is 25 bytes shorter and
+  version 2; `check-retired-names.sh` keeps the identifiers out.
+- **No log line per keystroke** (`docs/standards/SECURITY_STANDARDS.md` §1): app-host's proof
+  lines that typing triggers fire once per process (`app-host/src/proof_line.rs`: the live
+  search's `bundlemgr.enumerate ok`, the interactive present, text commit/copy/paste), the
+  scroll-window count logs on a new high, the glass-layer counts (app-host and windowd) on a
+  change, windowd's surface-present line on a surface's first frame, metricsd's counter and
+  histogram snapshots on reaching or crossing a power of two (`metricsd::snapshot_due`). Tap
+  traces stay bounded and are silent in the keyboard overlay, where a tap is a keystroke.
+- **The live injector** waits on `apphost: tap settled` (a traced pointer tap's frame is on
+  screen) instead of a per-present line.
+- **Archived board logs** (`docs/board/measurements/2026-10-05-usb-cycle1/`): the 228
+  per-keystroke lines were removed from ten logs (README note); the git history still holds them.
+- Proof: `input-live-protocol` `test_reject_v1_frames_and_text_in_the_visible_state`, app-host
+  `proof_line` tests, metricsd `test_reject_a_snapshot_line_per_increment`; the lanes' markers are
+  unchanged.
+
 ### Changed - 2026-10-08 (docs: status sweep — finished tasks and RFCs marked Done and listed)
 
 - **Tasks**: the status board's Done list gained the 26 ledgers that were Done but missing from

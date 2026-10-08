@@ -40,13 +40,20 @@ impl DisplayServerRuntime {
         self.observer_state.cursor_overlay_visible |= self.state.cursor_overlay_visible;
         self.observer_state.cursor_x = self.state.cursor_x;
         self.observer_state.cursor_y = self.state.cursor_y;
-        self.observer_state.text_input_len = self.state.text_input_len;
-        self.observer_state.text_input_bytes = self.state.text_input_bytes;
     }
 
     pub(crate) fn reset_effect_caches(&mut self) {
         // The CPU glass caches are DELETED (GPU path composites live); the
         // seam stays for the mode-switch call site until the Plane-1 CPU
         // path retires with the evidence-contract move.
+    }
+}
+
+/// Records a surface's glass-layer count and logs it on a CHANGE only: an app re-declares its
+/// layers on every full present — a keystroke's too — and a line each time would put typing
+/// rhythm into the log (the keystroke privacy rule).
+pub(super) fn note_layer_count(slot: &mut usize, n: usize, kind: &str) {
+    if core::mem::replace(slot, n) != n {
+        let _ = debug_println(&alloc::format!("WINDOWD: {kind} layers={n}"));
     }
 }

@@ -81,10 +81,8 @@ impl DslApp {
             return false;
         }
         // One-shot end-to-end proof (RFC-0075): the first commit that changed
-        // the focused field. Count-only — typed text NEVER hits markers.
-        static COMMIT_MARKED: core::sync::atomic::AtomicBool =
-            core::sync::atomic::AtomicBool::new(false);
-        if !COMMIT_MARKED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+        // the focused field. Typed text and its rhythm NEVER hit markers.
+        if crate::proof_line::TEXT_COMMIT.claim() {
             raw_marker("apphost: text commit applied");
         }
         if matches!(damage, Some(Damage::Layout)) {

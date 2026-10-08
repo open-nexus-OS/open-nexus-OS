@@ -180,7 +180,9 @@ fn handle_frame(
             let result = registry.counter_inc(sender_service_id, name, labels, delta);
             match result {
                 Ok(value) => {
-                    log_counter_snapshot(name, value);
+                    if crate::snapshot_due(value.saturating_sub(delta), value) {
+                        log_counter_snapshot(name, value);
+                    }
                     retention.record_metric(
                         sender_service_id,
                         metric_counter_record(name, value).as_str(),
@@ -208,7 +210,9 @@ fn handle_frame(
             let result = registry.hist_observe(sender_service_id, name, labels, value);
             match result {
                 Ok((count, sum)) => {
-                    log_hist_snapshot(name, count, sum);
+                    if crate::snapshot_due(count.saturating_sub(1), count) {
+                        log_hist_snapshot(name, count, sum);
+                    }
                     retention.record_metric(
                         sender_service_id,
                         metric_hist_record(name, count, sum).as_str(),

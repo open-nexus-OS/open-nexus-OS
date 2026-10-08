@@ -1299,17 +1299,11 @@ inputd: push hz=54
 uiruntime: on
 windowd: implicit transitions on
 windowd: clipping on
-windowd: text input on
-windowd: filter list ok
 windowd: input on
 windowd: input visible on
 windowd: keyboard visible
 uiruntime: batch commit ok
 windowd: live transition ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 [INFO metricsd] tracing span end name=selftest.sanity parent_span_id=0 duration_ns=10 status=0 start_attrs= end_attrs=
 SELFTEST: metrics security rejects ok
 [INFO metricsd] metrics snapshot counter name=selftest.counter value=3
@@ -1328,8 +1322,6 @@ SELFTEST: log query ok
 [INFO selftest-client] nexus-log sink-logd probe
 logd: selftest append rx
 SELFTEST: nexus-log sink-logd ok
-windowd: text input on
-windowd: filter list ok
 SELFTEST: core services log ok
 SELFTEST: evidence query ok
 statefsd: compaction done (gen=40, entries=57)
@@ -1337,15 +1329,7 @@ xhcid: irq hz=9 events hz=9 reports hz=9 per_irq_max=1 dry=0 dropped=0 refused=0
 hidrawd: wake hz=9 rx hz=9 ev hz=9 tx hz=9
 fps: hidrawd ingress_hz=8 sent_hz=8 raw_batches=9 wire_batches=9 wire_skip=0 raw_events=9 norm_events=9 kbd_batches=9 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=9 travel dx=0 dy=0 rel=0
-windowd: text input on
-windowd: filter list ok
 inputd: push hz=9
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 statefsd: compaction done (gen=41, entries=57)
 xhcid: irq hz=10 events hz=10 reports hz=10 per_irq_max=1 dry=0 dropped=0 refused=0 drain_us avg=51 max=158
 hidrawd: wake hz=10 rx hz=10 ev hz=10 tx hz=10
@@ -1355,8 +1339,6 @@ SELFTEST: evidence budget ok
 SELFTEST: ipc payload roundtrip ok
 SELFTEST: nexus-ipc kernel loopback ok
 SELFTEST: ipc cap move reply ok
-windowd: text input on
-windowd: filter list ok
 SELFTEST: ipc sender pid ok
 SELFTEST: ipc sender service_id ok
 SELFTEST: ipc call ok
@@ -1410,10 +1392,6 @@ dbg: phase remote skipped
 SELFTEST: crash-loop persist ok
 pinched: selftest crash requested
 init: service exit name=pinched reason=error code=0x0000000000000065
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 policyd: audit emit ok
 init: supervision persist restarts=0x0000000000000004
 init: service restarted name=pinched pid=0x0000000000000042
@@ -1425,8 +1403,6 @@ pinched: selftest crash requested
 init: service exit name=pinched reason=error code=0x0000000000000065
 hidrawd: wake hz=7 rx hz=7 ev hz=7 tx hz=7
 fps: hidrawd ingress_hz=5 sent_hz=5 raw_batches=7 wire_batches=7 wire_skip=0 raw_events=7 norm_events=7 kbd_batches=7 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
-windowd: text input on
-windowd: filter list ok
 policyd: audit emit ok
 init: supervision persist restarts=0x0000000000000005
 init: service restarted name=pinched pid=0x0000000000000045

@@ -14,16 +14,6 @@ use super::super::*;
 use nexus_dsl_runtime::{Damage, EditCommand, EditResult};
 use nexus_wire::imed as ime;
 
-/// One end-to-end proof line per process: the first copy, the first paste.
-fn mark_once(flag: &core::sync::atomic::AtomicBool, line: &str) {
-    if !flag.swap(true, core::sync::atomic::Ordering::Relaxed) {
-        raw_marker(line);
-    }
-}
-
-static COPY_MARKED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-static PASTE_MARKED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-
 /// The re-read's damage joined with the edit's result: the larger wins, so one relayout —
 /// after the last use of the frame's locale — covers both.
 fn with_reread(changed: Option<Damage>, edit: EditResult) -> EditResult {
@@ -70,7 +60,9 @@ impl DslApp {
                     raw_marker("apphost: text copy FAIL");
                     return false;
                 }
-                mark_once(&COPY_MARKED, "apphost: text copy ok");
+                if crate::proof_line::TEXT_COPY.claim() {
+                    raw_marker("apphost: text copy ok");
+                }
                 // A history this page shows re-reads at once (`on ClipboardChanged`).
                 let changed = self
                     .view
@@ -92,7 +84,9 @@ impl DslApp {
                 let Some(text) = self.host.clipboard_paste_text() else {
                     return false;
                 };
-                mark_once(&PASTE_MARKED, "apphost: text paste ok");
+                if crate::proof_line::TEXT_PASTE.claim() {
+                    raw_marker("apphost: text paste ok");
+                }
                 self.view
                     .insert_text(tokens, &device, &locale, &mut self.host, &text)
                     .map(|d| d.map_or(EditResult::None, EditResult::Value))

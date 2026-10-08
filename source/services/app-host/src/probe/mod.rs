@@ -320,6 +320,7 @@ pub(super) fn run() -> Result<(), &'static str> {
         recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect, &mut boot_region)?;
     if let Some(dsl) = app.as_mut() {
         dsl.set_surface_id(surface_id);
+        dsl.taps_are_keystrokes = level == wire::WIN_LEVEL_OVERLAY;
     }
     raw_marker("APPHOST: surface created");
 
@@ -856,8 +857,14 @@ pub(super) fn run() -> Result<(), &'static str> {
             dirty = false;
             dirty_rows = None;
             let layers_dirty = dsl.take_layers_dirty();
+            if core::mem::take(&mut dsl.tap_present_owed) {
+                raw_marker("apphost: tap settled");
+            }
             if span.is_none() {
-                raw_marker("APPHOST: interactive frame presented");
+                // Once per process: typing presents too (the privacy rule).
+                if crate::proof_line::INTERACTIVE_PRESENT.claim() {
+                    raw_marker("APPHOST: interactive frame presented");
+                }
                 // Re-declare glass regions: a re-layout may have moved/
                 // resized them. Paint-only spans keep the layout — skip.
                 dsl.submit_layers(&client, surface_id);

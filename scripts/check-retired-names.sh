@@ -24,6 +24,7 @@ RETIRED=(
   'present_committed;backend::display::Display::execute (the request loop validates, the display executes);TASK-0251 P2a step 2: one request loop over the virtio GPU and the display controller'
   'set_plane_address;nexus_gfx::backend::dc::flip (address + stride + latch);TASK-0251 P2a step 2: the reveal switch'
   'open_live_devices route_inputd_blocking IngressScratch PolledDeviceFrame HIDRAWD_IDLE_PARK_NS;hidrawd'"'"'s sources (source::HidSource: virtio_source, usb_source) on one waitset, one batch path (batch::Batch);TASK-0253B: one ingress loop over sources, no re-probe timer'
+  'text_input_bytes text_input_len MAX_TEXT_INPUT_BYTES push_text_char pop_text_char set_text_input clear_text_input apply_visible_text_input filter_layout_variant_index LIVE_FILTER_VARIANTS;none — typed text reaches apps through imed only (RFC-0075), never the visible state;input-live-protocol v2 (2026-10-08, the keystroke privacy rule): inputd copied every typed character into the state windowd and its observers read'
 )
 # Dated records describe the tree as it was, so they keep the names it had.
 HISTORY=(tasks/ CHANGELOG.md docs/adr/ docs/rfcs/ docs/board/measurements/ scripts/check-retired-names.sh)

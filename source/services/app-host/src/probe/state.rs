@@ -146,4 +146,10 @@ pub(super) struct DslApp {
     /// Reused pick buffer for render_band's unclipped (fixed header/footer)
     /// region — recycled like `vis_pick`, never allocated per render.
     pub(super) band_pick: alloc::vec::Vec<u32>,
+    /// The keyboard overlay (`level: overlay`): a tap here IS a keystroke, so it
+    /// is never traced — no per-tap line carries what was typed (privacy rule).
+    pub(super) taps_are_keystrokes: bool,
+    /// A traced tap repainted; its present owes `apphost: tap settled` (the live
+    /// injector's anchor that the tap's frame is on screen).
+    pub(super) tap_present_owed: bool,
 }

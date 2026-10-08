@@ -452,3 +452,14 @@ operator's one key is not logged (privacy) and not known.
 operator's `desktop` / `typed` / `pointer` acks, no FAIL marker, manifest clean; `[PASS]
 board-headless`: 38 rungs.** Block 2's gate. Twenty cycles from the first glue word to the
 desk's keyboard and mouse driving the desktop with the pointer on the controller's own layer.
+
+## Privacy scrub 2026-10-08
+
+The board logs of this series were edited once, under the keystroke privacy rule
+(`docs/standards/SECURITY_STANDARDS.md`): every `windowd: text input on` / `windowd: filter list
+ok` line was removed (windowd wrote both per keystroke while the visible state still carried
+typed text — retired with input-live-protocol v2, RFC-0053 amendment), and of
+`apphost: dsl svc bundlemgr.enumerate ok n=…` and `metrics snapshot counter
+name=bundlemgrd.list_apps.ok` only each file's first line was kept (later ones followed the
+keystrokes of a live search). No other line was touched; the logs keep every rung, marker and
+rate line the findings above cite.

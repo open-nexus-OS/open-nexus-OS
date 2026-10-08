@@ -52,17 +52,7 @@ pub(crate) const FILES_REPLY_BUF: usize = nexus_vfs_types::MAX_READDIR_RESPONSE_
 pub(crate) const VFS_OPCODE_STAT: u8 = 4;
 pub(crate) const VFS_OPCODE_READDIR: u8 = 6;
 
-/// Proof marker that bypasses verdict folding (the app-host process arms
-/// folding for every line via `nexus-service-entry`; the svc chain must stay
-/// visible for boot verification).
-pub(crate) fn raw_marker(line: &str) {
-    let mut buf = [0u8; 96];
-    let bytes = line.as_bytes();
-    let n = bytes.len().min(buf.len() - 1);
-    buf[..n].copy_from_slice(&bytes[..n]);
-    buf[n] = b'\n';
-    let _ = nexus_abi::debug_write(&buf[..n + 1]);
-}
+pub(crate) use crate::proof_line::raw_marker;
 
 /// The DSL service host for a launched app. Holds the field symbol ids the
 /// record shapes need (resolved once from the program's symbol table).
@@ -255,7 +245,9 @@ impl AppEffectHost {
                 Value::Record(fields)
             })
             .collect();
-        raw_marker(&alloc::format!("apphost: dsl svc bundlemgr.enumerate ok n={}", rows.len()));
+        if crate::proof_line::ENUMERATE.claim() {
+            raw_marker(&alloc::format!("apphost: dsl svc bundlemgr.enumerate ok n={}", rows.len()));
+        }
         Ok(Value::List(rows))
     }
 

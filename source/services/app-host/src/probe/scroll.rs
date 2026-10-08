@@ -534,14 +534,11 @@ impl super::DslApp {
         self.texts = texts;
         // Store-window proof: with `tail(messages, 256)` the resident text
         // run count stays bounded no matter how many pages are loaded —
-        // without the cap this grew unbounded and OOM'd the bump heap.
-        {
-            let mut m = alloc::string::String::new();
-            let _ = core::fmt::write(
-                &mut m,
-                format_args!("apphost: scroll window texts={}", self.texts.len()),
-            );
-            raw_marker(&m);
+        // without the cap this grew unbounded and OOM'd the bump heap. Logged
+        // on a new high only: every relayout (a keystroke's too) would put
+        // typing rhythm into the log.
+        if crate::proof_line::SCROLL_TEXTS.raise(self.texts.len()) {
+            raw_marker(&alloc::format!("apphost: scroll window texts={}", self.texts.len()));
         }
         // …and ONCE, the detail: content, resolved face and box per run. The
         // count alone cannot distinguish "the scene is right" from "the glyph

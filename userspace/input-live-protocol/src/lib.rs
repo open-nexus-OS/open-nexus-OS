@@ -25,7 +25,11 @@ pub use display_space::{
 
 pub const MAGIC0: u8 = b'I';
 pub const MAGIC1: u8 = b'N';
-pub const VERSION: u8 = 1;
+/// v2 (2026-10-08): the visible state no longer carries typed text. v1 copied every typed
+/// character from inputd into this frame for a filter-panel proof that no longer exists —
+/// keystrokes crossed into windowd (and its observer state) for nothing. Text reaches apps
+/// only through imed (RFC-0075).
+pub const VERSION: u8 = 2;
 
 pub const OP_PUSH_HID_BATCH: u8 = 1;
 pub const OP_GET_VISIBLE_STATE: u8 = 2;
@@ -55,9 +59,8 @@ pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
 /// Max wire events per frame — burst producers MUST chunk here: the encoder
 /// returns `None` oversize, and dropping a burst was the input-storm collapse.
 pub const MAX_HID_BATCH_EVENTS: usize = (MAX_HID_BATCH_FRAME_LEN - HEADER_LEN - 16) / EVENT_LEN;
-const STATE_LEN: usize = 63;
+const STATE_LEN: usize = 38;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
-pub const MAX_TEXT_INPUT_BYTES: usize = 24;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WireHidEvent {
@@ -114,64 +117,10 @@ pub struct VisibleState {
     pub cursor_overlay_visible: bool,
     pub cursor_x: i32,
     pub cursor_y: i32,
-    pub text_input_len: u8,
-    pub text_input_bytes: [u8; MAX_TEXT_INPUT_BYTES],
     /// TASK-0066: a window-tiling CHORD the keyboard produced (windowd's `zones::CODE_*`,
     /// 0 = none) — one-shot: inputd sets it for exactly one push, windowd applies it to the
     /// focused window; apps never see the chord's keys. Appended (RFC-0052/0053 amendment).
     pub wm_chord: u8,
-}
-
-impl VisibleState {
-    #[must_use]
-    pub fn text_input(&self) -> &str {
-        let len = usize::from(self.text_input_len).min(MAX_TEXT_INPUT_BYTES);
-        core::str::from_utf8(&self.text_input_bytes[..len]).unwrap_or("")
-    }
-
-    pub fn clear_text_input(&mut self) {
-        self.text_input_len = 0;
-        self.text_input_bytes = [0; MAX_TEXT_INPUT_BYTES];
-    }
-
-    pub fn set_text_input(&mut self, text: &str) {
-        self.clear_text_input();
-        for ch in text.chars() {
-            if !self.push_text_char(ch) {
-                break;
-            }
-        }
-    }
-
-    #[must_use]
-    pub fn push_text_char(&mut self, ch: char) -> bool {
-        let mut buf = [0u8; 4];
-        let encoded = ch.encode_utf8(&mut buf).as_bytes();
-        let len = usize::from(self.text_input_len).min(MAX_TEXT_INPUT_BYTES);
-        let needed = len.saturating_add(encoded.len());
-        if needed > MAX_TEXT_INPUT_BYTES {
-            return false;
-        }
-        self.text_input_bytes[len..needed].copy_from_slice(encoded);
-        self.text_input_len = needed as u8;
-        true
-    }
-
-    #[must_use]
-    pub fn pop_text_char(&mut self) -> bool {
-        let len = usize::from(self.text_input_len).min(MAX_TEXT_INPUT_BYTES);
-        if len == 0 {
-            return false;
-        }
-        let Ok(text) = core::str::from_utf8(&self.text_input_bytes[..len]) else {
-            self.clear_text_input();
-            return true;
-        };
-        let new_len = text.char_indices().last().map(|(idx, _)| idx).unwrap_or(0);
-        self.text_input_bytes[new_len..len].fill(0);
-        self.text_input_len = new_len as u8;
-        true
-    }
 }
 
 /// Allocating convenience wrapper over [`encode_push_hid_batch_into`] (tests /
@@ -355,10 +304,8 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
     out[38] = u8::from(state.icon_target_visible);
     out[39] = u8::from(state.wallpaper_visible);
     out[40] = u8::from(state.cursor_overlay_visible);
-    out[41] = state.text_input_len.min(MAX_TEXT_INPUT_BYTES as u8);
-    out[42..42 + MAX_TEXT_INPUT_BYTES].copy_from_slice(&state.text_input_bytes);
-    out[66..70].copy_from_slice(&state.wheel_delta_y.to_le_bytes());
-    out[70] = state.wm_chord;
+    out[41..45].copy_from_slice(&state.wheel_delta_y.to_le_bytes());
+    out[45] = state.wm_chord;
     out
 }
 
@@ -415,14 +362,8 @@ fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
         icon_target_visible: frame[38] != 0,
         wallpaper_visible: frame[39] != 0,
         cursor_overlay_visible: frame[40] != 0,
-        text_input_len: frame[41].min(MAX_TEXT_INPUT_BYTES as u8),
-        text_input_bytes: {
-            let mut bytes = [0u8; MAX_TEXT_INPUT_BYTES];
-            bytes.copy_from_slice(&frame[42..42 + MAX_TEXT_INPUT_BYTES]);
-            bytes
-        },
-        wheel_delta_y: i32::from_le_bytes([frame[66], frame[67], frame[68], frame[69]]),
-        wm_chord: frame[70],
+        wheel_delta_y: i32::from_le_bytes([frame[41], frame[42], frame[43], frame[44]]),
+        wm_chord: frame[45],
     })
 }
 
@@ -479,7 +420,7 @@ mod tests {
 
     #[test]
     fn visible_state_round_trips() {
-        let mut state = VisibleState {
+        let state = VisibleState {
             virtio_raw_seen: true,
             hid_normalized_seen: true,
             backend_visible: true,
@@ -507,26 +448,25 @@ mod tests {
             cursor_y: 200,
             wheel_up_visible: true,
             wheel_down_visible: false,
-            wheel_delta_y: 7,
-            text_input_len: 0,
-            text_input_bytes: [0; MAX_TEXT_INPUT_BYTES],
-            wm_chord: 0,
+            wheel_delta_y: -7,
+            wm_chord: 3,
         };
-        state.set_text_input("ap");
         assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));
         assert_eq!(decode_update_visible_state(&encode_update_visible_state(state)), Some(state));
     }
 
+    /// Privacy (2026-10-08): the frame has no room for typed text — every byte is a flag,
+    /// the cursor, the wheel delta or the chord. A v1 frame (which carried 24 text bytes) is
+    /// refused by its version, never misread.
     #[test]
-    fn visible_state_text_input_push_and_pop_is_utf8_safe() {
-        let mut state = VisibleState::default();
-        assert!(state.push_text_char('a'));
-        assert!(state.push_text_char('p'));
-        assert_eq!(state.text_input(), "ap");
-        assert!(state.pop_text_char());
-        assert_eq!(state.text_input(), "a");
-        assert!(state.pop_text_char());
-        assert_eq!(state.text_input(), "");
+    fn test_reject_v1_frames_and_text_in_the_visible_state() {
+        assert_eq!(VISIBLE_STATE_FRAME_LEN, HEADER_LEN + 38, "flags, cursor, wheel, chord only");
+        let mut v1 = encode_visible_state(VisibleState::default());
+        v1[2] = 1;
+        assert_eq!(decode_visible_state(&v1), None, "a v1 frame is not this protocol");
+        let mut long = encode_visible_state(VisibleState::default()).to_vec();
+        long.extend_from_slice(&[0u8; 25]);
+        assert_eq!(decode_visible_state(&long), None, "the old 71-byte layout is refused");
     }
 
     #[test]

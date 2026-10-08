@@ -1462,43 +1462,19 @@ inputd: imed forward ok
 inputd: live keyboard route on
 inputd: push hz=20
 windowd: clipping on
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 windowd: keyboard visible
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=10 events hz=10 reports hz=10 per_irq_max=1 dry=0 dropped=0 refused=0
 hidrawd: wake hz=10 rx hz=10 ev hz=10 tx hz=10
 fps: hidrawd ingress_hz=9 sent_hz=9 raw_batches=10 wire_batches=10 wire_skip=0 raw_events=10 norm_events=10 kbd_batches=10 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=10
-windowd: text input on
-windowd: filter list ok
 inputd: push hz=10
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=8 events hz=8 reports hz=8 per_irq_max=1 dry=0 dropped=0 refused=0
 hidrawd: wake hz=8 rx hz=8 ev hz=8 tx hz=8
 fps: hidrawd ingress_hz=7 sent_hz=7 raw_batches=8 wire_batches=8 wire_skip=0 raw_events=8 norm_events=8 kbd_batches=8 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=8
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 inputd: push hz=10
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=9 events hz=9 reports hz=9 per_irq_max=1 dry=0 dropped=0 refused=0
 hidrawd: wake hz=9 rx hz=9 ev hz=9 tx hz=9
 fps: hidrawd ingress_hz=8 sent_hz=8 raw_batches=9 wire_batches=9 wire_skip=0 raw_events=9 norm_events=9 kbd_batches=9 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=9
-windowd: text input on
-windowd: filter list ok
 uianim: spring converge ok

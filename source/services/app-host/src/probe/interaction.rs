@@ -107,8 +107,10 @@ impl super::DslApp {
             if hit.is_some() {
                 // Traced like a repainting tap (bounded): a quiet tap is still
                 // a tap that landed somewhere — the one position oracle the
-                // live harness has.
-                self.trace_tap(x, y, hit, damage);
+                // live harness has. Nothing will present: settled at once.
+                if self.trace_tap(x, y, hit, damage) {
+                    raw_marker("apphost: tap settled");
+                }
                 return TapOutcome::HandledQuietly;
             }
             return TapOutcome::NoHandler;
@@ -139,7 +141,7 @@ impl super::DslApp {
             );
             self.layers_dirty = true;
         }
-        self.trace_tap(x, y, hit, damage);
+        self.tap_present_owed = self.trace_tap(x, y, hit, damage);
         // Part-press (toggle thumb): the flip has re-laid-out, the knob sits
         // at its new end — stretch it along the travel axis and slide it in
         // from where it was (node ids are stable across the re-emit).

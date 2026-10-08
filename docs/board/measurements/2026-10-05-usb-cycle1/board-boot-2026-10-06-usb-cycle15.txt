@@ -1498,7 +1498,6 @@ APPHOST: mounted hash=3e9c7a0b282ab58a
 apphost: window intent style=plain mode=auto level=desktop resizable=false
 settingsd: set key=ui.shell.mode value=desktop
 apphost: dsl svc settings.set ok
-[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=2
 apphost: dsl svc bundlemgr.enumerate ok n=4
 APPHOST: initial effects ran
 alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000000840 align=0x0000000000000008 class=0

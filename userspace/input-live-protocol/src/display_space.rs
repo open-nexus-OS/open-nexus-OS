@@ -6,7 +6,7 @@
 //! decision; windowd receives it with the framebuffer grant and is the one peer inputd has for
 //! pointer semantics, so inputd asks windowd — one call over inputd's declared reply inbox, no
 //! retry, no default standing in meanwhile (the polled query this replaces is retired). The
-//! answer rides the 8-byte header: `[I, N, 1, op | 0x80, w: u16 le, h: u16 le]`; a zero
+//! answer rides the 8-byte header: `[I, N, 2, op | 0x80, w: u16 le, h: u16 le]`; a zero
 //! dimension is a refusal.
 //! OWNERS: @runtime @ui
 //! STATUS: Functional
@@ -58,7 +58,8 @@ mod tests {
     #[test]
     fn display_space_roundtrip_golden_bytes() {
         let f = encode_display_space(1920, 1080);
-        assert_eq!(f, [b'I', b'N', 1, 0x85, 0x80, 0x07, 0x38, 0x04]);
+        assert_eq!(f, [b'I', b'N', VERSION, 0x85, 0x80, 0x07, 0x38, 0x04]);
+        assert_eq!(VERSION, 2, "v2: the visible state carries no typed text");
         assert_eq!(decode_display_space(&f), Some((1920, 1080)));
         assert!(frame_has_op(&encode_get_display_space(), OP_GET_DISPLAY_SPACE));
     }

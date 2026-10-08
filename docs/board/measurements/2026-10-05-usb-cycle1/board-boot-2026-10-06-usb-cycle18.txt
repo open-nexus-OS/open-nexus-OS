@@ -1477,7 +1477,6 @@ windowd: focus -> 1
 windowd: focus visible
 settingsd: set key=ui.shell.mode value=desktop
 apphost: dsl svc settings.set ok
-[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=2
 apphost: dsl svc bundlemgr.enumerate ok n=4
 APPHOST: initial effects ran
 alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000000840 align=0x0000000000000008 class=0
@@ -1539,41 +1538,7 @@ inputd: imed forward ok
 inputd: live keyboard route on
 inputd: push hz=112
 windowd: clipping on
-windowd: text input on
-windowd: filter list ok
 windowd: keyboard visible
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=31 events hz=39 reports hz=39 per_irq_max=2 dry=0 dropped=0 refused=0 drain_us avg=36 max=50
 hidrawd: wake hz=31 rx hz=31 ev hz=38 tx hz=31
 fps: hidrawd ingress_hz=32 sent_hz=32 raw_batches=33 wire_batches=33 wire_skip=0 raw_events=41 norm_events=41 kbd_batches=33 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0

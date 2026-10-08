@@ -11,7 +11,6 @@
 
 use super::damage::cursor_damage_rect;
 use super::emit_windowd_telemetry;
-use super::filter::filter_layout_variant_index;
 use super::scene::copy_scene_row;
 use super::source::build_cover_luts;
 use super::tile_map::TileMap;
@@ -371,21 +370,6 @@ pub(crate) struct DisplayServerRuntime {
     /// to the GPU CB blit list so the display plane is refreshed from Plane 1.
     pending_gpu_blit_rect: Option<DamageRect>,
     telemetry: crate::telemetry::WindowdDisplayTelemetry,
-    /// Index into `LIVE_FILTER_VARIANTS` for the active filter text/layout.
-    active_filter_idx: usize,
-    /// Filter cycle counter for automated proof (advances on each keyboard event).
-    filter_cycle: u8,
-    /// Whether clipping marker was emitted.
-    clipping_marker_emitted: bool,
-    /// Whether scroll marker was emitted.
-    /// (Marker latch retained for the scroll proof ladder; live path uses the
-    /// live_scroll variant below.)
-    #[allow(dead_code)]
-    scroll_marker_emitted: bool,
-    /// Whether live scroll marker was emitted.
-    live_scroll_marker_emitted: bool,
-    /// Whether v3b selftest summary markers were emitted.
-    selftest_v3b_emitted: bool,
     /// Whether flush_pending_damage has verified v3b composition (P1 fix: no longer fake).
     v3b_composition_verified: bool,
     /// Whether v3b markers were already emitted.
@@ -437,10 +421,6 @@ pub(crate) struct DisplayServerRuntime {
     /// Bounded counter for the app-surface present-rejection diagnostic
     /// (P0.2 tap repro): a rejected client present is otherwise silent.
     app_present_reject_markers: u32,
-    /// Bounded `surface presented` proof markers (first few presents only —
-    /// a per-present formatted marker at hover/animation rates floods the
-    /// UART and leaks on the non-freeing bump heap).
-    app_present_markers: u32,
     /// Damage-limited desktop blit: the union row span (start, end exclusive)
     /// of the client damage rects since the last `render_desktop_surface`.
     /// `(u32::MAX, 0)` = empty. A present with no rects = full span.
@@ -818,12 +798,6 @@ impl DisplayServerRuntime {
             pending_gpu_blit_rect: None,
             paint_only_damage: false,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
-            active_filter_idx: 0,
-            filter_cycle: 0,
-            clipping_marker_emitted: false,
-            scroll_marker_emitted: false,
-            live_scroll_marker_emitted: false,
-            selftest_v3b_emitted: false,
             v3b_composition_verified: false,
             v3b_markers_emitted: false,
             animation_driver,
@@ -840,7 +814,6 @@ impl DisplayServerRuntime {
             present_retry_count: 0,
             present_retry_exhausted: false,
             app_present_reject_markers: 0,
-            app_present_markers: 0,
             desktop_dirty_rows: (u32::MAX, 0),
             current_display_slot: 0,
             first_handoff_id: 0,

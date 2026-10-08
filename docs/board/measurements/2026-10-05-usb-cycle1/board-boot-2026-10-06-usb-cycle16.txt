@@ -1507,7 +1507,6 @@ launcher: click visible ok
 settingsd: set key=ui.shell.mode value=desktop
 SELFTEST: ui v2 input ok
 apphost: dsl svc settings.set ok
-[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=2
 apphost: dsl svc bundlemgr.enumerate ok n=4
 APPHOST: initial effects ran
 alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000000840 align=0x0000000000000008 class=0
@@ -1564,55 +1563,17 @@ inputd: imed forward ok
 inputd: live keyboard route on
 inputd: push hz=68
 windowd: clipping on
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 windowd: keyboard visible
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=9 events hz=9 reports hz=9 per_irq_max=1 dry=0 dropped=0 refused=0 drain_us avg=37 max=45
 hidrawd: wake hz=9 rx hz=9 ev hz=9 tx hz=9
 fps: hidrawd ingress_hz=8 sent_hz=8 raw_batches=9 wire_batches=9 wire_skip=0 raw_events=9 norm_events=9 kbd_batches=9 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=9 travel dx=0 dy=0 rel=0
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=21 events hz=23 reports hz=23 per_irq_max=2 dry=0 dropped=0 refused=0 drain_us avg=40 max=48
 hidrawd: wake hz=21 rx hz=21 ev hz=23 tx hz=21
 fps: hidrawd ingress_hz=20 sent_hz=20 raw_batches=21 wire_batches=21 wire_skip=0 raw_events=23 norm_events=23 kbd_batches=21 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=21 travel dx=0 dy=0 rel=0
 inputd: push hz=15
 windowd: loop hz=26 apply=15 present=14 nack=0 fullrq=0 reply(ch=16 cap=1 shared=1)
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 hidrawd: wake hz=7 rx hz=7 ev hz=7 tx hz=7
 fps: hidrawd ingress_hz=6 sent_hz=6 raw_batches=7 wire_batches=7 wire_skip=0 raw_events=7 norm_events=7 kbd_batches=7 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 windowd: loop hz=20 apply=6 present=15 nack=0 fullrq=0 reply(ch=16 cap=1 shared=1)
@@ -1754,9 +1715,7 @@ APPHOST: dsl frame rendered
 apphost: vmo filled
 windowd: focus id=app0 z=0
 windowd: windows push (n=1)
-[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=3
 windowd: transition open
-apphost: dsl svc bundlemgr.enumerate ok n=4
 WINDOWD: surface created id=3 320x240
 APPHOST: surface created
 APPHOST: probe surface presented
@@ -2098,8 +2057,6 @@ windowd: loop hz=16 apply=9 present=8 nack=0 fullrq=0 reply(ch=458 cap=1 shared=
 windowd: windows push (n=0)
 windowd: focus id=desktop z=0
 WINDOWD: app window closed slot=0
-[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=4
-apphost: dsl svc bundlemgr.enumerate ok n=4
 apphost: scroll window texts=11
 APPHOST: interactive frame presented
 apphost: submitted 1 layers

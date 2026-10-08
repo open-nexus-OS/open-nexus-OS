@@ -138,10 +138,14 @@ cargo test -p ui_v3b_host -- --nocapture
 RUN_UNTIL_MARKER=1 just test-os visible-bootstrap
 ```
 
-Markers: `windowd: clipping on`, `windowd: scroll on`, `windowd: live scroll ok`,
-`windowd: text input on`, `windowd: filter list ok`, `windowd: effects on`,
-`windowd: effect blur ok`, `imed: ready`, `SELFTEST: ui v3 scroll ok`,
-`SELFTEST: ui v3 ime ok`, `SELFTEST: ui v3 effect ok`, `SELFTEST: ui v3 filter ok`
+Markers: `windowd: scroll on`, `windowd: live scroll ok`, `windowd: effects on`,
+`windowd: effect blur ok`, `imed: ready`, `SELFTEST: ui v3 effect ok`.
+
+Retired 2026-10-08 (the keystroke privacy rule, RFC-0053 amendment): `windowd: clipping on`,
+`windowd: text input on`, `windowd: filter list ok`, `SELFTEST: ui v3 scroll ok`,
+`SELFTEST: ui v3 ime ok`, `SELFTEST: ui v3 filter ok`. They rode the typed-text copy in the
+visible state (two lines per keystroke); the summary trio never fired (its scroll latch was
+never set). The IME proof is RFC-0075's (`apphost: text commit applied`, `SELFTEST: ime insert ok`).
 
 ---
 

@@ -1536,7 +1536,6 @@ apphost: dsl svc bundlemgr.enumerate ok n=4
 hidrawd: wake hz=22 rx hz=22 ev hz=26 tx hz=22
 APPHOST: initial effects ran
 alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000000840 align=0x0000000000000008 class=0
-[INFO metricsd] metrics snapshot counter name=bundlemgrd.list_apps.ok value=2
 fps: hidrawd ingress_hz=18 sent_hz=18 raw_batches=22 wire_batches=22 wire_skip=0 raw_events=26 norm_events=26 kbd_batches=0 mouse_rel=22 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=22 travel dx=9 dy=16 rel=21
 alloc-carve gen=0x0000000000000001 svc=app-host size=0x0000000000001080 align=0x0000000000000008 class=0

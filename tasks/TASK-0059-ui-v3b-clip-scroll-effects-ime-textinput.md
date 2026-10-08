@@ -97,10 +97,11 @@ Text reshaping during scroll.
 
 ### Proof (OS/QEMU)
 
-Markers: `windowd: clipping on`, `windowd: scroll on`, `windowd: live scroll ok`,
-`windowd: text input on`, `windowd: filter list ok`, `windowd: effects on`,
-`windowd: effect blur ok`, `imed: ready`, `SELFTEST: ui v3 scroll ok`,
-`SELFTEST: ui v3 ime ok`, `SELFTEST: ui v3 effect ok`, `SELFTEST: ui v3 filter ok`
+Markers: `windowd: scroll on`, `windowd: live scroll ok`, `windowd: effects on`,
+`windowd: effect blur ok`, `imed: ready`, `SELFTEST: ui v3 effect ok`. (2026-10-08: the
+text-filter/IME markers `windowd: clipping on`, `windowd: text input on`, `windowd: filter list
+ok`, `SELFTEST: ui v3 scroll/ime/filter ok` are retired with the visible state's typed-text copy
+— the keystroke privacy rule, RFC-0053 amendment; the IME proof is RFC-0075's.)
 
 ### Visual proof
 

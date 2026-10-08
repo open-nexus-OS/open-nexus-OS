@@ -79,6 +79,10 @@ mod layout_diff;
 // the decision here where host tests reach it.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod pager_math;
+// How often a proof line may fire (once per process for anything typing can trigger) — the
+// keystroke privacy rule. Same one-cfg shape: host tests reach the counters.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod proof_line;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod svc_call;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]

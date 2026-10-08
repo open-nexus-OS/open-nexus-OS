@@ -77,7 +77,14 @@ impl super::DslApp {
         let mut buf = [0u8; wire::SURFACE_LAYERS_MAX_LEN];
         let len = wire::encode_surface_layers(surface_id, &layers[..n], &mut buf);
         let _ = client.send(&buf[..len], Wait::NonBlocking);
-        raw_marker(&alloc::format!("apphost: submitted {n} layers"));
+        // On a change of the glass-region count only: every full present (a
+        // keystroke's too) re-declares the layers, and a line each time would
+        // put typing rhythm into the log (the privacy rule).
+        static LAST: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(usize::MAX);
+        if LAST.swap(n, core::sync::atomic::Ordering::Relaxed) != n {
+            raw_marker(&alloc::format!("apphost: submitted {n} layers"));
+        }
         if dropped > 0 {
             // A silent `break` here once cost half a page its glass — the
             // cap is a wire constant, exceeding it must be visible.

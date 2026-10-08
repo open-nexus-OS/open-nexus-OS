@@ -23,6 +23,7 @@
 //! blit is proven via QEMU markers (`WINDOWD: surface …`).
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
+use super::observer::note_layer_count;
 use super::*;
 use crate::client_surface::Delivery;
 use nexus_display_proto::client_surface as wire;
@@ -429,11 +430,10 @@ impl DisplayServerRuntime {
                         "WINDOWD: surface present stale id={surface_id} (ignored)"
                     ));
                 }
-                // Bounded proof marker: the first few presents show the chain
-                // is live; per-present formatting at hover/animation rates
-                // floods the UART and leaks on the non-freeing bump heap.
-                if self.app_present_markers < 8 {
-                    self.app_present_markers += 1;
+                // A surface's FIRST present proves the chain is live — once per
+                // surface: later presents follow keystrokes too (the keystroke
+                // privacy rule) and hover rates (the non-freeing bump heap).
+                if seq == 1 {
                     let _ = debug_println(&alloc::format!(
                         "WINDOWD: surface presented id={surface_id} seq={seq}"
                     ));
@@ -567,19 +567,17 @@ impl DisplayServerRuntime {
         // wallpaper (Desktop arm); a floating app's over its window band.
         if self.desktop_surface_id == Some(surface_id) {
             self.desktop_layers = out;
-            self.desktop_layer_count = n;
+            note_layer_count(&mut self.desktop_layer_count, n, "desktop");
             self.desktop_dirty = true;
             self.desktop_dirty_rows = (0, u32::MAX);
             self.queue_full_frame_damage();
-            let _ = debug_println(&alloc::format!("WINDOWD: desktop layers={n}"));
         } else if let Some(idx) = self.app_index_by_surface(surface_id) {
             self.apps[idx].layers = out;
-            self.apps[idx].layer_count = n;
+            note_layer_count(&mut self.apps[idx].layer_count, n, "app");
             self.apps[idx].win.surface_dirty = true;
             self.apps[idx].surface_dirty_rows = None; // layer set changed: full
             let rect = self.app_window_rect(idx);
             self.queue_dirty_rect(rect);
-            let _ = debug_println(&alloc::format!("WINDOWD: app layers={n}"));
         }
     }
 

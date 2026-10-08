@@ -105,10 +105,13 @@ smoke reports it missing.
 
 ### Open findings (recorded, not built)
 
-- **Privacy (follow-up first)**: `apphost: dsl svc bundlemgr.enumerate ok n=…` fires on EVERY
-  keystroke of a live search (since live search landed; with the working filter the count now
-  follows the query) — one UART line per keystroke carries typing rhythm into board logs. It
-  should fire once per process like the other interaction proofs.
+- ~~**Privacy (follow-up first)**: `apphost: dsl svc bundlemgr.enumerate ok n=…` fires on
+  EVERY keystroke of a live search.~~ **Fixed 2026-10-08** together with the whole class it
+  belonged to: inputd no longer copies typed characters into the visible state
+  (input-live-protocol v2, RFC-0053 amendment), and no guest line fires per keystroke —
+  once-per-process proofs (`app-host/src/proof_line.rs`), change-only layer counts,
+  power-of-two metric snapshots (`docs/standards/SECURITY_STANDARDS.md` §1); the 228
+  per-keystroke lines in the archived board logs were scrubbed (CHANGELOG 2026-10-08).
 - **Paste on the board**: no `apphost: text paste ok` on this boot (QEMU proves the path). A
   failed paste is silent today — no route, a refusal and an empty history all look the same
   to the operator; a bounded `apphost: text paste FAIL (reason=…)` line would make it

@@ -145,18 +145,6 @@ impl DisplayServerRuntime {
         self.hover_last = local;
     }
 
-    pub(super) fn note_filter_text_changed(&mut self) {
-        self.filter_cycle = self.filter_cycle.wrapping_add(1);
-
-        if !self.clipping_marker_emitted {
-            let _ = debug_println(crate::markers::CLIPPING_ON_MARKER);
-            self.clipping_marker_emitted = true;
-        }
-        let _ = debug_println(crate::markers::TEXT_INPUT_ON_MARKER);
-        let _ = debug_println(crate::markers::FILTER_LIST_OK_MARKER);
-        // C1: the proof filter panel is gone — no filter rects to damage.
-    }
-
     /// The slots' facts the modal gate decides on (TASK-0074 D4): owner, modal flag, live
     /// surface — a fixed array, no allocation per event.
     pub(crate) fn modal_facts(

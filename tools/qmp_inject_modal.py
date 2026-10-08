@@ -103,17 +103,6 @@ class ModalPhase:
         except OSError:
             return ""
 
-    def marker_end(self, marker: str, since: int) -> int | None:
-        """The byte offset just past the first `marker` written after `since` — the anchor
-        for "the next event after THIS one" (the log's own order, never a clock)."""
-        try:
-            with self.env.uart_log_path.open("rb") as fh:
-                fh.seek(since)
-                at = fh.read().find(marker.encode())
-        except OSError:
-            return None
-        return None if at < 0 else since + at + len(marker)
-
     @staticmethod
     def parse_tap(tail: str) -> tuple[int, int] | None:
         for line in tail.splitlines():
@@ -213,15 +202,17 @@ class ModalPhase:
             time.sleep(0.1)
         return None
 
-    def wait_settled(self, timeout_s: float = 25.0) -> None:
-        """Wait for the present that follows a tap (`apphost: submitted …`): on the
-        one-hart TCG lane a structural repaint takes seconds, and while the guest is
-        that busy its USB polling stalls — QEMU then merges queued pointer reports and
-        a button edge can vanish."""
-        before = self.uart_size()
+    def wait_settled(self, timeout_s: float = 25.0, since: int | None = None) -> None:
+        """Wait until the tap's frame is on screen (`apphost: tap settled` — app-host's line
+        for a traced POINTER tap, after its present or at once when nothing repaints): on the
+        one-hart TCG lane a structural repaint takes seconds, and while the guest is that busy
+        its USB polling stalls — QEMU then merges queued pointer reports and a button edge can
+        vanish. Never a per-frame line: frames follow keystrokes too, and the guest writes no
+        line per keystroke (the keystroke privacy rule)."""
+        before = self.uart_size() if since is None else since
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            if "apphost: submitted" in self.uart_tail(before):
+            if "apphost: tap settled" in self.uart_tail(before):
                 break
             time.sleep(0.2)
         time.sleep(0.5)
@@ -229,6 +220,7 @@ class ModalPhase:
     def go_click(self, target: tuple[int, int]) -> None:
         target_x, target_y = target
         self.travel(target_x, target_y)
+        since = self.uart_size()
         for attempt in range(2):
             # A press that does not surface for a while is almost always
             # DELAYED (the one-hart TCG guest is repainting), not lost: a
@@ -244,7 +236,8 @@ class ModalPhase:
             # Re-anchor on the observed position and travel the rest.
             self.pointer_at = list(seen)
             self.travel(target_x, target_y)
-        self.wait_settled()
+            since = self.uart_size()
+        self.wait_settled(since=since)
 
     def wait_marker_after(self, marker: str, since: int, timeout_s: float) -> bool:
         """Wait for a NEW occurrence of `marker` written after byte offset `since`."""
@@ -392,11 +385,9 @@ class ModalPhase:
         self.chord(["ctrl", "c"])
         if not self.wait_marker_after("apphost: text copy ok", since, 40.0 + timeout_s):
             return
-        # The re-read history reaches the screen with the present AFTER the copy line.
-        copied = self.marker_end("apphost: text copy ok", since)
-        if copied is not None:
-            self.wait_marker_after("apphost: submitted", copied, 30.0)
-        time.sleep(0.5)
+        # The re-read history is laid out before app-host takes the next input (the card's
+        # hit-test needs no present); the pause only lets the frame reach the screen.
+        time.sleep(1.5)
         since = self.uart_size()
         self.chord(["ctrl", "v"])
         if not self.wait_marker_after("apphost: text paste ok", since, 30.0 + timeout_s):

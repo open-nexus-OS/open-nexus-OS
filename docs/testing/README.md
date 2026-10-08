@@ -112,7 +112,10 @@ The full layer reference — including the end-to-end coverage table and the per
      clipboard ok` — the launcher's early stop waits for it,
      `QEMU_LADDER_ALSO_WAIT`, inside a 780 s budget); the chain-marker contract
      checks the `input-live`, `ui-modal`, `wm-tile` and `clipboard` groups here
-     at every run.
+     at every run. Between presses the injector waits for `apphost: tap
+     settled` (app-host's line for a traced pointer tap once its frame is on
+     screen); the guest writes no line per frame or per keystroke (the
+     keystroke privacy rule, `docs/standards/SECURITY_STANDARDS.md`).
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
      proofs required, bounded retry (`[profile.smp]`).
 

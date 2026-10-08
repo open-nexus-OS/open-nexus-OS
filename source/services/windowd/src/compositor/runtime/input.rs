@@ -62,7 +62,6 @@ impl DisplayServerRuntime {
         let old_state = self.state;
         let old_cursor_x = self.state.cursor_x;
         let old_cursor_y = self.state.cursor_y;
-        let old_filter_idx = self.active_filter_idx;
         self.state.virtio_raw_seen |= upstream.virtio_raw_seen;
         self.state.hid_normalized_seen |= upstream.hid_normalized_seen;
         self.state.pointer_route_live |= upstream.pointer_route_live;
@@ -322,7 +321,6 @@ impl DisplayServerRuntime {
         self.state.wheel_down_visible = upstream.wheel_down_visible;
         self.state.cursor_x = upstream.cursor_x;
         self.state.cursor_y = upstream.cursor_y;
-        self.state.set_text_input(upstream.text_input());
         // Title-bar button hover `[– □ ×]` for the topmost window under the
         // cursor (TASK-0070 Phase 2; re-renders that window's title on change).
         self.update_title_hovers(self.state.cursor_x, self.state.cursor_y);
@@ -347,13 +345,8 @@ impl DisplayServerRuntime {
         if upstream.wheel_delta_y != 0 {
             self.forward_wheel(self.state.cursor_x, self.state.cursor_y, upstream.wheel_delta_y);
         }
-        // C1: the proof panel is gone; `active_filter_idx` is now just a typed-text
-        // change counter that still drives the filter selftest markers below.
-        if !USE_DESKTOP_SHELL {
-            self.active_filter_idx = filter_layout_variant_index(self.state.text_input());
-        }
         self.refresh_observer_state();
-        if self.state == old_state && self.active_filter_idx == old_filter_idx {
+        if self.state == old_state {
             return STATUS_OK;
         }
         // ── Phase 0: Scene graph updates instead of damage rect queueing ──
@@ -380,8 +373,6 @@ impl DisplayServerRuntime {
         // Detect paint-only: only hover/click/keyboard flags changed, not cursor or text
         let cursor_changed =
             old_cursor_x != self.state.cursor_x || old_cursor_y != self.state.cursor_y;
-        let text_changed = old_state.text_input() != self.state.text_input();
-        let filter_changed = old_filter_idx != self.active_filter_idx;
         let paint_flags_changed = old_state.hover_visible != self.state.hover_visible
             || old_state.sidebar_open_visible != self.state.sidebar_open_visible
             || old_state.launcher_click_visible != self.state.launcher_click_visible
@@ -465,8 +456,7 @@ impl DisplayServerRuntime {
             // Cache invalidation is deferred until the close animation completes.
             self.queue_gpu_blit_rect(self.sidebar_damage_rect());
         }
-        self.paint_only_damage =
-            paint_flags_changed && !cursor_changed && !text_changed && !filter_changed;
+        self.paint_only_damage = paint_flags_changed && !cursor_changed;
         // Cursor hot path. Hardware overlay: the move is a 9-byte message to
         // gpud's cursor queue — the host repositions the overlay, no composite,
         // no blit, no present. The frame pipeline is not involved at all.
@@ -499,22 +489,6 @@ impl DisplayServerRuntime {
             );
         }
 
-        // ── v3b: reflect real upstream text instead of synthetic keyboard cycling ──
-        if old_state.text_input() != self.state.text_input() {
-            self.note_filter_text_changed();
-        }
-
-        // ── v3b: selftest summary markers (once) ──
-        if !self.selftest_v3b_emitted
-            && self.live_scroll_marker_emitted
-            && self.clipping_marker_emitted
-            && self.filter_cycle > 0
-        {
-            let _ = debug_println(crate::markers::SELFTEST_UI_V3_SCROLL_OK_MARKER);
-            let _ = debug_println(crate::markers::SELFTEST_UI_V3_FILTER_OK_MARKER);
-            let _ = debug_println(crate::markers::SELFTEST_UI_V3_IME_OK_MARKER);
-            self.selftest_v3b_emitted = true;
-        }
         // TASK-0066: a tiling chord (one-shot fact from inputd) tiles the FOCUSED window.
         if upstream.wm_chord != 0 {
             self.apply_chord(upstream.wm_chord);

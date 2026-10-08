@@ -40,6 +40,16 @@ These invariants MUST be maintained across all code. Violations are **security b
 - Store secrets in plaintext files outside /state/keystore/
 ```
 
+**What the user types never reaches a log — not its text, and not its rhythm or length.**
+Typed text travels only through imed's focus-gated delivery (RFC-0075). No log line may fire
+per key press, per on-screen-keyboard tap, or per frame or service call a keystroke causes (a
+live search re-runs per keystroke; a present follows each one): a line per keystroke writes the
+length and rhythm of what was typed — a password included — into the boot log. Interaction
+proofs fire once per process; counts log on a new high or on powers of two; pointer traces are
+bounded and silent in the keyboard overlay, where a tap is a keystroke. Aggregates (rates per
+second, totals) are fine. (2026-10-08 — `app-host/src/proof_line.rs`, `metricsd::snapshot_due`,
+RFC-0053's v2 visible state.)
+
 ### 2. Identity and Authentication
 
 ```text
@@ -241,6 +251,7 @@ Reviewers MUST verify for security-relevant PRs:
 
 ### Secrets
 - [ ] No secrets in logs, markers, or error messages
+- [ ] No log line per keystroke, per OSK tap, or per frame/service call typing causes (once-per-process proofs)
 - [ ] Test keys labeled `// SECURITY: bring-up test keys`
 - [ ] No deterministic keys in production paths
 

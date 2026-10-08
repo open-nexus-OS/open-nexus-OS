@@ -1476,42 +1476,18 @@ fps: hidrawd ingress_hz=2 sent_hz=2 raw_batches=4 wire_batches=4 wire_skip=0 raw
 inputd: imed forward ok
 inputd: live keyboard route on
 windowd: clipping on
-windowd: text input on
-windowd: filter list ok
 windowd: keyboard visible
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=9 events hz=9 reports hz=9 per_irq_max=1 dry=0 dropped=0 refused=0 drain_us avg=43 max=48
 hidrawd: wake hz=9 rx hz=9 ev hz=9 tx hz=9
 fps: hidrawd ingress_hz=8 sent_hz=8 raw_batches=9 wire_batches=9 wire_skip=0 raw_events=9 norm_events=9 kbd_batches=9 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
 inputd: hid rx hz=9 travel dx=0 dy=0 rel=0
-windowd: text input on
-windowd: filter list ok
 inputd: push hz=10
-windowd: text input on
-windowd: filter list ok
 netstackd: mmio cap48 missing
 netstackd: net FAIL internal
 netstackd: net fail-code 0x01ff
 netstackd: halt net-init-fail
-windowd: text input on
-windowd: filter list ok
 hidrawd: wake hz=7 rx hz=7 ev hz=7 tx hz=7
 fps: hidrawd ingress_hz=6 sent_hz=6 raw_batches=7 wire_batches=7 wire_skip=0 raw_events=7 norm_events=7 kbd_batches=7 mouse_rel=0 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
-windowd: text input on
-windowd: filter list ok
 xhcid: irq hz=12 events hz=13 reports hz=13 per_irq_max=2 dry=0 dropped=0 refused=0 drain_us avg=43 max=50
 hidrawd: wake hz=12 rx hz=12 ev hz=12 tx hz=12
 fps: hidrawd ingress_hz=9 sent_hz=9 raw_batches=13 wire_batches=13 wire_skip=0 raw_events=14 norm_events=14 kbd_batches=11 mouse_rel=2 tablet_abs=0 touch_abs=0 send_fail=0 rebinds=0
