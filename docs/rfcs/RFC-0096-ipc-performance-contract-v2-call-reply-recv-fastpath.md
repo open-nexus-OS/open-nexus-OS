@@ -3,7 +3,7 @@
 
 # RFC-0096: IPC performance contract v2 — `ipc_call` / `ipc_reply_recv` fastpath, inline tier, hard cap, budgets with numbers
 
-- Status: **Implemented 2026-09-18** (TASK-0054C P0–P6). An exchange cost **208 µs** and five kernel entries when this was written; it costs **41–43 µs** and two, with one kernel heap allocation per message instead of two and none at all for the 72–93 % of messages that fit inline — and without a single scheduler change, because the one this RFC proposed was measured and withdrawn (§Amendment 2026-09-17).
+- Status: **Done 2026-09-18** (TASK-0054C P0–P6). An exchange cost **208 µs** and five kernel entries when this was written; it costs **41–43 µs** and two, with one kernel heap allocation per message instead of two and none at all for the 72–93 % of messages that fit inline — and without a single scheduler change, because the one this RFC proposed was measured and withdrawn (§Amendment 2026-09-17).
 - Owners: @kernel-team @runtime
 - Created: 2026-09-15
 - Last Updated: 2026-09-18

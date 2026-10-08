@@ -1,6 +1,6 @@
 # RFC-0090: `.nxdelta` v1 — Boot-Image Delta Stream Format (`boot-image-delta` component kind)
 
-- Status: Implemented (TASK-0034)
+- Status: Done (TASK-0034)
 - Owners: @runtime @tools-team
 - Seed: RFC-0089 §11 (the reserved delta seam); TASK-0034 (execution ledger)
 - Related: RFC-0089 (container/trust/staging/machine — all UNCHANGED here),

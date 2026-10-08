@@ -18,20 +18,20 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 >
 > **Sub-80 reconciliation (2026-09-09):** every non-Done ledger < 0080 outside the network family was audited against the code. Eight closed with the actual solution recorded (`0011B`, `0037`, `0041`, `0054B`, `0054D`, `0076B` reconciled Done; `0050B`, `0079` Done by decision); `0033` reopened (Draft) and nine ledgers (`0033`, `0054C`, `0066`, `0067`, `0067B`, `0068`, `0074`, `0077B`, `0077C`) rewritten to their end state; `0077C` recut to the runtime long-session/large-data contract (file renamed). Counters below recomputed mechanically from the `status:` header of every task in each group's `Tasks:` list (explicit ids plus numeric ranges; suffixed ids such as `0100B` count only where named; `Done`/`Complete` = done, `Superseded`/`Deferred`/`Draft`/`In Progress` = total only). Execution order: `tasks/IMPLEMENTATION-ORDER.md` (condensed the same day).
 >
-> **Counter recount (2026-08-18):** every `Done / Total` counter — both this table and the per-group sections — was recomputed mechanically from the `status:` header of each task named in that group's `Tasks:` list (`Done`/`Complete` count as done; `Superseded` counts toward the total but not as done). They had drifted by up to 8 tasks per group because they were hand-maintained. Re-run the same way after any status flip rather than nudging a number.
+> **Counter recount (2026-08-18; recounted the same way 2026-10-08):** every `Done / Total` counter — both this table and the per-group sections — was recomputed mechanically from the `status:` header of each task named in that group's `Tasks:` list (`Done`/`Complete` count as done; `Superseded` counts toward the total but not as done). They had drifted by up to 8 tasks per group because they were hand-maintained. Re-run the same way after any status flip rather than nudging a number.
 
 | Group | Done / Total | Progress | Kernel-touch tasks | Notes |
 |------|---------------|----------|--------------------|-------|
-| Kernel Core & Runtime | 21 / 33 | 64% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0269B`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
+| Kernel Core & Runtime | 23 / 34 | 68% | `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0269B`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` | Kernel scheduling, IPC, MM, QoS, OOM, and hardening authority. |
 | DSoftBus & Distributed | 13 / 27 | 48% | — | Distributed session, transport, mux, and remote-service stack. |
 | Networking & Transport | 2 / 8 | 25% | — | Netstack, dev networking, ingress, and OS transport services. |
-| Observability, Crash, Perf & Diagnostics | 14 / 36 | 39% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
+| Observability, Crash, Perf & Diagnostics | 14 / 37 | 38% | — | Logs, traces, crash evidence, perf gates, soak, and diagnostics. |
 | Accounts, Ability & Sessions | 2 / 9 | 22% | `TASK-0065B` | Accounts, ability lifecycle, sessions, greeter, and delegation surfaces. Spine done (0065 lifecycle broker + 0065B session authority); continuation open (KILL/backoff → 0234/0235, lock/multi-user → 0109/0110/0223/0224, delegation → 0126B). |
-| Security, Policy & Identity | 10 / 35 | 29% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
-| Storage, PackageFS & Content | 15 / 36 | 42% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
+| Security, Policy & Identity | 12 / 35 | 34% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
+| Storage, PackageFS & Content | 16 / 36 | 44% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
 | Updates, Packaging & Recovery | 12 / 21 | 57% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
-| Bringup, Hardware & Drivers | 3 / 13 | 23% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 31 / 80 | 39% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
+| Bringup, Hardware & Drivers | 4 / 13 | 31% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
+| Windowing, UI & Graphics | 33 / 80 | 41% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 4 / 8 | 50% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
@@ -95,7 +95,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Kernel Core & Runtime
 
-- Progress: `21 / 33` done (`64%`)
+- Progress: `23 / 34` done (`68%`)
 - Kernel-touch tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054C`, `TASK-0188`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0269`, `TASK-0269B`, `TASK-0281`..`TASK-0283`, `TASK-0286`..`TASK-0288`, `TASK-0290` (`TASK-0054B`/`TASK-0054D` closed Done 2026-09-09 by reconciliation — perf floor delivered by 0042/0277/0283/0288 + RFC-0085/0302)
 - Tasks: `TASK-0001`, `TASK-0010`..`TASK-0011`, `TASK-0011B`, `TASK-0012`, `TASK-0012B`, `TASK-0013`, `TASK-0013B`, `TASK-0042`, `TASK-0054B`, `TASK-0054C`, `TASK-0054D`, `TASK-0188`, `TASK-0228`..`TASK-0230`, `TASK-0237`, `TASK-0245`, `TASK-0247`, `TASK-0267`, `TASK-0269`, `TASK-0269B`, `TASK-0276`..`TASK-0277`, `TASK-0281`..`TASK-0290`
 
@@ -113,7 +113,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Observability, Crash, Perf & Diagnostics
 
-- Progress: `14 / 36` done (`39%`)
+- Progress: `14 / 37` done (`38%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0006`, `TASK-0014`, `TASK-0018`, `TASK-0026`, `TASK-0041`, `TASK-0048`..`TASK-0049`, `TASK-0049B`, `TASK-0049C`, `TASK-0051B`, `TASK-0056C`, `TASK-0060`, `TASK-0062B`, `TASK-0080`, `TASK-0141`..`TASK-0145`, `TASK-0145B`, `TASK-0152`, `TASK-0170`, `TASK-0172`..`TASK-0173`, `TASK-0183`, `TASK-0190`, `TASK-0201`..`TASK-0202`, `TASK-0205`, `TASK-0216`..`TASK-0217`, `TASK-0227`, `TASK-0234`, `TASK-0236`, `TASK-0242`..`TASK-0243`, `TASK-0264`
 - Notes (2026-08-24): `TASK-0051B` Done — crash evidence at rest: execd converts every crash into the canonical `.nxcd` container on device (nxcd went no_std; the ADR-0056 reason rides `header.json`; NMD1 stack/code previews survive as new bounded sections; the `.nmd` intermediate is deleted, degrade is loud + fatal in proof boots). Redaction is policyd-resolved (deny-by-default cascade, stack-only granted, `crash.attach.full` denied — `SELFTEST: crash redaction ok` parses the at-rest section table). Retention: once-per-boot `nxcd::plan_purge` (8/256 KiB), activation required, deletions audited as evidence. Access rides a NEW `statefs.crash` prefix capability (keystore/boot pattern) — found and fixed on the way: execd never held a `/state/crash/` write grant, so non-managed dumps had been silently lost since TASK-0049. Double-boot proven (boot-1 artifact survives; `nx diagnose` bundles artifacts verbatim → `nx crash ls/show` decodes them, reason end to end). Next in lane: `TASK-0053`.
@@ -129,14 +129,14 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Security, Policy & Identity
 
-- Progress: `10 / 35` done (`29%`)
+- Progress: `12 / 35` done (`34%`)
 - Kernel-touch tasks: `TASK-0008`, `TASK-0019` (2026-08-14: `TASK-0028`/`TASK-0043` removed — their ledgers state "kernel untouched" as a hard invariant; the board entry was wrong)
 - Tasks: `TASK-0008`, `TASK-0008B`, `TASK-0019`, `TASK-0027`..`TASK-0029`, `TASK-0039`, `TASK-0043`, `TASK-0047`, `TASK-0066`..`TASK-0068`, `TASK-0103`, `TASK-0107`..`TASK-0108`, `TASK-0111`, `TASK-0124`, `TASK-0126`, `TASK-0130`, `TASK-0136`..`TASK-0137`, `TASK-0139`, `TASK-0160`, `TASK-0162`, `TASK-0167`..`TASK-0168`, `TASK-0181`..`TASK-0182`, `TASK-0189`, `TASK-0191`..`TASK-0192`, `TASK-0221`, `TASK-0238`, `TASK-0259`, `TASK-0263`
 - Notes (2026-08-18, group move): `TASK-0053` moved to Updates/Recovery — `.nxra` is part of the recovery-lane closure; enforcement lands on the TASK-0051 ops surface.
 
 ### Storage, PackageFS & Content
 
-- Progress: `15 / 36` done (`42%`)
+- Progress: `16 / 36` done (`44%`)
 - Kernel-touch tasks: `TASK-0031`
 - Tasks: `TASK-0002`, `TASK-0009`, `TASK-0025`, `TASK-0031`..`TASK-0033`, `TASK-0081`, `TASK-0084`, `TASK-0112`, `TASK-0132`..`TASK-0135`, `TASK-0161`, `TASK-0186`..`TASK-0187`, `TASK-0203`..`TASK-0204`, `TASK-0225`, `TASK-0232`..`TASK-0233`, `TASK-0246`, `TASK-0265`, `TASK-0284`, `TASK-0291`..`TASK-0295`, `TASK-0314`..`TASK-0320`
 - Notes (2026-08-25): `TASK-0314`..`TASK-0320` (storage end-state ladder, seeded 2026-08-14) added to this group's task list — they were counted nowhere. `TASK-0314` + `TASK-0315` Done (driver v2 + single-GPT-disk topology, delivered inside the OTA lane as packages 3/5).
@@ -165,14 +165,14 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Bringup, Hardware & Drivers
 
-- Progress: `2 / 13` done (`15%`)
+- Progress: `4 / 13` done (`31%`)
 - Kernel-touch tasks: `TASK-0244`, `TASK-0251`
 - Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`, `TASK-0297`, `TASK-0299`
 - Notes (2026-07-21): `TASK-0297` (goldfish rtcd + timed walltime + tz-lite + live clock, RFC-0076) is part of the active IME/General-management track; `TASK-0299` (SNTP time-syncd) is a seed gated on netstackd UDP readiness.
 
 ### Windowing, UI & Graphics
 
-- Progress: `31 / 80` done (`39%`)
+- Progress: `33 / 80` done (`41%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
 
@@ -339,6 +339,32 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0079 | DSL v0.3a AOT codegen | Done | Retired by decision 2026-09-09: the app-host interpreter is the one execution tier; AOT docs/stubs deleted; runtime scale contract → TASK-0077C |
 | ✅ TASK-0077B | DSL v0.2b: interaction contract (keyed `$state`, bind rule, value-carrying interaction) | Done | 2026-09-20 — Sub-80 Phase 2 #4 (P0–P4, IR v1.6–v1.8; `timeoutMs` retired) |
 | ✅ TASK-0077C | DSL v0.2c: runtime long-session / large-data contract | Done | 2026-09-21 — Sub-80 Phase 2 #5 (P0–P3, ADR-0065: generation arena + size-class free lists, `apphost: heap steady` boot-proven) |
+| ✅ TASK-0036 | OTA A/B v2: health-commit v2 + BSB projection | Done | Phase A 2026-08-25, Phase B 2026-08-30 — the loader ↔ bootctld loop proven |
+| ✅ TASK-0289 | Boot trust floor v1: nxboot first-stage loader + boot flip | Done | 2026-08-31 — Phase A loader + flip, Phase B measured surface + three backstop lanes in `test-all` |
+| ✅ TASK-0179 | updated v2: component apply engine + offline feed | Done | 2026-08-31 — the first update that changes what the machine boots (crown proof) |
+| ✅ TASK-0034 | Delta updates v1: nxdelta + bundlemgrd delta apply | Done | 2026-09-01 — RFC-0090 |
+| ✅ TASK-0140 | Updates v1 UI/CLI: Settings → Updates + `nx update` | Done | 2026-09-01 — over the real OTA engine (offline) |
+| ✅ TASK-0055D | UI v1e: deterministic dev presets for QEMU | Done | 2026-09-03 — seven TOML presets in the SystemUI registry, `nx ui preset`, `just start-preset` |
+| ✅ TASK-0321 | OTA Phase B: verified system volume + bundle-set updates | Done | 2026-09-04 — P0–P5; services migrated out of the boot image, unchanged-bundle reuse |
+| ✅ TASK-0035 | Delta updates v1b: the nxs delta container for system sets | Done | 2026-09-05 — P1–P4 |
+| ✅ TASK-0028 | ABI filters v2: argument matchers + learn → enforce + policy generator | Done | 2026-09-05..07 — P0–P3, RFC-0091 |
+| ✅ TASK-0043 | Security v2: sandbox quotas + per-subject egress + tighter ABI policies | Done | 2026-09-07..08 — P0–P4; network-family follow-ups listed in the ledger |
+| ✅ TASK-0052 | Security v3 (ingress): default-deny inbound + ingressd + service exposure contract | Done | 2026-09-08 — P0–P3, RFC-0092; follow-ups TASK-0323 |
+| ✅ TASK-0325 | Proof lanes declare their resource envelope and never die silently | Done | 2026-09-11 — CI owns the full ladder's verdict |
+| ✅ TASK-0324 | Display handoff deterministic by construction | Done | 2026-09-15 — P0–P9, RFC-0093, ADR-0062: build truth, pixel proof, one wiring structure, handoff v2 |
+| ✅ TASK-0054C | Kernel IPC performance contract + `call` / `reply_recv` fastpath | Done | 2026-09-18 — P0–P6, RFC-0096, ADR-0064; an exchange 208 µs → 41–43 µs |
+| ✅ TASK-0033 | packagefs v2b: zero-copy `pkg:/` reads + one payload-VMO header codec | Done | 2026-09-18 — RFC-0097; residual of the TASK-0295 supersession discharged |
+| ✅ TASK-0326 | gpud decides GL when it is first needed | Done | 2026-09-19 |
+| ✅ TASK-0244 | Board support v1a: `nexus-fdt` — the FDT is the one hardware truth | Done | 2026-09-22 — P0–P3, RFC-0098; nxboot writes `/chosen/nexus,*`, the kernel parses the copy |
+| ✅ TASK-0245 | Board support v1b: the kernel's platform comes from the FDT | Done | 2026-09-22 — P1–P4; `hal/platform.rs` replaces `hal/virt.rs`, Sstc from the ISA list |
+| ✅ TASK-0260B | nxboot is the FIT payload on the board | Done | 2026-09-29 — the board boots our chain into a living userspace (`init: ready`, blkd on the SDHCI) |
+| ✅ TASK-0250 | Display v1.0a: the display-controller scanout contract (`backend::dc`) | Done | 2026-09-30 — EDID/CEA parser + `pick_mode`, the measured register map, goldens against the board dump |
+| ✅ TASK-0253B | HID ingress v2: hidrawd's sources behind one trait (virtio-input + USB HID) | Done | 2026-10-06 — on the board: `inputd: live pointer route on` / `… keyboard route on` |
+| ✅ TASK-0328 | USB host stack v1: `nexus-usb` + `xhcid` | Done | 2026-10-06 — RFC-0099; U3 = the Block 2 gate, `[PASS] board-visible` on the desk board |
+| ✅ TASK-0074 | UI v10b: modal semantics in the DSL runtime | Done | 2026-10-06 — ADR-0068; bounded overlay stack, one windowd verb, `board-visual: modal` |
+| ✅ TASK-0066 | UI v7a: window tiling — the desktop default model | Done | 2026-10-07 — ADR-0069; zones in windowd, chords via inputd, menu + drag preview in the kit/shell, `board-visual: tile` |
+| ✅ TASK-0067 | UI v7b: clipboardd — the one clipboard authority | Done | 2026-10-08 — RFC-0094, ADR-0070; focus-gated reads by kernel sid; drag and drop moved to TASK-0086 |
+| ✅ TASK-0067B | UI v7b: the clipboard's surfaces + keyboard text editing | Done | 2026-10-08 — shell search + keyboard cards, Ctrl+A/C/X/V in every text field (RFC-0075 amendment), `board-visual: clipboard` |
 
 `TASK-0065` / UI v6b app lifecycle + notifications + navigation — **DONE (2026-06-23)**. RFC-0065 + ADR-0036/0037; `bundlemgrd` registry **generated from real `bundles/<app>/manifest.toml`** at build time (no hardcoded list; phantom `notes` removed; `windowd: apps ok (n=2)` chat/search); `abilitymgr` real service + lifecycle broker + **manifest-caps launch authority** (fail-closed `STATUS_DENIED`; `abilitymgr: caps ok app=<id>`); policyd `BundleQuery` gating + greppable `!route-deny`/`!cap-deny`; real `.nxb` bundles + Cap'n Proto manifests; per-app-surface model (ADR-0037); `search-app` (no_std) owns its data, windowd hosts it. 25 abilitymgr + 2 nxb-pack + 126 windowd + 10 search-app tests, riscv-checked. **Descoped to follow-ups:** apps as spawned processes w/ own surfaces → DSL App Runtime **`TASK-0080D`** (execd only runs asm stubs today; needs a userspace app runtime + surface handoff) + `TASK-0234`/`0235` + SystemUI DSL phases.
 `TASK-0065B` / Session v1: sessiond session authority + login greeter + SystemUI shell selection — **DONE (2026-07-02)**. `sessiond` = the session authority (host-tested `Greeter → Active` state machine, `Locked`/`OP_LOCK` reserved; manifest user registry `users.toml` with optional `auto_login`; wire protocol `nexus_abi::sessiond` GET_STATE/LOGIN, golden-frame-tested). Login greeter in windowd: blurred+dimmed wallpaper baked into Plane 1 (separable box blur, no atlas cost), round SDF avatar + Lucide `circle-user` + name, hover, click → `OP_LOGIN` → session shell via SystemUI `resolve_product` (the user's `product` selects the shell — profiles.md contract; greeter appearance from `manifests/greeter/default/greeter.toml`). Pre-session gating at BOTH layers: windowd suppresses all shell affordances (host-tested `resolve_click_session`) AND `abilitymgr` refuses `OP_LAUNCH` fail-closed via injected `SessionGate` + live sessiond query (`abilitymgr: launch denied (session)`). Never bricks: bounded probe → `windowd: session unavailable (auto shell)` (proven via an OS_SKIP=sessiond boot). Proof injector logs in like a user; ladder + `docs/dev/ui/shell/session.md` shipped; windowd heap → 2MiB (`heap-2m`). Boot-verified over virgl (greeter → click → desktop). Follow-ups: credential auth behind OP_LOGIN, lock/unlock UI, session switching, multi-user avatar grid.
@@ -359,7 +385,7 @@ Service-split note (ADR-0036): the v6b lifecycle broker is **`abilitymgr`** (not
 
 ---
 
-## Planned UI/DSL Insertions — status 2026-09-09
+## Planned UI/DSL Insertions — status 2026-10-08
 
 The earlier visible-UI/DSL insertion drafts, reconciled against ledger headers (the Done list
 above is the authority; this is a reading aid):
@@ -371,7 +397,7 @@ above is the authority; this is a reading aid):
 | TASK-0055B / 0055C / 0055D | visible scanout bootstrap, visible present + first frame, dev display presets | ✅ Done (`0322` guest ingestion open) |
 | TASK-0056B / 0056C | visible input v0, present/input perf polish | ✅ Done |
 | TASK-0060B / 0062B | glass materials + backdrop cache, animation frame budget | ✅ Done |
-| TASK-0067B | clipboard history panel (DSL) | Draft — Phase 2 #8 (after 0067) |
+| TASK-0067B | the clipboard's two surfaces (shell search + keyboard cards) + keyboard text editing | ✅ Done 2026-10-08 (Block 3, with TASK-0067; RFC-0094, ADR-0070) |
 | TASK-0076B | visible DSL OS mount + first DSL frame | ✅ Done (reconciled 2026-09-09; app-host path) |
 | TASK-0080B / 0080C | bootstrap SystemUI DSL shell (host / OS) | ✅ Done |
 | TASK-0100B | Audio Mixer DSL app/SystemUI surface | Draft (> 80) |
@@ -413,8 +439,59 @@ above is the authority; this is a reading aid):
 | ✅ RFC-0030 | DSoftBus remote statefs RW v1 | `docs/rfcs/RFC-0030-dsoftbus-remote-statefs-rw-v1.md` |
 | ✅ RFC-0031 | Crashdumps v1 + host symbolization | `docs/rfcs/RFC-0031-crashdumps-v1-minidump-host-symbolize.md` |
 | ✅ RFC-0032 | ABI syscall guardrails v2 (userland, kernel-untouched) | `docs/rfcs/RFC-0032-abi-syscall-guardrails-v2-userland-kernel-untouched.md` |
+| ✅ RFC-0034 | DSoftBus production closure v1 (legacy TASK-0001..0020) | `docs/rfcs/RFC-0034-dsoftbus-production-closure-v1.md` |
+| ✅ RFC-0035 | DSoftBus QUIC v1 host-first scaffold contract | `docs/rfcs/RFC-0035-dsoftbus-quic-v1-host-first-os-scaffold.md` |
+| ✅ RFC-0036 | DSoftBus core no_std transport abstraction v1 | `docs/rfcs/RFC-0036-dsoftbus-core-no-std-transport-abstraction-v1.md` |
+| ✅ RFC-0037 | DSoftBus QUIC v2 OS enablement gated contract | `docs/rfcs/RFC-0037-dsoftbus-quic-v2-os-enabled-gated.md` |
+| ✅ RFC-0038 | Selftest-client production-grade deterministic test architecture refactor + manifest/evidence/replay v1 | `docs/rfcs/RFC-0038-selftest-client-production-grade-deterministic-test-architecture-refactor-v1.md` |
+| ✅ RFC-0039 | Supply-Chain v1 — bundle SBOM (CycloneDX) + repro metadata + signature allowlist policy … | `docs/rfcs/RFC-0039-supply-chain-v1-bundle-sbom-repro-sign-policy.md` |
+| ✅ RFC-0040 | Zero-Copy VMOs v1 Plumbing | `docs/rfcs/RFC-0040-zero-copy-vmos-v1-plumbing-host-first-os-gated.md` |
+| ✅ RFC-0041 | PackageFS v2 read-only image + precomputed index fastpath (host-first, OS-gated) | `docs/rfcs/RFC-0041-packagefs-v2-ro-image-index-fastpath-host-first-os-gated.md` |
+| ✅ RFC-0042 | Sandboxing v1 userspace confinement (VFS namespaces + CapFd + manifest permissions, host-first, OS-gated) | `docs/rfcs/RFC-0042-sandboxing-v1-vfs-namespaces-capfd-manifest-permissions-host-first-os-gated.md` |
+| ✅ RFC-0043 | DevX nx CLI v1 (host-first, production-floor) | `docs/rfcs/RFC-0043-devx-nx-cli-v1-host-first-production-floor-seed.md` |
+| ✅ RFC-0044 | Config v1 (`configd` + schemas + layering + 2PC + `nx config`) host-first, OS-gated contract seed | `docs/rfcs/RFC-0044-config-v1-configd-schema-layering-2pc-host-first-os-gated.md` |
+| ✅ RFC-0045 | Policy as Code v1 (unified policy tree + evaluator + explain/dry-run + learn→enforce + `nx policy`) host-first, OS-gated contract seed | `docs/rfcs/RFC-0045-policy-as-code-v1-unified-policy-tree-evaluator-explain-dry-run-learn-enforce-nx-policy.md` |
+| ✅ RFC-0046 | UI v1a host CPU renderer + deterministic snapshots contract seed | `docs/rfcs/RFC-0046-ui-v1a-host-cpu-renderer-snapshots-contract.md` |
+| ✅ RFC-0047 | UI v1b windowd surface/layer/present contract seed | `docs/rfcs/RFC-0047-ui-v1b-windowd-surface-layer-present-contract.md` |
+| ✅ RFC-0049 | UI v1d windowd visible present + SystemUI first-frame contract seed | `docs/rfcs/RFC-0049-ui-v1d-windowd-visible-present-systemui-first-frame-contract.md` |
+| ✅ RFC-0050 | UI v2a present scheduler + double-buffer + input routing contract | `docs/rfcs/RFC-0050-ui-v2a-present-scheduler-double-buffer-input-routing-contract.md` |
+| ✅ RFC-0051 | UI v2a visible input (cursor + hover + focus + click) contract | `docs/rfcs/RFC-0051-ui-v2a-visible-input-cursor-focus-click-contract.md` |
+| ✅ RFC-0052 | Input v1.0a host-first core (HID/touch + keymaps + repeat + pointer acceleration) | `docs/rfcs/RFC-0052-input-v1_0a-host-hid-touch-keymaps-repeat-accel-contract.md` |
+| ✅ RFC-0053 | Input v1.0b OS/QEMU live-input path (`hidrawd` + `touchd` + `inputd`) | `docs/rfcs/RFC-0053-input-v1_0b-os-qemu-live-input-hidrawd-touchd-inputd-contract.md` |
+| ✅ RFC-0054 | Input v1.0c OS/QEMU virtio-input driver layer (`virtio-input` -> `hidrawd`) | `docs/rfcs/RFC-0054-input-v1_0c-os-qemu-virtio-input-driver-layer-contract.md` |
+| ✅ RFC-0055 | UI v2a embedded reactor/runtime floor + present/input perf contract seed | `docs/rfcs/RFC-0055-ui-v2a-embedded-reactor-runtime-floor-present-input-perf-contract.md` |
+| ✅ RFC-0056 | UI v2b asset pipeline + theme system + cursor/text contract seed | `docs/rfcs/RFC-0056-ui-v2b-asset-theme-cursor-text-pipeline.md` |
+| ✅ RFC-0057 | UI v3a layout engine — deterministic flex/grid/stack + text wrapping contract seed | `docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md` |
+| ✅ RFC-0058 | UI v3b clipping/scroll/effects + IME/text-input contract seed | `docs/rfcs/RFC-0058-ui-v3b-clip-scroll-effects-ime-contract.md` |
+| ✅ RFC-0059 | Deterministic Animation Runtime + NexusGfx 2D Pipeline + GPU Driver Contract | `docs/rfcs/RFC-0059-ui-v5a-animation-nexusgfx-sdk-gpu-driver-contract.md` |
+| ✅ RFC-0060 | DSoftBus Streams v2 mux/flow-control/keepalive (host-first, OS-gated) | `docs/rfcs/RFC-0060-dsoftbus-streams-v2-mux-flow-control-keepalive.md` |
+| ✅ RFC-0061 | Selftest Observer + nexus-init Module Refactoring | `docs/rfcs/RFC-0061-selftest-observer-init-refactoring.md` |
+| ✅ RFC-0063 | UI v5b — Scene Graph GPU Pipeline + Virtual List + Theme Tokens Contract | `docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md` |
+| ✅ RFC-0064 | UI v6a — Window Management v1 (Chat-Window + Drag) Contract | `docs/rfcs/RFC-0064-ui-v6a-window-management-chat-window-contract.md` |
+| ✅ RFC-0065 | UI v6b — App Lifecycle + App Registry + Notifications + Navigation Contract | `docs/rfcs/RFC-0065-ui-v6b-app-lifecycle-registry-notifications-navigation-contract.md` |
+| ✅ RFC-0067 | windowd — clean compositor-service boundary (rasterizer → NexusGfx, app/shell UI → userspace) | `docs/rfcs/RFC-0067-windowd-compositor-service-boundary-rasterizer-app-ui-extraction.md` |
+| ✅ RFC-0069 | Declarative service manifest for init | `docs/rfcs/RFC-0069-init-declarative-service-manifest-slot-discipline-boot-stages.md` |
+| ✅ RFC-0075 | IME v2 — text focus, composition and delivery contract | `docs/rfcs/RFC-0075-ime-v2-text-focus-composition-delivery.md` |
+| ✅ RFC-0076 | Wall-clock v1 — goldfish rtcd, timed walltime, tz-lite, live clock | `docs/rfcs/RFC-0076-wallclock-v1-rtcd-timed-tz.md` |
+| ✅ RFC-0077 | i18n v2 — compiled locale packs + runtime locale switch | `docs/rfcs/RFC-0077-i18n-v2-locale-packs-runtime-switch.md` |
+| ✅ RFC-0078 | Settings spine — region/keymap/time keys + OP_WATCH push propagation | `docs/rfcs/RFC-0078-settings-region-keys-watch.md` |
+| ✅ RFC-0079 | IPC last-sender EOF (opt-in receiver disconnect) | `docs/rfcs/RFC-0079-ipc-last-sender-eof.md` |
+| ✅ RFC-0080 | Shared glyph-atlas RO VMO (kill per-instance duplication) | `docs/rfcs/RFC-0080-shared-atlas-ro-vmo.md` |
+| ✅ RFC-0081 | Process reaper — non-blocking service-driven zombie reclaim | `docs/rfcs/RFC-0081-process-reaper-nonblocking-reclaim.md` |
+| ✅ RFC-0083 | Settings distribution v2 — single authority, versioned snapshots, repaint not remount | `docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md` |
+| ✅ RFC-0085 | Kernel-owned VA allocation | `docs/rfcs/RFC-0085-kernel-owned-va-allocation.md` |
+| ✅ RFC-0087 | Reliability & Failure Model v1 | `docs/rfcs/RFC-0087-reliability-failure-model-v1.md` |
+| ✅ RFC-0088 | `.nxra` — Signed Recovery Action Tokens | `docs/rfcs/RFC-0088-nxra-signed-recovery-action-tokens.md` |
+| ✅ RFC-0090 | `.nxdelta` v1 — Boot-Image Delta Stream Format (`boot-image-delta` component kind) | `docs/rfcs/RFC-0090-nxdelta-boot-image-delta-stream-format.md` |
+| ✅ RFC-0091 | Policy profile v2 — schema, argument matchers, precedence, epoch-guarded wire | `docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md` |
+| ✅ RFC-0092 | Service Exposure Contract | `docs/rfcs/RFC-0092-service-exposure-contract-ingress-policy-ingressd.md` |
+| ✅ RFC-0093 | Display handoff and boot-stage contract | `docs/rfcs/RFC-0093-display-handoff-and-boot-stage-contract.md` |
+| ✅ RFC-0094 | Content transfer v1 — `clipboardd`, the one clipboard authority | `docs/rfcs/RFC-0094-content-transfer-v1-clipboardd.md` |
+| ✅ RFC-0096 | IPC performance contract v2 | `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md` |
+| ✅ RFC-0097 | Payload-VMO header v2 — ONE header codec, and `pkg:/` reads as a VMO pass-through | `docs/rfcs/RFC-0097-payload-vmo-header-v2-pkg-passthrough.md` |
+| ✅ RFC-0099 | USB host contract — `xhcid` owns the controller, a reactive event-ring driver, class services … | `docs/rfcs/RFC-0099-usb-host-contract-xhcid-reactive-event-rings.md` |
 
-Current RFC closure status: `RFC-0060` (formerly RFC-0033), `RFC-0034`, `RFC-0035`, `RFC-0036`, and `RFC-0037` are `Done/Complete`.
+The table lists every RFC whose status is `Done` or `Complete` (swept 2026-10-08 against each RFC's own status line; superseded RFCs are not listed).
 
 ---
 

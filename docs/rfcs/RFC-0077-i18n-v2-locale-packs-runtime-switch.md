@@ -1,6 +1,6 @@
 # RFC-0077: i18n v2 — compiled locale packs + runtime locale switch
 
-- Status: In Progress (all phases proven 2026-07-21)
+- Status: Done (all phases proven 2026-07-21 — TASK-0240/0241)
 - Owners: @runtime
 - Created: 2026-07-21
 - Last Updated: 2026-07-21

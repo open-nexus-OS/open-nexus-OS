@@ -1,6 +1,6 @@
 # RFC-0023: QoS ABI + timed coalescing contract v1
 
-- Status: Implemented (v1)
+- Status: Done (v1)
 - Owners: @runtime @kernel-team
 - Created: 2026-02-11
 - Last Updated: 2026-02-11

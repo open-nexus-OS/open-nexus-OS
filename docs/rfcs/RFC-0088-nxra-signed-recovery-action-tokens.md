@@ -1,6 +1,6 @@
 # RFC-0088: `.nxra` — Signed Recovery Action Tokens
 
-- Status: Implemented (v1 — bootctld enforcement; statefsd seam recut to the first token-carrying client)
+- Status: Done (v1 — bootctld enforcement; statefsd seam recut to the first token-carrying client)
 - Owners: @security @reliability
 - Created: 2026-08-24
 - Last Updated: 2026-08-24

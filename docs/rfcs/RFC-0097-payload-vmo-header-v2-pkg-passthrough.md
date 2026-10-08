@@ -3,7 +3,7 @@
 
 # RFC-0097: Payload-VMO header v2 — ONE header codec, and `pkg:/` reads as a VMO pass-through
 
-- Status: **Implemented 2026-09-18** (TASK-0033 P0–P3). `pkg:/` served 93 of the system volume's 115 entries when this was written, and asking for one of the other 22 ended packagefsd. The reply-frame ceiling is gone: an entry is bounded by the caller's VMO now, and nothing else. Proven on `pkg:/settings/payload.nxir` — 259 424 bytes, from the previously fatal class.
+- Status: **Done 2026-09-18** (TASK-0033 P0–P3). `pkg:/` served 93 of the system volume's 115 entries when this was written, and asking for one of the other 22 ended packagefsd. The reply-frame ceiling is gone: an entry is bounded by the caller's VMO now, and nothing else. Proven on `pkg:/settings/payload.nxir` — 259 424 bytes, from the previously fatal class.
 - Owners: @runtime
 - Created: 2026-09-18
 - Last Updated: 2026-09-18

@@ -1,6 +1,6 @@
 ---
 title: TASK-0067 UI v7b: clipboardd (the one clipboard authority — text history, focus-gated reads) + `svc.clipboard` binding + windowd focus truth
-status: In Progress (2026-10-07 — recut with the operator: text only, drag and drop moved to TASK-0086, flavors stay TASK-0087's; RFC-0094 + ADR-0070; implemented and QEMU-proven; board cycle 1 done, its findings fixed under TASK-0067B — board cycle 2 pending)
+status: Done (2026-10-08 — recut with the operator: text only, drag and drop moved to TASK-0086, flavors stay TASK-0087's; RFC-0094 + ADR-0070; QEMU-proven; board cycle 1 findings fixed under TASK-0067B; board cycle 2 confirmed the clipboard rung)
 owner: @ui
 created: 2025-12-23
 depends-on: []

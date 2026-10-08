@@ -1,6 +1,6 @@
 # RFC-0076: Wall-clock v1 — goldfish rtcd, timed walltime, tz-lite, live clock
 
-- Status: In Progress (all phases proven 2026-07-21; deviation documented)
+- Status: Done (all phases proven 2026-07-21 — TASK-0297; deviation documented; TASK-0299 is a later seed)
 - Owners: @runtime
 - Created: 2026-07-21
 - Last Updated: 2026-07-21

@@ -3,7 +3,7 @@
 
 # RFC-0092: Service Exposure Contract — default-deny inbound policy, exposure intents, and the `ingressd` gateway
 
-- Status: Draft (Phase 0 seed 2026-09-08 — execution TASK-0052)
+- Status: Done (2026-09-08 — Phases 0–3, execution TASK-0052; the TLS / mTLS termination slot stays reserved for the network track)
 - Owners: @security @runtime
 - Created: 2026-09-08
 - Last Updated: 2026-09-08

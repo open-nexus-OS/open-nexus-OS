@@ -1,9 +1,9 @@
 # RFC-0099: USB host contract — `xhcid` owns the controller, a reactive event-ring driver, class services as its clients
 
-- Status: Draft (seed 2026-10-04 — TASK-0328 U0; the measurements it rests on are archived)
+- Status: Done (2026-10-06 — Phases 0–3, TASK-0328 U0–U3 + TASK-0253B; the measurements it rests on are archived)
 - Owners: @runtime
 - Created: 2026-10-04
-- Last Updated: 2026-10-05
+- Last Updated: 2026-10-08
 - Links:
   - Tasks: `tasks/TASK-0328-usb-host-stack-v1-xhci-hub-enumeration-class-clients.md` (execution + proof,
     U0–U3), `tasks/TASK-0253B-hid-ingress-hidsource-usb-and-virtio.md` (the HID class client, U2)

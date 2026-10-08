@@ -1,6 +1,6 @@
 # RFC-0085: Kernel-owned VA allocation — the kernel picks addresses, userspace receives them
 
-- Status: Implemented
+- Status: Done (TASK-0310)
 - Owners: @kernel-mm-team @ui
 - Created: 2026-07-28
 - Last Updated: 2026-07-28

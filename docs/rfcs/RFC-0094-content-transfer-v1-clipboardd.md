@@ -1,9 +1,10 @@
 # RFC-0094: Content transfer v1 — `clipboardd`, the one clipboard authority
 
-- Status: In Progress (2026-10-07 — Phases 0–2 implemented; board proof pending)
+- Status: Done (2026-10-08 — Phases 0–2, TASK-0067/0067B, board rung `board-visual: clipboard`
+  confirmed on the second board cycle; Phases 3–5 belong to TASK-0087, TASK-0086 and the sync RFC)
 - Owners: @ui @runtime
 - Created: 2026-10-07
-- Last Updated: 2026-10-07
+- Last Updated: 2026-10-08
 - Links:
   - Tasks: `tasks/TASK-0067-ui-v7b-dnd-clipboard-v2.md` (the service, the gate, the wire),
     `tasks/TASK-0067B-ui-v7b-clipboard-history-dsl-overlay.md` (the two surfaces)
@@ -17,7 +18,8 @@
 - **Phase 0 (contract + wire)**: ✅ `nexus_wire::clipboardd` (`'C','B'` v1), this RFC, ADR-0070
 - **Phase 1 (authority)**: ✅ `clipboardd` — history, gate, answer; host contract tests
 - **Phase 2 (surfaces)**: ✅ windowd focus truth, `svc.clipboard.*`, the shell search and the
-  keyboard's clipboard; QEMU proof on the `usb-visible` lane
+  keyboard's clipboard, copy/cut/paste in text fields; QEMU proof on the `usb-visible` lane,
+  board-confirmed 2026-10-08
 - **Phase 3 (flavors)**: ⬜ TASK-0087 — html/rtf/image flavors, the VMO path, a background-write rule
 - **Phase 4 (drag and drop)**: ⬜ TASK-0086 — DnD routing in windowd, one-shot transfer items
 - **Phase 5 (sync)**: ⬜ a dsoftbus consumer of the same history (same account, other devices)
@@ -219,4 +221,4 @@ per process each).
 - [x] windowd focus push · [x] `svc.clipboard.*` + `svc.ime.insert` · [x] imed `OP_INSERT`
 - [x] shell search · [x] keyboard toolbar + cards · [x] selftest probes · [x] lane + chain group
 - [x] text-field copy / cut / paste + `ClipboardChanged` (board round 2026-10-07) · [x] lane copy step
-- [ ] board rung `board-visual: clipboard` confirmed
+- [x] board rung `board-visual: clipboard` confirmed (board cycle 2, 2026-10-08)

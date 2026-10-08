@@ -3,7 +3,7 @@
 
 # RFC-0093: Display handoff and boot-stage contract — routing v2, readiness verbs, stage fence, ONE slot topology, handoff v2
 
-- Status: Implemented (Phase 1 seed 2026-09-09; execution TASK-0324 P2–P9, complete 2026-09-15)
+- Status: Done (Phase 1 seed 2026-09-09; execution TASK-0324 P2–P9, complete 2026-09-15)
 - Owners: @runtime @gpu @ui
 - Created: 2026-09-09
 - Last Updated: 2026-09-09

@@ -1,6 +1,6 @@
 # RFC-0081: Process reaper — non-blocking service-driven zombie reclaim
 
-- Status: In Progress (boot-proven 2026-07-24; execution TASK-0303 Done)
+- Status: Done (boot-proven 2026-07-24; execution TASK-0303; thread teardown deferred to TASK-0304)
 - Owners: @kernel-team / @runtime
 - Created: 2026-07-23
 - Last Updated: 2026-07-23

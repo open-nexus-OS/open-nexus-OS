@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-08 (docs: status sweep — finished tasks and RFCs marked Done and listed)
+
+- **Tasks**: the status board's Done list gained the 26 ledgers that were Done but missing from
+  it (Blocks 1–3 and the OTA/security/IPC work since 2026-08-25, incl. 0066, 0067, 0067B, 0074,
+  0253B, 0328); the per-group `Done / Total` counters were recounted from the ledger headers;
+  the order file marks Done ledgers ✅ (its legend) and closes the Block 3 rows for 0066, 0067
+  and 0067B.
+- **RFCs**: nine finished RFCs whose header still said Draft or In Progress are Done on the
+  evidence of their own phase lists and their tasks (0076, 0077, 0078, 0080, 0081, 0091, 0092,
+  0099, and 0094 after its board cycle); "Implemented" became "Done" (0023, 0069, 0085, 0088,
+  0090, 0093, 0096, 0097); the RFC index and the status board's RFC Done list (51 added) follow.
+  RFCs with open phases keep their status (0033, 0062, 0066, 0068, 0070, 0071–0073, 0082, 0084,
+  0086, 0089, 0098, 0106, 0107).
+
 ### Added - 2026-10-07 (TASK-0067 + 0067B: the clipboard — one authority, the shell search, the keyboard's cards; RFC-0094, ADR-0070)
 
 - **clipboardd** — the ONE clipboard authority (replaces the placeholder service and the
@@ -73,7 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ok` + `SELFTEST: ime insert ok` in every lane, the `usb-visible` clipboard phase — type, Ctrl+A,
   Ctrl+C, Ctrl+V, press the copied card (`apphost: text copy ok`, `apphost: text paste ok`,
   `SELFTEST: ui v7 clipboard ok`, chain group `clipboard`; budget 780 s); board rung
-  `board-visual: clipboard`.
+  `board-visual: clipboard` confirmed on the second board cycle (2026-10-08, build dev-caf749a2).
 
 ### Added - 2026-10-06 (TASK-0066: window tiling — the desktop default model; ADR-0069)
 

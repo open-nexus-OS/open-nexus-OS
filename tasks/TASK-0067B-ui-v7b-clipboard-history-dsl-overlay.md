@@ -1,6 +1,6 @@
 ---
 title: TASK-0067B UI v7b: the clipboard's two surfaces — the shell search (field + Apps / Files / Clipboard) and the keyboard's clipboard cards
-status: In Progress (2026-10-07 — recut with the operator: the search bar of the desktop reference instead of a panel, plus the mobile reference's keyboard clipboard; first board cycle found three gaps, all fixed and QEMU-proven — second board cycle pending)
+status: Done (2026-10-08 — recut with the operator: the search bar of the desktop reference instead of a panel, plus the mobile reference's keyboard clipboard; board cycle 1 found three gaps, fixed and QEMU-proven; board cycle 2 confirmed `board-visual: clipboard` — operator: "noch nicht perfekt, aber ausreichend")
 owner: @ui
 created: 2026-03-28
 depends-on: []
@@ -91,8 +91,28 @@ copy should show up at once. Measured causes and fixes:
   budget 660 → 780 s). Host: `a_copy_in_the_open_search_refreshes_the_history_at_once`, the
   shell-host no-match check, imed/keymaps/inputd/textedit/runtime tests above.
 
+### Closure 2026-10-08 (board cycle 2, build dev-caf749a2)
+
+The board log shows the round's fixes at work: the app filter narrows per keystroke
+(`bundlemgr.enumerate ok n=4 → 2 → 1 → 0`), a hardware Ctrl+C stored the selection
+(`clipboardd: write ok (seq=9)`, `apphost: text copy ok`), card presses copied items back
+(`restore ok` seq 7, 8, 10, 11; `SELFTEST: ui v7 clipboard ok`); `SELFTEST: clipboard gate
+ok`, no read denial beyond the harness's own. Operator verdict: "noch nicht perfekt, aber
+ausreichend" — close the task. `board-test --profile=board-visible`: ladder complete (46
+rungs), acks desktop/typed/pointer/modal/clipboard on this boot; TASK-0066's `tile` rung was
+not exercised on this boot (no `windowd: wm tile` line), so it was not acknowledged and the
+smoke reports it missing.
+
 ### Open findings (recorded, not built)
 
+- **Privacy (follow-up first)**: `apphost: dsl svc bundlemgr.enumerate ok n=…` fires on EVERY
+  keystroke of a live search (since live search landed; with the working filter the count now
+  follows the query) — one UART line per keystroke carries typing rhythm into board logs. It
+  should fire once per process like the other interaction proofs.
+- **Paste on the board**: no `apphost: text paste ok` on this boot (QEMU proves the path). A
+  failed paste is silent today — no route, a refusal and an empty history all look the same
+  to the operator; a bounded `apphost: text paste FAIL (reason=…)` line would make it
+  diagnosable.
 - Files search waits for an indexed file query (svc.files has listing, not search).
 - The keyboard shows the newest six cards; scrolling the band is the OSK's next step.
 - A copy in ANOTHER app does not refresh an already open history (e.g. the keyboard's cards):

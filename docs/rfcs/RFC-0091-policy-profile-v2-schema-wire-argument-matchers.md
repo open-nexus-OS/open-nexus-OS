@@ -1,9 +1,10 @@
 # RFC-0091: Policy profile v2 — schema, argument matchers, precedence, epoch-guarded wire
 
-- Status: Draft (contract seed; execution TASK-0028, consumers TASK-0043 / TASK-0052 / TASK-0189 / TASK-0229)
+- Status: Done (2026-09-08 — execution TASK-0028 P0–P3, consumers TASK-0043 / TASK-0052 delivered;
+  the later consumers TASK-0188 / TASK-0189 / TASK-0229 build on this contract)
 - Owners: @runtime @security
 - Created: 2026-09-05
-- Last Updated: 2026-09-05
+- Last Updated: 2026-10-08
 - Links:
   - Tasks: `tasks/TASK-0028-abi-filters-v2-arg-match-learn-enforce.md` (execution + proof),
     `tasks/TASK-0043-security-v2-sandbox-quotas-egress-abi-audit.md` (egress = `net.connect`),
@@ -16,9 +17,9 @@
 ## Status at a Glance
 
 - **Phase 0 (contract seed — this document)**: ✅ 2026-09-05 (TASK-0028 P0)
-- **Phase 1 (matcher + codec v2 + reject suite)**: ⬜ TASK-0028 P1
-- **Phase 2 (learn pipeline + `nx policy learn-gen`)**: ⬜ TASK-0028 P2
-- **Phase 3 (OS enforcement seams + mode switch + markers)**: ⬜ TASK-0028 P3 (statefsd), TASK-0043 P2/P3 (netstackd identity + egress), TASK-0052 P1 (ingress address class)
+- **Phase 1 (matcher + codec v2 + reject suite)**: ✅ TASK-0028 P1 (delivered 2026-09-05..07)
+- **Phase 2 (learn pipeline + `nx policy learn-gen`)**: ✅ TASK-0028 P2 (delivered 2026-09-05..07)
+- **Phase 3 (OS enforcement seams + mode switch + markers)**: ✅ TASK-0028 P3 (statefsd), TASK-0043 P2/P3 (netstackd identity + egress, 2026-09-07..08), TASK-0052 P1 (ingress address class, 2026-09-08)
 
 Definition: “Complete” means the contract below is implemented and its proof gates (host reject suite + QEMU markers) are green.
 

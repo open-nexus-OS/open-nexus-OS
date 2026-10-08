@@ -1,6 +1,6 @@
 # RFC-0080: Shared glyph-atlas RO VMO (kill per-instance duplication)
 
-- Status: Draft
+- Status: Done (Phases 0–1 delivered — TASK-0302)
 - Owners: @ui / @kernel-mm-team / @runtime
 - Created: 2026-07-23
 - Last Updated: 2026-07-23
