@@ -92,7 +92,12 @@ The scheduler lock itself (`TASK-0306` Phase 3 = S2), the placement policy (`TAS
 - **RED**: S0's measurements (R9, the `-smp 8` boots, the inventory) are done BEFORE any kernel edit; the split order (ADR-0073) is written from the histogram, not from intuition.
 - **RED**: `HART_LOCALS` at the mask width changes `trap.S` layout constants — released only with the `cpu_current_id` fallback counter at 0 on QEMU and the board.
 - **YELLOW**: the boot slab must exist before the boot hart's first trap uses the IRQ stash / console line (the boot hart's entry stays static or the slab precedes the first trap).
-- **YELLOW**: —
+- **YELLOW**: the board hung twice at the start of SMP scheduling after warm resets (2026-10-09,
+  image `dev-e5b3a848`, kernel unchanged since a good boot that day): the rescued console ring
+  ends mid-line after `KINIT: cpu0 sched loop` with cpu2's line missing, before init's first
+  line; a cold power cycle booted. Evidence and reading:
+  `docs/board/measurements/2026-10-09-smp-start-hang/`. S0 measures it (warm vs cold, ×N boots)
+  before S1 touches the secondary-hart start.
 - **GREEN**: —
 
 ## Definition of Done
