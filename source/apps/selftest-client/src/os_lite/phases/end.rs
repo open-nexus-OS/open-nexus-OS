@@ -45,6 +45,13 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     // detector) — LAST in the ladder so every ordinary pinched consumer ran
     // against the original instance first.
     crate::os_lite::probes::pinched_restart::restart_proof();
+    // RFC-0095: the shown frame, read back through the ONE readback (screencapd → windowd →
+    // gpud), is non-black — before the ladder's last line; a display-less lane says nothing.
+    match crate::os_lite::screencap::screencap_probe() {
+        Some(true) => emit_line(crate::markers::M_SELFTEST_UI_V7_SCREENCAP_OK),
+        Some(false) => emit_line(crate::markers::M_SELFTEST_UI_V7_SCREENCAP_FAIL),
+        None => {}
+    }
     let auto_exit_after_proof = display_bootstrap::enabled()
         && crate::os_lite::boot_cfg::runtime_mode_with_retry().unwrap_or(RuntimeMode::Proof)
             == RuntimeMode::Proof;

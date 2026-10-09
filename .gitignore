@@ -5,6 +5,7 @@
 /build/
 /artifacts/
 /target-os2vm/
+/target-oscheck/
 
 # Rust toolchains & caches (anywhere)
 **/.rustup/

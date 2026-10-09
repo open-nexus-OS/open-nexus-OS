@@ -60,6 +60,18 @@ apphost: dsl svc clipboard.restore ok (seq=
 clipboardd: restore ok (seq=
 SELFTEST: ui v7 clipboard ok
 
+# group: capture — TASK-0068 / RFC-0095 screen capture: Print (inputd's one-shot fact, windowd's
+# push to the shell) opened the screenshot UI, screencapd froze the screen (windowd took the
+# pointer out of the frame, gpud read the display back into screencapd's VMO, windowd froze on
+# it), a dragged selection (the DSL drag gesture) was shot, cropped, encoded and written through
+# vfsd. Fires when the `usb-visible` lane's injector presses Print; interactive boots:
+# just check-markers --groups capture
+screencapd: freeze ok (w=
+windowd: capture freeze on
+screencapd: saved (kind=area
+windowd: capture freeze off
+SELFTEST: ui v7 screenshot ok
+
 # group: gpu-core — gpud present-damage → parse → exec → scanout (ADR-0032;
 # fires in every boot incl. headless 2D)
 gpud: chain G1 recv present-damage

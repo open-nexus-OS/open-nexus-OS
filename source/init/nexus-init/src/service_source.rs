@@ -72,6 +72,7 @@ mod tests {
             "{listed} volume services listed, cap {MAX_VOLUME_SERVICES}: raise the cap with a reason"
         );
         assert!(is_volume_service("clipboardd"), "the clipboard authority ships on the volume");
+        assert!(is_volume_service("screencapd"), "the capture facade ships on the volume");
     }
 
     #[test]

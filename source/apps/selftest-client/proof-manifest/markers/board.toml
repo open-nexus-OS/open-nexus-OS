@@ -183,6 +183,10 @@ proves = "a person confirmed on THIS boot that a window tiles by dragging it to 
 phase = "end"
 proves = "a person confirmed on THIS boot that the top bar's magnifier opens the search field with the Apps, Files and Clipboard buttons, that Apps filters by the typed text, that Clipboard shows the history as cards and a pressed card moves to the top, and that text selected with Ctrl+A or Shift+arrows and copied with Ctrl+C appears in the open history at once and pastes back with Ctrl+V (TASK-0067B — the clipboard's desktop surface and the keyboard editing core)"
 
+[marker."board-visual: screenshot"]
+phase = "end"
+proves = "a person confirmed on THIS boot that Print freezes the screen and opens the screenshot tool over it (scrim outside the selection, the glass panel with the X, the three modes, photo/film, the shutter and the pointer toggle), that a selection is drawn, moved and resized by dragging, that Window mode outlines the windows in place and a click picks one, that the shutter saves and the toast names the file, that Shift+Print and Alt+Print save without the tool, and that ESC unfreezes (TASK-0068 — the board's display controller path)"
+
 [marker."board-visual: modal"]
 phase = "end"
 proves = "a person confirmed on THIS boot that the Control Center's power button opens the shutdown alert over a scrim, that ESC and Cancel close it, and that Confirm answers with the system toast at the left edge which leaves by itself (TASK-0074 — the shell's first modal, every visual task ships such a rung)"

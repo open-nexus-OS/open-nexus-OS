@@ -20,10 +20,8 @@
 //! OWNERS: @ui @runtime
 //! STATUS: Experimental (TASK-0080C Umbau #16)
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: the length-prefixed entry parsers mirror windowd's
-//! host-tested `take_lp_str`/`from_list_apps_response`; the fixed-slot
-//! transport is proven via QEMU markers (`apphost: dsl svc …`) once
-//! shell/greeter launch as app-host (#17).
+//! TEST_COVERAGE: the entry parsers mirror windowd's host-tested ones; the fixed-slot
+//! transport is proven by the QEMU `apphost: dsl svc …` markers.
 
 #![cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 
@@ -48,9 +46,6 @@ pub(crate) const REPLY_BUF: usize = 512;
 /// response budget (`nexus-vfs-types`), which itself stays under the 8 KiB
 /// IPC frame.
 pub(crate) const FILES_REPLY_BUF: usize = nexus_vfs_types::MAX_READDIR_RESPONSE_BYTES + 16;
-/// vfsd bring-up opcodes (see `vfsd/src/os_lite.rs`).
-pub(crate) const VFS_OPCODE_STAT: u8 = 4;
-pub(crate) const VFS_OPCODE_READDIR: u8 = 6;
 
 pub(crate) use crate::proof_line::raw_marker;
 
@@ -121,6 +116,8 @@ pub(crate) struct AppEffectHost {
     /// no wire. The store's dot-tap effect glides the pager WITHOUT a
     /// `PageNext`/`PagePrev` trigger (the store already knows the page).
     pub(crate) pending_scroll_page: Option<i32>,
+    /// `svc.screencap` record symbols (TASK-0068, `effect_screencap.rs`).
+    pub(crate) screencap: crate::effect_screencap::CaptureSyms,
 }
 
 use crate::effect_query::{QueryStore, SEED_MESSAGES};
@@ -159,6 +156,7 @@ impl AppEffectHost {
             floor_sym: symbols.iter().position(|s| s == "floor").map(|i| i as u32),
             staged_sym: symbols.iter().position(|s| s == "staged").map(|i| i as u32),
             pending_scroll_page: None,
+            screencap: crate::effect_screencap::CaptureSyms::new(symbols),
             surface_id: 0,
         }
     }
@@ -701,6 +699,7 @@ impl EffectHost for AppEffectHost {
             ("updates", "switch") => self.updates_switch(),
             ("updates", "rollback") => self.updates_rollback(),
             ("clipboard", method) => self.clipboard_call(method, args), // effect_clipboard.rs
+            ("screencap", method) => self.screencap_call(method, args), // effect_screencap.rs
             _ => Err(ERR_SVC_UNKNOWN),
         }
     }
@@ -723,7 +722,7 @@ pub(crate) fn str_of(v: &Value) -> Option<&str> {
 /// A `Bool` argument. Strict: a non-Bool yields `None` so the caller's
 /// `unwrap_or` default applies, rather than coercing an Int and quietly
 /// meaning something the app did not write.
-fn bool_of(v: &Value) -> Option<bool> {
+pub(crate) fn bool_of(v: &Value) -> Option<bool> {
     match v {
         Value::Bool(b) => Some(*b),
         _ => None,

@@ -420,23 +420,7 @@ impl super::DslApp {
     /// flags. Container-scoped BY NAME, like `EndReached` — "the windows
     /// changed" has no pixel to hit-test.
     pub(super) fn fire_windows_changed(&mut self) -> bool {
-        use nexus_dsl_runtime::Damage;
-        let tokens = tokens_for(self.theme_mode);
-        let device =
-            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
-        let locale = super::app_locale!(self);
-        let damage = self
-            .view
-            .fire_trigger(tokens, &device, &locale, &mut self.host, "WindowsChanged")
-            .ok()
-            .flatten();
-        if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
-            return false;
-        }
-        if matches!(damage, Some(Damage::Layout)) {
-            self.relayout_retained();
-        }
-        true
+        self.fire_named("WindowsChanged")
     }
 
     /// Dispatches the pager container's declarative `on PageNext`/`on
@@ -444,21 +428,7 @@ impl super::DslApp {
     /// contract) so the store's page index follows a wheel-turned page.
     /// Returns whether the model changed (caller full-repaints).
     pub(super) fn fire_pager_trigger(&mut self, next: bool) -> bool {
-        use nexus_dsl_runtime::Damage;
-        let tokens = tokens_for(self.theme_mode);
-        let device =
-            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
-        let locale = super::app_locale!(self);
-        let name = if next { "PageNext" } else { "PagePrev" };
-        let damage =
-            self.view.fire_trigger(tokens, &device, &locale, &mut self.host, name).ok().flatten();
-        if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
-            return false;
-        }
-        if matches!(damage, Some(Damage::Layout)) {
-            self.relayout_retained();
-        }
-        true
+        self.fire_named(if next { "PageNext" } else { "PagePrev" })
     }
 
     /// Dispatches the declarative `on EndReached` handler of the scroll
@@ -466,26 +436,10 @@ impl super::DslApp {
     /// `dispatch(LoadMore)` continuing a QuerySpec page token). Returns
     /// whether the model changed (caller full-repaints like a tap).
     pub(super) fn fire_end_reached(&mut self) -> bool {
-        use nexus_dsl_runtime::Damage;
-        let tokens = tokens_for(self.theme_mode);
-        let device =
-            device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
-        let locale = super::app_locale!(self);
         // Container-scoped event: dispatched by NAME, never by hit-test —
         // the handler may sit on a (scrolled-away) content node, and "the
         // end was reached" has no pixel anyway.
-        let damage = self
-            .view
-            .fire_trigger(tokens, &device, &locale, &mut self.host, "EndReached")
-            .ok()
-            .flatten();
-        if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
-            return false;
-        }
-        if matches!(damage, Some(Damage::Layout)) {
-            self.relayout_retained();
-        }
-        true
+        self.fire_named("EndReached")
     }
 
     /// Re-run layout for the CURRENT scene (model changed) and reconcile

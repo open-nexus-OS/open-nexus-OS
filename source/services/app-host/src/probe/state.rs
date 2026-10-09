@@ -101,6 +101,9 @@ pub(super) struct DslApp {
     /// The modal depth last mirrored to windowd (`CONTROL_WIN_MODAL` on the 0↔n edge) and
     /// named in the `apphost: modal open` marker (TASK-0074, `probe/overlay.rs`).
     pub(super) modal_depth_sent: usize,
+    /// The topmost modal last synced, by identity (node path, store instance): a modal that
+    /// closed and another that opened between two paints keep the depth — the identity tells.
+    pub(super) modal_top_sent: Option<(alloc::vec::Vec<u32>, u64)>,
     /// The transient overlay whose `.dismissAfter` is armed: (its node path, the absolute
     /// monotonic deadline). Re-armed only when a DIFFERENT transient layer appears.
     pub(super) transient_armed: Option<(alloc::vec::Vec<u32>, u64)>,
@@ -152,4 +155,7 @@ pub(super) struct DslApp {
     /// A traced tap repainted; its present owes `apphost: tap settled` (the live
     /// injector's anchor that the tap's frame is on screen).
     pub(super) tap_present_owed: bool,
+    /// The press a drag may grow from (RFC-0095, `probe/drag.rs`): the press point, and the
+    /// box that took `DragStart` once the pointer moved past the slop (`None` until then).
+    pub(super) drag: Option<super::drag::Drag>,
 }

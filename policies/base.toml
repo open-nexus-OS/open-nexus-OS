@@ -78,6 +78,9 @@ sessiond = ["ipc.core"]
 # TASK-0067 (RFC-0094): the clipboard authority answers only; identity = the kernel
 # sender id, the focus truth arrives as windowd's push. It calls nobody.
 clipboardd = ["ipc.core"]
+# TASK-0068 (RFC-0095): the screen-capture facade calls windowd (the capture verb, accepted
+# from its kernel sid alone) and vfsd (the PNG in the Pictures folder); routing is `ipc.core`.
+screencapd = ["ipc.core"]
 # TASK-0072 Phase 8: settingsd persists the typed prefs registry via statefsd
 # (state:/prefs) — needs ipc.core to route + statefs read/write to load at boot
 # and store on change.

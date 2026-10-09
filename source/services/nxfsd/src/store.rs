@@ -141,9 +141,7 @@ impl DataStore {
             OP_CREATE => run_write(self.fs.create(&decode_path(payload))),
             OP_REMOVE => run_write(self.fs.remove(&decode_path(payload))),
             OP_WRITE_TEXT => match fileops::decode_write_text(payload) {
-                Some((path, text)) => {
-                    run_write(self.fs.write(&to_nxfs_path(&path), 0, text.as_bytes()))
-                }
+                Some((path, text)) => self.write_content(path, text.as_bytes()),
                 None => status_reply(VfsError::Invalid),
             },
             OP_RENAME => match fileops::decode_rename(payload) {
@@ -174,6 +172,35 @@ impl DataStore {
             },
             _ => status_reply(VfsError::Unsupported),
         }
+    }
+
+    /// Writes `data` as `path`'s content at offset 0 — ONE nxfs transaction;
+    /// the file must exist — and answers the RFC-0072 status reply (the
+    /// inline `writeText` path).
+    pub fn write_content(&mut self, path: &str, data: &[u8]) -> Vec<u8> {
+        run_write(self.fs.write(&to_nxfs_path(path), 0, data))
+    }
+
+    /// [`Self::write_content`] for `len` bytes this process does not hold:
+    /// `pull(at, out)` fills `out` with content bytes `[at, at + out.len())`,
+    /// each piece straight into the engine's working buffer, and returns
+    /// `false` when it cannot — the write then aborts before anything
+    /// commits and answers `Io`. Still ONE nxfs transaction whatever `len`
+    /// is: vfsd pulls an `OP_WRITE_VMO` out of the client's VMO this way
+    /// (TASK-0068), and no allocation scales with `len`.
+    pub fn write_content_from(
+        &mut self,
+        path: &str,
+        len: u64,
+        pull: &mut dyn FnMut(u64, &mut [u8]) -> bool,
+    ) -> Vec<u8> {
+        run_write(self.fs.write_from(&to_nxfs_path(path), 0, len, &mut |at, out| {
+            if pull(at, out) {
+                Ok(())
+            } else {
+                Err(nxfs::NxfsError::Io)
+            }
+        }))
     }
 
     fn handle_stat(&self, payload: &[u8]) -> Vec<u8> {

@@ -18,7 +18,7 @@ use super::types::{RenderClip, SourceFrame};
 use super::{
     COMBINED_PANEL_WIDTH, DARK_GLASS_BLUR_RADIUS, DARK_GLASS_SATURATION_PERCENT, DISPLAY_HEIGHT,
     DISPLAY_OFFSET_BYTES, DISPLAY_WIDTH, PROOF_PANEL_H, RETAINED_OFFSET_BYTES, RETAINED_ROW_OFFSET,
-    ROW_WRITE_CHUNK, USE_DESKTOP_SHELL,
+    ROW_WRITE_CHUNK,
 };
 use crate::compositor::damage::{
     premerge_damage_rects, select_glass_quality, DamageRect, GlassQuality,
@@ -74,6 +74,7 @@ const ANIMATION_UPDATE_CAP: usize = 8;
 mod anim;
 mod app_surface;
 pub(crate) mod app_window;
+mod capture;
 mod chrome_widget;
 mod clipboard_focus;
 mod cursor;
@@ -123,18 +124,6 @@ impl AnimatedSceneState {
         Self { hover_opacity: 0.0, sidebar_translate_x: 320.0, sidebar_opacity: 0.0 }
     }
 }
-
-// RFC-0067 P5-Final G1: `draw_animation_proof_overlay_row` (the CPU "animation
-// proof overlay" — button/sidebar/lucide-icons drawn via CPU glass rows) was
-// dead on BOTH backends (G0 markers `cpu-sdf-fill`/`cpu-backdrop-blur` never fired
-// on virgl or the CPU-fallback boot) and had zero callers. Deleted; the GPU
-// command path (and gpud's cpu_vector on mmio) renders glass. Its now-orphaned
-// helpers (draw_floating_glass_rect_row, blend_span, the lucide-icon rows) are
-// removed in the cascade below.
-
-// (orphaned CPU glass-overlay helpers — draw_floating_glass_rect_row, the
-// lucide-icon rows, blend_span/blend_pixel — removed with their dead caller
-// `draw_animation_proof_overlay_row`; RFC-0067 P5-Final G1.)
 
 #[derive(Default)]
 struct AnimationProofState {
@@ -541,6 +530,10 @@ pub(crate) struct DisplayServerRuntime {
     imed_client: Option<nexus_ipc::KernelClient>,
     /// The clipboard authority's focus truth (TASK-0067, `clipboard_focus.rs`).
     clip_focus: clipboard_focus::ClipFocusState,
+    /// The screen-capture verb (TASK-0068, `capture.rs`): frame VMO, parked reply, freeze.
+    capture: capture::CaptureState,
+    /// The surface that took the primary press — it hears the drag (RFC-0095, `input_hover.rs`).
+    press_route: Option<input_hover::PressRoute>,
     /// Region relay cache (RFC-0076/0077 — see `region.rs`).
     pub(crate) region: region::RegionState,
     /// Atlas allocator, kept live so windows can acquire surfaces on show and
@@ -866,6 +859,8 @@ impl DisplayServerRuntime {
             #[cfg(nexus_env = "os")]
             imed_client: None,
             clip_focus: clipboard_focus::ClipFocusState::new(),
+            capture: capture::CaptureState::new(),
+            press_route: None,
             atlas_alloc: atlas,
             pending_input: None,
             desktop_layers: [nexus_display_proto::client_surface::LayerDesc::default();
@@ -988,7 +983,7 @@ impl DisplayServerRuntime {
                 Self::window_name(id),
                 self.windows.z_of(id),
             ));
-            let (order, n) = self.windows.order(USE_DESKTOP_SHELL);
+            let (order, n) = self.windows.order(self.capture.frozen());
             for &wid in &order[..n] {
                 let rect = self.window_damage_rect(wid);
                 self.queue_gpu_blit_rect(rect);

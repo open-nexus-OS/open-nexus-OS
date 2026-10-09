@@ -151,6 +151,30 @@ Phase 2 ops or answer `EUNSUPPORTED` per-op deterministically. `Rename` across m
 run identically for ReadDir and all write ops; a namespace that hides a subtree hides it from
 ReadDir output too (entries filtered, not error). Deny → `EACCES` + audit (same sink as today).
 
+### Amendment 2026-10-09 — a file's content from a VMO in one transaction (`OP_ARM_VMO` + `OP_WRITE_VMO`; TASK-0068)
+
+A binary file larger than an IPC frame (a screenshot PNG, RFC-0095) is written in ONE store
+transaction from a caller's VMO, in two messages — a message moves one capability, so the VMO
+cannot ride the request that carries the reply cap:
+
+- `OP_ARM_VMO = 15`: the frame is `[15]` alone, the moved capability is a plain clone of the
+  VMO (a read-only alias is refused). vfsd keeps it keyed by the kernel `sender_service_id`
+  (`nexus_ipc::armed_vmo`, the packagefsd/bundlemgrd pattern; a second arm replaces and closes
+  the first; a bounded table). No reply.
+- `OP_WRITE_VMO = 14 {path_len u16, path, len u32}` on the reply inbox: a home op. vfsd takes
+  the sender's armed VMO (none → `EINVAL`), requires `vmo_len ≥ len` (`E2BIG`) and
+  `len ≤ 64 MiB` (the nxfs file cap), and writes `len` bytes from VMO offset 0 into the
+  existing file at offset 0 — the store PULLS the bytes with `vmo_read` into its one reused
+  working buffer inside a single copy-on-write transaction (`Nxfs::write_from`): a failed pull
+  leaves the file unchanged and frees every fresh block. vfsd closes the VMO before it answers,
+  so the caller can destroy it at once. Like `OP_WRITE_TEXT`, a longer existing file keeps its
+  tail — create the file first.
+
+The same task removed a per-write leak on vfsd's never-freeing heap: every nxfs write
+allocated a fresh 64 KiB working buffer; the store now keeps one (and vfsd recycles its small
+allocations, `small-object-free-list`). `OP_COPY` still reads the whole source into the heap —
+an open finding (TASK-0068).
+
 ### Amendment 2026-09-07 — per-subject byte quotas on `/state` (`EDQUOTA`; TASK-0043 P0, model TASK-0133)
 
 One quota model for the app-writable state store, enforced where the policy check and the

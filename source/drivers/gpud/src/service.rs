@@ -102,13 +102,6 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         let _ = debug_println("gpud: bootstrap scanout skipped");
     }
 
-    // GPU-only architecture: gpud is a pure driver, not a display owner.
-    // It probes the device and becomes IPC-ready. The scanout is set only
-    // when windowd (the sole display owner) sends a framebuffer VMO via
-    // OP_SET_FRAMEBUFFER_VMO. No boot splash, no startup create_resource.
-    // Register in the global IPC registry BEFORE emitting the ready marker.
-    // Windowd's KernelClient::new_for("gpud") depends on this registration.
-    //
     // Reactive GPU completion: route the device's ring-buffer IRQ to our idle
     // control-reply endpoint so command waits BLOCK on the interrupt instead of
     // busy-polling the used-ring (an interrupt-driven driver port). Bound after
@@ -393,6 +386,9 @@ fn service_requests(
                     nexus_display_proto::OP_WALLPAPER_DIRTY => {
                         display.wallpaper_dirty();
                         (STATUS_OK, None)
+                    }
+                    nexus_display_proto::OP_READBACK => {
+                        (crate::readback::serve(display, frame, moved_cap.take()), None)
                     }
                     _ => (handle_frame(display, frame, &mut scroll_flush_pending), None),
                 };

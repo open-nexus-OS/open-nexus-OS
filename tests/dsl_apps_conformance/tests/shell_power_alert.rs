@@ -85,7 +85,7 @@ fn tap(view: &mut View, device: &FixtureEnv, symbols: &[String], (x, y): (i32, i
 }
 
 fn power(view: &View, field: &str) -> Value {
-    view.runtime.field("PowerStore", field).cloned().expect("power field")
+    view.runtime.field("SystemStore", field).cloned().expect("power field")
 }
 
 #[test]

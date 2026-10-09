@@ -80,3 +80,4 @@ Note: **ADR-0019 was never filed; the number is retired to keep history stable.*
 - [ADR-0068: Modal semantics live in the DSL runtime on the app-owned `.overlay()`; windowd keeps ONE routing verb](0068-modal-semantics-in-the-dsl-runtime-windowd-keeps-one-routing-verb.md) — Accepted
 - [ADR-0069: Window tiling — geometry in windowd's WM, chords normalized by inputd, every UI element in the window kit](0069-tiling-chords-normalized-by-inputd-applied-by-windowd-ui-in-the-kit.md) — Accepted
 - [ADR-0070: The clipboard is ONE authority (`clipboardd`) whose reads windowd's focus truth gates; its UI lives in the shell search and the keyboard](0070-clipboardd-one-authority-focus-gated-reads-ui-in-shell-and-keyboard.md) — Accepted
+- [ADR-0071: Screen capture — the readback is gpud's, the freeze is windowd's, the files are screencapd's, the UI is the shell's](0071-screen-capture-readback-in-gpud-freeze-in-windowd-ui-in-the-shell.md) — Accepted

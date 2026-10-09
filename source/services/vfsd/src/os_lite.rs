@@ -3,7 +3,8 @@
 
 //! CONTEXT: OS-lite backend for the vfsd (virtual filesystem daemon). Provides stat, open,
 //! read, and close operations over kernel IPC, forwarding pkg:/ resolution to packagefsd
-//! for real data and enforcing namespace view constraints.
+//! for real data and enforcing namespace view constraints. The VMO data plane lives beside
+//! it: `splice_os.rs` (reads), `write_vmo_os.rs` (whole-file writes, TASK-0068).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -130,10 +131,12 @@ pub fn service_main_loop<F: FnOnce() + Send>(notifier: ReadyNotifier<F>) -> Resu
 /// root — `/`, `/Bilder`, … — so anything that is not `pkg:` is home.
 fn targets_home(frame: &[u8]) -> bool {
     use nexus_vfs_types::fileops::{
-        OP_COPY, OP_CREATE, OP_MKDIR, OP_REMOVE, OP_RENAME, OP_WRITE_TEXT,
+        OP_COPY, OP_CREATE, OP_MKDIR, OP_REMOVE, OP_RENAME, OP_WRITE_TEXT, OP_WRITE_VMO,
     };
     match frame.first().copied() {
-        Some(OP_MKDIR | OP_CREATE | OP_WRITE_TEXT | OP_REMOVE | OP_RENAME | OP_COPY) => true,
+        Some(
+            OP_MKDIR | OP_CREATE | OP_WRITE_TEXT | OP_REMOVE | OP_RENAME | OP_COPY | OP_WRITE_VMO,
+        ) => true,
         Some(OPCODE_STAT) => is_home_path(core::str::from_utf8(&frame[1..]).unwrap_or("")),
         Some(OPCODE_READDIR) if frame.len() > 7 => {
             is_home_path(core::str::from_utf8(&frame[7..]).unwrap_or(""))
@@ -187,6 +190,9 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     // ONE reply scratch for every packagefsd hop, for the same reason.
     let mut pkg_scratch = alloc::vec![0u8; PKGFS_REPLY_BUF];
+    // The VMO each sender armed for its next OP_WRITE_VMO (TASK-0068), keyed
+    // by the kernel sender id — bounded, one per sender.
+    let mut armed = nexus_ipc::armed_vmo::ArmedVmos::new();
     loop {
         // CAP_MOVE-aware receive: app-host children move a one-shot reply cap
         // into the request (their private inbox); direct clients (selftest)
@@ -225,6 +231,18 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                     );
                     continue;
                 }
+                // VMO write, first half (TASK-0068): the moved cap IS the
+                // sender's source VMO, kept for its next OP_WRITE_VMO — the
+                // ARM handoff bundlemgrd and packagefsd use. No answer.
+                if opcode == nexus_vfs_types::fileops::OP_ARM_VMO {
+                    let vmo_slot = reply_cap.map(|cap| {
+                        let slot = cap.slot();
+                        core::mem::forget(cap);
+                        slot
+                    });
+                    crate::write_vmo_os::arm(&mut armed, frame, sender_service_id, vmo_slot);
+                    continue;
+                }
                 // Writable `/data` mount: route to the in-process nxfs store
                 // (RFC-0072 Phase 2). Everything else is the read-only pkg path.
                 if targets_home(&frame) {
@@ -232,15 +250,23 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
                         data_attempts += 1;
                         data = nxfsd::DataStore::acquire();
                     }
-                    let reply = match data.as_mut() {
-                        Some(store) => {
-                            let out = store.handle(&frame);
-                            if opcode == OPCODE_READDIR {
-                                debug_print("vfsd: readdir ok (mount=home)\n");
+                    let reply = if opcode == nexus_vfs_types::fileops::OP_WRITE_VMO {
+                        // VMO write, second half: the sender's armed VMO is
+                        // taken (whatever the outcome) and closed before
+                        // this reply goes out.
+                        let vmo = armed.take(sender_service_id);
+                        crate::write_vmo_os::write(data.as_mut(), &frame[1..], vmo)
+                    } else {
+                        match data.as_mut() {
+                            Some(store) => {
+                                let out = store.handle(&frame);
+                                if opcode == OPCODE_READDIR {
+                                    debug_print("vfsd: readdir ok (mount=home)\n");
+                                }
+                                out
                             }
-                            out
+                            None => data_unavailable(opcode),
                         }
-                        None => data_unavailable(opcode),
                     };
                     match reply_cap {
                         Some(reply_cap) => {

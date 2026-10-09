@@ -23,15 +23,15 @@ pub enum WindowRole {
     /// BELOW all floating windows, chromeless + full-screen. It replaces the
     /// in-process shell / wallpaper as the always-present base
     /// ([`BASE_ALWAYS_PRESENT`]) — an app-host owns it (RFC-0065), windowd only
-    /// composes it at the bottom band. Never suppressed by `desktop_shell_active`
-    /// (it IS the desktop).
+    /// composes it at the bottom band. Never suppressed while the screen is frozen
+    /// for a capture (it hosts the capture UI).
     Desktop,
     /// An OVERLAY surface (RFC-0075 Phase 2: the OSK; later: candidate strip,
     /// system banners): composited ABOVE every floating window, chromeless,
     /// never focus-stealing (shown via [`WindowStack::show_unfocused`]).
     Overlay,
     /// A normal floating window (chat/search/settings/app client): chrome, z
-    /// within the window band, subject to the shell-takeover show rule.
+    /// within the window band, out of the composition while the screen is frozen.
     Window,
 }
 
@@ -69,17 +69,15 @@ impl WindowState {
     }
 
     /// Whether this window composites this frame.
-    pub(crate) fn showable(&self, desktop_shell_active: bool) -> bool {
+    pub(crate) fn showable(&self, frozen: bool) -> bool {
         match self.role {
             // The desktop surface is the base layer — it shows whenever visible,
-            // never suppressed by the shell-takeover rule (it IS the shell).
+            // and while frozen it carries the capture UI.
             WindowRole::Desktop => self.visible && !self.minimized,
-            WindowRole::Window => {
-                should_show(self.visible, desktop_shell_active) && !self.minimized
+            // Windows and overlays (the OSK) are in the frozen frame already.
+            WindowRole::Window | WindowRole::Overlay => {
+                should_show(self.visible, frozen) && !self.minimized
             }
-            // Overlays ride ABOVE the shell-takeover rule (the OSK must show
-            // over the greeter and the desktop shell alike).
-            WindowRole::Overlay => self.visible && !self.minimized,
         }
     }
 

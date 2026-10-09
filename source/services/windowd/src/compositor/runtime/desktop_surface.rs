@@ -228,32 +228,33 @@ impl DisplayServerRuntime {
         self.send_desktop_input_kind(wire::INPUT_KIND_TAP, local_x, local_y);
     }
 
-    /// `send_desktop_input` for any input kind. Taps keep their honest
-    /// routed/FAIL markers; MOVE/LEAVE are frame-rate hover traffic and stay
-    /// silent (a marker per move would flood the UART).
-    pub(crate) fn send_desktop_input_kind(&mut self, kind: u8, local_x: i32, local_y: i32) {
+    /// `send_desktop_input` for any input kind; `true` when the frame went
+    /// out. Taps keep their honest routed/FAIL markers; MOVE/LEAVE/DRAG are
+    /// frame-rate traffic and stay silent (a marker per move would flood the UART).
+    pub(crate) fn send_desktop_input_kind(&mut self, kind: u8, local_x: i32, local_y: i32) -> bool {
         #[cfg(nexus_env = "os")]
         {
-            let Some(id) = self.desktop_surface_id else { return };
+            let Some(id) = self.desktop_surface_id else { return false };
             let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
             let frame = wire::encode_surface_input(id, kind, x, y);
             let Some(slot) = self.desktop_channel else {
                 if kind == wire::INPUT_KIND_TAP {
                     let _ = debug_println("WINDOWD: FAIL desktop input (no event channel)");
                 }
-                return;
+                return false;
             };
-            if super::app_window::send_input_frame(slot, &frame, kind == wire::INPUT_KIND_TAP) {
-                if kind == wire::INPUT_KIND_TAP {
-                    let _ = debug_println("WINDOWD: desktop input routed");
-                }
-            } else if kind == wire::INPUT_KIND_TAP {
+            let sent = super::app_window::send_input_frame(slot, &frame, kind);
+            if sent && kind == wire::INPUT_KIND_TAP && super::input_hover::first_tap_routed(true) {
+                let _ = debug_println("WINDOWD: desktop input routed");
+            } else if !sent && kind == wire::INPUT_KIND_TAP {
                 let _ = debug_println("WINDOWD: FAIL desktop input send");
             }
+            sent
         }
         #[cfg(not(nexus_env = "os"))]
         {
             let _ = (kind, local_x, local_y);
+            false
         }
     }
 
@@ -269,7 +270,11 @@ impl DisplayServerRuntime {
                 wire_delta,
             );
             if let Some(slot) = self.desktop_channel {
-                let _ = super::app_window::send_input_frame(slot, &frame, false);
+                let _ = super::app_window::send_input_frame(
+                    slot,
+                    &frame,
+                    nexus_display_proto::client_surface::INPUT_KIND_WHEEL,
+                );
             }
         }
         #[cfg(not(nexus_env = "os"))]

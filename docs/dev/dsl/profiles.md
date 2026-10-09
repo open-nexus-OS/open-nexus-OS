@@ -92,3 +92,9 @@ no drag is near an edge. Pushed by windowd to the DESKTOP surface only
 (`OP_SURFACE_TILE_PREVIEW`, one push per change) and re-selected on reemit; the
 desktop shell's `overlays/TilePreview.nx` paints the hint. Apps never see a
 non-empty value — it is a shell axis, not an app one.
+
+## Gesture axes: `device.dragX` / `dragY` / `dragStartX` / `dragStartY` (RFC-0095)
+
+The pointer and the press of the drag gesture in flight, surface pixels (Int; 0 outside a
+drag). The host fills them while a drag runs; a reducer bound to `on DragStart` / `DragMove` /
+`DragEnd` reads them at dispatch time (`syntax.md`, "The drag gesture").

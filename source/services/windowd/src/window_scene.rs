@@ -14,9 +14,9 @@
 //!
 //! Why this exists: a wrong "show this window?" / z-order decision is the
 //! **black-screen risk class** — and it was scattered across the os-only runtime
-//! as dozens of `if self.chat.visible && !USE_DESKTOP_SHELL` checks that could
-//! only be verified by booting. Moving the decision here makes it a `cargo test`
-//! failure instead of a boot hunt, and shrinks the monolith.
+//! as dozens of inline `visible && !takeover` show checks that could
+//! only be verified by booting. Moving the decision here makes it a `cargo test` failure
+//! instead of a boot hunt. The one input beside the stack is `frozen` (RFC-0095 capture).
 
 #[cfg(test)]
 use alloc::vec::Vec;
@@ -47,24 +47,18 @@ pub use crate::window_state::{WindowRole, WindowState};
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 pub const MAX_APP_WINDOWS: usize = 4;
 
-/// Whether a shell window should be composited this frame.
-///
-/// A window shows only when it is `visible` **and** the declarative desktop shell
-/// is not taking over the surface (the `chat_show = !USE_DESKTOP_SHELL && visible`
-/// rule — now in one tested place instead of inline everywhere).
-pub fn should_show(visible: bool, desktop_shell_active: bool) -> bool {
-    visible && !desktop_shell_active
+/// Whether a floating window should be composited this frame: `visible` and the
+/// screen is not frozen for a capture (the frozen frame already shows it).
+pub fn should_show(visible: bool, frozen: bool) -> bool {
+    visible && !frozen
 }
 
 /// The windows to composite over the base layer, back-to-front (z ascending).
-/// Hidden windows (and all windows when the desktop shell is active) are excluded.
+/// Hidden windows (and every window and overlay while the screen is frozen) are excluded.
 #[cfg(test)] // documented z-order contract (composition_order fix), pinned by the host tests below
-pub fn composition_order(windows: &[WindowState], desktop_shell_active: bool) -> Vec<WindowId> {
-    let mut visible: Vec<(WindowId, i32)> = windows
-        .iter()
-        .filter(|w| w.showable(desktop_shell_active))
-        .map(|w| (w.id, w.order_key()))
-        .collect();
+pub fn composition_order(windows: &[WindowState], frozen: bool) -> Vec<WindowId> {
+    let mut visible: Vec<(WindowId, i32)> =
+        windows.iter().filter(|w| w.showable(frozen)).map(|w| (w.id, w.order_key())).collect();
     visible.sort_by_key(|&(_, key)| key);
     visible.into_iter().map(|(id, _)| id).collect()
 }
@@ -296,15 +290,14 @@ impl WindowStack {
     /// while one is on screen, FLOATING windows are excluded entirely (they
     /// are fully covered: compositing them would be wasted work, and only the
     /// wallpaper base remains beneath the fullscreen surface).
-    pub fn order(&self, desktop_shell_active: bool) -> ([WindowId; MAX_WINDOWS], usize) {
-        let fullscreen_on_screen = self.entries[..self.len]
-            .iter()
-            .any(|w| w.showable(desktop_shell_active) && w.fullscreen);
+    pub fn order(&self, frozen: bool) -> ([WindowId; MAX_WINDOWS], usize) {
+        let fullscreen_on_screen =
+            self.entries[..self.len].iter().any(|w| w.showable(frozen) && w.fullscreen);
         let mut out = [WindowId::App(0); MAX_WINDOWS];
         let mut keys = [0i32; MAX_WINDOWS];
         let mut n = 0;
         for w in &self.entries[..self.len] {
-            if w.showable(desktop_shell_active) && (!fullscreen_on_screen || w.fullscreen) {
+            if w.showable(frozen) && (!fullscreen_on_screen || w.fullscreen) {
                 // Insertion sort by the order key ascending — ≤ MAX_WINDOWS entries.
                 let key = w.order_key();
                 let mut j = n;
@@ -323,8 +316,8 @@ impl WindowStack {
 
     /// Visible windows front-to-back (hit-test order) — the exact reverse of
     /// [`Self::order`], so occlusion and input can never disagree.
-    pub fn hit_order(&self, desktop_shell_active: bool) -> ([WindowId; MAX_WINDOWS], usize) {
-        let (mut order, n) = self.order(desktop_shell_active);
+    pub fn hit_order(&self, frozen: bool) -> ([WindowId; MAX_WINDOWS], usize) {
+        let (mut order, n) = self.order(frozen);
         order[..n].reverse();
         (order, n)
     }
@@ -349,9 +342,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shown_only_when_visible_and_shell_inactive() {
-        assert!(should_show(true, false)); // visible, shell off → show
-        assert!(!should_show(true, true)); // desktop shell takes over → hide window
+    fn shown_only_when_visible_and_not_frozen() {
+        assert!(should_show(true, false)); // visible, live screen → show
+        assert!(!should_show(true, true)); // frozen for a capture → the frame shows it
         assert!(!should_show(false, false)); // hidden → no show
         assert!(!should_show(false, true));
     }
@@ -386,10 +379,13 @@ mod tests {
     }
 
     #[test]
-    fn desktop_shell_suppresses_all_windows() {
+    fn a_frozen_screen_composes_no_window_and_no_overlay() {
+        let mut osk = WindowState::floating(WindowId::App(2), true, 1);
+        osk.role = WindowRole::Overlay;
         let windows = [
             WindowState::floating(WindowId::App(0), true, 3),
             WindowState::floating(WindowId::App(1), true, 2),
+            osk,
         ];
         assert!(composition_order(&windows, true).is_empty());
     }
@@ -420,9 +416,9 @@ mod tests {
     }
 
     #[test]
-    fn desktop_role_shows_even_when_shell_active() {
-        // A floating window is suppressed when `desktop_shell_active`, but the
-        // DESKTOP surface itself must still show — it IS the desktop shell.
+    fn desktop_role_shows_even_when_frozen() {
+        // A floating window is suppressed while the screen is frozen, but the
+        // DESKTOP surface itself must still show — it hosts the capture UI.
         let windows = [
             WindowState::floating(WindowId::App(0), true, 1),
             WindowState::desktop(WindowId::Desktop, true),
@@ -430,7 +426,7 @@ mod tests {
         assert_eq!(
             composition_order(&windows, true),
             vec![WindowId::Desktop],
-            "desktop base shows; floating window suppressed under shell-active"
+            "desktop base shows; floating window suppressed while frozen"
         );
     }
 
@@ -520,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn desktop_shell_suppresses_stack_windows_too() {
+    fn a_frozen_screen_suppresses_stack_windows_too() {
         let mut s = stack();
         s.show(WindowId::App(0));
         assert_eq!(s.order(true).1, 0);

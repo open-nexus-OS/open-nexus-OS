@@ -249,7 +249,7 @@ The shared library (`window-kit`) ships the design handoff's elements on this co
 
 ### Host triggers
 
-Most triggers come from a press on the node (`Tap`, `LongPress`, `Change`, …). Three are fired
+Most triggers come from a press on the node (`Tap`, `LongPress`, `Change`, …). These are fired
 BY NAME by the host on whichever node declares them — the page reacts to something that
 happened outside its own input:
 
@@ -258,9 +258,32 @@ happened outside its own input:
 | `WindowsChanged` | the compositor's window set moved (opened, closed, minimized, restored, focused) |
 | `Dismiss` | ESC, a backdrop press or a transient's timeout closes the topmost layer (above) |
 | `ClipboardChanged` | this app copied or cut text from one of its fields into the clipboard |
+| `CaptureOpen` · `CaptureScreen` · `CaptureWindow` | Print · Shift+Print · Alt+Print (the desktop surface only — RFC-0095) |
 
 ```nx
 on ClipboardChanged -> dispatch(ClipsReload)   // the open history re-reads at once
+```
+
+### The drag gesture (`DragStart` · `DragMove` · `DragEnd`, RFC-0095)
+
+A press is a `Tap`. Held and moved past 3 px it becomes a drag: `DragStart` fires on the node
+under the PRESS that declares it (hit-tested like a tap; a panel absorbs with its own
+`on DragStart -> dispatch(Noop)`), and `DragMove` / `DragEnd` (the release) then reach THAT
+node wherever the pointer goes. The reducer reads the pointer and the press at dispatch time:
+`device.dragX`, `device.dragY`, `device.dragStartX`, `device.dragStartY` (surface pixels, Int).
+
+`DragMove` fires at most once per presented frame, with the NEWEST position — positions that
+arrive while a frame is on its way are superseded, never dispatched; the start is also the
+first move, and the release moves to where the pointer let go before `DragEnd`. So a reducer
+must compute from the current pointer (`device.dragX` minus an anchor), never accumulate
+deltas. The repaint is the rows the change touched (a box that only moved or resized
+damages what its new geometry changes), not the frame.
+
+```nx
+Stack { … }
+on DragStart -> dispatch(SelBegin)     // reduce: state.anchorX = device.dragStartX; …
+on DragMove -> dispatch(SelMove)       // reduce: state.w = device.dragX - state.anchorX; …
+on DragEnd -> dispatch(SelEnd)
 ```
 
 

@@ -67,6 +67,7 @@ impl KeyboardUsage {
     pub const SLASH: Self = Self(0x38);
     pub const CAPS_LOCK: Self = Self(0x39);
     pub const F1: Self = Self(0x3a);
+    pub const PRINT_SCREEN: Self = Self(0x46);
     pub const HOME: Self = Self(0x4a);
     pub const DELETE_FORWARD: Self = Self(0x4c);
     pub const END: Self = Self(0x4d);

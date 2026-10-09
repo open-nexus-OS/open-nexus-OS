@@ -116,6 +116,7 @@ pub(crate) fn device_for(
         _ => "dark",
     };
     env.tile_preview = tile_preview_name();
+    env.drag = super::drag::current();
     env
 }
 

@@ -93,6 +93,7 @@ impl DisplayServerRuntime {
     pub(super) fn reset_gpud_client(&mut self) {
         self.gpud_client = None;
         self.presents.reset();
+        self.capture_gpud_lost();
     }
 
     /// The ONE interpreter of a gpud reply (RFC-0093 §5) — used by the drain and by the
@@ -118,6 +119,16 @@ impl DisplayServerRuntime {
                 if reply[0] != GPUD_STATUS_OK && self.hw_cursor_active {
                     self.hw_cursor_active = false;
                     let _ = debug_println("windowd: hw cursor move rejected, sw fallback");
+                }
+                true
+            }
+            // RFC-0095: a readback's answer — two bytes, never a cursor status or a present ack.
+            proto::readback::READBACK_REPLY_LEN => {
+                match proto::readback::decode_readback_reply(reply) {
+                    Some(status) => self.on_capture_readback(status),
+                    None => {
+                        let _ = debug_println("windowd: gpud reply foreign frame len=2");
+                    }
                 }
                 true
             }

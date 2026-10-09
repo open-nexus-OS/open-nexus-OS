@@ -1,0 +1,276 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The screenshot UI (TASK-0068, RFC-0095) — the desktop reference's capture
+// tool in the shell's glass. Print (`on CaptureOpen`) asks screencapd to
+// freeze the screen (`svc.screencap.begin`): the frame the user sees stays
+// still while this overlay picks what to keep — a SELECTION (drawn, moved and
+// resized by dragging), the whole SCREEN, or one WINDOW (outlined in place,
+// a click picks it). The shutter saves (`svc.screencap.shoot`) and the toast
+// names the file; the X, ESC or a failure thaw (`svc.screencap.cancel`).
+// Shift+Print (`on CaptureScreen`) and Alt+Print (`on CaptureWindow`) save
+// the screen or the focused window at once, no overlay (`svc.screencap.shot`).
+//
+// The drag is the DSL gesture (`on DragStart/DragMove/DragEnd`): the reducer
+// reads `device.dragStartX/Y` (the press) and `device.dragX/Y` (the pointer)
+// at dispatch time. A press near a corner of the selection resizes it from
+// the opposite corner (the ANCHOR), a press inside moves it, any other press
+// draws a new one from the press point — the anchor again.
+//
+// Pixels never pass through here: the frame is screencapd's, the image is
+// cropped and encoded there; the state is a rectangle and a window id. It lives
+// in the `SystemStore` (power.store.nx) beside the system toast it answers
+// with — a reducer writes one store — every field with the `cap` prefix.
+
+
+Event CaptureEvent {
+    CapOpen,
+    CapBegun(CaptureFrame),
+    CapBeginFailed(Int),
+    CapMode(Str),
+    CapTogglePointer,
+    CapPickWindow(Int, Int, Int, Int, Int),
+    CapDragStart,
+    CapDragMove,
+    CapDragEnd,
+    CapShoot,
+    CapShotScreen,
+    CapShotWindow,
+    CapSaved(Str),
+    CapFailed(Int),
+    CapCancel,
+    CapCancelled(Bool),
+    CapCancelFailed(Int),
+    CapNoop,
+}
+
+reduce CaptureEvent {
+    CapOpen => state.capDrag = "",
+    CapBegun(frame) => {
+        state.capOpen = true;
+        state.capW = frame.w;
+        state.capH = frame.h;
+        state.capWindows = frame.windows;
+        state.capPick = frame.front.id;
+        state.capWinX = frame.front.x;
+        state.capWinY = frame.front.y;
+        state.capWinW = frame.front.w;
+        state.capWinH = frame.front.h;
+        state.capDrag = "";
+        state.capMode = "area";
+        // A centred selection of half the screen to start from.
+        state.capSelX = frame.w / 4;
+        state.capSelY = frame.h / 4;
+        state.capSelW = frame.w / 2;
+        state.capSelH = frame.h / 2;
+        state.capHoleX = frame.w / 4;
+        state.capHoleY = frame.h / 4;
+        state.capHoleW = frame.w / 2;
+        state.capHoleH = frame.h / 2;
+    },
+    CapBeginFailed(e) => state.capOpen = false,
+    CapMode(m) => {
+        state.capMode = m;
+        if m == "screen" {
+            state.capHoleX = 0;
+            state.capHoleY = 0;
+            state.capHoleW = state.capW;
+            state.capHoleH = state.capH;
+        } else if m == "window" {
+            state.capHoleX = state.capWinX;
+            state.capHoleY = state.capWinY;
+            state.capHoleW = state.capWinW;
+            state.capHoleH = state.capWinH;
+        } else {
+            state.capHoleX = state.capSelX;
+            state.capHoleY = state.capSelY;
+            state.capHoleW = state.capSelW;
+            state.capHoleH = state.capSelH;
+        }
+    },
+    CapTogglePointer => {
+        if state.capPointer {
+            state.capPointer = false;
+        } else {
+            state.capPointer = true;
+        }
+    },
+    CapPickWindow(id, x, y, w, h) => {
+        state.capPick = id;
+        state.capWinX = x;
+        state.capWinY = y;
+        state.capWinW = w;
+        state.capWinH = h;
+        state.capHoleX = x;
+        state.capHoleY = y;
+        state.capHoleW = w;
+        state.capHoleH = h;
+    },
+    CapDragStart => {
+        if state.capMode == "area" {
+            let px = device.dragStartX;
+            let py = device.dragStartY;
+            let right = state.capSelX + state.capSelW;
+            let bottom = state.capSelY + state.capSelH;
+            let nearLeft = px - state.capSelX < 16 && state.capSelX - px < 16;
+            let nearRight = px - right < 16 && right - px < 16;
+            let nearTop = py - state.capSelY < 16 && state.capSelY - py < 16;
+            let nearBottom = py - bottom < 16 && bottom - py < 16;
+            state.capDrag = "draw";
+            if nearLeft && nearTop {
+                state.capAnchorX = right;
+                state.capAnchorY = bottom;
+            } else if nearRight && nearTop {
+                state.capAnchorX = state.capSelX;
+                state.capAnchorY = bottom;
+            } else if nearLeft && nearBottom {
+                state.capAnchorX = right;
+                state.capAnchorY = state.capSelY;
+            } else if nearRight && nearBottom {
+                state.capAnchorX = state.capSelX;
+                state.capAnchorY = state.capSelY;
+            } else if px > state.capSelX && px < right && py > state.capSelY && py < bottom {
+                state.capDrag = "move";
+                state.capOrigX = state.capSelX;
+                state.capOrigY = state.capSelY;
+            } else {
+                state.capAnchorX = px;
+                state.capAnchorY = py;
+                state.capSelX = px;
+                state.capSelY = py;
+                state.capSelW = 0;
+                state.capSelH = 0;
+            }
+        }
+    },
+    CapDragMove => {
+        let x = device.dragX;
+        let y = device.dragY;
+        if state.capDrag == "draw" {
+            if x < state.capAnchorX {
+                state.capSelX = x;
+                state.capSelW = state.capAnchorX - x;
+            } else {
+                state.capSelX = state.capAnchorX;
+                state.capSelW = x - state.capAnchorX;
+            }
+            if y < state.capAnchorY {
+                state.capSelY = y;
+                state.capSelH = state.capAnchorY - y;
+            } else {
+                state.capSelY = state.capAnchorY;
+                state.capSelH = y - state.capAnchorY;
+            }
+        } else if state.capDrag == "move" {
+            let nx = state.capOrigX + x - device.dragStartX;
+            let ny = state.capOrigY + y - device.dragStartY;
+            if nx < 0 {
+                state.capSelX = 0;
+            } else if nx + state.capSelW > state.capW {
+                state.capSelX = state.capW - state.capSelW;
+            } else {
+                state.capSelX = nx;
+            }
+            if ny < 0 {
+                state.capSelY = 0;
+            } else if ny + state.capSelH > state.capH {
+                state.capSelY = state.capH - state.capSelH;
+            } else {
+                state.capSelY = ny;
+            }
+        }
+        if state.capMode == "area" {
+            state.capHoleX = state.capSelX;
+            state.capHoleY = state.capSelY;
+            state.capHoleW = state.capSelW;
+            state.capHoleH = state.capSelH;
+        }
+    },
+    CapDragEnd => state.capDrag = "",
+    CapShoot => {
+        state.capDrag = "";
+        state.capShootKind = state.capMode;
+        if state.capMode == "screen" {
+            state.capShootX = 0;
+            state.capShootY = 0;
+            state.capShootW = 0;
+            state.capShootH = 0;
+        } else if state.capMode == "window" {
+            state.capShootX = state.capPick;
+            state.capShootY = 0;
+            state.capShootW = 0;
+            state.capShootH = 0;
+        } else {
+            state.capShootX = state.capSelX;
+            state.capShootY = state.capSelY;
+            state.capShootW = state.capSelW;
+            state.capShootH = state.capSelH;
+        }
+    },
+    CapShotScreen => state.capDrag = "",
+    CapShotWindow => state.capDrag = "",
+    CapSaved(name) => {
+        state.capOpen = false;
+        state.capSaved = name;
+        state.capToast = "saved";
+        state.toast = "capture";
+    },
+    CapFailed(e) => {
+        state.capOpen = false;
+        state.capToast = "failed";
+        state.toast = "capture";
+    },
+    CapCancel => state.capOpen = false,
+    CapCancelled(ok) => state.capOpen = false,
+    CapCancelFailed(e) => state.capOpen = false,
+    CapNoop => state.capOpen = state.capOpen,
+}
+
+// Print: freeze, then open over the frozen frame.
+@effect on CapOpen {
+    match svc.screencap.begin() {
+        Ok(frame) => dispatch(CapBegun(frame)),
+        Err(e) => dispatch(CapBeginFailed(e)),
+    }
+}
+
+// The shutter: what the mode names (the reducer worked the arguments out), from the frozen
+// frame; screencapd thaws.
+@effect on CapShoot {
+    match svc.screencap.shoot(state.capShootKind, state.capShootX, state.capShootY, state.capShootW, state.capShootH, state.capPointer, @t("capture.stem")) {
+        Ok(name) => dispatch(CapSaved(name)),
+        Err(e) => dispatch(CapFailed(e)),
+    }
+}
+
+// A failed shoot leaves no frozen screen behind.
+@effect on CapFailed(e) {
+    match svc.screencap.cancel() {
+        Ok(ok) => dispatch(CapCancelled(ok)),
+        Err(e) => dispatch(CapCancelFailed(e)),
+    }
+}
+
+// The X and ESC: thaw.
+@effect on CapCancel {
+    match svc.screencap.cancel() {
+        Ok(ok) => dispatch(CapCancelled(ok)),
+        Err(e) => dispatch(CapCancelFailed(e)),
+    }
+}
+
+// Shift+Print: the screen, no overlay.
+@effect on CapShotScreen {
+    match svc.screencap.shot("screen", false, @t("capture.stem")) {
+        Ok(name) => dispatch(CapSaved(name)),
+        Err(e) => dispatch(CapFailed(e)),
+    }
+}
+
+// Alt+Print: the focused window, no overlay.
+@effect on CapShotWindow {
+    match svc.screencap.shot("window", false, @t("capture.stem")) {
+        Ok(name) => dispatch(CapSaved(name)),
+        Err(e) => dispatch(CapFailed(e)),
+    }
+}

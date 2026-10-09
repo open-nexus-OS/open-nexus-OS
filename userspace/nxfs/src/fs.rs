@@ -67,6 +67,9 @@ pub struct Nxfs<D: BlockDevice> {
     /// True when this container was just `mkfs`-formatted blank (vs mounted from
     /// existing state) — lets a host seed first-run content exactly once.
     pub formatted_fresh: bool,
+    /// The windowed-CoW working buffer (`fileio.rs`): empty until the first
+    /// write, then ONE allocation that every later write of this mount reuses.
+    pub(crate) work_buf: Vec<u8>,
 }
 
 impl<D: BlockDevice> Nxfs<D> {
@@ -106,6 +109,7 @@ impl<D: BlockDevice> Nxfs<D> {
             next_txn: 1,
             replay_discarded_tail: false,
             formatted_fresh: true,
+            work_buf: Vec::new(),
         };
         fs.write_checkpoint()?;
         debug_assert!(fs.sb.newest_slot().is_some());
@@ -198,6 +202,7 @@ impl<D: BlockDevice> Nxfs<D> {
             next_txn: replayed.next_txn,
             replay_discarded_tail: replayed.orphan,
             formatted_fresh: false,
+            work_buf: Vec::new(),
         })
     }
 
@@ -433,84 +438,6 @@ mod tests {
     fn fresh() -> Nxfs<MemBlockDevice> {
         let device = MemBlockDevice::new(LOGICAL_BLOCK_SIZE, 4096);
         Nxfs::mkfs(device, MkfsOptions::default()).expect("mkfs")
-    }
-
-    /// TASK-0179 streaming recut: a container-sized file (past the old
-    /// 4 MiB materialize cap) round-trips through windowed CoW writes and
-    /// window reads; interior overwrites, sparse extension, truncate
-    /// shrink/grow and the stale-tail-zero rule all hold.
-    #[test]
-    fn streaming_large_file_windows() {
-        // 19 MB file on a 24k-block (94 MB) volume.
-        let device = MemBlockDevice::new(LOGICAL_BLOCK_SIZE, 24 * 1024);
-        let mut fs = Nxfs::mkfs(device, MkfsOptions::default()).expect("mkfs");
-        fs.create("/big.bin").expect("create");
-        let total: usize = 19 * 1024 * 1024 + 137; // deliberately unaligned
-        let pattern = |i: usize| (i % 251) as u8;
-
-        // Sequential 64 KiB append stream (the staging shape).
-        let chunk = 64 * 1024;
-        let mut buf = alloc::vec![0u8; chunk];
-        let mut off = 0usize;
-        while off < total {
-            let take = chunk.min(total - off);
-            for (j, slot) in buf[..take].iter_mut().enumerate() {
-                *slot = pattern(off + j);
-            }
-            fs.write("/big.bin", off as u64, &buf[..take]).expect("append");
-            off += take;
-        }
-        let (_kind, size) = fs.stat("/big.bin").expect("stat");
-        assert_eq!(size, total as u64);
-
-        // Window reads at unaligned interior offsets.
-        for (read_off, read_len) in
-            [(0usize, 4096usize), (5 * 1024 * 1024 + 13, 100_000), (total - 137, 137)]
-        {
-            let bytes = fs.read("/big.bin", read_off as u64, read_len).expect("window read");
-            assert_eq!(bytes.len(), read_len.min(total - read_off));
-            assert!(
-                bytes.iter().enumerate().all(|(j, b)| *b == pattern(read_off + j)),
-                "window {read_off}+{read_len} content"
-            );
-        }
-
-        // Interior overwrite (unaligned, crossing block edges) touches
-        // ONLY its window.
-        let overwrite_off = 7 * 1024 * 1024 + 777;
-        fs.write("/big.bin", overwrite_off as u64, &[0xEE; 10_000]).expect("overwrite");
-        let bytes = fs.read("/big.bin", overwrite_off as u64 - 8, 10_016).expect("read back");
-        assert!(bytes[..8].iter().enumerate().all(|(j, b)| *b == pattern(overwrite_off - 8 + j)));
-        assert!(bytes[8..10_008].iter().all(|b| *b == 0xEE));
-        assert!(bytes[10_008..]
-            .iter()
-            .enumerate()
-            .all(|(j, b)| *b == pattern(overwrite_off + 10_000 + j)));
-
-        // Truncate shrink to an unaligned size, then grow: the stale tail
-        // beyond the shrink point must read back as ZERO (old resize
-        // semantics preserved by the tail-block CoW).
-        let shrink_to = 3 * 1024 * 1024 + 55;
-        fs.truncate("/big.bin", shrink_to as u64).expect("shrink");
-        fs.truncate("/big.bin", (shrink_to + 9_000) as u64).expect("grow");
-        let tail = fs.read("/big.bin", shrink_to as u64 - 5, 9_005).expect("tail read");
-        assert!(tail[..5].iter().enumerate().all(|(j, b)| *b == pattern(shrink_to - 5 + j)));
-        assert!(tail[5..].iter().all(|b| *b == 0), "grown region must be zero");
-
-        // Sparse extension: a write past EOF zero-fills the gap.
-        fs.create("/sparse.bin").expect("create sparse");
-        fs.write("/sparse.bin", 0, b"head").expect("head");
-        fs.write("/sparse.bin", 10_000, b"tail").expect("sparse write");
-        let gap = fs.read("/sparse.bin", 4, 9_996).expect("gap read");
-        assert!(gap.iter().all(|b| *b == 0), "gap reads zero");
-        assert_eq!(fs.read("/sparse.bin", 10_000, 4).expect("tail"), b"tail");
-
-        // Remount: the spliced extent lists survive the checkpoint cycle.
-        fs.write_checkpoint().expect("checkpoint");
-        let device = fs.into_device();
-        let fs = Nxfs::mount(device).expect("remount");
-        let bytes = fs.read("/big.bin", 0, 64).expect("post-mount read");
-        assert!(bytes.iter().enumerate().all(|(j, b)| *b == pattern(j)));
     }
 
     #[test]

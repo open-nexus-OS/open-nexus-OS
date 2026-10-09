@@ -38,6 +38,12 @@ pub mod envelope;
 /// The framebuffer grant — the display mode and the scanout memory are gpud's (RFC-0098 C7).
 pub mod grant;
 pub mod layout;
+/// The ONE pixel readback, windowd → gpud (RFC-0095).
+pub mod readback;
+pub use readback::{OP_READBACK, READBACK_FREEZE};
+/// Screen capture on windowd's surface endpoint + the capture-key push (RFC-0095).
+pub mod surface_capture;
+pub mod surface_input;
 pub use grant::{
     decode_framebuffer_grant, encode_framebuffer_grant, encode_framebuffer_request,
     parse_display_request, FramebufferGrant, FRAMEBUFFER_GRANT_LEN, OP_FRAMEBUFFER_REQUEST,

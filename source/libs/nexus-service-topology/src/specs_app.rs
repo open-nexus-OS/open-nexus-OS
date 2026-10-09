@@ -98,6 +98,11 @@ pub(crate) const EXECD: ServiceSpec = ServiceSpec {
             slots: slots::execd::CLIPBOARDD,
         },
         Route {
+            to: ServiceId::Screencapd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::execd::SCREENCAPD,
+        },
+        Route {
             to: ServiceId::Statefsd,
             kind: RouteKind::SharedResponse,
             slots: slots::execd::STATEFSD,
@@ -179,6 +184,29 @@ pub(crate) const CLIPBOARDD: ServiceSpec = ServiceSpec {
     announce: false,
     server_slots: slots::clipboardd::SERVER,
     reply_slots: SlotPair::UNDECLARED,
+    extra_slots: &[],
+};
+
+// TASK-0068 (RFC-0095): the screen-capture facade. The shell's `svc.screencap` children and
+// the harness call it; it calls windowd (the capture verb) and vfsd (the PNG file). Platform
+// stage — it gates no barrier, and the first capture comes from a user after login.
+/// The declaration of `screencapd`.
+pub(crate) const SCREENCAPD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Screencapd,
+    stage: Stage::Platform,
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[
+        Route {
+            to: ServiceId::Windowd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::screencapd::WINDOWD,
+        },
+        Route { to: ServiceId::Vfsd, kind: RouteKind::ReplyInbox, slots: slots::screencapd::VFSD },
+    ],
+    announce: false,
+    server_slots: slots::screencapd::SERVER,
+    reply_slots: slots::screencapd::REPLY,
     extra_slots: &[],
 };
 

@@ -352,6 +352,24 @@ pub(crate) fn provision_execd_named_routes(
             }
         }
     }
+    // svc.screencap.* (TASK-0068, RFC-0095): the pre-minted screencapd request endpoint. The
+    // route is the capability; the packer grants SCREENCAP to the shell and settings only.
+    if let Some((scr_req, _)) = eps.server_pair(ServiceId::Screencapd) {
+        if let Some(s) = crate::bootstrap::declared_slots::pin_route_send(
+            pid,
+            ServiceId::Execd,
+            ServiceId::Screencapd,
+            scr_req,
+        ) {
+            chan.set_send(ServiceId::Screencapd, s);
+            chan.set_recv(ServiceId::Screencapd, reply_recv_slot);
+            if iw(init_wire, init_fold, "init:execd") {
+                if crate::bootstrap::diag::raw_or_expanded("execd") {
+                    debug_write_bytes(b"init: execd route->screencapd ok\n");
+                }
+            }
+        }
+    }
     // TASK-0049 reanimation: execd's statefsd route — (a) execd
     // clones this pair into demo.minidump children BEFORE resume
     // (grant_minidump_statefs_route, child slots 7/8) and (b)

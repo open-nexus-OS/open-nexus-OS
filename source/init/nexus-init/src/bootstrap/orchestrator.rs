@@ -430,8 +430,8 @@ where
     // pair — like sessiond's — so the selftest's intent route clones the
     // SAME endpoints the declarative arm hands the gateway.
     let (ingress_req, ingress_rsp) = endpoints::mint_server_pair(&ctrl_channels, "ingressd")?;
-    // Clipboard authority (TASK-0067): windowd's focus leg, execd's app grants and the harness.
-    let (clip_req, clip_rsp) = endpoints::mint_server_pair(&ctrl_channels, "clipboardd")?;
+    // The app-plane facades (clipboardd, screencapd): their callers' legs clone these pairs.
+    let facades = endpoints::mint_facade_pairs(&ctrl_channels)?;
 
     // Bundle the minted endpoint caps NOW — before the policy-gated grant phase —
     // and distribute every declared service's server pair immediately (RFC-0069
@@ -507,8 +507,7 @@ where
         pinch_rsp,
         ingress_req,
         ingress_rsp,
-        clip_req,
-        clip_rsp,
+        facades,
     };
     crate::bootstrap::distribute::distribute_server_pairs(&mut ctrl_channels, &eps);
     // TASK-0324 P4f-5: the proof harness runs from wave 1 on, so its declared legs are pinned

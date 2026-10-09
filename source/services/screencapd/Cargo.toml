@@ -1,0 +1,43 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "screencapd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The screen-capture facade (RFC-0095, TASK-0068): freezes the screen through windowd, crops the frozen frame, draws the pointer when asked, encodes PNG and saves it to the Pictures folder through vfsd"
+
+[features]
+default = []
+os-lite = [
+    "dep:nexus-abi",
+    "dep:nexus-ipc",
+    "dep:nexus-service-entry",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+    # The paths and frames a save builds are small and per request: recycle them.
+    "nexus-service-entry/small-object-free-list",
+]
+
+[package.metadata.nexus-service]
+kind = "service"
+stack_pages = 0
+features = ["os-lite"]
+
+[dependencies]
+nexus-abi = { path = "../../libs/nexus-abi", optional = true }
+nexus-display-proto = { path = "../../libs/nexus-display-proto" }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
+nexus-vfs-types = { path = "../../../userspace/vfs-types" }
+nexus-wire = { path = "../../libs/nexus-wire" }
+png-encode = { path = "../../../userspace/png-encode" }
+
+[[bin]]
+name = "screencapd"
+path = "src/main.rs"
+test = false
+bench = false
+doctest = false

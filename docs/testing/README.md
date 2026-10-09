@@ -109,13 +109,23 @@ The full layer reference — including the end-to-end coverage table and the per
      and presses the first card, which exists only because of that re-read
      (`clipboardd: focus truth live`, `apphost: text copy ok`, `apphost: text
      paste ok`, `apphost: dsl svc clipboard.restore ok`, `SELFTEST: ui v7
-     clipboard ok` — the launcher's early stop waits for it,
-     `QEMU_LADDER_ALSO_WAIT`, inside a 780 s budget); the chain-marker contract
-     checks the `input-live`, `ui-modal`, `wm-tile` and `clipboard` groups here
-     at every run. Between presses the injector waits for `apphost: tap
-     settled` (app-host's line for a traced pointer tap once its frame is on
-     screen); the guest writes no line per frame or per keystroke (the
-     keystroke privacy rule, `docs/standards/SECURITY_STANDARDS.md`).
+     clipboard ok`), then (TASK-0068) presses Print — the screen freezes and
+     the shell's screenshot tool opens over the frozen frame (`windowd: capture
+     freeze on`, `screencapd: freeze ok`) — draws a selection by dragging and
+     presses the shutter (`screencapd: saved (kind=area …)`, `windowd: capture
+     freeze off`, `SELFTEST: ui v7 screenshot ok` — the launcher's early stop
+     waits for it, `QEMU_LADDER_ALSO_WAIT`, inside a 900 s budget); the
+     chain-marker contract checks the `input-live`, `ui-modal`, `wm-tile`,
+     `clipboard` and `capture` groups here at every run. Between presses the
+     injector waits for `apphost: tap settled` (app-host's line for a traced
+     pointer tap once its frame is on screen); in the drag every edge waits
+     for its own trace (the press's `apphost: tap (…)`, the release's
+     `apphost: drag (…)->(…) hit=…`) — an edge injected while the one-hart
+     guest is seconds behind merges with the one before it. The guest writes no
+     line per frame or per keystroke (the keystroke privacy rule,
+     `docs/standards/SECURITY_STANDARDS.md`). Every visible lane also reads the
+     shown frame back through the whole capture path once (`SELFTEST: ui v7
+     screencap ok`).
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
      proofs required, bounded retry (`[profile.smp]`).
 

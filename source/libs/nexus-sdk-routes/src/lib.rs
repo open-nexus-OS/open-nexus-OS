@@ -130,6 +130,15 @@ pub const SERVICE_ROUTES: &[ServiceRoute] = &[
         permission: "nexus.permission.CLIPBOARD",
         child_slot: 23,
     },
+    // Screen capture (TASK-0068, RFC-0095): freeze, crop, save to the Pictures folder. The route
+    // IS the capability — SCREENCAP is ceiling-gated to the `shell` and `settings` bundle types
+    // at pack time (nxb-pack), so no app can read the screen.
+    ServiceRoute {
+        svc: "screencap",
+        route: "screencapd",
+        permission: "nexus.permission.SCREENCAP",
+        child_slot: 24,
+    },
 ];
 
 /// The route for a DSL service namespace, if the platform backs it.

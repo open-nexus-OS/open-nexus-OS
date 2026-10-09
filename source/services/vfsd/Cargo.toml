@@ -26,6 +26,11 @@ std = [
 idl-capnp = ["nexus-idl-runtime/capnp", "dep:capnp"]
 os-lite = [
     "dep:nexus-service-entry",
+    # TASK-0068: every home write leaves small blocks behind (path strings,
+    # extent lists, journal records, the status reply); on a bump heap that
+    # never frees they add up per write. Freed blocks of <= 2 KiB go back to
+    # their size class instead (ADR-0065). Large buffers are owned once.
+    "nexus-service-entry/small-object-free-list",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",

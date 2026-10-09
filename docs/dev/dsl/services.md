@@ -185,7 +185,19 @@ pieces). Text fields copy, cut and paste with Ctrl+C/X/V without any page code (
 calls `write`/`read(0)` over the app's own route) and then fire the host trigger
 `ClipboardChanged`, so a page that shows the history re-lists with `on ClipboardChanged`.
 
+`svc.screencap.*` (RFC-0095, `SCREENCAP` — the `shell` and `settings` bundle types only):
+`begin()` freezes the screen and answers `CaptureFrame { w, h, front, windows }` (the windows
+on screen, back to front; `front` the front-most), `shoot(kind, x, y, w, h, pointer, stem)`
+saves the frozen frame's selection (`"area"`), screen or window (`x` = its id) to the Pictures
+folder's Screenshots and thaws, answering the file name; `cancel()` thaws; `shot(kind,
+pointer, stem)` saves the screen or the focused window without a UI. The stem is the localized
+words only — the host appends the local time. A refusal (the greeter, a capture already
+running) is `ERR_SVC_DENIED`.
+
 ## Changelog
+
+- **2026-10-09 (TASK-0068)** — `svc.screencap.{begin,shoot,cancel,shot}`; the host triggers
+  `CaptureOpen`/`CaptureScreen`/`CaptureWindow`; the drag gesture.
 
 - **2026-10-07 (TASK-0067/0067B)** — `svc.clipboard.{list,read,write,restore,clear}`,
   `svc.ime.insert`; text-field copy/cut/paste and the `ClipboardChanged` trigger; the

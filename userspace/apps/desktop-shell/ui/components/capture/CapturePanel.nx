@@ -1,0 +1,130 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The capture panel (TASK-0068): the desktop reference's screenshot bar in the
+// shell's glass, styled like the notifications — overlay glass, xl radius, the
+// round X at its top right. Above: the three modes (Selection, Screen,
+// Window). Below: the photo/film switch on the left — film is greyed out and
+// disabled (`.disabled(true)`: no press, no hover) until recording exists
+// (TASK-0105) — the shutter in the middle, the pointer toggle on the right;
+// both sides equally wide, so the shutter sits at the panel's centre. The
+// panel absorbs its own presses and drags (`CapNoop`): a drag that starts on
+// it never draws a selection.
+
+Component CapturePanel {
+    Stack {
+        Spacer
+        Stack {
+            Spacer
+            Panel {
+                Stack {
+                    Spacer
+                    Circle { size: 28
+                        Icon { symbol: "xmark", size: 12 }
+                            .fg(onGlassMuted)
+                    }
+                    .hitSlop(2)
+                    .label(@t("capture.close"))
+                    on Tap -> dispatch(CapCancel)
+                }
+                .direction(row)
+                Stack {
+                    Stack {
+                        SearchModeButton {
+                            icon: "rectangle.dashed",
+                            label: @t("capture.modeArea"),
+                            selected: $state.capMode == "area",
+                            inert: false,
+                        }
+                    }
+                    on Tap -> dispatch(CapMode("area"))
+                    Stack {
+                        SearchModeButton {
+                            icon: "display",
+                            label: @t("capture.modeScreen"),
+                            selected: $state.capMode == "screen",
+                            inert: false,
+                        }
+                    }
+                    on Tap -> dispatch(CapMode("screen"))
+                    Stack {
+                        SearchModeButton {
+                            icon: "app.window",
+                            label: @t("capture.modeWindow"),
+                            selected: $state.capMode == "window",
+                            inert: false,
+                        }
+                    }
+                    on Tap -> dispatch(CapMode("window"))
+                }
+                .direction(row)
+                .justify(center)
+                .gap(3)
+                Stack {
+                    Stack {
+                        Stack {
+                            SearchModeButton {
+                                icon: "camera",
+                                label: @t("capture.photo"),
+                                selected: true,
+                                inert: false,
+                            }
+                        }
+                        on Tap -> dispatch(CapNoop)
+                        Stack {
+                            SearchModeButton {
+                                icon: "video",
+                                label: @t("capture.video"),
+                                selected: false,
+                                inert: true,
+                            }
+                        }
+                        .disabled(true)
+                    }
+                    .direction(row)
+                    .gap(1)
+                    .width(100)
+                    Spacer
+                    Circle { size: 64
+                        Circle { size: 52 }
+                            .bg(onGlassStrong)
+                    }
+                    .border(medium)
+                    .borderColor(onGlassStrong)
+                    .label(@t("capture.shoot"))
+                    on Tap -> dispatch(CapShoot)
+                    Spacer
+                    Stack {
+                        Stack {
+                            SearchModeButton {
+                                icon: "cursorarrow",
+                                label: @t("capture.pointer"),
+                                selected: $state.capPointer,
+                                inert: false,
+                            }
+                        }
+                        on Tap -> dispatch(CapTogglePointer)
+                    }
+                    .direction(row)
+                    .justify(end)
+                    .width(100)
+                }
+                .direction(row)
+                .align(center)
+            }
+            .material(overlay)
+            .rounded(xl)
+            .shadow(xl)
+            .gap(3)
+            .padding(3)
+            .width(440)
+            on Tap -> dispatch(CapNoop)
+            on DragStart -> dispatch(CapNoop)
+            Spacer
+        }
+        .direction(row)
+        Stack { }
+            .height(28)
+    }
+    .overlay()
+}

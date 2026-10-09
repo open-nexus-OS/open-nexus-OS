@@ -37,14 +37,23 @@ pub(super) fn apply_modifier(
             _ => 0,
         }
     };
-    // Raw-px size argument (`.width(320)`); a token (`full`) yields None.
-    let px_arg = || -> Option<nexus_layout_types::FxPx> {
-        match first.map(|a| a.which()) {
-            Some(Ok(ir::token_arg::Which::Int(i))) => {
-                Some(nexus_layout_types::FxPx::new(i.clamp(0, 16384) as i32))
+    // Raw-px size argument (`.width(320)`), or an Int expression (`.width($state.selW)`, RFC-0095:
+    // geometry that follows the store — a LAYOUT dependency, so the node re-lays out when the
+    // value changes); a token (`full`) or a non-Int value yields None. The checker always
+    // accepted the expression form; ignoring it here was a silent no-op.
+    let px_arg = |ctx: &mut EmitCtx<'_, '_>| -> Result<Option<FxPx>, RtError> {
+        let px = |i: i64| FxPx::new(i.clamp(0, 16384) as i32);
+        Ok(match first.map(|a| a.which()) {
+            Some(Ok(ir::token_arg::Which::Int(i))) => Some(px(i)),
+            Some(Ok(ir::token_arg::Which::Expr(Ok(expr)))) => {
+                ctx.record_deps(expr, Damage::Layout);
+                match ctx.eval(expr)? {
+                    Value::Int(i) => Some(px(i)),
+                    _ => None,
+                }
             }
             _ => None,
-        }
+        })
     };
     // Catalog order (docs/dev/dsl/modifiers.md); ids are stable.
     match modifier.get_mod_id() {
@@ -66,12 +75,12 @@ pub(super) fn apply_modifier(
         7 => mods.gap = registry::spacing(int_arg()),                      // gap
         // Sizes are RAW px (modifiers.md: "length token | full | Int px");
         // `full` stays a no-op (cross-axis children stretch by default).
-        9 => mods.width = px_arg(),                        // width
-        10 => mods.height = px_arg(),                      // height
-        11 => mods.min_width = px_arg(),                   // minWidth
-        12 => mods.max_width = px_arg(),                   // maxWidth
-        13 => mods.min_height = px_arg(),                  // minHeight
-        14 => mods.max_height = px_arg(),                  // maxHeight
+        9 => mods.width = px_arg(ctx)?,                    // width
+        10 => mods.height = px_arg(ctx)?,                  // height
+        11 => mods.min_width = px_arg(ctx)?,               // minWidth
+        12 => mods.max_width = px_arg(ctx)?,               // maxWidth
+        13 => mods.min_height = px_arg(ctx)?,              // minHeight
+        14 => mods.max_height = px_arg(ctx)?,              // maxHeight
         15 => mods.grow = int_arg().max(0) as u32,         // grow
         16 => mods.shrink = Some(int_arg().max(0) as u32), // shrink
         18 => {

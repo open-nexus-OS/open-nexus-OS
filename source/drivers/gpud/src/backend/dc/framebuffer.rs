@@ -108,6 +108,42 @@ impl Framebuffer {
         unsafe { Target::new(bytes.as_mut_ptr(), bytes.len(), stride_px) }
     }
 
+    /// `OP_READBACK` (RFC-0095): `req` of the `w`x`h` display plane into the caller's VMO, rows
+    /// tight; with `READBACK_FREEZE` the display plane also becomes the retained plane (the base
+    /// layer). Only the layout block has a retained plane — the splash refuses.
+    pub(super) fn readback(
+        &mut self,
+        dest: u32,
+        req: &nexus_display_proto::readback::Readback,
+        w: u32,
+        h: u32,
+    ) -> u8 {
+        use crate::readback::{copy_plane, copy_rect_out, with_destination};
+        use nexus_display_proto::{STATUS_DEVICE_ERROR, STATUS_MALFORMED, STATUS_OK};
+        let display = layout::row_offset_bytes(layout::DISPLAY_ROW);
+        if self.plane_start != display {
+            return STATUS_DEVICE_ERROR;
+        }
+        let stride = self.stride as usize;
+        let copied = {
+            let Some(plane) = self.mem.bytes().get(display..) else {
+                return STATUS_DEVICE_ERROR;
+            };
+            with_destination(dest, req.bytes(), |dst| copy_rect_out(plane, stride, w, h, req, dst))
+        };
+        if !matches!(copied, Some(Ok(()))) {
+            return STATUS_MALFORMED;
+        }
+        if req.flags & nexus_display_proto::readback::READBACK_FREEZE != 0 {
+            let retained = layout::row_offset_bytes(layout::RETAINED_ROW);
+            let bytes = self.mem.bytes_mut();
+            if copy_plane(bytes, display, retained, stride, w as usize * 4, h as usize).is_err() {
+                return STATUS_DEVICE_ERROR;
+            }
+        }
+        STATUS_OK
+    }
+
     /// Make the `damage` of `plane` (screen coordinates, clipped to it) visible to the controller.
     pub(super) fn clean(&self, plane: &Plane, damage: Rect) {
         let DmaCoherence::Maintained { block } = self.coherence else {

@@ -123,6 +123,14 @@ impl Contract for WindowdContract {
         bus.emit_marker(id, "apphost: dsl svc clipboard.restore ok (seq=7)");
         bus.emit_marker(id, "clipboardd: restore ok (seq=7)");
         bus.emit_marker(id, "SELFTEST: ui v7 clipboard ok");
+        // TASK-0068 / RFC-0095: Print opened the screenshot UI over a frozen frame and a
+        // dragged selection became a file. String-identical to screencapd `os_lite.rs` and
+        // windowd `compositor/runtime/capture.rs`.
+        bus.emit_marker(id, "screencapd: freeze ok (w=1280 h=800 windows=1)");
+        bus.emit_marker(id, "windowd: capture freeze on");
+        bus.emit_marker(id, "screencapd: saved (kind=area w=400 h=280 bytes=4096)");
+        bus.emit_marker(id, "windowd: capture freeze off");
+        bus.emit_marker(id, "SELFTEST: ui v7 screenshot ok");
 
         // 4. Phase 1-8: GPU-first display pipeline (reactive, no polling)
         if self.gpud_available {

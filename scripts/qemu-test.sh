@@ -675,6 +675,15 @@ USB_INPUT_MARKERS=(
   "apphost: text paste ok"
   "apphost: dsl svc clipboard.restore ok (seq="
   "SELFTEST: ui v7 clipboard ok"
+  # TASK-0068 / RFC-0095: then it presses Print — the shell opens the screenshot UI over the
+  # frame screencapd froze (gpud's readback, windowd's freeze), drags a selection with the
+  # button held (the DSL drag gesture) and presses the shutter: the crop becomes a PNG in the
+  # Pictures folder's Screenshots, written by vfsd in one transaction.
+  "screencapd: freeze ok (w="
+  "windowd: capture freeze on"
+  "screencapd: saved (kind=area"
+  "windowd: capture freeze off"
+  "SELFTEST: ui v7 screenshot ok"
 )
 
 expected_sequence=(
@@ -2592,6 +2601,20 @@ if profile_has_display; then
       exit 1
     fi
   done
+  # RFC-0095 (TASK-0068): the shown frame read back through the ONE readback — screencapd →
+  # windowd's capture verb → gpud — is non-black on every visible lane's backend (GL, 2D).
+  # (`display-gpu` has no visible backend: the harness never sees a desktop to read there.)
+  if [[ "${PROFILE:-full}" != "display-gpu" ]]; then
+    for m in \
+      "screencapd: ready" \
+      "SELFTEST: ui v7 screencap ok"; do
+      if ! grep -aFq "$m" "$UART_LOG"; then
+        echo "[error] first_failed_phase=end missing_marker='$m'" >&2
+        echo "[error] screen capture readback broken (RFC-0095): screencapd → windowd → gpud" >&2
+        exit 1
+      fi
+    done
+  fi
 fi
 
 # TASK-0055B fake-green guard (GPU-capable profiles): the guest marker summarizes a
@@ -3152,7 +3175,7 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
     # TASK-0253B: the one lane whose device-event hops (I1/I2) must fire at every run — its
     # injector drives the USB devices; the simulated chain and the real one must agree.
     usb-visible)
-      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,wm-tile,clipboard,gpu-core,display || exit 1
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,wm-tile,clipboard,capture,gpu-core,display || exit 1
       ;;
   esac
 fi

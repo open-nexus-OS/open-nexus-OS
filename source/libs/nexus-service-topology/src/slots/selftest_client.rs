@@ -77,6 +77,9 @@ pub const SOCD: SlotPair = SlotPair::new(0x39, 0x3A);
 /// clipboardd (RFC-0094): the gate's deny side (an unfocused sender reads nothing) and the
 /// history the shell and the keyboard show on first open; replies ride the CAP_MOVE inbox.
 pub const CLIPBOARDD: SlotPair = SlotPair::new(0x3B, REPLY.recv);
+/// screencapd (RFC-0095): the probe that reads the shown frame through the one readback and
+/// finds it non-black; replies ride the CAP_MOVE inbox.
+pub const SCREENCAPD: SlotPair = SlotPair::new(0x3C, REPLY.recv);
 /// Timer-notify endpoint (TASK-0054C P2-b): the harness's FAIL witness for an event that
 /// must arrive, and its settle before a verdict — never a recv deadline.
 pub const TIMER: SlotPair = SlotPair::new(0x36, 0x35);

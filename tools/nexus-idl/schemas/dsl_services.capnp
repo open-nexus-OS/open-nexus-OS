@@ -59,6 +59,17 @@ const dslSurface :List(DslMethod) = [
   (service = "files", method = "stat", args = ["Str"], result = "FileEntry"),
   (service = "library", method = "get", args = ["Str"], result = "Str"),
   (service = "library", method = "list", args = [], result = "List<Str>"),
+  # -- screen capture (screencapd, RFC-0095; SCREENCAP permission — shell and settings only).
+  #    `begin` freezes the screen: its size and the on-screen windows, front to back
+  #    (`CaptureFrame { w, h, windows: List<CaptureWindow { id, x, y, w, h }> }`). `shoot`
+  #    saves `kind` ("area" = x/y/w/h, "screen", "window" = x carries the window's id) with or
+  #    without the pointer under the localized `stem`, thaws, and answers the file name in the
+  #    Pictures folder's Screenshots; `cancel` thaws; `shot` saves the screen or the focused
+  #    window without a UI (Shift+Print / Alt+Print).
+  (service = "screencap", method = "begin", args = [], result = "CaptureFrame"),
+  (service = "screencap", method = "cancel", args = [], result = "Bool"),
+  (service = "screencap", method = "shoot", args = ["Str", "Int", "Int", "Int", "Int", "Bool", "Str"], result = "Str"),
+  (service = "screencap", method = "shot", args = ["Str", "Bool", "Str"], result = "Str"),
   (service = "search", method = "query", args = ["Str"], result = "List<Str>"),
   # -- system settings (settingsd typed registry; presentation keys
   #    `ui.theme.mode`/`ui.shell.mode` route through windowd — the single

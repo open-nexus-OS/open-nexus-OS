@@ -30,3 +30,4 @@ inputd
 imed
 pinched
 clipboardd
+screencapd

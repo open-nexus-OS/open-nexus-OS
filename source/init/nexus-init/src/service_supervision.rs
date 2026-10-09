@@ -116,6 +116,9 @@ pub const SUPERVISION: &[(ServiceId, Criticality, RestartPolicy)] = &[
     // TASK-0067: the clipboard authority — ephemeral by contract (nothing persists), so a
     // restart loses the history and windowd's next focus push re-arms the gate.
     (ServiceId::Clipboardd, Criticality::Standard, RestartPolicy::OnFailure),
+    // TASK-0068: the screen-capture facade — a restart loses at most a capture in progress
+    // (windowd ends an abandoned freeze by itself); the frame VMO is lent again at start.
+    (ServiceId::Screencapd, Criticality::Standard, RestartPolicy::OnFailure),
 ];
 
 /// Supervision entry for a service, if it is a supervised boot service.

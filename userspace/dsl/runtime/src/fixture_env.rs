@@ -19,7 +19,8 @@ use crate::{DeviceEnv, Value};
 /// (docs/dev/dsl/profiles.md), host-injectable per golden variant. Field ids
 /// index `nexus-dsl-core::registry::DEVICE_FIELDS`:
 /// 0 profile, 1 posture, 2 orientation, 3 shellMode, 4 sizeClass,
-/// 5 dpiClass, 6 input, 7 locale, 8 keymap, 9 theme, 10 tilePreview.
+/// 5 dpiClass, 6 input, 7 locale, 8 keymap, 9 theme, 10 tilePreview, 11 dragX, 12 dragY,
+/// 13 dragStartX, 14 dragStartY.
 pub struct FixtureEnv {
     pub profile: &'static str,
     pub posture: &'static str,
@@ -46,6 +47,9 @@ pub struct FixtureEnv {
     /// The tile zone a window drag would take if released now (TASK-0066; "" = none) — the
     /// desktop shell's preview axis, pushed by windowd to the desktop surface only.
     pub tile_preview: &'static str,
+    /// The drag gesture (RFC-0095): the pointer `(x, y)` and the press `(x, y)` in surface
+    /// pixels — the host fills them while a drag runs, zero otherwise.
+    pub drag: (i32, i32, i32, i32),
 }
 
 impl Default for FixtureEnv {
@@ -69,6 +73,7 @@ impl FixtureEnv {
             keymap: String::new(),
             theme: "dark",
             tile_preview: "",
+            drag: (0, 0, 0, 0),
         }
     }
 
@@ -86,6 +91,7 @@ impl FixtureEnv {
             keymap: String::new(),
             theme: "dark",
             tile_preview: "",
+            drag: (0, 0, 0, 0),
         }
     }
 
@@ -106,6 +112,7 @@ impl FixtureEnv {
             keymap: String::new(),
             theme: "dark",
             tile_preview: "",
+            drag: (0, 0, 0, 0),
         }
     }
 
@@ -124,6 +131,7 @@ impl FixtureEnv {
             keymap: String::new(),
             theme: "dark",
             tile_preview: "",
+            drag: (0, 0, 0, 0),
         }
     }
 }
@@ -144,6 +152,10 @@ impl DeviceEnv for FixtureEnv {
             8 => Value::Str(self.keymap.clone()),
             9 => Value::Str(String::from(self.theme)),
             10 => Value::Str(String::from(self.tile_preview)),
+            11 => Value::Int(i64::from(self.drag.0)),
+            12 => Value::Int(i64::from(self.drag.1)),
+            13 => Value::Int(i64::from(self.drag.2)),
+            14 => Value::Int(i64::from(self.drag.3)),
             _ => Value::Str(String::new()),
         }
     }

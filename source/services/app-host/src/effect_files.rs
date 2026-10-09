@@ -21,7 +21,7 @@
 
 use super::effect_host::{
     call_reply, raw_marker, AppEffectHost, ERR_SVC_SHAPE, ERR_SVC_UNAVAILABLE, ERR_SVC_UNKNOWN,
-    FILES_REPLY_BUF, REPLY_BUF, VFS_OPCODE_READDIR, VFS_OPCODE_STAT,
+    FILES_REPLY_BUF, REPLY_BUF,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -63,7 +63,7 @@ impl AppEffectHost {
         let payload =
             nexus_vfs_types::encode_readdir_request(path, cursor, 64).map_err(|_| ERR_SVC_SHAPE)?;
         let mut req = Vec::with_capacity(1 + payload.len());
-        req.push(VFS_OPCODE_READDIR);
+        req.push(nexus_vfs_types::fileops::OP_READDIR);
         req.extend_from_slice(&payload);
         let mut resp = alloc::vec![0u8; FILES_REPLY_BUF];
         let Some(len) = call_reply(send_slot, &req, &mut resp) else {
@@ -366,7 +366,7 @@ impl AppEffectHost {
         };
         let send_slot = Self::svc_send_slot("files").ok_or(ERR_SVC_UNKNOWN)?;
         let mut req = Vec::with_capacity(1 + path.len());
-        req.push(VFS_OPCODE_STAT);
+        req.push(nexus_vfs_types::fileops::OP_STAT);
         req.extend_from_slice(path.as_bytes());
         let mut resp = [0u8; REPLY_BUF];
         let Some(len) = call_reply(send_slot, &req, &mut resp) else {

@@ -387,3 +387,54 @@ proves = "the keyboard inserted a clipboard card into the focused field through 
 [marker."SELFTEST: ui v7 clipboard ok"]
 phase = "end"
 proves = "the history was listed and an item copied back by an owner windowd named (the shell or the keyboard) on one boot — the clipboard's allow side end to end"
+
+# --- TASK-0068 (RFC-0095, ADR-0071): screen capture — gpud's ONE readback, windowd's freeze,
+# the capture facade, the shell's screenshot UI. `screencapd: ready` fires on every boot; on a
+# display lane the harness reads the shown frame through the whole pixel path once the desktop
+# is up; the `usb-visible` lane's injector presses Print, drags a selection and shoots.
+[marker."screencapd: ready"]
+phase = "bringup"
+proves = "the capture facade allocated its frame VMO and its encoder scratch once and lent the frame VMO to windowd"
+
+[marker."SELFTEST: ui v7 screencap ok"]
+phase = "end"
+proves = "a strip at the centre of the shown frame, read through screencapd → windowd's capture verb → gpud's one readback, is non-black (one pixel value crossed back, never pixels)"
+
+[marker."SELFTEST: ui v7 screencap FAIL"]
+phase = "end"
+
+[marker."screencapd: freeze ok (w="]
+phase = "end"
+proves = "windowd froze the screen on a frame gpud read back into screencapd's VMO (the pointer out of it) and named its size and on-screen windows (sizes and a count only)"
+
+[marker."screencapd: saved (kind="]
+phase = "end"
+proves = "a rectangle of the frozen frame was cropped, encoded as PNG into a worst-case-sized VMO and written by vfsd in one transaction (kind, size and byte count only — never a name or pixels)"
+
+[marker."screencapd: deny (reason="]
+phase = "end"
+proves = "a capture was refused or failed honestly (the greeter, a capture in progress, a readback or storage failure, a malformed request) — bounded per boot"
+
+[marker."screencapd: FAIL frame attach"]
+phase = "bringup"
+proves = "screencapd could not lend its frame VMO to windowd at start (the capture leg was not provisioned)"
+
+[marker."windowd: capture freeze on"]
+phase = "end"
+proves = "gpud answered the freeze readback: the frame is the base layer, windows and overlays left the composition"
+
+[marker."windowd: capture freeze off"]
+phase = "end"
+proves = "the freeze ended (THAW, a failed readback, or the bound): the wallpaper texture is re-uploaded, plane 1 re-rendered, windows back"
+
+[marker."windowd: capture freeze expired"]
+phase = "end"
+proves = "a freeze nobody thawed ended by itself at windowd's first wake after FREEZE_MAX_NS"
+
+[marker."windowd: capture deny (reason="]
+phase = "end"
+proves = "windowd refused a capture command (identity or greeter, busy, no frame VMO, malformed) — one line per reason per boot"
+
+[marker."SELFTEST: ui v7 screenshot ok"]
+phase = "end"
+proves = "Print opened the screenshot UI over the frozen frame, a dragged selection was shot and saved as a PNG in the Pictures folder's Screenshots (the UI path end to end, once per boot)"

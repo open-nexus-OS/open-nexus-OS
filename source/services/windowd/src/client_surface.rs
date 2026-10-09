@@ -14,8 +14,9 @@
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
 use nexus_display_proto::client_surface::{
-    DamageRect, FORMAT_BGRA8888, MAX_DAMAGE_RECTS, SURFACE_STATUS_BAD_SEQ,
-    SURFACE_STATUS_BAD_SURFACE, SURFACE_STATUS_MALFORMED, SURFACE_STATUS_QUOTA,
+    DamageRect, FORMAT_BGRA8888, INPUT_KIND_RELEASE, INPUT_KIND_TAP, MAX_DAMAGE_RECTS,
+    SURFACE_STATUS_BAD_SEQ, SURFACE_STATUS_BAD_SURFACE, SURFACE_STATUS_MALFORMED,
+    SURFACE_STATUS_QUOTA,
 };
 
 /// How a frame must reach a client's event channel (TASK-0306).
@@ -71,14 +72,15 @@ impl Delivery {
         }
     }
 
-    /// The class an input kind belongs to. A tap is discrete — nothing
-    /// downstream can reconstruct it. Hover motion is superseded by the next
-    /// move, so retrying it only delivers stale coordinates late.
-    pub(crate) const fn for_input(is_tap: bool) -> Self {
-        if is_tap {
-            Delivery::Critical
-        } else {
-            Delivery::Coalescing
+    /// The class an input kind belongs to. A tap and a press's release are
+    /// discrete — nothing downstream can reconstruct them (a lost release
+    /// leaves a drag without its end, RFC-0095). Hover and drag motion, a
+    /// wheel step and a frame pulse are superseded by the next one, so
+    /// retrying them only delivers stale coordinates late.
+    pub(crate) const fn for_input(kind: u8) -> Self {
+        match kind {
+            INPUT_KIND_TAP | INPUT_KIND_RELEASE => Delivery::Critical,
+            _ => Delivery::Coalescing,
         }
     }
 }
@@ -344,7 +346,7 @@ mod tests {
 
 #[cfg(test)]
 mod delivery_tests {
-    use super::Delivery;
+    use super::{Delivery, INPUT_KIND_RELEASE, INPUT_KIND_TAP};
 
     /// TASK-0306: the bug was a POLICY bug, so the policy is what gets pinned.
     /// A frame the client is blocked on must be retried; a frame the next one
@@ -387,20 +389,33 @@ mod delivery_tests {
     #[test]
     fn a_tap_outlives_a_slow_frame() {
         assert!(Delivery::Critical.parks(), "user intent has no recovery path; it parks");
-        assert!(Delivery::for_input(true).parks(), "a tap is never one attempt");
+        assert!(Delivery::for_input(INPUT_KIND_TAP).parks(), "a tap is never one attempt");
     }
 
     #[test]
     fn taps_block_hover_coalesces() {
+        use nexus_display_proto::client_surface::{INPUT_KIND_MOVE, INPUT_KIND_WHEEL};
         assert_eq!(
-            Delivery::for_input(true),
+            Delivery::for_input(INPUT_KIND_TAP),
             Delivery::Critical,
             "a tap is discrete AND unrecoverable"
         );
-        assert_eq!(
-            Delivery::for_input(false),
-            Delivery::Coalescing,
-            "the next motion supersedes this one"
-        );
+        for kind in [INPUT_KIND_MOVE, INPUT_KIND_WHEEL] {
+            assert_eq!(
+                Delivery::for_input(kind),
+                Delivery::Coalescing,
+                "the next motion supersedes this one"
+            );
+        }
+    }
+
+    /// RFC-0095 (the drag gesture): the drag's motion coalesces like hover, but
+    /// its release is the gesture's END — a busy client that dropped it would
+    /// keep the drag open and lose where the pointer let go.
+    #[test]
+    fn a_release_is_discrete_drag_motion_coalesces() {
+        use nexus_display_proto::client_surface::INPUT_KIND_DRAG;
+        assert_eq!(Delivery::for_input(INPUT_KIND_RELEASE), Delivery::Critical);
+        assert_eq!(Delivery::for_input(INPUT_KIND_DRAG), Delivery::Coalescing);
     }
 }

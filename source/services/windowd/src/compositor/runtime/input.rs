@@ -30,8 +30,16 @@ impl DisplayServerRuntime {
             ));
         }
         if let Some(prev) = self.pending_input.take() {
-            // Carry the accumulated wheel forward (sum), keep the newest of all else.
+            // Carry the accumulated wheel forward (sum), keep the newest of all else — except
+            // the one-shot facts (a tiling chord, a capture key): a newer sample without one
+            // (a pointer move in the same frame) must not erase it.
             state.wheel_delta_y = state.wheel_delta_y.saturating_add(prev.wheel_delta_y);
+            if state.wm_chord == 0 {
+                state.wm_chord = prev.wm_chord;
+            }
+            if state.capture == 0 {
+                state.capture = prev.capture;
+            }
         }
         self.pending_input = Some(state);
         STATUS_OK
@@ -109,7 +117,7 @@ impl DisplayServerRuntime {
         if primary_press && !window_consumed_press {
             use crate::compositor::shell_window::WindowPress;
             use crate::window_scene::WindowId;
-            let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+            let (hit, hit_n) = self.windows.hit_order(self.capture.frozen());
             for i in 0..hit_n {
                 let wid = hit[i];
                 // Shell chrome contract: the strip above SHELL_TOPBAR_H, the
@@ -239,6 +247,8 @@ impl DisplayServerRuntime {
                                 // not a hardcoded title constant.
                                 let body_y = cursor_y - frame.y - self.apps[idx].win.title_h as i32;
                                 if body_y >= 0 {
+                                    // RFC-0095: this window hears the drag the press may become.
+                                    self.press_route = Some(input_hover::PressRoute::app(idx));
                                     self.send_app_input(idx, local_x, body_y);
                                 }
                             }
@@ -286,6 +296,8 @@ impl DisplayServerRuntime {
             self.apply_window_resize(cursor_x, cursor_y);
         }
         if primary_release {
+            // RFC-0095: the surface that took the press hears the release (the drag's end).
+            self.release_press_route(cursor_x, cursor_y);
             // Drag-to-edge tiling (TASK-0066): releasing a TITLE drag with the
             // pointer at an edge or corner tiles the window (halves, quarters,
             // top = Fill).
@@ -308,6 +320,7 @@ impl DisplayServerRuntime {
             && !window_consumed_press
             && self.windows.is_visible(crate::window_scene::WindowId::Desktop)
         {
+            self.press_route = Some(input_hover::PressRoute::desktop());
             self.send_desktop_input(cursor_x, cursor_y);
         }
         self.state.focus_visible |= upstream.focus_visible;
@@ -344,6 +357,11 @@ impl DisplayServerRuntime {
         // frame; same hit-order SSOT as hover/taps.
         if upstream.wheel_delta_y != 0 {
             self.forward_wheel(self.state.cursor_x, self.state.cursor_y, upstream.wheel_delta_y);
+        }
+        // RFC-0095: a capture key (one-shot, from inputd) goes to the shell — before the
+        // no-change short-circuit: like the wheel, the fact lives only in the staged frame.
+        if upstream.capture != 0 {
+            self.push_capture_key(upstream.capture);
         }
         self.refresh_observer_state();
         if self.state == old_state {

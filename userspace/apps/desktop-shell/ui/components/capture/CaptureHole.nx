@@ -1,0 +1,73 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The scrim with its hole (TASK-0068): four flex bands around the clear
+// rectangle `capHole*` — above, left, right, below — painted with the theme's
+// scrim, so what will be saved is the only part of the frozen frame shown at
+// full strength (an overlay with opacity, no blur: the operator's call). The
+// hole's edge is a light frame; in area mode its corners carry the resize
+// handles. Sizes come from the store (`.width($state.…)`): a flex column for
+// the vertical split, a flex row for the horizontal one — each size on its
+// container's main axis.
+
+Component CaptureHole {
+    Stack {
+        Stack { }
+            .height($state.capHoleY)
+            .bg(scrim)
+        Stack {
+            Stack { }
+                .width($state.capHoleX)
+                .bg(scrim)
+            Stack {
+                if $state.capMode == "area" {
+                    CaptureHandles { }
+                } else {
+                    Stack { }
+                }
+            }
+            .width($state.capHoleW)
+            .border(medium)
+            .borderColor(onGlassStrong)
+            Stack { }
+                .grow(1)
+                .bg(scrim)
+        }
+        .direction(row)
+        .height($state.capHoleH)
+        Stack { }
+            .grow(1)
+            .bg(scrim)
+    }
+    .grow(1)
+}
+
+// The four corner handles: white dots inside the selection's corners (a press
+// within reach of a corner resizes from the opposite one — the store decides).
+Component CaptureHandles {
+    Stack {
+        Stack {
+            Circle { size: 12 }
+                .bg(onGlassStrong)
+                .shadow(sm)
+            Spacer
+            Circle { size: 12 }
+                .bg(onGlassStrong)
+                .shadow(sm)
+        }
+        .direction(row)
+        Spacer
+        Stack {
+            Circle { size: 12 }
+                .bg(onGlassStrong)
+                .shadow(sm)
+            Spacer
+            Circle { size: 12 }
+                .bg(onGlassStrong)
+                .shadow(sm)
+        }
+        .direction(row)
+    }
+    .grow(1)
+    .padding(1)
+}

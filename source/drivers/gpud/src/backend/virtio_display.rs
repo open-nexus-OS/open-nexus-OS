@@ -258,6 +258,20 @@ impl Display for VirtioGpuBackend {
         self.reveal_requested = true;
     }
 
+    /// RFC-0095: GL reads the front render target through a backed copy (`gl_probe`); the 2D
+    /// scanout is the display plane of the attached framebuffer — a CPU copy.
+    fn readback(&mut self, dest: u32, req: &nexus_display_proto::readback::Readback) -> u8 {
+        #[cfg(feature = "virgl")]
+        if self.gl_scanout_active {
+            return match self.gl_readback(dest, req) {
+                Ok(()) => STATUS_OK,
+                Err(GfxError::InvalidArgument) => STATUS_MALFORMED,
+                Err(_) => STATUS_DEVICE_ERROR,
+            };
+        }
+        self.cpu_readback(dest, req)
+    }
+
     fn reveal_requested(&self) -> bool {
         self.reveal_requested
     }
@@ -298,5 +312,44 @@ impl Display for VirtioGpuBackend {
             let _ = self.present_scanout_damage(Rect { x: 0, y: 0, width, height });
             stats.record(t0, nsec().unwrap_or(t0));
         }
+    }
+}
+
+impl VirtioGpuBackend {
+    /// The 2D half of `OP_READBACK`: the attached scanout resource maps the whole layout from
+    /// its first row, so the shown frame is its display plane.
+    fn cpu_readback(&mut self, dest: u32, req: &nexus_display_proto::readback::Readback) -> u8 {
+        use crate::readback::{copy_plane, copy_rect_out, with_destination};
+        use nexus_display_proto::layout;
+        let Some(record) = self.scanout_resource.and_then(|id| self.find_resource(id)) else {
+            return STATUS_DEVICE_ERROR;
+        };
+        if record.backing_va == 0 || record.backing_len < layout::RESOURCE_BYTES {
+            return STATUS_DEVICE_ERROR;
+        }
+        // SAFETY: the scanout record's backing is gpud's own mapping of the framebuffer VMO,
+        // `backing_len` bytes, alive while the record is; the request loop is single-threaded.
+        let fb = unsafe {
+            core::slice::from_raw_parts_mut(record.backing_va as *mut u8, record.backing_len)
+        };
+        let stride = layout::STRIDE_BYTES as usize;
+        let display = layout::row_offset_bytes(layout::DISPLAY_ROW);
+        let (w, h) = (self.display_w, self.display_h);
+        let Some(plane) = fb.get(display..) else {
+            return STATUS_DEVICE_ERROR;
+        };
+        match with_destination(dest, req.bytes(), |dst| {
+            copy_rect_out(plane, stride, w, h, req, dst)
+        }) {
+            Some(Ok(())) => {}
+            _ => return STATUS_MALFORMED,
+        }
+        if req.flags & nexus_display_proto::readback::READBACK_FREEZE != 0 {
+            let retained = layout::row_offset_bytes(layout::RETAINED_ROW);
+            if copy_plane(fb, display, retained, stride, w as usize * 4, h as usize).is_err() {
+                return STATUS_DEVICE_ERROR;
+            }
+        }
+        STATUS_OK
     }
 }

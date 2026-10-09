@@ -128,6 +128,7 @@ impl super::DslApp {
         if tz_lite::zone(tz).is_some() {
             self.clock_tz.clear();
             self.clock_tz.push_str(tz);
+            self.host.screencap.set_zone(tz); // the screenshot's file name (TASK-0068)
         }
         let locale_changed = self.apply_locale(locale);
         let keymap_changed = self.apply_keymap(keymap);

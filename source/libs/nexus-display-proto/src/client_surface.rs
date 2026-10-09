@@ -287,45 +287,11 @@ pub const WIN_MODE_FULLSCREEN: u8 = 2;
 /// toggle fullscreen ⇄ freeform (the title-bar zoom semantics).
 pub const WIN_MODE_SPLIT: u8 = 3;
 
-/// Input kinds (taps + hover motion; keys land with the focus model).
-pub const INPUT_KIND_TAP: u8 = 0;
-/// Frame-aligned pointer motion inside the surface (hover). windowd stages
-/// raw input per frame, so MOVE volume is bounded by frame rate, not by the
-/// device event rate.
-pub const INPUT_KIND_MOVE: u8 = 1;
-/// The pointer left the surface (or moved onto another surface/chrome):
-/// the client clears any hover presentation. x/y carry the last position.
-pub const INPUT_KIND_LEAVE: u8 = 2;
-/// Wheel scroll over the surface: `x` carries the surface-local pointer x,
-/// `y` carries the SIGNED notch delta reinterpreted as `u16` (decode with
-/// `as i16` — see `wheel_delta_from_wire`). The sign is the RAW Linux
-/// `REL_WHEEL` convention: +1 = wheel UP (away from the user).
-pub const INPUT_KIND_WHEEL: u8 = 3;
-/// Compositor scroll position push (windowd → app): `y` carries the resolved
-/// ABSOLUTE scroll offset in rows. Sent when windowd owns the scroll (WebRender
-/// path: it shifts the layer `src_row` itself) so the app can keep its hit-test
-/// + EndReached state in sync WITHOUT re-rendering on every notch.
-pub const INPUT_KIND_SCROLL_POS: u8 = 4;
-
-/// Recovers the signed wheel delta a `INPUT_KIND_WHEEL` frame carries in its
-/// `y` field (the wire field is `u16`; the delta is an `i16` reinterpret).
-#[must_use]
-pub const fn wheel_delta_from_wire(y: u16) -> i32 {
-    y as i16 as i32
-}
-
-/// The `y`-field wire encoding of a signed wheel delta (clamped to `i16`).
-#[must_use]
-pub const fn wheel_delta_to_wire(delta: i32) -> u16 {
-    let d = if delta > i16::MAX as i32 {
-        i16::MAX
-    } else if delta < i16::MIN as i32 {
-        i16::MIN
-    } else {
-        delta as i16
-    };
-    d as u16
-}
+/// The input kinds `OP_SURFACE_INPUT` carries (taps, hover, wheel, scroll position, drag).
+pub use crate::surface_input::{
+    wheel_delta_from_wire, wheel_delta_to_wire, INPUT_KIND_DRAG, INPUT_KIND_LEAVE, INPUT_KIND_MOVE,
+    INPUT_KIND_RELEASE, INPUT_KIND_SCROLL_POS, INPUT_KIND_TAP, INPUT_KIND_WHEEL,
+};
 
 /// Pixel format tags. v1: BGRA8888 only.
 pub const FORMAT_BGRA8888: u8 = 0;

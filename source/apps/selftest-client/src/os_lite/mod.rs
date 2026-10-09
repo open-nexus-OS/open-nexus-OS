@@ -36,6 +36,7 @@ mod observer;
 mod phases;
 mod probes;
 mod profile;
+mod screencap;
 mod services;
 mod settings_watch;
 mod timed;

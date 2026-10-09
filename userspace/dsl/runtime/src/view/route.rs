@@ -211,6 +211,48 @@ impl View<'_> {
         }
     }
 
+    /// Dispatches `trigger`'s handler on the box `box_id` WITHOUT a hit-test — a gesture that
+    /// began on that box keeps reporting to it wherever the pointer goes (RFC-0095: a drag's
+    /// `DragMove`/`DragEnd` reach the node that took its `DragStart`, even when the pointer has
+    /// left it or the layout moved it). `None` when the box declares no such handler (it left
+    /// the scene); a keyed item's handler acts on that item's state.
+    ///
+    /// # Errors
+    /// Runtime errors from the dispatch.
+    pub fn fire_on_box(
+        &mut self,
+        tokens: &dyn Tokens,
+        device: &dyn DeviceEnv,
+        locale: &dyn LocaleSource,
+        host: &mut dyn EffectHost,
+        box_id: usize,
+        trigger: &str,
+    ) -> Result<Option<Damage>, RtError> {
+        let Some(trigger_sym) =
+            self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)
+        else {
+            return Ok(None);
+        };
+        let Some((instance, action)) = self
+            .handlers
+            .iter()
+            .find(|(b, e)| *b == box_id && e.trigger == trigger_sym)
+            .map(|(_, e)| (e.instance, e.action.clone()))
+        else {
+            return Ok(None);
+        };
+        match action {
+            HandlerAction::Dispatch { event, case, payload } => self
+                .dispatch_in(instance, tokens, device, locale, host, event, case, payload)
+                .map(Some),
+            HandlerAction::Navigate { path } => {
+                self.navigate(tokens, device, locale, &path).map(Some)
+            }
+            // A bind is a value from a point; a gesture names no point of its own.
+            HandlerAction::Bind { .. } => Ok(None),
+        }
+    }
+
     /// [`Self::hover_box_id`] under the paint-time scroll transform.
     #[must_use]
     pub fn hover_box_id_scrolled(

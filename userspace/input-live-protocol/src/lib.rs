@@ -59,7 +59,7 @@ pub const MAX_HID_BATCH_FRAME_LEN: usize = 256;
 /// Max wire events per frame — burst producers MUST chunk here: the encoder
 /// returns `None` oversize, and dropping a burst was the input-storm collapse.
 pub const MAX_HID_BATCH_EVENTS: usize = (MAX_HID_BATCH_FRAME_LEN - HEADER_LEN - 16) / EVENT_LEN;
-const STATE_LEN: usize = 38;
+const STATE_LEN: usize = 39;
 pub const VISIBLE_STATE_FRAME_LEN: usize = HEADER_LEN + STATE_LEN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +121,10 @@ pub struct VisibleState {
     /// 0 = none) — one-shot: inputd sets it for exactly one push, windowd applies it to the
     /// focused window; apps never see the chord's keys. Appended (RFC-0052/0053 amendment).
     pub wm_chord: u8,
+    /// RFC-0095: a CAPTURE KEY (1 Print = the screenshot UI, 2 Shift+Print = the screen,
+    /// 3 Alt+Print = the focused window; 0 = none) — one-shot like `wm_chord`: windowd hands it
+    /// to the desktop surface (the shell), apps never see the key. Appended (RFC-0053 amendment).
+    pub capture: u8,
 }
 
 /// Allocating convenience wrapper over [`encode_push_hid_batch_into`] (tests /
@@ -306,6 +310,7 @@ fn encode_state_frame(op: u8, state: VisibleState) -> [u8; VISIBLE_STATE_FRAME_L
     out[40] = u8::from(state.cursor_overlay_visible);
     out[41..45].copy_from_slice(&state.wheel_delta_y.to_le_bytes());
     out[45] = state.wm_chord;
+    out[46] = state.capture;
     out
 }
 
@@ -364,6 +369,7 @@ fn decode_state_payload(frame: &[u8]) -> Option<VisibleState> {
         cursor_overlay_visible: frame[40] != 0,
         wheel_delta_y: i32::from_le_bytes([frame[41], frame[42], frame[43], frame[44]]),
         wm_chord: frame[45],
+        capture: frame[46],
     })
 }
 
@@ -450,17 +456,22 @@ mod tests {
             wheel_down_visible: false,
             wheel_delta_y: -7,
             wm_chord: 3,
+            capture: 2,
         };
         assert_eq!(decode_visible_state(&encode_visible_state(state)), Some(state));
         assert_eq!(decode_update_visible_state(&encode_update_visible_state(state)), Some(state));
     }
 
     /// Privacy (2026-10-08): the frame has no room for typed text — every byte is a flag,
-    /// the cursor, the wheel delta or the chord. A v1 frame (which carried 24 text bytes) is
-    /// refused by its version, never misread.
+    /// the cursor, the wheel delta, the chord or the capture key. A v1 frame (which carried
+    /// 24 text bytes) is refused by its version, never misread.
     #[test]
     fn test_reject_v1_frames_and_text_in_the_visible_state() {
-        assert_eq!(VISIBLE_STATE_FRAME_LEN, HEADER_LEN + 38, "flags, cursor, wheel, chord only");
+        assert_eq!(
+            VISIBLE_STATE_FRAME_LEN,
+            HEADER_LEN + 39,
+            "flags, cursor, wheel, chord, capture key only"
+        );
         let mut v1 = encode_visible_state(VisibleState::default());
         v1[2] = 1;
         assert_eq!(decode_visible_state(&v1), None, "a v1 frame is not this protocol");

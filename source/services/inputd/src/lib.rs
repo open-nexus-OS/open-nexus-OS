@@ -17,6 +17,7 @@ mod config;
 /// TASK-0067B: the keymap's editing commands as imed action codes (one table).
 pub mod edit_keys;
 mod error;
+mod key_facts;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod live_push;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]

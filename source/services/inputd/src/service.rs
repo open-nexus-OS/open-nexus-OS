@@ -11,55 +11,17 @@
 extern crate alloc;
 
 use crate::config::InputdConfig;
+use crate::key_facts::{capture_key_for, is_modifier, wm_chord_for, ModifierState};
 use crate::route::RouteTarget;
 use crate::{ImeHook, InputDispatch, InputdError};
 use alloc::vec::Vec;
 use hid::{AbsoluteAxis, HidEvent, HidEventKind, KeyboardUsage, RelativeAxis};
 use hidrawd::{HidBatch, HidDeviceKind, PointerSource};
 use key_repeat::{MonotonicNs, RepeatEngine, RepeatKey};
-use keymaps::{KeyAction, KeyOutput, Keymap, LayoutId, Modifiers};
+use keymaps::{KeyAction, KeyOutput, Keymap, LayoutId};
 use pointer_accel::PointerAccel;
 use pointer_state::{PointerPosition, PointerSpace, PointerState, PointerTransform};
 use touch::{TouchEvent, TouchPhase};
-
-#[derive(Debug, Clone, Copy, Default)]
-struct ModifierState {
-    shift: bool,
-    control: bool,
-    alt_gr: bool,
-    /// Left Alt (TASK-0066 chords: the bottom quarters).
-    alt: bool,
-    /// Super / GUI (TASK-0066 chords: the window-tiling modifier).
-    gui: bool,
-}
-
-impl ModifierState {
-    fn apply_key(&mut self, usage: KeyboardUsage, pressed: bool) {
-        match usage.raw() {
-            0xe0 | 0xe4 => self.control = pressed,
-            0xe1 | 0xe5 => self.shift = pressed,
-            0xe2 => self.alt = pressed,
-            0xe3 | 0xe7 => self.gui = pressed,
-            0xe6 => self.alt_gr = pressed,
-            _ => {}
-        }
-    }
-
-    #[must_use]
-    fn snapshot(self) -> Modifiers {
-        let mut modifiers = Modifiers::default();
-        if self.shift {
-            modifiers = modifiers.with_shift();
-        }
-        if self.control {
-            modifiers = modifiers.with_control();
-        }
-        if self.alt_gr {
-            modifiers = modifiers.with_alt_gr();
-        }
-        modifiers
-    }
-}
 
 pub struct InputdService<R> {
     router: R,
@@ -80,6 +42,9 @@ pub struct InputdService<R> {
     held_non_modifier_key_count: usize,
     /// A tiling chord recognized since the last state push (`zones::CODE_*`, 0 = none).
     pending_wm_chord: u8,
+    /// A capture key recognized since the last state push (RFC-0095: 1 Print, 2 Shift+Print,
+    /// 3 Alt+Print; 0 = none).
+    pending_capture: u8,
     modifiers: ModifierState,
     text_focus: bool,
     ime_visible: bool,
@@ -119,6 +84,7 @@ impl<R: RouteTarget> InputdService<R> {
             held_non_modifier_keys: [false; 256],
             held_non_modifier_key_count: 0,
             pending_wm_chord: 0,
+            pending_capture: 0,
             modifiers: ModifierState::default(),
             text_focus: false,
             ime_visible: false,
@@ -190,6 +156,25 @@ impl<R: RouteTarget> InputdService<R> {
     /// The tiling chord recognized since the last call (one-shot), 0 = none.
     pub fn take_wm_chord(&mut self) -> u8 {
         core::mem::take(&mut self.pending_wm_chord)
+    }
+
+    /// The capture key recognized since the last call (one-shot, RFC-0095), 0 = none.
+    pub fn take_capture_key(&mut self) -> u8 {
+        core::mem::take(&mut self.pending_capture)
+    }
+
+    /// Writes this push's one-shot key facts — a tiling chord, a capture key — into the visible
+    /// state's fields (a field without a new fact keeps an undelivered one); `true` when there
+    /// is one, so the push goes out at once.
+    pub fn stamp_key_facts(&mut self, wm_chord: &mut u8, capture: &mut u8) -> bool {
+        let (chord, key) = (self.take_wm_chord(), self.take_capture_key());
+        if chord != 0 {
+            *wm_chord = chord;
+        }
+        if key != 0 {
+            *capture = key;
+        }
+        chord != 0 || key != 0
     }
 
     #[must_use]
@@ -321,12 +306,16 @@ impl<R: RouteTarget> InputdService<R> {
                 continue;
             }
             self.update_non_modifier_key_hold(usage, pressed);
-            // TASK-0066 window-tiling chords (Super+Ctrl+…): a WM fact, not a
-            // key — it rides the state push to windowd and never reaches imed
-            // or an app. Recognized on the press only; releases are ignored.
+            // TASK-0066 window-tiling chords (Super+Ctrl+…) and RFC-0095 capture keys
+            // (Print, Shift+Print, Alt+Print): facts, not keys — they ride the state push to
+            // windowd and never reach imed or an app. Recognized on the press only.
             if pressed {
                 if let Some(code) = wm_chord_for(usage, &self.modifiers) {
                     self.pending_wm_chord = code;
+                    continue;
+                }
+                if let Some(kind) = capture_key_for(usage, &self.modifiers) {
+                    self.pending_capture = kind;
                     continue;
                 }
             }
@@ -521,33 +510,6 @@ impl<R: RouteTarget> InputdService<R> {
             }
             _ => {}
         }
-    }
-}
-
-fn is_modifier(usage: KeyboardUsage) -> bool {
-    matches!(usage.raw(), 0xe0..=0xe7)
-}
-
-/// The fixed tiling chord table (TASK-0066, v1): Super+Ctrl + ←/→ = halves, ↑ = Fill,
-/// ↓ = Return, F = Fill, R = Return; + Shift ←/→ = top quarters; + Alt ←/→ = bottom
-/// quarters. Codes are windowd's `zones::CODE_*`. `None` = not a chord.
-fn wm_chord_for(usage: KeyboardUsage, mods: &ModifierState) -> Option<u8> {
-    if !(mods.gui && mods.control) {
-        return None;
-    }
-    let (left, right) = if mods.shift {
-        (5u8, 6u8)
-    } else if mods.alt {
-        (7, 8)
-    } else {
-        (1, 2)
-    };
-    match usage {
-        KeyboardUsage::LEFT_ARROW => Some(left),
-        KeyboardUsage::RIGHT_ARROW => Some(right),
-        KeyboardUsage::UP_ARROW | KeyboardUsage::F => Some(9),
-        KeyboardUsage::DOWN_ARROW | KeyboardUsage::R => Some(10),
-        _ => None,
     }
 }
 

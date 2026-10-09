@@ -30,6 +30,8 @@ mod session_client;
 mod settings_client;
 // Pure window-composition decisions (which windows show + z-order) extracted from
 // the runtime monolith so the black-screen-prone logic is host-tested (RFC-0066).
+/// TASK-0068: the screen-capture machine — admission, freeze, thaw, bounds (pure, host-tested).
+pub mod capture_gate;
 /// RFC-0086 sender-identity gates (own-window verbs + taskbar verbs) — pure,
 /// host-tested (`test_reject_*` tables), like `window_scene`.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]

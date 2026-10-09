@@ -76,7 +76,8 @@ impl super::DslApp {
     /// handler ran and changed nothing (wrong event, or a reducer that wrote
     /// the same value); `dmg=Layout` with unchanged `txt` = the store moved
     /// but the view did not. Bounded so a tap storm cannot flood the
-    /// non-freeing bump heap. Never in the keyboard overlay, where a tap is a
+    /// non-freeing bump heap (32: the live lane's greeter + shell phases trace
+    /// ~16 in one process). Never in the keyboard overlay, where a tap is a
     /// keystroke. Returns whether the tap was traced (it then owes a settle line).
     pub(super) fn trace_tap(
         &self,
@@ -87,7 +88,7 @@ impl super::DslApp {
     ) -> bool {
         static TAPS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
         if self.taps_are_keystrokes
-            || TAPS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 16
+            || TAPS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) >= 32
         {
             return false;
         }

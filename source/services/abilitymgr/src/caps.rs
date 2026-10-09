@@ -69,6 +69,10 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     // truth (the focused window pastes; only the shell and the keyboard browse the
     // history). No bundle-type ceiling — copy and paste are every app's.
     "nexus.permission.CLIPBOARD",
+    // Reach screencapd (`svc.screencap.*`, TASK-0068 / RFC-0095): freeze the screen, save a
+    // capture to the Pictures folder — shell- and settings-type only (privilege ceiling in
+    // nxb-pack): the route is the capability, no app may read the screen.
+    "nexus.permission.SCREENCAP",
 ];
 
 /// `true` if `cap` is a recognized platform permission — OR an app-owned

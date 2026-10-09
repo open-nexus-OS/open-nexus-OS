@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-09 (TASK-0068: screenshots — one readback, a frozen frame, the shell's tool)
+
+- **The screenshot tool** (RFC-0095, ADR-0071): Print freezes the screen and the shell opens
+  the reference desktop's capture tool over the frozen frame — a selection drawn, moved and
+  resized by dragging (a scrim outside it, no blur), the whole screen, or a window outlined in
+  place; a glass panel with the X, the three modes, photo/film (film greyed out and disabled until TASK-0105),
+  the shutter and the pointer toggle. The PNG lands in Pictures → Screenshots
+  (`<Screenshot from> <date> <time>.png`) and the system toast names it. Shift+Print and
+  Alt+Print save the screen / the focused window at once.
+- **gpud `OP_READBACK`** — the ONE pixel readback (GL front target via a backed copy; the
+  display plane on virtio 2D and the board's controller); `READBACK_FREEZE` makes the frame the
+  base layer. A negative pointer position is "no pointer in this frame".
+- **windowd's capture verb** (`capture_gate`, `runtime/capture.rs`): screencapd's identity only,
+  no freeze at the greeter, the pointer out of the frame for one present, the freeze from the
+  moment the readback is queued, bounded (60 s / 2 s). `frozen` replaces the dormant
+  `USE_DESKTOP_SHELL` switch.
+- **screencapd** (`ServiceId 34`, `svc.screencap` for shell/settings — `SCREENCAP`), the
+  `png-encode` crate (bounded state, rows pulled from a VMO), **vfsd `OP_ARM_VMO` +
+  `OP_WRITE_VMO`** (a file's content from a VMO in one nxfs transaction, RFC-0072 amendment).
+- **Print keys** (RFC-0053 amendment: the visible state's `capture` byte; HID `0x46`, evdev 99)
+  and **the DSL drag gesture** (`DragStart`/`DragMove`/`DragEnd`, `device.drag*`,
+  `View::fire_on_box`; windowd's `INPUT_KIND_DRAG`/`RELEASE` to the surface that took the press —
+  every applied sample goes out, a refused one is retried on the next pass, the release is parked
+  on like a tap and carries the drag's last position). Lazy: app-host computes only the newest
+  position, once per presented frame, and repaints the rows the change touched — the layout
+  diff is now tight for geometry-only changes (a dragged selection repaints the hole's rows,
+  not the frame).
+- Proof: host — `capture_gate`, `shell_capture`, `drag_gesture`, `dynamic_size`, `key_facts`,
+  png-encode, screencapd contract, nxfs `write_from`; QEMU — `SELFTEST: ui v7 screencap ok` on
+  every visible lane, `SELFTEST: ui v7 screenshot ok` on `usb-visible` (Print → drag → shutter);
+  board — `board-visual: screenshot`.
+
+### Fixed - 2026-10-09 (found while building TASK-0068)
+
+- **nxfs leaked 64 KiB per write in vfsd** (a fresh working buffer per call on a heap that
+  never frees): one reused buffer per mount; vfsd recycles its small allocations.
+- **`.width/.height($state.x)` was a silent no-op**: the checker accepted an Int expression,
+  the emitter dropped it; it is now a layout dependency.
+- **windowd lost a one-shot fact** (a tiling chord) when a pointer move arrived in the same
+  frame; staged samples carry one-shot facts forward.
+- **windowd wrote a line per routed tap** (`input routed`) — on the on-screen keyboard that is
+  keystroke timing; said once per boot now.
+- **init could not provision a declared client leg to windowd** (`request_ep` had no windowd
+  arm); screencapd's capture leg is the first such leg.
+- **app-host missed a modal that replaced another before one paint** (ESC on the search, then
+  Print opening the screenshot tool): its sync compared depths only, so `apphost: modal open`
+  never came; it now compares the top modal's identity too (`modal_edge`, host-tested) —
+  windowd, modal throughout, still hears no verb.
+
 ### Fixed - 2026-10-08 (privacy: no keystroke reaches a log — not its text, not its rhythm)
 
 - **The visible state carries no typed text** (input-live-protocol v2, RFC-0053 amendment):

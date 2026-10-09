@@ -22,20 +22,27 @@ impl super::DslApp {
     /// Reconciles the scene's overlay stack with the outside world: the windowd verb on a
     /// depth edge (0↔n), the depth marker on every rise, the transient timer when the
     /// transient layer appears or leaves. Called before each paint (every dispatch path
-    /// marks the surface dirty) — a compare, no allocation on the steady state.
+    /// marks the surface dirty) — a compare, no allocation on the steady state. A modal that
+    /// closed and ANOTHER that opened before one paint (ESC on the search, then Print) keep the
+    /// depth: the top modal's identity names the new one (the marker), while windowd — modal
+    /// throughout — hears no verb.
     pub(super) fn overlay_sync(&mut self) {
         let depth = self.view.overlays().modal_depth();
-        if depth != self.modal_depth_sent {
-            if depth > self.modal_depth_sent {
-                raw_marker(&alloc::format!("apphost: modal open (depth={depth})"));
+        let top = self.view.overlays().top_modal().map(|e| (e.path.as_slice(), e.instance));
+        let sent_top = self.modal_top_sent.as_ref().map(|(path, inst)| (path.as_slice(), *inst));
+        let edge = crate::modal_edge::modal_edge((self.modal_depth_sent, sent_top), (depth, top));
+        if edge.opened {
+            raw_marker(&alloc::format!("apphost: modal open (depth={depth})"));
+        }
+        if let Some(on) = edge.verb {
+            let verb = if on { "modal.on" } else { "modal.off" };
+            if self.host.presentation_control("window.control", verb).is_err() {
+                raw_marker("apphost: modal control FAIL (send)");
             }
-            if (depth > 0) != (self.modal_depth_sent > 0) {
-                let verb = if depth > 0 { "modal.on" } else { "modal.off" };
-                if self.host.presentation_control("window.control", verb).is_err() {
-                    raw_marker("apphost: modal control FAIL (send)");
-                }
-            }
-            self.modal_depth_sent = depth;
+        }
+        self.modal_depth_sent = depth;
+        if top != sent_top {
+            self.modal_top_sent = top.map(|(path, inst)| (path.to_vec(), inst));
         }
         let next = self.view.overlays().transients().find(|e| e.dismiss_after_ms.is_some());
         match (next, self.transient_armed.as_ref()) {

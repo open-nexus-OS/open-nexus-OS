@@ -33,6 +33,12 @@ pub(crate) fn send(
         crate::framebuffer_grant::answer(server, display, status);
         return;
     }
+    if op == nexus_display_proto::OP_READBACK {
+        // RFC-0095: two bytes — never the cursor status (one) or a present ack (five).
+        let reply = nexus_display_proto::readback::encode_readback_reply(status);
+        let _ = server.send(&reply, Wait::Blocking);
+        return;
+    }
     if op == OP_SET_FRAMEBUFFER_VMO {
         let (mode_w, mode_h) = display.mode();
         let w = mode_w.min(u16::MAX as u32) as u16;

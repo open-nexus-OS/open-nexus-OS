@@ -1039,20 +1039,20 @@ impl VirtioGpuBackend {
                 let _ = self.composite_icon_rt();
             }
 
-            // Cursor on top of everything (cursor_ox/oy, updated by OP_MOVE_CURSOR from
-            // windowd as the mouse moves).
-            // Hotspot-corrected sprite origin: the pointer POSITION is
-            // cursor_ox/oy; the sprite's top-left sits hotspot-left/up of it
-            // (resize shapes center the hotspot — TASK-0070 Phase 3).
+            // Cursor on top of everything at windowd's pointer position (OP_MOVE_CURSOR), the
+            // sprite's top-left hotspot-left/up of it (resize shapes center the hotspot —
+            // TASK-0070 Phase 3); a negative position is "no pointer in this frame" (RFC-0095:
+            // the cursor-free frame a capture freeze reads back).
+            let pointer_shown = self.cursor_ox >= 0 && self.cursor_oy >= 0;
             let (hot_x, hot_y) = self.cpu.cursor_hot;
             let cx = (self.cursor_ox - hot_x as i32).clamp(0, self.display_w as i32 - 20) as u32;
             let cy = (self.cursor_oy - hot_y as i32).clamp(0, self.display_h as i32 - 28) as u32;
-            if self.cursor_tex_ready() {
+            if pointer_shown && self.cursor_tex_ready() {
                 // Production path: composite the real cursor sprite as a layer
                 // (alpha-blended; its own alpha shapes the arrow). Reuses the generic
                 // layer compositor, not a bespoke draw.
                 let _ = self.composite_cursor_rt(cx, cy);
-            } else {
+            } else if pointer_shown {
                 // Fallback (reveal forced by the timer before the sprite landed): a
                 // procedural arrow so the pointer is never invisible.
                 let _ = self.diag_gradient_rt(

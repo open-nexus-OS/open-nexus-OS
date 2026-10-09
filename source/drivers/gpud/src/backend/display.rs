@@ -103,6 +103,14 @@ pub(crate) trait Display {
     /// `OP_WALLPAPER_DIRTY`: windowd rewrote the wallpaper plane.
     fn wallpaper_dirty(&mut self) {}
 
+    /// `OP_READBACK` (RFC-0095): copy `req`'s rectangle of the frame the display shows into the
+    /// moved VMO `dest` (rows tight, BGRA); with `READBACK_FREEZE` the frame also becomes the
+    /// base layer until the next wallpaper write. Returns the reply status. A display that
+    /// cannot read its frame refuses.
+    fn readback(&mut self, _dest: u32, _req: &nexus_display_proto::readback::Readback) -> u8 {
+        nexus_display_proto::STATUS_DEVICE_ERROR
+    }
+
     /// `OP_REVEAL` (RFC-0093 §5): the desktop is complete; the next present may reveal it.
     fn request_reveal(&mut self);
 

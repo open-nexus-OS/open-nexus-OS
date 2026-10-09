@@ -404,6 +404,7 @@ fn linux_key_to_hid(code: u16) -> Option<u16> {
         58 => 0x39,
         59 => 0x3a,
         97 => 0xe4,
+        99 => 0x46, // KEY_SYSRQ: the Print key (RFC-0095 capture keys)
         100 => 0xe6,
         125 => 0xe3,
         126 => 0xe7,

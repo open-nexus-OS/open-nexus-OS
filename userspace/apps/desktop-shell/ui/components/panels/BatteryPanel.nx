@@ -7,7 +7,7 @@
 // Charge and power source are literals, not store fields: nothing measures
 // them, and a field would dress a constant up as a reading. The profile and
 // "Kein Standby" ARE state — they are choices made here — and they live in
-// `PowerStore` as demo state until a power service exists.
+// `SystemStore` as demo state until a power service exists.
 //
 // Exactly three profiles, per the handoff. A fourth would be an invention.
 

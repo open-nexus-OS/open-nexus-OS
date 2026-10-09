@@ -66,6 +66,10 @@ pub(crate) mod frame_clock;
 /// The framebuffer grant and the attach that follows it (RFC-0098 C7, RFC-0093 §5).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod framebuffer_grant;
+/// The ONE pixel readback (RFC-0095): the `OP_READBACK` request and the CPU half of the copy
+/// (the 2D virtio path and the board's controller); host-tested.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod readback;
 /// Reply encoding for the request loop (RFC-0093 §5).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod reply;

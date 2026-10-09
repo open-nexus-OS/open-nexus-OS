@@ -33,6 +33,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Execd, ServiceId::ImedOsk),    // svc.ime.osk (RFC-0075 Phase 2)
     (ServiceId::Execd, ServiceId::Logd),       // crash-report appends (TASK-0049)
     (ServiceId::Execd, ServiceId::Clipboardd), // svc.clipboard.* (shell search, keyboard; TASK-0067)
+    (ServiceId::Execd, ServiceId::Screencapd), // svc.screencap.* (the shell's screenshot UI; TASK-0068)
     // TASK-0324 P4e-2: execd is GRANTED a windowd client route it never calls itself — it
     // clones both halves into every app child (ADR-0042). Provisioned like any other route,
     // so it is declared like one; the delegation is noted on `slots::execd::WINDOWD`.
@@ -44,6 +45,8 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Windowd, ServiceId::Abilitymgr), // OP_LAUNCH from the shell (TASK-0080D)
     (ServiceId::Windowd, ServiceId::Imed),       // focus relay OP_SET_FOCUS (RFC-0075)
     (ServiceId::Windowd, ServiceId::Clipboardd), // focus truth OP_FOCUS (RFC-0094)
+    (ServiceId::Screencapd, ServiceId::Windowd), // capture verb OP_SURFACE_CAPTURE (RFC-0095)
+    (ServiceId::Screencapd, ServiceId::Vfsd),    // the PNG: create, arm the VMO, write
     (ServiceId::Inputd, ServiceId::Windowd),     // visible-state push (pointer/keyboard)
     (ServiceId::Inputd, ServiceId::Imed),        // key-forward leg (RFC-0075)
     (ServiceId::Hidrawd, ServiceId::Inputd),     // normalized HID events (RFC-0053)
@@ -121,6 +124,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::SelftestClient, ServiceId::ImedOsk),
     (ServiceId::SelftestClient, ServiceId::Blkd),
     (ServiceId::SelftestClient, ServiceId::Clipboardd), // the gate's deny side + the prefill
+    (ServiceId::SelftestClient, ServiceId::Screencapd), // the non-black probe through the readback
     // RFC-0092 (TASK-0052 P3): the ingress gateway asks policyd for the
     // declared subject's `net.expose` and drives netstackd (listen/accept/
     // connect/relay); the selftest registers its exposure intents.

@@ -689,17 +689,15 @@ impl LiveRouteRuntime {
         // and windowd coalesces frame-aligned regardless.
         let button_changed = previous_launcher_click != self.visible_state.launcher_click_visible;
         let focus_changed = previous_focus_visible != self.visible_state.focus_visible;
-        // TASK-0066: a tiling chord is a one-shot WM fact on this push.
-        let chord = self.input.take_wm_chord();
-        if chord != 0 {
-            self.visible_state.wm_chord = chord;
-        }
+        // TASK-0066 / RFC-0095: tiling chords and capture keys are one-shot facts on this push.
+        let (chord, capture) = (&mut self.visible_state.wm_chord, &mut self.visible_state.capture);
+        let key_fact = self.input.stamp_key_facts(chord, capture);
         let immediate_push = pointer_down_dispatched
             || pointer_wheel_delta != 0
             || keyboard_dispatched
             || button_changed
             || focus_changed
-            || chord != 0;
+            || key_fact;
         self.push_visible_state_to_windowd(now_ns, immediate_push);
     }
 
@@ -754,8 +752,8 @@ impl LiveRouteRuntime {
                 // next (possibly move-throttled) push cannot replay it.
                 self.pending_wheel_delta = 0;
                 self.visible_state.wheel_delta_y = 0;
-                // …and the chord: delivered once, never replayed.
-                self.visible_state.wm_chord = 0;
+                // …and the one-shot key facts: delivered once, never replayed.
+                (self.visible_state.wm_chord, self.visible_state.capture) = (0, 0);
                 self.last_windowd_push_state = Some(self.visible_state);
                 self.last_windowd_push_ns = now_ns;
                 // Push-cadence telemetry (hyper-smooth diagnosis): report the

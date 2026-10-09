@@ -110,6 +110,7 @@ impl DisplayServerRuntime {
         let cursor_y = self.state.cursor_y;
         let cursor_hot = self.cursor_hot;
         let hw_cursor = self.hw_cursor_active;
+        let pointer_hidden = self.capture.pointer_hidden();
         // The fullscreen window (if any): its composite drops the rounded
         // corners + drop shadow (nothing to round/shadow against at the
         // display edges — straight edge-to-edge content, user decision).
@@ -193,7 +194,7 @@ impl DisplayServerRuntime {
         let desktop_glass_count = self.desktop_layer_count;
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
-        let (win_order, win_n) = self.windows.order(USE_DESKTOP_SHELL);
+        let (win_order, win_n) = self.windows.order(self.capture.frozen());
         // Dock layer params (bar rect is None while inactive/covered).
         self.scene_cb.clear();
         {
@@ -532,7 +533,7 @@ impl DisplayServerRuntime {
             //    displays and moves the cursor; frames never carry it). In the
             //    software fallback a cursor-only move is a cheap cursor-region
             //    blit (from the retained Plane 1) + this BlendCursor.
-            if !hw_cursor && cursor_w > 0 && cursor_h > 0 {
+            if !hw_cursor && !pointer_hidden && cursor_w > 0 && cursor_h > 0 {
                 let cx = (cursor_x - cursor_hot.0).max(0) as u32;
                 let cy = (cursor_y - cursor_hot.1).max(0) as u32;
                 if cx < mode.width && cy < mode.height {

@@ -362,11 +362,13 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
             // SETTINGS: the settings app AND the shell (RFC-0083: the control
             // center writes ui.theme.*/ui.shell.mode through settingsd — the
             // single authority — instead of a windowd side door every
-            // windowed app used to hold).
-            "nexus.permission.SETTINGS" => {
+            // windowed app used to hold). SCREENCAP (TASK-0068, RFC-0095): the
+            // shell's screenshot UI and settings — no app may read the screen.
+            "nexus.permission.SETTINGS" | "nexus.permission.SCREENCAP" => {
                 if bundle_type != mf::BundleType::Settings && bundle_type != mf::BundleType::Shell {
                     return Err(format!(
-                        "manifest.toml capability `{cap}` requires bundle_type = \"settings\"                          or \"shell\" (a normal app may not hold a system-role permission)"
+                        "manifest.toml capability `{cap}` requires bundle_type = \"settings\" \
+                         or \"shell\" (a normal app may not hold a system-role permission)"
                     )
                     .into());
                 }

@@ -116,13 +116,6 @@ pub(crate) const DISPLAY_ROW_OFFSET: u32 = layout::DISPLAY_ROW;
 pub(crate) const BLUR_CACHE_ROW_OFFSET: u32 = layout::SLOT_B_ROW;
 pub(crate) const PROOF_PANEL_H: u32 = 260;
 
-/// Shell-P2b: when `true`, source `proof_layouts` from the flat desktop-shell
-/// scene and suppress the rich proof/glass overlays. The flat-rect render was a
-/// regression (no glass/shadow/rounding), so this is `false`: we keep the rich
-/// glass UI (chat window + buttons + sidebar) and add a real glass topbar instead.
-/// Kept as a switch for the layout-driven path.
-pub(crate) const USE_DESKTOP_SHELL: bool = false;
-
 // The former `SHELL_TOPBAR` / `SHELL_SIDEPANEL` compile-time constants are gone:
 // the glass topbar + side panel chrome is now driven at runtime by the shell
 // configuration resolved from SystemUI's manifest registry
@@ -372,6 +365,11 @@ fn dispatch_client_frame(
         // Pointer-cursor hint (I-beam over editable fields): the app owns
         // hover semantics inside its surface. Data-only frame.
         runtime.handle_surface_cursor_hint(frame);
+    } else if frame.get(3).copied()
+        == Some(nexus_display_proto::surface_capture::OP_SURFACE_CAPTURE)
+    {
+        // RFC-0095: screencapd's capture verb — the reply parks until gpud's readback answers.
+        runtime.handle_surface_capture(frame, moved_cap.take(), sender_sid);
     } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_INTENT)
     {
         // Window intent (before create): the WM stores it + answers the content
@@ -482,8 +480,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // 3. Frame-aligned input: apply the staged sample (latest cursor/buttons + summed
         //    wheel) ONCE per frame, independent of how many raw events arrived.
         let applied = runtime.apply_staged_input();
-        // 4. Pushes: settings (RFC-0083), session state (P7-c) and launch replies — every one
-        //    a waitset member, drained here, never polled on a cadence.
+        runtime.flush_drag(); // a drag position a full client queue refused (RFC-0095)
+                              // 4. Pushes: settings (RFC-0083), session state (P7-c) and launch replies — every one
+                              //    a waitset member, drained here, never polled on a cadence.
         runtime.pump_region_watch();
         runtime.drain_settings_events();
         #[cfg(all(nexus_env = "os", target_os = "none"))]
@@ -491,6 +490,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         #[cfg(nexus_env = "os")]
         runtime.drain_launch_replies();
         runtime.pump_presentation();
+        runtime.pump_capture(nsec().unwrap_or(0));
         #[cfg(nexus_env = "os")]
         loop_stats.note_apply(applied);
         #[cfg(not(nexus_env = "os"))]

@@ -1,2 +1,0 @@
-cargo:rerun-if-changed=../../../../resources/themes
-cargo:rerun-if-changed=../../../../resources/icons/lucide/icons

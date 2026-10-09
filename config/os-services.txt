@@ -23,3 +23,4 @@ imed
 gpud
 windowd
 clipboardd
+screencapd

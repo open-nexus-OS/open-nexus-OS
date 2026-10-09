@@ -1,1 +1,0 @@
-cargo:rerun-if-changed=/home/jenning/open-nexus-OS/userspace/dsl/core/../../../tools/nexus-idl/schemas/dsl_services.capnp

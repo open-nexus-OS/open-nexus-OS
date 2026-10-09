@@ -223,6 +223,20 @@ pub const TRIGGERS: &[&str] = &[
     // fields) — fired BY NAME by the host after clipboardd stored it, so a history the page
     // shows re-reads at once.
     "ClipboardChanged",
+    // RFC-0095 (TASK-0068): the capture keys, fired BY NAME on the desktop surface (the
+    // shell) when windowd hands it Print (`CaptureOpen`: the screenshot UI), Shift+Print
+    // (`CaptureScreen`: save the screen) or Alt+Print (`CaptureWindow`: the focused window).
+    "CaptureOpen",
+    "CaptureScreen",
+    "CaptureWindow",
+    // RFC-0095: the drag gesture. `DragStart` fires on the node under the PRESS once the
+    // pointer moved past a small slop with the primary button held (hit-tested at the press
+    // point); `DragMove` and `DragEnd` (the release) then reach THAT node wherever the pointer
+    // goes. `device.dragX`/`dragY` hold the pointer, `device.dragStartX`/`dragStartY` the
+    // press — surface pixels, read by the reducer at dispatch time.
+    "DragStart",
+    "DragMove",
+    "DragEnd",
 ];
 
 /// The curated **motion token** vocabulary (docs/dev/ui/foundations/animation.md
@@ -367,6 +381,11 @@ pub const DEVICE_FIELDS: &[(&str, &[&str])] = &[
     // TASK-0066: the tile zone a window drag would take if released now (windowd's zone
     // names, "" = none) — the desktop shell draws the preview; apps have no use for it.
     ("tilePreview", &[]),
+    // RFC-0095: the drag gesture's pointer and press (surface pixels, Int; 0 outside a drag).
+    ("dragX", &[]),
+    ("dragY", &[]),
+    ("dragStartX", &[]),
+    ("dragStartY", &[]),
 ];
 
 #[must_use]

@@ -160,7 +160,7 @@ impl DisplayServerRuntime {
     /// Tiles the requesting window and the next on-screen app windows in z-order into the
     /// arrangement's zones (the requester takes the first zone).
     fn arrange(&mut self, idx: usize, kind: Arrangement) {
-        let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+        let (hit, hit_n) = self.windows.hit_order(self.capture.frozen());
         let mut order: [usize; crate::window_scene::MAX_APP_WINDOWS] =
             [usize::MAX; crate::window_scene::MAX_APP_WINDOWS];
         let mut n = 0usize;

@@ -28,6 +28,12 @@ We want a QEMU-friendly screen recorder:
 
 We also need a SystemUI capture overlay and privacy indicator chips.
 
+Since TASK-0068 (2026-10-09) the shell's screenshot tool already draws the photo/film switch
+(`userspace/apps/desktop-shell/ui/components/capture/CapturePanel.nx`): film is greyed out and
+disabled (`.disabled(true)` — no press, no hover; the conformance test
+`test_reject_the_film_button_takes_no_input` holds it). Enabling it — the film mode of that one
+tool, not a second overlay — is this task's.
+
 Camera app and Gallery integration are separate tasks.
 
 ## Goal

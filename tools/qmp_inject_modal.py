@@ -47,6 +47,9 @@ CLIP_CARD = (419, 240)
 # the copy re-reads the history (SSOT: INJECT_COPY_WORD in the same test). Letters that sit on
 # the same keys in every lane layout.
 CLIP_COPY_WORD = "kiwi"
+# TASK-0068 capture phase — SSOT: tests/dsl_apps_conformance/tests/shell_capture.rs.
+CAPTURE_DRAG = ((120, 140), (520, 420))
+CAPTURE_SHUTTER = (640, 728)
 
 # Relative travel: steps well under inputd's 256-px cap and QEMU's int8 report.
 MODAL_STEP = 40
@@ -56,6 +59,8 @@ KEY_DOWN_HOLD_S = 0.25
 SETTLE_S = 0.35
 HOME_DRAIN_S = 0.6
 TAP_TRACE_KEYS = ("apphost: tap (", "apphost: input tap miss at (")
+# app-host's line per drag gesture: `apphost: drag (sx,sy)->(ex,ey) hit=Some(n)|None`.
+DRAG_TRACE_KEY = "apphost: drag ("
 
 
 @dataclass
@@ -113,6 +118,21 @@ class ModalPhase:
                         return int(x_s), int(y_s)
                     except (ValueError, IndexError):
                         continue
+        return None
+
+    @staticmethod
+    def parse_drag(tail: str) -> tuple[tuple[int, int], tuple[int, int], bool] | None:
+        """The first drag trace in `tail`: (press, release, whether a box took the drag)."""
+        for line in tail.splitlines():
+            if DRAG_TRACE_KEY not in line:
+                continue
+            try:
+                start, rest = line.split(DRAG_TRACE_KEY, 1)[1].split(")->(", 1)
+                sx, sy = start.split(",")
+                ex, ey = rest.split(")", 1)[0].split(",")
+                return (int(sx), int(sy)), (int(ex), int(ey)), "hit=Some(" in rest
+            except (ValueError, IndexError):
+                continue
         return None
 
     def greeter_submit_box(self) -> tuple[int, int] | None:
@@ -182,6 +202,11 @@ class ModalPhase:
             if down:
                 time.sleep(POINTER_DOWN_HOLD_S)
 
+    def button(self, down: bool, button: str = "left") -> None:
+        self.env.send_input_events(
+            self.env.sock, [{"type": "btn", "data": {"down": down, "button": button}}], console=None
+        )
+
     def key(self, qcode: str) -> None:
         for down in (True, False):
             self.env.send_input_events(
@@ -200,6 +225,31 @@ class ModalPhase:
             if seen is not None:
                 return seen
             time.sleep(0.1)
+        return None
+
+    def press_observed(self, timeout_s: float = 45.0) -> tuple[int, int] | None:
+        """Press and HOLD at the current pointer; return where app-host saw the press (its own
+        tap trace — consumed here, so no later click can take it for its own)."""
+        before = self.uart_size()
+        self.button(True)
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            seen = self.parse_tap(self.uart_tail(before))
+            if seen is not None:
+                return seen
+            time.sleep(0.1)
+        return None
+
+    def drag_observed(
+        self, since: int, timeout_s: float = 45.0
+    ) -> tuple[tuple[int, int], tuple[int, int], bool] | None:
+        """Wait for the drag trace app-host writes when the release ends the gesture."""
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            drag = self.parse_drag(self.uart_tail(since))
+            if drag is not None:
+                return drag
+            time.sleep(0.2)
         return None
 
     def wait_settled(self, timeout_s: float = 25.0, since: int | None = None) -> None:
@@ -337,7 +387,11 @@ class ModalPhase:
         timeout_s = float(os.environ.get("QEMU_INPUT_INJECT_MODAL_TIMEOUT_S", "12"))
         self.go_click(TILE_LAUNCHER_BUTTON)
         self.go_click(TILE_LAUNCH_SETTINGS)
-        if not self.wait_marker("windowd: transition open", 40.0):
+        # An app launch is the lane's heaviest step (spawn, payload, mount, the first layout and
+        # frame of a 960x620 window). 40 s was too short on 2026-10-09: the host ran the guest
+        # at half speed for that minute — the same guest work (windowd's loop counters match the
+        # green runs), twice the wall clock. The bound only ends a dead run; the event decides.
+        if not self.wait_marker("windowd: transition open", 120.0):
             return
         # The new window renders its first frame; let it settle before the chord.
         self.wait_settled(30.0)
@@ -395,7 +449,66 @@ class ModalPhase:
         self.go_click(CLIP_CARD)
         if self.wait_marker("SELFTEST: ui v7 clipboard ok", 30.0 + timeout_s):
             self.log("clipboard phase complete (magnifier → Clipboard → type → Ctrl+A/C/V → first card)")
+        # Close the search and wait for ITS close (anchor on our own event): the next phase's
+        # Print must not race the search's ESC through the guest.
+        since = self.uart_size()
         self.key("esc")
+        self.wait_marker_after("apphost: modal dismiss (reason=escape)", since, 30.0)
+
+    # -- capture (TASK-0068 / RFC-0095) -------------------------------------------
+    def run_capture(self) -> None:
+        """Press Print: the shell asks screencapd to freeze the screen (windowd holds the frame
+        gpud read back) and opens the screenshot UI over it. Drag a selection — button down at
+        the press point, travel with the button held (windowd sends DRAG frames to the shell,
+        the DSL's DragStart/DragMove), release — then press the shutter: screencapd crops the
+        frozen frame, encodes the PNG and writes it through vfsd, and says
+        `SELFTEST: ui v7 screenshot ok` (the lane's LAST marker, which the launcher's early
+        stop waits for). The drag's corners need not be exact: any selection proves the path.
+
+        Each edge waits for its OWN event before the next is injected — the press for its tap
+        trace, the release for the drag trace, the shutter for its tap trace: the one-hart guest
+        is seconds behind while the tool paints its first frame, and an edge injected before the
+        previous one surfaced merges with it on the way in (2026-10-09: the shutter's click
+        vanished into the drag's release, and the late press trace was read as the shutter's)."""
+        timeout_s = float(os.environ.get("QEMU_INPUT_INJECT_MODAL_TIMEOUT_S", "12"))
+        since = self.uart_size()
+        self.key("print")
+        if not self.wait_marker_after("screencapd: freeze ok", since, 40.0 + timeout_s):
+            return
+        if not self.wait_marker_after("apphost: modal open (depth=1)", since, 40.0):
+            return
+        (press, release) = CAPTURE_DRAG
+        for attempt in range(2):
+            self.travel(*press)
+            seen = self.press_observed()
+            self.log(
+                "capture drag press observed",
+                {"target": list(press), "seen": seen, "attempt": attempt + 1},
+            )
+            if seen is not None and abs(seen[0] - press[0]) <= 6 and abs(seen[1] - press[1]) <= 6:
+                break
+            # Off target or never surfaced: let go in place (a press without motion is a tap on
+            # the scrim, which does nothing) and start over from the observed position.
+            self.button(False)
+            self.wait_settled()
+            if seen is not None:
+                self.pointer_at = list(seen)
+        else:
+            return
+        self.travel(*release)
+        time.sleep(SETTLE_S)
+        since = self.uart_size()
+        self.button(False)
+        drag = self.drag_observed(since)
+        self.log("capture drag observed", {"target": [list(press), list(release)], "seen": drag})
+        if drag is None or not drag[2]:
+            return
+        self.pointer_at = list(drag[1])
+        self.go_click(CAPTURE_SHUTTER)
+        if not self.wait_marker_after("screencapd: saved (kind=area", since, 60.0 + timeout_s):
+            return
+        if self.wait_marker("SELFTEST: ui v7 screenshot ok", 30.0 + timeout_s):
+            self.log("capture phase complete (Print → drag a selection → shutter → PNG saved)")
 
 
 def run_modal_phase(env: ModalEnv) -> None:
@@ -403,3 +516,4 @@ def run_modal_phase(env: ModalEnv) -> None:
     phase.run()
     phase.run_tiling()
     phase.run_clipboard()
+    phase.run_capture()

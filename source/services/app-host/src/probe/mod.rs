@@ -25,6 +25,7 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 mod anim;
 mod boot;
 mod clock;
+mod drag;
 mod env;
 mod frame_arena;
 mod interaction;
@@ -36,7 +37,7 @@ mod paint;
 mod presentation;
 mod scroll;
 mod state;
-mod windows; // RFC-0086 feed intake
+mod windows; // RFC-0086 feed intake // RFC-0095: hover, leave and the drag gesture
 use boot::*;
 pub(crate) use env::{device_for, size_class_for, tokens_for};
 pub(crate) use interaction::TapOutcome;
@@ -516,12 +517,7 @@ pub(super) fn run() -> Result<(), &'static str> {
             if let Some(dsl) = app.as_mut() {
                 let (span, end) = dsl.momentum_tick();
                 if let Some(span) = span {
-                    dirty_rows = match (dirty, dirty_rows) {
-                        (true, None) => None,
-                        (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                        (false, None) => Some(span),
-                    };
-                    dirty = true;
+                    crate::layout_diff::merge_span(&mut dirty, &mut dirty_rows, span);
                 }
                 if end && dsl.fire_end_reached() {
                     dirty = true;
@@ -533,12 +529,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                 // input path. Unions with any scroll span; a pending full
                 // request still wins.
                 if let Some(span) = dsl.anim_tick() {
-                    dirty_rows = match (dirty, dirty_rows) {
-                        (true, None) => None,
-                        (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                        (false, None) => Some(span),
-                    };
-                    dirty = true;
+                    crate::layout_diff::merge_span(&mut dirty, &mut dirty_rows, span);
                 }
                 if dsl.momentum_active() || dsl.anim_active() {
                     let req = wire::encode_surface_frame_req(surface_id);
@@ -546,49 +537,17 @@ pub(super) fn run() -> Result<(), &'static str> {
                 }
             }
         } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
-            if kind == wire::INPUT_KIND_MOVE {
-                // Frame-aligned hover: paint-only, and only the union row
-                // span of the old+new hovered boxes (never a re-layout,
-                // never a full-frame repaint — the damage contract).
+            if matches!(
+                kind,
+                wire::INPUT_KIND_MOVE
+                    | wire::INPUT_KIND_LEAVE
+                    | wire::INPUT_KIND_DRAG
+                    | wire::INPUT_KIND_RELEASE
+            ) {
+                // Hover, leave and the drag gesture (`probe/drag.rs`).
                 if let Some(dsl) = app.as_mut() {
-                    // Editable-field hover → windowd cursor hint (I-beam),
-                    // sent only on CHANGE (enter/leave), never per move.
-                    if let Some(over) = dsl.text_hover(i32::from(x), i32::from(y)) {
-                        boot::send_cursor_hint(&client, surface_id, over);
-                    }
-                    if let Some(span) = dsl.hover(i32::from(x), i32::from(y)) {
-                        dirty_rows = match (dirty, dirty_rows) {
-                            (true, None) => None, // full repaint already pending
-                            (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                            (false, None) => Some(span),
-                        };
-                        dirty = true;
-                        // Hover started interaction springs (grow/shrink):
-                        // arm the frame pulse so they tick.
-                        if dsl.anim_active() {
-                            let req = wire::encode_surface_frame_req(surface_id);
-                            let _ = client.send(&req, Wait::Blocking);
-                        }
-                    }
-                }
-            } else if kind == wire::INPUT_KIND_LEAVE {
-                if let Some(dsl) = app.as_mut() {
-                    if dsl.text_hover_clear() {
-                        boot::send_cursor_hint(&client, surface_id, false);
-                    }
-                    if let Some(span) = dsl.hover_clear() {
-                        dirty_rows = match (dirty, dirty_rows) {
-                            (true, None) => None,
-                            (_, Some((a0, a1))) => Some((a0.min(span.0), a1.max(span.1))),
-                            (false, None) => Some(span),
-                        };
-                        dirty = true;
-                        // The un-hover spring needs pulses too.
-                        if dsl.anim_active() {
-                            let req = wire::encode_surface_frame_req(surface_id);
-                            let _ = client.send(&req, Wait::Blocking);
-                        }
-                    }
+                    let (x, y) = (i32::from(x), i32::from(y));
+                    dsl.pointer_frame(&client, surface_id, kind, x, y, &mut dirty, &mut dirty_rows);
                 }
             } else if kind == wire::INPUT_KIND_WHEEL {
                 // Wheel impulse into the scroll physics (see `wheel_event`).
@@ -643,7 +602,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                     }
                 }
             }
-        } else if app.as_mut().is_some_and(|d| d.absorb_window_feed(&event_frame[..len])) {
+        } else if app.as_mut().is_some_and(|d| d.absorb_shell_push(&event_frame[..len])) {
             (dirty, dirty_rows) = (true, None); // RFC-0086 feed → full repaint
         } else if let Some(snap) =
             nexus_display_proto::surface_settings::decode_surface_settings(&event_frame[..len])
@@ -813,7 +772,11 @@ pub(super) fn run() -> Result<(), &'static str> {
         // Coalesced present: render + present the latest model once the
         // previous present is acked. Runs in the same iteration an ack
         // clears the in-flight slot, so a tap that arrived mid-present is
-        // shown without waiting for the next input.
+        // shown without waiting for the next input. A held drag computes
+        // only its newest position, here (`probe/drag.rs`).
+        if let (false, Some(dsl)) = (present_in_flight, app.as_mut()) {
+            dsl.drag_flush(&client, surface_id, &mut dirty, &mut dirty_rows);
+        }
         if dirty && !present_in_flight {
             let Some(dsl) = app.as_mut() else { continue };
             // A banded (compositor-scroll) surface only ever repaints on a

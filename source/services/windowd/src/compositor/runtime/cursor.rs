@@ -40,7 +40,7 @@ pub(crate) enum CursorShape {
 
 impl CursorShape {
     /// Sprite bytes + dimensions + hotspot for this shape.
-    fn sprite(self) -> (&'static [u8], u32, u32, i32, i32) {
+    pub(super) fn sprite(self) -> (&'static [u8], u32, u32, i32, i32) {
         let hot = crate::assets::CURSOR_RESIZE_HOTSPOT;
         match self {
             CursorShape::Default => (
@@ -462,6 +462,8 @@ impl DisplayServerRuntime {
     pub(super) fn send_cursor_move_to_gpud(&mut self) {
         let x = self.state.cursor_x.clamp(0, self.mode.width.saturating_sub(1) as i32);
         let y = self.state.cursor_y.clamp(0, self.mode.height.saturating_sub(1) as i32);
+        // A capture is taking the pointer out of the frame: gpud's "no pointer" position.
+        let (x, y) = if self.capture.pointer_hidden() { (-1, -1) } else { (x, y) };
         let mut frame = [0u8; 9];
         frame[0] = GPU_MOVE_CURSOR_OP;
         frame[1..5].copy_from_slice(&x.to_le_bytes());

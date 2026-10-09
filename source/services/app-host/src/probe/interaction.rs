@@ -32,6 +32,8 @@ impl super::DslApp {
     /// re-render is needed.
     pub(super) fn tap(&mut self, x: i32, y: i32) -> TapOutcome {
         use nexus_dsl_runtime::Damage;
+        // The press a drag may grow from (`probe/drag.rs`; windowd's DRAG frames follow).
+        self.arm_drag(x, y);
         let tokens = tokens_for(self.theme_mode);
         let device =
             device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);

@@ -51,6 +51,8 @@ mod effect_files;
 mod effect_host;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_parse;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod effect_screencap;
 // The embedded nexus-query demo store (split out of effect_host — ratchet).
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod effect_ime;
@@ -74,6 +76,8 @@ mod file_filter;
 mod hover_wash;
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod layout_diff;
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod modal_edge;
 // Pure `.scroll(paged)` page-turn decisions (launcher pager) — same one-cfg
 // shape as `hover_wash`: the physics/timing lives in RISC-V-only `probe/`,
 // the decision here where host tests reach it.

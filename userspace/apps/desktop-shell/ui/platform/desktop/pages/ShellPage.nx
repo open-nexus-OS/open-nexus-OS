@@ -10,17 +10,31 @@
 
 Page ShellPage {
     Stack {
-        TopBar { }
-        Stack {
-            WorkspaceColumn { }
-            TilePreview { }
-            PanelHost { }
-            LauncherHost { }
+        if $state.capOpen {
+            // The screenshot UI is up (TASK-0068): the frozen frame already shows the shell
+            // as it was — nothing live is drawn above it but the capture layer.
+            Stack { }
+                .grow(1)
+        } else {
+            Stack {
+                TopBar { }
+                Stack {
+                    WorkspaceColumn { }
+                    TilePreview { }
+                    PanelHost { }
+                    LauncherHost { }
+                }
+                .grow(1)
+                Taskbar { }
+            }
+            .grow(1)
+            .gap(0)
         }
-        .grow(1)
-        Taskbar { }
         ShellOverlays { }
     }
     .gap(0)
     on WindowsChanged -> dispatch(WindowsMoved)
+    on CaptureOpen -> dispatch(CapOpen)
+    on CaptureScreen -> dispatch(CapShotScreen)
+    on CaptureWindow -> dispatch(CapShotWindow)
 }

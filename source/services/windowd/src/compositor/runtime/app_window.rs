@@ -741,7 +741,7 @@ impl DisplayServerRuntime {
                 wire_delta,
             );
             if let Some(slot) = self.apps[idx].event_channel {
-                let _ = send_input_frame(slot, &frame, false);
+                let _ = send_client_frame(slot, &frame, Delivery::Coalescing);
             }
         }
         #[cfg(not(nexus_env = "os"))]
@@ -812,58 +812,54 @@ impl DisplayServerRuntime {
                 let Some(id) = self.apps[idx].surface_id else { continue };
                 let Some(slot) = self.apps[idx].event_channel else { continue };
                 let frame = nexus_display_proto::client_surface::encode_surface_frame(id);
-                let _ = send_input_frame(slot, &frame, false);
+                let _ = send_client_frame(slot, &frame, Delivery::Coalescing);
             }
             if self.desktop_frame_pulse {
                 self.desktop_frame_pulse = false;
                 if let (Some(id), Some(slot)) = (self.desktop_surface_id, self.desktop_channel) {
                     let frame = nexus_display_proto::client_surface::encode_surface_frame(id);
-                    let _ = send_input_frame(slot, &frame, false);
+                    let _ = send_client_frame(slot, &frame, Delivery::Coalescing);
                 }
             }
         }
     }
 
-    pub(crate) fn send_app_input(&mut self, idx: usize, local_x: i32, local_y: i32) {
-        self.send_app_input_kind(
-            idx,
-            nexus_display_proto::client_surface::INPUT_KIND_TAP,
-            local_x,
-            local_y,
-        );
+    pub(crate) fn send_app_input(&mut self, idx: usize, x: i32, y: i32) {
+        self.send_app_input_kind(idx, nexus_display_proto::client_surface::INPUT_KIND_TAP, x, y);
     }
 
-    /// `send_app_input` for any input kind. Taps keep their honest routed/FAIL
-    /// markers; MOVE/LEAVE are frame-rate hover traffic and stay silent.
-    pub(crate) fn send_app_input_kind(&mut self, idx: usize, kind: u8, local_x: i32, local_y: i32) {
+    /// `send_app_input` for any input kind (`true` = it went out). Taps keep
+    /// their routed/FAIL markers; MOVE/LEAVE/DRAG are frame-rate traffic, silent.
+    pub(crate) fn send_app_input_kind(&mut self, idx: usize, kind: u8, x: i32, y: i32) -> bool {
         #[cfg(nexus_env = "os")]
         {
             let is_tap = kind == nexus_display_proto::client_surface::INPUT_KIND_TAP;
             let Some(client) =
                 self.apps[idx].surface_id.and_then(|id| self.client_surfaces.get_by_id(id))
             else {
-                return;
+                return false;
             };
-            let (x, y) = (local_x.max(0) as u16, local_y.max(0) as u16);
+            let (x, y) = (x.max(0) as u16, y.max(0) as u16);
             let frame =
                 nexus_display_proto::client_surface::encode_surface_input(client.id, kind, x, y);
             let Some(slot) = self.apps[idx].event_channel else {
                 if is_tap {
                     let _ = debug_println("WINDOWD: FAIL surface input (no event channel)");
                 }
-                return;
+                return false;
             };
-            if send_input_frame(slot, &frame, is_tap) {
-                if is_tap {
-                    let _ = debug_println("WINDOWD: surface input routed");
-                }
-            } else if is_tap {
+            let sent = send_input_frame(slot, &frame, kind);
+            if sent && is_tap && super::input_hover::first_tap_routed(false) {
+                let _ = debug_println("WINDOWD: surface input routed");
+            } else if !sent && is_tap {
                 let _ = debug_println("WINDOWD: FAIL surface input send");
             }
+            sent
         }
         #[cfg(not(nexus_env = "os"))]
         {
-            let _ = (idx, kind, local_x, local_y);
+            let _ = (idx, kind, x, y);
+            false
         }
     }
 }
@@ -899,8 +895,8 @@ pub(super) fn send_client_frame(slot: u32, frame: &[u8], delivery: Delivery) -> 
     nexus_abi::ipc_send_v1(slot, &hdr, frame, 0, 0).is_ok()
 }
 
-pub(super) fn send_input_frame(slot: u32, frame: &[u8], is_tap: bool) -> bool {
-    send_client_frame(slot, frame, Delivery::for_input(is_tap))
+pub(super) fn send_input_frame(slot: u32, frame: &[u8], kind: u8) -> bool {
+    send_client_frame(slot, frame, Delivery::for_input(kind))
 }
 
 /// Thin cap-close shim so the handlers above read cleanly on host builds

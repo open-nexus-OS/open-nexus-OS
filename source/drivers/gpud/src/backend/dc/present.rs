@@ -273,6 +273,16 @@ impl Display for DcDisplay {
         self.hold.ask();
     }
 
+    /// RFC-0095: the controller scans the CPU-written display plane; a readback copies it. The
+    /// controller never writes the block, so the CPU reads it without cache maintenance.
+    fn readback(&mut self, dest: u32, req: &nexus_display_proto::readback::Readback) -> u8 {
+        let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));
+        let Some(fb) = self.live.as_mut().and_then(|live| live.framebuffer.as_mut()) else {
+            return nexus_display_proto::STATUS_DEVICE_ERROR;
+        };
+        fb.readback(dest, req, w, h)
+    }
+
     fn reveal_requested(&self) -> bool {
         self.hold.asked()
     }

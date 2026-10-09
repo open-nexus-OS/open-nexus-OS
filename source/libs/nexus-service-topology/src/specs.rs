@@ -73,6 +73,7 @@ pub const SERVICE_SPECS: &[ServiceSpec] = &[
     crate::specs_storage::LOGD,
     crate::specs_app::SESSIOND,
     crate::specs_app::CLIPBOARDD,
+    crate::specs_app::SCREENCAPD,
     crate::specs_app::SETTINGSD,
     crate::specs_app::PINCHED,
     crate::specs_storage::BOOTCTLD,

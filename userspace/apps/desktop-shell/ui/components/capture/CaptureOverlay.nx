@@ -1,0 +1,54 @@
+// Copyright 2026 Open Nexus OS Contributors
+// SPDX-License-Identifier: Apache-2.0
+//
+// The screenshot UI's layer (TASK-0068, RFC-0095): a MODAL over the frozen
+// frame (`svc.screencap.begin` froze it; windowd shows the frame as the base
+// and composes only this desktop surface above it). A translucent scrim
+// covers everything but the HOLE — the selection, the picked window, or (in
+// screen mode) the whole screen — and the capture panel floats at the bottom.
+//
+// The layer itself takes the drag (`on DragStart/DragMove/DragEnd`: the store
+// decides draw / move / resize from the press), absorbs plain taps (`CapNoop`
+// — a click beside the selection must not close the tool) and closes on ESC
+// (`on Dismiss` → `CapCancel`, which thaws). In window mode every window is
+// outlined in place and a click picks it — the list arrives back to front, so
+// the front-most window's outline wins a click where windows overlap.
+
+Component CaptureOverlay {
+    Stack {
+        CaptureHole { }
+        if $state.capMode == "window" {
+            List($state.capWindows) { win in
+                Stack {
+                    Stack { }
+                        .height(win.y)
+                    Stack {
+                        Stack { }
+                            .width(win.x)
+                        Stack { }
+                            .width(win.w)
+                            .border(thin)
+                            .borderColor(onGlassMuted)
+                            .rounded(lg)
+                            .label(@t("capture.pickWindow"))
+                            on Tap -> dispatch(CapPickWindow(win.id, win.x, win.y, win.w, win.h))
+                    }
+                    .direction(row)
+                    .height(win.h)
+                }
+                .key(win.id)
+                .overlay()
+            }
+            .overlay()
+        } else {
+            Stack { }
+        }
+        CapturePanel { }
+    }
+    .overlay(modal)
+    on Tap -> dispatch(CapNoop)
+    on Dismiss -> dispatch(CapCancel)
+    on DragStart -> dispatch(CapDragStart)
+    on DragMove -> dispatch(CapDragMove)
+    on DragEnd -> dispatch(CapDragEnd)
+}

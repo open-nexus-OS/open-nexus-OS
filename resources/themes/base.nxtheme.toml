@@ -409,6 +409,13 @@ path = "resources/icons/lucide/icons"
 # Clipboard surfaces (TASK-0067B): the search's Clipboard button + the keyboard
 # toolbar's clipboard, emoji and keyboard-return entries.
 "doc.on.clipboard" = "clipboard"
+# The screenshot UI (TASK-0068): the capture panel's modes, the photo/film switch and the
+# pointer toggle.
+"rectangle.dashed" = "square-dashed"
+"display" = "monitor"
+"camera" = "camera"
+"video" = "video"
+"cursorarrow" = "mouse-pointer-2"
 "face.smiling" = "smile"
 "app.window" = "app-window"
 # Status panels + topbar (design_handoff_panels). The Control Center, WiFi,

@@ -30,6 +30,7 @@ pub mod payload_vmo;
 pub mod policy;
 pub mod policyd;
 pub mod routing;
+pub mod screencapd;
 pub mod sessiond;
 pub mod settingsd;
 pub mod soc;

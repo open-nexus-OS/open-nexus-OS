@@ -34,7 +34,7 @@ impl DisplayServerRuntime {
                 self.wheel_route_count
             ));
         }
-        let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+        let (hit, hit_n) = self.windows.hit_order(self.capture.frozen());
         for i in 0..hit_n {
             let wid = hit[i];
             // The shell's bar, panels and modal take the wheel above any window (`shell_band`).

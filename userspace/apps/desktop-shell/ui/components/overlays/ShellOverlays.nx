@@ -12,6 +12,9 @@
 //                            instead of pretending (4 s, left edge).
 //   SearchOverlay (modal)  — the top-bar magnifier's search: field, Apps /
 //                            Files / Clipboard, results (TASK-0067B).
+//   CaptureOverlay (modal) — the screenshot UI over the frozen frame (Print,
+//                            TASK-0068), and its toast: the saved file's name,
+//                            or the honest "could not save".
 //
 // Each layer is emitted by exactly one store field (`powerPrompt`, `toast`)
 // and leaves only through the kit's dispatched events — the runtime never
@@ -35,6 +38,30 @@ Component ShellOverlays {
             SearchOverlay { }
         } else {
             Stack { }
+        }
+        if $state.capOpen {
+            CaptureOverlay { }
+        } else {
+            Stack { }
+        }
+        if $state.toast == "capture" && $state.capToast == "saved" {
+            WinToast {
+                id: "capture",
+                icon: "camera",
+                title: @t("capture.savedTitle"),
+                subtitle: $state.capSaved,
+            }
+        } else {
+            if $state.toast == "capture" && $state.capToast == "failed" {
+                WinToast {
+                    id: "capture",
+                    icon: "camera",
+                    title: @t("capture.failedTitle"),
+                    subtitle: @t("capture.failedBody"),
+                }
+            } else {
+                Stack { }
+            }
         }
         if $state.toast == "power" {
             WinToast {

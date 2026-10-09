@@ -297,6 +297,20 @@ through imed (RFC-0075) and its focus-gated delivery; the state push carries fla
 the wheel delta and the chord. The retired identifiers are held out of the tree by
 `scripts/check-retired-names.sh`.
 
+## Amendment 2026-10-09 (TASK-0068, RFC-0095): the `capture` fact
+
+`VisibleState` gains one trailing byte, `capture` (`STATE_LEN` 38 → 39, append-only, `VERSION`
+stays 2): a CAPTURE KEY inputd recognized on a key press — Print (`1`, the screenshot UI),
+Shift+Print (`2`, the screen), Alt+Print (`3`, the focused window); with Ctrl or Super held
+Print is no capture key; 0 = none. HID usage `0x46` joins the keymap set; hidrawd maps evdev
+99 (`KEY_SYSRQ`) to it on the virtio lanes. Like `wm_chord` it is a one-shot fact: inputd sets
+it for exactly one immediate push (`stamp_key_facts`: a field without a new fact keeps one not
+yet delivered) and clears it on delivery; the key is NOT a keyboard dispatch, so imed and the
+focused app never see it. windowd carries both one-shot facts across staged samples (a newer
+sample without one — a pointer move in the same frame — no longer erases it), applies `capture`
+before its no-change short-circuit and hands it to the DESKTOP surface as
+`OP_SURFACE_CAPTURE_KEY` (retained until the channel takes it). No line is written per key.
+
 ## Alternatives considered
 
 - Build live-input behavior directly inside `windowd` (rejected: authority blur and maintenance drift).

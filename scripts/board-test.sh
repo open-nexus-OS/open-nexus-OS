@@ -136,7 +136,7 @@ ladder_visible=(
 acks_headless=()
 # TASK-0074: every visual task ships an operator rung — the shell's first modal (power button
 # → alert → ESC/Cancel → Confirm → system toast) is `modal`.
-acks_visible=("desktop" "typed" "pointer" "modal" "tile" "clipboard")
+acks_visible=("desktop" "typed" "pointer" "modal" "tile" "clipboard" "screenshot")
 
 case "$PROFILE" in
   board-headless) ladder=("${ladder_headless[@]}"); acks=("${acks_headless[@]}") ;;

@@ -40,7 +40,7 @@ macro_rules! nxfs_trace {
 pub(crate) use nxfs_trace;
 
 pub use format::{Uuid, LOGICAL_BLOCK_SIZE, MAX_DEPTH, MAX_NAME_LEN, NXFS_VERSION};
-pub use fs::{MkfsOptions, Nxfs};
+pub use fs::{MkfsOptions, Nxfs, MAX_FILE_BYTES};
 pub use fsck::{fsck, FsckOutcome, FsckReport};
 pub use nexus_vfs_types::{DirEntry, FileKind, ReadDirPage, VfsError};
 

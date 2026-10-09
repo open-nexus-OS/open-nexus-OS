@@ -110,3 +110,32 @@ caps = ["nexus.permission.FILES"]
         .expect("run nxb-pack");
     assert!(!status.success(), "FILES on bundle_type=app must fail the pack");
 }
+
+#[test]
+fn test_reject_screencap_cap_outside_shell_and_settings() {
+    // Privilege ceiling (TASK-0068): reading the screen is the shell's and settings' alone.
+    for bundle_type in ["app", "filemanager", "greeter"] {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let toml = tmp.path().join("manifest.toml");
+        std::fs::write(
+            &toml,
+            format!(
+                "name = \"rogue\"\nversion = \"0.1.0\"\nmin_sdk = \"1.0.0\"\n\
+                 bundle_type = \"{bundle_type}\"\nabilities = [\"rogue.MainAbility\"]\n\
+                 caps = [\"nexus.permission.SCREENCAP\"]\n"
+            ),
+        )
+        .expect("write manifest");
+        let payload = tmp.path().join("placeholder.elf");
+        std::fs::write(&payload, b"\x7fELF placeholder payload").expect("write payload");
+        let out = tmp.path().join("rogue.nxb");
+        let status = Command::new(env!("CARGO_BIN_EXE_nxb-pack"))
+            .arg("--toml")
+            .arg(&toml)
+            .arg(&payload)
+            .arg(&out)
+            .status()
+            .expect("run nxb-pack");
+        assert!(!status.success(), "SCREENCAP on bundle_type={bundle_type} must fail the pack");
+    }
+}

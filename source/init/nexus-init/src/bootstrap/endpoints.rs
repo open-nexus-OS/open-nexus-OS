@@ -155,11 +155,28 @@ pub(crate) struct Endpoints {
     /// ingressd server response endpoint (nominal: the gateway replies via
     /// CAP_MOVE; kept so the pair shape matches every other declared server).
     pub ingress_rsp: Option<u32>,
-    /// clipboardd server request endpoint (TASK-0067): pre-minted so windowd's focus leg,
-    /// execd's `svc.clipboard` grants and the harness clone the pair clipboardd serves.
-    pub clip_req: Option<u32>,
-    /// clipboardd server response endpoint (nominal: replies ride the CAP_MOVE cap).
-    pub clip_rsp: Option<u32>,
+    /// The app-plane facades' server pairs (clipboardd, screencapd).
+    pub facades: FacadePairs,
+}
+
+/// The app-plane facades' pre-minted server pairs (request, response): every leg granted
+/// before the facade runs — windowd's, execd's `svc.*` grants, the harness's — clones the pair
+/// the facade serves. `None` when the image does not carry the facade. Replies ride the
+/// callers' CAP_MOVE caps; the response endpoint is nominal.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct FacadePairs {
+    /// The clipboard authority (TASK-0067).
+    pub clipboardd: Option<(u32, u32)>,
+    /// The screen-capture facade (TASK-0068).
+    pub screencapd: Option<(u32, u32)>,
+}
+
+/// Pre-mints every facade's pair (one body per facade would grow the orchestrator).
+pub(crate) fn mint_facade_pairs(
+    ctrl_channels: &[crate::bootstrap::CtrlChannel],
+) -> crate::os_payload::Result<FacadePairs> {
+    let pair = |name| mint_server_pair(ctrl_channels, name).map(|(req, rsp)| req.zip(rsp));
+    Ok(FacadePairs { clipboardd: pair("clipboardd")?, screencapd: pair("screencapd")? })
 }
 
 impl Endpoints {
@@ -215,8 +232,9 @@ impl Endpoints {
             ServiceId::Pinched => self.pinch_req.zip(self.pinch_rsp),
             // Inbound gateway (RFC-0092): pre-minted for the selftest route.
             ServiceId::Ingressd => self.ingress_req.zip(self.ingress_rsp),
-            // Clipboard authority (TASK-0067): windowd, execd and the harness hold legs.
-            ServiceId::Clipboardd => self.clip_req.zip(self.clip_rsp),
+            // The app-plane facades: windowd, execd and the harness hold legs.
+            ServiceId::Clipboardd => self.facades.clipboardd,
+            ServiceId::Screencapd => self.facades.screencapd,
             _ => None,
         }
     }
@@ -248,6 +266,9 @@ impl Endpoints {
         match (from, to) {
             (_, ServiceId::ImedOsk) => Some(self.imed_osk),
             (_, ServiceId::Inputd) => Some(self.input_req),
+            // windowd's own server is priority-wired (never in `server_pair`); a declared client
+            // leg — screencapd's capture verb (TASK-0068) — sends on its request endpoint.
+            (_, ServiceId::Windowd) => Some(self.window_req),
             _ => self.server_pair(to).map(|(req, _)| req),
         }
     }

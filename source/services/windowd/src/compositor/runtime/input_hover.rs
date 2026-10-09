@@ -12,6 +12,45 @@
 
 use super::*;
 
+/// The surface that took the primary press (RFC-0095, the drag gesture): while the button is
+/// held it receives `INPUT_KIND_DRAG` instead of hover moves, and `INPUT_KIND_RELEASE` at the end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PressTarget {
+    Desktop,
+    App(usize),
+}
+
+/// A held press: its surface, and the newest drag position that surface's full queue refused —
+/// sent again on the next loop pass, so the last position always arrives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PressRoute {
+    target: PressTarget,
+    owed: Option<(i32, i32)>,
+}
+
+impl PressRoute {
+    pub(crate) const fn desktop() -> Self {
+        Self { target: PressTarget::Desktop, owed: None }
+    }
+
+    pub(crate) const fn app(idx: usize) -> Self {
+        Self { target: PressTarget::App(idx), owed: None }
+    }
+}
+
+static DESKTOP_TAP_SAID: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+static SURFACE_TAP_SAID: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Whether this is the first routed tap (to the desktop, or to an app window) of the boot. The
+/// "input routed" line is said once: a line per tap would log keystroke timing — the on-screen
+/// keyboard is an app window (privacy rule).
+pub(super) fn first_tap_routed(desktop: bool) -> bool {
+    let said = if desktop { &DESKTOP_TAP_SAID } else { &SURFACE_TAP_SAID };
+    !said.swap(true, core::sync::atomic::Ordering::Relaxed)
+}
+
 impl DisplayServerRuntime {
     /// Whether the pointer at `(x, y)` belongs to the SHELL above every app window
     /// (`crate::shell_band`): the top-bar strip, a panel-level glass rect of the desktop
@@ -45,6 +84,10 @@ impl DisplayServerRuntime {
     /// hover. One-time proof marker: `windowd: hover routing on`.
     pub(crate) fn forward_pointer_hover(&mut self, cursor_x: i32, cursor_y: i32) {
         use nexus_display_proto::client_surface::{INPUT_KIND_LEAVE, INPUT_KIND_MOVE};
+        // A held press drags on the surface that took it — no hover routing meanwhile.
+        if self.forward_drag(cursor_x, cursor_y) {
+            return;
+        }
         let mut route = HOVER_ROUTE_NONE;
         let mut local = (cursor_x, cursor_y);
         let mut route_idx = 0usize;
@@ -52,7 +95,7 @@ impl DisplayServerRuntime {
         if !any_drag && self.resize_drag.is_none() {
             use crate::compositor::shell_window::WindowPress;
             use crate::window_scene::WindowId;
-            let (hit, hit_n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+            let (hit, hit_n) = self.windows.hit_order(self.capture.frozen());
             for i in 0..hit_n {
                 let wid = hit[i];
                 // Shell chrome contract (mirrors the press loop): the top-bar
@@ -143,6 +186,62 @@ impl DisplayServerRuntime {
         self.hover_route = route;
         self.hover_app_idx = route_idx;
         self.hover_last = local;
+    }
+
+    /// The pointer in `target`'s surface coordinates (an app window's body starts below its
+    /// resolved chrome height).
+    fn press_local(&self, target: PressTarget, x: i32, y: i32) -> (i32, i32) {
+        match target {
+            PressTarget::Desktop => (x, y),
+            PressTarget::App(idx) => {
+                let frame = self.apps[idx].win.frame();
+                (x - frame.x, y - frame.y - self.apps[idx].win.title_h as i32)
+            }
+        }
+    }
+
+    /// One frame of `kind` to the press's surface; `false` when it did not go out.
+    fn send_press_kind(&mut self, target: PressTarget, kind: u8, x: i32, y: i32) -> bool {
+        let (lx, ly) = self.press_local(target, x, y);
+        match target {
+            PressTarget::Desktop => self.send_desktop_input_kind(kind, lx, ly),
+            PressTarget::App(idx) => self.send_app_input_kind(idx, kind, lx, ly),
+        }
+    }
+
+    /// While the primary button holds a press, the pointer is a DRAG to the surface that took
+    /// it — wherever the pointer is. Every applied sample goes out (one per loop pass, already
+    /// frame-aligned); the surface computes only the newest it holds. A sample its full queue
+    /// refused is owed (`flush_drag`). `true` when it was one.
+    fn forward_drag(&mut self, x: i32, y: i32) -> bool {
+        use nexus_display_proto::client_surface::INPUT_KIND_DRAG;
+        let Some(mut press) = self.press_route.filter(|_| self.state.launcher_click_visible) else {
+            return false;
+        };
+        let sent = self.send_press_kind(press.target, INPUT_KIND_DRAG, x, y);
+        press.owed = (!sent).then_some((x, y));
+        self.press_route = Some(press);
+        true
+    }
+
+    /// The loop pass's retry of a drag position a full queue refused — reactive: the next pass
+    /// comes with the surface's next present (or any other event), never on a clock.
+    pub(crate) fn flush_drag(&mut self) {
+        use nexus_display_proto::client_surface::INPUT_KIND_DRAG;
+        let Some(press) = self.press_route else { return };
+        let Some((x, y)) = press.owed else { return };
+        if self.send_press_kind(press.target, INPUT_KIND_DRAG, x, y) {
+            self.press_route = Some(PressRoute { owed: None, ..press });
+        }
+    }
+
+    /// The primary button went up: the surface that took the press hears the RELEASE at the
+    /// release point (it supersedes an owed drag position; parked on like a tap).
+    pub(crate) fn release_press_route(&mut self, x: i32, y: i32) {
+        use nexus_display_proto::client_surface::INPUT_KIND_RELEASE;
+        if let Some(press) = self.press_route.take() {
+            self.send_press_kind(press.target, INPUT_KIND_RELEASE, x, y);
+        }
     }
 
     /// The slots' facts the modal gate decides on (TASK-0074 D4): owner, modal flag, live

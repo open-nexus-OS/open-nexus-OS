@@ -1,6 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
+// The SYSTEM store: the energy profile and standby inhibit of the Battery
+// panel, the shutdown alert, the system toast — and the screenshot tool's
+// state (TASK-0068, `capture.store.nx`), which answers with that toast: a
+// reducer writes one store, so what shares the toast shares the store.
+//
 // Energy profile + standby inhibit for the Battery panel.
 //
 // DEMO STATE — no power service exists. The charge percentage and the power
@@ -17,11 +22,56 @@
 // kit's store contract (`AlertConfirm/AlertCancel/ToastDismiss/WinNoop`) is
 // declared here because this store owns the two fields they write.
 
-Store PowerStore {
+Store SystemStore {
     powerProfile: Str = "balanced",
     noStandby: Bool = false,
     powerPrompt: Bool = false,
+    // The system toast's id: "" · "power" · "capture".
     toast: Str = "",
+    // The overlay is up (the screen is frozen behind it).
+    capOpen: Bool = false,
+    // "area" · "screen" · "window".
+    capMode: Str = "area",
+    // Draw the pointer into the image.
+    capPointer: Bool = false,
+    // The frozen frame (display pixels) and the windows on it, back to front.
+    capW: Int = 0,
+    capH: Int = 0,
+    capWindows: List<CaptureWindow> = [],
+    // The picked window (0 = none; the front-most is picked when the overlay opens).
+    capPick: Int = 0,
+    // The selection (area mode).
+    capSelX: Int = 0,
+    capSelY: Int = 0,
+    capSelW: Int = 0,
+    capSelH: Int = 0,
+    // The picked window's on-screen rectangle (window mode).
+    capWinX: Int = 0,
+    capWinY: Int = 0,
+    capWinW: Int = 0,
+    capWinH: Int = 0,
+    // What the overlay leaves clear of the scrim: the selection, the picked window, or the
+    // whole screen — kept in step by every arm that moves one of them.
+    capHoleX: Int = 0,
+    capHoleY: Int = 0,
+    capHoleW: Int = 0,
+    capHoleH: Int = 0,
+    // The drag in flight: "" · "draw" (from the anchor) · "move".
+    capDrag: Str = "",
+    capAnchorX: Int = 0,
+    capAnchorY: Int = 0,
+    capOrigX: Int = 0,
+    capOrigY: Int = 0,
+    // What the system toast says when it is the capture's (`toast == "capture"`): "saved"
+    // (with the file name) · "failed".
+    capToast: Str = "",
+    capSaved: Str = "",
+    // The shutter's arguments, worked out by the reducer (an effect plan is one call).
+    capShootKind: Str = "area",
+    capShootX: Int = 0,
+    capShootY: Int = 0,
+    capShootW: Int = 0,
+    capShootH: Int = 0,
 }
 
 Event PowerEvent {

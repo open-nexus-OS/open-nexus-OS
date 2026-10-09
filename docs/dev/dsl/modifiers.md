@@ -52,8 +52,8 @@ Rules:
 
 | Modifier | Args | Meaning |
 |---|---|---|
-| `.width(v)` / `.height(v)` | length token \| `full` \| `Int` px | fixed or full-bleed |
-| `.minWidth(v)` / `.maxWidth(v)` / `.minHeight(v)` / `.maxHeight(v)` | length token \| `Int` px | constraints |
+| `.width(v)` / `.height(v)` | length token \| `full` \| `Int` px \| `Int` expression | fixed or full-bleed; an expression (`.width($state.selW)`, RFC-0095) is a LAYOUT dependency — the node re-lays out when it changes; a negative value clamps to 0. A stretched cross axis (the default `align`) overrides any width or height on that axis: size on the container's MAIN axis, or `.align(start)` the parent |
+| `.minWidth(v)` / `.maxWidth(v)` / `.minHeight(v)` / `.maxHeight(v)` | length token \| `Int` px \| `Int` expression | constraints |
 | `.grow(n)` / `.shrink(n)` | `Int` weight | flex participation; on a GRID cell (a `List` item of a `.columns(n)` grid), `.grow(1)` makes the cell fill its track instead of hugging its content (TASK-0067B — cards) |
 | `.basis(n)` | `Int` px | flex BASE SIZE on the parent's main axis, replacing the child's measured content size in the parent's distribution |
 | `.aspect(w, h)` | `Int, Int` | aspect ratio |

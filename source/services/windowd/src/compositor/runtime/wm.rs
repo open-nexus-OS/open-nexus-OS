@@ -168,7 +168,7 @@ impl DisplayServerRuntime {
     /// other window's hover clears. Changes re-render that window's surface.
     pub(super) fn update_title_hovers(&mut self, cx: i32, cy: i32) {
         use crate::compositor::shell_window::TitleButton;
-        let (hit, n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+        let (hit, n) = self.windows.hit_order(self.capture.frozen());
         // The desktop base has no window chrome — only app windows own hovers,
         // and only the TOPMOST one under the cursor may show one.
         let owner = hit[..n]
@@ -390,7 +390,7 @@ impl DisplayServerRuntime {
         let shape = if let Some((_, edge, _, _)) = self.resize_drag {
             cursor::CursorShape::for_edge(edge)
         } else {
-            let (hit, n) = self.windows.hit_order(USE_DESKTOP_SHELL);
+            let (hit, n) = self.windows.hit_order(self.capture.frozen());
             let mut shape = cursor::CursorShape::Default;
             let mut over_window = false;
             for &wid in &hit[..n] {
