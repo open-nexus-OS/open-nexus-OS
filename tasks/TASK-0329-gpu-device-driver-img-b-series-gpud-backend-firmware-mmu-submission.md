@@ -34,6 +34,34 @@ per-class floor (RFC-0106 Phase 2): `soc.glue.<class>` replaces the one `soc.glu
 blkd may bring up only storage nodes, gpud only display and GPU nodes, xhcid only USB nodes
 (`test_reject_*` per class in socd's verdict).
 
+Input from the planning of the layers above this driver (2026-10-10, the operator): an explicit
+graphics/compute API (command buffers, pipeline objects, explicit sync) and an array/ML framework
+(lazy graphs over memory the CPU and the GPU share) will sit on this driver. Neither is built here,
+and both are libraries above G2/G3 — but the driver's base structure must not make them expensive
+later. The P0 rewrite and the RFC-0101 seed take these as requirements:
+
+1. **One context per client with its own GPU address space** — isolation by the GPU MMU, never by
+   parsing command streams (RFC-0033 keeps validation out of the kernel). Today gpud runs one
+   context and only windowd has a route.
+2. **Queue kinds in the submit contract from the start** — render, compute, transfer; compute is
+   declared (and refused by name) before G1 executes it.
+3. **One sync primitive: the kernel's timeline fence** (RFC-0033 Phase 2) — the GPU's completion
+   signals it, CPU code signals and waits on it, it travels as a capability; no second fence kind.
+4. **Buffers are VMOs bound with `vm_bind`, each with a declared cache mode** — CPU-cached with
+   Zicbom maintenance at sync points, uncached, or GPU-private (the K1's DMA masters are not
+   cache-coherent, measured); ownership moves at fences (the `DmaBuffer` pattern, TASK-0284/0284B);
+   scatter-gather through `vmo_runs`; bound GPU memory is charged to the client (M4).
+5. **Priority, preemption, a timeout and a reset per context** — long compute never stalls
+   compositing; windowd's context has the highest priority.
+6. **One kernel crossing per batch, never per dispatch** — command buffers live in the client's
+   buffers (the BKL makes every syscall expensive until S2–S4).
+7. **GPU code is client data** — the driver accepts finished binaries (offline now; a JIT later is
+   a library) and holds no built-in kernel list; capabilities (queue kinds, limits, memory types)
+   are queryable.
+
+G0 measures two more things for this: whether the GPU is cache-coherent with the CPUs, and which
+preemption and priority levels the firmware offers.
+
 ## Non-Goals
 
 The userspace driver (G2 = `TASK-0280` v2 API, G3 = 0169B/0170B/0171, G4 = 0215/0216), an on-device shader compiler, gaming-class features, any implicit sync.

@@ -498,6 +498,7 @@ above is the authority; this is a reading aid):
 | ✅ RFC-0095 | Screen capture v1 — one readback, the freeze, screencapd, the shell's tool | `docs/rfcs/RFC-0095-screen-capture-v1-readback-freeze-shell-ui.md` |
 | ✅ RFC-0096 | IPC performance contract v2 | `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md` |
 | ✅ RFC-0097 | Payload-VMO header v2 — ONE header codec, and `pkg:/` reads as a VMO pass-through | `docs/rfcs/RFC-0097-payload-vmo-header-v2-pkg-passthrough.md` |
+| ✅ RFC-0098 | Board support contract — the FDT is the one hardware truth, and the boot chain on hardware (Block 1, 2026-10-10) | `docs/rfcs/RFC-0098-board-support-contract-fdt-truth-boot-chain.md` |
 | ✅ RFC-0099 | USB host contract — `xhcid` owns the controller, a reactive event-ring driver, class services … | `docs/rfcs/RFC-0099-usb-host-contract-xhcid-reactive-event-rings.md` |
 
 The table lists every RFC whose status is `Done` or `Complete` (swept 2026-10-08 against each RFC's own status line; superseded RFCs are not listed).
