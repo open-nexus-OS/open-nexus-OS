@@ -62,6 +62,24 @@ later. The P0 rewrite and the RFC-0101 seed take these as requirements:
 G0 measures two more things for this: whether the GPU is cache-coherent with the CPUs, and which
 preemption and priority levels the firmware offers.
 
+## G0, the stock half — measured 2026-10-10 (`docs/board/measurements/2026-10-10-gpu-stock-baseline/`)
+
+- The node carries `dma-noncoherent`; core id `0x0024001D003400B6` (36.29.52.182, one core);
+  614.4 MHz; power-on 155 µs + 226 µs as the stock driver timed itself; the running register
+  values are archived as the expected values of our bring-up.
+- Two firmware candidates: the published one (open host interface, unmodified redistribution
+  allowed, no disassembly) and the stock one (another build, closed interface). **G1 starts
+  with the published firmware**; its provenance and licence go under the firmware gate.
+- The frame through the stock driver, our scene at 1920x1080: fixed cost 0.64 ms, opaque fill
+  1.8 ns a pixel (opaque overdraw free), a blended full-screen layer 1.8–2.7 ms, a texture
+  fetch about 1 ns; the glass scene 60 ms, 23 ms with one quarter-size blur. These are G1's,
+  G3's and G4's bars (the order file's layer table).
+- The open kernel driver does not list this core and the open userspace driver names it
+  unsupported; what both say about firmware format, power-up, MMU, submission and interrupts
+  is the reading list of G1's P0. The method is `.claude/skills/driver-bringup/`.
+- Still G0's, in G1's first cycle: the register window with the domain off and through
+  power-up, the MMU page size as configured, preemption between contexts under load.
+
 ## Non-Goals
 
 The userspace driver (G2 = `TASK-0280` v2 API, G3 = 0169B/0170B/0171, G4 = 0215/0216), an on-device shader compiler, gaming-class features, any implicit sync.

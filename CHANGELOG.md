@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-10 (Block 4, layer 0: the baseline for memory, GPU and SMP)
+
+- **The lanes see what the kernel prints**: the FAIL gate of the QEMU and the board lane reads
+  markers behind the kernel's logger prefix. `KSELFTEST: bkl budget FAIL` had been in every
+  board trace and judged by none; it is a tracked board red until the board has its own budget.
+- **The kernel lock's accounting is its own host-tested module** (`core/trap/lock_stats.rs`): a
+  sample counts for the window it began in (the telemetry call's own console output read as
+  the steady state's longest hold), the buckets are microseconds on every timebase, and the
+  boot-end record gains a hold histogram with the three longest holders, the IPC sends by hart
+  and the twelve largest address spaces.
+- **A present's cost by command kind** on the controller path (`gpud: dc present us (…)`, with
+  `front`: presents drawn into the scanned plane) and **why windowd sent a frame**
+  (`windowd: loop hz=… frames(…)`).
+- **Measured** (`docs/board/measurements/2026-10-10-mgs-baseline/`,
+  `…-gpu-stock-baseline/`): a present costs 150 ms on the board and is drawn in view; the same
+  scene costs 60 ms through the stock GPU driver, 23 ms with one quarter-size blur — the
+  hardware's fill rate, not a driver's; the steady state's worst lock holder is a console
+  write. `tasks/IMPLEMENTATION-ORDER.md` orders Block 4 in eight layers from these numbers,
+  the scanout contract first.
+
 ### Changed - 2026-10-10 (Block 1 closed: the first picture on the board)
 
 - **Block 1 of the hardware fast track is closed**: the desk's RISC-V board boots our chain from

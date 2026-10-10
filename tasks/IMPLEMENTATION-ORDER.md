@@ -43,7 +43,7 @@ SMP, a real browser with a real network — interleaved, because they depend on 
 | 1 | **Block 1 — First picture** (the OS boots from eMMC over the target boot chain and shows the desktop on the HDMI monitor) | **Done 2026-10-10** — B1.0–B1.7 ✅: the board boots our chain from its eMMC and shows the desktop at 1920x1080@60 (`gpud: dc scanout ok (… cea …)`) driven by USB keyboard and mouse; the gate boot ran the `board-visible` ladder 46/46 with six of seven operator rungs, the clipboard rung accepted by the operator from its 2026-10-08 confirmation (TASK-0251 Closure); `just test-all` EXIT=0; RFC-0098 Done, ADR-0067 Accepted, README "real hardware: yes". Moved: D5's EDID (P2b), the CPU layer composite and the display findings → G (TASK-0216), the GPU set + socd's per-class floor → G1, the gmac pads → N2a, the board's TRNG/RTC → N3/N4, the chat frame's layout cost → TASK-0145B. Was: "In Progress — B1.0–B1.6 ✅ (**B1.6 P3 ✅ 2026-09-29**: the board boots into a living userspace — `init: ready`, blkd on the SDHCI, the OS trace on the eMMC, the fleet `ready`). Open: **B1.7 Display** — D0 measure → M-L layout 1920x1080 (measured) → D1 mode authority + scanout buffer = gpud (QEMU) → D2 host `dc` model + EDID → D3 domain 7/`hmclk` via socd → D4 `dc` driver (P2a requested mode, P2b EDID) → D5 first picture 1920x1080@60 edid" | **next: the M/G/S measurement** (one package, then the order among M, G and S) — history: **Operator priority 2026-10-04: the picture with USB input next — Block 2 (U0–U3) before P2b EDID and step 3b**; D4 = TASK-0251 P2: step 3a ✅ 2026-10-04 on the board (an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane; open findings noted in the ledger: the settled greeter's flat band, hard-coded 1280x800 sizes, tearing, the long black before the splash — its LED part gone 2026-10-04: the ladder is a deprecated flag, the kernel's runtime at 1.7 s instead of 23.4 s) → **step 3c the controller's cursor layer — inside the USB lane, before U3 closes (operator 2026-10-05: "no parallel implementations, no dead paths; the fast path by the end of the USB lane"); proven on the board 2026-10-06 (cycles 14–20: the arrow follows at once, `windowd: hw cursor on`, no present per move)**: on the controller path the pointer is a software sprite blended in every present (`CURSOR_REPLY_SW`, every move a CPU present, `windowd: loop hz=14` on the board), while the virtio path moves a hardware overlay; measured on the stock system (`docs/board/measurements/2026-10-05-cursor-layer/`: RDMA channel 2 → composer layer 6, 64×64 ARGB8888, blend mode 5, a move = the layer's rectangle) → gpud's `dc` arms the overlay, replies `CURSOR_REPLY_HW`, `move_cursor` writes the rectangle + latch, and the controller path's software cursor is deleted with a gate → step 3b the CPU layer composite at the GL path's semantics, **with the 1280x800-era size sweep (TASK-0251 finding 2) — app-host's frame arena generation outgrown at 1080p while typing (`SELFTEST: frame arena spill FAIL`, tolerated on the board since 2026-10-06 in `config/fail-marker-allow-board.txt` ONLY until this step lands; the entry leaves with it)** → P2b EDID over DDC — step 2 ✅ 2026-10-04 on the board, first cycle (windowd's desktop through the controller: one request loop over the virtio GPU and the controller, one CPU executor, the splash held until the reveal; `[PASS] board-visible` 24 rungs + `board-visual: desktop`; `docs/board/measurements/2026-10-04-desktop-path/`) — step 1 first light ✅ 2026-10-03 on the board (gpud's splash on the monitor, `docs/board/measurements/2026-10-03-first-light/`) — D3 ✅ 2026-09-30 on the board (`[PASS] board-headless` with the display rung, H1–H4 decided in one cycle; power domain 7 from the stock tree: control `0x3f4` mode/request, status `0x0f0` bit 15; `hmclk` at 491.52 MHz from `assigned-clock-rates`; the display node trimmed to `hmclk` + `hdmi_reset`; `docs/board/measurements/2026-09-30-power-domains/`), D1 ✅ + D2 ✅ 2026-09-30 (gpud is the mode authority and owns the framebuffer, syscall 50 deleted; `nexus_gfx::backend::dc` EDID + register model with goldens), M-L ✅ 2026-09-30 (`nexus_display_proto::layout`: one home for the 1920x1080 resource layout, the `visible-fhd` lane green), D0 ✅ 2026-09-29 (`docs/board/measurements/2026-09-29-display-regs/`: `hmclk` alone, direct MMIO first-light sequence, bus address from the kernel (bank 0 identical on the controller's bus — corrected 2026-10-03), non-coherent; the encoder's power-down diff via HDMI unplug still open) |
 | 2 | **Block 2 — USB input** (keyboard + mouse over USB; proven in QEMU first) | **Done 2026-10-06** (U3 ✅: the desk's keyboard and mouse drive the desktop over USB, `[PASS] board-visible`; the pointer on the controller's layer; 20 board cycles) — **U0 ✅ 2026-10-04**: measured on the stock system (`docs/board/measurements/2026-10-04-usb-topology/`, `…-usb-boot-protocol/`: xHCI 1.10, 64-byte contexts, the USB-A ports behind an on-board high-speed hub with GPIO power, both HID devices full speed → TT; the mouse sends 4-byte boot reports at ~1000/s, STALLs SET_IDLE, and its first frame after the switch is still report-format), RFC-0099 seeded (xhcid the one owner, a reactive event-ring driver, class services as clients; ADR-0039 amended), 0328 at end state, 0253B seeded, the HID boot parsers fixed to the measured reports (the old one refused every report of the desk's mouse) — **U1 ✅ 2026-10-05**: `nexus-usb` + `xhcid` (pure event-driven core + behavioural model, 14 of 16 mutants killed, two real bugs found) + the `usb` lane in `test-all` (QEMU's xHCI, a hub, a boot keyboard and mouse enumerated by the interrupt alone; every other lane `usb plane none`) — **U2 ✅ 2026-10-05**: xhcid serves the HID boot class (policyd `usb.hid`, owed attaches/detaches, fire-and-forget reports), hidrawd is one loop over its sources (virtio-input, USB HID) on one waitset, no timer; the `usb-visible` lane drives the desktop over USB alone (`SELFTEST: ui v2 input ok`) → U3 board | **now (operator priority 2026-10-04)**: U3 next (the board: socd glue, hub power, TT) |
 | 3 | **Block 3 — Sub-80 remainder** (`0074 → 0066 → 0067 → 0067B → 0068`) | ledgers are end-state | **✅ 2026-10-09 — 0074 ✅ 2026-10-06** (ADR-0068, live modal on `usb-visible`, `board-visual: modal`), **0066 ✅ 2026-10-07** (ADR-0069: the desktop default tiling — zones in windowd, chords via inputd, the window menu + drag preview in the kit/shell; `wm-tile` on `usb-visible`, `board-visual: tile` over two board cycles; drag feel → GPU lane); **0067 + 0067B ✅ 2026-10-08** (RFC-0094 Done, ADR-0070: clipboardd + the shell search + the keyboard's clipboard; board cycle 1 → keyboard text editing with copy/cut/paste, the runtime's list-operation dependencies, autofocus holding focus; board cycle 2 confirmed `board-visual: clipboard`; DnD moved to TASK-0086); **0068 ✅ 2026-10-09** (RFC-0095 Done, ADR-0071: gpud's one readback, windowd's freeze, screencapd → PNG, the shell's screenshot tool + the DSL drag gesture; Print → drag → shutter on `usb-visible`, `board-visual: screenshot`); next: the M/G/S measurement |
-| 4 | **Target pictures M/G/S/N/W** (memory, GPU, SMP, network, web) | 24 packages, interleaved | after Block 3 — **the order among M, G and S is decided after Block 3 from measurements** (operator 2026-10-06: S recut to the end state — n harts from the FDT, no distributed kernel; not to grow beyond kernel + placement + the distribution seam) |
+| 4 | **Target pictures M/G/S/N/W** (memory, GPU, SMP, network, web) | 24 packages, interleaved | **layer 0 measured 2026-10-10** (`docs/board/measurements/2026-10-10-mgs-baseline/`, `…-gpu-stock-baseline/`); next: layer 1, the scanout contract — the order among M, G and S is the section "Block 4 in layers" (operator 2026-10-06: S recut to the end state — n harts from the FDT, no distributed kernel; not to grow beyond kernel + placement + the distribution seam) |
 
 Process per task (since 2026-09-15): review the idea against the code AND its philosophy docs
 → measure before deciding → rewrite the ledger to the end state → build → prove green (`just
@@ -176,7 +176,8 @@ Stale items fixed at P0: 0074 D1 "IR v1.3" → the current IR version; 0067 D6 /
 ids → the next free ids (xhcid took one); 0068's readback primitive is built by 0068 P1. After
 the block's gate — not before — one measurement package (memory: RSS/commit per service, VMO
 arena headroom at 1080p; GPU: CPU present vs GL on QEMU; SMP: R9 on the board, `-smp 8` ×10)
-decides the order of M, G and S.
+decides the order of M, G and S. **Measured 2026-10-10** — the order is the section "Block 4 in
+layers" below.
 
 ---
 
@@ -212,7 +213,8 @@ bundle (no on-device compiler in this track). windowd and app-host never see the
 survives only for headless/QEMU proofs. Gaming is out of scope.
 
 **S — Real SMP (n harts from the FDT, work genuinely spread; recut 2026-10-06 to the end
-state — RFC-0102 lock decomposition, RFC-0107 `CpuSet` ABI, ADR-0072 cluster-aware spreading,
+state — RFC-0102 lock decomposition, the `CpuSet` ABI's RFC (the next free number when it is written —
+RFC-0107 is the boot trace), ADR-0072 cluster-aware spreading,
 ADR-0073 split order, ADR-0074 compute-distribution seam).** Not `MAX_CPUS` 4 → 8: the hart
 count comes from the FDT at boot and every per-hart structure (secondary stacks, IRQ stash, PLIC
 contexts, deadline shadow, console lines, counters, TLB mailboxes, run queues, `current`) is
@@ -277,9 +279,9 @@ deleted from the plan — no dual structure.
 | G | ↻ 0280 | DriverKit v1 core contracts (queues, fences, buffers) | **G2** explicit VM/BO/sync API: driver-kit contracts + `GfxBackend` v2 (`create_bo / vm_bind / submit(fences)`), cpu_mock implements v2 |
 | G | ↻ 0169B, ↻ 0170B, ↻ 0171 | nexus-gfx resource/fence core; windowd handoff + pass planning; wgpu host parity | **G3** the nexus-gfx GPU driver: resources/fences over the real backend, command encoder, offline shader pipeline; the host parity backend is the host-first proof of the same `CommandBuffer` |
 | G | ↻ 0215, ↻ 0216 | compositor v2.2 planes / async present / color (host, OS) | **G4** the whole desktop on the GPU: plane planner, async present, cursor plane, color; CPU compositing deleted on the board; display chain unpinned |
-| S | ⬜ 0330 (+ ⬜ at P0 0330B / 0330C) | — (0012, 0012B, 0042, 0247, 0277, 0283, 0288 ✅) | **S0** measure (per-hart static inventory, `-smp 8` ×10 boots vs the HSM retry bug, R9 BKL histogram + IPC rate per hart on the board, the `cpu-map`) · **S1** n harts from the FDT (boot slab, `CpuSet` 64-bit ABI = RFC-0107, `MAX_CPUS` deleted) + cluster topology exported + per-hart PLIC/IRQ affinity (0330) · **S3** IPC router + waitsets off the BKL (0330B) · **S4** address spaces off the BKL + per-ASID shootdown (0330C) |
+| S | ⬜ 0330 (+ ⬜ at P0 0330B / 0330C) | — (0012, 0012B, 0042, 0247, 0277, 0283, 0288 ✅) | **S0** measure (per-hart static inventory, `-smp 8` ×10 boots vs the HSM retry bug, R9 BKL histogram + IPC rate per hart on the board, the `cpu-map`) · **S1** n harts from the FDT (boot slab, `CpuSet` 64-bit ABI = its own RFC, next free number, `MAX_CPUS` deleted) + cluster topology exported + per-hart PLIC/IRQ affinity (0330) · **S3** IPC router + waitsets off the BKL (0330B) · **S4** address spaces off the BKL + per-ASID shootdown (0330C) · **S6** the compute-distribution seam: ADR-0074 (jobs travel, capabilities never; one kernel per machine; brokers compose), pinched `Backend::Remote` declared and refused by name, the job's determinism contract host-tested — no network code (S6 is this ledger's package, as TASK-0330 lists it; 0042B owns S5) |
 | S | ↻ 0306 Phase 3 | BKL hold reduction (Phases 1–2 delivered) | **S2** scheduler off the BKL: per-hart runqueue locks + lock-free wake/IPI |
-| S | ⬜ at P0 0042B | (0042 ✅ affinity/QoS ABI) | **S5** timers/fences last + placement v2 (spread by load, cluster-aware, hard pins only), workpool/pinched workers from the topology (none on the soft-RT hart) · **S6** the compute-distribution seam: ADR-0074 (jobs travel, capabilities never; one kernel per machine; brokers compose), pinched `Backend::Remote` declared and refused by name, the job's determinism contract host-tested — no network code |
+| S | ⬜ at P0 0042B | (0042 ✅ affinity/QoS ABI) | **S5** timers/fences last + placement v2 (spread by load, cluster-aware, hard pins only), workpool/pinched workers from the topology (none on the soft-RT hart) |
 | N | ↻ 0248 (+ ⬜ at P0 0248B), ↻ 0249 | virtio-net host core / virtionetd OS | **N1** SDIO function + FullMAC WiFi driver core + firmware contract (0248), `wifid` + netstackd on the real NIC (0249); **N2a** Ethernet MAC + PHY (0248B; input from Block 1, 2026-10-10: the gmac pad groups through socd — gmac1's are not in the tree yet, TASK-0245B closure) |
 | N | ↻ 0138, ↻ 0139 | offline netcfgd / sim-dhcp / dnsd; Settings page | **N2b** `netcfgd` real DHCP + DNS in netstackd (0138); network Settings page + `nx net` (0139, lands with W3) |
 | N | ↻ 0193, ↻ 0194 | devnet TLS / fetchd | **N3** TLS on device + `getrandom` over rngd + ingress TLS slot; input from Block 1 (2026-10-10, the TASK-0327B closure): the SoC's TRNG as rngd's board source — until it lands the board has no entropy (`init: rng plane none`), so keystored holds no key material there and seven `SELFTEST:` FAIL markers are tolerated in `config/fail-marker-allow-board.txt`; security-relevant, may be pulled ahead of N |
@@ -295,8 +297,55 @@ RFC-0104 web engine component protocol · RFC-0105 network onboarding · RFC-010
 ADR-0067 one block owner, FDT-selected backend. ADR-0068/0069/0070 went to modal semantics,
 window tiling and the clipboard authority (Block 3, 2026-10-06/07); the remaining seeds —
 compressor before swap, offline compositor shaders, TLS choice, FullMAC WiFi, cluster-aware
-spreading, BKL split order — take the next free number when they are written. (RFC-0094 is the
+spreading, BKL split order, the compute-distribution seam — take the next free number when they
+are written (the numbers named next to them above are placeholders). (RFC-0094 is the
 clipboard contract, 2026-10-07; RFC-0095 the screen-capture contract, 2026-10-08.)
+
+---
+
+## Block 4 in layers (decided 2026-10-10 from the baseline)
+
+The three pictures M, G and S are not built as lanes side by side: they are built in layers,
+each ending in a board gate, and a layer holds only packages that belong together or do not
+depend on each other. The operator's priorities set the order: (1) the compositor with blur
+and shadow runs right on the GPU; (2) the desktop is smooth — no scanout flicker, no waiting.
+N and W keep their rows of the table below.
+
+| # | Layer | Packages | Serves | Needs | Gate (short) |
+|---|---|---|---|---|---|
+| 0 | Measure, and gates that see | the M/G/S baseline, S0, G0's stock half, the stock frame time | all | — | ✅ 2026-10-10: two measurement folders with verdicts; the FAIL gate reads the kernel's lines (shown red once) |
+| 1 | The scanout contract (the display half of G4, first) | a ring of planes, the flip at the vertical blank by interrupt, the frame clock from it, damage per plane (buffer age), the pointer plane independent of presents | smooth | layer 0 | `front=0` in every `gpud: dc present us` window; flips = presents; operator: no flicker, shadows stable, the pointer whole at every border |
+| 2 | Foundation | S2a (console writes off the kernel lock, the board's own lock budget) · S1 (n harts from the FDT, IRQ affinity, the warm-reset hang) · M2 (demand paging, CoW; the layout block and the frame arena committed on touch) | G1, smooth | layer 0 | no console write among the top holders; `smp online ok harts=8`; CoW marker; `frame arena spill` off the tolerated list |
+| 3 | GPU online | G1 (the published firmware, GPU MMU, power through socd, fence) + the GPU driver RFC with the seven requirements of TASK-0329 | compositor | S1, M1 ✅ | `gpud: fw ok`, `mmu map/unmap ok`, a null job signals a fence; fixed cost of a frame below the stock 0.64 ms |
+| 4 | The kernel out of the way | S2 + S3 (scheduler, IPC router and waitsets off the lock) · M3 (shared code) | smooth | S1, M2 | the board's lock budget from layer 2 tightened; RSS drop |
+| 5 | The GPU contract | G2 (`create_bo / vm_bind / submit(fences)`) · M4 (accounting; GPU memory charged to its client) | compositor | G1, S3, M3 | a clear colour in a plane of layer 1's ring |
+| 6 | The GPU driver | G3 (encoder, offline shaders) · M5 (blur cache and atlas purgeable) | compositor | G2, M4 | a textured quad on the board; opaque fill at the stock 1.8 ns a pixel |
+| 7 | The desktop on the GPU | G4 (damage-driven compositing, cached reduced-size blur, shadows, rounded masks, controller planes for what moves; CPU compositing deleted on the board) | both | G3, M5 | our compositor's frame of the gate scene below the stock 23.3 ms; `board-visual: gpu-desktop` |
+| 8 | Closing | S4, S5 + S6, M6 + M7, G5 | — | — | as the table below |
+
+Why this order, from the numbers (`docs/board/measurements/2026-10-10-…`):
+
+- **A present is drawn in view and costs 150 ms** (median; 97 % of it the CPU's layer and blur
+  work, 0.5 % the cache clean). Taking the drawing out of view needs no GPU and no kernel
+  change, and it is the display half of G4 in its end form — so it is layer 1.
+- **This GPU does not redraw a glass desktop at 1920x1080 inside a 60 Hz frame through the
+  stock driver either** (60 ms for the straightforward scene, 23 ms with one quarter-size
+  blur; opaque fill 1.8 ns a pixel, a frame's fixed cost 0.64 ms). The compositor's end form
+  is therefore damage-driven with cached blur and controller planes — which is why the
+  scanout contract carries damage per plane from the start, and why G4's gate is our frame
+  against the stock frame of the same picture.
+- **The worst holder of the kernel lock in the steady state is a console write** (10.5 ms;
+  16–19 ms during bring-up). That is a small package ahead of the scheduler split (S2a), and
+  it gives the board its own budget.
+- **98 % of the IPC is sent from two harts, one hart is idle.** Placement has room before a
+  lock is split; the split order is written against this distribution.
+- **One contiguous block is 63 % of resident memory** (gpud's layout block, 103 MiB). M2's
+  commit-on-touch is cut for it and for app-host's frame arena.
+
+Not measured in layer 0 and owned: input to photon (layer 1's P0, with the frame clock);
+`-smp 8` (S1's gate — four harts run until then); the warm-reset hang's warm/cold series (S1,
+before it touches the secondary-hart start); the GPU's power-up sequence and its preemption
+under load (G1's first cycle).
 
 ---
 

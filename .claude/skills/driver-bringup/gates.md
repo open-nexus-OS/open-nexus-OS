@@ -20,8 +20,13 @@ sharpen or drop — never widen to make a red run green (CLAUDE.md `no-fake-gree
 | Board tree goldens | `scripts/check-board-goldens.sh` / `just board-goldens` | the compiled board tree is byte-equal to its golden; a tree change is a deliberate, reviewed diff | TASK-0245/0260 | regenerate the golden with the tree change, in the same commit |
 | Surprise / forbidden markers | `nexus-proof-manifest verify-uart --profile=<p>` (in `qemu-test.sh` and `board-test.sh`) | every line that looks like a marker is declared for the profile chain; forbidden ones are absent. Expectations only suppress surprise — the REQUIRED set lives in the harness | manifest P4; `visible` was skipped until 2026-09-30 (its profile now extends `headless` and is judged) | a marker is declared with its phase and what it proves; a profile's `extends` names the ladder it really runs |
 | Slot SSOT / platform literals / fixed windows | `scripts/check-slot-ssot.sh`, `check-no-platform-literals.sh`, `check-no-fixed-windows.sh` (in `just check`) | a driver takes slots from the topology declaration and windows from the tree — no literal address or slot in a service | TASK-0324; `hal::plic::MAX_IRQ = 95` (a QEMU literal) rejected the board's storage IRQ 101 until 2026-09-28 — the kind of literal these gates exist for | never |
+| Measurement windows, and the bar from the stock system | `gpud: dc present us (…)` (a present's cost by command kind, `front` = presents drawn into the scanned plane), `windowd: loop hz=… frames(…)`, `KINIT: bkl hold histogram … top nr=…`; the stock system's frame of the same scene from `docs/board/measurements/2026-10-10-gpu-stock-baseline/gate_scene.py` and `sweep.py` | where the time goes, and what the same hardware does under its stock driver: a frame's fixed cost (the driver's and the system's), the cost a pixel (the silicon's — equal is the pass) and the scene (the compositor's — below is the pass) | Block 4 layer 0, 2026-10-10: 150 ms a present on the CPU path against 60 ms / 23 ms for the same scene on the stock GPU stack — the sweep showed that only the fixed 0.64 ms is a driver's to win | a window becomes a gate when a package owns its number: `front=0` with the scanout contract, the frame bars with G1/G3/G4, the lock budget with S2a |
 
 ## Designing a new gate for a driver
+
+0. A timing gate is set against a measured bar, not a wish: measure the same scene on the stock
+   system first and split it into intercept (fixed cost) and slope (cost a pixel) — the first
+   is the driver's to beat, the second is the hardware's to reach.
 
 1. Name the behavior, then the marker: `<svc>: <thing> ok (<measured value>)` — the value
    in the line is what the measurement predicted (`blkd: backend ok (spacemit,k1-sdhci

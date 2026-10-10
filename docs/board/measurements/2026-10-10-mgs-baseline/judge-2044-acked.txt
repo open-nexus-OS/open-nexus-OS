@@ -1,0 +1,5 @@
+[board-test] judging uart-2044-acked.log as profile board-visible
+[board-test] known board reds tolerated (config/fail-marker-allow-board.txt): 12
+[board-test] ladder complete: 46 rungs present
+[FAIL] board-visible: operator marker missing in the capture: board-visual: clipboard
+rc=1

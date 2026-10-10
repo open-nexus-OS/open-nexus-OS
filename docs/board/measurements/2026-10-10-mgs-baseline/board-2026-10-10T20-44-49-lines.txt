@@ -1,0 +1,100 @@
+[INFO smp] KINIT: bkl wait 7405us cpu0
+[INFO smp] KINIT: bkl wait 9962us cpu1
+[INFO smp] KINIT: bkl wait 3522us cpu0
+[INFO smp] KINIT: bkl wait 42499us cpu2
+[INFO smp] KINIT: bkl wait 3607us cpu0
+[INFO smp] KINIT: bkl wait 48136us cpu3
+[INFO smp] KINIT: long ecall nr=44 16ms cpu0
+[INFO smp] KINIT: long ecall nr=44 19ms cpu2
+[INFO smp] KINIT: long ecall nr=44 19ms cpu2
+[INFO smp] KINIT: long ecall nr=44 19ms cpu2
+[INFO smp] KINIT: long ecall nr=44 18ms cpu2
+[INFO smp] KINIT: long ecall nr=44 10ms cpu2
+[INFO smp] KINIT: long ecall nr=44 11ms cpu2
+[INFO smp] KINIT: long ecall nr=16 12ms cpu0
+gpud: dc first present (exec_us=8207 clean_us=750 damage=1920x1080)
+apphost: frame arena (layouts=1 gen=2 base=106944 peak=70326 of=1048576 spill=0 free=255 carve=
+[INFO smp] KINIT: bkl bring-up burst max_wait=48136us max_hold=22ms nr=44 gt10ms=102
+[INFO smp] KINIT: sweep bring-up max=3us tasks=61 calls=1 mean=3us skipped=421361 wakes=0 wakeus=0
+[INFO smp] KINIT: wake ipi max=14us mean=3us n=3987 sent=3248 elided=792
+KSELFTEST: ipc call budget ok (rt=37us budget=64)
+[INFO mm] KSELFTEST: mm frames (banks=2 total=1043806 free=986687 reserved=256 excluded=4642 allocs=3302 frees=130 exhausted=0 pt_frames=231 vmos=53 vmo_bytes=141680640 dma_bytes=107905024 spaces=40 rss_sum=170770432 rss_max=108908544)
+[INFO mm] KINIT: mm space pid=44 sid=0xd05fd724dfcfac3 rss=108908544 dma=107843584
+[INFO mm] KINIT: mm space pid=59 sid=0xdd8c136b3d65f5dc rss=12120064 dma=0
+[INFO mm] KINIT: mm space pid=45 sid=0x600e3345cc7104bb rss=11120640 dma=0
+[INFO mm] KINIT: mm space pid=17 sid=0x46f681f38d27984e rss=10821632 dma=0
+[INFO mm] KINIT: mm space pid=29 sid=0x7b6096126000c028 rss=7368704 dma=0
+[INFO mm] KINIT: mm space pid=30 sid=0x52c6c4a34ffb3f69 rss=1519616 dma=0
+[INFO mm] KINIT: mm space pid=62 sid=0x0 rss=1519616 dma=0
+[INFO mm] KINIT: mm space pid=63 sid=0x0 rss=1519616 dma=0
+[INFO mm] KINIT: mm space pid=25 sid=0xd9f31d00b74c1b47 rss=1335296 dma=0
+[INFO mm] KINIT: mm space pid=39 sid=0xbf71cd04b2ec8134 rss=1196032 dma=0
+[INFO mm] KINIT: mm space pid=26 sid=0x43ac3b8ac5ae1d90 rss=1077248 dma=0
+[INFO mm] KINIT: mm space pid=48 sid=0xf7dec92590db2146 rss=1036288 dma=0
+[INFO ipc] KSELFTEST: ipc stats (sends=4811 heap_allocs=1545 copies=12731 copy_bytes=1236960 wake_ipis=442 handoff_miss=4556 kheap_used=1187192 calls_in_regs=1623 wake_enq_ticks=27/81077)
+[INFO smp] KINIT: bkl histogram le100us=1665820 le1ms=2467 le10ms=372 gt10ms=3
+[INFO smp] KINIT: bkl hold histogram le100us=1645880 le1ms=103 le10ms=146 gt10ms=1 top nr=16:10540us nr=44:5043us nr=58:2288us
+[INFO ipc] KINIT: ipc sends by hart [80, 1, 1969, 2761, 0, 0, 0, 0]
+[INFO smp] KINIT: sweep steady max=5us tasks=64 calls=1 mean=5us skipped=1374811 wakes=1 wakeus=2
+[INFO smp] KINIT: wake ipi max=14us mean=3us n=5682
+[INFO smp] KSELFTEST: bkl budget ok (max_wait=10615us max_hold=10ms nr=16)
+apphost: frame arena (layouts=4 gen=8 base=106944 peak=70536 of=1048576 spill=0 free=248 carve=
+apphost: frame arena (layouts=1 gen=2 base=685104 peak=219142 of=1048576 spill=0 free=1533 carv
+windowd: loop hz=12 apply=0 present=10 nack=0 fullrq=0 reply(ch=16 cap=1 shared=1) frames(content=0 blit=10 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=124565 max=287779 clean=1236 blur=7772 layer=110342 shadow=0 blit=5202 fill=0 other=0 damage_px=2008832 front=28)
+windowd: loop hz=54 apply=45 present=8 nack=0 fullrq=0 reply(ch=25 cap=1 shared=1) frames(content=18 blit=0 pointer=0 keepalive=0 shape=0)
+apphost: frame arena (layouts=4 gen=8 base=820272 peak=454647 of=1048576 spill=1 free=1547 carv
+SELFTEST: frame arena spill FAIL (a frame outgrew its generation)
+windowd: loop hz=32 apply=22 present=8 nack=0 fullrq=0 reply(ch=30 cap=1 shared=1) frames(content=5 blit=3 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=151463 max=288879 clean=1590 blur=30373 layer=116867 shadow=0 blit=2622 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=10 apply=2 present=8 nack=0 fullrq=0 reply(ch=41 cap=1 shared=1) frames(content=0 blit=8 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=168902 max=323879 clean=2176 blur=34471 layer=127025 shadow=0 blit=5217 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=152 apply=117 present=11 nack=0 fullrq=0 reply(ch=45 cap=1 shared=1) frames(content=0 blit=24 pointer=1 keepalive=1 shape=0)
+windowd: loop hz=28 apply=14 present=9 nack=0 fullrq=0 reply(ch=55 cap=1 shared=1) frames(content=9 blit=0 pointer=0 keepalive=0 shape=0)
+gpud: present us avg=138155 max=323884 n=120 win_ms=65959 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: dc present us (n=32 avg=104202 max=148427 clean=1227 blur=17454 layer=83652 shadow=0 blit=1699 fill=0 other=0 damage_px=2073600 front=32)
+apphost: frame arena (layouts=8 gen=16 base=820272 peak=454857 of=1048576 spill=1 free=1546 car
+SELFTEST: frame arena spill FAIL (a frame outgrew its generation)
+windowd: loop hz=24 apply=10 present=8 nack=0 fullrq=0 reply(ch=71 cap=1 shared=1) frames(content=6 blit=1 pointer=1 keepalive=1 shape=0)
+windowd: loop hz=8 apply=0 present=8 nack=0 fullrq=0 reply(ch=71 cap=1 shared=1) frames(content=0 blit=8 pointer=0 keepalive=0 shape=0)
+windowd: loop hz=8 apply=0 present=8 nack=0 fullrq=0 reply(ch=71 cap=1 shared=1) frames(content=0 blit=8 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=133348 max=288918 clean=3722 blur=26766 layer=99992 shadow=0 blit=2856 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=22 apply=12 present=8 nack=0 fullrq=0 reply(ch=79 cap=1 shared=1) frames(content=1 blit=7 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=171279 max=272140 clean=854 blur=33751 layer=132594 shadow=0 blit=4065 fill=0 other=0 damage_px=2073600 front=32)
+gpud: dc present us (n=32 avg=155269 max=232556 clean=1054 blur=37032 layer=113152 shadow=0 blit=4016 fill=0 other=0 damage_px=2073600 front=32)
+apphost: frame arena (layouts=12 gen=24 base=820272 peak=454857 of=1048576 spill=1 free=1547 ca
+SELFTEST: frame arena spill FAIL (a frame outgrew its generation)
+windowd: loop hz=38 apply=31 present=8 nack=0 fullrq=0 reply(ch=104 cap=1 shared=1) frames(content=0 blit=24 pointer=1 keepalive=1 shape=0)
+gpud: present us avg=150745 max=288923 n=120 win_ms=24133 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+gpud: dc present us (n=32 avg=135780 max=214892 clean=819 blur=29901 layer=101900 shadow=0 blit=3145 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=50 apply=39 present=9 nack=0 fullrq=0 reply(ch=113 cap=1 shared=1) frames(content=20 blit=3 pointer=0 keepalive=0 shape=0)
+windowd: loop hz=226 apply=107 present=13 nack=0 fullrq=0 reply(ch=113 cap=1 shared=1) frames(content=0 blit=13 pointer=0 keepalive=0 shape=0)
+apphost: frame arena (layouts=1 gen=1 base=881296 peak=223819 of=1048576 spill=0 free=1923 carv
+windowd: loop hz=273 apply=124 present=9 nack=0 fullrq=0 reply(ch=163 cap=1 shared=1) frames(content=8 blit=0 pointer=1 keepalive=1 shape=0)
+gpud: dc present us (n=32 avg=56345 max=188708 clean=928 blur=6715 layer=45101 shadow=0 blit=3586 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=29 apply=6 present=24 nack=0 fullrq=0 reply(ch=163 cap=1 shared=1) frames(content=1 blit=14 pointer=9 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=40295 max=49083 clean=791 blur=3867 layer=34878 shadow=0 blit=748 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=25 apply=0 present=25 nack=0 fullrq=0 reply(ch=163 cap=1 shared=1) frames(content=0 blit=0 pointer=25 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=39912 max=48954 clean=793 blur=3863 layer=34894 shadow=0 blit=350 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=28 apply=0 present=25 nack=0 fullrq=0 reply(ch=165 cap=1 shared=1) frames(content=1 blit=0 pointer=24 keepalive=0 shape=0)
+gpud: present us avg=102171 max=1193204 n=120 win_ms=17088 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+apphost: frame arena (layouts=4 gen=7 base=881296 peak=429373 of=1048576 spill=0 free=2231 carv
+gpud: dc present us (n=32 avg=659620 max=1193197 clean=865 blur=221134 layer=422557 shadow=0 blit=15040 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=18 apply=0 present=16 nack=0 fullrq=0 reply(ch=170 cap=1 shared=1) frames(content=0 blit=16 pointer=0 keepalive=0 shape=0)
+apphost: frame arena (layouts=16 gen=32 base=820528 peak=454857 of=1048576 spill=1 free=1543 ca
+SELFTEST: frame arena spill FAIL (a frame outgrew its generation)
+gpud: dc present us (n=32 avg=107525 max=192322 clean=813 blur=8070 layer=96313 shadow=0 blit=2317 fill=0 other=0 damage_px=2073600 front=32)
+windowd: loop hz=8 apply=0 present=8 nack=0 fullrq=0 reply(ch=184 cap=1 shared=1) frames(content=0 blit=8 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=152750 max=199524 clean=824 blur=11636 layer=137626 shadow=0 blit=2653 fill=0 other=0 damage_px=2073600 front=32)
+windowd: cursor upload failed
+windowd: cursor upload failed
+windowd: cursor upload failed
+windowd: cursor upload failed
+windowd: cursor upload failed
+gpud: dc present us (n=32 avg=1008236 max=1141400 clean=886 blur=347407 layer=636966 shadow=0 blit=22944 fill=0 other=0 damage_px=2073600 front=32)
+gpud: present us avg=466308 max=1155310 n=120 win_ms=80178 enq_us=0 drain_us=0 ent=0 entmax_us=0 irqw=0 dlx=0
+windowd: cursor upload failed
+windowd: cursor upload failed
+windowd: loop hz=107 apply=66 present=16 nack=0 fullrq=0 reply(ch=354 cap=1 shared=1) frames(content=0 blit=16 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=584963 max=1534457 clean=1143 blur=186560 layer=382832 shadow=0 blit=14405 fill=0 other=0 damage_px=2073600 front=32)
+windowd: cursor upload failed

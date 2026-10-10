@@ -28,11 +28,12 @@ SELFTEST: walltime rtc FAIL
 # traces, max_wait 22.6–25.8 ms, max_hold 22–23 ms, 91–139 waits above 10 ms) and invisible to
 # this gate until 2026-10-10 — the kernel prints the marker behind its logger prefix, the gate
 # anchored on the bare marker. The budgets (40 ms wait, 4 convoys, 10 ms hold) are calibrated
-# for the emulator, not for hardware, and the worst holder named is the telemetry call itself
-# (nr=48) — whether the hold is real or the instrument's is the first question of the lane.
-# Tracked: tasks/TASK-0330 S0 (hold histogram + worst holder per syscall on the board), then
-# S2/S3 take the scheduler and the IPC router off the lock; the board's own budget comes from
-# that measurement.
+# for the emulator, not for hardware. Measured 2026-10-10
+# (docs/board/measurements/2026-10-10-mgs-baseline/): the 22 ms were the telemetry call's own
+# console output, counted into the window it had just reset; with a sample counted for the
+# window it began in, the board prints `ok` at the edge (hold 10.5 ms against 10, a console
+# write). One boot at the edge is not a green gate — the line stays until S2's first package
+# (console writes off the lock) gives the board its own budget. Tracked: tasks/TASK-0330 S0/S2.
 KSELFTEST: bkl budget FAIL
 #
 # app-host's frame arena: the CHAT's first frame (its first QuerySpec page, 60 rows) needs

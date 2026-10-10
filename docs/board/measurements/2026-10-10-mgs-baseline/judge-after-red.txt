@@ -1,0 +1,4 @@
+[board-test] judging uart-1010.log as profile board-visible
+      1 [ERROR smp] KSELFTEST: bkl budget FAIL max_wait=25224us max_hold=22ms nr=48
+[FAIL] board-visible: FAIL markers in the trace (not allow-listed in config/fail-marker-allow.txt or config/fail-marker-allow-board.txt)
+rc=1

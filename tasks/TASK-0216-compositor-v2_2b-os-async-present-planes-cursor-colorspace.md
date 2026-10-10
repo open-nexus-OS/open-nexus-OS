@@ -101,6 +101,25 @@ Deliver:
    - `SELFTEST: comp async drop ok`
    - `SELFTEST: comp colorspace ok`
 
+## Layer 1 of Block 4 — the scanout contract (cut 2026-10-10, first package of this ledger)
+
+The display half of G4 comes first and in its end form (order file, "Block 4 in layers"): a
+ring of planes, the flip at the vertical blank by the controller's interrupt, the frame clock
+from that interrupt, damage per plane (buffer age), and the pointer plane independent of
+presents. Measured red states it turns (`docs/board/measurements/2026-10-10-mgs-baseline/`):
+
+- `front` = `n`: every present is drawn into the scanned plane — the gate is `front=0`.
+- Shadows and translucent backgrounds darken with every present (the in-place composite blends
+  over its own last result) — a frame composed off-screen starts from its base.
+- The pointer's sprite breaks apart in a strip at the right border — the layer's rectangle at
+  every border is host-tested first.
+- `windowd: cursor upload failed` (8 on the gate boot): the upload waits behind a present with
+  an unbounded receive and takes stale replies for its own.
+- 163 of 239 frames are re-blit frames of animation ticks, each a full composite.
+- Input to photon is measured in this package's P0, once a present has an identity.
+
+The CPU layer and blur code is not tuned here: G4 deletes it on the board.
+
 ## Non-Goals
 
 - Kernel changes.

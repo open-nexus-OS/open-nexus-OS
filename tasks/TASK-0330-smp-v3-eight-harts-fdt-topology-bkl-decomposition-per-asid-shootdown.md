@@ -28,7 +28,7 @@ No ledger carried the remaining SMP work: 0012/0012B/0042/0247/0277/0283/0288 ar
 
 **End state, not a bigger constant** (operator decision 2026-10-06): the hart count comes from
 the FDT at boot; every per-hart structure is allocated from a boot slab sized by it; the only
-compile-time ceiling is the CPU-set width (`CpuSet` = 64 bits, an ABI — RFC-0107 — replacing the
+compile-time ceiling is the CPU-set width (`CpuSet` = 64 bits, an ABI with its own RFC, the next free number — replacing the
 `u8` affinity mask, the real limit of 8 today); `MAX_CPUS` is deleted with a retired-name gate
 (`CPU_MASK_BITS` stays). The cluster topology (`cpu-map`: the board's 2 × 4 harts) is a kernel
 model exported to init/execd — no literal masks anywhere in userspace. S1 (this ledger): the
@@ -63,6 +63,22 @@ across machines is a userspace concern (RFC-0028: no remote execution, no capabi
 Bring-up today: `start_secondary_harts` loops `1..MAX_CPUS`; the board's harts 4–7 (the whole
 second cluster) stay in HSM STOPPED unnamed. Boot hart ≠ 0 is a silent assumption — named as a
 FAIL in S1.
+
+## S0 measured (2026-10-10, `docs/board/measurements/2026-10-10-mgs-baseline/`)
+
+- The lock accounting had two faults: tick bounds at the emulator's timebase (the board's
+  ">10 ms" bucket counted from 4.2 ms) and a window that counted the call that reset it. Fixed
+  with the instrument (`core/trap/lock_stats.rs`, host-tested); the FAIL gate of both lanes
+  now reads the kernel's lines.
+- Steady state on the board, four harts: `bkl budget ok (max_wait=10615us max_hold=10ms
+  nr=16)`; holds above 10 ms: 1; top holders are the two console writes (10.5 ms, 5.0 ms) and
+  the IPC call (2.3 ms). Bring-up: 22 ms hold, 48 ms wait, seven console writes of 10–19 ms.
+- IPC sends by hart: 80 / 1 / 1969 / 2761.
+- Consequence — **S2a, new and first in S2**: console writes leave the kernel lock, the board
+  gets its own budget (the constants are the emulator's; the tracked line in
+  `config/fail-marker-allow-board.txt` goes with it).
+- Still S0's: the warm/cold series for the start hang, before S1 touches the secondary-hart
+  start. `-smp 8` ×10 moves to S1's gate (four harts run until `MAX_CPUS` is gone).
 
 ## Non-Goals
 
