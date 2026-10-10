@@ -336,9 +336,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         && !BUDGET_EMITTED.swap(true, Ordering::AcqRel)
                     {
                         let start = WINDOW_START.load(Ordering::Acquire);
-                        let window_ms =
-                            ((riscv::register::time::read() as u64).saturating_sub(start) / 10_000)
-                                .max(1);
+                        let window_ms = ((riscv::register::time::read() as u64)
+                            .saturating_sub(start)
+                            / (super::budgets::ticks_per_us() * 1_000))
+                            .max(1);
                         if (BUDGET_TICKS as u64) <= window_ms {
                             log_info!(target: "smp", "KSELFTEST: runtime timer budget ok");
                         } else {
@@ -660,23 +661,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         // Bounded probe: syscalls holding the BKL >10ms are the source of the
         // cross-hart contention stalls (A3 diagnosis).
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-        {
-            let held = (riscv::register::time::read() as u64).saturating_sub(ecall_t0);
-            super::budgets::record_ecall_hold(held, ecall_nr as u64);
-            if held > 100_000 {
-                static LONG_ECALL_LOGGED: core::sync::atomic::AtomicUsize =
-                    core::sync::atomic::AtomicUsize::new(0);
-                if LONG_ECALL_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
-                    log_info!(
-                        target: "smp",
-                        "KINIT: long ecall nr={} {}ms cpu{}",
-                        ecall_nr,
-                        held / 10_000,
-                        crate::smp::cpu_current_id().as_index()
-                    );
-                }
-            }
-        }
+        super::budgets::record_ecall(ecall_t0, ecall_nr as u64);
 
         let current_pid = ctx.tasks.current_pid();
         uart_dbg_block!({

@@ -3189,7 +3189,9 @@ fi
 if [[ "${FAIL_MARKER_GATE:-1}" == "1" ]]; then
   allow_file="$ROOT/config/fail-marker-allow.txt"
   # `gpud: FAIL …` = scanout-policy fatals (TASK-0324 P0), never allow-listable.
-  fail_lines=$(grep -aE "^(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL" "$UART_LOG" || true)
+  # The kernel's markers arrive behind its logger prefix (`[ERROR smp] KSELFTEST: … FAIL`);
+  # the gate reads them with it (scripts/board-test.sh keeps the same expression).
+  fail_lines=$(grep -aE "^(\[[A-Z]+ [^]]*\] )?(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL" "$UART_LOG" || true)
   if [[ -n "$fail_lines" && -f "$allow_file" ]]; then
     fail_lines=$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$allow_file" | sed '/^[[:space:]]*$/d') || true)
   fi

@@ -22,6 +22,7 @@ use super::framebuffer::Framebuffer;
 use super::{emit, DcDisplay};
 use crate::backend::cpu_frame::Blur;
 use crate::backend::display::Display;
+use nexus_gfx::backend::dc::frame_stats::Stage;
 use nexus_gfx::backend::dc::regs;
 
 impl DcDisplay {
@@ -126,10 +127,13 @@ impl Display for DcDisplay {
                 }
                 continue;
             }
+            let c0 = nsec().unwrap_or(0);
             self.cpu.execute(&target, cmd, Blur::Box)?;
+            self.stats.command(Stage::of(cmd), nsec().unwrap_or(c0).saturating_sub(c0));
         }
+        self.exec_ns = nsec().unwrap_or(t0).saturating_sub(t0);
         if !self.first_reported {
-            self.first_exec_ns = nsec().unwrap_or(t0).saturating_sub(t0);
+            self.first_exec_ns = self.exec_ns;
         }
         Ok(())
     }
@@ -143,6 +147,14 @@ impl Display for DcDisplay {
             .and_then(|live| live.framebuffer.as_ref())
             .ok_or(GfxError::DeviceNotFound)?;
         fb.clean(&fb.plane(w, h), damage);
+        // The frame was drawn into the display plane: once the controller scans that plane
+        // (the splash no longer holds), the monitor saw it being drawn.
+        let front = !self.hold.holding();
+        let clean_ns = nsec().unwrap_or(t0).saturating_sub(t0);
+        let damage_px = u64::from(damage.width) * u64::from(damage.height);
+        if let Some(window) = self.stats.present(self.exec_ns, clean_ns, damage_px, front) {
+            emit(&alloc::format!("{window}"));
+        }
         if !self.first_reported {
             // The first present's cost on the board's harts, once (a stats window takes 120).
             self.first_reported = true;

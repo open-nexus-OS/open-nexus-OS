@@ -9,7 +9,8 @@
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: QEMU marker `KSELFTEST: bkl budget ok` (smp gate)
+//! TEST_COVERAGE: QEMU marker `KSELFTEST: bkl budget ok` (smp gate); the accounting itself
+//!   (window rule, units, report) on the host in `crate::lock_stats`
 //! ADR: docs/adr/0046-deterministic-parallel-compute-workpool.md
 
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -39,48 +40,45 @@ pub fn ticks_per_us() -> u64 {
     crate::hal::platform::ticks_per_us()
 }
 
-/// Per-boot maxima + a 4-bucket wait histogram (<=100µs, <=1ms, <=10ms,
-/// >10ms). Written on EVERY BKL acquire/ecall (relaxed atomics — accounting,
-/// > not synchronization); drained once by the boot-end gate marker.
-pub static BKL_WAIT_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
-pub static BKL_WAIT_BUCKETS: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
-pub static ECALL_HOLD_MAX_TICKS: AtomicU64 = AtomicU64::new(0);
-pub static ECALL_HOLD_MAX_NR: AtomicU64 = AtomicU64::new(0);
-
+/// One wait for the lock that began at `t0` (the accounting lives in `crate::lock_stats`:
+/// written on EVERY acquire and ecall with relaxed atomics, read by the boot-end gate).
 #[inline]
-pub fn record_bkl_wait(ticks: u64) {
-    BKL_WAIT_MAX_TICKS.fetch_max(ticks, Ordering::Relaxed);
-    let bucket = match ticks {
-        0..=1_000 => 0,        // <=100µs
-        1_001..=10_000 => 1,   // <=1ms
-        10_001..=100_000 => 2, // <=10ms
-        _ => 3,                // >10ms
-    };
-    BKL_WAIT_BUCKETS[bucket].fetch_add(1, Ordering::Relaxed);
+pub fn record_bkl_wait(t0: u64, ticks: u64) {
+    crate::lock_stats::record_wait(t0, ticks, ticks_per_us());
 }
 
-#[inline]
-pub fn record_ecall_hold(ticks: u64, nr: u64) {
-    let prev = ECALL_HOLD_MAX_TICKS.fetch_max(ticks, Ordering::Relaxed);
-    if ticks > prev {
-        // Benign race: a concurrent larger hold may overwrite nr — the pair
-        // is diagnostic, the gate only asserts the max value.
-        ECALL_HOLD_MAX_NR.store(nr, Ordering::Relaxed);
+/// Closes an ecall that began at `t0`: records its hold and names the first few above 10 ms.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+pub fn record_ecall(t0: u64, nr: u64) {
+    let held = (riscv::register::time::read() as u64).saturating_sub(t0);
+    crate::lock_stats::record_hold(t0, held, nr, ticks_per_us());
+    if held > crate::hal::platform::ns_to_ticks(10_000_000) {
+        static LONG_ECALL_LOGGED: AtomicUsize = AtomicUsize::new(0);
+        if LONG_ECALL_LOGGED.fetch_add(1, Ordering::Relaxed) < 8 {
+            log_info!(
+                target: "smp",
+                "KINIT: long ecall nr={} {}ms cpu{}",
+                nr,
+                held / (ticks_per_us() * 1_000),
+                crate::smp::cpu_current_id().as_index()
+            );
+        }
     }
+}
+
+/// The hold histogram and the three longest holders `(nr, µs)` of the window, longest first.
+pub fn hold_report() -> ([usize; 4], [(usize, u64); 3]) {
+    crate::lock_stats::holds(ticks_per_us())
 }
 
 /// Two-window measurement (the boot bring-up burst is DENSE by design — 24
 /// services exec in ~2s; soft-realtime matters for the state AFTER it).
 /// `reset()` is invoked by the selftest once bring-up completes; the boot-end
 /// gate then judges the steady-state window (the ladder itself is a
-/// representative load: IPC storms, exec children, compute jobs).
-pub fn reset() {
-    BKL_WAIT_MAX_TICKS.store(0, Ordering::Relaxed);
-    ECALL_HOLD_MAX_TICKS.store(0, Ordering::Relaxed);
-    ECALL_HOLD_MAX_NR.store(0, Ordering::Relaxed);
-    for b in &BKL_WAIT_BUCKETS {
-        b.store(0, Ordering::Relaxed);
-    }
+/// representative load: IPC storms, exec children, compute jobs). `now` is the
+/// tick the new window begins at.
+pub fn reset(now: u64) {
+    crate::lock_stats::reset(now);
     SWEEP_MAX_TICKS.store(0, Ordering::Relaxed);
     SWEEP_MAX_TASKS.store(0, Ordering::Relaxed);
     SWEEP_CALLS.store(0, Ordering::Relaxed);
@@ -261,15 +259,10 @@ pub fn sweep_report() -> (u64, usize, usize, u64, usize, usize, u64) {
 
 /// Gate evaluation: `(ok, max_wait_us, max_hold_ms, max_hold_nr, buckets)`.
 pub fn budget_report() -> (bool, u64, u64, u64, [usize; 4]) {
-    let wait_us = BKL_WAIT_MAX_TICKS.load(Ordering::Relaxed) / ticks_per_us();
-    let hold_ms = ECALL_HOLD_MAX_TICKS.load(Ordering::Relaxed) / (ticks_per_us() * 1_000);
-    let nr = ECALL_HOLD_MAX_NR.load(Ordering::Relaxed);
-    let buckets = [
-        BKL_WAIT_BUCKETS[0].load(Ordering::Relaxed),
-        BKL_WAIT_BUCKETS[1].load(Ordering::Relaxed),
-        BKL_WAIT_BUCKETS[2].load(Ordering::Relaxed),
-        BKL_WAIT_BUCKETS[3].load(Ordering::Relaxed),
-    ];
+    let (wait_ticks, buckets) = crate::lock_stats::waits();
+    let (hold_ticks, nr) = crate::lock_stats::longest_hold();
+    let wait_us = wait_ticks / ticks_per_us();
+    let hold_ms = hold_ticks / (ticks_per_us() * 1_000);
     let ok = wait_us <= BKL_WAIT_BUDGET_US
         && hold_ms <= ECALL_HOLD_BUDGET_MS
         && buckets[3] <= BKL_GT10MS_BUDGET;

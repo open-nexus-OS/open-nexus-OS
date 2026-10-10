@@ -51,6 +51,7 @@
 
 // RFC-0067 P5-Final G3: CPU glass blur (`backdrop`) deleted — GPU-rendered.
 mod damage;
+mod frame_causes;
 mod framebuffer_grant;
 #[cfg(nexus_env = "os")]
 mod loop_telemetry;

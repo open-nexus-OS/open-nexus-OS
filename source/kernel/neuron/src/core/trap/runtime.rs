@@ -130,7 +130,7 @@ impl KernelGuard {
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             let waited = (riscv::register::time::read() as u64).saturating_sub(t0);
-            super::budgets::record_bkl_wait(waited);
+            super::budgets::record_bkl_wait(t0, waited);
             // More than 1 ms of the platform's timebase spent spinning for the lock
             // (was the literal `10_000` ticks — 1 ms only at QEMU's 10 MHz).
             if waited > crate::hal::platform::ns_to_ticks(1_000_000) {
@@ -140,7 +140,7 @@ impl KernelGuard {
                     log_info!(
                         target: "smp",
                         "KINIT: bkl wait {}us cpu{}",
-                        waited / 10,
+                        waited / super::budgets::ticks_per_us(),
                         crate::smp::cpu_current_id().as_index()
                     );
                 }

@@ -24,6 +24,17 @@ SELFTEST: statefs enc roundtrip FAIL
 # tasks/IMPLEMENTATION-ORDER.md ("input from Block 1").
 SELFTEST: walltime rtc FAIL
 #
+# The kernel lock's budget: red on every board boot that printed the verdict (26 archived
+# traces, max_wait 22.6–25.8 ms, max_hold 22–23 ms, 91–139 waits above 10 ms) and invisible to
+# this gate until 2026-10-10 — the kernel prints the marker behind its logger prefix, the gate
+# anchored on the bare marker. The budgets (40 ms wait, 4 convoys, 10 ms hold) are calibrated
+# for the emulator, not for hardware, and the worst holder named is the telemetry call itself
+# (nr=48) — whether the hold is real or the instrument's is the first question of the lane.
+# Tracked: tasks/TASK-0330 S0 (hold histogram + worst holder per syscall on the board), then
+# S2/S3 take the scheduler and the IPC router off the lock; the board's own budget comes from
+# that measurement.
+KSELFTEST: bkl budget FAIL
+#
 # app-host's frame arena: the CHAT's first frame (its first QuerySpec page, 60 rows) needs
 # 270 KB of scene and 419 KB of layout — more than the static arena's 256 KiB halves — on
 # every display, 1280x800 as much as 1920x1080 (measured 2026-10-09 on the host,

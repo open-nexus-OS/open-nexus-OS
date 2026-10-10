@@ -28,6 +28,11 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 /// Messages accepted by the router (`ipc_send_v1` success path).
 static SENDS: AtomicU64 = AtomicU64::new(0);
+/// The same sends, by sending hart (a report's width, not a hart limit: harts past it share
+/// the last slot).
+static SENDS_BY_HART: [AtomicU64; HART_SLOTS] = [const { AtomicU64::new(0) }; HART_SLOTS];
+/// Slots of the per-hart report.
+pub const HART_SLOTS: usize = 8;
 /// Kernel heap allocations made for message payloads. ONE per message since
 /// TASK-0054C P3a: the `Vec` the user bytes land in. The second — a clone taken
 /// per send attempt "in case the attempt fails" — was redundant, because
@@ -89,8 +94,14 @@ pub fn record_payload_size(bytes: usize) {
 
 /// One message accepted by the router.
 #[inline]
-pub fn record_send() {
+pub fn record_send(hart: usize) {
     SENDS.fetch_add(1, Ordering::Relaxed);
+    SENDS_BY_HART[hart.min(HART_SLOTS - 1)].fetch_add(1, Ordering::Relaxed);
+}
+
+/// The window's sends by the hart that made them — which harts the lock split relieves.
+pub fn sends_by_hart() -> [u64; HART_SLOTS] {
+    core::array::from_fn(|i| SENDS_BY_HART[i].load(Ordering::Relaxed))
 }
 
 /// One payload allocation of `bytes` (a zero-length payload allocates nothing
@@ -159,7 +170,7 @@ pub fn reset() {
     {
         c.store(0, Ordering::Relaxed);
     }
-    for b in &PAYLOAD_HIST {
+    for b in PAYLOAD_HIST.iter().chain(&SENDS_BY_HART) {
         b.store(0, Ordering::Relaxed);
     }
     CALLS_IN_REGS.store(0, Ordering::Relaxed);
@@ -172,7 +183,8 @@ mod tests {
     #[test]
     fn counters_record_and_reset() {
         reset();
-        record_send();
+        record_send(2);
+        assert_eq!(sends_by_hart()[2], 1);
         record_payload_alloc(12);
         record_payload_alloc(0);
         record_payload_copy(12);
@@ -188,5 +200,6 @@ mod tests {
         assert_eq!(s.wake_ipis, 1);
         reset();
         assert_eq!(report(), IpcStats::default());
+        assert_eq!(sends_by_hart(), [0; HART_SLOTS]);
     }
 }

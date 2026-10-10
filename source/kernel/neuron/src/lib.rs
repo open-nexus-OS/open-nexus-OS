@@ -476,6 +476,10 @@ mod ipc_eof;
 // their record/reset contract runs on host. Fed by the send/recv paths.
 #[path = "ipc/stats.rs"]
 mod ipc_stats;
+// TASK-0330 S0: the kernel lock's wait/hold accounting — NOT target-gated (`mod trap` is
+// riscv/none-only), so the window rule and the units run on host. Fed by `trap::budgets`.
+#[path = "core/trap/lock_stats.rs"]
+mod lock_stats;
 // TASK-0054C P3b (RFC-0096): the payload tiers and the two ABI bounds — NOT
 // target-gated, for the same reason and with the same shape as `ipc_stats`:
 // `mod ipc` is riscv/none-only, so anything under it can never be host-tested.

@@ -194,7 +194,11 @@ if [ "$verify_rc" != 0 ]; then
 fi
 
 # ---- 3. the FAIL gate, as the QEMU harness keeps it ------------------------------------------
-fail_lines="$(grep -aE "^(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL" "$LOG" || true)"
+# The kernel's markers arrive behind its logger prefix (`[ERROR smp] KSELFTEST: … FAIL`); an
+# anchor on the bare marker never saw them (26 board traces with `bkl budget FAIL` judged green,
+# found 2026-10-10).
+fail_re="^(\[[A-Z]+ [^]]*\] )?(K?SELFTEST): .* FAIL|^gpud: FAIL|^xhcid: FAIL"
+fail_lines="$(grep -aE "$fail_re" "$LOG" || true)"
 for allow in "$ALLOW" "$ALLOW_BOARD"; do
   if [ -n "$fail_lines" ] && [ -f "$allow" ]; then
     fail_lines="$(printf '%s\n' "$fail_lines" | grep -vFf <(grep -v '^#' "$allow" | sed '/^[[:space:]]*$/d') || true)"
@@ -204,7 +208,7 @@ if [ -n "$fail_lines" ]; then
   printf '%s\n' "$fail_lines" | sort | uniq -c >&2
   fail "FAIL markers in the trace (not allow-listed in config/fail-marker-allow.txt or config/fail-marker-allow-board.txt)"
 fi
-tolerated="$(grep -aE "^(K?SELFTEST): .* FAIL" "$LOG" | grep -Ff <(grep -v '^#' "$ALLOW_BOARD" 2>/dev/null | sed '/^[[:space:]]*$/d') || true)"
+tolerated="$(grep -aE "$fail_re" "$LOG" | grep -Ff <(grep -v '^#' "$ALLOW_BOARD" 2>/dev/null | sed '/^[[:space:]]*$/d') || true)"
 [ -z "$tolerated" ] || log "known board reds tolerated (config/fail-marker-allow-board.txt): $(printf '%s\n' "$tolerated" | wc -l)"
 
 # ---- 4. the required ladder (presence, as the QEMU harness judges it) --------------------------

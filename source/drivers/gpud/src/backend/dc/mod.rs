@@ -30,6 +30,7 @@ mod framebuffer;
 mod glue;
 mod present;
 
+use nexus_gfx::backend::dc::frame_stats::FrameStats;
 use nexus_gfx::backend::dc::{cea_mode, Mode};
 use nexus_service_topology::slots::gpud as topo;
 
@@ -97,6 +98,9 @@ pub(crate) struct DcDisplay {
     first_reported: bool,
     /// Software-blended pointers refused in presents (said once; the pointer is the layer).
     blend_cursor_refused: u32,
+    /// The present-cost window (`gpud: dc present us (`), and the running present's command time.
+    stats: FrameStats,
+    exec_ns: u64,
 }
 
 struct Live {
@@ -137,6 +141,8 @@ impl DcDisplay {
             first_exec_ns: 0,
             first_reported: false,
             blend_cursor_refused: 0,
+            stats: FrameStats::default(),
+            exec_ns: 0,
         }
     }
 }

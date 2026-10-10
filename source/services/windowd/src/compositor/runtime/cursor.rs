@@ -130,6 +130,7 @@ impl DisplayServerRuntime {
         }
         // Repaint the pointer region so the SW/GL cursor shows the new shape
         // without waiting for the next move.
+        crate::compositor::frame_causes::shape();
         self.queue_cursor_damage(
             self.state.cursor_x,
             self.state.cursor_y,

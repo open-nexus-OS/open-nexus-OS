@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: windowd main-loop cadence telemetry (SMP-flicker triage) — the 1s
-//! `windowd: loop hz=…` window plus the NACK counters,
+//! `windowd: loop hz=…` window plus the NACK counters, why its frames were sent
+//! (`frame_causes`),
 //! and the `OP_TIMER_FIRED` payload decode both recv sites share.
 //! OWNERS: @ui
 //! STATUS: Functional
@@ -61,8 +62,9 @@ impl LoopTelemetry {
             // is the fallback onto windowd's own response endpoint — the route
             // that can wedge the compositor, so it belongs next to the cadence.
             let (ch, cap, shared) = super::reply_route::counts();
+            let (content, blit, pointer, keepalive, shape) = super::frame_causes::take();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={})",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} keepalive={} shape={})",
                 self.iters,
                 self.applies,
                 presents,
@@ -71,7 +73,15 @@ impl LoopTelemetry {
                 ch,
                 cap,
                 shared,
+                content,
+                blit,
+                pointer,
+                keepalive,
+                shape,
             ));
+        } else {
+            // A quiet window's few frames are not carried into the next one.
+            let _ = super::frame_causes::take();
         }
         self.rebase(now_ns, runtime);
         self.iters = 0;

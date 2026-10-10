@@ -15,6 +15,10 @@
 
 use super::{Args, SysResult};
 use crate::mm::address_space::AddressSpaceManager;
+use crate::task::TaskTable;
+
+/// Address spaces named in the boot-end memory record, largest first.
+const TOP_SPACES: usize = 12;
 
 /// Handles the telemetry ops of `sys_sched`. `Some(_)` = this op was a report
 /// and is fully handled; `None` = not a telemetry op, fall through to the real
@@ -27,6 +31,7 @@ use crate::mm::address_space::AddressSpaceManager;
 pub(super) fn sched_telemetry_op(
     args: &Args,
     spaces: &AddressSpaceManager,
+    tasks: &TaskTable,
 ) -> Option<SysResult<usize>> {
     // OP 4 (P0, declarative budgets SSOT in core/trap/budgets.rs): emit the
     // boot-end BKL budget gate line. Read-only; callable late by the selftest
@@ -76,7 +81,9 @@ pub(super) fn sched_telemetry_op(
                 ipi_sent,
                 ipi_skipped
             );
-            crate::trap::budgets::reset();
+            // The window begins when this call's own lines are out: it and every hart queued
+            // behind it began before, and count for neither window.
+            crate::trap::budgets::reset(riscv::register::time::read() as u64);
             crate::ipc_stats::reset();
         }
         return Some(Ok(0));
@@ -104,6 +111,7 @@ pub(super) fn sched_telemetry_op(
             all.rss_sum,
             all.rss_max
         );
+        log_top_spaces(spaces, tasks);
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             // TASK-0054C P1 (RFC-0096 Phase 1): the IPC path as numbers over the
@@ -161,6 +169,23 @@ pub(super) fn sched_telemetry_op(
                 b[2],
                 b[3]
             );
+            let (h, top) = crate::trap::budgets::hold_report();
+            log_info!(
+                target: "smp",
+                "KINIT: bkl hold histogram le100us={} le1ms={} le10ms={} gt10ms={} top nr={}:{}us nr={}:{}us nr={}:{}us",
+                h[0],
+                h[1],
+                h[2],
+                h[3],
+                top[0].0,
+                top[0].1,
+                top[1].0,
+                top[1].1,
+                top[2].0,
+                top[2].1
+            );
+            let by_hart = crate::ipc_stats::sends_by_hart();
+            log_info!(target: "ipc", "KINIT: ipc sends by hart {:?}", by_hart);
             let (
                 sweep_us,
                 sweep_tasks,
@@ -210,4 +235,40 @@ pub(super) fn sched_telemetry_op(
         return Some(Ok(0));
     }
     None
+}
+
+/// The boot-end memory record by owner: the [`TOP_SPACES`] largest address spaces, one line
+/// each, named by the pid and service id of the task that owns them — the summary line says
+/// how much is resident, not whose it is (TASK-0330 S0, the memory lane's baseline).
+fn log_top_spaces(spaces: &AddressSpaceManager, tasks: &TaskTable) {
+    let mut below = (u64::MAX, usize::MAX);
+    for _ in 0..TOP_SPACES {
+        let mut best: Option<(u64, usize, u64, u64)> = None;
+        for index in 0..tasks.len() {
+            let Some(task) = tasks.task(crate::types::Pid::from_raw(index as u32)) else {
+                continue;
+            };
+            let Some(space) = task.address_space().and_then(|h| spaces.get(h).ok()) else {
+                continue;
+            };
+            let usage = crate::mm::usage::space_usage(space);
+            // Strictly after the previous line in (rss descending, pid ascending) order.
+            let after = usage.rss < below.0 || (usage.rss == below.0 && index > below.1);
+            let better = best
+                .is_none_or(|(rss, pid, ..)| usage.rss > rss || (usage.rss == rss && index < pid));
+            if after && better {
+                best = Some((usage.rss, index, usage.dma, task.service_id()));
+            }
+        }
+        let Some((rss, pid, dma, service)) = best else { break };
+        below = (rss, pid);
+        log_info!(
+            target: "mm",
+            "KINIT: mm space pid={} sid={:#x} rss={} dma={}",
+            pid,
+            service,
+            rss,
+            dma
+        );
+    }
 }

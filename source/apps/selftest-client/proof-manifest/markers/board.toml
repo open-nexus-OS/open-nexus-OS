@@ -151,6 +151,11 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0251 P2a step 2: the cost of windowd's first present on the board's harts — the CPU executor's run over the framebuffer and the cache clean of its damage (a measurement, printed once; the stats window needs 120 presents)"
 
+[marker."gpud: dc present us ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "Block 4 layer 0 (the M/G/S baseline): what a present costs on the controller path — the average and the slowest of a 32-present window, the cache clean, the split by command kind (blur, layer, shadow, blit, fill), the damage, and `front`: how many of the window's presents were drawn into the plane the controller was scanning (a measurement; the tear gate of the scanout contract reads `front=0`)"
+
 [marker."gpud: dc reveal flip ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }

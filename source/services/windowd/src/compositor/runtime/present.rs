@@ -317,6 +317,7 @@ impl DisplayServerRuntime {
         if content_count == 0 && gpu_blit_rect.is_none() && cursor_rect.is_none() {
             return Ok(());
         }
+        crate::compositor::frame_causes::sent(content_count > 0, gpu_blit_rect.is_some());
 
         // 2. Recomposite ONLY content damage into Plane 1 (CPU, blur cached).
         // (The login greeter is a composited LAYER above this base — Plane 1

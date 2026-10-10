@@ -4,7 +4,7 @@
 //! CONTEXT: The display-controller (`dc`) backend's host half (TASK-0250 P1–P3, D2 of the
 //! hardware fast track): what the board's display controller and HDMI encoder need, as pure
 //! logic over a register-writer trait, with goldens from the measurement of 2026-09-29
-//! (`docs/board/measurements/2026-09-29-display-regs/`). Three parts:
+//! (`docs/board/measurements/2026-09-29-display-regs/`). Its parts:
 //!
 //! - [`edid`] — a bounded EDID 1.4 + CEA-861 parser (the monitor's bytes are untrusted input:
 //!   every access is bounds-checked, every block checksummed, no `unwrap`) and `pick_mode`,
@@ -16,6 +16,8 @@
 //!   thirty registers; the live dump at 1920x1080@60 agrees with them word for word).
 //! - [`model`] — the bring-up, plane and flush sequence over [`model::RegWriter`]; the OS
 //!   driver (D4) implements the trait over its MMIO window, the host tests over a recorder.
+//! - [`frame_stats`] — what a present costs by the kind of command that spent it, and whether
+//!   it was drawn into the scanned plane (the window `gpud: dc present us (…)` prints).
 //! - [`encoder`] — the HDMI encoder's first-light sequence for each MEASURED pixel clock, as
 //!   data (TASK-0251 P2a); an unmeasured clock is refused.
 //!
@@ -34,6 +36,7 @@
 pub mod cursor;
 pub mod edid;
 pub mod encoder;
+pub mod frame_stats;
 pub mod model;
 pub mod regs;
 

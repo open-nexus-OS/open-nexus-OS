@@ -231,6 +231,7 @@ impl DisplayServerRuntime {
             || self.has_scroll_momentum()
             || self.cursor_ring_active
         {
+            crate::compositor::frame_causes::keepalive();
             self.queue_cursor_damage(
                 self.state.cursor_x,
                 self.state.cursor_y,
