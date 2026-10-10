@@ -28,6 +28,35 @@ This task wires those concepts into OS/QEMU `windowd` while staying CPU-rendered
 - color space stubs (sRGB/Linear) are plumbed through surface→compose→present,
 - metrics are exposed deterministically via overlay/CLI; `/state` persistence is gated.
 
+### Input from Block 1 (2026-10-09) — the board's display items this lane owns
+
+Block 1 closed with the board's picture on the CPU path (TASK-0251; the controller's scanout
+at 1920x1080@60 from the CEA timing table, the pointer on the controller's own layer). What the
+board showed and is NOT fixed there, because this lane replaces the path it lives on (operator
+2026-10-09: "rest nach G", no fixes for what is reworked soon):
+
+- **The CPU layer composite at the GL path's semantics** (TASK-0251 step 3b: rounded mask,
+  content scaling, opacity, glass blur/tint on the CPU path) — not built: G4 deletes CPU
+  compositing on the board.
+- **Tearing** (TASK-0251 finding 3): the controller scans while the CPU writes the one plane,
+  the switch latches mid-frame — the plane planner's second plane and flips at vertical blank
+  (the controller's ONLINE interrupt as vsync).
+- **Typing flickers the whole screen** (finding 6): every keystroke is a full-plane CPU present
+  that starves xhcid's wakes — damage that is the text field's, async present, flips.
+- **The pointer over a hover field** (finding 7): the I-beam sprite's look on the controller's
+  layer (bytes, blend mode or premultiplication — unmeasured) — the cursor plane. A measured
+  lead (every board trace since U3, 2 to 16 times per boot, the Block 1 gate boot 2026-10-10
+  included): `windowd: cursor upload failed` on a shape change while gpud presents for 100–300 ms
+  (`gpud: present us avg=…`), then `gpud: recv OP_UPLOAD_CURSOR` arrives late and the layer takes
+  a sprite windowd has already moved on from — the shape on screen can lag the shape windowd
+  means. The cursor plane's upload must not wait behind a present.
+- **The entry animation's first second on the CPU path** (finding 5: a doubled password pill, a
+  cut avatar): the scroll/transform overrides wait for windowd's next full present on the CPU
+  path (step 3b) — the compositor that replaces it applies them per frame.
+- **EDID over DDC** (TASK-0251 P2b, with the HDMI DDC pads of TASK-0245B P3): the output mode
+  from the monitor instead of the fixed CEA timing — `gpud: dc scanout ok (…@60 cea …)` names
+  its source honestly until then.
+
 ## Goal
 
 Deliver:

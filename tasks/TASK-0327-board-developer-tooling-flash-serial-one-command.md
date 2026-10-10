@@ -1,6 +1,6 @@
 ---
 title: TASK-0327 Board developer tooling: one command installs the flash/serial tools on Ubuntu, Arch and Fedora + `just board-*`
-status: In Progress (T0, T1, T2 Done 2026-09-21 — `--stage-only` measured against the desk board's boot ROM; T3 = TASK-0327B waits for a booting board, Block 1)
+status: Done 2026-10-10 (Block 1 closure — T0, T1, T2 Done 2026-09-21, T3 = TASK-0327B (`[PASS] board-headless` 2026-09-29, `board-visible` with Block 1), T4 the driver bring-up playbook 2026-09-30; the board flashed, logged and judged with `just board-*` on every cycle since. Two DoD runs need hardware the desk does not have — a fresh box per family, a USB-UART adapter for `board-serial` — moved to TRACK-REPO-HYGIENE-FOLLOWUPS §15; was "In Progress (T0, T1, T2 Done 2026-09-21 …; T3 = TASK-0327B waits for a booting board, Block 1)")
 owner: @devx @runtime
 created: 2026-09-21
 depends-on: []

@@ -100,7 +100,7 @@ pub(crate) fn device_for(
     let mut env = match profile {
         wire::PROFILE_DESKTOP => FixtureEnv::desktop(),
         wire::PROFILE_PHONE => FixtureEnv::phone("portrait"),
-        // Our display is landscape 1280×800 (touch-landscape).
+        // Any other profile: a landscape tablet; the size class follows the real width.
         _ => FixtureEnv::tablet("landscape"),
     };
     env.size_class = size_class_for(w);

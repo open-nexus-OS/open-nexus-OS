@@ -21,6 +21,20 @@ Canonical sources:
 - Block topology (GPT, single device owner): `docs/adr/0044-single-blk-device-gpt-partitions-block-layer.md`
 - Testing guide + marker discipline: `docs/testing/README.md` and `scripts/qemu-test.sh`
 
+## Below the stores: one block owner
+
+Every store above sits on ONE disk and ONE owner of it, `blkd` (ADR-0044, ADR-0067). The device it
+drives is the disk the boot came from: nxboot records it in `/chosen/nexus,boot-disk`, init grants
+`blkd` exactly that device, and the grant's kind picks the backend — virtio-blk on QEMU, the SDHCI
+core (`source/drivers/storage/sdhci`, ADMA2 through `DmaBuffer`, eMMC up to HS400ES) on the board
+and in the `ci-os-sdhci` lane. Before it touches the controller `blkd` asks `socd` to bring the
+disk's node up (RFC-0106). Above the backend nothing changes: the same GPT plane, the same
+`blockproto`, the same deny-by-default partition gate — the system volume (verified by
+`bundlemgrd`, served by `packagefsd`) and `statefsd`'s journal never learn which hardware
+answered. Markers: `blkd: backend ok
+(kind=… record=… mode=… bus=… sectors=…)`, `blkd: gpt ok (parts=…)`; the old owner's name is
+retired (`scripts/check-retired-names.sh`).
+
 ## Responsibilities
 
 ### `packagefsd`

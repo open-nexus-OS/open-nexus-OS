@@ -44,6 +44,22 @@ more honest:
 - write mappings are rejected deterministically,
 - and reuse/copy-fallback counters make hot-path regressions visible.
 
+### Input from Block 1 (2026-10-09) — the app-host frame arena's end form
+
+app-host's frame arena (ADR-0065) is a STATIC 1 MiB today: two regions (emit, layout) × two
+halves = 256 KiB per frame and region, paid in full by every app process because the bytes are
+committed at spawn. Measured on the host over the real apps
+(`tests/dsl_apps_conformance/tests/frame_arena_budget.rs`, TASK-0251 finding 8): the chat's
+first page needs 270 192 B of scene and 418 552 B of layout per frame, so it spills on the
+board (`SELFTEST: frame arena spill FAIL`, tolerated in `config/fail-marker-allow-board.txt`
+until this lane). The reference capability OS has no fixed frame arena: its heap sits on
+demand-paged VMOs, and the UI runtime's young generation starts at 1–2 MB and grows to
+8–16 MB per half. The end form here is the same, built by this lane, not bumped before it
+(operator 2026-10-09: no interim fix for what this lane replaces): with **M2** (demand paging)
+the arena is a generously reserved range committed only where a frame touches it; with **M5**
+(purgeable VMOs) a reset generation's pages are purgeable under pressure; with **M4** the
+process's limit bounds it.
+
 ## Non-Goals
 
 - DMA/IOMMU isolation.

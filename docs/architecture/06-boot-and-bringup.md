@@ -49,6 +49,17 @@ At a high level the stack looks like:
      that record to the ONE grant `blkd` gets, asked for the kind's class, and
      makes it while only policyd runs, so `blkd` starts with its disk in place
      (`init: boot disk ok (…)`, `blkd: backend ok (…)`, TASK-0246 P4b).
+   - SoC glue (RFC-0106, TASK-0245B): on the board a device's clocks, resets,
+     power domain and pads must be live before its registers answer, and the SoC
+     packs several devices' bits into shared registers — so ONE service, `socd`,
+     holds every clock/reset/power/pad window the tree names (`device.mmio.syscon`)
+     and brings a consumer's node up when the consumer asks, before it touches its
+     own registers (`socd: bring-up <node> ok (domains= resets= clocks= rates=
+     writes=)` plus every register word it changed; `FAIL (step= reg= val=)`
+     otherwise). The loader runs the same `nexus-soc` operations for its boot disk
+     before any service exists. A driver never maps a syscon window
+     (`scripts/check-no-platform-literals.sh` matches the windows outside `socd`);
+     QEMU `virt` names no glue (`socd: ready (no soc glue in this tree)`).
    - The boot trace (RFC-0107): everything the loader prints is also kept on
      that disk, in the `trace` partition's slot for this boot (`nxboot: trace
      slot=<n> seq=<m>`), written when the disk is found, before the jump and on

@@ -1,9 +1,9 @@
 ---
 title: TASK-0251 Display v1.0b (OS/board): the display controller + HDMI driver in gpud, the display mode's one authority is gpud (EDID on the board, virtio display-info on QEMU), syscall 50 and the fw_cfg path deleted — the first picture
-status: In Progress (P2a step 3a ✅ 2026-10-04 on the board — the picture at 1080p: an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane; open findings noted for their topics; operator priority: USB input (Block 2) before step 3b and P2b EDID; P2a step 2 ✅ 2026-10-04 windowd's desktop through the controller; P2a step 1 ✅ 2026-10-03 first light; P1 done 2026-09-30 — the mode authority is gpud; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
+status: Done 2026-10-10 (Block 1 closure, D5 — the desktop at 1920x1080@60 on the board with USB input: the ladder 46/46, six of seven operator rungs on the gate boot, the clipboard rung accepted by the operator from its 2026-10-08 confirmation (see Closure); P2b EDID, step 3b's layer composite and findings 3/5/6/7 → the GPU lane (TASK-0216), finding 8 → TASK-0145B, finding 4's rest → TASK-0269B; was "In Progress (P2a step 3a ✅ 2026-10-04 on the board — the picture at 1080p: an anti-aliased painter, line icons as strokes, the damage grid at the layout, a Lanczos wallpaper bake, the `visible-2d` lane; open findings noted for their topics; operator priority: USB input (Block 2) before step 3b and P2b EDID; P2a step 2 ✅ 2026-10-04 windowd's desktop through the controller; P2a step 1 ✅ 2026-10-03 first light; P1 done 2026-09-30 — the mode authority is gpud; recut 2026-09-22 to the end state — Block 1 B1.7 of the hardware fast track; was "fbdevd service + windowd simplefb integration + cursor + splash", Draft since 2025-12-29)
 owner: @ui @runtime
 created: 2025-12-29
-updated: 2026-10-04
+updated: 2026-10-10
 depends-on:
   - tasks/TASK-0250-display-v1_0a-host-simplefb-compositor-backend-deterministic.md
   - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
@@ -206,6 +206,14 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
        round buttons) as an opaque full-width container, which at 1280x800 falls off the
        bottom edge or has no height and so never showed on QEMU. The pixel proof samples only
        at the reveal and misses it: a settled snapshot belongs into the proof.
+       **Resolved 2026-10-09 (the step-3b size sweep), measured first:** the pixel proof takes a
+       third snapshot, `settled`, at `SELFTEST: ota stage ok` — minutes into the ladder, the
+       greeter with its clock — and the judge holds it to the same rules (non-black, no flat
+       band of 64 rows). At 1920x1080 the settled greeter is whole on the GL path
+       (`visible-fhd`) AND the CPU path (`visible-2d`, the board's): `flat_band_rows 0` both,
+       the wallpaper to the last row, the buttons bottom right. The band is gone (the damage grid
+       at the layout, step 3a, is the likely cure); the snapshot now guards it on every visual
+       lane.
     2. *Hard-coded 1280x800-era sizes* — sweep them before the layout changes again, with a
        gate: windowd's tile grid (fixed in 3a), app-host `probe/env.rs` ("landscape 1280×800"),
        `probe/scroll.rs` (the atlas budget from "the desktop base's 800"), `greeter.toml` (pixel
@@ -213,6 +221,17 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
        `DISPLAY_MODE_MARKER`), `systemui_shell::DeviceProfile::qemu_default`; the display-ssot
        gate's literal rule covers windowd and inputd only — extend it to app-host, systemui and
        the manifests.
+       **Resolved 2026-10-09 (the size sweep), one by one:** `greeter.toml` ("pixel values at
+       the canonical 1280x800 mode") and its parser in `systemui` had no reader since the
+       greeter became an app — deleted, the names held out by the retired-names gate;
+       app-host's `probe/env.rs` and `probe/scroll.rs` carried stale COMMENTS only (the size
+       class follows the real width; the band budget sits inside an 8640-row atlas) —
+       corrected; the display-ssot gate's literal rule now covers app-host (systemui was in
+       already). Left on purpose: windowd's `DeviceProfile::qemu_default` (1280x800) lives in
+       the legacy `SystemUiShell` the cleanup map moves to the DSL shell (not fixed: it is
+       replaced), and the gate's literal rule does not see a field initializer
+       (`display_width: 1280, display_height: 800`) — widening it would only carve out that
+       legacy. The frame arena was never a size item (finding 8).
     3. *Rows switching top to bottom* at the splash's first frame and at the reveal (the
        operator: "like a scanline") — tearing: the controller scans while the CPU writes the
        plane (no second plane) and the switch latches mid-frame (no flip at vertical blank).
@@ -241,6 +260,24 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
        photo against the stock pointer's rendering decides. Deferred with the display track.
     5. *The entry animation's first second* on the CPU path (a doubled password pill, a cut
        avatar) — the transform overrides (3b).
+    8. *A structural change re-lays out the whole resident list* (measured 2026-10-09 during
+       the step-3b size sweep, host counting allocator over the REAL apps,
+       `tests/dsl_apps_conformance/tests/frame_arena_budget.rs`): the chat's first page (60 of
+       240 rows via QuerySpec — the lazy loading works, at most 64 resident) costs ONE frame
+       270 192 B of scene and 418 552 B of layout (412 boxes, 135 text runs — exactly the 135
+       runs of the board's spills), identical at 960x620 and 1440x814: not a 1080p problem.
+       Every board boot that opened the chat spilled the frame arena (4 of 4), none without it
+       did (0 of 5); no QEMU lane opens the chat. Cause: the pretext contract (RFC-0057) is
+       half wired — text widths come from baked advances (cheap), but app-host builds a fresh
+       `LayoutEngine` per layout and lays out ALL boxes (~1 KiB each), the prepared-text caches
+       of `nexus-shape` (paragraph + line-layout, RFC-0057 Phase 2) are not connected, and
+       nothing re-lays out only the changed subtree. The scroll band (all resident rows in one
+       band, scrolling shifts rows in the compositor) makes scrolling free and every structural
+       change pay the whole band. Not the compositor's and not the GPU lane's: the cost is
+       app-host's CPU layout on every display path. Owner: the DSL/layout lane — complete
+       pretext (persistent prepared text, incremental relayout of changed subtrees); not Block 1.
+       Carried by TASK-0145B ("Input from Block 1"), the arena's end form by the memory lane
+       (TASK-0290).
     **3b** — the CPU layer composite at the GL path's semantics (the rounded mask,
     content scaling, opacity, the glass's blur and tint — the avatar circle's flat top, the flat
     blue glass), host goldens against the GL compositor's math; on the board a display-plane
@@ -265,6 +302,48 @@ at runtime (one mode per boot; the runtime preset mechanism of TASK-0055D stays 
     sample at another pointer position pins the left word's packing.
 - **P3 First picture** — on the board through the boot chain (TASK-0260B): markers + the
   operator ack; photo in the ledger. **Block 1 gate.**
+
+## Closure (2026-10-10, Block 1 — D5)
+
+**The gate boot (D5), 2026-10-10** — image dev-e5b3, the trace pulled with `just board-log` into
+`build/logs/board--2026-10-10T12-15-36/`: `gpud: dc scanout ok (1920x1080@60 cea bus=0x6000000
+lines 6291871->7864735 vsync)`, `windowd: desktop revealed (seq=4)`, `gpud: dc cursor layer ok`,
+`windowd: hw cursor on`, both live input routes; the ladder 46 of 46 rungs, the FAIL gate clean
+(12 tracked board reds tolerated). The operator rungs: six of seven acknowledged on that boot, each
+with its evidence in the trace (`desktop`: the login, then the desktop; `typed`: text committed
+into a field; `pointer`: the shape changes and a drag; `modal`: four alerts, three closed by ESC,
+one confirmed into the system toast; `tile`: left, right, return; `screenshot`: the freeze, a
+dragged area, `screencapd: saved (kind=area w=960 h=540 …)`). **`clipboard` was not acknowledged on
+that boot**: its keyboard core ran (`apphost: text copy ok`, `clipboardd: write ok`, `apphost: text
+paste ok`), the search's card view did not (no `clipboard.restore` — no card pressed); the card view
+was last confirmed on 2026-10-08 (`board--2026-10-08T16-08-21`: `clipboard.restore ok`,
+`board-visual: clipboard`). **The operator accepted the gate on that basis (decision 2026-10-10)** —
+no ack was added after the fact, so `scripts/board-test.sh` judges this capture `[FAIL] …
+operator marker missing: board-visual: clipboard`, on purpose; the last full `[PASS]
+board-visible` remains 2026-10-06 (TASK-0328 U3, cycle 20). QEMU: `just test-all` EXIT=0 on the
+same tree (2026-10-10, 71 PASS, 0 FAIL; `usb-visible` 12 of 12 clicks seen on the first try after
+windowd's staging fix).
+
+Delivered: P1 (gpud the mode authority, syscall 50 deleted), P2a steps 1–3a (first light, the
+desktop through the controller, the picture at 1080p), step 3c (the controller's cursor layer,
+2026-10-06), step 3b's size half (the 1080p size sweep, 2026-10-09: findings 1 and 2 resolved),
+P3 (the first picture, this cycle). Docs: RFC-0074 superseded in its authority statement,
+ADR-0050 superseded in part, RFC-0098 Phase 5 ✅ (C7 amended 2026-10-10),
+`docs/architecture/graphics/display-output-service-chain.md` (the board's mode and pointer
+layer), README "real hardware: yes", CHANGELOG.
+
+Amended at the closure (the operator 2026-10-09: "pull the size sweep forward, the rest to G"; no
+fixes for what the GPU lane replaces):
+
+- **P2b EDID over DDC** → the GPU lane (TASK-0216 "Input from Block 1"; RFC-0098 C7 amended
+  2026-10-10). The constraint "`dc scanout ok` prints the mode read from EDID" reads "prints its
+  mode's source" — `cea` until then, never a claimed `edid`.
+- **Step 3b's layer composite** (rounded mask, content scaling, opacity, tinted blur on the CPU
+  path) → G4 deletes CPU compositing on the board (TASK-0216).
+- Findings: 3 (tearing), 5 (the entry animation's first second), 6 (typing flicker), 7 (the
+  pointer over a hover field) → TASK-0216; 4's rest (the userspace bring-up up to gpud's first
+  frame, unmeasured) → TASK-0269B P0; 8 (a structural change re-lays out the whole resident
+  list) → TASK-0145B, the frame arena's end form → M2/M5 (TASK-0290).
 
 ## Constraints / invariants
 

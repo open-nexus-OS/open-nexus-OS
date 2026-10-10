@@ -41,11 +41,10 @@ knows what "desktop chrome" is — it stores an opaque SystemUI product id.
   `[session] auto_login = "<id>"` runs the SAME `login()` transition without a
   greeter (proof lanes, kiosk deployments). Validation: ≥1 user, unique ids,
   non-empty fields, auto_login must be registered.
-- **Greeter appearance**
-  (`source/services/systemui/manifests/greeter/default/greeter.toml`):
-  `blur_radius`, `dim`, avatar `diameter`/`ring_stroke`/`label_gap` — bounded
-  by `validate_greeter`; windowd falls back to `GreeterConfig::fallback()` on
-  any manifest error (and the shipped manifest is host-tested to parse).
+- **Greeter appearance** is the greeter app's own (`userspace/apps/greeter`, DSL): the
+  windowd-era appearance manifest (`greeter.toml`, "pixel values at the canonical 1280x800
+  mode") and its parser were deleted 2026-10-09 (TASK-0251 step 3b, the 1080p size sweep) —
+  nothing had read them since the greeter became an app.
 
 ## Flow
 
@@ -55,9 +54,8 @@ knows what "desktop chrome" is — it stores an opaque SystemUI product id.
 2. `sessiond: greeter (n=…)` → windowd launches the greeter APP
    (`compositor/runtime/session.rs`, `STATE_GREETER ⇒ launch_app("greeter")`).
    The old windowd-internal renderer — a blurred+dimmed wallpaper with an SDF
-   avatar card baked into Plane 1 — has been DELETED; `systemui/src/greeter.rs`
-   and `manifests/greeter/default/greeter.toml` survive only as a dead
-   appearance config with no call sites.
+   avatar card baked into Plane 1 — has been DELETED, its appearance config
+   with it (2026-10-09).
 3. While the greeter owns the display, ALL shell affordances are dead
    (host-tested `interaction::resolve_click_session`): no topbar, no corner
    hotspot, no windows. Additionally `abilitymgr` refuses `OP_LAUNCH` with

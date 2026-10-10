@@ -6,9 +6,10 @@
 # truth: no kernel, loader, init, driver or service source may carry a QEMU-virt
 # platform address, interrupt-line arithmetic or timebase constant. The literals
 # below are exactly the ones TASK-0245 deleted; a hit is a regression, named by
-# file:line. Allowed: the FDT goldens and their tests, the board's own tree, docs,
-# task ledgers, and comment lines (a comment may explain history). Every run first
-# proves the scanner on fixtures (`--self-test` runs only that).
+# file:line. The board's SoC glue windows (TASK-0245B) have one owner, socd, and are
+# matched everywhere else. Allowed: the FDT goldens and their tests, the board's own
+# tree, docs, task ledgers, and comment lines (a comment may explain history). Every
+# run first proves the scanner on fixtures (`--self-test` runs only that).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,18 +27,32 @@ PATTERNS=(
   'irq\s*[:=]\s*[0-9]+\s*\+\s*\w+'  # PLIC line derived from a slot index
 )
 EXCLUDE_RE='(/tests/|/goldens/|/target/|/build/|\.md$|\.dts$|\.dtb$)'
+# The board's SoC glue windows (TASK-0245B, RFC-0106): clock/reset/power/pad providers only
+# their owner `socd` maps — a driver brings its node up through socd and never names a syscon
+# window. Matched in every crate but socd's own.
+SYSCON_PATTERNS=(
+  '0x[dD]401_?5000\b'      # APBC
+  '0x[dD]405_?0000\b'      # MPMU
+  '0x[dD]409_?0000\b'      # PLL
+  '0x[dD]428_?2800\b'      # APMU
+  '0x[fF]061_?0000\b'      # APBC2
+  '0x[dD]401_?[eE]000\b'   # pinctrl
+)
+SYSCON_OWNER_RE='/drivers/soc/socd/'
 
 scan() {
   local root="$1" hits=0
   while IFS= read -r file; do
     [[ "$file" =~ $EXCLUDE_RE ]] && continue
+    local pats=("${PATTERNS[@]}")
+    [[ "$file" =~ $SYSCON_OWNER_RE ]] || pats+=("${SYSCON_PATTERNS[@]}")
     local n=0
     while IFS= read -r line; do
       n=$((n + 1))
       # Strip a trailing `// …` comment and skip doc/plain comment lines.
       local code="${line%%//*}"
       [[ -z "${code//[[:space:]]/}" ]] && continue
-      for pat in "${PATTERNS[@]}"; do
+      for pat in "${pats[@]}"; do
         if [[ "$code" =~ $pat ]]; then
           echo "$file:$n: $line"
           hits=$((hits + 1))
@@ -51,26 +66,30 @@ scan() {
 
 self_test() {
   local tmp; tmp=$(mktemp -d)
-  mkdir -p "$tmp/src" "$tmp/tests"
+  mkdir -p "$tmp/src" "$tmp/tests" "$tmp/drivers/soc/socd/src"
   cat > "$tmp/src/a.rs" <<'RS'
 const UART: usize = 0x1000_0000; // must hit
 const UART2: usize = 0x10000000; // must hit (the other spelling)
 // const OLD: usize = 0x1000_0000;   (comment — must not hit)
 let irq = 3 + idx as u32;         // must hit
 const TICKS_PER_US: u64 = 10;      // must hit
+const APMU: usize = 0xd428_2800;   // must hit (a syscon window outside its owner)
 RS
   cat > "$tmp/tests/b.rs" <<'RS'
 const UART: usize = 0x1000_0000; // tests are excluded
 RS
+  cat > "$tmp/drivers/soc/socd/src/glue.rs" <<'RS'
+const APMU: usize = 0xd428_2800;   // the owner names its own window
+RS
   local out rc=0
   out=$(scan "$tmp") || rc=$?
   rm -rf "$tmp"
-  if [[ "$rc" -ne 4 ]]; then
-    echo "[FAIL] platform-literal scanner self-test: expected 4 hits, got $rc" >&2
+  if [[ "$rc" -ne 5 ]]; then
+    echo "[FAIL] platform-literal scanner self-test: expected 5 hits, got $rc" >&2
     echo "$out" >&2
     exit 1
   fi
-  echo "[ok]   platform-literal scanner self-test (4 hits on fixtures, comments/tests skipped)"
+  echo "[ok]   platform-literal scanner self-test (5 hits on fixtures, comments/tests/the syscon owner skipped)"
 }
 
 self_test

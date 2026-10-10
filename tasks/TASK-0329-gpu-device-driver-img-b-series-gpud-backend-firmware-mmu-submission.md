@@ -27,6 +27,13 @@ gpud has two backends, both virtio (`mmio` scanout, `virgl` 3D). The board's GPU
 
 G0: the GPU truth measured and archived (compatible/revision, firmware blob + license under the provenance gate, register/IRQ map, power sequence, MMU page size). G1: the device online — firmware boots, `vm_bind`/`vm_unbind` of VMO pages into the GPU address space proven, a null job signals a kernel fence, on the board (`gpud: fw ok`, `gpud: mmu map/unmap ok`). G5 (`TASK-0329B`, seeded at P0): app surfaces (ADR-0042 VMOs) imported zero-copy.
 
+Input from Block 1 (2026-10-09): the GPU's power/clock set (TASK-0245B P3) moves here — `nexus-soc`
+already refuses the software-sequenced GPU domain until its consumer measures it (G0 measures the
+power sequence; G1 brings the domain up through socd). With it, as the next new socd consumer, the
+per-class floor (RFC-0106 Phase 2): `soc.glue.<class>` replaces the one `soc.glue` capability, so
+blkd may bring up only storage nodes, gpud only display and GPU nodes, xhcid only USB nodes
+(`test_reject_*` per class in socd's verdict).
+
 ## Non-Goals
 
 The userspace driver (G2 = `TASK-0280` v2 API, G3 = 0169B/0170B/0171, G4 = 0215/0216), an on-device shader compiler, gaming-class features, any implicit sync.

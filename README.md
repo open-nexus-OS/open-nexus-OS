@@ -240,9 +240,10 @@ Start here:
 ### Is this a real operating system, or a kernel study?
 
 It is a full OS image: the `neuron` microkernel plus a userland of services and
-drivers that boots to a graphical desktop. It is a **research** OS, though — it
-runs on `qemu-system-riscv64 virt`, not on physical RISC-V boards, and it is not
-a distribution you would install as a daily driver.
+drivers that boots to a graphical desktop. It is a **research** OS, though — every
+lane proves it on `qemu-system-riscv64 virt`, real hardware is one RISC-V board so far
+(see "Does the RISC-V desktop run on real hardware?" below), and it is not a
+distribution you would install as a daily driver.
 
 ### Why a microkernel written in Rust for RISC-V?
 
@@ -261,9 +262,10 @@ payload. See `docs/architecture/11-policyd-and-policy-flow.md`.
 
 ### Does the RISC-V desktop run on real hardware?
 
-Yes, first steps: since 2026-10 the desk's RISC-V single-board computer boots
+Real hardware: yes — first steps: since 2026-10 the desk's RISC-V single-board computer boots
 the OS from its eMMC through the vendor boot chain, shows the desktop at
-1920x1080 on its HDMI output through the SoC's display controller, and a USB
+1920x1080@60 (from the CEA timing table — reading the monitor's EDID follows with
+the GPU work) on its HDMI output through the SoC's display controller, and a USB
 keyboard and mouse drive it (the pointer rides the controller's own hardware
 layer) — proven by the board ladder (`just board-test`,
 `docs/board/`). The proof target for every lane is still QEMU `virt` with

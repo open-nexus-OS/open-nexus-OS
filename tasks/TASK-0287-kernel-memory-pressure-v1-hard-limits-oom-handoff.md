@@ -36,6 +36,10 @@ Introduce a kernel pressure-and-enforcement floor that:
 - enforces hard memory ceilings / reserve protection deterministically,
 - and hands OOM action to canonical userland authorities with stable reasons.
 
+Input from Block 1 (2026-10-09): app-host's frame arena becomes a demand-committed, purgeable
+range (M2 + M5, see TASK-0290 "Input from Block 1"); this lane's process limit is what bounds it
+— the chat's measured frame (270 KB scene + 419 KB layout) spills today's static 256 KiB halves.
+
 ## Non-Goals
 
 - Full kernel OOM killer heuristics zoo.

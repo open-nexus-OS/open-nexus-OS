@@ -60,8 +60,9 @@ The full layer reference — including the end-to-end coverage table and the per
    environment is a hard error, not a silent override:
    - `just ci-os-visible` — display truth: the real virgl compositor on
      egl-headless + VNC with a host-side pixel proof (desktop non-black,
-     ≠ splash, no unpainted band), see [os-markers.md](os-markers.md) "Display
-     truth"; `just ci-os-visible-fhd` the same at 1920x1080.
+     ≠ splash, no unpainted band — at the reveal and again on the settled frame
+     minutes later), see [os-markers.md](os-markers.md) "Display truth";
+     `just ci-os-visible-fhd` the same at 1920x1080.
    - `just ci-os-visible-2d` — the board's picture on QEMU (TASK-0251 P2a
      step 3): the 2D virtio scanout — the CPU executor the board's display
      controller shows — at 1920x1080 over VNC, judged by the same pixel proof
@@ -256,11 +257,14 @@ The desk board is judged like a QEMU lane (`scripts/board-test.sh`, TASK-0327B P
 built and flashed, the operator is prompted step by step with the user LED's ladder as the wait
 signal, the boot trace is pulled from the eMMC by `just board-log` (no serial adapter needed),
 and the capture is judged three ways — `verify-uart` (surprise/forbidden lines, the board
-vocabulary in `proof-manifest/markers/board.toml`), the FAIL gate (`config/fail-marker-allow.txt`)
+vocabulary in `proof-manifest/markers/board.toml`), the FAIL gate (`config/fail-marker-allow.txt`
+plus the board's tracked reds in `config/fail-marker-allow-board.txt`, each with its owner)
 and the REQUIRED ladder in the runner, judged by presence like the QEMU harness (since
 2026-09-30 it includes the SoC glue's display rung `SELFTEST: soc glue display ok`: the display
 pipeline is powered and clocked on every board boot). `board-visible` additionally asks the operator
-for `board-visual: desktop`, appended with `just board-ack`. Nothing passes by timeout. Judge an
+for one `board-visual:` rung per visual task — `desktop`, `typed`, `pointer`, `modal`, `tile`,
+`clipboard`, `screenshot` (Block 1's gate, 2026-10-10) — each appended with `just board-ack` only
+for what the operator saw on the monitor. Nothing passes by timeout. Judge an
 archived capture without a board: `scripts/board-test.sh --profile=board-headless --log=<uart.log>`.
 In `just test-all` the lane runs only with `NEXUS_BOARD=1` (`just board-lane`); without it the
 step prints that it was skipped.

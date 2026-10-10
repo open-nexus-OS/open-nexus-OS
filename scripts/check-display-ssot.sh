@@ -16,9 +16,10 @@
 #   7. The framebuffer is gpud's (RFC-0098 C7): windowd allocates no VMO — a scanout
 #      buffer must be made FOR the scanout device, and only gpud holds that capability.
 #   2. No mode-retry machinery in windowd/inputd — the mode is read, not polled.
-#   3. No `1280, 800` literal in windowd/inputd/gpud production code: the layout maximum
-#      is declared once in `nexus-display-proto`. Test fixtures are exempt (they assert
-#      against concrete geometry, which is their job).
+#   3. No `1280, 800` literal in windowd/inputd/gpud/systemui/app-host production code: the
+#      layout maximum is declared once in `nexus-display-proto`, a surface's size is what
+#      windowd grants it. Test fixtures are exempt (they assert against concrete geometry,
+#      which is their job). app-host joined with the 1080p size sweep (TASK-0251 step 3b).
 #   5. The reveal DECISION carries no time term (RFC-0093 §5 gate: no `nsec()` in gpud's
 #      reveal path) — `let should_reveal = …;` in gl_scanout.rs is evidence-only.
 #   6. Readback goes through the probe RT only: no `virgl_transfer_from_host(` call in
@@ -34,7 +35,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PROD_PATHS=(source/services/windowd/src source/services/inputd/src source/drivers/gpud/src \
-            source/services/systemui/src)
+            source/services/systemui/src source/services/app-host/src)
 
 # The scanner is Python, not grep, for one reason: the layout-maximum literal also appears in
 # `#[cfg(test)] mod tests` blocks INSIDE production files, which no path filter can see. Test

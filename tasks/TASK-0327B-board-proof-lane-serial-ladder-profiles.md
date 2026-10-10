@@ -1,6 +1,6 @@
 ---
 title: TASK-0327B Board proof lane: the marker ladder from the boot trace on the disk (RFC-0107) or the debug UART, `board-*` profiles, opt-in in `test-all`
-status: In Progress (P4 H0 done 2026-09-29 — `[PASS] board-headless` on the desk board; `board-visible` waits for Block 1's D5; P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace; P3 done 2026-09-28 — the RAM rescue, proven on QEMU, and the board measured: its reset scrubs DRAM, so the board's early kernel needs the UART (P4's serial ladder) or a LED ladder; seeded 2026-09-21 at Block 0 P0)
+status: Done 2026-10-10 (Block 1 closure — `[PASS] board-headless` 2026-09-29, `[PASS] board-visible` 2026-10-06 (TASK-0328 U3, cycle 20) with D5's line as amended (`cea`, RFC-0098 C7); the Block 1 gate boot 2026-10-10 ran the ladder 46/46 with six of seven operator rungs, the clipboard rung accepted by the operator (TASK-0251 Closure). Owners named for the board's reds: the TRNG → N3, the RTC → N4; H0a stays a watch item (the instrument in nxboot, the pitfall in docs/board/bpi-f3.md); H0b's host move → TRACK-REPO-HYGIENE-FOLLOWUPS §14; was "In Progress (P4 H0 done 2026-09-29 — `[PASS] board-headless` on the desk board; `board-visible` waits for Block 1's D5; P0 done 2026-09-27 — recut: no USB-UART adapter is at the desk, so the ladder's channel is the boot trace on the boot disk (RFC-0107 seeded), the serial log where an adapter exists; P1 done 2026-09-27 — the loader's trace: kept on the disk in every lane, read back with `nx image trace` and, on the board, `just board-log` (the board's first eMMC boot read with it, TASK-0260B P2); P2 done 2026-09-28 — the OS trace; P3 done 2026-09-28 — the RAM rescue, proven on QEMU, and the board measured: its reset scrubs DRAM, so the board's early kernel needs the UART (P4's serial ladder) or a LED ladder; seeded 2026-09-21 at Block 0 P0)
 owner: @devx @runtime
 created: 2026-09-21
 depends-on:
@@ -252,6 +252,26 @@ P2 read the eMMC back over adb.
     board rescue since read `lost=0` and ended at the kernel's last byte — a warm reset keeps this
     board's DRAM, a cold one does not — and the rescue carried the diagnosis of TASK-0260B P3 (six
     cycles to the timer root cause). The rescue is a proof medium after a warm reset.
+
+## Closure (2026-10-10, Block 1)
+
+- **DoD:** `[PASS] board-headless` (2026-09-29, H0) and `[PASS] board-visible` (2026-10-06, TASK-0328
+  U3 cycle 20: 46 rungs with `gpud: dc scanout ok (1920x1080@60 cea …)` — D5's line as RFC-0098 C7
+  was amended 2026-10-10: the mode from the CEA timing table until EDID lands with the GPU lane);
+  the profiles in `harness.toml`; `docs/testing/README.md` documents the lane, the opt-in and the
+  seven operator rungs.
+- **The Block 1 gate boot (2026-10-10):** the ladder 46/46, the FAIL gate clean, six of seven
+  operator rungs; the clipboard rung's card view not shown on that boot — accepted by the operator
+  from its 2026-10-08 confirmation, no ack added after the fact (TASK-0251 Closure).
+- **The board's tracked reds have owners now** (`config/fail-marker-allow-board.txt` names them):
+  the SoC's TRNG as rngd's board source → N3 (until then keystored holds no key material on the
+  board); the RTC as `timed`'s second source → N4; the chat frame's arena spill → TASK-0145B
+  (cost) and M2/M5 (the arena).
+- **H0a** (the loader loop after the stock kernel) was instrumented and never reproduced since
+  2026-09-29 — the instrument stays in nxboot (`verify FAIL (… head=… reread=…)`), the pitfall in
+  `docs/board/bpi-f3.md`; a recurrence's trace reopens it. **H0b**'s follow-up (the pure profile
+  resolution beside `runtime_mode.rs`, host-tested) → TRACK-REPO-HYGIENE-FOLLOWUPS §14. The serial
+  channel waits for an adapter (§15); the trace channel is the proof medium.
 
 ## Origin
 

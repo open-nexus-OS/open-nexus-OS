@@ -1,6 +1,8 @@
 # ADR-0067: ONE block owner (`blkd`) whose backend the FDT selects — virtio-blk on QEMU, SDHCI on the board; the GPT plane above it never learns the difference
 
-- Status: Proposed
+- Status: Accepted 2026-10-10 (proven on the board: `blkd` drives the eMMC at HS400ES behind the
+  SDHCI backend the tree selects, the GPT plane and the system volume above it unchanged —
+  TASK-0246 P6; QEMU's virtio-blk and `sdhci-pci` lanes green in `test-all`)
 - Date: 2026-09-22 (amended 2026-09-24)
 - Links:
   - Tasks: `tasks/TASK-0246-*` (SDHCI driver + `blkd`), `tasks/TASK-0246B-*` (nxboot reader)

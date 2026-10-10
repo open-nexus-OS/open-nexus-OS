@@ -1,10 +1,10 @@
 ---
 title: TASK-0260 Provisioning v1.0a (host-first): nx image — deterministic GPT disk assembler + NXBD signer + factory BSB + OTA-container emission (flasher/factory-reset = residual)
-status: In Progress (P2 done 2026-09-26 — the flash path: the eMMC boots from boot0 (the vendor source), our disk and boot0 written through raw partitions and read back exactly; P3 next — with TASK-0260B, the board boots it; P1 done 2026-09-26 — the layout and the builder on the host: every image a complete GPT with a protective MBR for its disk, the head as partitions 1–4, `nx image build --target`, `blkd` by name and type; P2 next — the flash path, with the user at the board; P0 done 2026-09-26 — the boot medium measured byte for byte: sector 0 shares the boot-ROM header and a protective MBR, the SPL finds its stages through the GPT, the flash vehicle's `flash gpt` cannot carry our partition types; recut to the end state below; P1 next — the layout and the builder)
+status: Done 2026-10-10 (Block 1 closure — P3 ran as TASK-0260B P2/P3: the boot ROM boots our boot0 from the eMMC with the microSD out, the SPL takes our FIT and finds its stages by partition name, nxboot verifies and jumps, the board reaches `init: ready` 2026-09-27/29 and boots the desktop on every cycle since; residuals named below: factory reset → TASK-0261, `data` growth → a provisioning step after Block 4, `swap` → M7; was "In Progress (P2 done 2026-09-26 — the flash path: the eMMC boots from boot0 (the vendor source), our disk and boot0 written through raw partitions and read back exactly; P3 next — with TASK-0260B, the board boots it; P1 done 2026-09-26 — the layout and the builder on the host: every image a complete GPT with a protective MBR for its disk, the head as partitions 1–4, `nx image build --target`, `blkd` by name and type; P2 next — the flash path, with the user at the board; P0 done 2026-09-26 — the boot medium measured byte for byte: sector 0 shares the boot-ROM header and a protective MBR, the SPL finds its stages through the GPT, the flash vehicle's `flash gpt` cannot carry our partition types; recut to the end state below; P1 next — the layout and the builder)
 note: image-builder scope (the OTA-lane package) DELIVERED 2026-08-25. RECUT 2026-09-22 (Block 1 B1.6 of the hardware fast track): the residual "flasher protocol" is answered — fastboot over the boot-ROM download mode IS the protocol (TASK-0327) — and the residual becomes the boot-ROM head partitions in `nx image`; factory reset stays residual; the nxboot-as-FIT-payload half is TASK-0260B
 owner: @reliability
 created: 2025-12-29
-updated: 2026-09-26
+updated: 2026-10-10
 depends-on: []
 follow-up-tasks:
   - TASK-0315
@@ -167,19 +167,25 @@ vendor pieces (`docs/board/measurements/2026-09-26-boot-medium/`):
   (EXIT=0, 12 QEMU lanes on the nine-partition layout): 21 loader boots with no skip, and
   `blkd: gpt ok (parts=7)` in all 19 boots that reach init. smp1 shows 430 and the SDHCI lane 429
   ok lines, as before.
-- **P3 — with TASK-0260B:** the board boots nxboot from the `uboot` slot — the serial ladder
-  (`nxboot: platform=…` → kernel banner → `init: ready`); which lookup the SPL used is recorded.
+- **P3 — with TASK-0260B: ✅ (run as TASK-0260B P2/P3, 2026-09-27/29; closed 2026-10-10).**
+  The board boots nxboot from the `uboot` slot: with the microSD out the boot ROM takes our boot0
+  from the eMMC (TASK-0260B P2 step 3), the SPL picks the FIT configuration by `description`
+  against `product_name=k1-x_deb1` and finds `opensbi`/`uboot` by partition name — the lookup is
+  recorded in `docs/board/measurements/2026-09-27-first-emmc-boot/README.md` — and the ladder runs
+  `nxboot: platform=…` → `nxboot: verify ok` → kernel → `init: ready` (TASK-0260B Done). The
+  channel is the boot trace on the eMMC (RFC-0107), not a serial console (TASK-0327B P0's recut).
 
 ### Red flags / decision points
 
 - **GREEN (P2): the SPL's stage lookup** — by name (the vendor SPL's configuration).
 - **GREEN (P2): the vehicle's raw writes** — raw partitions through its environment, 64-bit,
   boot0 included; written and read back exactly.
-- **YELLOW: boot0's header path is the vendor source's, not yet a boot** — whether the boot ROM
-  takes our boot0 when the microSD is absent (or the DIP switches select the eMMC) is P3's run;
-  the SD card stays the desk fallback.
-- **YELLOW: the board image's `data` is 128 MiB of 14.56 GiB** — enough for Block 1; growth is
-  a later provisioning step.
+- **GREEN (P3, TASK-0260B 2026-09-27): boot0's header path boots** — with the microSD out the
+  boot ROM takes our boot0 from the eMMC; the SD card stays the desk's way back to the stock
+  system.
+- **YELLOW (residual, not Block 1): the board image's `data` is 128 MiB of 14.56 GiB** — enough
+  for Block 1; growing it to the device is a provisioning step after Block 4 (with the first
+  user data that needs the space).
 - **GREEN: the eMMC is empty and the boot ROM tries the microSD first** — a wrong eMMC write
   never keeps the stock system from booting; download mode recovers.
 - **DECISION: `swap` is not reserved here** — disposable and last, M7 appends it with a measured
@@ -300,6 +306,10 @@ separate binaries), all deterministic:
    for TASK-0179's crown/downgrade lanes.
 
 ## Non-Goals (now residual, executed with TASK-0261 later)
+
+(2026-10-10: the flasher protocol below is answered by decision — fastboot over the boot-ROM
+download mode, TASK-0327; what stays residual is factory reset, TASK-0261, parked until the
+USB stack has gadget mode.)
 
 - **Flasher protocol** (`nx flash send|verify` ↔ flashd; framed magic+seq+len+
   crc32, HELLO/INFO?/WRITE/DONE/ABORT, resume via last-good seq) — unchanged

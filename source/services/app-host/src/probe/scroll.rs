@@ -10,10 +10,11 @@
 use super::*;
 
 /// Max packed WebRender band height (header+footer+content, surface rows) an
-/// app surface may keep RESIDENT in the shared gpud atlas (4000 rows minus the
-/// desktop base's 800 and headroom for a second window). Moved out of the probe
-/// module root (TASK-0077C P2): its only two readers are in this file, and a
-/// paint/atlas constant was never a module-root fact.
+/// app surface may keep RESIDENT in the shared atlas — well inside it beside the
+/// desktop base and a second window (`nexus_display_proto::layout::ATLAS_ROWS`:
+/// eight display planes at the layout maximum, 8640 rows at 1920x1080). Moved
+/// out of the probe module root (TASK-0077C P2): its only two readers are in
+/// this file, and a paint/atlas constant was never a module-root fact.
 const MAX_BAND_ROWS: u32 = 2000;
 
 impl super::DslApp {

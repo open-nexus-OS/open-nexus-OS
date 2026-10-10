@@ -108,7 +108,7 @@ impl super::DslApp {
     }
 
     /// Renders only rows `[y0, y1)` into the VMO — the damage-limited
-    /// path (hover washes re-render two box spans, not 1280×800). The
+    /// path (hover washes re-render two box spans, not the surface). The
     /// full render is `render()` = the whole surface span.
     pub(super) fn render_rows(&mut self, vmo: u32, y0: i32, y1: i32) -> bool {
         self.overlay_sync();

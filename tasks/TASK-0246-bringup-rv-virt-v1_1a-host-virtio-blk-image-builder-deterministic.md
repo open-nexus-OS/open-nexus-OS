@@ -1,9 +1,9 @@
 ---
 title: TASK-0246 Block driver on hardware: SDHCI/eMMC at `BlockDevice`, and `virtioblkd` becomes `blkd` — the one block owner with a backend chosen by the device it is granted
-status: In Progress (P5 done 2026-09-26 — the `ci-os-sdhci` lane in `test-all`: QEMU boots from `sdhci-pci` + `emmc` alone and runs the whole ladder over the SDHCI backend; next 0246B P2 — the board path, then P6 on the board after B1.6; 0246B P1 done 2026-09-25 — nxboot reads the boot disk through the SDHCI core; P4c done 2026-09-25 — socd in the core plane before the disk grant, on declared slots; blkd brings its node up (and on the K1 learns its `io` clock) before touching the controller; P4 complete; P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
+status: Done 2026-10-10 (Block 1 closure — P6 proven on the board: the loader reads the eMMC at HS52 on 8 bits, blkd drives it at HS400ES (`mode=hs400es bus=8 sectors=30535680`), the GPT and the system volume mount over it in every boot since 2026-09-27; ADR-0067 Accepted, RFC-0098 Phase 3 ✅, the storage page names the one block owner. Moved: the throughput line → TASK-0269B P0, policyd's dead block comment and an OS-cfg clippy gate → TRACK-REPO-HYGIENE-FOLLOWUPS §12/§13; was "In Progress (P5 done 2026-09-26 — the `ci-os-sdhci` lane in `test-all`: QEMU boots from `sdhci-pci` + `emmc` alone and runs the whole ladder over the SDHCI backend; next 0246B P2 — the board path, then P6 on the board after B1.6; 0246B P1 done 2026-09-25 — nxboot reads the boot disk through the SDHCI core; P4c done 2026-09-25 — socd in the core plane before the disk grant, on declared slots; blkd brings its node up (and on the K1 learns its `io` clock) before touching the controller; P4 complete; P4b done 2026-09-25 — the boot disk from `/chosen/nexus,boot-disk`, the grant by the disk's kind, the backend by the granted device; P4a done 2026-09-25 — `virtioblkd` became `blkd`, its partition gate host-proven, the old name gated; P3 done 2026-09-25 — the PCI ECAM device source, `init: devices from pci ok`; P2 done 2026-09-25 — the SDHCI core, host-proven against a behavioural controller + eMMC model; P1 done 2026-09-24 — a device's DMA reach is kernel truth, `vmo_runs` answers in its bus addresses; P0 done 2026-09-24 — measured on the board, upstream and in QEMU; recut to the end state below; was recut 2026-09-22 as Block 1 B1.5 of the hardware fast track, originally "RISC-V Bring-up v1.1a: virtio-blk frontend core + packagefs image builder", whose subjects shipped as TASK-0314 and TASK-0260)
 owner: @runtime @kernel-team
 created: 2025-12-29
-updated: 2026-09-26
+updated: 2026-10-10
 depends-on:
   - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
   - tasks/TASK-0245B-board-support-v1c-soc-clock-reset-pinmux-power-from-fdt.md
@@ -378,8 +378,20 @@ TASK-0248's decision).
   19 boots that reach init (18 virtio-blk, 1 sdhci-pci), `backend FAIL` in none. The pixel
   proof is 14.67 % non-black in both visible runs. `make doctor` exits 0 here; a stand-in QEMU
   without `emmc` fails it with exactly that one line.
-- **P6 Board** — after B1.6 boots our chain: eMMC at HS52, then HS400ES, GPT read,
-  `packagefs: mounted`; the markers join TASK-0327B's ladder. Since TASK-0246B P2 (2026-09-26)
+- **P6 Board — ✅ 2026-10-10 (Block 1 closure; first proven 2026-09-27 with TASK-0260B, every
+  board boot since).** After B1.6 boots our chain: eMMC at HS52, then HS400ES, GPT read, the
+  system volume mounted; the markers are rungs of TASK-0327B's ladder (`blkd: gpt ok`). Board
+  evidence (`docs/board/measurements/2026-10-05-usb-cycle1/board-boot-2026-10-06-usb-cycle20.txt`):
+  `nxboot: disk sdhci mode=hs52 bus=8` (the loader's PIO reader, line 5), `socd: bring-up
+  /soc/storage-bus/mmc@d4281000 ok (… writes=0)` (270), `blkd: backend ok
+  (kind=spacemit,k1-sdhci soc=ok record=/soc/storage-bus/mmc@d4281000 mode=hs400es bus=8
+  sectors=30535680)` (271), `blkd: gpt ok (parts=7)` (272), `packagefsd: mounted (system volume
+  slot=a bundles=24 files=120)` (474). The channel is the boot trace on the eMMC (RFC-0107) —
+  the desk has no serial adapter (TASK-0327B P0's recut), so "on the serial console" reads "in
+  the board's trace". The DLL YELLOW resolved: HS400ES runs, so the PHY DLL locks at the
+  operating clock as the core does it; the 52 MHz fallback was never needed. The PLIC bound
+  YELLOW was fixed with TASK-0260B (the bound from `riscv,ndev`). The throughput line was never
+  printed — TASK-0269B P0 attributes the system volume's stage with its bytes and duration. Since TASK-0246B P2 (2026-09-26)
   the board tree carries what the live tree measured: the eMMC host's HS400ES capability
   (`mmc-hs400-1_8v`, `mmc-hs400-enhanced-strobe`, so `blkd` aims for HS400ES there) and the
   `no-mmc` flags that keep the microSD slot and the SDIO host out of every stage.

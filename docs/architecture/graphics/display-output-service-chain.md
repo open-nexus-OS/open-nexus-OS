@@ -60,7 +60,11 @@ contains the required evidence.
   each present's damage cleaned out of the caches, the boot splash held until the first
   present after windowd's reveal and then switched to the display plane). A present's commands
   run through ONE CPU executor (`backend/cpu_frame.rs`) on every display that composites on the
-  CPU — the 2D scanout, the virgl path's per-command fallbacks, the controller.
+  CPU — the 2D scanout, the virgl path's per-command fallbacks, the controller. On the board
+  the mode is the CEA timing of the layout maximum, 1920x1080@60 (`gpud: dc scanout ok
+  (1920x1080@60 cea …)`), until the EDID read over DDC lands with the GPU lane (RFC-0098 C7 as
+  amended 2026-10-10); the pointer is the controller's own layer (`gpud: dc cursor layer ok`,
+  a move writes the layer's rectangle — no present per move, TASK-0251 step 3c).
 - `init-lite` owns capability routing and endpoint rights.
 
 ## GPU-only Display Architecture (RFC-0059 Phase 6)
@@ -97,6 +101,12 @@ Cursor-only movement is the latency-sensitive case. `inputd` forwards bounded
 visible-input updates to `windowd` via `OP_UPDATE_VISIBLE_STATE`, `windowd`
 recomposes only the damaged rows of the Mocu SVG cursor over the root scene,
 and the compositor produces a minimal present acknowledgement.
+
+`windowd` applies one staged sample per frame (`input_stage`): motion coalesces to
+the newest position, wheel notches sum, one-shot facts (a tiling chord, a capture key)
+survive a newer sample — and a primary-button edge ends the batch, so a click held for
+less than one busy frame keeps its press at its own position (RFC-0055's semantic-edge
+integrity; `tests/input_staging.rs`).
 
 The coordinate contract follows normal screen-space direction:
 

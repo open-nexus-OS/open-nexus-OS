@@ -25,6 +25,7 @@ RETIRED=(
   'set_plane_address;nexus_gfx::backend::dc::flip (address + stride + latch);TASK-0251 P2a step 2: the reveal switch'
   'open_live_devices route_inputd_blocking IngressScratch PolledDeviceFrame HIDRAWD_IDLE_PARK_NS;hidrawd'"'"'s sources (source::HidSource: virtio_source, usb_source) on one waitset, one batch path (batch::Batch);TASK-0253B: one ingress loop over sources, no re-probe timer'
   'text_input_bytes text_input_len MAX_TEXT_INPUT_BYTES push_text_char pop_text_char set_text_input clear_text_input apply_visible_text_input filter_layout_variant_index LIVE_FILTER_VARIANTS;none — typed text reaches apps through imed only (RFC-0075), never the visible state;input-live-protocol v2 (2026-10-08, the keystroke privacy rule): inputd copied every typed character into the state windowd and its observers read'
+  'GreeterConfig greeter_config parse_greeter_manifest validate_greeter DEFAULT_GREETER_TOML;the greeter app (userspace/apps/greeter) owns its look;TASK-0251 step 3b (2026-10-09, the 1080p size sweep): the windowd-era greeter appearance config (pixel values at 1280x800) had no reader'
 )
 # Dated records describe the tree as it was, so they keep the names it had.
 HISTORY=(tasks/ CHANGELOG.md docs/adr/ docs/rfcs/ docs/board/measurements/ scripts/check-retired-names.sh)

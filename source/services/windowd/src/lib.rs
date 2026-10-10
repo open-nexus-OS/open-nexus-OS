@@ -36,6 +36,8 @@ pub mod capture_gate;
 /// host-tested (`test_reject_*` tables), like `window_scene`.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod control_gate;
+/// Frame-aligned input staging: motion coalesces, a button edge never does (pure, host-tested).
+pub mod input_stage;
 /// TASK-0074 D4: the app-modal routing gate (pure, host-tested from `tests/`).
 pub mod modal_gate;
 /// TASK-0067: which pointer positions belong to the shell above every window (pure).

@@ -130,3 +130,32 @@ the tree (test-only helpers — the cleaner form is `#[cfg(test)]` on the item, 
 each needs per-item test-only verification), and 9 pre-existing `cfg_attr(not(all))`
 allows inside the kernel (protection zone). The warning gate keeps the tree honest
 regardless.
+
+## 12. policyd's dead pre-protocol handler (from TASK-0246 P4b, moved at the Block 1 closure 2026-10-10)
+
+`source/services/policyd/src/os_lite.rs` carries a block comment (lines 346–813, checked 2026-10-09)
+holding the handler from before `lite_protocol` — never compiled, 468 lines nobody reads. Delete it.
+
+## 13. An OS-cfg clippy gate (from TASK-0246 P4b, moved at the Block 1 closure 2026-10-10)
+
+No gate lints OS-only code: `just lint` is host-cfg clippy and `diag-os` is `cargo check`, so every
+service's `os_lite.rs` goes unlinted. An OS clippy run found a `forget` of a non-`Drop` value in
+`blkd/src/os_lite.rs` (TASK-0321), an unnecessary closure in `storage/src/remote_blk.rs`, and casts
+to the same type in `nexus-abi` under the RISC-V cfg. The package: an OS-cfg clippy recipe over the
+service slice (`config/os-services.txt`) with a baseline, ratcheted like `config/loc-baseline.txt`.
+
+## 14. The selftest client's profile resolution on the host (from TASK-0327B H0b, moved 2026-10-10)
+
+`Profile::resolve` (the machine from the tree's root `compatible`, `boot_cfg::Machine`, and
+`test_reject_board_ladder_on_qemu_without_knobs`) lives in the selftest client's `os_lite` code,
+whose tests are riscv-gated and never run on the host — the lanes are its only proof. Move the
+pure resolve logic beside `runtime_mode.rs` so its tests run in `just test-host`.
+
+## 15. Board tooling proofs that need hardware the desk does not have (from TASK-0327, moved 2026-10-10)
+
+TASK-0327's DoD asked for two runs nobody can make at the desk today: `make initial-setup` on a
+fresh box of each family (proven so far by `NEXUS_FORCE_FAMILY=… --print-packages` on all three
+and the full run on the Arch desk box — no per-family container smoke exists), and `just
+board-serial` showing the stock system's console (no USB-UART adapter; the board's proof channel
+is the boot trace on the eMMC, RFC-0107). Run both when a box or an adapter is at hand; neither
+blocks a lane.

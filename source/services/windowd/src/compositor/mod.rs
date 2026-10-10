@@ -252,9 +252,9 @@ fn dispatch_client_frame(
         let response = encode_visible_state_frame(runtime.visible_state());
         reply_route::answer(server, moved_cap.take(), &response, false, OP_GET_VISIBLE_STATE);
     } else if frame_has_op(frame, OP_UPDATE_VISIBLE_STATE) {
-        // Frame-aligned coalescing: STAGE the update (latest sample wins,
-        // wheel sums); applied ONCE per frame by apply_staged_input. Reply
-        // immediately so inputd is never blocked.
+        // Frame-aligned coalescing: STAGE the update (latest position wins,
+        // wheel sums, a button edge is applied at once); applied ONCE per frame
+        // by apply_staged_input. Reply immediately so inputd is never blocked.
         let status = match decode_update_visible_state(frame) {
             Some(state) => runtime.stage_input_state(state),
             None => STATUS_MALFORMED,
@@ -477,12 +477,14 @@ pub fn service_main_loop() -> Result<(), &'static str> {
                 Err(_) => {}
             }
         }
-        // 3. Frame-aligned input: apply the staged sample (latest cursor/buttons + summed
-        //    wheel) ONCE per frame, independent of how many raw events arrived.
+        // 3. Frame-aligned input: apply the staged sample (latest cursor + summed wheel; a
+        //    button edge was applied at its own position while draining) ONCE per frame,
+        //    independent of how many raw events arrived. Then the drag position a full client
+        //    queue refused (RFC-0095).
         let applied = runtime.apply_staged_input();
-        runtime.flush_drag(); // a drag position a full client queue refused (RFC-0095)
-                              // 4. Pushes: settings (RFC-0083), session state (P7-c) and launch replies — every one
-                              //    a waitset member, drained here, never polled on a cadence.
+        runtime.flush_drag();
+        // 4. Pushes: settings (RFC-0083), session state (P7-c) and launch replies — every one
+        //    a waitset member, drained here, never polled on a cadence.
         runtime.pump_region_watch();
         runtime.drain_settings_events();
         #[cfg(all(nexus_env = "os", target_os = "none"))]

@@ -541,12 +541,12 @@ pub(crate) struct DisplayServerRuntime {
     /// zero atlas rows). The boot layers reserved their bands from it in `new`.
     atlas_alloc: crate::atlas::AtlasAllocator,
     /// Frame-aligned input sample (Android `Choreographer`/`InputConsumer` model):
-    /// every queued `OP_UPDATE_VISIBLE_STATE` is STAGED here (latest cursor/buttons
-    /// win, wheel deltas sum) and the full state is applied ONCE per present-loop
-    /// iteration — not `apply_input_state`'d per raw event. Decouples per-frame
-    /// work from input rate, so a flood (hidrawd ~800/s) can't back up the cursor
-    /// command stream + hit-testing ("mouse vanished then everything caught up").
-    pending_input: Option<VisibleState>,
+    /// every queued `OP_UPDATE_VISIBLE_STATE` is STAGED here (the latest cursor wins, wheel
+    /// deltas sum, a button edge is never coalesced — `input_stage`) and applied ONCE per
+    /// present-loop iteration — not per raw event. Decouples per-frame work from input rate,
+    /// so a flood (hidrawd ~800/s) can't back up the cursor command stream + hit-testing
+    /// ("mouse vanished then everything caught up").
+    input_stage: crate::input_stage::InputStage,
     /// The DESKTOP surface's material-tagged glass regions (R1 seam): each
     /// composites as a frosted layer over the wallpaper in the Desktop arm.
     desktop_layers: [nexus_display_proto::client_surface::LayerDesc;
@@ -862,7 +862,7 @@ impl DisplayServerRuntime {
             capture: capture::CaptureState::new(),
             press_route: None,
             atlas_alloc: atlas,
-            pending_input: None,
+            input_stage: crate::input_stage::InputStage::new(),
             desktop_layers: [nexus_display_proto::client_surface::LayerDesc::default();
                 nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
             desktop_layer_count: 0,

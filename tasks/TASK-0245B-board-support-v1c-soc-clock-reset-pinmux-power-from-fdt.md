@@ -1,9 +1,9 @@
 ---
 title: TASK-0245B Board support v1c: `nexus-soc` + `socd` — clock gates, resets, pinmux and power domains from the FDT syscon nodes, ONE owner for every board driver
-status: In Progress (P0–P1 done, P2 built 2026-09-22 — socd, the soc protocol, policy and init grants; P3 display half ✅ 2026-09-30 on the board — power domain 7, hmclk at its demanded rate, the trimmed display node, socd's register words, `[PASS] board-headless` with the display rung; pads and the USB/GPU sets open; was "seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0245")
+status: Done 2026-10-10 (Block 1 closure — P0–P2 + P3's display and USB sets proven on the board: the eMMC, the display controller + encoder with their pads, the USB controller + both PHYs + the hub's power, all through socd; the literal gate carries the six syscon windows. Moved: the GPU set + the per-class floor → G1 (TASK-0329), the encoder's DDC pads → G (EDID, TASK-0216), the gmac pads → N2a (TASK-0248B), drive/schmitt tables + pins 98..103 → measured with their first consumer; was "In Progress (P0–P1 done, P2 built 2026-09-22 …)")
 owner: @runtime @kernel-team
 created: 2026-09-22
-updated: 2026-09-26
+updated: 2026-10-10
 depends-on:
   - tasks/TASK-0244-bringup-rv-virt-v1_0a-host-dtb-sbi-shim-deterministic.md
   - tasks/TASK-0245-bringup-rv-virt-v1_0b-os-kernel-uart-plic-timer-uartd-selftests.md
@@ -224,6 +224,36 @@ node up / this clock's rate".
   86..89, function 1, the DDC pair pulled up, the status pair down): the reset left function 0,
   socd set the stock words exactly, the encoder then saw the hot-plug. The tree's status-LED pad
   was wrong (pinctrl-single's pin index 96 at 0x180, not GPIO 96 at 0x1e0) — corrected.
+
+## Closure (2026-10-10, Block 1)
+
+Delivered and proven on the board (`docs/board/measurements/2026-10-05-usb-cycle1/board-boot-2026-10-06-usb-cycle20.txt`):
+
+- **Storage** (the first consumer, TASK-0246): `socd: bring-up /soc/storage-bus/mmc@d4281000 ok
+  (domains=1 resets=2 clocks=2 … writes=0)` — the stock state needed no write.
+- **Display set** (P3, 2026-09-30 + pads 2026-10-03): the controller (`writes=5`: domain 7, the
+  reset, `hmclk` at 491.52 MHz) and the encoder with its four pads (`pads=4`).
+- **USB set** (P3 via TASK-0328 U3, 2026-10-06): the controller (`resets=4 clocks=2 writes=6`),
+  both PHYs, the on-board hub's power pins (`pads=3 gpios=3`); `[PASS] board-visible` 46 rungs.
+- **The literal gate** (DoD): `scripts/check-no-platform-literals.sh` matches the six syscon windows
+  (APBC, MPMU, PLL, APMU, APBC2, pinctrl) in every crate but `socd`'s own; its self-test proves a
+  window outside the owner hits and the owner's does not.
+- **Docs** (DoD): RFC-0106 Phase 1 ✅, `docs/architecture/06-boot-and-bringup.md` (the SoC glue
+  paragraph), CHANGELOG.
+
+Moved, each with the consumer that needs it (no new work in this task):
+
+- **The GPU set** (its software-sequenced power domain, refused until measured) and **the
+  per-class floor** (`soc.glue.<class>` instead of the one `soc.glue` capability the glue
+  clients — blkd, gpud, xhcid and the selftest client's probe — hold today in
+  `policies/base.toml`; RFC-0106 Phase 2's open item) → **G1** (TASK-0329,
+  "Input from Block 1"), the next new socd consumer.
+- **The encoder's DDC pads** (`hdmi_0_grp`'s pad mapping) → **G** with EDID over DDC (TASK-0216,
+  "Input from Block 1").
+- **The gmac pad groups** (gmac0's are in the tree, gmac1's are not) → **N2a** (TASK-0248B, the
+  board's Ethernet MAC + PHY).
+- **Drive and schmitt tables per IO domain, pins 98..103** → measured with the first consumer
+  that needs them (`PlanError::PadUnknown` refuses them until then).
 
 ## Constraints / invariants
 

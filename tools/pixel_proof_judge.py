@@ -4,10 +4,11 @@
 #
 # CONTEXT: The verdict half of the display-truth proof (TASK-0324 P0): reads
 # the display-proof.json that tools/pixel_proof_on_marker.py wrote during the
-# run and decides. Contract: a `splash` and a `desktop` snapshot exist, the
-# desktop is non-black (>= MIN_NONBLACK_PCT of pixels above the black floor),
-# has no unpainted band (< MAX_FLAT_BAND_ROWS flat rows in a row) and differs from
-# the splash (mean abs diff >= MIN_DIFF). Exit 0 = proven.
+# run and decides. Contract: a `splash`, a `desktop` and a `settled` snapshot
+# exist; the desktop and the settled frame are non-black (>= MIN_NONBLACK_PCT of
+# pixels above the black floor) and have no unpainted band (< MAX_FLAT_BAND_ROWS
+# flat rows in a row); the desktop differs from the splash (mean abs diff >=
+# MIN_DIFF). Exit 0 = proven.
 #
 # Usage: pixel_proof_judge.py <display-proof.json>
 import json
@@ -38,7 +39,7 @@ def main() -> int:
     proof = json.load(open(sys.argv[1]))
     snaps = proof.get("snapshots", {})
     ok = True
-    for name in ("splash", "desktop"):
+    for name in ("splash", "desktop", "settled"):
         if name not in snaps or "error" in snaps[name]:
             why = snaps.get(name, {}).get("error", "marker never seen")
             print(f"[error] PIXEL PROOF: no '{name}' snapshot ({why})", file=sys.stderr)
@@ -46,25 +47,31 @@ def main() -> int:
     if not ok:
         return 1
     d = snaps["desktop"]
-    if d["nonblack_pct"] < MIN_NONBLACK_PCT or d["mean_luma"] < MIN_MEAN_LUMA:
-        # Every metric, every time: a verdict that hides the other numbers costs the next
-        # reader a trip into the JSON (diff was 31.67 on the run that motivated this).
-        print(f"[error] PIXEL PROOF: desktop is black ({d['nonblack_pct']}% non-black, "
-              f"mean luma {d['mean_luma']}, diff vs splash {d.get('diff_vs_splash')}) — "
-              f"{d['file']}", file=sys.stderr)
-        ok = False
-    if d.get("flat_band_rows", 0) >= MAX_FLAT_BAND_ROWS:
-        print(f"[error] PIXEL PROOF: desktop has an unpainted band of {d['flat_band_rows']} "
-              f"flat rows — {d['file']}", file=sys.stderr)
-        ok = False
+    # The reveal AND the settled frame: a frame that stays (the greeter with its clock,
+    # minutes in) can lose rows the reveal still had (TASK-0251 finding 1).
+    for name in ("desktop", "settled"):
+        s = snaps[name]
+        if s["nonblack_pct"] < MIN_NONBLACK_PCT or s["mean_luma"] < MIN_MEAN_LUMA:
+            # Every metric, every time: a verdict that hides the other numbers costs the next
+            # reader a trip into the JSON (diff was 31.67 on the run that motivated this).
+            print(f"[error] PIXEL PROOF: {name} is black ({s['nonblack_pct']}% non-black, "
+                  f"mean luma {s['mean_luma']}, diff vs splash {s.get('diff_vs_splash')}) — "
+                  f"{s['file']}", file=sys.stderr)
+            ok = False
+        if s.get("flat_band_rows", 0) >= MAX_FLAT_BAND_ROWS:
+            print(f"[error] PIXEL PROOF: {name} has an unpainted band of "
+                  f"{s['flat_band_rows']} flat rows — {s['file']}", file=sys.stderr)
+            ok = False
     if d.get("diff_vs_splash", 255.0) < MIN_DIFF:
         print(f"[error] PIXEL PROOF: desktop snapshot is still the splash "
               f"(diff {d.get('diff_vs_splash')}) — {d['file']}", file=sys.stderr)
         ok = False
     if ok:
+        s = snaps["settled"]
         print(f"[info] PIXEL PROOF ok: desktop {d['nonblack_pct']}% non-black, luma "
               f"{d['mean_luma']}, diff vs splash {d.get('diff_vs_splash')}, flat band "
-              f"{d.get('flat_band_rows')} rows — {d['file']}")
+              f"{d.get('flat_band_rows')} rows; settled {s['nonblack_pct']}% non-black, flat "
+              f"band {s.get('flat_band_rows')} rows — {d['file']}")
     return 0 if ok else 1
 
 

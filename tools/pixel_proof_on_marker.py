@@ -12,7 +12,10 @@
 # proof AND interactive boots; `gpud: scanout ok` folds away in interactive
 # boots) and `desktop` at `systemui: first frame visible` (the compositor's
 # claim). The desktop must be non-black AND differ from the splash: markers
-# can be green while the screen is black or still the splash.
+# can be green while the screen is black or still the splash. A third,
+# `settled`, at `SELFTEST: ota stage ok` — minutes into the ladder, long after the
+# reveal and well before the lane ends: the greeter as it stays, with its clock
+# (TASK-0251 finding 1: a band a settled frame showed and the reveal never did).
 # Wait-loop doctrine: hard deadline, exit on socket loss, never a babysitter.
 #
 # Usage: pixel_proof_on_marker.py <vnc-port> <uart-log> <out-dir> <timeout-s>
@@ -30,6 +33,7 @@ import rfb_grab  # noqa: E402
 SNAPSHOTS = [
     ("splash", "gpud: completion wait"),
     ("desktop", "systemui: first frame visible"),
+    ("settled", "SELFTEST: ota stage ok"),
 ]
 # Let the GL flip / host redraw land before sampling the scanout.
 SETTLE_S = 0.4

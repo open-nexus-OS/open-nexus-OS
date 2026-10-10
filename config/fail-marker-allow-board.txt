@@ -6,8 +6,9 @@
 #
 # The board has no entropy source yet (`init: rng plane none`: no virtio-rng, the SoC's TRNG
 # has no driver) — keystored gets no key material, so every authenticated statefs put and the
-# tamper/rollback denials built on it fail. Tracked: tasks/TASK-0327B P4 (H0) follow-up
-# "rngd on the board" (measured 2026-09-29, board-boot-2026-09-29T12-28-44).
+# tamper/rollback denials built on it fail. Found by tasks/TASK-0327B P4 (H0), measured
+# 2026-09-29 (board-boot-2026-09-29T12-28-44). Tracked: the SoC's TRNG as rngd's board source,
+# lane N3 in tasks/IMPLEMENTATION-ORDER.md ("input from Block 1").
 SELFTEST: rng entropy FAIL
 SELFTEST: device key pubkey FAIL
 SELFTEST: device key persist FAIL
@@ -17,13 +18,17 @@ SELFTEST: statefs rollback deny FAIL
 SELFTEST: statefs enc roundtrip FAIL
 #
 # The board's RTC (`rtc@d4010000`, `spacemit,k1-rtc`) has no driver yet, so the wall-clock
-# proof has no source. Tracked: tasks/TASK-0327B P4 (H0) follow-up "rtc on the board"
-# (measured 2026-09-29, board--2026-09-29T18-26-58 — whole once the console was line-atomic;
-# torn and invisible to the gate before).
+# proof has no source. Found by tasks/TASK-0327B P4 (H0), measured 2026-09-29
+# (board--2026-09-29T18-26-58 — whole once the console was line-atomic; torn and invisible to
+# the gate before). Tracked: the board's RTC as timed's second source, lane N4 in
+# tasks/IMPLEMENTATION-ORDER.md ("input from Block 1").
 SELFTEST: walltime rtc FAIL
 #
-# app-host's frame arena outgrows a generation at 1920x1080 while the operator types (the
-# board's mode; the arena's generation was sized in the 1280x800 era). Tracked:
-# tasks/TASK-0251 P2a step 3 "Open findings" 2 (hard-coded 1280x800-era sizes) — measured
-# 2026-10-06, board-boot-2026-10-06-usb-cycle14/16 (TASK-0328 U3).
+# app-host's frame arena: the CHAT's first frame (its first QuerySpec page, 60 rows) needs
+# 270 KB of scene and 419 KB of layout — more than the static arena's 256 KiB halves — on
+# every display, 1280x800 as much as 1920x1080 (measured 2026-10-09 on the host,
+# tests/dsl_apps_conformance/tests/frame_arena_budget.rs; on the board every boot that opened
+# the chat spilled, none other did). Not a size sweep item and no interim bump: the arena's end
+# form is the memory lane's (M2 demand paging + M5 purgeable — tasks/TASK-0290 "Input from
+# Block 1"), the frame's cost the DSL/layout lane's (tasks/TASK-0251 finding 8, pretext).
 SELFTEST: frame arena spill FAIL

@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-10 (Block 1 closed: the first picture on the board)
+
+- **Block 1 of the hardware fast track is closed**: the desk's RISC-V board boots our chain from
+  its eMMC (boot ROM → vendor SPL → OpenSBI → nxboot → the kernel), brings its devices up through
+  one SoC-glue owner and shows the desktop at 1920x1080@60 on HDMI, driven by a USB keyboard and
+  mouse. TASK-0245B, 0246, 0246B, 0251, 0260, 0327 and 0327B are Done; RFC-0098 (the board
+  contract) is Done, ADR-0067 (one block owner) Accepted; RFC-0106 (SoC glue) keeps its GPU set
+  and the per-class floor for G1. The gate boot ran the `board-visible` ladder 46/46 with six of
+  seven operator rungs — the clipboard rung's card view was not shown on that boot and was accepted
+  by the operator from its 2026-10-08 confirmation, without an after-the-fact ack (TASK-0251
+  Closure); `just test-all` EXIT=0 (71 PASS).
+- **The 1080p size sweep** (TASK-0251 step 3b, pulled forward): the windowd-era greeter
+  appearance config (pixel values at 1280x800, no reader) deleted and its names retired by gate;
+  the display-SSOT gate's `1280, 800` rule covers app-host; the pixel proof takes a third,
+  settled snapshot and judges it like the desktop's (the greeter's flat band is gone at 1080p on
+  the GL and the CPU path); `frame_arena_budget.rs` records what one frame of each real app
+  costs per arena region at the board's and the lanes' window sizes.
+- **The platform-literal gate covers the SoC glue**: the six syscon windows (APBC, MPMU, PLL,
+  APMU, APBC2, pinctrl) are matched in every crate but socd's own.
+- **Docs**: the SoC glue paragraph in `docs/architecture/06-boot-and-bringup.md`, the one block
+  owner on the storage page, the board's mode and pointer layer in the display chain, README's
+  "real hardware: yes" without the old QEMU-only sentence.
+- **Moved, each with its owner**: EDID over DDC, the CPU layer composite, tearing, typing
+  flicker, the pointer over a hover field and the entry animation's first second → the GPU lane
+  (TASK-0216 "Input from Block 1"; RFC-0098 C7 amended — the scanout line says `cea` until
+  then); the GPU power set and socd's per-class floor → G1 (TASK-0329); the chat frame's layout
+  cost → TASK-0145B (pretext completion), the frame arena's end form → M2/M5 (TASK-0290); the
+  board's TRNG → N3, its RTC → N4; the eMMC throughput line → TASK-0269B; tooling residuals →
+  TRACK-REPO-HYGIENE-FOLLOWUPS §12–§15. Not touched: the SMP start hang (TASK-0330, recorded
+  YELLOW — SMP is rebuilt in S).
+
+### Fixed - 2026-10-10 (found while closing Block 1)
+
+- **windowd lost a click held shorter than one busy pass**: input samples are staged per frame
+  and the newest won — a press and its release drained in the same IPC batch folded into the
+  release, so windowd never saw the press (and motion queued behind a press moved it). A button
+  edge now ends the batch (`input_stage`, RFC-0055's semantic-edge integrity: motion coalesces,
+  a click stays individually observable). Measured on `usb-visible`: 15 lost first clicks in 10
+  runs before, 0 of 12 after; host — `tests/input_staging.rs` (7 tests; 4 fail against the old
+  staging).
+
 ### Added - 2026-10-09 (TASK-0068: screenshots — one readback, a frozen frame, the shell's tool)
 
 - **The screenshot tool** (RFC-0095, ADR-0071): Print freezes the screen and the shell opens

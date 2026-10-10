@@ -38,6 +38,15 @@ measurement that contradicted the obvious explanation (the reveal work, the sche
 double-run, the display-mode race), and at least one round was lost to optimising a stage that
 was not the cost.
 
+Input from Block 1 (2026-10-10, the TASK-0246 closure): the board's storage throughput — the eMMC
+at HS400ES behind `blkd` — was never printed ("with the throughput in the log", TASK-0246's end
+state). On the board the system volume is one of the stages P0 attributes; P0's per-stage line
+carries the bytes the stage read and its duration there, so the throughput is a quotient of the
+attribution, not a second instrument. And TASK-0251 finding 4's rest: on the board the screen
+stays black from power-on until gpud's splash — the kernel's part is 1.7 s since the LED ladder
+became a flag, the userspace bring-up up to gpud's first frame is unmeasured (the trace has no
+clock after the kernel's last milestone). P0's attribution covers that span on the board too.
+
 ## Goal (end system)
 
 Time from power-on to a first frame the user would accept is a measured budget with a number,

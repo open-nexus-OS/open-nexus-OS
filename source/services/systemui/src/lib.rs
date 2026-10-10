@@ -35,7 +35,6 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 mod frame;
-mod greeter;
 mod ime_overlay;
 mod preset;
 mod product;
@@ -47,7 +46,6 @@ pub use frame::{
     compose_first_frame, decode_qoi_row, frame_checksum, wallpaper_decoded_size, wallpaper_rle_for,
     wallpaper_source_is_jpeg, FirstFrame,
 };
-pub use greeter::{greeter_config, parse_greeter_manifest, validate_greeter, GreeterConfig};
 pub use ime_overlay::ImeOverlayState;
 pub use preset::{
     parse_preset_manifest, size_class_for_width, validate_display_mode, validate_preset,

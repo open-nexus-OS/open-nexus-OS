@@ -16,11 +16,13 @@ use super::*;
 
 impl DisplayServerRuntime {
     /// STAGE one upstream input update into the frame-aligned sample instead of
-    /// applying it now. The latest cursor/button/text snapshot wins (we only render
-    /// the newest position); wheel deltas SUM (no scroll notch is lost). Replies
-    /// can be sent immediately by the caller — staging always "accepts". This is
-    /// the consumer half of the Android frame-aligned input model.
-    pub(crate) fn stage_input_state(&mut self, mut state: VisibleState) -> u8 {
+    /// applying it now (`input_stage`): the latest cursor wins (we only render the
+    /// newest position), wheel deltas SUM (no scroll notch is lost), and a button
+    /// edge ends the batch — the staged press or release is applied here, at its own
+    /// position, before the newer sample is staged. Replies can be sent immediately by
+    /// the caller — staging always "accepts". This is the consumer half of the
+    /// frame-aligned input model.
+    pub(crate) fn stage_input_state(&mut self, state: VisibleState) -> u8 {
         if state.wheel_delta_y != 0 && self.wheel_stage_count < 40 {
             self.wheel_stage_count += 1;
             let _ = debug_println(&alloc::format!(
@@ -29,19 +31,9 @@ impl DisplayServerRuntime {
                 state.wheel_delta_y
             ));
         }
-        if let Some(prev) = self.pending_input.take() {
-            // Carry the accumulated wheel forward (sum), keep the newest of all else — except
-            // the one-shot facts (a tiling chord, a capture key): a newer sample without one
-            // (a pointer move in the same frame) must not erase it.
-            state.wheel_delta_y = state.wheel_delta_y.saturating_add(prev.wheel_delta_y);
-            if state.wm_chord == 0 {
-                state.wm_chord = prev.wm_chord;
-            }
-            if state.capture == 0 {
-                state.capture = prev.capture;
-            }
+        if let Some(edge) = self.input_stage.stage(state) {
+            self.apply_input_state(edge);
         }
-        self.pending_input = Some(state);
         STATUS_OK
     }
 
@@ -50,7 +42,7 @@ impl DisplayServerRuntime {
     /// This collapses N raw events/frame into a single hit-test + hover + cursor
     /// move + scroll — the work is bounded by frame rate, not input rate.
     pub(crate) fn apply_staged_input(&mut self) -> bool {
-        match self.pending_input.take() {
+        match self.input_stage.take() {
             Some(state) => {
                 self.apply_input_state(state);
                 true

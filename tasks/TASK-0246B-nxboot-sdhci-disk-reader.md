@@ -1,9 +1,9 @@
 ---
 title: TASK-0246B nxboot reads the boot medium through the same SDHCI core as `blkd` — on the board, and behind QEMU's PCI host — and names it in `/chosen`
-status: In Progress (P2 done 2026-09-26 — the board path: the SD hosts' measured roles in the board tree, a `no-mmc` host no disk kind, `nexus-soc` bring-up and the `io` clock in the loader, host-proven; the board proves it in TASK-0246 P6 / TASK-0260B; P1 done 2026-09-25 — the PIO write path, nxboot's disk rule with the SDHCI reader, the PCI plan in nxboot, the record; QEMU boots from `sdhci-pci` end to end, and since TASK-0246 P5 (2026-09-26) the `ci-os-sdhci` lane in `test-all` boots through the reader; P2 next — the board path; recut 2026-09-25 to the end state below after TASK-0246 P2–P4c; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0246, recut 2026-09-24 at TASK-0246 P0)
+status: Done 2026-10-10 (Block 1 closure — the board line of the DoD holds on every board boot since 2026-09-27: `nxboot: platform=bananapi,bpi-f3 …`, `nxboot: disk sdhci mode=hs52 bus=8`, `nxboot: fdt ok (… slot=a disk=/soc/storage-bus/mmc@d4281000)`, then `nxboot: jump` — board cycle 20, docs/board/measurements/2026-10-05-usb-cycle1/board-boot-2026-10-06-usb-cycle20.txt lines 1–12; ADR-0066 and ADR-0067 Accepted; was "In Progress (P2 done 2026-09-26 — the board path: the SD hosts' measured roles in the board tree, a `no-mmc` host no disk kind, `nexus-soc` bring-up and the `io` clock in the loader, host-proven; the board proves it in TASK-0246 P6 / TASK-0260B; P1 done 2026-09-25 — the PIO write path, nxboot's disk rule with the SDHCI reader, the PCI plan in nxboot, the record; QEMU boots from `sdhci-pci` end to end, and since TASK-0246 P5 (2026-09-26) the `ci-os-sdhci` lane in `test-all` boots through the reader; P2 next — the board path; recut 2026-09-25 to the end state below after TASK-0246 P2–P4c; seeded 2026-09-22 at Block 1 P0 as the B part of TASK-0246, recut 2026-09-24 at TASK-0246 P0)
 owner: @runtime @reliability
 created: 2026-09-22
-updated: 2026-09-26
+updated: 2026-10-10
 depends-on:
   - tasks/TASK-0246-bringup-rv-virt-v1_1a-host-virtio-blk-image-builder-deterministic.md (P2 SDHCI core, P3 PCI planner, P4b boot-disk record)
 follow-up-tasks:

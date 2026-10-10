@@ -57,6 +57,22 @@ latency question found while building it belongs here instead of there.
   `zero_alloc` exists in the tree only for blur (`userspace/ui/effects/src/blur.rs`). A claim
   with no gate is exactly the class this project has spent the last week deleting.
 
+## Input from Block 1 (2026-10-09) — the cost of a structural change (TASK-0251 finding 8)
+
+Measured with a counting allocator over the REAL apps
+(`tests/dsl_apps_conformance/tests/frame_arena_budget.rs`, a recorded budget per app): the chat's
+first page (60 of 240 rows through QuerySpec — the lazy loading works) costs ONE frame 270 KB of
+scene and 419 KB of layout (412 boxes, 135 text runs), the same at 960x620 and 1440x814. The
+cause is the pretext contract half wired (RFC-0057): text widths come from baked advances, but
+app-host builds a fresh `LayoutEngine` per layout and lays out every box, `nexus-shape`'s
+prepared-text caches (paragraph + line layout) are not connected, and nothing re-lays out only
+the changed subtree — the scroll band makes scrolling free and every structural change pay the
+whole band. The reduction this ledger's P2+ owns once P0 attributes it: persistent prepared
+text across frames and incremental relayout of the changed subtree (a resize or a new row
+re-evaluates, it does not re-measure — the operator's standing requirement for layout). The
+budget test above is the regression signal; the frame arena's size is the memory lane's
+(M2/M5, TASK-0290 "Input from Block 1"), not this ledger's.
+
 ## Goal (end system)
 
 Touching a control produces a frame inside a budget that is a NUMBER, measured on a

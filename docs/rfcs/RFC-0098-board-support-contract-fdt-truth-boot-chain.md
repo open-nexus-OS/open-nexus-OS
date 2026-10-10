@@ -1,9 +1,9 @@
 # RFC-0098: Board support contract — the FDT is the one hardware truth, and the boot chain on hardware
 
-- Status: In Progress (Phase 0 ✅ 2026-09-22; seeded 2026-09-22, Block 1 P0 of the hardware fast track)
+- Status: Done 2026-10-10 (Phases 0–5 proven on QEMU and on the board — Block 1 of the hardware fast track; the EDID read over DDC moved to the GPU lane by C7's 2026-10-10 amendment; seeded 2026-09-22, Block 1 P0)
 - Owners: @kernel-team / @runtime / @tools-team
 - Created: 2026-09-22
-- Last Updated: 2026-09-25 (C3 PCI ECAM source Implemented — TASK-0246 P3)
+- Last Updated: 2026-10-10 (Block 1 closure: Phases 1, 3, 4, 5 ✅; C7 amended — the mode from the CEA timing until EDID lands with G)
 - Links:
   - Tasks (execution + proof, in lane order): `tasks/TASK-0244-*` (FDT library),
     `tasks/TASK-0245-*` (kernel platform from the FDT), `tasks/TASK-0245B-*` (SoC clock/reset/
@@ -23,10 +23,10 @@
 ## Status at a Glance
 
 - **Phase 0 (FDT library, `nexus-fdt`, nxboot owns `/chosen`, the kernel reads the tree)**: ✅ 2026-09-22 — TASK-0244
-- **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: 🟨 — TASK-0245 ✅ 2026-09-22 (QEMU: every profile prints the platform, image and discovery markers; the board's serial proof arrives with TASK-0327B once B1.6 boots it); TASK-0245B (SoC clocks/resets/pinmux/power) open
+- **Phase 1 (kernel platform from the FDT, PIE, init discovery, `/chosen`)**: ✅ 2026-10-10 — TASK-0245 ✅ 2026-09-22 (QEMU: every profile prints the platform, image and discovery markers; on the board the same markers are rungs of TASK-0327B's ladder, read from the boot trace — `KSELFTEST: platform from fdt ok`, `[PASS] board-headless` 2026-09-29); TASK-0245B (SoC clocks/resets/pinmux/power) Done 2026-10-09 — storage, display and USB through socd on the board, the GPU set and the per-class floor with G1 (RFC-0106)
 - **Phase 2 (physical memory from the FDT, page-frame allocator)**: ✅ 2026-09-24 — TASK-0286 (M1): high half + direct map, frame pool, page-backed VMOs, `vmo_runs`, coherence in the device capability, user Zicbom, `DmaBuffer`, `mm_stats` (QEMU: every profile; the board's serial proof arrives with TASK-0327B once B1.6 boots it)
-- **Phase 3 (one block owner, SDHCI, nxboot reader)**: 🟨 — TASK-0246 P0 (measured) + P1 (a device's DMA reach in its capability; allocation within reach; `vmo_runs` in bus addresses) ✅ 2026-09-24; P2 (the SDHCI core, host-proven) ✅ 2026-09-25; P3 (the PCI ECAM device source) ✅ 2026-09-25; P4–P6 and TASK-0246B open
-- **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: 🟨 — TASK-0260 P0–P2 ✅
+- **Phase 3 (one block owner, SDHCI, nxboot reader)**: ✅ 2026-10-10 — TASK-0246 P0 (measured) + P1 (a device's DMA reach in its capability; allocation within reach; `vmo_runs` in bus addresses) ✅ 2026-09-24; P2 (the SDHCI core, host-proven) ✅ 2026-09-25; P3 (the PCI ECAM device source) ✅ 2026-09-25; P4 (`blkd`, the boot disk from `/chosen`, socd first) ✅ 2026-09-25; P5 (`ci-os-sdhci` in `test-all`) ✅ 2026-09-26; TASK-0246B (nxboot's SDHCI reader) Done; **P6 ✅ on the board** (TASK-0246 Done 2026-10-09): the loader reads the eMMC at HS52, `blkd` drives it at HS400ES, the GPT and the system volume mount over it in every board boot since 2026-09-27
+- **Phase 4 (boot chain: image head, fastboot, nxboot as FIT payload)**: ✅ 2026-10-10 (TASK-0260 and TASK-0260B Done; ADR-0066 Accepted) — TASK-0260 P0–P2 ✅
   2026-09-26 (our disk on the eMMC, written and read back exactly); TASK-0260B P0–P2 ✅
   2026-09-27 (the FIT; the board boots its eMMC through the vendor SPL and OpenSBI into nxboot,
   which verifies slot A and jumps to the kernel — read from the board's boot trace, RFC-0107);
@@ -37,7 +37,7 @@
   QEMU: the timer re-armed through SBI while armed through `stimecmp`; `MAX_IRQ` as virt's 95;
   device blocks starting inside a page refused; no `sfence.vma` after a PTE change. Every
   bound now comes from the tree (`plic_ndev`, the timebase, the harts, the device windows).
-- **Phase 5 (display controller scanout, mode authority = gpud)**: 🟨 — mode authority ✅
+- **Phase 5 (display controller scanout, mode authority = gpud)**: ✅ 2026-10-10 (TASK-0251 Done: the desktop at 1920x1080@60 on the board with USB input, the 1080p size sweep; the gate boot ran the `board-visible` ladder 46/46 with six of seven operator rungs, the clipboard rung accepted by the operator from its 2026-10-08 confirmation — TASK-0251 Closure; the EDID read and the CPU path's layer composite moved to the GPU lane — C7's 2026-10-09 amendment, TASK-0216 "Input from Block 1") — mode authority ✅
   2026-09-30 (TASK-0251 P1, C7): gpud decides the mode from the lane's request in the tree and
   the device's capability, owns the framebuffer and grants both to windowd; syscall 50 is
   deleted. The controller's scanout on the board: TASK-0251 P2/P3 (host half TASK-0250 P1/P2 ✅;
@@ -99,8 +99,9 @@ hardware truth**, and everything that used to be a literal becomes a value read 
    payload, U-Boot is only the host-side flashing vehicle.
 4. One block owner with a backend the FDT selects (ADR-0067); the GPT plane and every consumer
    above it are untouched.
-5. The display mode has one authority — gpud, from EDID on the board and from the virtio
-   display-info on QEMU — and the fw_cfg syscall path is deleted.
+5. The display mode has one authority — gpud, from EDID on the board (the CEA timing of the
+   layout maximum until EDID lands with the GPU lane, C7 as amended 2026-10-10) and from the
+   virtio display-info on QEMU — and the fw_cfg syscall path is deleted.
 6. Every phase proves itself on QEMU first and then on the board with the SAME markers.
 
 ## Non-Goals
@@ -495,6 +496,20 @@ is deleted; RFC-0074's authority statement is amended to point here.
   moved; the boot splash on the monitor is an operator ack (`board-visual: splash`). windowd's
   desktop on this path is step 2; until then gpud refuses the framebuffer request by name.
 
+**Amended 2026-10-10 (Block 1 closure — EDID moves to the GPU lane):**
+
+- **The mode on the board** stays the decision above, driven with the standard CEA timing:
+  1920x1080@60 (VIC 16), the layout maximum, which the desk monitor's EDID offers (measured
+  2026-09-29 on the stock system, TASK-0251 D0). The scanout line names its source honestly —
+  `gpud: dc scanout ok (1920x1080@60 cea …)` — and Block 1's gate (D5) is that line plus the
+  desktop on the monitor, judged by the `board-visible` profile (closed 2026-10-10: the ladder
+  46/46, six of seven operator rungs on the gate boot, the clipboard rung accepted by the operator
+  from its 2026-10-08 confirmation — TASK-0251 Closure).
+- **EDID over DDC** (the encoder's DDC pads through socd, the read, `pick_mode` from
+  `nexus_gfx::backend::dc`, host-proven since TASK-0250) lands with the GPU lane's display chain
+  (TASK-0216, "Input from Block 1"); its line is `gpud: dc scanout ok (WxH@Hz edid …)`. Until
+  then a monitor without 1080p60 is not supported on the board — stated, not guessed.
+
 ### C8 — Proof markers (contracts; registered in the proof manifest)
 
 | Marker | Proves | Phase |
@@ -507,7 +522,7 @@ is deleted; RFC-0074's authority statement is amended to point here.
 | `init: devices from pci ok (hosts=… functions=… sd=…)` | every ECAM host of the tree planned by the shared planner; the SD host's BAR decodes where it was placed | 3 |
 | `blkd: backend=<compatible> …` | the block owner bound the FDT-selected device | 3 |
 | `nxboot: platform=<root compatible> tree=0x<a1> size=<bytes>` | nxboot ran — on the board as the FIT payload — and parsed the tree that reached `a1`; the line says where that tree lies (R1). The loader's first line, as soon as it has a console, so it is also the first line of the boot trace (RFC-0107). (Amended 2026-09-27, TASK-0260B: the slot, first planned on this line, is only known after the BSB and is on `nxboot: jump slot=<s>`.) | 4 |
-| `gpud: dc scanout ok (WxH@Hz edid)` + `windowd: desktop revealed` | the first picture | 5 |
+| `gpud: dc scanout ok (WxH@Hz cea …)` + `windowd: desktop revealed` | the first picture — `edid` in place of `cea` once EDID lands with the GPU lane (C7, amended 2026-10-10) | 5 |
 
 Gate scripts: `scripts/check-no-platform-literals.sh` (Phase 1), `scripts/check-no-fixed-windows.sh`
 (Phase 2). Board lane: `TASK-0327B`.
