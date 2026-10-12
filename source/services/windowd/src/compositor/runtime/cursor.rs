@@ -19,6 +19,9 @@ use super::*;
 /// shapes); `CURSOR_RING_FRAMES.len()` consecutive slots follow. Fits
 /// `nexus_display_proto::CURSOR_SHAPE_SLOTS` (16).
 const RING_SLOT_BASE: u8 = 6;
+/// Replies kept while the first cursor upload waits for its answer (a present's ack or a
+/// control ack each); past this bound the drain handles the answer later.
+const UPLOAD_EARLY_REPLIES: usize = 16;
 /// Ring rotation step (~90ms → 8 frames ≈ 0.72s per revolution).
 const CURSOR_RING_STEP_NS: u64 = 90_000_000;
 /// Wait-ring failsafe: give up on a launch that never surfaces.
@@ -128,8 +131,11 @@ impl DisplayServerRuntime {
         if !selected {
             self.upload_cursor_bitmap_to_gpud();
         }
-        // Repaint the pointer region so the SW/GL cursor shows the new shape
-        // without waiting for the next move.
+        // The controller's layer shows the new sprite by itself; the SW/GL cursor needs its
+        // region repainted without waiting for the next move.
+        if self.hw_cursor_active {
+            return;
+        }
         crate::compositor::frame_causes::shape();
         self.queue_cursor_damage(
             self.state.cursor_x,
@@ -278,6 +284,9 @@ impl DisplayServerRuntime {
             self.cursor_ring_frame = step;
             let _ =
                 self.send_gpud_fire_forget(&[GPU_SELECT_CURSOR_SHAPE_OP, RING_SLOT_BASE + step]);
+            if self.hw_cursor_active {
+                return true;
+            }
             self.queue_cursor_damage(
                 self.state.cursor_x,
                 self.state.cursor_y,
@@ -306,43 +315,37 @@ impl DisplayServerRuntime {
         frame[9..13].copy_from_slice(&(hot_x.max(0) as u32).to_le_bytes());
         frame[13..17].copy_from_slice(&(hot_y.max(0) as u32).to_le_bytes());
         frame[17..total].copy_from_slice(&bitmap[..bgra_len]);
-        // Blocking round-trip. The upload reply is magic-tagged (0xC0DE_000x);
-        // any other reply seen while waiting is an in-flight present ack (e.g.
-        // the handoff present) and is accounted as such instead of being
-        // mistaken for the cursor reply.
+        // The answer (magic-tagged, RFC-0093 §5) is waited for here, bounded: every other
+        // reply that arrives first is kept and handled as what it is (a present's ack is
+        // credited by seq, never taken for the pointer's), and past the bound the answer is
+        // handled by the drain like any reply (`on_cursor_reply`). Only this first upload
+        // waits; later shape changes are 2-byte selects against gpud's cache.
+        // (`windowd: cursor upload failed` on the board came from a cap of four early replies.)
         self.drain_gpud_replies();
         let Some(client) = self.gpud_client.as_ref() else {
             return;
         };
         if client.send(&frame, Wait::Blocking).is_err() {
+            let _ = debug_println("windowd: cursor upload send failed");
             return;
         }
-        // Gate 2: cursor reply magics from the shared wire SSOT.
-        const CURSOR_REPLY_HW: u32 = nexus_display_proto::CURSOR_REPLY_HW;
-        const CURSOR_REPLY_SW: u32 = nexus_display_proto::CURSOR_REPLY_SW;
-        // virgl GL scanout: gpud draws a procedural cursor at its pointer pos —
-        // we must ship moves + a present, not a software BlendCursor.
-        const CURSOR_REPLY_GL: u32 = nexus_display_proto::CURSOR_REPLY_GL;
-        let mut cursor_flags: Option<u32> = None;
-        // Present acks that arrive before the cursor reply are REPLAYED through the one ack
-        // interpreter once the client borrow ends (RFC-0093 §5 — acks are matched by seq,
-        // never counted).
-        let mut early: [([u8; 8], usize); 4] = [([0; 8], 0); 4];
+        let mut early: [([u8; 8], usize); UPLOAD_EARLY_REPLIES] =
+            [([0; 8], 0); UPLOAD_EARLY_REPLIES];
         let mut early_n = 0usize;
+        let mut flags: Option<u32> = None;
         let mut reply = [0u8; 8];
-        for _ in 0..4 {
+        while early_n < UPLOAD_EARLY_REPLIES {
             match client.recv_into(Wait::Blocking, &mut reply) {
-                Ok(n) if n >= 1 && reply[0] == GPUD_STATUS_OK => {
+                Ok(n) if n >= 1 => {
                     let payload = if n >= 5 {
                         u32::from_le_bytes([reply[1], reply[2], reply[3], reply[4]])
                     } else {
                         0
                     };
-                    if payload == CURSOR_REPLY_HW
-                        || payload == CURSOR_REPLY_SW
-                        || payload == CURSOR_REPLY_GL
+                    if reply[0] == GPUD_STATUS_OK
+                        && nexus_display_proto::is_cursor_reply_magic(payload)
                     {
-                        cursor_flags = Some(payload);
+                        flags = Some(payload);
                         break;
                     }
                     early[early_n] = (reply, n.min(reply.len()));
@@ -354,53 +357,56 @@ impl DisplayServerRuntime {
         for (buf, n) in early.iter().take(early_n) {
             let _ = self.handle_gpud_reply(&buf[..*n]);
         }
-        match cursor_flags {
-            Some(flags) => {
-                let hw = flags == CURSOR_REPLY_HW;
-                let gl = flags == CURSOR_REPLY_GL;
-                let changed = hw != self.hw_cursor_active || gl != self.gl_cursor_active;
-                self.hw_cursor_active = hw;
-                self.gl_cursor_active = gl;
-                // Only log on a state TRANSITION — cursor replies can arrive per
-                // move, and an unconditional print here would flood the UART log.
-                if changed {
-                    let _ = debug_println(if hw {
-                        "windowd: hw cursor on"
-                    } else if gl {
-                        "windowd: gl procedural cursor on"
-                    } else {
-                        "windowd: cursor bitmap uploaded (sw)"
-                    });
-                }
-                if gl {
-                    // Procedural GL cursor: place it once at the current pointer.
-                    // Moves then ship OP_MOVE_CURSOR + a present-damage (handled
-                    // in `apply_input_state`) so the build-up present re-renders it.
-                    self.send_cursor_move_to_gpud();
-                }
-                // Cursor path is armed and alive: pre-fill gpud's shape cache
-                // once so later shape changes are 2-byte selects (no blocking
-                // re-upload per window-edge crossing). Guarded internally.
-                self.push_cursor_shape_cache_to_gpud();
-                if hw {
-                    // Place the overlay at the current pointer position.
-                    self.send_cursor_move_to_gpud();
-                    // The first present blended the software cursor into the
-                    // display plane before the overlay was armed — restore that
-                    // region from Plane 1 once so the baked sprite disappears.
-                    let cx = (self.state.cursor_x - self.cursor_hot.0).max(0) as u32;
-                    let cy = (self.state.cursor_y - self.cursor_hot.1).max(0) as u32;
-                    self.queue_gpu_blit_rect(DamageRect {
-                        x: cx,
-                        y: cy,
-                        width: self.cursor_width.max(1),
-                        height: self.cursor_height.max(1),
-                    });
-                }
-            }
-            _ => {
-                let _ = debug_println("windowd: cursor upload failed");
-            }
+        if let Some(flags) = flags {
+            self.on_cursor_reply(flags);
+        }
+    }
+
+    /// gpud answered a cursor upload: `flags` names the path (the controller's layer, the GL
+    /// procedural cursor, or the software sprite) — the pointer path is armed from here.
+    pub(super) fn on_cursor_reply(&mut self, flags: u32) {
+        const CURSOR_REPLY_HW: u32 = nexus_display_proto::CURSOR_REPLY_HW;
+        const CURSOR_REPLY_GL: u32 = nexus_display_proto::CURSOR_REPLY_GL;
+        let hw = flags == CURSOR_REPLY_HW;
+        let gl = flags == CURSOR_REPLY_GL;
+        let changed = hw != self.hw_cursor_active || gl != self.gl_cursor_active;
+        self.hw_cursor_active = hw;
+        self.gl_cursor_active = gl;
+        // Only log on a state TRANSITION — cursor replies can arrive per
+        // move, and an unconditional print here would flood the UART log.
+        if changed {
+            let _ = debug_println(if hw {
+                "windowd: hw cursor on"
+            } else if gl {
+                "windowd: gl procedural cursor on"
+            } else {
+                "windowd: cursor bitmap uploaded (sw)"
+            });
+        }
+        if gl {
+            // Procedural GL cursor: place it once at the current pointer.
+            // Moves then ship OP_MOVE_CURSOR + a present-damage (handled
+            // in `apply_input_state`) so the build-up present re-renders it.
+            self.send_cursor_move_to_gpud();
+        }
+        // Cursor path is armed and alive: pre-fill gpud's shape cache
+        // once so later shape changes are 2-byte selects (no blocking
+        // re-upload per window-edge crossing). Guarded internally.
+        self.push_cursor_shape_cache_to_gpud();
+        if hw {
+            // Place the overlay at the current pointer position.
+            self.send_cursor_move_to_gpud();
+            // The first present blended the software cursor into the
+            // display plane before the overlay was armed — restore that
+            // region from Plane 1 once so the baked sprite disappears.
+            let cx = (self.state.cursor_x - self.cursor_hot.0).max(0) as u32;
+            let cy = (self.state.cursor_y - self.cursor_hot.1).max(0) as u32;
+            self.queue_gpu_blit_rect(DamageRect {
+                x: cx,
+                y: cy,
+                width: self.cursor_width.max(1),
+                height: self.cursor_height.max(1),
+            });
         }
     }
 

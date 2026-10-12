@@ -48,6 +48,10 @@ pub(crate) struct CpuFrame {
     /// Pre-uploaded shapes (`OP_UPLOAD_CURSOR_SHAPE`): a shape change is a 2-byte select, not a
     /// blocking re-upload. Slot = shape id.
     shapes: [Option<CursorShapeEntry>; nexus_display_proto::CURSOR_SHAPE_SLOTS],
+    /// The layout row screen-relative commands land on: the display plane, or — on a display
+    /// with a ring of planes (RFC-0101 §8) — the slot the running present draws into.
+    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    pub(crate) display_row: u32,
 }
 
 /// The bytes a `w`×`h` BGRA sprite takes, if `bgra` holds at least that many.
@@ -69,6 +73,8 @@ impl CpuFrame {
             cursor_h: 0,
             cursor_hot: (0, 0),
             shapes: [const { None }; nexus_display_proto::CURSOR_SHAPE_SLOTS],
+            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            display_row: nexus_display_proto::layout::DISPLAY_ROW,
         }
     }
 
@@ -166,7 +172,6 @@ pub(crate) enum Blur {
 }
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
-const DISPLAY_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const DISPLAY_ROWS: u32 = nexus_display_proto::layout::PLANE_ROWS;
 
@@ -180,6 +185,7 @@ impl CpuFrame {
         blur: Blur,
     ) -> Result<(), GfxError> {
         let (fb, len, w) = (t.fb, t.len, t.stride_px);
+        let display_row = self.display_row;
         match cmd {
             Command::SetFragmentBytes { offset, data } => {
                 let end = offset.saturating_add(data.len());
@@ -191,12 +197,12 @@ impl CpuFrame {
             Command::DrawTiles { tiles, color } => {
                 let c = color.as_array();
                 for r in tiles {
-                    let y = r.y.saturating_add(DISPLAY_ROW);
+                    let y = r.y.saturating_add(display_row);
                     fill_rect_solid_vmo(fb, len, w, r.x, y, r.width, r.height, c);
                 }
             }
             Command::FillSdfRoundedRect { rect, radius, color } => {
-                let y = rect.y.saturating_add(DISPLAY_ROW);
+                let y = rect.y.saturating_add(display_row);
                 fill_sdf_rounded_vmo(
                     fb,
                     len,
@@ -210,7 +216,7 @@ impl CpuFrame {
                 );
             }
             Command::BlurBackdrop { rect, radius, saturation_percent } => {
-                let y = rect.y.saturating_add(DISPLAY_ROW);
+                let y = rect.y.saturating_add(display_row);
                 let (rw, rh, sat) = (rect.width, rect.height, *saturation_percent);
                 match blur {
                     Blur::Box => blur_backdrop_vmo(fb, len, w, rect.x, y, rw, rh, *radius, sat)?,
@@ -223,11 +229,11 @@ impl CpuFrame {
             // Retained-surface composite: `src_y` is an absolute row (the retained plane), `dst_y`
             // screen-relative.
             Command::BlitSurface { src_x, src_y, dst_x, dst_y, width, height } => {
-                let dst_y = dst_y.saturating_add(DISPLAY_ROW);
+                let dst_y = dst_y.saturating_add(display_row);
                 blit_vmo(fb, len, w, *src_x, *src_y, *dst_x, dst_y, *width, *height)?;
             }
             Command::BlendCursor { x, y, width, height } => {
-                let y = y.saturating_add(DISPLAY_ROW);
+                let y = y.saturating_add(display_row);
                 let (sprite, sw, sh) = (&self.cursor[..], self.cursor_w, self.cursor_h);
                 blend_cursor_vmo(fb, len, w, *x, y, *width, *height, sprite, sw, sh)?;
             }
@@ -236,7 +242,7 @@ impl CpuFrame {
                 blit_vmo(fb, len, w, *src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height)?;
             }
             Command::FillSdfGradient { rect, radius, color_top, color_bottom } => {
-                let y = rect.y.saturating_add(DISPLAY_ROW);
+                let y = rect.y.saturating_add(display_row);
                 let (rw, rh) = (rect.width, rect.height);
                 crate::cpu_vector::fill_sdf_gradient_vmo(
                     fb,
@@ -252,7 +258,7 @@ impl CpuFrame {
                 );
             }
             Command::DropShadow { rect, radius, blur, offset_x, offset_y, color } => {
-                let y = rect.y.saturating_add(DISPLAY_ROW);
+                let y = rect.y.saturating_add(display_row);
                 crate::cpu_vector::drop_shadow_vmo(
                     fb,
                     len,
@@ -266,7 +272,7 @@ impl CpuFrame {
                     *offset_x,
                     *offset_y,
                     *color,
-                    DISPLAY_ROW,
+                    display_row,
                     DISPLAY_ROWS,
                 );
             }
@@ -288,7 +294,7 @@ impl CpuFrame {
                 backdrop_blur,
                 ..
             } => {
-                let dst_y = dst_y.saturating_add(DISPLAY_ROW);
+                let dst_y = dst_y.saturating_add(display_row);
                 if *shadow_blur > 0 {
                     crate::cpu_vector::drop_shadow_vmo(
                         fb,
@@ -303,7 +309,7 @@ impl CpuFrame {
                         0,
                         *shadow_offset_y,
                         RgbaColor::from_u32(((*shadow_alpha).min(255)) << 24),
-                        DISPLAY_ROW,
+                        display_row,
                         DISPLAY_ROWS,
                     );
                 }

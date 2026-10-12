@@ -15,9 +15,8 @@ use nexus_abi::{debug_println, mmio_map_auto, nsec, yield_, AbiError};
 use nexus_display_proto::PRESENT_HEADER_LEN;
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
-use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::types::Rect;
-use nexus_gfx::command::buffer::{Command, CommittedBuffer};
+use nexus_gfx::command::buffer::CommittedBuffer;
 
 use crate::backend::display::Display;
 use crate::backend::VirtioGpuBackend;
@@ -65,9 +64,6 @@ const GPUD_SEND_SLOT: u32 = nexus_service_topology::slots::gpud::SERVER.send;
 /// there would intercept windowd's present commands and break the channel.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const GPU_IRQ_NOTIFY_SLOT: u32 = nexus_service_topology::CTRL_SLOTS.recv;
-/// The display plane's first row in the shared layout (`nexus_display_proto::layout`): an
-/// absolute blit at or below it lands on screen.
-const DISPLAY_PLANE_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
 pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     // Build provenance FIRST and RAW in every boot mode (entry already armed folding; debug_write never folds).
     let _ = nexus_abi::debug_write(crate::markers::GPUD_FEATURES_LINE.as_bytes());
@@ -80,9 +76,31 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     if crate::backend::dc::granted() {
         let mut display = crate::backend::dc::DcDisplay::bring_up();
         let server = bind_server()?;
+        // RFC-0101 §8: the controller's vertical-blank interrupt on the idle control-reply
+        // endpoint (the slot the GPU's IRQ takes on QEMU), a waitset member next to the server
+        // endpoint — no timer: the display's own blank is the frame clock.
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
+        let clock = {
+            let (server_recv, _) = server.slots();
+            let waitset = display.bind_vblank(GPU_IRQ_NOTIFY_SLOT).then(|| {
+                nexus_abi::waitset_create().ok().and_then(|ws| {
+                    nexus_abi::waitset_add(ws, server_recv).ok()?;
+                    nexus_abi::waitset_add(ws, GPU_IRQ_NOTIFY_SLOT).ok()?;
+                    Some(ws)
+                })
+            });
+            crate::frame_clock::FrameClock {
+                timer: None,
+                waitset: waitset.flatten(),
+                due: false,
+                last_frame_ns: 0,
+            }
+        };
+        #[cfg(not(all(feature = "os-lite", target_os = "none")))]
+        let clock = crate::frame_clock::FrameClock::default();
         nexus_service_entry::ready(GPUD_READY)?;
         nexus_abi::service_verdict_flush("gpud");
-        return service_requests(server, &mut display, crate::frame_clock::FrameClock::default());
+        return service_requests(server, &mut display, clock);
     }
     let mut backend = open_backend_once()?;
     // Branded splash FIRST (task #122): the same glow+wordmark image the GL
@@ -243,6 +261,19 @@ fn service_requests(
                 Wait::Blocking
             }
         };
+        // The display's vertical blank (RFC-0101 §8): a flip that landed acks its present now —
+        // the compositor's frame clock is the display's. Drained before the requests so an ack
+        // never waits behind the next present.
+        while let Some((seq, status)) = display.vblank_wake() {
+            crate::reply::send(
+                &server,
+                display,
+                OP_PRESENT_DAMAGE,
+                status,
+                Some(seq),
+                active_handoff_id,
+            );
+        }
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((frame_len, _sid, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
@@ -299,7 +330,8 @@ fn service_requests(
                                         let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
                                     }
                                     let t0 = nsec().unwrap_or(0);
-                                    let st = present(display, &scene_cb, trace);
+                                    let st =
+                                        crate::present_chain::present(display, &scene_cb, trace);
                                     if trace && st == STATUS_OK {
                                         // Whole chain reached the end: stop tracing.
                                         chain_trace_done = true;
@@ -315,14 +347,14 @@ fn service_requests(
                                     }
                                     // Fixed-rect fallback: exactly header + 16-byte rect.
                                     if frame.len() == nexus_display_proto::DAMAGE_FRAME_LEN {
-                                        handle_present_damage(display, frame)
+                                        crate::present_chain::handle_present_damage(display, frame)
                                     } else {
                                         STATUS_MALFORMED
                                     }
                                 }
                             }
                         } else {
-                            handle_present_damage(display, frame)
+                            crate::present_chain::handle_present_damage(display, frame)
                         };
                         // P0.3: honest present outcome — a present whose commands the device
                         // lost (while every call returned success) is NACKed, so windowd
@@ -331,6 +363,11 @@ fn service_requests(
                             if display.present_lost() { STATUS_DEVICE_ERROR } else { status };
                         let status =
                             crate::reply::present_status(display, status, seq, &mut reveal_acked);
+                        // RFC-0101 §8: a display with a ring acks the present at the vertical
+                        // blank its flip lands on (`vblank_wake` below), never before.
+                        if display.present_ack_deferred(seq, status) {
+                            continue;
+                        }
                         (status, Some(seq))
                     }
                     OP_UPLOAD_CURSOR => {
@@ -430,162 +467,8 @@ fn service_requests(
     }
 }
 
-/// One present of validated commands: execute (G3), then scan the damage out (G4). The chain
-/// hops print while `trace`; the status is the present's before the reveal check.
-fn present(display: &mut dyn Display, cb: &CommittedBuffer, trace: bool) -> u8 {
-    let (w, h) = display.mode();
-    let damage_rect = damage_rect_from_cb(cb, w, h);
-    // A failed composite is never silent: the hop and the reason print.
-    let executed = cb
-        .validate()
-        .map_err(crate::backend::map_nexus_error)
-        .and_then(|()| display.execute(cb.commands()));
-    match executed {
-        Ok(()) => {
-            if trace {
-                let _ = debug_println(crate::markers::GPUD_CHAIN_EXEC_OK);
-            }
-        }
-        Err(e) => {
-            let _ = debug_println(crate::markers::GPUD_CHAIN_EXEC_FAIL);
-            let _ = debug_println(gfx_error_label(e));
-        }
-    }
-    let st = present_scanout_damage(display, damage_rect);
-    if trace {
-        let _ = debug_println(if st == STATUS_OK {
-            crate::markers::GPUD_CHAIN_SCANOUT_OK
-        } else {
-            crate::markers::GPUD_CHAIN_SCANOUT_FAIL
-        });
-    }
-    st
-}
-
-/// Human-readable reason for a present-chain hop failure (G3 exec). Static
-/// strings only — no alloc on gpud's bump heap.
-fn gfx_error_label(e: GfxError) -> &'static str {
-    match e {
-        GfxError::DeviceNotFound => "gpud: chain reason: device not found",
-        GfxError::MmioFault => "gpud: chain reason: mmio fault",
-        GfxError::CommandRejected => "gpud: chain reason: command rejected",
-        GfxError::ResourceExhausted => "gpud: chain reason: resource exhausted (bump heap?)",
-        GfxError::Unsupported => "gpud: chain reason: unsupported command",
-        GfxError::InvalidArgument => "gpud: chain reason: invalid argument",
-    }
-}
-
 fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {
     nexus_display_proto::decode_handoff_id(frame)
-}
-
-/// Extract bounding damage rect from ALL command types.
-fn damage_rect_from_cb(cb: &CommittedBuffer, display_w: u32, display_h: u32) -> Rect {
-    let mut min_x = display_w;
-    let mut min_y = display_h;
-    let mut max_x = 0u32;
-    let mut max_y = 0u32;
-    let mut found = false;
-    for cmd in cb.commands() {
-        let (x, y, w, h) = match cmd {
-            Command::BlitSurface { dst_x, dst_y, width, height, .. } => {
-                (*dst_x, *dst_y, *width, *height)
-            }
-            // Absolute blits that target the display plane (e.g. the chat layer
-            // composite, sidebar/button blur-cache restores) MUST contribute to
-            // the present damage, or their region is written to the backing but
-            // never transferred/flushed to the host. Convert the absolute dst row
-            // back to screen-relative; ignore blits aimed elsewhere (atlas/cache).
-            Command::BlitAbsolute { dst_x, dst_y_abs, width, height, .. } => {
-                if *dst_y_abs >= DISPLAY_PLANE_ROW && *dst_y_abs < DISPLAY_PLANE_ROW + display_h {
-                    (*dst_x, dst_y_abs - DISPLAY_PLANE_ROW, *width, *height)
-                } else {
-                    continue;
-                }
-            }
-            Command::FillSdfRoundedRect { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
-            Command::FillSdfGradient { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
-            Command::CompositeLayer {
-                width,
-                height,
-                dst_x,
-                dst_y,
-                shadow_blur,
-                shadow_offset_y,
-                ..
-            } => {
-                // Damage the layer rect plus its shadow halo (blur + offset).
-                let pad = *shadow_blur + shadow_offset_y.unsigned_abs();
-                let x0 = dst_x.saturating_sub(pad);
-                let y0 = dst_y.saturating_sub(pad);
-                let x1 = (dst_x + width).saturating_add(pad);
-                let y1 = (dst_y + height).saturating_add(pad);
-                (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
-            }
-            Command::DropShadow { rect, blur, offset_x, offset_y, .. } => {
-                // The painted halo extends past the casting rect by blur,
-                // shifted by the offset — damage the full extent (clamped).
-                let pad = *blur as i32;
-                let x0 = (rect.x as i32 + offset_x - pad).max(0) as u32;
-                let y0 = (rect.y as i32 + offset_y - pad).max(0) as u32;
-                let x1 = ((rect.x + rect.width) as i32 + offset_x + pad).max(0) as u32;
-                let y1 = ((rect.y + rect.height) as i32 + offset_y + pad).max(0) as u32;
-                (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
-            }
-            Command::BlurBackdrop { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
-            Command::BlendCursor { x, y, width, height } => (*x, *y, *width, *height),
-            _ => continue,
-        };
-        let ex = x.saturating_add(w);
-        let ey = y.saturating_add(h);
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(ex);
-        max_y = max_y.max(ey);
-        found = true;
-    }
-    if found {
-        // Clamp to the display plane — halo-style commands (DropShadow) may
-        // extend past the screen edges.
-        let min_x = min_x.min(display_w);
-        let min_y = min_y.min(display_h);
-        let max_x = max_x.min(display_w);
-        let max_y = max_y.min(display_h);
-        Rect {
-            x: min_x,
-            y: min_y,
-            width: max_x.saturating_sub(min_x).max(1),
-            height: max_y.saturating_sub(min_y).max(1),
-        }
-    } else {
-        Rect { x: 0, y: 0, width: display_w, height: display_h }
-    }
-}
-
-fn present_scanout_damage(display: &mut dyn Display, rect: Rect) -> u8 {
-    match display.scan_out(rect) {
-        Ok(()) => STATUS_OK,
-        Err(e) => {
-            let _ = debug_println("gpud: present scanout damage FAIL");
-            match e {
-                GfxError::InvalidArgument => {
-                    let _ = debug_println("gpud: scanout InvalidArgument (no scanout resource?)");
-                }
-                GfxError::ResourceExhausted => {
-                    let _ = debug_println("gpud: scanout ResourceExhausted");
-                }
-                _ => {}
-            }
-            STATUS_DEVICE_ERROR
-        }
-    }
-}
-
-fn handle_present_damage(display: &mut dyn Display, frame: &[u8]) -> u8 {
-    let Some((x, y, width, height)) = nexus_display_proto::decode_damage_frame(frame) else {
-        return STATUS_MALFORMED;
-    };
-    present_scanout_damage(display, Rect { x, y, width, height })
 }
 
 fn handle_frame(display: &mut dyn Display, frame: &[u8], scroll_flush: &mut bool) -> u8 {
@@ -681,7 +564,7 @@ fn handle_frame(display: &mut dyn Display, frame: &[u8], scroll_flush: &mut bool
             // A full present composites the recorded scroll/transform overrides
             // anyway — the deferred flush would be a redundant re-composite.
             *scroll_flush = false;
-            handle_present_damage(display, frame)
+            crate::present_chain::handle_present_damage(display, frame)
         }
         _ => STATUS_MALFORMED,
     }

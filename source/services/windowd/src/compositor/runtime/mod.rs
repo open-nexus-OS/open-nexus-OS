@@ -105,7 +105,6 @@ mod wm;
 // `runtime/mod.rs`, so the compositor-level siblings + consts they reference via
 // `super::` are re-exported here under `runtime` to keep those paths resolving
 // (TASK-0063 modularization; pure path plumbing, no behavior change).
-use super::DISPLAY_SLOT_B_OFFSET_BYTES;
 
 mod gpud_wire;
 use gpud_wire::{
@@ -414,12 +413,6 @@ pub(crate) struct DisplayServerRuntime {
     /// of the client damage rects since the last `render_desktop_surface`.
     /// `(u32::MAX, 0)` = empty. A present with no rects = full span.
     desktop_dirty_rows: (u32, u32),
-    /// Phase 4: active frame ring slot (0 = Plane 2 / slot A, 1 = Plane 3 / slot B).
-    /// Toggled after each successful present. gpud scanout follows on swap.
-    /// (Slot-flip contract documented for the double-buffered present; the
-    /// current path scans out slot A only.)
-    #[allow(dead_code)]
-    current_display_slot: u8,
     /// handoff ID for the initial framebuffer VMO transfer to gpud.
     first_handoff_id: u32,
     first_handoff_frame_written: bool,
@@ -808,7 +801,6 @@ impl DisplayServerRuntime {
             present_retry_exhausted: false,
             app_present_reject_markers: 0,
             desktop_dirty_rows: (u32::MAX, 0),
-            current_display_slot: 0,
             first_handoff_id: 0,
             first_handoff_frame_written: false,
             first_handoff_bootstrap_markers_emitted: false,

@@ -46,5 +46,6 @@ pub use cursor::{
 };
 pub use edid::{cea_mode, parse_edid, pick_mode, Edid, EdidError, Mode, ModeList};
 pub use model::{
-    bring_up, damage_spans, flip, flush, DamageSpans, Plane, RegWriter, Sequence, Write,
+    bring_up, damage_spans, flip, flush, in_blank, vblank_ack, vblank_disable, vblank_enable,
+    DamageSpans, Plane, RegWriter, Sequence, Write,
 };

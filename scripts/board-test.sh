@@ -92,6 +92,7 @@ ladder_headless=(
   "SELFTEST: soc glue display ok"
   "gpud: dc encoder ok (hpd=1"
   "gpud: dc scanout ok ("
+  "gpud: dc vblank armed ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its
@@ -132,6 +133,10 @@ ladder_visible=(
   "windowd: hw cursor on"
   "inputd: live pointer route on"
   "inputd: live keyboard route on"
+  # RFC-0101 §8 (TASK-0216): the vertical blank is the frame clock and no present is drawn in
+  # view — the interrupt served for a second, the first flip written inside the blank.
+  "gpud: dc vblank ok ("
+  "gpud: dc flip ok ("
 )
 acks_headless=()
 # TASK-0074: every visual task ships an operator rung — the shell's first modal (power button

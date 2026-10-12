@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-12 (Block 4, layer 2: the scanout contract on the board — RFC-0101 Phase 1)
+
+- **No present is drawn in view any more** (board cycle `board--2026-10-12T13-06-02`: `[PASS] board-visible` 49 rungs, 7 operator markers — the first full pass since 2026-10-06; `front=0` in every present window, first flip at line 1080, `late=0`; the operator: no tearing, no flicker, the pointer whole at the right border). The board's display runs a ring of three planes
+  (the layout's slots A, B and the new slot C — `nexus-display-proto` grows by one plane): a
+  present draws into a free plane, its flip is written inside the vertical blank by the
+  controller's own interrupt (bound to gpud's control endpoint, enabled only while a flip
+  waits — an idle display wakes nobody), and the present is acked when it is on screen — the
+  compositor's frame clock is the display's. The splash's reveal stays the one immediate
+  switch. Markers `gpud: dc vblank armed (` / `dc vblank ok (min_period_us= line= late= n=)` /
+  `dc flip ok (slot= line=)`; the FAIL forms `gpud: FAIL dc vblank (` and `gpud: FAIL dc present
+  front (` (the tear gate) are forbidden on the board lanes.
+- **Measured first** (`docs/board/measurements/2026-10-12-scanout-vblank/`): the stock system's
+  vertical blank (16 667 µs), its interrupt (two a frame: the vsync at line 1080, two line-1
+  sources), the mask and the write-to-clear raw word, the readable line counter.
+- **The pointer plane is independent of presents**: windowd's first cursor upload waits for its
+  own answer (bounded; every other reply that arrives first is handled as what it is — the cap
+  of four that produced `windowd: cursor upload failed` is gone; past the bound the drain
+  handles the answer), a shape change or a wait-ring step queues no frame while the hardware
+  pointer is on, and the channel's bounding box ends at the sprite's visible part — the strip
+  at the right border is gone by construction (host-tested against the contract's
+  `PointerPlane`).
+- **Every board present starts from its base**: the retained plane (windowd's cursor-free
+  scene) is copied whole into the ring's slot before the scene is composited — a layer blended
+  over a plane three frames old would ghost, and over the last frame it darkened (the shadows
+  of 2026-10-10). The composite and the copy go with G4.
+- gpud's `service.rs` split (`present_chain.rs`) under the size ratchet; windowd's dead
+  slot-B/`current_display_slot` remnants deleted.
+
 ### Added - 2026-10-12 (Block 4, layer 1: the base — the GPU and scanout contracts, host-tested)
 
 - **RFC-0101 seeded** (Phase 0 ✅): the GPU driver split and the scanout contract — a context

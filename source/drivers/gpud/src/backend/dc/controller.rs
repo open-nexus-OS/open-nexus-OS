@@ -111,6 +111,37 @@ impl Controller {
         w.written
     }
 
+    /// Enable the vertical blank as the frame clock (RFC-0101 §8) — while a flip waits for it.
+    pub(super) fn vblank_enable(&self) {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::vblank_enable(&mut w);
+    }
+
+    /// Hold every interrupt source back: the idle display wakes nobody.
+    pub(super) fn vblank_disable(&self) {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::vblank_disable(&mut w);
+    }
+
+    /// Acknowledge one vertical blank at the controller (the vsync bit cleared).
+    pub(super) fn vblank_ack(&self) {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::vblank_ack(&mut w);
+    }
+
+    /// The output's line counter now — the witness of "inside the blank".
+    pub(super) fn line(&self) -> u32 {
+        self.regs.read((regs::outctrl_base(regs::PIPELINE) + regs::OUTCTRL_LINE_COUNT) as usize)
+            & 0xffff
+    }
+
+    /// Switch the scan to `plane` inside the blank: the address, the stride, the latch — bus
+    /// writes only (a flip per frame; the reveal's `flip` reads back and observes the latch).
+    pub(super) fn flip_in_blank(&self, plane: &Plane) {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::flip(&mut w, RDMA, plane);
+    }
+
     /// Switch the scan to `plane` (the same mode): its address and stride, then the latch.
     pub(super) fn flip(&self, plane: &Plane) -> Flip {
         let mut w = Writer { bus: &self.regs, written: Sequence::new() };
@@ -162,15 +193,6 @@ impl Controller {
             }
         }
         rb
-    }
-
-    /// The live words of the pointer's channel and the composer (its layer block among them) —
-    /// what an armed layer that shows nothing is judged by, against the stock dump
-    /// (`docs/board/measurements/2026-10-05-cursor-layer/`).
-    pub(super) fn cursor_census(&self) {
-        super::census(&self.regs, "pointer", regs::rdma_base(regs::CURSOR_RDMA), regs::RDMA_STRIDE);
-        super::census(&self.regs, "pointer", regs::cmps_base(regs::PIPELINE), regs::CMPS_STRIDE);
-        super::census(&self.regs, "pointer", regs::DPU_CTL_BASE, 0x100);
     }
 
     /// The live words of the regions first light touches — the top, the control words, the

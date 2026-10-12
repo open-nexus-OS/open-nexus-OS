@@ -1,6 +1,6 @@
 # RFC-0101: The GPU driver split and the scanout contract — contexts with their own GPU VM, buffers bound with a cache mode, one batch per crossing, the kernel's timeline fence, and a ring of planes flipped at the vertical blank
 
-- Status: In Progress (Phase 0 ✅ 2026-10-12 — the contracts, host-tested; Phases 1–4 with their layers)
+- Status: In Progress (Phase 0 ✅ 2026-10-12 — the contracts, host-tested; Phase 1 ✅ 2026-10-12 — the scanout contract on the board, `[PASS] board-visible` with `front=0`; Phases 2–4 with their layers)
 - Owners: @gpu @runtime @kernel-team
 - Created: 2026-10-12
 - Last Updated: 2026-10-12
@@ -14,7 +14,7 @@
 ## Status at a Glance
 
 - **Phase 0 (the contracts, host)**: ✅ 2026-10-12 — `nexus-driverkit::gpu` (the device side: queue kinds, cache modes, the GPU VM, capabilities, the batch bound), `nexus_gfx::sync::timeline` (the one fence, modelled), `nexus_gfx::backend::v2` (`GfxDevice` with `CpuMockDevice` implementing it, the plane ring, the frame clock and the pointer plane as models), the `test_reject_*` matrix
-- **Phase 1 (the scanout contract on the board)**: ⬜ layer 2 — TASK-0216's first package
+- **Phase 1 (the scanout contract on the board)**: ✅ 2026-10-12 — TASK-0216: the ring over the layout's three slots, the vertical-blank interrupt as the frame clock (enabled only while a flip waits), the flip inside the blank (first at line 1080), the deferred ack, the pointer plane whole at every border; `[PASS] board-visible` 49 rungs, `front=0` in every present window, `late=0`. Open thread: a second interrupt 21 µs after a served one (`docs/board/measurements/2026-10-12-scanout-vblank/`, H1), measured in Phase 2's first cycle.
 - **Phase 2 (the device online)**: ⬜ layer 3 — TASK-0329 G1
 - **Phase 3 (the GPU draws)**: ⬜ layer 4 — G2 on the device, the first textured quad from offline shaders
 - **Phase 4 (the desktop on the GPU)**: ⬜ layer 5 — G3's remaining ops, G4

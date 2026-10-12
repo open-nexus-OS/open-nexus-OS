@@ -155,6 +155,32 @@ pub fn flip<W: RegWriter>(w: &mut W, rdma: u32, plane: &Plane) {
     flush(w);
 }
 
+/// Enables the vertical blank as the frame clock (RFC-0101 §8, Phase 1): the raw word cleared
+/// FIRST (a vsync raised while masked stays raised and would fire at once), then every source
+/// but the vsync held back — one interrupt a frame, at the first line of the blank
+/// (`docs/board/measurements/2026-10-12-scanout-vblank/`). Enabled only while a flip waits.
+pub fn vblank_enable<W: RegWriter>(w: &mut W) {
+    w.write(regs::INT_RAW_ONL2, regs::INT_RAW_CLEAR_ALL);
+    w.write(regs::INT_MASK_ONL2, regs::INT_MASK_ALL_BUT_VSYNC);
+}
+
+/// Holds every source back: the idle display wakes nobody.
+pub fn vblank_disable<W: RegWriter>(w: &mut W) {
+    w.write(regs::INT_MASK_ONL2, regs::INT_MASK_ALL);
+}
+
+/// Acknowledges one vertical blank: the vsync bit cleared by writing it, nothing else touched.
+pub fn vblank_ack<W: RegWriter>(w: &mut W) {
+    w.write(regs::INT_RAW_ONL2, regs::INT_RAW_VSYNC);
+}
+
+/// Whether `line` (the output's line counter) is inside the blank of a mode `v_active` lines
+/// high — at or past the active height (the counter reads the active height at the vsync) or
+/// at the first line, before the active picture: the lines a flip may be written in.
+pub fn in_blank(line: u32, v_active: u32) -> bool {
+    line >= v_active || line == 0
+}
+
 /// Bytes per pixel of the controller's XRGB8888 plane.
 const BYTES_PER_PIXEL: usize = 4;
 
@@ -238,6 +264,40 @@ mod tests {
     /// MMU, so the dump holds IO-virtual addresses, not this one), pitch 7680.
     fn plane_1080p() -> Plane {
         Plane { bus_addr: 0x0fb7_c000, stride: 7680, width: 1920, height: 1080 }
+    }
+
+    /// The vertical blank as the frame clock: the raw word cleared before the mask opens the
+    /// vsync alone (the stock mask plus the two line-1 sources); disabled is every source held
+    /// back; an ack writes the vsync bit alone.
+    #[test]
+    fn the_vertical_blank_is_enabled_as_measured() {
+        let mut w = Sequence::new();
+        vblank_enable(&mut w);
+        assert_eq!(
+            w.as_slice(),
+            &[
+                Write { offset: regs::INT_RAW_ONL2, value: 0xf },
+                Write { offset: regs::INT_MASK_ONL2, value: 0xf21e },
+            ]
+        );
+        let mut w = Sequence::new();
+        vblank_disable(&mut w);
+        assert_eq!(w.as_slice(), &[Write { offset: regs::INT_MASK_ONL2, value: 0xffff }]);
+        let mut w = Sequence::new();
+        vblank_ack(&mut w);
+        assert_eq!(w.as_slice(), &[Write { offset: regs::INT_RAW_ONL2, value: 1 }]);
+    }
+
+    /// The blank is the lines at or past the active height, and the first line.
+    #[test]
+    fn the_blank_is_past_the_active_height() {
+        let v = u32::from(mode_1080p60().v_active);
+        assert!(in_blank(1080, v));
+        assert!(in_blank(1124, v));
+        assert!(in_blank(0, v));
+        assert!(!in_blank(1, v));
+        assert!(!in_blank(540, v));
+        assert!(!in_blank(1079, v));
     }
 
     /// The timing words come out exactly as the live dump holds them at 1920x1080@60

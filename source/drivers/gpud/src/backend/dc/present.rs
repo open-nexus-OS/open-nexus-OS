@@ -19,7 +19,10 @@ use nexus_gfx::command::buffer::{Command, CommittedBuffer};
 
 use super::cursor::CursorLayer;
 use super::framebuffer::Framebuffer;
-use super::{emit, DcDisplay};
+use super::{emit, ring, DcDisplay};
+
+/// Notifications drained per wake (xhcid's pattern): a coalesced burst, never a spin.
+const VBLANK_DRAIN_MAX: u32 = 8;
 use crate::backend::cpu_frame::Blur;
 use crate::backend::display::Display;
 use nexus_gfx::backend::dc::frame_stats::Stage;
@@ -29,7 +32,7 @@ impl DcDisplay {
     /// The switch from the splash to the desktop: the whole display plane cleaned, the
     /// controller pointed at it, the words read back and the latch observed — one line. Whether
     /// the switch took.
-    fn reveal(&mut self) -> bool {
+    fn reveal(&mut self, row: u32) -> bool {
         let plane_size = (self.mode.0, self.mode.1);
         let Some(live) = self.live.as_mut() else {
             return false;
@@ -37,9 +40,9 @@ impl DcDisplay {
         let Some(fb) = live.framebuffer.as_ref() else {
             return false;
         };
-        let plane = fb.plane(plane_size.0, plane_size.1);
+        let plane = fb.plane_at(row, plane_size.0, plane_size.1);
         let whole = Rect { x: 0, y: 0, width: plane_size.0.into(), height: plane_size.1.into() };
-        fb.clean(&plane, whole);
+        fb.clean_at(row, &plane, whole);
         let flip = live.controller.flip(&plane);
         let rb = &flip.readback;
         if rb.ndiffer != 0 {
@@ -100,13 +103,25 @@ impl Display for DcDisplay {
         Ok(())
     }
 
-    fn execute(&mut self, commands: &[Command]) -> Result<(), GfxError> {
+    /// A present into the ring's free slot (RFC-0101 §8): screen-relative commands land on that
+    /// slot's rows; what the present does not redraw comes from the frame on screen first.
+    fn execute(&mut self, commands: &[Command], damage: Rect) -> Result<(), GfxError> {
         let t0 = nsec().unwrap_or(0);
-        let fb = self
-            .live
-            .as_mut()
-            .and_then(|live| live.framebuffer.as_mut())
-            .ok_or(GfxError::DeviceNotFound)?;
+        let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));
+        let slot = self.ring.begin().map_err(|_| GfxError::ResourceExhausted)?;
+        let row = ring::ROWS[slot];
+        let Some(fb) = self.live.as_mut().and_then(|live| live.framebuffer.as_mut()) else {
+            self.ring.discard();
+            return Err(GfxError::DeviceNotFound);
+        };
+        // The frame composed off-screen starts from its base: the retained plane — windowd's
+        // cursor-free scene, kept current by its damage writes — copied whole (about 3 ms of
+        // 8.3 MB; the scene's own retained blits restore only its damage, and a layer blended
+        // over a plane three frames old would ghost, over the last frame it darkened: the
+        // shadows of 2026-10-10). G4 deletes this composite; the copy goes with it.
+        let _ = damage;
+        fb.copy_plane(nexus_display_proto::layout::RETAINED_ROW, row, w, h);
+        self.cpu.display_row = row;
         let target = fb.target();
         for cmd in commands {
             // The pointer is the controller's layer: a software-blended pointer in a present is
@@ -138,39 +153,148 @@ impl Display for DcDisplay {
         Ok(())
     }
 
+    /// The drawn slot cleaned out of the caches and its flip queued for the next vertical
+    /// blank — or, while the splash holds the glass, discarded (the reveal's present switches
+    /// the controller at once, the one immediate flip).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError> {
         let t0 = nsec().unwrap_or(0);
         let (w, h) = self.mode;
-        let fb = self
-            .live
-            .as_ref()
-            .and_then(|live| live.framebuffer.as_ref())
-            .ok_or(GfxError::DeviceNotFound)?;
-        fb.clean(&fb.plane(w, h), damage);
-        // The frame was drawn into the display plane: once the controller scans that plane
-        // (the splash no longer holds), the monitor saw it being drawn.
-        let front = !self.hold.holding();
+        let Some(slot) = self.ring.drawing() else {
+            return Err(GfxError::CommandRejected);
+        };
+        let row = ring::ROWS[slot];
+        {
+            let fb = self
+                .live
+                .as_ref()
+                .and_then(|live| live.framebuffer.as_ref())
+                .ok_or(GfxError::DeviceNotFound)?;
+            fb.clean_at(row, &fb.plane_at(row, w, h), damage);
+        }
+        // The tear gate (RFC-0101 §8): the plane on screen is never drawn into. By the ring's
+        // construction this cannot happen; the FAIL form keeps the lane honest if it does.
+        let front = self.ring.scanned() == Some(slot);
+        if front && !self.front_reported {
+            self.front_reported = true;
+            emit(&alloc::format!("gpud: FAIL dc present front (slot={slot} drawn while scanned)"));
+        }
         let clean_ns = nsec().unwrap_or(t0).saturating_sub(t0);
         let damage_px = u64::from(damage.width) * u64::from(damage.height);
         if let Some(window) = self.stats.present(self.exec_ns, clean_ns, damage_px, front) {
             emit(&alloc::format!("{window}"));
         }
         if !self.first_reported {
-            // The first present's cost on the board's harts, once (a stats window takes 120).
+            // The first present's cost on the board's harts, once (a stats window takes 32).
             self.first_reported = true;
             emit(&alloc::format!(
                 "gpud: dc first present (exec_us={} clean_us={} damage={}x{})",
                 self.first_exec_ns / 1000,
-                nsec().unwrap_or(t0).saturating_sub(t0) / 1000,
+                clean_ns / 1000,
                 damage.width,
                 damage.height
             ));
         }
-        if self.hold.switch_due() {
-            let took = self.reveal();
-            self.hold.switched(took);
+        self.ring.damage(damage);
+        if self.hold.holding() {
+            if self.hold.switch_due() {
+                let took = self.reveal(row);
+                self.hold.switched(took);
+                if took {
+                    let _ = self.ring.shown_now();
+                } else {
+                    self.ring.discard();
+                }
+            } else {
+                // Composed while the splash holds the glass: never shown.
+                self.ring.discard();
+            }
+            return Ok(());
         }
+        let Some(live) = self.live.as_ref() else {
+            return Err(GfxError::DeviceNotFound);
+        };
+        if self.vblank.is_none() {
+            // No interrupt (named at the bind): the flip is written now — between two complete
+            // frames, never half-drawn — and the present is acked now.
+            if let Some(fb) = live.framebuffer.as_ref() {
+                live.controller.flip_in_blank(&fb.plane_at(row, w, h));
+            }
+            return self.ring.shown_now().map_err(|_| GfxError::ResourceExhausted);
+        }
+        self.ring.drawn().map_err(|_| GfxError::ResourceExhausted)?;
+        // A flip waits for the blank: the interrupt is live until it lands.
+        live.controller.vblank_enable();
         Ok(())
+    }
+
+    /// A present whose flip is queued or waiting is acked when it lands (`vblank_wake`).
+    fn present_ack_deferred(&mut self, seq: u32, status: u8) -> bool {
+        self.vblank.is_some() && self.ring.attach_ack((seq, status))
+    }
+
+    /// The vertical blank: the notification drained, the queued flip written if the scan is
+    /// inside the blank (else deferred to the next blank, counted late), the blank acknowledged
+    /// at the controller and the kernel, the ring advanced — the present that landed.
+    fn vblank_wake(&mut self) -> Option<(u32, u8)> {
+        let vb = self.vblank.as_mut()?;
+        let mut drained = 0u32;
+        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
+        let mut note = [0u8; 16];
+        while drained < VBLANK_DRAIN_MAX
+            && nexus_abi::ipc_recv_v1_nb(vb.slot, &mut hdr, &mut note, true).is_ok()
+        {
+            drained += 1;
+        }
+        if drained == 0 {
+            return None;
+        }
+        let now = nsec().unwrap_or(0);
+        let (w, h) = self.mode;
+        let live = self.live.as_ref()?;
+        let line = live.controller.line();
+        if vb.n == 0 {
+            vb.first_line = line;
+        } else {
+            vb.min_period_us = vb.min_period_us.min(now.saturating_sub(vb.last_ns) / 1000);
+        }
+        vb.n = vb.n.saturating_add(1);
+        vb.last_ns = now;
+        let mut landed = None;
+        match self.ring.flip_pending() {
+            Some(slot) if nexus_gfx::backend::dc::in_blank(line, u32::from(h)) => {
+                if let Some(fb) = live.framebuffer.as_ref() {
+                    let row = ring::ROWS[slot];
+                    live.controller.flip_in_blank(&fb.plane_at(row, w, h));
+                    if !vb.flip_reported {
+                        vb.flip_reported = true;
+                        emit(&alloc::format!("gpud: dc flip ok (slot={slot} line={line})"));
+                    }
+                    landed = self.ring.landed();
+                }
+            }
+            Some(_) => {
+                vb.late = vb.late.saturating_add(1);
+                self.ring.passed();
+            }
+            None => self.ring.passed(),
+        }
+        live.controller.vblank_ack();
+        if self.ring.flip_pending().is_none() {
+            // Nothing waits for the next blank: the idle display wakes nobody.
+            live.controller.vblank_disable();
+        }
+        let _ = nexus_abi::irq_complete(vb.irq);
+        if !vb.reported && vb.n >= super::VBLANK_WITNESS_N {
+            vb.reported = true;
+            emit(&alloc::format!(
+                "gpud: dc vblank ok (min_period_us={} line={} late={} n={})",
+                vb.min_period_us,
+                vb.first_line,
+                vb.late,
+                vb.n
+            ));
+        }
+        landed.and_then(|d| d.ack)
     }
 
     /// `OP_UPLOAD_CURSOR`: the sprite into the pointer's block, the layer armed on the composer
@@ -227,9 +351,6 @@ impl Display for DcDisplay {
             rb.compared,
             rb.compared
         ));
-        // The witness for the eye's verdict: the channel, the composer and the control words
-        // as the controller holds them once the layer is armed.
-        live.controller.cursor_census();
         (STATUS_OK, Some(CURSOR_REPLY_HW))
     }
 
@@ -278,7 +399,9 @@ impl Display for DcDisplay {
 
     fn submit(&mut self, commands: CommittedBuffer) -> Result<(), GfxError> {
         commands.validate().map_err(crate::backend::map_nexus_error)?;
-        self.execute(commands.commands())
+        let whole = Rect { x: 0, y: 0, width: self.mode.0.into(), height: self.mode.1.into() };
+        self.execute(commands.commands(), whole)?;
+        self.scan_out(whole)
     }
 
     fn request_reveal(&mut self) {
@@ -289,10 +412,11 @@ impl Display for DcDisplay {
     /// controller never writes the block, so the CPU reads it without cache maintenance.
     fn readback(&mut self, dest: u32, req: &nexus_display_proto::readback::Readback) -> u8 {
         let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));
+        let front = self.ring.scanned_row().unwrap_or(nexus_display_proto::layout::DISPLAY_ROW);
         let Some(fb) = self.live.as_mut().and_then(|live| live.framebuffer.as_mut()) else {
             return nexus_display_proto::STATUS_DEVICE_ERROR;
         };
-        fb.readback(dest, req, w, h)
+        fb.readback(dest, req, w, h, front)
     }
 
     fn reveal_requested(&self) -> bool {

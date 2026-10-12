@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn resource_height_matches_layout() {
         assert_eq!(nexus_display_proto::layout::RESOURCE_HEIGHT, ATLAS_ROW_OFFSET + ATLAS_ROWS);
-        assert_eq!(ATLAS_ROW_OFFSET, 4 * nexus_display_proto::layout::PLANE_ROWS);
+        assert_eq!(ATLAS_ROW_OFFSET, 5 * nexus_display_proto::layout::PLANE_ROWS);
     }
 
     #[test]

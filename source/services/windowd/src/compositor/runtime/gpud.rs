@@ -137,7 +137,13 @@ impl DisplayServerRuntime {
                     return true;
                 };
                 if proto::is_cursor_reply_magic(seq) {
-                    // A cursor-upload reply that outlived its blocking consumer — not a present.
+                    // The cursor upload's answer (RFC-0101 §8: the pointer plane never waits
+                    // behind a present) — not a present ack.
+                    if status == GPUD_STATUS_OK {
+                        self.on_cursor_reply(seq);
+                    } else {
+                        let _ = debug_println("windowd: cursor upload failed");
+                    }
                     return true;
                 }
                 match self.presents.ack(seq) {

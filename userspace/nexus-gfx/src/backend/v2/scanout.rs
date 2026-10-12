@@ -152,6 +152,19 @@ impl<const N: usize> PlaneRing<N> {
         }
     }
 
+    /// Gives a rendering slot back without a flip (a frame composed while the splash holds the
+    /// glass is never shown); its content is undefined from here on.
+    pub fn release(&mut self, index: usize) -> Result<(), RingError> {
+        let slot = self.slots.get_mut(index).ok_or(RingError::NotRendering)?;
+        if slot.state != SlotState::Rendering {
+            return Err(RingError::NotRendering);
+        }
+        slot.state = SlotState::Free;
+        slot.age = None;
+        slot.damage_count = 0;
+        Ok(())
+    }
+
     /// Records damage drawn into a rendering slot.
     pub fn damage(&mut self, index: usize, rect: Rect) -> Result<(), RingError> {
         let (width, height) = (self.width, self.height);
@@ -348,6 +361,20 @@ mod tests {
         let b = ring.acquire().unwrap();
         assert_eq!(ring.flip(b, DONE), Err(RingError::FlipPending), "one flip at a time");
         assert_eq!(ring.render_into(a), Err(RingError::FlipPending));
+    }
+
+    #[test]
+    fn a_released_slot_is_free_again_and_knows_nothing() {
+        let mut ring = PlaneRing::<2>::new(8, 8);
+        let a = ring.acquire().unwrap();
+        ring.damage(a, rect(0, 0, 1, 1)).unwrap();
+        assert_eq!(ring.release(a), Ok(()));
+        assert_eq!(ring.slot(a).unwrap().state(), SlotState::Free);
+        assert_eq!(ring.slot(a).unwrap().age(), None);
+        assert_eq!(ring.release(a), Err(RingError::NotRendering));
+        let b = ring.acquire().unwrap();
+        ring.flip(b, DONE).unwrap();
+        assert_eq!(ring.release(b), Err(RingError::NotRendering), "queued is not released");
     }
 
     #[test]

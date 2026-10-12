@@ -218,3 +218,19 @@ pub const CURSOR_ALPHA_WORD: u32 = 0x00ff_000a;
 /// vsync is the second witness that the timing generator scans.
 pub const INT_RAW_ONL2: u32 = 0x960;
 pub const INT_RAW_VSYNC: u32 = 1 << 0;
+pub const INT_RAW_CFG_EOF: u32 = 1 << 2;
+pub const INT_RAW_CFG_LINE: u32 = 1 << 3;
+/// The raw word is cleared by writing its bits (measured 2026-10-12: the stock driver's write
+/// took it to 0 at line 1071, the vsync raised it again at 1078–1080).
+pub const INT_RAW_CLEAR_ALL: u32 = 0xf;
+/// Pipeline 2's interrupt mask (`onl2_nml_*_int_msk`): a set bit holds a source back. The
+/// stock driver runs `0xf212` — vsync, cfg-eof and cfg-line live, two interrupts a frame
+/// (`docs/board/measurements/2026-10-12-scanout-vblank/`).
+pub const INT_MASK_ONL2: u32 = 0x910;
+pub const INT_MASK_STOCK: u32 = 0xf212;
+/// Every source but the vsync held back: one interrupt a frame, raised at line 1080 — the
+/// first line of the 45-line blank, the frame clock.
+pub const INT_MASK_ALL_BUT_VSYNC: u32 = INT_MASK_STOCK | INT_RAW_CFG_EOF | INT_RAW_CFG_LINE;
+/// Every source held back: the idle display raises no interrupt (the blank is enabled only
+/// while a flip waits for it — zero wakes otherwise).
+pub const INT_MASK_ALL: u32 = 0xffff;

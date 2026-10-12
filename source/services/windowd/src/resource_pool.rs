@@ -25,7 +25,7 @@
 
 /// Total size of the four display planes (the atlas follows them in the same VMO).
 #[allow(dead_code)]
-pub(crate) const VMO_TOTAL_BYTES: usize = 4 * nexus_display_proto::layout::PLANE_BYTES;
+pub(crate) const VMO_TOTAL_BYTES: usize = 5 * nexus_display_proto::layout::PLANE_BYTES;
 
 /// Plane 0: wallpaper source (static, written once at boot).
 #[allow(dead_code)]
@@ -54,6 +54,13 @@ pub(crate) const PLANE_SLOT_B_OFFSET: usize =
     nexus_display_proto::layout::row_offset_bytes(nexus_display_proto::layout::SLOT_B_ROW);
 #[allow(dead_code)]
 pub(crate) const PLANE_SLOT_B_BYTES: usize = nexus_display_proto::layout::PLANE_BYTES;
+
+/// Plane 4: frame ring slot C (RFC-0101 §8: three planes on the board).
+#[allow(dead_code)]
+pub(crate) const PLANE_SLOT_C_OFFSET: usize =
+    nexus_display_proto::layout::row_offset_bytes(nexus_display_proto::layout::SLOT_C_ROW);
+#[allow(dead_code)]
+pub(crate) const PLANE_SLOT_C_BYTES: usize = nexus_display_proto::layout::PLANE_BYTES;
 
 // ---------------------------------------------------------------------------
 // Resource pool budgets (all sizes in bytes)
@@ -175,11 +182,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn total_vmo_matches_4_plane_sum() {
-        let total =
-            PLANE_WALLPAPER_BYTES + PLANE_RETAINED_BYTES + PLANE_SLOT_A_BYTES + PLANE_SLOT_B_BYTES;
+    fn total_vmo_matches_5_plane_sum() {
+        let total = PLANE_WALLPAPER_BYTES
+            + PLANE_RETAINED_BYTES
+            + PLANE_SLOT_A_BYTES
+            + PLANE_SLOT_B_BYTES
+            + PLANE_SLOT_C_BYTES;
         assert_eq!(total, VMO_TOTAL_BYTES);
-        assert_eq!(VMO_TOTAL_BYTES, 4 * nexus_display_proto::layout::PLANE_BYTES);
+        assert_eq!(VMO_TOTAL_BYTES, 5 * nexus_display_proto::layout::PLANE_BYTES);
     }
 
     #[test]
@@ -188,6 +198,7 @@ mod tests {
         assert_eq!(PLANE_RETAINED_OFFSET, PLANE_WALLPAPER_OFFSET + PLANE_WALLPAPER_BYTES);
         assert_eq!(PLANE_SLOT_A_OFFSET, PLANE_RETAINED_OFFSET + PLANE_RETAINED_BYTES);
         assert_eq!(PLANE_SLOT_B_OFFSET, PLANE_SLOT_A_OFFSET + PLANE_SLOT_A_BYTES);
+        assert_eq!(PLANE_SLOT_C_OFFSET, PLANE_SLOT_B_OFFSET + PLANE_SLOT_B_BYTES);
     }
 
     #[test]
@@ -201,10 +212,10 @@ mod tests {
             + ICON_ATLAS_BUDGET
             + CURSOR_RESOURCE_BUDGET
             + COMMAND_METADATA_BUDGET;
-        // The pools alone stay small (16 MB); the four planes are the layout maximum's
-        // (`nexus_display_proto::layout`, ~33 MB at 1920x1080) and are budgeted there.
+        // The pools alone stay small (16 MB); the five planes are the layout maximum's
+        // (`nexus_display_proto::layout`, ~41 MB at 1920x1080) and are budgeted there.
         assert!(pool_total <= 16 * 1024 * 1024);
-        assert_eq!(VMO_TOTAL_BYTES, 4 * nexus_display_proto::layout::PLANE_BYTES);
+        assert_eq!(VMO_TOTAL_BYTES, 5 * nexus_display_proto::layout::PLANE_BYTES);
     }
 
     #[test]

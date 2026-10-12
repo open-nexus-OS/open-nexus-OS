@@ -203,6 +203,31 @@ phase = "bringup"
 proves = "TASK-0251 P2a step 3c: windowd's pointer sprite laid into the controller's pointer block (64x64 ARGB8888), the pointer channel and composer layer programmed as measured on the stock system (channel 2, layer 6, blend mode 5), every word read back — the display answered CURSOR_REPLY_HW"
 emit_when = { profile = "board-headless" }
 
+[marker."gpud: dc vblank armed ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "RFC-0101 §8 (TASK-0216): the controller's vertical-blank interrupt is bound to gpud's control-reply endpoint and armed at the controller (every source but the vsync masked, as measured 2026-10-12) — the display's own blank is the frame clock from here on"
+
+[marker."gpud: dc vblank ok ("]
+phase = "bringup"
+emit_when = { profile = "board-visible" }
+proves = "RFC-0101 §8 (TASK-0216): one second of the vertical-blank interrupt served — the rate (60 a second when idle; fewer while a present holds the thread), the scan line the first handler saw (inside the 45-line blank when the thread was free) and the flips written late (deferred to the next blank, never torn)"
+
+[marker."gpud: FAIL dc vblank ("]
+phase = "bringup"
+proves = "the controller's interrupt could not be bound or the tree names none: the ring would flip at the next present instead of the blank — the lane fails"
+forbidden_when = { profile = ["board-headless", "board-visible"] }
+
+[marker."gpud: dc flip ok ("]
+phase = "bringup"
+emit_when = { profile = "board-visible" }
+proves = "RFC-0101 §8 (TASK-0216): the first flip after the reveal — a present drawn into a free plane of the ring, its address and stride written inside the vertical blank (the line the handler read), latched; nothing is drawn in view from here on"
+
+[marker."gpud: FAIL dc present front ("]
+phase = "bringup"
+proves = "the tear gate: a present was drawn into the plane the controller scans — the state every present of layer 0 was in (`front` = `n`); the ring forbids it by construction, and the lane fails if it happens"
+forbidden_when = { profile = ["board-headless", "board-visible"] }
+
 [marker."gpud: FAIL dc cursor layer ("]
 phase = "bringup"
 proves = "the pointer layer could not be armed (no block, a sprite that does not fit, a word that did not read back): no software pointer stands in — the lane fails"

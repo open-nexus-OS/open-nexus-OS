@@ -108,10 +108,15 @@ pub fn cursor_layer_off<W: RegWriter>(w: &mut W, rdma: u32) {
 /// The channel's bounding box (the crop) and the layer's rectangle words.
 fn cursor_rect_words<W: RegWriter>(w: &mut W, rect: &CursorRect) {
     let ch = regs::rdma_base(regs::CURSOR_RDMA);
-    let last = regs::CURSOR_SIZE - 1;
+    // The channel reads exactly the sprite's visible part: a bounding box that ran to the
+    // buffer's last column while the layer stopped at the display's right border read past
+    // the layer — the pointer broke apart in a strip there (operator, 2026-10-10;
+    // `PointerPlane::place` is the contract's model of this clip).
+    let end_x = rect.crop_x + (rect.right - rect.left);
+    let end_y = rect.crop_y + (rect.bottom - rect.top);
     w.write(ch + regs::RDMA_COMPOSER_Y, rect.top);
     w.write(ch + regs::RDMA_BBOX_START, (rect.crop_y << 16) | rect.crop_x);
-    w.write(ch + regs::RDMA_BBOX_END, (last << 16) | last);
+    w.write(ch + regs::RDMA_BBOX_END, (end_y << 16) | end_x);
     let layer = regs::cmps_base(regs::PIPELINE) + regs::cmps_layer_en(regs::CURSOR_LAYER);
     w.write(layer + regs::LAYER_LEFT, rect.left << 8);
     w.write(layer + regs::LAYER_RIGHT_TOP, (rect.right << 16) | rect.top);
@@ -231,6 +236,34 @@ mod tests {
         assert_eq!(cursor_rect(-64, 10, (0, 0), 1920, 1080), None);
         assert_eq!(cursor_rect(1920, 10, (0, 0), 1920, 1080), None);
         assert_eq!(cursor_rect(10, -70, (0, 0), 1920, 1080), None);
+    }
+
+    /// The layer's rectangle and crop agree with the contract's pointer plane
+    /// (`backend::v2::scanout::PointerPlane`) at every border, and the channel's bounding box
+    /// ends at the visible part — one column at the display's last pixel, not the buffer's
+    /// last column.
+    #[test]
+    fn the_pointer_rectangle_agrees_with_the_contract_model_at_every_border() {
+        use crate::backend::v2::scanout::PointerPlane;
+        let plane = PointerPlane::new((1920, 1080), (64, 64), (2, 2));
+        for (x, y) in [(100, 100), (1919, 500), (0, 0), (10, 1079), (1900, 1070)] {
+            let r = cursor_rect(x, y, (2, 2), 1920, 1080).unwrap();
+            let p = plane.place(x, y).unwrap();
+            assert_eq!((r.left, r.top), (p.dst.x, p.dst.y), "at {x},{y}");
+            assert_eq!((r.crop_x, r.crop_y), (p.src_x, p.src_y), "at {x},{y}");
+            assert_eq!(r.right - r.left + 1, p.dst.width, "at {x},{y}");
+            assert_eq!(r.bottom - r.top + 1, p.dst.height, "at {x},{y}");
+        }
+        let mut w = Sequence::new();
+        let r = cursor_rect(1919, 500, (2, 2), 1920, 1080).unwrap();
+        cursor_move(&mut w, &r);
+        let ch = regs::rdma_base(regs::CURSOR_RDMA);
+        assert_eq!(w.value_at(ch + regs::RDMA_BBOX_END), Some((63 << 16) | 2));
+        assert_eq!(w.value_at(ch + regs::RDMA_BBOX_START), Some(0));
+        let r = cursor_rect(100, 100, (2, 2), 1920, 1080).unwrap();
+        let mut w = Sequence::new();
+        cursor_move(&mut w, &r);
+        assert_eq!(w.value_at(ch + regs::RDMA_BBOX_END), Some((63 << 16) | 63), "whole sprite");
     }
 
     /// A 32×32 sprite lands in the buffer's top-left rows of 256 bytes, the rest transparent;

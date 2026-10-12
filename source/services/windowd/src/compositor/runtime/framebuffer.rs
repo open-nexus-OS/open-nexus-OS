@@ -87,18 +87,6 @@ impl DisplayServerRuntime {
         self.framebuffer_pending_first_write
     }
 
-    /// Phase 4: byte offset into VMO for the current display slot.
-    /// (Slot-flip contract companion of `current_display_slot`; the current
-    /// present path scans out slot A only.)
-    #[allow(dead_code)]
-    pub(super) fn current_display_offset(&self) -> usize {
-        if self.current_display_slot == 0 {
-            super::DISPLAY_OFFSET_BYTES
-        } else {
-            super::DISPLAY_SLOT_B_OFFSET_BYTES
-        }
-    }
-
     /// Phase 2 of framebuffer registration: write the first composed frame into the
     /// framebuffer gpud granted, emit the bootstrap markers, then attach (gpud scans it out).
     pub(crate) fn process_deferred_framebuffer_write(&mut self) -> u8 {

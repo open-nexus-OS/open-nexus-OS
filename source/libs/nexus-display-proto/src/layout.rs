@@ -41,12 +41,18 @@ pub const WALLPAPER_ROW: u32 = 0;
 /// Plane 1: the retained scene the CPU compositor renders (cursor-free); gpud blits damage
 /// from here to the display plane and overlays the cursor.
 pub const RETAINED_ROW: u32 = PLANE_ROWS;
-/// Plane 2: the display plane gpud scans out (frame ring slot A).
+/// Plane 2: the display plane gpud scans out (frame ring slot A — the first plane of the ring,
+/// and the one plane of the displays without a ring).
 pub const DISPLAY_ROW: u32 = 2 * PLANE_ROWS;
-/// Plane 3: frame ring slot B, used as the blur cache.
+/// Plane 3: frame ring slot B.
 pub const SLOT_B_ROW: u32 = 3 * PLANE_ROWS;
-/// Rows of the four display planes together — where the surface atlas begins.
-pub const ATLAS_ROW: u32 = 4 * PLANE_ROWS;
+/// Plane 4: frame ring slot C (RFC-0101 §8: three planes on the board — one scanned, one
+/// queued for the vertical blank, one free to draw into).
+pub const SLOT_C_ROW: u32 = 4 * PLANE_ROWS;
+/// The ring's planes, in slot order (the display controller flips among them).
+pub const RING_ROWS: [u32; 3] = [DISPLAY_ROW, SLOT_B_ROW, SLOT_C_ROW];
+/// Rows of the five display planes together — where the surface atlas begins.
+pub const ATLAS_ROW: u32 = 5 * PLANE_ROWS;
 /// Rows of the surface atlas: a desktop band, one resident scroll band, floating windows
 /// with their blur bands, the dock and fullscreen round-trips — eight display heights
 /// (measured: five starved on the fullscreen re-create with four windows open).
@@ -82,7 +88,9 @@ mod tests {
         assert_eq!(RETAINED_ROW, WALLPAPER_ROW + PLANE_ROWS);
         assert_eq!(DISPLAY_ROW, RETAINED_ROW + PLANE_ROWS);
         assert_eq!(SLOT_B_ROW, DISPLAY_ROW + PLANE_ROWS);
-        assert_eq!(ATLAS_ROW, SLOT_B_ROW + PLANE_ROWS);
+        assert_eq!(SLOT_C_ROW, SLOT_B_ROW + PLANE_ROWS);
+        assert_eq!(ATLAS_ROW, SLOT_C_ROW + PLANE_ROWS);
+        assert_eq!(RING_ROWS, [DISPLAY_ROW, SLOT_B_ROW, SLOT_C_ROW]);
         assert_eq!(RESOURCE_HEIGHT, ATLAS_ROW + ATLAS_ROWS);
         assert!(ATLAS_ROWS >= 5 * PLANE_ROWS, "the atlas starved below five display heights");
     }
@@ -93,9 +101,10 @@ mod tests {
         assert_eq!(row_offset_bytes(RETAINED_ROW), PLANE_BYTES);
         assert_eq!(row_offset_bytes(DISPLAY_ROW), 2 * PLANE_BYTES);
         assert_eq!(row_offset_bytes(SLOT_B_ROW), 3 * PLANE_BYTES);
-        assert_eq!(row_offset_bytes(ATLAS_ROW), 4 * PLANE_BYTES);
+        assert_eq!(row_offset_bytes(SLOT_C_ROW), 4 * PLANE_BYTES);
+        assert_eq!(row_offset_bytes(ATLAS_ROW), 5 * PLANE_BYTES);
         assert_eq!(RESOURCE_BYTES, row_offset_bytes(RESOURCE_HEIGHT));
-        assert_eq!(RESOURCE_BYTES, 12 * PLANE_BYTES);
+        assert_eq!(RESOURCE_BYTES, 13 * PLANE_BYTES);
     }
 
     /// The resource is page-granular at both ends (it is a VMO) and every plane row offset is
@@ -103,7 +112,7 @@ mod tests {
     #[test]
     fn test_reject_unaligned_layout() {
         assert_eq!(RESOURCE_BYTES % 4096, 0, "the resource must be whole pages");
-        for row in [RETAINED_ROW, DISPLAY_ROW, SLOT_B_ROW, ATLAS_ROW] {
+        for row in [RETAINED_ROW, DISPLAY_ROW, SLOT_B_ROW, SLOT_C_ROW, ATLAS_ROW] {
             assert_eq!(row_offset_bytes(row) % 64, 0, "row {row} is not 64-byte aligned");
         }
     }

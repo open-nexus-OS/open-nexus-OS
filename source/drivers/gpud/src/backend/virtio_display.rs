@@ -68,7 +68,7 @@ impl Display for VirtioGpuBackend {
         }
     }
 
-    fn execute(&mut self, commands: &[Command]) -> Result<(), GfxError> {
+    fn execute(&mut self, commands: &[Command], _damage: Rect) -> Result<(), GfxError> {
         if !self.is_probed() {
             return Err(GfxError::DeviceNotFound);
         }

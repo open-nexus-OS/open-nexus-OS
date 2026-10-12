@@ -100,8 +100,6 @@ pub(crate) const DISPLAY_HEIGHT: u32 = nexus_display_proto::LAYOUT_MAX.1;
 // the row form is consumed today.
 #[allow(dead_code)]
 pub(crate) const DISPLAY_OFFSET_BYTES: usize = layout::row_offset_bytes(layout::DISPLAY_ROW);
-#[allow(dead_code)]
-pub(crate) const DISPLAY_SLOT_B_OFFSET_BYTES: usize = layout::row_offset_bytes(layout::SLOT_B_ROW);
 /// Plane 1 — retained scene. The CPU compositor renders the full cursor-free
 /// scene (wallpaper + panels + text + glass) here. gpud blits damage regions
 /// from this plane to the display plane per frame and overlays the cursor.
@@ -111,10 +109,6 @@ pub(crate) const RETAINED_ROW_OFFSET: u32 = layout::RETAINED_ROW;
 /// Absolute VMO row where the display plane starts. Used as the BlitAbsolute source/dst for
 /// blur cache writes.
 pub(crate) const DISPLAY_ROW_OFFSET: u32 = layout::DISPLAY_ROW;
-/// Absolute VMO row where Plane 3 (Slot B) starts — repurposed as blur cache. (Documented
-/// plane-layout contract; the blur cache writers address Plane 3 through gpud blits today.)
-#[allow(dead_code)]
-pub(crate) const BLUR_CACHE_ROW_OFFSET: u32 = layout::SLOT_B_ROW;
 pub(crate) const PROOF_PANEL_H: u32 = 260;
 
 // The former `SHELL_TOPBAR` / `SHELL_SIDEPANEL` compile-time constants are gone:

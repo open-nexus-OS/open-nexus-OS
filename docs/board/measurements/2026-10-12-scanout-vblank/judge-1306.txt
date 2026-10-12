@@ -1,0 +1,5 @@
+[board-test] judging uart-1306.log as profile board-visible
+[board-test] known board reds tolerated (config/fail-marker-allow-board.txt): 12
+[board-test] ladder complete: 49 rungs present
+[PASS] board-visible: 49 rungs, 7 operator marker(s), no FAIL marker, manifest clean (uart-1306.log)
+rc=0

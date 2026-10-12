@@ -1,0 +1,40 @@
+gpud: dc vblank armed (irq=139)
+gpud: dc vblank ok (min_period_us=21 line=331 late=0 n=32)
+gpud: dc first present (exec_us=23353 clean_us=749 damage=1920x1080)
+gpud: dc flip ok (slot=1 line=1080)
+[INFO smp] KSELFTEST: bkl budget ok (max_wait=10566us max_hold=9ms nr=16)
+windowd: loop hz=122 apply=114 present=9 nack=0 fullrq=0 reply(ch=14 cap=1 shared=1) frames(content=0 blit=9 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=116291 max=283521 clean=861 blur=7294 layer=98832 shadow=0 blit=5396 fill=0 other=0 damage_px=2008832 front=0)
+windowd: loop hz=54 apply=35 present=12 nack=0 fullrq=0 reply(ch=25 cap=1 shared=1) frames(content=7 blit=5 pointer=0 keepalive=0 shape=0)
+windowd: loop hz=54 apply=44 present=11 nack=0 fullrq=0 reply(ch=25 cap=1 shared=1) frames(content=0 blit=11 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=102525 max=169375 clean=836 blur=20359 layer=75033 shadow=0 blit=2173 fill=0 other=0 damage_px=2073600 front=0)
+windowd: loop hz=174 apply=149 present=10 nack=0 fullrq=0 reply(ch=66 cap=1 shared=1) frames(content=2 blit=8 pointer=0 keepalive=0 shape=0)
+windowd: loop hz=142 apply=60 present=8 nack=0 fullrq=0 reply(ch=157 cap=1 shared=1) frames(content=8 blit=0 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=90254 max=186983 clean=902 blur=16091 layer=67016 shadow=0 blit=2233 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=72455 max=82371 clean=905 blur=12132 layer=53841 shadow=0 blit=1162 fill=0 other=0 damage_px=2073600 front=0)
+windowd: loop hz=109 apply=93 present=9 nack=0 fullrq=0 reply(ch=406 cap=1 shared=1) frames(content=2 blit=5 pointer=2 keepalive=2 shape=0)
+windowd: loop hz=44 apply=34 present=11 nack=0 fullrq=0 reply(ch=406 cap=1 shared=1) frames(content=0 blit=11 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=216007 max=530243 clean=830 blur=53074 layer=154157 shadow=0 blit=4422 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=328853 max=363798 clean=881 blur=83105 layer=233743 shadow=0 blit=7493 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=181177 max=377365 clean=939 blur=43866 layer=125450 shadow=0 blit=5758 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=136655 max=167698 clean=912 blur=31214 layer=95534 shadow=0 blit=5373 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=150946 max=235958 clean=998 blur=35432 layer=106405 shadow=0 blit=4547 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=228150 max=416335 clean=844 blur=56750 layer=160379 shadow=0 blit=6401 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=421323 max=466763 clean=1470 blur=129404 layer=277071 shadow=0 blit=9676 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=371555 max=449823 clean=887 blur=115028 layer=243170 shadow=0 blit=8829 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=451912 max=581670 clean=852 blur=137376 layer=298608 shadow=0 blit=11462 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=423844 max=533226 clean=947 blur=139350 layer=270474 shadow=0 blit=9433 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=221753 max=431133 clean=958 blur=62443 layer=148562 shadow=0 blit=6159 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=142248 max=208091 clean=857 blur=32656 layer=100414 shadow=0 blit=4702 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=187216 max=275389 clean=824 blur=48999 layer=128138 shadow=0 blit=5680 fill=0 other=0 damage_px=2073600 front=0)
+windowd: loop hz=9 apply=2 present=8 nack=0 fullrq=0 reply(ch=1052 cap=1 shared=1) frames(content=0 blit=8 pointer=0 keepalive=0 shape=0)
+windowd: loop hz=8 apply=0 present=8 nack=0 fullrq=0 reply(ch=1052 cap=1 shared=1) frames(content=0 blit=8 pointer=0 keepalive=0 shape=0)
+gpud: dc present us (n=32 avg=171345 max=543824 clean=1134 blur=42588 layer=117061 shadow=0 blit=6966 fill=0 other=0 damage_px=2073600 front=0)
+gpud: dc present us (n=32 avg=541967 max=732269 clean=918 blur=161059 layer=362123 shadow=0 blit=14224 fill=0 other=0 damage_px=2073600 front=0)
+board-visual: desktop
+board-visual: typed
+board-visual: pointer
+board-visual: modal
+board-visual: tile
+board-visual: clipboard
+board-visual: screenshot

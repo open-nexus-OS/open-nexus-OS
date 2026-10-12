@@ -33,11 +33,28 @@ pub(crate) trait Display {
     /// After an acked attach: what the device does once windowd owns the frames.
     fn attached(&mut self) {}
 
-    /// A present's validated commands, into the framebuffer (the chain's G3 hop).
-    fn execute(&mut self, commands: &[Command]) -> Result<(), GfxError>;
+    /// A present's validated commands, into the framebuffer (the chain's G3 hop); `damage` is
+    /// the screen rectangle the commands touch (a display with a ring of planes copies what
+    /// lies outside it from the frame on screen first — RFC-0101 §8, buffer age).
+    fn execute(&mut self, commands: &[Command], damage: Rect) -> Result<(), GfxError>;
 
     /// `damage` of the display plane to the glass (the chain's G4 hop).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError>;
+
+    /// After [`Display::scan_out`]: whether the present `seq` is acked LATER — once its flip has
+    /// landed at a vertical blank ([`Display::vblank_wake`] returns it then) — instead of now.
+    /// A display without a ring answers `false` and the loop acks at once.
+    fn present_ack_deferred(&mut self, _seq: u32, _status: u8) -> bool {
+        false
+    }
+
+    /// The loop woke (its waitset fired): a display with a vertical-blank interrupt drains it,
+    /// flips what is queued if the scan is inside the blank, and returns the present whose
+    /// flip landed — `(seq, status)` for the ack that is the compositor's frame clock. `None`
+    /// when the wake was not the display's, or nothing landed.
+    fn vblank_wake(&mut self) -> Option<(u32, u8)> {
+        None
+    }
 
     /// The first frame reached the glass (the chain trace ends): a display with a readback
     /// proves it there.

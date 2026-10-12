@@ -94,6 +94,47 @@ impl Framebuffer {
         }
     }
 
+    /// The plane that starts at layout row `row` (a slot of the ring, RFC-0101 §8).
+    pub(super) fn plane_at(&self, row: u32, width: u16, height: u16) -> Plane {
+        Plane {
+            bus_addr: self.mem.runs()[0].bus + layout::row_offset_bytes(row) as u64,
+            stride: self.stride,
+            width,
+            height,
+        }
+    }
+
+    /// Make `damage` of the plane at layout row `row` visible to the controller.
+    pub(super) fn clean_at(&self, row: u32, plane: &Plane, damage: Rect) {
+        let DmaCoherence::Maintained { block } = self.coherence else {
+            return;
+        };
+        let Some(bytes) = self.mem.bytes().get(layout::row_offset_bytes(row)..) else {
+            return;
+        };
+        for span in damage_spans(plane, damage.x, damage.y, damage.width, damage.height) {
+            if let Some(run) = bytes.get(span) {
+                nexus_abi::cache_clean(run, block);
+            }
+        }
+    }
+
+    /// Copy the `width`x`height` picture of the plane at row `from` into the plane at row `to`
+    /// (buffer age: what a present does not redraw comes from the frame on screen).
+    pub(super) fn copy_plane(&mut self, from: u32, to: u32, width: u32, height: u32) {
+        let stride = self.stride as usize;
+        let row_bytes = (width as usize * layout::BYTES_PER_PIXEL as usize).min(stride);
+        let (src, dst) = (layout::row_offset_bytes(from), layout::row_offset_bytes(to));
+        let bytes = self.mem.bytes_mut();
+        for y in 0..height as usize {
+            let (s, d) = (src + y * stride, dst + y * stride);
+            if d + row_bytes > bytes.len() || s + row_bytes > bytes.len() {
+                return;
+            }
+            bytes.copy_within(s..s + row_bytes, d);
+        }
+    }
+
     /// The scanned plane's bytes, for the CPU to draw into.
     pub(super) fn plane_mut(&mut self) -> &mut [u8] {
         &mut self.mem.bytes_mut()[self.plane_start..]
@@ -117,11 +158,12 @@ impl Framebuffer {
         req: &nexus_display_proto::readback::Readback,
         w: u32,
         h: u32,
+        front_row: u32,
     ) -> u8 {
         use crate::readback::{copy_plane, copy_rect_out, with_destination};
         use nexus_display_proto::{STATUS_DEVICE_ERROR, STATUS_MALFORMED, STATUS_OK};
-        let display = layout::row_offset_bytes(layout::DISPLAY_ROW);
-        if self.plane_start != display {
+        let display = layout::row_offset_bytes(front_row);
+        if self.plane_start != layout::row_offset_bytes(layout::DISPLAY_ROW) {
             return STATUS_DEVICE_ERROR;
         }
         let stride = self.stride as usize;
