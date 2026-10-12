@@ -49,6 +49,8 @@
 
 mod buffers;
 mod dma;
+/// RFC-0101: the GPU's device-side vocabulary and the context's own address space.
+pub mod gpu;
 mod mmio;
 mod qos;
 mod ring;

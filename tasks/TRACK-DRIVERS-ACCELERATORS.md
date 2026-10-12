@@ -18,7 +18,7 @@ links:
   - ADR (DriverKit ABI policy): docs/adr/0018-driverkit-abi-versioning-and-stability.md
   - ADR (device-class driver architecture: bus-HAL + DriverKit + thin device shim): docs/adr/0039-device-class-driver-architecture.md
   - Landed (virtio-mmio bus-HAL): source/libs/nexus-virtio — register map + init handshake + virtqueue ring + queue setup, generic over nexus_hal::Bus (net-virtio migrated; storage/rng/input/gpud boot-gated follow-ons)
-  - Extracted (DriverKit core v1): tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
+  - Extracted (DriverKit core v1): tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
   - Extracted (NexusInfer interop/profile binding): tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
   - Extracted (DMA buffer ownership prototype): tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
   - Extracted (NexusInfer ownership + CPU executor): tasks/TASK-0284B-nexusinfer-v1c-ownership-based-tensor-buffer-states-cpu-reference-executor.md

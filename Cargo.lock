@@ -2150,6 +2150,7 @@ name = "nexus-gfx"
 version = "0.1.0"
 dependencies = [
  "libm",
+ "nexus-driverkit",
  "nexus-sdf",
 ]
 

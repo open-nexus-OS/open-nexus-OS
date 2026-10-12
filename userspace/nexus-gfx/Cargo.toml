@@ -15,3 +15,7 @@ path = "src/lib.rs"
 nexus-sdf = { path = "../ui/sdf" }
 # Soft-float gaussian kernel for the separable backdrop blur (no_std, no FPU).
 libm = "0.2"
+# RFC-0101: the GPU's device-side vocabulary (queue kinds, cache modes, the timeline point,
+# the GPU address space) is the driver-kit's — the client API names the same types, never a
+# second vocabulary.
+nexus-driverkit = { path = "../../source/libs/nexus-driverkit" }

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-12 (Block 4, layer 1: the base — the GPU and scanout contracts, host-tested)
+
+- **RFC-0101 seeded** (Phase 0 ✅): the GPU driver split and the scanout contract — a context
+  per client with its own GPU address space, queue kinds declared and refused by name, buffers
+  bound with a cache mode by type, one batch per kernel crossing, the kernel's timeline fence
+  as the one sync primitive, GPU code as client data; a ring of planes flipped at the vertical
+  blank, the vertical blank as the frame clock, damage per plane, the pointer plane whole at
+  every border.
+- **The contracts as types with tests**: `nexus_driverkit::gpu` (queue kinds, priorities, cache
+  modes, `VmSpace`, capabilities, the batch bound), `nexus_gfx::sync::timeline` (the one fence,
+  modelled), `nexus_gfx::backend::v2` (`GfxDevice`, `PlaneRing`, `FrameClock`, `PointerPlane`,
+  `CpuMockDevice`) — the 18-test reject matrix of RFC-0101 §9. No OS code; TASK-0280 recut
+  to this and Done. Block 4 recut into eight layers with the contracts first and the GPU lane
+  straight to the desktop (`tasks/IMPLEMENTATION-ORDER.md`, "Block 4 in layers").
+
 ### Added - 2026-10-10 (Block 4, layer 0: the baseline for memory, GPU and SMP)
 
 - **The lanes see what the kernel prints**: the FAIL gate of the QEMU and the board lane reads

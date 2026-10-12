@@ -12,7 +12,7 @@ links:
   - Renderer abstraction host slice: tasks/TASK-0169-renderer-abstraction-v1a-host-sceneir-cpu2d-goldens.md
   - Renderer abstraction OS wiring baseline: tasks/TASK-0170-renderer-abstraction-v1b-os-windowd-wiring-textshape-perf-markers.md
   - UI compositor baseline: tasks/TASK-0055-ui-v1b-windowd-compositor-surfaces-vmo-vsync-markers.md
-  - DriverKit core contracts: tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
+  - DriverKit core contracts: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
   - NexusGfx v1b resource/fence core: tasks/TASK-0169B-nexusgfx-v1b-resource-fence-core-cpu-mock-submit.md
   - Gfx command/pass model: docs/architecture/graphics/nexusgfx-command-and-pass-model.md
   - Gfx sync/lifetime model: docs/architecture/graphics/nexusgfx-sync-and-lifetime.md

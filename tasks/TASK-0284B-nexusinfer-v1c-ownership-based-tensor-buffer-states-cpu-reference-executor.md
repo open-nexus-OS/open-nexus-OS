@@ -9,7 +9,7 @@ links:
   - Vision: docs/architecture/vision.md
   - Playbook: CLAUDE.md
   - NexusInfer track: tasks/TRACK-NEXUSINFER-SDK.md
-  - DriverKit core contracts: tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
+  - DriverKit core contracts: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
   - NexusInfer interop/profile binding: tasks/TASK-0280B-nexusinfer-v1b-tensor-image-interop-profile-binding.md
   - DMA buffer ownership prototype: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
   - NexusInfer rust design: docs/architecture/inference/nexusinfer-rust-design.md

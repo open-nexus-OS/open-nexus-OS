@@ -30,7 +30,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Security, Policy & Identity | 13 / 35 | 37% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 17 / 36 | 47% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
 | Updates, Packaging & Recovery | 13 / 21 | 62% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
-| Bringup, Hardware & Drivers | 5 / 13 | 38% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
+| Bringup, Hardware & Drivers | 6 / 13 | 46% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
 | Windowing, UI & Graphics | 33 / 80 | 41% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 4 / 8 | 50% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
@@ -165,7 +165,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Bringup, Hardware & Drivers
 
-- Progress: `5 / 13` done (`38%`)
+- Progress: `6 / 13` done (`46%`)
 - Kernel-touch tasks: `TASK-0244`, `TASK-0251`
 - Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`, `TASK-0297`, `TASK-0299`
 - Notes (2026-07-21): `TASK-0297` (goldfish rtcd + timed walltime + tz-lite + live clock, RFC-0076) is part of the active IME/General-management track; `TASK-0299` (SNTP time-syncd) is a seed gated on netstackd UDP readiness.
@@ -372,6 +372,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0260 | Provisioning v1.0a: `nx image` — the GPT disk, the boot-ROM head, the flash path | Done | 2026-10-10 — Block 1 closure: P3 ran as TASK-0260B's; factory reset → TASK-0261, `swap` → M7 |
 | ✅ TASK-0327 | Board developer tooling: one command installs the flash tools + `just board-*` | Done | 2026-10-10 — Block 0 closed with Block 1; the two runs that need hardware the desk lacks → hygiene track §15 |
 | ✅ TASK-0327B | Board proof lane: the marker ladder from the boot trace, `board-*` profiles | Done | 2026-10-10 — `[PASS] board-headless` + `board-visible`; the board's tracked reds owned (TRNG → N3, RTC → N4) |
+| ✅ TASK-0280 | Block 4 layer 1 — the base: the GPU and scanout contracts as host-tested types (driver-kit v2, GfxDevice v2, the one timeline, the plane ring) | Done | 2026-10-12 — RFC-0101 seeded (Phase 0 ✅); `nexus_driverkit::gpu`, `nexus_gfx::sync::timeline`, `nexus_gfx::backend::v2` with the mock device; the 18 `test_reject_*` of RFC-0101 §9; no OS code |
 | ✅ TASK-0251 | Display v1.0b: the display controller + HDMI in gpud — the first picture (Block 1 D5) | Done | 2026-10-10 — the desktop at 1920x1080@60 on the board with USB input; gate boot 46/46 + 6 of 7 operator rungs, clipboard accepted from 2026-10-08; EDID + CPU composite → G |
 
 `TASK-0065` / UI v6b app lifecycle + notifications + navigation — **DONE (2026-06-23)**. RFC-0065 + ADR-0036/0037; `bundlemgrd` registry **generated from real `bundles/<app>/manifest.toml`** at build time (no hardcoded list; phantom `notes` removed; `windowd: apps ok (n=2)` chat/search); `abilitymgr` real service + lifecycle broker + **manifest-caps launch authority** (fail-closed `STATUS_DENIED`; `abilitymgr: caps ok app=<id>`); policyd `BundleQuery` gating + greppable `!route-deny`/`!cap-deny`; real `.nxb` bundles + Cap'n Proto manifests; per-app-surface model (ADR-0037); `search-app` (no_std) owns its data, windowd hosts it. 25 abilitymgr + 2 nxb-pack + 126 windowd + 10 search-app tests, riscv-checked. **Descoped to follow-ups:** apps as spawned processes w/ own surfaces → DSL App Runtime **`TASK-0080D`** (execd only runs asm stubs today; needs a userspace app runtime + surface handoff) + `TASK-0234`/`0235` + SystemUI DSL phases.

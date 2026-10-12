@@ -12,3 +12,6 @@ pub mod dc;
 pub mod error;
 pub mod traits;
 pub mod types;
+/// RFC-0101: the v2 device contract (contexts, buffers, batches, the timeline) and the
+/// scanout contract (the plane ring, the frame clock, the pointer plane), with the mock.
+pub mod v2;

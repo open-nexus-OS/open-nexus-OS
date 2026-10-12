@@ -18,7 +18,7 @@ links:
   - IPC hybrid (control Cap'n Proto + data VMO): docs/rfcs/RFC-0005-kernel-ipc-capability-model.md
   - Service architecture (data plane): docs/adr/0017-service-architecture.md
   - Drivers & accelerators (NPU device-class; submit/fence/budgets): tasks/TRACK-DRIVERS-ACCELERATORS.md
-  - DriverKit core v1: tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md
+  - DriverKit core v1: tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md
   - DMA buffer ownership prototype: tasks/TASK-0284-userspace-dmabuffer-ownership-v1-prototype.md
   - Zero-copy VMOs: tasks/TASK-0031-zero-copy-vmos-v1-plumbing.md
   - QoS/timers: tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md

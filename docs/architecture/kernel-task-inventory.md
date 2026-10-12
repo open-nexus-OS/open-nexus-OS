@@ -1244,7 +1244,7 @@ fn check_syscall(syscall: Syscall) -> bool {
 Concrete tasks created for these:
 
 - `docs/adr/0018-driverkit-abi-versioning-and-stability.md`
-- `tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md`
+- `tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md`
 - `tasks/TASK-0281-kernel-newtypes-v1c-handle-typing.md`
 - `tasks/TASK-0282-kernel-capability-phantom-rights-v1.md`
 - `tasks/TASK-0283-kernel-percpu-ownership-wrapper-v1.md`

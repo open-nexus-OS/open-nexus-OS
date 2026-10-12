@@ -6,7 +6,7 @@
 - Links:
   - Tracks: `tasks/TRACK-NEXUSGFX-SDK.md`, `tasks/TRACK-DRIVERS-ACCELERATORS.md`
   - Tasks: `tasks/TASK-0013-perfpower-v1-qos-abi-timed-coalescing.md` (QoS/`timed`, **implemented**),
-    `tasks/TASK-0280-driverkit-v1-core-contracts-queues-fences-buffers.md` (DriverKit core)
+    `tasks/TASK-0280-gpu-and-scanout-base-contracts-driverkit-v2-gfxdevice-v2-host.md` (DriverKit core — recut 2026-10-12 as RFC-0101's Phase 0)
   - Builds on: `docs/rfcs/RFC-0023-qos-abi-timed-coalescing-contract-v1.md` (timer objects + QoS exist)
   - Consumes: `docs/adr/0032-gpu-command-ring-and-pipelined-present.md` (gpud ring = the submit prototype)
   - ADR (to add on acceptance): `docs/adr/0033-soft-real-time-spine.md`
