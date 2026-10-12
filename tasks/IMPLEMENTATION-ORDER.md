@@ -314,14 +314,25 @@ N and W keep their rows of the table below.
 | # | Layer | Packages | Serves | Needs | Gate (short) |
 |---|---|---|---|---|---|
 | 0 | Measure, and gates that see | the M/G/S baseline, S0, G0's stock half, the stock frame time | all | — | ✅ 2026-10-10: two measurement folders with verdicts; the FAIL gate reads the kernel's lines (shown red once) |
-| 1 | The scanout contract (the display half of G4, first) | a ring of planes, the flip at the vertical blank by interrupt, the frame clock from it, damage per plane (buffer age), the pointer plane independent of presents | smooth | layer 0 | `front=0` in every `gpud: dc present us` window; flips = presents; operator: no flicker, shadows stable, the pointer whole at every border |
-| 2 | Foundation | S2a (console writes off the kernel lock, the board's own lock budget) · S1 (n harts from the FDT, IRQ affinity, the warm-reset hang) · M2 (demand paging, CoW; the layout block and the frame arena committed on touch) | G1, smooth | layer 0 | no console write among the top holders; `smp online ok harts=8`; CoW marker; `frame arena spill` off the tolerated list |
-| 3 | GPU online | G1 (the published firmware, GPU MMU, power through socd, fence) + the GPU driver RFC with the seven requirements of TASK-0329 | compositor | S1, M1 ✅ | `gpud: fw ok`, `mmu map/unmap ok`, a null job signals a fence; fixed cost of a frame below the stock 0.64 ms |
-| 4 | The kernel out of the way | S2 + S3 (scheduler, IPC router and waitsets off the lock) · M3 (shared code) | smooth | S1, M2 | the board's lock budget from layer 2 tightened; RSS drop |
-| 5 | The GPU contract | G2 (`create_bo / vm_bind / submit(fences)`) · M4 (accounting; GPU memory charged to its client) | compositor | G1, S3, M3 | a clear colour in a plane of layer 1's ring |
-| 6 | The GPU driver | G3 (encoder, offline shaders) · M5 (blur cache and atlas purgeable) | compositor | G2, M4 | a textured quad on the board; opaque fill at the stock 1.8 ns a pixel |
-| 7 | The desktop on the GPU | G4 (damage-driven compositing, cached reduced-size blur, shadows, rounded masks, controller planes for what moves; CPU compositing deleted on the board) | both | G3, M5 | our compositor's frame of the gate scene below the stock 23.3 ms; `board-visual: gpu-desktop` |
-| 8 | Closing | S4, S5 + S6, M6 + M7, G5 | — | — | as the table below |
+| 1 | **The base: the contracts, host-tested** | the GPU driver RFC (the seven requirements of TASK-0329: contexts with their own GPU VM, queue kinds, the timeline fence, VMOs bound with a cache mode, priority/preemption/reset, one crossing per batch, GPU code as client data) · the scanout/frame contract (a ring of planes, the flip at the vertical blank, the frame clock from it, damage per plane, the pointer plane) · driver-kit v2 + `GfxBackend` v2 types with `cpu_mock` and the `test_reject_*` matrix (G2's host half) · seeds of the `CpuSet` RFC and RFC-0100 | every later package — a model that builds one package reads its contract, not the plan | layer 0 | three lines (scope / invariant / contract) per contract; host green; `cpu_mock` implements v2; no OS code |
+| 2 | The scanout contract on the board + the console off the lock | the ring, the vertical-blank interrupt, the frame clock, damage per plane, the pointer plane whole at every border (TASK-0216 first package) · S2a (console writes leave the kernel lock; the board's own budget) | smooth | layer 1 | `front=0` in every `gpud: dc present us` window; flips = presents; no console write among the top holders; operator: no flicker, shadows stable |
+| 3 | GPU online | G1 (the published firmware, GPU MMU, power through socd, IRQ, fence bridge) | compositor | layer 1, M1 ✅ | `gpud: fw ok`, `mmu map/unmap ok`, a null job signals a fence; fixed cost of a frame below the stock 0.64 ms |
+| 4 | The GPU draws | G2 on the device (`create_bo / vm_bind / submit`) + G3's first op: one textured, blended quad into a plane of layer 2's ring, its shaders built offline on the host (the open toolchain for this core emits the shader binaries and reference command streams without hardware — those are the goldens) | compositor | G1 | a clear colour, then a textured quad on the board; opaque fill at the stock 1.8 ns a pixel |
+| 5 | **The desktop on the GPU** | G3's remaining ops (composite, SDF, shadow, blur) + G4: damage-driven compositing, the blur cached at reduced size, controller planes for what moves, CPU compositing deleted on the board | both priorities — **the operator's two goals are met here** | layer 4 | our frame of the gate scene below the stock 23.3 ms; a hover frame below 8.3 ms; `board-visual: gpu-desktop` |
+| 6 | SMP, the dynamic kernel | S1 (n harts from the FDT, cluster topology, IRQ affinity, the warm-reset hang) · S2 + S3 (scheduler, IPC router and waitsets off the lock) | smooth under load | layer 2 | `smp online ok harts=8`; the board's lock budget tightened; IPC rate per hart |
+| 7 | Memory, the efficient one | M2 (demand paging, CoW; the layout block and the frame arena committed on touch) · M3 (shared code) · M4 (accounting, pressure levels; GPU memory charged to its client) · M5 (purgeable: blur cache, atlas) | efficiency | layer 5 | CoW marker; `frame arena spill` off the tolerated list; RSS drop; a pressure-event marker |
+| 8 | Closing | S4, S5 (placement by load, cluster-aware) + S6, M6 + M7 (compressor before swap), G5 | — | — | as the table below |
+
+**Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
+first as one host-only layer, so that each later package can be built from its contract by
+whoever picks it up; the GPU lane runs straight to the desktop (layers 2–5) because the
+measurements removed its old prerequisites — the GPU's interrupt is served on hart 0 like the
+display's and USB's today (S1 is not needed for G1), the lock's steady state is fine once the
+console leaves it (S3 is not needed before G2: one kernel crossing per batch is the contract),
+and GPU buffers are M1's page-backed VMOs with a cache mode (M2 is not needed for G2). S and M
+then follow in their end forms — the dynamic kernel (topology, placement by load, locks split)
+and the efficient memory (demand paging, pressure, purgeable, compressor, swap) — on a desktop
+that is already smooth.
 
 Why this order, from the numbers (`docs/board/measurements/2026-10-10-…`):
 
