@@ -80,6 +80,11 @@ pub enum DomainOn {
     /// `request` asks the sequencer to power it up, and `on` in `status` reports it up.
     /// Offsets in the provider's window.
     Sequenced { ctrl: u16, mode: u32, request: u32, status: u16, on: u32 },
+    /// Software-sequenced (the GPU and VPU domains; TASK-0329 G1): the driver walks the
+    /// domain's control word itself — `sleep1` set, 20 µs, `sleep2` set, 20 µs, `isolation`
+    /// set (the isolation released), 10 µs — and `on` in `status` reports it up (the vendor's
+    /// domain driver, read as reference; stock live: control `0xe`, status bit set).
+    Software { ctrl: u16, sleep1: u32, sleep2: u32, isolation: u32, status: u16, on: u32 },
 }
 
 /// One reset line of a provider: `mask` in `reg`; `assert_sets` = writing the

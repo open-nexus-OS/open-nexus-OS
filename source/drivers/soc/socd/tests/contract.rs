@@ -15,7 +15,9 @@ use nexus_fdt::Fdt;
 use nexus_hal::Bus;
 use nexus_soc::Providers;
 use nexus_wire::soc;
-use socd::verdict::{answer, bring_up_marker, Access, Outcome, Word, MARKER_MAX, REPLY_MAX};
+use socd::verdict::{
+    answer, bring_up_marker, required_capability, Access, Outcome, Word, MARKER_MAX, REPLY_MAX,
+};
 
 const BOARD: &[u8] = include_bytes!("../../../../libs/nexus-fdt/tests/goldens/bpi-f3.dtb");
 const VIRT: &[u8] = include_bytes!("../../../../libs/nexus-fdt/tests/goldens/virt.dtb");
@@ -127,17 +129,77 @@ fn test_reject_an_unknown_node_and_a_malformed_frame() {
     assert!(len > 0);
 }
 
+/// The executor's pause for a software-sequenced domain: the test needs no time.
+struct NoWait;
+impl nexus_soc::Pause for NoWait {
+    fn pause_ms(&self, _ms: u32) {}
+    fn pause_us(&self, _us: u32) {}
+}
+
 #[test]
-fn a_domain_without_a_measured_protocol_is_unsupported_not_guessed() {
+fn the_gpu_on_the_stock_board_is_ok_without_a_write_and_names_its_class() {
+    // TASK-0329 G1: the GPU's domain is measured (software-sequenced); on the stock words
+    // (domain on, clock gated and reset released at 614.4 MHz) nothing is written.
+    let fdt = Fdt::new(BOARD).unwrap();
+    let providers = providers_of(&fdt);
     let bus = MockBus::stock();
     let gpu = "/soc/multimedia-bus/gpu@cac00000";
-    let (rsp, outcome) = bring_up_with_outcome(gpu, Access::Allowed, BOARD, &bus);
-    assert_eq!(rsp.status, soc::STATUS_UNSUPPORTED, "the GPU's domain waits for its consumer");
+    let mut req = [0u8; 128];
+    let n = soc::encode_bring_up_req(&mut req, 0xabcd, gpu).unwrap();
+    assert_eq!(required_capability(&req[..n], Some(&fdt)), Some(&b"soc.glue.gpu"[..]));
+    let mut out = [0u8; REPLY_MAX];
+    let (len, outcome) =
+        answer(&req[..n], Access::Allowed, Some(&fdt), &providers, &bus, Some(&NoWait), &mut out);
+    let rsp = soc::decode_bring_up_rsp(&out[..len]).unwrap();
+    assert_eq!((rsp.status, rsp.domains, rsp.clocks, rsp.resets), (soc::STATUS_OK, 1, 1, 1));
+    assert_eq!(*bus.1.borrow(), 0, "the stock words need no write");
+    assert!(bring_up_marker(gpu, &outcome).as_str().contains("ok"));
+}
+
+#[test]
+fn test_reject_soc_glue_class_mismatch() {
+    // RFC-0106's per-class floor: the capability a node needs is its class's, and a requester
+    // policyd denied for it gets DENIED before a register is read — for a node that would
+    // touch one. The disk's node is storage, the display's display, the USB host's usb.
+    let fdt = Fdt::new(BOARD).unwrap();
+    let mut req = [0u8; 160];
+    for (path, cap) in [
+        ("/soc/storage-bus/mmc@d4281000", &b"soc.glue.storage"[..]),
+        ("/soc/multimedia-bus/display@c0440000", &b"soc.glue.display"[..]),
+        ("/soc/hdmi@c0400500", &b"soc.glue.display"[..]),
+        ("/soc/multimedia-bus/gpu@cac00000", &b"soc.glue.gpu"[..]),
+    ] {
+        let n = soc::encode_bring_up_req(&mut req, 1, path).unwrap();
+        assert_eq!(required_capability(&req[..n], Some(&fdt)), Some(cap), "{path}");
+        let n = soc::encode_clock_rate_req(&mut req, 1, path, "io").unwrap();
+        assert_eq!(required_capability(&req[..n], Some(&fdt)), Some(cap), "{path} rate");
+    }
+    let bus = MockBus::stock();
+    let rsp = bring_up("/soc/multimedia-bus/gpu@cac00000", Access::Denied, BOARD, &bus);
+    assert_eq!(rsp.status, soc::STATUS_DENIED);
     assert_eq!(*bus.1.borrow(), 0);
-    assert_eq!(
-        bring_up_marker(gpu, &outcome).as_str(),
-        "socd: bring-up /soc/multimedia-bus/gpu@cac00000 FAIL (refused: DomainUnsupported(2))"
-    );
+    // A node of no class, or no node: no capability (the caller denies without a policy trip).
+    let n = soc::encode_bring_up_req(&mut req, 1, "/soc/nothing@0").unwrap();
+    assert_eq!(required_capability(&req[..n], Some(&fdt)), None);
+    assert_eq!(required_capability(b"RG\x01\x01", Some(&fdt)), None);
+    assert_eq!(required_capability(&req[..n], None), None);
+}
+
+#[test]
+fn a_node_that_touches_nothing_is_not_needed_for_any_requester() {
+    // QEMU's virtio transport has no SoC glue: the floor has nothing to guard — `NotNeeded`
+    // for a denied requester too (the harness holds no class for it and proves exactly this).
+    let virt = Fdt::new(VIRT).unwrap();
+    let net = virt.find_compatible(&["virtio,mmio"]).next().unwrap();
+    let mut buf = [0u8; 128];
+    let path = net.path_into(&mut buf).unwrap().to_string();
+    let mut req = [0u8; 128];
+    let n = soc::encode_bring_up_req(&mut req, 7, &path).unwrap();
+    assert_eq!(required_capability(&req[..n], Some(&virt)), None, "no class, no glue");
+    let bus = MockBus::empty();
+    let rsp = bring_up(&path, Access::Denied, VIRT, &bus);
+    assert_eq!(rsp.status, soc::STATUS_NOT_NEEDED);
+    assert_eq!(*bus.1.borrow(), 0);
 }
 
 #[test]

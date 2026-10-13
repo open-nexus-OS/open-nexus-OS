@@ -28,6 +28,18 @@ impl Mmio {
     pub const fn window(&self) -> MmioWindow {
         self.0
     }
+
+    /// A 64-bit register, read whole (TASK-0329 G1: the GPU's reset and remap words); a word
+    /// outside the window or unaligned reads as all ones, like a bus nobody drives.
+    pub fn read64(&self, offset: usize) -> u64 {
+        self.0.read64(offset).unwrap_or(u64::MAX)
+    }
+
+    /// A 64-bit register, written as ONE access (two halves would release every reset bit
+    /// between them); dropped outside the window.
+    pub fn write64(&self, offset: usize, value: u64) {
+        let _ = self.0.write64(offset, value);
+    }
 }
 
 impl Bus for Mmio {

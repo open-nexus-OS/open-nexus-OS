@@ -79,13 +79,24 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         // RFC-0101 §8: the controller's vertical-blank interrupt on the idle control-reply
         // endpoint (the slot the GPU's IRQ takes on QEMU), a waitset member next to the server
         // endpoint — no timer: the display's own blank is the frame clock.
+        // TASK-0329 G1 (RFC-0101 Phase 2): the board's GPU beside its display — brought online
+        // before the display's clock is armed (its own notify endpoint joins the waitset), the
+        // rungs `gpud: gpu glue|core|fw|mmu|fence ok (`; a FAIL leaves the display running.
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
+        let mut gpu = crate::gpu::granted()
+            .then(|| crate::gpu::Gpu::bring_up(nexus_service_topology::slots::gpud::GPU_IRQ))
+            .flatten();
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let clock = {
             let (server_recv, _) = server.slots();
+            let gpu_irq = gpu.as_ref().map(|g| g.irq_slot());
             let waitset = display.bind_vblank(GPU_IRQ_NOTIFY_SLOT).then(|| {
                 nexus_abi::waitset_create().ok().and_then(|ws| {
                     nexus_abi::waitset_add(ws, server_recv).ok()?;
                     nexus_abi::waitset_add(ws, GPU_IRQ_NOTIFY_SLOT).ok()?;
+                    if let Some(slot) = gpu_irq {
+                        nexus_abi::waitset_add(ws, slot).ok()?;
+                    }
                     Some(ws)
                 })
             });
@@ -100,7 +111,16 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         let clock = crate::frame_clock::FrameClock::default();
         nexus_service_entry::ready(GPUD_READY)?;
         nexus_abi::service_verdict_flush("gpud");
-        return service_requests(server, &mut display, clock);
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
+        let mut gpu_wake = || {
+            if let Some(g) = gpu.as_mut() {
+                g.on_wake();
+            }
+        };
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
+        return service_requests(server, &mut display, clock, Some(&mut gpu_wake));
+        #[cfg(not(all(feature = "os-lite", target_os = "none")))]
+        return service_requests(server, &mut display, clock, None);
     }
     let mut backend = open_backend_once()?;
     // Branded splash FIRST (task #122): the same glow+wordmark image the GL
@@ -174,7 +194,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     } else {
         "gpud: completion wait spin fallback (irq unbound)"
     });
-    service_requests(server, &mut backend, clock)
+    service_requests(server, &mut backend, clock, None)
 }
 
 fn open_backend_once() -> Result<VirtioGpuBackend, nexus_abi::AbiError> {
@@ -213,6 +233,8 @@ fn service_requests(
     server: KernelServer,
     display: &mut dyn Display,
     mut clock: crate::frame_clock::FrameClock,
+    // TASK-0329 G1: the board GPU's wake (its interrupt endpoint is a waitset member).
+    mut gpu_wake: Option<&mut dyn FnMut()>,
 ) -> Result<(), nexus_abi::AbiError> {
     // 8192 bytes: large enough for full cursor upload (32×32×4 = 4096B BGRA + 9B header).
     let mut recv_frame = [0u8; 8192];
@@ -273,6 +295,9 @@ fn service_requests(
                 Some(seq),
                 active_handoff_id,
             );
+        }
+        if let Some(wake) = gpu_wake.as_mut() {
+            wake();
         }
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((frame_len, _sid, mut moved_cap)) => {

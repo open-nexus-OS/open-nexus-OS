@@ -11,10 +11,9 @@ use std::collections::HashMap;
 
 use nexus_fdt::Fdt;
 use nexus_hal::Bus;
-use nexus_soc::table::k1;
 use nexus_soc::{
-    bring_up, clock_rate, plan, BringUp, BringUpError, Executor, Fault, Pause, PlanError,
-    ProviderKind, Providers, RateError,
+    bring_up, clock_rate, plan, BringUp, BringUpError, Executor, Fault, Pause, ProviderKind,
+    Providers, RateError,
 };
 
 const BOARD: &[u8] = include_bytes!("../../nexus-fdt/tests/goldens/bpi-f3.dtb");
@@ -25,6 +24,9 @@ const SOC_REJECTS: &[u8] = include_bytes!("../../nexus-fdt/tests/goldens/soc-rej
 /// The display set and the encoder's pads (TASK-0245B P3), on the same fixtures.
 #[path = "k1/display.rs"]
 mod display;
+/// The GPU's domain, clock and reset (TASK-0329 G1), on this file's fixtures.
+#[path = "k1/gpu.rs"]
+mod gpu;
 /// The USB host and its hub (TASK-0328 U3), on this file's fixtures (one test target; a
 /// `tests/*.rs` of its own would be a second copy of them).
 #[path = "k1/usb.rs"]
@@ -55,13 +57,16 @@ struct MockBus {
     gpio_pending: RefCell<Vec<(usize, u32, bool, usize)>>,
 }
 
-/// The settles a bring-up asked for, in order.
+/// The settles a bring-up asked for, in order: milliseconds, and (TASK-0329 G1) microseconds.
 #[derive(Default)]
-struct Pauses(RefCell<Vec<u32>>);
+struct Pauses(RefCell<Vec<u32>>, RefCell<Vec<u32>>);
 
 impl Pause for Pauses {
     fn pause_ms(&self, ms: u32) {
         self.0.borrow_mut().push(ms);
+    }
+    fn pause_us(&self, us: u32) {
+        self.1.borrow_mut().push(us);
     }
 }
 
@@ -311,10 +316,13 @@ fn a_node_is_brought_up_when_the_tree_binds_glue_and_not_needed_when_it_binds_no
 fn test_reject_a_bring_up_the_tables_do_not_cover_or_the_bus_does_not_take() {
     let (fdt, providers) = board_providers();
     let bus = MockBus::stock();
+    // A software-sequenced domain needs the executor's pause for its settles: without one the
+    // GPU (TASK-0329 G1) is refused before any bus access — the tables cover it, the run cannot.
     let gpu = fdt.node_at_path("/soc/multimedia-bus/gpu@cac00000").unwrap();
-    let refused = Err(BringUpError::Plan(PlanError::DomainUnsupported(k1::PD_GPU)));
-    assert_eq!(bring_up(gpu, &providers, &bus), refused);
+    assert_eq!(bring_up(gpu, &providers, &bus), Err(BringUpError::Fault(Fault::NoPause)));
     assert!(bus.writes().is_empty(), "refused before any bus access");
+    // A domain the tables do not hold (the VPU's, id 1) has no protocol at all.
+    assert_eq!(nexus_soc::table::domain(ProviderKind::Apmu, 1), None);
     let emmc = fdt.node_at_path("/soc/storage-bus/mmc@d4281000").unwrap();
     let fault = Fault::ReadBack { addr: APMU_BASE + 0x054, value: 0 };
     assert_eq!(bring_up(emmc, &providers, &DeadBus), Err(BringUpError::Fault(fault)));

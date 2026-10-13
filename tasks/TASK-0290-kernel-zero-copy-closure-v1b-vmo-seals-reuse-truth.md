@@ -69,6 +69,16 @@ spill FAIL` eleven times, one per generation that re-laid the large window — s
 a frame larger than its generation. Not the chat's first page alone, then: any large window.
 Same owner, same end form (M2 + M5), no interim bump (operator 2026-10-12).
 
+**Input from Block 4 layer 3 (2026-10-13, TASK-0329 G1):** the GPU's firmware-shared memory
+(command buffers, return slots, timeline words) is page-backed DMA memory the CPU maps CACHED —
+`vm_map` knows no memory type — so gpud cleans after every write and flushes before every read
+of a firmware-written word. A cache line the CPU dirties (a return slot cleared for the next
+command) can overwrite a neighbour word the firmware wrote on the same line; G1 keeps one command
+in flight, which makes it safe, and G2 (several contexts, several commands in flight) needs an
+**uncached or write-combined user mapping** — the page-based memory types the hart supports
+(Svpbmt), as a VMO cache mode (`CacheMode::Uncached`, RFC-0101 §3) the kernel maps with. M2's
+mapping work is where it belongs; the open driver maps every firmware object write-combined.
+
 ## Non-Goals
 
 - DMA/IOMMU isolation.

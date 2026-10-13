@@ -234,9 +234,12 @@ fn test_reject_a_domain_that_never_reports_on() {
 #[test]
 fn test_reject_a_domain_without_a_measured_protocol() {
     let (fdt, providers) = board_providers();
+    // The VPU's domain (id 1) is software-sequenced and unmeasured: the tables hold no
+    // protocol for it, so a node binding it is refused before any bus access. The GPU's
+    // (id 2) was measured by TASK-0329 G1 and plans (`k1/gpu.rs`).
+    assert_eq!(nexus_soc::table::domain(ProviderKind::Apmu, 1), None, "VPU unmeasured");
     let gpu = fdt.node_at_path("/soc/multimedia-bus/gpu@cac00000").unwrap();
-    // The GPU's domain is software-sequenced and unmeasured: refused before any bus access.
-    assert_eq!(plan(gpu, &providers), Err(PlanError::DomainUnsupported(k1::PD_GPU)));
+    assert!(plan(gpu, &providers).is_ok(), "the GPU's domain is measured");
 }
 
 #[test]

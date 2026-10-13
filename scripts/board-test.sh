@@ -96,6 +96,14 @@ ladder_headless=(
   "gpud: dc encoder ok (hpd=1"
   "gpud: dc scanout ok ("
   "gpud: dc vblank armed ("
+  # TASK-0329 G1 (RFC-0101 Phase 2): the GPU online — its node through socd, the window and
+  # the core id, the published firmware started and answering, one address space bound and
+  # unbound, a null job's completion bridged to a kernel fence sixty-four times.
+  "gpud: gpu glue ok ("
+  "gpud: gpu core ok ("
+  "gpud: gpu fw ok ("
+  "gpud: gpu mmu ok ("
+  "gpud: gpu fence ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

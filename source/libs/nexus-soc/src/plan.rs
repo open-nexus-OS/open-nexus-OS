@@ -31,6 +31,18 @@ pub enum Step {
         status: usize,
         on: u32,
     },
+    /// A software-sequenced power domain (TASK-0329 G1): the driver sets `sleep1`, waits,
+    /// sets `sleep2`, waits, sets `isolation` (the isolation released), waits, and `on` in
+    /// `status` reports it up — the vendor's domain driver's walk, with its settle times.
+    DomainOnSoftware {
+        id: u32,
+        ctrl: usize,
+        sleep1: u32,
+        sleep2: u32,
+        isolation: u32,
+        status: usize,
+        on: u32,
+    },
     ReleaseReset {
         addr: usize,
         mask: u32,
@@ -75,6 +87,12 @@ pub enum Step {
     /// (`vbus-delay-ms`), spent on the executor's pause, never a spin.
     Settle {
         ms: u32,
+    },
+    /// Hold for `us` microseconds (TASK-0329 G1): a software-sequenced domain's settle between
+    /// its bits, the clock cycles a reset release needs after its clock — the executor's pause,
+    /// never a spin.
+    SettleUs {
+        us: u32,
     },
 }
 
@@ -142,7 +160,8 @@ impl Plan {
         for step in self.steps() {
             match *step {
                 Step::DomainAssumedOn { .. } => {}
-                Step::DomainOn { ctrl, status, .. } => {
+                Step::DomainOn { ctrl, status, .. }
+                | Step::DomainOnSoftware { ctrl, status, .. } => {
                     r.add(ctrl);
                     r.add(status);
                 }
@@ -158,7 +177,7 @@ impl Plan {
                     r.add(bank + table::k1::GPIO_LEVEL as usize);
                     r.add(bank + table::k1::GPIO_DIRECTION as usize);
                 }
-                Step::Settle { .. } => {}
+                Step::Settle { .. } | Step::SettleUs { .. } => {}
             }
         }
         r
@@ -196,6 +215,20 @@ impl Registers {
     }
 }
 
+/// The node's clock gates, in `clocks` order.
+fn push_gates(node: Node<'_>, providers: &Providers, p: &mut Plan) -> Result<(), PlanError> {
+    for spec in node.specifiers("clocks", "#clock-cells") {
+        let kind = ProviderKind::of(spec.provider).ok_or(PlanError::ProviderKindUnknown)?;
+        let base = providers.get(kind).ok_or(PlanError::ProviderUnknown(kind))?.base;
+        let id = spec.arg(0).unwrap_or(u32::MAX);
+        let entry = table::clock(kind, id).ok_or(PlanError::IdUnknown(kind, id))?;
+        if entry.gate != 0 {
+            p.push(Step::GateOn { addr: base + entry.reg as usize, mask: entry.gate })?;
+        }
+    }
+    Ok(())
+}
+
 /// Plan the bring-up of `node`.
 pub fn plan(node: Node<'_>, providers: &Providers) -> Result<Plan, PlanError> {
     let mut p = Plan::empty();
@@ -216,7 +249,28 @@ pub fn plan(node: Node<'_>, providers: &Providers) -> Result<Plan, PlanError> {
                     on,
                 })?;
             }
+            DomainOn::Software { ctrl, sleep1, sleep2, isolation, status, on } => {
+                let base = providers.get(kind).ok_or(PlanError::ProviderUnknown(kind))?.base;
+                p.push(Step::DomainOnSoftware {
+                    id,
+                    ctrl: base + ctrl as usize,
+                    sleep1,
+                    sleep2,
+                    isolation,
+                    status: base + status as usize,
+                    on,
+                })?;
+            }
         }
+    }
+    // TASK-0329 G1: a block whose binding wants its clock running before its reset is released
+    // (the GPU: "at least 32 clock cycles between the clock and the reset") says so with
+    // `nexus,clock-before-reset`; its gates come first and the release waits a microsecond
+    // (the cycles at any rate the clock can run). Every other node keeps the proven order.
+    let clock_before_reset = node.prop("nexus,clock-before-reset").is_some();
+    if clock_before_reset {
+        push_gates(node, providers, &mut p)?;
+        p.push(Step::SettleUs { us: 1 })?;
     }
     for spec in node.specifiers("resets", "#reset-cells") {
         let kind = ProviderKind::of(spec.provider).ok_or(PlanError::ProviderKindUnknown)?;
@@ -229,14 +283,8 @@ pub fn plan(node: Node<'_>, providers: &Providers) -> Result<Plan, PlanError> {
             assert_sets: entry.assert_sets,
         })?;
     }
-    for spec in node.specifiers("clocks", "#clock-cells") {
-        let kind = ProviderKind::of(spec.provider).ok_or(PlanError::ProviderKindUnknown)?;
-        let base = providers.get(kind).ok_or(PlanError::ProviderUnknown(kind))?.base;
-        let id = spec.arg(0).unwrap_or(u32::MAX);
-        let entry = table::clock(kind, id).ok_or(PlanError::IdUnknown(kind, id))?;
-        if entry.gate != 0 {
-            p.push(Step::GateOn { addr: base + entry.reg as usize, mask: entry.gate })?;
-        }
+    if !clock_before_reset {
+        push_gates(node, providers, &mut p)?;
     }
     // The rates the binding demands, after the gates: the consumer is idle (released, not yet
     // driven), and a running clock is the state the frequency change is known to complete in.

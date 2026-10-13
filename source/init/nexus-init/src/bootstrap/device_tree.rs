@@ -266,6 +266,17 @@ pub(crate) fn display_plane() -> DisplayPlane {
     }
 }
 
+/// The board's GPU (TASK-0329 G1, RFC-0101 Phase 2): the node by compatible (`img,rgx`, the
+/// stock tree's word for this core), as the window gpud's `device.mmio.gpu` grant carries — the
+/// same slot the virtio GPU takes on QEMU, so gpud has ONE place to look for its GPU. QEMU virt
+/// names none; the board's display plane is granted beside it.
+pub(crate) fn gpu_plane() -> Option<DeviceWindow> {
+    let fdt = tree()?;
+    fdt.find_compatible(&["img,rgx", "img,img-rogue"])
+        .filter(|n| n.is_enabled())
+        .find_map(window_of)
+}
+
 /// The USB host the tree names (TASK-0328 U3): a DWC3 in host mode (`snps,dwc3`,
 /// `dr_mode = "host"` — the board's `usb@c0a00000`) and the USB 2.0 PHY it drives the ports
 /// through (`spacemit,usb2-phy`), both as windows for xhcid. QEMU virt names neither (its

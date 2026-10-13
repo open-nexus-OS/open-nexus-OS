@@ -39,6 +39,9 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+/// RFC-0106's per-class floor (TASK-0329 G1): a node's class from its compatible, the suffix
+/// of the `soc.glue.<class>` capability its bring-up needs.
+pub mod class;
 mod field;
 mod node;
 mod ops;

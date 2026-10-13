@@ -522,13 +522,17 @@ fn test_reject_glue_the_tables_do_not_cover_or_that_does_not_read_back() {
     let fault = Fault::ReadBack { addr: APMU_BASE + 0x054, value: 0 };
     assert_eq!(sd_node::open_config(&board, emmc, &DeadBus), Err(Refusal::Glue(fault)));
     assert_eq!(Refusal::Glue(fault).name(), "soc glue failed");
-    // A node whose glue the tables do not cover is refused before any bus access (the GPU's
-    // unmeasured power domain 2 stands in for such a host).
+    // A node whose glue the loader cannot run is refused before any bus access: the GPU's
+    // power domain 2 is software-sequenced (TASK-0329 G1) and needs the executor's pause for
+    // its settles — the loader has none (its boot disk never did), so the node is refused at
+    // the first settle, with nothing written. A domain the tables do not hold at all (the
+    // VPU's, id 1) has no protocol: `DomainUnsupported` stays the refusal for such a node.
     let gpu = board.node_at_path("/soc/multimedia-bus/gpu@cac00000").unwrap();
     let regs = Regs::default();
-    let refused = Err(Refusal::GlueUnsupported(PlanError::DomainUnsupported(2)));
-    assert_eq!(sd_node::open_config(&board, gpu, &regs), refused);
+    assert_eq!(sd_node::open_config(&board, gpu, &regs), Err(Refusal::Glue(Fault::NoPause)));
     assert!(regs.writes.borrow().is_empty());
+    assert_eq!(nexus_soc::table::domain(nexus_soc::ProviderKind::Apmu, 1), None);
+    let _ = PlanError::DomainUnsupported(1);
 }
 
 #[test]

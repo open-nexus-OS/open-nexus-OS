@@ -725,14 +725,23 @@
 				status = "okay";
 			};
 
+			// TASK-0329 G1 (RFC-0101 Phase 2): the GPU's glue as socd brings it up — domain 2
+			// by its software sequence, `gpu_clk` at the stock rate (614.4 MHz = pll1_d4,
+			// APMU 0xcc stock 0x12: mux 0, divider 0), the reset released at least 32 clock
+			// cycles AFTER the clock runs (the open driver's manual sequence; the property
+			// orders the plan). `dma-noncoherent`: the stock tree's word for this node.
 			gpu: gpu@cac00000 {
 				compatible = "img,rgx";
 				reg = <0x0 0xcac00000 0x0 0x80000>;
 				interrupts = <75>;
 				clocks = <&syscon_apmu CLK_GPU>;
 				clock-names = "gpu";
+				assigned-clocks = <&syscon_apmu CLK_GPU>;
+				assigned-clock-rates = <614400000>;
 				resets = <&syscon_apmu RESET_GPU>;
 				power-domains = <&syscon_apmu K1_PD_GPU>;
+				nexus,clock-before-reset;
+				dma-noncoherent;
 				status = "okay";
 			};
 		};

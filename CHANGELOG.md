@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-13 (Block 4, layer 3: the GPU online — TASK-0329 G1, RFC-0101 Phase 2)
+
+- **The board's GPU is online through our chain.** gpud's `gpu` backend (`source/drivers/gpud/
+  src/backend/gpu/`): the node up through socd, the register window and the core id, the
+  published firmware (`resources/firmware/gpu/`, unmodified, with its licence and a provenance
+  gate in `just check`) placed by its documented layout into one page-backed DMA VMO and started
+  by the open sequence, the interrupt on gpud's own notify endpoint, a health-check round trip,
+  one GPU address space (a page catalogue the firmware memory context names) with a page bound,
+  flushed, unbound, and a null job — the interface's `NULL` task plus a timeline `UPDATE` —
+  whose completion is bridged to the kernel timeline fence. Board, five cycles
+  (`docs/board/measurements/2026-10-13-gpu-online/`): `gpu glue ok`, `gpu core ok
+  (bvnc=36.29.52.182)`, `gpu fw ok (boot_us=10862 health_us=82)`, `gpu mmu ok (map_us=57
+  unmap_us=50)`, **`gpu fence ok (rt_us=131 … below the stock 640us)`** — the null job's round
+  trip 4.9× below the stock stack's fixed cost of a frame.
+- **The host half** (`nexus_gfx::backend::gpu`): the firmware image's trailer, layout and
+  device-info parser (the wrong id, a closed build or a bad trailer refused before a byte is
+  placed), the MIPS boot words and page table, the start/stop sequences over a recorder (goldens:
+  the stock system's live registers), the interface structs as byte encoders at pinned offsets,
+  the three command buffers as rings, the three-level page-table encoder — 34 unit tests and 8
+  goldens over the published blob.
+- **SoC glue**: the GPU's power domain is software-sequenced (`DomainOn::Software`: sleep1,
+  sleep2, isolation released, with the vendor's settles; `Pause::pause_us`), the GPU node's clock
+  runs before its reset is released (`nexus,clock-before-reset`, the open driver's manual
+  sequence), its rate is the stock 614.4 MHz. **RFC-0106's per-class floor**: a consumer may
+  bring up only the node classes policyd allows it — `soc.glue.storage|display|gpu|usb`
+  (`nexus_soc::class` from the compatible; `policies/base.toml`); a node whose plan touches no
+  register is `NotNeeded` for anyone, a node of no class is denied.
+- init grants the tree's GPU node (`img,rgx`) into the GPU's slot (`init: gpu plane from tree`);
+  gpud gets a declared interrupt-notify endpoint (`gpud::GPU_IRQ`); `MmioWindow::{read64,
+  write64}` for the GPU's 64-bit reset and remap words (never two halves).
+- Handed on: firmware-shared memory needs an uncached user mapping once several commands are
+  in flight (memory lane, TASK-0290); the firmware's boot time varies tenfold between boots
+  (layer 4's first cycle); the QEMU `visible` lane caught a stack overflow of gpud with the GPU
+  state in the service loop's static frame — the state is on the heap now.
+- Dependency hygiene: RUSTSEC-2026-0344 (`ruzstd`, host symbolizer tooling only) tracked in
+  `config/deny.toml` until `object` moves past 0.36.
+
 ### Changed - 2026-10-12 (Block 4, layer 2: the console off the kernel lock — TASK-0330 S2a)
 
 - **A console write no longer holds the kernel lock for its serial time.** A byte goes to the

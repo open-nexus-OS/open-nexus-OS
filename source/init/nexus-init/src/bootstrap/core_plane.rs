@@ -379,7 +379,18 @@ pub(crate) fn bring_up(
     let pol_route = (pol_ctl_route_req, pol_ctl_route_rsp);
     mmio_policy_deny_probe(pol_route)?;
     // RFC-0098 C3: every window and interrupt line below comes from the tree.
-    let devices = device_tree::discover_virtio()?;
+    let mut devices = device_tree::discover_virtio()?;
+    // TASK-0329 G1: the board's GPU node takes the GPU's place (QEMU has the virtio one).
+    if devices.gpu.is_none() {
+        if let Some(gpu) = device_tree::gpu_plane() {
+            debug_write_str("init: gpu plane from tree (base=0x");
+            debug_write_hex(gpu.base);
+            debug_write_str(" irq=");
+            debug_write_hex(gpu.irq as usize);
+            debug_write_str(")\n");
+            devices.gpu = Some(gpu);
+        }
+    }
     device_tree::report(&devices);
     // TASK-0246 P3: the tree's ECAM hosts are a device source too (the boot disk may be one's).
     let pci = crate::bootstrap::pci::discover();

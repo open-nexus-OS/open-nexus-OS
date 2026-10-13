@@ -26,6 +26,10 @@ ignore = [
     # by `just dep-gate` (RFC-0009). Tracked in
     # tasks/TRACK-REPO-HYGIENE-FOLLOWUPS.md item 7 for upgrade-or-remove.
     "RUSTSEC-2026-0192", # ttf-parser unmaintained — host font rendering (nexus-shape/ui goldens)
+    # ruzstd 0.7 decompression bomb (2026-10-13): host symbolizer tooling only (object 0.36 →
+    # addr2line → nxsym, minidump-host, nx; crashdump_v2_host tests). The fix (0.9.1) needs an
+    # `object` above 0.36, which `cargo update` cannot reach today; goes with that upgrade.
+    "RUSTSEC-2026-0344",
     "RUSTSEC-2026-0206", # rustybuzz unmaintained — host text shaping (same tree; skrifa/fontations is the successor)
     "RUSTSEC-2026-0186", # memmap2 unmaintained — host-only (font/asset mmap)
     "RUSTSEC-2026-0204", # crossbeam-epoch: invalid-ptr deref only when formatting a dangling Atomic/Shared — host dev/tooling path, not exercised

@@ -84,6 +84,49 @@ impl MmioWindow {
         }
     }
 
+    /// Whether an 8-byte register at `offset` lies inside the window and is aligned.
+    pub const fn holds64(&self, offset: usize) -> bool {
+        offset % 8 == 0 && offset < self.len && self.len - offset >= 8
+    }
+
+    /// The 64-bit register at `offset` (TASK-0329 G1: the GPU's reset, clock and remap words
+    /// are 64-bit and must be read whole); `None` outside the window or unaligned.
+    pub fn read64(&self, offset: usize) -> Option<u64> {
+        if !self.holds64(offset) {
+            return None;
+        }
+        #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+        {
+            // SAFETY: as in `read32`; the word is 8-byte aligned (checked above) and lies
+            // inside the mapping. A volatile read: the device decides the value.
+            Some(unsafe { core::ptr::read_volatile((self.va + offset) as *const u64) })
+        }
+        #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
+        {
+            None
+        }
+    }
+
+    /// Write the 64-bit `value` to the register at `offset` as ONE access — a reset word
+    /// written as two halves would release every reset between them; false outside the
+    /// window or unaligned.
+    pub fn write64(&self, offset: usize, value: u64) -> bool {
+        if !self.holds64(offset) {
+            return false;
+        }
+        #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+        {
+            // SAFETY: as in `read64`, a volatile write.
+            unsafe { core::ptr::write_volatile((self.va + offset) as *mut u64, value) };
+            true
+        }
+        #[cfg(not(all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
+        {
+            let _ = value;
+            false
+        }
+    }
+
     /// Write `value` to the register at `offset`; false outside the window or unaligned.
     pub fn write32(&self, offset: usize, value: u32) -> bool {
         if !self.holds(offset) {

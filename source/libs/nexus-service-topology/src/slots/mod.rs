@@ -178,6 +178,11 @@ pub mod gpud {
     pub const REPLY: SlotPair = SlotPair::new(0x28, 0x27);
     /// The route to socd.
     pub const SOCD: SlotPair = SlotPair::new(0x29, REPLY.recv);
+    /// The GPU's interrupt-notify endpoint (TASK-0329 G1, RFC-0101 Phase 2): RECV half, a
+    /// waitset member; the board GPU's line is bound to it with `irq_bind`. Its own endpoint —
+    /// the display's vertical blank keeps the control-reply endpoint, and the two must not
+    /// share one (a drain of blanks would swallow the GPU's wakes).
+    pub const GPU_IRQ: u32 = 0x2a;
 }
 
 /// hidrawd (TASK-0324 P4d; its sources, TASK-0253B). Its loop waits on two endpoints and

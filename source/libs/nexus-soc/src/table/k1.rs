@@ -56,6 +56,8 @@ const APMU_EMAC0_CLK_RES_CTRL: u16 = 0x3e4;
 const APMU_EMAC1_CLK_RES_CTRL: u16 = 0x3ec;
 const APMU_PWR_STATUS: u16 = 0x0f0;
 const APMU_HDMI_PWR_CTRL: u16 = 0x3f4;
+/// The GPU domain's control word (software-sequenced; stock live `0xe` with the GPU on).
+const APMU_GPU_PWR_CTRL: u16 = 0x0d0;
 // ---- APBC registers ----
 const APBC_UART1_CLK_RST: u16 = 0x00; // = uart0 in the binding
                                       // The GPIO block's core (24 MHz crystal) and bus gates (mainline v6.16 ccu-k1: APBC_GPIO_CLK_RST
@@ -405,11 +407,27 @@ pub const fn pad_offset(pin: u32) -> Option<u16> {
 /// rising request bit 0 asks for power, bit 15 of the APMU power status word reports it up.
 /// Stock, with the desktop on HDMI: control `0x3f4 = 0x11`, status `0x0f0 = 0x8009`. The
 /// status word's offset is the one APMU word whose bits match all seven switchable domains'
-/// states (the stock tree names the bits, not the register). The GPU and VPU domains are
-/// software-sequenced (isolation and two sleep bits) and stay unlisted until a consumer
-/// measures them.
+/// states (the stock tree names the bits, not the register). The GPU domain is
+/// software-sequenced (TASK-0329 G1; `docs/board/measurements/2026-09-30-power-domains/`
+/// row 2 and the vendor's domain driver as reference): control `0x0d0`, sleep1 bit 2, sleep2
+/// bit 3, isolation bit 1 (set = released), its status bit 0 of the same status word; stock
+/// live with the GPU on: control `0xe`, status `0x8009` (bit 0 set). The VPU domain stays
+/// unlisted until a consumer measures it.
 pub static DOMAINS: &[DomainEntry] = &[
     DomainEntry { provider: Apmu, id: PD_BUS, name: "bus", on: DomainOn::Always },
+    DomainEntry {
+        provider: Apmu,
+        id: PD_GPU,
+        name: "gpu",
+        on: DomainOn::Software {
+            ctrl: APMU_GPU_PWR_CTRL,
+            sleep1: BIT2,
+            sleep2: BIT3,
+            isolation: BIT1,
+            status: APMU_PWR_STATUS,
+            on: BIT0,
+        },
+    },
     DomainEntry {
         provider: Apmu,
         id: PD_HDMI,

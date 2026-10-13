@@ -115,8 +115,25 @@ fn words_before<B: Bus>(node: Node<'_>, providers: &Providers, bus: &B, o: &mut 
     }
 }
 
+/// The capability a well-formed request needs (RFC-0106's per-class floor, TASK-0329 G1):
+/// `soc.glue.<class>` of the node the frame names, from the node's compatible
+/// (`nexus_soc::class`). `None` for a malformed frame, a tree without the node, or a node of no
+/// class — pure, so the floor is testable without policyd.
+pub fn required_capability(frame: &[u8], tree: Option<&Fdt<'_>>) -> Option<&'static [u8]> {
+    let op = soc::decode_request_op(frame)?;
+    let path = match op {
+        soc::OP_BRING_UP => soc::decode_bring_up_req(frame)?.1,
+        soc::OP_CLOCK_RATE => soc::decode_clock_rate_req(frame)?.1,
+        _ => return None,
+    };
+    let node = tree?.node_at_path(path)?;
+    nexus_soc::class::of(node).map(|c| c.capability())
+}
+
 /// Answer `frame` into `out`; returns the reply length and the outcome (for the
-/// marker). A frame that is not ours or malformed gets a short status reply.
+/// marker). A frame that is not ours or malformed gets a short status reply. The order: the
+/// node resolved, its plan made; a plan that touches no register is `NotNeeded` for anyone;
+/// then the requester's access decides before the first bus read.
 pub fn answer<B: Bus>(
     frame: &[u8],
     access: Access,
@@ -157,10 +174,6 @@ pub fn answer<B: Bus>(
                     (rsp.status, rsp.domains, rsp.resets, rsp.clocks, rsp.pads);
                 (n, o)
             };
-            if access == Access::Denied {
-                rsp.status = soc::STATUS_DENIED;
-                return finish(out, rsp, outcome);
-            }
             let Some(tree) = tree else {
                 // No tree at all (a foreign loader): nothing can be bound.
                 return finish(out, rsp, outcome);
@@ -169,6 +182,15 @@ pub fn answer<B: Bus>(
                 rsp.status = soc::STATUS_NO_SUCH_NODE;
                 return finish(out, rsp, outcome);
             };
+            // RFC-0106's floor: a node whose plan touches no register (QEMU's virtio transports)
+            // is `NotNeeded` for any requester; one that would touch a register needs the
+            // requester's `soc.glue.<class>` — a plan the tables refuse counts as touching
+            // (fail closed) and is named by the bring-up below for an allowed requester.
+            let touches = nexus_soc::plan(node, providers).map_or(true, |p| !p.is_empty());
+            if touches && access == Access::Denied {
+                rsp.status = soc::STATUS_DENIED;
+                return finish(out, rsp, outcome);
+            }
             words_before(node, providers, bus, &mut outcome);
             let result = match pause {
                 Some(pause) => bring_up_with(node, providers, bus, pause),

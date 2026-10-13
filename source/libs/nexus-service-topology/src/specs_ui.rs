@@ -102,6 +102,9 @@ pub(crate) const GPUD: ServiceSpec = ServiceSpec {
         NamedSlotBinding { name: NamedSlot::DeviceWatchdogSend, slot: slots::gpud::WATCHDOG.send },
         // RFC-0098 C7: the display-mode authority reads the lane's request from the tree.
         NamedSlotBinding { name: NamedSlot::DeviceTree, slot: slots::gpud::DEVICE_TREE },
+        // TASK-0329 G1: the board GPU's interrupt line, on its own notify endpoint (the display's
+        // vertical blank keeps the control-reply endpoint).
+        NamedSlotBinding { name: NamedSlot::IrqNotify, slot: slots::gpud::GPU_IRQ },
     ],
 };
 

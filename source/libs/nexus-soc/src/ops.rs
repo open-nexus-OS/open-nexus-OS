@@ -17,6 +17,11 @@ use crate::table::{k1, ClockEntry};
 pub trait Pause {
     /// Return after `ms` milliseconds.
     fn pause_ms(&self, ms: u32);
+    /// Return after `us` microseconds (TASK-0329 G1: a software-sequenced domain's settles).
+    /// A pause without the resolution rounds up to a millisecond — never less than asked.
+    fn pause_us(&self, us: u32) {
+        self.pause_ms(us.div_ceil(1000).max(1));
+    }
 }
 
 /// Bound on polling a self-clearing bit (bus reads, not time: the executor has
@@ -87,6 +92,8 @@ pub struct Report {
     pub words: usize,
     /// Milliseconds held in settles.
     pub settled_ms: u32,
+    /// Microsecond settles (a software-sequenced domain's, a reset's clock cycles).
+    pub settled_us: u32,
 }
 
 pub struct Executor<'b, B: Bus> {
@@ -125,6 +132,18 @@ impl<'b, B: Bus> Executor<'b, B> {
                     let Some(pause) = self.pause else { return Err(Fault::NoPause) };
                     pause.pause_ms(ms);
                     report.settled_ms = report.settled_ms.saturating_add(ms);
+                }
+                Step::SettleUs { us } => {
+                    let Some(pause) = self.pause else { return Err(Fault::NoPause) };
+                    pause.pause_us(us);
+                    report.settled_us = report.settled_us.saturating_add(us);
+                }
+                Step::DomainOnSoftware { ctrl, sleep1, sleep2, isolation, status, on, .. } => {
+                    let (writes, settled_us) =
+                        self.domain_on_software(ctrl, sleep1, sleep2, isolation, status, on)?;
+                    report.writes += writes;
+                    report.settled_us = report.settled_us.saturating_add(settled_us);
+                    report.domains += 1;
                 }
                 Step::ReleaseReset { addr, mask, assert_sets } => {
                     let want = if assert_sets { 0 } else { mask };
@@ -229,6 +248,39 @@ impl<'b, B: Bus> Executor<'b, B> {
 
     /// Make a clock run at the selected parent and divider; returns the writes it took. A
     /// clock already there is left alone (no frequency change triggered).
+    /// A software-sequenced domain (TASK-0329 G1): a domain already on is left alone; else
+    /// sleep1, 20 µs, sleep2, 20 µs, isolation released, 10 µs, the status polled with a
+    /// bound — the vendor's domain driver's walk (reference), the stock word `0xe` its end.
+    fn domain_on_software(
+        &self,
+        ctrl: usize,
+        sleep1: u32,
+        sleep2: u32,
+        isolation: u32,
+        status: usize,
+        on: u32,
+    ) -> Result<(usize, u32), Fault> {
+        if self.bus.read(status) & on == on {
+            return Ok((0, 0));
+        }
+        let Some(pause) = self.pause else { return Err(Fault::NoPause) };
+        let mut writes = 0;
+        let mut settled_us = 0;
+        for (bits, settle_us) in [(sleep1, 20), (sleep1 | sleep2, 20), (isolation, 10)] {
+            if self.set_bits(ctrl, bits, bits)? {
+                writes += 1;
+            }
+            pause.pause_us(settle_us);
+            settled_us += settle_us;
+        }
+        for _ in 0..DOMAIN_POLL_READS {
+            if self.bus.read(status) & on == on {
+                return Ok((writes, settled_us));
+            }
+        }
+        Err(Fault::DomainStuck { addr: status, value: self.bus.read(status) })
+    }
+
     fn set_rate(
         &self,
         clock: &ClockEntry,

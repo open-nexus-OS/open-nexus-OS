@@ -639,7 +639,12 @@ structure-baseline:
 # -----------------------------------------------------------------------------
 
 # Fast pre-commit gate (~3-5 min): formatting, clippy, licenses, layering, structure.
-check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo retired-names ci-parity board-goldens
+check: fmt-check lint deny-check arch-check structure-gate build-truth init-sync slot-ssot platform-literals fixed-windows display-ssot wait-not-poll ipc-bounds payload-vmo retired-names ci-parity board-goldens firmware-provenance
+
+# TASK-0329 P0: every firmware blob under resources/firmware/ is named in its README with its
+# sha256 (the hash holds) and has its LICENSE beside it — never a patched or undocumented blob.
+firmware-provenance:
+    @./scripts/check-firmware-provenance.sh
 
 # TASK-0260B: each board tree's golden (the nexus-fdt/nexus-soc host tests read it) is the tree
 # the board boots — config/board/<board>/board.dts compiled byte for byte.

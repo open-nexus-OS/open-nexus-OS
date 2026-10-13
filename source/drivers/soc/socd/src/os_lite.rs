@@ -34,6 +34,12 @@ impl Pause for OneShot {
         timer.arm_in(u64::from(ms) * 1_000_000);
         let _ = timer.wait_fired();
     }
+    /// A software-sequenced domain's settles (TASK-0329 G1): the same one-shot, in microseconds.
+    fn pause_us(&self, us: u32) {
+        let mut timer = self.0.borrow_mut();
+        timer.arm_in(u64::from(us) * 1_000);
+        let _ = timer.wait_fired();
+    }
 }
 
 /// The grant's granularity (RFC-0017).
@@ -42,8 +48,12 @@ use crate::verdict::{self, Access, REPLY_MAX};
 
 pub type Result<T> = core::result::Result<T, &'static str>;
 
-/// The policy capability a requester must hold.
-const CAP_SOC_GLUE: &[u8] = b"soc.glue";
+/// The policy capability a requester must hold for a node: `soc.glue.<class>` — the class of the
+/// node it names (RFC-0106's per-class floor, TASK-0329 G1; `nexus_soc::class`). A node whose
+/// class the tables do not place has no capability: denied when its plan would touch a register.
+fn required_capability(frame: &[u8], tree: Option<&Fdt<'_>>) -> Option<&'static [u8]> {
+    verdict::required_capability(frame, tree)
+}
 
 fn emit(line: &str) {
     let _ = nexus_abi::debug_println(line);
@@ -106,15 +116,15 @@ fn declared_server() -> Option<KernelServer> {
     KernelServer::new_with_slots(pair.recv, pair.send).ok()
 }
 
-/// policyd's verdict on `soc.glue` for the requester, over socd's declared route and reply
-/// inbox; anything but an allow — including an unreachable authority — is a denial.
-fn access_of(sender_service_id: u64) -> Access {
+/// policyd's verdict on `cap` (`soc.glue.<class>`) for the requester, over socd's declared route
+/// and reply inbox; anything but an allow — including an unreachable authority — is a denial.
+fn access_of(sender_service_id: u64, cap: &[u8]) -> Access {
     let decision = nexus_ipc::policyd::check_cap_on(
         slots::socd::POLICYD.send,
         slots::socd::REPLY.send,
         slots::socd::REPLY.recv,
         sender_service_id,
-        CAP_SOC_GLUE,
+        cap,
     );
     match decision {
         nexus_ipc::policyd::CapDecision::Allow => Access::Allowed,
@@ -161,11 +171,13 @@ pub fn service_main_loop() -> Result<()> {
                 breaker.on_success();
                 let frame = &recv_frame[..frame_len];
                 // Policy before any register: the kernel-attributed sender, never a
-                // payload string. A malformed frame is answered without a policy trip.
-                let access = if soc::decode_request_op(frame).is_some() {
-                    access_of(sender_service_id)
-                } else {
-                    Access::Denied
+                // payload string; the capability is the named node's class (RFC-0106's
+                // per-class floor). A malformed frame, or a node of no class, is denied
+                // without a policy trip — a node whose plan touches nothing is answered
+                // `NotNeeded` by the verdict regardless.
+                let access = match required_capability(frame, tree.as_ref()) {
+                    Some(cap) => access_of(sender_service_id, cap),
+                    None => Access::Denied,
                 };
                 let (n, outcome) = verdict::answer(
                     frame,

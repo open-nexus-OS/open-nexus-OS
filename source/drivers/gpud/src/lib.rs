@@ -16,6 +16,11 @@ pub mod backend;
 /// every build except the real OS one — its own `#![cfg]` gates the contents.
 pub mod diag;
 pub mod error;
+/// TASK-0329 G1 (RFC-0101 Phase 2): the board GPU — its glue, window, firmware, GPU MMU,
+/// interrupt and fence bridge (the files live beside the display backend's).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[path = "backend/gpu/mod.rs"]
+pub(crate) mod gpu;
 pub mod markers;
 pub mod protocol;
 

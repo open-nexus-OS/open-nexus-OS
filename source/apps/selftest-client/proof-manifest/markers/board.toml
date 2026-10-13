@@ -141,6 +141,37 @@ proves = "TASK-0251 P2a: the controller scans the boot splash's plane — a cont
 phase = "bringup"
 emit_when = { profile = "board-headless" }
 
+# TASK-0329 G1 (RFC-0101 Phase 2 / §8b): the board GPU online — each rung a line the first
+# board cycle is judged from; `gpud: FAIL gpu ` is the FAIL form of every rung.
+[marker."gpud: gpu glue ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0329 G1: socd brought the GPU node up at gpud's request (domain 2 by its software sequence, gpu_clk, the reset after the clock) before gpud touched a register"
+
+[marker."gpud: gpu core ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0329 G1: the GPU's window maps and the core id register reads the measured id (the domain, clock and reset are really up)"
+
+[marker."gpud: gpu fw ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0329 G1: the published firmware, placed by its documented layout and started by the open sequence, set firmware_started and executed the first kernel command (its return slot seen through the cache maintenance); the line carries the boot time and the interrupt counts (ours and the firmware's)"
+
+[marker."gpud: gpu mmu ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0329 G1: one GPU address space (a page catalogue the firmware memory context names), a page bound and unbound through the host-tested encoder, the firmware's MMU-cache flush acknowledged in its return slot after each"
+
+[marker."gpud: gpu fence ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0329 G1: a null job (one timeline UPDATE in a transfer context's client buffer, one kick) completed sixty-four times: the firmware wrote the word, the interrupt fired, gpud signalled the kernel timeline fence — the fence bridge; rt_us is the frame's fixed cost on our side against the stock 640 us"
+
+[marker."gpud: FAIL gpu "]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+
 [marker."gpud: dc framebuffer refused ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
