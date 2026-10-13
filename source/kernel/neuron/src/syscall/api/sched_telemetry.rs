@@ -184,6 +184,39 @@ pub(super) fn sched_telemetry_op(
                 top[2].0,
                 top[2].1
             );
+            // TASK-0330 S2a: the console syscalls (16 putc, 44 write) hold the lock for a copy
+            // into the ring and the queue, never for the UART — the board's 10.5 ms were that.
+            let tpu = crate::trap::budgets::ticks_per_us();
+            let (console_ok, console_us) = crate::lock_stats::console_hold_verdict(
+                crate::lock_stats::max_hold_us(crate::syscall::SYSCALL_DEBUG_PUTC, tpu),
+                crate::lock_stats::max_hold_us(crate::syscall::SYSCALL_DEBUG_WRITE, tpu),
+            );
+            if console_ok {
+                log_info!(
+                    target: "smp",
+                    "KSELFTEST: console off lock ok (max_us={} budget_us={})",
+                    console_us,
+                    crate::lock_stats::CONSOLE_HOLD_BUDGET_US
+                );
+            } else {
+                log_error!(
+                    target: "smp",
+                    "KSELFTEST: console off lock FAIL max_us={} budget_us={}",
+                    console_us,
+                    crate::lock_stats::CONSOLE_HOLD_BUDGET_US
+                );
+            }
+            let (bursts, kicks, full, lock_fallback, depth) =
+                crate::hal::console_queue::console_tx_report();
+            log_info!(
+                target: "smp",
+                "KINIT: console tx (irq_bursts={} kicks={} full={} lock_fallback={} max_depth={})",
+                bursts,
+                kicks,
+                full,
+                lock_fallback,
+                depth
+            );
             let by_hart = crate::ipc_stats::sends_by_hart();
             log_info!(target: "ipc", "KINIT: ipc sends by hart {:?}", by_hart);
             let (

@@ -1040,6 +1040,8 @@ expected_sequence=(
   "KSELFTEST: ipc call budget ok (rt="
   "KSELFTEST: ipc stats ("
   "KSELFTEST: mm frames ("
+  # TASK-0330 S2a: the console's serial time is off the kernel lock.
+  "KSELFTEST: console off lock ok ("
   "KSELFTEST: ipc payload hist ("
   "SELFTEST: vm map roundtrip ok"
   "SELFTEST: dma buffer ok ("

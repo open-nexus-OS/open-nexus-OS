@@ -312,6 +312,8 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             {
                 let cpu = crate::smp::cpu_current_id();
                 let prev = crate::smp::record_timer_tick(cpu);
+                // TASK-0330 S2a: a console without an interrupt line drains its queue here.
+                crate::hal::platform::console_tx_tick();
                 if prev == 0 && !cpu.is_boot() {
                     log_info!(target: "smp", "KSELFTEST: smp per-hart ticks ok");
                 }

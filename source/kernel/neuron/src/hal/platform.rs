@@ -33,14 +33,21 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
+use super::plic::IrqId;
 use super::{IrqCtl, Timer, Tlb, Uart};
 use crate::arch::riscv;
+
+pub use super::console_queue::{
+    console_async_disable_and_drain, console_async_enable, console_irq_fired, console_tx_tick,
+};
 
 /// Console registers: base, register shift (`reg-shift`), access width in bytes.
 static UART_BASE: AtomicUsize = AtomicUsize::new(0);
 static UART_LEN: AtomicUsize = AtomicUsize::new(0);
 static UART_SHIFT: AtomicUsize = AtomicUsize::new(0);
 static UART_WIDTH: AtomicUsize = AtomicUsize::new(1);
+/// The console's interrupt line from its node (0: none — the queue drains at the timer tick).
+static UART_IRQ: AtomicU32 = AtomicU32::new(0);
 /// Interrupt controller.
 static PLIC_BASE: AtomicUsize = AtomicUsize::new(0);
 static PLIC_LEN: AtomicUsize = AtomicUsize::new(0);
@@ -72,9 +79,9 @@ static MEM_BANK_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub const MAX_BANKS: usize = 4;
 
 /// UART register numbers (16550 register map; the stride comes from the tree).
-const UART_TX: usize = 0x0;
-const UART_LSR: usize = 0x5;
-const LSR_TX_IDLE: u8 = 1 << 5;
+pub(super) const UART_TX: usize = 0x0;
+pub(super) const UART_LSR: usize = 0x5;
+pub(super) const LSR_TX_IDLE: u8 = 1 << 5;
 /// `stimecmp` (Sstc), by number: the pinned assembler predates the name.
 const CSR_STIMECMP: u16 = 0x14d;
 
@@ -104,6 +111,7 @@ pub fn init_from_fdt(bytes: Option<&[u8]>) -> Result<(), PlatformError> {
     UART_SHIFT.store(shift, Ordering::Relaxed);
     UART_WIDTH.store(if width == 4 { 4 } else { 1 }, Ordering::Relaxed);
     UART_LEN.store(reg.size as usize, Ordering::Relaxed);
+    UART_IRQ.store(uart.prop_u32("interrupts").unwrap_or(0), Ordering::Relaxed);
     // The base is stored LAST: from here on the console is live.
     UART_BASE.store(reg.addr as usize, Ordering::Release);
 
@@ -164,6 +172,11 @@ pub fn init_from_fdt(bytes: Option<&[u8]>) -> Result<(), PlatformError> {
 pub fn memory_banks() -> impl Iterator<Item = (usize, usize)> {
     let n = MEM_BANK_COUNT.load(Ordering::Relaxed);
     MEM_BANKS.iter().take(n).map(|(b, l)| (b.load(Ordering::Relaxed), l.load(Ordering::Relaxed)))
+}
+
+/// The console's base, 0 before init.
+pub(super) fn uart_base() -> usize {
+    UART_BASE.load(Ordering::Acquire)
 }
 
 /// Console window `(base, len)`, `None` before init.
@@ -290,7 +303,7 @@ pub fn arm_timer_ticks(deadline: u64) {
 
 /// Write one console register.
 #[inline]
-fn uart_write_reg(base: usize, reg: usize, value: u8) {
+pub(super) fn uart_write_reg(base: usize, reg: usize, value: u8) {
     let addr = crate::phys::phys_to_virt(base) + (reg << UART_SHIFT.load(Ordering::Relaxed));
     // SAFETY: `base` is the console window the tree named — physical before
     // the switch, through the direct map after it (RFC-0098 C4); the width
@@ -305,7 +318,7 @@ fn uart_write_reg(base: usize, reg: usize, value: u8) {
 }
 
 #[inline]
-fn uart_read_reg(base: usize, reg: usize) -> u8 {
+pub(super) fn uart_read_reg(base: usize, reg: usize) -> u8 {
     let addr = crate::phys::phys_to_virt(base) + (reg << UART_SHIFT.load(Ordering::Relaxed));
     // SAFETY: as above.
     unsafe {
@@ -343,20 +356,36 @@ fn console_emit(byte: u8) {
         if base == 0 {
             return;
         }
-        // TASK-0260B P3: the wait for the transmitter is bounded (2 ms, twenty byte
-        // times at the slowest console rate) — a transmitter that stops, whatever stops
-        // it, must not stop the kernel. The byte then stays in the ring only and the stall
-        // is counted (`uart_stalls`, stamped into the boot milestones).
-        let bound = ns_to_ticks(2_000_000);
-        let t0 = crate::arch::riscv::read_time();
-        while uart_read_reg(base, UART_LSR) & LSR_TX_IDLE == 0 {
-            if bound != 0 && crate::arch::riscv::read_time().wrapping_sub(t0) > bound {
-                UART_STALLS.fetch_add(1, Ordering::Relaxed);
-                return;
-            }
+        if super::console_queue::enabled() {
+            super::console_queue::enqueue(base, byte);
+        } else {
+            uart_put_polled(base, byte);
         }
-        uart_write_reg(base, UART_TX, byte);
     });
+}
+
+/// One byte to the transmitter, waiting for it (TASK-0260B P3: the wait is bounded — 2 ms,
+/// twenty byte times at the slowest console rate — a transmitter that stops, whatever stops it,
+/// must not stop the kernel; the byte then stays in the ring only and the stall is counted,
+/// `uart_stalls`, stamped into the boot milestones).
+pub(super) fn uart_put_polled(base: usize, byte: u8) {
+    let bound = ns_to_ticks(2_000_000);
+    let t0 = crate::arch::riscv::read_time();
+    while uart_read_reg(base, UART_LSR) & LSR_TX_IDLE == 0 {
+        if bound != 0 && crate::arch::riscv::read_time().wrapping_sub(t0) > bound {
+            UART_STALLS.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+    }
+    uart_write_reg(base, UART_TX, byte);
+}
+
+/// The console's interrupt line, once the tree named one.
+pub fn console_irq() -> Option<IrqId> {
+    match UART_IRQ.load(Ordering::Relaxed) {
+        0 => None,
+        raw => IrqId::new(raw),
+    }
 }
 
 /// Bytes the console gave up on because the transmitter never became ready in time.

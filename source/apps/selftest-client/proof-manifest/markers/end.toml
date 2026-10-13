@@ -29,6 +29,13 @@ phase = "end"
 [marker."KSELFTEST: mm frames ("]
 phase = "end"
 
+# TASK-0330 S2a: the console syscalls hold the kernel lock for a copy into the ring and the
+# transmit queue, never for the UART's serial time — the longest hold of either in the steady
+# window against a 1 ms budget (the board's layer-0 holds were 10.5 ms and 5.0 ms).
+[marker."KSELFTEST: console off lock ok ("]
+phase = "end"
+proves = "TASK-0330 S2a: no console syscall held the kernel lock longer than the budget in the steady-state window — the UART's own interrupt sends the bytes (RFC-0107's ring keeps them first, in order)"
+
 # TASK-0054C P3a: the payload-size distribution over the same window. RFC-0096
 # named a 64-byte inline tier before anything measured what fraction of messages
 # it would cover, and an average cannot answer that — this line can.

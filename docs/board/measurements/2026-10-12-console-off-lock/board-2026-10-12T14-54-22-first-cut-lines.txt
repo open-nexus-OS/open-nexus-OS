@@ -1,0 +1,13 @@
+[INFO boot] KINIT: console tx queue (irq=42 fifo_burst=16)
+[INFO smp] KINIT: long ecall nr=16 11ms cpu0
+[INFO smp] KINIT: long ecall nr=44 15ms cpu2
+[INFO smp] KINIT: long ecall nr=44 18ms cpu2
+[INFO smp] KINIT: long ecall nr=44 16ms cpu2
+[INFO smp] KINIT: long ecall nr=44 22ms cpu2
+[INFO smp] KINIT: long ecall nr=44 10ms cpu3
+[INFO smp] KINIT: long ecall nr=44 12ms cpu2
+[INFO smp] KINIT: long ecall nr=44 18ms cpu0
+[INFO smp] KINIT: bkl bring-up burst max_wait=30555us max_hold=22ms nr=44 gt10ms=49
+[INFO smp] KINIT: bkl hold histogram le100us=1488343 le1ms=269 le10ms=141 gt10ms=0 top nr=16:9571us nr=44:5463us nr=20:137us
+[ERROR smp] KSELFTEST: console off lock FAIL max_us=9571 budget_us=1000
+[INFO smp] KSELFTEST: bkl budget ok (max_wait=9598us max_hold=9ms nr=16)

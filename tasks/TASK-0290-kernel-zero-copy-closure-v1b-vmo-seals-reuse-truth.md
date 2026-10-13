@@ -60,6 +60,15 @@ the arena is a generously reserved range committed only where a frame touches it
 (purgeable VMOs) a reset generation's pages are purgeable under pressure; with **M4** the
 process's limit bounds it.
 
+**Second witness, 2026-10-13 (board `board--2026-10-13T08-28-06`, Block 4 layer 2 / S2a):** the
+operator maximized a window and typing was barely possible afterwards (the cycle before, with
+the console still on the lock, nothing worked after it). The input path is healthy throughout
+(`xhcid: irq hz≈95 … dropped=0`, `hidrawd … tx hz≈96`); app-host's frame arena spills on the
+maximized layout — `frame arena (… peak=519784 of=1048576 spill=1)`, `SELFTEST: frame arena
+spill FAIL` eleven times, one per generation that re-laid the large window — so every key pays
+a frame larger than its generation. Not the chat's first page alone, then: any large window.
+Same owner, same end form (M2 + M5), no interim bump (operator 2026-10-12).
+
 ## Non-Goals
 
 - DMA/IOMMU isolation.

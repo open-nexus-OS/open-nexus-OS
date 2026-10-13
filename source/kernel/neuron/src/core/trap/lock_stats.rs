@@ -102,6 +102,23 @@ pub fn longest_hold() -> (u64, u64) {
     (HOLD_MAX_TICKS.load(Ordering::Relaxed), HOLD_MAX_NR.load(Ordering::Relaxed))
 }
 
+/// The longest hold of syscall `nr` in the window, in microseconds.
+pub fn max_hold_us(nr: usize, ticks_per_us: u64) -> u64 {
+    HOLD_MAX_BY_NR[nr.min(HOLD_TABLE - 1)].load(Ordering::Relaxed) / ticks_per_us.max(1)
+}
+
+/// What a console syscall may hold the lock for once its bytes go to a queue (TASK-0330 S2a):
+/// a 1 KiB copy into the ring and the queue, with margin for the emulator. The board's layer-0
+/// numbers were 10.5 ms and 5.0 ms (`docs/board/measurements/2026-10-10-mgs-baseline/`).
+pub const CONSOLE_HOLD_BUDGET_US: u64 = 1_000;
+
+/// The console-off-the-lock verdict: the longest hold of either console syscall against the
+/// budget, and that longest hold.
+pub fn console_hold_verdict(putc_us: u64, write_us: u64) -> (bool, u64) {
+    let max = putc_us.max(write_us);
+    (max <= CONSOLE_HOLD_BUDGET_US, max)
+}
+
 /// The hold histogram and the longest holders `(nr, µs)` of the window, longest first.
 pub fn holds(ticks_per_us: u64) -> ([usize; BUCKETS], [(usize, u64); TOP_HOLDERS]) {
     let buckets = core::array::from_fn(|i| HOLD_BUCKETS[i].load(Ordering::Relaxed));
@@ -131,6 +148,15 @@ mod tests {
         assert_eq!(bucket_of(7, 0), 0, "an unset timebase divides by one");
     }
 
+    /// The board's layer-0 console holds fail the verdict; the queue's cost passes it.
+    #[test]
+    fn test_reject_the_boards_console_holds_against_the_budget() {
+        assert_eq!(console_hold_verdict(10_540, 5_043), (false, 10_540));
+        assert_eq!(console_hold_verdict(166, 160), (true, 166));
+        assert_eq!(console_hold_verdict(0, CONSOLE_HOLD_BUDGET_US), (true, 1_000));
+        assert_eq!(console_hold_verdict(0, CONSOLE_HOLD_BUDGET_US + 1), (false, 1_001));
+    }
+
     // One test for the statics: they are process-wide. A tick is a microsecond here.
     #[test]
     fn a_sample_counts_for_the_window_it_began_in() {
@@ -153,6 +179,9 @@ mod tests {
         let (histogram, top) = holds(1);
         assert_eq!(histogram, [1, 1, 1, 1]);
         assert_eq!(top, [(HOLD_TABLE - 1, 11_000), (3, 2_500), (12, 700)]);
+        assert_eq!(max_hold_us(3, 1), 2_500);
+        assert_eq!(max_hold_us(12, 1), 700);
+        assert_eq!(max_hold_us(7, 1), 0);
 
         reset(2_000);
         assert_eq!(holds(1), ([0; BUCKETS], [(0, 0); TOP_HOLDERS]));

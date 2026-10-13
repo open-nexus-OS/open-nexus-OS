@@ -80,6 +80,9 @@ ladder_headless=(
   "KSELFTEST: boot handoff ok (measured)"
   "KSELFTEST: platform from fdt ok ("
   "KGATE: smp bringup ok mask="
+  # TASK-0330 S2a: the console's serial time is off the kernel lock (the board's layer-0
+  # longest holders were the two console syscalls).
+  "KSELFTEST: console off lock ok ("
   "KSELFTEST: spawn ok pid="
   "init: ready"
   "blkd: backend ok (kind="

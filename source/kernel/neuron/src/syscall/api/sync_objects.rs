@@ -94,6 +94,10 @@ pub(super) fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     if !ctx.tasks.current_caps_mut().holds_device_irq(irq_raw) {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
+    // TASK-0330 S2a: the console's own line is the kernel's.
+    if crate::hal::platform::console_irq() == Some(irq) {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     let endpoint = match ctx.tasks.current_caps_mut().get(endpoint_slot)?.kind {
         CapabilityKind::Endpoint(id) => id,
         _ => return Err(Error::Capability(CapError::InvalidSlot)),

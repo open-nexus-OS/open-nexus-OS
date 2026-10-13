@@ -16,6 +16,8 @@ use super::*;
 use nexus_display_proto::surface_text;
 use nexus_wire::imed as ime_wire;
 
+use crate::client_surface::Delivery;
+
 /// The focused surface's routing entry (identity-derived, RFC-0075).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TextFocusRoute {
@@ -311,13 +313,13 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// Fire-and-forget frame to the desktop surface's event channel.
+    /// A frame to the desktop surface's event channel — user intent (`Delivery::Critical`):
+    /// parked until the desktop drains, never dropped; a real failure is reported.
     #[allow(unused_variables)]
     pub(super) fn send_desktop_frame(&mut self, frame: &[u8]) {
         #[cfg(nexus_env = "os")]
         if let Some(slot) = self.desktop_channel {
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            if nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0).is_err() {
+            if !super::app_window::send_client_frame(slot, frame, Delivery::Critical) {
                 let _ = debug_println("WINDOWD: FAIL desktop text send");
             }
         }

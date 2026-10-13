@@ -13,6 +13,7 @@
 
 pub mod boot_led;
 pub mod console_line;
+pub mod console_queue;
 pub mod console_ring;
 pub mod platform;
 pub mod plic;

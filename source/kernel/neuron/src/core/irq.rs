@@ -116,6 +116,9 @@ pub fn stash_undelivered() {
         let Some(irq) = plic::claim() else {
             break;
         };
+        if crate::hal::platform::console_irq_fired(irq) {
+            continue;
+        }
         let id = irq.raw() as usize;
         if binding(irq).is_some() && id < TABLE_LEN {
             STASHED[cpu][id / 64].fetch_or(1u64 << (id % 64), Ordering::AcqRel);
@@ -199,6 +202,9 @@ pub fn dispatch_external(
         let Some(irq) = plic::claim() else {
             break;
         };
+        if crate::hal::platform::console_irq_fired(irq) {
+            continue;
+        }
         match binding(irq) {
             Some(ep) => deliver(irq, ep, router, tasks, scheduler),
             None => {

@@ -1,0 +1,4 @@
+[board-test] judging uart-s2a.log as profile board-visible
+      1 [ERROR smp] KSELFTEST: console off lock FAIL max_us=9571 budget_us=1000
+[FAIL] board-visible: FAIL markers in the trace (not allow-listed in config/fail-marker-allow.txt or config/fail-marker-allow-board.txt)
+rc=1

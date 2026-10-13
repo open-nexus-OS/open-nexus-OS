@@ -451,6 +451,9 @@ pub fn kmain() -> ! {
     // their scheduler loops (IPI punches them out of their park-WFI), then
     // become CPU 0's scheduler.
     crate::smp::mark_runtime_ready();
+    // TASK-0330 S2a: from here the console's bytes go to a queue the UART's own interrupt
+    // drains — a console write no longer holds the kernel lock for its serial time.
+    crate::hal::platform::console_async_enable();
     for idx in 1..crate::smp::MAX_CPUS {
         let target = CpuId::from_raw(idx as u16);
         if crate::smp::cpu_is_online(target) {

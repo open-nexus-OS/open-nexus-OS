@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-12 (Block 4, layer 2: the console off the kernel lock — TASK-0330 S2a)
+
+- **A console write no longer holds the kernel lock for its serial time.** A byte goes to the
+  trace ring (RFC-0107) and then to a bounded transmit queue; the UART's own transmitter-empty
+  interrupt (the console node's `interrupts` line, enabled at the PLIC once the runtime runs)
+  sends a FIFO burst per interrupt and turns itself off with the last byte. A full queue (a
+  bring-up burst) sends its oldest bytes polled first — never a drop, never a reorder (the
+  trace contract stays byte-equal); a panic turns the queue off and drains it before its words;
+  a tree without a line drains at the timer tick. `irq_bind` refuses the console's line.
+  Measured cause (layer 0): the steady state's longest lock holders on the board were the two
+  console syscalls (10.5 ms, 5.0 ms), the bring-up's 16–19 ms holds console writes.
+- **Gate**: `KSELFTEST: console off lock ok (max_us= budget_us=1000)` — the longest hold of
+  either console syscall in the steady window — REQUIRED on every QEMU lane and in the board's
+  headless ladder (QEMU: 43–82 µs; board 2026-10-13: 273 µs against 16 444 before).
+- **The board's UART, from its trace** (`docs/board/measurements/2026-10-12-console-off-lock/`):
+  the console is a PXA-style 16550 — its IER carries a DMA-requests bit that turns the empty
+  transmitter into a DMA request instead of the interrupt (the vendor console transmits by DMA;
+  its interrupt line had never fired on this board), and its MCR OUT2 gates the interrupt
+  output. At enable the kernel clears the DMA and receive-timeout bits, sets OUT2, and reads
+  the registers back into the boot line (`KINIT: console tx queue (… ier= mcr= iir=
+  plic_enabled=)`). A pusher that finds the transmitter idle fills it itself (no wait; counted
+  as `kicks=`) and the interrupt's drain waits briefly for the queue's lock, so the queue does
+  not depend on the line's trigger mode (the stock tree lists it as edge).
+- **The kernel-lock budget is green on the board for the first time** (`bkl budget ok
+  (max_wait=3050us max_hold=0ms)`, steady-window hold histogram `le10ms=0 gt10ms=0`); its line
+  leaves `config/fail-marker-allow-board.txt`. Handed on with a tracked line there:
+  `KSELFTEST: ipc call budget FAIL (rt=97us budget=64)` — the mean of 64 round trips to samgrd,
+  doubled on the board once the boot no longer waits for the console and the hart placement
+  shifted (QEMU unchanged at 43 µs) — S3's number (placement, IPI cost).
+- **Dependency hygiene**: `quinn-proto` 0.11.18 (RUSTSEC-2026-0338/-0339/-0340/-0342, the
+  host-only QUIC transport of the distributed bus); it moved to rand 0.10, so the rand/rand_core/
+  chacha20/cpufeatures/r-efi pairs are tracked duplicates in `config/deny.toml` until the host
+  graph's other rand users follow.
+- **windowd never drops user intent**: frames to a client (a text commit, a key, a tap's ack, the
+  screenshot's shutter) take the parking delivery (`Delivery::Critical`) instead of a one-shot
+  non-blocking send that dropped on a full queue (`WINDOWD: FAIL app event send`) — a bug the
+  console's stall after every line had throttled out of sight; the `usb-visible` lane's
+  clipboard and screenshot steps went red the moment the stall was gone, and are green with the
+  parking delivery.
+
 ### Changed - 2026-10-12 (Block 4, layer 2: the scanout contract on the board — RFC-0101 Phase 1)
 
 - **No present is drawn in view any more** (board cycle `board--2026-10-12T13-06-02`: `[PASS] board-visible` 49 rungs, 7 operator markers — the first full pass since 2026-10-06; `front=0` in every present window, first flip at line 1080, `late=0`; the operator: no tearing, no flicker, the pointer whole at the right border). The board's display runs a ring of three planes

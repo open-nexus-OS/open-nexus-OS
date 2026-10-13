@@ -80,6 +80,59 @@ FAIL in S1.
 - Still S0's: the warm/cold series for the start hang, before S1 touches the secondary-hart
   start. `-smp 8` ×10 moves to S1's gate (four harts run until `MAX_CPUS` is gone).
 
+## S2a — the console off the kernel lock (Block 4 layer 2, 2026-10-12 → ✅ board 2026-10-13)
+
+- **Three lenses.** Scope: `source/kernel/neuron/src/{console_tx.rs, hal/console_queue.rs,
+  hal/platform.rs, core/irq.rs, core/kmain.rs, core/panic.rs, core/trap/handler.rs,
+  core/trap/lock_stats.rs, syscall/api/{sched_telemetry,sync_objects}.rs}`, the marker
+  `KSELFTEST: console off lock ok (` in `end.toml`, `qemu-test.sh` and `board-test.sh`; out: the
+  scheduler lock (S2), the IPC router (S3), the budgets' constants (they stay the emulator's
+  until S2 measures the board), any change to what is logged. Invariant: a console byte enters
+  the queue only after RFC-0107's ring recorded it and leaves in the ring's order (the trace
+  contract stays byte-equal); the queue is bounded and a full queue sends its oldest bytes polled
+  before it takes a new one — never a drop, never a reorder; the console's interrupt line is the
+  kernel's (`irq_bind` refuses it). Contract: RFC-0107 (the ring), RFC-0098 C3 (the console from
+  the tree — its `interrupts` property is what the queue drains on), ADR-0046 (the lock budgets).
+- **Measured cause** (S0, `docs/board/measurements/2026-10-10-mgs-baseline/`): the steady state's
+  longest lock holders were syscall 16 (10.5 ms) and 44 (5.0 ms) — the console writes — and the
+  bring-up's 16–19 ms holds were `nr=44`: a line costs its length in serial time at 115 200 baud,
+  under the lock.
+- **Built**: `console_tx::TxRing` (8 KiB FIFO, host-tested), `hal::console_queue`: a byte goes
+  to the ring, then the queue; the UART's transmitter-empty interrupt (the console node's
+  `interrupts`, enabled at the PLIC for the boot hart once the runtime runs) drains a FIFO
+  burst per interrupt and turns itself off with the last byte; a full queue sends a burst
+  polled first; a panic turns the queue off and drains it before its words; a tree without a
+  line drains at the timer tick. `irq_bind` refuses the console's line.
+- **Exposed and fixed on the way** (`docs/board/measurements/2026-10-12-console-off-lock/`):
+  windowd dropped frames of user intent (text commits, keys, acks, the screenshot's shutter) on a
+  full client queue — `WINDOWD: FAIL app event send` — which the console's stall after every
+  line had throttled out of sight; `send_app_frame` and `send_desktop_frame` now take the parking
+  delivery (`Delivery::Critical`), never dropping. The first cut's byte-wise polled fallback with
+  the FIFO on cost 9.6 ms a console syscall on the board (the gate red on a real fault); the
+  fallback waits once and writes a burst.
+- **Gate**: `KSELFTEST: console off lock ok (max_us= budget_us=1000)` — the longest hold of
+  either console syscall in the steady window, REQUIRED on every QEMU lane and in the board's
+  headless ladder; its FAIL form is caught by the FAIL gate. Shown red by the measured numbers
+  (`lock_stats::tests::test_reject_the_boards_console_holds_against_the_budget`: 10 540 µs
+  against 1 000); green on QEMU and the board with the queue.
+- **Board** (`docs/board/measurements/2026-10-12-console-off-lock/`): the second cut's interrupt
+  never fired on the board (`irq_bursts=0`, gate red at 16 444 µs) — the console UART is a
+  PXA-style 16550 whose IER carries a DMA-requests bit (the vendor console transmits by DMA; PLIC
+  42 counts zero on the stock system) and whose MCR OUT2 gates the interrupt output. Third cut:
+  the DMA bit cleared, OUT2 set, both read back in the boot line; a pusher fills an idle
+  transmitter itself and the drain waits for the queue's lock (the queue no longer depends on
+  the line's trigger mode). `board--2026-10-13T08-28-06`: `console off lock ok (max_us=273)`,
+  `console tx (irq_bursts=2348 kicks=962 full=1059 lock_fallback=0)`, `bkl budget ok
+  (max_wait=3050us max_hold=0ms)`, hold histogram `le10ms=0 gt10ms=0` — the first board boot
+  with the kernel-lock budget green; its allow-list line is removed. `[PASS] board-visible`
+  50 rungs, 7 acks.
+- **Handed on**: `KSELFTEST: ipc call budget FAIL (rt=97us budget=64)` on that boot (56/60
+  before, QEMU 43 unchanged): the mean of 64 round trips to samgrd under a boot that no longer
+  waits for the console, with a shifted hart placement — **S3**'s number (placement, IPI cost),
+  tolerated on the board with that reference. The operator's "typing after maximizing is barely
+  possible": app-host's frame arena spills on the maximized layout (input path healthy) — the
+  memory lane's (TASK-0290 "Input from Block 1").
+
 ## Non-Goals
 
 The scheduler lock itself (`TASK-0306` Phase 3 = S2), the placement policy (`TASK-0042B` = S5), heterogeneous scheduling beyond cluster awareness.

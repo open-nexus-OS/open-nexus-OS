@@ -689,26 +689,25 @@ impl DisplayServerRuntime {
         wire::pack_theme(mode, self.theme_accent)
     }
 
-    /// Sends one app-bound frame (input event or surface ack) on the
-    /// dedicated event channel. Returns false when no channel is attached
-    /// (caller falls back to the shared response endpoint) — a SEND failure
-    /// on an attached channel is reported, not silently dropped.
+    /// Sends one app-bound frame (a text commit, a key, a tap's ack, a surface ack) on the
+    /// dedicated event channel. Returns false when no channel is attached (caller falls back
+    /// to the shared response endpoint). The frame is USER INTENT with no recovery path
+    /// (`Delivery::Critical`): the send parks on the client's endpoint until it drains — the
+    /// kernel wakes the sender the instant it does — and is never dropped. A first cut sent
+    /// non-blocking and dropped on a full queue (`WINDOWD: FAIL app event send`): the clipboard's
+    /// text commit and the screenshot's shutter went missing the moment the console stopped
+    /// throttling the services (TASK-0330 S2a, 2026-10-12); a real failure (a dead client) is
+    /// reported, not claimed.
     #[allow(unused_variables)]
     pub(crate) fn send_app_frame(&mut self, idx: usize, frame: &[u8]) -> bool {
         #[cfg(nexus_env = "os")]
         {
             let Some(slot) = self.apps[idx].event_channel else { return false };
-            let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-            match nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0) {
-                Ok(_) => true,
-                Err(_) => {
-                    // The channel exists but is full/broken: report it and
-                    // claim delivery — falling back to the shared endpoint
-                    // would reintroduce the ack race this channel removes.
-                    let _ = debug_println("WINDOWD: FAIL app event send");
-                    true
-                }
+            if send_client_frame(slot, frame, Delivery::Critical) {
+                return true;
             }
+            let _ = debug_println("WINDOWD: FAIL app event send");
+            false
         }
         #[cfg(not(nexus_env = "os"))]
         {
