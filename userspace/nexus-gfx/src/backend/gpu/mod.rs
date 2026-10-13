@@ -42,6 +42,7 @@ pub mod fw_image;
 pub mod fwif;
 pub mod mips_boot;
 pub mod mmu;
+pub mod scene;
 pub mod start;
 
 /// The GPU's id as the core register packs it: `b << 48 | v << 32 | n << 16 | c`.

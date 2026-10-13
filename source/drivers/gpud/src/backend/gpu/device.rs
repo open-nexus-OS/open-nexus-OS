@@ -107,7 +107,7 @@ impl FwccbMemory for FwccbMem<'_> {
 }
 
 /// The GPU MMU's table pages, from the firmware heap's backing pool.
-struct Tables<'a>(&'a mut FwMemory);
+pub(super) struct Tables<'a>(pub(super) &'a mut FwMemory);
 
 impl TablePages for Tables<'_> {
     fn alloc(&mut self) -> Option<TablePage> {

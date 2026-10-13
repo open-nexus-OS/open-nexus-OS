@@ -26,13 +26,16 @@ const BLOB: &[u8] =
 
 /// Backing pages the firmware needs: code (0x19000) + data (0x5000) = 30, the config slots 3,
 /// the structures about 20, the trace buffer 12, the page table 4 — and room for the contexts
-/// and page tables of the bring-up's own address space.
-pub(super) const BACKING_PAGES: usize = 128;
+/// and page tables of the device's address space (layer 4 binds a plane and the first quad's
+/// 28 buffers: about 2400 pages behind some 15 table pages).
+pub(super) const BACKING_PAGES: usize = 192;
 
 /// Where everything landed.
 pub(super) struct Loaded {
     pub boot: BootSections,
     pub features: CoreFeatures,
+    /// The feature-gated words of a transfer stream, from the device-info block (RFC-0101 §8c).
+    pub stream: nexus_gfx::backend::gpu::fwif::StreamFeatures,
     pub num_clusters: u32,
     pub sysinit: HeapObj,
     pub osdata: HeapObj,
@@ -223,6 +226,7 @@ pub(super) fn load(
     Ok(Loaded {
         boot,
         features,
+        stream: nexus_gfx::backend::gpu::fwif::StreamFeatures::of(&info),
         num_clusters,
         sysinit,
         osdata,

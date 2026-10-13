@@ -32,15 +32,18 @@
 //!   build or version differs; no `unwrap` on a firmware-written word.
 
 pub(crate) mod device;
+mod device_v2;
 mod firmware;
 mod glue;
 mod job;
 mod memory;
+pub(crate) mod quad;
 mod regs;
 
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 
 pub(crate) use device::Gpu;
+pub(crate) use device_v2::Device;
 
 fn emit(line: &str) {
     let _ = nexus_abi::debug_println(line);

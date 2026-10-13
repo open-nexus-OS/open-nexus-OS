@@ -90,8 +90,15 @@ pub(super) fn create(gpu: &mut Gpu) -> Option<Context> {
     Some(Context { fwctx, cccb_ctl, cccb, timeline, writer: Cccb::new(), seq: 0, signalled: 0 })
 }
 
-/// Submits the null job for the next point: one `UPDATE` of the timeline word, one kick.
-fn submit(gpu: &mut Gpu, ctx: &mut Context) -> Result<u32, &'static str> {
+/// Submits one task for the next point — the command `cmd_type` with `payload` (the null job's
+/// `NULL` without one, a transfer job's `TQ_3D` with its 192-byte command), then the `UPDATE`
+/// of the timeline word — and kicks once. Returns the point the task will signal.
+pub(super) fn submit_task(
+    gpu: &mut Gpu,
+    ctx: &mut Context,
+    cmd_type: u32,
+    payload: &[u8],
+) -> Result<u32, &'static str> {
     ctx.seq = ctx.seq.wrapping_add(1);
     let seq = ctx.seq;
     let (ctl, ring) = (ctx.cccb_ctl, ctx.cccb);
@@ -100,9 +107,7 @@ fn submit(gpu: &mut Gpu, ctx: &mut Context) -> Result<u32, &'static str> {
         // H6 (cycles 3–4 of 2026-10-13): a kick with an `UPDATE` alone was never read by the
         // firmware (`cccb_read=0`). A job in the interface is a TASK command plus its update;
         // the interface's `NULL` task (210) is the no-op task — the null job proper.
-        ctx.writer
-            .write_command(&mut m, fwif::ccb::NULL, &[], seq, seq)
-            .map_err(|_| "cccb full")?;
+        ctx.writer.write_command(&mut m, cmd_type, payload, seq, seq).map_err(|_| "cccb full")?;
         ctx.writer
             .write_update(&mut m, Ufo { addr: ctx.timeline.fw_addr(), value: seq }, seq)
             .map_err(|_| "cccb full")?;
@@ -114,13 +119,13 @@ fn submit(gpu: &mut Gpu, ctx: &mut Context) -> Result<u32, &'static str> {
 }
 
 /// The timeline word, as the firmware left it.
-fn timeline(gpu: &Gpu, ctx: &Context) -> u32 {
+pub(super) fn timeline(gpu: &Gpu, ctx: &Context) -> u32 {
     gpu.mem.read_u32(&ctx.timeline, 0)
 }
 
 /// Signals the kernel fence to the timeline word when it moved (the service loop's wake and
 /// the rung's wait).
-fn bridge(gpu: &mut Gpu, ctx: &mut Context) {
+pub(super) fn bridge(gpu: &mut Gpu, ctx: &mut Context) {
     let word = timeline(gpu, ctx);
     if word != ctx.signalled && word.wrapping_sub(ctx.signalled) < 0x8000_0000 {
         let _ = nexus_abi::fence_signal(gpu.fence, u64::from(word));
@@ -148,7 +153,7 @@ pub(super) fn fence_rung(gpu: &mut Gpu) {
     let mut irqs_before = gpu.irqs;
     for round in 0..ROUNDS {
         let t0 = now_ns();
-        let seq = match submit(gpu, &mut ctx) {
+        let seq = match submit_task(gpu, &mut ctx, fwif::ccb::NULL, &[]) {
             Ok(s) => s,
             Err(e) => {
                 emit(&alloc::format!("gpud: FAIL gpu fence (submit {round}: {e})"));

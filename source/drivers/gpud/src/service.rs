@@ -85,11 +85,19 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let mut gpu = crate::gpu::granted()
             .then(|| crate::gpu::Gpu::bring_up(nexus_service_topology::slots::gpud::GPU_IRQ))
-            .flatten();
+            .flatten()
+            .map(crate::gpu::Device::new);
+        // TASK-0169B (RFC-0101 Phase 3): the first quad into a plane of the ring — the open
+        // driver's two transfer jobs for this core, captured on the host, replayed through
+        // `GfxDevice`: `gpud: gpu fill ok (`, `gpud: gpu quad ok (`; a FAIL leaves the display.
+        #[cfg(all(feature = "os-lite", target_os = "none"))]
+        if let Some(dev) = gpu.as_mut() {
+            crate::gpu::quad::rung(dev, &mut display);
+        }
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let clock = {
             let (server_recv, _) = server.slots();
-            let gpu_irq = gpu.as_ref().map(|g| g.irq_slot());
+            let gpu_irq = gpu.as_ref().map(|g| g.gpu.irq_slot());
             let waitset = display.bind_vblank(GPU_IRQ_NOTIFY_SLOT).then(|| {
                 nexus_abi::waitset_create().ok().and_then(|ws| {
                     nexus_abi::waitset_add(ws, server_recv).ok()?;
@@ -114,7 +122,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let mut gpu_wake = || {
             if let Some(g) = gpu.as_mut() {
-                g.on_wake();
+                g.gpu.on_wake();
             }
         };
         #[cfg(all(feature = "os-lite", target_os = "none"))]

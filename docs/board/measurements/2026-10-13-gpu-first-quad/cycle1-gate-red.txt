@@ -1,0 +1,5 @@
+# The gate shown red (2026-10-13, cycle 1's capture with the 'gpu quad ok' line removed):
+3:[FAIL] board-visible: rung missing: 'gpud: gpu quad ok (' (rung 29 of 57, last present: 'gpud: gpu fill ok (')
+
+# The same capture whole:
+4:[PASS] board-visible: 57 rungs, 7 operator marker(s), no FAIL marker, manifest clean (build/logs/board--2026-10-13T16-04-35/uart.log)

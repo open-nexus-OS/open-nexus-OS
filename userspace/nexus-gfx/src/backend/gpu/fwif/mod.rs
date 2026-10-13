@@ -20,9 +20,11 @@ use core::mem::{offset_of, size_of};
 
 mod commands;
 mod contexts;
+mod transfer;
 
 pub use commands::*;
 pub use contexts::*;
+pub use transfer::*;
 
 /// The magic every command type carries in its upper half.
 pub const CMD_MAGIC: u32 = 0x2ABC << 16;

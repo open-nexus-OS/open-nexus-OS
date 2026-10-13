@@ -53,15 +53,25 @@ pub struct Shader<'a> {
 #[derive(Clone, Copy, Debug)]
 pub enum Stream<'a> {
     Commands(&'a [Command]),
-    Code { shader: Shader<'a>, at: GpuVa },
+    Code {
+        shader: Shader<'a>,
+        at: GpuVa,
+    },
+    /// One transfer job's register stream in the open driver's definition (RFC-0101 §8c); the
+    /// programs it points at are GPU code already bound in the context. `single_core` is the
+    /// job's one flag.
+    Transfer {
+        stream: &'a [u8],
+        single_core: bool,
+    },
 }
 
 impl Stream<'_> {
-    /// Commands in the stream, for the batch bound (a binary counts as one).
+    /// Commands in the stream, for the batch bound (a binary or a job counts as one).
     pub fn commands(&self) -> usize {
         match self {
             Stream::Commands(c) => c.len(),
-            Stream::Code { .. } => 1,
+            Stream::Code { .. } | Stream::Transfer { .. } => 1,
         }
     }
 }
@@ -117,6 +127,14 @@ pub enum DeviceError {
     CodeUnsupported,
     /// A wait the mock cannot defer: the point is not reached.
     WouldBlock(TimelinePoint),
+    /// The tree's command vocabulary on a device that executes GPU code only (the hardware).
+    CommandsUnsupported,
+    /// A cache mode the device does not offer yet — refused by name (M2 brings `Uncached`).
+    CacheModeUnsupported(CacheMode),
+    /// A job stream the device's decoder refused (length, padding, extension).
+    MalformedStream,
+    /// The device did not answer (a flush or a kick without return); named on the console.
+    Lost,
 }
 
 impl From<VmError> for DeviceError {

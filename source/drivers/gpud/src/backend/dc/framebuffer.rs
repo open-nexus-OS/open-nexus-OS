@@ -105,6 +105,26 @@ impl Framebuffer {
     }
 
     /// Make `damage` of the plane at layout row `row` visible to the controller.
+    /// The bus address of the plane at layout row `row` (RFC-0101 §8c: the GPU's target).
+    pub(super) fn plane_bus(&self, row: u32) -> u64 {
+        self.mem.runs()[0].bus + layout::row_offset_bytes(row) as u64
+    }
+
+    /// The bytes of one plane at layout row `row`, for the cache maintenance and the readback
+    /// around a GPU job.
+    pub(super) fn plane_bytes_mut(&mut self, row: u32) -> Option<&mut [u8]> {
+        let start = layout::row_offset_bytes(row);
+        self.mem.bytes_mut().get_mut(start..start + layout::PLANE_BYTES)
+    }
+
+    /// The cache block the controller's memory is maintained in; 0 when coherent.
+    pub(super) fn cache_block(&self) -> usize {
+        match self.coherence {
+            DmaCoherence::Maintained { block } => block,
+            _ => 0,
+        }
+    }
+
     pub(super) fn clean_at(&self, row: u32, plane: &Plane, damage: Rect) {
         let DmaCoherence::Maintained { block } = self.coherence else {
             return;

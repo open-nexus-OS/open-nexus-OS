@@ -168,6 +168,19 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0329 G1: a null job (one timeline UPDATE in a transfer context's client buffer, one kick) completed sixty-four times: the firmware wrote the word, the interrupt fired, gpud signalled the kernel timeline fence — the fence bridge; rt_us is the frame's fixed cost on our side against the stock 640 us"
 
+# TASK-0169B (RFC-0101 Phase 3 / §8c): the GPU draws — the open driver's two transfer jobs for
+# this core, captured on the host as the scene bundle, replayed through `GfxDevice` into a plane
+# of the ring; `gpud: FAIL gpu quad (` is the FAIL form of both rungs.
+[marker."gpud: gpu fill ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0169B: the bundle's 29 buffers created, filled and bound at their captured addresses, the plane adopted at the target's; the clear (a TQ_3D command plus the timeline UPDATE, one kick) completed and timed — ns_per_px against the stock stack's 1.8"
+
+[marker."gpud: gpu quad ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0169B: the blit (the open driver's PDS/USC programs and texture state at their captured addresses, our generated texture) completed; four sample pixels read back after the cache flush match the background, the texture's white frame and both checker colours; the plane went to the glass"
+
 [marker."gpud: FAIL gpu "]
 phase = "bringup"
 emit_when = { profile = "board-headless" }

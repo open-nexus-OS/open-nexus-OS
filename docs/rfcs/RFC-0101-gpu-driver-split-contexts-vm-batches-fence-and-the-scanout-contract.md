@@ -16,7 +16,7 @@
 - **Phase 0 (the contracts, host)**: ✅ 2026-10-12 — `nexus-driverkit::gpu` (the device side: queue kinds, cache modes, the GPU VM, capabilities, the batch bound), `nexus_gfx::sync::timeline` (the one fence, modelled), `nexus_gfx::backend::v2` (`GfxDevice` with `CpuMockDevice` implementing it, the plane ring, the frame clock and the pointer plane as models), the `test_reject_*` matrix
 - **Phase 1 (the scanout contract on the board)**: ✅ 2026-10-12 — TASK-0216: the ring over the layout's three slots, the vertical-blank interrupt as the frame clock (enabled only while a flip waits), the flip inside the blank (first at line 1080), the deferred ack, the pointer plane whole at every border; `[PASS] board-visible` 49 rungs, `front=0` in every present window, `late=0`. Open thread: a second interrupt 21 µs after a served one (`docs/board/measurements/2026-10-12-scanout-vblank/`, H1), measured in Phase 2's first cycle.
 - **Phase 2 (the device online)**: ✅ 2026-10-13 — TASK-0329 G1: the GPU node through socd (domain 2 by its software sequence), the published firmware started by the open sequence (`gpu fw ok`), one address space bound and flushed (`gpu mmu ok`), a null job's completion bridged to the kernel fence 64 times (`gpu fence ok (rt_us=131 … below the stock 640us)`); five board cycles, each decided by a line (`docs/board/measurements/2026-10-13-gpu-online/`). Open threads handed on: the uncached mapping for several commands in flight (M2), the firmware's boot-time variance (Phase 3's first cycle)
-- **Phase 3 (the GPU draws)**: ⬜ layer 4 — G2 on the device, the first textured quad from offline shaders
+- **Phase 3 (the GPU draws)**: ✅ 2026-10-13 — TASK-0169B: `GfxDevice` on the device (one context, buffers as DMA VMOs or an adopted plane, binding through the G1 page tables with the waited flush, one transfer command + `UPDATE` per submit); the open driver's two transfer jobs for this core captured on the host as the scene bundle (§8c) and replayed into a plane of the ring on the first board cycle: `gpu fill ok (ns_per_px=0.8 … the stock 1.8)`, `gpu quad ok (samples=4/4)`, `[PASS] board-visible` 57 rungs (`docs/board/measurements/2026-10-13-gpu-first-quad/`). Handed on: blending and the render queue (Phase 4), the firmware's time variance and the controller's alpha handling (Phase 4's first cycle)
 - **Phase 4 (the desktop on the GPU)**: ⬜ layer 5 — G3's remaining ops, G4
 
 Definition: "Complete" means the contracts below are implemented on the board, their gates are green, and the CPU compositing path and the v1 backend trait are deleted with a retired-name gate.
@@ -110,6 +110,47 @@ What the device server owns below §1–§7 on the board's core (one core of the
 - **Power** through socd (RFC-0106): the GPU node's plan is domain 2 by its software sequence (sleep1, sleep2, isolation released, the status bit polled with a bound), the core clock at the node's rate, the reset released at least 32 clock cycles after the clock. gpud may bring up only GPU and display nodes (RFC-0106's per-class floor, first consumer).
 - **Gates**: `gpud: gpu glue ok (`, `gpud: gpu core ok (bvnc=…)`, `gpud: gpu fw ok (boot_us= irqs= fw_irqs=)`, `gpud: gpu mmu ok (`, `gpud: gpu fence ok (rt_us= n=)` REQUIRED on the board ladders; the null job's round trip below the stock stack's 0.64 ms frame fixed cost (`docs/board/measurements/2026-10-13-gpu-online/`). QEMU unchanged. Preemption between contexts is measured when two contexts run (Phase 3's first cycle), as §6 says.
 
+### §8c Phase 3 — the GPU draws (TASK-0169B, the transfer job and the scene bundle)
+
+- **The first op is a transfer job.** The core's transfer queue runs the fragment pipeline over a
+  rectangle: a pixel program from the USC heap, driven by PDS programs from the PDS heap, writing
+  through the pixel back end into a linear target — a clear (the colour in `usc_clear_register0`)
+  and a filtered, scaled textured copy are both one such job. Its firmware form is the open kernel
+  driver's transfer command: 192 bytes — a common header, 17 32-bit registers, 13 64-bit registers
+  (`pds_bgnd0/1_base`, `pds_bgnd3_sizeinfo`, `isp_mtile_base`, nine pixel-back-end words), flags
+  — filled from a **stream** in the open kernel driver's definition order (8-byte header: length,
+  zero padding; the 64-bit words first, the 32-bit words after; `isp_xtp_pipe_enable` only with
+  `S7_TOP_INFRASTRUCTURE`, `frag_screen` only with `GPU_MULTICORE_SUPPORT` — the device's own
+  device-info block decides, never a constant). `nexus_gfx::backend::gpu::fwif::TransferCmd` is
+  that struct with its offsets asserted, `from_stream(bytes, &DeviceInfoBlock)` the decoder
+  (`test_reject_stream_length_for_features`, `test_reject_stream_padding_nonzero`), `to_bytes()`
+  the encoder. The command goes into the transfer context's CCB as type `TQ_3D` followed by the
+  `UPDATE` that writes the timeline — exactly the null job's shape with a payload.
+- **GPU code is client data (§7), captured on the host.** The binaries and the streams come from
+  the open userspace driver for this core, driven on the host over a shim that stands in for the
+  kernel; a hook writes every bound buffer with its GPU address and every job's stream
+  (`docs/board/measurements/2026-10-13-gpu-first-quad/`). A **scene bundle**
+  (`nexus_gfx::backend::gpu::scene`, file `resources/gpu/scenes/*.scene`, magic `NXSC`) carries the
+  core id it was captured for, the buffers as sparse non-zero runs with a kind — `Data` (the
+  driver's bytes), `Target` (bound to a plane of the ring, never carried), `Texture` (generated on
+  the device by a named formula whose digest is a golden) — and the jobs with their streams. The
+  parser treats the file as untrusted (`test_reject_scene_for_another_core`,
+  `test_reject_scene_run_outside_buffer`, `test_reject_scene_buffer_outside_heaps`); the device
+  refuses a scene whose core id is not its own.
+- **The device side is `GfxDevice` (§1–§5) on the G1 device:** `create_bo` is a DMA VMO with its
+  cache mode, `vm_bind` the G1 page tables plus the waited MMU-cache flush, `submit` one transfer
+  command + `UPDATE`, one kick, one interrupt, one timeline point. The plane ring's VMO is bound by
+  its `vmo_runs` at the scene's target address — no copy. Ownership of the plane crosses from the
+  CPU to the device before the job (clean) and back before the readback (invalidate), the
+  non-coherent machine's rule of §3.
+- **Gates**: `gpud: gpu fill ok (us= px=1920x1080 ns_per_px=)` with `ns_per_px` at or below the
+  stock 1.8; `gpud: gpu quad ok (us= samples=4/4)` — four sample pixels read back after the blit
+  (background, the texture's white frame, both checker colours) — REQUIRED on the board ladders;
+  the FAIL forms name the sample (expected, read) or the firmware fault (type, address). QEMU
+  unchanged. **Not in this phase:** the render queue, blending (fragment-program work of Phase 4),
+  windowd's use of the device over IPC, the v1 trait's retirement (Phase 4, once windowd stands on
+  v2), the uncached mapping for several commands in flight (M2).
+
 ## Invariants (security)
 
 - Identity is `sender_service_id`; a context, a buffer and a fence are reachable only by the client that owns them or was handed the capability.
@@ -128,8 +169,8 @@ What the device server owns below §1–§7 on the board's core (one core of the
 | 0 | 1 | this contract and its host types, the mock device implementing them | `just test-host` green; the matrix of §9 by name; no OS code |
 | 1 | 2 | the plane ring on the board's controller, the vertical-blank interrupt, the frame clock, damage per slot, the pointer plane whole at every border; the wire form | `front=0` in every `gpud: dc present us` window; flips = presents; operator: no flicker, shadows stable |
 | 2 | 3 | the device online: firmware, GPU MMU with `VmSpace`, power through socd, interrupt, the fence bridge — ✅ 2026-10-13 | `gpud: gpu fw ok`, `gpud: gpu mmu ok`, `gpud: gpu fence ok (rt_us=131 …)`: the null job's round trip below the stock 0.64 ms (board, cycle 5) |
-| 3 | 4 | `GfxDevice` on the device: buffers, binding, batches; the first textured, blended quad from offline shaders into a slot of the ring; the v1 trait and the boolean fence retired | a textured quad on the board; opaque fill at the stock 1.8 ns a pixel |
-| 4 | 5 | the desktop: damage-driven compositing, cached reduced-size blur, planes for what moves; the CPU composite deleted on the board | our frame of the gate scene below the stock 23.3 ms; a hover frame below 8.3 ms; `board-visual: gpu-desktop` |
+| 3 | 4 | `GfxDevice` on the device: buffers, binding, batches; the first textured quad from offline shaders into a slot of the ring (§8c) | `gpud: gpu fill ok (ns_per_px=)` at or below the stock 1.8 ns a pixel; `gpu quad ok (samples=4/4)`; the quad on the board |
+| 4 | 5 | the desktop: the render queue (geometry + fragment jobs, the render-target dataset, free lists) with blending in the fragment program, damage-driven compositing, cached reduced-size blur, planes for what moves; the CPU composite deleted on the board; the v1 trait and the boolean fence retired once windowd stands on v2 | our frame of the gate scene below the stock 23.3 ms; a hover frame below 8.3 ms; `board-visual: gpu-desktop` |
 
 ## Open questions (decided by measurement, not here)
 

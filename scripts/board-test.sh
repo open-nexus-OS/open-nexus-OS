@@ -104,6 +104,12 @@ ladder_headless=(
   "gpud: gpu fw ok ("
   "gpud: gpu mmu ok ("
   "gpud: gpu fence ok ("
+  # TASK-0169B (RFC-0101 Phase 3): the GPU draws — the open driver's two transfer jobs for this
+  # core, captured on the host as the scene bundle, replayed into a plane of the ring: a
+  # full-plane fill timed against the stock 1.8 ns a pixel, then the textured quad with four
+  # sample pixels read back and the plane on the glass.
+  "gpud: gpu fill ok ("
+  "gpud: gpu quad ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

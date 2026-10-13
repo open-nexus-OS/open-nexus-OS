@@ -32,7 +32,7 @@ impl DcDisplay {
     /// The switch from the splash to the desktop: the whole display plane cleaned, the
     /// controller pointed at it, the words read back and the latch observed — one line. Whether
     /// the switch took.
-    fn reveal(&mut self, row: u32) -> bool {
+    pub(super) fn reveal(&mut self, row: u32) -> bool {
         let plane_size = (self.mode.0, self.mode.1);
         let Some(live) = self.live.as_mut() else {
             return false;
@@ -225,6 +225,22 @@ impl Display for DcDisplay {
         // A flip waits for the blank: the interrupt is live until it lands.
         live.controller.vblank_enable();
         Ok(())
+    }
+
+    fn gpu_canvas(&mut self) -> Option<crate::backend::display::GpuCanvas> {
+        self.canvas_begin()
+    }
+
+    fn gpu_canvas_bytes(&mut self, row: u32) -> Option<&mut [u8]> {
+        self.canvas_bytes(row)
+    }
+
+    fn gpu_canvas_show(&mut self, row: u32) -> Result<(), GfxError> {
+        self.canvas_show(row)
+    }
+
+    fn gpu_canvas_discard(&mut self, _row: u32) {
+        self.canvas_discard();
     }
 
     /// A present whose flip is queued or waiting is acked when it lands (`vblank_wake`).

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-13 (Block 4, layer 4: the GPU draws — TASK-0169B, RFC-0101 Phase 3)
+
+- **The board's GPU drew its first picture into a plane of the ring.** `GfxDevice` on hardware
+  (`source/drivers/gpud/src/backend/gpu/device_v2.rs`): one context over layer 3's address space,
+  buffers as DMA VMOs with their cache mode or a plane adopted by its bus address, binding through
+  the G1 page tables with the waited MMU-cache flush, a submit that is one transfer command plus
+  the timeline `UPDATE` — one kick, one interrupt, one point; refusals by name (queue kind, the
+  command vocabulary, a cache mode, a malformed stream, an unbound reference). The first quad
+  (`quad.rs`): the bundle's 29 buffers bound at their captured addresses, the clear timed —
+  **`gpu fill ok (ns_per_px=0.8 at or below the stock 1.8)`** — the filtered, scaled textured
+  blit, four sample pixels read back after the cache flush — **`gpu quad ok (samples=4/4)`** —
+  and the plane shown as the splash's reveal. Board, one cycle: `[PASS] board-visible` 57 rungs
+  (`docs/board/measurements/2026-10-13-gpu-first-quad/`).
+- **GPU code as client data, captured on the host** (RFC-0101 §7/§8c): the open userspace driver
+  for this core (its device table knows BVNC 36.29.52.182) run on the host over its kernel-stand-in
+  shim with a capture hook; the two transfer jobs' streams and every bound buffer became the scene
+  bundle `resources/gpu/scenes/first-quad.scene` (35 KB, provenance and digest in its README;
+  packer `examples/scene_pack.rs`). `nexus_gfx::backend::gpu::fwif::TransferCmd` is the open kernel
+  driver's 192-byte command with the feature-gated stream decoder; `gpu::scene` the bundle format
+  with its reject matrix and the texture formula; `tests/gpu_scene_goldens.rs` pins the digest and
+  the measured registers. v2 gained `Stream::Transfer` and four named refusals.
+- The display lends a plane to the GPU (`Display::gpu_canvas*`, `dc/gpu_canvas.rs`): a free slot of
+  the ring, its bytes for the cache maintenance and the readback, the way to the glass.
+- Decided from the open driver's code: its transfer path has no source-over, blending is fragment-
+  program work of the render path — the **blended** quad moved to layer 5 (Phase 4), as did the
+  retirement of the v1 trait (honest once windowd stands on v2).
+
 ### Added - 2026-10-13 (Block 4, layer 3: the GPU online — TASK-0329 G1, RFC-0101 Phase 2)
 
 - **The board's GPU is online through our chain.** gpud's `gpu` backend (`source/drivers/gpud/

@@ -18,9 +18,39 @@ use nexus_gfx::command::buffer::{Command, CommittedBuffer};
 
 use crate::service_stats::PresentStats;
 
+/// A plane of the ring lent to the GPU (RFC-0101 §8c): the layout row it lies at, its bus
+/// address and length, and the cache block its memory is maintained in (0 when coherent).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GpuCanvas {
+    pub row: u32,
+    pub bus: u64,
+    pub len: usize,
+    pub block: usize,
+}
+
 pub(crate) trait Display {
     /// The visible mode (RFC-0098 C7): what the grant and the attach ack carry.
     fn mode(&self) -> (u32, u32);
+
+    /// A free plane of the ring for the GPU to draw into (RFC-0101 §8c). `None` on a display
+    /// without a ring, or with every slot scanned, queued or waiting.
+    fn gpu_canvas(&mut self) -> Option<GpuCanvas> {
+        None
+    }
+
+    /// The canvas's bytes, for the cache maintenance and the readback around a GPU job.
+    fn gpu_canvas_bytes(&mut self, _row: u32) -> Option<&mut [u8]> {
+        None
+    }
+
+    /// The GPU's picture in the canvas goes to the glass: the splash's reveal while the splash
+    /// still holds, a flip at the next blank otherwise.
+    fn gpu_canvas_show(&mut self, _row: u32) -> Result<(), GfxError> {
+        Err(GfxError::DeviceNotFound)
+    }
+
+    /// The canvas is given back undrawn.
+    fn gpu_canvas_discard(&mut self, _row: u32) {}
 
     /// The framebuffer to grant (its VMO): made once FOR the scanout device, then the same
     /// object for gpud's life. `None` names the refusal on the console.

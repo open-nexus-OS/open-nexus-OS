@@ -28,6 +28,7 @@ mod cursor;
 mod encoder;
 mod framebuffer;
 mod glue;
+mod gpu_canvas;
 mod present;
 mod ring;
 
