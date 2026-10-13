@@ -32,9 +32,22 @@ SELFTEST: walltime rtc FAIL
 # (docs/board/measurements/2026-10-10-mgs-baseline/): the 22 ms were the telemetry call's own
 # console output, counted into the window it had just reset; with a sample counted for the
 # window it began in, the board prints `ok` at the edge (hold 10.5 ms against 10, a console
-# write). One boot at the edge is not a green gate — the line stays until S2's first package
-# (console writes off the lock) gives the board its own budget. Tracked: tasks/TASK-0330 S0/S2.
-KSELFTEST: bkl budget FAIL
+# write). One boot at the edge is not a green gate — the line stayed until S2a (console writes
+# off the lock) gave the board its own number: 2026-10-13 (board--2026-10-13T08-28-06)
+# `bkl budget ok (max_wait=3050us max_hold=0ms)`, the steady-state hold histogram without a
+# single hold above 1 ms (802 before). Entry removed; the gate reads the verdict.
+#
+# The IPC call budget (selftest-client, TASK-0054C P6): the MEAN of 64 round trips to samgrd,
+# a budget of 64 µs calibrated on the emulator (41–43 µs there, 43 on 2026-10-12's lane). On
+# the board the mean sat at the edge (56, 60 µs on 2026-10-12) and doubled to 97 µs on
+# 2026-10-13 (board--2026-10-13T08-28-06), the two printed benches with it (58→121, 55→107),
+# the kernel's IPC path untouched (QEMU unchanged) — once the console left the lock the boot
+# compressed, samgrd answers the fleet's registrations at bench time, and the hart placement
+# shifted (`ipc sends by hart` [2511, 3649, 153, 1631] → [1781, 678, 4627, 33]): a cross-hart
+# wake costs the IPI. The number is the scheduler's and the bench's calibration, not the
+# console's. Tracked: tasks/TASK-0330 S3 (placement, IPI cost) — the board's own budget, or a
+# same-hart bench, before this line goes.
+KSELFTEST: ipc call budget FAIL
 #
 # app-host's frame arena: the CHAT's first frame (its first QuerySpec page, 60 rows) needs
 # 270 KB of scene and 419 KB of layout — more than the static arena's 256 KiB halves — on
