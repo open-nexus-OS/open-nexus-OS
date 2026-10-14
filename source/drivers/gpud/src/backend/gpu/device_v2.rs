@@ -109,6 +109,11 @@ impl Device {
         Ok(())
     }
 
+    /// The buffer bound over `va..va + len`, if one is.
+    pub(super) fn bo_at(&self, va: u64, len: u64) -> Option<BoId> {
+        self.space.resolve(GpuVa(va), len).ok().map(|b| BoId(b.bo))
+    }
+
     /// The render queues' timeline words `(geometry, fragment)`, for the rung's lines.
     pub(super) fn render_words(&self) -> Option<(u32, u32)> {
         self.render.as_ref().map(|r| (r.geom_word(&self.gpu), r.frag_word(&self.gpu)))

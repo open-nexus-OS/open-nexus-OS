@@ -189,6 +189,15 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5a: the render context (two queues, the captured context-switch state), two free lists of the device's pages and the render-target dataset accepted by the firmware; the geometry and fragment jobs completed in the kernel's sequence; four sample pixels read back after the cache flush match the clear and the blended textured quad; the plane went to the glass"
 
+# TASK-0215 5b (RFC-0101 Phase 4b): dynamic geometry — three quads at positions and tints the
+# device chose; the vertex buffer, tints, descriptors, uniform-data copies, PPP blocks and the
+# stream's per-draw records written by the device from the open driver's word layouts;
+# `gpud: FAIL gpu quads (` is its FAIL form.
+[marker."gpud: gpu quads ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5b: the device emitted the per-draw state of three quads itself (one fragment program shared, the index offset into one vertex buffer), rebound the target at a fresh plane, kicked the captured jobs, and each quad's centre read back as texel x tint over the clear"
+
 [marker."gpud: FAIL gpu "]
 phase = "bringup"
 emit_when = { profile = "board-headless" }

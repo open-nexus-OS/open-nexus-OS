@@ -88,7 +88,7 @@ stream (`0x80008da000`), the PDS data (`0xda00001000`) and the descriptor words
 | # | Step | Gate (board) |
 |---|---|---|
 | 5a | **The render queue, static** ✅ 2026-10-14 (cycle 4): the captured render pass (clear + one blended textured quad, three jobs) replayed through `GfxDevice` into a plane of the ring; the kernel side's objects built by us | `gpud: gpu render ok (us=6133 samples=4/4 irqs=3 geom=1 frag=2)`; `[PASS] board-visible` 58 rungs |
-| 5b | **Dynamic geometry**: from the 1-vs-3-quad diff, the device writes the vertex buffer, the control stream's draw records, the PDS data and the descriptor words itself (the open driver's control-stream word layouts as data); N quads at runtime positions, tints and textures | `gpud: gpu quads ok (n= us=)` |
+| 5b | **Dynamic geometry** ✅ 2026-10-14: from the 1-vs-3-quad diff, the device writes the vertex buffer, the control stream's draw records, the PDS data and the descriptor words itself (the open driver's control-stream word layouts as data); N quads at runtime positions and tints, every pass in fresh memory, the render-target data alternating | `gpud: gpu quads ok (n=3 us=13096 samples=3/3 irqs=4)` |
 | 5c | **The compositor's ops as pipelines + the frame**: textured layer with opacity and rounded corners, drop shadow, gradient fill, the blur as two passes at quarter size into a cached surface; the command stream → draw list, damage-driven (buffer age), the plane as render target; the frame clock from the vertical blank | `gpud: gpu desktop ok (frame_us= below the stock 23300)`; `board-visual: gpu-desktop` |
 | 5d | **The CPU composite deleted on the board**; a hover frame over cached blur; what moves alone on a controller plane | `hover_us` below 8300; the tolerated present-time lines gone; `cpu_frame` not built for the board |
 
@@ -163,6 +163,50 @@ runs, three interrupts a pass); H5 recorded (6.1 ms with the full-plane clear).
   544 PM pages (2.1 MiB), the render objects in the firmware heap. Handed on: pack the small
   firmware objects (a page and a table entry each); bindings' access per buffer in the bundle;
   the partial-render job's cost; the firmware's time variance.
+
+## 5b — dynamic geometry
+
+- **P0 ✅ 2026-10-14** (measurement README, "5b"): five captures with the open driver's decoded
+  control stream (base, shifted, tinted, two and three quads) and the byte diff of the four
+  buffers that move. A pass is six records (60 bytes); a draw adds a seven-word PPP block naming
+  a new fragment uniform-data copy, a bare VDM state and an index list with the vertex offset;
+  the uniform data's three descriptors point at the tint (push constants), its descriptor and a
+  constant word; the fragment PDS programs are byte-identical per draw; the vertex buffer is one
+  buffer of 6 N vertices named once by the vertex PDS data.
+- **P1 ✅ 2026-10-14**: `nexus_gfx::backend::gpu::csb` — the geometry-stream, PPP and PDS words
+  the device writes, packed as the open driver's word-layout data files describe them, each
+  checked against the captured bytes — and `gpu::quads` — the emitter: N quads at runtime
+  positions and tints → the vertex buffer, the per-draw blocks in the two arenas (64-byte lines
+  past the driver's use), the stream's per-draw records; one quad reproduces the captured stream
+  byte for byte, a second quad the captured 24-byte growth; refusals for overflow and a malformed
+  template.
+- **P2 ✅ 2026-10-14** (six board cycles, measurement README "5b"): gpud `render_quads.rs` — after
+  `gpu render ok`, the template read from the live arenas, the target rebound at a fresh plane,
+  every pass emitted into fresh lines of the stream, vertex, general and PDS buffers, the
+  geometry job's `vdm_ctrl_stream_base` patched to the pass's stream, a sample inside each quad
+  read back against texel × tint over the clear; five probes, each a line, then
+  `gpud: gpu quads ok (n=3 us=13096 samples=3/3 irqs=4)`. The red cycles, each named: the tint's
+  descriptor names 16 zero bytes behind the tint, not the tint (cycle 1); the same failure byte
+  for byte (cycle 2, so not that); the probes showed even one unchanged quad failed on the second
+  pass — the two render-target data alternate frame by frame in the open driver (two-frame
+  capture), the device now uses `data[pass % 2]`; the quad centre lies on a checker boundary, the
+  bilinear mix there was the right pixel (the expectation moved inside a block); the second draw
+  never landed while the control stream the GPU had read was rewritten — **every pass lands in
+  memory the GPU has not read** (H10).
+- **P3 ✅ 2026-10-14**: the gate shown red — four device-side reds with their causes, and the lane
+  refusing the green capture without the rung (`cycle10-gate-red.txt`); the emitter's goldens
+  moved to `tests/gpu_quads_model.rs` (structure gate); numbers: a pass 6.1 ms with one quad,
+  9.6 ms with two, 13.1 ms with three — about 3.5 ms per 512² blended quad, far above the stock
+  stack's 1.8 ms per further blended full-screen layer: 5c's first measurement (SLC bypass on
+  every binding, the partial-render job, pixel-merge and tri-merge disabled in the captured state).
+  The lane's judge on the green capture was red only on the desk keyboard's rung — the keyboard
+  was unplugged (operator, 2026-10-14); the operator accepted the capture as the board proof.
+
+| # | Hypothesis (5b's first cycle) | Decision line |
+|---|---|---|
+| H7 | One fragment PDS program copy serves every draw | the three centre colours; a wrong tint on draws ≥ 1 = per-draw program state |
+| H8 | The index offset addresses the shared vertex buffer as the open driver's second draw does | the quads at their positions |
+| H9 | Our blocks in the arenas' unused tails are read as the driver's are | a fault names the address; a wrong colour names the block |
 
 ## Hypotheses 5a's first cycle decides
 

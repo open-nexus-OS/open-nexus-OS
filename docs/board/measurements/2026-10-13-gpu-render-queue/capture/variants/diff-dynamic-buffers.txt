@@ -1,0 +1,228 @@
+# Byte ranges that differ between the base capture (one quad) and each variant, per dynamic buffer.
+# Ranges inside Mesa's unused sub-allocations hold host-pointer garbage (0x7f.. values) and are noise.
+
+== r_1 vs r_1dx: the quad shifted by 96 px
+-- 80010d1000 vdm control stream: 0 range(s)
+-- 80008da000 vertex buffer: 24 range(s)
+   [0x00002..0x00003) base=30 variant=48
+   [0x00012..0x00013) base=98 variant=a4
+   [0x00022..0x00023) base=98 variant=a4
+   [0x00032..0x00033) base=30 variant=48
+   [0x00042..0x00043) base=98 variant=a4
+   [0x00052..0x00053) base=30 variant=48
+   [0x00061..0x00065) base=1b26781e variant=8b178819
+   [0x00068..0x0006c) base=a8d9536b variant=78790ea5
+   [0x00070..0x00074) base=a4d9536b variant=74790ea5
+   [0x00079..0x0007d) base=bd27781e variant=2d198819
+   [0x00088..0x0008c) base=f8da536b variant=c87a0ea5
+   [0x00090..0x00094) base=50da536b variant=207a0ea5
+   [0x00099..0x0009d) base=0e2b781e variant=7e1c8819
+   [0x000a9..0x000ad) base=1427781e variant=84188819
+   [0x000b0..0x000b4) base=50da536b variant=207a0ea5
+   [0x000b9..0x000bd) base=c227781e variant=32198819
+   [0x000c9..0x000cd) base=1827781e variant=88188819
+   [0x000d1..0x000d5) base=0e2b781e variant=7e1c8819
+   [0x000d8..0x000dc) base=18da536b variant=e8790ea5
+   [0x000e0..0x000e4) base=14da536b variant=e4790ea5
+   [0x000eb..0x000ed) base=771e variant=8719
+   [0x00109..0x0010d) base=1b2a781e variant=8b1b8819
+   [0x00110..0x00114) base=50db536b variant=207b0ea5
+   [0x00119..0x0011d) base=2626781e variant=96178819
+-- da00001000 pds arena: 5 range(s)
+   [0x0000b..0x0000d) base=781e variant=8819
+   [0x00011..0x00016) base=b3fde88a55 variant=e3cb532d56
+   [0x00019..0x0001e) base=b3fde88a55 variant=e3cb532d56
+   [0x0160b..0x0160d) base=781e variant=8819
+   [0x01619..0x0161e) base=fe23e98a55 variant=2ef2532d56
+-- 800004b000 general arena (descriptors, constants, ppp state): 0 range(s)
+
+== r_1 vs r_1tint: quad 0 tinted red 0.25
+-- 80010d1000 vdm control stream: 0 range(s)
+-- 80008da000 vertex buffer: 18 range(s)
+   [0x00061..0x00065) base=1b26781e variant=4b8f3dc7
+   [0x00069..0x0006d) base=d9536bfc variant=b5e48efe
+   [0x00071..0x00075) base=d9536bfc variant=b5e48efe
+   [0x00079..0x0007d) base=bd27781e variant=ed903dc7
+   [0x00089..0x0008d) base=da536bfc variant=b6e48efe
+   [0x00091..0x00095) base=da536bfc variant=b6e48efe
+   [0x00099..0x0009d) base=0e2b781e variant=3e943dc7
+   [0x000a9..0x000ad) base=1427781e variant=44903dc7
+   [0x000b1..0x000b5) base=da536bfc variant=b6e48efe
+   [0x000b9..0x000bd) base=c227781e variant=f2903dc7
+   [0x000c9..0x000cd) base=1827781e variant=48903dc7
+   [0x000d1..0x000d5) base=0e2b781e variant=3e943dc7
+   [0x000d9..0x000dd) base=da536bfc variant=b6e48efe
+   [0x000e1..0x000e5) base=da536bfc variant=b6e48efe
+   [0x000ea..0x000ed) base=e1771e variant=413dc7
+   [0x00109..0x0010d) base=1b2a781e variant=4b933dc7
+   [0x00111..0x00115) base=db536bfc variant=b7e48efe
+   [0x00119..0x0011d) base=2626781e variant=568f3dc7
+-- da00001000 pds arena: 5 range(s)
+   [0x0000a..0x0000d) base=01781e variant=613dc7
+   [0x00011..0x00015) base=b3fde88a variant=939148aa
+   [0x00019..0x0001d) base=b3fde88a variant=939148aa
+   [0x0160a..0x0160d) base=01781e variant=613dc7
+   [0x01619..0x0161d) base=fe23e98a variant=deb748aa
+-- 800004b000 general arena (descriptors, constants, ppp state): 1 range(s)
+   [0x00103..0x00104) base=3f variant=3e
+
+== r_1 vs r_2: two quads
+-- 80010d1000 vdm control stream: 6 range(s)
+   [0x00031..0x00032) base=03 variant=07
+   [0x00035..0x00041) base=b00400000000c00000000000 variant=730500800f00400006006a06
+   [0x00044..0x00045) base=00 variant=06
+   [0x00048..0x0004a) base=0000 variant=8003
+   [0x0004c..0x0004f) base=000000 variant=40b004
+   [0x00053..0x00054) base=00 variant=c0
+-- 80008da000 vertex buffer: 12 range(s)
+   [0x00060..0x0006e) base=a01b26781e7f0000a8d9536bfc7f variant=0000984300000643000000000000
+   [0x00070..0x0007e) base=a4d9536bfc7f00000dbd27781e7f variant=00004c44000006430000803f0000
+   [0x00080..0x0009e) base=39f28b1c00000000f8da536bfc7f000050da536bfc7f0000800e2b781e7f variant=00004c44008021440000803f0000803f0000984300000643000000000000
+   [0x000a0..0x000c0) base=3d10755400000000601427781e7f000050da536bfc7f000046c227781e7f0000 variant=00004c44008021440000803f0000803f0000984300802144000000000000803f
+   [0x000c9..0x000cd) base=1827781e variant=38d6a258
+   [0x000d1..0x000d5) base=0e2b781e variant=2edaa258
+   [0x000d8..0x000dd) base=18da536bfc variant=78097570ff
+   [0x000e0..0x000e5) base=14da536bfc variant=74097570ff
+   [0x000ea..0x000ed) base=e1771e variant=a1a258
+   [0x00109..0x0010d) base=1b2a781e variant=3bd9a258
+   [0x00110..0x00115) base=50db536bfc variant=b00a7570ff
+   [0x00119..0x0011d) base=2626781e variant=46d5a258
+-- da00001000 pds arena: 28 range(s)
+   [0x0000a..0x0000d) base=01781e variant=c1a258
+   [0x00012..0x00015) base=fde88a variant=a5e2e3
+   [0x0001a..0x0001d) base=fde88a variant=a5e2e3
+   [0x0160a..0x0160d) base=01781e variant=c1a258
+   [0x0161a..0x0161d) base=23e98a variant=cbe2e3
+   [0x01981..0x01985) base=7e000008 variant=b0040080
+   [0x01988..0x0198d) base=0000000000 variant=8032050080
+   [0x01990..0x01995) base=0000000000 variant=c072050080
+   [0x01999..0x0199d) base=00000000 variant=73050080
+   [0x019a0..0x019ad) base=00000000000000000000000000 variant=14800010040003100380031001
+   [0x019af..0x019b0) base=00 variant=90
+   [0x019c0..0x019c5) base=c032050080 variant=807b000028
+   [0x019c8..0x019c9) base=01 variant=00
+   [0x019cb..0x019cc) base=90 variant=00
+   [0x019e0..0x019e1) base=00 variant=02
+   [0x019e3..0x019e4) base=00 variant=f4
+   [0x01a01..0x01a05) base=33050080 variant=00000300
+   [0x01a08..0x01a0c) base=01000090 variant=02020503
+   [0x01a0e..0x01a11) base=000000 variant=408004
+   [0x01a13..0x01a18) base=0000000000 variant=f0040100f4
+   [0x01a40..0x01a42) base=0000 variant=807e
+   [0x01a44..0x01a45) base=00 variant=08
+   [0x01a80..0x01a85) base=0000000000 variant=c073050080
+   [0x01a88..0x01a89) base=00 variant=01
+   [0x01a8b..0x01a8c) base=00 variant=90
+   [0x01ac1..0x01ac5) base=00000000 variant=74050080
+   [0x01ac8..0x01ac9) base=00 variant=01
+   [0x01acb..0x01acc) base=00 variant=90
+-- 800004b000 general arena (descriptors, constants, ppp state): 17 range(s)
+   [0x08280..0x08288) base=8007000038040000 variant=0000803f0000003f
+   [0x0828b..0x0828c) base=00 variant=3f
+   [0x0828e..0x08290) base=0000 variant=803f
+   [0x082c0..0x082c4) base=1a1f29ff variant=00000000
+   [0x08300..0x08304) base=1a1f29ff variant=00000000
+   [0x0c2c0..0x0c2c5) base=0000000000 variant=c032050080
+   [0x0c2c8..0x0c2c9) base=00 variant=04
+   [0x0c300..0x0c304) base=00000000 variant=feffff01
+   [0x0c340..0x0c342) base=0000 variant=c002
+   [0x0c344..0x0c346) base=0000 variant=c029
+   [0x0c349..0x0c34a) base=00 variant=27
+   [0x0c34c..0x0c356) base=00000000000000000000 variant=1104800100400001002a
+   [0x0c358..0x0c35a) base=0000 variant=8029
+   [0x0c380..0x0c382) base=0000 variant=8007
+   [0x0c384..0x0c386) base=0000 variant=3804
+   [0x0c3c0..0x0c3c4) base=00000000 variant=1a1f29ff
+   [0x0c400..0x0c404) base=00000000 variant=1a1f29ff
+
+== r_1 vs r_3: three quads
+-- 80010d1000 vdm control stream: 9 range(s)
+   [0x00031..0x00032) base=03 variant=07
+   [0x00035..0x00041) base=b00400000000c00000000000 variant=730500800f00400006006a06
+   [0x00044..0x00045) base=00 variant=06
+   [0x00048..0x0004a) base=0000 variant=8007
+   [0x0004c..0x00059) base=00000000000000000000000000 variant=40b40500800f00400006006a06
+   [0x0005c..0x0005d) base=00 variant=0c
+   [0x00060..0x00062) base=0000 variant=8003
+   [0x00064..0x00067) base=000000 variant=40b004
+   [0x0006b..0x0006c) base=00 variant=c0
+-- 80008da000 vertex buffer: 9 range(s)
+   [0x00060..0x0006e) base=a01b26781e7f0000a8d9536bfc7f variant=0000984300000643000000000000
+   [0x00070..0x0007e) base=a4d9536bfc7f00000dbd27781e7f variant=00004c44000006430000803f0000
+   [0x00080..0x0009e) base=39f28b1c00000000f8da536bfc7f000050da536bfc7f0000800e2b781e7f variant=00004c44008021440000803f0000803f0000984300000643000000000000
+   [0x000a0..0x000c4) base=3d10755400000000601427781e7f000050da536bfc7f000046c227781e7f000003000000 variant=00004c44008021440000803f0000803f0000984300802144000000000000803f00008a44
+   [0x000c6..0x000ce) base=0000b01827781e7f variant=d943000000000000
+   [0x000d0..0x000de) base=800e2b781e7f000018da536bfc7f variant=0000ca440000d9430000803f0000
+   [0x000e0..0x000f4) base=14da536bfc7f00003080e1771e7f000012000000 variant=0000ca4400806c440000803f0000803f00008a44
+   [0x000f6..0x000f8) base=0000 variant=d943
+   [0x00102..0x00120) base=000000000000121b2a781e7f000050db536bfc7f0000e82626781e7f0000 variant=ca4400806c440000803f0000803f00008a4400806c44000000000000803f
+-- da00001000 pds arena: 42 range(s)
+   [0x0000a..0x0000d) base=01781e variant=41f792
+   [0x00011..0x00015) base=b3fde88a variant=03d876b4
+   [0x00019..0x0001d) base=b3fde88a variant=03d876b4
+   [0x0160a..0x0160d) base=01781e variant=41f792
+   [0x01619..0x0161d) base=fe23e98a variant=4efe76b4
+   [0x01981..0x01985) base=7e000008 variant=b0040080
+   [0x01988..0x0198d) base=0000000000 variant=8032050080
+   [0x01990..0x01995) base=0000000000 variant=c072050080
+   [0x01999..0x0199d) base=00000000 variant=73050080
+   [0x019a0..0x019ad) base=00000000000000000000000000 variant=14800010040003100380031001
+   [0x019af..0x019b0) base=00 variant=90
+   [0x019c0..0x019c5) base=c032050080 variant=807b000028
+   [0x019c8..0x019c9) base=01 variant=00
+   [0x019cb..0x019cc) base=90 variant=00
+   [0x019e0..0x019e1) base=00 variant=02
+   [0x019e3..0x019e4) base=00 variant=f4
+   [0x01a01..0x01a05) base=33050080 variant=00000300
+   [0x01a08..0x01a0c) base=01000090 variant=02020503
+   [0x01a0e..0x01a11) base=000000 variant=408004
+   [0x01a13..0x01a18) base=0000000000 variant=f0040100f4
+   [0x01a40..0x01a45) base=0000000000 variant=80b0040080
+   [0x01a48..0x01a4d) base=0000000000 variant=8073050080
+   [0x01a50..0x01a55) base=0000000000 variant=c0b3050080
+   [0x01a59..0x01a5d) base=00000000 variant=b4050080
+   [0x01a60..0x01a6d) base=00000000000000000000000000 variant=14800010040003100380031001
+   [0x01a6f..0x01a70) base=00 variant=90
+   [0x01a80..0x01a82) base=0000 variant=807b
+   [0x01a84..0x01a85) base=00 variant=28
+   [0x01aa0..0x01aa1) base=00 variant=02
+   [0x01aa3..0x01aa4) base=00 variant=f4
+   [0x01ac3..0x01ac4) base=00 variant=03
+   [0x01ac8..0x01acc) base=00000000 variant=02020503
+   [0x01ace..0x01ad1) base=000000 variant=408004
+   [0x01ad3..0x01ad8) base=0000000000 variant=f0040100f4
+   [0x01b00..0x01b02) base=0000 variant=807e
+   [0x01b04..0x01b05) base=00 variant=08
+   [0x01b40..0x01b45) base=0000000000 variant=c0b4050080
+   [0x01b48..0x01b49) base=00 variant=01
+   [0x01b4b..0x01b4c) base=00 variant=90
+   [0x01b81..0x01b85) base=00000000 variant=b5050080
+-- 800004b000 general arena (descriptors, constants, ppp state): 28 range(s)
+   [0x08280..0x08288) base=8007000038040000 variant=0000803f0000003f
+   [0x0828b..0x0828c) base=00 variant=3f
+   [0x0828e..0x08290) base=0000 variant=803f
+   [0x082c0..0x082c4) base=1a1f29ff variant=00000000
+   [0x08300..0x08304) base=1a1f29ff variant=00000000
+   [0x0c2c0..0x0c2c5) base=0000000000 variant=c032050080
+   [0x0c2c8..0x0c2c9) base=00 variant=04
+   [0x0c300..0x0c304) base=00000000 variant=feffff01
+   [0x0c340..0x0c342) base=0000 variant=c002
+   [0x0c344..0x0c346) base=0000 variant=c029
+   [0x0c349..0x0c34a) base=00 variant=27
+   [0x0c34c..0x0c356) base=00000000000000000000 variant=1104800100400001002a
+   [0x0c358..0x0c35a) base=0000 variant=8029
+   [0x0c383..0x0c384) base=00 variant=3f
+   [0x0c387..0x0c388) base=00 variant=3f
+   [0x0c38a..0x0c390) base=000000000000 variant=803f9a99193f
+   [0x103c0..0x103c5) base=0000000000 variant=c073050080
+   [0x103c8..0x103c9) base=00 variant=04
+   [0x10400..0x10404) base=00000000 variant=feffff01
+   [0x10440..0x10442) base=0000 variant=c002
+   [0x10444..0x10446) base=0000 variant=802a
+   [0x10449..0x1044a) base=00 variant=27
+   [0x1044c..0x10456) base=00000000000000000000 variant=1104800100400001c02a
+   [0x10458..0x1045a) base=0000 variant=402a
+   [0x10480..0x10482) base=0000 variant=8007
+   [0x10484..0x10486) base=0000 variant=3804
+   [0x104c0..0x104c4) base=00000000 variant=1a1f29ff
+   [0x10500..0x10504) base=00000000 variant=1a1f29ff

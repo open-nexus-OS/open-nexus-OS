@@ -1,0 +1,4 @@
+# The gate shown red (2026-10-14, the green cycle's capture with the 'gpu quads ok' line removed):
+3:[FAIL] board-visible: rung missing: 'gpud: gpu quads ok (' (rung 31 of 59, last present: 'gpud: gpu render ok (')
+
+# The same capture whole:

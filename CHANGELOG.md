@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-14 (Block 4, layer 5b: dynamic geometry — TASK-0215, RFC-0101 Phase 4b)
+
+- **The device writes every per-draw word of a render pass itself.** gpud
+  (`source/drivers/gpud/src/backend/gpu/render_quads.rs`): three textured, tinted quads at
+  positions and tints the device chose, drawn with the captured pass's programs — the geometry
+  control stream's records, the PPP blocks, the fragment PDS uniform data, the vertex PDS data and
+  the vertices emitted per pass, the geometry job's `vdm_ctrl_stream_base` patched to the pass's
+  stream; a sample inside each quad read back against texel × tint over the clear. Board, six
+  cycles (`docs/board/measurements/2026-10-13-gpu-render-queue/`, "5b"): four reds each named by a
+  line, then **`gpud: gpu quads ok (n=3 us=13096 samples=3/3 irqs=4)`**, with probes for one quad,
+  one again, two, three and two with the fragment programs shared.
+- **Two rules of a pass, learned on the board** (RFC-0101 §8d): the dataset's two render-target
+  data alternate pass by pass (the open driver's two-frame capture: data 0, then data 1); a pass
+  lands in memory the GPU has not read (a pass that rewrote the control stream the previous pass
+  had read lost its draws).
+- **The host half** (`nexus_gfx::backend::gpu::{csb, quads}`): the geometry-stream, PPP and PDS
+  words the device writes, packed as the open driver's word-layout data files describe them and
+  checked against the captured bytes; the emitter for N quads with a placer — one quad at the
+  capture's offsets is the one-quad capture byte for byte, a second quad the two-quad capture's
+  growth and blocks (`tests/gpu_quads_model.rs`). Five more host captures with the open driver's
+  decoded control stream (shifted, tinted, two and three quads, two frames) and their byte diff.
+- Measured for 5c: a pass costs about 3.5 ms per 512² blended quad (6.1 / 9.6 / 13.1 ms for one,
+  two, three) — far above the stock stack's 1.8 ms per further blended full-screen layer.
+
 ### Added - 2026-10-14 (Block 4, layer 5a: the render queue on the board — TASK-0215, RFC-0101 Phase 4a)
 
 - **The GPU's render queue runs on the board with the kernel side built by us.** gpud

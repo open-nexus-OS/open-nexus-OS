@@ -65,9 +65,11 @@ pub(super) struct Render {
     /// The parameter memory behind the lists, alive as long as the lists are.
     _pm: [DmaVmo; 2],
     _common: HeapObj,
-    _data: [HeapObj; 2],
-    /// Render-target data 0: what the jobs name.
-    hwrt_fw_addr: u32,
+    /// The two render-target data: a pass uses `data[pass % 2]`, as the open driver alternates
+    /// them frame by frame (the two-frame capture of 2026-10-14: `hwrt=1/0`, then `hwrt=1/1`); a
+    /// second pass on the same data locked the fragment stage (5b's probe cycle).
+    data: [HeapObj; 2],
+    passes: u32,
 }
 
 /// What the device must write into the client's list buffers after `create`.
@@ -200,7 +202,6 @@ impl Render {
         if !gpu.mmu_flush(fwif::mmucache::LEVEL_2) {
             return Err(fail("the flush after the render objects got no return"));
         }
-        let hwrt_fw_addr = data[0].fw_addr();
         let Ok(pm) = <[DmaVmo; 2]>::try_from(pm) else { return Err(fail("two free lists")) };
         let Ok(fl) = <[HeapObj; 2]>::try_from(fl_objs) else { return Err(fail("two free lists")) };
         let Ok(data) = <[HeapObj; 2]>::try_from(data) else {
@@ -217,8 +218,8 @@ impl Render {
                 _freelists: fl,
                 _pm: pm,
                 _common: common,
-                _data: data,
-                hwrt_fw_addr,
+                data,
+                passes: 0,
             },
             lists,
         ))
@@ -251,11 +252,13 @@ impl Render {
         let f1 = self.frag.seq.wrapping_add(1);
         let f2 = self.frag.seq.wrapping_add(2);
         let pr_fence = Ufo { addr: self.frag.timeline.fw_addr(), value: f1.wrapping_sub(1) };
-        let geom = GeomCmd::from_stream(s.geom, feats, s.geom_flags, self.hwrt_fw_addr, pr_fence)
+        let hwrt = self.data[(self.passes % 2) as usize].fw_addr();
+        self.passes = self.passes.wrapping_add(1);
+        let geom = GeomCmd::from_stream(s.geom, feats, s.geom_flags, hwrt, pr_fence)
             .map_err(|_| DeviceError::MalformedStream)?;
-        let frag_pr = FragCmd::from_stream(s.frag_pr, feats, s.frag_pr_flags, self.hwrt_fw_addr)
+        let frag_pr = FragCmd::from_stream(s.frag_pr, feats, s.frag_pr_flags, hwrt)
             .map_err(|_| DeviceError::MalformedStream)?;
-        let frag = FragCmd::from_stream(s.frag, feats, s.frag_flags, self.hwrt_fw_addr)
+        let frag = FragCmd::from_stream(s.frag, feats, s.frag_flags, hwrt)
             .map_err(|_| DeviceError::MalformedStream)?;
         if s.frag_pr_flags & frag_flags::SUBMIT_PARTIAL_RENDER == 0
             || s.frag_flags & frag_flags::SUBMIT_PARTIAL_RENDER != 0
@@ -292,7 +295,7 @@ impl Render {
         self.geom.seq = g;
         self.frag.seq = f2;
         // Every kick on the data names its cleanup control (the open kernel driver's kick).
-        let cleanup = self.hwrt_fw_addr + HwrtData::CLEANUP_OFFSET as u32;
+        let cleanup = hwrt + HwrtData::CLEANUP_OFFSET as u32;
         for q in [&self.geom, &self.frag] {
             let kick = KccbCmd::kick_with_cleanup(
                 q.fwctx_fw_addr,

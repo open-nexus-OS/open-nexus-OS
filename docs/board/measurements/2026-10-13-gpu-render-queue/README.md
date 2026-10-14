@@ -161,3 +161,143 @@ and beyond: data the GPU writes needs read-write bindings (the bundle should say
 (pack them); the partial-render job is executed, not skipped, so its cost is part of every pass;
 a pass is 6.1 ms with a full-plane clear, so 5c's frame must avoid the clear (damage) to meet
 the 23.3 ms gate scene with margin.
+
+## 5b — what moves per draw (host, 2026-10-14; `capture/variants/`)
+
+Five captures with the open driver's own decoded control stream (`PVR_DEBUG=cs`): the base
+(one quad), the quad shifted by 96 px, the quad tinted, two quads, three quads
+(`capture/variants/*/control-stream.txt`, the byte diff `diff-dynamic-buffers.txt`; ranges in
+the driver's unused sub-allocations hold host-pointer garbage and are noise).
+
+**The geometry control stream is six records, 60 bytes** (`vdm.xml` of the open driver names the
+words): `PDS_STATE_UPDATE` (a VDM-targeted PDS program: data 16 B at PDS heap `0x28c0`, code at
+`0x2800`) · `PPP_STATE_UPDATE` 26 words at general arena `+0x8200` (header, ISP state, **STATE_PDS**
+— the fragment PDS programs: shaderbase `0x2900`, texunicodebase `0x2700`, varyingbase `0x2940`,
+uniformdatabase `0x2880`, size words `0x01800411 / 0x01004000` — region clip 0..3808 × 0..2144,
+viewport (960, 960, 540, 540), wclamp, output selects vtxsize 7, varying 2 × f32 linear, PPP
+control) · `VDM_STATE_UPDATE` (vertex PDS data `0x2840` / code `0x2740`, output size 7, max
+instances 16, sizes `0x444`) · `INDEX_LIST` (tri list, 6 indices, no index buffer) ·
+`PPP_STATE_UPDATE` 3 words at `+0x40` (terminate: clip 1888 × 1056 in 32-px units) · `TERMINATE`.
+
+**A second draw adds 24 bytes to the stream and four small blocks:** `PPP_STATE_UPDATE` 7 words
+(header `0x2c0` = pds pointers 0, 1, 3; STATE_PDS with a **new uniformdatabase** `0x2980` and copies
+of the shader and varying programs at `0x29c0` / `0x2a00` — byte-identical to the first draw's,
+so one copy serves) · `VDM_STATE_UPDATE` with nothing present (`0x40000f80`) · `INDEX_LIST` with
+`index_offset` 6 (the vertex buffer is one buffer of 6 N vertices; the vertex PDS data that names
+it, `0x2840`: `[0x80008da000, +8]` for the two attributes, is unchanged). The per-draw **fragment
+uniform data** (48 bytes, three DMA descriptors and a tail `14800010 04000310 03800310 01000090`)
+points at: the texture state words (`+0x80`, shared), the **push constants** (16 bytes, the tint:
+`+0x100` for draw 0, `+0x8280` for draw 1), a 16-byte descriptor `{tint address, 4, 0}` (`+0x4140`,
+`+0xc2c0`) and a constant word `0x01fffffe` (`+0x4180`, `+0xc300`). Shifting the quad changes only
+the vertex buffer's floats; tinting changes only the 16 bytes at `+0x100`.
+
+So the device writes, for N quads at runtime positions and tints: the vertex buffer (6 N × 16
+bytes), N tint blocks, N descriptor pairs, N − 1 uniform-data copies with three addresses patched,
+N − 1 seven-word PPP blocks, and the stream's per-draw records — everything else comes from the
+bundle. Hypotheses 5b's first cycle decides:
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H7 | One fragment PDS program copy serves every draw (the per-draw copies the open driver makes are byte-identical) | the three quads' centre colours; a wrong tint on draws ≥ 1 = per-draw program state |
+| H8 | The index offset addresses the shared vertex buffer as the open driver's second draw does | the quads at their positions |
+| H9 | Our blocks in the arenas' unused tails (general `+0x10000`, PDS heap `0x3000`) are read as the driver's are | a fault names the address; a wrong colour names the block |
+
+**5b cycle 1 (2026-10-14, `build/logs/board--2026-10-14T11-25-48`, `cycle5-gpu-lines.txt`) — red,
+named:** the pass with three draws completed its points (790 µs, four interrupts) but quad 0's
+centre read `88 65 6f` instead of `79 3d 21`, and the firmware then reset the context from the
+fragment stage (`reason=1` lockup, `dm=3`, `fault=0x4840`). Read against the capture: the
+descriptor the uniform data names is `{tint + 0x40, 4, 0}` — it points at **16 zero bytes behind
+the tint**, not at the tint (the driver's +0x4140 names +0x140, its +0xc2c0 names +0x82c0, both
+zero); the emitter had named the tint itself, so the fragment stage loaded the tint floats as that
+block. Fix: the open driver's shape, a 64-byte line each — tint, zero block, descriptor, constant,
+PPP block.
+
+**5b cycle 2 (2026-10-14, `build/logs/board--2026-10-14T11-40-07`, `cycle6-gpu-lines.txt`) — red,
+the same line to the byte:** `quad 0 centre (960,540) expected bgr 793d21 read 88656f`, then the
+fragment stage's reset with `fault=0x4840`. The descriptor's target was not it; the failure is
+deterministic and lies elsewhere in the per-draw emission or its placement. Also seen this boot:
+`unmap_us=22192` for the flush after the first unmap (the firmware's time variance, 46 µs to
+22 ms). Next cycle: three probes in one boot — one quad (our writes alone), two quads at the
+capture's offsets (the content, placed as the open driver placed it), three quads at our offsets
+(the placement) — each a line.
+
+**5b probe cycle (2026-10-14, `build/logs/board--2026-10-14T12-03-05`, `cycle7-gpu-lines.txt`) —
+the cause named:** the first probe — **one** quad, the captured records and blocks untouched but
+for our tint, vertices and stream bytes identical to the capture's — failed exactly as the
+three-quad pass had (`read 88656f`, the fragment stage's reset, this time `fault=0x0`); the
+following probes timed out on the dead context. So the per-draw emission was never the problem:
+**a second pass on the same render-target data fails.** The two-frame host capture
+(`capture/variants/r_2frames/`) shows what the open driver does between frames: the geometry and
+fragment jobs of frame 2 name **render-target data 1** (`hwrt=1/1` after `hwrt=1/0`) — the dataset's
+two data alternate frame by frame; the streams differ only in fresh allocations of the control
+stream, the scissor block and the per-frame PDS data blocks. Fix: the device alternates
+`data[pass % 2]` (both were built in 5a). Also seen: the render rung's pass counted four
+interrupts this boot (three before).
+
+**5b cycle with alternation (2026-10-14, `build/logs/board--2026-10-14T12-21-02`,
+`cycle8-gpu-lines.txt`) — two things decided:** (1) the single-quad pass on render-target data 1
+**ran whole** (6 086 µs, two interrupts, no reset) and read `59 42 45` at the quad's centre — which is
+the **right** value: the centre sits on a checker block boundary, where the bilinear filter mixes
+(40,90,200) and (230,120,30) to (111,101,136), and that over the clear at alpha 128/255 is exactly
+`59 42 45`; the earlier cycles' `88 65 6f` was that mix unblended. The rung's expectation was the
+error, not the picture — the sample moves 272 px into the quad, inside one block. (2) The next
+pass, on data 0 again, reset the fragment stage with `fault=0xe00004b080` — the texture state
+block's offset with the USC heap's high byte — and the probe was the first with two draws and
+the fragment PDS programs **shared** between them, so H7 (sharing) and data-0 reuse are
+confounded. Next cycle's probes separate them: one quad (data 1), one quad again (data 0),
+two and three quads with per-draw program copies as the open driver makes them, two quads with
+the programs shared last.
+
+**5b probe cycle 2 (2026-10-14, `build/logs/board--2026-10-14T12-30-59`, `cycle9-gpu-lines.txt`):**
+`probe one ok` (data 1), `probe one-again ok` (data 0 reused — the alternation works and so does
+reuse), then `probe two-copied FAIL`: quad 0 right, **quad 1 never drawn** (its sample is the
+clear colour), the pass 52 ms long and the fragment stage reset without a fault address. Every
+byte of the second draw's blocks and records was the capture's, at the capture's offsets, with
+the program copies — so the content is right and the difference to the open driver is **where
+the bytes land**: the driver allocates afresh every frame (the two-frame capture: a new control
+stream buffer, new scissor and PDS blocks), we rewrote the control stream the GPU had read in
+the pass before — the records past the old `TERMINATE`. H10: the GPU's caches hold lines of a
+buffer across kicks; a buffer read by one pass must not be rewritten for the next. Next: every
+pass in fresh memory — the stream, the vertices, the vertex PDS data, the 26-word PPP block, the
+uniform data, each draw's blocks — and the geometry job's `vdm_ctrl_stream_base` patched to it.
+
+**5b green (2026-10-14, `build/logs/board--2026-10-14T13-38-29`, `cycle10-gpu-lines.txt`):**
+
+```text
+gpud: gpu quads probe one ok (n=1 us=6093 irqs=3)
+gpud: gpu quads probe one-again ok (n=1 us=6122 irqs=4)
+gpud: gpu quads probe two ok (n=2 us=9590 irqs=4)
+gpud: gpu quads probe three ok (n=3 us=13096 irqs=4)
+gpud: gpu quads probe two-shared ok (n=2 us=9655 irqs=4)
+gpud: gpu quads ok (n=3 us=13096 samples=3/3 irqs=4 shown row=2160)
+```
+
+| # | Decided | By |
+|---|---|---|
+| H7 | ✅ one fragment PDS program copy serves every draw | `probe two-shared ok` (the same picture as `two`) |
+| H8 | ✅ the index offset addresses the shared vertex buffer | the three quads at their positions, each sample right |
+| H9 | ✅ our blocks in the arenas' unused tails are read as the driver's | every probe placed by the bump placer |
+| H10 | ✅ **a pass must land in memory the GPU has not read** — the control stream, the vertices, the vertex PDS data, each draw's blocks fresh per pass, the geometry job's `vdm_ctrl_stream_base` pointing at the pass's stream | the probes that rewrote the stream failed (cycles 1–2, probe cycle 2); with fresh placement five passes in a row succeed |
+
+New number, for 5c's budget: a pass costs **6.1 ms with one 512² blended quad, 9.6 ms with two,
+13.1 ms with three — about 3.5 ms a quad**, far above the stock stack's 1.8 ms for a further
+full-screen blended layer. Candidates: every binding bypasses the system-level cache
+(`slc_bypass`, taken from layer 3's single page), so texture fetches go to DRAM; the
+partial-render job runs each pass; `DISABLE_PIXELMERGE` and `pds_tri_merge_disable` in the
+captured state. Measured next, in 5c's first cycle, binding by binding.
+
+The lane's judge on this capture: red on an unrelated rung — the desk keyboard
+(`xhcid: device enumerated (vid=3434 pid=0123 …)`) was not enumerated this boot (the hub was;
+Block 2's USB lane); every GPU rung present. The operator confirmed the keyboard was unplugged
+(2026-10-14) and accepted this capture as 5b's board proof without a further cycle. The gate shown red (`cycle10-gate-red.txt`): the
+same capture without the `gpu quads ok` line is refused by name.
+
+## Verdict 5b
+
+Three quads at positions and tints the device chose, drawn by the captured pass's programs with
+every per-draw word written by the device: the geometry control stream's records, the PPP
+blocks, the fragment PDS uniform data, the vertex PDS data, the vertices — from the open
+driver's word-layout data, checked byte for byte against two captures. Four red cycles each
+named a cause and two taught the rules this layer builds on: the render-target data alternate
+frame by frame, and a pass lands in fresh memory. What remains for 5c is the compositor's
+pipelines and the frame; its first measurement is the per-quad cost above.

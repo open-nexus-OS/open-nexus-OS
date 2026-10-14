@@ -37,11 +37,13 @@
 //!   is written only for a page-aligned, in-range address; a client command never wraps.
 
 pub mod ccb;
+pub mod csb;
 pub mod fw_features;
 pub mod fw_image;
 pub mod fwif;
 pub mod mips_boot;
 pub mod mmu;
+pub mod quads;
 pub mod scene;
 pub mod start;
 

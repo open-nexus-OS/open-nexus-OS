@@ -114,6 +114,9 @@ ladder_headless=(
   # with the render context, free lists and dataset built by the device; the blended quad's
   # four samples read back.
   "gpud: gpu render ok ("
+  # TASK-0215 5b: dynamic geometry — three quads at positions and tints the device chose, the
+  # per-draw blocks and stream records written by the device, each quad's centre read back.
+  "gpud: gpu quads ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its
