@@ -17,7 +17,7 @@
 - **Phase 1 (the scanout contract on the board)**: ✅ 2026-10-12 — TASK-0216: the ring over the layout's three slots, the vertical-blank interrupt as the frame clock (enabled only while a flip waits), the flip inside the blank (first at line 1080), the deferred ack, the pointer plane whole at every border; `[PASS] board-visible` 49 rungs, `front=0` in every present window, `late=0`. Open thread: a second interrupt 21 µs after a served one (`docs/board/measurements/2026-10-12-scanout-vblank/`, H1), measured in Phase 2's first cycle.
 - **Phase 2 (the device online)**: ✅ 2026-10-13 — TASK-0329 G1: the GPU node through socd (domain 2 by its software sequence), the published firmware started by the open sequence (`gpu fw ok`), one address space bound and flushed (`gpu mmu ok`), a null job's completion bridged to the kernel fence 64 times (`gpu fence ok (rt_us=131 … below the stock 640us)`); five board cycles, each decided by a line (`docs/board/measurements/2026-10-13-gpu-online/`). Open threads handed on: the uncached mapping for several commands in flight (M2), the firmware's boot-time variance (Phase 3's first cycle)
 - **Phase 3 (the GPU draws)**: ✅ 2026-10-13 — TASK-0169B: `GfxDevice` on the device (one context, buffers as DMA VMOs or an adopted plane, binding through the G1 page tables with the waited flush, one transfer command + `UPDATE` per submit); the open driver's two transfer jobs for this core captured on the host as the scene bundle (§8c) and replayed into a plane of the ring on the first board cycle: `gpu fill ok (ns_per_px=0.8 … the stock 1.8)`, `gpu quad ok (samples=4/4)`, `[PASS] board-visible` 57 rungs (`docs/board/measurements/2026-10-13-gpu-first-quad/`). Handed on: blending and the render queue (Phase 4), the firmware's time variance and the controller's alpha handling (Phase 4's first cycle)
-- **Phase 4 (the desktop on the GPU)**: ⬜ layer 5 — G3's remaining ops, G4
+- **Phase 4 (the desktop on the GPU)**: ⏳ layer 5, in progress since 2026-10-13 (TASK-0215 recut) in four steps (§8d) — **4a ✅ 2026-10-14**: the render queue on the board — the captured render pass (geometry, partial-render fragment, fragment) replayed with the render context, the free lists and the dataset built by the device; four cycles, three reds each named by a line, then `gpud: gpu render ok (us=6133 samples=4/4 irqs=3 geom=1 frag=2)`, `[PASS] board-visible` 58 rungs (`docs/board/measurements/2026-10-13-gpu-render-queue/`); 4b dynamic geometry next, 4c the compositor's ops as pipelines and the frame, 4d the CPU composite deleted
 
 Definition: "Complete" means the contracts below are implemented on the board, their gates are green, and the CPU compositing path and the v1 backend trait are deleted with a retired-name gate.
 
@@ -151,6 +151,44 @@ What the device server owns below §1–§7 on the board's core (one core of the
   windowd's use of the device over IPC, the v1 trait's retirement (Phase 4, once windowd stands on
   v2), the uncached mapping for several commands in flight (M2).
 
+### §8d Phase 4 — the render queue and the desktop (TASK-0215, the kernel side's objects ours)
+
+- **A render pass is two queues and three commands.** The geometry job (type `GEOM`, 201) builds
+  the tile lists from a control stream in the VDM's vocabulary; the fragment job (type `FRAG`,
+  203) shades the tiles into the attachment; a partial-render fragment (`FRAG_PR`, 204) stands
+  ready should the geometry outgrow its parameter memory. Both run in **one render context**:
+  one firmware object holding the geometry's and the fragment's common contexts (§8b's shape,
+  data masters GEOM and FRAG) and the **static render-context state** — the 23 context-switch
+  registers the open userspace driver emits once per context (a 192-byte stream, decoded as the
+  open kernel driver decodes it). The geometry queue's point gates the fragment through the
+  firmware's own fence command (`FENCE_PR` on the geometry's timeline word) — the kernel's
+  timeline fence (§5) stays the one primitive the host sees.
+- **Parameter memory is the device's.** The **free lists** (a local and a global one) are lists
+  of the device's own DMA pages — page numbers written by the device, never by a client — with
+  the firmware struct the open kernel driver initialises (`ready_pages`, `current_stack_top`,
+  the 16-byte-aligned current address); a growth request from the firmware is answered by the
+  device or named, never ignored. The **render-target dataset** (two render-target data for the
+  two in-flight frames, one common block) is the firmware's view of the attachment's geometry:
+  tiles of 16×16, 16 macrotiles for parameter format 2, `te_screen`, `te_mtile1/2`,
+  `isp_mtile_size`, `screen_pixel_max`, the single-sample positions — the open kernel driver's
+  formulas, host-tested; its memory (tail pointers, macrotile lists, region headers in the
+  `RGNHDR` heap) is the client's, bound in the context.
+- **The attachment is a plane of the ring, linear.** The open driver accepts a linear colour
+  attachment for this core: the pixel back end writes the plane directly, no copy; the texture
+  is linear and host-written. A `Stream::Render { geom, frag_pr, frag }` batch (§4) on
+  `QueueKind::Render` is refused unless the dataset's and the free lists' addresses resolve in
+  the context (`test_reject_render_dataset_unbound`); the streams are accepted only in the
+  feature-gated lengths (`test_reject_geom_stream_length`, `test_reject_frag_stream_length`),
+  the static state only as the 23 registers (`test_reject_static_state_length`).
+- **What moves with the geometry** (the 1-vs-3-quad capture): the vertex buffer, the geometry
+  control stream's draw records, the PDS data (per-draw constants) and the descriptor words
+  (texture state) — four buffers; everything else, the USC code included, is static. 4b writes
+  those four on the device from the open driver's control-stream word layouts carried as data;
+  4c builds the compositor's ops on them; 4d deletes the CPU composite.
+- **Gates**: 4a `gpud: gpu render ok (us= samples=4/4 irqs=)`; 4b `gpu quads ok (n= us=)`; 4c
+  `gpu desktop ok (frame_us=)` below the stock 23.3 ms and `board-visual: gpu-desktop`; 4d a
+  hover frame below 8.3 ms. QEMU unchanged.
+
 ## Invariants (security)
 
 - Identity is `sender_service_id`; a context, a buffer and a fence are reachable only by the client that owns them or was handed the capability.
@@ -170,7 +208,10 @@ What the device server owns below §1–§7 on the board's core (one core of the
 | 1 | 2 | the plane ring on the board's controller, the vertical-blank interrupt, the frame clock, damage per slot, the pointer plane whole at every border; the wire form | `front=0` in every `gpud: dc present us` window; flips = presents; operator: no flicker, shadows stable |
 | 2 | 3 | the device online: firmware, GPU MMU with `VmSpace`, power through socd, interrupt, the fence bridge — ✅ 2026-10-13 | `gpud: gpu fw ok`, `gpud: gpu mmu ok`, `gpud: gpu fence ok (rt_us=131 …)`: the null job's round trip below the stock 0.64 ms (board, cycle 5) |
 | 3 | 4 | `GfxDevice` on the device: buffers, binding, batches; the first textured quad from offline shaders into a slot of the ring (§8c) | `gpud: gpu fill ok (ns_per_px=)` at or below the stock 1.8 ns a pixel; `gpu quad ok (samples=4/4)`; the quad on the board |
-| 4 | 5 | the desktop: the render queue (geometry + fragment jobs, the render-target dataset, free lists) with blending in the fragment program, damage-driven compositing, cached reduced-size blur, planes for what moves; the CPU composite deleted on the board; the v1 trait and the boolean fence retired once windowd stands on v2 | our frame of the gate scene below the stock 23.3 ms; a hover frame below 8.3 ms; `board-visual: gpu-desktop` |
+| 4a | 5 | the render queue on the board: the captured render pass (clear + one blended textured quad; geometry, partial-render fragment, fragment) replayed through `GfxDevice`, the render context, free lists and render-target dataset built by the device as the open kernel driver builds them (§8d) | `gpud: gpu render ok (us= samples=4/4 irqs=)` — the blended samples on the board |
+| 4b | 5 | dynamic geometry: the vertex buffer, the geometry control stream's draw records, the PDS data and the descriptor words written by the device from the open driver's word layouts (data) — N quads at runtime positions, tints, textures | `gpud: gpu quads ok (n= us=)` |
+| 4c | 5 | the compositor's ops as pipelines (textured layer with opacity and rounded corners, drop shadow, gradient fill, the blur as two passes at quarter size into a cached surface), the command stream → draw list, damage-driven, the plane as render target | our frame of the gate scene below the stock 23.3 ms; `board-visual: gpu-desktop` |
+| 4d | 5 | the CPU composite deleted on the board; a hover frame over cached blur; what moves alone on a controller plane; the v1 trait and the boolean fence retired once windowd stands on v2 | a hover frame below 8.3 ms; the tolerated present-time lines gone |
 
 ## Open questions (decided by measurement, not here)
 

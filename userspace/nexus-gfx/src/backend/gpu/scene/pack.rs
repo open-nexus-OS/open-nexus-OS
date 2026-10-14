@@ -6,7 +6,10 @@
 
 use alloc::vec::Vec;
 
-use super::{align4, align8, CoreId, JobKind, Kind, Texture, HEADER_BYTES, MAGIC, VERSION};
+use super::{
+    align4, align8, CoreId, FreelistArgs, HwrtArgs, JobKind, Kind, Texture, HEADER_BYTES, MAGIC,
+    VERSION, VERSION_RENDER,
+};
 
 /// Non-zero runs of `bytes`, gaps shorter than `merge` folded into the run.
 pub fn runs_of(bytes: &[u8], merge: usize) -> Vec<(u32, Vec<u8>)> {
@@ -45,6 +48,8 @@ pub struct Builder {
     jobs: Vec<u8>,
     buffer_count: u32,
     job_count: u32,
+    /// The render trailer (version 2), once given.
+    render: Option<Vec<u8>>,
 }
 
 impl Builder {
@@ -56,7 +61,35 @@ impl Builder {
         bytes.extend_from_slice(&[0u8; 8]); // counts, filled at finish
         bytes.extend_from_slice(&(texture as u32).to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
-        Self { bytes, jobs: Vec::new(), buffer_count: 0, job_count: 0 }
+        Self { bytes, jobs: Vec::new(), buffer_count: 0, job_count: 0, render: None }
+    }
+
+    /// The render pass's kernel-side objects: the dataset's 136-byte arguments, the free lists
+    /// `[local, global]`, the render context's 192-byte static state stream. Makes the bundle a
+    /// version-2 one.
+    pub fn render(
+        &mut self,
+        hwrt_args: &[u8],
+        callstack_addr: u64,
+        freelists: &[FreelistArgs; 2],
+        static_state: &[u8],
+    ) {
+        let mut t = Vec::with_capacity(HwrtArgs::SIZE + 8 + 4 + 48 + 4 + static_state.len());
+        t.extend_from_slice(&hwrt_args[..HwrtArgs::SIZE.min(hwrt_args.len())]);
+        t.resize(HwrtArgs::SIZE, 0);
+        t.extend_from_slice(&callstack_addr.to_le_bytes());
+        t.extend_from_slice(&2u32.to_le_bytes());
+        for fl in freelists {
+            t.extend_from_slice(&fl.gpu_addr.to_le_bytes());
+            t.extend_from_slice(&fl.initial_pages.to_le_bytes());
+            t.extend_from_slice(&fl.max_pages.to_le_bytes());
+            t.extend_from_slice(&fl.grow_pages.to_le_bytes());
+            t.extend_from_slice(&fl.grow_threshold_percent.to_le_bytes());
+        }
+        t.extend_from_slice(&(static_state.len() as u32).to_le_bytes());
+        t.extend_from_slice(static_state);
+        t.resize(align8(t.len()), 0);
+        self.render = Some(t);
     }
 
     /// A buffer with its runs (offset, bytes).
@@ -85,9 +118,14 @@ impl Builder {
     }
 
     pub fn finish(mut self) -> Vec<u8> {
+        let version = if self.render.is_some() { VERSION_RENDER } else { VERSION };
+        self.bytes[4..8].copy_from_slice(&version.to_le_bytes());
         self.bytes[16..20].copy_from_slice(&self.buffer_count.to_le_bytes());
         self.bytes[20..24].copy_from_slice(&self.job_count.to_le_bytes());
         self.bytes.extend_from_slice(&self.jobs);
+        if let Some(t) = self.render.take() {
+            self.bytes.extend_from_slice(&t);
+        }
         self.bytes
     }
 }

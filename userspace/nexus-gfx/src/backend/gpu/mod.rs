@@ -87,6 +87,12 @@ pub mod heaps {
     pub const PDS_CODE_DATA_SIZE: u64 = 4 << 30;
     pub const USC_CODE_BASE: u64 = 0xE0_0000_0000;
     pub const USC_CODE_SIZE: u64 = 4 << 30;
+    /// Region headers of the render-target dataset (RFC-0101 §8d).
+    pub const RGNHDR_BASE: u64 = 0xDB_F000_0000;
+    pub const RGNHDR_SIZE: u64 = 256 << 20;
+    /// Visibility-test results.
+    pub const VIS_TEST_BASE: u64 = 0xF2_0000_0000;
+    pub const VIS_TEST_SIZE: u64 = 2 << 20;
     pub const FIRMWARE_BASE: u64 = 0xE1_C000_0000;
     pub const TRANSFER_FRAG_BASE: u64 = 0xE4_0000_0000;
     pub const TRANSFER_FRAG_SIZE: u64 = 16 << 30;

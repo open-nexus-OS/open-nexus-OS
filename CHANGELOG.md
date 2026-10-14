@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-14 (Block 4, layer 5a: the render queue on the board — TASK-0215, RFC-0101 Phase 4a)
+
+- **The GPU's render queue runs on the board with the kernel side built by us.** gpud
+  (`source/drivers/gpud/src/backend/gpu/render.rs`): one render context — the geometry's and the
+  fragment's common contexts in one firmware object with the captured context-switch state, two
+  client command buffers, the geometry's call-stack pointer — two free lists of parameter memory
+  (the device's DMA pages, their numbers written into the client's list buffers, the firmware
+  structs initialised as the open kernel driver does), the render-target dataset (the common block
+  from the attachment's geometry by the open kernel driver's formulas, two render-target data),
+  and the kick of a pass in the kernel's sequence (geometry with the partial-render fence and its
+  update; the fragment queue's fence on the geometry, the partial-render fragment, the fragment,
+  their updates; every kick naming the data's cleanup control). `Stream::Render` on
+  `QueueKind::Render` through `GfxDevice`; points carry their queue. Board, four cycles
+  (`docs/board/measurements/2026-10-13-gpu-render-queue/`): three reds each named by a line (the
+  firmware heap map's range table; memory the tile accelerator writes bound read-only), then
+  **`gpud: gpu render ok (us=6133 samples=4/4 irqs=3 geom=1 frag=2)`** — the clear and one
+  blended textured quad through geometry and fragment jobs into a linear plane of the ring,
+  pixel-exact at four samples; `[PASS] board-visible` 58 rungs.
+- **The host half** (`nexus_gfx::backend::gpu::fwif::{render, hwrt, freelist}`): the geometry
+  (112 B) and fragment (480 B) commands with their feature-gated stream decoders, the static
+  render-context state, the dataset's arguments and common block, the render-target data, the
+  free list's checks and init — 13 tests and the render bundle's goldens; the scene bundle's
+  version 2 (render jobs, the render trailer); `resources/gpu/scenes/render-quad.scene` from the
+  host capture of the open driver's render pass (linear attachment and texture accepted; the
+  1-vs-3-quad diff names the four buffers 5b will write).
+- Decided from the capture and the cycles: the partial-render fragment job runs (three
+  interrupts a pass); a pass with a full-plane clear costs 6.1 ms (5c's frame avoids the clear);
+  GPU-written buffers need read-write bindings; small firmware objects should be packed.
+
 ### Added - 2026-10-13 (Block 4, layer 4: the GPU draws — TASK-0169B, RFC-0101 Phase 3)
 
 - **The board's GPU drew its first picture into a plane of the ring.** `GfxDevice` on hardware

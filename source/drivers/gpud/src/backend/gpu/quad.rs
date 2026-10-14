@@ -49,7 +49,7 @@ fn fail(what: &str) {
 }
 
 /// Creates, fills and binds one buffer of the bundle; the target is the adopted plane.
-fn bind(
+pub(super) fn bind(
     dev: &mut Device,
     client: ClientId,
     ctx: nexus_gfx::backend::v2::ContextId,
@@ -79,7 +79,13 @@ fn bind(
                 }
             }
             dev.clean(client, bo);
-            (bo, Access::ReadOnly)
+            // The texture is only sampled; the driver's data buffers are written by the GPU
+            // too — region headers, macrotile lists, tail pointers, context state, the free
+            // lists (cycle 3 of 2026-10-14: a write fault at the first region header,
+            // `fault=0xdbf0000000`, with every data buffer bound read-only).
+            let access =
+                if buf.kind == Kind::Texture { Access::ReadOnly } else { Access::ReadWrite };
+            (bo, access)
         }
     };
     dev.vm_bind(client, ctx, bo, GpuVa(buf.va), access)

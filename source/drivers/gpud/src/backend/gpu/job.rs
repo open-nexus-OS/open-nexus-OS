@@ -40,10 +40,11 @@ pub(super) struct Context {
     pub signalled: u32,
 }
 
-struct CccbMem<'a> {
-    mem: &'a mut FwMemory,
-    ctl: HeapObj,
-    ring: HeapObj,
+/// A client command buffer's memory: its control block and its ring in the firmware heap.
+pub(super) struct CccbMem<'a> {
+    pub(super) mem: &'a mut FwMemory,
+    pub(super) ctl: HeapObj,
+    pub(super) ring: HeapObj,
 }
 
 impl CccbMemory for CccbMem<'_> {

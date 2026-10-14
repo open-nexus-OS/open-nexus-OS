@@ -181,6 +181,14 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0169B: the blit (the open driver's PDS/USC programs and texture state at their captured addresses, our generated texture) completed; four sample pixels read back after the cache flush match the background, the texture's white frame and both checker colours; the plane went to the glass"
 
+# TASK-0215 5a (RFC-0101 Phase 4 / §8d): the render queue — the open driver's render pass (geometry,
+# partial-render fragment, fragment) replayed into a plane of the ring with the render context,
+# the free lists and the dataset built by the device; `gpud: FAIL gpu render (` is its FAIL form.
+[marker."gpud: gpu render ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5a: the render context (two queues, the captured context-switch state), two free lists of the device's pages and the render-target dataset accepted by the firmware; the geometry and fragment jobs completed in the kernel's sequence; four sample pixels read back after the cache flush match the clear and the blended textured quad; the plane went to the glass"
+
 [marker."gpud: FAIL gpu "]
 phase = "bringup"
 emit_when = { profile = "board-headless" }

@@ -26,9 +26,11 @@ const BLOB: &[u8] =
 
 /// Backing pages the firmware needs: code (0x19000) + data (0x5000) = 30, the config slots 3,
 /// the structures about 20, the trace buffer 12, the page table 4 — and room for the contexts
-/// and page tables of the device's address space (layer 4 binds a plane and the first quad's
-/// 28 buffers: about 2400 pages behind some 15 table pages).
-pub(super) const BACKING_PAGES: usize = 192;
+/// and page tables of the device's address space. Table pages are not returned yet (the pool
+/// is a bump allocator): layer 4's scene and layer 5a's render scene each take about 20, the
+/// render context's two queues 20 more (cycle 1 of 2026-10-14 ran out at 192 — "no memory
+/// for the fragment queue"). Returning pages is the memory lane's.
+pub(super) const BACKING_PAGES: usize = 512;
 
 /// Where everything landed.
 pub(super) struct Loaded {
@@ -36,6 +38,10 @@ pub(super) struct Loaded {
     pub features: CoreFeatures,
     /// The feature-gated words of a transfer stream, from the device-info block (RFC-0101 §8c).
     pub stream: nexus_gfx::backend::gpu::fwif::StreamFeatures,
+    /// The feature-gated words of the geometry and fragment streams (RFC-0101 §8d).
+    pub render: nexus_gfx::backend::gpu::fwif::RenderFeatures,
+    /// The tiler's geometry for the render-target dataset; `None` when the block lacks a value.
+    pub tiles: Option<nexus_gfx::backend::gpu::fwif::TileGeometry>,
     pub num_clusters: u32,
     pub sysinit: HeapObj,
     pub osdata: HeapObj,
@@ -227,6 +233,8 @@ pub(super) fn load(
         boot,
         features,
         stream: nexus_gfx::backend::gpu::fwif::StreamFeatures::of(&info),
+        render: nexus_gfx::backend::gpu::fwif::RenderFeatures::of(&info),
+        tiles: nexus_gfx::backend::gpu::fwif::TileGeometry::of(&info),
         num_clusters,
         sysinit,
         osdata,

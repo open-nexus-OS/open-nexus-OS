@@ -93,6 +93,9 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         if let Some(dev) = gpu.as_mut() {
             crate::gpu::quad::rung(dev, &mut display);
+            // TASK-0215 5a (RFC-0101 Phase 4): the render queue — the captured render pass with
+            // the render context, free lists and dataset built here: `gpud: gpu render ok (`.
+            crate::gpu::render_quad::rung(dev, &mut display);
         }
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let clock = {

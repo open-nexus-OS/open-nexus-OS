@@ -1,0 +1,10 @@
+freelist handle=1 gpu_addr=0x8000009000 initial=512 max=65536 grow=256 threshold=13
+context handle=1 type=2 priority=0 flags=0x0 state_len=0 callstack=0x0
+context handle=2 type=1 priority=0 flags=0x0 state_len=64 callstack=0x0
+context handle=3 type=1 priority=0 flags=0x0 state_len=64 callstack=0x0
+context handle=4 type=0 priority=0 flags=0x0 state_len=192 callstack=0x800006d000
+freelist handle=2 gpu_addr=0x80010c5000 initial=32 max=32 grow=0 threshold=0
+hwrt handle=1 1920x1080 samples=1 layers=1
+submit job0 type=0
+submit job1 type=1
+submit job2 type=1

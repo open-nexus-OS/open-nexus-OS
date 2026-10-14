@@ -94,3 +94,136 @@ fn the_two_jobs_decode_to_the_measured_registers() {
     // The job-1-only buffer the blit's background base points at.
     assert!(s.buffers().any(|b| b.va == 0xda_0004_1000 && b.run_count == 1));
 }
+
+// ---- The render pass's bundle (TASK-0215 5a, RFC-0101 §8d) --------------------------------------
+
+mod render_quad {
+    use nexus_gfx::backend::gpu::fwif::{
+        frag_flags, geom_flags, FragCmd, FreelistArgs, GeomCmd, HwrtArgs, RenderFeatures,
+        StaticRenderContextState, Ufo,
+    };
+    use nexus_gfx::backend::gpu::scene::{fnv1a64, JobKind, Kind, Scene, Texture};
+    use nexus_gfx::backend::gpu::CoreId;
+
+    const BUNDLE: &[u8] = include_bytes!("../../../resources/gpu/scenes/render-quad.scene");
+
+    fn scene() -> Scene<'static> {
+        Scene::parse(BUNDLE, CoreId::BOARD).expect("the render bundle parses for the board's core")
+    }
+
+    #[test]
+    fn the_bundle_is_the_capture_of_2026_10_13() {
+        assert_eq!(
+            fnv1a64(BUNDLE),
+            0x2148_b748_977c_a5f5,
+            "repacked: update the digest and the README"
+        );
+        let s = scene();
+        assert_eq!((s.buffer_count, s.job_count, s.texture), (37, 3, Texture::CheckerV1));
+        assert_eq!(s.data_bytes(), 34614);
+    }
+
+    #[test]
+    fn the_target_is_the_first_plane_and_the_scratch_is_zero_data() {
+        let s = scene();
+        let target = s.target().expect("one target");
+        assert_eq!((target.va, target.len), (0x80_000b_1000, 1080 * 7680));
+        let scratch = s
+            .buffers()
+            .find(|b| b.va == 0x80_008d_b000)
+            .expect("the partial-render scratch buffer");
+        assert_eq!(
+            (scratch.kind, scratch.len, scratch.run_count),
+            (Kind::Data, 1080 * 7680, 0),
+            "carried as zero data"
+        );
+        assert!(s.buffers().any(|b| b.va == 0xdb_f000_0000), "region headers in the RGNHDR heap");
+    }
+
+    #[test]
+    fn the_trailer_carries_the_datasets_arguments_lists_and_state() {
+        let s = scene();
+        let r = s.render().expect("the render trailer");
+        let args = HwrtArgs::parse(r.hwrt_args).unwrap();
+        assert_eq!((args.width, args.height, args.samples, args.layers), (1920, 1080, 1, 1));
+        assert_eq!(args.tpc_dev_addr, 0x80_010c_7000);
+        assert_eq!(args.rt_data[0].region_header_dev_addr, 0xdb_f000_0000);
+        assert_eq!(args.free_list_handles, [2, 1]);
+        assert_eq!(r.callstack_addr, 0x80_0006_d000);
+        assert_eq!(
+            r.freelists,
+            [
+                FreelistArgs {
+                    gpu_addr: 0x80_010c_5000,
+                    initial_pages: 32,
+                    max_pages: 32,
+                    grow_pages: 0,
+                    grow_threshold_percent: 0
+                },
+                FreelistArgs {
+                    gpu_addr: 0x80_0000_9000,
+                    initial_pages: 512,
+                    max_pages: 65536,
+                    grow_pages: 256,
+                    grow_threshold_percent: 13
+                },
+            ]
+        );
+        for fl in &r.freelists {
+            assert_eq!(fl.check(25), Ok(()));
+            assert!(
+                s.buffers().any(|b| b.va == fl.gpu_addr && b.len as usize >= fl.list_bytes()),
+                "the list buffer is bound"
+            );
+        }
+        let st = StaticRenderContextState::from_stream(r.static_state).unwrap();
+        assert_eq!(st.regs[0], 0x80_0006_e000, "the VDM context state base");
+        assert_eq!(st.regs[2], 0x80_0006_f000, "the TA context state base");
+    }
+
+    #[test]
+    fn the_three_jobs_decode_in_the_open_drivers_order() {
+        let s = scene();
+        let jobs: Vec<_> = s.jobs().collect();
+        assert_eq!(
+            jobs.iter().map(|j| (j.kind, j.flags)).collect::<Vec<_>>(),
+            [(JobKind::Geometry, 0x3), (JobKind::FragmentPartial, 0xc0), (JobKind::Fragment, 0x80)]
+        );
+        let pr_fence = Ufo { addr: 0xc000_0000, value: 0 };
+        let g =
+            GeomCmd::from_stream(jobs[0].stream, RenderFeatures::BOARD, jobs[0].flags, 1, pr_fence)
+                .unwrap();
+        assert_eq!(g.regs.vdm_ctrl_stream_base, 0x80_010d_1000, "the geometry control stream");
+        assert_eq!(g.regs.tpu_border_colour_table, 0x20_0001_c400);
+        assert_eq!((g.regs.ppp_ctrl, g.regs.te_psg), (0x202, 0x20003));
+        assert_eq!(g.regs.vdm_context_resume_task0_size, 0x2002_0000);
+        assert_eq!(g.flags, geom_flags::FIRSTKICK | geom_flags::LASTKICK);
+        assert!(
+            s.buffers().any(|b| b.va == g.regs.vdm_ctrl_stream_base),
+            "the control stream is bound"
+        );
+        let pr =
+            FragCmd::from_stream(jobs[1].stream, RenderFeatures::BOARD, jobs[1].flags, 1).unwrap();
+        let f =
+            FragCmd::from_stream(jobs[2].stream, RenderFeatures::BOARD, jobs[2].flags, 1).unwrap();
+        for cmd in [&pr, &f] {
+            assert_eq!(
+                cmd.regs.pbe_word[0], 0x0200_0efc_60a0_0000,
+                "the plane's back-end word, as the transfer capture's"
+            );
+            assert_eq!(cmd.regs.pbe_word[1], 0x0000_077f_0000_0437);
+            assert_eq!(cmd.regs.isp_scissor_base, 0x80_0005_3280);
+            assert_eq!(cmd.regs.usc_pixel_output_ctrl, 0x7f8);
+            assert_eq!(cmd.regs.isp_bgobjdepth, 0x3f80_0000);
+            assert_eq!(cmd.regs.isp_ctl, 0x8003_1000);
+            assert_eq!(cmd.regs.event_pixel_pds_data, 0x2980);
+            assert_eq!(
+                cmd.regs.usc_clear_register, [0; 8],
+                "the clear is the background program's, not the register's"
+            );
+            assert_eq!(cmd.flags, frag_flags::DISABLE_PIXELMERGE);
+        }
+        assert_ne!(jobs[1].flags & frag_flags::SUBMIT_PARTIAL_RENDER, 0);
+        assert_eq!(jobs[2].flags & frag_flags::SUBMIT_PARTIAL_RENDER, 0);
+    }
+}

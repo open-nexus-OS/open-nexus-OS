@@ -201,7 +201,10 @@ pub enum HeapError {
     TableFull,
 }
 
-const MAX_RANGES: usize = 32;
+/// Ranges the map holds: the firmware's objects (about 15), the transfer context (5), the render
+/// context with its two queues (9), the free lists and the dataset (5) — each small object its own
+/// page (cycle 2 of 2026-10-14 hit the table's end at 32: "no memory for the fragment queue").
+const MAX_RANGES: usize = 128;
 
 /// The heap's map: fixed placements (code at 0, data at the private-data section's offset,
 /// the three config slots) and first-fit page allocations below the config heap. Pure.

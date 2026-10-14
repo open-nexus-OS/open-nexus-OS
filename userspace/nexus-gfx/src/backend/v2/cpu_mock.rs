@@ -245,7 +245,9 @@ impl GfxDevice for CpuMockDevice {
                 return Err(DeviceError::CodeUnsupported);
             }
             // A transfer job is the device's work (RFC-0101 §8c); the mock executes commands.
-            Stream::Transfer { .. } => return Err(DeviceError::CodeUnsupported),
+            Stream::Transfer { .. } | Stream::Render(_) => {
+                return Err(DeviceError::CodeUnsupported)
+            }
         };
         let offset = (batch.target.va.0 - target.va.0) as usize;
         let bytes = self

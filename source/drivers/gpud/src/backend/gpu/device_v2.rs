@@ -24,8 +24,11 @@ use nexus_gfx::backend::gpu::mmu::{PageFlags, PAGE};
 use nexus_gfx::backend::v2::{Batch, BoId, ClientId, ContextId, DeviceError, GfxDevice, Stream};
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 
+use nexus_gfx::backend::gpu::scene::RenderSetup;
+
 use super::device::{Gpu, Tables};
 use super::job;
+use super::render::{Render, QUEUE_SHIFT, RENDER_QUEUE};
 
 /// Bindings one context holds — the first quad binds 29.
 const MAX_BINDINGS: usize = 64;
@@ -54,11 +57,77 @@ pub(crate) struct Device {
     bos: Vec<Option<Bo>>,
     space: VmSpace<MAX_BINDINGS>,
     owner: Option<ClientId>,
+    /// The render context, free lists and dataset, once a client set them up (§8d).
+    render: Option<Render>,
 }
 
 impl Device {
     pub(crate) fn new(gpu: Box<Gpu>) -> Self {
-        Self { gpu, bos: Vec::new(), space: VmSpace::new(40, PAGE as u32), owner: None }
+        Self {
+            gpu,
+            bos: Vec::new(),
+            space: VmSpace::new(40, PAGE as u32),
+            owner: None,
+            render: None,
+        }
+    }
+
+    /// The render pass's kernel-side objects for `client`'s context (§8d): the render context,
+    /// the free lists (their page numbers written into the client's bound list buffers) and
+    /// the dataset. Once per device in this layer.
+    pub(super) fn render_setup(
+        &mut self,
+        client: ClientId,
+        ctx: ContextId,
+        setup: &RenderSetup<'_>,
+    ) -> Result<(), DeviceError> {
+        self.check_ctx(client, ctx)?;
+        if self.render.is_some() {
+            return Err(DeviceError::Exhausted);
+        }
+        let tiles = self.gpu.fw.tiles.ok_or(DeviceError::Lost)?;
+        // The list buffers must be bound before the lists are built (§1).
+        for fl in &setup.freelists {
+            self.space.resolve(GpuVa(fl.gpu_addr), fl.list_bytes() as u64)?;
+        }
+        let (render, lists) = Render::create(&mut self.gpu, setup, tiles)?;
+        for list in &lists {
+            let binding =
+                *self.space.resolve(GpuVa(list.args.gpu_addr), list.args.list_bytes() as u64)?;
+            let at =
+                (list.args.gpu_addr - binding.va.0) as usize + list.args.first_entry() as usize * 4;
+            let bo = BoId(binding.bo);
+            let bytes = self.bo_bytes_mut(client, bo).ok_or(DeviceError::NoSuchBuffer)?;
+            for (i, e) in list.entries.iter().enumerate() {
+                if let Some(dst) = bytes.get_mut(at + i * 4..at + i * 4 + 4) {
+                    dst.copy_from_slice(&e.to_le_bytes());
+                }
+            }
+            self.clean(client, bo);
+        }
+        self.render = Some(render);
+        Ok(())
+    }
+
+    /// The render queues' timeline words `(geometry, fragment)`, for the rung's lines.
+    pub(super) fn render_words(&self) -> Option<(u32, u32)> {
+        self.render.as_ref().map(|r| (r.geom_word(&self.gpu), r.frag_word(&self.gpu)))
+    }
+
+    /// Whether `point` (its queue in the high word) is reached.
+    fn point_reached(&self, point: TimelinePoint) -> bool {
+        let seq = point.0 as u32;
+        match point.0 >> QUEUE_SHIFT {
+            RENDER_QUEUE => self
+                .render
+                .as_ref()
+                .is_some_and(|r| r.frag_word(&self.gpu).wrapping_sub(seq) < 0x8000_0000),
+            _ => self
+                .gpu
+                .context
+                .as_ref()
+                .is_some_and(|c| job::timeline(&self.gpu, c).wrapping_sub(seq) < 0x8000_0000),
+        }
     }
 
     fn check_ctx(&self, client: ClientId, ctx: ContextId) -> Result<(), DeviceError> {
@@ -161,8 +230,15 @@ impl Device {
     /// Waits for `point` with the device's interrupt-ended slices; bridges the kernel fence.
     pub(super) fn wait_point(&mut self, point: TimelinePoint, deadline_ns: u64) -> bool {
         let p = point.0 as u32;
-        let done = self.gpu.wait_until(deadline_ns, |g| {
-            g.context.as_ref().is_some_and(|c| job::timeline(g, c).wrapping_sub(p) < 0x8000_0000)
+        let render_tl = (point.0 >> QUEUE_SHIFT == RENDER_QUEUE)
+            .then(|| self.render.as_ref().map(|r| r.frag_timeline_obj()))
+            .flatten();
+        let done = self.gpu.wait_until(deadline_ns, |g| match render_tl {
+            Some(tl) => g.mem.read_u32(&tl, 0).wrapping_sub(p) < 0x8000_0000,
+            None => g
+                .context
+                .as_ref()
+                .is_some_and(|c| job::timeline(g, c).wrapping_sub(p) < 0x8000_0000),
         });
         if let Some(mut ctx) = self.gpu.context.take() {
             job::bridge(&mut self.gpu, &mut ctx);
@@ -317,7 +393,16 @@ impl GfxDevice for Device {
         batch: &Batch<'_>,
     ) -> Result<TimelinePoint, DeviceError> {
         self.check_ctx(client, ctx)?;
-        if kind != QueueKind::Transfer {
+        // Transfer and render execute; compute is declared and refused by name (§2). A stream
+        // on the wrong queue is refused as that queue's.
+        let fits = matches!(
+            (kind, &batch.stream),
+            (QueueKind::Transfer, Stream::Transfer { .. })
+                | (QueueKind::Render, Stream::Render(_))
+                | (_, Stream::Commands(_))
+                | (_, Stream::Code { .. })
+        );
+        if kind == QueueKind::Compute || !fits {
             return Err(DeviceError::QueueUnsupported(kind));
         }
         if let Some(&pending) = batch.waits.iter().find(|&&p| !self.reached(p)) {
@@ -327,6 +412,14 @@ impl GfxDevice for Device {
             Stream::Transfer { stream, single_core } => (stream, single_core),
             Stream::Commands(_) => return Err(DeviceError::CommandsUnsupported),
             Stream::Code { .. } => return Err(DeviceError::CodeUnsupported),
+            Stream::Render(rs) => {
+                // The target must be bound in this context (§1: nothing names memory outside it).
+                self.space.resolve(batch.target.va, batch.target.bytes())?;
+                let feats = self.gpu.fw.render;
+                let render = self.render.as_mut().ok_or(DeviceError::NoRenderTarget)?;
+                let f2 = render.submit(&mut self.gpu, &rs, feats)?;
+                return Ok(TimelinePoint((RENDER_QUEUE << QUEUE_SHIFT) | u64::from(f2)));
+            }
         };
         // The target must be bound in this context (§1: nothing names memory outside it).
         self.space.resolve(batch.target.va, batch.target.bytes())?;
@@ -341,10 +434,7 @@ impl GfxDevice for Device {
     }
 
     fn reached(&self, point: TimelinePoint) -> bool {
-        self.gpu
-            .context
-            .as_ref()
-            .is_some_and(|c| job::timeline(&self.gpu, c).wrapping_sub(point.0 as u32) < 0x8000_0000)
+        self.point_reached(point)
     }
 
     fn reset_context(&mut self, client: ClientId, ctx: ContextId) -> Result<(), DeviceError> {

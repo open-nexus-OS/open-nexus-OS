@@ -50,6 +50,21 @@ impl KccbCmd {
         c
     }
 
+    /// `KICK` of a job on a render-target data: as [`Self::kick`], with the data's cleanup
+    /// control named so the firmware counts the command for it (the open kernel driver's
+    /// `fill_cmd_kick_data`).
+    pub fn kick_with_cleanup(
+        context_fw_addr: u32,
+        client_woff: u32,
+        client_wrap_mask: u32,
+        cleanup_ctl_fw_addr: u32,
+    ) -> Self {
+        let mut c = Self::kick(context_fw_addr, client_woff, client_wrap_mask);
+        c.data[12..16].copy_from_slice(&1u32.to_le_bytes());
+        c.data[16..20].copy_from_slice(&cleanup_ctl_fw_addr.to_le_bytes());
+        c
+    }
+
     /// `CLEANUP` of a firmware common context.
     pub fn cleanup_common_context(context_fw_addr: u32) -> Self {
         let mut c = Self::empty(kccb::CLEANUP);

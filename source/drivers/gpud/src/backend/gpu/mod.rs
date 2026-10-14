@@ -39,6 +39,8 @@ mod job;
 mod memory;
 pub(crate) mod quad;
 mod regs;
+mod render;
+pub(crate) mod render_quad;
 
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 

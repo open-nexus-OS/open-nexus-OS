@@ -1,0 +1,12 @@
+619:gpud: gpu glue ok (domains=1 clocks=1 resets=1 through socd)
+620:gpud: gpu core ok (bvnc=36.29.52.182 id=0x0024001d003400b6)
+621:gpud: gpu fw ok (boot_us=1101 health_us=77 irqs=1 fw_irqs=1 executed=1 rtn=0x0 stage=0 ts=2958 pow=0x3 hwr=0x1 version=1.1 build=6976702)
+622:gpud: gpu caps (va_bits=40 page=4096 clusters=1 queues=render+transfer compute=declared cache_block=64 backing_free=445 id=0x24001d003400b6)
+623:gpud: gpu mmu ok (map_us=68 unmap_us=51 pc=0x5c43000 map_flags=0x400001f unmap_flags=0x400001f table_pages=1)
+626:gpud: gpu fence ok (rt_us=89 worst_us=490 n=64 irqs=64 below the stock 640us)
+629:gpud: gpu fill ok (us=1860 px=1920x1080 ns_per_px=0.8 at or below the stock 1.8 bind_us=4661)
+630:gpud: dc reveal flip ok (bus=0x8fd2000 stride=7680 readback 3/3 cfg-ready cleared after 0 reads)
+631:gpud: gpu quad ok (us=1328 samples=4/4 shown row=2160)
+635:gpud: gpu render ok (us=6133 samples=4/4 irqs=3 geom=1 frag=2 bind_us=8447 shown row=3240)
+747:gpud: dc first present (exec_us=40754 clean_us=736 damage=1920x1080)
+cycle=board--2026-10-14T09-41-20

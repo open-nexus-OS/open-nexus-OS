@@ -64,14 +64,28 @@ pub enum Stream<'a> {
         stream: &'a [u8],
         single_core: bool,
     },
+    /// One render pass: the geometry, partial-render fragment and fragment jobs' register
+    /// streams with their submit flags (RFC-0101 §8d); the dataset is the device's.
+    Render(RenderStreams<'a>),
+}
+
+/// The three register streams of one render pass and their submit flags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RenderStreams<'a> {
+    pub geom: &'a [u8],
+    pub geom_flags: u32,
+    pub frag_pr: &'a [u8],
+    pub frag_pr_flags: u32,
+    pub frag: &'a [u8],
+    pub frag_flags: u32,
 }
 
 impl Stream<'_> {
-    /// Commands in the stream, for the batch bound (a binary or a job counts as one).
+    /// Commands in the stream, for the batch bound (a binary or a pass counts as one).
     pub fn commands(&self) -> usize {
         match self {
             Stream::Commands(c) => c.len(),
-            Stream::Code { .. } | Stream::Transfer { .. } => 1,
+            Stream::Code { .. } | Stream::Transfer { .. } | Stream::Render(_) => 1,
         }
     }
 }
@@ -135,6 +149,8 @@ pub enum DeviceError {
     MalformedStream,
     /// The device did not answer (a flush or a kick without return); named on the console.
     Lost,
+    /// A render pass before the render context, free lists and dataset were set up (§8d).
+    NoRenderTarget,
 }
 
 impl From<VmError> for DeviceError {

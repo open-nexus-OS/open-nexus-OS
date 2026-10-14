@@ -16,6 +16,7 @@ input: the parser checks the core id, the heaps, every run, the one target.
 | Bundle | Core | Captured | Source of the bytes | Digest (FNV-1a 64) |
 |---|---|---|---|---|
 | `first-quad.scene` | BVNC 36.29.52.182 | 2026-10-13 | the open userspace driver (its Vulkan implementation, MIT licence; tree `26.3.0-devel`, commit `768b18d90b`) run on the host over its kernel-stand-in shim with the capture hook of `docs/board/measurements/2026-10-13-gpu-first-quad/capture/pvr_dump_hook.h`, driven by `capture/first_quad.c` | `0x699ff414b2672125` |
+| `render-quad.scene` (version 2: the render trailer — the dataset's arguments, the geometry's call stack, the two free lists, the context's static state) | BVNC 36.29.52.182 | 2026-10-13 | the same driver and hook, driven by `docs/board/measurements/2026-10-13-gpu-render-queue/capture/render_quad.c` (one blended textured quad through geometry, partial-render and fragment jobs); 37 buffers including the driver's 8 MiB partial-render scratch as zero data | `0x2148b748977ca5f5` |
 
 The programs (PDS, USC) and state words inside the bundle are the open driver's generated
 output for this core; the texture is not carried (formula `Texture::CheckerV1`, digest

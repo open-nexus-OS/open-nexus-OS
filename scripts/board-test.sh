@@ -110,6 +110,10 @@ ladder_headless=(
   # sample pixels read back and the plane on the glass.
   "gpud: gpu fill ok ("
   "gpud: gpu quad ok ("
+  # TASK-0215 5a (RFC-0101 Phase 4): the render queue — the open driver's render pass replayed
+  # with the render context, free lists and dataset built by the device; the blended quad's
+  # four samples read back.
+  "gpud: gpu render ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

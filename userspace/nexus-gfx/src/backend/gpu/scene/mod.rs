@@ -14,14 +14,20 @@
 
 use alloc::vec::Vec;
 
+use super::fwif::{FreelistArgs, HwrtArgs};
 use super::{heaps, mmu, CoreId};
 
 mod pack;
+mod render;
 
 pub use pack::{runs_of, Builder};
+use render::read_render;
+pub use render::RenderSetup;
 
 pub const MAGIC: [u8; 4] = *b"NXSC";
+/// Version 1: buffers and transfer jobs. Version 2 adds the render trailer (§8d).
 pub const VERSION: u32 = 1;
+pub const VERSION_RENDER: u32 = 2;
 pub const HEADER_BYTES: usize = 32;
 /// Buffers a bundle may carry — the first quad binds 28.
 pub const MAX_BUFFERS: u32 = 256;
@@ -44,6 +50,12 @@ pub enum Kind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobKind {
     Transfer = 0,
+    /// A render pass's geometry job (RFC-0101 §8d).
+    Geometry = 1,
+    /// The partial-render fragment job that stands ready behind the geometry.
+    FragmentPartial = 2,
+    /// The fragment job proper.
+    Fragment = 3,
 }
 
 /// The texture formula a bundle names.
@@ -88,16 +100,22 @@ pub enum SceneError {
     NoTarget,
     ManyTargets,
     StreamTooLong(u32),
+    /// A render trailer with other than the local and the global free list.
+    Freelists(u32),
+    /// A static render-context state that is not the 23 registers' stream.
+    StaticState(u32),
+    /// Render jobs without the render trailer, or a trailer without render jobs.
+    RenderSetup,
 }
 
-fn get32(b: &[u8], off: usize) -> Result<u32, SceneError> {
+pub(super) fn get32(b: &[u8], off: usize) -> Result<u32, SceneError> {
     let s = b.get(off..off + 4).ok_or(SceneError::Truncated)?;
     let mut w = [0u8; 4];
     w.copy_from_slice(s);
     Ok(u32::from_le_bytes(w))
 }
 
-fn get64(b: &[u8], off: usize) -> Result<u64, SceneError> {
+pub(super) fn get64(b: &[u8], off: usize) -> Result<u64, SceneError> {
     let s = b.get(off..off + 8).ok_or(SceneError::Truncated)?;
     let mut w = [0u8; 8];
     w.copy_from_slice(s);
@@ -119,6 +137,8 @@ fn in_one_heap(va: u64, len: u64) -> bool {
         (heaps::PDS_CODE_DATA_BASE, heaps::PDS_CODE_DATA_SIZE),
         (heaps::USC_CODE_BASE, heaps::USC_CODE_SIZE),
         (heaps::TRANSFER_FRAG_BASE, heaps::TRANSFER_FRAG_SIZE),
+        (heaps::RGNHDR_BASE, heaps::RGNHDR_SIZE),
+        (heaps::VIS_TEST_BASE, heaps::VIS_TEST_SIZE),
     ];
     let Some(end) = va.checked_add(len) else {
         return false;
@@ -232,6 +252,9 @@ impl Job<'_> {
 fn read_job(b: &[u8], off: usize) -> Result<(Job<'_>, usize), SceneError> {
     let kind = match get32(b, off)? {
         0 => JobKind::Transfer,
+        1 => JobKind::Geometry,
+        2 => JobKind::FragmentPartial,
+        3 => JobKind::Fragment,
         k => return Err(SceneError::JobKind(k)),
     };
     let flags = get32(b, off + 4)?;
@@ -253,6 +276,7 @@ pub struct Scene<'a> {
     pub job_count: u32,
     buffers: &'a [u8],
     jobs: &'a [u8],
+    render: Option<RenderSetup<'a>>,
 }
 
 impl<'a> Scene<'a> {
@@ -265,7 +289,7 @@ impl<'a> Scene<'a> {
             return Err(SceneError::Magic);
         }
         let version = get32(bytes, 4)?;
-        if version != VERSION {
+        if version != VERSION && version != VERSION_RENDER {
             return Err(SceneError::Version(version));
         }
         let core = get64(bytes, 8)?;
@@ -309,7 +333,34 @@ impl<'a> Scene<'a> {
             off = next;
         }
         let jobs = &bytes[jobs_start..off];
-        Ok(Self { core: CoreId(core), texture, buffer_count, job_count, buffers, jobs })
+        let scene = Self {
+            core: CoreId(core),
+            texture,
+            buffer_count,
+            job_count,
+            buffers,
+            jobs,
+            render: None,
+        };
+        let has_render_jobs = scene.jobs().any(|j| j.kind != JobKind::Transfer);
+        let render = if version == VERSION_RENDER {
+            let (setup, next) = read_render(bytes, off)?;
+            if !has_render_jobs || next > bytes.len() {
+                return Err(SceneError::RenderSetup);
+            }
+            Some(setup)
+        } else {
+            if has_render_jobs {
+                return Err(SceneError::RenderSetup);
+            }
+            None
+        };
+        Ok(Self { render, ..scene })
+    }
+
+    /// The render pass's kernel-side objects (version 2 bundles).
+    pub fn render(&self) -> Option<RenderSetup<'a>> {
+        self.render
     }
 
     pub fn buffers(&self) -> BufferIter<'a> {
