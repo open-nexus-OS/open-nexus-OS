@@ -40,8 +40,10 @@ mod memory;
 pub(crate) mod quad;
 mod regs;
 mod render;
+pub(crate) mod render_cost;
 pub(crate) mod render_quad;
 pub(crate) mod render_quads;
+mod render_template;
 
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-14 (Block 4, layer 5c-1: the cost of a pass — TASK-0215, RFC-0101 Phase 4c)
+
+- **What a pass costs, taken apart on the board** (`docs/board/measurements/2026-10-13-gpu-render-queue/`,
+  "5c-1", cycles 11–13). The GPU-cache policy is 2–4 % of a pass and nothing per pixel; pixel
+  merging shifts a pass by 0.3 ms and leaves the slope; the background on every tile of the plane
+  was 2.1 ms of a 2.5 ms pass; what is left per pixel is the fragment program — **0.15 ns +
+  0.206 ns per instruction group**, four programs of the open compiler on one line (55–116
+  groups, 10.9–24.0 ns a pixel against the stock's 1.8 ns opaque fill); the ISP feedback costs its
+  one group, nothing more.
+- **The device maps every buffer by the open driver's creation flags** (`Device::page_flags`):
+  only the dataset, the free lists and the context state bypass the GPU's system-level cache, the
+  parameter manager's and firmware's pages are protected; the render bundle carries the flags per
+  buffer (repacked, `buffer_flags`). Layer 3's "every page out of the cache" is gone, with the
+  policy switch and `PageTables::rewrite` that measured it.
+- **A pass limited to its damage** — the pixel back end's clip, the region clip, no background on
+  empty tiles (`csb::{pbe, isp}`, `GeomCmd/FragCmd::to_stream`): the new REQUIRED rung
+  **`gpud: gpu area ok (us=410 full_us=2538 … inside=ok near=kept far=kept)`** — two CPU
+  sentinels outside the limited pass's rectangle (one a pixel above the quad in its own tile)
+  survive, the quad's sample is right, the pass costs a sixth of the whole-plane one.
+- **The program probes** (`resources/gpu/programs`, provenance and digests; the rung writes a
+  program into the bundle's code arena and names it through a copy of the fragment kick word, its
+  pass type through a copy of the draw's state block): the base program, the same with 48 more
+  ALU groups, without the helper-lane feedback (early fragment tests), opaque.
+- **gpud's resources after the rungs**: a buffer's pages are walked while the page tables are
+  written (a list per binding ran the 384 KiB heap dry and hung the boot), the buffer table is
+  allocated whole, the rungs draw in the bundle's buffers' tails and create no buffer of their own
+  (four more filled gpud's 64 address-space regions and the cursor layer found none);
+  `gpud: gpu heap (used=87418 of=393216)`.
+
 ### Added - 2026-10-14 (Block 4, layer 5b: dynamic geometry — TASK-0215, RFC-0101 Phase 4b)
 
 - **The device writes every per-draw word of a render pass itself.** gpud

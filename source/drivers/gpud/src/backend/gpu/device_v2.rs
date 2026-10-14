@@ -49,6 +49,11 @@ struct Bo {
     len: usize,
     backing: Backing,
     bound: bool,
+    /// The open driver's flags for the buffer, the mapping policy since 5c-1 (TASK-0215): the
+    /// GPU may cache it in its system-level cache; the parameter manager and the firmware own
+    /// its pages.
+    device_cached: bool,
+    pm_fw_protect: bool,
 }
 
 /// The device: the G1 state plus G2's bookkeeping.
@@ -65,11 +70,53 @@ impl Device {
     pub(crate) fn new(gpu: Box<Gpu>) -> Self {
         Self {
             gpu,
-            bos: Vec::new(),
+            // The table's whole bound at once: gpud's heap never frees, and a table grown by
+            // doubling leaves every smaller copy behind.
+            bos: Vec::with_capacity(MAX_BOS),
             space: VmSpace::new(40, PAGE as u32),
             owner: None,
             render: None,
         }
+    }
+
+    /// The page flags of a binding of `b`, as the open driver maps the buffer (5c-1): only
+    /// the buffers it creates with the bypass flag — the dataset, the free lists, the context
+    /// state — stay out of the GPU's system-level cache; the parameter manager's and the
+    /// firmware's own pages are protected. Every page out of the cache cost 2–4 % a pass and
+    /// bought nothing (measurement README, 5c-1).
+    fn page_flags(b: &Bo, access: Access) -> PageFlags {
+        PageFlags {
+            read_only: access == Access::ReadOnly,
+            slc_bypass: !b.device_cached,
+            pm_fw_protect: b.pm_fw_protect,
+        }
+    }
+
+    /// The open driver's flags for `bo`; they apply when it is bound, so a bound buffer's are
+    /// refused rather than silently left as they were mapped.
+    pub(super) fn set_bo_flags(
+        &mut self,
+        client: ClientId,
+        bo: BoId,
+        device_cached: bool,
+        pm_fw_protect: bool,
+    ) -> Result<(), DeviceError> {
+        if self.bo(client, bo)?.bound {
+            return Err(DeviceError::Vm(VmError::Overlap));
+        }
+        if let Some(Some(b)) = self.bos.get_mut(bo.0 as usize) {
+            b.device_cached = device_cached;
+            b.pm_fw_protect = pm_fw_protect;
+        }
+        Ok(())
+    }
+
+    /// The render queues' timeline objects and their last points `(geometry, fragment)`, for a
+    /// wait that stamps each stage.
+    pub(super) fn render_progress(
+        &self,
+    ) -> Option<((super::memory::HeapObj, u32), (super::memory::HeapObj, u32))> {
+        self.render.as_ref().map(|r| r.progress())
     }
 
     /// The render pass's kernel-side objects for `client`'s context (§8d): the render context,
@@ -178,7 +225,14 @@ impl Device {
         if len == 0 || len % PAGE as usize != 0 || bus % PAGE != 0 {
             return Err(DeviceError::Vm(VmError::Unaligned));
         }
-        self.insert(Bo { client, len, backing: Backing::Plane { bus }, bound: false })
+        self.insert(Bo {
+            client,
+            len,
+            backing: Backing::Plane { bus },
+            bound: false,
+            device_cached: false,
+            pm_fw_protect: false,
+        })
     }
 
     /// The CPU view of a VMO-backed buffer (a plane's bytes are the display's).
@@ -200,22 +254,18 @@ impl Device {
         }
     }
 
-    /// The physical pages behind a buffer, in order.
-    fn pages(bo: &Bo) -> Vec<u64> {
-        let mut pages = Vec::with_capacity(bo.len / PAGE as usize);
-        match &bo.backing {
-            Backing::Vmo(v) => {
-                for run in v.runs() {
-                    let n = run.len.div_ceil(PAGE);
-                    pages.extend((0..n).map(|i| run.bus + i * PAGE));
-                }
-            }
-            Backing::Plane { bus } => {
-                pages.extend((0..bo.len as u64 / PAGE).map(|i| bus + i * PAGE));
-            }
-        }
-        pages.truncate(bo.len / PAGE as usize);
-        pages
+    /// The physical pages behind a buffer, in order — walked, never collected: gpud's heap
+    /// never frees, and a list per binding (16 KiB for a plane) ran it dry (5c-1's hang).
+    fn pages(bo: &Bo) -> impl Iterator<Item = u64> + '_ {
+        let (runs, plane) = match &bo.backing {
+            Backing::Vmo(v) => (v.runs(), None),
+            Backing::Plane { bus } => (&[][..], Some(*bus)),
+        };
+        let pages = (bo.len / PAGE as usize) as u64;
+        runs.iter()
+            .flat_map(|r| (0..r.len.div_ceil(PAGE)).map(move |i| r.bus + i * PAGE))
+            .chain(plane.into_iter().flat_map(move |bus| (0..pages).map(move |i| bus + i * PAGE)))
+            .take(pages as usize)
     }
 
     /// Unmaps `va`'s pages and flushes; whether the firmware answered.
@@ -282,10 +332,13 @@ impl GfxDevice for Device {
 
     fn destroy_context(&mut self, client: ClientId, ctx: ContextId) -> Result<(), DeviceError> {
         self.check_ctx(client, ctx)?;
-        let bound: Vec<(u64, u64)> = self.space.bindings().map(|b| (b.va.0, b.len)).collect();
-        for (va, len) in bound {
-            let _ = self.space.unbind(GpuVa(va));
-            self.unmap_range(va, len);
+        loop {
+            let next = self.space.bindings().next().map(|b| (b.va, b.len));
+            let Some((va, len)) = next else { break };
+            if self.space.unbind(va).is_err() {
+                break;
+            }
+            self.unmap_range(va.0, len);
         }
         for slot in self.bos.iter_mut() {
             if slot.as_ref().is_some_and(|b| b.client == client) {
@@ -310,7 +363,14 @@ impl GfxDevice for Device {
         }
         let len = bytes.div_ceil(PAGE as usize) * PAGE as usize;
         let vmo = DmaVmo::anonymous(DEVICE_MMIO_SLOT, len).map_err(|_| DeviceError::Exhausted)?;
-        self.insert(Bo { client, len, backing: Backing::Vmo(vmo), bound: false })
+        self.insert(Bo {
+            client,
+            len,
+            backing: Backing::Vmo(vmo),
+            bound: false,
+            device_cached: false,
+            pm_fw_protect: false,
+        })
     }
 
     fn vm_bind(
@@ -327,12 +387,13 @@ impl GfxDevice for Device {
             return Err(DeviceError::Vm(VmError::Overlap));
         }
         let len = b.len as u64;
-        let pages = Self::pages(b);
+        let flags = Self::page_flags(b, access);
         self.space.bind(Binding { va, len, bo: bo.0, access })?;
-        let flags = PageFlags {
-            read_only: access == Access::ReadOnly,
-            slc_bypass: true,
-            pm_fw_protect: false,
+        // The buffer through its field, the tables through theirs: the pages are walked while
+        // the tables are written, nothing collected.
+        let Some(Some(b)) = self.bos.get(bo.0 as usize) else {
+            let _ = self.space.unbind(va);
+            return Err(DeviceError::NoSuchBuffer);
         };
         let gpu = &mut *self.gpu;
         let Some(mut tables) = gpu.tables.take() else {
@@ -341,9 +402,9 @@ impl GfxDevice for Device {
         };
         let mut mapped = 0u64;
         let mut failed = false;
-        for (i, phys) in pages.iter().enumerate() {
+        for (i, phys) in Self::pages(b).enumerate() {
             let page_va = va.0 + i as u64 * PAGE;
-            if tables.map(&mut Tables(&mut gpu.mem), page_va, *phys, flags).is_err() {
+            if tables.map(&mut Tables(&mut gpu.mem), page_va, phys, flags).is_err() {
                 failed = true;
                 break;
             }

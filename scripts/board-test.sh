@@ -117,6 +117,9 @@ ladder_headless=(
   # TASK-0215 5b: dynamic geometry — three quads at positions and tints the device chose, the
   # per-draw blocks and stream records written by the device, each quad's centre read back.
   "gpud: gpu quads ok ("
+  # TASK-0215 5c-1: a pass limited to its quad's area — two CPU sentinels outside it (one in
+  # the quad's own tile, one far) kept, the quad's sample right, cheaper than the whole plane.
+  "gpud: gpu area ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

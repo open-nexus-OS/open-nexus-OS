@@ -99,6 +99,9 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             // TASK-0215 5b: dynamic geometry — three quads at the device's positions and tints,
             // the per-draw blocks and records written by the device: `gpud: gpu quads ok (`.
             crate::gpu::render_quads::rung(dev, &mut display);
+            // TASK-0215 5c-1: the cost of a pass taken apart, one factor at a time — the GPU
+            // cache policy, pixel merging, the render area: `gpud: gpu cost (` lines.
+            crate::gpu::render_cost::rung(dev, &mut display);
         }
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let clock = {

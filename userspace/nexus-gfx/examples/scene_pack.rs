@@ -26,7 +26,8 @@ use std::path::Path;
 
 use nexus_gfx::backend::gpu::fwif::{FreelistArgs, HwrtArgs};
 use nexus_gfx::backend::gpu::scene::{
-    checker_v1, fnv1a64, runs_of, Builder, JobKind, Kind, Scene, Texture, CHECKER_V1_FNV1A64,
+    buffer_flags, checker_v1, fnv1a64, runs_of, Builder, JobKind, Kind, Scene, Texture,
+    CHECKER_V1_FNV1A64,
 };
 use nexus_gfx::backend::gpu::CoreId;
 
@@ -97,8 +98,34 @@ fn main() {
     }
     let target_va = first_plane.map(|(_, va)| va);
 
+    // The open driver's flags per buffer (captures since 2026-10-14 log them at creation):
+    // bit 0 "bypass device cache", bit 1 "PM/firmware protect". A capture without them leaves
+    // every buffer out of the GPU's cache, as before.
+    let mut bo_flags: BTreeMap<u64, u64> = BTreeMap::new();
+    let mut va_flags: BTreeMap<u64, u32> = BTreeMap::new();
+    for line in log.lines() {
+        if line.starts_with("bo ") {
+            if let (Some(h), Some(f)) = (field(line, "handle="), field(line, "flags=")) {
+                bo_flags.insert(h, f);
+            }
+        } else if line.starts_with("map ") {
+            if let (Some(h), Some(va)) = (field(line, "handle="), field(line, "va=")) {
+                if let Some(&f) = bo_flags.get(&h) {
+                    let mut ours = 0;
+                    if f & 1 == 0 {
+                        ours |= buffer_flags::DEVICE_CACHED;
+                    }
+                    if f & 2 != 0 {
+                        ours |= buffer_flags::PM_FW_PROTECT;
+                    }
+                    va_flags.insert(va, ours);
+                }
+            }
+        }
+    }
+
     // The buffers: the last version of each, append-only across the submits.
-    let mut buffers: Vec<(u64, u64, Kind, Vec<(u32, Vec<u8>)>)> = Vec::new();
+    let mut buffers: Vec<(u64, u64, Kind, u32, Vec<(u32, Vec<u8>)>)> = Vec::new();
     let mut texture = false;
     let mut rows = Vec::new();
     for (va, mut vs) in versions {
@@ -123,8 +150,12 @@ fn main() {
             (Kind::Data, runs_of(last, 32))
         };
         let carried: usize = runs.iter().map(|(_, r)| r.len()).sum();
-        rows.push(format!("| `{va:#014x}` | {len:>9} | {kind:?} | {} | {carried} |", runs.len()));
-        buffers.push((va, len, kind, runs));
+        let flags = va_flags.get(&va).copied().unwrap_or(0);
+        rows.push(format!(
+            "| `{va:#014x}` | {len:>9} | {kind:?} | {} | {carried} | {flags:#x} |",
+            runs.len()
+        ));
+        buffers.push((va, len, kind, flags, runs));
     }
 
     // The render trailer, when the capture has a render pass.
@@ -168,8 +199,8 @@ fn main() {
 
     let mut b =
         Builder::new(CoreId::BOARD, if texture { Texture::CheckerV1 } else { Texture::None });
-    for (va, len, kind, runs) in &buffers {
-        b.buffer(*va, *len, *kind, runs);
+    for (va, len, kind, flags, runs) in &buffers {
+        b.buffer_with_flags(*va, *len, *kind, *flags, runs);
     }
     for (n, (ty, flags, stream)) in &jobs {
         let kind = match (*ty, *flags & FRAG_PARTIAL_RENDER != 0) {
@@ -188,8 +219,8 @@ fn main() {
     let scene =
         Scene::parse(&bytes, CoreId::BOARD).expect("the bundle parses for the board's core");
     std::fs::write(out, &bytes).expect("write bundle");
-    println!("| GPU address | Bytes | Kind | Runs | Carried |");
-    println!("|---|---|---|---|---|");
+    println!("| GPU address | Bytes | Kind | Runs | Carried | Flags |");
+    println!("|---|---|---|---|---|---|");
     for r in rows {
         println!("{r}");
     }

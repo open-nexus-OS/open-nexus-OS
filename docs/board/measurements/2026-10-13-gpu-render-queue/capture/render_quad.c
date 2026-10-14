@@ -79,6 +79,18 @@ int main(int argc, char **argv)
    const uint32_t W = 1920, H = 1080, TW = 256, TH = 256;
    int nquads = argc > 1 ? atoi(argv[1]) : 1;
    if (nquads < 1 || nquads > 3) nquads = 1;
+   float dx = argc > 2 ? (float)atof(argv[2]) : 0.0f;   /* shifts every quad */
+   float tint_r = argc > 3 ? (float)atof(argv[3]) : -1.0f; /* overrides quad 0's red tint */
+   int frames = argc > 4 ? atoi(argv[4]) : 1; /* frames submitted in a row */
+   /* RQ_AREA="x,y,w,h": the render area (and the pipeline's scissor); RQ_LOAD=1: load, not clear. */
+   VkRect2D area = { { 0, 0 }, { W, H } };
+   if (getenv("RQ_AREA")) {
+      int ax, ay, aw, ah;
+      if (sscanf(getenv("RQ_AREA"), "%d,%d,%d,%d", &ax, &ay, &aw, &ah) == 4) {
+         area.offset.x = ax; area.offset.y = ay; area.extent.width = (uint32_t)aw; area.extent.height = (uint32_t)ah;
+      }
+   }
+   int load = getenv("RQ_LOAD") && atoi(getenv("RQ_LOAD"));
    if (getenv("PVR_SHIM_DUMP_DIR")) out = getenv("PVR_SHIM_DUMP_DIR");
 
    VkApplicationInfo ai = { .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName = "render-quad", .apiVersion = VK_API_VERSION_1_1 };
@@ -131,8 +143,10 @@ int main(int argc, char **argv)
 
    /* The vertex buffer: N quads of two triangles, pixel positions and uvs. */
    struct { float x, y, u, v; } verts[18];
-   const float rects[3][2] = { { 704, 284 }, { 304, 134 }, { 1104, 434 } };
-   const float tints[3][4] = { { 1, 1, 1, 1 }, { 1, 0.5f, 0.5f, 1 }, { 0.5f, 0.5f, 1, 0.6f } };
+   float rects[3][2] = { { 704, 284 }, { 304, 134 }, { 1104, 434 } };
+   float tints[3][4] = { { 1, 1, 1, 1 }, { 1, 0.5f, 0.5f, 1 }, { 0.5f, 0.5f, 1, 0.6f } };
+   for (int i = 0; i < 3; i++) rects[i][0] += dx;
+   if (tint_r >= 0.0f) tints[0][0] = tint_r;
    for (int i = 0; i < nquads; i++) {
       float x0 = rects[i][0], y0 = rects[i][1], x1 = x0 + 512, y1 = y0 + 512;
       struct { float x, y, u, v; } quad[6] = { { x0, y0, 0, 0 }, { x1, y0, 1, 0 }, { x1, y1, 1, 1 }, { x0, y0, 0, 0 }, { x1, y1, 1, 1 }, { x0, y1, 0, 1 } };
@@ -148,9 +162,9 @@ int main(int argc, char **argv)
 
    /* Render pass and framebuffer. */
    VkAttachmentDescription att = { .format = VK_FORMAT_B8G8R8A8_UNORM, .samples = VK_SAMPLE_COUNT_1_BIT,
-      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+      .loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR, .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
       .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, .finalLayout = VK_IMAGE_LAYOUT_GENERAL };
+      .initialLayout = load ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED, .finalLayout = VK_IMAGE_LAYOUT_GENERAL };
    VkAttachmentReference ref = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
    VkSubpassDescription sub = { .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS, .colorAttachmentCount = 1, .pColorAttachments = &ref };
    VkRenderPassCreateInfo rpci = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, .attachmentCount = 1, .pAttachments = &att, .subpassCount = 1, .pSubpasses = &sub };
@@ -177,7 +191,8 @@ int main(int argc, char **argv)
    VkWriteDescriptorSet wds = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = ds, .dstBinding = 0, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &dii };
    vkUpdateDescriptorSets(dev, 1, &wds, 0, NULL);
 
-   VkShaderModule vs = load_shader("quad.vert.spv"), fs = load_shader("quad.frag.spv");
+   VkShaderModule vs = load_shader("quad.vert.spv"), fs = load_shader(getenv("RQ_FS") ? getenv("RQ_FS") : "quad.frag.spv");
+   int blend = !(getenv("RQ_BLEND") && atoi(getenv("RQ_BLEND")) == 0);
    VkPipelineShaderStageCreateInfo stages[2] = {
       { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = vs, .pName = "main" },
       { .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = fs, .pName = "main" } };
@@ -185,17 +200,18 @@ int main(int argc, char **argv)
    VkVertexInputAttributeDescription vad[2] = { { 0, 0, VK_FORMAT_R32G32_SFLOAT, 0 }, { 1, 0, VK_FORMAT_R32G32_SFLOAT, 8 } };
    VkPipelineVertexInputStateCreateInfo vis = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO, .vertexBindingDescriptionCount = 1, .pVertexBindingDescriptions = &vbd, .vertexAttributeDescriptionCount = 2, .pVertexAttributeDescriptions = vad };
    VkPipelineInputAssemblyStateCreateInfo ias = { .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
-   VkViewport vp = { 0, 0, (float)W, (float)H, 0, 1 }; VkRect2D sc = { { 0, 0 }, { W, H } };
+   VkViewport vp = { 0, 0, (float)W, (float)H, 0, 1 }; VkRect2D sc = area;
    VkPipelineViewportStateCreateInfo vps = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, .viewportCount = 1, .pViewports = &vp, .scissorCount = 1, .pScissors = &sc };
    VkPipelineRasterizationStateCreateInfo rs = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, .polygonMode = VK_POLYGON_MODE_FILL, .cullMode = VK_CULL_MODE_NONE, .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE, .lineWidth = 1.0f };
    VkPipelineMultisampleStateCreateInfo ms = { .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT };
-   VkPipelineColorBlendAttachmentState cba = { .blendEnable = VK_TRUE, .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA, .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, .colorBlendOp = VK_BLEND_OP_ADD,
+   VkPipelineColorBlendAttachmentState cba = { .blendEnable = blend ? VK_TRUE : VK_FALSE, .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA, .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, .colorBlendOp = VK_BLEND_OP_ADD,
       .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, .alphaBlendOp = VK_BLEND_OP_ADD, .colorWriteMask = 0xf };
    VkPipelineColorBlendStateCreateInfo cbs = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, .attachmentCount = 1, .pAttachments = &cba };
    VkGraphicsPipelineCreateInfo gpci = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, .stageCount = 2, .pStages = stages, .pVertexInputState = &vis, .pInputAssemblyState = &ias,
       .pViewportState = &vps, .pRasterizationState = &rs, .pMultisampleState = &ms, .pColorBlendState = &cbs, .layout = pl, .renderPass = rp, .subpass = 0 };
    VkPipeline pipe; CK(vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1, &gpci, NULL, &pipe));
 
+   for (int frame = 0; frame < frames; frame++) {
    /* Record. */
    VkCommandPoolCreateInfo cpci = { .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
    VkCommandPool pool; CK(vkCreateCommandPool(dev, &cpci, NULL, &pool));
@@ -219,7 +235,7 @@ int main(int argc, char **argv)
       vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &to_read);
    }
    VkClearValue clear = { .color = { .float32 = { 0.10f, 0.12f, 0.16f, 1.0f } } };
-   VkRenderPassBeginInfo rpbi = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO, .renderPass = rp, .framebuffer = fb, .renderArea = { { 0, 0 }, { W, H } }, .clearValueCount = 1, .pClearValues = &clear };
+   VkRenderPassBeginInfo rpbi = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO, .renderPass = rp, .framebuffer = fb, .renderArea = area, .clearValueCount = 1, .pClearValues = &clear };
    vkCmdBeginRenderPass(cb, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pl, 0, 1, &ds, 0, NULL);
@@ -233,14 +249,17 @@ int main(int argc, char **argv)
    VkFenceCreateInfo fci = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO }; VkFence fence; CK(vkCreateFence(dev, &fci, NULL, &fence));
    VkSubmitInfo si = { .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &cb };
    CK(vkQueueSubmit(q, 1, &si, fence));
-   VkResult wr = vkWaitForFences(dev, 1, &fence, VK_TRUE, 1000000000ull);
+   VkResult wr; wr = vkWaitForFences(dev, 1, &fence, VK_TRUE, 1000000000ull);
+   printf("frame %d: fence wait -> %d\n", frame, wr);
+   }
+   VkResult wr = VK_SUCCESS;
    printf("submitted %d quad(s); fence wait -> %d\n", nquads, wr);
 
    char path[1024]; snprintf(path, sizeof(path), "%s/scene.txt", out); FILE *sf = fopen(path, "w");
    if (sf) {
       fprintf(sf, "dst %ux%u B8G8R8A8_UNORM %s rowPitch=%llu\n", W, H, dst_linear ? "linear" : "optimal", (unsigned long long)dl.rowPitch);
       fprintf(sf, "tex %ux%u R8G8B8A8_UNORM %s rowPitch=%llu\n", TW, TH, tex_linear ? "linear" : "optimal(staged)", (unsigned long long)tl.rowPitch);
-      fprintf(sf, "clear 0.10 0.12 0.16 1.0\nblend src_alpha one_minus_src_alpha; alpha one zero\n");
+      fprintf(sf, "%s 0.10 0.12 0.16 1.0\nblend src_alpha one_minus_src_alpha; alpha one zero\nrender area %d %d %u %u\n", load ? "load" : "clear", area.offset.x, area.offset.y, area.extent.width, area.extent.height);
       for (int i = 0; i < nquads; i++)
          fprintf(sf, "quad %d rect %g %g 512 512 tint %g %g %g %g\n", i, rects[i][0], rects[i][1], tints[i][0], tints[i][1], tints[i][2], tints[i][3]);
       fprintf(sf, "vertex stride 16: f32 x_px, y_px, u, v; 6 per quad\n");

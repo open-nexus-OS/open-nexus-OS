@@ -1,0 +1,7 @@
+dst 1920x1080 B8G8R8A8_UNORM linear rowPitch=7680
+tex 256x256 R8G8B8A8_UNORM linear rowPitch=1024
+clear 0.10 0.12 0.16 1.0
+blend src_alpha one_minus_src_alpha; alpha one zero
+render area 704 284 512 512
+quad 0 rect 704 284 512 512 tint 1 1 1 1
+vertex stride 16: f32 x_px, y_px, u, v; 6 per quad

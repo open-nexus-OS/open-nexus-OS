@@ -94,9 +94,22 @@ impl Builder {
 
     /// A buffer with its runs (offset, bytes).
     pub fn buffer(&mut self, va: u64, len: u64, kind: Kind, runs: &[(u32, Vec<u8>)]) {
+        self.buffer_with_flags(va, len, kind, 0, runs);
+    }
+
+    /// A buffer with its runs and its [`super::buffer_flags`].
+    pub fn buffer_with_flags(
+        &mut self,
+        va: u64,
+        len: u64,
+        kind: Kind,
+        flags: u32,
+        runs: &[(u32, Vec<u8>)],
+    ) {
         self.bytes.extend_from_slice(&va.to_le_bytes());
         self.bytes.extend_from_slice(&len.to_le_bytes());
-        self.bytes.extend_from_slice(&(kind as u32).to_le_bytes());
+        self.bytes
+            .extend_from_slice(&(kind as u32 | (flags & super::buffer_flags::ALL)).to_le_bytes());
         self.bytes.extend_from_slice(&(runs.len() as u32).to_le_bytes());
         for (off, data) in runs {
             self.bytes.extend_from_slice(&off.to_le_bytes());

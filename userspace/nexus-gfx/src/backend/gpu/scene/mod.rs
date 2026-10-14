@@ -46,6 +46,19 @@ pub enum Kind {
     Texture = 2,
 }
 
+/// Per-buffer flags, in the kind word above its low byte (TASK-0215 5c): what the open driver
+/// asked for the buffer at creation. A bundle without them keeps every buffer out of the GPU's
+/// system-level cache, as layers 4 and 5a/5b bound them.
+pub mod buffer_flags {
+    /// The GPU may cache the buffer in its system-level cache (the open driver's buffers
+    /// without "bypass device cache": everything but the dataset, the free lists and the
+    /// context state).
+    pub const DEVICE_CACHED: u32 = 1 << 8;
+    /// The parameter manager and the firmware own the pages (the free lists, the mlist).
+    pub const PM_FW_PROTECT: u32 = 1 << 9;
+    pub const ALL: u32 = DEVICE_CACHED | PM_FW_PROTECT;
+}
+
 /// The queue a job runs on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobKind {
@@ -159,11 +172,23 @@ pub struct Buffer<'a> {
     pub va: u64,
     pub len: u64,
     pub kind: Kind,
+    /// [`buffer_flags`].
+    pub flags: u32,
     pub run_count: u32,
     runs: &'a [u8],
 }
 
 impl<'a> Buffer<'a> {
+    /// Whether the GPU may cache the buffer in its system-level cache.
+    pub const fn device_cached(&self) -> bool {
+        self.flags & buffer_flags::DEVICE_CACHED != 0
+    }
+
+    /// Whether the parameter manager and the firmware own the pages.
+    pub const fn pm_fw_protect(&self) -> bool {
+        self.flags & buffer_flags::PM_FW_PROTECT != 0
+    }
+
     /// The runs, in file order.
     pub fn runs(&self) -> RunIter<'a> {
         RunIter { bytes: self.runs, off: 0, left: self.run_count }
@@ -206,12 +231,17 @@ fn read_run(b: &[u8], off: usize) -> Result<(Run<'_>, usize), SceneError> {
 fn read_buffer(b: &[u8], off: usize) -> Result<(Buffer<'_>, usize), SceneError> {
     let va = get64(b, off)?;
     let len = get64(b, off + 8)?;
-    let kind = match get32(b, off + 16)? {
+    let word = get32(b, off + 16)?;
+    let kind = match word & 0xff {
         0 => Kind::Data,
         1 => Kind::Target,
         2 => Kind::Texture,
-        k => return Err(SceneError::Kind(k)),
+        _ => return Err(SceneError::Kind(word)),
     };
+    let flags = word & !0xff;
+    if flags & !buffer_flags::ALL != 0 {
+        return Err(SceneError::Kind(word));
+    }
     let run_count = get32(b, off + 20)?;
     if va % mmu::PAGE != 0 || len % mmu::PAGE != 0 || len == 0 {
         return Err(SceneError::Unaligned { va });
@@ -231,7 +261,7 @@ fn read_buffer(b: &[u8], off: usize) -> Result<(Buffer<'_>, usize), SceneError> 
         cursor = next;
     }
     let runs = &b[runs_start..cursor];
-    Ok((Buffer { va, len, kind, run_count, runs }, cursor))
+    Ok((Buffer { va, len, kind, flags, run_count, runs }, cursor))
 }
 
 /// One job of the bundle.
@@ -450,112 +480,6 @@ pub fn fnv1a64(bytes: &[u8]) -> u64 {
     bytes
         .iter()
         .fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const PAGE: u64 = mmu::PAGE;
-
-    fn bundle(target: u64, data_runs: &[(u32, Vec<u8>)]) -> Vec<u8> {
-        let mut b = Builder::new(CoreId::BOARD, Texture::CheckerV1);
-        b.buffer(heaps::GENERAL_BASE, PAGE, Kind::Data, data_runs);
-        b.buffer(target, 2 * PAGE, Kind::Target, &[]);
-        b.buffer(heaps::USC_CODE_BASE, PAGE, Kind::Texture, &[]);
-        b.job(JobKind::Transfer, 1, &[0xaa; 176]);
-        b.finish()
-    }
-
-    #[test]
-    fn round_trips_buffers_runs_and_jobs() {
-        let runs = alloc::vec![(16u32, alloc::vec![1u8, 2, 3]), (4000, alloc::vec![9u8; 96])];
-        let bytes = bundle(heaps::GENERAL_BASE + PAGE, &runs);
-        let s = Scene::parse(&bytes, CoreId::BOARD).unwrap();
-        assert_eq!((s.buffer_count, s.job_count, s.texture), (3, 1, Texture::CheckerV1));
-        let bufs: Vec<Buffer<'_>> = s.buffers().collect();
-        assert_eq!(bufs.len(), 3);
-        let got: Vec<(u32, Vec<u8>)> = bufs[0].runs().map(|r| (r.off, r.bytes.to_vec())).collect();
-        assert_eq!(got, runs);
-        assert_eq!(s.target().map(|t| (t.va, t.pages())), Some((heaps::GENERAL_BASE + PAGE, 2)));
-        let job = s.jobs().next().unwrap();
-        assert_eq!((job.kind, job.single_core(), job.stream.len()), (JobKind::Transfer, true, 176));
-        assert_eq!(s.data_bytes(), 99);
-    }
-
-    #[test]
-    fn test_reject_scene_for_another_core() {
-        let bytes = bundle(heaps::GENERAL_BASE + PAGE, &[]);
-        let other = CoreId::new(36, 53, 104, 796);
-        assert_eq!(
-            Scene::parse(&bytes, other).err(),
-            Some(SceneError::Core { scene: CoreId::BOARD.0, device: other.0 })
-        );
-    }
-
-    #[test]
-    fn test_reject_scene_run_outside_buffer() {
-        let bytes = bundle(heaps::GENERAL_BASE + PAGE, &[(4090, alloc::vec![1u8; 8])]);
-        assert_eq!(
-            Scene::parse(&bytes, CoreId::BOARD).err(),
-            Some(SceneError::RunOutsideBuffer { va: heaps::GENERAL_BASE, off: 4090, len: 8 })
-        );
-    }
-
-    #[test]
-    fn test_reject_scene_buffer_outside_heaps() {
-        let bytes = bundle(heaps::FIRMWARE_BASE, &[]);
-        assert_eq!(
-            Scene::parse(&bytes, CoreId::BOARD).err(),
-            Some(SceneError::BufferOutsideHeaps { va: heaps::FIRMWARE_BASE, len: 2 * PAGE })
-        );
-        let unaligned = bundle(heaps::GENERAL_BASE + PAGE + 16, &[]);
-        assert_eq!(
-            Scene::parse(&unaligned, CoreId::BOARD).err(),
-            Some(SceneError::Unaligned { va: heaps::GENERAL_BASE + PAGE + 16 })
-        );
-    }
-
-    #[test]
-    fn test_reject_overlapping_buffers_and_missing_target() {
-        let overlap = bundle(heaps::GENERAL_BASE, &[]);
-        assert_eq!(
-            Scene::parse(&overlap, CoreId::BOARD).err(),
-            Some(SceneError::Overlap { va: heaps::GENERAL_BASE })
-        );
-        let mut b = Builder::new(CoreId::BOARD, Texture::None);
-        b.buffer(heaps::GENERAL_BASE, PAGE, Kind::Data, &[]);
-        assert_eq!(Scene::parse(&b.finish(), CoreId::BOARD).err(), Some(SceneError::NoTarget));
-    }
-
-    #[test]
-    fn test_reject_truncated_and_foreign_headers() {
-        let bytes = bundle(heaps::GENERAL_BASE + PAGE, &[(0, alloc::vec![7u8; 40])]);
-        assert_eq!(
-            Scene::parse(&bytes[..bytes.len() - 100], CoreId::BOARD).err(),
-            Some(SceneError::Truncated)
-        );
-        assert_eq!(Scene::parse(&bytes[..8], CoreId::BOARD).err(), Some(SceneError::Short));
-        let mut magic = bytes.clone();
-        magic[0] = b'X';
-        assert_eq!(Scene::parse(&magic, CoreId::BOARD).err(), Some(SceneError::Magic));
-        let mut version = bytes.clone();
-        version[4] = 9;
-        assert_eq!(Scene::parse(&version, CoreId::BOARD).err(), Some(SceneError::Version(9)));
-    }
-
-    #[test]
-    fn checker_v1_is_the_capture_programs_texture() {
-        let mut tex = alloc::vec![0u8; 256 * 1024];
-        checker_v1(256, 256, 1024, &mut tex);
-        assert_eq!(&tex[0..4], &[255, 255, 255, 0], "frame, alpha 0 at the origin");
-        let at = |x: usize, y: usize| &tex[y * 1024 + x * 4..y * 1024 + x * 4 + 4];
-        assert_eq!(&at(20, 20)[..3], &[40, 90, 200]);
-        assert_eq!(&at(52, 20)[..3], &[230, 120, 30]);
-        assert_eq!(at(255, 255)[3], 255, "alpha 1 at the far corner");
-        // The digest of the captured texture bytes (2026-10-13, `texture.sha256`'s twin).
-        assert_eq!(fnv1a64(&tex), CHECKER_V1_FNV1A64);
-    }
 }
 
 /// FNV-1a 64 of the 256×256 checker the capture program wrote (2026-10-13).

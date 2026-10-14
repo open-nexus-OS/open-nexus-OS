@@ -23,6 +23,7 @@ mod contexts;
 mod freelist;
 mod hwrt;
 mod render;
+mod render_stream;
 mod transfer;
 
 pub use commands::*;

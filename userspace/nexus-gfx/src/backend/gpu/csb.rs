@@ -138,6 +138,43 @@ pub mod pds {
     }
 }
 
+/// The pixel back end's register words (`pbestate.xml`): the render-area clip, pixel-precise on
+/// all four edges — what the open driver changes for a smaller render area (2026-10-14).
+pub mod pbe {
+    const CLIP: u64 = 0x3fff;
+
+    /// `REG_WORD0` with `minclip_x` (bits 6–19) replaced.
+    pub const fn with_min_x(word0: u64, min_x: u32) -> u64 {
+        (word0 & !(CLIP << 6)) | (((min_x as u64) & CLIP) << 6)
+    }
+
+    /// `REG_WORD1` with `minclip_y` (46–59), `maxclip_x` (32–45), `maxclip_y` (0–13) replaced.
+    pub const fn with_clip(word1: u64, min_y: u32, max_x: u32, max_y: u32) -> u64 {
+        (word1 & !((CLIP << 46) | (CLIP << 32) | CLIP))
+            | (((min_y as u64) & CLIP) << 46)
+            | (((max_x as u64) & CLIP) << 32)
+            | ((max_y as u64) & CLIP)
+    }
+
+    /// The clip `(min_x, min_y, max_x, max_y)` the two words carry.
+    pub const fn clip(word0: u64, word1: u64) -> (u32, u32, u32, u32) {
+        (
+            ((word0 >> 6) & CLIP) as u32,
+            ((word1 >> 46) & CLIP) as u32,
+            ((word1 >> 32) & CLIP) as u32,
+            (word1 & CLIP) as u32,
+        )
+    }
+}
+
+/// The fragment job's `ISP_CTL` bits the device changes.
+pub mod isp {
+    /// Run the background object on tiles without geometry. The open driver clears it for a
+    /// render area smaller than the target, clearing by geometry instead: tiles outside the area
+    /// then cost nothing (2026-10-14).
+    pub const CTL_PROCESS_EMPTY_TILES: u32 = 1 << 17;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +208,19 @@ mod tests {
         assert_eq!(s.words(), [0x2900, 0x2700, 0x0180_0411, 0x0100_4000, 0x2940, 0x2880]);
         assert_eq!(ppp::HEADER_PDS_ONLY, 0x2c0);
         assert_eq!(s.block()[0], 0x2c0);
+    }
+
+    #[test]
+    fn the_render_area_clip_is_the_captured_one() {
+        // c_full and c_area of 2026-10-14: the full plane, then 704..1215 x 284..795.
+        let (full0, full1) = (0x0200_0efc_60a0_0000u64, 0x0000_077f_0000_0437u64);
+        let (area0, area1) = (0x0200_0efc_60a0_b000u64, 0x0047_04bf_0000_031bu64);
+        assert_eq!(pbe::clip(full0, full1), (0, 0, 1919, 1079));
+        assert_eq!(pbe::with_min_x(full0, 704), area0);
+        assert_eq!(pbe::with_clip(full1, 284, 1215, 795), area1);
+        assert_eq!(pbe::clip(area0, area1), (704, 284, 1215, 795));
+        // The captured ISP control words: process_empty_tiles on for the full plane, off for the area.
+        assert_eq!(0x8003_1000u32 & !isp::CTL_PROCESS_EMPTY_TILES, 0x8001_1000);
     }
 
     #[test]

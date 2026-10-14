@@ -301,3 +301,175 @@ driver's word-layout data, checked byte for byte against two captures. Four red 
 named a cause and two taught the rules this layer builds on: the render-target data alternate
 frame by frame, and a pass lands in fresh memory. What remains for 5c is the compositor's
 pipelines and the frame; its first measurement is the per-quad cost above.
+
+## 5c-1 — the cost of a pass (TASK-0215 5c; host and board 2026-10-14)
+
+**Question.** A pass costs us about 3.5 ms per 512² blended quad and about 2.6 ms of fixed cost
+(5b); the stock stack draws a further blended full-screen layer in 1.8 ms. Where does the time
+go, and which of the open driver's choices that we do not make closes the gap?
+
+**What the host shows** (`capture/variants/c_full`, `c_area`, `c_load`, `c_area_load`; the
+capture hook now logs every buffer's creation flags):
+
+- **The GPU's system-level cache.** The open driver creates only eight buffers with "bypass
+  device cache": the two free lists and the mlist (also "PM/firmware protect"), the render
+  context's two context-state pages, the vheap table with the RTC, the tail pointers, the region
+  headers. Everything else — vertices, control streams, PDS and USC code, uniforms, textures, the
+  colour attachment — is cached. We have mapped every page bypassing the cache since layer 3.
+  The render bundle now carries the flags per buffer (`buffer_flags`), repacked from `c_full`.
+- **Pixel merging.** The open driver disables it for every render ("until it is safe").
+- **The render area.** For a render area smaller than the target, the open driver changes three
+  things: the pixel back end's clip (`REG_WORD0.minclip_x`, `REG_WORD1.minclip_y/maxclip_x/
+  maxclip_y`, pixel-precise), the draws' region clip (16-px tiles), and `ISP_CTL.
+  process_empty_tiles` off — clearing by a quad over the area instead of the background object
+  on every tile. With `LOAD` it keeps processing empty tiles (the background loads them).
+
+**Instrument.** gpud's cost rung after `gpu quads ok`: one quad of 16², 512² and 1024² per
+condition, each pass a line — `gpud: gpu cost (series= size= us= geom_us= frag_pr_us= frag_us=
+irqs= write_us= sample=)`, the stage times stamped at the interrupts — in fresh lines of four
+transient buffers: S1 every page out of the cache (today); S2 the open driver's flags (the plane
+kept out); S3 S2 with pixel merging; S4 S2 limited to the quad (clip, no empty tiles); S5 S4 with
+pixel merging; S6 S2 with the plane cached. The policy switch rewrote every page's entry in
+place (`PageTables::rewrite`, removed with the policy decided) with one waited flush, its cost
+in `gpud: gpu cost policy (…)`.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H11 | The cache bypass of every page is most of the per-pixel cost | S2's slope (1024² − 512²) far below S1's; S2's samples right |
+| H12 | Pixel merging lowers the per-pixel cost and is safe for this pipeline | S3's slope below S2's, samples right |
+| H13 | The fixed cost is the background object on every tile of the plane | S4's 16² pass far below S2's 16² pass |
+| H14 | The firmware makes the back end's writes visible at the end of a pass with the plane cached | S6's sample right (and its cost against S2's) |
+| H15 | The fragment stage carries the cost | `frag_us` against `geom_us` in every line |
+
+**Results — the board, first cycle** (`cycle11-gpu-lines.txt`; one pass a cell, µs from the kick
+to the fragment stage's timeline write; every 512² and 1024² sample right):
+
+| Series | 16² | 512² | 1024² |
+|---|---|---|---|
+| S1 every page out of the cache | 2648 | 6124 | 16392 |
+| S2 the open driver's flags | 2535 | 5959 | 16241 |
+| S3 S2 + pixel merging | – | 5595 | 15974 |
+| S4 S2 limited to the quad | 417 | 7853 | 15259 |
+| S5 S4 + pixel merging | – | – | 15175 |
+| S6 S2 with the plane cached | – | – | 16243 |
+
+The geometry stage took 0.22–0.28 ms in every pass, the partial-render job under 0.05 ms; the
+CPU's writes of a pass's blocks about 0.63 ms before the kick (not in the cells). The policy
+switch rewrote 4859 pages in 1.1–1.2 ms. S4's 512² pass is the one cell off its line (7853 µs
+against S2's 5959) — a single pass, not repeated in this cycle.
+
+- **H11 refuted.** The slope between 512² and 1024² is 13.1 ns a pixel under S1 and S2 alike;
+  the open driver's flags save 2–4 % of a pass, a fixed share, not a per-pixel one.
+- **H12 refuted for the slope.** Pixel merging shifts the pass by 0.27–0.36 ms and leaves the
+  slope at 13.2 ns a pixel; the open driver disables it as not yet safe — it stays off.
+- **H13 confirmed.** The background object on every tile of the plane is 2.1 ms of S2's 2.5 ms
+  16² pass: limited to its quad, the pass costs 0.42 ms.
+- **H14 confirmed.** With the plane cached, the back end's writes are visible after the pass;
+  nothing gained (16243 µs against 16241).
+- **H15 confirmed.** The fragment stage carries everything but the geometry's quarter
+  millisecond.
+
+13 ns a pixel is the bar's problem: the stock stack fills an opaque textured quad at 1.8 ns a
+pixel and blends a further full-screen layer at 0.9 ns (`../2026-10-10-gpu-stock-baseline/`).
+The memory system is not where the gap is.
+
+**The boot after the rung hung** at the GPU's plane — the operator saw the two checkerboards
+and nothing after. gpud's 384 KiB heap, which never frees, ran dry
+(`alloc-fail svc=gpud … size=0x1000`): every binding collected its page list (16 KiB for a
+plane), each policy switch collected a plan of every bound page (about 40 KiB, three times),
+the buffer table grew by doubling. gpud died, windowd's presents went unanswered. The device
+now walks a buffer's pages while it writes the tables, allocates the buffer table whole, and
+the policy switch is gone with the policy decided (below).
+
+**Verdict, first cycle.** The device maps every buffer by the open driver's flags (RFC-0101
+§3); pixel merging stays off; a pass is limited to its damage — the back end's clip, the region
+clip, no background on empty tiles — which is what 5c-3's damage-driven frame builds on, and
+the second cycle's gate proves it pixel by pixel. The per-pixel cost is the open question.
+
+**The program, on the host** (`resources/gpu/programs/README.md`; the open compiler's listing,
+`PCO_DEBUG_PRINT=fs,stats`). The fragment program of `texture(tex, uv) * tint` with
+source-over blending is 68 instruction groups for 17 temporaries: the sample-mask and
+helper-lane prologue (14 groups), fourteen moves zeroing the unused part of the sampler's
+coordinate block, the sample, four moves of the tint from shared registers before four
+multiplies, the dynamic alpha-to-coverage path (14 groups, a state bit tested at run time), the
+blend as an unpack of the tile's colour, eleven groups of arithmetic and a pack, and an ISP
+feedback instruction that discards the helper lanes — which makes the pass type punch-through.
+Two rules of the compiler explain the last part: every application fragment shader gets the
+helper-lane feedback unless it declares early fragment tests, and every one reads the tile's
+previous colour back for its sample check — so no program of this compiler is opaque to the tile
+hardware. If the fragment stage is bound by its program, 8 clocks a pixel (13 ns at 614.4 MHz)
+for 68 groups is 8.5 groups a clock, and a program of about nine groups would meet the stock's
+opaque fill.
+
+**Instrument, second cycle.** The cost rung keeps the gate and probes the program: after a 16²
+pass over the whole plane, two sentinels written by the CPU — a pixel above the quad in the
+quad's own tile (the back end's clip) and one in the plane's first tile (the region clip) — must
+survive the same pass limited to the quad, the quad's sample must read right, and the limited
+pass must cost less (`gpud: gpu area ok (`, REQUIRED). Then one 1024² area-limited pass per
+program of `resources/gpu/programs` — each written into the free tail of the bundle's code
+arena, named by a copy of the fragment kick word, its pass type set in a copy of the draw's
+state block — each a line `gpud: gpu cost (program= groups= pass= size=1024 us= geom_us=
+frag_us= irqs= sample=)`; the sample proves the program ran (the chain saturates to white, the
+opaque program writes the texel unblended). Last, `gpud: gpu heap (used= of=)`.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H16 | The fragment stage is bound by the program: a pixel costs in proportion to its instruction groups | `chain` (116 groups) against `base` (68): about 1.7× the per-pixel cost = program-bound; about equal = bound elsewhere; `opaque-eft` (55) on the same line |
+| H17 | The ISP feedback (punch-through) costs per pixel beyond its one group | `eft` (67, translucent) clearly below `base` (68, punch-through) |
+| H18 | A pass limited to its area writes nothing outside its rectangle | both sentinels kept, the sample right, the limited pass cheaper (`gpud: gpu area ok (`) |
+| H19 | The rungs leave gpud's heap enough room for the desktop | `gpud: gpu heap` well below `of`, the desktop presenting after the rung |
+
+**Results — the board, second cycle** (`cycle12-gpu-lines.txt`; one pass each, the quad
+1024² limited to its area; the per-pixel cost is the pass less the same boot's 16² limited
+pass, 420 µs, over 1 048 576 pixels):
+
+| Program | Groups | Pass type | Pass | Fragment stage | Per pixel | Per group and pixel | Sample |
+|---|---|---|---|---|---|---|---|
+| `base` | 68 | punch-through | 15 253 µs | 14 987 µs | 14.1 ns | 0.208 ns | right |
+| `chain` | 116 | punch-through | 25 615 µs | 25 351 µs | 24.0 ns | 0.207 ns | right (white) |
+| `eft` | 67 | translucent | 15 039 µs | 14 763 µs | 13.9 ns | 0.208 ns | right |
+| `opaque-eft` | 55 | translucent | 11 828 µs | 11 560 µs | 10.9 ns | 0.198 ns | right (unblended) |
+
+The gate: `gpud: gpu area ok (us=420 full_us=2547 geom_us=226 frag_us=193 inside=ok near=kept
+far=kept)`; the heap after the rungs: `gpud: gpu heap (used=87418 of=393216)`.
+
+- **H16 confirmed.** The chain's per-pixel cost is 1.70× the base's for 1.71× its groups; all
+  four programs lie on one line, 0.15 ns + 0.206 ns a group, a pixel. At 614.4 MHz that is
+  about eight pixel-groups a clock, and almost nothing per pixel outside the program.
+- **H17 refuted.** Without the ISP feedback, translucent instead of punch-through, the pass
+  costs its one group less (−1.5 %), nothing more.
+- **H18 confirmed.** Both sentinels kept — the one a pixel above the quad in its own tile
+  proves the back end's clip pixel-precise, the far one the region clip; the limited pass
+  420 µs against 2547 µs over the whole plane.
+- **H19 refuted — but not by the heap.** gpud used 87 KiB of its 384 KiB. The boot stopped at
+  the wallpaper: the cursor upload's mapping failed, `VM-MAP-FAIL reason=table-full regions=64
+  peak=64`, then `gpud: FAIL dc cursor layer (block: no contiguous block for the controller)`,
+  and the session never started (`FAIL stage wait svc=sessiond stage=session-start`). Every
+  buffer is a region of gpud's address space, which holds 64; the cost rung's four transient
+  buffers took the last ones. The rungs now draw only in the bundle's buffers' tails, split
+  between the quads rung (lower halves) and the cost rung (upper halves) — no rung creates a
+  buffer of its own.
+
+**Verdict 5c-1.** A pass costs its damage and its program. The device maps buffers by the open
+driver's flags and limits a pass to its damage tiles (pixel-precise at the back end); what is
+left per pixel is the fragment program: 0.21 ns an instruction group. The open compiler spends
+55–68 groups on a textured quad — the helper-lane prologue, the coordinate zeroing, the
+alpha-to-coverage path, the tile read-back for its sample check — where the work itself (iterate,
+sample, tint, blend, pack, emit) is a fraction; the stock stack's opaque fill at 1.8 ns a pixel is
+about eight groups on this line. So 5c-2's pipelines cannot be the open compiler's output as it
+stands. Their programs must be written for this core — by an encoder of ours against the open
+compiler's published instruction description, or by the open compiler with that overhead taken
+out — each with its group count as its budget and its ns a pixel measured against the stock's;
+which of the two is 5c-2's first decision.
+Carried: gpud's address space holds 64 regions and the rungs plus the display use nearly all —
+the frame path needs buffers that the GPU alone maps and buffers that end (the memory lane's).
+
+**Results — the board, third cycle** (`cycle13-gpu-lines.txt`, `cycle13-board-test.txt`; the
+rungs in the bundle's tails, no buffer of their own): the desktop after the rungs, the cursor
+layer up (`gpud: dc cursor layer ok`), the session shell visible; the operator confirmed all
+eight points on this boot; `[PASS] board-visible: 60 rungs, 7 operator marker(s), no FAIL
+marker, manifest clean`. The lines repeat the second cycle's to a few microseconds — `gpu area
+ok (us=410 full_us=2538 … near=kept far=kept)`; `base` 15 244 µs, `chain` 25 608, `eft` 15 019,
+`opaque-eft` 11 825; `gpu heap (used=87418 of=393216)`. A boot in between (the third cycle's
+first) ended with the operator re-plugging the mouse's receiver: `xhcid: hid interface lost`
+there is the unplug (transaction error, then the receiver enumerated again), not the driver.

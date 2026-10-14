@@ -1,0 +1,327 @@
+======= BEGIN CONTROL STREAM DUMP =======
+Frame num                            : 0
+Job num                              : 0
+Status                               : VK_SUCCESS (0)
+Stream type                          : GRAPHICS (1)
+Nr of BOs                            : 1
+
+------- Buffer objects -------
+[0] 0x80010d1000 ->     0x7ff1564ee000 (4 KiB, 0x1000 bytes)
+
+------- First buffer content -------
+[0000] 0: PDS_STATE_UPDATE
+  dm_target                          : VDM (0)
+  usc_target                         : ALL (0)
+  usc_common_size                    : 64 bytes (1 x 64 bytes)
+  usc_unified_size                   : 0 bytes (0 x 16 bytes)
+  pds_temp_size                      : 0 bytes (0 x 16 bytes)
+  pds_data_size                      : 16 bytes (1 x 16 bytes)
+  pds_data_addr                      : 0xda000028c0 (0xda00000000 + 0x00000028c0)
+    <buffer size>                    : 16 bytes (from pds_data_size)
+    <host addr>                      : 0x7ff1565148c0
+    <content>                        : <not decoded>
+    <raw>                            : 131072 bytes
+  sd_type                            : NONE (0)
+  sd_next_type                       : NONE (0)
+  pds_code_addr                      : 0xda00002800 (0xda00000000 + 0x0000002800)
+    <buffer size>                    : 124928 bytes mapped
+    <host addr>                      : 0x7ff156514800
+    <content>                        : <not decoded>
+    <raw>                            : 131072 bytes
+  <raw>                              : 12 bytes
+    [0]  01..0120 c028.... ..28....
+    [c]  <end of buffer>
+[000c] 1: PPP_STATE_UPDATE
+  word_count                         : 26
+  addr                               : 0x8000053200
+    msb                              : 0x8000000000
+    lsb                              : 0x0000053200
+    <buffer size>                    : 104 bytes (from word_count)
+    <host addr>                      : 0x7ff1564fb200
+    <content>                        : <decoded as PPP>
+    [000] 0: STATE_HEADER
+      pres_ispctl                    : yes (1)
+      pres_ispctl_fa                 : yes (1)
+      pres_ispctl_fb                 : yes (1)
+      pres_ispctl_ba                 : no (0)
+      pres_ispctl_bb                 : no (0)
+      pres_ispctl_dbsc               : yes (1)
+      pres_pds_state_ptr0            : yes (1)
+      pres_pds_state_ptr1            : yes (1)
+      pres_pds_state_ptr2            : no (0)
+      pres_pds_state_ptr3            : yes (1)
+      pres_region_clip               : yes (1)
+      pres_viewport                  : yes (1)
+      view_port_count                : 1 (0 + 1)
+      pres_wclamp                    : yes (1)
+      pres_outselects                : yes (1)
+      pres_varying_word0             : yes (1)
+      pres_varying_word1             : yes (1)
+      pres_varying_word2             : yes (1)
+      pres_ppp_ctrl                  : yes (1)
+      pres_stream_out_size           : yes (1)
+      pres_stream_out_program        : no (0)
+      context_switch                 : no (0)
+      pres_terminate                 : no (0)
+      not_final_term                 : no (0)
+      <raw>                          : 4 bytes
+        [0]  e70e7f..
+        [4]  <end of buffer>
+    [004] 1: STATE_ISP
+      visreg                         : 0
+      visbool                        : no (0)
+      vistest                        : no (0)
+      scenable                       : yes (1)
+      dbenable                       : no (0)
+      bpres                          : yes (1)
+      two_sided                      : no (0)
+      ovgmtestdisable                : no (0)
+      tagwritedisable                : no (0)
+      upass                          : 0
+      validid                        : 0
+      front
+        objtype                      : TRIANGLE (0)
+        passtype                     : PUNCH_THROUGH (2)
+        ovgvispassmaskop             : no (0)
+        maskval                      : no (0)
+        dwritedisable                : yes (1)
+        dfbztestenable               : no (0)
+        dcmpmode                     : ALWAYS (7)
+        linefilllastpixel            : no (0)
+        pointlinewidth               : 1.0 (0x0f + 0x01)
+        sref                         : 0
+        scmpmode                     : ALWAYS (7)
+        sop1                         : KEEP (0)
+        sop2                         : KEEP (0)
+        sop3                         : KEEP (0)
+        scmpmask                     : 0x00
+        swmask                       : 0x00
+      back                           : <not present>
+      dbindex                        : 0
+      scindex                        : 0
+      <raw>                          : 16 bytes
+        [00]  ....05.. ..0f2e02 ......0e ........
+        [10]  <end of buffer>
+    [014] 2: STATE_PDS
+      shaderbase                     : 0xda00002900 (0xda00000000 + 0x0000002900)
+      texunicodebase                 : 0xda00002700 (0xda00000000 + 0x0000002700)
+      pds_uniformsize                : 12 words (3 x 4 words)
+      pds_texturestatesize           : 0 words (0 x 4 words)
+      pds_varyingsize                : 4 words (1 x 4 words)
+      usc_varyingsize                : 16 words (1 x 16 words)
+      pds_tempsize                   : 4 words (1 x 4 words)
+      usc_sharedsize                 : 32 words (2 x 16 words)
+      pds_tri_merge_disable          : yes (1)
+      pds_batchnum                   : 0
+      varyingbase                    : 0xda00002940 (0xda00000000 + 0x0000002940)
+      texturedatabase                : <not present>
+      uniformdatabase                : 0xda00002880 (0xda00000000 + 0x0000002880)
+      <raw>                          : 24 bytes
+        [00]  ..29.... ..27.... 11048001 ..40..01  4029.... 8028....
+        [18]  <end of buffer>
+    [02c] 3: REGION_CLIP
+      mode                           : OUTSIDE (1)
+      left                           : 1408 pixels (44 x 32 pixels)
+      right                          : 2400 pixels (75 x 32 pixels)
+      top                            : 544 pixels (17 x 32 pixels)
+      bottom                         : 1568 pixels (49 x 32 pixels)
+      <raw>                          : 8 bytes
+        [0]  4b..2c80 31..11..
+        [8]  <end of buffer>
+    [034] 4: VIEWPORT 0
+      a0                             : 960.000000 (0x44700000)
+      m0                             : 960.000000 (0x44700000)
+      a1                             : 540.000000 (0x44070000)
+      m1                             : 540.000000 (0x44070000)
+      a2                             : 0.000000 (0x00000000)
+      m2                             : 1.000000 (0x3f800000)
+      <raw>                          : 24 bytes
+        [00]  ....7044 ....7044 ....0744 ....0744  ........ ....803f
+        [18]  <end of buffer>
+    [04c] 5: WCLAMP
+      value                          : 0.000000 (0x29e12e13)
+      <raw>                          : 4 bytes
+        [0]  132ee129
+        [4]  <end of buffer>
+    [050] 6: OUTPUT_SEL
+      plane0                         : no (0)
+      plane1                         : no (0)
+      plane2                         : no (0)
+      plane3                         : no (0)
+      plane4                         : no (0)
+      plane5                         : no (0)
+      plane6                         : no (0)
+      plane7                         : no (0)
+      cullplane0                     : no (0)
+      cullplane1                     : no (0)
+      cullplane2                     : no (0)
+      cullplane3                     : no (0)
+      cullplane4                     : no (0)
+      cullplane5                     : no (0)
+      cullplane6                     : no (0)
+      cullplane7                     : no (0)
+      rhw_pres                       : yes (1)
+      isp_position_depth_clamp_z     : no (0)
+      psprite_size_pres              : yes (1)
+      vpt_tgt_pres                   : no (0)
+      render_tgt_pres                : no (0)
+      tsp_unclamped_z_pres           : no (0)
+      vtxsize                        : 7
+      <raw>                          : 4 bytes
+        [0]  ....0507
+        [4]  <end of buffer>
+    [054] 7: STATE_VARYING
+      f32_linear                     : 2
+      f32_flat                       : 0
+      f32_npc                        : 0
+      f16_linear                     : 0
+      f16_flat                       : 0
+      f16_npc                        : 0
+      output_clip_planes             : 0
+      <raw>                          : 12 bytes
+        [0]  02...... ........ ........
+        [c]  <end of buffer>
+    [060] 8: STATE_PPP_CTRL
+      cullmode                       : NO_CULLING (0)
+      updatebbox                     : no (0)
+      resetbbox                      : no (0)
+      wbuffen                        : no (0)
+      wclampen                       : yes (1)
+      pretransform                   : no (0)
+      flatshade_vtx                  : VTX_VERTEX_0 (1)
+      drawclippededges               : yes (1)
+      clip_mode                      : FRONT_REAR (1)
+      pres_prim_id                   : no (0)
+      gs_output_topology             : POINT_LIST (0)
+      prim_msaa                      : no (0)
+      <raw>                          : 4 bytes
+        [0]  a006....
+        [4]  <end of buffer>
+    [064] 9: STATE_STREAM_OUT
+      stream0_ta_output              : no (0)
+      stream0_mem_output             : no (0)
+      stream1_size                   : 0 words
+      stream2_size                   : 0 words
+      stream3_size                   : 0 words
+      pds_temp_size                  : <not present>
+      pds_data_size                  : <not present>
+      sync                           : <not present>
+      pds_data_addr                  : <not present>
+      <raw>                          : 4 bytes
+        [0]  <empty buffer>
+        [4]  <end of buffer>
+    [068] <end of buffer>
+    <raw>                            : 131072 bytes
+  <raw>                              : 8 bytes
+    [0]  801a.... ..3205..
+    [8]  <end of buffer>
+[0014] 2: VDM_STATE_UPDATE
+  cut_index                          : <not present>
+  vs_pds_data_base_addr              : 0xda00002840 (0xda00000000 + 0x0000002840)
+    <buffer size>                    : 64 bytes (from pds_data_size)
+    <host addr>                      : 0x7ff156514840
+    <content>                        : <not decoded>
+    <raw>                            : 131072 bytes
+  vs_pds_code_base_addr              : 0xda00002740 (0xda00000000 + 0x0000002740)
+    <buffer size>                    : 125120 bytes mapped
+    <host addr>                      : 0x7ff156514740
+    <content>                        : <not decoded>
+    <raw>                            : 131072 bytes
+  vs_output_size                     : 28 bytes (7 x 4 bytes)
+  vs_max_instances                   : 16
+  vs_usc_common_size                 : 0 bytes (0 x 64 bytes)
+  vs_usc_unified_size                : 16 bytes (1 x 16 bytes)
+  vs_pds_temp_size                   : 16 bytes (1 x 16 bytes)
+  vs_pds_data_size                   : 64 bytes (4 x 16 bytes)
+  ds_present                         : no (0)
+  gs_present                         : no (0)
+  hs_present                         : no (0)
+  cam_size                           : 32 (31 + 1)
+  uvs_scratch_size_select            : FIVE (0)
+  cut_index_enable                   : no (0)
+  tess_enable                        : no (0)
+  gs_enable                          : no (0)
+  flatshade_control                  : VERTEX_0 (0)
+  generate_primitive_id              : no (0)
+  <raw>                              : 20 bytes
+    [00]  800f..4c 4028.... 4027.... 07......  4404..20
+    [14]  <end of buffer>
+[0028] 3: INDEX_LIST
+  degen_cull_enable                  : <feature vdm_degenerate_culling not present>
+  index_size                         : B8 (0)
+  patch_count                        : 1 (0 + 1)
+  primitive_topology                 : TRI_LIST (6)
+  index_base_addr                    : <not present>
+  index_count                        : 6
+  instance_count                     : <not present>
+  index_offset                       : <not present>
+  start_index                        : <not present>
+  start_instance                     : <not present>
+  indirect_base_addr                 : <not present>
+  split_count                        : <not present>
+  <raw>                              : 8 bytes
+    [0]  ..06..68 06......
+    [8]  <end of buffer>
+[0030] 4: PPP_STATE_UPDATE
+  word_count                         : 3
+  addr                               : 0x800004b040
+    msb                              : 0x8000000000
+    lsb                              : 0x000004b040
+    <buffer size>                    : 12 bytes (from word_count)
+    <host addr>                      : 0x7ff1564f3040
+    <content>                        : <decoded as PPP>
+    [00] 0: STATE_HEADER
+      pres_ispctl                    : no (0)
+      pres_ispctl_fa                 : no (0)
+      pres_ispctl_fb                 : no (0)
+      pres_ispctl_ba                 : no (0)
+      pres_ispctl_bb                 : no (0)
+      pres_ispctl_dbsc               : no (0)
+      pres_pds_state_ptr0            : no (0)
+      pres_pds_state_ptr1            : no (0)
+      pres_pds_state_ptr2            : no (0)
+      pres_pds_state_ptr3            : no (0)
+      pres_region_clip               : no (0)
+      pres_viewport                  : no (0)
+      view_port_count                : 1 (0 + 1)
+      pres_wclamp                    : no (0)
+      pres_outselects                : no (0)
+      pres_varying_word0             : no (0)
+      pres_varying_word1             : no (0)
+      pres_varying_word2             : no (0)
+      pres_ppp_ctrl                  : no (0)
+      pres_stream_out_size           : no (0)
+      pres_stream_out_program        : no (0)
+      context_switch                 : no (0)
+      pres_terminate                 : yes (1)
+      not_final_term                 : no (0)
+      <raw>                          : 4 bytes
+        [0]  ......02
+        [4]  <end of buffer>
+    [04] 1: STATE_TERMINATE
+      clip_right                     : 1888 pixels (59 x 32 pixels)
+      clip_top                       : 0 pixels (0 x 32 pixels)
+      clip_bottom                    : 1056 pixels (33 x 32 pixels)
+      clip_left                      : 0 pixels (0 x 32 pixels)
+      render_target                  : 0
+      <raw>                          : 8 bytes
+        [0]  21..ec.. ........
+        [8]  <end of buffer>
+    [0c] <end of buffer>
+    <raw>                            : 131072 bytes
+  <raw>                              : 8 bytes
+    [0]  8003.... 40b004..
+    [8]  <end of buffer>
+[0038] 5: TERMINATE
+  context                            : no (0)
+  <raw>                              : 4 bytes
+    [0]  ......c0
+    [4]  <end of buffer>
+[003c] <1009 unused words (4036 bytes)>
+[1000] <end of buffer>
+
+------- First buffer hexdump -------
+[0000]  01..0120 c028.... ..28.... 801a....  ..3205.. 800f..4c 4028.... 4027....
+[0020]  07...... 4404..20 ..06..68 06......  8003.... 40b004.. ......c0
+[1000]  <end of buffer>
+======= END CONTROL STREAM DUMP =======

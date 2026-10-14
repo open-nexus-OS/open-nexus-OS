@@ -115,7 +115,7 @@ mod render_quad {
     fn the_bundle_is_the_capture_of_2026_10_13() {
         assert_eq!(
             fnv1a64(BUNDLE),
-            0x2148_b748_977c_a5f5,
+            0x8a7e_d6a6_b444_2413,
             "repacked: update the digest and the README"
         );
         let s = scene();
@@ -182,6 +182,21 @@ mod render_quad {
     }
 
     #[test]
+    fn the_captured_streams_round_trip_through_the_encoders() {
+        let s = scene();
+        let jobs: Vec<_> = s.jobs().collect();
+        let pr_fence = Ufo { addr: 0, value: 0 };
+        let g =
+            GeomCmd::from_stream(jobs[0].stream, RenderFeatures::BOARD, jobs[0].flags, 1, pr_fence)
+                .unwrap();
+        assert_eq!(g.to_stream(RenderFeatures::BOARD), jobs[0].stream);
+        for job in &jobs[1..] {
+            let f = FragCmd::from_stream(job.stream, RenderFeatures::BOARD, job.flags, 1).unwrap();
+            assert_eq!(f.to_stream(RenderFeatures::BOARD), job.stream);
+        }
+    }
+
+    #[test]
     fn the_three_jobs_decode_in_the_open_drivers_order() {
         let s = scene();
         let jobs: Vec<_> = s.jobs().collect();
@@ -225,5 +240,65 @@ mod render_quad {
         }
         assert_ne!(jobs[1].flags & frag_flags::SUBMIT_PARTIAL_RENDER, 0);
         assert_eq!(jobs[2].flags & frag_flags::SUBMIT_PARTIAL_RENDER, 0);
+    }
+}
+
+/// The fragment programs of `resources/gpu/programs` (TASK-0215 5c-1): the open compiler's
+/// code for the board's core, by size and digest — and the base program is the render
+/// bundle's own, so the cost rung's base probe runs the pass every earlier rung ran.
+mod programs {
+    use nexus_gfx::backend::gpu::scene::{fnv1a64, Scene};
+    use nexus_gfx::backend::gpu::CoreId;
+
+    const RENDER: &[u8] = include_bytes!("../../../resources/gpu/scenes/render-quad.scene");
+    const BASE: &[u8] = include_bytes!("../../../resources/gpu/programs/frag-base.usc");
+    const PROGRAMS: [(&str, &[u8], u64); 4] = [
+        ("frag-base", BASE, 0x0fa6_5ca1_5b93_7497),
+        (
+            "frag-chain",
+            include_bytes!("../../../resources/gpu/programs/frag-chain.usc"),
+            0x82b8_ca6f_fbb4_3157,
+        ),
+        (
+            "frag-eft",
+            include_bytes!("../../../resources/gpu/programs/frag-eft.usc"),
+            0x0c47_42c8_9ca4_bf25,
+        ),
+        (
+            "frag-opaque-eft",
+            include_bytes!("../../../resources/gpu/programs/frag-opaque-eft.usc"),
+            0x8476_199e_b9c2_813d,
+        ),
+    ];
+
+    #[test]
+    fn the_programs_are_the_captures_of_2026_10_14() {
+        let sizes: Vec<(&str, usize, u64)> =
+            PROGRAMS.iter().map(|(n, b, _)| (*n, b.len(), fnv1a64(b))).collect();
+        let want: Vec<(&str, usize, u64)> = PROGRAMS
+            .iter()
+            .zip([736, 1312, 728, 608])
+            .map(|((n, _, d), len)| (*n, len, *d))
+            .collect();
+        assert_eq!(sizes, want, "recaptured: update the digests and the README");
+    }
+
+    #[test]
+    fn the_base_program_is_the_render_bundles_own() {
+        let scene = Scene::parse(RENDER, CoreId::BOARD).expect("the render bundle parses");
+        let arena = scene
+            .buffers()
+            .find(|b| b.va == 0xe0_0000_1000)
+            .expect("the code arena at the code heap's second page");
+        let mut bytes = vec![0u8; arena.len as usize];
+        for run in arena.runs() {
+            bytes[run.off as usize..run.off as usize + run.bytes.len()].copy_from_slice(run.bytes);
+        }
+        // The fragment kick word 0x0000_0028_0000_7b80: the code heap's offset 0x7b80.
+        assert_eq!(&bytes[0x6b80..0x6b80 + BASE.len()], BASE);
+        assert!(
+            bytes[0x8000..].iter().all(|&b| b == 0),
+            "the arena's tail from 0x8000 is free for the probes' programs"
+        );
     }
 }

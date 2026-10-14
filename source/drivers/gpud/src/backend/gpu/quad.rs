@@ -88,6 +88,9 @@ pub(super) fn bind(
             (bo, access)
         }
     };
+    // The open driver's flags travel with the buffer; the device maps it by them (5c-1).
+    dev.set_bo_flags(client, bo, buf.device_cached(), buf.pm_fw_protect())
+        .map_err(|e| alloc::format!("flags {:#x} {e:?}", buf.va))?;
     dev.vm_bind(client, ctx, bo, GpuVa(buf.va), access)
         .map_err(|e| alloc::format!("bind {:#x} {e:?}", buf.va))?;
     Ok(bo)

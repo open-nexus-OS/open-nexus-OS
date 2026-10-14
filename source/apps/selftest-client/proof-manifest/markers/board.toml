@@ -198,6 +198,14 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5b: the device emitted the per-draw state of three quads itself (one fragment program shared, the index offset into one vertex buffer), rebound the target at a fresh plane, kicked the captured jobs, and each quad's centre read back as texel x tint over the clear"
 
+# TASK-0215 5c-1 (RFC-0101 §8d): a pass limited to its quad's area — the back end's clip, the
+# region clip, no background on empty tiles — draws the quad and leaves the rest of the plane
+# as it was; `gpud: FAIL gpu area (` is its FAIL form.
+[marker."gpud: gpu area ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-1: after a 16x16 pass over the whole plane, two sentinels written by the CPU (one a pixel above the quad in the quad's own tile, one in the plane's first tile) survive the same pass limited to the quad's rectangle, the quad's sample reads texel x tint over the clear, and the limited pass costs less than the whole-plane one"
+
 [marker."gpud: FAIL gpu "]
 phase = "bringup"
 emit_when = { profile = "board-headless" }

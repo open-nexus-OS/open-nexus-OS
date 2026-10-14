@@ -1,0 +1,31 @@
+622:gpud: gpu glue ok (domains=1 clocks=1 resets=1 through socd)
+623:gpud: gpu core ok (bvnc=36.29.52.182 id=0x0024001d003400b6)
+624:gpud: gpu fw ok (boot_us=1093 health_us=82 irqs=1 fw_irqs=1 executed=1 rtn=0x0 stage=0 ts=2911 pow=0x3 hwr=0x1 version=1.1 build=6976702)
+625:gpud: gpu caps (va_bits=40 page=4096 clusters=1 queues=render+transfer compute=declared cache_block=64 backing_free=445 id=0x24001d003400b6)
+626:gpud: gpu mmu ok (map_us=59 unmap_us=52 pc=0x5c43000 map_flags=0x400001f unmap_flags=0x400001f table_pages=1)
+632:gpud: gpu fence ok (rt_us=502 worst_us=22212 n=64 irqs=64 below the stock 640us)
+633:gpud: gpu fill ok (us=1855 px=1920x1080 ns_per_px=0.8 at or below the stock 1.8 bind_us=4029)
+635:gpud: gpu quad ok (us=1326 samples=4/4 shown row=2160)
+636:gpud: gpu render ok (us=6011 samples=4/4 irqs=3 geom=1 frag=2 bind_us=7938 shown row=3240)
+637:gpud: gpu quads probe one ok (n=1 us=5962 irqs=3)
+638:gpud: gpu quads probe one-again ok (n=1 us=5951 irqs=4)
+639:gpud: gpu quads probe two ok (n=2 us=9438 irqs=4)
+640:gpud: gpu quads probe three ok (n=3 us=12940 irqs=4)
+641:gpud: gpu quads probe two-shared ok (n=2 us=9427 irqs=4)
+642:gpud: gpu quads ok (n=3 us=12940 samples=3/3 irqs=4 shown row=2160)
+643:gpud: gpu area ok (us=410 full_us=2538 geom_us=223 frag_us=186 inside=ok near=kept far=kept)
+644:gpud: gpu cost (program=base groups=68 pass=punch-through size=1024 us=15244 geom_us=260 frag_us=14983 irqs=4 sample=ok)
+645:gpud: gpu cost (program=chain groups=116 pass=punch-through size=1024 us=25608 geom_us=259 frag_us=25348 irqs=4 sample=ok)
+646:gpud: gpu cost (program=eft groups=67 pass=translucent size=1024 us=15019 geom_us=261 frag_us=14757 irqs=4 sample=ok)
+647:gpud: gpu cost (program=opaque-eft groups=55 pass=translucent size=1024 us=11825 geom_us=266 frag_us=11559 irqs=4 sample=ok)
+648:gpud: gpu heap (used=87418 of=393216)
+750:gpud: dc cursor layer ok (rdma=2 layer=6 fmt=0x4 blend=5 sprite=32x32 hot=2,2 readback 16/16)
+1329:windowd: session shell visible (product=default)
+2235:board-visual: splash
+2236:board-visual: desktop
+2237:board-visual: pointer
+2238:board-visual: typed
+2239:board-visual: tile
+2240:board-visual: clipboard
+2241:board-visual: screenshot
+2242:board-visual: modal

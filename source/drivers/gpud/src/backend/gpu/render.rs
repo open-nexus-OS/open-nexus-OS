@@ -230,6 +230,11 @@ impl Render {
         gpu.mem.read_u32(&self.frag.timeline, 0)
     }
 
+    /// The two queues' timeline objects with their last points `(geometry, fragment)`.
+    pub(super) fn progress(&self) -> ((HeapObj, u32), (HeapObj, u32)) {
+        ((self.geom.timeline, self.geom.seq), (self.frag.timeline, self.frag.seq))
+    }
+
     /// The fragment queue's timeline object, for a wait that reads it without `self`.
     pub(super) fn frag_timeline_obj(&self) -> HeapObj {
         self.frag.timeline
