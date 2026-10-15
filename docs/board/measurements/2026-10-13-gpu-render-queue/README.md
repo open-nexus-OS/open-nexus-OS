@@ -540,3 +540,55 @@ confirmations, the desktop after the rungs):
 what the program asks: the textured layer at 1.3 ns opaque (free under further opaque layers)
 and 4.5 ns blended. The compositor's pipelines are now a question of program length, which is
 ours. P3c makes the backend emit these programs from the IR, the reference programs its goldens.
+
+## 5c-2 P3c — the toolchain's pipelines on the board (TASK-0215 5c-2 P3c; board 2026-10-15)
+
+**Question.** The backend now compiles `resources/gpu/shaders/layer.wgsl` into the programs P3b
+measured, byte for byte (`tools/nxgpu/tests/pipelines.rs`). Do the compiled pipelines draw right
+from their files at their references' cost, and is the opaque layer below the stock stack's
+opaque fill?
+
+**Instrument.** The cost rung's pipeline gate (it replaces P3b's probes): `layer-opaque.usc`
+(`tinted=false`, replace — 3 groups, opaque; byte for byte `opaque-itrsmp`) and
+`layer-premultiplied.usc` (the tinted default, premultiplied over — 11 groups, translucent; byte
+for byte `premultiplied-itrsmp`: iterate-and-sample feeding the tile read's epilog, never run
+before), each written into the code arena's tail, named by a kick word with the temporaries the
+compiler gave it, its pass type in the draw's state block; a 1024² quad limited to its area, the
+tint white and 0.5. The bar was measured before the cycle: cycle 14's tinted opaque program
+(1.97 ns) lies above the stock's 1.8 ns — its tint multiply is a third of that pixel — so the
+opaque pipeline is the untinted variant (`layer.wgsl`'s override `tinted`), the program cycle 14
+measured at 1.30 ns.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H28 | The toolchain's opaque layer runs as the reference it equals byte for byte | `layer-opaque`: sample right, 1.30 ± 0.05 ns a pixel |
+| H29 | Iterate-and-sample feeds the premultiplied epilog (tile read, unpack, fused multiply-add, pack) as iterate and sample did | `layer-premultiplied` (11 groups): sample right, at most the unfused 13 groups' 4.49 ns |
+
+**Results — the board, cycle 15** (`cycle15-gpu-lines.txt`, `cycle15-board-test.txt`; per pixel =
+the pass less the same boot's 16² limited pass, 414 µs, over 1 048 576 pixels; `[PASS]
+board-visible`, 61 rungs, the operator's eight confirmations, the desktop after the rungs):
+
+| Pipeline | Groups | Pass type | Pass | Per pixel | Sample | Its reference, cycle 14 |
+|---|---|---|---|---|---|---|
+| `layer-opaque` | 3 | opaque | 1 782 µs | **1.30 ns** | right | `opaque-itrsmp`: 1 782 µs, 1.30 ns |
+| `layer-premultiplied` | 11 | translucent | 4 653 µs | **4.04 ns** | right | `premultiplied` (unfused, 13 groups): 5 124 µs, 4.49 ns |
+
+`gpud: gpu pipeline ok (opaque_ns_px=1.30 premultiplied_ns_px=4.04 samples=2/2 bar=1.80)`;
+gpud's heap after the rungs 82 550 bytes against cycle 14's 110 698 (no program assembled at run
+time any more).
+
+- **H28 confirmed.** The toolchain's opaque layer runs exactly as its reference — the same pass
+  time to the microsecond, 1.30 ns a pixel, 28 % below the stock's opaque fill.
+- **H29 confirmed.** Iterate-and-sample feeds the blend's epilog: the sample is right, and the
+  fused program costs 4.04 ns against the unfused 4.49 — the two groups it drops are 0.41 ns on
+  the 5c-1 line, 0.45 ns measured. The same fusion gained the opaque layer only 0.04 ns (5 → 3
+  groups, cycle 14): a program of three groups is bound by something other than its groups (the
+  texture fetch or the pixel output — not yet taken apart).
+- **The gate against the measurement.** Red on the measured failure — cycle 14's tinted opaque
+  program (1.97 ns) is above the bar — and green on the measured success (1.30 ns).
+
+**Verdict 5c-2 P3c.** WGSL, our IR, our backend, a file, the board GPU — and the picture right:
+the compositor's opaque layer at 1.30 ns a pixel, below the stock's 1.8 ns; the blended layer at
+4.04 ns. **P3 complete.** Carried: the blended layer against the stock's first blended layer
+(3.1 ns) — the epilog's unpack, multiply-adds and pack are where its groups are; P4 brings the
+library with our own setup programs.

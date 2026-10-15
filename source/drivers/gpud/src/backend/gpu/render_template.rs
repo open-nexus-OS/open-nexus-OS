@@ -193,16 +193,6 @@ impl Captured {
         })
     }
 
-    /// The fragment PDS shader program (64 bytes): its first word is the fragment kick word.
-    pub(super) fn shader_program(&self) -> &[u8] {
-        &self.shader
-    }
-
-    /// The first draw's 26-word state block: its third word is the ISP word with the pass type.
-    pub(super) fn ppp26(&self) -> &[u8] {
-        &self.ppp26
-    }
-
     /// The emitter's template, its per-pass blocks going to the buffers at the three addresses.
     pub(super) fn template(&self, general_va: u64, vertex_va: u64, stream_va: u64) -> Template<'_> {
         Template {

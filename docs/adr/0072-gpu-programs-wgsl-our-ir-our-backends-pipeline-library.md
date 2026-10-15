@@ -62,7 +62,11 @@
    nothing good exists — this GPU today — and for our own hardware.
 5. **A program is linked from parts**: a main part, an epilog (blend, output format, sample
    mask) and, for vertex work, a prolog (attribute fetch). At build time every variant the
-   library declares is linked whole; the parts are the fast path of the JIT later.
+   library declares is linked whole; the parts are the fast path of the JIT later. A main
+   part's variants are WGSL overrides, fixed per pipeline when it is built (keyed as a
+   pipeline's constants are: an override's `@id`, else its name); a `select` on one folds in the
+   frontend, so a variant carries no instruction of the paths it switched off — the opaque layer
+   at full opacity has no tint multiply (TASK-0215 5c-2 P3c).
 6. **The pipeline library is one archive per code target**, built at OS build time. An entry
    carries its id, code target, interface, program bytes, setup programs, state words, its
    budget and a digest. The format lives in `nexus_gfx::shader::library`, the contract in

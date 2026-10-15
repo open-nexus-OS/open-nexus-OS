@@ -120,6 +120,10 @@ ladder_headless=(
   # TASK-0215 5c-1: a pass limited to its quad's area — two CPU sentinels outside it (one in
   # the quad's own tile, one far) kept, the quad's sample right, cheaper than the whole plane.
   "gpud: gpu area ok ("
+  # TASK-0215 5c-2 P3c (ADR-0072): the compositor's layer compiled from WGSL by our toolchain
+  # (resources/gpu/pipelines), replace and premultiplied — both samples right, the opaque layer
+  # no slower a pixel than the stock stack's opaque fill.
+  "gpud: gpu pipeline ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

@@ -7,12 +7,17 @@
 //! the compositor's programs use. The bit positions are the hardware's interface as the open
 //! userspace driver's compiler publishes it in its instruction description; this module is our
 //! own encoder over those facts, proven by re-encoding captured programs byte for byte. The
-//! backend that selects instructions from our IR (P3) writes through it.
+//! backend that selects instructions from our IR writes through it.
 //! OWNERS: @gpu @runtime
-//! STATUS: Experimental (P1: the encoding)
+//! STATUS: Experimental (P1 the encoding and the setup programs; P3 the assembler, the reference
+//!   programs the board measured, the backend for the compositor's textured layer)
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `tests/rogue_isa.rs` — the four programs of `resources/gpu/programs` decode
 //!   into groups at the compiler's offsets and re-encode byte for byte; the rejects.
+//!   `tests/rogue_pds.rs` — the bundle's setup programs word for word. `tests/rogue_asm.rs` —
+//!   the compiler's groups rebuilt by the assembler. `tests/rogue_reference.rs` — the reference
+//!   programs' groups and pass types. `tests/rogue_codegen.rs` — the IR's textured layer compiled
+//!   to the references byte for byte; the backend's refusals.
 //!
 //! - [`bits`] — a field as bit pieces over bytes, most significant first.
 //! - [`header`] — the group header: main (brief or full), bitwise, control.
@@ -21,6 +26,7 @@
 //! - [`asm`] — groups from instructions and registers, the forms picked as the compiler picks them.
 //! - [`backend`] — the backend's: mask save and move, visibility test, iterate, sample.
 //! - [`bitwise`] — the bitwise unit's three phases.
+//! - [`codegen`] — the backend: a fragment module of our IR compiled into groups.
 //! - [`ctrl`] — the control instructions, iterate-and-sample among them.
 //! - [`group`] — a group's parts in their order, its length, decode assist and padding.
 //! - [`pds`] — the setup programs: kick, iterate, DMA; their constants' layouts.
@@ -31,6 +37,7 @@ pub mod asm;
 pub mod backend;
 pub mod bits;
 pub mod bitwise;
+pub mod codegen;
 pub mod ctrl;
 pub mod group;
 pub mod header;

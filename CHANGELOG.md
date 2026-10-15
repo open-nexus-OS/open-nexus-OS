@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no capture ever used) against the stock stack's 1.8 ns and the compiler's 10.9 ns; three opaque
   layers on each other cost one (the opaque pass type: hidden pixels dropped before shading);
   **the premultiplied blend at 4.5 ns** against the compiler's 14.2 ns.
+- **The backend and the compositor's first pipelines** (`rogue::codegen`, `nxgpu build`,
+  `resources/gpu/pipelines`): the IR's textured layer compiles to the hand-assembled references
+  byte for byte (iterate-and-sample where a sample reads an input, registers reused at a value's
+  last use, the pack that ends the program, the pass type from the tile read). WGSL overrides fix
+  a pipeline's variant when it is built — a `select` on one folds, so the opaque layer at full
+  opacity carries no tint multiply (a third of a tinted opaque pixel). The compiled pipelines run
+  from their files as the new REQUIRED rung **`gpud: gpu pipeline ok (opaque_ns_px=1.30
+  premultiplied_ns_px=4.04 samples=2/2 bar=1.80)`** (cycle 15): the opaque layer below the stock
+  stack's 1.8 ns, the blended layer 0.45 ns below its unfused reference. gpud's program probes
+  retire; the references are the backend's goldens.
 
 ### Added - 2026-10-14 (Block 4, layer 5c-1: the cost of a pass — TASK-0215, RFC-0101 Phase 4c)
 

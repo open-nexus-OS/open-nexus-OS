@@ -12,9 +12,12 @@
 //! | `opaque-ditr` | 5 | the compiler's iterate and sample, without its prologue, feedback, coordinate zeroing and tile read-back; the pack straight into the pixel output |
 //! | `opaque-itrsmp` | 3 | iterate-and-sample in one word (the six-byte form) |
 //! | `opaque-itrsmp-count` | 3 | the same with an iteration count (the seven-byte form) |
-//! | `tinted` | 6 | a multiply repeated over four channels steps every register operand |
-//! | `premultiplied` | 13 | the compositor's blend: the tile read, unpacked, `src + dst·(1 − a)` |
-
+//! | `tinted`, `tinted-itrsmp` | 6, 4 | a multiply repeated over four channels steps every register operand |
+//! | `premultiplied`, `premultiplied-itrsmp` | 13, 11 | the compositor's blend: the tile read, unpacked, `src + dst·(1 − a)` |
+//!
+//! Registers follow the backend's rule (`codegen`): first fit, and an operation that steps lane
+//! by lane writes over an operand that dies with it — so the backend compiling the layer's IR
+//! must give these bytes exactly (the goldens of `tests/rogue_codegen.rs`).
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -109,32 +112,49 @@ pub fn opaque_itrsmp_count() -> Result<Reference, RogueError> {
     finish("opaque-itrsmp-count", g, 1, PASS_OPAQUE)
 }
 
-/// r4..7 = sh24..27 × r0..3, one multiply repeated over the four channels. The shared register
-/// is the first source: the second source's bank field has two bits and cannot name bank 4 (the
-/// open compiler copies the tint into temporaries first, four groups).
+/// r0..3 = sh24..27 × r0..3 in place, one multiply repeated over the four channels. The shared
+/// register is the first source: the second source's bank field has two bits and cannot name
+/// bank 4 (the open compiler copies the tint into temporaries first, four groups).
 fn tint() -> Result<Group, RogueError> {
-    let mut m = fam(op::FMUL, temp(4), shared(24), temp(0));
+    let mut m = fam(op::FMUL, temp(0), shared(24), temp(0));
     m.repeat = 4;
     m.build()
 }
 
-pub fn tinted() -> Result<Reference, RogueError> {
-    let mut g = iterate_then_sample()?;
-    g.push(tint()?);
-    g.push(emit(4)?);
-    finish("tinted", g, 2, PASS_OPAQUE)
+/// The texel into r0..3: iterate-and-sample, or iterate and sample.
+fn texel(fused: bool) -> Result<Vec<Group>, RogueError> {
+    if fused {
+        Ok(iterate_and_sample(None))
+    } else {
+        iterate_then_sample()
+    }
 }
 
-pub fn premultiplied() -> Result<Reference, RogueError> {
-    let mut g = iterate_then_sample()?;
+fn tinted_program(name: &'static str, fused: bool) -> Result<Reference, RogueError> {
+    let mut g = texel(fused)?;
     g.push(tint()?);
-    // The tile's colour: r8, unpacked to r9..12.
-    let mut read = mov(temp(8), PIXOUT0);
+    g.push(emit(0)?);
+    finish(name, g, 1, PASS_OPAQUE)
+}
+
+pub fn tinted() -> Result<Reference, RogueError> {
+    tinted_program("tinted", false)
+}
+
+pub fn tinted_itrsmp() -> Result<Reference, RogueError> {
+    tinted_program("tinted-itrsmp", true)
+}
+
+fn premultiplied_program(name: &'static str, fused: bool) -> Result<Reference, RogueError> {
+    let mut g = texel(fused)?;
+    g.push(tint()?);
+    // The tile's colour: the word in r4, unpacked to r5..8.
+    let mut read = mov(temp(4), PIXOUT0);
     read.olchk = true;
     g.push(read.build()?);
-    g.push(unpack_unorm8x4(temp(9), temp(8)).build()?);
-    // r13 = 1 − a.
-    let mut inv = fam(op::FADD, temp(13), temp(7), ONE);
+    g.push(unpack_unorm8x4(temp(5), temp(4)).build()?);
+    // r4 = 1 − a (the word's register is free again).
+    let mut inv = fam(op::FADD, temp(4), temp(3), ONE);
     inv.alu[0].1 = AluInstr::Fam {
         op: op::FADD,
         sat: false,
@@ -144,16 +164,32 @@ pub fn premultiplied() -> Result<Reference, RogueError> {
         s0flr: false,
     };
     g.push(inv.build()?);
-    // r4+i = dst_i · (1 − a) + src_i.
+    // r0+i = dst_i · (1 − a) + src_i, in place.
     for i in 0..4 {
-        g.push(fmad(temp(4 + i), temp(9 + i), temp(13), temp(4 + i)).build()?);
+        g.push(fmad(temp(i), temp(5 + i), temp(4), temp(i)).build()?);
     }
-    g.push(emit(4)?);
-    finish("premultiplied", g, 4, PASS_TRANSLUCENT)
+    g.push(emit(0)?);
+    finish(name, g, 3, PASS_TRANSLUCENT)
+}
+
+pub fn premultiplied() -> Result<Reference, RogueError> {
+    premultiplied_program("premultiplied", false)
+}
+
+pub fn premultiplied_itrsmp() -> Result<Reference, RogueError> {
+    premultiplied_program("premultiplied-itrsmp", true)
 }
 
 /// Every reference program, in the order a board cycle runs them: the known encodings first,
 /// iterate-and-sample (never executed by any capture) last, so a lost pass costs no other answer.
 pub fn all() -> Result<Vec<Reference>, RogueError> {
-    Ok(vec![opaque_ditr()?, tinted()?, premultiplied()?, opaque_itrsmp()?, opaque_itrsmp_count()?])
+    Ok(vec![
+        opaque_ditr()?,
+        tinted()?,
+        premultiplied()?,
+        opaque_itrsmp()?,
+        opaque_itrsmp_count()?,
+        tinted_itrsmp()?,
+        premultiplied_itrsmp()?,
+    ])
 }

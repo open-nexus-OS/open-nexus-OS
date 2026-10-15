@@ -11,7 +11,10 @@ library (RFC-0101 §7b).
 
 | Source | Entry | Interface | What it draws |
 |---|---|---|---|
-| `layer.wgsl` | `main` (fragment) | `@location(0) uv`; immediates `tint: vec4`; `surface` (2D texture, binding 0), `surface_sampler` (binding 1) | a surface's texel times the layer's tint |
+| `layer.wgsl` | `main` (fragment) | `@location(0) uv`; immediates `tint: vec4`; `surface` (2D texture, binding 0), `surface_sampler` (binding 1); override `tinted: bool = true` | a surface's texel times the layer's tint; with `tinted=false` the texel as it is |
 
 Immediates (push constants) are spelled `var<immediate>` in the parser's dialect; the blend never
-appears in a source — a pipeline names it.
+appears in a source — a pipeline names it. Overrides (WGSL's pipeline-overridable constants) are a
+source's variants: `nxgpu build --override key=value` fixes them per pipeline (keyed by `@id`, else
+by name), and a `select` on one folds while lowering, so the variant carries none of the paths it
+switched off. The compiled pipelines and their provenance: `resources/gpu/pipelines`.

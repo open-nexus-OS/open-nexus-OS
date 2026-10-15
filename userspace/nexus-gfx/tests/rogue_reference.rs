@@ -42,6 +42,8 @@ fn the_group_counts_are_the_questions() {
             ("premultiplied", 13, PASS_TRANSLUCENT),
             ("opaque-itrsmp", 3, PASS_OPAQUE),
             ("opaque-itrsmp-count", 3, PASS_OPAQUE),
+            ("tinted-itrsmp", 4, PASS_OPAQUE),
+            ("premultiplied-itrsmp", 11, PASS_TRANSLUCENT),
         ]
     );
 }

@@ -5,6 +5,11 @@
 //! inputs, the colour outputs, the immediates' size, the textures and samplers with their
 //! bindings), then the body's expressions on demand in SSA order, then the return value written
 //! through the epilog. Types come from naga's own resolution of every expression.
+//!
+//! A pipeline fixes the module's overrides (WGSL's pipeline-overridable constants) when it is
+//! built — the library's variants of one source (ADR-0072 §5). A `select` on a fixed condition
+//! picks its operand while lowering; the other operand is never lowered, so a variant carries
+//! no instruction of the paths it switched off.
 
 use std::collections::HashMap;
 
@@ -22,9 +27,16 @@ use super::FrontendError;
 
 type Result<T> = core::result::Result<T, FrontendError>;
 
-/// Parses, validates and lowers the fragment entry point `entry` of `src`; its colour outputs
+/// Parses, validates and lowers the fragment entry point `entry` of `src` with its overrides
+/// fixed by `overrides` — keyed as a pipeline's constants are (an override's `@id` in decimal,
+/// else its name), a bool true for a non-zero value — or by their defaults; its colour outputs
 /// are written under `blend`.
-pub fn lower_fragment(src: &str, entry: &str, blend: Blend) -> Result<ir::Module> {
+pub fn lower_fragment(
+    src: &str,
+    entry: &str,
+    overrides: &[(&str, f64)],
+    blend: Blend,
+) -> Result<ir::Module> {
     let module = naga::front::wgsl::parse_str(src)
         .map_err(|e| FrontendError::Parse(e.emit_to_string(src)))?;
     let info = naga::valid::Validator::new(
@@ -39,6 +51,7 @@ pub fn lower_fragment(src: &str, entry: &str, blend: Blend) -> Result<ir::Module
         .enumerate()
         .find(|(_, ep)| ep.name == entry && ep.stage == ShaderStage::Fragment)
         .ok_or_else(|| FrontendError::NoEntryPoint(entry.into()))?;
+    let fixed = super::overrides::fix(&module, overrides)?;
     let mut l = Lowering {
         module: &module,
         fun: &ep.function,
@@ -47,6 +60,7 @@ pub fn lower_fragment(src: &str, entry: &str, blend: Blend) -> Result<ir::Module
         values: HashMap::new(),
         args: Vec::new(),
         globals: HashMap::new(),
+        fixed,
     };
     l.interface()?;
     let outputs = l.outputs()?;
@@ -97,6 +111,8 @@ struct Lowering<'a> {
     args: Vec<Lowered>,
     /// Per global: what it lowers to.
     globals: HashMap<Handle<naga::GlobalVariable>, Lowered>,
+    /// Per override: its value in this pipeline.
+    fixed: HashMap<Handle<naga::Override>, Literal>,
 }
 
 fn scalar(s: naga::Scalar) -> Result<Scalar> {
@@ -281,6 +297,25 @@ impl Lowering<'_> {
         }
     }
 
+    /// The value of a condition the pipeline fixes: a bool literal, constant or override.
+    fn fixed_bool(&self, h: Handle<Expression>) -> Option<bool> {
+        let lit = match self.fun.expressions[h] {
+            Expression::Literal(lit) => lit,
+            Expression::Override(o) => *self.fixed.get(&o)?,
+            Expression::Constant(c) => {
+                match self.module.global_expressions[self.module.constants[c].init] {
+                    Expression::Literal(lit) => lit,
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+        match lit {
+            Literal::Bool(b) => Some(b),
+            _ => None,
+        }
+    }
+
     fn lower(&mut self, h: Handle<Expression>) -> Result<Lowered> {
         if let Some(l) = self.values.get(&h) {
             return Ok(*l);
@@ -291,6 +326,12 @@ impl Lowering<'_> {
                 let init = self.module.constants[c].init;
                 Lowered::Value(self.global_const(init)?)
             }
+            Expression::Override(o) => match self.fixed.get(&o) {
+                Some(lit) => Lowered::Value(self.constant(*lit)?),
+                None => {
+                    return Err(FrontendError::Override("an override outside the module".into()))
+                }
+            },
             Expression::ZeroValue(_) => {
                 let ty = self.ty(h)?;
                 Lowered::Value(self.b.emit(Op::Const([0; 4]), ty))
@@ -385,11 +426,16 @@ impl Lowering<'_> {
                     Lowered::Value(self.b.emit(Op::Compare(cmp, a, b), ty))
                 }
             }
-            Expression::Select { condition, accept, reject } => {
-                let (c, a, r) = (self.value(condition)?, self.value(accept)?, self.value(reject)?);
-                let ty = self.b.ty(a);
-                Lowered::Value(self.b.emit(Op::Select(c, a, r), ty))
-            }
+            Expression::Select { condition, accept, reject } => match self.fixed_bool(condition) {
+                // Fixed by the pipeline: the operand picked, the other never lowered.
+                Some(c) => self.lower(if c { accept } else { reject })?,
+                None => {
+                    let (c, a, r) =
+                        (self.value(condition)?, self.value(accept)?, self.value(reject)?);
+                    let ty = self.b.ty(a);
+                    Lowered::Value(self.b.emit(Op::Select(c, a, r), ty))
+                }
+            },
             Expression::As { expr, kind, convert: Some(width) } => {
                 let v = self.value(expr)?;
                 let lanes = self.b.ty(v).lanes;

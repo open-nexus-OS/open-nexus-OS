@@ -292,7 +292,7 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
 | P1 | `nexus_gfx::shader::rogue` — the shader core's instruction-group encoding and its disassembler for the compositor's subset, from the open compiler's published instruction description; the setup-program (PDS) encoding | the four captured programs (`resources/gpu/programs`) disassemble and re-encode byte for byte; every encoding a golden |
 | P2 | `nexus_gfx::shader::ir` and its interpreter (the reference); the WGSL frontend as a host build tool (naga 28) lowering into it | the compositor's first WGSL programs lowered; the interpreter's pixels equal the CPU rasterizer's |
 | P3 | the `rogue` backend: instruction selection, registers, group packing, the epilog parts; the first pipeline — the textured layer, opaque and blended | groups within budget on the host; on the board the picture right and ns a pixel on 5c-1's line; `gpud: gpu pipeline ok (` |
-| P4 | the pipeline library: format, build step, windowd supplies it, gpud validates and binds (`test_reject_library_*`) | the rejects green; the rungs draw with library pipelines, the captured programs retire to measurement |
+| P4 | the pipeline library: format, build step (an entry per variant — source, entry point, overrides, blend), our setup programs and state words generated beside each program, windowd supplies it, gpud validates and binds (`test_reject_library_*`) | the rejects green; the rungs draw with library pipelines, the captured programs retire to measurement |
 | P5 | the remaining ops: rounded-rect SDF, gradient, shadow, the blur's passes, glyphs | each picture against its host formula, each budget |
 | P6 | the `tgsi` backend; the QEMU path on the library; the hand-written shader text retired | the QEMU lanes green on library programs |
 
@@ -354,8 +354,35 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
   cost one (the opaque pass type: hidden pixels dropped before shading); the premultiplied blend
   through the tile read **4.5 ns** against the compiler's 14.2 ns. H21–H27 confirmed;
   `[PASS] board-visible`, 60 rungs, the operator's eight confirmations.
-- **P3c ⬜**: the backend — the IR's textured layer compiled into these programs (the references
-  are its goldens), the setup programs and state words generated, the pipeline's gate.
+- **P3c ✅ 2026-10-15** (`nexus_gfx::shader::rogue::codegen`, `tests/rogue_codegen.rs`; `tools/nxgpu`
+  `build` and `src/overrides.rs`, `tests/pipelines.rs`; `resources/gpu/pipelines`; gpud's pipeline
+  gate): the backend — instruction selection (iterate-and-sample where a sample reads an
+  interpolated input, else iterate and sample; multiply, add, subtract and fused multiply-add
+  with a shared operand first; the tile read and its unpack; the pack into the pixel output that
+  ends the program), registers first-fit with release at last use and in-place reuse by
+  lane-stepping ops, the pass type from whether the program reads the tile. The IR's textured
+  layer compiles byte for byte to all six references (texel, tinted, premultiplied × fused,
+  unfused) with their temporaries and pass type; what the backend lacks is refused by name (the
+  straight-alpha epilog, another stage, a constant other than +0.0 and 1.0 — bit for bit, -0.0
+  too). The toolchain: `nxgpu build … [--override key=value] --blend … --out` — WGSL's
+  pipeline-overridable constants fixed per pipeline as WebGPU keys them (`@id`, else the name), a
+  `select` on one folded while lowering, so a variant carries none of the paths it switched off
+  (`test_reject_override_values`: unknown or twice-given keys, values outside the type, an
+  override without value). Measured before the cycle: the tint multiply is a third of a tinted
+  opaque pixel (cycle 14: 1.97 against 1.34 ns), and the opaque layer at full opacity is the
+  compositor's commonest draw — so `layer.wgsl` grew the override `tinted`, and the opaque variant
+  (`tinted=false`) compiles to the 3-group program cycle 14 measured at 1.30 ns. The artifacts
+  `layer-opaque.usc` and `layer-premultiplied.usc` are rebuilt byte for byte by a test and equal
+  the references `opaque-itrsmp` and `premultiplied-itrsmp`; gpud's cost rung runs them from the
+  code arena as the pipeline gate (`gpud: gpu pipeline ok (`, REQUIRED): both samples right, the
+  opaque layer no slower a pixel than the stock's opaque fill (1.8 ns). The probes of P3b retire
+  (their programs are the codegen's goldens). The setup programs and state words go to P4, where
+  the library carries them beside each program. Board cycle 15 (`cycle15-gpu-lines.txt`):
+  **`gpud: gpu pipeline ok (opaque_ns_px=1.30 premultiplied_ns_px=4.04 samples=2/2 bar=1.80)`** —
+  the opaque layer to the microsecond as its reference (1 782 µs), the fused blend 0.45 ns a
+  pixel below the unfused one; H28 and H29 confirmed; gpud's heap 28 KB lighter (nothing
+  assembled at run time); `[PASS] board-visible`, 61 rungs, the operator's eight confirmations.
+  **P3 complete.** Carried: the blended layer against the stock's first blended layer (3.1 ns).
 
 | # | Hypothesis | Decision line |
 |---|---|---|
@@ -367,6 +394,8 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
 | H25 | A repeated multiply steps every register operand | `tinted`'s sample reads (40, 45, 50) |
 | H26 | A pack may write the pixel output directly and end the program | every reference's sample right |
 | H27 | Iterate-and-sample addresses its state as iterate and sample do | an `opaque-itrsmp` sample right |
+| H28 | The toolchain's opaque layer runs as the reference it equals byte for byte | `layer-opaque`: sample right, 1.30 ± 0.05 ns a pixel |
+| H29 | Iterate-and-sample feeds the premultiplied epilog (tile read, unpack, fused multiply-add, pack) as iterate and sample did | `layer-premultiplied` (11 groups): sample right, at most the unfused 13 groups' 4.49 ns |
 
 ## Hypotheses 5a's first cycle decides
 

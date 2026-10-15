@@ -206,6 +206,14 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-1: after a 16x16 pass over the whole plane, two sentinels written by the CPU (one a pixel above the quad in the quad's own tile, one in the plane's first tile) survive the same pass limited to the quad's rectangle, the quad's sample reads texel x tint over the clear, and the limited pass costs less than the whole-plane one"
 
+# TASK-0215 5c-2 P3c (ADR-0072): the compositor's layer compiled from WGSL by our own toolchain
+# (tools/nxgpu → resources/gpu/pipelines), drawn on the board; `gpud: FAIL gpu pipeline (` is its
+# FAIL form.
+[marker."gpud: gpu pipeline ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-2 P3c: the two compositor-layer pipelines our toolchain compiled from resources/gpu/shaders/layer.wgsl (replace as an opaque pass, premultiplied-over as a translucent pass) run from the code arena's tail on a 1024x1024 quad limited to its area, both samples read texel x tint (over the clear for the blended one), and the opaque layer costs no more a pixel than the stock stack's opaque textured fill (1.8 ns)"
+
 [marker."gpud: FAIL gpu "]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
