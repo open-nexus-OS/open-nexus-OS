@@ -27,11 +27,19 @@
 //!   the client command buffer (a byte ring whose commands never wrap).
 //! - [`mmu`] — page catalogue / directory / table entries, the map/unmap over a page
 //!   allocator trait, the flush flags a change accumulates.
+//! - [`scene`] — the captured scene bundles (buffers, jobs, render trailer) the rungs replay.
+//! - [`csb`] — the control-stream words the device writes (VDM, PPP, PDS state, the clip and
+//!   empty-tile bits) from the open driver's word layouts.
+//! - [`quads`] — the emitter: N textured, tinted quads drawn with a library pipeline, every pass
+//!   in fresh memory.
+//! - [`pipelines`] — a context's pipelines: the client's library parsed, checked and placed, a
+//!   draw's pipeline found by id (RFC-0101 §7b).
 //! OWNERS: @gpu @runtime
 //! STATUS: Functional (host half; the driver over it is TASK-0329 P3–P5)
 //! API_STABILITY: Internal (the device's; the contract above it is `nexus_driverkit::gpu`)
 //! TEST_COVERAGE: unit tests per module + `tests/gpu_goldens.rs` over the published blob in
-//!   `resources/firmware/gpu/` and the archived stock registers
+//!   `resources/firmware/gpu/` and the archived stock registers; `tests/gpu_quads_model.rs`
+//!   (the emitter against the captures), `tests/gpu_pipelines.rs` (the table and its rejects)
 //! INVARIANTS: a firmware image whose id, open-build flag or version differs is refused before
 //!   a byte is placed; every placement lies inside its layout section; a GPU page-table entry
 //!   is written only for a page-aligned, in-range address; a client command never wraps.
@@ -43,6 +51,7 @@ pub mod fw_image;
 pub mod fwif;
 pub mod mips_boot;
 pub mod mmu;
+pub mod pipelines;
 pub mod quads;
 pub mod scene;
 pub mod start;

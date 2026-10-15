@@ -592,3 +592,58 @@ the compositor's opaque layer at 1.30 ns a pixel, below the stock's 1.8 ns; the 
 4.04 ns. **P3 complete.** Carried: the blended layer against the stock's first blended layer
 (3.1 ns) — the epilog's unpack, multiply-adds and pack are where its groups are; P4 brings the
 library with our own setup programs.
+
+## 5c-2 P4 — the pipeline library on the board (TASK-0215 5c-2 P4; board 2026-10-15)
+
+**Question.** The device now takes the compositor's pipeline library (`compositor.nxgp`, RFC-0101
+§7b) and draws with what it placed: programs untouched in the code heap, our own setup programs
+in the setup heap — the kick placed once with its program's offset, the varying iteration, a
+state load of two loads (the open driver's carried four: its descriptor at sh28 and a constant
+at sh0 belong to its descriptor sets, which our programs never read) with its own size word.
+Do the pipelines draw as they did through the captured setup programs, and do setup programs
+placed once serve every later pass?
+
+**Instrument.** The new library rung (`gpud: gpu library ok (`) after the render rung; then 5b's
+four probes (one, one again, two, three 512² quads, whole-plane passes), the area gate and the
+pipeline gate — all with the library's pipelines: 5b and the area gate with the premultiplied
+layer, the pipeline gate with both. The captured fragment programs remain only in 5a's replay
+(the control).
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H30 | Our setup programs drive the pipelines as the captured ones did | `gpu library ok (… refused=0 …)`; `gpu pipeline ok (samples=2/2 …)` at 1.30 and 4.04 ± 0.05 ns |
+| H31 | Setup programs placed once and never rewritten serve every later pass (H10 forbids rewriting, not rereading) | 5b's four probes, the area gate's two passes and the pipeline gate's two all right |
+| H32 | Our programs read neither the open driver's descriptor (sh28–30) nor its constant (sh0) | no sample changes for dropping those two loads |
+
+**Results — the board, cycle 16** (`cycle16-gpu-lines.txt`, `cycle16-board-test.txt`; `[PASS]
+board-visible`, 62 rungs, the operator's eight confirmations, the desktop after the rungs):
+
+- `gpud: gpu library ok (bytes=624 entries=2 refused=0 code_bytes=152 setup_bytes=136 ids=1,2)`.
+- The pipeline gate: `layer-opaque` 1 771 µs, **1.29 ns** a pixel; `layer-premultiplied` 4 643 µs,
+  **4.03 ns** — both samples right (cycle 15: 1.30 and 4.04 through the captured setup).
+- 5b, three blended 512² quads in whole-plane passes, now with our 11-group pipeline where it
+  had the open compiler's 68-group program:
+
+| Probe | Cycle 15 (the compiler's program) | Cycle 16 (the library's pipeline) |
+|---|---|---|
+| one quad | 5 954 µs | 3 304 µs |
+| two quads | 9 439 µs | 4 149 µs |
+| three quads (the gate, samples 3/3) | **12 949 µs** | **4 972 µs** |
+| each further quad | ≈ 3 500 µs | ≈ 830 µs |
+
+- The area gate as before (`us=414 full_us=2539 … inside=ok near=kept far=kept`); 5a's replay of
+  the captured pass, the control, unchanged (6 013 → 5 995 µs); gpud's heap after the rungs
+  75 446 bytes (cycle 15: 82 550 — no captured fragment blocks read, no program copies per pass).
+
+- **H30 confirmed.** Every entry accepted, both pipelines at their cycle-15 cost to a hundredth of
+  a nanosecond, both samples right: our kick, iteration and state load run as the captured ones.
+- **H31 confirmed.** Every pass after the library's placing — 5b's four, the area gate's two, the
+  pipeline gate's two — drew right from setup programs written once.
+- **H32 confirmed.** No sample changed for the two loads not carried.
+
+**Verdict 5c-2 P4.** The pipeline library is the device's way in for GPU code: a client's
+archive parsed, checked entry by entry and placed, its pipelines named by id, gpud holding and
+patching no program of its own. The whole fragment half of a pass is now ours — program and
+setup — and a scene of blended quads drew 2.6 times faster for it. Carried: the client's supply
+over IPC (5c-3, with windowd's own context), the vertex pipeline (the captured vertex program and
+fetch remain), the blended layer against the stock's 3.1 ns.

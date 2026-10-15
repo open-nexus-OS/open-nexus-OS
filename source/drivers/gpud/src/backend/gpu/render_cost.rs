@@ -12,20 +12,21 @@
 //!   background on empty tiles — draws the quad and leaves every pixel outside the area as it
 //!   was: a sentinel in the quad's own tile, one far away, both kept, and the pass cheaper than
 //!   the same pass over the whole plane (`gpud: gpu area ok (`);
-//! - the pipeline gate (5c-2 P3c): the compositor's layer compiled from WGSL by our toolchain
-//!   (`resources/gpu/pipelines`) — the untinted opaque variant and the tinted premultiplied one,
-//!   each on a 1024² quad limited to its area: both samples right and the opaque layer no slower
-//!   a pixel than the stock stack's opaque fill (1.8 ns): `gpud: gpu pipeline ok (`.
+//! - the pipeline gate (5c-2 P3c, P4d): the compositor's layer compiled from WGSL by our
+//!   toolchain into the context's pipeline library (the library rung placed it) — the untinted
+//!   opaque variant and the tinted premultiplied one, each on a 1024² quad limited to its area:
+//!   both samples right and the opaque layer no slower a pixel than the stock stack's opaque fill
+//!   (1.8 ns): `gpud: gpu pipeline ok (`.
 //!
 //! Each pass lands in fresh lines of the rung's halves of the bundle's buffers' tails — no
 //! buffer of its own: four of them filled gpud's 64 address-space regions and the display's
-//! cursor layer found none (the second cycle's first boot). A program goes into the free tail
-//! of the bundle's code arena; the pass names it through a copy of the fragment kick word and
-//! its pass type through a copy of the draw's state block.
+//! cursor layer found none (the second cycle's first boot). A pass names its pipeline by id;
+//! the pipeline's setup sets the pass type and the setup programs.
 
 use nexus_driverkit::gpu::{Access, GpuVa};
 use nexus_gfx::backend::gpu::csb::{isp, pbe};
 use nexus_gfx::backend::gpu::fwif::{FragCmd, GeomCmd, RenderFeatures};
+use nexus_gfx::backend::gpu::pipelines::Placed;
 use nexus_gfx::backend::gpu::quads::{self, Bump, Quad, Template};
 use nexus_gfx::backend::gpu::scene::Scene;
 use nexus_gfx::backend::gpu::CoreId;
@@ -33,12 +34,13 @@ use nexus_gfx::backend::v2::{
     Batch, ClientId, ContextId, GfxDevice, QueueKind, RenderStreams, RenderTarget, Stream,
     TimelinePoint,
 };
+use nexus_gfx::shader::rogue::reference::PASS_OPAQUE;
 
 use super::device_v2::Device;
 use super::emit;
 use super::render_template::{
-    expected_bgr, opaque_bgr, pds_at, premultiplied_bgr, render_streams, write_bound, Captured,
-    COST_TAILS, GENERAL_ARENA, PDS_ARENA, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
+    opaque_bgr, pds_at, premultiplied_bgr, render_streams, write_bound, Captured, COST_TAILS,
+    GENERAL_ARENA, PDS_ARENA, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
 
@@ -48,19 +50,6 @@ const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 const STRIDE: usize = 7680;
 const TOLERANCE: u8 = 4;
-/// The bundle's code arena (the code heap's second page) and its free tail, a page a program.
-const CODE_HEAP_BASE: u64 = 0xe0_0000_0000;
-const CODE_ARENA: u64 = 0xe0_0000_1000;
-const CODE_TAIL: u32 = 0x8000;
-/// The fragment kick word as captured: the base program at the code heap's offset 0x7b80,
-/// five units of four temporaries (`resources/gpu/programs/README.md`); bits 2–31 the offset.
-const KICK_CAPTURED: u64 = 0x0000_0028_0000_7b80;
-const KICK_OFFSET: u64 = 0xffff_fffc;
-/// The draw state block's third word is the ISP word: the pass type in bits 24–26.
-const ISP_WORD: usize = 8;
-const PASS_TYPE: u32 = 7 << 24;
-const PUNCH_THROUGH: u32 = 2 << 24;
-const TRANSLUCENT: u32 = 1 << 24;
 /// The sentinels: one a pixel above the 16² quad in the quad's own tile (the back end's clip,
 /// pixel-precise), one in the plane's first tile (the region clip).
 const NEAR: (usize, usize) = (710, 283);
@@ -68,41 +57,10 @@ const FAR: (usize, usize) = (8, 8);
 const SENTINEL: [u8; 4] = [0x3c, 0xa5, 0x5a, 0xff];
 const WHITE: [f32; 4] = [1.0; 4];
 
-/// A compositor pipeline compiled by the toolchain (`resources/gpu/pipelines`, 5c-2 P3c): its
-/// program, the temporaries and pass type the compiler gave it (`tools/nxgpu/tests/pipelines.rs`
-/// pins them until the pipeline library carries them), the tint its probe draws with.
-struct Pipeline {
-    name: &'static str,
-    code: &'static [u8],
-    groups: usize,
-    temps: u8,
-    pass_type: u32,
-    tint: [f32; 4],
-    premultiplied: bool,
-}
-
-const OPAQUE: u32 = 0;
-
-const PIPELINES: [Pipeline; 2] = [
-    Pipeline {
-        name: "layer-opaque",
-        code: include_bytes!("../../../../../../resources/gpu/pipelines/layer-opaque.usc"),
-        groups: 3,
-        temps: 1,
-        pass_type: OPAQUE,
-        tint: WHITE,
-        premultiplied: false,
-    },
-    Pipeline {
-        name: "layer-premultiplied",
-        code: include_bytes!("../../../../../../resources/gpu/pipelines/layer-premultiplied.usc"),
-        groups: 11,
-        temps: 3,
-        pass_type: TRANSLUCENT,
-        tint: [0.5; 4],
-        premultiplied: true,
-    },
-];
+/// The library pipelines the gate draws with (`resources/gpu/pipelines/compositor.toml`): the
+/// area gate's, and the pipeline gate's with the tint each probe draws with.
+const AREA_LAYER: &str = "layer-premultiplied";
+const PROBES: [(&str, [f32; 4]); 2] = [("layer-opaque", WHITE), ("layer-premultiplied", [0.5; 4])];
 
 /// The stock stack's opaque textured fill, the opaque layer's bar: hundredths of a ns a pixel
 /// (`docs/board/measurements/2026-10-10-gpu-stock-baseline/`).
@@ -222,12 +180,13 @@ fn run(
     dev: &mut Device,
     rig: &Rig<'_>,
     t: &Template<'_>,
+    pipeline: &Placed,
     place: &mut Bump,
     qs: &[Quad],
     area: bool,
 ) -> Result<Pass, alloc::string::String> {
     let q = qs.first().ok_or("no quad")?;
-    let emitted = quads::emit(t, qs, place, false).map_err(|e| alloc::format!("emit {e:?}"))?;
+    let emitted = quads::emit(t, pipeline, qs, place).map_err(|e| alloc::format!("emit {e:?}"))?;
     let (client, ctx) = (rig.client, rig.ctx);
     write_bound(dev, client, VERTEX_BUFFER, emitted.vertex_offset, &emitted.vertices)?;
     write_bound(dev, client, STREAM_BUFFER, emitted.stream_offset, &emitted.stream)?;
@@ -293,15 +252,18 @@ fn gate(
     canvas: &GpuCanvas,
     rig: &Rig<'_>,
     t: &Template<'_>,
+    pipeline: &Placed,
     place: &mut Bump,
 ) -> Result<u64, alloc::string::String> {
     let q = quad(16);
-    let full = run(dev, rig, t, place, &[q], false).map_err(|e| alloc::format!("full pass {e}"))?;
+    let full = run(dev, rig, t, pipeline, place, &[q], false)
+        .map_err(|e| alloc::format!("full pass {e}"))?;
     if !poke(display, canvas, NEAR) || !poke(display, canvas, FAR) {
         return Err(alloc::string::String::from("no cpu view of the plane"));
     }
-    let area = run(dev, rig, t, place, &[q], true).map_err(|e| alloc::format!("area pass {e}"))?;
-    let inside = sample(display, canvas, &q, expected_bgr(WHITE));
+    let area = run(dev, rig, t, pipeline, place, &[q], true)
+        .map_err(|e| alloc::format!("area pass {e}"))?;
+    let inside = sample(display, canvas, &q, premultiplied_bgr(WHITE));
     let kept = |px: Option<[u8; 4]>| if px == Some(SENTINEL) { "kept" } else { "overwritten" };
     let (near, far) = (kept(peek(display, canvas, NEAR)), kept(peek(display, canvas, FAR)));
     let line = alloc::format!(
@@ -320,9 +282,8 @@ fn gate(
     }
 }
 
-/// The pipeline gate: each compiled pipeline at the code arena's tail, named by a copy of the
-/// kick word with its temporaries, its pass type in a copy of the state block; a 1024² pass
-/// limited to its area, its sample, its cost a pixel beyond the limited 16² pass (`area_us`).
+/// The pipeline gate: each probe's library pipeline on a 1024² pass limited to its area, its
+/// sample, its cost a pixel beyond the limited 16² pass (`area_us`).
 fn pipelines(
     dev: &mut Device,
     display: &mut dyn Display,
@@ -333,44 +294,26 @@ fn pipelines(
     area_us: u64,
 ) {
     let fail = |what: &str| emit(&alloc::format!("gpud: FAIL gpu pipeline ({what})"));
-    let kick = t
-        .shader_program
-        .get(..8)
-        .map(|w| u64::from_le_bytes([w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7]]));
-    let isp =
-        t.ppp26.get(ISP_WORD..ISP_WORD + 4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]));
-    let (Some(KICK_CAPTURED), Some(isp)) = (kick, isp) else {
-        return fail("the bundle's kick word is not the captured one");
-    };
-    if isp & PASS_TYPE != PUNCH_THROUGH {
-        return fail("the bundle's pass type is not the captured one");
-    }
     let mut cns = [0u64; 2];
-    for (i, p) in PIPELINES.iter().enumerate() {
-        let at = CODE_TAIL + i as u32 * 0x1000;
-        if let Err(e) = write_bound(dev, rig.client, CODE_ARENA, at, p.code) {
-            return fail(&alloc::format!("{} write {e}", p.name));
-        }
-        let offset = (CODE_ARENA + u64::from(at) - CODE_HEAP_BASE) & KICK_OFFSET;
-        let mut shader = alloc::vec::Vec::from(t.shader_program);
-        shader[..8].copy_from_slice(&((u64::from(p.temps) << 35) | offset).to_le_bytes());
-        let mut ppp = alloc::vec::Vec::from(t.ppp26);
-        ppp[ISP_WORD..ISP_WORD + 4]
-            .copy_from_slice(&((isp & !PASS_TYPE) | p.pass_type).to_le_bytes());
-        let tp = Template { shader_program: &shader, ppp26: &ppp, ..*t };
-        let q = Quad { tint: p.tint, ..quad(1024) };
-        let pass = match run(dev, rig, &tp, place, &[q], true) {
-            Ok(pass) => pass,
-            Err(e) => return fail(&alloc::format!("{} {e}", p.name)),
+    for (i, (name, tint)) in PROBES.iter().enumerate() {
+        let p = match dev.pipelines.id_of(name).map(|id| dev.pipelines.get(id)) {
+            Some(Ok(p)) => p.clone(),
+            _ => return fail(&alloc::format!("{name} is not in the context's library")),
         };
-        let want = if p.premultiplied { premultiplied_bgr(p.tint) } else { opaque_bgr(p.tint) };
+        let opaque = p.pass_type == PASS_OPAQUE;
+        let q = Quad { tint: *tint, ..quad(1024) };
+        let pass = match run(dev, rig, t, &p, place, &[q], true) {
+            Ok(pass) => pass,
+            Err(e) => return fail(&alloc::format!("{name} {e}")),
+        };
+        let want = if opaque { opaque_bgr(*tint) } else { premultiplied_bgr(*tint) };
         let reading = sample(display, canvas, &q, want);
         cns[i] = pass.us.saturating_sub(area_us) * 100_000 / PROBE_PIXELS;
         emit(&alloc::format!(
-            "gpud: gpu cost (program={} groups={} pass={} size=1024 us={} geom_us={} frag_us={} irqs={} ns_px={}.{:02} sample={})",
-            p.name,
+            "gpud: gpu cost (program={name} id={} groups={} pass={} size=1024 us={} geom_us={} frag_us={} irqs={} ns_px={}.{:02} sample={})",
+            p.id,
             p.groups,
-            if p.pass_type == OPAQUE { "opaque" } else { "translucent" },
+            if opaque { "opaque" } else { "translucent" },
             pass.us,
             pass.geom_us,
             pass.frag_us,
@@ -380,7 +323,7 @@ fn pipelines(
             reading.as_ref().map_or_else(|e| e.as_str(), |_| "ok")
         ));
         if let Err(e) = reading {
-            return fail(&alloc::format!("{} sample {e}", p.name));
+            return fail(&alloc::format!("{name} sample {e}"));
         }
     }
     let line = alloc::format!(
@@ -434,9 +377,16 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
             nexus_abi::cache_clean(bytes, canvas.block);
         }
     }
+    let area_layer = match dev.pipelines.id_of(AREA_LAYER).map(|id| dev.pipelines.get(id)) {
+        Some(Ok(p)) => p.clone(),
+        _ => {
+            display.gpu_canvas_discard(canvas.row);
+            return fail("the library's premultiplied layer is not in the context");
+        }
+    };
     let mut place: Bump = COST_TAILS;
     let rig = Rig { client, ctx, base, target_va: target.va };
-    match gate(dev, display, &canvas, &rig, &template, &mut place) {
+    match gate(dev, display, &canvas, &rig, &template, &area_layer, &mut place) {
         Ok(area_us) => pipelines(dev, display, &canvas, &rig, &template, &mut place, area_us),
         Err(e) => fail(&e),
     }

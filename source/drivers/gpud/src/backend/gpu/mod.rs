@@ -41,6 +41,7 @@ pub(crate) mod quad;
 mod regs;
 mod render;
 pub(crate) mod render_cost;
+pub(crate) mod render_library;
 pub(crate) mod render_quad;
 pub(crate) mod render_quads;
 mod render_template;

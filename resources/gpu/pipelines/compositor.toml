@@ -1,0 +1,25 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The compositor's pipelines for the board GPU (TASK-0215 5c-2 P4c, ADR-0072 §5–7): one entry per
+# variant — a source, its entry point, its overrides, its blend — with its instruction-group
+# budget. `nxgpu library` compiles each, holds it to its budget, generates its setup programs
+# and builds `compositor.nxgp` (README.md); ids are the pipelines' names on the wire.
+target = "board"
+
+# A surface at full opacity in its own colours — the compositor's commonest draw.
+[[pipeline]]
+id = 1
+name = "layer-opaque"
+source = "../shaders/layer.wgsl"
+overrides = { tinted = false }
+blend = "replace"
+budget = 3
+
+# A surface over what is below, tinted (opacity and colour), premultiplied.
+[[pipeline]]
+id = 2
+name = "layer-premultiplied"
+source = "../shaders/layer.wgsl"
+blend = "premultiplied"
+budget = 11

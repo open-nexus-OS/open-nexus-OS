@@ -21,12 +21,13 @@ use super::asm::{
     PIXOUT0, ZERO,
 };
 use super::ctrl::{CtrlInstr, Ditr, Itrsmp};
-use super::group::{align_end, Group};
+use super::group::{align_end, Group, Instr};
 use super::io::{bank, Reg};
 use super::reference::{PASS_OPAQUE, PASS_TRANSLUCENT};
 use super::RogueError;
 use crate::shader::ir::validate::validate;
 use crate::shader::ir::{BinOp, Interp, IrError, Lod, Module, Op, Scalar, Stage, Type, ValueId};
+use crate::shader::library::feature;
 
 /// Where the setup programs put what a program reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +62,21 @@ pub struct Program {
     /// Temporaries in units of four (the kick word's field).
     pub temps: u8,
     pub pass_type: u8,
+}
+
+impl Program {
+    /// The library feature bits the program needs of the device.
+    pub fn features(&self) -> u32 {
+        let fused = self
+            .groups
+            .iter()
+            .any(|g| g.instrs.iter().any(|(_, i)| matches!(i, Instr::Ctrl(CtrlInstr::Itrsmp(_)))));
+        if fused {
+            feature::FUSED_ITERATE_SAMPLE
+        } else {
+            0
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

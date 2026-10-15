@@ -2,17 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Dynamic geometry on the board (TASK-0215 5b, RFC-0101 §8d): textured, tinted quads at
-//! positions the device chooses, drawn with the captured pass's programs through the bindings
-//! and render objects the render rung left. Every pass lands in fresh memory the GPU has not
-//! read (`nexus_gfx::backend::gpu::quads`): the control stream, the vertices, the vertex PDS
-//! data, each draw's blocks; the geometry job's `vdm_ctrl_stream_base` is patched to the pass's
-//! stream. The target is rebound at a fresh plane once; a sample inside each quad is read back
-//! against the formula (texel × tint over the clear). Probes, each a line, keep the diagnosis
-//! sharp: one quad (data 1), one again (data 0), two, three (the gate), two with the fragment
-//! programs shared: `gpud: gpu quads ok (n=3 us= samples=3/3)`.
+//! positions the device chooses, drawn through the bindings and render objects the render rung
+//! left with the library's premultiplied layer (5c-2 P4d: the setup programs ours, placed once
+//! by the library rung). Every pass lands in fresh memory the GPU has not read
+//! (`nexus_gfx::backend::gpu::quads`): the control stream, the vertices, the vertex PDS data,
+//! each draw's blocks; the geometry job's `vdm_ctrl_stream_base` is patched to the pass's stream.
+//! The target is rebound at a fresh plane once; a sample inside each quad is read back against
+//! the formula (texel × tint as a premultiplied source over the clear). Probes, each a line,
+//! keep the diagnosis sharp: one quad (data 1), one again (data 0), two, three (the gate):
+//! `gpud: gpu quads ok (n=3 us= samples=3/3)`.
 
 use nexus_driverkit::gpu::{Access, GpuVa};
 use nexus_gfx::backend::gpu::fwif::GeomCmd;
+use nexus_gfx::backend::gpu::pipelines::Placed;
 use nexus_gfx::backend::gpu::quads::{self, Bump, Placer, Quad, Template};
 use nexus_gfx::backend::gpu::scene::Scene;
 use nexus_gfx::backend::gpu::CoreId;
@@ -24,7 +26,7 @@ use nexus_gfx::backend::v2::{
 use super::device_v2::Device;
 use super::emit;
 use super::render_template::{
-    expected_bgr, pds_at, render_streams, write_bound, Captured, GENERAL_ARENA, PDS_ARENA,
+    pds_at, premultiplied_bgr, render_streams, write_bound, Captured, GENERAL_ARENA, PDS_ARENA,
     QUADS_TAILS, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
@@ -35,6 +37,8 @@ const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 const STRIDE: usize = 7680;
 const TOLERANCE: u8 = 4;
+/// The library pipeline the quads draw with (`resources/gpu/pipelines/compositor.toml`).
+const LAYER: &str = "layer-premultiplied";
 /// The three quads: the capture's positions and tints.
 const QUADS: [Quad; 3] = [
     Quad { x: 704.0, y: 284.0, w: 512.0, h: 512.0, tint: [1.0, 1.0, 1.0, 1.0] },
@@ -57,12 +61,12 @@ fn probe(
     t: &Template<'_>,
     streams: &RenderStreams<'_>,
     target_va: u64,
+    pipeline: &Placed,
     quads: &[Quad],
     place: &mut dyn Placer,
-    share_programs: bool,
 ) -> Result<(u64, u32), alloc::string::String> {
     let emitted =
-        quads::emit(t, quads, place, share_programs).map_err(|e| alloc::format!("emit {e:?}"))?;
+        quads::emit(t, pipeline, quads, place).map_err(|e| alloc::format!("emit {e:?}"))?;
     let mut writes: alloc::vec::Vec<(u64, u32, &[u8])> = alloc::vec::Vec::new();
     writes.push((VERTEX_BUFFER, emitted.vertex_offset, &emitted.vertices));
     writes.push((STREAM_BUFFER, emitted.stream_offset, &emitted.stream));
@@ -122,7 +126,7 @@ fn probe(
     for (i, q) in quads.iter().enumerate() {
         let x = (q.x + SAMPLE_FRACTION * q.w) as usize;
         let y = (q.y + SAMPLE_FRACTION * q.h) as usize;
-        let want = expected_bgr(q.tint);
+        let want = premultiplied_bgr(q.tint);
         let at = y * STRIDE + x * 4;
         let Some(px) = bytes.get(at..at + 3) else {
             bad.get_or_insert((i, x, y, want, [0u8; 3]));
@@ -168,6 +172,10 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
         Err(e) => return fail(e),
     };
     let template = captured.template(GENERAL_ARENA, VERTEX_BUFFER, STREAM_BUFFER);
+    let pipeline = match dev.pipelines.id_of(LAYER).map(|id| dev.pipelines.get(id)) {
+        Some(Ok(p)) => p.clone(),
+        _ => return fail("the library's premultiplied layer is not in the context"),
+    };
     // A fresh plane under the target address.
     let Some(canvas) = display.gpu_canvas() else {
         return fail("no plane of the ring free");
@@ -185,18 +193,17 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
     }
     // Fresh lines for every pass: this rung's halves of the bundle's buffers' tails.
     let mut place: Bump = QUADS_TAILS;
-    let probes: [(&str, &[Quad], bool); 5] = [
-        ("one", &QUADS[..1], false),
-        ("one-again", &QUADS[..1], false),
-        ("two", &QUADS[..2], false),
-        ("three", &QUADS[..3], false),
-        ("two-shared", &QUADS[..2], true),
+    let probes: [(&str, &[Quad]); 4] = [
+        ("one", &QUADS[..1]),
+        ("one-again", &QUADS[..1]),
+        ("two", &QUADS[..2]),
+        ("three", &QUADS[..3]),
     ];
     let mut gate = Err(alloc::string::String::from("no probe ran"));
-    for (name, quads, share) in probes {
+    for (name, quads) in probes {
         let r = probe(
-            dev, display, &canvas, client, ctx, &template, &streams, target.va, quads, &mut place,
-            share,
+            dev, display, &canvas, client, ctx, &template, &streams, target.va, &pipeline, quads,
+            &mut place,
         );
         match &r {
             Ok((us, irqs)) => emit(&alloc::format!(

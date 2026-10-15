@@ -114,8 +114,12 @@ ladder_headless=(
   # with the render context, free lists and dataset built by the device; the blended quad's
   # four samples read back.
   "gpud: gpu render ok ("
+  # TASK-0215 5c-2 P4d (RFC-0101 §7b): the compositor's pipeline library taken for the context —
+  # every entry accepted, its programs and our setup programs placed, the kicks naming them.
+  "gpud: gpu library ok ("
   # TASK-0215 5b: dynamic geometry — three quads at positions and tints the device chose, the
-  # per-draw blocks and stream records written by the device, each quad's centre read back.
+  # per-draw blocks and stream records written by the device, each quad's centre read back
+  # (drawn with the library's premultiplied layer since 5c-2 P4d).
   "gpud: gpu quads ok ("
   # TASK-0215 5c-1: a pass limited to its quad's area — two CPU sentinels outside it (one in
   # the quad's own tile, one far) kept, the quad's sample right, cheaper than the whole plane.

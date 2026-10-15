@@ -218,7 +218,7 @@ pipelines on it.
 |---|---|---|
 | 5c-1 | **The cost of a pass**: measured factor by factor on the board (the GPU-cache policy per buffer as the open driver sets it, pixel merging, the render area limited to the damage with the back end's clip and no background on empty tiles), then the policy that wins made the device's default and the contract's (RFC-0101 §3/§8d) | decided by the cycle: the per-pixel cost of a blended quad near the stock's, a pass's fixed cost limited to its damage tiles |
 | 5c-2 | **The pipelines** (ADR-0072): the compositor's ops written in WGSL and compiled through our IR by our backends into the pipeline library (RFC-0101 §7b) — the textured layer with opacity and rounded corners, the SDF fill and gradient, the drop shadow, the blur's two passes at quarter size, glyphs; the emitter generalised from 5b (constants and textures per draw); the QEMU path on the same library | each pipeline's picture on the board against its host formula, each within its instruction-group budget |
-| 5c-3 | **The frame**: windowd's command list as GPU draw lists in gpud's display backend, damage-driven (buffer age, the render area), the blur cached at quarter size, the transient buffers recycled by the timeline | `gpud: gpu desktop ok (frame_us=)` |
+| 5c-3 | **The frame**: windowd's command list as GPU draw lists in gpud's display backend — windowd's own GPU context and its pipeline library supplied over IPC (a VMO, RFC-0101 §7b; moved here from 5c-2 P4 to arrive with its consumer) — damage-driven (buffer age, the render area), the blur cached at quarter size, the transient buffers recycled by the timeline | `gpud: gpu desktop ok (frame_us=)` |
 | 5c-4 | **The gate scene** and the desktop seen | our frame of the gate scene below the stock 23.3 ms; `board-visual: gpu-desktop` |
 
 ### 5c-1 — the cost of a pass
@@ -292,7 +292,7 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
 | P1 | `nexus_gfx::shader::rogue` — the shader core's instruction-group encoding and its disassembler for the compositor's subset, from the open compiler's published instruction description; the setup-program (PDS) encoding | the four captured programs (`resources/gpu/programs`) disassemble and re-encode byte for byte; every encoding a golden |
 | P2 | `nexus_gfx::shader::ir` and its interpreter (the reference); the WGSL frontend as a host build tool (naga 28) lowering into it | the compositor's first WGSL programs lowered; the interpreter's pixels equal the CPU rasterizer's |
 | P3 | the `rogue` backend: instruction selection, registers, group packing, the epilog parts; the first pipeline — the textured layer, opaque and blended | groups within budget on the host; on the board the picture right and ns a pixel on 5c-1's line; `gpud: gpu pipeline ok (` |
-| P4 | the pipeline library: format, build step (an entry per variant — source, entry point, overrides, blend), our setup programs and state words generated beside each program, windowd supplies it, gpud validates and binds (`test_reject_library_*`) | the rejects green; the rungs draw with library pipelines, the captured programs retire to measurement |
+| P4 | the pipeline library: format, build step (an entry per variant — source, entry point, overrides, blend), our setup programs and state words generated beside each program, gpud validates and binds (`test_reject_library_*`); the client's supply over IPC lands with its consumer in 5c-3 | the rejects green; the rungs draw with library pipelines and our setup programs, the captured fragment programs retire to measurement |
 | P5 | the remaining ops: rounded-rect SDF, gradient, shadow, the blur's passes, glyphs | each picture against its host formula, each budget |
 | P6 | the `tgsi` backend; the QEMU path on the library; the hand-written shader text retired | the QEMU lanes green on library programs |
 
@@ -383,6 +383,58 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
   pixel below the unfused one; H28 and H29 confirmed; gpud's heap 28 KB lighter (nothing
   assembled at run time); `[PASS] board-visible`, 61 rungs, the operator's eight confirmations.
   **P3 complete.** Carried: the blended layer against the stock's first blended layer (3.1 ns).
+- **P4 ✅ 2026-10-15 — the pipeline library.** Measured before cutting it (gpud and windowd read
+  through): the GPU rungs run synchronously at boot before gpud serves requests; windowd cannot
+  reach the v2 device (one context, held by gpud's own rungs; requests carry no client identity
+  yet); loading a program is a CPU copy into an already-bound buffer. So the client's supply over
+  IPC would be a path without a consumer today — it moves to 5c-3, where windowd gets its own
+  context and draws; the device API it will call is P4's. Packages, host first:
+  - **P4a** — `nexus_gfx::shader::library`: the archive format v1 (header, entry table, entries
+    of typed sections: name, interface, program, setup programs, state), every size bounded and
+    checked before a byte is copied; the six `test_reject_library_*` of RFC-0101 §7b. The three
+    placeholders beside it (`module`, `function`, `reflection`) are deleted: the IR's interface
+    is the reflection, a variant is an entry point with its overrides, and no SPIR-V module is
+    the system's (ADR-0072 §3).
+  - **P4b** — `rogue::setup`: our fragment setup programs from a compiled program and its
+    interface — the kick, the varying iteration, the state load (its code fixed, its data a
+    declared list of DMAs the device fills per draw) — and the PDS size words; the render
+    bundle's captured programs are the goldens, word for word where they describe the same.
+  - **P4c** — `nxgpu library <manifest>`: the compositor's variants declared once
+    (`resources/gpu/pipelines/compositor.toml`), the archive built and its budgets enforced on
+    the host; the single `.usc` files retire into it; a test rebuilds it byte for byte.
+  - **P4d** — the device: `Device::load_library` (target, version, digests, features; programs
+    and setup programs placed in buffers bound in the client's context; the accepted ids
+    answered) and draws by pipeline id (`test_reject_draw_unknown_pipeline`); the cost rung loads
+    the library as a client and the pipeline gate draws through it — gpud's pipeline table
+    retires. Board cycle 16.
+  - Not in P4: the vertex pipeline (the captured vertex program and its fetch stay until a
+    vertex package; 5a keeps the captured pass as its measured control), the `tgsi` target
+    (P6), the IPC supply (5c-3); the device checking an application program's temporaries
+    against the registers it names (with the application API).
+  - **Host ✅ 2026-10-15.** P4a: the format v1 (`NXGP` — the retired `NXPL` is the payload ops'
+    and the `payload-vmo` gate keeps it retired), the six rejects, the malformed entries, every
+    truncation and flipped bit of a library parsed without a panic (`tests/shader_library.rs`).
+    P4b: the setup generator (`tests/rogue_setup.rs`) — the iteration the bundle's word for word,
+    the kick byte for byte once placed at the captured program (its data fixed at eight dwords:
+    the open driver's pixel-shader constant, the hardware runs the code at +0x20), the state
+    load's texture and tint loads as captured; the open driver's two further loads (its
+    descriptor at sh28, a constant at sh0) are its descriptor-set plumbing, which our programs
+    never read, so ours carries two; the size words from the generated programs (units from
+    the open driver's state description). P4c: `compositor.toml` → `compositor.nxgp` (624
+    bytes), each budget held (3/3, 11/11), the `.usc` files retired into it, a test rebuilding
+    it byte for byte. P4d: `backend::gpu::pipelines` — the table (`tests/gpu_pipelines.rs`:
+    placed, each kick naming its program; `test_reject_draw_unknown_pipeline`, a second library,
+    a program that does not decode, one over budget, a setup it does not take, no room, another
+    device); the emitter draws only with a pipeline (its goldens: the captures byte for byte but
+    for the pipeline's pass type, size word and two loads); gpud's library rung, 5b and the cost
+    rung on the library's pipelines; the captured fragment programs remain only in 5a's replay.
+  - **Board ✅ cycle 16** (`cycle16-gpu-lines.txt`): `gpud: gpu library ok (bytes=624 entries=2
+    refused=0 code_bytes=152 setup_bytes=136 ids=1,2)`; the pipeline gate at 1.29 and 4.03 ns a
+    pixel with both samples right (cycle 15: 1.30 and 4.04 through the captured setup); every
+    later pass right from setup programs placed once; 5b's three blended quads in **4 972 µs**
+    where the open compiler's program took 12 949 µs (each further 512² quad ≈ 830 µs against
+    ≈ 3 500); gpud's heap 7 KB lighter. H30–H32 confirmed; `[PASS] board-visible`, 62 rungs,
+    the operator's eight confirmations. **P4 complete.**
 
 | # | Hypothesis | Decision line |
 |---|---|---|
@@ -396,6 +448,9 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
 | H27 | Iterate-and-sample addresses its state as iterate and sample do | an `opaque-itrsmp` sample right |
 | H28 | The toolchain's opaque layer runs as the reference it equals byte for byte | `layer-opaque`: sample right, 1.30 ± 0.05 ns a pixel |
 | H29 | Iterate-and-sample feeds the premultiplied epilog (tile read, unpack, fused multiply-add, pack) as iterate and sample did | `layer-premultiplied` (11 groups): sample right, at most the unfused 13 groups' 4.49 ns |
+| H30 | Our setup programs drive the pipelines as the captured ones did: the kick placed once, the iteration generated, a state load of two loads with its own size word | `gpu library ok (… refused=0 …)`; `gpu pipeline ok (samples=2/2 …)` at 1.30 and 4.04 ± 0.05 ns |
+| H31 | Setup programs placed once and never rewritten serve every later pass (H10 forbids rewriting, not rereading) | 5b's four probes, the area gate's two passes and the pipeline gate's two all right |
+| H32 | Our programs read neither the open driver's descriptor (sh28–30) nor its constant (sh0) | no sample changes for dropping those two loads (5b's tinted quads, the area gate) |
 
 ## Hypotheses 5a's first cycle decides
 

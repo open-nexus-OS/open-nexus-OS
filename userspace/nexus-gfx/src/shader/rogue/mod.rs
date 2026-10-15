@@ -10,14 +10,16 @@
 //! backend that selects instructions from our IR writes through it.
 //! OWNERS: @gpu @runtime
 //! STATUS: Experimental (P1 the encoding and the setup programs; P3 the assembler, the reference
-//!   programs the board measured, the backend for the compositor's textured layer)
+//!   programs the board measured, the backend for the compositor's textured layer; P4 the setup
+//!   programs generated)
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `tests/rogue_isa.rs` — the four programs of `resources/gpu/programs` decode
 //!   into groups at the compiler's offsets and re-encode byte for byte; the rejects.
 //!   `tests/rogue_pds.rs` — the bundle's setup programs word for word. `tests/rogue_asm.rs` —
 //!   the compiler's groups rebuilt by the assembler. `tests/rogue_reference.rs` — the reference
 //!   programs' groups and pass types. `tests/rogue_codegen.rs` — the IR's textured layer compiled
-//!   to the references byte for byte; the backend's refusals.
+//!   to the references byte for byte; the backend's refusals. `tests/rogue_setup.rs` — the setup
+//!   programs against the render bundle's; the setups the device refuses.
 //!
 //! - [`bits`] — a field as bit pieces over bytes, most significant first.
 //! - [`header`] — the group header: main (brief or full), bitwise, control.
@@ -31,6 +33,7 @@
 //! - [`group`] — a group's parts in their order, its length, decode assist and padding.
 //! - [`pds`] — the setup programs: kick, iterate, DMA; their constants' layouts.
 //! - [`reference`] — hand-assembled programs the board measures and the backend must reproduce.
+//! - [`setup`] — a fragment pipeline's setup programs (kick, iteration, state load) and state.
 
 pub mod alu;
 pub mod asm;
@@ -44,6 +47,7 @@ pub mod header;
 pub mod io;
 pub mod pds;
 pub mod reference;
+pub mod setup;
 
 pub use group::{align_end, decode_program, encode_program, Group, Instr, ICACHE_ALIGN};
 

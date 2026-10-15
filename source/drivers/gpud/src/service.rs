@@ -96,6 +96,9 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             // TASK-0215 5a (RFC-0101 Phase 4): the render queue — the captured render pass with
             // the render context, free lists and dataset built here: `gpud: gpu render ok (`.
             crate::gpu::render_quad::rung(dev, &mut display);
+            // TASK-0215 5c-2 P4d (RFC-0101 §7b): the compositor's pipeline library taken for the
+            // context — validated, its programs placed: `gpud: gpu library ok (`.
+            crate::gpu::render_library::rung(dev);
             // TASK-0215 5b: dynamic geometry — three quads at the device's positions and tints,
             // the per-draw blocks and records written by the device: `gpud: gpu quads ok (`.
             crate::gpu::render_quads::rung(dev, &mut display);

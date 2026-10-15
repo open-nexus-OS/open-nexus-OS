@@ -189,14 +189,21 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5a: the render context (two queues, the captured context-switch state), two free lists of the device's pages and the render-target dataset accepted by the firmware; the geometry and fragment jobs completed in the kernel's sequence; four sample pixels read back after the cache flush match the clear and the blended textured quad; the plane went to the glass"
 
+# TASK-0215 5c-2 P4d (RFC-0101 §7b): the compositor's pipeline library taken for the context;
+# `gpud: FAIL gpu library (` is its FAIL form.
+[marker."gpud: gpu library ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-2 P4d: resources/gpu/pipelines/compositor.nxgp parsed for this core's code target and features, every entry accepted (its program decoding into instruction groups within its budget, its setup programs the forms the generator writes for its interface), each program placed untouched in the context's code heap and our setup programs (kick, varying iteration, state load) in its setup heap, each kick naming its program"
+
 # TASK-0215 5b (RFC-0101 Phase 4b): dynamic geometry — three quads at positions and tints the
-# device chose; the vertex buffer, tints, descriptors, uniform-data copies, PPP blocks and the
-# stream's per-draw records written by the device from the open driver's word layouts;
-# `gpud: FAIL gpu quads (` is its FAIL form.
+# device chose; the vertex buffer, tints, state-load data, PPP blocks and the stream's per-draw
+# records written by the device from the open driver's word layouts, drawn with the library's
+# premultiplied layer since 5c-2 P4d; `gpud: FAIL gpu quads (` is its FAIL form.
 [marker."gpud: gpu quads ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5b: the device emitted the per-draw state of three quads itself (one fragment program shared, the index offset into one vertex buffer), rebound the target at a fresh plane, kicked the captured jobs, and each quad's centre read back as texel x tint over the clear"
+proves = "TASK-0215 5b: the device emitted the per-draw state of three quads itself (the library pipeline's setup programs placed once and shared, the index offset into one vertex buffer), rebound the target at a fresh plane, kicked the captured jobs, and each quad's centre read back as texel x tint as a premultiplied source over the clear"
 
 # TASK-0215 5c-1 (RFC-0101 §8d): a pass limited to its quad's area — the back end's clip, the
 # region clip, no background on empty tiles — draws the quad and leaves the rest of the plane
@@ -204,7 +211,7 @@ proves = "TASK-0215 5b: the device emitted the per-draw state of three quads its
 [marker."gpud: gpu area ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5c-1: after a 16x16 pass over the whole plane, two sentinels written by the CPU (one a pixel above the quad in the quad's own tile, one in the plane's first tile) survive the same pass limited to the quad's rectangle, the quad's sample reads texel x tint over the clear, and the limited pass costs less than the whole-plane one"
+proves = "TASK-0215 5c-1: after a 16x16 pass over the whole plane, two sentinels written by the CPU (one a pixel above the quad in the quad's own tile, one in the plane's first tile) survive the same pass limited to the quad's rectangle, the quad's sample reads texel x tint as a premultiplied source over the clear (the library's premultiplied layer since 5c-2 P4d), and the limited pass costs less than the whole-plane one"
 
 # TASK-0215 5c-2 P3c (ADR-0072): the compositor's layer compiled from WGSL by our own toolchain
 # (tools/nxgpu → resources/gpu/pipelines), drawn on the board; `gpud: FAIL gpu pipeline (` is its
@@ -212,7 +219,7 @@ proves = "TASK-0215 5c-1: after a 16x16 pass over the whole plane, two sentinels
 [marker."gpud: gpu pipeline ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5c-2 P3c: the two compositor-layer pipelines our toolchain compiled from resources/gpu/shaders/layer.wgsl (replace as an opaque pass, premultiplied-over as a translucent pass) run from the code arena's tail on a 1024x1024 quad limited to its area, both samples read texel x tint (over the clear for the blended one), and the opaque layer costs no more a pixel than the stock stack's opaque textured fill (1.8 ns)"
+proves = "TASK-0215 5c-2 P3c: the two compositor-layer pipelines our toolchain compiled from resources/gpu/shaders/layer.wgsl (replace as an opaque pass, premultiplied-over as a translucent pass) drawn from the context's pipeline library (placed by the library rung, since 5c-2 P4d with our own setup programs) on a 1024x1024 quad limited to its area, both samples read texel x tint (over the clear for the blended one), and the opaque layer costs no more a pixel than the stock stack's opaque textured fill (1.8 ns)"
 
 [marker."gpud: FAIL gpu "]
 phase = "bringup"

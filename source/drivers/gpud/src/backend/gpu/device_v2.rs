@@ -21,6 +21,7 @@ use nexus_driverkit::gpu::{
 };
 use nexus_gfx::backend::gpu::fwif::{self, TransferCmd};
 use nexus_gfx::backend::gpu::mmu::{PageFlags, PAGE};
+use nexus_gfx::backend::gpu::pipelines::PipelineTable;
 use nexus_gfx::backend::v2::{Batch, BoId, ClientId, ContextId, DeviceError, GfxDevice, Stream};
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 
@@ -64,6 +65,8 @@ pub(crate) struct Device {
     owner: Option<ClientId>,
     /// The render context, free lists and dataset, once a client set them up (§8d).
     render: Option<Render>,
+    /// The context's pipelines, from the library its client supplied (§7b, 5c-2 P4d).
+    pub(crate) pipelines: PipelineTable,
 }
 
 impl Device {
@@ -76,6 +79,7 @@ impl Device {
             space: VmSpace::new(40, PAGE as u32),
             owner: None,
             render: None,
+            pipelines: PipelineTable::default(),
         }
     }
 
@@ -346,6 +350,8 @@ impl GfxDevice for Device {
             }
         }
         self.owner = None;
+        // The programs lived in the context's buffers: its pipelines go with them.
+        self.pipelines = PipelineTable::default();
         Ok(())
     }
 

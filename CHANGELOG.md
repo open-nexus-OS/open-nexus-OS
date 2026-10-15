@@ -43,6 +43,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   premultiplied_ns_px=4.04 samples=2/2 bar=1.80)`** (cycle 15): the opaque layer below the stock
   stack's 1.8 ns, the blended layer 0.45 ns below its unfused reference. gpud's program probes
   retire; the references are the backend's goldens.
+- **The pipeline library** (`nexus_gfx::shader::library`, `rogue::setup`,
+  `backend::gpu::pipelines`, `nxgpu library`, RFC-0101 §7b): the archive format v1 (`NXGP`; every
+  size bounded and checked before a byte is copied, an entry refused alone for its digest or
+  features, a library for another device or version refused whole); our own setup programs — the
+  kick, the varying iteration, a state load of the two loads our programs read — generated with
+  the render bundle's programs as goldens; `compositor.toml` building `compositor.nxgp` with every
+  budget held; the device's table placing each entry (its program decoded within its budget, its
+  setup checked against the forms the generator writes) and finding a draw's pipeline by id
+  (`test_reject_draw_unknown_pipeline`). On the board the new REQUIRED rung **`gpud: gpu library
+  ok (bytes=624 entries=2 refused=0 …)`** (cycle 16); 5b, the area gate and the pipeline gate draw
+  with the library — the pipelines at 1.29 and 4.03 ns a pixel, 5b's three blended quads in 5.0 ms
+  where the open compiler's program took 12.9 ms. The emitter's captured fragment blocks
+  (descriptor, constant, program copies per pass) are gone; the client's supply over IPC arrives
+  with windowd's own context (5c-3).
 
 ### Added - 2026-10-14 (Block 4, layer 5c-1: the cost of a pass — TASK-0215, RFC-0101 Phase 4c)
 

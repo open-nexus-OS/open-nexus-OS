@@ -116,6 +116,11 @@ pub mod ppp {
     pub const fn sizeinfo2(usc_shared: u32, tri_merge_disable: bool, batch_num: u32) -> u32 {
         ((usc_shared & 0x1ff) << 23) | ((tri_merge_disable as u32) << 14) | (batch_num & 0x3fff)
     }
+
+    /// `STATE_ISPA` with its pass type (bits 24–26): opaque 0, translucent 1, punch-through 2.
+    pub const fn with_pass_type(ispa: u32, pass_type: u8) -> u32 {
+        (ispa & !(7 << 24)) | (((pass_type & 7) as u32) << 24)
+    }
 }
 
 /// PDS instruction fields.

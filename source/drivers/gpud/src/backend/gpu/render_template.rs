@@ -3,12 +3,12 @@
 
 //! What the render rungs share (TASK-0215 5b/5c, RFC-0101 §8d): the captured pass's blocks read
 //! back from the render bundle's live bindings (the stream's first records, the 26-word PPP
-//! block, the vertex PDS data, the fragment uniform data and programs, the constant word), the
-//! writes into bound buffers with their cache clean, the three render streams of the bundle,
-//! and the sample formulas — texel × tint over the clear, source-over; texel × tint alone for
-//! an opaque program.
+//! block, the vertex PDS data — the fragment half is the library pipeline's since 5c-2 P4d), the
+//! places the pipeline library and the rungs' passes take in the bundle's buffers, the writes
+//! into bound buffers with their cache clean, the three render streams of the bundle, and the
+//! sample formulas — texel × tint as a premultiplied source over the clear; texel × tint alone
+//! for an opaque program.
 
-use nexus_gfx::backend::gpu::csb::ppp;
 use nexus_gfx::backend::gpu::quads::{Bump, Template};
 use nexus_gfx::backend::gpu::scene::{JobKind, Scene};
 use nexus_gfx::backend::v2::{ClientId, RenderStreams};
@@ -21,15 +21,21 @@ pub(super) const PDS_ARENA: u64 = 0xda_0000_1000;
 pub(super) const PDS_HEAP_BASE: u64 = 0xda_0000_0000;
 pub(super) const VERTEX_BUFFER: u64 = 0x80_008d_a000;
 pub(super) const STREAM_BUFFER: u64 = 0x80_010d_1000;
-/// The captured first draw's blocks: PDS heap offsets of the vertex PDS data, the fragment
-/// uniform data (its three patched descriptors at bytes 8, 16, 24), the shader and varying
-/// programs; general arena offsets of the 26-word PPP block and the constant word.
+/// The code heap's base and the bundle's code arena (its second page, 128 KiB, the capture's
+/// programs in its first 0x6ea8 bytes).
+pub(super) const CODE_HEAP_BASE: u64 = 0xe0_0000_0000;
+pub(super) const CODE_ARENA: u64 = 0xe0_0000_1000;
+/// The pipeline library's places, written once when the context takes its library and never
+/// again: the code arena's free tail (arena offsets) and the head of the PDS arena's free lines
+/// (heap offsets) — the quads rung's PDS lines begin after them.
+pub(super) const LIBRARY_CODE: (u32, u32) = (0x8000, 0x1_0000);
+pub(super) const LIBRARY_PDS: (u32, u32) = (0x3000, 0x4000);
+/// The captured first draw's blocks: the vertex PDS data (PDS heap offset), the 26-word PPP
+/// block (general arena offset); the texture's descriptor block the captured state load names
+/// (texture state, its sampler state at dword 8).
 const VS_PDS_DATA_HEAP: u64 = 0x2840;
-const UNIFORM_DATA_HEAP: u64 = 0x2880;
-const SHADER_HEAP: u64 = 0x2900;
-const VARYING_HEAP: u64 = 0x2940;
 const PPP26_OFFSET: u32 = 0x8200;
-const CONSTANT_BLOCK_OFFSET: u32 = 0x4180;
+const TEXTURE_DESCRIPTOR: u64 = GENERAL_ARENA + 0x80;
 const TERMINATE_PPP: (u64, u32) = (GENERAL_ARENA + 0x40, 3);
 /// The bundle's buffers' tails past the captured pass, split between the two rungs that draw
 /// in them — every pass in lines no pass has read (§8d): the quads rung's lower halves, the cost
@@ -40,7 +46,7 @@ const TERMINATE_PPP: (u64, u32) = (GENERAL_ARENA + 0x40, 3);
 pub(super) const QUADS_TAILS: Bump = Bump {
     general_free: 0x1_0000,
     general_len: 0x1_8000,
-    pds_free: 0x3000,
+    pds_free: LIBRARY_PDS.1,
     pds_len: 0x1_2000,
     stream_free: 0x100,
     stream_len: 0x800,
@@ -64,14 +70,6 @@ const CLEAR_BGR: [f32; 3] = [41.0, 31.0, 26.0];
 /// boundary (5b's quad centres sat on one).
 pub(super) const SAMPLE_FRACTION: f32 = 136.0 / 256.0;
 const SAMPLE_TEXEL: [f32; 4] = [40.0, 90.0, 200.0, 136.0];
-
-/// The expected memory bytes (B, G, R) at a sample: source-over of texel × tint on the clear.
-pub(super) fn expected_bgr(tint: [f32; 4]) -> [u8; 3] {
-    let a = SAMPLE_TEXEL[3] / 255.0 * tint[3];
-    let rgb = [SAMPLE_TEXEL[0] * tint[0], SAMPLE_TEXEL[1] * tint[1], SAMPLE_TEXEL[2] * tint[2]];
-    let mix = |src: f32, dst: f32| (src * a + dst * (1.0 - a) + 0.5) as u8;
-    [mix(rgb[2], CLEAR_BGR[0]), mix(rgb[1], CLEAR_BGR[1]), mix(rgb[0], CLEAR_BGR[2])]
-}
 
 /// The expected memory bytes (B, G, R) at a sample of an opaque program: texel × tint.
 pub(super) fn opaque_bgr(tint: [f32; 4]) -> [u8; 3] {
@@ -146,16 +144,13 @@ pub(super) fn render_streams<'a>(scene: &Scene<'a>) -> Option<RenderStreams<'a>>
     })
 }
 
-/// The captured first draw, read back from the render bundle's bindings.
+/// The captured first draw's vertex half and blocks, read back from the render bundle's
+/// bindings.
 pub(super) struct Captured {
     pds_state: [u32; 3],
     vdm_state: [u32; 5],
     ppp26: alloc::vec::Vec<u8>,
     vs: alloc::vec::Vec<u8>,
-    uniform: alloc::vec::Vec<u8>,
-    shader: alloc::vec::Vec<u8>,
-    varying: alloc::vec::Vec<u8>,
-    constant: alloc::vec::Vec<u8>,
 }
 
 impl Captured {
@@ -164,32 +159,15 @@ impl Captured {
             .ok_or("the stream buffer is not bound (the render rung did not run)")?;
         let w: alloc::vec::Vec<u32> =
             stream0.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
-        let pds = |dev: &mut Device, heap: u64, len: usize| {
-            read_bound(dev, client, PDS_ARENA, pds_at(PDS_ARENA, heap as u32), len)
-        };
-        let (Some(vs), Some(uniform), Some(shader), Some(varying)) = (
-            pds(dev, VS_PDS_DATA_HEAP, 64),
-            pds(dev, UNIFORM_DATA_HEAP, 48),
-            pds(dev, SHADER_HEAP, 64),
-            pds(dev, VARYING_HEAP, 64),
-        ) else {
-            return Err("the PDS arena is not bound");
-        };
-        let (Some(ppp26), Some(constant)) = (
-            read_bound(dev, client, GENERAL_ARENA, PPP26_OFFSET, 104),
-            read_bound(dev, client, GENERAL_ARENA, CONSTANT_BLOCK_OFFSET, 16),
-        ) else {
-            return Err("the general arena is not bound");
-        };
+        let vs = read_bound(dev, client, PDS_ARENA, pds_at(PDS_ARENA, VS_PDS_DATA_HEAP as u32), 64)
+            .ok_or("the PDS arena is not bound")?;
+        let ppp26 = read_bound(dev, client, GENERAL_ARENA, PPP26_OFFSET, 104)
+            .ok_or("the general arena is not bound")?;
         Ok(Self {
             pds_state: [w[0], w[1], w[2]],
             vdm_state: [w[5], w[6], w[7], w[8], w[9]],
             ppp26,
             vs,
-            uniform,
-            shader,
-            varying,
-            constant,
         })
     }
 
@@ -202,22 +180,10 @@ impl Captured {
             terminate_ppp: TERMINATE_PPP,
             vs_pds_data: &self.vs,
             vs_patched: [16, 48],
-            uniform_data: &self.uniform,
-            patched: [8, 16, 24],
-            constant_block: &self.constant,
-            shader_program: &self.shader,
-            varying_program: &self.varying,
+            texture_va: TEXTURE_DESCRIPTOR,
             general_va,
             vertex_va,
             stream_va,
-            pds: ppp::PdsState {
-                shaderbase: SHADER_HEAP as u32,
-                texunicodebase: 0x2700,
-                varyingbase: VARYING_HEAP as u32,
-                uniformdatabase: UNIFORM_DATA_HEAP as u32,
-                sizeinfo1: ppp::sizeinfo1(3, 0, 1, 1, 1),
-                sizeinfo2: ppp::sizeinfo2(2, true, 0),
-            },
             cam_size: 32,
             topology: 6,
         }
