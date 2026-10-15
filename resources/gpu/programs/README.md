@@ -32,6 +32,12 @@ compiler's own statistics (`PCO_DEBUG_PRINT=stats`) give the instruction groups 
 | `frag-chain.usc` | `quad_chain.frag`: the same, then twelve times `c = c * tint + tint` | source-over | 116 | 17 | punch-through (2) | 1312 | `0x82b8ca6ffbb43157` |
 | `frag-eft.usc` | `quad_eft.frag`: `quad.frag` with `layout(early_fragment_tests) in` | source-over | 67 | 17 | translucent (1) | 728 | `0x0c4742c89ca4bf25` |
 | `frag-opaque-eft.usc` | `quad_eft.frag` | off | 55 | 18 | translucent (1) | 608 | `0x8476199eb9c2813d` |
+| `frag-ops.usc` | `quad_ops.frag`: min, max, the inverse square root, the reciprocal, exp2, log2, a saturated product, `abs(z − w) * 0.5 + g` over the push constants (captured 2026-10-15, 5c-2 P5a) | source-over | 52 | 14 | — (never run) | 624 | `0x55cbd264d929bcab` |
+
+`frag-ops.usc` is not a cost probe: its groups at 0x72–0xf6 are the encodings the backend's new
+arithmetic is held to (`userspace/nexus-gfx/tests/rogue_asm.rs`) — min and max as one group of two
+bypasses, a float test and a conditional move; the single-source unit; saturation as an add of
+constant register 0; a constant (0.5) read from constant register 75.
 
 `frag-base.usc` is byte-identical to the fragment program inside `resources/gpu/scenes/render-quad.scene`
 (the bundle's code arena at offset `0x6b80`, kick word `0x0000002800007b80`).
@@ -59,4 +65,4 @@ arena's heap offset `0x2900` names the program: bits 2–31 its offset from the 
 `0xe0_0000_0000`, bits 35–40 its temporaries in units of four; the bytes at that offset for the
 compiler's code size are the file. The pass type is bits 24–26 of the third word of the draw's
 state block (general arena `0x80_0004_b000` + `0x8208`). A new capture changes a digest: update
-it here and in `userspace/nexus-gfx/tests/gpu_scene_goldens.rs` (`the_programs_are_the_captures_of_2026_10_14`).
+it here and in `userspace/nexus-gfx/tests/gpu_scene_goldens.rs` (`the_programs_are_their_captures`).

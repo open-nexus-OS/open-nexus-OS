@@ -252,7 +252,7 @@ mod programs {
 
     const RENDER: &[u8] = include_bytes!("../../../resources/gpu/scenes/render-quad.scene");
     const BASE: &[u8] = include_bytes!("../../../resources/gpu/programs/frag-base.usc");
-    const PROGRAMS: [(&str, &[u8], u64); 4] = [
+    const PROGRAMS: [(&str, &[u8], u64); 5] = [
         ("frag-base", BASE, 0x0fa6_5ca1_5b93_7497),
         (
             "frag-chain",
@@ -269,15 +269,20 @@ mod programs {
             include_bytes!("../../../resources/gpu/programs/frag-opaque-eft.usc"),
             0x8476_199e_b9c2_813d,
         ),
+        (
+            "frag-ops",
+            include_bytes!("../../../resources/gpu/programs/frag-ops.usc"),
+            0x55cb_d264_d929_bcab,
+        ),
     ];
 
     #[test]
-    fn the_programs_are_the_captures_of_2026_10_14() {
+    fn the_programs_are_their_captures() {
         let sizes: Vec<(&str, usize, u64)> =
             PROGRAMS.iter().map(|(n, b, _)| (*n, b.len(), fnv1a64(b))).collect();
         let want: Vec<(&str, usize, u64)> = PROGRAMS
             .iter()
-            .zip([736, 1312, 728, 608])
+            .zip([736, 1312, 728, 608, 624])
             .map(|((n, _, d), len)| (*n, len, *d))
             .collect();
         assert_eq!(sizes, want, "recaptured: update the digests and the README");

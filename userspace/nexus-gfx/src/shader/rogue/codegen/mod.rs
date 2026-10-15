@@ -15,10 +15,11 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use super::alu::{op, AluInstr};
+mod arith;
+
+use super::alu::op;
 use super::asm::{
-    ctrl, fam, fmad, mov, pack_unorm8x4, sample_2d, shared, temp, unpack_unorm8x4, Main, ONE,
-    PIXOUT0, ZERO,
+    ctrl, mov, pack_unorm8x4, sample_2d, shared, temp, unpack_unorm8x4, Main, PIXOUT0,
 };
 use super::ctrl::{CtrlInstr, Ditr, Itrsmp};
 use super::group::{align_end, Group, Instr};
@@ -141,6 +142,16 @@ impl Gen<'_> {
         self.free[start..start + n].fill(false);
         self.high = self.high.max(start + n);
         Ok(start as u16)
+    }
+
+    /// Takes `n` temporaries from `start` when every one is free.
+    fn claim(&mut self, start: usize, n: usize) -> bool {
+        let ok = start + n <= MAX_TEMPS && self.free[start..start + n].iter().all(|f| *f);
+        if ok {
+            self.free[start..start + n].fill(false);
+            self.high = self.high.max(start + n);
+        }
+        ok
     }
 
     fn release(&mut self, r: Reg, n: u8) {
@@ -280,104 +291,40 @@ impl Gen<'_> {
         Ok(temp(self.alloc(usize::from(lanes))?))
     }
 
-    fn regs(&self, at: usize, v: ValueId, lanes: u8) -> Result<Loc, CodegenError> {
+    /// A value in registers: an input the arithmetic reads is iterated here, once (a sample
+    /// of it may already have iterated it inside its own word).
+    fn placed(&mut self, at: usize, v: ValueId) -> Result<Loc, CodegenError> {
         match self.loc(at, v)? {
+            Loc::Input(i) => {
+                let l = self.iterate(at, i)?;
+                self.locs[v.0 as usize] = Some(l);
+                Ok(l)
+            }
+            l => Ok(l),
+        }
+    }
+
+    /// An arithmetic operand of `lanes` lanes (or one register for every lane).
+    fn operand(&mut self, at: usize, v: ValueId, lanes: u8) -> Result<Loc, CodegenError> {
+        match self.placed(at, v)? {
             l @ Loc::Regs(_, n) if n == lanes || n == 1 && lanes == 1 => Ok(l),
             l @ Loc::Broadcast(_) => Ok(l),
             _ => Err(CodegenError::Unsupported { at, what: "an operand of another width" }),
         }
     }
 
-    /// `dst = a op b` (add or multiply) over the lanes, a shared operand first.
-    fn arith(
-        &mut self,
-        at: usize,
-        op: u8,
-        a: ValueId,
-        b: ValueId,
-        s0neg: bool,
-        lanes: u8,
-    ) -> Result<Loc, CodegenError> {
-        let (mut la, mut lb) = (self.regs(at, a, lanes)?, self.regs(at, b, lanes)?);
-        let is_shared =
-            |l: &Loc| matches!(l, Loc::Regs(r, _) | Loc::Broadcast(r) if r.bank == bank::SHARED);
-        if is_shared(&lb) && !s0neg {
-            core::mem::swap(&mut la, &mut lb);
-        }
-        if is_shared(&lb) {
-            return Err(CodegenError::Unsupported {
-                at,
-                what: "a shared register as the second source",
-            });
-        }
-        let dst = self.step_dest(at, lanes, &[a, b])?;
-        let reg = |l: Loc, lane: u16| match l {
-            Loc::Regs(r, _) => Reg { index: r.index + lane, ..r },
-            Loc::Broadcast(r) => r,
-            Loc::Input(_) => r_none(),
-        };
-        let broadcast = matches!(la, Loc::Broadcast(_)) || matches!(lb, Loc::Broadcast(_));
-        let groups = if broadcast { usize::from(lanes) } else { 1 };
-        for lane in 0..groups as u16 {
-            let mut m =
-                fam(op, Reg { index: dst.index + lane, ..dst }, reg(la, lane), reg(lb, lane));
-            m.alu[0].1 =
-                AluInstr::Fam { op, sat: false, s0neg, s0abs: false, s1abs: false, s0flr: false };
-            m.repeat = if broadcast { 1 } else { lanes };
-            self.groups.push(m.build()?);
-        }
-        Ok(Loc::Regs(dst, lanes))
-    }
-
-    fn fma(
-        &mut self,
-        at: usize,
-        a: ValueId,
-        b: ValueId,
-        c: ValueId,
-        lanes: u8,
-    ) -> Result<Loc, CodegenError> {
-        let (la, lb, lc) =
-            (self.regs(at, a, lanes)?, self.regs(at, b, lanes)?, self.regs(at, c, lanes)?);
-        if matches!(lb, Loc::Regs(r, _) | Loc::Broadcast(r) if r.bank == bank::SHARED) {
-            return Err(CodegenError::Unsupported {
-                at,
-                what: "a shared register as the second source",
-            });
-        }
-        let dst = self.step_dest(at, lanes, &[c, a])?;
-        let reg = |l: Loc, lane: u16| match l {
-            Loc::Regs(r, _) => Reg { index: r.index + lane, ..r },
-            Loc::Broadcast(r) => r,
-            Loc::Input(_) => r_none(),
-        };
-        let broadcast = [la, lb, lc].iter().any(|l| matches!(l, Loc::Broadcast(_)));
-        let groups = if broadcast { usize::from(lanes) } else { 1 };
-        for lane in 0..groups as u16 {
-            let mut m = fmad(
-                Reg { index: dst.index + lane, ..dst },
-                reg(la, lane),
-                reg(lb, lane),
-                reg(lc, lane),
-            );
-            m.repeat = if broadcast { 1 } else { lanes };
-            self.groups.push(m.build()?);
-        }
-        Ok(Loc::Regs(dst, lanes))
-    }
-
     fn instr(&mut self, at: usize) -> Result<(), CodegenError> {
         let ins = &self.m.body[at];
         let t = ins.ty;
         let unsupported = |what| CodegenError::Unsupported { at, what };
+        // The arithmetic here is the float unit's: integer and boolean arithmetic is refused.
+        let arith = matches!(ins.op, Op::Unary(..) | Op::Binary(..) | Op::Fma(..));
+        if arith && t.scalar != Scalar::F32 {
+            return Err(unsupported("arithmetic on other than 32-bit floats"));
+        }
         let loc = match ins.op.clone() {
-            // The constant registers hold +0.0 and 1.0: a constant is theirs bit for bit (-0.0 is
-            // not +0.0).
-            Op::Const(bits) if t == Type::F32 => match bits[0] {
-                0x0000_0000 => Loc::Regs(ZERO, 1),
-                0x3f80_0000 => Loc::Regs(ONE, 1),
-                _ => return Err(unsupported("a constant other than 0 and 1")),
-            },
+            // A constant is a constant register's value, bit for bit (`rogue::constants`).
+            Op::Const(bits) if t == Type::F32 => self.constant(at, bits[0])?,
             Op::Const(_) => return Err(unsupported("a vector or non-float constant")),
             Op::LoadInput(i) => Loc::Input(i),
             Op::LoadPush(off) => Loc::Regs(shared(self.layout.push + (off / 4) as u16), t.lanes),
@@ -386,9 +333,11 @@ impl Gen<'_> {
             Op::Binary(BinOp::Add, a, b) => self.arith(at, op::FADD, a, b, false, t.lanes)?,
             // a − b = (−b) + a.
             Op::Binary(BinOp::Sub, a, b) => self.arith(at, op::FADD, b, a, true, t.lanes)?,
-            Op::Binary(..) => {
-                return Err(unsupported("a binary operation outside add, subtract, multiply"))
-            }
+            Op::Binary(BinOp::Min, a, b) => self.minmax(at, a, b, false, t.lanes)?,
+            Op::Binary(BinOp::Max, a, b) => self.minmax(at, a, b, true, t.lanes)?,
+            Op::Binary(BinOp::Div, a, b) => self.div(at, a, b, t.lanes)?,
+            Op::Unary(u, a) => self.unary(at, u, a, t.lanes)?,
+            Op::Construct(parts) => self.construct(at, &parts, t.lanes)?,
             Op::Fma(a, b, c) => self.fma(at, a, b, c, t.lanes)?,
             Op::Extract(v, lane) => match self.loc(at, v)? {
                 Loc::Regs(r, _) => Loc::Regs(Reg { index: r.index + u16::from(lane), ..r }, 1),
@@ -399,15 +348,19 @@ impl Gen<'_> {
                 Loc::Regs(r, 1) => Loc::Broadcast(r),
                 _ => return Err(unsupported("a splat of a vector")),
             },
-            Op::Swizzle(v, sel) => match self.loc(at, v)? {
-                Loc::Regs(r, _)
+            // A swizzle of consecutive lanes in order (`.xy`, `.zw`, `.yzw`) is its registers
+            // from the first lane on; one register for every lane stays that.
+            Op::Swizzle(v, sel) => match self.placed(at, v)? {
+                Loc::Regs(r, n)
                     if sel[..usize::from(t.lanes)]
                         .iter()
                         .enumerate()
-                        .all(|(i, s)| usize::from(*s) == i) =>
+                        .all(|(i, s)| usize::from(*s) == usize::from(sel[0]) + i)
+                        && sel[0] + t.lanes <= n =>
                 {
-                    Loc::Regs(r, t.lanes)
+                    Loc::Regs(Reg { index: r.index + u16::from(sel[0]), ..r }, t.lanes)
                 }
+                Loc::Broadcast(r) => Loc::Broadcast(r),
                 _ => return Err(unsupported("a swizzle that reorders lanes")),
             },
             Op::LoadDst(_) => {
@@ -442,10 +395,6 @@ impl Gen<'_> {
         self.locs[at] = Some(loc);
         Ok(())
     }
-}
-
-fn r_none() -> Reg {
-    ZERO
 }
 
 /// Compiles a fragment module for the layout's registers.

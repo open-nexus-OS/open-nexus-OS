@@ -29,6 +29,7 @@
 //! - [`backend`] — the backend's: mask save and move, visibility test, iterate, sample.
 //! - [`bitwise`] — the bitwise unit's three phases.
 //! - [`codegen`] — the backend: a fragment module of our IR compiled into groups.
+//! - [`constants`] — the constant registers: the special bank's fixed values.
 //! - [`ctrl`] — the control instructions, iterate-and-sample among them.
 //! - [`group`] — a group's parts in their order, its length, decode assist and padding.
 //! - [`pds`] — the setup programs: kick, iterate, DMA; their constants' layouts.
@@ -41,6 +42,7 @@ pub mod backend;
 pub mod bits;
 pub mod bitwise;
 pub mod codegen;
+pub mod constants;
 pub mod ctrl;
 pub mod group;
 pub mod header;

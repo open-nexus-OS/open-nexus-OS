@@ -86,6 +86,26 @@ pub(super) fn premultiplied_bgr(tint: [f32; 4]) -> [u8; 3] {
     [mix(src(2), CLEAR_BGR[0]), mix(src(1), CLEAR_BGR[1]), mix(src(0), CLEAR_BGR[2])]
 }
 
+/// The clear's bytes (B, G, R): a pixel inside a pass's area that no draw covered.
+pub(super) fn clear_bgr() -> [u8; 3] {
+    CLEAR_BGR.map(|c| c as u8)
+}
+
+/// The expected bytes at a sample of a straight-alpha layer: the texel × tint premultiplied by
+/// its own alpha, over the clear.
+pub(super) fn straight_bgr(tint: [f32; 4]) -> [u8; 3] {
+    let a = SAMPLE_TEXEL[3] / 255.0 * tint[3];
+    let src = |i: usize| SAMPLE_TEXEL[i] * tint[i] * a;
+    let mix = |s: f32, d: f32| (s + d * (1.0 - a) + 0.5) as u8;
+    [mix(src(2), CLEAR_BGR[0]), mix(src(1), CLEAR_BGR[1]), mix(src(0), CLEAR_BGR[2])]
+}
+
+/// The expected bytes of a straight colour (0..1) at alpha `a` over the clear.
+pub(super) fn colour_over_clear_bgr(colour: [f32; 4], a: f32) -> [u8; 3] {
+    let mix = |s: f32, d: f32| (s * 255.0 * a + d * (1.0 - a) + 0.5) as u8;
+    [mix(colour[2], CLEAR_BGR[0]), mix(colour[1], CLEAR_BGR[1]), mix(colour[0], CLEAR_BGR[2])]
+}
+
 /// Copies `bytes` into the bound buffer at `va + at` and cleans it (CPU → device).
 pub(super) fn write_bound(
     dev: &mut Device,

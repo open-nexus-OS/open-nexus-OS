@@ -73,6 +73,21 @@ pub mod op {
     pub const INT32_64_TST: u8 = 7;
 }
 
+/// Phase 2's test: its comparisons and operand types (the open compiler's description).
+pub mod tst {
+    pub const Z: u8 = 0;
+    pub const GZ: u8 = 1;
+    pub const GEZ: u8 = 2;
+    pub const C: u8 = 3;
+    pub const E: u8 = 4;
+    pub const G: u8 = 5;
+    pub const GE: u8 = 6;
+    pub const NE: u8 = 7;
+    pub const L: u8 = 8;
+    pub const LE: u8 = 9;
+    pub const F32: u8 = 0;
+}
+
 /// The single-source ops.
 pub mod sngl {
     pub const RCP: u8 = 0;

@@ -4,9 +4,9 @@
 //! Dynamic geometry (TASK-0215 5b, RFC-0101 §8d), drawn with a library pipeline (5c-2 P4d,
 //! RFC-0101 §7b): N textured, tinted quads. What a pass needs beyond the bundle, learned from the
 //! captures of 2026-10-14 (`docs/board/measurements/2026-10-13-gpu-render-queue/README.md`,
-//! "5b"): a vertex buffer of 6 N vertices named by a copy of the vertex PDS data; per draw a
-//! 16-byte tint (the program's push constants) and the pipeline's state-load data naming it and
-//! the texture's descriptor; a PPP block naming the pipeline's setup programs — the first draw's
+//! "5b"): a vertex buffer of 6 N vertices named by a copy of the vertex PDS data; per draw its
+//! push constants (as many as the pipeline's state load reads) and the pipeline's state-load
+//! data naming them and the texture's descriptor; a PPP block naming the pipeline's setup programs — the first draw's
 //! the captured 26-word block with its pass type and PDS words the pipeline's, the others' seven
 //! words; and the geometry control stream: the captured PDS state, the PPP update, the VDM state
 //! naming the vertex data copy, an index list, then three records per further draw, the
@@ -23,14 +23,76 @@ use super::csb::{pds, ppp, vdm};
 use super::pipelines::Placed;
 use crate::shader::rogue::setup::Load;
 
-/// A quad in plane pixels with its tint (the fragment program multiplies the texel by it).
+/// A quad in plane pixels and the push constants its pipeline reads (up to sixteen floats).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Quad {
     pub x: f32,
     pub y: f32,
     pub w: f32,
     pub h: f32,
-    pub tint: [f32; 4],
+    pub push: [f32; 16],
+}
+
+impl Quad {
+    /// A layer (`resources/gpu/shaders/layer.wgsl`, its `Layer` block): the tint (colour and
+    /// opacity), the size and minus half of it, half the size less the corner radius and the
+    /// radius.
+    pub const fn layer(x: f32, y: f32, w: f32, h: f32, tint: [f32; 4], radius: f32) -> Self {
+        let (hw, hh) = (w * 0.5, h * 0.5);
+        let mut push = [0.0; 16];
+        push[0] = tint[0];
+        push[1] = tint[1];
+        push[2] = tint[2];
+        push[3] = tint[3];
+        push[4] = w;
+        push[5] = h;
+        push[6] = -hw;
+        push[7] = -hh;
+        push[8] = hw - radius;
+        push[9] = hh - radius;
+        push[10] = radius;
+        Self { x, y, w, h, push }
+    }
+
+    /// A layer's tint (its first four push constants).
+    pub const fn tint(&self) -> [f32; 4] {
+        [self.push[0], self.push[1], self.push[2], self.push[3]]
+    }
+
+    /// The drop shadow of a layer at (`x`, `y`, `w`, `h`) with corner `radius`
+    /// (`resources/gpu/shaders/shadow.wgsl`, its `Shadow` block): the quad covers the shape
+    /// grown by the blur and moved by the offset; the push constants are the straight colour,
+    /// the quad's size and minus half of it, half the shape less the radius with the radius and
+    /// one over the blur, the offset.
+    #[allow(clippy::too_many_arguments)]
+    pub const fn shadow(
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        radius: f32,
+        blur: f32,
+        offset: [f32; 2],
+        colour: [f32; 4],
+    ) -> Self {
+        let (qw, qh) = (w + 2.0 * blur, h + 2.0 * blur);
+        let mut push = [0.0; 16];
+        push[0] = colour[0];
+        push[1] = colour[1];
+        push[2] = colour[2];
+        push[3] = colour[3];
+        push[4] = qw;
+        push[5] = qh;
+        push[6] = -qw * 0.5;
+        push[7] = -qh * 0.5;
+        push[8] = w * 0.5 - radius;
+        push[9] = h * 0.5 - radius;
+        push[10] = radius;
+        push[11] = 1.0 / blur;
+        push[12] = offset[0];
+        push[13] = offset[1];
+        Self { x: x - blur + offset[0], y: y - blur + offset[1], w: qw, h: qh, push }
+    }
 }
 
 /// The captured pass's shape the emitter builds on (the first-quad render capture): its vertex
@@ -65,8 +127,8 @@ pub struct Template<'a> {
 /// What a block is, for a [`Placer`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Need {
-    /// 16 bytes in the general arena: a draw's tint (the push constants).
-    Tint,
+    /// `len` bytes in the general arena: a draw's push constants.
+    Push(u32),
     /// 28 bytes in the general arena: a seven-word PPP block (draws after the first).
     Ppp,
     /// 104 bytes in the general arena: the 26-word PPP block (the first draw).
@@ -108,6 +170,7 @@ impl Placer for Bump {
         let (free, len, bytes) = match need {
             Need::VsPdsData => (&mut self.pds_free, self.pds_len, BLOCK),
             Need::StateData(n) => (&mut self.pds_free, self.pds_len, n),
+            Need::Push(n) => (&mut self.general_free, self.general_len, n),
             Need::Ppp26 => (&mut self.general_free, self.general_len, 2 * BLOCK),
             Need::Stream(n) => (&mut self.stream_free, self.stream_len, n),
             Need::Vertices(n) => (&mut self.vertex_free, self.vertex_len, n),
@@ -195,10 +258,10 @@ fn put_word(b: &mut [u8], word: usize, v: u32) {
     b[word * 4..word * 4 + 4].copy_from_slice(&v.to_le_bytes());
 }
 
-fn tint_bytes(t: [f32; 4]) -> Vec<u8> {
-    let mut b = Vec::with_capacity(16);
-    for v in t {
-        b.extend_from_slice(&v.to_le_bytes());
+fn float_bytes(v: &[f32]) -> Vec<u8> {
+    let mut b = Vec::with_capacity(4 * v.len());
+    for x in v {
+        b.extend_from_slice(&x.to_le_bytes());
     }
     b
 }
@@ -241,17 +304,35 @@ pub fn emit(
     out.pds.push(Write { offset: vs_off, bytes: vs });
     push_words(&mut out.stream, &t.pds_state_words);
     let data_bytes = (4 * pipeline.setup.state_data_dwords()) as u32;
+    // The push constants the pipeline's state load reads: their first dwords of each quad's.
+    let push_dwords = pipeline
+        .setup
+        .dmas
+        .iter()
+        .filter_map(|d| match d.load {
+            Load::Push { from } => Some(usize::from(from) + usize::from(d.dwords)),
+            Load::TextureDescriptor { .. } => None,
+        })
+        .max()
+        .unwrap_or(0);
+    if push_dwords > 16 {
+        return Err(EmitError::Pipeline);
+    }
     for (i, q) in quads.iter().enumerate() {
         // The draw's push constants, and the state load's data naming them and the texture.
-        let tint_off = at(i, Need::Tint)?;
-        let tint_va = t.general_va + u64::from(tint_off);
-        out.general.push(Write { offset: tint_off, bytes: tint_bytes(q.tint) });
+        let mut push_va = 0;
+        if push_dwords > 0 {
+            let push_off = at(i, Need::Push((4 * push_dwords) as u32))?;
+            push_va = t.general_va + u64::from(push_off);
+            out.general
+                .push(Write { offset: push_off, bytes: float_bytes(&q.push[..push_dwords]) });
+        }
         let data_off = at(i, Need::StateData(data_bytes))?;
         let data = pipeline
             .setup
             .state_data(|load| match load {
                 Load::TextureDescriptor { .. } => t.texture_va,
-                Load::Push { from } => tint_va + 4 * u64::from(from),
+                Load::Push { from } => push_va + 4 * u64::from(from),
             })
             .map_err(|_| EmitError::Pipeline)?;
         let mut bytes = Vec::with_capacity(data.len() * 4);

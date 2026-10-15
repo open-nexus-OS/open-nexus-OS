@@ -57,6 +57,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where the open compiler's program took 12.9 ms. The emitter's captured fragment blocks
   (descriptor, constant, program copies per pass) are gone; the client's supply over IPC arrives
   with windowd's own context (5c-3).
+- **The compositor's operations as our own programs** (TASK-0215 5c-2 P5a–c): the backend's new
+  arithmetic — the single-source unit (reciprocal, inverse square root, exp2, log2), min and max
+  as the open compiler's one group of test and conditional move, negation, absolute value, floor
+  and saturation as modifiers, constants from the hardware's constant registers, vector
+  construction — each form rebuilt byte for byte from the compiler's own code
+  (`resources/gpu/programs/frag-ops.usc`); `dot`, `length` and the saturating `clamp` in the
+  frontend. The library grows to five pipelines: the straight-alpha layer (a client's surface at
+  its opacity), the rounded layer (the exact rounded-rectangle distance, a one-pixel band) and the
+  window's drop shadow (blurred, knocked out under the window) — the QEMU path's pictures, proven
+  against its formulas on the host. On the board (cycle 17) every picture right on the first
+  cycle: the straight layer at 4.87 ns a pixel, the rounded one at 8.85 ns (the frame will draw
+  only a layer's corner squares with it), the shadow at 10.81 ns.
 
 ### Added - 2026-10-14 (Block 4, layer 5c-1: the cost of a pass — TASK-0215, RFC-0101 Phase 4c)
 

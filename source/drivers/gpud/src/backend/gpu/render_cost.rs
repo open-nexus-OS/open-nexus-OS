@@ -12,11 +12,12 @@
 //!   background on empty tiles — draws the quad and leaves every pixel outside the area as it
 //!   was: a sentinel in the quad's own tile, one far away, both kept, and the pass cheaper than
 //!   the same pass over the whole plane (`gpud: gpu area ok (`);
-//! - the pipeline gate (5c-2 P3c, P4d): the compositor's layer compiled from WGSL by our
-//!   toolchain into the context's pipeline library (the library rung placed it) — the untinted
-//!   opaque variant and the tinted premultiplied one, each on a 1024² quad limited to its area:
-//!   both samples right and the opaque layer no slower a pixel than the stock stack's opaque fill
-//!   (1.8 ns): `gpud: gpu pipeline ok (`.
+//! - the pipeline gate (5c-2 P3c, P4d, P5): every pipeline of the context's library (the library
+//!   rung placed it), each on a pass limited to its quad — the four layers (opaque, premultiplied,
+//!   straight, rounded: its interior and the corner pixel it leaves out) on the 1024² quad, a
+//!   window's drop shadow (under the window knocked out, below it the shadow) — every read right
+//!   and the opaque layer no slower a pixel than the stock stack's opaque fill (1.8 ns):
+//!   `gpud: gpu pipeline ok (`.
 //!
 //! Each pass lands in fresh lines of the rung's halves of the bundle's buffers' tails — no
 //! buffer of its own: four of them filled gpud's 64 address-space regions and the display's
@@ -39,8 +40,9 @@ use nexus_gfx::shader::rogue::reference::PASS_OPAQUE;
 use super::device_v2::Device;
 use super::emit;
 use super::render_template::{
-    opaque_bgr, pds_at, premultiplied_bgr, render_streams, write_bound, Captured, COST_TAILS,
-    GENERAL_ARENA, PDS_ARENA, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
+    clear_bgr, colour_over_clear_bgr, opaque_bgr, pds_at, premultiplied_bgr, render_streams,
+    straight_bgr, write_bound, Captured, COST_TAILS, GENERAL_ARENA, PDS_ARENA, SAMPLE_FRACTION,
+    STREAM_BUFFER, VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
 
@@ -57,16 +59,21 @@ const FAR: (usize, usize) = (8, 8);
 const SENTINEL: [u8; 4] = [0x3c, 0xa5, 0x5a, 0xff];
 const WHITE: [f32; 4] = [1.0; 4];
 
-/// The library pipelines the gate draws with (`resources/gpu/pipelines/compositor.toml`): the
-/// area gate's, and the pipeline gate's with the tint each probe draws with.
+/// The library pipeline the area gate draws with (`resources/gpu/pipelines/compositor.toml`).
 const AREA_LAYER: &str = "layer-premultiplied";
-const PROBES: [(&str, [f32; 4]); 2] = [("layer-opaque", WHITE), ("layer-premultiplied", [0.5; 4])];
+/// The straight layers' tint (opacity 0.75), the rounded one's corner radius.
+const STRAIGHT_TINT: [f32; 4] = [1.0, 1.0, 1.0, 0.75];
+const ROUNDED_RADIUS: f32 = 64.0;
+/// The shadow probe: a 512x384 window at (704, 284) with corner radius 12, the windows' shadow —
+/// blur 18, offset (0, 5), black at alpha 90/255 (windowd's glass window).
+const SHAPE: (f32, f32, f32, f32, f32) = (704.0, 284.0, 512.0, 384.0, 12.0);
+const SHADOW_BLUR: f32 = 18.0;
+const SHADOW_OFFSET: [f32; 2] = [0.0, 5.0];
+const SHADOW_COLOUR: [f32; 4] = [0.0, 0.0, 0.0, 90.0 / 255.0];
 
 /// The stock stack's opaque textured fill, the opaque layer's bar: hundredths of a ns a pixel
 /// (`docs/board/measurements/2026-10-10-gpu-stock-baseline/`).
 const STOCK_OPAQUE_FILL_CNS: u64 = 180;
-/// The pixels of the 1024² probe quad.
-const PROBE_PIXELS: u64 = 1024 * 1024;
 
 /// One pass's times from the kick: the whole, the geometry stage, the fragment stage.
 struct Pass {
@@ -83,7 +90,7 @@ fn now_ns() -> u64 {
 /// The quad of a size: 16² at (704, 284), 1024² at (448, 28).
 fn quad(size: u32) -> Quad {
     let (x, y) = if size >= 1024 { (448.0, 28.0) } else { (704.0, 284.0) };
-    Quad { x, y, w: size as f32, h: size as f32, tint: WHITE }
+    Quad::layer(x, y, size as f32, size as f32, WHITE, 0.0)
 }
 
 /// The sample point inside a quad.
@@ -121,7 +128,17 @@ fn sample(
     q: &Quad,
     want: [u8; 3],
 ) -> Result<(), alloc::string::String> {
-    match peek(display, canvas, sample_at(q)) {
+    read(display, canvas, sample_at(q), want)
+}
+
+/// Whether the pixel at `xy` reads `want`; the reading for the line otherwise.
+fn read(
+    display: &mut dyn Display,
+    canvas: &GpuCanvas,
+    xy: (usize, usize),
+    want: [u8; 3],
+) -> Result<(), alloc::string::String> {
+    match peek(display, canvas, xy) {
         Some(px) if px.iter().zip(&want).all(|(p, w)| p.abs_diff(*w) <= TOLERANCE) => Ok(()),
         Some(px) => Err(alloc::format!(
             "bad(read={:02x}{:02x}{:02x} want={:02x}{:02x}{:02x})",
@@ -282,8 +299,75 @@ fn gate(
     }
 }
 
-/// The pipeline gate: each probe's library pipeline on a 1024² pass limited to its area, its
-/// sample, its cost a pixel beyond the limited 16² pass (`area_us`).
+/// The shadow probe's alpha at the pixel centre `y` on the vertical axis through its shape (no
+/// square root there): the distance outside the shifted shape falling off over the blur,
+/// squared, knocked out across the unshifted shape (`resources/gpu/shaders/shadow.wgsl`).
+fn shadow_alpha_on_axis(y: f32) -> f32 {
+    let (top, h, r) = (SHAPE.1, SHAPE.3, SHAPE.4);
+    let (inner, centre) = (h / 2.0 - r, top + h / 2.0);
+    let outside = |c: f32| (libm::fabsf(y - c) - inner).max(0.0) - r;
+    let ramp = (1.0 - outside(centre + SHADOW_OFFSET[1]) / SHADOW_BLUR).clamp(0.0, 1.0);
+    SHADOW_COLOUR[3] * ramp * ramp * outside(centre).clamp(0.0, 1.0)
+}
+
+/// A probe of the pipeline gate: a library pipeline on one quad, the points read back with the
+/// bytes they must hold.
+struct Probe {
+    name: &'static str,
+    quad: Quad,
+    reads: alloc::vec::Vec<((usize, usize), [u8; 3])>,
+}
+
+/// The gate's probes: the four layers on the 1024² quad, the shadow of a window.
+fn probes() -> [Probe; 5] {
+    let big = quad(1024);
+    let layer = |tint: [f32; 4], r: f32| Quad::layer(big.x, big.y, big.w, big.h, tint, r);
+    let (opaque, premultiplied) = (layer(WHITE, 0.0), layer([0.5; 4], 0.0));
+    let (straight, rounded) = (layer(STRAIGHT_TINT, 0.0), layer(STRAIGHT_TINT, ROUNDED_RADIUS));
+    let (x, y, w, h, r) = SHAPE;
+    let shadow = Quad::shadow(x, y, w, h, r, SHADOW_BLUR, SHADOW_OFFSET, SHADOW_COLOUR);
+    // Under the window's centre (knocked out) and six pixels below its bottom edge.
+    let axis = (x + w / 2.0) as usize;
+    let (under, below) = ((y + h / 2.0) as usize, (y + h) as usize + 6);
+    let below_alpha = shadow_alpha_on_axis(below as f32 + 0.5);
+    [
+        Probe {
+            name: "layer-opaque",
+            quad: opaque,
+            reads: alloc::vec![(sample_at(&opaque), opaque_bgr(WHITE))],
+        },
+        Probe {
+            name: "layer-premultiplied",
+            quad: premultiplied,
+            reads: alloc::vec![(sample_at(&premultiplied), premultiplied_bgr([0.5; 4]))],
+        },
+        Probe {
+            name: "layer-straight",
+            quad: straight,
+            reads: alloc::vec![(sample_at(&straight), straight_bgr(STRAIGHT_TINT))],
+        },
+        // The interior, and the corner pixel the rounded rectangle leaves out.
+        Probe {
+            name: "layer-rounded",
+            quad: rounded,
+            reads: alloc::vec![
+                (sample_at(&rounded), straight_bgr(STRAIGHT_TINT)),
+                ((rounded.x as usize + 1, rounded.y as usize + 1), clear_bgr()),
+            ],
+        },
+        Probe {
+            name: "shadow",
+            quad: shadow,
+            reads: alloc::vec![
+                ((axis, under), clear_bgr()),
+                ((axis, below), colour_over_clear_bgr(SHADOW_COLOUR, below_alpha)),
+            ],
+        },
+    ]
+}
+
+/// The pipeline gate: each probe's library pipeline on a pass limited to its quad, its reads,
+/// its cost a pixel beyond the limited 16² pass (`area_us`) over its quad.
 fn pipelines(
     dev: &mut Device,
     display: &mut dyn Display,
@@ -294,26 +378,32 @@ fn pipelines(
     area_us: u64,
 ) {
     let fail = |what: &str| emit(&alloc::format!("gpud: FAIL gpu pipeline ({what})"));
-    let mut cns = [0u64; 2];
-    for (i, (name, tint)) in PROBES.iter().enumerate() {
-        let p = match dev.pipelines.id_of(name).map(|id| dev.pipelines.get(id)) {
+    let probes = probes();
+    let mut cns = [0u64; 5];
+    let mut reads = 0;
+    for (i, probe) in probes.iter().enumerate() {
+        let p = match dev.pipelines.id_of(probe.name).map(|id| dev.pipelines.get(id)) {
             Some(Ok(p)) => p.clone(),
-            _ => return fail(&alloc::format!("{name} is not in the context's library")),
+            _ => return fail(&alloc::format!("{} is not in the context's library", probe.name)),
         };
-        let opaque = p.pass_type == PASS_OPAQUE;
-        let q = Quad { tint: *tint, ..quad(1024) };
-        let pass = match run(dev, rig, t, &p, place, &[q], true) {
+        let pass = match run(dev, rig, t, &p, place, &[probe.quad], true) {
             Ok(pass) => pass,
-            Err(e) => return fail(&alloc::format!("{name} {e}")),
+            Err(e) => return fail(&alloc::format!("{} {e}", probe.name)),
         };
-        let want = if opaque { opaque_bgr(*tint) } else { premultiplied_bgr(*tint) };
-        let reading = sample(display, canvas, &q, want);
-        cns[i] = pass.us.saturating_sub(area_us) * 100_000 / PROBE_PIXELS;
+        let pixels = (probe.quad.w * probe.quad.h) as u64;
+        cns[i] = pass.us.saturating_sub(area_us) * 100_000 / pixels.max(1);
+        let mut reading = Ok(());
+        for (xy, want) in &probe.reads {
+            if reading.is_ok() {
+                reading = read(display, canvas, *xy, *want);
+            }
+        }
         emit(&alloc::format!(
-            "gpud: gpu cost (program={name} id={} groups={} pass={} size=1024 us={} geom_us={} frag_us={} irqs={} ns_px={}.{:02} sample={})",
+            "gpud: gpu cost (program={} id={} groups={} pass={} pixels={pixels} us={} geom_us={} frag_us={} irqs={} ns_px={}.{:02} reads={})",
+            probe.name,
             p.id,
             p.groups,
-            if opaque { "opaque" } else { "translucent" },
+            if p.pass_type == PASS_OPAQUE { "opaque" } else { "translucent" },
             pass.us,
             pass.geom_us,
             pass.frag_us,
@@ -323,17 +413,19 @@ fn pipelines(
             reading.as_ref().map_or_else(|e| e.as_str(), |_| "ok")
         ));
         if let Err(e) = reading {
-            return fail(&alloc::format!("{name} sample {e}"));
+            return fail(&alloc::format!("{} {e}", probe.name));
         }
+        reads += probe.reads.len();
     }
+    let ns = |c: u64| alloc::format!("{}.{:02}", c / 100, c % 100);
     let line = alloc::format!(
-        "(opaque_ns_px={}.{:02} premultiplied_ns_px={}.{:02} samples=2/2 bar={}.{:02})",
-        cns[0] / 100,
-        cns[0] % 100,
-        cns[1] / 100,
-        cns[1] % 100,
-        STOCK_OPAQUE_FILL_CNS / 100,
-        STOCK_OPAQUE_FILL_CNS % 100
+        "(opaque_ns_px={} premultiplied_ns_px={} straight_ns_px={} rounded_ns_px={} shadow_ns_px={} samples={reads}/{reads} bar={})",
+        ns(cns[0]),
+        ns(cns[1]),
+        ns(cns[2]),
+        ns(cns[3]),
+        ns(cns[4]),
+        ns(STOCK_OPAQUE_FILL_CNS)
     );
     if cns[0] <= STOCK_OPAQUE_FILL_CNS {
         emit(&alloc::format!("gpud: gpu pipeline ok {line}"));

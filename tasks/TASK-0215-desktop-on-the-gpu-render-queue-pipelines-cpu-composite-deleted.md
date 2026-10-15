@@ -293,7 +293,7 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
 | P2 | `nexus_gfx::shader::ir` and its interpreter (the reference); the WGSL frontend as a host build tool (naga 28) lowering into it | the compositor's first WGSL programs lowered; the interpreter's pixels equal the CPU rasterizer's |
 | P3 | the `rogue` backend: instruction selection, registers, group packing, the epilog parts; the first pipeline — the textured layer, opaque and blended | groups within budget on the host; on the board the picture right and ns a pixel on 5c-1's line; `gpud: gpu pipeline ok (` |
 | P4 | the pipeline library: format, build step (an entry per variant — source, entry point, overrides, blend), our setup programs and state words generated beside each program, gpud validates and binds (`test_reject_library_*`); the client's supply over IPC lands with its consumer in 5c-3 | the rejects green; the rungs draw with library pipelines and our setup programs, the captured fragment programs retire to measurement |
-| P5 | the remaining ops: rounded-rect SDF, gradient, shadow, the blur's passes, glyphs | each picture against its host formula, each budget |
+| P5 | the ops a live frame uses (measured 2026-10-15): the layer with opacity and rounded corners over straight-alpha surfaces, its shadow, the blur's two passes with saturation; gradient and glyphs are not on the live path (no live sender; clients bake their glyphs) | each picture against its host formula, each budget |
 | P6 | the `tgsi` backend; the QEMU path on the library; the hand-written shader text retired | the QEMU lanes green on library programs |
 
 - **P1a ✅ 2026-10-15** (`nexus_gfx::shader::rogue`, `tests/rogue_isa.rs`): the shader core's
@@ -436,6 +436,80 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
     ≈ 3 500); gpud's heap 7 KB lighter. H30–H32 confirmed; `[PASS] board-visible`, 62 rungs,
     the operator's eight confirmations. **P4 complete.**
 
+- **P5 🔄 2026-10-15 — the ops a live frame uses.** Measured first (gpud's present, windowd's
+  scene, the virgl shaders, the CPU rasterizer read through): a live desktop frame sends only
+  damage blits (`BlitSurface`/`BlitAbsolute`), `BlurBackdrop` (radius 8/20/30/40, saturation
+  140 %), `CompositeLayer` (opacity, corner radius 12, shadow 18/5/90 or 24/8, backdrop blur) and
+  the software cursor; `DrawTiles`, `FillSdfRoundedRect`, `FillSdfGradient` and `DropShadow` have
+  no live sender, and glyphs are baked into client surfaces. The two paths disagree: the board's
+  CPU composite draws layers without their corners or opacity, shadows without their knockout
+  and glass blurred twice with a box filter, never saturated; the QEMU path (virgl) draws the
+  exact rounded-rect distance with a one-pixel band, opacity, a Gaussian (σ = R/2, 2R + 1 taps)
+  and the shadow knocked out. **The GPU pipelines take the semantics windowd asks for** — the
+  virgl path's, with saturation applied — so the board's picture gains its corners, opacity,
+  Gaussian glass and clean shadows. Surfaces are straight alpha: the layer multiplies its texel
+  by its own alpha before the premultiplied blend. Packages:
+  - **P5a** — the backend grows the ops' arithmetic: the hardware's constant registers (the
+    published table: 0.5, powers of two, ln 2, π, … with their negate and floor forms) for
+    constants, the single-source unit (reciprocal, inverse square root, exponent, logarithm),
+    absolute value, negation and saturation as source and result modifiers, min and max,
+    comparisons and select; every encoding a golden from the open compiler's encoder.
+  - **P5a ✅ host 2026-10-15** (`rogue::{asm, constants, codegen/arith}`, `tests/rogue_asm.rs`,
+    `tests/rogue_codegen.rs`; `tools/nxgpu` `lower/math.rs`): the compiler's arithmetic probe
+    (`resources/gpu/programs/frag-ops.usc`, `quad_ops.frag`) — nine of its groups rebuilt byte for
+    byte: min and max (two bypasses, a float test, a conditional move: one group), the
+    subtraction, reciprocal, inverse square root, logarithm, exponent, saturation (an add of
+    constant register 0), a multiply-add reading |x| and constant register 75 (0.5). The
+    backend compiles the IR's negation, absolute value, floor, saturation, reciprocal, (inverse)
+    square root (√x as the reciprocal of the inverse square root, so √0 is 0), base-2 exponent
+    and logarithm, min, max, division and vector construction (the first part's registers kept
+    when it dies with room behind it — the straight-alpha epilog now compiles with one move);
+    constants from the hardware's constant registers (the published table of 96: 0.5, powers of
+    two, ln 2, π, …; a negative one built once from its magnitude); an operand the second source
+    cannot read (a shared register) moved once into a temporary, a fused multiply-add's shared
+    factor swapped first. A repeated group steps every register operand, constant registers
+    too — operations reading one register for every lane take a group a lane. Arithmetic on
+    other than 32-bit floats is refused. The frontend lowers `dot`, `length`, `clamp(x, 0, 1)`
+    as the free saturation, and a component of a push-constant vector.
+  - **P5b** — the layer: opacity and rounded corners (`layer.wgsl` grows its corner rectangle
+    and radius, the corners an override), straight-alpha texels; the host interpreter against
+    the virgl layer's formula.
+  - **P5b ✅ host 2026-10-15**: `layer.wgsl` grows a push block of 48 bytes (tint, size and minus
+    half of it, half the size less the radius with the radius — `Quad::layer` writes it, the
+    emitter now writes each quad's push constants as far as its pipeline reads them) and the
+    overrides `straight` (a client's straight-alpha texel premultiplied) and `rounded` (the
+    rounded rectangle's exact distance at the pixel centre, a one-pixel band, the virgl layer's);
+    `layer-straight` (15 groups) and `layer-rounded` (34) join the library, `layer-opaque` and
+    `layer-premultiplied` unchanged program for program. The interpreter against the virgl
+    formula (`tests/lower.rs`): the straight premultiply, and four pixels of a 64x64 layer with
+    radius 12 — the far corner 0, a pixel on the arc partial, the centre and an edge's middle 1.
+    On the way: an input both sampled and computed with is iterated once more for the arithmetic;
+    a swizzle of consecutive lanes (`.zw`) is a register offset; `|` and `&` of overrides fold
+    (`||` short-circuits into control flow); a component of a push vector lowers. The frame
+    (5c-3) draws a rounded layer's corner squares with `layer-rounded` and the rest with
+    `layer-straight` — at radius 12 the distance runs on 576 pixels a window.
+  - **P5c ✅ host 2026-10-15**: `shadow.wgsl` — the distance outside the shifted rounded
+    rectangle falling off over the blur, squared, knocked out across the unshifted one (the
+    virgl shadow), premultiplied; no texture, a push block of 64 bytes (`Quad::shadow`: the quad
+    covers the shape grown by the blur and moved by the offset); 43 groups; against the virgl
+    formula at five points (under the window 0, below it, mid-ramp, past the blur, at the
+    window's edge). The pipeline gate draws all five pipelines with their reads.
+  - **Board ✅ cycle 17** (`cycle17-gpu-lines.txt`): `gpud: gpu pipeline ok (opaque_ns_px=1.29
+    premultiplied_ns_px=4.03 straight_ns_px=4.87 rounded_ns_px=8.85 shadow_ns_px=10.81
+    samples=7/7 bar=1.80)` — every read right on the first cycle; H33–H35 confirmed; `[PASS]
+    board-visible`, 62 rungs, the operator's eight confirmations. gpud's heap after the rungs
+    120 KB (cycle 16: 75 KB): more passes allocating their emitter buffers, the table decoding
+    each program whole at load. **Carried to before 5c-3: the emitter without allocation per pass
+    (gpud's heap never frees); the library load without decoding every program into groups.**
+  - **P5d** — the blur: two Gaussian passes at a quarter of the size, saturation, the rounded
+    mask; the taps unrolled by the frontend for a radius the pipeline fixes (an override).
+  - Board cycles after P5c and after P5d: each picture against its host formula on the board,
+    each cost a pixel.
+  - Not in P5: gradient, glyphs, the solid fills (no live sender); the vertex pipeline (uv and
+    push constants carry every op). Found on the way, left to their owners: the virgl path
+    creates shader handle 18 twice (the gradient's and the rounded blur's); scene_raster may
+    write premultiplied values that gpud composites as straight alpha.
+
 | # | Hypothesis | Decision line |
 |---|---|---|
 | H20 | The instruction-group encoding as the open compiler's description states it reproduces the four captured programs | P1's round trip, byte for byte |
@@ -451,6 +525,9 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
 | H30 | Our setup programs drive the pipelines as the captured ones did: the kick placed once, the iteration generated, a state load of two loads with its own size word | `gpu library ok (… refused=0 …)`; `gpu pipeline ok (samples=2/2 …)` at 1.30 and 4.04 ± 0.05 ns |
 | H31 | Setup programs placed once and never rewritten serve every later pass (H10 forbids rewriting, not rereading) | 5b's four probes, the area gate's two passes and the pipeline gate's two all right |
 | H32 | Our programs read neither the open driver's descriptor (sh28–30) nor its constant (sh0) | no sample changes for dropping those two loads (5b's tinted quads, the area gate) |
+| H33 | The new arithmetic runs as encoded: the single-source unit, min and max through test and conditional move, the modifiers, the constant registers, the vector moves | `layer-straight`, `layer-rounded` and `shadow` read right (`gpu pipeline ok (… samples=7/7 …)`) |
+| H34 | An input sampled inside iterate-and-sample and iterated again for arithmetic is the same coordinate | the rounded layer's corner pixel at the clear, its interior the texel; the shadow's edge where the formula puts it |
+| H35 | A pixel's cost follows its executions on the 5c-1 line | `layer-straight` ≈ 0.8 ns above `layer-premultiplied`; `layer-rounded` and `shadow` reported for 5c-3's segmentation |
 
 ## Hypotheses 5a's first cycle decides
 

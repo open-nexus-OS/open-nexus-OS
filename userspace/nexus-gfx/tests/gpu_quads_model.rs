@@ -167,7 +167,7 @@ fn bump() -> Bump {
 }
 
 fn quad(x: f32, y: f32, tint: [f32; 4]) -> Quad {
-    Quad { x, y, w: 512.0, h: 512.0, tint }
+    Quad::layer(x, y, 512.0, 512.0, tint, 0.0)
 }
 
 /// The captures' placement: the first draw's blocks where the one-quad capture had them,
@@ -180,9 +180,9 @@ impl Placer for Captured {
             (0, Need::Vertices(_)) => 0,
             (0, Need::VsPdsData) => 0x2840,
             (0, Need::Ppp26) => 0x8200,
-            (0, Need::Tint) => 0x100,
+            (0, Need::Push(16)) => 0x100,
             (0, Need::StateData(32)) => 0x2880,
-            (1, Need::Tint) => 0x8280,
+            (1, Need::Push(16)) => 0x8280,
             (1, Need::Ppp) => 0xc340,
             (1, Need::StateData(32)) => 0x2980,
             _ => return None,

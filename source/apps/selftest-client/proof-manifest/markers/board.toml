@@ -219,7 +219,7 @@ proves = "TASK-0215 5c-1: after a 16x16 pass over the whole plane, two sentinels
 [marker."gpud: gpu pipeline ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5c-2 P3c: the two compositor-layer pipelines our toolchain compiled from resources/gpu/shaders/layer.wgsl (replace as an opaque pass, premultiplied-over as a translucent pass) drawn from the context's pipeline library (placed by the library rung, since 5c-2 P4d with our own setup programs) on a 1024x1024 quad limited to its area, both samples read texel x tint (over the clear for the blended one), and the opaque layer costs no more a pixel than the stock stack's opaque textured fill (1.8 ns)"
+proves = "TASK-0215 5c-2 P3c-P5: every pipeline of the compositor library (compiled from WGSL by our toolchain, placed by the library rung with our own setup programs) drawn on a pass limited to its quad: the opaque, premultiplied and straight-alpha layers read texel x tint (straight premultiplied by its own alpha) over the clear, the rounded layer reads it in its interior and leaves its corner pixel at the clear, a window's drop shadow is knocked out under the window and shows below it at the shadow formula's alpha; and the opaque layer costs no more a pixel than the stock stack's opaque textured fill (1.8 ns)"
 
 [marker."gpud: FAIL gpu "]
 phase = "bringup"

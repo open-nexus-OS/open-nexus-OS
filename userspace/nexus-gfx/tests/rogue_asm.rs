@@ -8,8 +8,8 @@
 
 use nexus_gfx::shader::rogue::alu::{op, AluInstr};
 use nexus_gfx::shader::rogue::asm::{
-    ctrl, fam, fmad, mov, pack_unorm8x4, sample_2d, shared, temp, unpack_unorm8x4, Main, ONE,
-    PIXOUT0, ZERO,
+    ctrl, fam, fmad, mov, pack_unorm8x4, sample_2d, shared, special, temp, unpack_unorm8x4, Main,
+    ONE, PIXOUT0, ZERO,
 };
 use nexus_gfx::shader::rogue::ctrl::{CtrlInstr, Ditr};
 use nexus_gfx::shader::rogue::{Group, RogueError};
@@ -94,6 +94,40 @@ fn the_tile_read_the_unpack_the_pack_and_the_output_are_the_compilers() {
     m.olchk = true;
     m.end = true;
     assert_eq!(built(m), captured(0x2d8, 8));
+}
+
+/// The open compiler's arithmetic probe (`resources/gpu/programs/frag-ops.usc`, 5c-2 P5a).
+const OPS: &[u8] = include_bytes!("../../../resources/gpu/programs/frag-ops.usc");
+
+fn ops_at(offset: usize, len: usize) -> &'static [u8] {
+    &OPS[offset..offset + len]
+}
+
+#[test]
+fn the_arithmetic_groups_of_the_compilers_probe_are_ours() {
+    use nexus_gfx::shader::rogue::alu::{op, sngl as s};
+    use nexus_gfx::shader::rogue::asm::{fam_mods, fmad_mods, minmax, sngl, FamMods, FmadMods};
+    // min and max: two bypasses, the float test, the conditional move — one group each.
+    assert_eq!(built(minmax(temp(5), temp(1), temp(2), false)), ops_at(0x72, 14), "min");
+    assert_eq!(built(minmax(temp(6), temp(3), temp(4), true)), ops_at(0x80, 14), "max");
+    // A subtraction: the first source negated.
+    let neg = FamMods { s0neg: true, ..FamMods::default() };
+    assert_eq!(built(fam_mods(op::FADD, temp(8), temp(4), temp(3), neg)), ops_at(0x98, 10));
+    // The single-source unit: reciprocal, inverse square root, logarithm, exponent.
+    assert_eq!(built(sngl(s::RCP, temp(2), temp(2))), ops_at(0xa2, 8), "rcp");
+    assert_eq!(built(sngl(s::RSQ, temp(1), temp(1))), ops_at(0xaa, 8), "rsq");
+    assert_eq!(built(sngl(s::LOG, temp(1), temp(4))), ops_at(0xbc, 8), "log");
+    assert_eq!(built(sngl(s::EXP, temp(2), temp(3))), ops_at(0xc4, 8), "exp");
+    // Saturation: an add of constant register 0 (0.0) with the result saturated.
+    let sat = FamMods { sat: true, ..FamMods::default() };
+    assert_eq!(built(fam_mods(op::FADD, temp(1), temp(7), ZERO, sat)), ops_at(0xe0, 10), "sat");
+    // A multiply-add reading |x| and constant register 75 (0.5).
+    let abs = FmadMods { s0abs: true, ..FmadMods::default() };
+    assert_eq!(
+        built(fmad_mods(temp(4), temp(8), special(75), temp(1), abs)),
+        ops_at(0xea, 12),
+        "fmad |x|·0.5"
+    );
 }
 
 #[test]

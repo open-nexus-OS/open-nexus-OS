@@ -68,8 +68,11 @@ fn the_compositor_library_is_placed_and_each_kick_names_its_program() {
     let mut table = PipelineTable::default();
     let mut heaps = mem();
     let loaded = table.load(LIBRARY, TARGET, FEATURES, &mut heaps).expect("loads");
-    assert_eq!((loaded.accepted.as_slice(), loaded.refused.as_slice()), (&[1, 2][..], &[][..]));
-    assert_eq!(loaded.code_bytes, 32 + 120);
+    assert_eq!(
+        (loaded.accepted.as_slice(), loaded.refused.as_slice()),
+        (&[1, 2, 3, 4, 5][..], &[][..])
+    );
+    assert_eq!(loaded.code_bytes, 32 + 120 + 160 + 360 + 472);
     for (id, temps, pass, program) in [
         (1, 1, PASS_OPAQUE, reference::opaque_itrsmp().unwrap().encode().unwrap()),
         (2, 3, PASS_TRANSLUCENT, reference::premultiplied_itrsmp().unwrap().encode().unwrap()),
@@ -88,7 +91,7 @@ fn the_compositor_library_is_placed_and_each_kick_names_its_program() {
         assert_eq!(w(8), 0xf400_0002, "dout U, end");
         assert_eq!(p.pds_state(0x4000).uniformdatabase, 0x4000);
     }
-    assert_eq!(table.ids().collect::<Vec<_>>(), vec![1, 2]);
+    assert_eq!(table.ids().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
 }
 
 #[test]
@@ -96,7 +99,7 @@ fn test_reject_draw_unknown_pipeline() {
     let mut table = PipelineTable::default();
     assert_eq!(table.get(1), Err(TableError::UnknownPipeline(1)), "before any library");
     table.load(LIBRARY, TARGET, FEATURES, &mut mem()).expect("loads");
-    assert_eq!(table.get(3), Err(TableError::UnknownPipeline(3)));
+    assert_eq!(table.get(6), Err(TableError::UnknownPipeline(6)));
     assert_eq!(table.get(0), Err(TableError::UnknownPipeline(0)));
 }
 

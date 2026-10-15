@@ -15,8 +15,7 @@ use std::collections::HashMap;
 
 use naga::{
     AddressSpace, BinaryOperator, Binding, Expression, Handle, ImageDimension, Interpolation,
-    Literal, MathFunction, SampleLevel, ScalarKind, ShaderStage, Statement, TypeInner,
-    UnaryOperator, VectorSize,
+    Literal, SampleLevel, ScalarKind, ShaderStage, Statement, TypeInner, UnaryOperator, VectorSize,
 };
 use nexus_gfx::shader::ir::builder::{store_blended, Blend, Builder};
 use nexus_gfx::shader::ir::{
@@ -24,6 +23,8 @@ use nexus_gfx::shader::ir::{
 };
 
 use super::FrontendError;
+
+mod math;
 
 type Result<T> = core::result::Result<T, FrontendError>;
 
@@ -95,6 +96,8 @@ enum Lowered {
     Value(ValueId),
     /// A place in the immediates: its byte offset and naga type.
     Push(u32, Handle<naga::Type>),
+    /// One component of a vector in the immediates: the vector's offset and type, the lane.
+    PushLane(u32, Handle<naga::Type>, u8),
     /// A texture or sampler: its resource index.
     Resource(u8),
     /// A struct-typed argument: the first of its members' input indices.
@@ -297,9 +300,25 @@ impl Lowering<'_> {
         }
     }
 
-    /// The value of a condition the pipeline fixes: a bool literal, constant or override.
+    /// The value of a condition the pipeline fixes: a bool literal, constant or override, or a
+    /// logical and, or, not of fixed ones.
     fn fixed_bool(&self, h: Handle<Expression>) -> Option<bool> {
         let lit = match self.fun.expressions[h] {
+            // `&&` and `||` short-circuit (naga makes control flow of them); `&` and `|` on bools
+            // do not.
+            Expression::Binary {
+                op: BinaryOperator::LogicalAnd | BinaryOperator::And,
+                left,
+                right,
+            } => return Some(self.fixed_bool(left)? && self.fixed_bool(right)?),
+            Expression::Binary {
+                op: BinaryOperator::LogicalOr | BinaryOperator::InclusiveOr,
+                left,
+                right,
+            } => return Some(self.fixed_bool(left)? || self.fixed_bool(right)?),
+            Expression::Unary { op: UnaryOperator::LogicalNot, expr } => {
+                return self.fixed_bool(expr).map(|b| !b)
+            }
             Expression::Literal(lit) => lit,
             Expression::Override(o) => *self.fixed.get(&o)?,
             Expression::Constant(c) => {
@@ -356,6 +375,11 @@ impl Lowering<'_> {
                     let t = ty_of(self.inner(ty))?;
                     Lowered::Value(self.b.load_push(offset, t))
                 }
+                Lowered::PushLane(offset, ty, lane) => {
+                    let t = ty_of(self.inner(ty))?;
+                    let v = self.b.load_push(offset, t);
+                    Lowered::Value(self.b.extract(v, lane))
+                }
                 Lowered::Resource(r) => Lowered::Resource(r),
                 _ => return Err(FrontendError::Unsupported("a load from a variable")),
             },
@@ -367,12 +391,18 @@ impl Lowering<'_> {
                             .ok_or(FrontendError::Unsupported("a member index"))?;
                         Lowered::Push(offset + m.offset, m.ty)
                     }
+                    TypeInner::Vector { size, .. } if index < u32::from(lanes(*size)) => {
+                        Lowered::PushLane(offset, ty, index as u8)
+                    }
                     _ => return Err(FrontendError::Unsupported("an index into the immediates")),
                 },
                 Lowered::Args(first) => Lowered::Value(self.b.load_input(first + index as u8)),
                 Lowered::Value(v) => Lowered::Value(self.b.extract(v, index as u8)),
                 Lowered::Resource(_) => {
                     return Err(FrontendError::Unsupported("an index into a resource"))
+                }
+                Lowered::PushLane(..) => {
+                    return Err(FrontendError::Unsupported("an index into a scalar"))
                 }
             },
             Expression::Splat { size, value } => {
@@ -483,53 +513,5 @@ impl Lowering<'_> {
         };
         self.values.insert(h, l);
         Ok(l)
-    }
-
-    fn math(
-        &mut self,
-        h: Handle<Expression>,
-        fun: MathFunction,
-        arg: Handle<Expression>,
-        arg1: Option<Handle<Expression>>,
-        arg2: Option<Handle<Expression>>,
-    ) -> Result<ValueId> {
-        let lanes = self.ty(h)?.lanes;
-        let a = self.value(arg)?;
-        let operand = |s: &mut Self, e: Option<Handle<Expression>>| -> Result<ValueId> {
-            let v = s.value(e.ok_or(FrontendError::Unsupported("a missing math operand"))?)?;
-            Ok(s.widen(v, lanes))
-        };
-        let un = |s: &mut Self, op| Ok(s.b.unary(op, a));
-        match fun {
-            MathFunction::Abs => un(self, UnOp::Abs),
-            MathFunction::Floor => un(self, UnOp::Floor),
-            MathFunction::Fract => un(self, UnOp::Fract),
-            MathFunction::Sqrt => un(self, UnOp::Sqrt),
-            MathFunction::InverseSqrt => un(self, UnOp::Rsqrt),
-            MathFunction::Exp2 => un(self, UnOp::Exp2),
-            MathFunction::Log2 => un(self, UnOp::Log2),
-            MathFunction::Saturate => un(self, UnOp::Sat),
-            MathFunction::Min | MathFunction::Max => {
-                let b = operand(self, arg1)?;
-                let op = if fun == MathFunction::Min { BinOp::Min } else { BinOp::Max };
-                Ok(self.b.binary(op, a, b))
-            }
-            MathFunction::Clamp => {
-                let (lo, hi) = (operand(self, arg1)?, operand(self, arg2)?);
-                let m = self.b.binary(BinOp::Min, a, hi);
-                Ok(self.b.binary(BinOp::Max, m, lo))
-            }
-            MathFunction::Fma => {
-                let (b, c) = (operand(self, arg1)?, operand(self, arg2)?);
-                Ok(self.b.fma(a, b, c))
-            }
-            MathFunction::Mix => {
-                // mix(a, b, t) = (b − a)·t + a
-                let (b, t) = (operand(self, arg1)?, operand(self, arg2)?);
-                let d = self.b.binary(BinOp::Sub, b, a);
-                Ok(self.b.fma(d, t, a))
-            }
-            _ => Err(FrontendError::Unsupported("a math function outside the subset")),
-        }
     }
 }

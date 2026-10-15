@@ -41,9 +41,9 @@ const TOLERANCE: u8 = 4;
 const LAYER: &str = "layer-premultiplied";
 /// The three quads: the capture's positions and tints.
 const QUADS: [Quad; 3] = [
-    Quad { x: 704.0, y: 284.0, w: 512.0, h: 512.0, tint: [1.0, 1.0, 1.0, 1.0] },
-    Quad { x: 304.0, y: 134.0, w: 512.0, h: 512.0, tint: [1.0, 0.5, 0.5, 1.0] },
-    Quad { x: 1104.0, y: 434.0, w: 512.0, h: 512.0, tint: [0.5, 0.5, 1.0, 0.6] },
+    Quad::layer(704.0, 284.0, 512.0, 512.0, [1.0, 1.0, 1.0, 1.0], 0.0),
+    Quad::layer(304.0, 134.0, 512.0, 512.0, [1.0, 0.5, 0.5, 1.0], 0.0),
+    Quad::layer(1104.0, 434.0, 512.0, 512.0, [0.5, 0.5, 1.0, 0.6], 0.0),
 ];
 
 fn now_ns() -> u64 {
@@ -126,7 +126,7 @@ fn probe(
     for (i, q) in quads.iter().enumerate() {
         let x = (q.x + SAMPLE_FRACTION * q.w) as usize;
         let y = (q.y + SAMPLE_FRACTION * q.h) as usize;
-        let want = premultiplied_bgr(q.tint);
+        let want = premultiplied_bgr(q.tint());
         let at = y * STRIDE + x * 4;
         let Some(px) = bytes.get(at..at + 3) else {
             bad.get_or_insert((i, x, y, want, [0u8; 3]));

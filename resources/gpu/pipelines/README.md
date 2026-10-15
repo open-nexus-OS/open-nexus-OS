@@ -18,11 +18,19 @@ in the client's context; it holds no program of its own.
 |---|---|---|---|---|---|---|
 | 1 | `layer-opaque` | `layer.wgsl` `main`, `tinted=false`, replace | 3 / 3 | 1 | opaque | 32 |
 | 2 | `layer-premultiplied` | `layer.wgsl` `main`, defaults (`tinted=true`), premultiplied over | 11 / 11 | 3 | translucent | 120 |
+| 3 | `layer-straight` | `layer.wgsl` `main`, `straight=true` (a client's straight-alpha texel premultiplied), premultiplied over | 15 / 15 | 3 | translucent | 160 |
+| 4 | `layer-rounded` | `layer.wgsl` `main`, `straight=true`, `rounded=true` (the corners cut: the rounded rectangle's exact distance, a one-pixel band), premultiplied over | 34 / 34 | 3 | translucent | 360 |
+| 5 | `shadow` | `shadow.wgsl` `main`: the blurred rounded rectangle, knocked out under the layer; no texture, premultiplied over | 43 / 43 | 3 | translucent | 472 |
 
-The archive: 624 bytes, FNV-1a 64 `0x1084b1990109bdfc`, code target `0x0024001d003400b6` (the
-board's core). Both programs are byte for byte the hand-assembled references `opaque-itrsmp`
-(board cycle 14: 1.30 ns a pixel) and `premultiplied-itrsmp` (cycle 15: 4.04 ns) of
-`nexus_gfx::shader::rogue::reference`; both need iterate-and-sample of the device. Rebuilding:
+The archive: 2252 bytes, FNV-1a 64 `0x23793e2bfca7caac`, code target `0x0024001d003400b6` (the
+board's core). The layers need iterate-and-sample of the device, the shadow nothing; a layer's
+push block is 48 bytes (`Layer`: tint, size and minus half of it, the corner — `Quad::layer`
+writes it), the shadow's 64 (`Shadow`: colour, the quad's size and half, the shape with one over
+the blur, the offset — `Quad::shadow`).
+The first two programs are byte for byte the hand-assembled references `opaque-itrsmp` (board
+cycle 14: 1.30 ns a pixel) and `premultiplied-itrsmp` (cycle 15: 4.04 ns) of
+`nexus_gfx::shader::rogue::reference`. `layer-rounded` is for a layer's corner squares only — the
+compositor draws the rest of a rounded layer with `layer-straight`. Rebuilding:
 
 ```text
 cargo run -p nxgpu -- library resources/gpu/pipelines/compositor.toml --out resources/gpu/pipelines/compositor.nxgp

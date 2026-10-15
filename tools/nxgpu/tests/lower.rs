@@ -6,6 +6,7 @@
 //! the CPU rasterizer's formulas under each blend, each override variant; the refusals name what
 //! the subset lacks.
 
+use nexus_gfx::backend::gpu::quads::Quad;
 use nexus_gfx::backend::gpu::scene::checker_v1;
 use nexus_gfx::raster::blend_over_px;
 use nexus_gfx::shader::ir::interp::{run, Invocation, Rgba8Texture, Texture};
@@ -21,6 +22,12 @@ fn checker() -> Rgba8Texture {
     Rgba8Texture::new(SIZE, SIZE, px).expect("the checker")
 }
 
+/// The layer's push block (`Quad::layer`, the one place its layout is written down).
+fn layer_push(w: f32, h: f32, tint: [f32; 4], radius: f32) -> Vec<u8> {
+    let q = Quad::layer(0.0, 0.0, w, h, tint, radius);
+    q.push[..12].iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
 fn to_u8(x: f32) -> u8 {
     (x * 255.0 + 0.5).clamp(0.0, 255.0) as u8
 }
@@ -34,7 +41,7 @@ fn invoke(
 ) -> [u8; 4] {
     let m = lower_fragment(LAYER, "main", overrides, blend).expect("the layer lowers");
     let tex = checker();
-    let push: Vec<u8> = tint.iter().flat_map(|t| t.to_le_bytes()).collect();
+    let push = layer_push(SIZE as f32, SIZE as f32, tint, 0.0);
     let textures: [Option<&dyn Texture>; 2] = [Some(&tex), None];
     let dst = dst.map(|c| f32::from(c) / 255.0);
     let outs = run(
@@ -64,7 +71,7 @@ fn the_layer_source_lowers_to_the_interface_the_pipeline_binds() {
         (0, Type::VEC2, Interp::Perspective)
     );
     assert_eq!((i.outputs[0].location, i.outputs[0].ty), (0, Type::VEC4));
-    assert_eq!((i.push_bytes, i.resources.len()), (16, 2));
+    assert_eq!((i.push_bytes, i.resources.len()), (48, 2));
 }
 
 #[test]
@@ -165,4 +172,150 @@ fn scalar_vector_arithmetic_is_widened() {
     .expect("runs");
     assert_eq!(outs[0], [0.5, 0.25, 0.25, 1.0]);
     assert!(m.body.iter().any(|i| i.ty == Type::new(Scalar::F32, 2)));
+}
+
+#[test]
+fn dot_length_and_the_unit_clamp_lower_to_the_float_units_ops() {
+    let src = "struct P { v: vec4<f32>, }\nvar<immediate> p: P;\n@fragment fn main() -> @location(0) vec4<f32> {\n    let v = p.v.xy;\n    return vec4<f32>(dot(v, p.v.zw), length(v), clamp(p.v.x, 0.0, 1.0), length(p.v.z));\n}\n";
+    let m = lower_fragment(src, "main", &[], Blend::Replace).expect("lowers");
+    let push: Vec<u8> = [3.0f32, 4.0, 0.5, -2.0].iter().flat_map(|x| x.to_le_bytes()).collect();
+    let outs = run(&m, &Invocation { inputs: &[], push: &push, textures: &[], dst: &[[0.0; 4]] })
+        .expect("runs");
+    assert_eq!(outs[0], [-6.5, 5.0, 1.0, 0.5]);
+    // The unit clamp is the free saturation, not a min and a max; the lengths a square root
+    // and an absolute value.
+    use nexus_gfx::shader::ir::{BinOp, UnOp};
+    let has = |f: &dyn Fn(&Op) -> bool| m.body.iter().any(|i| f(&i.op));
+    assert!(has(&|o| matches!(o, Op::Unary(UnOp::Sat, _))));
+    assert!(!has(&|o| matches!(o, Op::Binary(BinOp::Min | BinOp::Max, ..))));
+    assert!(has(&|o| matches!(o, Op::Unary(UnOp::Sqrt, _))));
+    assert!(has(&|o| matches!(o, Op::Unary(UnOp::Abs, _))));
+}
+
+/// A texture of one straight colour.
+fn solid(c: [u8; 4]) -> Rgba8Texture {
+    Rgba8Texture::new(4, 4, c.repeat(16)).expect("the solid texture")
+}
+
+fn run_layer(overrides: &[(&str, f64)], tex: &Rgba8Texture, uv: [f32; 2], push: &[u8]) -> [f32; 4] {
+    let m = lower_fragment(LAYER, "main", overrides, Blend::Replace).expect("the layer lowers");
+    let textures: [Option<&dyn Texture>; 2] = [Some(tex), None];
+    let outs = run(
+        &m,
+        &Invocation {
+            inputs: &[[uv[0], uv[1], 0.0, 0.0]],
+            push,
+            textures: &textures,
+            dst: &[[0.0; 4]],
+        },
+    )
+    .expect("the layer runs");
+    outs[0]
+}
+
+fn close(a: [f32; 4], b: [f32; 4]) -> bool {
+    a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-4)
+}
+
+#[test]
+fn the_straight_variant_premultiplies_the_texel_at_the_layers_opacity() {
+    let tint = [1.0, 0.5, 0.5, 0.5];
+    let c = [200u8, 100, 50, 128];
+    let out =
+        run_layer(&[("straight", 1.0)], &solid(c), [0.5, 0.5], &layer_push(64.0, 64.0, tint, 0.0));
+    let s = c.map(|v| f32::from(v) / 255.0);
+    let a = s[3] * tint[3];
+    let want = [s[0] * tint[0] * a, s[1] * tint[1] * a, s[2] * tint[2] * a, a];
+    assert!(close(out, want), "{out:?} against {want:?}");
+}
+
+/// The virgl layer's coverage (`virgl_composite.rs` FS_LAYER): the rounded rectangle's exact
+/// signed distance at the pixel centre, a one-pixel band.
+fn coverage(px: f32, py: f32, w: f32, h: f32, r: f32) -> f32 {
+    let (qx, qy) = ((px - w / 2.0).abs() - (w / 2.0 - r), (py - h / 2.0).abs() - (h / 2.0 - r));
+    let len = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt();
+    let sd = len + qx.max(qy).min(0.0) - r;
+    (0.5 - sd).clamp(0.0, 1.0)
+}
+
+#[test]
+fn the_rounded_variant_cuts_its_corners_as_the_virgl_layer_does() {
+    let (w, h, r) = (64.0, 64.0, 12.0);
+    let c = [200u8, 100, 50, 255];
+    let push = layer_push(w, h, [1.0; 4], r);
+    let tex = solid(c);
+    let s = c.map(|v| f32::from(v) / 255.0);
+    // The far corner (outside), a pixel on the arc (partial), the centre and an edge's middle.
+    for (x, y, expect) in
+        [(0.0, 0.0, Some(0.0)), (3.0, 3.0, None), (32.0, 32.0, Some(1.0)), (0.0, 32.0, Some(1.0))]
+    {
+        let (px, py) = (x + 0.5f32, y + 0.5f32);
+        let cov = coverage(px, py, w, h, r);
+        if let Some(e) = expect {
+            assert_eq!(cov, e, "the reference at ({x}, {y})");
+        } else {
+            assert!(cov > 0.0 && cov < 1.0, "a partial pixel on the arc: {cov}");
+        }
+        let out = run_layer(&[("straight", 1.0), ("rounded", 1.0)], &tex, [px / w, py / h], &push);
+        let a = s[3] * cov;
+        let want = [s[0] * a, s[1] * a, s[2] * a, a];
+        assert!(close(out, want), "({x}, {y}): {out:?} against {want:?}");
+    }
+}
+
+const SHADOW: &str = include_str!("../../../resources/gpu/shaders/shadow.wgsl");
+
+/// The virgl shadow (`virgl_vector.rs` FS_SHADOW): the distance outside the shifted rounded
+/// rectangle falling off over the blur, squared, knocked out across the unshifted one.
+fn shadow_alpha(
+    p: (f32, f32),
+    inner: (f32, f32),
+    r: f32,
+    blur: f32,
+    offset: (f32, f32),
+    alpha: f32,
+) -> f32 {
+    let dist = |x: f32, y: f32| {
+        let (qx, qy) = (x.abs() - inner.0, y.abs() - inner.1);
+        (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() - r
+    };
+    let ramp = (1.0 - dist(p.0, p.1) / blur).clamp(0.0, 1.0);
+    let knock = dist(p.0 + offset.0, p.1 + offset.1).clamp(0.0, 1.0);
+    alpha * ramp * ramp * knock
+}
+
+#[test]
+fn the_shadow_falls_off_and_is_knocked_out_as_the_virgl_shadow() {
+    // A 64x48 layer, corner radius 8, the window's shadow: blur 18, offset (0, 5), alpha 90/255.
+    let (w, h, r, blur, off) = (64.0f32, 48.0f32, 8.0f32, 18.0f32, [0.0f32, 5.0]);
+    let colour = [0.2, 0.3, 0.4, 90.0 / 255.0];
+    let q = Quad::shadow(100.0, 100.0, w, h, r, blur, off, colour);
+    let push: Vec<u8> = q.push.iter().flat_map(|x| x.to_le_bytes()).collect();
+    let m = lower_fragment(SHADOW, "main", &[], Blend::Replace).expect("the shadow lowers");
+    assert_eq!((m.interface.resources.len(), m.interface.push_bytes), (0, 64));
+    // Quad pixels: under the window, below it, mid-ramp left, past the blur, at the window's edge.
+    for (px, py) in [(50.0, 42.0), (50.0, 76.0), (10.0, 42.0), (0.0, 0.0), (17.6, 42.0)] {
+        let (cx, cy) = (px + 0.5f32, py + 0.5f32);
+        let p = (cx - q.w / 2.0, cy - q.h / 2.0);
+        let a = shadow_alpha(p, (w / 2.0 - r, h / 2.0 - r), r, blur, (off[0], off[1]), colour[3]);
+        let outs = run(
+            &m,
+            &Invocation {
+                inputs: &[[cx / q.w, cy / q.h, 0.0, 0.0]],
+                push: &push,
+                textures: &[],
+                dst: &[[0.0; 4]],
+            },
+        )
+        .expect("the shadow runs");
+        let want = [colour[0] * a, colour[1] * a, colour[2] * a, a];
+        assert!(close(outs[0], want), "({px}, {py}): {:?} against {want:?}", outs[0]);
+    }
+    // Under the window nothing; below it the shadow shows.
+    let at = |px: f32, py: f32| {
+        let p = (px + 0.5 - q.w / 2.0, py + 0.5 - q.h / 2.0);
+        shadow_alpha(p, (w / 2.0 - r, h / 2.0 - r), r, blur, (off[0], off[1]), colour[3])
+    };
+    assert_eq!(at(50.0, 42.0), 0.0);
+    assert!(at(50.0, 76.0) > 0.05);
 }

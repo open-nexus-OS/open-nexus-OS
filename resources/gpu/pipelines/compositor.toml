@@ -1,13 +1,13 @@
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# The compositor's pipelines for the board GPU (TASK-0215 5c-2 P4c, ADR-0072 §5–7): one entry per
-# variant — a source, its entry point, its overrides, its blend — with its instruction-group
+# The compositor's pipelines for the board GPU (TASK-0215 5c-2 P4c, P5, ADR-0072 §5–7): one entry
+# per variant — a source, its entry point, its overrides, its blend — with its instruction-group
 # budget. `nxgpu library` compiles each, holds it to its budget, generates its setup programs
 # and builds `compositor.nxgp` (README.md); ids are the pipelines' names on the wire.
 target = "board"
 
-# A surface at full opacity in its own colours — the compositor's commonest draw.
+# A surface at full opacity in its own colours — the compositor's commonest draw, and a copy.
 [[pipeline]]
 id = 1
 name = "layer-opaque"
@@ -16,10 +16,36 @@ overrides = { tinted = false }
 blend = "replace"
 budget = 3
 
-# A surface over what is below, tinted (opacity and colour), premultiplied.
+# A premultiplied texture (the GPU's own results) over what is below, tinted.
 [[pipeline]]
 id = 2
 name = "layer-premultiplied"
 source = "../shaders/layer.wgsl"
 blend = "premultiplied"
 budget = 11
+
+# A client's surface (straight alpha) over what is below, at the layer's opacity.
+[[pipeline]]
+id = 3
+name = "layer-straight"
+source = "../shaders/layer.wgsl"
+overrides = { straight = true }
+blend = "premultiplied"
+budget = 15
+
+# A client's surface with its corners cut — the layer's four corner squares.
+[[pipeline]]
+id = 4
+name = "layer-rounded"
+source = "../shaders/layer.wgsl"
+overrides = { straight = true, rounded = true }
+blend = "premultiplied"
+budget = 34
+
+# A layer's drop shadow: the blurred rounded rectangle knocked out under the layer.
+[[pipeline]]
+id = 5
+name = "shadow"
+source = "../shaders/shadow.wgsl"
+blend = "premultiplied"
+budget = 43

@@ -16,10 +16,12 @@ use nxgpu::library::{build, parse_manifest};
 const MANIFEST: &str = include_str!("../../../resources/gpu/pipelines/compositor.toml");
 const LIBRARY: &[u8] = include_bytes!("../../../resources/gpu/pipelines/compositor.nxgp");
 const LAYER: &str = include_str!("../../../resources/gpu/shaders/layer.wgsl");
+const SHADOW: &str = include_str!("../../../resources/gpu/shaders/shadow.wgsl");
 
 fn source(rel: &str) -> Result<String, String> {
     match rel {
         "../shaders/layer.wgsl" => Ok(LAYER.into()),
+        "../shaders/shadow.wgsl" => Ok(SHADOW.into()),
         other => Err(format!("no source {other}")),
     }
 }
@@ -29,31 +31,52 @@ fn the_manifest_builds_the_committed_library() {
     let manifest = parse_manifest(MANIFEST).expect("the manifest parses");
     let (bytes, built) = build(&manifest, source).expect("the library builds");
     assert_eq!(bytes, LIBRARY, "rebuild compositor.nxgp (README.md)");
-    assert_eq!(fnv1a64(LIBRARY), 0x1084_b199_0109_bdfc, "and the README's digest");
+    assert_eq!(fnv1a64(LIBRARY), 0x2379_3e2b_fca7_caac, "and the README's digest");
     let facts: Vec<_> = built.iter().map(|b| (b.id, b.groups, b.temps, b.pass_type)).collect();
-    assert_eq!(facts, vec![(1, 3, 1, PASS_OPAQUE), (2, 11, 3, PASS_TRANSLUCENT)]);
+    assert_eq!(
+        facts,
+        vec![
+            (1, 3, 1, PASS_OPAQUE),
+            (2, 11, 3, PASS_TRANSLUCENT),
+            (3, 15, 3, PASS_TRANSLUCENT),
+            (4, 34, 3, PASS_TRANSLUCENT),
+            (5, 43, 3, PASS_TRANSLUCENT)
+        ]
+    );
 }
 
 #[test]
 fn the_library_carries_the_references_and_their_setup() {
     let lib = parse(LIBRARY, CoreId::BOARD.0, feature::FUSED_ITERATE_SAMPLE).expect("parses");
     assert!(lib.refused.is_empty());
-    let [opaque, premultiplied] = lib.accepted.as_slice() else { panic!("two entries") };
+    let [opaque, premultiplied, straight, rounded, shadow] = lib.accepted.as_slice() else {
+        panic!("five entries")
+    };
     assert_eq!((opaque.id, opaque.name, opaque.budget), (1, "layer-opaque", 3));
     assert_eq!(opaque.program, reference::opaque_itrsmp().unwrap().encode().unwrap());
     assert_eq!(premultiplied.program, reference::premultiplied_itrsmp().unwrap().encode().unwrap());
-    for (e, temps, pass) in [(opaque, 1, PASS_OPAQUE), (premultiplied, 3, PASS_TRANSLUCENT)] {
-        assert_eq!(e.features, feature::FUSED_ITERATE_SAMPLE);
+    assert_eq!((straight.name, rounded.name), ("layer-straight", "layer-rounded"));
+    // The layers sample with iterate-and-sample; the shadow samples nothing.
+    assert_eq!(shadow.features, 0);
+    for (e, temps, pass) in [
+        (opaque, 1, PASS_OPAQUE),
+        (premultiplied, 3, PASS_TRANSLUCENT),
+        (straight, 3, PASS_TRANSLUCENT),
+        (rounded, 3, PASS_TRANSLUCENT),
+        (shadow, 3, PASS_TRANSLUCENT),
+    ] {
+        assert_eq!(e.features != 0, e.id != 5);
         let s = Setup::from_sections(&e.setup, e.state, &e.interface).expect("the setup decodes");
         assert_eq!((s.state.temps, s.state.pass_type), (temps, pass));
     }
-    // A device without iterate-and-sample takes neither.
-    assert_eq!(parse(LIBRARY, CoreId::BOARD.0, 0).unwrap().accepted.len(), 0);
+    // A device without iterate-and-sample takes only the shadow.
+    let bare = parse(LIBRARY, CoreId::BOARD.0, 0).unwrap();
+    assert_eq!(bare.accepted.iter().map(|e| e.id).collect::<Vec<_>>(), vec![5]);
 }
 
 #[test]
 fn test_reject_a_pipeline_over_its_budget() {
-    let tight = MANIFEST.replace("budget = 3", "budget = 2");
+    let tight = MANIFEST.replacen("budget = 3\n", "budget = 2\n", 1);
     let manifest = parse_manifest(&tight).expect("parses");
     let e = build(&manifest, source).unwrap_err();
     assert!(e.contains("layer-opaque: 3 groups above its budget of 2"), "{e}");

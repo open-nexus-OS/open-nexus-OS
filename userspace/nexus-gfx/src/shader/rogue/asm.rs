@@ -281,29 +281,109 @@ pub fn mov(dst: Reg, src: Reg) -> Main {
     m
 }
 
+/// The add and multiply's modifiers: the result saturated to 0..1, the first source negated,
+/// either source's absolute value, the first source's floor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FamMods {
+    pub sat: bool,
+    pub s0neg: bool,
+    pub s0abs: bool,
+    pub s1abs: bool,
+    pub s0flr: bool,
+}
+
 /// `dst = a <op> b` for add or multiply (`op` one of `alu::op`'s first four).
 pub fn fam(op: u8, dst: Reg, a: Reg, b: Reg) -> Main {
-    let mut m = Main::new();
-    m.alu.push((
+    fam_mods(op, dst, a, b, FamMods::default())
+}
+
+/// [`fam`] with its modifiers (`fadd.sat x, sc0` saturates, `fadd x.neg, sc0` negates).
+pub fn fam_mods(op: u8, dst: Reg, a: Reg, b: Reg, m: FamMods) -> Main {
+    let mut g = Main::new();
+    g.alu.push((
         Phase::P0,
-        AluInstr::Fam { op, sat: false, s0neg: false, s0abs: false, s1abs: false, s0flr: false },
+        AluInstr::Fam {
+            op,
+            sat: m.sat,
+            s0neg: m.s0neg,
+            s0abs: m.s0abs,
+            s1abs: m.s1abs,
+            s0flr: m.s0flr,
+        },
     ));
-    m.srcs[0] = Some(a);
-    m.srcs[1] = Some(b);
-    m.w0 = Some(dst);
-    m
+    g.srcs[0] = Some(a);
+    g.srcs[1] = Some(b);
+    g.w0 = Some(dst);
+    g
+}
+
+/// The fused multiply-add's modifiers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FmadMods {
+    pub s0neg: bool,
+    pub s0abs: bool,
+    pub s2neg: bool,
+    pub sat: bool,
 }
 
 /// `dst = a * b + c`.
 pub fn fmad(dst: Reg, a: Reg, b: Reg, c: Reg) -> Main {
-    let mut m = Main::new();
-    m.alu.push((
+    fmad_mods(dst, a, b, c, FmadMods::default())
+}
+
+/// [`fmad`] with its modifiers.
+pub fn fmad_mods(dst: Reg, a: Reg, b: Reg, c: Reg, m: FmadMods) -> Main {
+    let mut g = Main::new();
+    g.alu.push((
         Phase::P0,
-        AluInstr::Fmad { s0neg: false, s0abs: false, s2neg: false, sat: false, ext: None },
+        AluInstr::Fmad { s0neg: m.s0neg, s0abs: m.s0abs, s2neg: m.s2neg, sat: m.sat, ext: None },
+    ));
+    g.srcs[0] = Some(a);
+    g.srcs[1] = Some(b);
+    g.srcs[2] = Some(c);
+    g.w0 = Some(dst);
+    g
+}
+
+/// `dst = op(src)` through the single-source unit (`alu::sngl`: reciprocal, inverse square
+/// root, base-2 logarithm and exponent).
+pub fn sngl(op: u8, dst: Reg, src: Reg) -> Main {
+    let mut m = Main::new();
+    m.alu.push((Phase::P0, AluInstr::Sngl { op, ext: None }));
+    m.srcs[0] = Some(src);
+    m.w0 = Some(dst);
+    m
+}
+
+/// `dst = min(a, b)` (or `max`), the open compiler's way: both through the bypasses (phases 0
+/// and 1), phase 2's float test, the conditional move taking `a` where the test holds and `b`
+/// elsewhere — one group.
+pub fn minmax(dst: Reg, a: Reg, b: Reg, max: bool) -> Main {
+    use super::alu::{tst, MovcExt, TstExt};
+    let mut m = Main::new();
+    let byp = AluInstr::Sngl { op: super::alu::sngl::BYP, ext: None };
+    m.alu.push((Phase::P0, byp));
+    m.alu.push((Phase::P1, byp));
+    m.alu.push((
+        Phase::P2Tst,
+        AluInstr::Tst {
+            op: if max { tst::G } else { tst::L },
+            pwen: false,
+            ext: Some(TstExt { ttype: tst::F32, p2end: true, elem: 0 }),
+        },
+    ));
+    m.alu.push((
+        Phase::P2Mov,
+        AluInstr::Movc {
+            movw1: 0,
+            movw0: 0,
+            ext: Some(MovcExt { maskw0: 15, aw: false, p2end: false }),
+        },
     ));
     m.srcs[0] = Some(a);
-    m.srcs[1] = Some(b);
-    m.srcs[2] = Some(c);
+    m.srcs[3] = Some(b);
+    // is1 = ft0, is2 = ft1 (the test's operands), is4 = ft1 (the move's other choice).
+    m.iss = Iss { is1: 0, is2: 0, is4: sel::FT1, ..Iss::default() };
     m.w0 = Some(dst);
     m
 }

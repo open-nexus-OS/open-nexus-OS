@@ -8,10 +8,13 @@
 //! is refused by name.
 
 use nexus_gfx::shader::ir::builder::{store_blended, Blend, Builder};
-use nexus_gfx::shader::ir::{BinOp, Interp, Lod, Module, Op, Stage, TexDim, Type};
+use nexus_gfx::shader::ir::{BinOp, Interp, Lod, Module, Op, Stage, TexDim, Type, UnOp};
+use nexus_gfx::shader::rogue::alu::{op, sngl, tst, AluInstr};
+use nexus_gfx::shader::rogue::asm::special;
 use nexus_gfx::shader::rogue::codegen::{compile, CodegenError, Layout, Options, Program};
 use nexus_gfx::shader::rogue::encode_program;
 use nexus_gfx::shader::rogue::reference::{self, Reference};
+use nexus_gfx::shader::rogue::{Group, Instr, Phase};
 
 /// The layer: `texture(surface, uv)`, times the tint when `tinted`, through the epilog.
 fn layer(tinted: bool, blend: Blend) -> Module {
@@ -72,9 +75,15 @@ fn the_premultiplied_layer_compiles_to_the_premultiplied_references() {
 fn test_reject_what_the_backend_lacks() {
     let unsupported =
         |r: Result<Program, CodegenError>| matches!(r, Err(CodegenError::Unsupported { .. }));
-    // The straight-alpha epilog builds its result from parts in other registers.
+    // A fractional part.
+    let mut b = Builder::new(Stage::Fragment);
+    let out = b.output(0, Type::VEC4);
+    b.push_bytes(16);
+    let t = b.load_push(0, Type::VEC4);
+    let f = b.unary(UnOp::Fract, t);
+    b.store_output(out, f);
     assert!(unsupported(compile(
-        &layer(true, Blend::OverStraight),
+        &b.finish().unwrap(),
         Layout::BUNDLE,
         Options { fused_sample: true }
     )));
@@ -83,8 +92,8 @@ fn test_reject_what_the_backend_lacks() {
     m.interface.stage = Stage::Compute;
     m.body.retain(|i| !matches!(i.op, Op::Sample { .. } | Op::StoreOutput(..)));
     assert!(compile(&m, Layout::BUNDLE, Options { fused_sample: true }).is_err());
-    // A constant other than 0 and 1, and -0.0: the constant registers hold +0.0 and 1.0.
-    for x in [0.5, -0.0] {
+    // A constant no constant register holds, nor its magnitude.
+    for x in [0.7, -0.3] {
         let mut b = Builder::new(Stage::Fragment);
         let out = b.output(0, Type::VEC4);
         let c = b.f32s(&[x]);
@@ -93,4 +102,133 @@ fn test_reject_what_the_backend_lacks() {
         let m = b.finish().unwrap();
         assert!(unsupported(compile(&m, Layout::BUNDLE, Options { fused_sample: true })), "{x}");
     }
+}
+
+/// A group's instructions as their forms, registers left out.
+fn forms(g: &Group) -> Vec<String> {
+    g.instrs
+        .iter()
+        .map(|(ph, i)| match i {
+            Instr::Alu(AluInstr::Sngl { op, .. }) => format!("{ph:?} sngl {op}"),
+            Instr::Alu(AluInstr::Fam { op, sat, s0neg, s0abs, s0flr, .. }) => {
+                format!("{ph:?} fam {op} sat={sat} neg={s0neg} abs={s0abs} flr={s0flr}")
+            }
+            Instr::Alu(AluInstr::Fmad { .. }) => format!("{ph:?} fmad"),
+            Instr::Alu(AluInstr::Tst { op, .. }) => format!("{ph:?} tst {op}"),
+            Instr::Alu(AluInstr::Movc { .. }) => format!("{ph:?} movc"),
+            Instr::Alu(AluInstr::Pck { .. }) => format!("{ph:?} pck"),
+            other => format!("{ph:?} {other:?}"),
+        })
+        .collect()
+}
+
+fn reads(g: &Group, r: nexus_gfx::shader::rogue::io::Reg) -> bool {
+    [g.lower, g.upper].iter().flatten().any(|s| s.regs.contains(&r))
+}
+
+#[test]
+fn the_float_units_ops_compile_to_the_compilers_forms() {
+    // The open compiler's arithmetic probe (`frag-ops.usc`), as our IR: min, max, the
+    // single-source unit, a saturated product, |z − w|·0.5 + g. The compiler copies all four push
+    // constants into temporaries first; the backend moves only an operand the second source
+    // cannot read.
+    let mut b = Builder::new(Stage::Fragment);
+    let out = b.output(0, Type::VEC4);
+    b.push_bytes(16);
+    let t = b.load_push(0, Type::VEC4);
+    let (x, y, z, w) = (b.extract(t, 0), b.extract(t, 1), b.extract(t, 2), b.extract(t, 3));
+    let e = b.binary(BinOp::Min, x, y);
+    let f = b.binary(BinOp::Max, z, w);
+    let a = b.unary(UnOp::Rsqrt, x);
+    let r = b.unary(UnOp::Rcp, y);
+    let c = b.unary(UnOp::Exp2, z);
+    let d = b.unary(UnOp::Log2, w);
+    let xy = b.binary(BinOp::Mul, x, y);
+    let g = b.unary(UnOp::Sat, xy);
+    let zw = b.binary(BinOp::Sub, z, w);
+    let ab = b.unary(UnOp::Abs, zw);
+    let half = b.f32s(&[0.5]);
+    let h = b.fma(ab, half, g);
+    let (ar, cd, ef) =
+        (b.binary(BinOp::Add, a, r), b.binary(BinOp::Add, c, d), b.binary(BinOp::Add, e, f));
+    let v = b.construct(&[ar, cd, ef, h]);
+    store_blended(&mut b, out, v, Blend::Replace);
+    let p = compile(&b.finish().unwrap(), Layout::BUNDLE, Options { fused_sample: true })
+        .expect("compiles");
+    let all: Vec<Vec<String>> = p.groups.iter().map(forms).collect();
+    let byp = format!("P1 sngl {}", sngl::BYP);
+    let expect: Vec<Vec<String>> = vec![
+        vec![
+            "P2Mov movc".into(),
+            format!("P2Tst tst {}", tst::L),
+            byp.clone(),
+            format!("P0 sngl {}", sngl::BYP),
+        ],
+        vec![
+            "P2Mov movc".into(),
+            format!("P2Tst tst {}", tst::G),
+            byp,
+            format!("P0 sngl {}", sngl::BYP),
+        ],
+        vec![format!("P0 sngl {}", sngl::RSQ)],
+        vec![format!("P0 sngl {}", sngl::RCP)],
+        vec![format!("P0 sngl {}", sngl::EXP)],
+        vec![format!("P0 sngl {}", sngl::LOG)],
+        // x·y: both factors push constants (shared registers), one moved into a temporary.
+        vec![format!("P0 sngl {}", sngl::BYP)],
+        vec![format!("P0 fam {} sat=false neg=false abs=false flr=false", op::FMUL)],
+        vec![format!("P0 fam {} sat=true neg=false abs=false flr=false", op::FADD)],
+        // z − w: the same, then the subtraction as −w + z.
+        vec![format!("P0 sngl {}", sngl::BYP)],
+        vec![format!("P0 fam {} sat=false neg=true abs=false flr=false", op::FADD)],
+        vec![format!("P0 fam {} sat=false neg=false abs=true flr=false", op::FADD)],
+        vec!["P0 fmad".into()],
+    ];
+    assert_eq!(&all[..expect.len()], &expect[..]);
+    // The 0.5 is constant register 75, read where the compiler reads it.
+    assert!(reads(&p.groups[12], special(75)), "fmad reads sc75");
+    // The last group packs into the pixel output and ends the program.
+    assert!(p.groups.last().is_some_and(|g| g.header.end));
+    assert_eq!(p.groups.iter().filter(|g| matches!(g.instrs[0].0, Phase::P2Pck)).count(), 1);
+}
+
+#[test]
+fn constants_come_from_the_constant_registers() {
+    let program = |x: f32| {
+        let mut b = Builder::new(Stage::Fragment);
+        let out = b.output(0, Type::VEC4);
+        b.push_bytes(16);
+        let t = b.load_push(0, Type::VEC4);
+        let c = b.f32s(&[x]);
+        let k = b.splat(c, 4);
+        let v = b.binary(BinOp::Mul, t, k);
+        store_blended(&mut b, out, v, Blend::Replace);
+        compile(&b.finish().unwrap(), Layout::BUNDLE, Options { fused_sample: true })
+    };
+    // 2.0 is constant register 65, read as it is: one multiply a lane, then the pack.
+    let two = program(2.0).expect("2.0");
+    assert_eq!(two.groups.len(), 5);
+    assert!(two.groups[..4].iter().all(|g| reads(g, special(65))));
+    // -0.5 is 0.5 (register 75) negated once into a temporary: one group more.
+    let neg = program(-0.5).expect("-0.5");
+    assert_eq!(neg.groups.len(), 6);
+    assert_eq!(
+        forms(&neg.groups[0]),
+        vec![format!("P0 fam {} sat=false neg=true abs=false flr=false", op::FADD)]
+    );
+    assert!(reads(&neg.groups[0], special(75)));
+}
+
+#[test]
+fn the_straight_alpha_epilog_compiles_its_vector_in_place() {
+    // The tinted layer blended straight: the result vector takes the colour's registers and moves
+    // only its alpha in behind them.
+    let p = compiled(&layer(true, Blend::OverStraight), true);
+    assert_eq!(p.pass_type, reference::PASS_TRANSLUCENT);
+    let moves = p
+        .groups
+        .iter()
+        .filter(|g| forms(g) == vec![format!("P0 sngl {}", sngl::BYP)] && !g.header.olchk)
+        .count();
+    assert_eq!(moves, 1, "one move: the alpha behind the colour");
 }

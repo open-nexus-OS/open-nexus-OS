@@ -647,3 +647,60 @@ patching no program of its own. The whole fragment half of a pass is now ours �
 setup — and a scene of blended quads drew 2.6 times faster for it. Carried: the client's supply
 over IPC (5c-3, with windowd's own context), the vertex pipeline (the captured vertex program and
 fetch remain), the blended layer against the stock's 3.1 ns.
+
+## 5c-2 P5a–P5c — the layer's corners, straight surfaces and the shadow on the board (board 2026-10-15)
+
+**Question.** A live frame needs the layer with opacity and rounded corners over a client's
+straight-alpha surface and the window's drop shadow (measured from windowd's scene, gpud's present
+and the virgl shaders, ledger 5c-2 P5). The backend grew the arithmetic for them — the
+single-source unit, min and max through the test and conditional move, the modifiers, the
+hardware's constant registers, vector construction — each form a golden from the open compiler's
+own code (`resources/gpu/programs/frag-ops.usc`), each variant's picture a golden of the
+interpreter against the virgl formula. Do the compiled programs draw those pictures on the board,
+and what does a pixel cost?
+
+**Instrument.** The pipeline gate as a probe table: the four layers on the 1024² quad limited to
+its area — opaque, premultiplied, straight at opacity 0.75, rounded with radius 64 (its interior
+and its corner pixel read) — and the drop shadow of a 512x384 window with radius 12 (blur 18,
+offset (0, 5), black at alpha 90/255), read under the window's centre and six pixels below its
+bottom edge on the vertical axis through it (where the formula needs no square root); each cost a
+pixel over its own quad.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H33 | The new arithmetic runs as encoded | `layer-straight`, `layer-rounded` and `shadow` read right (`samples=7/7`) |
+| H34 | An input sampled inside iterate-and-sample and iterated again for arithmetic is the same coordinate | the rounded corner pixel at the clear, the interior the texel; the shadow where the formula puts it |
+| H35 | A pixel's cost follows its executions | `layer-straight` ≈ 0.8 ns above `layer-premultiplied` |
+
+**Results — the board, cycle 17** (`cycle17-gpu-lines.txt`, `cycle17-board-test.txt`; `[PASS]
+board-visible`, 62 rungs, the operator's eight confirmations; per pixel = the pass less the same
+boot's 16² limited pass, 413 µs, over the probe's quad):
+
+| Pipeline | Groups | Pixels | Pass | Per pixel | Reads |
+|---|---|---|---|---|---|
+| `layer-opaque` | 3 | 1 048 576 | 1 774 µs | 1.29 ns | right |
+| `layer-premultiplied` | 11 | 1 048 576 | 4 649 µs | 4.03 ns | right |
+| `layer-straight` | 15 | 1 048 576 | 5 529 µs | **4.87 ns** | right |
+| `layer-rounded` | 34 | 1 048 576 | 9 702 µs | **8.85 ns** | right (interior, corner at the clear) |
+| `shadow` | 43 | 230 160 | 2 903 µs | **10.81 ns** | right (knocked out under the window, the shadow below) |
+
+`gpud: gpu library ok (bytes=2252 entries=5 refused=0 …)`; 5b's three quads in 4 970 µs as in
+cycle 16. gpud's heap after the rungs 120 177 bytes (cycle 16: 75 446): eleven passes where there
+were eight, each allocating its emitter's buffers, and the table decoding every program whole to
+count its groups at load — on a heap that never frees.
+
+- **H33 confirmed.** Every read right on the first cycle: the single-source unit, min and max,
+  the modifiers, the constant registers and the vector moves run as the compiler's own forms do.
+- **H34 confirmed.** The rounded layer leaves its corner pixel at the clear and draws its
+  interior; the shadow is knocked out under the window and shows below it at the formula's alpha.
+- **H35 confirmed.** The straight layer costs 0.84 ns a pixel more than the premultiplied one for
+  its four more executions; the rounded layer 8.85 ns, the shadow 10.81 ns.
+- The known board red `KSELFTEST: ipc call budget FAIL (rt=65us budget=64)` appeared in this boot
+  (cycle 16: `ok (rt=51us)`): the boot-time roundtrip's spread, handed to S3, allow-listed.
+
+**Verdict 5c-2 P5a–c.** The compositor's live operations but the blur run as our own programs on
+the board, pixel for pixel the QEMU path's pictures. The distance costs: a rounded layer is 8.85
+ns a pixel, so the frame (5c-3) draws only a layer's corner squares with it (576 pixels a window
+at radius 12) and the rest with the straight layer (4.87 ns); the shadow's 10.81 ns are paid on
+its ring outside the window only — the knocked-out inside is not drawn at all. Before 5c-3 the
+emitter must stop allocating per pass (gpud's heap never frees).
