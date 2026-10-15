@@ -1,0 +1,12 @@
+[package]
+name = "nxgpu"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "GPU program tool (host): WGSL lowered into the system's IR (ADR-0072)"
+publish = false
+
+[dependencies]
+naga = { version = "=28.0.0", default-features = false, features = ["wgsl-in"] }
+nexus-gfx = { path = "../../userspace/nexus-gfx" }

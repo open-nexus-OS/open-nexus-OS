@@ -87,6 +87,30 @@ Each context has a `Priority::{Realtime, High, Normal, Low}` (windowd realtime),
 
 The driver holds no built-in list of kernels or shaders. `Shader { target, entry, bytes }` is bytes the client supplies (built offline on the host now; a JIT later is a library above this driver), with a declared target the device checks against its own. `Capabilities { queue_kinds, max_contexts, max_batch_commands, va_bits, page_size, cache_modes, gpu_code_target }` is readable before the first context, and a client builds nothing it was not told the device can do.
 
+### §7b The pipeline library — how GPU code reaches the device (4c-2, ADR-0072)
+
+- **A pipeline** is what the device binds for a draw: its program (shader-core code), the setup
+  programs that kick it, the state words it fixes (the pass type, the output format) and its
+  interface (inputs, outputs, resources, constants). Programs are compiled offline from WGSL
+  through our IR by the code target's backend (ADR-0072); the device never compiles.
+- **The library** is one archive per code target: a header (magic, format version, code target,
+  entry count, total size) and entries (id, interface, program bytes, setup programs, state
+  words, feature bits, budget, digest). Every size and count is bounded and checked before a byte
+  is copied (`test_reject_library_truncated`, `test_reject_library_oversize_entry`,
+  `test_reject_library_unknown_version`); a library for another code target is refused whole
+  (`test_reject_library_wrong_target`); an entry whose digest does not match its bytes is refused
+  (`test_reject_library_digest_mismatch`), as is one whose feature bits the device lacks
+  (`test_reject_library_unsupported_feature`).
+- **The client supplies it** (a VMO) once per context. The device validates it, places the
+  programs in memory bound in the client's context (code is a buffer like any other, §3) and
+  answers with the ids it accepted; a draw names an accepted id
+  (`test_reject_draw_unknown_pipeline`). The device holds no program of its own and patches no
+  program byte; only the setup programs receive the per-draw addresses, as the open driver's do.
+- **A budget is part of an entry**: its instruction-group count. The host build fails above it;
+  a board rung measures the pipeline's ns a pixel against 4c's line (0.15 ns + 0.206 ns a group).
+- **The format keeps the horizon open**: its version and the feature bits leave room for
+  bindless resources, indirect work, subgroup and matrix operations, mesh and ray workloads.
+
 ### §8 The scanout contract — a ring of planes, flipped at the vertical blank
 
 Between the compositor and the display:

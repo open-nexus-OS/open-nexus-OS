@@ -353,7 +353,9 @@ Passing requires metric evidence, not marker-only evidence.
 - Timer profile tuning: final interval/deadline policy and fallback thresholds per display profile
 - Double-buffer cap handoff: does kernel support returning a cap to sender? → investigate
 - Reduced-motion config propagation: `set_reduced_motion(bool)` in Phase 0 is sufficient
-- Shader binary format: SPIR-V or custom IR? → defer to CAND-GFX-002
+- Shader binary format: SPIR-V or custom IR? → defer to CAND-GFX-002 → **resolved 2026-10-15 by
+  ADR-0072**: WGSL source, our own IR as the center (SPIR-V a later frontend), our backends per
+  code target, a pipeline library per GPU (RFC-0101 §7b)
 
 ## Implementation Checklist
 

@@ -1,0 +1,34 @@
+658:gpud: gpu glue ok (domains=1 clocks=1 resets=1 through socd)
+659:gpud: gpu core ok (bvnc=36.29.52.182 id=0x0024001d003400b6)
+662:gpud: gpu fw ok (boot_us=10581 health_us=85 irqs=1 fw_irqs=1 executed=1 rtn=0x0 stage=0 ts=74487 pow=0x3 hwr=0x1 version=1.1 build=6976702)
+663:gpud: gpu caps (va_bits=40 page=4096 clusters=1 queues=render+transfer compute=declared cache_block=64 backing_free=445 id=0x24001d003400b6)
+665:gpud: gpu mmu ok (map_us=59 unmap_us=63 pc=0x5c43000 map_flags=0x400001f unmap_flags=0x400001f table_pages=1)
+666:gpud: gpu fence ok (rt_us=82 worst_us=89 n=64 irqs=64 below the stock 640us)
+667:gpud: gpu fill ok (us=1850 px=1920x1080 ns_per_px=0.8 at or below the stock 1.8 bind_us=4590)
+669:gpud: gpu quad ok (us=1321 samples=4/4 shown row=2160)
+674:gpud: gpu render ok (us=6005 samples=4/4 irqs=3 geom=1 frag=2 bind_us=8514 shown row=3240)
+675:gpud: gpu quads probe one ok (n=1 us=5954 irqs=3)
+676:gpud: gpu quads probe one-again ok (n=1 us=5944 irqs=4)
+677:gpud: gpu quads probe two ok (n=2 us=9441 irqs=4)
+678:gpud: gpu quads probe three ok (n=3 us=12954 irqs=4)
+679:gpud: gpu quads probe two-shared ok (n=2 us=9441 irqs=4)
+680:gpud: gpu quads ok (n=3 us=12954 samples=3/3 irqs=4 shown row=2160)
+681:gpud: gpu area ok (us=417 full_us=2547 geom_us=216 frag_us=200 inside=ok near=kept far=kept)
+682:gpud: gpu cost (program=base groups=68 pass=punch-through size=1024 us=15250 geom_us=261 frag_us=14988 irqs=4 sample=ok)
+683:gpud: gpu cost (program=opaque-eft groups=55 pass=translucent size=1024 us=11821 geom_us=267 frag_us=11553 irqs=4 sample=ok)
+684:gpud: gpu cost (program=opaque-ditr-x3 groups=5 pass=opaque size=1024 us=1916 geom_us=339 frag_us=1577 irqs=4 sample=ok)
+685:gpud: gpu cost (program=opaque-ditr groups=5 pass=opaque size=1024 us=1826 geom_us=260 frag_us=1566 irqs=4 sample=ok)
+686:gpud: gpu cost (program=tinted groups=6 pass=opaque size=1024 us=2479 geom_us=261 frag_us=2218 irqs=4 sample=ok)
+687:gpud: gpu cost (program=premultiplied groups=13 pass=translucent size=1024 us=5124 geom_us=265 frag_us=4859 irqs=4 sample=ok)
+688:gpud: gpu cost (program=opaque-itrsmp groups=3 pass=opaque size=1024 us=1782 geom_us=262 frag_us=1520 irqs=4 sample=ok)
+689:gpud: gpu cost (program=opaque-itrsmp-count groups=3 pass=opaque size=1024 us=1751 geom_us=266 frag_us=1485 irqs=4 sample=ok)
+690:gpud: gpu heap (used=110698 of=393216)
+1513:windowd: session shell visible (product=default)
+2407:board-visual: splash
+2408:board-visual: desktop
+2409:board-visual: pointer
+2410:board-visual: typed
+2411:board-visual: tile
+2412:board-visual: clipboard
+2413:board-visual: screenshot
+2414:board-visual: modal

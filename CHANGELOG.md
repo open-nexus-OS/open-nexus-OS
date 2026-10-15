@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-15 (Block 4, layer 5c-2: our own GPU programs — TASK-0215, ADR-0072, RFC-0101 §7b)
+
+- **The GPU program architecture (ADR-0072)**: programs are written in WGSL, lowered into our own
+  IR (the center every frontend feeds and every backend compiles from) and compiled by our
+  backends per code target into a pipeline library the client supplies and gpud validates
+  (RFC-0101 §7b, the library's contract and rejects); RFC-0059's open question closed.
+- **The board GPU's instruction encoding** (`nexus_gfx::shader::rogue`): the shader core's
+  instruction groups — header, phases, the source, select and destination parts in all their
+  forms, the main-ALU, backend, bitwise and control words of the compositor's subset — and the
+  setup programs (PDS) with their constants. The four captured fragment programs re-encode byte
+  for byte at the open compiler's group offsets; the render bundle's five setup programs word for
+  word. `examples/rogue_dump.rs` prints a program's groups.
+- **Our IR** (`nexus_gfx::shader::ir`): a declared interface, SSA ops, the validator, the
+  epilogs (blending is program code on this GPU: replace, straight-alpha over, premultiplied
+  over) and the reference interpreter; the textured layer equals the CPU rasterizer's formulas.
+- **The WGSL frontend** (`tools/nxgpu`, host only): naga 28 parses and validates, the lowering
+  builds our IR; `resources/gpu/shaders/layer.wgsl` is the compositor's first source. naga's WGSL
+  parser brings `hexf-parse` (CC0-1.0): a per-crate exception in `config/deny.toml`, nothing of it
+  in the OS graph.
+- **The assembler and the reference programs** (`rogue::{asm, reference}`): groups built with the
+  compiler's form choice (eleven of its groups rebuilt byte for byte), five hand-assembled
+  textured-layer programs gpud assembles and measures on the board (cycle 14, every sample
+  right): **the opaque layer at 1.3 ns a pixel** (three groups through iterate-and-sample — a word
+  no capture ever used) against the stock stack's 1.8 ns and the compiler's 10.9 ns; three opaque
+  layers on each other cost one (the opaque pass type: hidden pixels dropped before shading);
+  **the premultiplied blend at 4.5 ns** against the compiler's 14.2 ns.
+
 ### Added - 2026-10-14 (Block 4, layer 5c-1: the cost of a pass — TASK-0215, RFC-0101 Phase 4c)
 
 - **What a pass costs, taken apart on the board** (`docs/board/measurements/2026-10-13-gpu-render-queue/`,

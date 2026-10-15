@@ -79,6 +79,15 @@ pub(super) fn opaque_bgr(tint: [f32; 4]) -> [u8; 3] {
     [c(2), c(1), c(0)]
 }
 
+/// The expected memory bytes (B, G, R) at a sample of a premultiplied-over program: the
+/// texel × tint as a premultiplied source over the clear, `src + dst·(1 − a)`.
+pub(super) fn premultiplied_bgr(tint: [f32; 4]) -> [u8; 3] {
+    let a = SAMPLE_TEXEL[3] / 255.0 * tint[3];
+    let src = |i: usize| SAMPLE_TEXEL[i] * tint[i];
+    let mix = |s: f32, d: f32| (s + d * (1.0 - a) + 0.5) as u8;
+    [mix(src(2), CLEAR_BGR[0]), mix(src(1), CLEAR_BGR[1]), mix(src(0), CLEAR_BGR[2])]
+}
+
 /// Copies `bytes` into the bound buffer at `va + at` and cleans it (CPU → device).
 pub(super) fn write_bound(
     dev: &mut Device,

@@ -473,3 +473,70 @@ ok (us=410 full_us=2538 … near=kept far=kept)`; `base` 15 244 µs, `chain` 25 
 `opaque-eft` 11 825; `gpu heap (used=87418 of=393216)`. A boot in between (the third cycle's
 first) ended with the operator re-plugging the mouse's receiver: `xhcid: hid interface lost`
 there is the unplug (transaction error, then the receiver enumerated again), not the driver.
+
+## 5c-2 — our own programs on the board (TASK-0215 5c-2 P3b; host and board 2026-10-15)
+
+**Question.** Our encoder (`nexus_gfx::shader::rogue`, every encoding a golden against the open
+compiler's) can write the textured layer the short way: does the hardware run it, and does a
+pixel then cost what its groups say?
+
+**Instrument.** The cost rung's program probes, a 1024² quad limited to its area each: the
+compiler's `base` and `opaque-eft` as controls, then the reference programs gpud assembles at
+run time (`nexus_gfx::shader::rogue::reference`) — each written into the code arena's tail,
+named by a kick word carrying its own temporaries, its pass type set in the draw's state block,
+its sample checked: `opaque-ditr` (iterate, fence, sample, fence, pack into the pixel output —
+5 groups, pass type opaque), `opaque-ditr-x3` (the same quad three times on itself), `tinted`
+(+ one multiply repeated over four channels, the tint (1, 0.5, 0.25, 1)), `premultiplied` (the
+tile read, unpacked, `src + dst·(1 − a)` with the tint 0.5 — 13 groups, translucent),
+`opaque-itrsmp` and `opaque-itrsmp-count` (iterate-and-sample in one word, six- and seven-byte
+forms — 3 groups). The setup programs are the bundle's: W at cf0, uv at cf4, texture state at
+sh4, sampler state at sh12, tint at sh24.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H21 | A textured layer costs its few groups: 0.15 ns + 0.206 ns a group, a pixel | `opaque-ditr` near 1.2 ns, `opaque-itrsmp` near 0.8 ns a pixel, samples right |
+| H22 | The premultiplied blend runs from the tile read and costs its groups | `premultiplied`'s sample right; its cost on the line |
+| H23 | The opaque pass type lets the tile hardware drop hidden opaque pixels before shading | `opaque-ditr-x3` about `opaque-ditr`'s cost, not three times its fragment work |
+| H24 | A 2D sample reads only its two coordinates (the compiler's fourteen zeroing moves are not needed) | `opaque-ditr`'s sample right |
+| H25 | A repeated multiply steps every register operand, the shared one included | `tinted`'s sample reads (40, 45, 50) |
+| H26 | A pack may write the pixel output directly and end the program | every reference's sample right |
+| H27 | Iterate-and-sample addresses its state as iterate and sample do (offsets in fours) | `opaque-itrsmp`'s or `-count`'s sample right; a lost pass names the form |
+
+**Results — the board, cycle 14** (`cycle14-gpu-lines.txt`, `cycle14-board-test.txt`; one 1024²
+pass each, limited to its area; per pixel = the pass less the same boot's 16² limited pass,
+417 µs, over 1 048 576 pixels; every sample right; `[PASS] board-visible`, the operator's eight
+confirmations, the desktop after the rungs):
+
+| Program | Groups | Pass type | Pass | Per pixel | Sample |
+|---|---|---|---|---|---|
+| `base` (compiler, control) | 68 | punch-through | 15 250 µs | 14.15 ns | right |
+| `opaque-eft` (compiler, control) | 55 | translucent | 11 821 µs | 10.88 ns | right |
+| `opaque-ditr` | 5 | opaque | 1 826 µs | **1.34 ns** | right |
+| `opaque-ditr-x3` (three on each other) | 5 | opaque | 1 916 µs | 1.43 ns | right |
+| `tinted` | 6 | opaque | 2 479 µs | 1.97 ns | right (40, 45, 50) |
+| `premultiplied` | 13 | translucent | 5 124 µs | **4.49 ns** | right |
+| `opaque-itrsmp` | 3 | opaque | 1 782 µs | **1.30 ns** | right |
+| `opaque-itrsmp-count` | 3 | opaque | 1 751 µs | 1.27 ns | right |
+
+- **H21 confirmed.** Our opaque textured layer costs 1.3 ns a pixel — below the stock stack's
+  opaque fill (1.8 ns) and an eighth of the compiler's opaque program. A repeated group costs
+  its repetitions: `tinted`'s one extra group (a multiply over four channels) adds 0.63 ns, four
+  executions on the 5c-1 line; `premultiplied` is 22 executions, 4.5 ns.
+- **H22 confirmed.** The premultiplied blend from the tile read draws right at 4.5 ns a pixel —
+  a third of the compiler's blended program (14.2 ns); its unpack, multiply-adds and pack are
+  where the next groups are.
+- **H23 confirmed.** Three opaque layers on each other cost one: 1 577 µs of fragment work
+  against 1 566 µs; only the geometry grows (339 µs against 260). With the opaque pass type the
+  tile hardware drops hidden pixels before shading — the compiler's programs, all translucent
+  or punch-through, never get this.
+- **H24 confirmed.** The 2D sample needs only its two coordinates: the compiler's fourteen
+  zeroing moves are not needed.
+- **H25 confirmed.** A repeated multiply steps every register operand, the shared one included.
+- **H26 confirmed.** A pack writes the pixel output directly and ends the program.
+- **H27 confirmed.** Iterate-and-sample works in both forms with offsets in fours — the first
+  use of this word by any program we know of; three groups for a textured layer.
+
+**Verdict 5c-2 P3b.** The hardware runs our encoder's programs as written, and a pixel costs
+what the program asks: the textured layer at 1.3 ns opaque (free under further opaque layers)
+and 4.5 ns blended. The compositor's pipelines are now a question of program length, which is
+ours. P3c makes the backend emit these programs from the IR, the reference programs its goldens.

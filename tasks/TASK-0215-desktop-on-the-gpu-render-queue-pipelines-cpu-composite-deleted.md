@@ -217,7 +217,7 @@ pipelines on it.
 | Package | Content | Gate |
 |---|---|---|
 | 5c-1 | **The cost of a pass**: measured factor by factor on the board (the GPU-cache policy per buffer as the open driver sets it, pixel merging, the render area limited to the damage with the back end's clip and no background on empty tiles), then the policy that wins made the device's default and the contract's (RFC-0101 §3/§8d) | decided by the cycle: the per-pixel cost of a blended quad near the stock's, a pass's fixed cost limited to its damage tiles |
-| 5c-2 | **The pipelines**: the compositor's ops written as shaders and captured through the open driver per pipeline — the textured layer with opacity and rounded corners, the SDF fill and gradient, the drop shadow, the blur's two passes at quarter size — a pipeline library on the device, the emitter generalised from 5b (constants and textures per draw) | each pipeline's picture on the board, sampled against its host formula |
+| 5c-2 | **The pipelines** (ADR-0072): the compositor's ops written in WGSL and compiled through our IR by our backends into the pipeline library (RFC-0101 §7b) — the textured layer with opacity and rounded corners, the SDF fill and gradient, the drop shadow, the blur's two passes at quarter size, glyphs; the emitter generalised from 5b (constants and textures per draw); the QEMU path on the same library | each pipeline's picture on the board against its host formula, each within its instruction-group budget |
 | 5c-3 | **The frame**: windowd's command list as GPU draw lists in gpud's display backend, damage-driven (buffer age, the render area), the blur cached at quarter size, the transient buffers recycled by the timeline | `gpud: gpu desktop ok (frame_us=)` |
 | 5c-4 | **The gate scene** and the desktop seen | our frame of the gate scene below the stock 23.3 ms; `board-visual: gpu-desktop` |
 
@@ -279,6 +279,94 @@ pipelines on it.
 | H17 | The ISP feedback (punch-through) costs per pixel beyond its one group | `eft` (67, translucent) clearly below `base` (68) |
 | H18 | A pass limited to its area writes nothing outside its rectangle | `gpud: gpu area ok (` — both sentinels kept |
 | H19 | The rungs leave gpud's heap room for the desktop | `gpud: gpu heap` well below `of`; the desktop presents |
+
+### 5c-2 — the pipelines (in progress since 2026-10-15; ADR-0072, RFC-0101 §7b)
+
+5c-1 priced a pixel at 0.15 ns + 0.206 ns per instruction group; the open compiler spends 55–68
+groups on a textured quad, the stock's fill about eight. So the programs are ours: WGSL, lowered
+by naga (host only) into our IR, compiled by our backend for this core (ADR-0072).
+
+| # | Package | Gate |
+|---|---|---|
+| P0 | ADR-0072, RFC-0101 §7b (the library's contract and its rejects), RFC-0059's open question closed, this plan | the ADR accepted (operator, 2026-10-15) ✅ |
+| P1 | `nexus_gfx::shader::rogue` — the shader core's instruction-group encoding and its disassembler for the compositor's subset, from the open compiler's published instruction description; the setup-program (PDS) encoding | the four captured programs (`resources/gpu/programs`) disassemble and re-encode byte for byte; every encoding a golden |
+| P2 | `nexus_gfx::shader::ir` and its interpreter (the reference); the WGSL frontend as a host build tool (naga 28) lowering into it | the compositor's first WGSL programs lowered; the interpreter's pixels equal the CPU rasterizer's |
+| P3 | the `rogue` backend: instruction selection, registers, group packing, the epilog parts; the first pipeline — the textured layer, opaque and blended | groups within budget on the host; on the board the picture right and ns a pixel on 5c-1's line; `gpud: gpu pipeline ok (` |
+| P4 | the pipeline library: format, build step, windowd supplies it, gpud validates and binds (`test_reject_library_*`) | the rejects green; the rungs draw with library pipelines, the captured programs retire to measurement |
+| P5 | the remaining ops: rounded-rect SDF, gradient, shadow, the blur's passes, glyphs | each picture against its host formula, each budget |
+| P6 | the `tgsi` backend; the QEMU path on the library; the hand-written shader text retired | the QEMU lanes green on library programs |
+
+- **P1a ✅ 2026-10-15** (`nexus_gfx::shader::rogue`, `tests/rogue_isa.rs`): the shader core's
+  instruction-group encoding — header (main brief and full, bitwise, control), the source parts'
+  eight forms, the select byte, the destinations' five forms, the main ALU's, backend's, bitwise
+  and control words of the compositor's subset (iterate-and-sample among them), the group order,
+  length, decode assist and padding. The four captured programs decode into groups at the open
+  compiler's offsets and re-encode byte for byte on the first run (**H20 confirmed**); writes
+  refuse a value wider than its field. Found on the way: one control word iterates the varyings
+  and samples the texture at once — the open compiler spends an iterate, fourteen moves, a sample
+  and a fence on what it does (H21's lever).
+- **P1b ✅ 2026-10-15** (`nexus_gfx::shader::rogue::pds`, `tests/rogue_pds.rs`): the setup
+  programs' encoding — `dout` (kick, iterate, DMA), `ddmad`, the adds, `halt`, and the constants
+  they read (the kick's program offset and temporaries, an iteration's issue fields and
+  coefficient destination, a DMA's source and control). The draw's five programs in the render
+  bundle decode and re-encode word for word, and their constants carry what the shader program
+  reads: the kick names offset 0x7b80 with five units of temporaries; the iteration fills cf0–3
+  (W) and cf4–11 (uv, perspective-correct, last issue); the state load DMAs the texture state and
+  the tint into sh24–27; the vertex fetch DMAs position and uv by stride times index. A program
+  is its data segment, then its code at the next 16 bytes (the open driver's fragment kick
+  carries eight data dwords, its code at +0x20 — the size information the draw state names must
+  match what we generate). **P1 complete.**
+
+- **P2a ✅ 2026-10-15** (`nexus_gfx::shader::ir`, `tests/shader_ir.rs`): our IR — types (f32,
+  f16, i32, u32, bool; one to four lanes), a declared interface (inputs with interpolation,
+  outputs, textures and samplers, the push-constant block), SSA ops including the tile read the
+  epilogs use; the validator (operands before use, types per op, loads inside the interface, an
+  output written once, bounds); the builder with three epilogs (replace, straight-alpha over with
+  the source's alpha as the captured pipeline, premultiplied over); the reference interpreter
+  (16-bit floats rounded to nearest even). The textured layer under each epilog equals the CPU
+  rasterizer's formulas over the bundle's checker; `examples/rogue_dump.rs` prints a program's
+  decoded groups.
+- **P2b ✅ 2026-10-15** (`tools/nxgpu`, `tests/lower.rs`; `resources/gpu/shaders/layer.wgsl`): the
+  WGSL frontend — naga 28 parses and validates (immediates are `var<immediate>` in its
+  dialect), the lowering builds our IR (location inputs, immediates, 2D textures and samplers,
+  arithmetic with scalar-vector widening, comparisons, select, conversions, the common math
+  functions, constructors, swizzles, component access) and links the pipeline's epilog. The
+  layer's source lowers to the interface the pipeline binds and runs to the CPU rasterizer's
+  pixels under each blend; control flow, discard, stores, calls and built-ins are refused by
+  name. Licence (operator, 2026-10-15: "if we may use it, we do"): naga's WGSL parser needs
+  `hexf-parse` (CC0-1.0, a public-domain dedication asking nothing of us) — a per-crate exception
+  in `config/deny.toml` with its reason; naga's rustc-hash 1.1 a duplicate skip; `cargo deny`
+  green, `just dep-gate` green (nothing of it in the OS graph). **P2 complete.**
+
+- **P3a ✅ 2026-10-15** (`nexus_gfx::shader::rogue::asm`, `tests/rogue_asm.rs`): the group
+  assembler — instructions by phase, six sources, the selects, the write ports; the phase
+  organisation, the repeat and the smallest source and destination forms picked by the open
+  compiler's rule. Its helpers rebuild eleven groups of the base program byte for byte (iterate,
+  fence, sample, multiply, saturating and negated adds, fused multiply-add, tile read, unpack,
+  pack, output). Learned: the second source's bank field has two bits, so a shared register (bank
+  4) can only be the first source — the compiler's four tint copies are avoidable.
+- **P3b ✅ 2026-10-15** (`nexus_gfx::shader::rogue::reference`, `tests/rogue_reference.rs`; the cost
+  rung; board cycle 14, `cycle14-gpu-lines.txt`): five hand-assembled reference programs, the
+  program end aligned as the hardware fetches it, assembled by gpud at run time and measured
+  beside two compiler controls — every sample right on the first cycle. The opaque textured
+  layer costs **1.3 ns a pixel** (3 groups through iterate-and-sample, 5 through iterate and
+  sample) against the stock's 1.8 ns and the compiler's 10.9 ns; three opaque layers on each other
+  cost one (the opaque pass type: hidden pixels dropped before shading); the premultiplied blend
+  through the tile read **4.5 ns** against the compiler's 14.2 ns. H21–H27 confirmed;
+  `[PASS] board-visible`, 60 rungs, the operator's eight confirmations.
+- **P3c ⬜**: the backend — the IR's textured layer compiled into these programs (the references
+  are its goldens), the setup programs and state words generated, the pipeline's gate.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H20 | The instruction-group encoding as the open compiler's description states it reproduces the four captured programs | P1's round trip, byte for byte |
+| H21 | A textured opaque layer fits in about eight groups once the program is opaque to the tile hardware (no feedback, no tile read-back, no coordinate zeroing) | the host count; on the board ns a pixel ≈ 0.15 + 0.206 × groups |
+| H22 | Source-over blending fits in an epilog of a few groups in 16-bit arithmetic (the stock's further blended layer ≈ 4 groups) | the host count; the board |
+| H23 | The opaque pass type lets the tile hardware drop hidden opaque pixels before shading | three stacked opaque layers cost one on the board |
+| H24 | A 2D sample reads only its two coordinates | `opaque-ditr`'s sample right without the zeroing moves |
+| H25 | A repeated multiply steps every register operand | `tinted`'s sample reads (40, 45, 50) |
+| H26 | A pack may write the pixel output directly and end the program | every reference's sample right |
+| H27 | Iterate-and-sample addresses its state as iterate and sample do | an `opaque-itrsmp` sample right |
 
 ## Hypotheses 5a's first cycle decides
 

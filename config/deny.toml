@@ -10,6 +10,15 @@ allow = [
     "Unicode-3.0",
     "Zlib",
 ]
+# Per-crate exceptions, each with its reason; the allow list above stays as it is.
+exceptions = [
+    # The WGSL parser of naga (tools/nxgpu, host build tool only — ADR-0072, TASK-0215 5c-2)
+    # reads hexadecimal float literals with hexf-parse. CC0-1.0 is a public-domain dedication
+    # with a permissive fallback licence: it asks nothing of us. It grants no patent licence,
+    # which for a float-literal parser in a host tool carries no practical weight; nothing of
+    # it reaches the OS image (`just dep-gate` guards the OS graph).
+    { allow = ["CC0-1.0"], crate = "hexf-parse" },
+]
 
 [advisories]
 # Host/bring-up note: we keep cargo-deny strict in CI, but we temporarily ignore
@@ -72,4 +81,7 @@ skip = [
     { name = "cpufeatures", version = "0.3.1" },
     { name = "r-efi", version = "5.3.0" },
     { name = "r-efi", version = "6.0.0" },
+    # naga 28 (tools/nxgpu, host build tool only, ADR-0072) still uses rustc-hash 1.1 while the
+    # rest of the graph is on 2.x; goes when the pinned toolchain admits a naga on rustc-hash 2.
+    { name = "rustc-hash", version = "1.1.0" },
 ]

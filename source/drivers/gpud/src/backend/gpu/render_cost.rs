@@ -12,10 +12,12 @@
 //!   background on empty tiles — draws the quad and leaves every pixel outside the area as it
 //!   was: a sentinel in the quad's own tile, one far away, both kept, and the pass cheaper than
 //!   the same pass over the whole plane (`gpud: gpu area ok (`);
-//! - the second cycle's probes: one fragment program of `resources/gpu/programs` per pass, a
-//!   1024² quad limited to its area — the open compiler's base program, the same with 48 more
-//!   ALU groups, without its ISP feedback (early fragment tests), opaque — each a line with the
-//!   program's instruction groups: what a pixel costs as a function of the program.
+//! - the program probes, a 1024² quad limited to its area each: two of the open compiler's
+//!   programs as controls (`base`, 68 groups punch-through; `opaque-eft`, 55 translucent), then
+//!   the reference programs our encoder assembles (`nexus_gfx::shader::rogue::reference`, 5c-2
+//!   P3b): the opaque layer through iterate and sample (5 groups), tinted with one repeated
+//!   multiply (6), blended premultiplied through the tile read (13), and through
+//!   iterate-and-sample in one word (3, two forms) — each a line with its groups and its sample.
 //!
 //! Each pass lands in fresh lines of the rung's halves of the bundle's buffers' tails — no
 //! buffer of its own: four of them filled gpud's 64 address-space regions and the display's
@@ -33,12 +35,13 @@ use nexus_gfx::backend::v2::{
     Batch, ClientId, ContextId, GfxDevice, QueueKind, RenderStreams, RenderTarget, Stream,
     TimelinePoint,
 };
+use nexus_gfx::shader::rogue::reference;
 
 use super::device_v2::Device;
 use super::emit;
 use super::render_template::{
-    expected_bgr, opaque_bgr, pds_at, render_streams, write_bound, Captured, COST_TAILS,
-    GENERAL_ARENA, PDS_ARENA, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
+    expected_bgr, opaque_bgr, pds_at, premultiplied_bgr, render_streams, write_bound, Captured,
+    COST_TAILS, GENERAL_ARENA, PDS_ARENA, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
 
@@ -68,56 +71,47 @@ const FAR: (usize, usize) = (8, 8);
 const SENTINEL: [u8; 4] = [0x3c, 0xa5, 0x5a, 0xff];
 const WHITE: [f32; 4] = [1.0; 4];
 
-/// What a program's sample must read.
-#[derive(Clone, Copy)]
-enum Expect {
-    /// Texel × tint over the clear, source-over.
-    Blended,
-    /// Every channel saturated: the chain's twelve `c * tint + tint` with a white tint.
-    Saturated,
-    /// Texel × tint, no blending.
-    Opaque,
-}
-
-/// A fragment program of `resources/gpu/programs`.
-struct Program {
+/// A captured program kept as the second cycle's control (`resources/gpu/programs`).
+struct Control {
     name: &'static str,
     code: &'static [u8],
-    groups: u32,
+    groups: usize,
     pass_type: u32,
-    expect: Expect,
+    opaque: bool,
 }
 
-const PROGRAMS: [Program; 4] = [
-    Program {
+const CONTROLS: [Control; 2] = [
+    Control {
         name: "base",
         code: include_bytes!("../../../../../../resources/gpu/programs/frag-base.usc"),
         groups: 68,
         pass_type: PUNCH_THROUGH,
-        expect: Expect::Blended,
+        opaque: false,
     },
-    Program {
-        name: "chain",
-        code: include_bytes!("../../../../../../resources/gpu/programs/frag-chain.usc"),
-        groups: 116,
-        pass_type: PUNCH_THROUGH,
-        expect: Expect::Saturated,
-    },
-    Program {
-        name: "eft",
-        code: include_bytes!("../../../../../../resources/gpu/programs/frag-eft.usc"),
-        groups: 67,
-        pass_type: TRANSLUCENT,
-        expect: Expect::Blended,
-    },
-    Program {
+    Control {
         name: "opaque-eft",
         code: include_bytes!("../../../../../../resources/gpu/programs/frag-opaque-eft.usc"),
         groups: 55,
         pass_type: TRANSLUCENT,
-        expect: Expect::Opaque,
+        opaque: true,
     },
 ];
+
+/// The bundle's kick allocates five units of four temporaries.
+const CAPTURED_TEMPS: u8 = 5;
+
+/// One probe: a program, what its kick and draw state say, its tint and its sample.
+struct Probe<'a> {
+    name: &'a str,
+    code: &'a [u8],
+    groups: usize,
+    pass_type: u32,
+    temps: u8,
+    tint: [f32; 4],
+    want: [u8; 3],
+    /// Quads drawn on top of each other (three asks whether hidden opaque pixels are shaded).
+    stack: usize,
+}
 
 /// One pass's times from the kick: the whole, the geometry stage, the fragment stage.
 struct Pass {
@@ -226,17 +220,17 @@ struct Rig<'a> {
     target_va: u64,
 }
 
-/// One pass of one quad: emit, write, kick, stamp the stages.
+/// One pass of `qs` (the first names the area): emit, write, kick, stamp the stages.
 fn run(
     dev: &mut Device,
     rig: &Rig<'_>,
     t: &Template<'_>,
     place: &mut Bump,
-    q: &Quad,
+    qs: &[Quad],
     area: bool,
 ) -> Result<Pass, alloc::string::String> {
-    let emitted = quads::emit(t, core::slice::from_ref(q), place, false)
-        .map_err(|e| alloc::format!("emit {e:?}"))?;
+    let q = qs.first().ok_or("no quad")?;
+    let emitted = quads::emit(t, qs, place, false).map_err(|e| alloc::format!("emit {e:?}"))?;
     let (client, ctx) = (rig.client, rig.ctx);
     write_bound(dev, client, VERTEX_BUFFER, emitted.vertex_offset, &emitted.vertices)?;
     write_bound(dev, client, STREAM_BUFFER, emitted.stream_offset, &emitted.stream)?;
@@ -305,11 +299,11 @@ fn gate(
     place: &mut Bump,
 ) -> Result<(), alloc::string::String> {
     let q = quad(16);
-    let full = run(dev, rig, t, place, &q, false).map_err(|e| alloc::format!("full pass {e}"))?;
+    let full = run(dev, rig, t, place, &[q], false).map_err(|e| alloc::format!("full pass {e}"))?;
     if !poke(display, canvas, NEAR) || !poke(display, canvas, FAR) {
         return Err(alloc::string::String::from("no cpu view of the plane"));
     }
-    let area = run(dev, rig, t, place, &q, true).map_err(|e| alloc::format!("area pass {e}"))?;
+    let area = run(dev, rig, t, place, &[q], true).map_err(|e| alloc::format!("area pass {e}"))?;
     let inside = sample(display, canvas, &q, expected_bgr(WHITE));
     let kept = |px: Option<[u8; 4]>| if px == Some(SENTINEL) { "kept" } else { "overwritten" };
     let (near, far) = (kept(peek(display, canvas, NEAR)), kept(peek(display, canvas, FAR)));
@@ -354,34 +348,84 @@ fn programs(
     if isp & PASS_TYPE != PUNCH_THROUGH {
         return emit("gpud: gpu cost (programs: the bundle's pass type is not the captured one)");
     }
-    let q = quad(1024);
-    for (i, p) in PROGRAMS.iter().enumerate() {
+    // The references, assembled here by our encoder (`nexus_gfx::shader::rogue::reference`).
+    let refs = match reference::all() {
+        Ok(r) => r,
+        Err(e) => return emit(&alloc::format!("gpud: gpu cost (references: {e:?})")),
+    };
+    let mut codes = alloc::vec::Vec::with_capacity(refs.len());
+    for r in &refs {
+        match r.encode() {
+            Ok(c) => codes.push(c),
+            Err(e) => return emit(&alloc::format!("gpud: gpu cost (reference={} {e:?})", r.name)),
+        }
+    }
+    let mut probes = alloc::vec::Vec::new();
+    for c in &CONTROLS {
+        let want = if c.opaque { opaque_bgr(WHITE) } else { expected_bgr(WHITE) };
+        probes.push(Probe {
+            name: c.name,
+            code: c.code,
+            groups: c.groups,
+            pass_type: c.pass_type,
+            temps: CAPTURED_TEMPS,
+            tint: WHITE,
+            want,
+            stack: 1,
+        });
+    }
+    for (r, code) in refs.iter().zip(&codes) {
+        let (tint, want) = match r.name {
+            "tinted" => ([1.0, 0.5, 0.25, 1.0], opaque_bgr([1.0, 0.5, 0.25, 1.0])),
+            "premultiplied" => ([0.5; 4], premultiplied_bgr([0.5; 4])),
+            _ => (WHITE, opaque_bgr(WHITE)),
+        };
+        let probe = Probe {
+            name: r.name,
+            code,
+            groups: r.groups.len(),
+            pass_type: u32::from(r.pass_type) << 24,
+            temps: r.temps,
+            tint,
+            want,
+            stack: 1,
+        };
+        // H23: the opaque layer three times over itself — one layer's cost if the tile hardware
+        // drops the hidden pixels before shading.
+        if r.name == "opaque-ditr" {
+            probes.push(Probe { name: "opaque-ditr-x3", stack: 3, ..probe });
+            probes.push(Probe { name: r.name, code, ..probe });
+        } else {
+            probes.push(probe);
+        }
+    }
+    for (i, p) in probes.iter().enumerate() {
         let at = CODE_TAIL + i as u32 * 0x1000;
         if let Err(e) = write_bound(dev, rig.client, CODE_ARENA, at, p.code) {
             return emit(&alloc::format!("gpud: gpu cost (program={} write {e})", p.name));
         }
         let offset = (CODE_ARENA + u64::from(at) - CODE_HEAP_BASE) & KICK_OFFSET;
         let mut shader = alloc::vec::Vec::from(captured.shader_program());
-        shader[..8].copy_from_slice(&((KICK_CAPTURED & !KICK_OFFSET) | offset).to_le_bytes());
+        shader[..8].copy_from_slice(&((u64::from(p.temps) << 35) | offset).to_le_bytes());
         let mut ppp = alloc::vec::Vec::from(captured.ppp26());
         ppp[ISP_WORD..ISP_WORD + 4]
             .copy_from_slice(&((isp & !PASS_TYPE) | p.pass_type).to_le_bytes());
         let tp = Template { shader_program: &shader, ppp26: &ppp, ..*t };
-        let pass = match run(dev, rig, &tp, place, &q, true) {
+        let q = Quad { tint: p.tint, ..quad(1024) };
+        let pass = match run(dev, rig, &tp, place, &[q; 3][..p.stack], true) {
             Ok(pass) => pass,
             Err(e) => return emit(&alloc::format!("gpud: gpu cost (program={} {e})", p.name)),
         };
-        let want = match p.expect {
-            Expect::Blended => expected_bgr(WHITE),
-            Expect::Saturated => [255; 3],
-            Expect::Opaque => opaque_bgr(WHITE),
+        let reading = sample(display, canvas, &q, p.want);
+        let pass_name = match p.pass_type {
+            PUNCH_THROUGH => "punch-through",
+            TRANSLUCENT => "translucent",
+            _ => "opaque",
         };
-        let reading = sample(display, canvas, &q, want);
         emit(&alloc::format!(
-            "gpud: gpu cost (program={} groups={} pass={} size=1024 us={} geom_us={} frag_us={} irqs={} sample={})",
+            "gpud: gpu cost (program={} groups={} pass={pass_name} size=1024 us={} geom_us={} frag_us={} irqs={} sample={})",
             p.name,
             p.groups,
-            if p.pass_type == PUNCH_THROUGH { "punch-through" } else { "translucent" },
             pass.us,
             pass.geom_us,
             pass.frag_us,
