@@ -9,7 +9,9 @@
 //! draw with its pipelines by id; gpud holds no program of its own, and patches none. The places
 //! are written once and never again: the code arena's free tail, the head of the PDS arena's
 //! free lines (`render_template::LIBRARY_*`) — no buffer of its own (gpud's address space holds
-//! 64 regions). The client's supply over IPC arrives with windowd's own context (5c-3).
+//! 64 regions). The table keeps each pipeline's placement and setup and nothing else of gpud's
+//! heap (`table_bytes=`): the programs' groups are counted as they are decoded. The client's
+//! supply over IPC arrives with windowd's own context (5c-3).
 
 use nexus_gfx::backend::gpu::pipelines::{Heaps, Loaded};
 use nexus_gfx::backend::v2::{ClientId, GfxDevice};
@@ -66,17 +68,21 @@ pub(crate) fn rung(dev: &mut Device) {
     let client = ClientId(nexus_abi::service_id_from_name(b"gpud"));
     let target = dev.capabilities().gpu_code_target.0;
     let mut table = core::mem::take(&mut dev.pipelines);
+    // What the table keeps of gpud's heap, which never frees: each pipeline's placement and
+    // setup, no program decoded into memory.
+    let heap_before = nexus_service_entry::os::heap_cursor().1;
     let loaded = {
         let mut heaps = Bound { dev, client, code: LIBRARY_CODE.0, pds: LIBRARY_PDS.0 };
         table.load(LIBRARY, target, FEATURES, &mut heaps)
     };
+    let table_bytes = nexus_service_entry::os::heap_cursor().1.saturating_sub(heap_before);
     dev.pipelines = table;
     match loaded {
         Ok(Loaded { accepted, refused, code_bytes, setup_bytes }) if refused.is_empty() => {
             let ids =
                 accepted.iter().map(|id| alloc::format!("{id}")).collect::<alloc::vec::Vec<_>>();
             emit(&alloc::format!(
-                "gpud: gpu library ok (bytes={} entries={} refused=0 code_bytes={code_bytes} setup_bytes={setup_bytes} ids={})",
+                "gpud: gpu library ok (bytes={} entries={} refused=0 code_bytes={code_bytes} setup_bytes={setup_bytes} table_bytes={table_bytes} ids={})",
                 LIBRARY.len(),
                 accepted.len(),
                 ids.join(",")

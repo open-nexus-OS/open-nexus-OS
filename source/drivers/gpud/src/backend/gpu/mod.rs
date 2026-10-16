@@ -6,11 +6,12 @@
 //! layout into page-backed DMA memory and started by the open sequence, the interrupt on its
 //! own notify endpoint, the firmware's MMU-cache round trip, one GPU address space with a page
 //! bound and unbound, and a null job whose timeline write is bridged to a kernel fence. The
-//! logic is `nexus_gfx::backend::gpu` (host-tested); this module is the device: the window,
-//! the memory with its cache maintenance (the SoC is non-coherent: every word the firmware
-//! reads is cleaned after the CPU writes it, every word it writes is flushed before the CPU
-//! reads it), the waits (on the interrupt endpoint, bounded, never a spin for an event), the
-//! lines a board cycle is judged from.
+//! logic is `nexus_gfx::backend::gpu` (host-tested; like this module, its sequences follow the
+//! open kernel driver, used under its MIT option — the notice is kept in `THIRD_PARTY_NOTICES`);
+//! this module is the device: the window, the memory with its cache maintenance (the SoC is
+//! non-coherent: every word the firmware reads is cleaned after the CPU writes it, every word it
+//! writes is flushed before the CPU reads it), the waits (on the interrupt endpoint, bounded,
+//! never a spin for an event), the lines a board cycle is judged from.
 //!
 //! - [`glue`] — the GPU node up through socd (domain 2, `gpu_clk`, the reset after the clock).
 //! - [`regs`] — `start::Regs` over the window: 64-bit accesses whole, bounded polls.

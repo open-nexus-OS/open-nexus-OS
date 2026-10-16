@@ -5,11 +5,12 @@
 //! back from the render bundle's live bindings (the stream's first records, the 26-word PPP
 //! block, the vertex PDS data — the fragment half is the library pipeline's since 5c-2 P4d), the
 //! places the pipeline library and the rungs' passes take in the bundle's buffers, the writes
-//! into bound buffers with their cache clean, the three render streams of the bundle, and the
+//! into bound buffers with their cache clean (a pass's blocks through [`PassSink`] as the emitter
+//! makes them, nothing allocated), the three render streams of the bundle, and the
 //! sample formulas — texel × tint as a premultiplied source over the clear; texel × tint alone
 //! for an opaque program.
 
-use nexus_gfx::backend::gpu::quads::{Bump, Template};
+use nexus_gfx::backend::gpu::quads::{Bump, Region, Sink, Template};
 use nexus_gfx::backend::gpu::scene::{JobKind, Scene};
 use nexus_gfx::backend::v2::{ClientId, RenderStreams};
 
@@ -123,6 +124,32 @@ pub(super) fn write_bound(
     dst.copy_from_slice(bytes);
     dev.clean(client, bo);
     Ok(())
+}
+
+/// A pass's sink: each block written into its bound buffer and cleaned as the emitter makes it;
+/// the first refusal kept for the rung's line.
+pub(super) struct PassSink<'a> {
+    pub dev: &'a mut Device,
+    pub client: ClientId,
+    pub refused: Option<alloc::string::String>,
+}
+
+impl Sink for PassSink<'_> {
+    fn write(&mut self, region: Region, offset: u32, bytes: &[u8]) -> bool {
+        let (va, at) = match region {
+            Region::General => (GENERAL_ARENA, offset),
+            Region::Pds => (PDS_ARENA, pds_at(PDS_ARENA, offset)),
+            Region::Stream => (STREAM_BUFFER, offset),
+            Region::Vertex => (VERTEX_BUFFER, offset),
+        };
+        match write_bound(self.dev, self.client, va, at, bytes) {
+            Ok(()) => true,
+            Err(e) => {
+                self.refused.get_or_insert(e);
+                false
+            }
+        }
+    }
 }
 
 pub(super) fn read_bound(

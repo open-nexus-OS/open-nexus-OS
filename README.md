@@ -35,7 +35,7 @@ The repo is run **host-first, QEMU-last**: most logic lives in host-testable use
 | **Language** | Rust throughout — kernel, userspace services and drivers; `#![forbid(unsafe_code)]` in userspace crates |
 | **Security model** | Capability-based, deny-by-default; identity comes from kernel-provided `sender_service_id`, never from payload strings |
 | **Desktop / GUI** | `windowd` compositor service + `gpud` (virtio-gpu 2D, virgl 3D) + a declarative `.nx` app platform |
-| **License** | Apache-2.0 — see [LICENSE](LICENSE) |
+| **License** | Apache-2.0 — see [LICENSE](LICENSE); third-party notices in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) |
 
 ## Citation
 

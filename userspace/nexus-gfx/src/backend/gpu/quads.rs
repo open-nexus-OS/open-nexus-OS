@@ -13,15 +13,16 @@
 //! terminate block, `TERMINATE`. **Every pass lands in fresh memory** (the open driver allocates
 //! afresh each frame): the GPU's caches keep lines of what a pass read, so nothing a pass read is
 //! rewritten for the next (H10, 2026-10-14) — the pipeline's setup programs, placed once and
-//! never rewritten, are read by every pass. The emitter is pure: it returns the bytes and where
-//! they go, a [`Placer`] deciding where — the device bumps through the buffers' unused tails, the
-//! goldens use the capture's offsets.
+//! never rewritten, are read by every pass. The emitter is pure and allocates nothing: a
+//! [`Placer`] decides where each block goes — the device bumps through the buffers' unused
+//! tails, the goldens use the capture's offsets — and each block is made in place and handed to
+//! a [`Sink`] — the device writes it into the bound buffer, the goldens record it.
 
 use alloc::vec::Vec;
 
 use super::csb::{pds, ppp, vdm};
 use super::pipelines::Placed;
-use crate::shader::rogue::setup::Load;
+use crate::shader::rogue::setup::{Load, MAX_STATE_DWORDS};
 
 /// A quad in plane pixels and the push constants its pipeline reads (up to sixteen floats).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -215,7 +216,28 @@ impl Placer for Bump {
     }
 }
 
-/// A write the device performs before the kick.
+/// The buffer a block of a pass goes into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Region {
+    /// The general arena (offsets from `Template::general_va`).
+    General,
+    /// The PDS heap (heap offsets).
+    Pds,
+    /// The stream buffer.
+    Stream,
+    /// The vertex buffer.
+    Vertex,
+}
+
+/// Where a pass's bytes go as they are made: the device writes each block into its bound buffer
+/// (and cleans it), a host test records them. Emitting allocates nothing — gpud's heap never
+/// frees, and a frame emits passes for gpud's whole life.
+pub trait Sink {
+    /// Writes `bytes` at `offset` of `region`; false when it cannot.
+    fn write(&mut self, region: Region, offset: u32, bytes: &[u8]) -> bool;
+}
+
+/// A block a pass wrote, as a [`Recorder`] keeps it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Write {
     /// Offset into the buffer (general: bytes from `general_va`; PDS: heap offset).
@@ -223,19 +245,53 @@ pub struct Write {
     pub bytes: Vec<u8>,
 }
 
-/// What `emit` produced.
+/// A sink that keeps what a pass wrote (host tests and tools): the vertices and the stream joined
+/// — each written in order, every write where the last ended —, the general arena's and the PDS
+/// heap's blocks one by one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Emitted {
-    /// The vertices and their offset in the vertex buffer.
+pub struct Recorder {
     pub vertices: Vec<u8>,
-    pub vertex_offset: u32,
-    /// The control stream and its offset in the stream buffer; the geometry job's
-    /// `vdm_ctrl_stream_base` must name `stream_va + stream_offset`.
     pub stream: Vec<u8>,
-    pub stream_offset: u32,
-    pub vdm_ctrl_stream_base: u64,
     pub general: Vec<Write>,
     pub pds: Vec<Write>,
+    /// Where the vertices and the stream began.
+    starts: [Option<u32>; 2],
+}
+
+impl Sink for Recorder {
+    fn write(&mut self, region: Region, offset: u32, bytes: &[u8]) -> bool {
+        let joined = |buf: &mut Vec<u8>, start: &mut Option<u32>| {
+            let at = *start.get_or_insert(offset);
+            if offset.checked_sub(at) != u32::try_from(buf.len()).ok() {
+                return false;
+            }
+            buf.extend_from_slice(bytes);
+            true
+        };
+        match region {
+            Region::Vertex => joined(&mut self.vertices, &mut self.starts[0]),
+            Region::Stream => joined(&mut self.stream, &mut self.starts[1]),
+            Region::General => {
+                self.general.push(Write { offset, bytes: bytes.to_vec() });
+                true
+            }
+            Region::Pds => {
+                self.pds.push(Write { offset, bytes: bytes.to_vec() });
+                true
+            }
+        }
+    }
+}
+
+/// What `emit` produced beside its writes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Emitted {
+    /// The vertices' offset in the vertex buffer.
+    pub vertex_offset: u32,
+    /// The control stream's offset in the stream buffer; the geometry job's
+    /// `vdm_ctrl_stream_base` must name `stream_va + stream_offset`.
+    pub stream_offset: u32,
+    pub vdm_ctrl_stream_base: u64,
     pub draws: u32,
 }
 
@@ -249,15 +305,20 @@ pub enum EmitError {
     Template,
     /// The pipeline's setup cannot describe a draw (its state-load data).
     Pipeline,
+    /// The sink refused a write.
+    Sink,
 }
 
 const VERTEX_BYTES: usize = 16;
 const VERTS_PER_QUAD: usize = 6;
+const QUAD_BYTES: usize = VERTS_PER_QUAD * VERTEX_BYTES;
 const VS_PDS_DATA_BYTES: usize = 64;
 const PPP26_BYTES: usize = 104;
 /// Word offsets inside the 26-word block: the ISP word (its pass type), the six STATE_PDS words.
 const PPP26_ISPA: usize = 2;
 const PPP26_PDS: usize = 5;
+/// The most push-constant dwords a draw carries.
+const MAX_PUSH_DWORDS: usize = 16;
 
 /// Bytes of a pass's control stream for `draws` draws.
 pub const fn stream_bytes(draws: usize) -> usize {
@@ -277,9 +338,71 @@ pub fn quad_vertices(q: &Quad) -> [[f32; 4]; VERTS_PER_QUAD] {
     ]
 }
 
-fn push_words(out: &mut Vec<u8>, words: &[u32]) {
-    for w in words {
-        out.extend_from_slice(&w.to_le_bytes());
+/// Up to `N` bytes made in place: a block of a pass before it goes to the sink.
+struct Bytes<const N: usize> {
+    b: [u8; N],
+    len: usize,
+}
+
+impl<const N: usize> Bytes<N> {
+    const fn new() -> Self {
+        Self { b: [0; N], len: 0 }
+    }
+
+    /// Appends `bytes`; false when they do not fit (the sizes below are the blocks' own).
+    #[must_use]
+    fn put(&mut self, bytes: &[u8]) -> bool {
+        let end = self.len + bytes.len();
+        match self.b.get_mut(self.len..end) {
+            Some(dst) => {
+                dst.copy_from_slice(bytes);
+                self.len = end;
+                true
+            }
+            None => false,
+        }
+    }
+
+    #[must_use]
+    fn words(&mut self, words: &[u32]) -> bool {
+        words.iter().all(|w| self.put(&w.to_le_bytes()))
+    }
+
+    fn bytes(&self) -> &[u8] {
+        &self.b[..self.len]
+    }
+}
+
+fn fits(ok: bool) -> Result<(), EmitError> {
+    if ok {
+        Ok(())
+    } else {
+        Err(EmitError::Template)
+    }
+}
+
+/// A pass's blocks on their way to the sink, with the control stream's running end.
+struct Out<'a> {
+    sink: &'a mut dyn Sink,
+    stream_at: u32,
+}
+
+impl Out<'_> {
+    fn write(&mut self, region: Region, offset: u32, bytes: &[u8]) -> Result<(), EmitError> {
+        if self.sink.write(region, offset, bytes) {
+            Ok(())
+        } else {
+            Err(EmitError::Sink)
+        }
+    }
+
+    /// The control stream's next words.
+    fn record(&mut self, words: &[u32]) -> Result<(), EmitError> {
+        let mut b = Bytes::<48>::new();
+        fits(b.words(words))?;
+        self.write(Region::Stream, self.stream_at, b.bytes())?;
+        self.stream_at += b.len as u32;
+        Ok(())
     }
 }
 
@@ -287,20 +410,14 @@ fn put_word(b: &mut [u8], word: usize, v: u32) {
     b[word * 4..word * 4 + 4].copy_from_slice(&v.to_le_bytes());
 }
 
-fn float_bytes(v: &[f32]) -> Vec<u8> {
-    let mut b = Vec::with_capacity(4 * v.len());
-    for x in v {
-        b.extend_from_slice(&x.to_le_bytes());
-    }
-    b
-}
-
-/// Emits the pass for `quads` drawn with `pipeline`; `place` decides where everything goes.
+/// Emits the pass for `quads` drawn with `pipeline`: `place` decides where each block goes,
+/// `sink` receives it as it is made.
 pub fn emit(
     t: &Template<'_>,
     pipeline: &Placed,
     quads: &[Quad],
     place: &mut dyn Placer,
+    sink: &mut dyn Sink,
 ) -> Result<Emitted, EmitError> {
     if quads.is_empty() {
         return Err(EmitError::NoQuads);
@@ -312,26 +429,26 @@ pub fn emit(
         return Err(EmitError::Template);
     }
     let n = quads.len();
-    let mut out = Emitted { draws: n as u32, ..Emitted::default() };
     let mut at = |draw: usize, need| place.place(draw, need).ok_or(EmitError::Space);
     // The pass's own: the stream, the vertices, the vertex PDS data naming them.
-    out.stream_offset = at(0, Need::Stream(stream_bytes(n) as u32))?;
-    out.vdm_ctrl_stream_base = t.stream_va + u64::from(out.stream_offset);
-    out.vertex_offset = at(0, Need::Vertices((n * VERTS_PER_QUAD * VERTEX_BYTES) as u32))?;
-    for q in quads {
-        for v in quad_vertices(q) {
-            for f in v {
-                out.vertices.extend_from_slice(&f.to_le_bytes());
-            }
+    let stream_offset = at(0, Need::Stream(stream_bytes(n) as u32))?;
+    let mut out = Out { sink, stream_at: stream_offset };
+    let vertex_offset = at(0, Need::Vertices((n * QUAD_BYTES) as u32))?;
+    for (i, q) in quads.iter().enumerate() {
+        let mut v = Bytes::<QUAD_BYTES>::new();
+        for f in quad_vertices(q).iter().flatten() {
+            fits(v.put(&f.to_le_bytes()))?;
         }
+        out.write(Region::Vertex, vertex_offset + (i * QUAD_BYTES) as u32, v.bytes())?;
     }
     let vs_off = at(0, Need::VsPdsData)?;
-    let vertex_base = t.vertex_va + u64::from(out.vertex_offset);
-    let mut vs = t.vs_pds_data.to_vec();
+    let vertex_base = t.vertex_va + u64::from(vertex_offset);
+    let mut vs = [0u8; VS_PDS_DATA_BYTES];
+    vs.copy_from_slice(t.vs_pds_data);
     pds::set_doutd_sbase(&mut vs[t.vs_patched[0]..], vertex_base);
     pds::set_doutd_sbase(&mut vs[t.vs_patched[1]..], vertex_base + 8);
-    out.pds.push(Write { offset: vs_off, bytes: vs });
-    push_words(&mut out.stream, &t.pds_state_words);
+    out.write(Region::Pds, vs_off, &vs)?;
+    out.record(&t.pds_state_words)?;
     let data_bytes = (4 * pipeline.setup.state_data_dwords()) as u32;
     // The push constants the pipeline's state load reads: their first dwords of each quad's.
     let push_dwords = pipeline
@@ -344,7 +461,7 @@ pub fn emit(
         })
         .max()
         .unwrap_or(0);
-    if push_dwords > 16 {
+    if push_dwords > MAX_PUSH_DWORDS {
         return Err(EmitError::Pipeline);
     }
     // The constant block where the pipeline's load placed it (a block no placement names is a
@@ -359,8 +476,11 @@ pub fn emit(
         if push_dwords > 0 {
             let push_off = at(i, Need::Push((4 * push_dwords) as u32))?;
             push_va = t.general_va + u64::from(push_off);
-            out.general
-                .push(Write { offset: push_off, bytes: float_bytes(&q.push[..push_dwords]) });
+            let mut b = Bytes::<{ 4 * MAX_PUSH_DWORDS }>::new();
+            for f in &q.push[..push_dwords] {
+                fits(b.put(&f.to_le_bytes()))?;
+            }
+            out.write(Region::General, push_off, b.bytes())?;
         }
         let data_off = at(i, Need::StateData(data_bytes))?;
         let data = pipeline
@@ -371,44 +491,47 @@ pub fn emit(
                 Load::Constants => constants_va.unwrap_or(0),
             })
             .map_err(|_| EmitError::Pipeline)?;
-        let mut bytes = Vec::with_capacity(data.len() * 4);
-        push_words(&mut bytes, &data);
-        out.pds.push(Write { offset: data_off, bytes });
+        let mut b = Bytes::<{ 4 * MAX_STATE_DWORDS }>::new();
+        fits(b.words(&data))?;
+        out.write(Region::Pds, data_off, b.bytes())?;
         let state = pipeline.pds_state(data_off);
         if i == 0 {
             // The first draw: the captured 26-word block with the pipeline's pass type and PDS
             // words, the VDM state naming the vertex data copy, the index list.
             let ppp_off = at(0, Need::Ppp26)?;
-            let mut block = t.ppp26.to_vec();
+            let mut block = [0u8; PPP26_BYTES];
+            block.copy_from_slice(t.ppp26);
             let ispa = u32::from_le_bytes([block[8], block[9], block[10], block[11]]);
             put_word(&mut block, PPP26_ISPA, ppp::with_pass_type(ispa, pipeline.pass_type));
             for (k, w) in state.words().iter().enumerate() {
                 put_word(&mut block, PPP26_PDS + k, *w);
             }
-            out.general.push(Write { offset: ppp_off, bytes: block });
-            push_words(&mut out.stream, &vdm::ppp_state(26, t.general_va + u64::from(ppp_off)));
+            out.write(Region::General, ppp_off, &block)?;
+            out.record(&vdm::ppp_state(26, t.general_va + u64::from(ppp_off)))?;
             let mut vdm_state = t.vdm_state_words;
             vdm_state[1] = vs_off & !0xf;
-            push_words(&mut out.stream, &vdm_state);
+            out.record(&vdm_state)?;
             let (words, len) = vdm::index_list(VERTS_PER_QUAD as u32, None, t.topology);
-            push_words(&mut out.stream, &words[..len]);
+            out.record(&words[..len])?;
         } else {
             let ppp_off = at(i, Need::Ppp)?;
-            let mut block = Vec::with_capacity(28);
-            push_words(&mut block, &state.block());
-            out.general.push(Write { offset: ppp_off, bytes: block });
-            push_words(&mut out.stream, &vdm::ppp_state(7, t.general_va + u64::from(ppp_off)));
-            push_words(&mut out.stream, &[vdm::vdm_state_bare(t.cam_size)]);
-            let (words, len) = vdm::index_list(
-                VERTS_PER_QUAD as u32,
-                Some((i * VERTS_PER_QUAD) as u32),
-                t.topology,
-            );
-            push_words(&mut out.stream, &words[..len]);
+            let mut block = Bytes::<28>::new();
+            fits(block.words(&state.block()))?;
+            out.write(Region::General, ppp_off, block.bytes())?;
+            out.record(&vdm::ppp_state(7, t.general_va + u64::from(ppp_off)))?;
+            out.record(&[vdm::vdm_state_bare(t.cam_size)])?;
+            let first = (i * VERTS_PER_QUAD) as u32;
+            let (words, len) = vdm::index_list(VERTS_PER_QUAD as u32, Some(first), t.topology);
+            out.record(&words[..len])?;
         }
     }
-    push_words(&mut out.stream, &vdm::ppp_state(t.terminate_ppp.1, t.terminate_ppp.0));
-    push_words(&mut out.stream, &[vdm::TERMINATE]);
-    debug_assert_eq!(out.stream.len(), stream_bytes(n));
-    Ok(out)
+    out.record(&vdm::ppp_state(t.terminate_ppp.1, t.terminate_ppp.0))?;
+    out.record(&[vdm::TERMINATE])?;
+    debug_assert_eq!((out.stream_at - stream_offset) as usize, stream_bytes(n));
+    Ok(Emitted {
+        vertex_offset,
+        stream_offset,
+        vdm_ctrl_stream_base: t.stream_va + u64::from(stream_offset),
+        draws: n as u32,
+    })
 }

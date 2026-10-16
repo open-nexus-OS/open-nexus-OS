@@ -51,13 +51,80 @@ impl Instr {
     }
 }
 
+/// The most instructions a group holds: the backend word, three phase-2 words, phases 1 and 0.
+pub const MAX_INSTRS: usize = 6;
+
+/// A group's instructions with their phases, in encoding order (last phase first), held in place:
+/// decoding a group never allocates (a device validates a client's programs on a heap that never
+/// frees).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Instrs {
+    /// Unused slots stay [`Instrs::FILL`], so equal instructions compare equal.
+    items: [(Phase, Instr); MAX_INSTRS],
+    len: u8,
+}
+
+impl Instrs {
+    const FILL: (Phase, Instr) = (Phase::Ctrl, Instr::Ctrl(CtrlInstr::Wdf));
+
+    pub const fn new() -> Self {
+        Self { items: [Self::FILL; MAX_INSTRS], len: 0 }
+    }
+
+    /// One instruction.
+    pub const fn one(phase: Phase, i: Instr) -> Self {
+        let mut s = Self::new();
+        s.items[0] = (phase, i);
+        s.len = 1;
+        s
+    }
+
+    /// Appends an instruction; a seventh is refused.
+    pub fn push(&mut self, phase: Phase, i: Instr) -> Result<(), RogueError> {
+        let slot = self
+            .items
+            .get_mut(usize::from(self.len))
+            .ok_or(RogueError::TooWide { what: "instructions in a group", value: 7 })?;
+        *slot = (phase, i);
+        self.len += 1;
+        Ok(())
+    }
+}
+
+impl Default for Instrs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl core::ops::Deref for Instrs {
+    type Target = [(Phase, Instr)];
+    fn deref(&self) -> &Self::Target {
+        &self.items[..usize::from(self.len)]
+    }
+}
+
+impl<'a> IntoIterator for &'a Instrs {
+    type Item = &'a (Phase, Instr);
+    type IntoIter = core::slice::Iter<'a, (Phase, Instr)>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl core::fmt::Debug for Instrs {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
 /// An instruction group.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Group {
     /// The header; its `length` and `da` are derived when the group is encoded.
     pub header: Header,
     /// The instructions with their phases, in encoding order (last phase first).
-    pub instrs: Vec<(Phase, Instr)>,
+    pub instrs: Instrs,
     pub lower: Option<Srcs>,
     pub upper: Option<Srcs>,
     pub iss: Option<Iss>,
@@ -85,7 +152,7 @@ impl Group {
         need(b, total, at)?;
         let g = &b[..total];
         let mut pos = header.size();
-        let mut instrs = Vec::new();
+        let mut instrs = Instrs::new();
         let tail = |pos: usize| g.get(pos..).unwrap_or(&[]);
         match header.alutype {
             AluType::Main => {
@@ -93,7 +160,7 @@ impl Group {
                 let da = usize::from(header.da);
                 if org.has_backend() {
                     let (i, n) = BackendInstr::decode(tail(pos), at + pos)?;
-                    instrs.push((Phase::Backend, Instr::Backend(i)));
+                    instrs.push(Phase::Backend, Instr::Backend(i))?;
                     pos += n;
                 }
                 let mut last: Option<Phase> = None;
@@ -105,7 +172,7 @@ impl Group {
                         return Err(RogueError::Malformed { at: at + pos, what: "phase-2 order" });
                     }
                     let (i, n) = AluInstr::decode(tail(pos), slot, at + pos)?;
-                    instrs.push((slot, Instr::Alu(i)));
+                    instrs.push(slot, Instr::Alu(i))?;
                     pos += n;
                     last = Some(slot);
                 }
@@ -115,7 +182,7 @@ impl Group {
                 for (present, phase) in [(org.has_p1(), Phase::P1), (org.has_p0(), Phase::P0)] {
                     if present {
                         let (i, n) = AluInstr::decode(tail(pos), phase, at + pos)?;
-                        instrs.push((phase, Instr::Alu(i)));
+                        instrs.push(phase, Instr::Alu(i))?;
                         pos += n;
                     }
                 }
@@ -126,7 +193,7 @@ impl Group {
                 {
                     if header.ops & bit != 0 {
                         let (i, n) = BitwiseInstr::decode(tail(pos), phase, at + pos)?;
-                        instrs.push((phase, Instr::Bitwise(i)));
+                        instrs.push(phase, Instr::Bitwise(i))?;
                         pos += n;
                     }
                 }
@@ -136,7 +203,7 @@ impl Group {
             }
             AluType::Control => {
                 let (i, n) = CtrlInstr::decode(tail(pos), header.ctrlop, at + pos)?;
-                instrs.push((Phase::Ctrl, Instr::Ctrl(i)));
+                instrs.push(Phase::Ctrl, Instr::Ctrl(i))?;
                 pos += n;
                 if header.da != 0 || header.w0p || header.w1p {
                     return Err(RogueError::Unsupported {
@@ -253,7 +320,7 @@ impl Group {
         let buf = &mut out[start..];
         header.encode(buf)?;
         let mut pos = header.size();
-        for (_, i) in &self.instrs {
+        for (_, i) in self.instrs.iter() {
             i.encode(&mut buf[pos..])?;
             pos += i.size();
         }
@@ -316,6 +383,18 @@ pub fn align_end(groups: &mut [Group]) -> Result<(), RogueError> {
         g.seal();
     }
     Ok(())
+}
+
+/// The groups of a whole program, each decoded and checked, counted without allocating — what a
+/// device needs of a client's program to hold it to its budget.
+pub fn count_groups(b: &[u8]) -> Result<usize, RogueError> {
+    let (mut pos, mut n) = (0, 0);
+    while pos < b.len() {
+        let (_, len) = Group::decode(&b[pos..], pos)?;
+        pos += len;
+        n += 1;
+    }
+    Ok(n)
 }
 
 /// Decodes a whole program into its groups.

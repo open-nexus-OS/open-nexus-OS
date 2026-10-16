@@ -43,6 +43,9 @@ const SHADE_GOURAUD: u8 = 3;
 /// The setup unit's temporaries (units of four), as the open driver gives a fragment pipeline.
 const PDS_TEMP_UNITS: u8 = 1;
 const MAX_DMAS: usize = 8;
+/// The most dwords a state load's data takes: a source pair and a control for each of its loads,
+/// to whole units of four.
+pub const MAX_STATE_DWORDS: usize = (3 * MAX_DMAS).div_ceil(4) * 4;
 /// The most shared registers a state load may fill (the draw state's 9-bit field, sixteens).
 const MAX_SHARED: usize = 511 * 16;
 
@@ -96,6 +99,26 @@ pub struct State {
     pub usc_shared: u16,
     /// The setup unit's temporaries, units of four.
     pub pds_temps: u8,
+}
+
+/// A draw's state-load data, held in place (a device writes one a draw and never allocates).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct StateData {
+    words: [u32; MAX_STATE_DWORDS],
+    len: usize,
+}
+
+impl core::ops::Deref for StateData {
+    type Target = [u32];
+    fn deref(&self) -> &[u32] {
+        &self.words[..self.len]
+    }
+}
+
+impl core::fmt::Debug for StateData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
 }
 
 /// A fragment pipeline's setup: the kick (its program offset zero until placed), the
@@ -277,16 +300,16 @@ impl Setup {
     }
 
     /// The state load's data for one draw: each load's source from `address_of`, then the
-    /// controls, the last ending the program.
-    pub fn state_data(&self, address_of: impl Fn(Load) -> u64) -> Result<Vec<u32>, RogueError> {
+    /// controls, the last ending the program; zeros to whole units.
+    pub fn state_data(&self, address_of: impl Fn(Load) -> u64) -> Result<StateData, RogueError> {
         let n = self.dmas.len();
-        let mut d = Vec::with_capacity(self.state_data_dwords());
-        for dma in &self.dmas {
-            d.extend_from_slice(&qword_dwords(
-                DmaSrc { sbase: address_of(dma.load), doffset: 0 }.encode()?,
-            ));
+        if n > MAX_DMAS {
+            return Err(refuse("a state load of too many loads"));
         }
+        let mut d = StateData { words: [0; MAX_STATE_DWORDS], len: self.state_data_dwords() };
         for (i, dma) in self.dmas.iter().enumerate() {
+            let src = DmaSrc { sbase: address_of(dma.load), doffset: 0 }.encode()?;
+            d.words[2 * i..2 * i + 2].copy_from_slice(&qword_dwords(src));
             let c = DmaCtl {
                 last: i + 1 == n,
                 wordsize: 0,
@@ -296,9 +319,8 @@ impl Setup {
                 repeat: false,
                 bsize: dma.dwords,
             };
-            d.push(c.encode()?);
+            d.words[2 * n + i] = c.encode()?;
         }
-        d.resize(self.state_data_dwords(), 0);
         Ok(d)
     }
 

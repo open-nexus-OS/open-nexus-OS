@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-16 (Block 4, layer 5c-2: the device allocates nothing per pass — TASK-0215)
+
+- **A pass takes nothing of gpud's heap, a library only what its table keeps** (gpud's heap never
+  frees, and the frame will emit passes for gpud's whole life). An instruction group holds its
+  instructions in place (`rogue::Instrs`), so the table counts a client program's groups as it
+  checks them (`count_groups`) instead of decoding every program whole; the emitter makes each
+  block in place and hands it to a `Sink` (gpud writes it into the bound buffer, the goldens
+  record it); a draw's state-load data and the command streams are fixed buffers
+  (`StateData`, `StreamBytes`). On the host a counting allocator proves zero allocations while
+  emitting a pass, counting a program and writing its streams; on the board (cycle 19)
+  `gpud: gpu library ok (… table_bytes=7039 …)` where the load took 108 KB and
+  `gpud: gpu heap (used=64666 of=393216 pass_bytes=0)` where cycle 18 left 191 KB used — every
+  picture and cost as before.
+
+### Added - 2026-10-16 (third-party notices)
+
+- **`THIRD_PARTY_NOTICES`**: the MIT notices of the two open GPU drivers the GPU stack derives
+  from — the kernel driver (dual-licensed, used under its MIT option: the firmware loading, start
+  sequence, interface structures, command buffers and MMU in `nexus_gfx::backend::gpu` and gpud's
+  device) and the userspace driver with its shader compiler (the instruction encoding, constant
+  registers, setup programs and state words in `nexus_gfx::shader::rogue` and
+  `backend::gpu`, the captured programs and scenes) — each with its copyright lines and
+  permission text as the licence requires, the source revisions read, and an index of the assets
+  that carry licence files of their own. The README and the modules' headers point to it;
+  `nexus-gfx/tests/notices.rs` keeps both texts whole and every directory it names in the tree.
+
 ### Added - 2026-10-15 (Block 4, layer 5c-2: our own GPU programs — TASK-0215, ADR-0072, RFC-0101 §7b)
 
 - **The GPU program architecture (ADR-0072)**: programs are written in WGSL, lowered into our own

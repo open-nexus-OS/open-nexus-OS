@@ -189,10 +189,10 @@ mod render_quad {
         let g =
             GeomCmd::from_stream(jobs[0].stream, RenderFeatures::BOARD, jobs[0].flags, 1, pr_fence)
                 .unwrap();
-        assert_eq!(g.to_stream(RenderFeatures::BOARD), jobs[0].stream);
+        assert_eq!(&*g.to_stream(RenderFeatures::BOARD), jobs[0].stream);
         for job in &jobs[1..] {
             let f = FragCmd::from_stream(job.stream, RenderFeatures::BOARD, job.flags, 1).unwrap();
-            assert_eq!(f.to_stream(RenderFeatures::BOARD), job.stream);
+            assert_eq!(&*f.to_stream(RenderFeatures::BOARD), job.stream);
         }
     }
 

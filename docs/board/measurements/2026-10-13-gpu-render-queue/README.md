@@ -780,3 +780,49 @@ cache of 5d), and a cheaper kernel is measured against this line before it is bu
 downsample with the pair trick in both directions fetches 23 times a half-resolution pixel instead
 of 32). Before 5c-3: the emitter without allocation per pass, the library load without decoding
 every program whole (191 KB of 384 KB used).
+
+## Before 5c-3 — the device allocates nothing per pass (host 2026-10-16; board cycle 19)
+
+**Question.** gpud's heap never frees (a bump allocator), and the frame will emit passes for
+gpud's whole life. Cycle 18 left 191 KB of 384 KB used after the rungs. Measured on the host with a
+counting allocator: the library load took 108 KB — 101 KB of it every program decoded whole into
+groups only to count them — and each pass its emitter's buffers and three stream vectors. After
+the change (an instruction group holds its instructions in place, the table counts groups as it
+decodes them, the emitter writes every block through a sink as it makes it, the state-load data
+and the command streams are fixed buffers) the host shows zero allocations while emitting a pass,
+counting a program, writing its streams and its state data, and a load that keeps 7 KB. Does the
+board agree?
+
+**Instrument.** Two fields the rungs now print: `gpud: gpu library ok (… table_bytes=)` — the heap
+the table load took — and `gpud: gpu heap (used= of= pass_bytes=)` — the most any pass of the area
+and pipeline gates took (the heap cursor before the pass's emission and after its wait); every
+earlier read and cost as the comparison.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H41 | The table load keeps only each pipeline's placement and setup | `table_bytes` near the host's 7 KB, not 108 KB |
+| H42 | A pass takes nothing of gpud's heap | `pass_bytes=0` |
+| H43 | The passes are the same bytes as before | every read right and every cost a pixel as in cycle 18 (± noise); the heap after the rungs well below 191 KB |
+
+**Results — the board, cycle 19** (`cycle19-gpu-lines.txt`, `cycle19-board-test.txt`; `[PASS]
+board-visible`, 62 rungs, the operator's eight confirmations):
+
+`gpud: gpu library ok (… table_bytes=7039 …)`; `gpud: gpu heap (used=64666 of=393216
+pass_bytes=0)`; `gpud: gpu pipeline ok (opaque_ns_px=1.30 premultiplied_ns_px=4.03
+straight_ns_px=4.86 rounded_ns_px=8.86 shadow_ns_px=10.81 blur_h_ns_px=39.53 blur_v_ns_px=23.03
+blur_layer_ns_px=8.70 blur_dev=2 samples=12/12 bar=1.80)`.
+
+- **H41 confirmed.** The table load takes 7 039 bytes — the host's 6 990 and the placements' own
+  alignment — where it took 108 KB: each pipeline's placement and setup, no program kept.
+- **H42 confirmed.** No pass of the area and pipeline gates takes a byte of gpud's heap.
+- **H43 confirmed.** Every read right, every cost a pixel as in cycle 18 to the noise (the blur's
+  horizontal pass 39.5 against 38.9 ns, its vertical one 23.0 against 23.2); the heap after the
+  rungs 64 666 bytes where cycle 18 left 191 250.
+- Seen in this boot, not this package's: the early rungs ran beside the USB controller's PHY
+  bring-up — `gpu fence ok (rt_us=446 worst_us=15296 … irqs=63)` (cycle 18: 83 µs, 97 µs worst) and
+  the allow-listed `KSELFTEST: ipc call budget FAIL (rt=1251us)`; the fence rung's spread has a
+  precedent (`board--2026-10-14T17-18-54`: 502 µs, 22 ms worst) and goes with the boot's
+  contention to S3.
+
+**Verdict.** The device is ready for a frame that emits passes for gpud's whole life: a pass takes
+nothing of the heap, a context's library what its table keeps (7 KB for seven pipelines).

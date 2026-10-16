@@ -8,32 +8,76 @@
 //! render-target data's address from the dataset. Part of [`super`] (`fwif`); the captured
 //! streams round-trip byte for byte (`tests/gpu_scene_goldens.rs`).
 
-use alloc::vec::Vec;
-
 use super::render::{FragCmd, GeomCmd, RenderFeatures};
 
+/// Every gated feature on: the longest streams any core writes.
+const EVERY_FEATURE: RenderFeatures = RenderFeatures {
+    vdm_drawindirect: true,
+    vdm_object_level_lls: true,
+    tessellation: true,
+    requires_fb_cdc_zls_setup: true,
+    s7_top_infrastructure: true,
+    cluster_grouping: true,
+    gpu_multicore_support: true,
+    zls_subtile: true,
+    isp_zls_d24_s8_packing_ogl_mode: true,
+};
+
+/// The longest stream either command writes: a fragment stream with every feature on.
+pub const MAX_STREAM_BYTES: usize = EVERY_FEATURE.frag_stream_len();
+const _: () = assert!(EVERY_FEATURE.geom_stream_len() <= MAX_STREAM_BYTES);
+
+/// A command's stream, written in place: a device writes three a pass and never allocates.
+#[derive(Clone, Copy)]
+pub struct StreamBytes {
+    b: [u8; MAX_STREAM_BYTES],
+    len: usize,
+}
+
+impl core::ops::Deref for StreamBytes {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.b[..self.len]
+    }
+}
+
+impl core::fmt::Debug for StreamBytes {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+/// The stream's length word, a zero word, then the registers; the length is the features'.
 struct Writer {
-    b: Vec<u8>,
+    s: StreamBytes,
 }
 
 impl Writer {
     fn new(len: usize) -> Self {
-        let mut b = Vec::with_capacity(len);
-        b.extend_from_slice(&(len as u32).to_le_bytes());
-        b.extend_from_slice(&0u32.to_le_bytes());
-        Self { b }
+        let mut w = Self { s: StreamBytes { b: [0; MAX_STREAM_BYTES], len: 0 } };
+        w.u32(len as u32);
+        w.u32(0);
+        w
+    }
+    fn put(&mut self, bytes: &[u8]) {
+        let end = self.s.len + bytes.len();
+        // Never past the buffer: every length the features give is within it (`MAX_STREAM_BYTES`).
+        if let Some(dst) = self.s.b.get_mut(self.s.len..end) {
+            dst.copy_from_slice(bytes);
+            self.s.len = end;
+        }
     }
     fn u32(&mut self, v: u32) {
-        self.b.extend_from_slice(&v.to_le_bytes());
+        self.put(&v.to_le_bytes());
     }
     fn u64(&mut self, v: u64) {
-        self.b.extend_from_slice(&v.to_le_bytes());
+        self.put(&v.to_le_bytes());
     }
 }
 
 impl GeomCmd {
     /// The stream `from_stream` would decode back to these registers.
-    pub fn to_stream(&self, feats: RenderFeatures) -> Vec<u8> {
+    pub fn to_stream(&self, feats: RenderFeatures) -> StreamBytes {
         let r = &self.regs;
         let mut w = Writer::new(feats.geom_stream_len());
         w.u64(r.vdm_ctrl_stream_base);
@@ -52,14 +96,14 @@ impl GeomCmd {
         if feats.tessellation {
             w.u32(r.pds_coeff_free_prog);
         }
-        debug_assert_eq!(w.b.len(), feats.geom_stream_len());
-        w.b
+        debug_assert_eq!(w.s.len, feats.geom_stream_len());
+        w.s
     }
 }
 
 impl FragCmd {
     /// The stream `from_stream` would decode back to these registers.
-    pub fn to_stream(&self, feats: RenderFeatures) -> Vec<u8> {
+    pub fn to_stream(&self, feats: RenderFeatures) -> StreamBytes {
         let r = &self.regs;
         let mut w = Writer::new(feats.frag_stream_len());
         for v in [
@@ -113,7 +157,7 @@ impl FragCmd {
         if feats.gpu_multicore_support {
             w.u32(self.execute_count);
         }
-        debug_assert_eq!(w.b.len(), feats.frag_stream_len());
-        w.b
+        debug_assert_eq!(w.s.len, feats.frag_stream_len());
+        w.s
     }
 }

@@ -579,6 +579,26 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
     directions: 23 fetches instead of 32) is measured against this line first. gpud's heap after
     the rungs 191 KB of 384 KB (cycle 17: 120 KB): **the allocation-free emitter and a library load
     that does not decode every program whole come before 5c-3.**
+  - **Before 5c-3 ✅ 2026-10-16 (board cycle 19) — the device allocates nothing per pass.** gpud's heap never
+    frees, and the frame emits passes for gpud's whole life; measured on the host with a counting
+    allocator: the library load took 108 KB (101 KB of it every program decoded whole to count its
+    groups), each pass its emitter's buffers and three stream vectors. Now: an instruction group
+    holds its instructions in place (`rogue::Instrs`, at most six), so a group decodes without
+    allocating and the table counts a program's groups as it checks them (`count_groups`) —
+    the load keeps 7 KB, each pipeline's placement and setup; the emitter makes every block in
+    place and hands it to a `Sink` as it goes (gpud's `PassSink` writes it into the bound buffer,
+    the goldens record it), the state-load data (`StateData`) and the command streams
+    (`StreamBytes`) are fixed buffers. Host proofs: `gpu_quads_model::a_pass_is_emitted_without_allocating`,
+    `tests/gpu_device_alloc.rs` (counting, streams, state data: zero allocations; the table's
+    share bounded per entry), the captures byte for byte as before. The board reads it in two
+    new fields: `gpu library ok (… table_bytes=)`, `gpu heap (… pass_bytes=)` (hypotheses
+    H41–H43 in the measurement README). The third-party notices of the two open GPU drivers are
+    written (`THIRD_PARTY_NOTICES`).
+  - **Board ✅ cycle 19** (`cycle19-gpu-lines.txt`): `gpu library ok (… table_bytes=7039 …)`,
+    `gpu heap (used=64666 of=393216 pass_bytes=0)` — H41–H43 confirmed: the table keeps 7 KB
+    where the load took 108 KB, no pass takes a byte, every read and cost as in cycle 18; the heap
+    after the rungs 65 KB where cycle 18 left 191 KB. `[PASS] board-visible`, 62 rungs, the
+    operator's eight confirmations.
   - Board cycles after P5c and after P5d: each picture against its host formula on the board,
     each cost a pixel.
   - Not in P5: gradient, glyphs, the solid fills (no live sender); the vertex pipeline (uv and

@@ -6,8 +6,9 @@
 //! destination parts, padding to 16 bits — decoded into fields and encoded back, for the subset
 //! the compositor's programs use. The bit positions are the hardware's interface as the open
 //! userspace driver's compiler publishes it in its instruction description; this module is our
-//! own encoder over those facts, proven by re-encoding captured programs byte for byte. The
-//! backend that selects instructions from our IR writes through it.
+//! own encoder over those facts, proven by re-encoding captured programs byte for byte (the
+//! description is MIT-licensed; its notice is kept in `THIRD_PARTY_NOTICES`). The backend that
+//! selects instructions from our IR writes through it.
 //! OWNERS: @gpu @runtime
 //! STATUS: Experimental (P1 the encoding and the setup programs; P3 the assembler, the reference
 //!   programs the board measured, the backend for the compositor's textured layer; P4 the setup
@@ -51,7 +52,9 @@ pub mod pds;
 pub mod reference;
 pub mod setup;
 
-pub use group::{align_end, decode_program, encode_program, Group, Instr, ICACHE_ALIGN};
+pub use group::{
+    align_end, count_groups, decode_program, encode_program, Group, Instr, Instrs, ICACHE_ALIGN,
+};
 
 /// The phase an instruction executes in; phase 2's three main-ALU slots in their encoding
 /// order's reverse (pack, test, move).

@@ -1,0 +1,119 @@
+Open Nexus OS — third-party notices
+===================================
+
+Open Nexus OS is licensed under the Apache License 2.0 (see LICENSE). Parts of its GPU stack are
+derived from two open-source drivers for the board's GPU family, used under the MIT licence; the
+notices those licences require are reproduced below, verbatim, as the licences demand. The project
+writes no vendor or product name of its own; the copyright lines and paths below are quoted from
+the sources and are not ours to change.
+
+Third-party material that ships with a licence file of its own is listed at the end.
+
+
+1. The open kernel driver for the board's GPU family
+----------------------------------------------------
+
+Source:   the upstream kernel tree, drivers/gpu/drm/imagination/,
+          commit 3857c2fe5449541e24afc5efdb0f81a8a8f9a3a0 (read 2026-10-10)
+Licence:  "GPL-2.0-only OR MIT" (a few files "GPL-2.0 OR MIT"); used here under the MIT option.
+
+Derived in this tree (the firmware image layout and loading, the firmware processor's boot data
+and page table, the start and stop sequences, the firmware interface structures and commands, the
+kernel, firmware and client command buffers, the GPU MMU's page tables, the render-target dataset,
+the free lists and the render context):
+
+  userspace/nexus-gfx/src/backend/gpu/
+  source/drivers/gpud/src/backend/gpu/
+
+Copyright notices of the source files:
+
+  Copyright (c) 2023 Imagination Technologies Ltd.
+  Copyright (c) 2024 Imagination Technologies Ltd.
+  Copyright (c) 2025 Imagination Technologies Ltd.
+  Copyright (c) 2026 Imagination Technologies Ltd.
+
+The MIT licence, as the source tree carries it:
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+
+2. The open userspace driver and shader compiler for the board's GPU family
+---------------------------------------------------------------------------
+
+Source:   the open graphics stack's tree, src/imagination/ (the state and control-stream
+          descriptions csbgen/rogue/*.xml; the compiler's instruction description
+          pco/pco_isa.py, pco/pco_map.py, pco/pco_ops.py and its constant table
+          pco/pco_const_imms.c; the setup-program encoders vulkan/pds/; the job setup
+          vulkan/pvr_arch_job_*.c),
+          commit 5c80eda3f1c0ac7cb80b0597473ae83da4b97c08 (read 2026-10-10)
+Licence:  MIT.
+
+Derived in this tree (the shader core's instruction encoding and its constant registers, the
+setup programs, the texture, sampler, back-end and control-stream words), and carried as data
+(programs and command streams the driver and its compiler generated on the host, captured for the
+tests and the board's rungs):
+
+  userspace/nexus-gfx/src/shader/rogue/
+  userspace/nexus-gfx/src/backend/gpu/
+  resources/gpu/scenes/
+  resources/gpu/programs/
+
+Copyright notices of the source files:
+
+  Copyright © 2022 Imagination Technologies Ltd.
+  Copyright © 2024 Imagination Technologies Ltd.
+
+The MIT licence, as the source files carry it:
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice (including the next
+  paragraph) shall be included in all copies or substantial portions of the
+  Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+
+3. Material with a licence file of its own
+------------------------------------------
+
+Each of these is unmodified unless its directory says otherwise, and its licence travels with it:
+
+  resources/firmware/gpu/     the board GPU's published firmware (LICENSE; README.md names the
+                              conditions: binary redistribution unmodified, no disassembly)
+  resources/fonts/inter/      the user-interface typeface (LICENSE.txt)
+  resources/icons/lucide/     the line-icon set (LICENSE)
+  resources/cursors/mocu/     the pointer cursors (LICENSE.txt)
+  vendor/smoltcp/             the network stack (LICENSE-0BSD.txt)
+  tools/qemu-src/             the emulator the host lanes build and run (COPYING, LICENSE); a
+                              host tool, never part of the OS image
+
+Crate dependencies keep their licence texts in their own sources; the licences admitted into the
+build are held by config/deny.toml (its list of permissive licences and its per-crate exceptions).

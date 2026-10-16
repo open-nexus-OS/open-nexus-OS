@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 use super::alu::AluInstr;
 use super::backend::BackendInstr;
 use super::ctrl::CtrlInstr;
-use super::group::{Group, Instr};
+use super::group::{Group, Instr, Instrs};
 use super::header::{AluType, Header, OpOrg};
 use super::io::{bank, Dests, DstForm, Iss, Reg, SrcForm, Srcs};
 use super::{Phase, RogueError};
@@ -220,13 +220,15 @@ impl Main {
         if !(1..=4).contains(&self.repeat) {
             return Err(RogueError::TooWide { what: "repeat", value: self.repeat.into() });
         }
-        let mut instrs: Vec<(Phase, Instr)> = Vec::new();
+        let mut instrs = Instrs::new();
         if let Some(b) = self.backend {
-            instrs.push((Phase::Backend, Instr::Backend(b)));
+            instrs.push(Phase::Backend, Instr::Backend(b))?;
         }
         let mut alu = self.alu.clone();
         alu.sort_by(|a, b| b.0.cmp(&a.0));
-        instrs.extend(alu.into_iter().map(|(p, i)| (p, Instr::Alu(i))));
+        for (p, i) in alu {
+            instrs.push(p, Instr::Alu(i))?;
+        }
         let mut header = Header::new(AluType::Main, org as u8);
         header.brief = false;
         header.olchk = self.olchk;
@@ -261,7 +263,7 @@ pub fn ctrl(i: CtrlInstr, cc: u8) -> Group {
     header.cc = cc;
     let mut g = Group {
         header,
-        instrs: alloc::vec![(Phase::Ctrl, Instr::Ctrl(i))],
+        instrs: Instrs::one(Phase::Ctrl, Instr::Ctrl(i)),
         lower: None,
         upper: None,
         iss: None,

@@ -27,7 +27,7 @@
 
 use nexus_driverkit::gpu::{Access, GpuVa};
 use nexus_gfx::backend::gpu::csb::{isp, pbe};
-use nexus_gfx::backend::gpu::fwif::{FragCmd, GeomCmd, RenderFeatures};
+use nexus_gfx::backend::gpu::fwif::{FragCmd, GeomCmd, RenderFeatures, StreamBytes};
 use nexus_gfx::backend::gpu::pipelines::Placed;
 use nexus_gfx::backend::gpu::quads::{self, Bump, Quad, Template};
 use nexus_gfx::backend::gpu::scene::Scene;
@@ -42,9 +42,8 @@ use super::device_v2::Device;
 use super::emit;
 use super::render_blur;
 use super::render_template::{
-    clear_bgr, colour_over_clear_bgr, opaque_bgr, pds_at, premultiplied_bgr, render_streams,
-    straight_bgr, write_bound, Captured, COST_TAILS, GENERAL_ARENA, PDS_ARENA, SAMPLE_FRACTION,
-    STREAM_BUFFER, VERTEX_BUFFER,
+    clear_bgr, colour_over_clear_bgr, opaque_bgr, premultiplied_bgr, render_streams, straight_bgr,
+    Captured, PassSink, COST_TAILS, GENERAL_ARENA, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
 
@@ -172,11 +171,11 @@ fn streams_for(
     stream_base: u64,
     q: &Quad,
     area: bool,
-) -> Result<(alloc::vec::Vec<u8>, alloc::vec::Vec<u8>, alloc::vec::Vec<u8>), &'static str> {
+) -> Result<(StreamBytes, StreamBytes, StreamBytes), &'static str> {
     let mut g = GeomCmd::from_stream(base.geom, feats, base.geom_flags, 0, Default::default())
         .map_err(|_| "geometry stream")?;
     g.regs.vdm_ctrl_stream_base = stream_base;
-    let frag = |stream: &[u8], flags: u32| -> Result<alloc::vec::Vec<u8>, &'static str> {
+    let frag = |stream: &[u8], flags: u32| -> Result<StreamBytes, &'static str> {
         let mut f = FragCmd::from_stream(stream, feats, flags, 0).map_err(|_| "fragment stream")?;
         if area {
             let (x0, y0) = (q.x as u32, q.y as u32);
@@ -194,12 +193,14 @@ fn streams_for(
     ))
 }
 
-/// The rung's fixed context: the device's client and context, the bundle's streams, the target.
+/// The rung's fixed context: the device's client and context, the bundle's streams, the target;
+/// the most of gpud's heap a pass took.
 pub(super) struct Rig<'a> {
     pub client: ClientId,
     pub ctx: ContextId,
     pub base: RenderStreams<'a>,
     pub target_va: u64,
+    pub pass_heap: core::cell::Cell<usize>,
 }
 
 /// One pass of `qs` (the first names the area): emit, write, kick, stamp the stages.
@@ -213,16 +214,18 @@ pub(super) fn run(
     area: bool,
 ) -> Result<Pass, alloc::string::String> {
     let q = qs.first().ok_or("no quad")?;
-    let emitted = quads::emit(t, pipeline, qs, place).map_err(|e| alloc::format!("emit {e:?}"))?;
+    let heap_before = nexus_service_entry::os::heap_cursor().1;
     let (client, ctx) = (rig.client, rig.ctx);
-    write_bound(dev, client, VERTEX_BUFFER, emitted.vertex_offset, &emitted.vertices)?;
-    write_bound(dev, client, STREAM_BUFFER, emitted.stream_offset, &emitted.stream)?;
-    for w in &emitted.general {
-        write_bound(dev, client, GENERAL_ARENA, w.offset, &w.bytes)?;
-    }
-    for w in &emitted.pds {
-        write_bound(dev, client, PDS_ARENA, pds_at(PDS_ARENA, w.offset), &w.bytes)?;
-    }
+    let mut sink = PassSink { dev: &mut *dev, client, refused: None };
+    let emitted = match quads::emit(t, pipeline, qs, place, &mut sink) {
+        Ok(e) => e,
+        Err(e) => {
+            return Err(match sink.refused.take() {
+                Some(w) => alloc::format!("write {w}"),
+                None => alloc::format!("emit {e:?}"),
+            })
+        }
+    };
     let feats = dev.gpu.fw.render;
     let (geom, frag_pr, frag) =
         streams_for(&rig.base, feats, emitted.vdm_ctrl_stream_base, q, area)
@@ -256,6 +259,9 @@ pub(super) fn run(
     let t_end = now_ns();
     dev.gpu.drain_fwccb();
     let irqs = dev.gpu.irqs - irqs_before;
+    // What the pass took of gpud's heap, which never frees: nothing, when the pass went through.
+    let grown = nexus_service_entry::os::heap_cursor().1.saturating_sub(heap_before);
+    rig.pass_heap.set(rig.pass_heap.get().max(grown));
     if !done {
         return Err(alloc::format!(
             "pass lost after {}us (geom_us={} irqs={irqs})",
@@ -530,13 +536,18 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
         }
     };
     let mut place: Bump = COST_TAILS;
-    let rig = Rig { client, ctx, base, target_va: target.va };
+    let rig = Rig { client, ctx, base, target_va: target.va, pass_heap: core::cell::Cell::new(0) };
     match gate(dev, display, &canvas, &rig, &template, &area_layer, &mut place) {
         Ok(area_us) => pipelines(dev, display, &canvas, &rig, &template, &mut place, area_us),
         Err(e) => fail(&e),
     }
     display.gpu_canvas_discard(canvas.row);
-    // gpud's heap never frees: what the GPU rungs left of it.
+    // gpud's heap never frees: what the GPU rungs left of it, and the most a pass took.
     let (start, now, end) = nexus_service_entry::os::heap_cursor();
-    emit(&alloc::format!("gpud: gpu heap (used={} of={})", now - start, end - start));
+    emit(&alloc::format!(
+        "gpud: gpu heap (used={} of={} pass_bytes={})",
+        now - start,
+        end - start,
+        rig.pass_heap.get()
+    ));
 }

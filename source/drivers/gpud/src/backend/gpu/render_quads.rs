@@ -26,8 +26,8 @@ use nexus_gfx::backend::v2::{
 use super::device_v2::Device;
 use super::emit;
 use super::render_template::{
-    pds_at, premultiplied_bgr, render_streams, write_bound, Captured, GENERAL_ARENA, PDS_ARENA,
-    QUADS_TAILS, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
+    premultiplied_bgr, render_streams, Captured, PassSink, GENERAL_ARENA, QUADS_TAILS,
+    SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
 
@@ -65,21 +65,16 @@ fn probe(
     quads: &[Quad],
     place: &mut dyn Placer,
 ) -> Result<(u64, u32), alloc::string::String> {
-    let emitted =
-        quads::emit(t, pipeline, quads, place).map_err(|e| alloc::format!("emit {e:?}"))?;
-    let mut writes: alloc::vec::Vec<(u64, u32, &[u8])> = alloc::vec::Vec::new();
-    writes.push((VERTEX_BUFFER, emitted.vertex_offset, &emitted.vertices));
-    writes.push((STREAM_BUFFER, emitted.stream_offset, &emitted.stream));
-    for w in &emitted.general {
-        writes.push((GENERAL_ARENA, w.offset, &w.bytes));
-    }
-    for w in &emitted.pds {
-        writes.push((PDS_ARENA, pds_at(PDS_ARENA, w.offset), &w.bytes));
-    }
-    for (va, at, bytes) in writes {
-        write_bound(dev, client, va, at, bytes)
-            .map_err(|e| alloc::format!("write {va:#x}+{at:#x}: {e}"))?;
-    }
+    let mut sink = PassSink { dev: &mut *dev, client, refused: None };
+    let emitted = match quads::emit(t, pipeline, quads, place, &mut sink) {
+        Ok(e) => e,
+        Err(e) => {
+            return Err(match sink.refused.take() {
+                Some(w) => alloc::format!("write {w}"),
+                None => alloc::format!("emit {e:?}"),
+            })
+        }
+    };
     if canvas.block != 0 {
         if let Some(bytes) = display.gpu_canvas_bytes(canvas.row) {
             nexus_abi::cache_clean(bytes, canvas.block);

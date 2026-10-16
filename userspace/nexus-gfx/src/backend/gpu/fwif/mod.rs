@@ -31,6 +31,7 @@ pub use contexts::*;
 pub use freelist::*;
 pub use hwrt::*;
 pub use render::*;
+pub use render_stream::{StreamBytes, MAX_STREAM_BYTES};
 pub use transfer::*;
 
 /// The magic every command type carries in its upper half.

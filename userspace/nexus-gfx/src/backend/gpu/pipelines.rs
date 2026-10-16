@@ -3,11 +3,12 @@
 
 //! A context's pipelines on the board GPU (TASK-0215 5c-2 P4d, RFC-0101 §7b): the pipeline
 //! library a client supplies, parsed for this device and each accepted entry checked again for
-//! it — its program decodes into instruction groups within its budget, its setup decodes for its
-//! interface — then its program placed in the client's code heap and its setup programs and
-//! constant block in its setup heap, the kick naming where the program landed. The device
-//! patches no program byte; only the kick receives an address, and a draw's state load the
-//! constant block's. A draw names a pipeline by id, and an id the context did not accept is
+//! it — its program's instruction groups decoded one by one and counted within its budget (none
+//! kept: the table holds each pipeline's placement and setup, nothing more), its setup decoded
+//! for its interface — then its program placed in the client's code heap and its setup
+//! programs and constant block in its setup heap, the kick naming where the program landed. The
+//! device patches no program byte; only the kick receives an address, and a draw's state load
+//! the constant block's. A draw names a pipeline by id, and an id the context did not accept is
 //! refused. A context takes one library.
 
 use alloc::string::String;
@@ -17,7 +18,7 @@ use super::csb::ppp;
 use super::heaps;
 use crate::shader::ir::Stage;
 use crate::shader::library::{self, LibraryError, Refusal};
-use crate::shader::rogue::decode_program;
+use crate::shader::rogue::count_groups;
 use crate::shader::rogue::setup::Setup;
 
 /// Where a pipeline's bytes go: the client's code heap and setup heap.
@@ -129,11 +130,12 @@ impl PipelineTable {
         };
         let mut placed = Vec::with_capacity(lib.accepted.len());
         for e in &lib.accepted {
-            let Ok(groups) = decode_program(e.program) else {
+            // Every group decoded and checked, none kept: the table holds the count.
+            let Ok(groups) = count_groups(e.program) else {
                 out.refused.push((e.id, Refused::Program));
                 continue;
             };
-            if groups.len() > usize::from(e.budget) {
+            if groups > usize::from(e.budget) {
                 out.refused.push((e.id, Refused::OverBudget));
                 continue;
             }
@@ -165,7 +167,7 @@ impl PipelineTable {
             placed.push(Placed {
                 id: e.id,
                 name: String::from(e.name),
-                groups: groups.len() as u16,
+                groups: groups as u16,
                 pass_type: setup.state.pass_type,
                 exe_off,
                 kick,
