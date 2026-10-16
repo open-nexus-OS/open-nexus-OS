@@ -6,7 +6,9 @@
 //! pipeline's own words — the pass type, the setup's size word, the state load's two loads where
 //! the capture had four — and a second quad the two-quad capture's growth and blocks, both draws
 //! naming the pipeline's setup programs placed once; the bump placer puts every pass in fresh
-//! lines (H10); overflow and malformed templates are refused. The captured words:
+//! lines (H10); overflow and malformed templates are refused; a pass of mixed pipelines and
+//! textures gives each draw its own setup and descriptor and re-states the ISP words where the
+//! pass type changes (5c-3 P1). The captured words:
 //! `docs/board/measurements/2026-10-13-gpu-render-queue/capture/` (`render1`, `variants/r_2`).
 
 use std::alloc::{GlobalAlloc, Layout as AllocLayout, System};
@@ -468,4 +470,59 @@ fn a_pass_is_emitted_without_allocating() {
         + r.stream.len()
         + r.general.iter().chain(&r.pds).map(|w| w.bytes.len()).sum::<usize>();
     assert_eq!(tally.0, recorded);
+}
+
+/// A pass of mixed draws (TASK-0215 5c-3 P1): the wallpaper opaque with one texture, two layers
+/// translucent with another — each draw its pipeline's setup and its own texture's descriptor;
+/// the draw whose pass type differs from the one before re-states the ISP words, the next draw
+/// of the same type does not.
+#[test]
+fn a_mixed_pass_draws_each_quad_with_its_pipeline_and_texture() {
+    let b = blobs();
+    let t = template(&b);
+    let opaque = pipeline(PASS_OPAQUE);
+    let translucent = Placed { kick: 0x2a00, iterate: 0x2a40, ..pipeline(PASS_TRANSLUCENT) };
+    let (wall, layer) = (0x80_0004_b080u64, 0x80_0004_c100u64);
+    let draws = [
+        Draw { pipeline: &opaque, quad: quad(0.0, 0.0, [1.0; 4]), texture_va: wall },
+        Draw { pipeline: &translucent, quad: quad(100.0, 50.0, [1.0; 4]), texture_va: layer },
+        Draw { pipeline: &translucent, quad: quad(300.0, 90.0, [1.0; 4]), texture_va: layer },
+    ];
+    let mut r = Recorder::default();
+    let e = emit_draws(&t, draws.len(), &|i| draws[i], &mut bump(), &mut r).unwrap();
+    assert_eq!(e.draws, 3);
+    // The first draw: the 26-word block with the opaque pass type and the opaque setup, its
+    // uniform data base where the bump placed the draw's state data.
+    let first = r.general.iter().find(|w| w.bytes.len() == 104).expect("the 26-word block");
+    let mut want26 = ppp26_with(PASS_OPAQUE);
+    let data0 = r.pds.iter().find(|w| w.bytes.len() == 32).expect("state data").offset;
+    want26[40..44].copy_from_slice(&data0.to_le_bytes());
+    assert_eq!(first.bytes, want26);
+    // The second: ten words — the ISP words with the translucent pass type, its own setup.
+    let state = translucent.pds_state(0).words();
+    let ten = r.general.iter().find(|w| w.bytes.len() == 40).expect("the ten-word block");
+    let mut want =
+        vec![ppp::HEADER_ISP_PDS, PPP26[1], ppp::with_pass_type(PPP26[2], PASS_TRANSLUCENT)];
+    want.push(PPP26[3]);
+    let words = |b: &[u8]| -> Vec<u32> {
+        b.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+    };
+    let got = words(&ten.bytes);
+    assert_eq!(&got[..4], &want[..]);
+    assert_eq!(got[4], state[0], "the translucent pipeline's kick");
+    // The third, of the same pass type: the seven-word block.
+    let seven: Vec<_> = r.general.iter().filter(|w| w.bytes.len() == 28).collect();
+    assert_eq!(seven.len(), 1);
+    assert_eq!(words(&seven[0].bytes)[0], ppp::HEADER_PDS_ONLY);
+    // Each draw's state load names its own texture: the first source pair's address.
+    let source = |w: &Write| {
+        let v = words(&w.bytes);
+        u64::from(v[0]) | (u64::from(v[1] & 0xff) << 32)
+    };
+    let data: Vec<_> = r.pds.iter().filter(|w| w.bytes.len() == 32).collect();
+    assert_eq!(data.iter().map(|w| source(w)).collect::<Vec<_>>(), vec![wall, layer, layer]);
+    // The stream names the ten-word block with its length.
+    let ten_record = [0x0a80u32, (t.general_va + u64::from(ten.offset)) as u32];
+    let stream = words(&r.stream);
+    assert!(stream.windows(2).any(|w| w == ten_record), "the ten-word record");
 }

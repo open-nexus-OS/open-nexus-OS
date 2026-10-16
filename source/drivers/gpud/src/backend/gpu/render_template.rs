@@ -3,13 +3,15 @@
 
 //! What the render rungs share (TASK-0215 5b/5c, RFC-0101 §8d): the captured pass's blocks read
 //! back from the render bundle's live bindings (the stream's first records, the 26-word PPP
-//! block, the vertex PDS data — the fragment half is the library pipeline's since 5c-2 P4d), the
-//! places the pipeline library and the rungs' passes take in the bundle's buffers, the writes
-//! into bound buffers with their cache clean (a pass's blocks through [`PassSink`] as the emitter
-//! makes them, nothing allocated), the three render streams of the bundle, and the
-//! sample formulas — texel × tint as a premultiplied source over the clear; texel × tint alone
-//! for an opaque program.
+//! block, the vertex PDS data, the end-of-tile program and its pixel event data — the fragment
+//! half is the library pipeline's since 5c-2 P4d), the places the pipeline library, the passes'
+//! targets (5c-3 P1: an end-of-tile program copy per target, [`Targets`]) and the rungs' passes
+//! take in the bundle's buffers, the writes into bound buffers with their cache clean (a pass's
+//! blocks through [`PassSink`] as the emitter makes them, nothing allocated), the three render
+//! streams of the bundle, and the sample formulas — texel × tint as a premultiplied source over
+//! the clear; texel × tint alone for an opaque program.
 
+use nexus_gfx::backend::gpu::eot;
 use nexus_gfx::backend::gpu::quads::{Bump, Region, Sink, Template};
 use nexus_gfx::backend::gpu::scene::{JobKind, Scene};
 use nexus_gfx::backend::v2::{ClientId, RenderStreams};
@@ -28,9 +30,21 @@ pub(super) const CODE_HEAP_BASE: u64 = 0xe0_0000_0000;
 pub(super) const CODE_ARENA: u64 = 0xe0_0000_1000;
 /// The pipeline library's places, written once when the context takes its library and never
 /// again: the code arena's free tail (arena offsets) and the head of the PDS arena's free lines
-/// (heap offsets) — the quads rung's PDS lines begin after them.
+/// (heap offsets).
 pub(super) const LIBRARY_CODE: (u32, u32) = (0x8000, 0x1_0000);
-pub(super) const LIBRARY_PDS: (u32, u32) = (0x3000, 0x4000);
+pub(super) const LIBRARY_PDS: (u32, u32) = (0x3000, 0x3c00);
+/// The passes' targets' places (5c-3 P1), each written once when a pass first names its target:
+/// the end-of-tile program copies after the library's code (arena offsets), their pixel event
+/// data after the library's setup programs (heap offsets) — the quads rung's PDS lines begin
+/// after them.
+pub(super) const TARGET_CODE: (u32, u32) = (0x1_0000, 0x1_1000);
+pub(super) const TARGET_PDS: (u32, u32) = (0x3c00, 0x4000);
+/// The bundle's end-of-tile program (code-heap offset) and its pixel event data (PDS-heap
+/// offset) — the captured target's.
+const EOT_PROGRAM_HEAP: u64 = 0x7e80;
+const PIXEL_EVENT_HEAP: u32 = 0x2980;
+/// A plane's rows: the captured target spans one.
+const PLANE_ROWS: u32 = nexus_display_proto::layout::PLANE_ROWS;
 /// The captured first draw's blocks: the vertex PDS data (PDS heap offset), the 26-word PPP
 /// block (general arena offset); the texture's descriptor block the captured state load names
 /// (texture state, its sampler state at dword 8).
@@ -47,7 +61,7 @@ const TERMINATE_PPP: (u64, u32) = (GENERAL_ARENA + 0x40, 3);
 pub(super) const QUADS_TAILS: Bump = Bump {
     general_free: 0x1_0000,
     general_len: 0x1_8000,
-    pds_free: LIBRARY_PDS.1,
+    pds_free: TARGET_PDS.1,
     pds_len: 0x1_2000,
     stream_free: 0x100,
     stream_len: 0x800,
@@ -191,13 +205,73 @@ pub(super) fn render_streams<'a>(scene: &Scene<'a>) -> Option<RenderStreams<'a>>
     })
 }
 
-/// The captured first draw's vertex half and blocks, read back from the render bundle's
-/// bindings.
+/// A pass's target: its address, the rows it spans from there (a plane's stride each — what a
+/// pass may write must be bound), the PDS-heap offset of the pixel event data naming its
+/// end-of-tile program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Target {
+    pub va: u64,
+    pub rows: u32,
+    pub pixel_event: u32,
+}
+
+/// The targets passes have named, each with its end-of-tile program copy placed once.
+pub(super) struct Targets {
+    placed: [Option<Target>; MAX_TARGETS],
+    code_free: u32,
+    pds_free: u32,
+}
+
+/// Targets a context's passes name (the ring's slots, the frame's scratch and cache rows).
+const MAX_TARGETS: usize = 16;
+
+impl Targets {
+    pub(super) const fn new() -> Self {
+        Self { placed: [None; MAX_TARGETS], code_free: TARGET_CODE.0, pds_free: TARGET_PDS.0 }
+    }
+
+    /// The target at `va`: its end-of-tile program — the captured one retargeted — and the
+    /// pixel event data naming it written the first time a pass names it, never again.
+    pub(super) fn at(
+        &mut self,
+        dev: &mut Device,
+        client: ClientId,
+        c: &Captured,
+        va: u64,
+        rows: u32,
+    ) -> Result<Target, alloc::string::String> {
+        if let Some(t) = self.placed.iter().flatten().find(|t| t.va == va) {
+            return Ok(Target { rows, ..*t });
+        }
+        let slot = self.placed.iter().position(Option::is_none).ok_or("no target slot left")?;
+        let program = eot::retarget(&c.eot, va).map_err(|e| alloc::format!("end-of-tile {e:?}"))?;
+        let code_at = self.code_free;
+        let pds_at_heap = self.pds_free;
+        if code_at + 64 > TARGET_CODE.1 || pds_at_heap + 16 > TARGET_PDS.1 {
+            return Err(alloc::string::String::from("no place for a target"));
+        }
+        let code_heap = (CODE_ARENA - CODE_HEAP_BASE) as u32 + code_at;
+        let data = eot::data(&c.pixel_event, code_heap).map_err(|e| alloc::format!("{e:?}"))?;
+        write_bound(dev, client, CODE_ARENA, code_at, &program)?;
+        write_bound(dev, client, PDS_ARENA, pds_at(PDS_ARENA, pds_at_heap), &data)?;
+        (self.code_free, self.pds_free) = (code_at + 64, pds_at_heap + 16);
+        let t = Target { va, rows, pixel_event: pds_at_heap };
+        self.placed[slot] = Some(t);
+        Ok(t)
+    }
+}
+
+/// The captured first draw's vertex half and blocks, and the captured end-of-tile program and
+/// its pixel event data, read back from the render bundle's bindings.
 pub(super) struct Captured {
     pds_state: [u32; 3],
     vdm_state: [u32; 5],
     ppp26: alloc::vec::Vec<u8>,
     vs: alloc::vec::Vec<u8>,
+    eot: alloc::vec::Vec<u8>,
+    pixel_event: alloc::vec::Vec<u8>,
+    /// The address the captured end-of-tile program writes.
+    eot_target: u64,
 }
 
 impl Captured {
@@ -210,12 +284,29 @@ impl Captured {
             .ok_or("the PDS arena is not bound")?;
         let ppp26 = read_bound(dev, client, GENERAL_ARENA, PPP26_OFFSET, 104)
             .ok_or("the general arena is not bound")?;
+        let eot_at = (CODE_HEAP_BASE + EOT_PROGRAM_HEAP - CODE_ARENA) as u32;
+        let eot = read_bound(dev, client, CODE_ARENA, eot_at, eot::PROGRAM_BYTES)
+            .ok_or("the code arena is not bound")?;
+        let pixel_event =
+            read_bound(dev, client, PDS_ARENA, pds_at(PDS_ARENA, PIXEL_EVENT_HEAP), 8)
+                .ok_or("the PDS arena is not bound")?;
+        let eot_target =
+            eot::target(&eot).map_err(|_| "the end-of-tile program is not the captured one")?;
         Ok(Self {
             pds_state: [w[0], w[1], w[2]],
             vdm_state: [w[5], w[6], w[7], w[8], w[9]],
             ppp26,
             vs,
+            eot,
+            pixel_event,
+            eot_target,
         })
+    }
+
+    /// The captured target: the bundle's own end-of-tile program and its pixel event data — the
+    /// plane the rungs bind at the captured address.
+    pub(super) fn target(&self) -> Target {
+        Target { va: self.eot_target, rows: PLANE_ROWS, pixel_event: PIXEL_EVENT_HEAP }
     }
 
     /// The emitter's template, its per-pass blocks going to the buffers at the three addresses.

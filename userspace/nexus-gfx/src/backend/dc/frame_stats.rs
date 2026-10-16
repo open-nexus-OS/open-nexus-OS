@@ -2,15 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: What a present costs on the controller path, by the kind of command that spent
-//! it — the window `gpud: dc present us (…)` prints. One accumulator, alloc-free; the driver
-//! feeds it the time around each command and around the cache clean, and whether the frame
-//! was drawn into the plane the controller was scanning (the tear witness: every such present
-//! shows its intermediate states on the monitor).
+//! it — the window `gpud: dc present us (…)` prints — and what it asked for, by kind: the
+//! window `gpud: dc present mix (…)` (layers, glass and shadowed layers, copies, blurs and their
+//! pixels — the GPU frame's inputs, TASK-0215 5c-3). One accumulator, alloc-free; the driver
+//! feeds it each command with the time around it and the time around the cache clean, and
+//! whether the frame was drawn into the plane the controller was scanning (the tear witness:
+//! every such present shows its intermediate states on the monitor).
 //!
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 3 unit tests (this file)
+//! TEST_COVERAGE: 4 unit tests (this file)
 //!
 //! INVARIANTS: a window is sums over its presents, never a line per present or per command;
 //!   it closes after [`FrameStats::WINDOW`] presents and starts empty.
@@ -71,6 +73,93 @@ pub struct Window {
     pub damage_px: u32,
     /// Presents drawn into the plane the controller was scanning.
     pub front: u32,
+    /// What the window's presents asked for, summed (the mix line divides by `presents`).
+    pub mix: Mix,
+}
+
+/// What presents asked for, by kind: commands and the pixels they cover.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Mix {
+    /// Composited layers; those with a backdrop blur (glass) and those with a shadow.
+    pub layers: u32,
+    pub layer_px: u64,
+    pub glass: u32,
+    pub glass_px: u64,
+    pub shadowed: u32,
+    /// Copies between planes or atlas rows, and blurs on their own.
+    pub blits: u32,
+    pub blit_px: u64,
+    pub blurs: u32,
+    pub blur_px: u64,
+}
+
+impl Mix {
+    fn add(&mut self, command: &Command) {
+        let px = |w: u32, h: u32| u64::from(w) * u64::from(h);
+        match command {
+            Command::CompositeLayer { width, height, shadow_blur, backdrop_blur, .. } => {
+                self.layers += 1;
+                self.layer_px += px(*width, *height);
+                if *backdrop_blur > 0 {
+                    self.glass += 1;
+                    self.glass_px += px(*width, *height);
+                }
+                self.shadowed += u32::from(*shadow_blur > 0);
+            }
+            Command::BlitSurface { width, height, .. }
+            | Command::BlitAbsolute { width, height, .. } => {
+                self.blits += 1;
+                self.blit_px += px(*width, *height);
+            }
+            Command::BlurBackdrop { rect, .. } => {
+                self.blurs += 1;
+                self.blur_px += px(rect.width, rect.height);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The window's mix line: counts per present to a tenth, pixels per present.
+pub struct MixLine<'a>(&'a Window);
+
+impl fmt::Display for MixLine<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (n, m) = (u64::from(self.0.presents.max(1)), &self.0.mix);
+        let count = |c: u32| {
+            let tenths = u64::from(c) * 10 / n;
+            (tenths / 10, tenths % 10)
+        };
+        let (layers, glass, shadowed, blits, blurs) =
+            (count(m.layers), count(m.glass), count(m.shadowed), count(m.blits), count(m.blurs));
+        write!(
+            f,
+            "gpud: dc present mix (n={} layers={}.{} layer_px={} glass={}.{} glass_px={} \
+             shadowed={}.{} blits={}.{} blit_px={} blurs={}.{} blur_px={})",
+            self.0.presents,
+            layers.0,
+            layers.1,
+            m.layer_px / n,
+            glass.0,
+            glass.1,
+            m.glass_px / n,
+            shadowed.0,
+            shadowed.1,
+            blits.0,
+            blits.1,
+            m.blit_px / n,
+            blurs.0,
+            blurs.1,
+            m.blur_px / n
+        )
+    }
+}
+
+impl Window {
+    /// The window's `gpud: dc present mix (…)` line.
+    pub fn mix(&self) -> MixLine<'_> {
+        MixLine(self)
+    }
 }
 
 impl fmt::Display for Window {
@@ -97,6 +186,7 @@ pub struct FrameStats {
     stage_ns: [u64; Stage::COUNT],
     damage_px: u64,
     front: u32,
+    mix: Mix,
 }
 
 impl FrameStats {
@@ -108,6 +198,11 @@ impl FrameStats {
     pub fn command(&mut self, stage: Stage, ns: u64) {
         let slot = &mut self.stage_ns[stage as usize];
         *slot = slot.saturating_add(ns);
+    }
+
+    /// One command a present asked for, into the mix.
+    pub fn count(&mut self, command: &Command) {
+        self.mix.add(command);
     }
 
     /// One present is out: its commands took `exec_ns`, its cache clean `clean_ns`, over
@@ -140,6 +235,7 @@ impl FrameStats {
             stage_us: self.stage_ns.map(avg_us),
             damage_px: (self.damage_px / n).min(u64::from(u32::MAX)) as u32,
             front: self.front,
+            mix: self.mix,
         };
         *self = Self::default();
         Some(window)
@@ -183,6 +279,7 @@ mod tests {
             stage_us: [1, 2, 3, 4, 5, 6],
             damage_px: 2_073_600,
             front: 32,
+            mix: Mix::default(),
         };
         assert_eq!(
             alloc::format!("{window}"),
@@ -213,5 +310,57 @@ mod tests {
             Stage::of(&Command::BlendCursor { x: 0, y: 0, width: 1, height: 1 }),
             Stage::Other
         );
+    }
+
+    #[test]
+    fn the_mix_counts_what_presents_asked_for() {
+        let mut stats = FrameStats::default();
+        let rect = TileRect { x: 0, y: 0, width: 100, height: 50 };
+        let layer = |w: u32, h: u32, shadow: u32, blur: u32| Command::CompositeLayer {
+            src_row_abs: 0,
+            src_x: 0,
+            width: w,
+            height: h,
+            dst_x: 0,
+            dst_y: 0,
+            opacity: 255,
+            corner_radius: 0,
+            shadow_blur: shadow,
+            shadow_offset_y: 0,
+            shadow_alpha: 0,
+            backdrop_blur: blur,
+            scroll_id: 0,
+            content_w: 0,
+            content_h: 0,
+            scroll_band_top_abs: 0,
+            scroll_band_h: 0,
+            layer_id: 0,
+            content_epoch: 0,
+        };
+        let mut window = None;
+        for _ in 0..FrameStats::WINDOW {
+            // Per present: two layers (one glass with a shadow), one copy, one blur.
+            stats.count(&layer(200, 100, 0, 0));
+            stats.count(&layer(40, 30, 12, 20));
+            stats.count(&Command::BlitSurface {
+                src_x: 0,
+                src_y: 0,
+                dst_x: 0,
+                dst_y: 0,
+                width: 10,
+                height: 10,
+            });
+            stats.count(&Command::BlurBackdrop { rect, radius: 20, saturation_percent: 140 });
+            stats.count(&Command::BlendCursor { x: 0, y: 0, width: 1, height: 1 });
+            window = stats.present(1, 1, 1, false);
+        }
+        let window = window.expect("the window closed");
+        assert_eq!(window.mix.layers, 2 * FrameStats::WINDOW);
+        assert_eq!(
+            alloc::format!("{}", window.mix()),
+            "gpud: dc present mix (n=32 layers=2.0 layer_px=21200 glass=1.0 glass_px=1200 \
+             shadowed=1.0 blits=1.0 blit_px=100 blurs=1.0 blur_px=5000)"
+        );
+        assert_eq!(stats.present(1, 1, 1, false), None, "the next window starts empty");
     }
 }

@@ -123,6 +123,7 @@ impl Display for DcDisplay {
         self.cpu.display_row = row;
         let target = fb.target();
         for cmd in commands {
+            self.stats.count(cmd);
             // The pointer is the controller's layer: a software-blended pointer in a present is
             // the second implementation this path retired — skipped and counted, the present's
             // other commands still land (cycle 12 refused whole presents and the desktop
@@ -181,6 +182,7 @@ impl Display for DcDisplay {
         let damage_px = u64::from(damage.width) * u64::from(damage.height);
         if let Some(window) = self.stats.present(self.exec_ns, clean_ns, damage_px, front) {
             emit(&alloc::format!("{window}"));
+            emit(&alloc::format!("{}", window.mix()));
         }
         if !self.first_reported {
             // The first present's cost on the board's harts, once (a stats window takes 32).

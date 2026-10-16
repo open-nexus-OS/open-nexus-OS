@@ -697,6 +697,88 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
 | H34 | An input sampled inside iterate-and-sample and iterated again for arithmetic is the same coordinate | the rounded layer's corner pixel at the clear, its interior the texel; the shadow's edge where the formula puts it |
 | H35 | A pixel's cost follows its executions on the 5c-1 line | `layer-straight` ≈ 0.8 ns above `layer-premultiplied`; `layer-rounded` and `shadow` reported for 5c-3's segmentation |
 
+### 5c-3 — the frame (in progress since 2026-10-16; P0 measured from the code and cycle 20's present windows)
+
+**Measured first** (gpud's board present, windowd's encoder and the device read through; board
+cycle 20, `board--2026-10-16T12-47-10`):
+
+- **The board's present today**: a free slot of the ring, the retained plane (windowd's
+  CPU-rendered scene, Plane 1) copied into it whole (about 3 ms), windowd's commands run by the
+  CPU executor (`cpu_frame`), the damage cleaned, the flip at the next blank. Cycle 20: 100–200 ms
+  a present (`gpud: dc present us (…)`: `layer` 71–150 ms, `blur` 13–46 ms, `blit` 3–6 ms,
+  `shadow`, `fill`, `other` 0), the damage the whole screen in nearly every window.
+- **What windowd sends** (its encoder's `composite_layer_full`): per glass layer the CPU path's
+  recipe — its backdrop restored from the retained plane (`BlitSurface`), blurred in place
+  (`BlurBackdrop`), its cache rows written or read (`BlitAbsolute`) — then the layer
+  (`CompositeLayer`: an atlas rectangle, opacity, corner radius, shadow, and the blur radius once
+  more: the CPU executor blurs a glass backdrop twice). The virgl path reads the `CompositeLayer`
+  set alone — the wallpaper (Plane 0), then each layer's shadow, its glass blur from the
+  destination so far (cached), its content: the frame is the layer model; the restore, blur and
+  cache recipe is the CPU path's own.
+- **The device** (`backend/gpu/device_v2.rs`): one context, owned by gpud's boot rungs; the render
+  queue's firmware objects created once from the captured bundle's setup, in the bundle's
+  buffers; one pipeline table; a pass waited by spinning on the fragment timeline word between
+  interrupts.
+- **The emitter** (`quads::emit`): one pipeline and one texture descriptor a pass; the target the
+  captured stream's (the plane bound at the captured address); every block bumped into the
+  bundle's buffers' tails, never reused.
+- **So a frame needs**: a pass of mixed draws (each its own pipeline — pass type, setup — and
+  texture descriptor), a target per pass (the end-of-tile program's back-end words: a ring slot,
+  a GPU-only scratch), pass memory reused once the timeline has reached the pass that read it,
+  the frame planned from the layer set, windowd's context with its library over IPC.
+
+**The frame's form (from the measurements above):**
+
+- **One compositor model on both paths.** A frame planner (`nexus_gfx`, host-tested) turns the
+  retained layer set — with the scroll and transform overrides — into the frame's draws: the
+  wallpaper, then per layer its shadow, its glass step (the cache's read, or the blur written into
+  its rows; the key the destination-so-far fold the QEMU path keys by), its content; the frame's
+  area from the damage (buffer age). The virgl path executes the plan with its draws, the board's
+  display backend with GPU passes; `BlitSurface`, `BlurBackdrop` and `BlitAbsolute` stay the CPU
+  path's until 5d deletes it.
+- **One pass writes the slot**, limited to the frame's area and cleared inside it — everything
+  that touches the area is drawn again, so nothing needs the old pixels loaded. A glass whose
+  cache is stale gets three passes first: the scene below it rendered at half resolution straight
+  into a scratch (the draw is the downsample), the horizontal and the vertical blur into its cache
+  rows; the slot's pass samples the cache.
+- **Memory**: the pass arenas as rings reclaimed by timeline points; the scratch and the cache
+  GPU-only buffers of the context; nothing per pass from gpud's heap.
+
+**The context model (operator, 2026-10-16: B — several contexts now).** Compared first (the
+open kernel driver of this GPU family, Fuchsia's GPU driver model, the desktop and phone systems
+of a render-server design, OHOS): every one of them gives each client its own GPU address space —
+its page tables and the firmware's memory context — and owns the client's render context, free
+lists and dataset per client, torn down by the firmware's cleanup when the client goes; the UI is
+drawn in one privileged context of the highest priority (a compositor client, or a render server
+drawing the clients' layer trees — our windowd and gpud). So the device grows several contexts in
+this sub-step, each its own space, before windowd's context draws the desktop.
+
+| # | Package | Gate (board) |
+|---|---|---|
+| P1 | **The mixed pass**: a pipeline and a texture descriptor per draw, a target per pass (the end-of-tile back-end words), the arenas as rings reclaimed by timeline points; the present-mix instrument (`gpud: dc present mix (` — commands and pixels by kind) | a rung of mixed draws into a second target, and a frame's worth of passes through the rings without growth: `gpud: gpu mixed ok (` |
+| P2 | **Several contexts**: each context its own GPU address space (page tables, the firmware's memory context), its render context, free lists and dataset (the open kernel driver's per-client objects), torn down by the firmware's cleanup; the capabilities' `max_contexts` above one; isolation shown (a context's pass cannot reach another's memory) | two contexts drawing side by side, each refused the other's addresses: `gpud: gpu contexts ok (` |
+| P3 | **windowd's context**: created at windowd's request at the highest priority, its library over IPC (RFC-0101 §7b's wire form, identity `sender_service_id`, `test_reject_*` for the op), torn down when windowd goes (a supervision restart gets a fresh one) | `gpud: gpu library ok (client=windowd …)` |
+| P4 | **The desktop on the GPU**: the frame planner (host, shared with virgl — the QEMU lanes unchanged) and the board's executor in windowd's context — the layer set composed into the slot, flipped at the blank; the CPU composite kept behind a switch until 5d | `gpud: gpu desktop ok (frame_us=)`; the operator's desktop |
+| P5 | **What changed, only**: the frame's area from the damage (buffer age), the blur cached at half resolution | a hover-sized damage's `frame_us`; cache hits counted |
+
+- **P1 ✅ 2026-10-16 — the mixed pass** (board cycles 21–22, measurement README "5c-3 P1"):
+  the emitter takes draws of different pipelines and textures (`quads::emit_draws`, `Draw`): each
+  draw its pipeline's setup and its own texture descriptor, its block re-stating the ISP words
+  (pass type) where it differs from the draw before; `quads` split into the types and the
+  emitter (`quads/emit.rs`). A target per pass (`backend::gpu::eot`): the end-of-tile program's
+  two state words carry the target's address — a copy per target, placed once
+  (`render_template::Targets`), the fragment jobs' pixel event naming it. The pass memory as
+  rings (`quads::Rings`): a pass's lines taken until the timeline reached it, an emptied ring
+  starting again at its first line. The present mix measured (`gpud: dc present mix (`). Board:
+  cycle 21 red on the gate's own FAIL form (the second pass found no room — the rings kept their
+  head past what an empty ring holds; fixed on the host), cycle 22 `gpud: gpu mixed ok
+  (draws=3 targets=2 reads=8/8 … ring_passes=48 ring_reads=96/96 reused=49 stale=0
+  heap_bytes=0)`, `[PASS] board-visible` 63 rungs, the operator's eight confirmations; H47–H50
+  confirmed — data lines are reused once their pass is reached (H10 narrowed: programs stay
+  placed once). Carried: a mixed pass's cost (7.5 ms for three draws against ~1.3 ms predicted)
+  split in P2's first cycle; the desktop asks for 3–9 layers a present over about one screen,
+  1–7 glass layers of 70–300 K pixels.
+
 ## Hypotheses 5a's first cycle decides
 
 | # | Hypothesis | Decision line |

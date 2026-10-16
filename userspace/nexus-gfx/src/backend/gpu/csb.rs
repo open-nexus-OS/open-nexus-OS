@@ -54,7 +54,11 @@ pub mod vdm {
 
 /// The primitive-pipeline state blocks (PPP).
 pub mod ppp {
-    /// `STATE_HEADER` presence bits.
+    /// `STATE_HEADER` presence bits: the ISP words (control, front A — its pass type —, front
+    /// B), the PDS state pointers.
+    pub const PRES_ISPCTL: u32 = 1 << 0;
+    pub const PRES_ISPCTL_FA: u32 = 1 << 1;
+    pub const PRES_ISPCTL_FB: u32 = 1 << 2;
     pub const PRES_PDS_STATE_PTR0: u32 = 1 << 6;
     pub const PRES_PDS_STATE_PTR1: u32 = 1 << 7;
     pub const PRES_PDS_STATE_PTR2: u32 = 1 << 8;
@@ -62,6 +66,9 @@ pub mod ppp {
     /// A block that updates the fragment PDS pointers only (the open driver's per-draw block).
     pub const HEADER_PDS_ONLY: u32 =
         PRES_PDS_STATE_PTR0 | PRES_PDS_STATE_PTR1 | PRES_PDS_STATE_PTR3;
+    /// A block that re-states the ISP words with the PDS pointers: a draw whose pass type
+    /// differs from the draw before (the words in the presence bits' order).
+    pub const HEADER_ISP_PDS: u32 = PRES_ISPCTL | PRES_ISPCTL_FA | PRES_ISPCTL_FB | HEADER_PDS_ONLY;
 
     /// The fragment PDS state: programs and sizes.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +101,13 @@ pub mod ppp {
         pub const fn block(&self) -> [u32; 7] {
             let w = self.words();
             [HEADER_PDS_ONLY, w[0], w[1], w[2], w[3], w[4], w[5]]
+        }
+
+        /// A ten-word per-draw block: header, the ISP words `isp` (control, front A, front B),
+        /// the six words.
+        pub const fn block_with_isp(&self, isp: [u32; 3]) -> [u32; 10] {
+            let w = self.words();
+            [HEADER_ISP_PDS, isp[0], isp[1], isp[2], w[0], w[1], w[2], w[3], w[4], w[5]]
         }
     }
 
@@ -196,6 +210,10 @@ mod tests {
         assert_eq!(vdm::index_list(6, None, 6), ([0x6800_0600, 6, 0], 2));
         assert_eq!(vdm::index_list(6, Some(6), 6), ([0x6a00_0600, 6, 6], 3));
         assert_eq!(vdm::TERMINATE, 0xc000_0000);
+        // The captured 26-word block's header (0x007f0ee7) presents the three ISP words and the
+        // PDS pointers the per-draw blocks re-state.
+        assert_eq!(0x007f_0ee7 & ppp::HEADER_ISP_PDS, ppp::HEADER_ISP_PDS);
+        assert_eq!(ppp::HEADER_ISP_PDS, 0x2c7);
     }
 
     #[test]

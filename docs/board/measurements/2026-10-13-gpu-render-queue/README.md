@@ -869,3 +869,74 @@ pass_bytes=0)`.
 
 **Verdict.** The board is unchanged by the QEMU path's move onto the library: one set of WGSL
 sources now feeds both GPUs' libraries, and the layer's larger block costs the board nothing.
+
+## 5c-3 P1 — the mixed pass (host 2026-10-16; board cycle 21)
+
+**Question.** The frame (TASK-0215 5c-3) draws its wallpaper opaque and its layers translucent,
+each with its own texture, into a ring slot or a scratch, pass after pass for gpud's whole life.
+Three things a pass could not do: mix pipelines and textures (one pipeline and one descriptor a
+pass), name its target (the captured end-of-tile program writes the captured plane), reuse its
+memory (every pass bumped into fresh lines, H10). Read on the host first: the end-of-tile program
+(code heap `0x7e80`, 40 bytes) is two moves of an immediate — the back end's state word 1
+(`0x00082020`: the address's bits 34–39 beside the stride and the format) and state word 0
+(`0x0002c400`: the address's bits 2–33) — and the emit; the pixel event data (PDS heap `0x2980`)
+names it. The open kernel driver issues no cache invalidation; the open userspace driver reuses
+its transient memory once its job is done.
+
+**Instrument.** `gpud: gpu mixed ok (draws= targets= reads= mixed_us= ring_passes= ring_reads=
+reused= stale= heap_bytes=)`: one pass of three draws (opaque over the checker, straight over a
+colour block the CPU wrote — its own descriptor —, rounded over the checker; the pass type
+changes at the second draw, whose block re-states the ISP words) into the plane through a copy
+of the end-of-tile program, and into the plane 540 rows down through another; then 48 passes of
+one to three draws, each draw its own tint, through small rings in the tails earlier rungs drew
+in — each pass reached before the next begins, so every pass writes the very lines the pass
+before read (`reused=`) — every sample read after its pass. Beside it `gpud: dc present mix (…)`: what the desktop's
+presents ask for, by kind (layers, glass, shadowed, copies, blurs; their pixels).
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H47 | A pass of mixed draws runs as emitted: each draw its pipeline, its pass type (the ISP words where it changes), its own texture | the three samples and the corner right in the first target |
+| H48 | A copy of the end-of-tile program with another address sends the pass's tiles there | the four reads right 540 rows down; the first target through its own copy right as well |
+| H49 | A line read by a pass the timeline has reached is read fresh when later passes write it again (the open userspace driver reuses its transient memory so). 5b lost a draw when a pass rewrote, past the old `TERMINATE`, the stream the waited pass before had read — the ring's wrap is that case, so this cycle decides between the two | 48 ring passes, every draw's tint right (`stale=0`), 47 of them on the lines the pass before read (`reused=47`); refuted (a draw lost or a tint of an earlier pass), the frame's rings need a cache invalidation before reuse |
+| H50 | The rings take nothing of gpud's heap | `heap_bytes=0` |
+
+**Cycle 21 — red, the cause named** (`board--2026-10-16T15-01-02`, `cycle21-gpu-lines.txt`,
+`cycle21-board-test.txt`; the operator's eight confirmations; `[FAIL] board-visible` on the
+rung's FAIL form): `gpud: FAIL gpu mixed (mixed pass at row 540: emit Space)`. The first target's
+pass ran and read right — **H47 confirmed** (three pipelines, the pass type changing at the
+second draw, the colour block through its own descriptor, the rounded layer's corner at the
+clear), and the first target went through a copy of the end-of-tile program (H48's first half).
+The second pass found no room: the rings kept their head where the first pass ended, five of
+the vertex ring's seven lines in, and a block never wraps — the empty ring refused a five-line
+block its tail could not hold. Fixed on the host: an emptied ring starts again from its first
+line (`an_emptied_ring_holds_a_block_its_tail_would_not`), which also makes every ring pass write
+the lines the pass before read — the hardest case for H49. Every other line as in cycle 20.
+Measured beside it — what the desktop asks for (`gpud: dc present mix (…)`, eleven windows):
+3–9 layers a present covering about one screen (2.1–2.4 M pixels: the desktop's band and the
+windows), 1–7 of them glass but only 70–300 K glass pixels, 1–4 with a shadow, 2–9 copies of
+0.3–1.2 M pixels, a blur for every glass layer over the glass's pixels — the blur cache pays for
+itself, the frame's cost is the layers.
+
+**Results — the board, cycle 22** (`board--2026-10-16T15-10-07`, `cycle22-gpu-lines.txt`,
+`cycle22-board-test.txt`; `[PASS] board-visible`, 63 rungs, the operator's eight confirmations):
+
+`gpud: gpu mixed ok (draws=3 targets=2 reads=8/8 mixed_us=14994 ring_passes=48 ring_reads=96/96
+reused=49 stale=0 heap_bytes=0)`; every other line as in cycle 20.
+
+- **H47 confirmed** (cycle 21 already): one pass, three pipelines, the pass type changing at the
+  second draw, each draw its own texture.
+- **H48 confirmed.** The same pass 540 rows down, through the second copy of the end-of-tile
+  program, read right — a pass names its target by the program its pixel event kicks.
+- **H49 confirmed.** 49 passes wrote the very lines the pass before had read once it was reached,
+  and all 96 tints read right: the GPU keeps no data line of a finished pass. 5b's lost draw
+  narrows to what it rewrote besides the stream — per-draw program copies; programs stay placed
+  once and never rewritten (H31), data lines are reused once their pass is reached.
+- **H50 confirmed.** The rings took nothing of gpud's heap.
+- Measured, not decided here: the two mixed passes took 15.0 ms — about 7.5 ms a pass of three
+  draws over a 1156x256 area, where the pipeline gate's per-pixel costs predict about 1.3 ms. P2's
+  first cycle splits it (geometry and fragment stage per pass, the pass type change, the first
+  pass into a target).
+
+**Verdict.** A pass can now be a frame's pass: mixed pipelines and textures, any target of the
+plane's stride, its memory reused as soon as the timeline says the pass that read it is done.
+

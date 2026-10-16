@@ -44,6 +44,7 @@ mod render;
 mod render_blur;
 pub(crate) mod render_cost;
 pub(crate) mod render_library;
+mod render_mixed;
 pub(crate) mod render_quad;
 pub(crate) mod render_quads;
 mod render_template;

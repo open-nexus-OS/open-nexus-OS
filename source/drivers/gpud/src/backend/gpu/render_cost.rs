@@ -29,7 +29,7 @@ use nexus_driverkit::gpu::{Access, GpuVa};
 use nexus_gfx::backend::gpu::csb::{isp, pbe};
 use nexus_gfx::backend::gpu::fwif::{FragCmd, GeomCmd, RenderFeatures, StreamBytes};
 use nexus_gfx::backend::gpu::pipelines::Placed;
-use nexus_gfx::backend::gpu::quads::{self, Bump, Quad, Template};
+use nexus_gfx::backend::gpu::quads::{self, Bump, Draw, Placer, Quad, Template};
 use nexus_gfx::backend::gpu::scene::Scene;
 use nexus_gfx::backend::gpu::CoreId;
 use nexus_gfx::backend::v2::{
@@ -43,7 +43,8 @@ use super::emit;
 use super::render_blur;
 use super::render_template::{
     clear_bgr, colour_over_clear_bgr, opaque_bgr, premultiplied_bgr, render_streams, straight_bgr,
-    Captured, PassSink, COST_TAILS, GENERAL_ARENA, SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
+    Captured, PassSink, Target, COST_TAILS, GENERAL_ARENA, SAMPLE_FRACTION, STREAM_BUFFER,
+    VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
 
@@ -80,12 +81,14 @@ const SHADOW_COLOUR: [f32; 4] = [0.0, 0.0, 0.0, 90.0 / 255.0];
 /// (`docs/board/measurements/2026-10-10-gpu-stock-baseline/`).
 const STOCK_OPAQUE_FILL_CNS: u64 = 180;
 
-/// One pass's times from the kick: the whole, the geometry stage, the fragment stage.
+/// One pass's times from the kick: the whole, the geometry stage, the fragment stage; the
+/// timeline point it was submitted at.
 pub(super) struct Pass {
     pub us: u64,
     pub geom_us: u64,
     pub frag_us: u64,
     pub irqs: u32,
+    pub point: TimelinePoint,
 }
 
 fn now_ns() -> u64 {
@@ -99,7 +102,7 @@ fn quad(size: u32) -> Quad {
 }
 
 /// The sample point inside a quad.
-fn sample_at(q: &Quad) -> (usize, usize) {
+pub(super) fn sample_at(q: &Quad) -> (usize, usize) {
     ((q.x + SAMPLE_FRACTION * q.w) as usize, (q.y + SAMPLE_FRACTION * q.h) as usize)
 }
 
@@ -141,7 +144,7 @@ fn sample(
 }
 
 /// Whether the pixel at `xy` reads `want`; the reading for the line otherwise.
-fn read(
+pub(super) fn read(
     display: &mut dyn Display,
     canvas: &GpuCanvas,
     xy: (usize, usize),
@@ -163,23 +166,22 @@ fn read(
 }
 
 /// The three streams of a pass: the geometry naming the pass's control stream; the fragment
-/// jobs with the back end's clip and no background on empty tiles when the pass is
-/// area-limited.
+/// jobs naming the target's end-of-tile program, with the back end's clip and no background on
+/// empty tiles when the pass is limited to an area (`x0`, `y0`, `x1`, `y1`, inclusive).
 fn streams_for(
     base: &RenderStreams<'_>,
     feats: RenderFeatures,
     stream_base: u64,
-    q: &Quad,
-    area: bool,
+    area: Option<(u32, u32, u32, u32)>,
+    target: Target,
 ) -> Result<(StreamBytes, StreamBytes, StreamBytes), &'static str> {
     let mut g = GeomCmd::from_stream(base.geom, feats, base.geom_flags, 0, Default::default())
         .map_err(|_| "geometry stream")?;
     g.regs.vdm_ctrl_stream_base = stream_base;
     let frag = |stream: &[u8], flags: u32| -> Result<StreamBytes, &'static str> {
         let mut f = FragCmd::from_stream(stream, feats, flags, 0).map_err(|_| "fragment stream")?;
-        if area {
-            let (x0, y0) = (q.x as u32, q.y as u32);
-            let (x1, y1) = (x0 + q.w as u32 - 1, y0 + q.h as u32 - 1);
+        f.regs.event_pixel_pds_data = target.pixel_event;
+        if let Some((x0, y0, x1, y1)) = area {
             f.regs.pbe_word[0] = pbe::with_min_x(f.regs.pbe_word[0], x0);
             f.regs.pbe_word[1] = pbe::with_clip(f.regs.pbe_word[1], y0, x1, y1);
             f.regs.isp_ctl &= !isp::CTL_PROCESS_EMPTY_TILES;
@@ -193,17 +195,18 @@ fn streams_for(
     ))
 }
 
-/// The rung's fixed context: the device's client and context, the bundle's streams, the target;
-/// the most of gpud's heap a pass took.
+/// The rung's fixed context: the device's client and context, the bundle's streams, the
+/// captured target (the plane bound at the captured address); the most of gpud's heap a pass
+/// took.
 pub(super) struct Rig<'a> {
     pub client: ClientId,
     pub ctx: ContextId,
     pub base: RenderStreams<'a>,
-    pub target_va: u64,
+    pub target: Target,
     pub pass_heap: core::cell::Cell<usize>,
 }
 
-/// One pass of `qs` (the first names the area): emit, write, kick, stamp the stages.
+/// One pass of `qs` into the captured target (the first quad names the area when `area`).
 pub(super) fn run(
     dev: &mut Device,
     rig: &Rig<'_>,
@@ -214,10 +217,31 @@ pub(super) fn run(
     area: bool,
 ) -> Result<Pass, alloc::string::String> {
     let q = qs.first().ok_or("no quad")?;
+    let clip = area.then(|| {
+        let (x0, y0) = (q.x as u32, q.y as u32);
+        (x0, y0, x0 + q.w as u32 - 1, y0 + q.h as u32 - 1)
+    });
+    let draw = |i: usize| Draw { pipeline, quad: qs[i], texture_va: t.texture_va };
+    run_draws(dev, rig, t, qs.len(), &draw, place, clip, rig.target)
+}
+
+/// One pass of `n` draws (draw `i` is `draw(i)`) into `target`, limited to `clip` when given:
+/// emit, write, kick, stamp the stages.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_draws<'p>(
+    dev: &mut Device,
+    rig: &Rig<'_>,
+    t: &Template<'_>,
+    n: usize,
+    draw: &dyn Fn(usize) -> Draw<'p>,
+    place: &mut dyn Placer,
+    clip: Option<(u32, u32, u32, u32)>,
+    target: Target,
+) -> Result<Pass, alloc::string::String> {
     let heap_before = nexus_service_entry::os::heap_cursor().1;
     let (client, ctx) = (rig.client, rig.ctx);
     let mut sink = PassSink { dev: &mut *dev, client, refused: None };
-    let emitted = match quads::emit(t, pipeline, qs, place, &mut sink) {
+    let emitted = match quads::emit_draws(t, n, draw, place, &mut sink) {
         Ok(e) => e,
         Err(e) => {
             return Err(match sink.refused.take() {
@@ -228,10 +252,10 @@ pub(super) fn run(
     };
     let feats = dev.gpu.fw.render;
     let (geom, frag_pr, frag) =
-        streams_for(&rig.base, feats, emitted.vdm_ctrl_stream_base, q, area)
+        streams_for(&rig.base, feats, emitted.vdm_ctrl_stream_base, clip, target)
             .map_err(alloc::string::String::from)?;
     let batch = Batch {
-        target: RenderTarget { va: GpuVa(rig.target_va), width: WIDTH, height: HEIGHT },
+        target: RenderTarget { va: GpuVa(target.va), width: WIDTH, height: target.rows },
         stream: Stream::Render(RenderStreams {
             geom: &geom,
             frag_pr: &frag_pr,
@@ -243,7 +267,8 @@ pub(super) fn run(
     };
     let irqs_before = dev.gpu.irqs;
     let t0 = now_ns();
-    dev.submit(client, ctx, QueueKind::Render, &batch)
+    let point = dev
+        .submit(client, ctx, QueueKind::Render, &batch)
         .map_err(|e| alloc::format!("submit {e:?}"))?;
     let Some(((gtl, gseq), (ftl, fseq))) = dev.render_progress() else {
         return Err(alloc::string::String::from("no render objects"));
@@ -274,6 +299,7 @@ pub(super) fn run(
         geom_us: t_geom.saturating_sub(t0) / 1000,
         frag_us: t_end.saturating_sub(t_geom.max(t0)) / 1000,
         irqs,
+        point,
     })
 }
 
@@ -410,7 +436,7 @@ fn cost(
 }
 
 /// The library pipeline of `name`.
-fn named(dev: &Device, name: &str) -> Result<Placed, alloc::string::String> {
+pub(super) fn named(dev: &Device, name: &str) -> Result<Placed, alloc::string::String> {
     match dev.pipelines.id_of(name).map(|id| dev.pipelines.get(id)) {
         Some(Ok(p)) => Ok(p.clone()),
         _ => Err(alloc::format!("{name} is not in the context's library")),
@@ -536,9 +562,17 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
         }
     };
     let mut place: Bump = COST_TAILS;
-    let rig = Rig { client, ctx, base, target_va: target.va, pass_heap: core::cell::Cell::new(0) };
+    if captured.target().va != target.va {
+        display.gpu_canvas_discard(canvas.row);
+        return fail("the end-of-tile program writes another target than the scene's");
+    }
+    let rig =
+        Rig { client, ctx, base, target: captured.target(), pass_heap: core::cell::Cell::new(0) };
     match gate(dev, display, &canvas, &rig, &template, &area_layer, &mut place) {
-        Ok(area_us) => pipelines(dev, display, &canvas, &rig, &template, &mut place, area_us),
+        Ok(area_us) => {
+            pipelines(dev, display, &canvas, &rig, &template, &mut place, area_us);
+            super::render_mixed::rung(dev, display, &canvas, &rig, &template, &captured);
+        }
         Err(e) => fail(&e),
     }
     display.gpu_canvas_discard(canvas.row);

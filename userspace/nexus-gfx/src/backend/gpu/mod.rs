@@ -30,8 +30,10 @@
 //! - [`scene`] — the captured scene bundles (buffers, jobs, render trailer) the rungs replay.
 //! - [`csb`] — the control-stream words the device writes (VDM, PPP, PDS state, the clip and
 //!   empty-tile bits) from the open driver's word layouts.
-//! - [`quads`] — the emitter: N textured, tinted quads drawn with a library pipeline, every pass
-//!   in fresh memory.
+//! - [`quads`] — the emitter: a pass of textured quads, each draw its library pipeline and its
+//!   texture, every pass in fresh memory.
+//! - [`eot`] — the end-of-tile program: a pass's target, as the two back-end state words the
+//!   program loads (a copy per target).
 //! - [`pipelines`] — a context's pipelines: the client's library parsed, checked and placed, a
 //!   draw's pipeline found by id (RFC-0101 §7b).
 //! - [`texstate`] — a texture's descriptor block: the image and sampler words of a stride
@@ -48,6 +50,7 @@
 
 pub mod ccb;
 pub mod csb;
+pub mod eot;
 pub mod fw_features;
 pub mod fw_image;
 pub mod fwif;

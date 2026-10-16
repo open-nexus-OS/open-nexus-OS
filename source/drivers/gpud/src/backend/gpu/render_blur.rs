@@ -118,10 +118,10 @@ fn write_backdrop(display: &mut dyn Display, canvas: &GpuCanvas) -> bool {
 }
 
 /// `image`'s descriptor written into fresh lines of the general arena: its address.
-fn descriptor(
+pub(super) fn descriptor(
     dev: &mut Device,
     rig: &Rig<'_>,
-    place: &mut Bump,
+    place: &mut dyn Placer,
     image: &Image,
 ) -> Result<u64, String> {
     let bytes = descriptor_bytes(image, &Sampler::BILINEAR_CLAMP)
@@ -132,9 +132,9 @@ fn descriptor(
 }
 
 /// The plane as a texture from `(x, y)` on, `w` × `h`: blue, green, red, alpha words.
-fn plane(rig: &Rig<'_>, (x, y): (u32, u32), w: u32, h: u32) -> Image {
+pub(super) fn plane(rig: &Rig<'_>, (x, y): (u32, u32), w: u32, h: u32) -> Image {
     Image {
-        address: rig.target_va + u64::from(y) * STRIDE as u64 + u64::from(x) * 4,
+        address: rig.target.va + u64::from(y) * STRIDE as u64 + u64::from(x) * 4,
         width: w,
         height: h,
         stride: WIDTH,

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-16 (Block 4, layer 5c-3 P1: the mixed pass — TASK-0215, RFC-0101 §8d)
+
+- **A pass of mixed draws** (`nexus_gfx::backend::gpu::quads::emit_draws`, `Draw`): each draw its
+  own pipeline — setup programs and pass type, the ISP words re-stated where the type changes —
+  and its own texture descriptor; a frame's wallpaper opaque and its layers translucent in one
+  pass. The emitter moved into `quads/emit.rs`.
+- **A target per pass** (`backend::gpu::eot`): the end-of-tile program carries the target's
+  address in its two back-end state words; gpud places a copy per target once and names it in
+  the fragment jobs' pixel event.
+- **The pass memory as rings** (`quads::Rings`): a pass's lines stay taken until the timeline
+  reached it; an emptied ring starts again at its first line. On the board 49 passes rewrote the
+  lines the pass before had read and every draw read right — the GPU keeps no data line of a
+  finished pass.
+- **The present mix** (`gpud: dc present mix (…)`): what the desktop's presents ask for by kind —
+  3–9 layers covering about one screen, 1–7 glass layers of 70–300 K pixels, their copies and
+  blurs.
+- The board rung `gpud: gpu mixed ok (…)` (board ladder 63 rungs); board cycles 21 (red on the
+  rung's own FAIL form, the ring's head fixed on the host) and 22 (`[PASS] board-visible`).
+
 ### Changed - 2026-10-16 (Block 4, layer 5c-2 P6: the QEMU path draws our own programs — TASK-0215, ADR-0072)
 
 - **The virtual GPU's backend** (`nexus_gfx::shader::tgsi`): our IR compiled into the shader text

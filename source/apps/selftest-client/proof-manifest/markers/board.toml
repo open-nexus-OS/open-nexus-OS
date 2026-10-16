@@ -221,6 +221,15 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-2 P3c-P5d: every pipeline of the compositor library (compiled from WGSL by our toolchain, placed by the library rung with our own setup programs and constant blocks) drawn on a pass limited to its quad: the opaque, premultiplied and straight-alpha layers read texel x tint (straight premultiplied by its own alpha) over the clear, the rounded layer reads it in its interior and leaves its corner pixel at the clear, a window's drop shadow is knocked out under the window and shows below it at the shadow formula's alpha; the glass blur's chain over a backdrop the CPU wrote (the horizontal pass into half resolution, the vertical pass with the saturation, the rounded layer sampling the result back, each texture read through our own descriptor) reads the full-resolution gaussian's formula inside the glass within six levels; and the opaque layer costs no more a pixel than the stock stack's opaque textured fill (1.8 ns)"
 
+# TASK-0215 5c-3 P1 (RFC-0101 §8d): what a frame needs of a pass — draws of different pipelines,
+# pass types and textures in one pass, a target per pass through its own end-of-tile program,
+# the pass memory as rings reused once the timeline reached the pass that read them;
+# `gpud: FAIL gpu mixed (` is its FAIL form.
+[marker."gpud: gpu mixed ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P1: one pass of three draws — the opaque layer over the checker, a straight layer over a colour block the CPU wrote (its own texture descriptor), a rounded layer over the checker (the pass type changing at the second draw) — drawn into two targets (the plane at its address and 540 rows down, each through its own copy of the end-of-tile program), every sample and the rounded layer's corner right in both; then 48 passes of one to three draws, each draw its own tint, through rings a few passes deep that wrapped many times: every sample right (no line the GPU held from an earlier pass) and gpud's heap unmoved"
+
 [marker."gpud: FAIL gpu "]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
@@ -239,6 +248,11 @@ proves = "TASK-0251 P2a step 2: the cost of windowd's first present on the board
 phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "Block 4 layer 0 (the M/G/S baseline): what a present costs on the controller path — the average and the slowest of a 32-present window, the cache clean, the split by command kind (blur, layer, shadow, blit, fill), the damage, and `front`: how many of the window's presents were drawn into the plane the controller was scanning (a measurement; the tear gate of the scanout contract reads `front=0`)"
+
+[marker."gpud: dc present mix ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P1: what a 32-present window asked for, by kind — layers (glass, shadowed) and their pixels, copies, blurs and their pixels, per present (a measurement: the GPU frame's inputs)"
 
 [marker."gpud: dc reveal flip ok ("]
 phase = "bringup"

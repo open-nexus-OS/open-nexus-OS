@@ -1,0 +1,3 @@
+[board-test] judging build/logs/board--2026-10-16T15-01-02/uart.log as profile board-visible
+      1 gpud: FAIL gpu mixed (mixed pass at row 540: emit Space)
+[FAIL] board-visible: FAIL markers in the trace (not allow-listed in config/fail-marker-allow.txt or config/fail-marker-allow-board.txt)
