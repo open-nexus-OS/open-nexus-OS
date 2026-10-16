@@ -3,8 +3,8 @@
 
 //! `nxgpu library <manifest.toml> --out <file>`: the pipeline library of a manifest's variants
 //! (sources relative to the manifest), its bytes written to `--out`, each entry's facts printed
-//! (groups against budget, temporaries, pass type, program bytes) and the archive's size and
-//! FNV-1a 64 digest.
+//! (on the board groups against budget, temporaries, pass type; on the virtual GPU instructions
+//! against budget; program bytes) and the archive's size and FNV-1a 64 digest.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -39,6 +39,13 @@ fn run(args: &[String]) -> Result<(), String> {
     let (bytes, built) = build(&manifest, source).map_err(|e| format!("{path}: {e}"))?;
     std::fs::write(out, &bytes).map_err(|e| format!("{out}: {e}"))?;
     for b in &built {
+        if manifest.target == nexus_gfx::shader::tgsi::CODE_TARGET {
+            println!(
+                "  {} {}: instructions={}/{} bytes={}",
+                b.id, b.name, b.groups, b.budget, b.bytes
+            );
+            continue;
+        }
         println!(
             "  {} {}: groups={}/{} temps={} pass={} bytes={}",
             b.id,

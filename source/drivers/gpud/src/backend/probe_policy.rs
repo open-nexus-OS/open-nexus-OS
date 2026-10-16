@@ -3,8 +3,8 @@
 
 //! CONTEXT: Probe-time GPU capability proof + scanout policy enforcement,
 //! split out of `backend/mod.rs::probe` (structure gate). The virgl build runs
-//! the 3D self-test cascade (context → SUBMIT_3D → RT clear → shaders → draw
-//! readback → gradient → layer composite) and emits exactly one of
+//! the 3D self-test cascade (context → SUBMIT_3D → RT clear → the pipeline
+//! library → draw readback → gradient → layer composite) and emits exactly one of
 //! `gpud: virgl ready` / `gpud: cpu fallback`; then BOTH builds apply
 //! `scanout_policy`: a GL device is driven through the GL render target or the
 //! service exits loudly (TASK-0324 P0).
@@ -47,14 +47,15 @@ impl VirtioGpuBackend {
                 } else {
                     let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_RT_CLEAR_FAIL);
                 }
-                // Validate TGSI shader creation (vertex + fragment).
-                if self.virgl_shader_test().is_err() {
+                // The pipeline library's programs and state reach the context (the renderer
+                // drops a program it cannot parse without a word: the draws below prove them).
+                if self.virgl_pipelines_init().is_err() {
                     let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SHADER_FAIL);
                 } else {
                     let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SHADER_OK);
-                    // Full-pipeline draw proof with readback pixel verification.
-                    // Solid-red FS over a blue clear: center pixel (BGRA bytes)
-                    // tells us exactly how far the pipeline got.
+                    // Full-pipeline draw proof with readback pixel verification: the
+                    // gradient pipeline red over a blue clear — the center pixel (BGRA
+                    // bytes) tells us exactly how far the pipeline got.
                     match self.virgl_draw_selftest() {
                         Ok([0, 0, 255, 255]) => {
                             let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_OK);
@@ -71,7 +72,8 @@ impl VirtioGpuBackend {
                             let _ = nexus_abi::debug_println("gpud: virgl draw submit fail");
                         }
                     }
-                    // M1a: GPU vector pipeline — per-pixel gradient proof.
+                    // Gradient proof: red at the top, blue at the bottom — interpolation and
+                    // the orientation of `uv` the programs assume.
                     match self.virgl_gradient_selftest() {
                         Ok(true) => {
                             let _ =
@@ -79,14 +81,14 @@ impl VirtioGpuBackend {
                         }
                         Ok(false) => {
                             let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_GRADIENT_FLAT);
+                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_GRADIENT_WRONG);
                         }
                         Err(_) => {
                             let _ = nexus_abi::debug_println("gpud: virgl gradient submit fail");
                         }
                     }
-                    // G2: GPU layer compositor primitive proof (textured layer +
-                    // rounded mask + opacity composited into an RT, readback).
+                    // G2: GPU layer compositor primitive proof (the client-surface
+                    // pipeline's textured layer composited into an RT, readback).
                     match self.virgl_composite_selftest() {
                         Ok(true) => {
                             let _ =

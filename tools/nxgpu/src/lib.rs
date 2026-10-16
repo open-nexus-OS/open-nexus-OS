@@ -1,12 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The GPU program tool's library (host only, ADR-0072, TASK-0215 5c-2 P2b–P4c): WGSL
+//! CONTEXT: The GPU program tool's library (host only, ADR-0072, TASK-0215 5c-2 P2b–P6): WGSL
 //! parsed and validated by naga, then lowered into the system's IR
 //! (`nexus_gfx::shader::ir`) — naga's IR never leaves this crate. A fragment program's colour
-//! output is written through the epilog the pipeline's blend names (the GPU has no blend unit,
-//! so blending is program code linked after the main part). `library` builds the pipeline
-//! library from a manifest of variants.
+//! output is written through the epilog the pipeline's blend names (the board GPU has no blend
+//! unit, so blending is program code linked after the main part; the QEMU path's virtual GPU
+//! blends in its unit, so its programs are the main part and the blend their state); a vertex
+//! entry point lowers with its position at the IR's reserved output. `library` builds a code
+//! target's pipeline library from a manifest of variants — the board's instruction groups with
+//! their setup programs, or the virtual GPU's shader text.
 //! OWNERS: @gpu @runtime
 //! STATUS: Experimental — the compositor's subset: fragment programs with location inputs,
 //!   immediates (push constants), 2D textures and samplers, overrides fixed per pipeline,
@@ -27,7 +30,7 @@ pub mod library;
 mod lower;
 mod overrides;
 
-pub use lower::lower_fragment;
+pub use lower::{lower_fragment, lower_vertex};
 pub use nexus_gfx::shader::ir::builder::Blend;
 use nexus_gfx::shader::ir::Interface;
 use nexus_gfx::shader::rogue::codegen::{self, CodegenError, Layout, Options, Program};

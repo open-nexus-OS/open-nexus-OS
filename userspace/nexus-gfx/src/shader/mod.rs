@@ -4,8 +4,9 @@
 //! CONTEXT: GPU programs (ADR-0072): written in WGSL, lowered into our IR, compiled per code
 //! target into the pipeline library (RFC-0101 §7b). `ir` is the IR with its validator and
 //! reference interpreter (5c-2 P2) — its interface is a program's reflection; `rogue` is the
-//! board GPU's encoding and backend (P1, P3); `library` is the archive a client supplies and the
-//! device validates (P4).
+//! board GPU's encoding and backend (P1, P3); `tgsi` the virtual GPU's shader text, the QEMU
+//! path's backend (P6); `library` is the archive a client supplies and the device validates
+//! (P4).
 //! OWNERS: @ui @runtime @gpu
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
@@ -13,3 +14,4 @@
 pub mod ir;
 pub mod library;
 pub mod rogue;
+pub mod tgsi;

@@ -43,6 +43,22 @@ pub fn lower_fragment(
     overrides: &[(&str, f64)],
     blend: Blend,
 ) -> Result<ir::Module> {
+    lower_entry(src, entry, ShaderStage::Fragment, overrides, blend)
+}
+
+/// The vertex entry point `entry` of `src`, its overrides fixed as for a fragment program: its
+/// `@builtin(position)` the output at [`ir::POSITION`], its `@location` outputs the varyings.
+pub fn lower_vertex(src: &str, entry: &str, overrides: &[(&str, f64)]) -> Result<ir::Module> {
+    lower_entry(src, entry, ShaderStage::Vertex, overrides, Blend::Replace)
+}
+
+fn lower_entry(
+    src: &str,
+    entry: &str,
+    stage: ShaderStage,
+    overrides: &[(&str, f64)],
+    blend: Blend,
+) -> Result<ir::Module> {
     let module = naga::front::wgsl::parse_str(src)
         .map_err(|e| FrontendError::Parse(e.emit_to_string(src)))?;
     let info = naga::valid::Validator::new(
@@ -55,14 +71,16 @@ pub fn lower_fragment(
         .entry_points
         .iter()
         .enumerate()
-        .find(|(_, ep)| ep.name == entry && ep.stage == ShaderStage::Fragment)
+        .find(|(_, ep)| ep.name == entry && ep.stage == stage)
         .ok_or_else(|| FrontendError::NoEntryPoint(entry.into()))?;
     let fixed = super::overrides::fix(&module, overrides)?;
+    let ir_stage = if stage == ShaderStage::Vertex { Stage::Vertex } else { Stage::Fragment };
     let mut l = Lowering {
         module: &module,
         fun: &ep.function,
         info: info.get_entry_point(index),
-        b: Builder::new(Stage::Fragment),
+        stage: ir_stage,
+        b: Builder::new(ir_stage),
         values: HashMap::new(),
         args: Vec::new(),
         globals: HashMap::new(),
@@ -106,6 +124,7 @@ struct Lowering<'a> {
     module: &'a naga::Module,
     fun: &'a naga::Function,
     info: &'a naga::valid::FunctionInfo,
+    stage: Stage,
     b: Builder,
     values: HashMap<Handle<Expression>, Lowered>,
     /// Per function argument: its input index (or, for a struct, its first member's).
@@ -214,28 +233,40 @@ impl Lowering<'_> {
         Ok(())
     }
 
-    /// The colour outputs: one per location of the result.
+    /// Where an output goes: its location, or for a vertex program's position [`ir::POSITION`].
+    fn output_location(&self, binding: &Option<Binding>) -> Result<u8> {
+        match binding {
+            Some(Binding::Location { location, .. }) => Ok(*location as u8),
+            Some(Binding::BuiltIn(naga::BuiltIn::Position { .. }))
+                if self.stage == Stage::Vertex =>
+            {
+                Ok(ir::POSITION)
+            }
+            _ => Err(FrontendError::Unsupported("a built-in output")),
+        }
+    }
+
+    /// The outputs: one per location of the result (and a vertex program's position).
     fn outputs(&mut self) -> Result<Vec<u8>> {
         let Some(result) = &self.fun.result else {
-            return Err(FrontendError::Unsupported("a fragment program without a result"));
+            return Err(FrontendError::Unsupported("a program without a result"));
         };
         match (&result.binding, self.inner(result.ty)) {
-            (Some(Binding::Location { location, .. }), inner) => {
+            (Some(binding), inner) => {
                 let ty = ty_of(inner)?;
-                Ok(vec![self.b.output(*location as u8, ty)])
+                let location = self.output_location(&Some(binding.clone()))?;
+                Ok(vec![self.b.output(location, ty)])
             }
             (None, TypeInner::Struct { members, .. }) => {
                 let mut outs = Vec::new();
                 for m in members.clone() {
-                    let Some(Binding::Location { location, .. }) = m.binding else {
-                        return Err(FrontendError::Unsupported("a built-in output"));
-                    };
+                    let location = self.output_location(&m.binding)?;
                     let ty = ty_of(self.inner(m.ty))?;
-                    outs.push(self.b.output(location as u8, ty));
+                    outs.push(self.b.output(location, ty));
                 }
                 Ok(outs)
             }
-            _ => Err(FrontendError::Unsupported("a built-in output")),
+            _ => Err(FrontendError::Unsupported("a result without bindings")),
         }
     }
 

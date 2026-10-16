@@ -33,7 +33,7 @@ fn the_manifest_builds_the_committed_library() {
     let manifest = parse_manifest(MANIFEST).expect("the manifest parses");
     let (bytes, built) = build(&manifest, source).expect("the library builds");
     assert_eq!(bytes, LIBRARY, "rebuild compositor.nxgp (README.md)");
-    assert_eq!(fnv1a64(LIBRARY), 0xaa0d_92e8_58e9_f2dc, "and the README's digest");
+    assert_eq!(fnv1a64(LIBRARY), 0x04c4_3695_d216_90f9, "and the README's digest");
     let facts: Vec<_> = built.iter().map(|b| (b.id, b.groups, b.temps, b.pass_type)).collect();
     assert_eq!(
         facts,

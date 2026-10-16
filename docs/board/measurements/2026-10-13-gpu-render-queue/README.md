@@ -826,3 +826,46 @@ blur_layer_ns_px=8.70 blur_dev=2 samples=12/12 bar=1.80)`.
 
 **Verdict.** The device is ready for a frame that emits passes for gpud's whole life: a pass takes
 nothing of the heap, a context's library what its table keeps (7 KB for seven pipelines).
+
+## 5c-2 P6 — the board after the QEMU path's library (board cycle 20)
+
+**Question.** P6 put the QEMU path on the library (TASK-0215 5c-2 P6): a new backend
+(`shader::tgsi`), the frontend's vertex stage, gpud's virgl modules — none of it runs on the board
+— and one change the board does run: the layer's push block grew to 64 bytes (a fourth vec4
+naming a rectangle of the texture for the QEMU path's atlas variant; `Quad::layer` writes it as
+the whole texture), so the board's library was rebuilt (4 748 bytes, `0x04c43695d21690f9`, its
+programs unchanged) and the layer pipelines' state loads DMA four more dwords a draw. Does the
+board read and cost as in cycle 19?
+
+**Instrument.** The rungs' lines as in cycle 19: `gpu library ok (…)`, every `gpu cost (…)` line
+and `gpu pipeline ok (…)`, `gpu heap (…)`.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H44 | The rebuilt library loads and every pipeline reads right | `gpu library ok (bytes=4748 entries=7 refused=0 …)`; every cost line `reads=ok`; `samples=12/12`, `blur_dev` ≤ 2 |
+| H45 | Four more push dwords a draw cost nothing a pixel | every `ns_px` of the pipeline line within 3 % of cycle 19 |
+| H46 | The QEMU path's code stays off the board | no new or missing line against cycle 19; `table_bytes` within a few bytes of 7 039; the heap after the rungs near 64.7 KB |
+
+**Results — the board, cycle 20** (`board--2026-10-16T12-47-10`, `cycle20-gpu-lines.txt`,
+`cycle20-board-test.txt`; `[PASS] board-visible`, 62 rungs, the operator's eight confirmations):
+
+`gpud: gpu library ok (bytes=4748 entries=7 refused=0 code_bytes=2808 setup_bytes=852
+table_bytes=7039 …)`; `gpud: gpu pipeline ok (opaque_ns_px=1.27 premultiplied_ns_px=4.03
+straight_ns_px=4.87 rounded_ns_px=8.86 shadow_ns_px=10.83 blur_h_ns_px=37.98 blur_v_ns_px=23.51
+blur_layer_ns_px=8.62 blur_dev=2 samples=12/12 bar=1.80)`; `gpud: gpu heap (used=64402 of=393216
+pass_bytes=0)`.
+
+- **H44 confirmed.** The rebuilt library loads whole, every cost line `reads=ok`, the pipeline
+  rung's twelve samples right, the blur within two levels of its formula.
+- **H45 confirmed.** The layer pipelines — the ones whose state load grew by four dwords — cost
+  as in cycle 19 to a hundredth of a nanosecond (1.27/4.03/4.87/8.86 against 1.30/4.03/4.86/8.86,
+  the rounded layer over the glass 8.62 against 8.70). The blur passes, whose push block did not
+  change, moved by −3.9 % (horizontal, 37.98 against 39.53) and +2.1 % (vertical): their fragment
+  time is 752 µs against 762, a pixel's share computed after the pass's fixed cost — the small
+  passes' spread between cycles (cycle 18 had 38.92).
+- **H46 confirmed.** The same 26 lines as cycle 19, none new or missing; `table_bytes` 7 039 as
+  before; the heap after the rungs 64 402 bytes (cycle 19: 64 666). The fence rung is back at
+  83 µs (worst 92) — cycle 19's spread went with that boot's USB bring-up.
+
+**Verdict.** The board is unchanged by the QEMU path's move onto the library: one set of WGSL
+sources now feeds both GPUs' libraries, and the layer's larger block costs the board nothing.

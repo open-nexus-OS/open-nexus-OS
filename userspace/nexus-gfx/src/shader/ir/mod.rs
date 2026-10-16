@@ -37,6 +37,9 @@ pub const MAX_INPUTS: usize = 16;
 pub const MAX_OUTPUTS: usize = 8;
 pub const MAX_RESOURCES: usize = 16;
 pub const MAX_PUSH_BYTES: u32 = 256;
+/// A vertex program's clip-space position (WGSL's `@builtin(position)`): the output at this
+/// location, four floats; no other stage writes it.
+pub const POSITION: u8 = u8::MAX;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {

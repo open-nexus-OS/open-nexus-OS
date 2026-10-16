@@ -25,7 +25,7 @@ fn checker() -> Rgba8Texture {
 /// The layer's push block (`Quad::layer`, the one place its layout is written down).
 fn layer_push(w: f32, h: f32, tint: [f32; 4], radius: f32) -> Vec<u8> {
     let q = Quad::layer(0.0, 0.0, w, h, tint, radius);
-    q.push[..12].iter().flat_map(|x| x.to_le_bytes()).collect()
+    q.push.iter().flat_map(|x| x.to_le_bytes()).collect()
 }
 
 fn to_u8(x: f32) -> u8 {
@@ -71,7 +71,29 @@ fn the_layer_source_lowers_to_the_interface_the_pipeline_binds() {
         (0, Type::VEC2, Interp::Perspective)
     );
     assert_eq!((i.outputs[0].location, i.outputs[0].ty), (0, Type::VEC4));
-    assert_eq!((i.push_bytes, i.resources.len()), (48, 2));
+    // The layer's block: tint, size and half, corner, the texture's rectangle (an atlas
+    // variant's) — 64 bytes.
+    assert_eq!((i.push_bytes, i.resources.len()), (64, 2));
+}
+
+#[test]
+fn an_atlas_layer_samples_its_rectangle_of_the_texture() {
+    // The right half of a texture whose left half is one colour and right half another: the
+    // atlas variant maps uv 0..1 to x 0.5..1.0 and reads the right colour where the plain layer
+    // reads the left.
+    let mut px = Vec::with_capacity(4 * 4 * 4);
+    for _ in 0..4 {
+        px.extend_from_slice(&[200u8, 0, 0, 255].repeat(2));
+        px.extend_from_slice(&[0u8, 0, 200, 255].repeat(2));
+    }
+    let tex = Rgba8Texture::new(4, 4, px).expect("the halves");
+    let q = Quad::layer(0.0, 0.0, 4.0, 4.0, [1.0; 4], 0.0).with_texture([0.5, 1.0, 0.5, 0.0]);
+    let push: Vec<u8> = q.push.iter().flat_map(|x| x.to_le_bytes()).collect();
+    let at = [0.25, 0.5];
+    let plain = run_layer(&[("tinted", 0.0)], &tex, at, &push);
+    let atlas = run_layer(&[("tinted", 0.0), ("atlas", 1.0)], &tex, at, &push);
+    assert!(close(plain, [200.0 / 255.0, 0.0, 0.0, 1.0]), "{plain:?}");
+    assert!(close(atlas, [0.0, 0.0, 200.0 / 255.0, 1.0]), "{atlas:?}");
 }
 
 #[test]
@@ -237,8 +259,9 @@ fn the_straight_variant_premultiplies_the_texel_at_the_layers_opacity() {
     assert!(close(out, want), "{out:?} against {want:?}");
 }
 
-/// The virgl layer's coverage (`virgl_composite.rs` FS_LAYER): the rounded rectangle's exact
-/// signed distance at the pixel centre, a one-pixel band.
+/// The coverage the hand-written virgl layer program computed (retired in P6, the QEMU path draws
+/// this program since): the rounded rectangle's exact signed distance at the pixel centre, a
+/// one-pixel band.
 fn coverage(px: f32, py: f32, w: f32, h: f32, r: f32) -> f32 {
     let (qx, qy) = ((px - w / 2.0).abs() - (w / 2.0 - r), (py - h / 2.0).abs() - (h / 2.0 - r));
     let len = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt();
@@ -273,8 +296,9 @@ fn the_rounded_variant_cuts_its_corners_as_the_virgl_layer_does() {
 
 const SHADOW: &str = include_str!("../../../resources/gpu/shaders/shadow.wgsl");
 
-/// The virgl shadow (`virgl_vector.rs` FS_SHADOW): the distance outside the shifted rounded
-/// rectangle falling off over the blur, squared, knocked out across the unshifted one.
+/// The shadow the hand-written virgl program drew (retired in P6, the QEMU path draws this program
+/// since): the distance outside the shifted rounded rectangle falling off over the blur, squared,
+/// knocked out across the unshifted one.
 fn shadow_alpha(
     p: (f32, f32),
     inner: (f32, f32),

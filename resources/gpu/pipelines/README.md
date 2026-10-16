@@ -24,10 +24,11 @@ places the programs in the client's context; it holds no program of its own.
 | 6 | `blur-horizontal-20` | `blur.wgsl` `horizontal`, `radius=20`: the backdrop into half resolution, a tap every two pixels, each fetch averaging four texels (21 fetches); replace | 89 / 89 | 3 | opaque | 936 |
 | 7 | `blur-vertical-20` | `blur.wgsl` `vertical`, `radius=20`: the half-resolution result down, two taps a fetch (11 fetches), the saturation lifted; replace | 70 / 70 | 3 | opaque | 728 |
 
-The archive: 4748 bytes, FNV-1a 64 `0xaa0d92e858e9f2dc`, code target `0x0024001d003400b6` (the
+The archive: 4748 bytes, FNV-1a 64 `0x04c43695d21690f9`, code target `0x0024001d003400b6` (the
 board's core). The layers need iterate-and-sample of the device, the shadow and the blur passes
-nothing; a layer's push block is 48 bytes (`Layer`: tint, size and minus half of it, the corner —
-`Quad::layer` writes it), the shadow's 64 (`Shadow`: colour, the quad's size and half, the shape
+nothing; a layer's push block is 64 bytes (`Layer`: tint, size and minus half of it, the corner,
+the texture's rectangle an atlas variant reads — `Quad::layer` and `with_texture` write it), the
+shadow's 64 (`Shadow`: colour, the quad's size and half, the shape
 with one over the blur, the offset — `Quad::shadow`), a blur pass's 32 (`Blur`: where the output
 pixel lies in the source, a tap's step, the saturation — `Quad::blur`). The blur passes carry
 their weights as the pipeline's constant block (46 and 47 values: a weight four times over, so
@@ -47,3 +48,43 @@ cargo run -p nxgpu -- library resources/gpu/pipelines/compositor.toml --out reso
 A change to a source, the manifest, the frontend, the backend or the setup generator that changes
 the archive fails `tools/nxgpu/tests/pipelines.rs` until the file and this table are rebuilt — and
 then wants a board cycle (`gpud: gpu library ok (`, `gpud: gpu pipeline ok (`).
+
+## The QEMU path's library — `compositor-virgl.nxgp`
+
+The same WGSL sources built for the QEMU path's virtual GPU (TASK-0215 5c-2 P6) from
+`compositor-virgl.toml`: `nxgpu library` lowers each into our IR and compiles it with the
+`tgsi` backend (`nexus_gfx::shader::tgsi`) into the shader text the host renderer parses. A
+fragment pipeline's main part is the program — its blend is the pipeline's state, which the
+virtual GPU's blend unit applies (`tgsi::State`); a budget counts instructions; the vertex
+program every draw runs is an entry of its own. Code target `TGSI` v1 (`tgsi::CODE_TARGET`).
+
+| Id | Name | Source, overrides | Blend | Instructions |
+|---|---|---|---|---|
+| 1 | `quad` | `quad.wgsl` (vertex): the corner as it comes, its 0..1 place as `uv` | — | 3 |
+| 2 | `layer-opaque` | `layer.wgsl`, `tinted=false` (the wallpaper) | replace | 2 |
+| 3 | `layer-tinted` | `layer.wgsl` (the splash's pulse) | replace | 3 |
+| 4 | `layer-atlas` | `layer.wgsl`, `straight`, `rounded`, `atlas` (a client's surface from the atlas; the blurred backdrop drawn back; the blur cache's hits) | premultiplied | 21 |
+| 5 | `layer-premultiplied` | `layer.wgsl` (the pointer's sprite) | premultiplied | 3 |
+| 6 | `shadow` | `shadow.wgsl` | premultiplied | 27 |
+| 7–14 | `blur-horizontal-R`, `blur-vertical-R` | `blur.wgsl`, `radius` = 8, 20, 30, 40 (windowd's radii) | replace | 29/23, 65/41, 95/59, 125/71 |
+| 15 | `gradient` | `gradient.wgsl` (the pointer before its sprite) | premultiplied | 20 |
+
+The archive: 36 880 bytes, FNV-1a 64 `0x7189c506645a6fb2`. Rebuilding:
+
+```text
+cargo run -p nxgpu -- library resources/gpu/pipelines/compositor-virgl.toml --out resources/gpu/pipelines/compositor-virgl.nxgp
+```
+
+`tools/nxgpu/tests/tgsi.rs` holds it to its manifest byte for byte, every entry to its stage's
+text and its blend.
+
+gpud takes it in (`source/drivers/gpud/src/virgl_pipelines.rs`): the archive parsed for this target
+and every program's text checked before a byte reaches the device; each program one shader object
+of the virgl context (a long one sent in chunks of 4 000 bytes, each its own command, as the host
+renderer's long-shader protocol takes it); the pipelines it draws with resolved by name — the blur
+pair nearest the radius windowd asks. A draw binds the quad's vertex program, the pipeline's
+program and blend, its push block as the fragment stage's constant buffer and its texture through
+the one bilinear sampler, over a viewport that is the quad's rectangle. Every draw of the virgl
+path is one of these; the probe's readback proofs draw `gradient` (`gpud: virgl draw ok`,
+`gpud: virgl gradient ok` — red at the top, blue at the bottom) and `layer-atlas`
+(`gpud: layer composite ok`).

@@ -145,7 +145,7 @@ Shared parts live in `components/panels/parts/` — `ToggleTile`, `RadioRow`,
 
 **Glass over surface content (the glass-reset contract).** On the virgl
 buildup backend every glass region already gets destination-so-far GPU blur
-(gpud `blur_rt_backdrop` — the desktop's own base layer composites first in
+(gpud's glass blur, `backend/glass_blur.rs` — the desktop's own base layer composites first in
 the same present). What used to ghost through panels was SURFACE-side: the
 CPU painter src-over'ed the translucent panel fill over the tiles baked in
 the same band. Two painter rules fix it: (1) GLASS boxes RESET their rect to

@@ -37,7 +37,7 @@ pub struct Quad {
 impl Quad {
     /// A layer (`resources/gpu/shaders/layer.wgsl`, its `Layer` block): the tint (colour and
     /// opacity), the size and minus half of it, half the size less the corner radius and the
-    /// radius.
+    /// radius, the whole texture as the surface's rectangle.
     pub const fn layer(x: f32, y: f32, w: f32, h: f32, tint: [f32; 4], radius: f32) -> Self {
         let (hw, hh) = (w * 0.5, h * 0.5);
         let mut push = [0.0; 16];
@@ -52,7 +52,19 @@ impl Quad {
         push[8] = hw - radius;
         push[9] = hh - radius;
         push[10] = radius;
+        push[12] = 1.0;
+        push[13] = 1.0;
         Self { x, y, w, h, push }
+    }
+
+    /// The layer showing the rectangle `texture` = (scale x, scale y, offset x, offset y) of its
+    /// texture, in its `uv` (an atlas variant reads it; others ignore it).
+    pub const fn with_texture(mut self, texture: [f32; 4]) -> Self {
+        self.push[12] = texture[0];
+        self.push[13] = texture[1];
+        self.push[14] = texture[2];
+        self.push[15] = texture[3];
+        self
     }
 
     /// A layer's tint (its first four push constants).
@@ -93,6 +105,37 @@ impl Quad {
         push[12] = offset[0];
         push[13] = offset[1];
         Self { x: x - blur + offset[0], y: y - blur + offset[1], w: qw, h: qh, push }
+    }
+
+    /// A filled rounded rectangle at (`x`, `y`, `w`, `h`) with a vertical gradient
+    /// (`resources/gpu/shaders/gradient.wgsl`, its `Gradient` block): the straight colours at the
+    /// top and at the bottom, the size and minus half of it, half the size less the corner radius
+    /// and the radius.
+    pub const fn gradient(
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        top: [f32; 4],
+        bottom: [f32; 4],
+        radius: f32,
+    ) -> Self {
+        let (hw, hh) = (w * 0.5, h * 0.5);
+        let mut push = [0.0; 16];
+        let mut i = 0;
+        while i < 4 {
+            push[i] = top[i];
+            push[4 + i] = bottom[i];
+            i += 1;
+        }
+        push[8] = w;
+        push[9] = h;
+        push[10] = -hw;
+        push[11] = -hh;
+        push[12] = hw - radius;
+        push[13] = hh - radius;
+        push[14] = radius;
+        Self { x, y, w, h, push }
     }
 
     /// A blur pass over (`x`, `y`, `w`, `h`) (`resources/gpu/shaders/blur.wgsl`, its `Blur`

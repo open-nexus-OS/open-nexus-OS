@@ -1,23 +1,42 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Virgl 3D bring-up + command stream: render-target creation, backing
-//! attach/transfer, the draw/gradient/shader self-tests that validate the GPU
-//! pipeline by readback, and the gaussian backdrop-blur submit. Compiled only
-//! for the virgl OS build; the 2D path never pulls in this code.
+//! Virgl 3D bring-up + command stream: the context, render-target creation, backing attach and
+//! transfers, and the probe's readback proofs of the 3D path — the wire format, the draw state,
+//! and draws with the library's pipelines (`virgl_pipelines`). Compiled only for the virgl OS
+//! build; the 2D path never pulls in this code.
 
 #![cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 
-use super::raster::blur_backdrop_separable_vmo;
 use super::transport::{align_page, read_reg, write_reg};
 use super::VirtioGpuBackend;
 use crate::error::GpuDriverError;
-use crate::markers::{
-    GPUD_VIRGL_BLUR_GPU_ON, GPUD_VIRGL_BLUR_PARITY_OFF, GPUD_VIRGL_BLUR_PARITY_OK,
-};
 use crate::protocol;
-use nexus_display_proto::layout;
 use nexus_gfx::backend::error::GfxError;
+
+/// The probe's draw targets are this square.
+const PROBE_SIDE: u32 = 64;
+
+/// The BGRA bytes at (`x`, `y`) of a `width`-pixel-wide render target's guest backing at `va`,
+/// after its transfer from the host.
+pub(crate) fn rt_pixel(va: usize, width: u32, x: u32, y: u32) -> [u8; 4] {
+    let at = (y as usize * width as usize + x as usize) * 4;
+    // SAFETY: the callers pass a backing of `width` × height pixels mapped by
+    // `virgl_attach_backing` and a pixel inside it; the transfer has completed (synchronous).
+    unsafe {
+        let p = (va + at) as *const u8;
+        [
+            p.read_volatile(),
+            p.add(1).read_volatile(),
+            p.add(2).read_volatile(),
+            p.add(3).read_volatile(),
+        ]
+    }
+}
+
+fn probe_pixel(va: usize, x: u32, y: u32) -> [u8; 4] {
+    rt_pixel(va, PROBE_SIDE, x, y)
+}
 
 impl VirtioGpuBackend {
     /// Create a virgl rendering context for GPU shader dispatch.
@@ -224,300 +243,59 @@ impl VirtioGpuBackend {
         self.ctrl_submit_struct(&cmd)
     }
 
-    /// Full-pipeline GPU draw proof: state objects + fullscreen-triangle vertex
-    /// buffer + the (already created) passthrough VS / solid-red FS + DRAW_VBO
-    /// into a 64×64 render target, then TRANSFER_FROM_HOST_3D readback and a
-    /// CPU pixel check. Returns the first pixel's BGRA bytes.
-    ///
-    /// This verifies the entire 3D path end-to-end on-device — no display
-    /// needed: if the pixels read back red, the GPU really rasterized our draw.
-    pub(crate) fn virgl_draw_selftest(&mut self) -> Result<[u8; 4], GfxError> {
-        use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
-        use crate::virgl::{
-            Submit3d, PIPE_BIND_VERTEX_BUFFER, PIPE_BUFFER, PIPE_CLEAR_COLOR0,
-            PIPE_FORMAT_B8G8R8A8_UNORM, PIPE_FORMAT_R32G32B32A32_FLOAT, PIPE_FORMAT_R8_UNORM,
-            PIPE_PRIM_TRIANGLES, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX, VIRGL_OBJECT_BLEND,
-            VIRGL_OBJECT_DSA, VIRGL_OBJECT_RASTERIZER, VIRGL_OBJECT_VERTEX_ELEMENTS,
-        };
-        const RT_RES: u32 = 0xF4;
-        const VBO_RES: u32 = 0xF5;
-        const RT_W: u32 = 64;
-        const RT_H: u32 = 64;
-        // Object handles (context-scoped namespace).
-        const H_BLEND: u32 = 0x20;
-        const H_DSA: u32 = 0x21;
-        const H_RAST: u32 = 0x22;
-        const H_VE: u32 = 0x23;
-        const H_SURF: u32 = 0x24;
-        const H_VS: u32 = 10; // created by virgl_shader_test
-        const H_FS: u32 = 11;
-
-        // Render target with guest backing for readback.
-        self.virgl_create_rt(RT_RES, RT_W, RT_H)?;
-        let backing_va = self.virgl_attach_backing(RT_RES, (RT_W * RT_H * 4) as usize)?;
-
-        // Vertex buffer resource (host-side storage; filled via INLINE_WRITE).
-        {
-            use crate::protocol::{VirtioGpuResourceCreate3d, VIRTIO_GPU_CMD_RESOURCE_CREATE_3D};
-            let create = VirtioGpuResourceCreate3d {
-                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
-                resource_id: VBO_RES,
-                target: PIPE_BUFFER,
-                format: PIPE_FORMAT_R8_UNORM,
-                bind: PIPE_BIND_VERTEX_BUFFER,
-                width: 48, // 3 vertices × vec4 f32
-                height: 1,
-                depth: 1,
-                array_size: 1,
-                last_level: 0,
-                nr_samples: 0,
-                flags: 0,
-                _padding: 0,
-            };
-            self.ctrl_submit_struct(&create)?;
-            use crate::protocol::{VirtioGpuCtxAttachResource, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE};
-            let attach = VirtioGpuCtxAttachResource {
-                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
-                resource_id: VBO_RES,
-                _padding: 0,
-            };
-            self.ctrl_submit_struct(&attach)?;
+    /// A 64×64 render target with a guest backing, cleared blue, the library's gradient pipeline
+    /// drawn over all of it from `top` to `bottom`, read back: the backing's address. The probe's
+    /// draw proofs — the gradient program is our toolchain's, so a pixel it wrote proves the
+    /// library's text parses, binds and runs.
+    fn gradient_probe(
+        &mut self,
+        rt: u32,
+        surface: u32,
+        top: [f32; 4],
+        bottom: [f32; 4],
+    ) -> Result<usize, GfxError> {
+        use crate::virgl::{Submit3d, PIPE_CLEAR_COLOR0, PIPE_FORMAT_B8G8R8A8_UNORM};
+        use nexus_gfx::backend::gpu::quads::Quad;
+        if !self.pipelines.ready {
+            return Err(GfxError::DeviceNotFound);
         }
-
-        // Fullscreen triangle (clip space), vec4 positions.
-        let verts: [f32; 12] = [-1.0, -1.0, 0.0, 1.0, 3.0, -1.0, 0.0, 1.0, -1.0, 3.0, 0.0, 1.0];
-        let mut vbytes = [0u8; 48];
-        for (i, v) in verts.iter().enumerate() {
-            vbytes[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
-        }
-
+        self.virgl_create_rt(rt, PROBE_SIDE, PROBE_SIDE)?;
+        let backing_va = self.virgl_attach_backing(rt, (PROBE_SIDE * PROBE_SIDE * 4) as usize)?;
+        let side = PROBE_SIDE as f32;
         let mut s = Submit3d::new();
-        s.emit_resource_inline_write(VBO_RES, &vbytes);
-        s.emit_create_blend_default(H_BLEND);
-        s.emit_bind_object(VIRGL_OBJECT_BLEND, H_BLEND);
-        s.emit_create_dsa_default(H_DSA);
-        s.emit_bind_object(VIRGL_OBJECT_DSA, H_DSA);
-        s.emit_create_rasterizer_default(H_RAST);
-        s.emit_bind_object(VIRGL_OBJECT_RASTERIZER, H_RAST);
-        s.emit_create_vertex_elements(H_VE, &[(0, 0, 0, PIPE_FORMAT_R32G32B32A32_FLOAT)]);
-        s.emit_bind_object(VIRGL_OBJECT_VERTEX_ELEMENTS, H_VE);
-        s.emit_set_vertex_buffers(&[(16, 0, VBO_RES)]);
-        s.emit_create_surface(H_SURF, RT_RES, PIPE_FORMAT_B8G8R8A8_UNORM);
-        s.emit_set_framebuffer_state(0, &[H_SURF]);
-        s.emit_set_viewport(RT_W as f32, RT_H as f32);
+        s.emit_create_surface(surface, rt, PIPE_FORMAT_B8G8R8A8_UNORM);
+        s.emit_set_framebuffer_state(0, &[surface]);
+        s.emit_set_viewport_box(0.0, 0.0, side, side);
         s.emit_clear(PIPE_CLEAR_COLOR0, [0.0, 0.0, 1.0, 1.0], 1.0, 0); // blue base
-        s.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
-        s.emit_bind_shader(H_FS, PIPE_SHADER_FRAGMENT);
-        s.emit_draw_vbo(0, 3, PIPE_PRIM_TRIANGLES);
-        let bytes = s.as_bytes();
-        let hdr = VirtioGpuSubmit3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
-            size: bytes.len() as u32,
-            _padding: 0,
-        };
-        self.ctrl_submit_header_tail(&hdr, bytes)?;
-
-        // Read the rendered pixels back into the guest backing and inspect.
-        self.virgl_transfer_from_host(RT_RES, 0, 0, RT_W, RT_H, RT_W * 4)?;
-        let center = (32 * RT_W as usize + 32) * 4;
-        let px = unsafe {
-            let p = (backing_va + center) as *const u8;
-            [
-                p.read_volatile(),
-                p.add(1).read_volatile(),
-                p.add(2).read_volatile(),
-                p.add(3).read_volatile(),
-            ]
-        };
-        Ok(px)
+        let q = Quad::gradient(0.0, 0.0, side, side, top, bottom, 0.0);
+        self.emit_draw(&mut s, self.pipelines.gradient, surface, &q, 0);
+        self.submit3d(&s)?;
+        self.virgl_transfer_from_host(rt, 0, 0, PROBE_SIDE, PROBE_SIDE, PROBE_SIDE * 4)?;
+        Ok(backing_va)
     }
 
-    /// GPU vector pipeline (M1a): render a per-pixel **gradient** quad and read
-    /// it back. Uses a colour vertex attribute interpolated by the rasterizer
-    /// (the simplest, hardware-exact gradient) — a vertex shader that passes the
-    /// colour through and a fragment shader that outputs it. Proves end-to-end
-    /// GPU gradient fills before the SDF/analytic-AA fragment shader is added.
-    ///
-    /// Returns `true` if the read-back top and bottom rows differ (interpolation
-    /// happened), `false` if the quad came out flat.
+    /// Full-pipeline draw proof: the gradient pipeline red from top to bottom over the blue clear;
+    /// the centre pixel (BGRA bytes) says how far the pipeline got — red: it drew; blue: the
+    /// clear alone. This verifies the entire 3D path on the device, no display needed.
+    pub(crate) fn virgl_draw_selftest(&mut self) -> Result<[u8; 4], GfxError> {
+        const RT_RES: u32 = 0xF4;
+        const H_SURF: u32 = 0x24;
+        let red = [1.0, 0.0, 0.0, 1.0];
+        let va = self.gradient_probe(RT_RES, H_SURF, red, red)?;
+        Ok(probe_pixel(va, PROBE_SIDE / 2, PROBE_SIDE / 2))
+    }
+
+    /// Gradient proof: the gradient pipeline from red at the top to blue at the bottom. True when
+    /// a row near the top reads red and one near the bottom blue — the colour interpolated across
+    /// the rectangle, and `uv` running down it as the programs assume (clip y −1 is the top).
     pub(crate) fn virgl_gradient_selftest(&mut self) -> Result<bool, GfxError> {
-        use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
-        use crate::virgl::{
-            Submit3d, PIPE_BIND_VERTEX_BUFFER, PIPE_BUFFER, PIPE_CLEAR_COLOR0,
-            PIPE_FORMAT_B8G8R8A8_UNORM, PIPE_FORMAT_R32G32B32A32_FLOAT, PIPE_FORMAT_R8_UNORM,
-            PIPE_PRIM_TRIANGLES, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX, VIRGL_OBJECT_BLEND,
-            VIRGL_OBJECT_DSA, VIRGL_OBJECT_RASTERIZER, VIRGL_OBJECT_VERTEX_ELEMENTS,
-        };
         const RT_RES: u32 = 0xF6;
-        const VBO_RES: u32 = 0xF7;
-        const RT_W: u32 = 64;
-        const RT_H: u32 = 64;
-        // Handle namespace: the virgl context has ONE object table — handles
-        // MUST be unique across subsystems (collisions fail silently on the
-        // wire). Allocations: 10/11 boot VS/FS, 0x20..0x24 draw-selftest state,
-        // 13 blur FS, 14 gl_scanout blit FS, 16/17 gradient VS/FS,
-        // 0x30..0x34 blur surfaces/samplers, 0x42 gl_scanout surface,
-        // 0x50..0x54 gradient-selftest state.
-        const H_BLEND: u32 = 0x50;
-        const H_DSA: u32 = 0x51;
-        const H_RAST: u32 = 0x52;
-        const H_VE: u32 = 0x53;
         const H_SURF: u32 = 0x54;
-        const H_VS: u32 = 16;
-        const H_FS: u32 = 17;
-
-        // Gradient shaders: VS passes position + a colour varying through, FS
-        // emits the interpolated colour.
-        const VS: &str = "VERT\n\
-DCL IN[0]\n\
-DCL IN[1]\n\
-DCL OUT[0], POSITION\n\
-DCL OUT[1], GENERIC[0]\n\
-MOV OUT[0], IN[0]\n\
-MOV OUT[1], IN[1]\n\
-END\n";
-        const FS: &str = "FRAG\n\
-DCL IN[0], GENERIC[0], PERSPECTIVE\n\
-DCL OUT[0], COLOR\n\
-MOV OUT[0], IN[0]\n\
-END\n";
-        {
-            let mut s = Submit3d::new();
-            s.emit_create_shader(H_VS, PIPE_SHADER_VERTEX, VS);
-            s.emit_create_shader(H_FS, PIPE_SHADER_FRAGMENT, FS);
-            let bytes = s.as_bytes();
-            let hdr = VirtioGpuSubmit3d {
-                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
-                size: bytes.len() as u32,
-                _padding: 0,
-            };
-            self.ctrl_submit_header_tail(&hdr, bytes)?;
-        }
-
-        self.virgl_create_rt(RT_RES, RT_W, RT_H)?;
-        let backing_va = self.virgl_attach_backing(RT_RES, (RT_W * RT_H * 4) as usize)?;
-
-        // Vertex buffer: 6 vertices × (vec4 pos + vec4 colour) = 192 bytes.
-        const VBYTES: usize = 6 * 8 * 4;
-        {
-            use crate::protocol::{VirtioGpuResourceCreate3d, VIRTIO_GPU_CMD_RESOURCE_CREATE_3D};
-            let create = VirtioGpuResourceCreate3d {
-                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
-                resource_id: VBO_RES,
-                target: PIPE_BUFFER,
-                format: PIPE_FORMAT_R8_UNORM,
-                bind: PIPE_BIND_VERTEX_BUFFER,
-                width: VBYTES as u32,
-                height: 1,
-                depth: 1,
-                array_size: 1,
-                last_level: 0,
-                nr_samples: 0,
-                flags: 0,
-                _padding: 0,
-            };
-            self.ctrl_submit_struct(&create)?;
-            use crate::protocol::{VirtioGpuCtxAttachResource, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE};
-            let attach = VirtioGpuCtxAttachResource {
-                hdr: self.virgl_hdr(VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE),
-                resource_id: VBO_RES,
-                _padding: 0,
-            };
-            self.ctrl_submit_struct(&attach)?;
-        }
-
-        // Top (y=+1) red, bottom (y=-1) blue → vertical gradient. Each vertex:
-        // [x, y, z, w,  r, g, b, a].
-        #[rustfmt::skip]
-        let verts: [f32; 48] = [
-            -1.0, -1.0, 0.0, 1.0,   0.0, 0.0, 1.0, 1.0,
-             1.0, -1.0, 0.0, 1.0,   0.0, 0.0, 1.0, 1.0,
-            -1.0,  1.0, 0.0, 1.0,   1.0, 0.0, 0.0, 1.0,
-             1.0, -1.0, 0.0, 1.0,   0.0, 0.0, 1.0, 1.0,
-             1.0,  1.0, 0.0, 1.0,   1.0, 0.0, 0.0, 1.0,
-            -1.0,  1.0, 0.0, 1.0,   1.0, 0.0, 0.0, 1.0,
-        ];
-        let mut vbytes = [0u8; VBYTES];
-        for (i, v) in verts.iter().enumerate() {
-            vbytes[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
-        }
-
-        let mut s = Submit3d::new();
-        s.emit_resource_inline_write(VBO_RES, &vbytes);
-        s.emit_create_blend_default(H_BLEND);
-        s.emit_bind_object(VIRGL_OBJECT_BLEND, H_BLEND);
-        s.emit_create_dsa_default(H_DSA);
-        s.emit_bind_object(VIRGL_OBJECT_DSA, H_DSA);
-        s.emit_create_rasterizer_default(H_RAST);
-        s.emit_bind_object(VIRGL_OBJECT_RASTERIZER, H_RAST);
-        // Two attributes: position @0, colour @16; stride 32.
-        s.emit_create_vertex_elements(
-            H_VE,
-            &[
-                (0, 0, 0, PIPE_FORMAT_R32G32B32A32_FLOAT),
-                (16, 0, 0, PIPE_FORMAT_R32G32B32A32_FLOAT),
-            ],
-        );
-        s.emit_bind_object(VIRGL_OBJECT_VERTEX_ELEMENTS, H_VE);
-        s.emit_set_vertex_buffers(&[(32, 0, VBO_RES)]);
-        s.emit_create_surface(H_SURF, RT_RES, PIPE_FORMAT_B8G8R8A8_UNORM);
-        s.emit_set_framebuffer_state(0, &[H_SURF]);
-        s.emit_set_viewport(RT_W as f32, RT_H as f32);
-        s.emit_clear(PIPE_CLEAR_COLOR0, [0.0, 0.0, 0.0, 1.0], 1.0, 0);
-        s.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
-        s.emit_bind_shader(H_FS, PIPE_SHADER_FRAGMENT);
-        s.emit_draw_vbo(0, 6, PIPE_PRIM_TRIANGLES);
-        let bytes = s.as_bytes();
-        let hdr = VirtioGpuSubmit3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
-            size: bytes.len() as u32,
-            _padding: 0,
-        };
-        self.ctrl_submit_header_tail(&hdr, bytes)?;
-
-        self.virgl_transfer_from_host(RT_RES, 0, 0, RT_W, RT_H, RT_W * 4)?;
-        // Sample a near-top and near-bottom pixel; the gradient must differ.
-        let read = |row: u32| -> [u8; 4] {
-            let off = (row as usize * RT_W as usize + (RT_W as usize / 2)) * 4;
-            unsafe {
-                let p = (backing_va + off) as *const u8;
-                [
-                    p.read_volatile(),
-                    p.add(1).read_volatile(),
-                    p.add(2).read_volatile(),
-                    p.add(3).read_volatile(),
-                ]
-            }
-        };
-        let top = read(4);
-        let bottom = read(RT_H - 5);
-        // BGRA: R is byte 2. One row should be red-dominant, the other blue.
-        let interpolated = (i32::from(top[2]) - i32::from(bottom[2])).abs() > 32
-            || (i32::from(top[0]) - i32::from(bottom[0])).abs() > 32;
-        Ok(interpolated)
-    }
-
-    /// Increment B: create a passthrough vertex shader and a solid-color
-    /// fragment shader from TGSI text. virglrenderer parses the text at create
-    /// time, so this validates the CREATE_OBJECT(SHADER) text encoding (the
-    /// foundation for the gaussian blur fragment shader). Object handles 10/11
-    /// are reserved for these shaders within the virgl context.
-    ///
-    pub(crate) fn virgl_shader_test(&mut self) -> Result<(), GfxError> {
-        use crate::protocol::{VirtioGpuSubmit3d, VIRTIO_GPU_CMD_SUBMIT_3D};
-        use crate::virgl::{Submit3d, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX};
-        const VS: &str = "VERT\nDCL IN[0]\nDCL OUT[0], POSITION\nMOV OUT[0], IN[0]\nEND\n";
-        const FS: &str = "FRAG\nDCL OUT[0], COLOR\nIMM[0] FLT32 { 1.0000, 0.0000, 0.0000, 1.0000}\nMOV OUT[0], IMM[0]\nEND\n";
-        let mut s = Submit3d::new();
-        s.emit_create_shader(10, PIPE_SHADER_VERTEX, VS);
-        s.emit_create_shader(11, PIPE_SHADER_FRAGMENT, FS);
-        let bytes = s.as_bytes();
-        let hdr = VirtioGpuSubmit3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
-            size: bytes.len() as u32,
-            _padding: 0,
-        };
-        self.ctrl_submit_header_tail(&hdr, bytes)
+        let va = self.gradient_probe(RT_RES, H_SURF, [1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0])?;
+        let (top, bottom) =
+            (probe_pixel(va, PROBE_SIDE / 2, 4), probe_pixel(va, PROBE_SIDE / 2, PROBE_SIDE - 5));
+        // BGRA: red is byte 2, blue byte 0.
+        Ok(top[2] > top[0].saturating_add(128) && bottom[0] > bottom[2].saturating_add(128))
     }
 
     /// Issue TRANSFER_TO_HOST_3D for a box of `res_id` (guest backing → host
@@ -544,20 +322,6 @@ END\n";
             layer_stride: 0,
         };
         self.ctrl_submit_struct(&cmd)
-    }
-
-    /// Allocate and map a page-aligned scratch VMO in the virgl backing VA
-    /// region (no resource attach). Returns the VA.
-    pub(crate) fn virgl_alloc_scratch(&mut self, byte_len: usize) -> Result<usize, GfxError> {
-        let len = align_page(byte_len);
-        // CPU-only (no device reads it): an anonymous object.
-        let vmo = nexus_abi::vmo_create(len).map_err(|_| GfxError::ResourceExhausted)?;
-        let flags = nexus_abi::page_flags::VALID
-            | nexus_abi::page_flags::USER
-            | nexus_abi::page_flags::READ
-            | nexus_abi::page_flags::WRITE;
-        let va = nexus_abi::vm_map(vmo, 0, len, flags).map_err(|_| GfxError::MmioFault)?;
-        Ok(va)
     }
 
     /// Read the device feature bits and acknowledge the subset we support for

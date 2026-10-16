@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-16 (Block 4, layer 5c-2 P6: the QEMU path draws our own programs — TASK-0215, ADR-0072)
+
+- **The virtual GPU's backend** (`nexus_gfx::shader::tgsi`): our IR compiled into the shader text
+  the QEMU path's host renderer parses — a value a register's components, a lane or swizzle a
+  swizzle, constants immediates, push constants the constant buffer; blending is the pipeline's
+  state there, a tile read refused. The frontend lowers vertex entry points (`quad.wgsl`: the
+  quad's corner and its 0..1 place as `uv`).
+- **The QEMU path's pipeline library** (`resources/gpu/pipelines/compositor-virgl.toml` →
+  `compositor-virgl.nxgp`, code target `TGSI` v1, 15 entries): the same WGSL sources as the
+  board's — the layer's variants (`layer.wgsl` gains an `atlas` override and a fourth push vec4
+  naming a rectangle of the texture; the board's library is rebuilt for the 64-byte block, its
+  programs unchanged), the shadow, the blur passes at windowd's radii, `gradient.wgsl`.
+- **gpud's virgl path on the library** (`virgl_pipelines.rs`, `backend/glass_blur.rs`): every
+  draw binds a library pipeline — wallpaper, splash, client surfaces, icon, pointer, shadow, the
+  pointer's fallback, the glass blur at half resolution with its cache; long programs reach the
+  device in chunks of the renderer's long-shader protocol; one bilinear sampler. The probe's
+  readback proofs draw library programs (`gpud: virgl gradient ok` now also proves the
+  orientation; its failure marker is `gpud: virgl gradient wrong (flat or upside down)`). The
+  hand-written shader text, the dead VMO executors and blur, the build-up's debug stages and the
+  display texture of the retired present (4 MB) are gone; so is the shader-handle collision that
+  left rounded glass unblurred on QEMU — rounded glass is frosted now.
+- Verified: the QEMU lanes visible, visible-fhd, visible-2d and usb-visible; `just check`, `diag`,
+  `dep-gate`, `test-host`; board cycle 20 (`[PASS] board-visible`, 62 rungs — every read and cost
+  as in cycle 19).
+
 ### Changed - 2026-10-16 (Block 4, layer 5c-2: the device allocates nothing per pass — TASK-0215)
 
 - **A pass takes nothing of gpud's heap, a library only what its table keeps** (gpud's heap never

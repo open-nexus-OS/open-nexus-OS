@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// The glass layer's backdrop blur (ADR-0072, TASK-0215 5c-2 P5d): the virgl path's separable
-// gaussian — σ = R/2, taps out to ±R pixels, weights 2^(k·d²) normalised (`FS_BLUR`) — run at
-// half resolution. The horizontal pass reads the full-resolution backdrop, a tap every two pixels,
-// each one bilinear fetch at the corner of four texels: the fetch averages them, which is the
-// downsample. The vertical pass reads the horizontal one's half-resolution result two taps a
+// The glass layer's backdrop blur (ADR-0072, TASK-0215 5c-2 P5d): the separable gaussian the
+// virgl path drew at full resolution until P6 — σ = R/2, taps out to ±R pixels, weights 2^(k·d²)
+// normalised — run at half resolution, on both paths since. The horizontal pass reads the
+// full-resolution backdrop, a tap every two pixels, each one bilinear fetch at the corner of four
+// texels: the fetch averages them, which is the downsample. The vertical pass reads the horizontal one's half-resolution result two taps a
 // fetch — placed between them by their weights — and lifts the saturation (the CPU path's
 // `raster::saturate`; windowd's glass asks 140 %). The glass layer samples the result with its
 // corners cut (`layer.wgsl`). The radius is an override: a pipeline per radius, its loops

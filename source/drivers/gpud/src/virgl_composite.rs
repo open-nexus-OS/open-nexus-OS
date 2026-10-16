@@ -10,240 +10,99 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md
 //!
-//! `submit_layer_pass` draws ONE layer into a target surface: it samples the
-//! content texture (fragcoord→UV, like the scanout blit) and multiplies the
-//! sampled alpha by an analytic rounded-rect SDF coverage and the layer
-//! opacity, alpha-blended over the target. This is the GPU primitive the live
-//! compositor (and the scene graph) drive; `virgl_composite_selftest` proves it
-//! by readback at bringup (no framebuffer handoff needed) → `gpud: layer composite ok`.
+//! [`VirtioGpuBackend::layer_pass`] draws ONE layer into a target surface with a
+//! library pipeline (`virgl_pipelines`, TASK-0215 5c-2 P6): a rectangle of a
+//! content texture spread over the destination rectangle (bilinear when the
+//! sizes differ), its alpha times the layer opacity and the rounded rectangle's
+//! coverage, premultiplied over the target — the client-surface pipeline
+//! (`layer-atlas`) for straight-alpha content, the sprite pipeline
+//! (`layer-premultiplied`) for the premultiplied pointer.
+//! `virgl_composite_selftest` proves it by readback at bringup (no framebuffer
+//! handoff needed) → `gpud: layer composite ok`.
 //!
 //! DriverKit/NexusGfx boundary: the portable contract is `Command::CompositeLayer`
-//! (texture region + transform + opacity + radius + shadow). A real-GPU backend
-//! reimplements `submit_layer_pass` against its own ISA.
+//! (texture region + transform + opacity + radius + shadow); the board GPU draws
+//! the same programs from its own library.
 
 #![cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 
 use nexus_gfx::backend::error::GfxError;
+use nexus_gfx::backend::gpu::quads::Quad;
 use nexus_gfx::command::buffer::RgbaColor;
 
 use crate::backend::VirtioGpuBackend;
 use crate::protocol::{
-    VirtioGpuCtxAttachResource, VirtioGpuResourceCreate3d, VirtioGpuSubmit3d,
-    VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
-    VIRTIO_GPU_CMD_RESOURCE_CREATE_3D, VIRTIO_GPU_CMD_SUBMIT_3D,
+    VirtioGpuCtxAttachResource, VirtioGpuResourceCreate3d, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE,
+    VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING, VIRTIO_GPU_CMD_RESOURCE_CREATE_3D,
 };
 use crate::virgl::{
     Submit3d, PIPE_BIND_RENDER_TARGET, PIPE_BIND_SAMPLER_VIEW, PIPE_FORMAT_B8G8R8A8_UNORM,
-    PIPE_PRIM_TRIANGLES, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX, PIPE_TEXTURE_2D,
-    VIRGL_OBJECT_BLEND, VIRGL_OBJECT_DSA, VIRGL_OBJECT_RASTERIZER, VIRGL_OBJECT_VERTEX_ELEMENTS,
+    PIPE_TEXTURE_2D,
 };
-
-// Object handles (context-global namespace — see backend.rs gradient-selftest
-// comment for the full allocation map). Composite owns 20, 0x47, 0x61.
-const H_FS_LAYER: u32 = 20;
-const H_SAMPLER: u32 = 0x47;
-const H_BLEND_ALPHA: u32 = 0x61;
-/// Premultiplied-alpha "over" blend (rgb_src = ONE) — for premultiplied sprites
-/// (the cursor). Straight-alpha content (atlas layers, icon) keeps H_BLEND_ALPHA.
-const H_BLEND_PREMUL: u32 = 0x62;
-// Reused from the boot draw self-test (persist for the gpud lifetime):
-const H_VS: u32 = 10; // passthrough vertex shader
-const H_DSA: u32 = 0x21;
-const H_RAST: u32 = 0x22;
-const H_VE: u32 = 0x23; // vec4 position vertex elements
-const FULLSCREEN_TRI_VBO: u32 = 0xF5; // 3-vert clip-space triangle
-
-// Self-test resources/handles (bringup only; consumed by
-// `virgl_composite_selftest.rs`).
-pub(crate) const ST_CONTENT_RES: u32 = 0xEA;
-pub(crate) const ST_DEST_RES: u32 = 0xEB;
-pub(crate) const ST_CONTENT_SURF: u32 = 0x44;
-pub(crate) const ST_DEST_SURF: u32 = 0x45;
-pub(crate) const ST_CONTENT_SVIEW: u32 = 0x46;
+use crate::virgl_pipelines::Pipeline;
 
 // Live layer compositing: the chat/window content is rendered by windowd into
 // the shared framebuffer atlas (rows 3200..9599). We alias it as a GPU texture
-// and sample it as the layer content. The destination is the display-plane
-// surface 0x30 (= texture 0xF8 aliasing rows 1600..3199), which the existing
-// GL present already blits to the scanout RT — so no present-path surgery.
+// and sample it as the layer content, compositing straight onto the scanout RT.
 const ATLAS_RES: u32 = 0xF3;
 const ATLAS_SVIEW: u32 = 0x48;
-const H_FBSRC_SURF: u32 = 0x30; // display-plane surface (created by virgl_blur_init)
 const FB_STRIDE: u32 = nexus_display_proto::layout::STRIDE_BYTES;
-// The atlas rows and the display plane row are `nexus_display_proto::layout`'s — the same
-// constants windowd hands rows out from, so every row it can hand out is inside this GL alias
-// (the two drifted once when each crate kept its own number: bands past the alias sampled
-// outside the texture = garbage rows after maximizing).
+// The atlas rows are `nexus_display_proto::layout`'s — the same constants windowd hands rows
+// out from, so every row it can hand out is inside this GL alias (the two drifted once when
+// each crate kept its own number: bands past the alias sampled outside the texture = garbage
+// rows after maximizing).
 const ATLAS_ROW: u32 = nexus_display_proto::layout::ATLAS_ROW;
 const ATLAS_ROWS: u32 = nexus_display_proto::layout::ATLAS_ROWS;
-const DISPLAY_PLANE_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
+const ATLAS_W: u32 = nexus_display_proto::layout::LAYOUT_MAX.0;
 
 // Cursor sprite as a layer: its own self-backed sampler texture (BGRA), so the
-// pointer composites through the generic `submit_layer_pass` like any layer —
-// no procedural rect. Resource 0xE3 (free: display 0xE1, wallpaper 0xE2),
-// sampler view 0x49 (free: 0x44/0x45 display/wallpaper, 0x48 atlas).
+// pointer composites through the generic `layer_pass` like any layer —
+// no procedural rect. Resource 0xE3 (free: wallpaper 0xE2),
+// sampler view 0x49 (free: 0x45 wallpaper, 0x48 atlas).
 const H_CURSOR_TEX: u32 = 0xE3;
 const H_CURSOR_SVIEW: u32 = 0x49;
 // Real icon sprite texture + sampler view (next free ids after the cursor's).
 const H_ICON_TEX: u32 = 0xE4;
 const H_ICON_SVIEW: u32 = 0x4A;
 
-/// Sample a content texture (fragcoord→UV) and modulate its alpha by an analytic
-/// rounded-rect SDF coverage and the layer opacity.
-/// CONST[0] = (1/tex_w, 1/tex_h, (src_x-dst_x)/tex_w, (src_row-dst_y)/tex_h) — UV map.
-/// CONST[1] = (-cx, -cy, bx, by) — layer rect centre (negated) + half-extents minus radius.
-/// CONST[2] = (radius, opacity01, 0, 0).
-const FS_LAYER: &str = "FRAG\n\
-    DCL IN[0], POSITION, LINEAR\n\
-    DCL OUT[0], COLOR\n\
-    DCL SAMP[0]\n\
-    DCL SVIEW[0], 2D, FLOAT\n\
-    DCL CONST[0..2]\n\
-    DCL TEMP[0..5]\n\
-    IMM[0] FLT32 { 0.5000, 0.0000, 1.0000, 0.0000}\n\
-    MAD TEMP[0].xy, IN[0].xyyy, CONST[0].xyyy, CONST[0].zwww\n\
-    TEX TEMP[1], TEMP[0], SAMP[0], 2D\n\
-    ADD TEMP[2].xy, IN[0].xyyy, CONST[1].xyyy\n\
-    MAX TEMP[2].xy, TEMP[2].xyyy, -TEMP[2].xyyy\n\
-    ADD TEMP[2].xy, TEMP[2].xyyy, -CONST[1].zwww\n\
-    MAX TEMP[3].xy, TEMP[2].xyyy, IMM[0].yyyy\n\
-    DP2 TEMP[4].x, TEMP[3].xyyy, TEMP[3].xyyy\n\
-    SQRT TEMP[4].x, TEMP[4].xxxx\n\
-    MAX TEMP[5].x, TEMP[2].xxxx, TEMP[2].yyyy\n\
-    MIN TEMP[5].x, TEMP[5].xxxx, IMM[0].yyyy\n\
-    ADD TEMP[4].x, TEMP[4].xxxx, TEMP[5].xxxx\n\
-    ADD TEMP[4].x, TEMP[4].xxxx, -CONST[2].xxxx\n\
-    ADD TEMP[5].x, IMM[0].xxxx, -TEMP[4].xxxx\n\
-    MAX TEMP[5].x, TEMP[5].xxxx, IMM[0].yyyy\n\
-    MIN TEMP[5].x, TEMP[5].xxxx, IMM[0].zzzz\n\
-    MUL TEMP[5].x, TEMP[5].xxxx, CONST[2].yyyy\n\
-    MUL TEMP[1].w, TEMP[1].wwww, TEMP[5].xxxx\n\
-    MOV OUT[0], TEMP[1]\n\
-    END\n";
+/// A layer's content: its texture (a sampler view and its size) and the rectangle of it the
+/// layer shows (`x`, `row`, `w`, `h` texels).
+#[derive(Clone, Copy)]
+pub(crate) struct Content {
+    pub(crate) view: u32,
+    pub(crate) tex: (u32, u32),
+    pub(crate) rect: (u32, u32, u32, u32),
+}
 
 impl VirtioGpuBackend {
-    /// Lazily create the layer shader, alpha-blend state, and sampler state.
-    /// No framebuffer dependency — usable at bringup and live.
-    pub(crate) fn composite_init(&mut self) -> Result<(), GfxError> {
-        if self.virgl_composite_ready {
-            return Ok(());
-        }
-        let mut s = Submit3d::new();
-        s.emit_create_shader(H_FS_LAYER, PIPE_SHADER_FRAGMENT, FS_LAYER);
-        s.emit_create_blend_alpha(H_BLEND_ALPHA);
-        s.emit_create_blend_premult(H_BLEND_PREMUL);
-        s.emit_create_sampler_state_default(H_SAMPLER);
-        self.submit_composite_stream(&s)?;
-        self.virgl_composite_ready = true;
-        Ok(())
-    }
-
-    /// Composite one layer (content texture region → target surface) with a
-    /// rounded-corner mask + opacity, alpha-blended. `tex_w/h` are the content
-    /// texture dimensions; `src_x/src_row` its sub-region; `dst_x/dst_y/w/h` the
-    /// destination rect (screen/RT space, also the viewport + SDF frame).
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn submit_layer_pass(
+    /// Composite one layer with pipeline `p`: `content`'s rectangle spread over the destination
+    /// rectangle (`x`, `y`, `w`, `h`) of `target` — bilinear when the sizes differ (downscale for
+    /// supersampled sprites, upscale while a window resizes) — at `opacity` (0..255), its corners
+    /// cut at `radius`.
+    pub(crate) fn layer_pass(
         &mut self,
-        target_surface: u32,
-        content_sview: u32,
-        tex_w: u32,
-        tex_h: u32,
-        src_x: u32,
-        src_row: u32,
-        w: u32,
-        h: u32,
-        dst_x: u32,
-        dst_y: u32,
+        p: Pipeline,
+        target: u32,
+        content: Content,
+        (x, y, w, h): (u32, u32, u32, u32),
         opacity: u32,
         radius: u32,
     ) -> Result<(), GfxError> {
-        // 1:1 texel→pixel straight-alpha path (atlas layers / scroll): src==dst,
-        // standard alpha blend. Premultiplied sprites use `submit_layer_pass_scaled`
-        // with `H_BLEND_PREMUL` directly (see `composite_sprite_rt`).
-        self.submit_layer_pass_scaled(
-            target_surface,
-            content_sview,
-            tex_w,
-            tex_h,
-            src_x,
-            src_row,
-            w,
-            h,
-            dst_x,
-            dst_y,
-            w,
-            h,
-            opacity,
-            radius,
-            H_BLEND_ALPHA,
-        )
-    }
-
-    /// Composite a `src_w×src_h` region of a texture (at `src_x`,`src_row`) into a
-    /// `dst_w×dst_h` rect at (`dst_x`,`dst_y`), with GPU bilinear scaling when the
-    /// sizes differ (downscale for supersampled/HiDPI sprites, upscale otherwise).
-    /// The UV step is per-DEST-pixel = src-texels / (tex · dst), so the sampled
-    /// region spreads across the dest rect; with `src==dst` this is exactly the
-    /// 1:1 blit. Rounded-corner mask + opacity use the dest geometry.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn submit_layer_pass_scaled(
-        &mut self,
-        target_surface: u32,
-        content_sview: u32,
-        tex_w: u32,
-        tex_h: u32,
-        src_x: u32,
-        src_row: u32,
-        src_w: u32,
-        src_h: u32,
-        dst_x: u32,
-        dst_y: u32,
-        dst_w: u32,
-        dst_h: u32,
-        opacity: u32,
-        radius: u32,
-        blend: u32,
-    ) -> Result<(), GfxError> {
-        self.composite_init()?;
-        if dst_w == 0 || dst_h == 0 || src_w == 0 || src_h == 0 || tex_w == 0 || tex_h == 0 {
+        let (tw, th) = content.tex;
+        let (sx, sy, sw, sh) = content.rect;
+        if !self.pipelines.ready || w == 0 || h == 0 || sw == 0 || sh == 0 || tw == 0 || th == 0 {
             return Err(GfxError::InvalidArgument);
         }
-        let r = radius.min(dst_w / 2).min(dst_h / 2) as f32;
-        let cx = dst_x as f32 + dst_w as f32 / 2.0;
-        let cy = dst_y as f32 + dst_h as f32 / 2.0;
-        let bx = dst_w as f32 / 2.0 - r;
-        let by = dst_h as f32 / 2.0 - r;
-        // Per-dest-pixel UV advance: the src texel span over the dest pixel span.
-        let step_u = src_w as f32 / (tex_w as f32 * dst_w as f32);
-        let step_v = src_h as f32 / (tex_h as f32 * dst_h as f32);
-        // UV at the dst origin = the src origin (in normalized texels).
-        let uv_off_x = src_x as f32 / tex_w as f32 - dst_x as f32 * step_u;
-        let uv_off_y = src_row as f32 / tex_h as f32 - dst_y as f32 * step_v;
-        let opacity01 = (opacity.min(255) as f32) / 255.0;
-
-        let mut s = Submit3d::new();
-        s.emit_bind_object(VIRGL_OBJECT_BLEND, blend);
-        s.emit_bind_object(VIRGL_OBJECT_DSA, H_DSA);
-        s.emit_bind_object(VIRGL_OBJECT_RASTERIZER, H_RAST);
-        s.emit_bind_object(VIRGL_OBJECT_VERTEX_ELEMENTS, H_VE);
-        s.emit_set_framebuffer_state(0, &[target_surface]);
-        s.emit_set_viewport_box(dst_x as f32, dst_y as f32, dst_w as f32, dst_h as f32);
-        s.emit_set_sampler_views(PIPE_SHADER_FRAGMENT, 0, &[content_sview]);
-        s.emit_bind_sampler_states(PIPE_SHADER_FRAGMENT, 0, &[H_SAMPLER]);
-        s.emit_set_constant_buffer(
-            PIPE_SHADER_FRAGMENT,
-            &[
-                step_u, step_v, uv_off_x, uv_off_y, //
-                -cx, -cy, bx, by, //
-                r, opacity01, 0.0, 0.0,
-            ],
-        );
-        s.emit_bind_shader(H_VS, PIPE_SHADER_VERTEX);
-        s.emit_bind_shader(H_FS_LAYER, PIPE_SHADER_FRAGMENT);
-        s.emit_set_vertex_buffers(&[(16, 0, FULLSCREEN_TRI_VBO)]);
-        s.emit_draw_vbo(0, 3, PIPE_PRIM_TRIANGLES);
-        self.submit_composite_stream(&s)
+        let r = radius.min(w / 2).min(h / 2) as f32;
+        let (tw, th) = (tw as f32, th as f32);
+        let tint = [1.0, 1.0, 1.0, opacity.min(255) as f32 / 255.0];
+        let q = Quad::layer(x as f32, y as f32, w as f32, h as f32, tint, r).with_texture([
+            sw as f32 / tw,
+            sh as f32 / th,
+            sx as f32 / tw,
+            sy as f32 / th,
+        ]);
+        self.draw(p, target, &q, content.view)
     }
 
     /// Lazily alias the framebuffer atlas (rows 3200..9599) as a GPU texture +
@@ -265,7 +124,7 @@ impl VirtioGpuBackend {
             target: PIPE_TEXTURE_2D,
             format: PIPE_FORMAT_B8G8R8A8_UNORM,
             bind: PIPE_BIND_RENDER_TARGET | PIPE_BIND_SAMPLER_VIEW,
-            width: nexus_display_proto::layout::LAYOUT_MAX.0,
+            width: ATLAS_W,
             height: ATLAS_ROWS,
             depth: 1,
             array_size: 1,
@@ -285,102 +144,17 @@ impl VirtioGpuBackend {
         self.ctrl_submit_struct(&ctx_attach)?;
         let mut s = Submit3d::new();
         s.emit_create_sampler_view(ATLAS_SVIEW, ATLAS_RES, PIPE_FORMAT_B8G8R8A8_UNORM);
-        self.submit_composite_stream(&s)?;
+        self.submit3d(&s)?;
         self.virgl_atlas_ready = true;
         Ok(())
     }
 
-    /// Live GPU composite of one window/layer into the display plane (G2): soft
-    /// drop shadow + the content texture (atlas region) with a rounded-corner
-    /// mask + opacity, alpha-blended over the current backdrop. Renders into the
-    /// display-plane surface 0x30 (the existing GL present then shows it). All
-    /// coordinates are display-plane-relative (0..800), matching CompositeLayer.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn composite_layer_gpu(
-        &mut self,
-        src_row_abs: u32,
-        src_x: u32,
-        width: u32,
-        height: u32,
-        dst_x: u32,
-        dst_y: u32,
-        opacity: u32,
-        corner_radius: u32,
-        shadow_blur: u32,
-        shadow_offset_y: i32,
-        shadow_alpha: u32,
-        backdrop_blur: u32,
-    ) -> Result<(), GfxError> {
-        if !self.virgl_capable || !self.virgl_draw_ok {
-            return Err(GfxError::DeviceNotFound);
-        }
-        self.composite_atlas_init()?;
-        // Shadow first (into the display plane, blends over the backdrop).
-        if shadow_blur > 0 {
-            self.submit_virgl_drop_shadow(
-                dst_x,
-                dst_y + DISPLAY_PLANE_ROW,
-                width,
-                height,
-                corner_radius,
-                shadow_blur,
-                0,
-                shadow_offset_y,
-                RgbaColor::new(0, 0, 0, shadow_alpha.min(255) as u8),
-            )?;
-        }
-        // Sync the content from the VMO atlas into the GL atlas texture.
-        let src_row_rel = src_row_abs.saturating_sub(ATLAS_ROW);
-        self.virgl_transfer_to_host(ATLAS_RES, src_x, src_row_rel, width, height, FB_STRIDE)?;
-        if backdrop_blur > 0 {
-            // Glass: GPU-blur the destination backdrop, leaving the result in
-            // the display texture (0xF8) only — the layer pass composites over
-            // it directly, so we skip the blur's VMO writeback (one fewer
-            // transfer per glass frame; composite_layer_gpu does the final
-            // writeback after the content is blended).
-            let (fb, fb_len, fb_w, _row) = self.scanout_fb().ok_or(GfxError::DeviceNotFound)?;
-            self.submit_virgl_blur(
-                fb,
-                fb_len,
-                fb_w,
-                dst_x,
-                dst_y + DISPLAY_PLANE_ROW,
-                width,
-                height,
-                backdrop_blur,
-                false,
-            )?;
-        } else {
-            // Sync the destination backdrop region into the display texture so
-            // the layer's translucent (rounded) edges blend over current content.
-            self.virgl_transfer_to_host(0xF8, dst_x, dst_y, width, height, FB_STRIDE)?;
-        }
-        // Composite the layer into the display-plane surface.
-        self.submit_layer_pass(
-            H_FBSRC_SURF,
-            ATLAS_SVIEW,
-            nexus_display_proto::layout::LAYOUT_MAX.0,
-            ATLAS_ROWS,
-            src_x,
-            src_row_rel,
-            width,
-            height,
-            dst_x,
-            dst_y,
-            opacity,
-            corner_radius,
-        )?;
-        // Land the composited region back in the scanned-out VMO.
-        self.virgl_transfer_from_host(0xF8, dst_x, dst_y, width, height, FB_STRIDE)
-    }
-
-    /// RT-direct layer composite (Increment 1 of true GPU compositing): composite
-    /// the layer straight onto the scanout render target (`H_GLS_SURF`), over the
-    /// base that gl_present already blitted there — NO VMO display-plane writeback
-    /// and NO `0xF8` backdrop transfer (the RT is the final surface). Glass layers
-    /// get their backdrop from `blur_rt_backdrop` (destination-so-far RT snapshot
-    /// + GPU blur), run by `composite_pending_rt_layers` before this composite.
-    /// Coordinates are screen-space (0..SCREEN_H), matching the RT.
+    /// The layer composite: the layer straight onto the scanout render target, over
+    /// what the frame composited before it — its shadow, then its content (the RT is
+    /// the final surface, nothing is written back). Glass layers get their backdrop
+    /// from the glass blur (destination-so-far snapshot + GPU blur,
+    /// `backend::glass_blur`), run by `composite_pending_rt_layers` before this
+    /// composite. Coordinates are screen-space, matching the RT.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn composite_layer_rt(
         &mut self,
@@ -409,7 +183,7 @@ impl VirtioGpuBackend {
         scroll_band_h: u32,
         upload: bool,
     ) -> Result<(), GfxError> {
-        if !self.virgl_capable || !self.virgl_draw_ok {
+        if !self.virgl_capable || !self.virgl_draw_ok || !self.pipelines.ready {
             return Err(GfxError::DeviceNotFound);
         }
         self.composite_atlas_init()?;
@@ -482,48 +256,21 @@ impl VirtioGpuBackend {
                 )?;
             }
         }
-        // Composite the content straight onto the scanout RT (alpha-over base).
-        if src_w != width || src_h != height {
-            // Live resize: bilinear-scale the band source up to the frame dest —
-            // the window body grows; snaps sharp when the client re-renders.
-            self.submit_layer_pass_scaled(
-                self.rt_back_surface(),
-                ATLAS_SVIEW,
-                nexus_display_proto::layout::LAYOUT_MAX.0,
-                ATLAS_ROWS,
-                src_x,
-                src_row_rel,
-                src_w,
-                src_h,
-                dst_x,
-                dst_y,
-                width,
-                height,
-                opacity,
-                corner_radius,
-                H_BLEND_ALPHA,
-            )
-        } else {
-            self.submit_layer_pass(
-                self.rt_back_surface(),
-                ATLAS_SVIEW,
-                nexus_display_proto::layout::LAYOUT_MAX.0,
-                ATLAS_ROWS,
-                src_x,
-                src_row_rel,
-                width,
-                height,
-                dst_x,
-                dst_y,
-                opacity,
-                corner_radius,
-            )
-        }
+        // Composite the content straight onto the scanout RT, over the base. A content band
+        // smaller than the frame (live resize) is spread over it — the window body grows; it
+        // snaps sharp when the client re-renders.
+        let content = Content {
+            view: ATLAS_SVIEW,
+            tex: (ATLAS_W, ATLAS_ROWS),
+            rect: (src_x, src_row_rel, src_w, src_h),
+        };
+        let target = self.rt_back_surface();
+        let frame = (dst_x, dst_y, width, height);
+        self.layer_pass(self.pipelines.layer_atlas, target, content, frame, opacity, corner_radius)
     }
 
     /// Upload the stored cursor sprite (BGRA, set by `store_cursor_sprite` when
-    /// windowd arms the cursor) into its own GL sampler texture, and pre-warm the
-    /// layer shader. One-shot. Returns true once a cursor texture is ready to
+    /// windowd arms the cursor) into its own GL sampler texture. One-shot. Returns true once a cursor texture is ready to
     /// sample. Issues create/attach/transfer ctrl commands — call OUTSIDE a present
     /// batch (like the wallpaper upload), never interleaved with batched draws.
     pub(crate) fn cursor_tex_init(&mut self) -> Result<bool, GfxError> {
@@ -535,9 +282,6 @@ impl VirtioGpuBackend {
         if self.cursor_tex_va != 0 {
             return Ok(true); // already uploaded
         }
-        // Pre-warm the layer shader/blend/sampler outside any batch so its
-        // one-time CREATE_OBJECTs are validated here, not inside a present batch.
-        self.composite_init()?;
         let create = VirtioGpuResourceCreate3d {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
             resource_id: H_CURSOR_TEX,
@@ -572,7 +316,7 @@ impl VirtioGpuBackend {
         self.virgl_transfer_to_host(H_CURSOR_TEX, 0, 0, w, h, w * 4)?;
         let mut s = Submit3d::new();
         s.emit_create_sampler_view(H_CURSOR_SVIEW, H_CURSOR_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
-        self.submit_composite_stream(&s)?;
+        self.submit3d(&s)?;
         self.cursor_tex_va = va;
         self.cursor_tex_w = w;
         self.cursor_tex_h = h;
@@ -611,19 +355,19 @@ impl VirtioGpuBackend {
     }
 
     /// Composite the cursor sprite as a layer onto the scanout RT at (`dst_x`,
-    /// `dst_y`), alpha-blended (the sprite's own alpha shapes the arrow). Reuses
-    /// the generic `submit_layer_pass`; safe inside the present batch (the shader
-    /// and texture were created in `cursor_tex_init` outside it). No-op until the
-    /// sprite is uploaded.
+    /// `dst_y`): the sprite pipeline — its colour is premultiplied (nexus-svg), so its
+    /// anti-aliased edges keep no dark fringe. Safe inside the present batch (the
+    /// texture was created in `cursor_tex_init` outside it). No-op until the sprite
+    /// is uploaded.
     pub(crate) fn composite_cursor_rt(&mut self, dst_x: u32, dst_y: u32) -> Result<(), GfxError> {
         if self.cursor_tex_va == 0 {
             return Ok(());
         }
         let (w, h) = (self.cursor_tex_w, self.cursor_tex_h);
-        // The cursor sprite is PREMULTIPLIED (nexus-svg) → premult-over blend, so
-        // its anti-aliased edges don't get a dark fringe (straight-alpha would
-        // multiply by alpha twice). Icon/atlas layers stay on H_BLEND_ALPHA.
-        self.composite_sprite_rt(H_CURSOR_SVIEW, w, h, dst_x, dst_y, 255, 0, H_BLEND_PREMUL)
+        let content = Content { view: H_CURSOR_SVIEW, tex: (w, h), rect: (0, 0, w, h) };
+        let target = self.rt_back_surface();
+        let p = self.pipelines.layer_premultiplied;
+        self.layer_pass(p, target, content, (dst_x, dst_y, w, h), 255, 0)
     }
 
     /// Upload the real icon sprite (set via `store_icon_sprite`) into its own GL
@@ -639,7 +383,6 @@ impl VirtioGpuBackend {
         if self.icon_tex_va != 0 {
             return Ok(true); // already uploaded
         }
-        self.composite_init()?;
         let create = VirtioGpuResourceCreate3d {
             hdr: self.virgl_hdr(VIRTIO_GPU_CMD_RESOURCE_CREATE_3D),
             resource_id: H_ICON_TEX,
@@ -673,7 +416,7 @@ impl VirtioGpuBackend {
         self.virgl_transfer_to_host(H_ICON_TEX, 0, 0, w, h, w * 4)?;
         let mut s = Submit3d::new();
         s.emit_create_sampler_view(H_ICON_SVIEW, H_ICON_TEX, PIPE_FORMAT_B8G8R8A8_UNORM);
-        self.submit_composite_stream(&s)?;
+        self.submit3d(&s)?;
         self.icon_tex_va = va;
         self.icon_tex_w = w;
         self.icon_tex_h = h;
@@ -686,8 +429,9 @@ impl VirtioGpuBackend {
     }
 
     /// Composite the icon sprite as a layer at its stored position, GPU-scaled
-    /// from the (possibly 2×/supersampled) texture down to its on-screen size.
-    /// No-op until the sprite is uploaded. Square corners, fully opaque.
+    /// from the (possibly 2×/supersampled) texture down to its on-screen size: the
+    /// client-surface pipeline (the sprite is straight alpha). No-op until the
+    /// sprite is uploaded. Square corners, fully opaque.
     pub(crate) fn composite_icon_rt(&mut self) -> Result<(), GfxError> {
         if self.icon_tex_va == 0 {
             return Ok(());
@@ -696,68 +440,8 @@ impl VirtioGpuBackend {
         let (dx, dy) = (self.icon_dst_x, self.icon_dst_y);
         let dw = if self.icon_dst_w == 0 { tw } else { self.icon_dst_w };
         let dh = if self.icon_dst_h == 0 { th } else { self.icon_dst_h };
-        self.submit_layer_pass_scaled(
-            self.rt_back_surface(),
-            H_ICON_SVIEW,
-            tw,
-            th,
-            0,
-            0,
-            tw,
-            th,
-            dx,
-            dy,
-            dw,
-            dh,
-            255,
-            0,
-            // Icon sprite is un-premultiplied (straight alpha) → standard blend.
-            H_BLEND_ALPHA,
-        )
-    }
-
-    /// Composite an uploaded BGRA sprite (`content_sview`, a `tex_w×tex_h`
-    /// texture) as a layer onto the scanout RT at (`dst_x`,`dst_y`), alpha-blended
-    /// via the generic `submit_layer_pass`. The reusable sprite-layer entry — the
-    /// cursor uses it, and icons/other sprites can too (each its own texture), so
-    /// no sprite gets a bespoke draw path.
-    pub(crate) fn composite_sprite_rt(
-        &mut self,
-        content_sview: u32,
-        tex_w: u32,
-        tex_h: u32,
-        dst_x: u32,
-        dst_y: u32,
-        opacity: u32,
-        radius: u32,
-        blend: u32,
-    ) -> Result<(), GfxError> {
-        self.submit_layer_pass_scaled(
-            self.rt_back_surface(),
-            content_sview,
-            tex_w,
-            tex_h,
-            0,
-            0,
-            tex_w,
-            tex_h,
-            dst_x,
-            dst_y,
-            tex_w,
-            tex_h,
-            opacity,
-            radius,
-            blend,
-        )
-    }
-
-    pub(crate) fn submit_composite_stream(&mut self, s: &Submit3d) -> Result<(), GfxError> {
-        let bytes = s.as_bytes();
-        let hdr = VirtioGpuSubmit3d {
-            hdr: self.virgl_hdr(VIRTIO_GPU_CMD_SUBMIT_3D),
-            size: bytes.len() as u32,
-            _padding: 0,
-        };
-        self.ctrl_submit_header_tail(&hdr, bytes)
+        let content = Content { view: H_ICON_SVIEW, tex: (tw, th), rect: (0, 0, tw, th) };
+        let target = self.rt_back_surface();
+        self.layer_pass(self.pipelines.layer_atlas, target, content, (dx, dy, dw, dh), 255, 0)
     }
 }

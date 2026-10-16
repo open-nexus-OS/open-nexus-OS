@@ -8,7 +8,9 @@
 //! and a client's library both pass through here; nothing downstream re-checks.
 
 use super::{IrError, Lod, Module, Op, Resource, Scalar, Stage, Type, UnOp, ValueId};
-use super::{MAX_INPUTS, MAX_INSTRS, MAX_OUTPUTS, MAX_PUSH_BYTES, MAX_RESOURCES, VERSION};
+use super::{
+    MAX_INPUTS, MAX_INSTRS, MAX_OUTPUTS, MAX_PUSH_BYTES, MAX_RESOURCES, POSITION, VERSION,
+};
 
 fn valid_type(t: Type) -> bool {
     (1..=4).contains(&t.lanes)
@@ -43,8 +45,10 @@ pub fn validate(m: &Module) -> Result<(), IrError> {
     if i.push_bytes > MAX_PUSH_BYTES || i.push_bytes % 4 != 0 {
         return Err(IrError::Interface { what: "push-constant size" });
     }
+    let positions = i.outputs.iter().filter(|o| o.location == POSITION).count();
     if !distinct(i.inputs.iter().map(|x| x.location))
-        || !distinct(i.outputs.iter().map(|x| x.location))
+        || !distinct(i.outputs.iter().map(|x| x.location).filter(|l| *l != POSITION))
+        || positions > 1
     {
         return Err(IrError::Interface { what: "a location twice" });
     }
@@ -55,6 +59,12 @@ pub fn validate(m: &Module) -> Result<(), IrError> {
     }
     if !i.inputs.iter().map(|x| x.ty).chain(i.outputs.iter().map(|x| x.ty)).all(valid_type) {
         return Err(IrError::Interface { what: "an input or output type" });
+    }
+    let vertex = i.stage == Stage::Vertex;
+    if i.outputs.iter().any(|o| o.location == POSITION && (!vertex || o.ty != Type::VEC4)) {
+        return Err(IrError::Interface {
+            what: "a position outside a vertex program's four floats",
+        });
     }
     let mut stored = 0u32;
     for (at, ins) in m.body.iter().enumerate() {

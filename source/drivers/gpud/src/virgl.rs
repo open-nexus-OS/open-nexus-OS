@@ -6,9 +6,11 @@
 //! virglrenderer interprets the payload of `VIRTIO_GPU_CMD_SUBMIT_3D` as a
 //! sequence of Gallium-like commands (`VIRGL_CCMD_*`). There is no Mesa guest
 //! driver here, so this module hand-encodes that dword stream. The encoders are
-//! pure (alloc-only, `no_std`-compatible) and fully unit-tested at the byte
-//! level so the wire format can be validated without QEMU; `backend.rs` feeds
-//! the resulting bytes to the control queue under the `virgl` feature.
+//! pure (allocation-free, `no_std`) and fully unit-tested at the byte level so
+//! the wire format can be validated without QEMU; the backend feeds the
+//! resulting bytes to the control queue under the `virgl` feature. The shader
+//! text itself is not written here: it is the pipeline library's
+//! (`virgl_pipelines`, TASK-0215 5c-2 P6).
 //!
 //! Command header layout (`virgl_protocol.h` `VIRGL_CMD0`):
 //!   `dword0 = cmd | (object_type << 8) | (payload_len_in_dwords << 16)`
@@ -20,9 +22,6 @@
 //! draw can be built per-frame without leaking on gpud's non-freeing bump
 //! allocator. See ADR-0032 / docs/architecture/gpud-command-ring-and-present-pipeline.md.
 //! TESTS: the `#[cfg(test)]` byte-format goldens in this file (`cargo test -p gpud`).
-
-extern crate alloc;
-use alloc::vec::Vec;
 
 // ── Command opcodes (VIRGL_CCMD_*) ──────────────────────────────────
 pub const VIRGL_CCMD_NOP: u32 = 0;
@@ -200,18 +199,10 @@ impl Submit3d {
         }
     }
 
-    /// `VIRGL_CCMD_SET_VIEWPORT_STATE` for a single viewport (index 0).
-    ///
-    /// Payload (7 dwords): start_slot, then scale[xyz] and translate[xyz]
-    /// as f32 bit-patterns. For a pixel-space viewport of `w × h` the
-    /// half-extents are the scale and the center is the translate.
-    pub fn emit_set_viewport(&mut self, width: f32, height: f32) {
-        self.emit_set_viewport_box(0.0, 0.0, width, height);
-    }
-
-    /// `SET_VIEWPORT_STATE` mapping NDC −1..1 onto the pixel box
-    /// `(x, y, w, h)` — clip-space clipping at ±1 bounds the rasterized
-    /// region exactly to the box (an exact-quad draw needs no scissor).
+    /// `VIRGL_CCMD_SET_VIEWPORT_STATE` for viewport 0, mapping NDC −1..1 onto the pixel box
+    /// `(x, y, w, h)` — clip-space clipping at ±1 bounds the rasterized region exactly to the box
+    /// (an exact-quad draw needs no scissor). Payload (7 dwords): start_slot, then scale[xyz] and
+    /// translate[xyz] as f32 bit-patterns — the half-extents and the centre.
     pub fn emit_set_viewport_box(&mut self, x: f32, y: f32, w: f32, h: f32) {
         self.push_header(VIRGL_CCMD_SET_VIEWPORT_STATE, 0, 7);
         self.w(0); // start_slot
@@ -225,40 +216,43 @@ impl Submit3d {
         }
     }
 
-    /// `CREATE_OBJECT(SHADER)` — create a vertex/fragment shader from TGSI
-    /// assembly **text** (virglrenderer parses it with `tgsi_text_translate`,
-    /// so no binary token encoding is needed).
+    /// `CREATE_OBJECT(SHADER)` — one chunk of a shader's TGSI **text** (virglrenderer parses it
+    /// with `tgsi_text_translate`, so no binary token encoding is needed).
     ///
-    /// Layout (matches Mesa `virgl_encode_shader_state`, single non-chunked
-    /// pass): handle, shader type, offlen, num_tokens, num_stream_outputs (0),
-    /// then the NUL-terminated text packed little-endian and zero-padded to a
-    /// dword boundary.
-    ///
-    /// `offlen` on the first (here: only) chunk is the TOTAL text length in
-    /// bytes including the NUL — virglrenderer compares it against the bytes
-    /// present in this command to decide whether continuation chunks follow
-    /// (bit 31 = continuation flag, unset here). Sending 0 desyncs the decoder.
-    pub fn emit_create_shader(&mut self, handle: u32, shader_type: u32, tgsi_text: &str) {
-        let src = tgsi_text.as_bytes();
-        let mut buf = Vec::with_capacity(src.len() + 4);
-        buf.extend_from_slice(src);
-        buf.push(0); // NUL terminator
-        while buf.len() % 4 != 0 {
-            buf.push(0); // pad to dword
-        }
-        let text_dwords = buf.len() / 4;
+    /// Layout (Mesa `virgl_encode_shader_state`): handle, shader type, offlen, num_tokens,
+    /// num_stream_outputs (0), then the chunk packed little-endian and zero-padded to a dword.
+    /// The text travels NUL-terminated; `total` is its length in bytes with the NUL. The first
+    /// chunk's offlen is `total` — virglrenderer compares it with the bytes present to decide
+    /// whether continuation chunks follow (sending 0 desyncs the decoder); a continuation's offlen
+    /// is its byte `offset` with bit 31 set. Every chunk but the `last` is whole dwords; the last
+    /// carries the NUL. One chunk per `SUBMIT_3D` keeps a long program inside a control
+    /// command's 4 KiB.
+    pub fn emit_create_shader_chunk(
+        &mut self,
+        handle: u32,
+        shader_type: u32,
+        total: u32,
+        offset: u32,
+        chunk: &[u8],
+        last: bool,
+    ) {
+        let dwords = (chunk.len() + usize::from(last)).div_ceil(4);
         // 5 fixed header dwords (handle, type, offlen, num_tokens, so_outputs).
-        self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SHADER, (5 + text_dwords) as u32);
+        self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SHADER, (5 + dwords) as u32);
         self.w(handle);
         self.w(shader_type);
-        // offlen: full text length in bytes incl. NUL; no continuation bit.
-        self.w((src.len() + 1) as u32);
+        self.w(if offset == 0 { total } else { offset | (1 << 31) });
         // num_tokens: sizes virglrenderer's TGSI token buffer. The text form is
         // far larger than the binary tokens, so bytes/4 + slack is a safe bound.
-        self.w((src.len() / 4 + 16) as u32);
+        self.w(total / 4 + 16);
         self.w(0); // num stream-output declarations
-        for chunk in buf.chunks_exact(4) {
-            self.w(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        for part in chunk.chunks(4) {
+            let mut word = [0u8; 4];
+            word[..part.len()].copy_from_slice(part);
+            self.w(u32::from_le_bytes(word));
+        }
+        if last && chunk.len() % 4 == 0 {
+            self.w(0); // the NUL, a dword of its own
         }
     }
 
@@ -305,38 +299,10 @@ impl Submit3d {
         }
     }
 
-    /// Standard "over" alpha blending on RT0:
-    /// rgb = src.rgb·src.a + dst.rgb·(1−src.a); a = src.a + dst.a·(1−src.a).
-    /// RT dword layout (VIRGL_OBJ_BLEND_S2): enable(0) | rgb_func(1..3) |
-    /// rgb_src(4..8) | rgb_dst(9..13) | a_func(14..16) | a_src(17..21) |
-    /// a_dst(22..26) | colormask(27..30).
-    pub fn emit_create_blend_alpha(&mut self, handle: u32) {
-        const PIPE_BLEND_ADD: u32 = 0;
-        const PIPE_BLENDFACTOR_ONE: u32 = 0x1;
-        const PIPE_BLENDFACTOR_SRC_ALPHA: u32 = 0x3;
-        const PIPE_BLENDFACTOR_INV_SRC_ALPHA: u32 = 0x13;
-        let rt0 = 1
-            | (PIPE_BLEND_ADD << 1)
-            | (PIPE_BLENDFACTOR_SRC_ALPHA << 4)
-            | (PIPE_BLENDFACTOR_INV_SRC_ALPHA << 9)
-            | (PIPE_BLEND_ADD << 14)
-            | (PIPE_BLENDFACTOR_ONE << 17)
-            | (PIPE_BLENDFACTOR_INV_SRC_ALPHA << 22)
-            | (0xF << 27);
-        self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_BLEND, 11);
-        self.w(handle);
-        self.w(0); // S0
-        self.w(0); // S1
-        self.w(rt0);
-        for _ in 0..7 {
-            self.w(0xF << 27);
-        }
-    }
-
-    /// "Over" blending for a PREMULTIPLIED-alpha source: rgb = src.rgb + dst.rgb·(1−src.a)
-    /// (rgb_src = ONE, not SRC_ALPHA). Use for sprites whose colour is already
-    /// alpha-weighted (nexus-svg cursor) — the straight-alpha variant would
-    /// multiply by alpha twice and dark-fringe the AA edges.
+    /// "Over" blending for a PREMULTIPLIED-alpha source on RT0: every channel
+    /// out = src + dst·(1−src.a) — the library's `premultiplied` blend (its programs premultiply).
+    /// RT dword layout (VIRGL_OBJ_BLEND_S2): enable(0) | rgb_func(1..3) | rgb_src(4..8) |
+    /// rgb_dst(9..13) | a_func(14..16) | a_src(17..21) | a_dst(22..26) | colormask(27..30).
     pub fn emit_create_blend_premult(&mut self, handle: u32) {
         const PIPE_BLEND_ADD: u32 = 0;
         const PIPE_BLENDFACTOR_ONE: u32 = 0x1;
@@ -424,17 +390,19 @@ impl Submit3d {
         self.w(0x688); // swizzle identity: 0 | 1<<3 | 2<<6 | 3<<9
     }
 
-    /// `CREATE_OBJECT(SAMPLER_STATE)` — nearest filtering, clamp-to-edge.
+    /// `CREATE_OBJECT(SAMPLER_STATE)` — bilinear filtering, clamp-to-edge: what every texture
+    /// the pipelines read takes (a texel-centred sample reads its texel as it is; the blur's
+    /// fetches between texels average them, which is its downsample).
     ///
     /// Payload (9 dwords): handle, S0 bitfield, lod_bias, min_lod, max_lod,
     /// border color RGBA (4 f32).
-    pub fn emit_create_sampler_state_default(&mut self, handle: u32) {
+    pub fn emit_create_sampler_state_bilinear(&mut self, handle: u32) {
         self.push_header(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SAMPLER_STATE, 9);
         self.w(handle);
         // S0: wrap_s/t/r = CLAMP_TO_EDGE(2) at bits 0-2/3-5/6-8;
-        // min/mag img filter NEAREST(0) at bits 9-10/13-14;
+        // min/mag img filter LINEAR(1) at bits 9-10/13-14;
         // min mip filter NONE(2) at bits 11-12.
-        self.w(2 | (2 << 3) | (2 << 6) | (2 << 11));
+        self.w(2 | (2 << 3) | (2 << 6) | (1 << 9) | (2 << 11) | (1 << 13));
         self.w(0.0f32.to_bits()); // lod_bias
         self.w(0.0f32.to_bits()); // min_lod
         self.w(0.0f32.to_bits()); // max_lod
@@ -510,12 +478,7 @@ impl Submit3d {
     /// Header payload (11 dwords): res_handle, level, usage, stride,
     /// layer_stride, box x/y/z/w/h/d — then the data, dword-padded.
     pub fn emit_resource_inline_write(&mut self, res_handle: u32, data: &[u8]) {
-        let mut buf = Vec::with_capacity(data.len() + 4);
-        buf.extend_from_slice(data);
-        while buf.len() % 4 != 0 {
-            buf.push(0);
-        }
-        let data_dwords = buf.len() / 4;
+        let data_dwords = data.len().div_ceil(4);
         self.push_header(VIRGL_CCMD_RESOURCE_INLINE_WRITE, 0, (11 + data_dwords) as u32);
         self.w(res_handle);
         self.w(0); // level
@@ -528,8 +491,10 @@ impl Submit3d {
         self.w(data.len() as u32); // box.w (bytes for PIPE_BUFFER)
         self.w(1); // box.h
         self.w(1); // box.d
-        for chunk in buf.chunks_exact(4) {
-            self.w(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        for part in data.chunks(4) {
+            let mut word = [0u8; 4];
+            word[..part.len()].copy_from_slice(part);
+            self.w(u32::from_le_bytes(word));
         }
     }
 
@@ -625,7 +590,7 @@ mod tests {
     #[test]
     fn viewport_pixel_space_half_extents() {
         let mut s = Submit3d::new();
-        s.emit_set_viewport(1280.0, 800.0);
+        s.emit_set_viewport_box(0.0, 0.0, 1280.0, 800.0);
         assert_eq!(s.len_dwords(), 8);
         let w = s.words();
         assert_eq!(w[0], cmd0(VIRGL_CCMD_SET_VIEWPORT_STATE, 0, 7));
@@ -651,18 +616,35 @@ mod tests {
     fn create_shader_packs_text() {
         let mut s = Submit3d::new();
         // 7-char text → +NUL = 8 bytes = 2 dwords; 5 fixed + 2 = len 7.
-        s.emit_create_shader(3, PIPE_SHADER_FRAGMENT, "FRAG\nEN");
+        s.emit_create_shader_chunk(3, PIPE_SHADER_FRAGMENT, 8, 0, b"FRAG\nEN", true);
         let w = s.words();
         assert_eq!(w[0], cmd0(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SHADER, 7));
         assert_eq!(w[1], 3); // handle
         assert_eq!(w[2], PIPE_SHADER_FRAGMENT);
         assert_eq!(w[3], 8); // offlen = strlen+1 bytes, no CONT bit
-        assert_eq!(w[4], 7 / 4 + 16); // num_tokens bound
+        assert_eq!(w[4], 8 / 4 + 16); // num_tokens bound
         assert_eq!(w[5], 0); // so outputs
-                             // "FRAG" = 0x46 0x52 0x41 0x47 little-endian.
         assert_eq!(w[6], u32::from_le_bytes([b'F', b'R', b'A', b'G']));
         assert_eq!(w[7], u32::from_le_bytes([b'\n', b'E', b'N', 0]));
         assert_eq!(s.len_dwords(), 8);
+    }
+
+    #[test]
+    fn a_long_shader_continues_at_its_offset_and_ends_with_its_nul() {
+        // "FRAG" + "END\n" + NUL = 9 bytes in two chunks: the first whole dwords, offlen the
+        // total; the second at offset 4 with bit 31, its NUL in a dword of its own.
+        let mut s = Submit3d::new();
+        s.emit_create_shader_chunk(9, PIPE_SHADER_FRAGMENT, 9, 0, b"FRAG", false);
+        s.emit_create_shader_chunk(9, PIPE_SHADER_FRAGMENT, 9, 4, b"END\n", true);
+        let w = s.words();
+        assert_eq!(w[0], cmd0(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SHADER, 6));
+        assert_eq!(w[3], 9);
+        assert_eq!(w[6], u32::from_le_bytes(*b"FRAG"));
+        assert_eq!(w[7], cmd0(VIRGL_CCMD_CREATE_OBJECT, VIRGL_OBJECT_SHADER, 7));
+        assert_eq!(w[10], 4 | (1 << 31));
+        assert_eq!(w[13], u32::from_le_bytes(*b"END\n"));
+        assert_eq!(w[14], 0);
+        assert_eq!(s.len_dwords(), 15);
     }
 
     #[test]

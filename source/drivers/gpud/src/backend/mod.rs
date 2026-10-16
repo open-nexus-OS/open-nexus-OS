@@ -50,6 +50,9 @@ pub(crate) mod dc;
 pub(crate) mod display;
 mod display_mode;
 mod framebuffer;
+// The glass blur on virgl: the textures, the half-resolution chain, the cache's reads and writes.
+#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+mod glass_blur;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod lifecycle;
 mod present;
@@ -65,8 +68,7 @@ pub(crate) mod splash_hold;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod transport;
 #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-mod virgl3d;
-mod virgl3d_blur;
+pub(crate) mod virgl3d;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod virtio_display;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -174,12 +176,6 @@ pub struct VirtioGpuBackend {
     /// draws the cursor sprite each present.
     pub(crate) cursor_ox: i32,
     pub(crate) cursor_oy: i32,
-    /// Frame counter for the build-up spin-blur demo animation (incremented each
-    /// build-up present; drives a circular panel offset so the blur re-computes
-    /// per frame — a reactive GPU/blur performance test, no input needed). Read
-    /// only by the virgl build-up present; inert on the mmio path.
-    #[allow(dead_code)]
-    pub(crate) buildup_frame: u64,
     /// When set, the control-queue submit helpers ENQUEUE (no per-command wait)
     /// instead of submit-and-drain. A present sets it, enqueues all its SUBMIT_3D
     /// draws + the flush, then drains once — so a textured draw whose completion
@@ -199,31 +195,18 @@ pub struct VirtioGpuBackend {
     /// so the host composites the pointer as a hardware overlay (the GPU hot path).
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     cursorq: Option<CtrlQueue>,
-    /// True after the boot draw self-test verified a full GPU draw by readback.
-    /// Gates the blur pipeline (which reuses the self-test's state objects).
+    /// True after the boot draw self-test verified a full GPU draw by readback
+    /// (or the first scanout proved it, TASK-0326). Gates every RT draw.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) virgl_draw_ok: bool,
-    /// True once the blur resources (fb-alias texture, tmp RT, quad, shader)
-    /// are created. Lazy: the fb VMO only exists after windowd's handoff.
+    /// The pipeline library's pipelines in the virgl context (`virgl_pipelines`).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) virgl_blur_ready: bool,
-    /// One-shot GPU-vs-CPU blur parity check on first real blur.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    virgl_parity_done: bool,
-    /// First GPU blur executed (marker bookkeeping, independent of init site).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    virgl_blur_first_done: bool,
-    /// Vector pipeline objects created (SDF gradient/shadow shaders + alpha blend).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) virgl_vector_ready: bool,
-    /// Layer compositor objects created (FS_LAYER + alpha blend + sampler).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) virgl_composite_ready: bool,
+    pub(crate) pipelines: crate::virgl_pipelines::Pipelines,
     /// Atlas texture (rows 3200..6399) aliased as a GPU sampler view for layer content.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) virgl_atlas_ready: bool,
     /// Cursor sprite uploaded into its own GL sampler texture so the cursor can be
-    /// composited as a proper layer (`submit_layer_pass`) instead of a procedural
+    /// composited as a proper layer (`layer_pass`) instead of a procedural
     /// rect. Backing VA + dimensions latched at the first upload.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) cursor_tex_va: usize,
@@ -239,10 +222,6 @@ pub struct VirtioGpuBackend {
     pub(crate) icon_tex_w: u32,
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) icon_tex_h: u32,
-    /// Backdrop scratch texture (destination-so-far glass blur) created — set by
-    /// `backdrop_tex_init`, read by `blur_rt_backdrop` to pick its blur source.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) backdrop_tex_ready: bool,
     /// GL glass-blur cache (key/packing state + texture readiness).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) blur_cache: blur_cache::BlurCacheState,
@@ -263,11 +242,6 @@ pub struct VirtioGpuBackend {
     /// reads it in `composite_layer_rt` (a top-level module — needs `pub(crate)`).
     #[cfg(feature = "virgl")]
     pub(crate) scroll_band_clamp_logged: bool,
-    /// One-shot markers: first GPU-executed gradient fill / drop shadow.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    virgl_grad_marker_done: bool,
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    virgl_shadow_marker_done: bool,
     /// True once the GL scanout RT owns the display (gl_scanout module, G0).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) gl_scanout_active: bool,
@@ -293,12 +267,6 @@ pub struct VirtioGpuBackend {
     /// present's batch is abandoned (its TRANSFER may have been dropped).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) atlas_uploaded_epoch: u32,
-    /// Guest backing VA of the NON-ALIASED display texture (own backing, not a
-    /// VMO alias). The present copies windowd's VMO frame here, uploads it, and
-    /// blits it to the scanout RT — avoiding the 0xF8 VMO-alias that QEMU's GL
-    /// scanout refuses to present (see RFC / the black-screen investigation).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) gl_display_tex_va: usize,
     /// Backing VA of the build-up wallpaper texture (`H_WALLPAPER_TEX`). Lets the
     /// build-up present upload the real wallpaper (windowd's decoded JPEG in
     /// shared-VMO Plane 0) into the GL texture once, replacing the boot bands.
@@ -330,12 +298,6 @@ pub struct VirtioGpuBackend {
     /// The last 2D bootstrap-splash pulse (~30 Hz redraw of the title band).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) last_splash_pulse_ns: u64,
-    /// RT-direct layer compositing (true GPU compositing, Increment 1): when set,
-    /// `backdrop_blur == 0` CompositeLayer ops are deferred and composited
-    /// straight onto the scanout RT after the base upload, instead of rendered
-    /// into the VMO and re-uploaded. Reversible kill-switch.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    rt_direct_layers: bool,
     /// Layers deferred this frame for RT-direct compositing (no per-frame alloc:
     /// fixed stack capacity; overflow falls back to the VMO path).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -494,7 +456,6 @@ impl VirtioGpuBackend {
             cursor_resource_id: None,
             cursor_ox: 0,
             cursor_oy: 0,
-            buildup_frame: 0,
             ctrl_batch: false,
             bootstrap_splash_live: false,
             #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -504,15 +465,7 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_draw_ok: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            virgl_blur_ready: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            virgl_parity_done: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            virgl_blur_first_done: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            virgl_vector_ready: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            virgl_composite_ready: false,
+            pipelines: Default::default(),
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             cursor_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -528,8 +481,6 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_atlas_ready: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            backdrop_tex_ready: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             blur_cache: blur_cache::BlurCacheState::new(),
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             rt_backdrop_marker_done: false,
@@ -541,10 +492,6 @@ impl VirtioGpuBackend {
             virgl_layer_marker_done: false,
             #[cfg(feature = "virgl")]
             scroll_band_clamp_logged: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            virgl_grad_marker_done: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            virgl_shadow_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_scanout_active: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -558,8 +505,6 @@ impl VirtioGpuBackend {
             submit3d_pend_ctx: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             atlas_uploaded_epoch: 0,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            gl_display_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_wallpaper_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -576,8 +521,6 @@ impl VirtioGpuBackend {
             last_splash_pulse_ns: 0,
             // RT-direct layer compositing on by default for the virgl path; the
             // field is the kill-switch if a regression shows up in the thumbnail.
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            rt_direct_layers: true,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             pending_rt_layers: [PendingRtLayer::default(); MAX_PENDING_RT_LAYERS],
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]

@@ -85,28 +85,6 @@ pub(crate) fn blur_backdrop_vmo(
         .map_err(|_| GfxError::ResourceExhausted)
 }
 
-/// Separable gaussian blur — the virgl GPU path's CPU reference/fallback.
-#[cfg(feature = "virgl")]
-pub(crate) fn blur_backdrop_separable_vmo(
-    fb: *mut u8,
-    fb_len: usize,
-    fb_w: usize,
-    x: u32,
-    y: u32,
-    w: u32,
-    h: u32,
-    radius: u32,
-    saturation_pct: u32,
-) -> Result<(), GfxError> {
-    let _ = saturation_pct; // historical separable path does not boost saturation
-    let mut scratch_row = [0u8; nexus_display_proto::layout::STRIDE_BYTES as usize];
-    let mut scratch_col = [0u8; (nexus_display_proto::layout::PLANE_ROWS
-        * nexus_display_proto::layout::BYTES_PER_PIXEL) as usize];
-    let mut s = unsafe { surface(fb, fb_len, fb_w) };
-    raster::blur_gaussian(&mut s, x, y, w, h, radius, &mut scratch_row, &mut scratch_col)
-        .map_err(|_| GfxError::ResourceExhausted)
-}
-
 pub(crate) fn blit_vmo(
     fb: *mut u8,
     fb_len: usize,

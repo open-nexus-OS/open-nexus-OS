@@ -30,13 +30,13 @@ pub mod protocol;
 #[cfg(any(test, feature = "virgl"))]
 pub mod virgl;
 
-/// GL-presented scanout (GPU compositor G0/G1): the displayed scanout is a
-/// virgl render target presented by the host GL, fed by a GPU blit of the
-/// CPU-composited VMO. Empty unless the virgl OS build is active.
+/// GL-presented scanout (GPU compositor G0–G3): the displayed scanout is a
+/// virgl render target presented by the host GL, the whole frame composed into
+/// it each present. Empty unless the virgl OS build is active.
 #[cfg(feature = "virgl")]
 pub mod gl_scanout;
 
-/// GL-scanout bring-up (G0): swapchain RTs + textures + shaders + splash +
+/// GL-scanout bring-up (G0): swapchain RTs + wallpaper texture + splash +
 /// initial SET_SCANOUT. Split out of `gl_scanout.rs` (structure-gate).
 #[cfg(feature = "virgl")]
 pub mod gl_scanout_init;
@@ -46,8 +46,14 @@ pub mod gl_scanout_init;
 #[cfg(feature = "virgl")]
 pub mod gl_probe;
 
-/// GPU vector pipeline (G3/M1b-c): SDF gradient fills + soft drop shadows as
-/// virgl fragment-shader passes. Empty unless the virgl OS build is active.
+/// The QEMU path's pipelines (TASK-0215 5c-2 P6): the pipeline library's programs
+/// created in the virgl context and bound per draw — every virgl draw goes
+/// through it. Empty unless the virgl OS build is active.
+#[cfg(feature = "virgl")]
+pub mod virgl_pipelines;
+
+/// GPU vector draws (G3): a layer's drop shadow and the gradient-filled rounded
+/// rectangle, with the library's pipelines. Empty unless the virgl OS build is active.
 #[cfg(feature = "virgl")]
 pub mod virgl_vector;
 
@@ -56,11 +62,6 @@ pub mod virgl_vector;
 #[cfg(feature = "virgl")]
 pub mod virgl_composite;
 mod virgl_composite_selftest;
-
-/// TGSI source for the separable gaussian backdrop blur (plain + rounded-rect
-/// masked). Data, not logic — split out of `backend/virgl3d.rs` (structure-gate).
-#[cfg(feature = "virgl")]
-pub mod virgl_blur_shaders;
 
 /// CPU fallback for the vector pipeline (non-virgl 2D path).
 pub mod cpu_vector;

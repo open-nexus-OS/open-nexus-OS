@@ -3,9 +3,9 @@
 
 //! The glass layer's backdrop blur (TASK-0215 5c-2 P5d-4): `blur.wgsl`'s two passes run by the
 //! reference interpreter at half resolution — each written to eight bits, as a plane holds it —
-//! and sampled back to full resolution by the layer, against the virgl path's separable gaussian
-//! at full resolution (`FS_BLUR`: σ = R/2, taps out to ±R, weights 2^(k·i²) normalised, clamped
-//! at the edges, eight bits between the passes) and the CPU path's saturation
+//! and sampled back to full resolution by the layer, against the separable gaussian the virgl
+//! path drew at full resolution until P6 (σ = R/2, taps out to ±R, weights 2^(k·i²) normalised,
+//! clamped at the edges, eight bits between the passes) and the CPU path's saturation
 //! (`raster::saturate`). The loops are unrolled into their taps, the weights constants.
 
 use nexus_gfx::backend::gpu::quads::Quad;

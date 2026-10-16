@@ -1,0 +1,141 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The compositor's pipelines for the QEMU path's virtual GPU (TASK-0215 5c-2 P6, ADR-0072 §4–6):
+# the same WGSL sources as the board's library, compiled into the host renderer's shader text;
+# a fragment pipeline's blend is its state (the virtual GPU's blend unit), its budget counts
+# instructions. `nxgpu library` builds `compositor-virgl.nxgp` (README.md).
+target = "virgl"
+
+# Every draw's vertex program: the quad's corner as it comes, its 0..1 place as `uv`.
+[[pipeline]]
+id = 1
+name = "quad"
+source = "../shaders/quad.wgsl"
+stage = "vertex"
+budget = 3
+
+# The wallpaper: a texture over the screen as it is.
+[[pipeline]]
+id = 2
+name = "layer-opaque"
+source = "../shaders/layer.wgsl"
+overrides = { tinted = false }
+blend = "replace"
+budget = 2
+
+# The splash's pulse: the wallpaper times a tint.
+[[pipeline]]
+id = 3
+name = "layer-tinted"
+source = "../shaders/layer.wgsl"
+blend = "replace"
+budget = 3
+
+# A client's surface — a rectangle of the atlas, its straight alpha at the layer's opacity, its
+# corners cut — over what is below; also the blurred backdrop drawn back under a glass layer and
+# the blur cache's hits.
+[[pipeline]]
+id = 4
+name = "layer-atlas"
+source = "../shaders/layer.wgsl"
+overrides = { straight = true, rounded = true, atlas = true }
+blend = "premultiplied"
+budget = 21
+
+# A premultiplied sprite (the pointer) over what is below.
+[[pipeline]]
+id = 5
+name = "layer-premultiplied"
+source = "../shaders/layer.wgsl"
+blend = "premultiplied"
+budget = 3
+
+# A layer's drop shadow.
+[[pipeline]]
+id = 6
+name = "shadow"
+source = "../shaders/shadow.wgsl"
+blend = "premultiplied"
+budget = 27
+
+# The glass blur's passes at the radii windowd asks, at half resolution (the board's chain).
+[[pipeline]]
+id = 7
+name = "blur-horizontal-8"
+source = "../shaders/blur.wgsl"
+entry = "horizontal"
+overrides = { radius = 8 }
+blend = "replace"
+budget = 29
+
+[[pipeline]]
+id = 8
+name = "blur-vertical-8"
+source = "../shaders/blur.wgsl"
+entry = "vertical"
+overrides = { radius = 8 }
+blend = "replace"
+budget = 23
+
+[[pipeline]]
+id = 9
+name = "blur-horizontal-20"
+source = "../shaders/blur.wgsl"
+entry = "horizontal"
+overrides = { radius = 20 }
+blend = "replace"
+budget = 65
+
+[[pipeline]]
+id = 10
+name = "blur-vertical-20"
+source = "../shaders/blur.wgsl"
+entry = "vertical"
+overrides = { radius = 20 }
+blend = "replace"
+budget = 41
+
+[[pipeline]]
+id = 11
+name = "blur-horizontal-30"
+source = "../shaders/blur.wgsl"
+entry = "horizontal"
+overrides = { radius = 30 }
+blend = "replace"
+budget = 95
+
+[[pipeline]]
+id = 12
+name = "blur-vertical-30"
+source = "../shaders/blur.wgsl"
+entry = "vertical"
+overrides = { radius = 30 }
+blend = "replace"
+budget = 59
+
+[[pipeline]]
+id = 13
+name = "blur-horizontal-40"
+source = "../shaders/blur.wgsl"
+entry = "horizontal"
+overrides = { radius = 40 }
+blend = "replace"
+budget = 125
+
+[[pipeline]]
+id = 14
+name = "blur-vertical-40"
+source = "../shaders/blur.wgsl"
+entry = "vertical"
+overrides = { radius = 40 }
+blend = "replace"
+budget = 71
+
+# The pointer before its sprite arrives: a rounded rectangle with a vertical gradient.
+[[pipeline]]
+id = 15
+name = "gradient"
+source = "../shaders/gradient.wgsl"
+blend = "premultiplied"
+budget = 20

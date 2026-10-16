@@ -599,12 +599,84 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
     where the load took 108 KB, no pass takes a byte, every read and cost as in cycle 18; the heap
     after the rungs 65 KB where cycle 18 left 191 KB. `[PASS] board-visible`, 62 rungs, the
     operator's eight confirmations.
+  - **P6 ✅ 2026-10-16 — the QEMU path on the library (5c-2 complete).** Measured first (gpud's virgl path, read
+    whole): every live draw runs one vertex program (the clip-space position passed through) and
+    fragment programs that work from the fragment's position and constants, no texture
+    coordinates. Live: the wallpaper blit, the splash's tinted blit, the layer (a rectangle of the
+    atlas texture, scaled, corners cut, opacity, straight-alpha over; the icon and the cursor
+    premultiplied over through it), its shadow, the glass blur (two full-resolution passes with a
+    radius looped at run time, the final pass rounded) and the blur cache's draws; the cursor's
+    fallback draws two gradients. Dead: the old GPU executors of BlurBackdrop, FillSdfGradient and
+    DropShadow, the composite of the VMO path, stages 2–4 of the build-up. Found: the rounded blur
+    and the gradient both claim shader handle 18 (the later creation wins, so rounded glass is
+    drawn without its blur); the samplers filter NEAREST (the library's blur needs LINEAR).
+    - **P6a ✅ host** — the backend (`shader::tgsi`: our IR into the host renderer's shader text, a value
+      a register's components, a lane or swizzle a swizzle, constants immediates, push constants
+      the constant buffer; blending the pipeline's state, a tile read refused) and the vertex
+      stage (the frontend lowers a vertex entry point, the clip-space position an output at the
+      IR's reserved location; `quad.wgsl`, the quad's position as it comes and its 0..1 corner as
+      `uv`); host goldens of the text (`tools/nxgpu/tests/tgsi.rs`: the quad's vertex program
+      and the opaque layer word for word in the hand-written shaders' dialect; a tile read
+      refused; the target's state and text checks in `tgsi`'s unit tests).
+    - **P6b ✅ host** — the library for this target (`compositor-virgl.toml` → `compositor-virgl.nxgp`,
+      code target `TGSI` v1): the quad's vertex program; the layer variants the path draws (the
+      wallpaper's opaque blit, the splash's tinted one, the atlas layer straight or premultiplied,
+      rounded — `layer.wgsl` gains an `atlas` override that maps `uv` into a rectangle of the
+      texture through the push block, compiled out of the board's variants), the shadow, the blur
+      passes at the radii windowd asks (8, 20, 30, 40), the gradient for the cursor's fallback.
+      Built: 15 entries, 36 880 bytes (`0x7189c506645a6fb2`), every budget its program's count;
+      the board's library rebuilt for the layer's 64-byte block (its programs unchanged, its
+      state loads four dwords more; `0x04c43695d21690f9`).
+    - **P6c ✅ QEMU** — gpud's virgl path on it (`virgl_pipelines.rs`): the archive parsed for its
+      target, every program's text checked, each program one shader object (handle 0x100 + id; a
+      long one in 4 000-byte chunks, each its own `SUBMIT_3D` — four blur programs exceed a control
+      command's 4 KiB), the pipelines resolved by name, the blur pair nearest windowd's radius. A
+      draw (`emit_draw`) binds the quad's vertex program, the pipeline's program and blend, the
+      push block as the constant buffer, the texture through the one bilinear sampler, over a
+      viewport that is the quad. Every draw is one: the wallpaper (`layer-opaque`, the splash's
+      pulse `layer-tinted`), a client's surface and the icon (`layer-atlas`, `Quad::with_texture`
+      naming the atlas rectangle), the pointer (`layer-premultiplied`), the shadow (`shadow`), the
+      pointer's fallback (`gradient`, `Quad::gradient`), the glass (`backend/glass_blur.rs`: the
+      snapshot and its halo, `blur-horizontal-R` into the scratch at half resolution,
+      `blur-vertical-R` into the cache rows — or the snapshot texture when none are left —, the
+      rounded `layer-atlas` back over the glass; the result one texel wider on every side, so the
+      layer's bilinear edge fetches never read a neighbour's rows; a cache hit is that layer draw
+      alone, the cache rows half-resolution). The probe's proofs draw library programs: `virgl
+      draw ok` (the gradient red over a blue clear), `virgl gradient ok` (red at the top, blue at
+      the bottom — `uv` runs down the quad as the programs assume; the marker for a failure is now
+      `virgl gradient wrong (flat or upside down)`), `layer composite ok` (`layer-atlas`). Gone:
+      the hand-written shader text (`FS_BLIT`, `FS_BLIT_TINT`, `FS_LAYER`, `FS_SDF_GRAD`,
+      `FS_SHADOW`, `FS_BLUR`, `FS_BLUR_ROUND`; `virgl_blur_shaders.rs`), the dead executors and the
+      VMO blur (`execute_on_gpu`, `submit_virgl_*`, `composite_layer_gpu`, `virgl3d_blur.rs`, the
+      separable CPU blur only they selected), the build-up's debug stages and spin demo, the
+      display texture of the non-build-up present (4 MB of arena), the handle-18 collision.
+      Measured on QEMU (`ci-os-visible`, log `visible--2026-10-16T12-07-14`): every probe proof,
+      `gl scanout ok`, `gl flip on`, `layer composite live`, `rt backdrop dst ok`; the pixel proof
+      green (desktop mean luma 11.93 against 11.97 before). Rounded glass is frosted now — before,
+      the collision ran the gradient's program with the blur's constants (alpha 0), so a rounded
+      glass layer showed its backdrop unblurred under its tint; the greeter's glass circles and
+      pill read darker and less blue, the wallpaper's contours blurred inside them. Found, left to
+      its owner (windowd's scene): a glass region blurs the window body drawn before it
+      (`scene.rs`: "the regions then blur the drawn body"), and the body holds the region's own
+      text — the greeter's initial "J" shows a soft halo under its sharp copy.
+    - **P6d ✅** — the QEMU lanes green on library programs (2026-10-16): `ci-os-visible`
+      (`visible--2026-10-16T12-07-14`), `ci-os-visible-fhd` (`visible-fhd--2026-10-16T12-16-44`,
+      the probe's proofs and the pixel proof at 1920×1080), `ci-os-visible-2d` (the 2D build's CPU
+      executor, `gpud: cpu fallback`), `ci-os-usb-visible` (35/35 chain markers — input, modal,
+      tiling, clipboard, capture, GPU, display); the extended recipes `just check`, `diag`,
+      `dep-gate`, `test-host` (4 109 tests in 812 runs). Board cycle 20
+      (`board--2026-10-16T12-47-10`, `cycle20-gpu-lines.txt`): `[PASS] board-visible`, 62 rungs,
+      the operator's eight confirmations; H44–H46 confirmed — the rebuilt library loads whole, every
+      read right (`samples=12/12`, `blur_dev=2`), the layer pipelines cost as in cycle 19 with their
+      four more push dwords, the same 26 lines, `table_bytes=7039`. 5c-2 is complete; `just
+      test-all` waits for the end of 5c.
   - Board cycles after P5c and after P5d: each picture against its host formula on the board,
     each cost a pixel.
   - Not in P5: gradient, glyphs, the solid fills (no live sender); the vertex pipeline (uv and
     push constants carry every op). Found on the way, left to their owners: the virgl path
-    creates shader handle 18 twice (the gradient's and the rounded blur's); scene_raster may
-    write premultiplied values that gpud composites as straight alpha.
+    creates shader handle 18 twice (the gradient's and the rounded blur's — gone with P6c, which
+    retired both); scene_raster may write premultiplied values that gpud composites as straight
+    alpha.
 
 | # | Hypothesis | Decision line |
 |---|---|---|

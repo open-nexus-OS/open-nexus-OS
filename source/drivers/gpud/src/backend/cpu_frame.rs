@@ -23,8 +23,6 @@ use nexus_gfx::command::buffer::{Command, RgbaColor};
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use super::cursor::blend_cursor_vmo;
-#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-use super::raster::blur_backdrop_separable_vmo;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use super::raster::{
     blit_blend_vmo, blit_vmo, blur_backdrop_vmo, fill_rect_solid_vmo, fill_sdf_rounded_vmo,
@@ -153,37 +151,15 @@ impl Target {
     pub(crate) unsafe fn new(fb: *mut u8, len: usize, stride_px: usize) -> Self {
         Self { fb, len, stride_px }
     }
-
-    /// The raw mapping, for the virgl path's GPU executors that read the framebuffer themselves.
-    #[cfg(feature = "virgl")]
-    pub(crate) fn raw(&self) -> (*mut u8, usize, usize) {
-        (self.fb, self.len, self.stride_px)
-    }
 }
 
-/// How a backdrop blur runs on the CPU: the box blur of the 2D path, or the separable gaussian
-/// the virgl path falls back to when its GPU blur declines (the GPU kernel's shape).
-#[cfg(all(feature = "os-lite", target_os = "none"))]
-#[derive(Clone, Copy)]
-pub(crate) enum Blur {
-    Box,
-    #[cfg(feature = "virgl")]
-    Separable,
-}
-
-#[cfg(all(feature = "os-lite", target_os = "none"))]
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 const DISPLAY_ROWS: u32 = nexus_display_proto::layout::PLANE_ROWS;
 
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 impl CpuFrame {
     /// Execute one command into `t`. Screen-relative coordinates land in the display plane.
-    pub(crate) fn execute(
-        &mut self,
-        t: &Target,
-        cmd: &Command,
-        blur: Blur,
-    ) -> Result<(), GfxError> {
+    pub(crate) fn execute(&mut self, t: &Target, cmd: &Command) -> Result<(), GfxError> {
         let (fb, len, w) = (t.fb, t.len, t.stride_px);
         let display_row = self.display_row;
         match cmd {
@@ -218,13 +194,7 @@ impl CpuFrame {
             Command::BlurBackdrop { rect, radius, saturation_percent } => {
                 let y = rect.y.saturating_add(display_row);
                 let (rw, rh, sat) = (rect.width, rect.height, *saturation_percent);
-                match blur {
-                    Blur::Box => blur_backdrop_vmo(fb, len, w, rect.x, y, rw, rh, *radius, sat)?,
-                    #[cfg(feature = "virgl")]
-                    Blur::Separable => {
-                        blur_backdrop_separable_vmo(fb, len, w, rect.x, y, rw, rh, *radius, sat)?
-                    }
-                }
+                blur_backdrop_vmo(fb, len, w, rect.x, y, rw, rh, *radius, sat)?;
             }
             // Retained-surface composite: `src_y` is an absolute row (the retained plane), `dst_y`
             // screen-relative.

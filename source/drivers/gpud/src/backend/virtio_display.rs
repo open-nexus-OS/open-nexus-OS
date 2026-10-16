@@ -32,13 +32,6 @@ use crate::service_stats::PresentStats;
 const RESOURCE_WIDTH: u32 = nexus_display_proto::layout::LAYOUT_MAX.0;
 const RESOURCE_HEIGHT: u32 = nexus_display_proto::layout::RESOURCE_HEIGHT;
 
-/// The virgl build-up's spin-blur demo: the frame clock re-presents the orbiting build-up at
-/// 120 Hz once windowd's framebuffer is attached.
-#[cfg(feature = "virgl")]
-const fn spin_demo() -> bool {
-    crate::gl_scanout::COMPOSITOR_BUILDUP && crate::gl_scanout::BUILDUP_SPIN_DEMO
-}
-
 impl Display for VirtioGpuBackend {
     fn mode(&self) -> (u32, u32) {
         (self.display_w, self.display_h)
@@ -61,11 +54,6 @@ impl Display for VirtioGpuBackend {
 
     fn attached(&mut self) {
         let _ = GfxBackend::move_cursor(self, 0, 0);
-        // The GL scanout now exists, so the frame clock may re-present the build-up.
-        #[cfg(feature = "virgl")]
-        if spin_demo() {
-            let _ = debug_println("gpud: spin-blur demo armed (120Hz)");
-        }
     }
 
     fn execute(&mut self, commands: &[Command], _damage: Rect) -> Result<(), GfxError> {
@@ -280,16 +268,16 @@ impl Display for VirtioGpuBackend {
         self.is_holding_boot_splash()
     }
 
-    /// While the boot splash is held (or the spin demo runs, or the 2D bootstrap splash
-    /// breathes) gpud self-presents so the reveal gate re-evaluates the instant the desktop is
-    /// ready: windowd stalls its present loop after its first frame.
+    /// While the boot splash is held (or the 2D bootstrap splash breathes) gpud self-presents
+    /// so the reveal gate re-evaluates the instant the desktop is ready: windowd stalls its
+    /// present loop after its first frame.
     #[cfg(feature = "virgl")]
     fn pacing(&self) -> bool {
-        spin_demo() || self.is_holding_boot_splash() || self.bootstrap_splash_active()
+        self.is_holding_boot_splash() || self.bootstrap_splash_active()
     }
 
     #[cfg(feature = "virgl")]
-    fn frame_tick(&mut self, attached: bool, stats: &mut PresentStats) {
+    fn frame_tick(&mut self, _attached: bool, stats: &mut PresentStats) {
         // One-shot liveness proof: pin that the frame clock drives the hold.
         if !self.hold_tick_logged && self.is_holding_boot_splash() {
             self.hold_tick_logged = true;
@@ -304,9 +292,9 @@ impl Display for VirtioGpuBackend {
                 self.last_splash_pulse_ns = now;
                 let _ = self.pulse_bootstrap_splash(super::splash_pulse_q8(now));
             }
-        } else if (spin_demo() && attached) || self.is_holding_boot_splash() {
+        } else if self.is_holding_boot_splash() {
             // The hold-phase tick gates on `is_holding_boot_splash()` alone — holding implies
-            // the GL scanout is attached; the spin demo keeps the attach gate.
+            // the GL scanout is attached.
             let t0 = nsec().unwrap_or(0);
             let (width, height) = (self.display_w, self.display_h);
             let _ = self.present_scanout_damage(Rect { x: 0, y: 0, width, height });

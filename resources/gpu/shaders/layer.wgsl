@@ -14,6 +14,9 @@ struct Layer {
     size_half: vec4<f32>,
     // The rounded rectangle: half the size less the radius, then the radius.
     corner: vec4<f32>,
+    // The texture's rectangle the layer shows, when the surface is a rectangle of a larger texture
+    // (the atlas): uv · texture.xy + texture.zw is the texel's place.
+    texture: vec4<f32>,
 }
 
 var<immediate> layer: Layer;
@@ -27,13 +30,18 @@ override straight: bool = false;
 // Whether the corners are cut: the coverage of the rounded rectangle at the pixel's centre, a
 // one-pixel band across its edge. The compositor draws only a layer's corner squares this way.
 override rounded: bool = false;
+// Whether the surface is a rectangle of a larger texture (the QEMU path's atlas): its texel
+// found through `Layer.texture`. The board names a surface's rectangle in its texture descriptor
+// instead, so its variants carry no mapping.
+override atlas: bool = false;
 
 @group(0) @binding(0) var surface: texture_2d<f32>;
 @group(0) @binding(1) var surface_sampler: sampler;
 
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let texel = textureSample(surface, surface_sampler, uv);
+    let at = select(uv, fma(uv, layer.texture.xy, layer.texture.zw), atlas);
+    let texel = textureSample(surface, surface_sampler, at);
     let c = select(texel, texel * layer.tint, tinted);
     // The rounded rectangle's signed distance (zero on its edge, negative inside).
     let p = fma(uv, layer.size_half.xy, layer.size_half.zw);

@@ -23,7 +23,6 @@ use super::{emit, ring, DcDisplay};
 
 /// Notifications drained per wake (xhcid's pattern): a coalesced burst, never a spin.
 const VBLANK_DRAIN_MAX: u32 = 8;
-use crate::backend::cpu_frame::Blur;
 use crate::backend::display::Display;
 use nexus_gfx::backend::dc::frame_stats::Stage;
 use nexus_gfx::backend::dc::regs;
@@ -143,7 +142,7 @@ impl Display for DcDisplay {
                 continue;
             }
             let c0 = nsec().unwrap_or(0);
-            self.cpu.execute(&target, cmd, Blur::Box)?;
+            self.cpu.execute(&target, cmd)?;
             self.stats.command(Stage::of(cmd), nsec().unwrap_or(c0).saturating_sub(c0));
         }
         self.exec_ns = nsec().unwrap_or(t0).saturating_sub(t0);

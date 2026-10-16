@@ -37,12 +37,13 @@ pub const GPUD_VIRGL_SUBMIT3D_OK: &str = "gpud: virgl submit3d ok";
 /// surface, and cleared — validates the draw-state path (resource → surface →
 /// framebuffer → clear) before shaders/draw are added.
 pub const GPUD_VIRGL_RT_CLEAR_OK: &str = "gpud: virgl rt clear ok";
-/// Emitted after submitting vertex+fragment TGSI shaders for creation —
-/// validates the CREATE_OBJECT(SHADER) text path is parsed by virglrenderer
-/// (confirm zero virgl errors in QEMU stderr).
+/// Emitted once the pipeline library's programs (our toolchain's shader text,
+/// `virgl_pipelines`) and the state every draw binds were created in the
+/// context. The renderer drops a program it cannot parse without a word: the
+/// draw proofs that follow are what show the programs run.
 pub const GPUD_VIRGL_SHADER_OK: &str = "gpud: virgl shader ok";
-/// Emitted when a full GPU draw (state objects + vertex buffer + shaders +
-/// DRAW_VBO) renders the expected pixels, verified by TRANSFER_FROM_HOST_3D
+/// Emitted when a full GPU draw with a library pipeline (the gradient, red over
+/// a blue clear) renders the expected pixels, verified by TRANSFER_FROM_HOST_3D
 /// readback into guest memory. This is an on-device end-to-end GPU proof.
 pub const GPUD_VIRGL_DRAW_OK: &str = "gpud: virgl draw ok";
 /// Draw self-test readback returned the clear color — pipeline state reached
@@ -50,24 +51,15 @@ pub const GPUD_VIRGL_DRAW_OK: &str = "gpud: virgl draw ok";
 pub const GPUD_VIRGL_DRAW_NOOP: &str = "gpud: virgl draw noop (clear only)";
 /// Draw self-test readback returned unexpected pixels.
 pub const GPUD_VIRGL_DRAW_MISMATCH: &str = "gpud: virgl draw mismatch";
-/// Emitted on the first real GPU blur when its output matches the CPU
-/// separable gaussian within tolerance over the region interior.
-pub const GPUD_VIRGL_BLUR_PARITY_OK: &str = "gpud: virgl blur parity ok";
-/// First-blur parity comparison exceeded tolerance (GPU blur still active;
-/// indicates a kernel/orientation deviation to investigate).
-pub const GPUD_VIRGL_BLUR_PARITY_OFF: &str = "gpud: virgl blur parity off";
-/// Emitted once when the first BlurBackdrop is executed by the GPU shader path.
-pub const GPUD_VIRGL_BLUR_GPU_ON: &str = "gpud: virgl blur gpu on";
-/// GPU vector pipeline (M1): a per-pixel gradient quad rendered + read back with
-/// top≠bottom interpolation — proves GPU gradient fills work end-to-end.
+/// The gradient pipeline from red at the top to blue at the bottom, read back:
+/// the colour interpolated across the rectangle and `uv` running down it as the
+/// library's programs assume — proves GPU gradient fills work end-to-end.
 pub const GPUD_VIRGL_GRADIENT_OK: &str = "gpud: virgl gradient ok";
-/// Gradient self-test reached the GPU but readback showed no interpolation.
-pub const GPUD_VIRGL_GRADIENT_FLAT: &str = "gpud: virgl gradient flat";
+/// Gradient self-test reached the GPU but the readback was flat or upside down.
+pub const GPUD_VIRGL_GRADIENT_WRONG: &str = "gpud: virgl gradient wrong (flat or upside down)";
 /// G0: the displayed scanout is a virgl render target (GL-presented). Emitted
 /// once when SET_SCANOUT to the GL RT + GPU clear + flush succeeded.
 pub const GPUD_GL_SCANOUT_OK: &str = "gpud: gl scanout ok";
-/// G1: first VMO→GL present executed (upload + GPU blit + flush).
-pub const GPUD_GL_PRESENT_OK: &str = "gpud: gl present ok";
 /// Build provenance (TASK-0324 P0): the feature set this binary was compiled
 /// with — the FIRST line gpud prints, raw, before verdict folding arms, so a
 /// bundle built without `virgl` can never hide behind a folded `gpud N/N`.
@@ -107,17 +99,13 @@ pub const GPUD_GL_DRAW_PROVEN_LATE: &str = "gpud: gl draw proven at first scanou
 pub const GPUD_FAIL_GL_DRAW_UNAVAILABLE: &str = "gpud: FAIL gl draw unavailable on gl device";
 /// `gl_scanout_init` failed on a GL device — fatal, never a 2D retry.
 pub const GPUD_FAIL_GL_SCANOUT_INIT: &str = "gpud: FAIL gl scanout init";
-/// G3/M1b: first FillSdfGradient executed by the GPU SDF shader.
-pub const GPUD_SDF_GRAD_OK: &str = "gpud: sdf-grad ok";
-/// G3/M1c: first DropShadow executed by the GPU SDF-falloff shader.
-pub const GPUD_DROPSHADOW_OK: &str = "gpud: dropshadow ok";
-/// G2: the GPU layer-composite primitive (textured layer + rounded mask +
-/// opacity composited into an RT) verified by readback at bringup.
+/// G2: the GPU layer-composite primitive (the library's client-surface pipeline
+/// composited into an RT) verified by readback at bringup.
 pub const GPUD_LAYER_COMPOSITE_OK: &str = "gpud: layer composite ok";
 /// Layer-composite self-test reached the GPU but readback was wrong.
 pub const GPUD_LAYER_COMPOSITE_OFF: &str = "gpud: layer composite off";
-/// G2 live: first window/layer GPU-composited into the display plane from a
-/// CompositeLayer command (windowd → gpud).
+/// G2 live: first window/layer GPU-composited onto the scanout render target
+/// from a CompositeLayer command (windowd → gpud).
 pub const GPUD_LAYER_COMPOSITE_LIVE: &str = "gpud: layer composite live";
 
 // --- Present-chain hop markers (graphical-output bisection) -----------------

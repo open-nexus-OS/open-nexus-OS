@@ -1,30 +1,36 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! The pipeline library build (TASK-0215 5c-2 P4c, ADR-0072 §5–7, RFC-0101 §7b): a manifest
-//! declares each variant once — its id, name, source, entry point, overrides, blend and
-//! instruction-group budget. Each is compiled, held to its budget (the host build fails above
-//! it), given its setup programs, and the archive is built for the manifest's code target.
+//! The pipeline library build (TASK-0215 5c-2 P4c, P6, ADR-0072 §5–7, RFC-0101 §7b): a manifest
+//! declares each variant once — its id, name, source, entry point, stage, overrides, blend and
+//! budget. Each is compiled for the manifest's code target, held to its budget (the host build
+//! fails above it) and the archive built. On the board (`board`) a program is instruction groups
+//! with its setup programs beside it, the budget in groups; on the QEMU path's virtual GPU
+//! (`virgl`) a program is shader text, the blend the pipeline's state (the GPU's blend unit), the
+//! budget in instructions, and a vertex program may be declared.
 //!
 //! ```toml
-//! target = "board"
+//! target = "board"                    # or "virgl"
 //! [[pipeline]]
 //! id = 1
 //! name = "layer-opaque"
 //! source = "../shaders/layer.wgsl"   # relative to the manifest
 //! entry = "main"                      # the default
+//! stage = "fragment"                  # the default; "vertex" on the virtual GPU
 //! overrides = { tinted = false }      # bools and numbers, keyed as the pipeline's constants
-//! blend = "replace"                   # or "premultiplied"
+//! blend = "replace"                   # or "premultiplied"; none for a vertex program
 //! budget = 3
 //! ```
 
 use nexus_gfx::backend::gpu::CoreId;
+use nexus_gfx::shader::ir::Stage;
 use nexus_gfx::shader::library::{self, EntrySpec};
 use nexus_gfx::shader::rogue::codegen::Layout;
 use nexus_gfx::shader::rogue::encode_program;
 use nexus_gfx::shader::rogue::setup::{fragment, Varyings};
+use nexus_gfx::shader::tgsi;
 
-use super::{compile_fragment, Blend};
+use super::{compile_fragment, lower_fragment, lower_vertex, Blend};
 
 /// A variant as the manifest declares it.
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +39,7 @@ pub struct Pipeline {
     pub name: String,
     pub source: String,
     pub entry: String,
+    pub stage: Stage,
     pub overrides: Vec<(String, f64)>,
     pub blend: Blend,
     pub budget: u16,
@@ -78,6 +85,7 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
     }
     let target = match string(&t, "target", "manifest")?.as_str() {
         "board" => CoreId::BOARD.0,
+        "virgl" => tgsi::CODE_TARGET,
         other => return Err(format!("manifest: unknown code target `{other}`")),
     };
     let Some(toml::Value::Array(list)) = t.get("pipeline") else {
@@ -88,16 +96,29 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
         let toml::Value::Table(p) = v else {
             return Err("manifest: a pipeline is not a table".into());
         };
-        let known = ["id", "name", "source", "entry", "overrides", "blend", "budget"];
+        let known = ["id", "name", "source", "entry", "stage", "overrides", "blend", "budget"];
         if let Some(k) = p.keys().find(|k| !known.contains(&k.as_str())) {
             return Err(format!("pipeline: unknown key `{k}`"));
         }
         let name = string(p, "name", "pipeline")?;
         let what = format!("pipeline {name}");
-        let blend = match string(p, "blend", &what)?.as_str() {
-            "replace" => Blend::Replace,
-            "premultiplied" => Blend::OverPremultiplied,
-            other => return Err(format!("{what}: unknown blend `{other}`")),
+        let stage = match p.get("stage").map(|_| string(p, "stage", &what)).transpose()?.as_deref()
+        {
+            None | Some("fragment") => Stage::Fragment,
+            Some("vertex") if target == tgsi::CODE_TARGET => Stage::Vertex,
+            Some(other) => return Err(format!("{what}: no stage `{other}` on this target")),
+        };
+        let blend = match (stage, p.get("blend").map(|_| string(p, "blend", &what)).transpose()?) {
+            (Stage::Vertex, None) => Blend::Replace,
+            (Stage::Vertex, Some(_)) => {
+                return Err(format!("{what}: a vertex program blends nothing"))
+            }
+            (_, None) => return Err(format!("{what}: `blend` must be a string")),
+            (_, Some(b)) => match b.as_str() {
+                "replace" => Blend::Replace,
+                "premultiplied" => Blend::OverPremultiplied,
+                other => return Err(format!("{what}: unknown blend `{other}`")),
+            },
         };
         let mut overrides = Vec::new();
         if let Some(o) = p.get("overrides") {
@@ -121,6 +142,7 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
                 Some(_) => string(p, "entry", &what)?,
             },
             source: string(p, "source", &what)?,
+            stage,
             overrides,
             blend,
             budget: int(p, "budget", &what, u64::from(u16::MAX))? as u16,
@@ -130,25 +152,70 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
     Ok(Manifest { target, pipelines })
 }
 
+/// An entry's compiled parts.
+struct Part {
+    interface: nexus_gfx::shader::ir::Interface,
+    program: Vec<u8>,
+    setup: Vec<Vec<u8>>,
+    state: Vec<u8>,
+    features: u32,
+}
+
+/// A variant for the virtual GPU: its stage lowered (a fragment program's main part — the blend
+/// is its state), compiled into shader text, held to its budget in instructions.
+fn shader_text(
+    p: &Pipeline,
+    src: &str,
+    overrides: &[(&str, f64)],
+) -> Result<(Part, Built), String> {
+    let m = match p.stage {
+        Stage::Vertex => lower_vertex(src, &p.entry, overrides),
+        _ => lower_fragment(src, &p.entry, overrides, Blend::Replace),
+    }
+    .map_err(|e| format!("{}: {e:?}", p.name))?;
+    let text = tgsi::compile(&m).map_err(|e| format!("{}: {e:?}", p.name))?;
+    let n = tgsi::instructions(&text);
+    if n > usize::from(p.budget) {
+        return Err(format!("{}: {n} instructions above its budget of {}", p.name, p.budget));
+    }
+    let built = Built {
+        id: p.id,
+        name: p.name.clone(),
+        groups: n,
+        budget: p.budget,
+        temps: 0,
+        pass_type: 0,
+        bytes: text.len(),
+    };
+    let state = tgsi::State { blend: p.blend }.to_bytes().to_vec();
+    let part = Part {
+        interface: m.interface,
+        program: text.into_bytes(),
+        setup: Vec::new(),
+        state,
+        features: 0,
+    };
+    Ok((part, built))
+}
+
 /// The archive of the manifest's variants (each source read through `source`), with what each
 /// entry is.
 pub fn build(
     manifest: &Manifest,
     source: impl Fn(&str) -> Result<String, String>,
 ) -> Result<(Vec<u8>, Vec<Built>), String> {
-    struct Part {
-        interface: nexus_gfx::shader::ir::Interface,
-        program: Vec<u8>,
-        setup: Vec<Vec<u8>>,
-        state: Vec<u8>,
-        features: u32,
-    }
     let mut parts = Vec::with_capacity(manifest.pipelines.len());
     let mut built = Vec::with_capacity(manifest.pipelines.len());
     for p in &manifest.pipelines {
         let src = source(&p.source)?;
         let overrides: Vec<(&str, f64)> =
             p.overrides.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        if manifest.target == tgsi::CODE_TARGET {
+            let (part, b) = shader_text(p, &src, &overrides)?;
+            parts.push(part);
+            built.push(b);
+            continue;
+        }
         let c = compile_fragment(&src, &p.entry, &overrides, p.blend, true)
             .map_err(|e| format!("{}: {e:?}", p.name))?;
         let groups = c.program.groups.len();
