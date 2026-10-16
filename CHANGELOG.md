@@ -70,6 +70,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cycle: the straight layer at 4.87 ns a pixel, the rounded one at 8.85 ns (the frame will draw
   only a layer's corner squares with it), the shadow at 10.81 ns.
 
+### Added - 2026-10-16 (Block 4, layer 5c-2 P5d: the glass blur as our own programs — TASK-0215, ADR-0072)
+
+- **The frontend evaluates what a pipeline fixes** (`tools/nxgpu`, `lower/{fold,flow,expr}`):
+  arithmetic on literals, constants and overrides folds into a constant that becomes an
+  instruction only where it meets a computed value, once a program; function variables hold what
+  was last stored; an `if` on a fixed condition is taken; a loop on a fixed counter runs while
+  lowering (at most 1024 iterations) — a blur's taps over an override radius are straight-line code
+  with constant weights. The exponentials, logarithms and powers fold through `libm`, so the
+  library builds bit for bit alike on every host; a branch on a computed value, a switch and arrays
+  are refused by name. The five earlier pipelines are unchanged byte for byte.
+- **A pipeline's constant block** (`rogue::{codegen, setup}`, `backend::gpu::pipelines`): every
+  value no constant register holds gets one register of the block after the push constants (a
+  constant is never an instruction now); the block rides in the library entry's state, the state
+  load DMAs it as its third load, the device decodes both strictly and places the block once beside
+  the setup programs. A constant broadcast in an add, multiply or multiply-add is a run of the block
+  (the value once a lane), so the group repeats over it where a broadcast takes a group a lane.
+- **Our own texture descriptors** (`backend::gpu::texstate`): a stride texture's image and sampler
+  words from the open driver's state description, the render bundle's checker descriptor the
+  golden; a rectangle of a plane is a texture of its own (blue-green-red-alpha by the swizzle).
+- **The glass blur** (`resources/gpu/shaders/blur.wgsl`, library entries `blur-horizontal-20` and
+  `blur-vertical-20`): the virgl path's separable gaussian (σ = R/2, taps out to ±R) at half
+  resolution — the horizontal pass downsampling the full-resolution backdrop with one bilinear
+  fetch at the corner of four texels a tap, the vertical pass two taps a fetch with the saturation
+  lifted; the glass layer samples the result back with its corners cut. On the host the chain is
+  within three levels of the full-resolution blur with the CPU path's saturation
+  (`tools/nxgpu/tests/blur.rs`). On the board (cycle 18) the pipeline gate runs the chain over a
+  backdrop the CPU wrote, every texture through our own descriptor: **within two levels of the
+  formula on the first cycle** (`gpud: gpu pipeline ok (… blur_h_ns_px=38.92 blur_v_ns_px=23.19
+  blur_layer_ns_px=8.66 blur_dev=2 samples=12/12 …)`). The passes cost their fetches, about 2 ns
+  each — 17.6 ns a glass pixel, the whole 1080p plane in about 33 ms where the stock stack takes
+  42.8 ms for one of its two passes — so the frame will blur only where a glass's backdrop changed
+  and keep the result.
+
 ### Added - 2026-10-14 (Block 4, layer 5c-1: the cost of a pass — TASK-0215, RFC-0101 Phase 4c)
 
 - **What a pass costs, taken apart on the board** (`docs/board/measurements/2026-10-13-gpu-render-queue/`,

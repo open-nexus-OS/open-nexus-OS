@@ -93,6 +93,30 @@ impl Quad {
         push[13] = offset[1];
         Self { x: x - blur + offset[0], y: y - blur + offset[1], w: qw, h: qh, push }
     }
+
+    /// A blur pass over (`x`, `y`, `w`, `h`) (`resources/gpu/shaders/blur.wgsl`, its `Blur`
+    /// block): `uv · source.xy + source.zw` is an output pixel's centre in the source texture
+    /// (normalised), `step` a tap's step there, `saturation` the vertical pass's (1 leaves the
+    /// colour).
+    pub const fn blur(
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        source: [f32; 4],
+        step: [f32; 2],
+        saturation: f32,
+    ) -> Self {
+        let mut push = [0.0; 16];
+        push[0] = source[0];
+        push[1] = source[1];
+        push[2] = source[2];
+        push[3] = source[3];
+        push[4] = step[0];
+        push[5] = step[1];
+        push[6] = saturation;
+        Self { x, y, w, h, push }
+    }
 }
 
 /// The captured pass's shape the emitter builds on (the first-quad render capture): its vertex
@@ -137,6 +161,9 @@ pub enum Need {
     StateData(u32),
     /// 64 bytes in the PDS heap: the vertex PDS data copy (once per pass).
     VsPdsData,
+    /// A texture's descriptor block in the general arena (`texstate`, once per pass and
+    /// texture): what a pass's state load names as its texture.
+    Descriptor,
     /// The control stream, `len` bytes in the stream buffer (once per pass).
     Stream(u32),
     /// The vertices, `len` bytes in the vertex buffer (once per pass).
@@ -164,6 +191,7 @@ pub struct Bump {
 }
 
 const BLOCK: u32 = 64;
+const DESCRIPTOR_BYTES: u32 = 4 * super::texstate::DESCRIPTOR_DWORDS as u32;
 
 impl Placer for Bump {
     fn place(&mut self, _draw: usize, need: Need) -> Option<u32> {
@@ -174,6 +202,7 @@ impl Placer for Bump {
             Need::Ppp26 => (&mut self.general_free, self.general_len, 2 * BLOCK),
             Need::Stream(n) => (&mut self.stream_free, self.stream_len, n),
             Need::Vertices(n) => (&mut self.vertex_free, self.vertex_len, n),
+            Need::Descriptor => (&mut self.general_free, self.general_len, DESCRIPTOR_BYTES),
             _ => (&mut self.general_free, self.general_len, BLOCK),
         };
         let at = free.next_multiple_of(BLOCK);
@@ -311,11 +340,17 @@ pub fn emit(
         .iter()
         .filter_map(|d| match d.load {
             Load::Push { from } => Some(usize::from(from) + usize::from(d.dwords)),
-            Load::TextureDescriptor { .. } => None,
+            Load::TextureDescriptor { .. } | Load::Constants => None,
         })
         .max()
         .unwrap_or(0);
     if push_dwords > 16 {
+        return Err(EmitError::Pipeline);
+    }
+    // The constant block where the pipeline's load placed it (a block no placement names is a
+    // pipeline the table did not place).
+    let constants_va = pipeline.constants_va();
+    if pipeline.setup.dmas.iter().any(|d| d.load == Load::Constants) && constants_va.is_none() {
         return Err(EmitError::Pipeline);
     }
     for (i, q) in quads.iter().enumerate() {
@@ -333,6 +368,7 @@ pub fn emit(
             .state_data(|load| match load {
                 Load::TextureDescriptor { .. } => t.texture_va,
                 Load::Push { from } => push_va + 4 * u64::from(from),
+                Load::Constants => constants_va.unwrap_or(0),
             })
             .map_err(|_| EmitError::Pipeline)?;
         let mut bytes = Vec::with_capacity(data.len() * 4);

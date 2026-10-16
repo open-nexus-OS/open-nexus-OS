@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! A context's pipelines (TASK-0215 5c-2 P4d, RFC-0101 §7b): the compositor's library placed —
-//! its programs in the code heap untouched, each kick naming where its program landed — and a
-//! draw's pipeline found by id; an unknown id, a second library, an entry this device does not
+//! its programs in the code heap untouched, each kick naming where its program landed, a
+//! constant block placed beside its setup — and a draw's pipeline found by id; an unknown id, a
+//! second library, an entry this device does not
 //! run (a program that does not decode, one above its budget, a setup it does not take) and a
 //! heap without room are refused.
 
@@ -70,9 +71,9 @@ fn the_compositor_library_is_placed_and_each_kick_names_its_program() {
     let loaded = table.load(LIBRARY, TARGET, FEATURES, &mut heaps).expect("loads");
     assert_eq!(
         (loaded.accepted.as_slice(), loaded.refused.as_slice()),
-        (&[1, 2, 3, 4, 5][..], &[][..])
+        (&[1, 2, 3, 4, 5, 6, 7][..], &[][..])
     );
-    assert_eq!(loaded.code_bytes, 32 + 120 + 160 + 360 + 472);
+    assert_eq!(loaded.code_bytes, 32 + 120 + 160 + 360 + 472 + 936 + 728);
     for (id, temps, pass, program) in [
         (1, 1, PASS_OPAQUE, reference::opaque_itrsmp().unwrap().encode().unwrap()),
         (2, 3, PASS_TRANSLUCENT, reference::premultiplied_itrsmp().unwrap().encode().unwrap()),
@@ -91,7 +92,7 @@ fn the_compositor_library_is_placed_and_each_kick_names_its_program() {
         assert_eq!(w(8), 0xf400_0002, "dout U, end");
         assert_eq!(p.pds_state(0x4000).uniformdatabase, 0x4000);
     }
-    assert_eq!(table.ids().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
+    assert_eq!(table.ids().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5, 6, 7]);
 }
 
 #[test]
@@ -99,7 +100,7 @@ fn test_reject_draw_unknown_pipeline() {
     let mut table = PipelineTable::default();
     assert_eq!(table.get(1), Err(TableError::UnknownPipeline(1)), "before any library");
     table.load(LIBRARY, TARGET, FEATURES, &mut mem()).expect("loads");
-    assert_eq!(table.get(6), Err(TableError::UnknownPipeline(6)));
+    assert_eq!(table.get(8), Err(TableError::UnknownPipeline(8)));
     assert_eq!(table.get(0), Err(TableError::UnknownPipeline(0)));
 }
 
@@ -115,7 +116,7 @@ fn test_reject_entries_this_device_does_not_run() {
     let i = layer();
     let opaque = reference::opaque_itrsmp().unwrap().encode().unwrap();
     let setup = fragment(
-        &Program { groups: Vec::new(), temps: 1, pass_type: PASS_OPAQUE },
+        &Program { groups: Vec::new(), temps: 1, pass_type: PASS_OPAQUE, constants: Vec::new() },
         &i,
         Layout::BUNDLE,
         Varyings::BUNDLE,
@@ -165,4 +166,46 @@ fn test_reject_a_library_without_room_or_for_another_device() {
         table.load(LIBRARY, TARGET + 1, FEATURES, &mut mem()),
         Err(TableError::Library(LibraryError::WrongTarget { library: TARGET, device: TARGET + 1 }))
     );
+}
+
+#[test]
+fn a_pipelines_constant_block_is_placed_once_beside_its_setup() {
+    let i = layer();
+    let opaque = reference::opaque_itrsmp().unwrap().encode().unwrap();
+    let block = vec![0.7f32.to_bits(), 0.3f32.to_bits()];
+    let program =
+        Program { groups: Vec::new(), temps: 1, pass_type: PASS_OPAQUE, constants: block };
+    let setup = fragment(&program, &i, Layout::BUNDLE, Varyings::BUNDLE).unwrap();
+    let (sections, state) = setup.sections().unwrap();
+    let refs: Vec<&[u8]> = sections.iter().map(Vec::as_slice).collect();
+    let spec = EntrySpec {
+        id: 9,
+        name: "weighted",
+        features: FEATURES,
+        budget: 3,
+        interface: &i,
+        program: &opaque,
+        setup: &refs,
+        state: &state,
+    };
+    let lib = build(TARGET, &[spec]).unwrap();
+    let mut table = PipelineTable::default();
+    let mut heaps = mem();
+    let loaded = table.load(&lib, TARGET, FEATURES, &mut heaps).expect("loads");
+    let p = table.get(9).expect("accepted");
+    // The values land where the placement says, after the three setup programs; the state load
+    // reads them at the PDS heap's address of that place.
+    let at = p.constants.expect("a block");
+    assert!(at > p.state_code);
+    let off = (at - SETUP_BASE) as usize;
+    assert_eq!(&heaps.setup[off..off + 8], &setup.constant_bytes()[..]);
+    assert_eq!(p.constants_va(), Some(0xda_0000_0000 + u64::from(at)));
+    let programs = 4 * (8 + 1) + setup.iterate.encode().unwrap().len() + 4 * 3;
+    assert_eq!(loaded.setup_bytes, programs + 8);
+    // Of the compositor's pipelines only the blur passes read a block (their weights).
+    let mut table = PipelineTable::default();
+    table.load(LIBRARY, TARGET, FEATURES, &mut mem()).expect("loads");
+    for id in table.ids() {
+        assert_eq!(table.get(id).is_ok_and(|p| p.constants.is_some()), id >= 6, "{id}");
+    }
 }

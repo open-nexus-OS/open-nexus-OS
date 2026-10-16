@@ -8,15 +8,20 @@
 //! so blending is program code linked after the main part). `library` builds the pipeline
 //! library from a manifest of variants.
 //! OWNERS: @gpu @runtime
-//! STATUS: Experimental — the compositor's subset: straight-line fragment programs with
-//!   location inputs, immediates (push constants), 2D textures and samplers, overrides fixed per
-//!   pipeline (a select on one folds), arithmetic, the common math functions, constructors,
-//!   swizzles and component access; anything else is refused by name
+//! STATUS: Experimental — the compositor's subset: fragment programs with location inputs,
+//!   immediates (push constants), 2D textures and samplers, overrides fixed per pipeline,
+//!   arithmetic, the common math functions, constructors, swizzles and component access. What
+//!   the pipeline fixes is evaluated while lowering — constants folded, function variables
+//!   tracked, an `if` on a fixed condition taken, a loop on a fixed counter unrolled — so the
+//!   program is a straight line; a branch on a computed value and anything else outside the
+//!   subset is refused by name
 //! API_STABILITY: Unstable
 //! TEST_COVERAGE: `tests/lower.rs` — the compositor's WGSL programs lowered and run by the
 //!   reference interpreter against the CPU rasterizer's formulas, the overrides' variants; the
-//!   refusals. `tests/pipelines.rs` — the committed library rebuilt byte for byte from its
-//!   manifest, its entries the reference programs; the budget and manifest refusals.
+//!   refusals. `tests/partial_eval.rs` — loops unrolled into their taps, variables, fixed `if`s,
+//!   folded arithmetic; the refusals of what the pipeline cannot fix. `tests/pipelines.rs` — the
+//!   committed library rebuilt byte for byte from its manifest, its entries the reference
+//!   programs; the budget and manifest refusals.
 
 pub mod library;
 mod lower;

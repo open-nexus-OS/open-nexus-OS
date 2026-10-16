@@ -4,10 +4,11 @@
 //! A fragment pipeline's setup programs (TASK-0215 5c-2 P4b, RFC-0101 §7b): the three programs
 //! the setup unit runs before each tile's fragment work — the kick (names the program and its
 //! temporaries), the varying iteration (W and each input into the coefficient store) and the
-//! state load (a texture's descriptor and the push constants DMA'd into shared registers) —
-//! generated from a compiled program and its interface, carried in the pipeline library as its
-//! setup sections and state. The device decodes them strictly: every instruction must be the
-//! form the generator writes, every load inside the interface and the registers it declares.
+//! state load (a texture's descriptor, the push constants and the pipeline's constant block
+//! DMA'd into shared registers) — generated from a compiled program and its interface, carried
+//! in the pipeline library as its setup sections and state (the constant block rides in the
+//! state). The device decodes them strictly: every instruction must be the form the generator
+//! writes, every load inside the interface and the registers it declares.
 //!
 //! Facts, measured on the render bundle (5c-2 P1b) and in the open driver's constants:
 //! - the kick's data segment is fixed at eight dwords — the hardware runs its code at +0x20;
@@ -23,7 +24,7 @@
 
 use alloc::vec::Vec;
 
-use super::codegen::{Layout, Program};
+use super::codegen::{Layout, Program, MAX_CONSTANTS};
 use super::pds::{DmaCtl, DmaSrc, DoutDst, Douti, Doutu, PdsInstr, PdsProgram};
 use super::reference::{PASS_OPAQUE, PASS_TRANSLUCENT};
 use super::RogueError;
@@ -48,6 +49,7 @@ const MAX_SHARED: usize = 511 * 16;
 const KIND_KICK: u8 = 1;
 const KIND_ITERATE: u8 = 2;
 const KIND_STATE: u8 = 3;
+/// The state's fixed part; the constant block's dwords follow it.
 const STATE_BYTES: usize = 8;
 
 /// Where the vertex stage leaves what the iteration reads (dwords into its output): W, then
@@ -70,6 +72,8 @@ pub enum Load {
     TextureDescriptor { resource: u8 },
     /// The push constants from this dword on.
     Push { from: u8 },
+    /// The pipeline's constant block, where the device placed it with the setup.
+    Constants,
 }
 
 /// One state-load DMA: what, into which shared register, how many dwords.
@@ -95,7 +99,7 @@ pub struct State {
 }
 
 /// A fragment pipeline's setup: the kick (its program offset zero until placed), the
-/// iteration, the state load's code and its loads, the state.
+/// iteration, the state load's code and its loads, the state, the constant block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Setup {
     pub kick: PdsProgram,
@@ -103,6 +107,8 @@ pub struct Setup {
     pub state_code: Vec<PdsInstr>,
     pub dmas: Vec<Dma>,
     pub state: State,
+    /// The values the state load DMAs from the constant block (empty: no block, no load).
+    pub constants: Vec<u32>,
 }
 
 fn refuse(what: &'static str) -> RogueError {
@@ -211,6 +217,13 @@ pub fn fragment(
         let dwords = (interface.push_bytes / 4) as u16;
         dmas.push(Dma { load: Load::Push { from: 0 }, dest: layout.push, dwords });
     }
+    if program.constants.len() > MAX_CONSTANTS {
+        return Err(refuse("more constants than a pipeline's block holds"));
+    }
+    if !program.constants.is_empty() {
+        let (dest, dwords) = (layout.constants(interface.push_bytes), program.constants.len());
+        dmas.push(Dma { load: Load::Constants, dest, dwords: dwords as u16 });
+    }
     if dmas.is_empty() || dmas.len() > MAX_DMAS {
         return Err(refuse("a state load of no or too many loads"));
     }
@@ -223,7 +236,14 @@ pub fn fragment(
         pds_temps: PDS_TEMP_UNITS,
     };
     let n = dmas.len();
-    Ok(Setup { kick, iterate, state_code: (0..n).map(|i| state_code(i, n)).collect(), dmas, state })
+    Ok(Setup {
+        kick,
+        iterate,
+        state_code: (0..n).map(|i| state_code(i, n)).collect(),
+        dmas,
+        state,
+        constants: program.constants.clone(),
+    })
 }
 
 impl Setup {
@@ -282,9 +302,16 @@ impl Setup {
         Ok(d)
     }
 
+    /// The constant block as the device places it.
+    pub fn constant_bytes(&self) -> Vec<u8> {
+        self.constants.iter().flat_map(|c| c.to_le_bytes()).collect()
+    }
+
     /// The library sections: the kick, the iteration and the state load (in that order), then
     /// the state. A setup section: kind, data dwords, code dwords, load count (u8 each), the
-    /// data, the code, four bytes per load (kind, its argument, register, dwords).
+    /// data, the code, four bytes per load (kind, its argument, register, dwords). The state:
+    /// temporaries, pass type, coefficient units, setup temporaries (u8 each), shared units
+    /// (u16), the constant count (u8), a zero byte, then the constants.
     pub fn sections(&self) -> Result<(Vec<Vec<u8>>, Vec<u8>), RogueError> {
         let section = |kind: u8, p: &PdsProgram, dmas: &[Dma]| -> Result<Vec<u8>, RogueError> {
             let mut b = alloc::vec![kind, p.data.len() as u8, p.code.len() as u8, dmas.len() as u8];
@@ -298,6 +325,7 @@ impl Setup {
                 let (kind, arg) = match d.load {
                     Load::TextureDescriptor { resource } => (1, resource),
                     Load::Push { from } => (2, from),
+                    Load::Constants => (3, 0),
                 };
                 b.extend_from_slice(&[kind, arg, d.dest as u8, d.dwords as u8]);
             }
@@ -310,9 +338,11 @@ impl Setup {
             section(KIND_STATE, &state_load, &self.dmas)?,
         ];
         let s = self.state;
+        let count = u8::try_from(self.constants.len()).map_err(|_| refuse("the constants"))?;
         let mut state = alloc::vec![s.temps, s.pass_type, s.usc_varying, s.pds_temps];
         state.extend_from_slice(&s.usc_shared.to_le_bytes());
-        state.extend_from_slice(&[0, 0]);
+        state.extend_from_slice(&[count, 0]);
+        state.extend_from_slice(&self.constant_bytes());
         Ok((setup, state))
     }
 
@@ -326,9 +356,14 @@ impl Setup {
         let [kick, iterate, load] = setup else {
             return Err(refuse("other than a kick, an iteration and a state load"));
         };
-        if state.len() != STATE_BYTES || state[6..] != [0, 0] {
+        let count = usize::from(*state.get(6).ok_or(refuse("the state"))?);
+        if count > MAX_CONSTANTS || state.len() != STATE_BYTES + 4 * count || state[7] != 0 {
             return Err(refuse("the state"));
         }
+        let constants: Vec<u32> = state[STATE_BYTES..]
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
         let state = State {
             temps: state[0],
             pass_type: state[1],
@@ -378,7 +413,7 @@ impl Setup {
         if !sd.is_empty() || raw.len() != 4 * n {
             return Err(refuse("the state load's loads"));
         }
-        let mut dmas = Vec::with_capacity(n);
+        let mut dmas: Vec<Dma> = Vec::with_capacity(n);
         for (i, c) in sc.iter().enumerate() {
             let [kind, arg, dest, dwords] =
                 [raw[4 * i], raw[4 * i + 1], raw[4 * i + 2], raw[4 * i + 3]];
@@ -395,6 +430,13 @@ impl Setup {
                 {
                     Load::Push { from: arg }
                 }
+                // The whole block, once.
+                3 if arg == 0
+                    && usize::from(dwords) == constants.len()
+                    && !dmas.iter().any(|d| d.load == Load::Constants) =>
+                {
+                    Load::Constants
+                }
                 _ => return Err(refuse("a load outside the interface")),
             };
             let (dest, dwords) = (u16::from(dest), u16::from(dwords));
@@ -403,12 +445,16 @@ impl Setup {
             }
             dmas.push(Dma { load, dest, dwords });
         }
+        if !constants.is_empty() && !dmas.iter().any(|d| d.load == Load::Constants) {
+            return Err(refuse("a constant block no load reads"));
+        }
         Ok(Self {
             kick: PdsProgram { data: kd, code: kc },
             iterate: PdsProgram { data: id, code: ic },
             state_code: sc,
             dmas,
             state,
+            constants,
         })
     }
 }

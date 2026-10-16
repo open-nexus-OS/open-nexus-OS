@@ -9,5 +9,6 @@ publish = false
 
 [dependencies]
 naga = { version = "=28.0.0", default-features = false, features = ["wgsl-in"] }
+libm = "0.2"
 nexus-gfx = { path = "../../userspace/nexus-gfx" }
 toml = "0.8"

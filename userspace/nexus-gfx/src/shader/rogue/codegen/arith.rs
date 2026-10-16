@@ -7,16 +7,18 @@
 //! negation, absolute value, floor and saturation as an add of constant register 0 with the
 //! modifier (the compiler's `fadd.sat x, sc0`); min and max as its one group of bypasses, test
 //! and conditional move; a division as a reciprocal and a product; a constant as its constant
-//! register; a vector built from parts in consecutive registers, the first part's own when it
+//! register or its register in the pipeline's constant block; a vector built from parts in
+//! consecutive registers, the first part's own when it
 //! dies there with room behind it. A repeated group steps every register operand — constant
-//! registers too — so an operation with one register for every lane (a broadcast, a constant)
-//! takes a group a lane.
+//! registers too — so an operation with one register for every lane (a broadcast) takes a group a
+//! lane; a broadcast constant in an add, multiply or multiply-add is therefore a run of the
+//! constant block, one register a lane, and the group repeats over it.
 
-use super::{CodegenError, Gen, Loc};
+use super::{CodegenError, Gen, Loc, MAX_CONSTANTS};
 use crate::shader::ir::{UnOp, ValueId};
 use crate::shader::rogue::alu::{op, sngl};
 use crate::shader::rogue::asm::{
-    fam_mods, fmad, minmax, mov, sngl as single, special, temp, FamMods, Main, ZERO,
+    fam_mods, fmad, minmax, mov, shared, sngl as single, special, temp, FamMods, Main, ZERO,
 };
 use crate::shader::rogue::constants;
 use crate::shader::rogue::io::{bank, Reg};
@@ -64,20 +66,25 @@ impl Gen<'_> {
     ) -> Result<Loc, CodegenError> {
         let (la, lb) = (self.operand(at, a, lanes)?, self.operand(at, b, lanes)?);
         let dst = self.step_dest(at, lanes, &[a, b])?;
-        self.arith_locs(op, la, lb, s0neg, lanes, dst)?;
+        self.arith_locs(at, op, la, lb, s0neg, lanes, dst)?;
         Ok(Loc::Regs(dst, lanes))
     }
 
     /// [`Self::arith`] over operands already placed, into `dst`.
+    #[allow(clippy::too_many_arguments)]
     fn arith_locs(
         &mut self,
+        at: usize,
         op: u8,
-        mut la: Loc,
-        mut lb: Loc,
+        la: Loc,
+        lb: Loc,
         s0neg: bool,
         lanes: u8,
         dst: Reg,
     ) -> Result<(), CodegenError> {
+        let mut locs = [la, lb];
+        self.constant_runs(at, &mut locs, lanes)?;
+        let [mut la, mut lb] = locs;
         if is_shared(&lb) && !s0neg {
             core::mem::swap(&mut la, &mut lb);
         }
@@ -109,8 +116,10 @@ impl Gen<'_> {
         c: ValueId,
         lanes: u8,
     ) -> Result<Loc, CodegenError> {
-        let (mut la, mut lb, lc) =
-            (self.operand(at, a, lanes)?, self.operand(at, b, lanes)?, self.operand(at, c, lanes)?);
+        let mut locs =
+            [self.operand(at, a, lanes)?, self.operand(at, b, lanes)?, self.operand(at, c, lanes)?];
+        self.constant_runs(at, &mut locs, lanes)?;
+        let [mut la, mut lb, lc] = locs;
         // The product commutes: a shared factor goes first; two are one moved into temporaries.
         if is_shared(&lb) {
             core::mem::swap(&mut la, &mut lb);
@@ -135,28 +144,96 @@ impl Gen<'_> {
         Ok(Loc::Regs(dst, lanes))
     }
 
-    /// A constant: its constant register, or its magnitude's register negated once into a
-    /// temporary; anything else comes from the push constants.
-    pub(super) fn constant(&mut self, at: usize, bits: u32) -> Result<Loc, CodegenError> {
-        let (r, negate) = match constants::find(bits) {
-            Some(r) => (r, false),
-            None => match constants::find(bits & 0x7fff_ffff) {
-                Some(r) if bits & 0x8000_0000 != 0 => (r, true),
-                _ => {
+    /// The value `r` holds when it is a constant: a plain constant register, or a register of
+    /// the constant block.
+    fn constant_bits(&self, r: Reg) -> Option<u32> {
+        match r.bank {
+            bank::SPECIAL => constants::TABLE
+                .iter()
+                .find(|c| c.index == r.index && !c.neg && !c.flr)
+                .map(|c| c.bits),
+            bank::SHARED => {
+                let i = usize::from(r.index.checked_sub(self.const_base)?);
+                self.consts.get(i).copied()
+            }
+            _ => None,
+        }
+    }
+
+    /// `lanes` copies of `bits` in consecutive registers of the constant block: a run already
+    /// there, else the block's trailing copies extended (a value's scalar register becomes its
+    /// run's first), else appended.
+    fn constant_run(&mut self, at: usize, bits: u32, lanes: u8) -> Result<Loc, CodegenError> {
+        let n = usize::from(lanes);
+        let start = match self.consts.windows(n).position(|w| w.iter().all(|c| *c == bits)) {
+            Some(i) => i,
+            None => {
+                let tail = self.consts.iter().rev().take_while(|c| **c == bits).count();
+                let need = n - tail.min(n);
+                if self.consts.len() + need > MAX_CONSTANTS {
                     return Err(CodegenError::Unsupported {
                         at,
-                        what: "a constant outside the constant registers",
-                    })
+                        what: "more constants than a pipeline's block holds",
+                    });
                 }
-            },
+                self.consts.extend(core::iter::repeat_n(bits, need));
+                self.consts.len() - n
+            }
         };
-        if !(negate || r.neg || r.flr) {
+        Ok(Loc::Regs(shared(self.const_base + start as u16), lanes))
+    }
+
+    /// A lane-stepping group's operands with every broadcast a constant: each broadcast made a
+    /// run of the constant block, so one repeated group covers the lanes where a broadcast takes
+    /// a group a lane (a shared operand more costs one repeated move at most). A computed
+    /// broadcast among them keeps the group a lane, and the constants their registers.
+    fn constant_runs(
+        &mut self,
+        at: usize,
+        locs: &mut [Loc],
+        lanes: u8,
+    ) -> Result<(), CodegenError> {
+        if lanes < 2 {
+            return Ok(());
+        }
+        let mut bits = [None; 3];
+        for (b, l) in bits.iter_mut().zip(locs.iter()) {
+            if let Loc::Broadcast(r) = l {
+                match self.constant_bits(*r) {
+                    Some(v) => *b = Some(v),
+                    None => return Ok(()),
+                }
+            }
+        }
+        for (b, l) in bits.iter().zip(locs.iter_mut()) {
+            if let Some(v) = b {
+                *l = self.constant_run(at, *v, lanes)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A constant: the constant register that holds the value as it is, else its register in
+    /// the pipeline's constant block — the same register for every use of the value, no
+    /// instruction either way.
+    pub(super) fn constant(&mut self, at: usize, bits: u32) -> Result<Loc, CodegenError> {
+        if let Some(r) = constants::find(bits).filter(|r| !r.neg && !r.flr) {
             return Ok(Loc::Regs(special(r.index), 1));
         }
-        let t = temp(self.alloc(1)?);
-        let mods = FamMods { s0neg: negate != r.neg, s0flr: r.flr, ..FamMods::default() };
-        self.groups.push(fam_mods(op::FADD, t, special(r.index), ZERO, mods).build()?);
-        Ok(Loc::Regs(t, 1))
+        let i = match self.consts.iter().position(|c| *c == bits) {
+            Some(i) => i,
+            None if self.consts.len() < MAX_CONSTANTS => {
+                self.consts.push(bits);
+                self.consts.len() - 1
+            }
+            None => {
+                return Err(CodegenError::Unsupported {
+                    at,
+                    what: "more constants than a pipeline's block holds",
+                })
+            }
+        };
+        Ok(Loc::Regs(shared(self.const_base + i as u16), 1))
     }
 
     /// `u(a)` over the lanes; a broadcast operand computed once and broadcast again.
@@ -240,7 +317,7 @@ impl Gen<'_> {
         self.groups.push(m.build()?);
         let lr = if once { Loc::Broadcast(r) } else { Loc::Regs(r, n) };
         let dst = self.step_dest(at, lanes, &[a])?;
-        self.arith_locs(op::FMUL, la, lr, false, lanes, dst)?;
+        self.arith_locs(at, op::FMUL, la, lr, false, lanes, dst)?;
         self.release(r, n);
         Ok(Loc::Regs(dst, lanes))
     }

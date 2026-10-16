@@ -3,8 +3,8 @@
 
 //! The compositor's pipeline library (TASK-0215 5c-2 P4c): `compositor.toml` builds the committed
 //! `compositor.nxgp` byte for byte; its entries are the hand-assembled references with the setup
-//! programs the device decodes strictly; a variant above its budget and a manifest the tool does
-//! not know are refused.
+//! programs the device decodes strictly, the blur passes with their constant blocks (P5d); a
+//! variant above its budget and a manifest the tool does not know are refused.
 
 use nexus_gfx::backend::gpu::scene::fnv1a64;
 use nexus_gfx::backend::gpu::CoreId;
@@ -17,11 +17,13 @@ const MANIFEST: &str = include_str!("../../../resources/gpu/pipelines/compositor
 const LIBRARY: &[u8] = include_bytes!("../../../resources/gpu/pipelines/compositor.nxgp");
 const LAYER: &str = include_str!("../../../resources/gpu/shaders/layer.wgsl");
 const SHADOW: &str = include_str!("../../../resources/gpu/shaders/shadow.wgsl");
+const BLUR: &str = include_str!("../../../resources/gpu/shaders/blur.wgsl");
 
 fn source(rel: &str) -> Result<String, String> {
     match rel {
         "../shaders/layer.wgsl" => Ok(LAYER.into()),
         "../shaders/shadow.wgsl" => Ok(SHADOW.into()),
+        "../shaders/blur.wgsl" => Ok(BLUR.into()),
         other => Err(format!("no source {other}")),
     }
 }
@@ -31,7 +33,7 @@ fn the_manifest_builds_the_committed_library() {
     let manifest = parse_manifest(MANIFEST).expect("the manifest parses");
     let (bytes, built) = build(&manifest, source).expect("the library builds");
     assert_eq!(bytes, LIBRARY, "rebuild compositor.nxgp (README.md)");
-    assert_eq!(fnv1a64(LIBRARY), 0x2379_3e2b_fca7_caac, "and the README's digest");
+    assert_eq!(fnv1a64(LIBRARY), 0xaa0d_92e8_58e9_f2dc, "and the README's digest");
     let facts: Vec<_> = built.iter().map(|b| (b.id, b.groups, b.temps, b.pass_type)).collect();
     assert_eq!(
         facts,
@@ -40,7 +42,9 @@ fn the_manifest_builds_the_committed_library() {
             (2, 11, 3, PASS_TRANSLUCENT),
             (3, 15, 3, PASS_TRANSLUCENT),
             (4, 34, 3, PASS_TRANSLUCENT),
-            (5, 43, 3, PASS_TRANSLUCENT)
+            (5, 43, 3, PASS_TRANSLUCENT),
+            (6, 89, 3, PASS_OPAQUE),
+            (7, 70, 3, PASS_OPAQUE)
         ]
     );
 }
@@ -49,29 +53,34 @@ fn the_manifest_builds_the_committed_library() {
 fn the_library_carries_the_references_and_their_setup() {
     let lib = parse(LIBRARY, CoreId::BOARD.0, feature::FUSED_ITERATE_SAMPLE).expect("parses");
     assert!(lib.refused.is_empty());
-    let [opaque, premultiplied, straight, rounded, shadow] = lib.accepted.as_slice() else {
-        panic!("five entries")
+    let [opaque, premultiplied, straight, rounded, shadow, across, down] = lib.accepted.as_slice()
+    else {
+        panic!("seven entries")
     };
     assert_eq!((opaque.id, opaque.name, opaque.budget), (1, "layer-opaque", 3));
     assert_eq!(opaque.program, reference::opaque_itrsmp().unwrap().encode().unwrap());
     assert_eq!(premultiplied.program, reference::premultiplied_itrsmp().unwrap().encode().unwrap());
     assert_eq!((straight.name, rounded.name), ("layer-straight", "layer-rounded"));
-    // The layers sample with iterate-and-sample; the shadow samples nothing.
-    assert_eq!(shadow.features, 0);
-    for (e, temps, pass) in [
-        (opaque, 1, PASS_OPAQUE),
-        (premultiplied, 3, PASS_TRANSLUCENT),
-        (straight, 3, PASS_TRANSLUCENT),
-        (rounded, 3, PASS_TRANSLUCENT),
-        (shadow, 3, PASS_TRANSLUCENT),
+    assert_eq!((across.name, down.name), ("blur-horizontal-20", "blur-vertical-20"));
+    // The layers sample with iterate-and-sample; the shadow samples nothing, the blur passes at
+    // coordinates they compute. Only the blur passes carry a constant block (their weights).
+    for (e, temps, pass, block) in [
+        (opaque, 1, PASS_OPAQUE, false),
+        (premultiplied, 3, PASS_TRANSLUCENT, false),
+        (straight, 3, PASS_TRANSLUCENT, false),
+        (rounded, 3, PASS_TRANSLUCENT, false),
+        (shadow, 3, PASS_TRANSLUCENT, false),
+        (across, 3, PASS_OPAQUE, true),
+        (down, 3, PASS_OPAQUE, true),
     ] {
-        assert_eq!(e.features != 0, e.id != 5);
+        assert_eq!(e.features != 0, e.id <= 4, "{}", e.name);
         let s = Setup::from_sections(&e.setup, e.state, &e.interface).expect("the setup decodes");
         assert_eq!((s.state.temps, s.state.pass_type), (temps, pass));
+        assert_eq!(!s.constants.is_empty(), block, "{}", e.name);
     }
-    // A device without iterate-and-sample takes only the shadow.
+    // A device without iterate-and-sample takes the shadow and the blur passes.
     let bare = parse(LIBRARY, CoreId::BOARD.0, 0).unwrap();
-    assert_eq!(bare.accepted.iter().map(|e| e.id).collect::<Vec<_>>(), vec![5]);
+    assert_eq!(bare.accepted.iter().map(|e| e.id).collect::<Vec<_>>(), vec![5, 6, 7]);
 }
 
 #[test]

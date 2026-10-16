@@ -66,10 +66,14 @@
    part's variants are WGSL overrides, fixed per pipeline when it is built (keyed as a
    pipeline's constants are: an override's `@id`, else its name); a `select` on one folds in the
    frontend, so a variant carries no instruction of the paths it switched off — the opaque layer
-   at full opacity has no tint multiply (TASK-0215 5c-2 P3c).
+   at full opacity has no tint multiply (TASK-0215 5c-2 P3c). What a pipeline fixes is evaluated
+   in the frontend: arithmetic on constants folds, an `if` on a fixed condition is taken, a loop
+   on a fixed counter unrolls, function variables are tracked — the program stays a straight
+   line, a blur's taps with their weights as constants (5c-2 P5d-2).
 6. **The pipeline library is one archive per code target**, built at OS build time. An entry
-   carries its id, code target, interface, program bytes, setup programs, state words, its
-   budget and a digest. The format lives in `nexus_gfx::shader::library`, the contract in
+   carries its id, code target, interface, program bytes, setup programs, state words (on the
+   board with the pipeline's constant block — the values no constant register holds, which the
+   state load DMAs into shared registers, 5c-2 P5d-3), its budget and a digest. The format lives in `nexus_gfx::shader::library`, the contract in
    RFC-0101 §7b. The client (windowd) supplies the library; gpud validates and binds it and
    holds no program of its own.
 7. **A budget is part of a pipeline's definition**: its instruction-group count. A host test

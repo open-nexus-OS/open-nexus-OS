@@ -5,14 +5,15 @@
 //! iteration word for word, the kick byte for byte once placed at the captured program, the
 //! state load's texture and tint loads as captured — the open driver's descriptor plumbing (two
 //! further loads) not carried — and the size words; the library sections decode back, and every
-//! setup the generator would not write is refused.
+//! setup the generator would not write is refused. A program's constant block is a third load
+//! after the push constants, its values in the state (5c-2 P5d-3).
 
 use nexus_gfx::backend::gpu::csb::ppp;
 use nexus_gfx::backend::gpu::scene::Scene;
 use nexus_gfx::backend::gpu::CoreId;
 use nexus_gfx::shader::ir::{Input, Interface, Interp, Output, Resource, Stage, TexDim, Type};
-use nexus_gfx::shader::rogue::codegen::{Layout, Program};
-use nexus_gfx::shader::rogue::pds::{DoutDst, PdsInstr};
+use nexus_gfx::shader::rogue::codegen::{Layout, Program, MAX_CONSTANTS};
+use nexus_gfx::shader::rogue::pds::{DmaCtl, DmaSrc, DoutDst, PdsInstr};
 use nexus_gfx::shader::rogue::reference::{PASS_OPAQUE, PASS_TRANSLUCENT};
 use nexus_gfx::shader::rogue::setup::{fragment, Dma, Load, Setup, Varyings};
 
@@ -55,7 +56,7 @@ fn layer() -> Interface {
 }
 
 fn program(temps: u8, pass_type: u8) -> Program {
-    Program { groups: Vec::new(), temps, pass_type }
+    Program { groups: Vec::new(), temps, pass_type, constants: Vec::new() }
 }
 
 fn setup(temps: u8) -> Setup {
@@ -99,6 +100,7 @@ fn the_state_load_keeps_the_bundles_texture_and_tint_loads() {
         .state_data(|l| match l {
             Load::TextureDescriptor { .. } => TEXTURE,
             Load::Push { .. } => TINT,
+            Load::Constants => unreachable!("the layer has no constant block"),
         })
         .unwrap();
     let theirs = captured(0x2880, 12);
@@ -201,4 +203,85 @@ fn test_reject_a_setup_the_board_layout_cannot_carry() {
     assert!(fragment(&p, &layer(), apart, Varyings::BUNDLE).is_err());
     let vertex = Interface { stage: Stage::Vertex, ..layer() };
     assert!(fragment(&p, &vertex, Layout::BUNDLE, Varyings::BUNDLE).is_err());
+}
+
+/// The layer's setup with a constant block of `n` values.
+fn with_constants(n: u32) -> Setup {
+    let p =
+        Program { constants: (0..n).map(|i| 0x3e99_999a + i).collect(), ..program(1, PASS_OPAQUE) };
+    fragment(&p, &layer(), Layout::BUNDLE, Varyings::BUNDLE).expect("the setup")
+}
+
+/// Where a test places the block.
+const CONSTANTS: u64 = 0xda_0000_3000;
+
+#[test]
+fn the_constant_block_is_a_third_load_after_the_push_constants() {
+    let s = with_constants(3);
+    // After the four push-constant dwords at 24: the block at 28, three dwords, read whole.
+    assert_eq!(Layout::BUNDLE.constants(16), 28);
+    assert_eq!(s.dmas[2], Dma { load: Load::Constants, dest: 28, dwords: 3 });
+    assert_eq!((s.state.usc_shared, s.constant_bytes().len()), (2, 12));
+    let data = s
+        .state_data(|l| match l {
+            Load::TextureDescriptor { .. } => TEXTURE,
+            Load::Push { .. } => TINT,
+            Load::Constants => CONSTANTS,
+        })
+        .unwrap();
+    // Three sources, three controls, to whole units of four dwords; the third source the block,
+    // the third control the last.
+    assert_eq!(data.len(), 12);
+    let src =
+        |i: usize| DmaSrc::decode(u64::from(data[2 * i]) | (u64::from(data[2 * i + 1]) << 32), 0);
+    assert_eq!(src(2).unwrap(), DmaSrc { sbase: CONSTANTS, doffset: 0 });
+    let ctl = DmaCtl::decode(data[8]);
+    assert!(ctl.last && !DmaCtl::decode(data[7]).last);
+    assert_eq!((ctl.a0, ctl.bsize), (28, 3));
+    assert_eq!(s.state_code.len(), 3);
+    // The state carries the count and the values; the sections decode back.
+    let (sections, state) = s.sections().unwrap();
+    assert_eq!((state.len(), state[6], state[7]), (8 + 12, 3, 0));
+    let refs: Vec<&[u8]> = sections.iter().map(Vec::as_slice).collect();
+    assert_eq!(Setup::from_sections(&refs, &state, &layer()).unwrap(), s);
+    // Without constants: no block, no load, the state as before.
+    let bare = setup(1);
+    assert_eq!((bare.dmas.len(), bare.sections().unwrap().1.len()), (2, 8));
+}
+
+#[test]
+fn test_reject_a_constant_block_the_state_load_does_not_match() {
+    let s = with_constants(3);
+    let (sections, state) = s.sections().unwrap();
+    let decode = |sections: &[Vec<u8>], state: &[u8]| {
+        let refs: Vec<&[u8]> = sections.iter().map(Vec::as_slice).collect();
+        Setup::from_sections(&refs, state, &layer())
+    };
+    assert!(decode(&sections, &state).is_ok());
+    // A count the values do not fill; a reserved byte set; more values than a block holds.
+    let mut short = state.clone();
+    short[6] = 4;
+    assert!(decode(&sections, &short).is_err());
+    let mut reserved = state.clone();
+    reserved[7] = 1;
+    assert!(decode(&sections, &reserved).is_err());
+    let mut over = state[..8].to_vec();
+    over[6] = (MAX_CONSTANTS + 1) as u8;
+    over.extend(core::iter::repeat_n(0u8, 4 * (MAX_CONSTANTS + 1)));
+    assert!(decode(&sections, &over).is_err());
+    // A block no load reads: the state of three values beside the bare layer's state load.
+    let (bare, _) = setup(1).sections().unwrap();
+    assert!(decode(&bare, &state).is_err());
+    // A load of another length or argument than the block; a block load without a block.
+    let load = |f: &dyn Fn(&mut Vec<u8>)| {
+        let mut s = sections.clone();
+        f(&mut s[2]);
+        s
+    };
+    let third = 4 + 4 * 3 + 2 * 4;
+    assert!(decode(&load(&|st| st[third + 3] = 2), &state).is_err());
+    assert!(decode(&load(&|st| st[third + 1] = 1), &state).is_err());
+    let mut none = state[..8].to_vec();
+    none[6] = 0;
+    assert!(decode(&sections, &none).is_err());
 }

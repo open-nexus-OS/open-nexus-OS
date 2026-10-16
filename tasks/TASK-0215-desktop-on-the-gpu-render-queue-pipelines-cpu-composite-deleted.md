@@ -501,8 +501,84 @@ by naga (host only) into our IR, compiled by our backend for this core (ADR-0072
     120 KB (cycle 16: 75 KB): more passes allocating their emitter buffers, the table decoding
     each program whole at load. **Carried to before 5c-3: the emitter without allocation per pass
     (gpud's heap never frees); the library load without decoding every program into groups.**
-  - **P5d** — the blur: two Gaussian passes at a quarter of the size, saturation, the rounded
-    mask; the taps unrolled by the frontend for a radius the pipeline fixes (an override).
+  - **P5d ✅ 2026-10-16 (board cycle 18) — the blur.** Two Gaussian passes at a quarter of the size (the virgl
+    kernel: σ = R/2, 2R + 1 taps, normalised; at half resolution half the radius, bilinear
+    fetches between texel pairs), saturation (windowd asks 140 %), the glass layer's rounded mask
+    on the way back. A blur pass samples what the previous pass wrote, so P5d brings what the
+    frame needs anyway:
+    - **P5d-1 ✅ host** — our own texture descriptors (`backend::gpu::texstate`): the image words of a
+      stride texture (format, size, swizzle, address, stride) and the sampler words (filters,
+      address modes) at the dwords the programs read (the block's first and ninth), from the open
+      driver's state description; the render bundle's captured descriptor is the golden. The
+      open driver's descriptor extras (the image's byte size and its query data, a second
+      sampler copy) are for shader size queries, which our programs never make: ours leaves
+      them zero. The rungs' texture becomes ours. `tests/gpu_texstate.rs`: the captured checker
+      descriptor word for word at the dwords the programs read; swizzles past the table refused.
+    - **P5d-2 ✅ host** — the frontend evaluates what the pipeline fixes (`nxgpu`'s
+      `lower/{fold,flow,expr}.rs`): a constant is folded, not an instruction until it meets a
+      computed value, and then made once a program; a function variable holds what was last
+      stored, a load reads it where naga emits the load; an `if` on a fixed condition is taken, a
+      loop on a fixed counter runs while lowering (at most 1024 iterations) — a tap loop over an
+      override radius becomes straight-line code with its weights as constants. The identities
+      x + 0, x · 1, fma(a, b, 0) make an unrolled sum's first tap a multiply (WGSL lets an
+      implementation ignore a zero's sign); exponentials, logarithms and powers fold through
+      `libm`, so the library builds bit for bit alike on every host. A branch on a computed
+      value, a switch, arrays are refused by name. `tests/partial_eval.rs` (6); the committed
+      library rebuilds byte for byte — none of the five pipelines changed.
+    - **P5d-3 ✅ host** — a pipeline's constant block: constants no constant register holds go
+      into a block the library carries and the state load DMAs into shared registers. The
+      backend gives each value one register of the block (after the push constants, at a
+      multiple of four) — a constant is never an instruction now, the negated-register group
+      included; the block rides in the entry's state (its count, then its values), its load is
+      the state load's third, and the device decodes both strictly (one load of exactly the
+      block, a block no load reads refused). The table places the block once beside the setup
+      programs in the setup heap; a draw's state load reads it at its PDS-heap address — the
+      open driver uploads its compile-time constants the same way, as a DMA source. Against a
+      push constant a block constant is a second shared operand (one move, as for two push
+      constants); against a computed value — a blur's weight times its tap — it costs what a
+      constant register does. `rogue_codegen` (2 new), `rogue_setup` (2), `gpu_pipelines` (1),
+      `gpu_quads_model` (2); the committed library unchanged byte for byte.
+    - **P5d-4 ✅ host** — `blur.wgsl`: the horizontal pass (from the full-resolution source, its
+      fetches at half resolution doing the downsample: one bilinear fetch at the corner of four
+      texels a tap, a tap every two pixels, 21 fetches at radius 20) and the vertical pass (two
+      taps a fetch placed by their weights, 11 fetches; the saturation from the push block, so
+      140 % and 180 % share it); the composite is the layer sampling the blurred rectangle. The
+      library's `blur-horizontal-20` (89 groups) and `blur-vertical-20` (70), opaque, their
+      weights the constant block (46 and 47 values). The backend makes a broadcast constant in an
+      add, multiply or multiply-add a run of the block (the weight four times over): one repeated
+      group where a broadcast takes a group a lane — a tap is a fetch, its wait, its multiply-add
+      and the next coordinate, four groups. Host goldens (`tools/nxgpu/tests/blur.rs`): the chain
+      run by the interpreter, eight bits between the passes, against the virgl path's full-
+      resolution gaussian with the CPU path's saturation — three levels at most, a quarter of one
+      on average, at 100 % and 140 %. Measured on the way: at radius 8 the half-resolution grid
+      deviates by seven levels on sharp edges, so only radius 20 (windowd's) is built. The five
+      earlier pipelines unchanged byte for byte; the archive 4748 bytes, `0xaa0d92e858e9f2dc`.
+    - **P5d-5 ✅** — gpud (`render_blur`, the pipeline gate's last
+      probe): the CPU writes a backdrop into the plane (stripes and ramps) around a 256x192 glass;
+      the horizontal pass renders into rows of the same plane below the picture, the vertical
+      pass beside it, the rounded layer over the glass — each pass limited to its quad, so
+      nothing else of the plane changes, each texture read through our own descriptor (the whole
+      plane; then the vertical result's rectangle) written into fresh lines of the general arena
+      (`Need::Descriptor`); the reads against the full-resolution formula gpud computes from the
+      same backdrop. Measured on the way: the ring lends one plane at a time, and the plane is
+      mapped past the GPU's system cache (the open driver's flags for a CPU-visible buffer), so
+      the CPU's backdrop is what the texture unit reads. A pass rendering into another plane
+      needs the target address per pass (the end-of-tile program's back-end words) — the
+      frame's intermediates are the context's GPU-only buffers (5c-3), not ring planes. Board
+      hypotheses H36–H40 in the measurement README.
+  - **Board ✅ cycle 18** (`cycle18-gpu-lines.txt`): `gpud: gpu pipeline ok (… blur_h_ns_px=38.92
+    blur_v_ns_px=23.19 blur_layer_ns_px=8.66 blur_dev=2 samples=12/12 bar=1.80)` — the chain within
+    two levels of the full-resolution formula on the first cycle; H36–H39 confirmed (the constant
+    block's DMA, the plane through our descriptor, level 0 bilinear at computed coordinates, a pass
+    reading what the pass before wrote); `[PASS] board-visible`, 62 rungs, the operator's eight
+    confirmations. **H40 refuted:** a sampling pass costs its fetches, about 2 ns each (38.9 and
+    23.2 ns a half-resolution pixel against the group line's 18.5 and 14.6) — the two passes are
+    17.6 ns a glass pixel (the whole 1080p plane in about 33 ms — the stock stack's bar is 42.8 ms
+    for one of its two 21-tap passes), so **the frame blurs only where a glass's backdrop changed and keeps
+    the result (5d's blur cache)**; a cheaper kernel (a separate downsample, pairs in both
+    directions: 23 fetches instead of 32) is measured against this line first. gpud's heap after
+    the rungs 191 KB of 384 KB (cycle 17: 120 KB): **the allocation-free emitter and a library load
+    that does not decode every program whole come before 5c-3.**
   - Board cycles after P5c and after P5d: each picture against its host formula on the board,
     each cost a pixel.
   - Not in P5: gradient, glyphs, the solid fills (no live sender); the vertex pipeline (uv and

@@ -10,8 +10,10 @@
 use nexus_gfx::shader::ir::builder::{store_blended, Blend, Builder};
 use nexus_gfx::shader::ir::{BinOp, Interp, Lod, Module, Op, Stage, TexDim, Type, UnOp};
 use nexus_gfx::shader::rogue::alu::{op, sngl, tst, AluInstr};
-use nexus_gfx::shader::rogue::asm::special;
-use nexus_gfx::shader::rogue::codegen::{compile, CodegenError, Layout, Options, Program};
+use nexus_gfx::shader::rogue::asm::{shared, special};
+use nexus_gfx::shader::rogue::codegen::{
+    compile, CodegenError, Layout, Options, Program, MAX_CONSTANTS,
+};
 use nexus_gfx::shader::rogue::encode_program;
 use nexus_gfx::shader::rogue::reference::{self, Reference};
 use nexus_gfx::shader::rogue::{Group, Instr, Phase};
@@ -92,16 +94,22 @@ fn test_reject_what_the_backend_lacks() {
     m.interface.stage = Stage::Compute;
     m.body.retain(|i| !matches!(i.op, Op::Sample { .. } | Op::StoreOutput(..)));
     assert!(compile(&m, Layout::BUNDLE, Options { fused_sample: true }).is_err());
-    // A constant no constant register holds, nor its magnitude.
-    for x in [0.7, -0.3] {
-        let mut b = Builder::new(Stage::Fragment);
-        let out = b.output(0, Type::VEC4);
-        let c = b.f32s(&[x]);
-        let v = b.splat(c, 4);
-        b.store_output(out, v);
-        let m = b.finish().unwrap();
-        assert!(unsupported(compile(&m, Layout::BUNDLE, Options { fused_sample: true })), "{x}");
+    // More constants than a pipeline's block holds: a sum of MAX_CONSTANTS + 1 distinct values
+    // no constant register holds.
+    let mut b = Builder::new(Stage::Fragment);
+    let out = b.output(0, Type::VEC4);
+    let mut acc = b.f32s(&[0.3]);
+    for i in 0..MAX_CONSTANTS {
+        let c = b.f32s(&[0.3 + 0.01 * (i + 1) as f32]);
+        acc = b.binary(BinOp::Add, acc, c);
     }
+    let v = b.splat(acc, 4);
+    b.store_output(out, v);
+    assert!(unsupported(compile(
+        &b.finish().unwrap(),
+        Layout::BUNDLE,
+        Options { fused_sample: true }
+    )));
 }
 
 /// A group's instructions as their forms, registers left out.
@@ -192,31 +200,90 @@ fn the_float_units_ops_compile_to_the_compilers_forms() {
     assert_eq!(p.groups.iter().filter(|g| matches!(g.instrs[0].0, Phase::P2Pck)).count(), 1);
 }
 
-#[test]
-fn constants_come_from_the_constant_registers() {
-    let program = |x: f32| {
-        let mut b = Builder::new(Stage::Fragment);
-        let out = b.output(0, Type::VEC4);
-        b.push_bytes(16);
-        let t = b.load_push(0, Type::VEC4);
-        let c = b.f32s(&[x]);
+/// `(t · t) · x` over `lanes` (`t` the push constants), the constant made right before its use as
+/// the frontend makes it.
+fn weighted(x: f32, lanes: u8) -> Program {
+    let mut b = Builder::new(Stage::Fragment);
+    let out = b.output(0, Type::VEC4);
+    b.push_bytes(16);
+    let t = b.load_push(0, Type::VEC4);
+    let tt = b.binary(BinOp::Mul, t, t);
+    let c = b.f32s(&[x]);
+    let v = if lanes == 1 {
+        let (p, y, z, w) = (b.extract(tt, 0), b.extract(tt, 1), b.extract(tt, 2), b.extract(tt, 3));
+        let m = b.binary(BinOp::Mul, p, c);
+        b.construct(&[m, y, z, w])
+    } else {
         let k = b.splat(c, 4);
-        let v = b.binary(BinOp::Mul, t, k);
-        store_blended(&mut b, out, v, Blend::Replace);
-        compile(&b.finish().unwrap(), Layout::BUNDLE, Options { fused_sample: true })
+        b.binary(BinOp::Mul, tt, k)
     };
-    // 2.0 is constant register 65, read as it is: one multiply a lane, then the pack.
-    let two = program(2.0).expect("2.0");
-    assert_eq!(two.groups.len(), 5);
-    assert!(two.groups[..4].iter().all(|g| reads(g, special(65))));
-    // -0.5 is 0.5 (register 75) negated once into a temporary: one group more.
-    let neg = program(-0.5).expect("-0.5");
-    assert_eq!(neg.groups.len(), 6);
-    assert_eq!(
-        forms(&neg.groups[0]),
-        vec![format!("P0 fam {} sat=false neg=true abs=false flr=false", op::FADD)]
-    );
-    assert!(reads(&neg.groups[0], special(75)));
+    store_blended(&mut b, out, v, Blend::Replace);
+    compile(&b.finish().unwrap(), Layout::BUNDLE, Options { fused_sample: true }).expect("compiles")
+}
+
+#[test]
+fn constants_come_from_the_constant_registers_else_the_pipelines_block() {
+    // A scalar 2.0 is constant register 65, read as it is.
+    let two = weighted(2.0, 1);
+    assert!(two.constants.is_empty());
+    assert!(two.groups.iter().any(|g| reads(g, special(65))));
+    // -0.5 (0.5's register only through the negate modifier) and 0.7 (no register) are the
+    // constant block's — its first register after the push constants (24 + 4) — with no
+    // instruction of their own: the groups 2.0 takes.
+    let block = Layout::BUNDLE.constants(16);
+    assert_eq!(block, 28);
+    for x in [-0.5f32, 0.7] {
+        let p = weighted(x, 1);
+        assert_eq!(p.constants, [x.to_bits()]);
+        assert_eq!(p.groups.len(), two.groups.len(), "{x}");
+        assert!(p.groups.iter().any(|g| reads(g, shared(block))), "{x}");
+    }
+}
+
+#[test]
+fn a_broadcast_constant_is_a_run_of_the_block_and_its_group_repeats() {
+    // Over four lanes the constant is four copies in the block — 0.7's scalar register extended,
+    // 2.0 copied out of its constant register — and the multiply one repeated group reading them,
+    // where a broadcast takes a group a lane: t · t (one push factor moved, one multiply), the
+    // weighted product, the pack.
+    let block = Layout::BUNDLE.constants(16);
+    for x in [0.7f32, 2.0] {
+        let p = weighted(x, 4);
+        assert_eq!(p.constants, [x.to_bits(); 4], "{x}");
+        assert_eq!(p.groups.iter().filter(|g| reads(g, shared(block))).count(), 1, "{x}");
+        assert_eq!(p.groups.len(), 4, "{x}");
+    }
+}
+
+#[test]
+fn the_block_holds_each_run_once_in_the_order_the_program_reads_them() {
+    // fma(t · t, 0.7, 0.3), then times 0.7 again: the two runs once each, the second 0.7 the
+    // first's run.
+    let mut b = Builder::new(Stage::Fragment);
+    let out = b.output(0, Type::VEC4);
+    b.push_bytes(48);
+    let t = b.load_push(0, Type::VEC4);
+    let tt = b.binary(BinOp::Mul, t, t);
+    let k7 = b.f32s(&[0.7]);
+    let s7 = b.splat(k7, 4);
+    let k3 = b.f32s(&[0.3]);
+    let s3 = b.splat(k3, 4);
+    let a = b.fma(tt, s7, s3);
+    let again = b.f32s(&[0.7]);
+    let s7b = b.splat(again, 4);
+    let v = b.binary(BinOp::Mul, a, s7b);
+    store_blended(&mut b, out, v, Blend::Replace);
+    let p = compile(&b.finish().unwrap(), Layout::BUNDLE, Options { fused_sample: true })
+        .expect("compiles");
+    // 0.7 then 0.3 were made before the multiply-add read either: 0.7's run lands behind 0.3.
+    let (s, h) = (0.7f32.to_bits(), 0.3f32.to_bits());
+    assert_eq!(p.constants, [s, h, s, s, s, s, h, h, h, h]);
+    // Twelve dwords of push constants: the block from 24 + 12 = 36; the two products read the
+    // 0.7 run, the multiply-add the 0.3 run too.
+    let block = Layout::BUNDLE.constants(48);
+    assert_eq!(block, 36);
+    assert_eq!(p.groups.iter().filter(|g| reads(g, shared(block + 2))).count(), 2);
+    assert_eq!(p.groups.iter().filter(|g| reads(g, shared(block + 6))).count(), 1);
 }
 
 #[test]

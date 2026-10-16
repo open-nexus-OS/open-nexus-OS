@@ -15,9 +15,10 @@
 //! - the pipeline gate (5c-2 P3c, P4d, P5): every pipeline of the context's library (the library
 //!   rung placed it), each on a pass limited to its quad — the four layers (opaque, premultiplied,
 //!   straight, rounded: its interior and the corner pixel it leaves out) on the 1024² quad, a
-//!   window's drop shadow (under the window knocked out, below it the shadow) — every read right
-//!   and the opaque layer no slower a pixel than the stock stack's opaque fill (1.8 ns):
-//!   `gpud: gpu pipeline ok (`.
+//!   window's drop shadow (under the window knocked out, below it the shadow), the glass blur's
+//!   chain over a backdrop the CPU wrote (`render_blur`: two passes and the rounded layer, read
+//!   against the full-resolution formula) — every read right and the opaque layer no slower a
+//!   pixel than the stock stack's opaque fill (1.8 ns): `gpud: gpu pipeline ok (`.
 //!
 //! Each pass lands in fresh lines of the rung's halves of the bundle's buffers' tails — no
 //! buffer of its own: four of them filled gpud's 64 address-space regions and the display's
@@ -39,6 +40,7 @@ use nexus_gfx::shader::rogue::reference::PASS_OPAQUE;
 
 use super::device_v2::Device;
 use super::emit;
+use super::render_blur;
 use super::render_template::{
     clear_bgr, colour_over_clear_bgr, opaque_bgr, pds_at, premultiplied_bgr, render_streams,
     straight_bgr, write_bound, Captured, COST_TAILS, GENERAL_ARENA, PDS_ARENA, SAMPLE_FRACTION,
@@ -48,9 +50,10 @@ use crate::backend::display::{Display, GpuCanvas};
 
 const BUNDLE: &[u8] = include_bytes!("../../../../../../resources/gpu/scenes/render-quad.scene");
 const PASS_TIMEOUT_NS: u64 = 2_000_000_000;
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
-const STRIDE: usize = 7680;
+/// The plane: 1920x1080 pixels of four bytes.
+pub(super) const WIDTH: u32 = 1920;
+pub(super) const HEIGHT: u32 = 1080;
+pub(super) const STRIDE: usize = 7680;
 const TOLERANCE: u8 = 4;
 /// The sentinels: one a pixel above the 16² quad in the quad's own tile (the back end's clip,
 /// pixel-precise), one in the plane's first tile (the region clip).
@@ -61,6 +64,9 @@ const WHITE: [f32; 4] = [1.0; 4];
 
 /// The library pipeline the area gate draws with (`resources/gpu/pipelines/compositor.toml`).
 const AREA_LAYER: &str = "layer-premultiplied";
+/// The glass blur's two passes (radius 20, windowd's glass).
+const BLUR_ACROSS: &str = "blur-horizontal-20";
+const BLUR_DOWN: &str = "blur-vertical-20";
 /// The straight layers' tint (opacity 0.75), the rounded one's corner radius.
 const STRAIGHT_TINT: [f32; 4] = [1.0, 1.0, 1.0, 0.75];
 const ROUNDED_RADIUS: f32 = 64.0;
@@ -76,11 +82,11 @@ const SHADOW_COLOUR: [f32; 4] = [0.0, 0.0, 0.0, 90.0 / 255.0];
 const STOCK_OPAQUE_FILL_CNS: u64 = 180;
 
 /// One pass's times from the kick: the whole, the geometry stage, the fragment stage.
-struct Pass {
-    us: u64,
-    geom_us: u64,
-    frag_us: u64,
-    irqs: u32,
+pub(super) struct Pass {
+    pub us: u64,
+    pub geom_us: u64,
+    pub frag_us: u64,
+    pub irqs: u32,
 }
 
 fn now_ns() -> u64 {
@@ -99,7 +105,11 @@ fn sample_at(q: &Quad) -> (usize, usize) {
 }
 
 /// The pixel at `(x, y)`, its cache block dropped first (the GPU wrote memory).
-fn peek(display: &mut dyn Display, canvas: &GpuCanvas, (x, y): (usize, usize)) -> Option<[u8; 4]> {
+pub(super) fn peek(
+    display: &mut dyn Display,
+    canvas: &GpuCanvas,
+    (x, y): (usize, usize),
+) -> Option<[u8; 4]> {
     let bytes = display.gpu_canvas_bytes(canvas.row)?;
     let at = y * STRIDE + x * 4;
     let px = bytes.get(at..at + 4)?;
@@ -185,15 +195,15 @@ fn streams_for(
 }
 
 /// The rung's fixed context: the device's client and context, the bundle's streams, the target.
-struct Rig<'a> {
-    client: ClientId,
-    ctx: ContextId,
-    base: RenderStreams<'a>,
-    target_va: u64,
+pub(super) struct Rig<'a> {
+    pub client: ClientId,
+    pub ctx: ContextId,
+    pub base: RenderStreams<'a>,
+    pub target_va: u64,
 }
 
 /// One pass of `qs` (the first names the area): emit, write, kick, stamp the stages.
-fn run(
+pub(super) fn run(
     dev: &mut Device,
     rig: &Rig<'_>,
     t: &Template<'_>,
@@ -366,8 +376,44 @@ fn probes() -> [Probe; 5] {
     ]
 }
 
+/// A pass's cost a pixel beyond the limited 16² pass (`area_us`), in hundredths of a ns, and its
+/// line.
+fn cost(
+    name: &str,
+    p: &Placed,
+    pass: &Pass,
+    pixels: u64,
+    area_us: u64,
+    reading: &Result<(), alloc::string::String>,
+) -> u64 {
+    let cns = pass.us.saturating_sub(area_us) * 100_000 / pixels.max(1);
+    emit(&alloc::format!(
+        "gpud: gpu cost (program={name} id={} groups={} pass={} pixels={pixels} us={} geom_us={} frag_us={} irqs={} ns_px={}.{:02} reads={})",
+        p.id,
+        p.groups,
+        if p.pass_type == PASS_OPAQUE { "opaque" } else { "translucent" },
+        pass.us,
+        pass.geom_us,
+        pass.frag_us,
+        pass.irqs,
+        cns / 100,
+        cns % 100,
+        reading.as_ref().map_or_else(|e| e.as_str(), |_| "ok")
+    ));
+    cns
+}
+
+/// The library pipeline of `name`.
+fn named(dev: &Device, name: &str) -> Result<Placed, alloc::string::String> {
+    match dev.pipelines.id_of(name).map(|id| dev.pipelines.get(id)) {
+        Some(Ok(p)) => Ok(p.clone()),
+        _ => Err(alloc::format!("{name} is not in the context's library")),
+    }
+}
+
 /// The pipeline gate: each probe's library pipeline on a pass limited to its quad, its reads,
-/// its cost a pixel beyond the limited 16² pass (`area_us`) over its quad.
+/// its cost a pixel beyond the limited 16² pass (`area_us`) over its quad; then the glass blur's
+/// chain (`render_blur`), its reads against the full-resolution formula.
 fn pipelines(
     dev: &mut Device,
     display: &mut dyn Display,
@@ -382,49 +428,56 @@ fn pipelines(
     let mut cns = [0u64; 5];
     let mut reads = 0;
     for (i, probe) in probes.iter().enumerate() {
-        let p = match dev.pipelines.id_of(probe.name).map(|id| dev.pipelines.get(id)) {
-            Some(Ok(p)) => p.clone(),
-            _ => return fail(&alloc::format!("{} is not in the context's library", probe.name)),
+        let p = match named(dev, probe.name) {
+            Ok(p) => p,
+            Err(e) => return fail(&e),
         };
         let pass = match run(dev, rig, t, &p, place, &[probe.quad], true) {
             Ok(pass) => pass,
             Err(e) => return fail(&alloc::format!("{} {e}", probe.name)),
         };
-        let pixels = (probe.quad.w * probe.quad.h) as u64;
-        cns[i] = pass.us.saturating_sub(area_us) * 100_000 / pixels.max(1);
         let mut reading = Ok(());
         for (xy, want) in &probe.reads {
             if reading.is_ok() {
                 reading = read(display, canvas, *xy, *want);
             }
         }
-        emit(&alloc::format!(
-            "gpud: gpu cost (program={} id={} groups={} pass={} pixels={pixels} us={} geom_us={} frag_us={} irqs={} ns_px={}.{:02} reads={})",
-            probe.name,
-            p.id,
-            p.groups,
-            if p.pass_type == PASS_OPAQUE { "opaque" } else { "translucent" },
-            pass.us,
-            pass.geom_us,
-            pass.frag_us,
-            pass.irqs,
-            cns[i] / 100,
-            cns[i] % 100,
-            reading.as_ref().map_or_else(|e| e.as_str(), |_| "ok")
-        ));
+        let pixels = (probe.quad.w * probe.quad.h) as u64;
+        cns[i] = cost(probe.name, &p, &pass, pixels, area_us, &reading);
         if let Err(e) = reading {
             return fail(&alloc::format!("{} {e}", probe.name));
         }
         reads += probe.reads.len();
     }
+    let chain = [BLUR_ACROSS, BLUR_DOWN, "layer-rounded"].map(|name| named(dev, name));
+    let [Ok(across), Ok(down), Ok(rounded)] = chain else {
+        let e = chain.into_iter().find_map(Result::err).unwrap_or_default();
+        return fail(&e);
+    };
+    let blur =
+        match render_blur::chain(dev, display, canvas, rig, t, place, [&across, &down, &rounded]) {
+            Ok(b) => b,
+            Err(e) => return fail(&alloc::format!("blur {e}")),
+        };
+    let ok = Ok(());
+    let blur_cns = [
+        cost(BLUR_ACROSS, &across, &blur.across, blur.pixels[0], area_us, &ok),
+        cost(BLUR_DOWN, &down, &blur.down, blur.pixels[1], area_us, &ok),
+        cost("layer-rounded", &rounded, &blur.layer, blur.pixels[2], area_us, &ok),
+    ];
+    reads += blur.reads;
     let ns = |c: u64| alloc::format!("{}.{:02}", c / 100, c % 100);
     let line = alloc::format!(
-        "(opaque_ns_px={} premultiplied_ns_px={} straight_ns_px={} rounded_ns_px={} shadow_ns_px={} samples={reads}/{reads} bar={})",
+        "(opaque_ns_px={} premultiplied_ns_px={} straight_ns_px={} rounded_ns_px={} shadow_ns_px={} blur_h_ns_px={} blur_v_ns_px={} blur_layer_ns_px={} blur_dev={} samples={reads}/{reads} bar={})",
         ns(cns[0]),
         ns(cns[1]),
         ns(cns[2]),
         ns(cns[3]),
         ns(cns[4]),
+        ns(blur_cns[0]),
+        ns(blur_cns[1]),
+        ns(blur_cns[2]),
+        blur.deviation,
         ns(STOCK_OPAQUE_FILL_CNS)
     );
     if cns[0] <= STOCK_OPAQUE_FILL_CNS {

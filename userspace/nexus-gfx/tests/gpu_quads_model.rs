@@ -131,7 +131,7 @@ fn pipeline(pass_type: u8) -> Placed {
         ],
         push_bytes: 16,
     };
-    let program = Program { groups: Vec::new(), temps: 1, pass_type };
+    let program = Program { groups: Vec::new(), temps: 1, pass_type, constants: Vec::new() };
     Placed {
         id: 2,
         name: "layer".into(),
@@ -141,6 +141,7 @@ fn pipeline(pass_type: u8) -> Placed {
         kick: 0x2900,
         iterate: 0x2940,
         state_code: 0x2700,
+        constants: None,
         setup: fragment(&program, &interface, Layout::BUNDLE, Varyings::BUNDLE).unwrap(),
     }
 }
@@ -319,4 +320,64 @@ fn test_reject_overflow_and_empty() {
     assert_eq!(emit(&bad, &p, &two[..1], &mut bump()), Err(EmitError::Template));
     let bad = Template { ppp26: &b.ppp26[..100], ..t };
     assert_eq!(emit(&bad, &p, &two[..1], &mut bump()), Err(EmitError::Template));
+}
+
+/// The layer pipeline with a constant block of two values, placed at `constants`.
+fn weighted(constants: Option<u32>) -> Placed {
+    let mut p = pipeline(PASS_TRANSLUCENT);
+    let program = Program {
+        groups: Vec::new(),
+        temps: 1,
+        pass_type: PASS_TRANSLUCENT,
+        constants: vec![0.7f32.to_bits(), 0.3f32.to_bits()],
+    };
+    let i = Interface {
+        stage: Stage::Fragment,
+        inputs: vec![Input { location: 0, ty: Type::VEC2, interp: Interp::Perspective }],
+        outputs: vec![Output { location: 0, ty: Type::VEC4 }],
+        resources: vec![
+            Resource::Texture { binding: 0, dim: TexDim::D2 },
+            Resource::Sampler { binding: 1 },
+        ],
+        push_bytes: 16,
+    };
+    p.setup = fragment(&program, &i, Layout::BUNDLE, Varyings::BUNDLE).unwrap();
+    p.constants = constants;
+    p
+}
+
+#[test]
+fn a_draws_state_load_reads_the_constant_block_where_the_table_placed_it() {
+    let b = blobs();
+    let t = template(&b);
+    let p = weighted(Some(0x2a00));
+    let e = emit(&t, &p, &[quad(0.0, 0.0, [1.0; 4])], &mut bump()).unwrap();
+    // Three loads: three sources, three controls (twelve dwords); the third source the block in
+    // the PDS heap, nothing written for it per pass.
+    let data = &e.pds[1].bytes;
+    assert_eq!(data.len(), 48);
+    let word = |i: usize| {
+        u32::from_le_bytes([data[4 * i], data[4 * i + 1], data[4 * i + 2], data[4 * i + 3]])
+    };
+    assert_eq!(u64::from(word(4)) | (u64::from(word(5)) << 32), 0xda_0000_2a00);
+    assert_eq!(e.general.len(), 2, "the push constants and the 26-word block");
+}
+
+#[test]
+fn test_reject_a_constant_block_the_table_did_not_place() {
+    let b = blobs();
+    let t = template(&b);
+    let e = emit(&t, &weighted(None), &[quad(0.0, 0.0, [1.0; 4])], &mut bump());
+    assert_eq!(e, Err(EmitError::Pipeline));
+}
+
+#[test]
+fn a_pass_descriptor_takes_fresh_lines_of_the_general_arena() {
+    // Twenty dwords: two 64-byte lines, behind whatever the pass placed before.
+    let mut place = bump();
+    let first = place.place(0, Need::Descriptor).unwrap();
+    let second = place.place(0, Need::Descriptor).unwrap();
+    assert_eq!((first, second), (0x1_0000, 0x1_0080));
+    let mut full = Bump { general_len: 0x1_0000 + 64, ..bump() };
+    assert_eq!(full.place(0, Need::Descriptor), None);
 }

@@ -49,3 +49,26 @@ name = "shadow"
 source = "../shaders/shadow.wgsl"
 blend = "premultiplied"
 budget = 43
+
+# The glass layer's backdrop blur at radius 20 (windowd's glass), at half resolution: the
+# horizontal pass reads the full-resolution backdrop, a tap every two pixels, each fetch averaging
+# four texels (the downsample).
+[[pipeline]]
+id = 6
+name = "blur-horizontal-20"
+source = "../shaders/blur.wgsl"
+entry = "horizontal"
+overrides = { radius = 20 }
+blend = "replace"
+budget = 89
+
+# The vertical pass over the horizontal one's result, two taps a fetch, the saturation lifted;
+# the glass layer samples its result back with `layer-rounded`.
+[[pipeline]]
+id = 7
+name = "blur-vertical-20"
+source = "../shaders/blur.wgsl"
+entry = "vertical"
+overrides = { radius = 20 }
+blend = "replace"
+budget = 70

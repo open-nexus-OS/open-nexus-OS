@@ -4,15 +4,17 @@
 //! A context's pipelines on the board GPU (TASK-0215 5c-2 P4d, RFC-0101 §7b): the pipeline
 //! library a client supplies, parsed for this device and each accepted entry checked again for
 //! it — its program decodes into instruction groups within its budget, its setup decodes for its
-//! interface — then its program placed in the client's code heap and its setup programs in its
-//! setup heap, the kick naming where the program landed. The device patches no program byte;
-//! only the kick receives an address. A draw names a pipeline by id, and an id the context did
-//! not accept is refused. A context takes one library.
+//! interface — then its program placed in the client's code heap and its setup programs and
+//! constant block in its setup heap, the kick naming where the program landed. The device
+//! patches no program byte; only the kick receives an address, and a draw's state load the
+//! constant block's. A draw names a pipeline by id, and an id the context did not accept is
+//! refused. A context takes one library.
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::csb::ppp;
+use super::heaps;
 use crate::shader::ir::Stage;
 use crate::shader::library::{self, LibraryError, Refusal};
 use crate::shader::rogue::decode_program;
@@ -35,14 +37,21 @@ pub struct Placed {
     pub pass_type: u8,
     /// The program's offset in the code heap (the kick names it).
     pub exe_off: u32,
-    /// Setup heap offsets: the kick, the varying iteration, the state load's code.
+    /// Setup heap offsets: the kick, the varying iteration, the state load's code, the
+    /// constant block (when the program has one).
     pub kick: u32,
     pub iterate: u32,
     pub state_code: u32,
+    pub constants: Option<u32>,
     pub setup: Setup,
 }
 
 impl Placed {
+    /// The constant block's device address, which the state load DMAs from.
+    pub fn constants_va(&self) -> Option<u64> {
+        self.constants.map(|off| heaps::PDS_CODE_DATA_BASE + u64::from(off))
+    }
+
     /// The draw state's PDS words for a draw whose state-load data sits at `state_data`.
     pub fn pds_state(&self, state_data: u32) -> ppp::PdsState {
         let (sizeinfo1, sizeinfo2) = self.setup.sizeinfo();
@@ -147,6 +156,11 @@ impl PipelineTable {
                 code.extend_from_slice(&i.encode().map_err(|_| TableError::NoRoom)?.to_le_bytes());
             }
             let state_code = place_setup(heaps, &code, &mut out.setup_bytes)?;
+            let constants = if setup.constants.is_empty() {
+                None
+            } else {
+                Some(place_setup(heaps, &setup.constant_bytes(), &mut out.setup_bytes)?)
+            };
             out.accepted.push(e.id);
             placed.push(Placed {
                 id: e.id,
@@ -157,6 +171,7 @@ impl PipelineTable {
                 kick,
                 iterate,
                 state_code,
+                constants,
                 setup,
             });
         }

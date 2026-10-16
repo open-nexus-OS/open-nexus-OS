@@ -3,27 +3,32 @@
 
 //! naga's IR of a fragment entry point lowered into ours: the interface first (location
 //! inputs, the colour outputs, the immediates' size, the textures and samplers with their
-//! bindings), then the body's expressions on demand in SSA order, then the return value written
-//! through the epilog. Types come from naga's own resolution of every expression.
+//! bindings), then the body's statements in order with their expressions on demand in SSA order
+//! (`flow`, `expr`), the return value written through the epilog. Types come from naga's own
+//! resolution of every expression.
 //!
 //! A pipeline fixes the module's overrides (WGSL's pipeline-overridable constants) when it is
-//! built — the library's variants of one source (ADR-0072 §5). A `select` on a fixed condition
-//! picks its operand while lowering; the other operand is never lowered, so a variant carries
-//! no instruction of the paths it switched off.
+//! built — the library's variants of one source (ADR-0072 §5). What the pipeline fixes is
+//! evaluated here (`fold`): an expression of literals, constants, overrides and the function
+//! variables holding them is a constant, not an instruction, and becomes one only where it meets
+//! a value the program computes. A `select` or `if` on a fixed condition takes its operand or
+//! branch and never lowers the other, so a variant carries no instruction of the paths it
+//! switched off; a loop whose condition is fixed runs here, its body lowered once an iteration.
 
 use std::collections::HashMap;
 
-use naga::{
-    AddressSpace, BinaryOperator, Binding, Expression, Handle, ImageDimension, Interpolation,
-    Literal, SampleLevel, ScalarKind, ShaderStage, Statement, TypeInner, UnaryOperator, VectorSize,
-};
+use naga::{AddressSpace, Binding, Expression, Handle, ImageDimension, Interpolation};
+use naga::{Literal, ScalarKind, ShaderStage, TypeInner, VectorSize};
 use nexus_gfx::shader::ir::builder::{store_blended, Blend, Builder};
-use nexus_gfx::shader::ir::{
-    self, BinOp, CmpOp, Interp, Lod, Op, Scalar, Stage, TexDim, Type, UnOp, ValueId,
-};
+use nexus_gfx::shader::ir::{self, Interp, Op, Scalar, Stage, TexDim, Type, ValueId};
 
 use super::FrontendError;
+use flow::Flow;
+use fold::K;
 
+mod expr;
+mod flow;
+mod fold;
 mod math;
 
 type Result<T> = core::result::Result<T, FrontendError>;
@@ -62,38 +67,27 @@ pub fn lower_fragment(
         args: Vec::new(),
         globals: HashMap::new(),
         fixed,
+        locals: HashMap::new(),
+        consts: Vec::new(),
+        inputs: HashMap::new(),
+        outputs: Vec::new(),
+        blend,
     };
     l.interface()?;
-    let outputs = l.outputs()?;
-    for stmt in ep.function.body.iter() {
-        match stmt {
-            Statement::Emit(_) => {}
-            Statement::Return { value: Some(v) } => {
-                l.store_result(*v, &outputs, blend)?;
-                return l.b.finish().map_err(FrontendError::Ir);
-            }
-            Statement::Return { value: None } => {
-                return Err(FrontendError::Unsupported("a fragment program without a result"))
-            }
-            Statement::Block(_) => return Err(FrontendError::Unsupported("a nested block")),
-            Statement::If { .. } | Statement::Switch { .. } | Statement::Loop { .. } => {
-                return Err(FrontendError::Unsupported("control flow"))
-            }
-            Statement::Kill => return Err(FrontendError::Unsupported("discard")),
-            Statement::Store { .. } => {
-                return Err(FrontendError::Unsupported("a store to a variable"))
-            }
-            Statement::Call { .. } => return Err(FrontendError::Unsupported("a function call")),
-            _ => return Err(FrontendError::Unsupported("a statement outside the subset")),
-        }
+    l.outputs = l.outputs()?;
+    l.init_locals()?;
+    match l.block(&ep.function.body)? {
+        Flow::Return => l.b.finish().map_err(FrontendError::Ir),
+        _ => Err(FrontendError::Unsupported("a body that does not return")),
     }
-    Err(FrontendError::Unsupported("a body that does not return"))
 }
 
 /// What an expression lowers to.
 #[derive(Clone, Copy)]
 enum Lowered {
     Value(ValueId),
+    /// A value the pipeline fixes: no instruction until it meets a computed one.
+    Const(K),
     /// A place in the immediates: its byte offset and naga type.
     Push(u32, Handle<naga::Type>),
     /// One component of a vector in the immediates: the vector's offset and type, the lane.
@@ -102,6 +96,10 @@ enum Lowered {
     Resource(u8),
     /// A struct-typed argument: the first of its members' input indices.
     Args(u8),
+    /// A function variable (the place, not its value).
+    Local(Handle<naga::LocalVariable>),
+    /// One lane of a vector function variable.
+    LocalLane(Handle<naga::LocalVariable>, u8),
 }
 
 struct Lowering<'a> {
@@ -116,6 +114,15 @@ struct Lowering<'a> {
     globals: HashMap<Handle<naga::GlobalVariable>, Lowered>,
     /// Per override: its value in this pipeline.
     fixed: HashMap<Handle<naga::Override>, Literal>,
+    /// Per function variable: what was last stored to it.
+    locals: HashMap<Handle<naga::LocalVariable>, Lowered>,
+    /// The constants made instructions so far, each once.
+    consts: Vec<(K, ValueId)>,
+    /// The inputs loaded so far, each once (a load is iterated where the arithmetic reads it).
+    inputs: HashMap<u8, ValueId>,
+    /// The colour outputs, by result member.
+    outputs: Vec<u8>,
+    blend: Blend,
 }
 
 fn scalar(s: naga::Scalar) -> Result<Scalar> {
@@ -233,20 +240,20 @@ impl Lowering<'_> {
     }
 
     /// The return value written: through the epilog for four-lane colours.
-    fn store_result(&mut self, v: Handle<Expression>, outputs: &[u8], blend: Blend) -> Result<()> {
-        let parts: Vec<Handle<Expression>> = match (&self.fun.expressions[v], outputs.len()) {
+    fn store_result(&mut self, v: Handle<Expression>) -> Result<()> {
+        let parts: Vec<Handle<Expression>> = match (&self.fun.expressions[v], self.outputs.len()) {
             (_, 1) => vec![v],
             (Expression::Compose { components, .. }, n) if components.len() == n => {
                 components.clone()
             }
             _ => return Err(FrontendError::Unsupported("a struct result not built in place")),
         };
-        for (out, part) in outputs.iter().zip(parts) {
+        for (out, part) in self.outputs.clone().into_iter().zip(parts) {
             let value = self.value(part)?;
             if self.b.ty(value).lanes == 4 {
-                store_blended(&mut self.b, *out, value, blend);
+                store_blended(&mut self.b, out, value, self.blend);
             } else {
-                self.b.store_output(*out, value);
+                self.b.store_output(out, value);
             }
         }
         Ok(())
@@ -258,10 +265,47 @@ impl Lowering<'_> {
     }
 
     fn value(&mut self, h: Handle<Expression>) -> Result<ValueId> {
-        match self.lower(h)? {
+        let l = self.lower(h)?;
+        self.as_value(l)
+    }
+
+    /// A lowered value as an instruction's result: a constant made one here.
+    fn as_value(&mut self, l: Lowered) -> Result<ValueId> {
+        match l {
             Lowered::Value(v) => Ok(v),
+            Lowered::Const(k) => Ok(self.materialize(k)),
             _ => Err(FrontendError::Unsupported("a place or handle used as a value")),
         }
+    }
+
+    /// A constant as an instruction, once a program: a scalar one; a vector of one value that
+    /// scalar splat (the backend's free broadcast); any other vector built of its lanes.
+    fn materialize(&mut self, k: K) -> ValueId {
+        if let Some((_, v)) = self.consts.iter().find(|(c, _)| *c == k) {
+            return *v;
+        }
+        let v = if k.ty.lanes == 1 {
+            self.b.emit(Op::Const(k.bits), k.ty)
+        } else if k.uniform() {
+            let s =
+                self.materialize(K { ty: Type::new(k.ty.scalar, 1), bits: [k.bits[0], 0, 0, 0] });
+            self.b.splat(s, k.ty.lanes)
+        } else {
+            let mut parts = Vec::with_capacity(usize::from(k.ty.lanes));
+            for i in 0..usize::from(k.ty.lanes) {
+                let lane = K { ty: Type::new(k.ty.scalar, 1), bits: [k.bits[i], 0, 0, 0] };
+                parts.push(self.materialize(lane));
+            }
+            self.b.construct(&parts)
+        };
+        self.consts.push((k, v));
+        v
+    }
+
+    /// Input `i`'s value: one load a program, however often the body reads it.
+    fn input(&mut self, i: u8) -> ValueId {
+        let b = &mut self.b;
+        *self.inputs.entry(i).or_insert_with(|| b.load_input(i))
     }
 
     /// `v` widened to `lanes` when it is a scalar (WGSL's scalar-vector arithmetic).
@@ -271,247 +315,5 @@ impl Lowering<'_> {
         } else {
             v
         }
-    }
-
-    fn constant(&mut self, lit: Literal) -> Result<ValueId> {
-        let (ty, bits) = match lit {
-            Literal::F32(x) => (Type::F32, x.to_bits()),
-            Literal::F16(x) => (Type::new(Scalar::F16, 1), x.to_f32().to_bits()),
-            Literal::AbstractFloat(x) => (Type::F32, (x as f32).to_bits()),
-            Literal::I32(x) => (Type::new(Scalar::I32, 1), x as u32),
-            Literal::AbstractInt(x) => (Type::new(Scalar::I32, 1), x as i32 as u32),
-            Literal::U32(x) => (Type::new(Scalar::U32, 1), x),
-            Literal::Bool(x) => (Type::new(Scalar::Bool, 1), u32::from(x)),
-            _ => return Err(FrontendError::Unsupported("a 64-bit literal")),
-        };
-        Ok(self.b.emit(Op::Const([bits, 0, 0, 0]), ty))
-    }
-
-    /// A global expression (a constant's initializer): literals and constructors of them.
-    fn global_const(&mut self, h: Handle<Expression>) -> Result<ValueId> {
-        match &self.module.global_expressions[h] {
-            Expression::Literal(lit) => self.constant(*lit),
-            Expression::Compose { components, .. } => {
-                let parts =
-                    components.iter().map(|c| self.global_const(*c)).collect::<Result<Vec<_>>>()?;
-                Ok(self.b.construct(&parts))
-            }
-            _ => Err(FrontendError::Unsupported("a constant outside literals and constructors")),
-        }
-    }
-
-    /// The value of a condition the pipeline fixes: a bool literal, constant or override, or a
-    /// logical and, or, not of fixed ones.
-    fn fixed_bool(&self, h: Handle<Expression>) -> Option<bool> {
-        let lit = match self.fun.expressions[h] {
-            // `&&` and `||` short-circuit (naga makes control flow of them); `&` and `|` on bools
-            // do not.
-            Expression::Binary {
-                op: BinaryOperator::LogicalAnd | BinaryOperator::And,
-                left,
-                right,
-            } => return Some(self.fixed_bool(left)? && self.fixed_bool(right)?),
-            Expression::Binary {
-                op: BinaryOperator::LogicalOr | BinaryOperator::InclusiveOr,
-                left,
-                right,
-            } => return Some(self.fixed_bool(left)? || self.fixed_bool(right)?),
-            Expression::Unary { op: UnaryOperator::LogicalNot, expr } => {
-                return self.fixed_bool(expr).map(|b| !b)
-            }
-            Expression::Literal(lit) => lit,
-            Expression::Override(o) => *self.fixed.get(&o)?,
-            Expression::Constant(c) => {
-                match self.module.global_expressions[self.module.constants[c].init] {
-                    Expression::Literal(lit) => lit,
-                    _ => return None,
-                }
-            }
-            _ => return None,
-        };
-        match lit {
-            Literal::Bool(b) => Some(b),
-            _ => None,
-        }
-    }
-
-    fn lower(&mut self, h: Handle<Expression>) -> Result<Lowered> {
-        if let Some(l) = self.values.get(&h) {
-            return Ok(*l);
-        }
-        let l = match self.fun.expressions[h].clone() {
-            Expression::Literal(lit) => Lowered::Value(self.constant(lit)?),
-            Expression::Constant(c) => {
-                let init = self.module.constants[c].init;
-                Lowered::Value(self.global_const(init)?)
-            }
-            Expression::Override(o) => match self.fixed.get(&o) {
-                Some(lit) => Lowered::Value(self.constant(*lit)?),
-                None => {
-                    return Err(FrontendError::Override("an override outside the module".into()))
-                }
-            },
-            Expression::ZeroValue(_) => {
-                let ty = self.ty(h)?;
-                Lowered::Value(self.b.emit(Op::Const([0; 4]), ty))
-            }
-            Expression::FunctionArgument(i) => match self.args.get(i as usize).copied() {
-                Some(Lowered::Args(input))
-                    if !matches!(
-                        self.inner(self.fun.arguments[i as usize].ty),
-                        TypeInner::Struct { .. }
-                    ) =>
-                {
-                    Lowered::Value(self.b.load_input(input))
-                }
-                Some(a) => a,
-                None => return Err(FrontendError::Unsupported("an unknown argument")),
-            },
-            Expression::GlobalVariable(g) => {
-                *self.globals.get(&g).ok_or(FrontendError::Unsupported("an unknown global"))?
-            }
-            Expression::Load { pointer } => match self.lower(pointer)? {
-                Lowered::Push(offset, ty) => {
-                    let t = ty_of(self.inner(ty))?;
-                    Lowered::Value(self.b.load_push(offset, t))
-                }
-                Lowered::PushLane(offset, ty, lane) => {
-                    let t = ty_of(self.inner(ty))?;
-                    let v = self.b.load_push(offset, t);
-                    Lowered::Value(self.b.extract(v, lane))
-                }
-                Lowered::Resource(r) => Lowered::Resource(r),
-                _ => return Err(FrontendError::Unsupported("a load from a variable")),
-            },
-            Expression::AccessIndex { base, index } => match self.lower(base)? {
-                Lowered::Push(offset, ty) => match self.inner(ty) {
-                    TypeInner::Struct { members, .. } => {
-                        let m = members
-                            .get(index as usize)
-                            .ok_or(FrontendError::Unsupported("a member index"))?;
-                        Lowered::Push(offset + m.offset, m.ty)
-                    }
-                    TypeInner::Vector { size, .. } if index < u32::from(lanes(*size)) => {
-                        Lowered::PushLane(offset, ty, index as u8)
-                    }
-                    _ => return Err(FrontendError::Unsupported("an index into the immediates")),
-                },
-                Lowered::Args(first) => Lowered::Value(self.b.load_input(first + index as u8)),
-                Lowered::Value(v) => Lowered::Value(self.b.extract(v, index as u8)),
-                Lowered::Resource(_) => {
-                    return Err(FrontendError::Unsupported("an index into a resource"))
-                }
-                Lowered::PushLane(..) => {
-                    return Err(FrontendError::Unsupported("an index into a scalar"))
-                }
-            },
-            Expression::Splat { size, value } => {
-                let v = self.value(value)?;
-                Lowered::Value(self.b.splat(v, lanes(size)))
-            }
-            Expression::Swizzle { size, vector, pattern } => {
-                let v = self.value(vector)?;
-                let sel: Vec<u8> =
-                    pattern[..lanes(size) as usize].iter().map(|c| *c as u8).collect();
-                Lowered::Value(self.b.swizzle(v, &sel))
-            }
-            Expression::Compose { components, .. } => {
-                let parts =
-                    components.iter().map(|c| self.value(*c)).collect::<Result<Vec<_>>>()?;
-                Lowered::Value(self.b.construct(&parts))
-            }
-            Expression::Unary { op: UnaryOperator::Negate, expr } => {
-                let v = self.value(expr)?;
-                Lowered::Value(self.b.unary(UnOp::Neg, v))
-            }
-            Expression::Binary { op, left, right } => {
-                let lanes = self.ty(h)?.lanes;
-                let (a, b) = (self.value(left)?, self.value(right)?);
-                let (a, b) = (self.widen(a, lanes), self.widen(b, lanes));
-                let bin = |op| Some(op);
-                let arith = match op {
-                    BinaryOperator::Add => bin(BinOp::Add),
-                    BinaryOperator::Subtract => bin(BinOp::Sub),
-                    BinaryOperator::Multiply => bin(BinOp::Mul),
-                    BinaryOperator::Divide => bin(BinOp::Div),
-                    _ => None,
-                };
-                if let Some(op) = arith {
-                    Lowered::Value(self.b.binary(op, a, b))
-                } else {
-                    let cmp = match op {
-                        BinaryOperator::Less => CmpOp::Lt,
-                        BinaryOperator::LessEqual => CmpOp::Le,
-                        BinaryOperator::Equal => CmpOp::Eq,
-                        BinaryOperator::NotEqual => CmpOp::Ne,
-                        BinaryOperator::GreaterEqual => CmpOp::Ge,
-                        BinaryOperator::Greater => CmpOp::Gt,
-                        _ => {
-                            return Err(FrontendError::Unsupported(
-                                "a binary operator outside the subset",
-                            ))
-                        }
-                    };
-                    let ty = Type::new(Scalar::Bool, self.b.ty(a).lanes);
-                    Lowered::Value(self.b.emit(Op::Compare(cmp, a, b), ty))
-                }
-            }
-            Expression::Select { condition, accept, reject } => match self.fixed_bool(condition) {
-                // Fixed by the pipeline: the operand picked, the other never lowered.
-                Some(c) => self.lower(if c { accept } else { reject })?,
-                None => {
-                    let (c, a, r) =
-                        (self.value(condition)?, self.value(accept)?, self.value(reject)?);
-                    let ty = self.b.ty(a);
-                    Lowered::Value(self.b.emit(Op::Select(c, a, r), ty))
-                }
-            },
-            Expression::As { expr, kind, convert: Some(width) } => {
-                let v = self.value(expr)?;
-                let lanes = self.b.ty(v).lanes;
-                let to = scalar(naga::Scalar { kind, width })?;
-                Lowered::Value(self.b.emit(Op::Convert(v), Type::new(to, lanes)))
-            }
-            Expression::As { convert: None, .. } => {
-                return Err(FrontendError::Unsupported("a bitcast"))
-            }
-            Expression::Math { fun, arg, arg1, arg2, .. } => {
-                Lowered::Value(self.math(h, fun, arg, arg1, arg2)?)
-            }
-            Expression::ImageSample {
-                image,
-                sampler,
-                coordinate,
-                level,
-                gather: None,
-                array_index: None,
-                offset: None,
-                depth_ref: None,
-                ..
-            } => {
-                let (Lowered::Resource(t), Lowered::Resource(s)) =
-                    (self.lower(image)?, self.lower(sampler)?)
-                else {
-                    return Err(FrontendError::Unsupported("a sample of something not a texture"));
-                };
-                let coords = self.value(coordinate)?;
-                let lod = match level {
-                    SampleLevel::Auto => Lod::Implicit,
-                    SampleLevel::Zero => Lod::Level(self.b.f32s(&[0.0])),
-                    SampleLevel::Exact(e) => Lod::Level(self.value(e)?),
-                    SampleLevel::Bias(e) => Lod::Bias(self.value(e)?),
-                    SampleLevel::Gradient { .. } => {
-                        return Err(FrontendError::Unsupported("a sample with gradients"))
-                    }
-                };
-                Lowered::Value(self.b.sample(t, s, coords, lod))
-            }
-            Expression::ImageSample { .. } => {
-                return Err(FrontendError::Unsupported("a gather, array, offset or depth sample"))
-            }
-            _ => return Err(FrontendError::Unsupported("an expression outside the subset")),
-        };
-        self.values.insert(h, l);
-        Ok(l)
     }
 }

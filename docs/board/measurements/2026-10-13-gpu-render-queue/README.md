@@ -704,3 +704,79 @@ ns a pixel, so the frame (5c-3) draws only a layer's corner squares with it (576
 at radius 12) and the rest with the straight layer (4.87 ns); the shadow's 10.81 ns are paid on
 its ring outside the window only — the knocked-out inside is not drawn at all. Before 5c-3 the
 emitter must stop allocating per pass (gpud's heap never frees).
+
+## 5c-2 P5d — the glass blur on the board (host 2026-10-15; board cycle 18)
+
+**Question.** The glass layer blurs what lies beneath it: the virgl path's separable gaussian
+(σ = R/2, taps out to ±R, radius 20 for windowd's glass) with the CPU path's saturation (140 %).
+Our toolchain builds it at half resolution (`resources/gpu/shaders/blur.wgsl`): the horizontal
+pass reads the full-resolution backdrop a tap every two pixels, each one bilinear fetch at the
+corner of four texels (the downsample); the vertical pass reads that result two taps a fetch and
+lifts the saturation; the rounded layer samples the result back over the glass. Every loop is
+unrolled while lowering, the weights are the pipeline's constant block (DMA'd by the state load
+from the setup heap), and every texture is read through our own descriptor. On the host the chain
+is the full-resolution formula within three levels (`tools/nxgpu/tests/blur.rs`). Does the board
+draw it, and what does a pixel cost?
+
+**Instrument.** The pipeline gate's last probe (`render_blur`): the CPU writes a backdrop into the
+plane (red stripes 16 pixels wide, a green ramp down, a blue one across) over a 256x192 glass at
+(512, 96) and 32 pixels around it; the horizontal pass (`blur-horizontal-20`, 89 groups) renders
+into rows below the picture (128x116 at (512, 640)), the vertical pass (`blur-vertical-20`, 70
+groups) beside it (128x96 at (800, 640)), the rounded layer (radius 16) over the glass — each
+limited to its quad, the first two reading the plane through a descriptor of the whole plane,
+the layer through one of the vertical result's rectangle. Four reads inside the glass against the
+formula computed by gpud from the same backdrop (tolerance six levels), the corner pixel at the
+pass's clear; each pass's cost a pixel over its own output.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H36 | The state load's third DMA brings the constant block from the setup heap into the shared registers the program reads | the reads within six levels (`blur_dev=`); a block not loaded reads as zero weights — black |
+| H37 | A plane is a stride texture through our descriptor, its words blue-green-red-alpha by the swizzle | the reads' red and blue where the formula puts them, not swapped |
+| H38 | A computed coordinate's implicit level of detail on a one-level texture samples level 0 bilinear, so the corner fetch averages its four texels | the reads within the tolerance; a wrong level or filter blurs or aliases the stripes off it |
+| H39 | A pass reads what the pass before it wrote into the plane (no stale texture-cache lines between jobs) | the vertical pass's and the layer's sources right, so the final reads are |
+| H40 | A sampling pass costs its groups on the 5c-1 line (0.15 ns + 0.206 ns a group) | `blur-horizontal-20` ≈ 18.5 ns, `blur-vertical-20` ≈ 14.6 ns a half-resolution pixel |
+
+**Results — the board, cycle 18** (`cycle18-gpu-lines.txt`, `cycle18-board-test.txt`; `[PASS]
+board-visible`, 62 rungs, the operator's eight confirmations; per pixel = the pass less the same
+boot's 16² limited pass, 415 µs, over the pass's own output):
+
+| Pass | Groups | Output pixels | Pass | Per pixel | Reads |
+|---|---|---|---|---|---|
+| `blur-horizontal-20` | 89 | 14 848 (128x116, half resolution) | 993 µs | **38.92 ns** | — |
+| `blur-vertical-20` | 70 | 12 288 (128x96, half resolution) | 700 µs | **23.19 ns** | — |
+| `layer-rounded` over the glass | 34 | 49 152 (256x192) | 841 µs | 8.66 ns | four inside within **2 levels** of the formula, the corner at the clear |
+
+`gpud: gpu pipeline ok (… blur_h_ns_px=38.92 blur_v_ns_px=23.19 blur_layer_ns_px=8.66
+blur_dev=2 samples=12/12 bar=1.80)`; `gpud: gpu library ok (bytes=4748 entries=7 refused=0
+code_bytes=2808 setup_bytes=852 …)`; the earlier pipelines at their cycle-17 costs to the hundredth.
+gpud's heap after the rungs 191 250 bytes (cycle 17: 120 177): three passes more, each allocating its
+emitter's buffers, and the two largest programs decoded whole at load — on a heap that never frees.
+`KSELFTEST: ipc call budget ok (rt=53us)` this boot.
+
+- **H36 confirmed.** The state load's third DMA brings the constant block from the setup heap:
+  the weights are where the program reads them (zero weights would have read black).
+- **H37 confirmed.** The plane is a stride texture through our descriptor; red and blue lie where
+  the formula puts them.
+- **H38 confirmed.** A computed coordinate samples level 0 bilinear on a one-level texture, and
+  the corner fetch averages its four texels: the reads lie within two levels of the
+  full-resolution formula (the host model's bound is three).
+- **H39 confirmed.** The vertical pass and the layer read what the pass before them wrote into the
+  plane, on the first cycle — no stale texture-cache line between jobs.
+- **H40 refuted.** A sampling pass costs more than its groups: the horizontal pass 38.9 ns a
+  half-resolution pixel against the line's 18.5, the vertical one 23.2 against 14.6 — about 1.85
+  and 2.1 ns a fetch (21 and 11 fetches). The fetches carry these passes, not the arithmetic: the
+  texture unit's rate, the horizontal pass's fetches two texels apart each touching fresh lines.
+
+**Verdict 5c-2 P5d.** The glass blur runs as our own programs on the board within two levels of
+the virgl path's full-resolution blur, on the first cycle: the loops unrolled in the frontend, the
+weights in the pipeline's constant block, every texture read through our own descriptor. Its cost
+is the texture unit's — about 2 ns a fetch: the two passes come to 17.6 ns a glass pixel
+((578 + 285) µs over 49 152 pixels), so a 1920x80 bar costs some 2.7 ms to blur. Against the
+stock stack's bar (one 21-tap blur pass over 1080p in 42.8 ms, `2026-10-10-gpu-stock-baseline/`)
+our two passes would blur the whole plane in about 33 ms (20.9 + 12.0) — the stock's two take
+some 86. The frame
+therefore blurs only where the backdrop under a glass changed and keeps the result (the blur
+cache of 5d), and a cheaper kernel is measured against this line before it is built (a separate
+downsample with the pair trick in both directions fetches 23 times a half-resolution pixel instead
+of 32). Before 5c-3: the emitter without allocation per pass, the library load without decoding
+every program whole (191 KB of 384 KB used).

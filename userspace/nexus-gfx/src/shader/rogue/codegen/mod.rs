@@ -7,7 +7,9 @@
 //! iterate-and-sample word (or iterate, fence, sample, fence when fusing is off); a multiply
 //! over four channels one repeated group, a shared operand always the first source; the tile
 //! read a bypass and an unpack; the colour packed straight into the pixel output, which ends the
-//! program; the pass type opaque unless the program reads the tile. Registers are temporaries
+//! program; the pass type opaque unless the program reads the tile. A constant is a constant
+//! register's value or one of the pipeline's constant block (shared registers the state load
+//! fills, after the push constants) — never an instruction. Registers are temporaries
 //! handed out first-fit and taken back at a value's last use; an operation that steps lane by
 //! lane may write over an operand that dies with it (an unpack may not: it reads its source on
 //! every repetition). What the subset lacks is refused by name.
@@ -48,7 +50,16 @@ impl Layout {
     /// The render bundle's setup programs (5b's captured pass).
     pub const BUNDLE: Self =
         Self { w_coeff: 0, inputs_coeff: 4, texture_state: 4, sampler_state: 12, push: 24 };
+
+    /// The constant block's first shared register: after `push_bytes` of push constants, at a
+    /// multiple of four.
+    pub fn constants(&self, push_bytes: u32) -> u16 {
+        self.push + ((push_bytes / 4).div_ceil(4) * 4) as u16
+    }
 }
+
+/// The most values a pipeline's constant block holds.
+pub const MAX_CONSTANTS: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Options {
@@ -63,6 +74,9 @@ pub struct Program {
     /// Temporaries in units of four (the kick word's field).
     pub temps: u8,
     pub pass_type: u8,
+    /// The constant block: the values no constant register holds, in register order from
+    /// [`Layout::constants`].
+    pub constants: Vec<u32>,
 }
 
 impl Program {
@@ -132,6 +146,9 @@ struct Gen<'a> {
     free: [bool; MAX_TEMPS],
     high: usize,
     reads_tile: bool,
+    /// The constant block so far, and its first shared register.
+    consts: Vec<u32>,
+    const_base: u16,
 }
 
 impl Gen<'_> {
@@ -462,6 +479,8 @@ pub fn compile(m: &Module, layout: Layout, opts: Options) -> Result<Program, Cod
         free: [true; MAX_TEMPS],
         high: 0,
         reads_tile: false,
+        consts: Vec::new(),
+        const_base: layout.constants(m.interface.push_bytes),
     };
     for at in 0..n {
         g.instr(at)?;
@@ -486,5 +505,6 @@ pub fn compile(m: &Module, layout: Layout, opts: Options) -> Result<Program, Cod
         groups: g.groups,
         temps,
         pass_type: if g.reads_tile { PASS_TRANSLUCENT } else { PASS_OPAQUE },
+        constants: g.consts,
     })
 }

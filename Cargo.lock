@@ -3183,6 +3183,7 @@ dependencies = [
 name = "nxgpu"
 version = "0.1.0"
 dependencies = [
+ "libm",
  "naga",
  "nexus-gfx",
  "toml",

@@ -141,11 +141,19 @@ fn test_reject_override_values() {
 
 #[test]
 fn test_reject_what_the_subset_lacks() {
+    // A branch on a value the program computes (the GPU program has no branch); a discard on a
+    // branch the pipeline takes.
     let discard = "@fragment fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {\n    if uv.x < 0.5 { discard; }\n    return vec4<f32>(uv, 0.0, 1.0);\n}\n";
     assert_eq!(
         lower_fragment(discard, "main", &[], Blend::Replace),
-        Err(FrontendError::Unsupported("control flow"))
+        Err(FrontendError::Unsupported("a branch on a value the program computes"))
     );
+    let cut = "override cut: bool = true;\n@fragment fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {\n    if cut { discard; }\n    return vec4<f32>(uv, 0.0, 1.0);\n}\n";
+    assert_eq!(
+        lower_fragment(cut, "main", &[], Blend::Replace),
+        Err(FrontendError::Unsupported("discard"))
+    );
+    assert!(lower_fragment(cut, "main", &[("cut", 0.0)], Blend::Replace).is_ok());
     assert!(matches!(
         lower_fragment("fn broken(", "main", &[], Blend::Replace),
         Err(FrontendError::Parse(_))

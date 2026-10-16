@@ -40,6 +40,7 @@ mod memory;
 pub(crate) mod quad;
 mod regs;
 mod render;
+mod render_blur;
 pub(crate) mod render_cost;
 pub(crate) mod render_library;
 pub(crate) mod render_quad;

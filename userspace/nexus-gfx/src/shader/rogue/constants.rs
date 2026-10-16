@@ -3,9 +3,9 @@
 
 //! The shader core's constant registers (TASK-0215 5c-2 P5a): the special bank's fixed values as
 //! the open compiler's description lists them — 96 values at their register index, some read
-//! through the floor or negate modifier. A program's constant is one of these or comes from its
-//! push constants; the backend reads a plain one as its register (`fadd.sat x, sc0`, `fmad x,
-//! sc75, y` in the compiler's own code, `tests/rogue_asm.rs`) and builds a modified one once.
+//! through the floor or negate modifier. The backend reads a plain one as its register
+//! (`fadd.sat x, sc0`, `fmad x, sc75, y` in the compiler's own code, `tests/rogue_asm.rs`); any
+//! other value, a modified one's included, is a register of the pipeline's constant block.
 
 /// One constant register value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

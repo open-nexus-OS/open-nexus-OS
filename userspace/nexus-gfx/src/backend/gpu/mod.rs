@@ -34,6 +34,8 @@
 //!   in fresh memory.
 //! - [`pipelines`] — a context's pipelines: the client's library parsed, checked and placed, a
 //!   draw's pipeline found by id (RFC-0101 §7b).
+//! - [`texstate`] — a texture's descriptor block: the image and sampler words of a stride
+//!   texture.
 //! OWNERS: @gpu @runtime
 //! STATUS: Functional (host half; the driver over it is TASK-0329 P3–P5)
 //! API_STABILITY: Internal (the device's; the contract above it is `nexus_driverkit::gpu`)
@@ -55,6 +57,7 @@ pub mod pipelines;
 pub mod quads;
 pub mod scene;
 pub mod start;
+pub mod texstate;
 
 /// The GPU's id as the core register packs it: `b << 48 | v << 32 | n << 16 | c`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
