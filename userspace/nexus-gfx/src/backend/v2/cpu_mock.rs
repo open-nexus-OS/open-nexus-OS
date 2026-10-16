@@ -3,8 +3,9 @@
 
 //! CONTEXT: The mock device — `GfxDevice` (RFC-0101) on the host, the oracle every later
 //! package is proven against: contexts per client with their own [`VmSpace`], buffers as
-//! bytes with their cache mode, binding, one batch per submit checked against the context's
-//! space and the device's bound, points signalled on the one timeline. It executes the tree's
+//! bytes with their cache mode (destroyed by their client once no context binds them), ranges
+//! of them bound, one batch per submit checked against the context's space and the device's
+//! bound, points signalled on the one timeline. It executes the tree's
 //! command vocabulary only as far as proving the data flow (`DrawTiles` lands in the bound
 //! target); pixels through v2 are Phase 3's. GPU code is refused by name: the mock executes
 //! none, and says so.
@@ -13,7 +14,8 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: unit tests (this file) — the reject matrix of RFC-0101 §9
 //! INVARIANTS: no batch runs with a reference outside its context's space; a context or
-//!   buffer answers only to its owner; the timeline never moves backwards.
+//!   buffer answers only to its owner; a range binds inside its buffer; a bound buffer is never
+//!   destroyed; the timeline never moves backwards.
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -21,8 +23,8 @@ use alloc::vec::Vec;
 use nexus_driverkit::gpu::{check_batch, Binding, VmSpace};
 
 use super::{
-    Access, Batch, BoId, CacheMode, Capabilities, ClientId, CodeTarget, ContextId, DeviceError,
-    GfxDevice, GpuVa, Priority, QueueKind, QueueKinds, Stream, TimelinePoint,
+    Batch, BoId, CacheMode, Capabilities, ClientId, CodeTarget, ContextId, DeviceError, GfxDevice,
+    GpuVa, Mapping, Priority, QueueKind, QueueKinds, Stream, TimelinePoint, VmError,
 };
 use crate::command::buffer::Command;
 use crate::sync::timeline::Timeline;
@@ -43,6 +45,8 @@ struct Bo {
     owner: ClientId,
     mode: CacheMode,
     bytes: Vec<u8>,
+    /// Live bindings of the buffer, in every context.
+    bindings: u32,
 }
 
 /// The mock device.
@@ -167,7 +171,13 @@ impl GfxDevice for CpuMockDevice {
     }
 
     fn destroy_context(&mut self, client: ClientId, ctx: ContextId) -> Result<(), DeviceError> {
-        self.owned_context(client, ctx)?.space.clear();
+        let empty = VmSpace::new(self.caps.va_bits, self.caps.page_size);
+        let space = core::mem::replace(&mut self.owned_context(client, ctx)?.space, empty);
+        for b in space.bindings() {
+            if let Some(Some(bo)) = self.bos.get_mut(b.bo as usize) {
+                bo.bindings = bo.bindings.saturating_sub(1);
+            }
+        }
         self.contexts[ctx.0 as usize] = None;
         Ok(())
     }
@@ -183,25 +193,37 @@ impl GfxDevice for CpuMockDevice {
         if rounded == 0 {
             return Err(DeviceError::Vm(nexus_driverkit::gpu::VmError::Unaligned));
         }
-        self.bos.push(Some(Bo { owner: client, mode, bytes: vec![0; rounded] }));
+        self.bos.push(Some(Bo { owner: client, mode, bytes: vec![0; rounded], bindings: 0 }));
         Ok(BoId((self.bos.len() - 1) as u32))
     }
 
-    fn vm_bind(
-        &mut self,
-        client: ClientId,
-        ctx: ContextId,
-        bo: BoId,
-        va: GpuVa,
-        access: Access,
-    ) -> Result<(), DeviceError> {
+    fn destroy_bo(&mut self, client: ClientId, bo: BoId) -> Result<(), DeviceError> {
         let buffer = self.bo(bo)?;
         if buffer.owner != client {
             return Err(DeviceError::NotOwner);
         }
-        let len = buffer.bytes.len() as u64;
-        let context = self.owned_context(client, ctx)?;
-        context.space.bind(Binding { va, len, bo: bo.0, access })?;
+        if buffer.bindings > 0 {
+            return Err(DeviceError::BufferBound);
+        }
+        self.bos[bo.0 as usize] = None;
+        Ok(())
+    }
+
+    fn vm_bind(&mut self, client: ClientId, ctx: ContextId, m: Mapping) -> Result<(), DeviceError> {
+        let buffer = self.bo(m.bo)?;
+        if buffer.owner != client {
+            return Err(DeviceError::NotOwner);
+        }
+        let end = m.offset.checked_add(m.len).ok_or(VmError::OutOfRange)?;
+        if end > buffer.bytes.len() as u64 {
+            return Err(DeviceError::Vm(VmError::OutOfRange));
+        }
+        let binding =
+            Binding { va: m.va, len: m.len, bo: m.bo.0, offset: m.offset, access: m.access };
+        self.owned_context(client, ctx)?.space.bind(binding)?;
+        if let Some(Some(b)) = self.bos.get_mut(m.bo.0 as usize) {
+            b.bindings += 1;
+        }
         Ok(())
     }
 
@@ -211,7 +233,10 @@ impl GfxDevice for CpuMockDevice {
         ctx: ContextId,
         va: GpuVa,
     ) -> Result<(), DeviceError> {
-        self.owned_context(client, ctx)?.space.unbind(va)?;
+        let binding = self.owned_context(client, ctx)?.space.unbind(va)?;
+        if let Some(Some(b)) = self.bos.get_mut(binding.bo as usize) {
+            b.bindings = b.bindings.saturating_sub(1);
+        }
         Ok(())
     }
 
@@ -249,7 +274,7 @@ impl GfxDevice for CpuMockDevice {
                 return Err(DeviceError::CodeUnsupported)
             }
         };
-        let offset = (batch.target.va.0 - target.va.0) as usize;
+        let offset = target.offset_of(batch.target.va) as usize;
         let bytes = self
             .bos
             .get_mut(target.bo as usize)
@@ -278,10 +303,10 @@ impl GfxDevice for CpuMockDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::v2::{RenderTarget, Shader};
+    use crate::backend::v2::{Access, RenderTarget, Shader};
     use crate::command::buffer::{Command, RgbaColor};
     use crate::core::types::TileRect;
-    use nexus_driverkit::gpu::{BatchError, VmError};
+    use nexus_driverkit::gpu::BatchError;
 
     const WINDOWD: ClientId = ClientId(0x600e3345cc7104bb);
     const APP: ClientId = ClientId(0xdd8c136b3d65f5dc);
@@ -311,7 +336,7 @@ mod tests {
         let mut dev = CpuMockDevice::phase2();
         let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
         let bo = dev.create_bo(WINDOWD, 8 * 8 * 4, CacheMode::CpuCached).unwrap();
-        dev.vm_bind(WINDOWD, ctx, bo, VA, Access::ReadWrite).unwrap();
+        dev.vm_bind(WINDOWD, ctx, Mapping::whole(bo, 4096, VA, Access::ReadWrite)).unwrap();
         (dev, ctx, bo)
     }
 
@@ -342,12 +367,72 @@ mod tests {
         let mut dev = CpuMockDevice::phase2();
         let app = dev.create_context(APP, Priority::Normal).unwrap();
         let bo = dev.create_bo(WINDOWD, 4096, CacheMode::GpuPrivate).unwrap();
-        assert_eq!(dev.vm_bind(APP, app, bo, VA, Access::ReadOnly), Err(DeviceError::NotOwner));
+        let read = |bo| Mapping::whole(bo, 4096, VA, Access::ReadOnly);
+        assert_eq!(dev.vm_bind(APP, app, read(bo)), Err(DeviceError::NotOwner));
         let own = dev.create_bo(APP, 4096, CacheMode::Uncached).unwrap();
         let other = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
-        assert_eq!(dev.vm_bind(APP, other, own, VA, Access::ReadOnly), Err(DeviceError::NotOwner));
+        assert_eq!(dev.vm_bind(APP, other, read(own)), Err(DeviceError::NotOwner));
         assert_eq!(dev.vm_unbind(WINDOWD, app, VA), Err(DeviceError::NotOwner));
-        assert_eq!(dev.vm_bind(APP, app, own, VA, Access::ReadOnly), Ok(()));
+        assert_eq!(dev.destroy_bo(APP, bo), Err(DeviceError::NotOwner));
+        assert_eq!(dev.vm_bind(APP, app, read(own)), Ok(()));
+    }
+
+    #[test]
+    fn test_reject_mapping_past_the_buffer() {
+        let mut dev = CpuMockDevice::phase2();
+        let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
+        let bo = dev.create_bo(WINDOWD, 2 * 4096, CacheMode::CpuCached).unwrap();
+        let range = |offset, len| Mapping { bo, offset, len, va: VA, access: Access::ReadWrite };
+        let past = Err(DeviceError::Vm(VmError::OutOfRange));
+        assert_eq!(dev.vm_bind(WINDOWD, ctx, range(4096, 2 * 4096)), past);
+        assert_eq!(dev.vm_bind(WINDOWD, ctx, range(2 * 4096, 4096)), past);
+        assert_eq!(dev.vm_bind(WINDOWD, ctx, range(u64::MAX - 0xfff, 4096)), past);
+        assert_eq!(
+            dev.vm_bind(WINDOWD, ctx, range(2048, 4096)),
+            Err(DeviceError::Vm(VmError::Unaligned)),
+            "a range starts on a page"
+        );
+        assert_eq!(dev.vm_bind(WINDOWD, ctx, range(4096, 4096)), Ok(()));
+    }
+
+    #[test]
+    fn test_reject_destroy_bound_bo() {
+        let (mut dev, ctx, bo) = bound_device();
+        assert_eq!(dev.destroy_bo(WINDOWD, bo), Err(DeviceError::BufferBound));
+        assert_eq!(dev.destroy_bo(APP, bo), Err(DeviceError::NotOwner));
+        dev.vm_unbind(WINDOWD, ctx, VA).unwrap();
+        assert_eq!(dev.destroy_bo(WINDOWD, bo), Ok(()));
+        assert_eq!(dev.destroy_bo(WINDOWD, bo), Err(DeviceError::NoSuchBuffer));
+        let whole = Mapping::whole(bo, 4096, VA, Access::ReadWrite);
+        assert_eq!(dev.vm_bind(WINDOWD, ctx, whole), Err(DeviceError::NoSuchBuffer));
+    }
+
+    #[test]
+    fn two_contexts_reach_their_own_memory_through_the_same_address() {
+        let mut dev = CpuMockDevice::phase2();
+        let commands = fill();
+        let mut own = Vec::new();
+        for client in [WINDOWD, APP] {
+            let ctx = dev.create_context(client, Priority::Normal).unwrap();
+            let bo = dev.create_bo(client, 2 * 4096, CacheMode::CpuCached).unwrap();
+            // The picture is the buffer's second page: a range, not the whole buffer.
+            let m = Mapping { bo, offset: 4096, len: 4096, va: VA, access: Access::ReadWrite };
+            dev.vm_bind(client, ctx, m).unwrap();
+            own.push((client, ctx, bo));
+        }
+        let (windowd, app) = (own[0], own[1]);
+        dev.submit(windowd.0, windowd.1, QueueKind::Render, &batch(VA, &commands, 1)).unwrap();
+        let painted = |dev: &CpuMockDevice, (client, _, bo): (ClientId, ContextId, BoId)| {
+            dev.bo_bytes(client, bo).unwrap()[4096 + (8 + 1) * 4] == 1
+        };
+        assert!(painted(&dev, windowd), "the range's page, at the binding's offset");
+        assert!(!painted(&dev, app), "the same address in another context is other memory");
+        assert_eq!(dev.bo_bytes(windowd.0, windowd.2).unwrap()[(8 + 1) * 4], 0);
+        // A context goes with its bindings; the buffers stay their client's.
+        dev.destroy_context(windowd.0, windowd.1).unwrap();
+        assert!(painted(&dev, windowd));
+        assert_eq!(dev.destroy_bo(windowd.0, windowd.2), Ok(()));
+        assert_eq!(dev.destroy_bo(app.0, app.2), Err(DeviceError::BufferBound));
     }
 
     #[test]
@@ -401,9 +486,10 @@ mod tests {
             Err(DeviceError::NoSuchContext)
         );
         assert_eq!(
-            dev.vm_bind(WINDOWD, ctx, bo, VA, Access::ReadWrite),
+            dev.vm_bind(WINDOWD, ctx, Mapping::whole(bo, 4096, VA, Access::ReadWrite)),
             Err(DeviceError::NoSuchContext)
         );
+        assert_eq!(dev.destroy_bo(WINDOWD, bo), Ok(()), "the context's end unbound it");
         assert_eq!(dev.reset_context(WINDOWD, ctx), Err(DeviceError::NoSuchContext));
         let again = dev.create_context(WINDOWD, Priority::High).unwrap();
         assert_eq!(dev.context_state(again), Ok((Priority::High, 0)));

@@ -3,10 +3,11 @@
 
 //! CONTEXT: What a client of the GPU can do — `GfxDevice`, the v2 backend contract of
 //! RFC-0101 §1–§7: capabilities before the first context; a context per client with its own
-//! address space; buffers with a cache mode by type; binding; one batch per submit, bounded,
-//! waiting on and signalling points of the one timeline; GPU code as client data with a
-//! declared target. The client's identity is passed in by the server that derived it from
-//! the kernel (`sender_service_id`) — never read from a payload. [`scanout`] is §8, the
+//! address space; buffers with a cache mode by type, destroyed by their client; ranges of them
+//! bound (`Mapping`); one batch per submit, bounded, waiting on and signalling points of the
+//! one timeline; GPU code as client data with a declared target. The client's identity is
+//! passed in by the server that derived it from the kernel (`sender_service_id`) — never read
+//! from a payload. [`scanout`] is §8, the
 //! contract between the compositor and the display; [`cpu_mock`] implements this trait on
 //! the host as the oracle every later package is proven against.
 //!
@@ -39,6 +40,25 @@ pub struct ContextId(pub u32);
 /// A buffer object, as the device numbers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BoId(pub u32);
+
+/// A range of a buffer at an address of a context's space (§3): `len` bytes of `bo` from
+/// `offset`, at `va` — a client binds ranges of a few large buffers, as every production GPU
+/// stack does, and one buffer may be bound in several ranges and contexts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mapping {
+    pub bo: BoId,
+    pub offset: u64,
+    pub len: u64,
+    pub va: GpuVa,
+    pub access: Access,
+}
+
+impl Mapping {
+    /// The first `len` bytes of `bo` at `va`.
+    pub const fn whole(bo: BoId, len: u64, va: GpuVa, access: Access) -> Self {
+        Self { bo, offset: 0, len, va, access }
+    }
+}
 
 /// GPU code as client data (§7): finished bytes for a declared target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +171,8 @@ pub enum DeviceError {
     Lost,
     /// A render pass before the render context, free lists and dataset were set up (§8d).
     NoRenderTarget,
+    /// A buffer still bound in a context: unbind it before it is destroyed (§3).
+    BufferBound,
 }
 
 impl From<VmError> for DeviceError {
@@ -175,7 +197,8 @@ pub trait GfxDevice {
         client: ClientId,
         priority: Priority,
     ) -> Result<ContextId, DeviceError>;
-    /// Destroys the context and everything bound in it.
+    /// Destroys the context: its bindings and the device's objects for it; the client's buffers
+    /// stay the client's.
     fn destroy_context(&mut self, client: ClientId, ctx: ContextId) -> Result<(), DeviceError>;
     /// A buffer of `bytes` (rounded up to the page) with its cache mode, owned by `client`.
     fn create_bo(
@@ -184,15 +207,10 @@ pub trait GfxDevice {
         bytes: usize,
         mode: CacheMode,
     ) -> Result<BoId, DeviceError>;
-    /// Binds `bo` at `va` in `ctx`; both must belong to `client`.
-    fn vm_bind(
-        &mut self,
-        client: ClientId,
-        ctx: ContextId,
-        bo: BoId,
-        va: GpuVa,
-        access: Access,
-    ) -> Result<(), DeviceError>;
+    /// Destroys a buffer of `client`'s; refused while a context binds it.
+    fn destroy_bo(&mut self, client: ClientId, bo: BoId) -> Result<(), DeviceError>;
+    /// Binds the range `m` of a buffer in `ctx`; both must belong to `client`.
+    fn vm_bind(&mut self, client: ClientId, ctx: ContextId, m: Mapping) -> Result<(), DeviceError>;
     /// Unbinds the binding that starts at `va`.
     fn vm_unbind(&mut self, client: ClientId, ctx: ContextId, va: GpuVa)
         -> Result<(), DeviceError>;

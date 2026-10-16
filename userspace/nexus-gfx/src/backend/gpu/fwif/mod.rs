@@ -60,6 +60,15 @@ pub mod kccb {
     pub const RTN_SLOT_NO_RESPONSE: u32 = 0;
 }
 
+/// What a `CLEANUP` names (the interface's cleanup types).
+pub mod cleanup {
+    /// A queue's common context.
+    pub const COMMON_CONTEXT: u32 = 0;
+    /// One render-target data of a dataset.
+    pub const HWRT_DATA: u32 = 1;
+    pub const FREELIST: u32 = 2;
+}
+
 /// Firmware-to-host command buffer command types.
 pub mod fwccb {
     use super::CMD_MAGIC;
@@ -348,6 +357,20 @@ mod tests {
         let m = KccbCmd::mmu_cache(mmucache::LEVEL_2, 0xC000_8000, 0).to_bytes();
         assert_eq!(&m[8..12], &mmucache::LEVEL_2.to_le_bytes());
         assert_eq!(&m[12..16], &0xC000_8000u32.to_le_bytes());
+    }
+
+    #[test]
+    fn a_cleanup_names_its_object_by_kind_and_address() {
+        assert_eq!(kccb::CLEANUP, 0x2ABC_006A);
+        let c = KccbCmd::cleanup(cleanup::FREELIST, 0xC045_6000).to_bytes();
+        assert_eq!(&c[0..4], &kccb::CLEANUP.to_le_bytes());
+        assert_eq!(&c[4..8], &[0; 4], "no flags");
+        assert_eq!(&c[8..12], &2u32.to_le_bytes());
+        assert_eq!(&c[12..16], &0xC045_6000u32.to_le_bytes());
+        assert!(c[16..].iter().all(|&b| b == 0));
+        let h = KccbCmd::cleanup(cleanup::HWRT_DATA, 1).to_bytes();
+        assert_eq!(&h[8..16], &[1, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(&KccbCmd::cleanup(cleanup::COMMON_CONTEXT, 0).to_bytes()[8..12], &[0; 4]);
     }
 
     #[test]

@@ -3,22 +3,25 @@
 
 //! The first quad (TASK-0169B P2, RFC-0101 §8c): the open driver's two transfer jobs for this
 //! core, captured on the host as a scene bundle, replayed through `GfxDevice` into a plane of
-//! the ring. Every buffer of the bundle is created, filled (the texture by its formula) and
-//! bound at its captured address; the plane is adopted at the target's address; the clear is
-//! timed against the stock stack's 1.8 ns a pixel (`gpud: gpu fill ok (ns_per_px=)`); after
-//! the blit four sample pixels are read back — the background, the texture's white frame, the
-//! two checker colours — and the plane goes to the glass (`gpud: gpu quad ok (samples=4/4)`).
-//! A FAIL form names the sample (expected, read) or the step that refused.
+//! the ring. The bundle is loaded into the rung's context (`scene_load`: every buffer at its
+//! captured address, the texture by its formula, the plane adopted at the target's address);
+//! the clear is timed against the stock stack's 1.8 ns a pixel (`gpud: gpu fill ok
+//! (ns_per_px=)`); after the blit four sample pixels are read back — the background, the
+//! texture's white frame, the two checker colours — and the plane goes to the glass (`gpud: gpu
+//! quad ok (samples=4/4)`). The context and the scene's buffers go when the rung ends (the render
+//! capture binds other bytes at the same addresses). A FAIL form names the sample (expected,
+//! read) or the step that refused.
 
-use nexus_driverkit::gpu::{Access, CacheMode, GpuVa};
-use nexus_gfx::backend::gpu::scene::{self, Kind, Scene};
+use nexus_driverkit::gpu::GpuVa;
+use nexus_gfx::backend::gpu::scene::Scene;
 use nexus_gfx::backend::gpu::CoreId;
 use nexus_gfx::backend::v2::{
-    Batch, BoId, ClientId, GfxDevice, Priority, QueueKind, RenderTarget, Stream, TimelinePoint,
+    Batch, ClientId, ContextId, GfxDevice, Priority, QueueKind, RenderTarget, Stream, TimelinePoint,
 };
 
 use super::device_v2::Device;
 use super::emit;
+use super::scene_load::{self, TargetMem, Texel};
 use crate::backend::display::Display;
 
 const BUNDLE: &[u8] = include_bytes!("../../../../../../resources/gpu/scenes/first-quad.scene");
@@ -48,55 +51,8 @@ fn fail(what: &str) {
     emit(&alloc::format!("gpud: FAIL gpu quad ({what})"));
 }
 
-/// Creates, fills and binds one buffer of the bundle; the target is the adopted plane.
-pub(super) fn bind(
-    dev: &mut Device,
-    client: ClientId,
-    ctx: nexus_gfx::backend::v2::ContextId,
-    buf: &scene::Buffer<'_>,
-    plane_bus: u64,
-) -> Result<BoId, alloc::string::String> {
-    let len = buf.len as usize;
-    let (bo, access) = match buf.kind {
-        Kind::Target => (
-            dev.adopt_plane(client, plane_bus, len).map_err(|e| alloc::format!("adopt {e:?}"))?,
-            Access::ReadWrite,
-        ),
-        Kind::Data | Kind::Texture => {
-            let bo = dev
-                .create_bo(client, len, CacheMode::CpuCached)
-                .map_err(|e| alloc::format!("create_bo {len} {e:?}"))?;
-            let bytes = dev.bo_bytes_mut(client, bo).ok_or("no cpu view")?;
-            match buf.kind {
-                Kind::Texture => scene::checker_v1(256, 256, 1024, bytes),
-                _ => {
-                    for run in buf.runs() {
-                        let at = run.off as usize;
-                        if let Some(dst) = bytes.get_mut(at..at + run.bytes.len()) {
-                            dst.copy_from_slice(run.bytes);
-                        }
-                    }
-                }
-            }
-            dev.clean(client, bo);
-            // The texture is only sampled; the driver's data buffers are written by the GPU
-            // too — region headers, macrotile lists, tail pointers, context state, the free
-            // lists (cycle 3 of 2026-10-14: a write fault at the first region header,
-            // `fault=0xdbf0000000`, with every data buffer bound read-only).
-            let access =
-                if buf.kind == Kind::Texture { Access::ReadOnly } else { Access::ReadWrite };
-            (bo, access)
-        }
-    };
-    // The open driver's flags travel with the buffer; the device maps it by them (5c-1).
-    dev.set_bo_flags(client, bo, buf.device_cached(), buf.pm_fw_protect())
-        .map_err(|e| alloc::format!("flags {:#x} {e:?}", buf.va))?;
-    dev.vm_bind(client, ctx, bo, GpuVa(buf.va), access)
-        .map_err(|e| alloc::format!("bind {:#x} {e:?}", buf.va))?;
-    Ok(bo)
-}
-
-/// The rung: after `gpu fence ok`, with the display's ring.
+/// The rung: after `gpu fence ok`, with the display's ring — the context and the scene given
+/// back when it ends, however it ended.
 #[inline(never)]
 pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
     let core = CoreId(dev.gpu.win.core_id());
@@ -104,29 +60,61 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
         Ok(s) => s,
         Err(e) => return fail(&alloc::format!("scene refused {e:?}")),
     };
-    let Some(target) = scene.target() else {
-        return fail("scene without a target");
-    };
     let client = ClientId(nexus_abi::service_id_from_name(b"gpud"));
     let ctx = match dev.create_context(client, Priority::Realtime) {
         Ok(c) => c,
         Err(e) => return fail(&alloc::format!("context {e:?}")),
     };
     let Some(canvas) = display.gpu_canvas() else {
+        let _ = dev.destroy_context(client, ctx);
         return fail("no plane of the ring free");
     };
-    if (canvas.len as u64) < target.len {
-        display.gpu_canvas_discard(canvas.row);
-        return fail(&alloc::format!("plane {} < target {}", canvas.len, target.len));
-    }
     let t_bind = now_ns();
-    for buf in scene.buffers() {
-        if let Err(e) = bind(dev, client, ctx, &buf, canvas.bus) {
+    let loaded = scene_load::load(
+        dev,
+        client,
+        ctx,
+        &scene,
+        TargetMem::Plane { bus: canvas.bus },
+        Texel::Checker,
+    );
+    let shown = match loaded {
+        Ok(loaded) => {
+            let bind_us = now_ns().saturating_sub(t_bind) / 1000;
+            let r = draw(dev, display, client, ctx, &scene, canvas, bind_us);
+            let _ = dev.destroy_context(client, ctx);
+            loaded.release(dev, client, ctx);
+            r
+        }
+        Err(e) => {
+            let _ = dev.destroy_context(client, ctx);
+            Err(e)
+        }
+    };
+    match shown {
+        Ok(line) => emit(&line),
+        Err(e) => {
             display.gpu_canvas_discard(canvas.row);
-            return fail(&e);
+            fail(&e);
         }
     }
-    let bind_us = now_ns().saturating_sub(t_bind) / 1000;
+}
+
+/// The two jobs into the plane, the fill timed, the samples read, the plane shown; the gate's
+/// line.
+fn draw(
+    dev: &mut Device,
+    display: &mut dyn Display,
+    client: ClientId,
+    ctx: ContextId,
+    scene: &Scene<'_>,
+    canvas: crate::backend::display::GpuCanvas,
+    bind_us: u64,
+) -> Result<alloc::string::String, alloc::string::String> {
+    let target = scene.target().ok_or("scene without a target")?;
+    if (canvas.len as u64) < target.len {
+        return Err(alloc::format!("plane {} < target {}", canvas.len, target.len));
+    }
     // Ownership of the plane CPU → device: the lines the CPU wrote (the splash copy, the
     // composite) are cleaned before the GPU writes under them (H4).
     if canvas.block != 0 {
@@ -144,18 +132,13 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
             waits: &[],
             signal: TimelinePoint(0),
         };
-        let point = match dev.submit(client, ctx, QueueKind::Transfer, &batch) {
-            Ok(p) => p,
-            Err(e) => {
-                display.gpu_canvas_discard(canvas.row);
-                return fail(&alloc::format!("submit {i} {e:?}"));
-            }
-        };
+        let point = dev
+            .submit(client, ctx, QueueKind::Transfer, &batch)
+            .map_err(|e| alloc::format!("submit {i} {e:?}"))?;
         if !dev.wait_point(point, t0 + JOB_TIMEOUT_NS) {
             dev.gpu.drain_fwccb();
-            display.gpu_canvas_discard(canvas.row);
-            return fail(&alloc::format!(
-                "job {i} not done in {}us (point {} irqs={})",
+            return Err(alloc::format!(
+                "job {i} not done in {}us (point {:#x} irqs={})",
                 now_ns().saturating_sub(t0) / 1000,
                 point.0,
                 dev.gpu.irqs
@@ -175,9 +158,7 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
         }
     }
     // Ownership device → CPU for the readback: flush drops the CPU's stale lines.
-    let Some(bytes) = display.gpu_canvas_bytes(canvas.row) else {
-        return fail("no cpu view of the plane");
-    };
+    let bytes = display.gpu_canvas_bytes(canvas.row).ok_or("no cpu view of the plane")?;
     if canvas.block != 0 {
         nexus_abi::cache_flush(bytes, canvas.block);
     }
@@ -197,18 +178,13 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
         }
     }
     if let Some((i, x, y, want, got)) = bad {
-        display.gpu_canvas_discard(canvas.row);
-        return fail(&alloc::format!(
+        return Err(alloc::format!(
             "sample {i} at ({x},{y}) expected bgr {:02x}{:02x}{:02x} read {:02x}{:02x}{:02x}; {good}/4 blit_us={}",
             want[0], want[1], want[2], got[0], got[1], got[2], us[1]
         ));
     }
-    if let Err(e) = display.gpu_canvas_show(canvas.row) {
-        return fail(&alloc::format!("the plane could not be shown {e:?}"));
-    }
-    emit(&alloc::format!(
-        "gpud: gpu quad ok (us={} samples={good}/4 shown row={})",
-        us[1],
-        canvas.row
-    ));
+    display
+        .gpu_canvas_show(canvas.row)
+        .map_err(|e| alloc::format!("the plane could not be shown {e:?}"))?;
+    Ok(alloc::format!("gpud: gpu quad ok (us={} samples={good}/4 shown row={})", us[1], canvas.row))
 }

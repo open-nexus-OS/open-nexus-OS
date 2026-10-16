@@ -1,24 +1,29 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! The firmware heap's backing (TASK-0329 G1): ONE page-backed DMA VMO made for the GPU's
-//! capability (its pages inside the device's reach; `vmo_runs` names them), handed out page by
-//! page — a heap object at a heap offset (fixed: the code and data regions, the three config
-//! slots; first-fit: everything else) is backed by one backing page per heap page, and the MIPS
-//! page table maps the heap page to the backing page's physical address. The GPU MMU's own
-//! table pages and the fault page come from the same pool. The SoC is non-coherent: a word the
-//! CPU wrote is cleaned to memory before the device may read it; a word the device wrote is
-//! flushed from the cache before the CPU reads it. In this layer one command is in flight at a
-//! time, so a shared cache line never carries a CPU write and a firmware write at once (the
-//! uncached mapping that lifts this is the memory lane's — recorded in the ledger).
+//! The firmware heap's backing (TASK-0329 G1, TASK-0215 5c-3 P2): ONE page-backed DMA VMO made
+//! for the GPU's capability (its pages inside the device's reach; `vmo_runs` names them), handed
+//! out page by page and taken back — a heap object at a heap offset (fixed: the code and data
+//! regions, the three config slots; first-fit: everything else) is backed by one backing page per
+//! heap page, and the MIPS page table maps the heap page to the backing page's physical address.
+//! The GPU MMU's own table pages and the fault page come from the same pool. What a context held
+//! comes back when it goes (a bit a page; a page handed out again is zeroed first — the kernel
+//! zeroed each page once, at create). The SoC is non-coherent: a word the CPU wrote is cleaned to
+//! memory before the device may read it; a word the device wrote is flushed from the cache before
+//! the CPU reads it. Objects never share a page, so a cache line never carries a CPU write and a
+//! firmware write at once (the uncached mapping that lifts this is the memory lane's — recorded
+//! in the ledger).
 
+use alloc::vec;
 use alloc::vec::Vec;
 
 use nexus_abi::{Cap, DmaVmo};
-use nexus_gfx::backend::gpu::mips_boot::{self, HeapMap, PAGE};
+use nexus_gfx::backend::gpu::mips_boot::{self, HeapMap, HEAP_SIZE, PAGE};
 
 /// Bytes of one page.
 const PAGE_BYTES: usize = PAGE as usize;
+/// A heap page without a backing page.
+const UNBACKED: u16 = u16::MAX;
 
 /// An object in the firmware heap: `len` bytes at heap offset `off`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,17 +52,34 @@ pub(super) struct FwMemory {
     block: usize,
     /// Physical address of every backing page, by index.
     phys: Vec<u64>,
-    /// Backing pages handed out so far.
-    next: usize,
+    /// Backing pages handed out, a bit each.
+    held: Vec<u64>,
+    /// Backing pages handed out at least once: zeroed before they are handed out again.
+    used_once: Vec<u64>,
     heap: HeapMap,
-    /// Heap page → backing page.
-    map: Vec<(u32, usize)>,
+    /// Heap page → backing page (`UNBACKED` where none).
+    map: Vec<u16>,
+}
+
+fn bit(words: &[u64], i: usize) -> bool {
+    (words[i / 64] >> (i % 64)) & 1 == 1
+}
+
+fn set_bit(words: &mut [u64], i: usize, on: bool) {
+    if on {
+        words[i / 64] |= 1 << (i % 64);
+    } else {
+        words[i / 64] &= !(1 << (i % 64));
+    }
 }
 
 impl FwMemory {
     /// `pages` backing pages for the device behind `device`; `block` is the device's cache
     /// block (0 for a coherent one).
     pub(super) fn new(device: Cap, pages: usize, block: usize) -> Result<Self, &'static str> {
+        if pages >= usize::from(UNBACKED) {
+            return Err("backing pages beyond the heap map's index");
+        }
         let vmo = DmaVmo::anonymous(device, pages * PAGE_BYTES).map_err(|_| "dma vmo")?;
         let mut phys = Vec::with_capacity(pages);
         for run in vmo.runs() {
@@ -69,32 +91,63 @@ impl FwMemory {
         if phys.len() < pages {
             return Err("dma runs short");
         }
-        Ok(Self { vmo, block, phys, next: 0, heap: HeapMap::new(), map: Vec::new() })
+        phys.truncate(pages);
+        let words = pages.div_ceil(64);
+        Ok(Self {
+            vmo,
+            block,
+            phys,
+            held: vec![0; words],
+            used_once: vec![0; words],
+            heap: HeapMap::new(),
+            map: vec![UNBACKED; (HEAP_SIZE / PAGE) as usize],
+        })
     }
 
     pub(super) const fn block(&self) -> usize {
         self.block
     }
 
-    /// Backing pages still free.
+    /// Backing pages free.
     pub(super) fn free_pages(&self) -> usize {
-        self.phys.len() - self.next
+        (0..self.phys.len()).filter(|&i| !bit(&self.held, i)).count()
     }
 
-    /// One zeroed backing page (the kernel zeroed the object at create).
+    /// One zeroed backing page.
     pub(super) fn alloc_page(&mut self) -> Option<Page> {
-        let index = self.next;
-        let phys = *self.phys.get(index)?;
-        self.next += 1;
-        Some(Page { index, phys })
+        let index = (0..self.phys.len()).find(|&i| !bit(&self.held, i))?;
+        set_bit(&mut self.held, index, true);
+        let page = Page { index, phys: self.phys[index] };
+        if bit(&self.used_once, index) {
+            self.page_bytes_mut(&page).fill(0);
+            self.clean_page(&page);
+        }
+        set_bit(&mut self.used_once, index, true);
+        Some(page)
+    }
+
+    /// Gives a backing page back (a GPU table page; a heap object's pages go with [`Self::free`]).
+    pub(super) fn free_page(&mut self, page: Page) {
+        if page.index < self.phys.len() {
+            set_bit(&mut self.held, page.index, false);
+        }
     }
 
     fn back(&mut self, obj: HeapObj) -> Option<HeapObj> {
-        let first = obj.off / PAGE;
-        let count = obj.len.div_ceil(PAGE);
+        let first = (obj.off / PAGE) as usize;
+        let count = obj.len.div_ceil(PAGE) as usize;
         for i in 0..count {
-            let page = self.alloc_page()?;
-            self.map.push((first + i, page.index));
+            let Some(page) = self.alloc_page() else {
+                // Undo: the pages backed so far and the heap range.
+                for j in 0..i {
+                    let index = usize::from(self.map[first + j]);
+                    self.free_page(Page { index, phys: self.phys[index] });
+                    self.map[first + j] = UNBACKED;
+                }
+                self.heap.free(obj.off, obj.len);
+                return None;
+            };
+            self.map[first + i] = page.index as u16;
         }
         Some(obj)
     }
@@ -108,7 +161,10 @@ impl FwMemory {
     /// Back one of the three config slots the heap map reserved at creation (connection
     /// control, OS init, SYS init): one page at the slot's offset, no second reservation.
     pub(super) fn back_config_slot(&mut self, off: u32) -> Option<HeapObj> {
-        self.back(HeapObj { off, len: PAGE })
+        let first = (off / PAGE) as usize;
+        let page = self.alloc_page()?;
+        self.map[first] = page.index as u16;
+        Some(HeapObj { off, len: PAGE })
     }
 
     /// Allocate `len` bytes anywhere below the config heap, backed; page-rounded.
@@ -117,18 +173,35 @@ impl FwMemory {
         self.back(HeapObj { off, len })
     }
 
+    /// Gives an object's heap range and backing pages back. The firmware must hold it no
+    /// longer (its cleanup answered) and its MIPS mapping must be gone, flushed.
+    pub(super) fn free(&mut self, obj: HeapObj) {
+        let first = (obj.off / PAGE) as usize;
+        for hp in first..first + obj.len.div_ceil(PAGE) as usize {
+            let Some(&index) = self.map.get(hp) else { break };
+            if index != UNBACKED {
+                let index = usize::from(index);
+                self.free_page(Page { index, phys: self.phys[index] });
+                self.map[hp] = UNBACKED;
+            }
+        }
+        self.heap.free(obj.off, obj.len);
+    }
+
     /// Every mapped heap page with its backing page's physical address (the MIPS page table).
     pub(super) fn heap_pages(&self) -> impl Iterator<Item = (u32, u64)> + '_ {
-        self.map.iter().map(|&(hp, bp)| (hp, self.phys[bp]))
+        self.map
+            .iter()
+            .enumerate()
+            .filter(|(_, &bp)| bp != UNBACKED)
+            .map(|(hp, &bp)| (hp as u32, self.phys[usize::from(bp)]))
     }
 
     fn backing_of(&self, heap_off: u32) -> Option<(usize, usize)> {
-        let hp = heap_off / PAGE;
-        let bp = self.map.iter().find(|(h, _)| *h == hp).map(|(_, b)| *b)?;
-        Some((bp, (heap_off % PAGE) as usize))
+        let bp = *self.map.get((heap_off / PAGE) as usize)?;
+        (bp != UNBACKED).then_some((usize::from(bp), (heap_off % PAGE) as usize))
     }
 
-    /// The physical address of `at` bytes into `obj`.
     pub(super) fn phys_at(&self, obj: &HeapObj, at: u32) -> Option<u64> {
         let (bp, in_page) = self.backing_of(obj.off + at)?;
         Some(self.phys[bp] + in_page as u64)

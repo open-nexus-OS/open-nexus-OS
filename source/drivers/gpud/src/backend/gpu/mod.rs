@@ -1,53 +1,69 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The board GPU in gpud (TASK-0329 G1, RFC-0101 Phase 2 / §8b): the thin side —
+//! CONTEXT: The board GPU in gpud (TASK-0329 G1, RFC-0101 Phase 2–4 / §8b–§8d): the thin side —
 //! its glue through socd, its register window, the published firmware loaded by its documented
 //! layout into page-backed DMA memory and started by the open sequence, the interrupt on its
-//! own notify endpoint, the firmware's MMU-cache round trip, one GPU address space with a page
-//! bound and unbound, and a null job whose timeline write is bridged to a kernel fence. The
-//! logic is `nexus_gfx::backend::gpu` (host-tested; like this module, its sequences follow the
-//! open kernel driver, used under its MIT option — the notice is kept in `THIRD_PARTY_NOTICES`);
-//! this module is the device: the window, the memory with its cache maintenance (the SoC is
+//! own notify endpoint, the firmware's MMU-cache round trip and its cleanup of objects, and
+//! `GfxDevice` over it: several contexts, each its own GPU address space and firmware objects,
+//! buffers bound in ranges, transfer and render passes bridged to the timeline. The logic is
+//! `nexus_gfx::backend::gpu` (host-tested; like this module, its sequences follow the open
+//! kernel driver, used under its MIT option — the notice is kept in `THIRD_PARTY_NOTICES`); this
+//! module is the device: the window, the memory with its cache maintenance (the SoC is
 //! non-coherent: every word the firmware reads is cleaned after the CPU writes it, every word it
 //! writes is flushed before the CPU reads it), the waits (on the interrupt endpoint, bounded,
 //! never a spin for an event), the lines a board cycle is judged from.
 //!
 //! - [`glue`] — the GPU node up through socd (domain 2, `gpu_clk`, the reset after the clock).
 //! - [`regs`] — `start::Regs` over the window: 64-bit accesses whole, bounded polls.
-//! - [`memory`] — the firmware heap's backing: one DMA VMO, page-mapped by heap offset; the
-//!   command buffers' and page tables' memory traits over it.
+//! - [`memory`] — the firmware heap's backing: one DMA VMO, page-mapped by heap offset, pages
+//!   handed out and taken back; the command buffers' and page tables' memory traits over it.
 //! - [`firmware`] — the image placed, the boot data and page table built, the structures the
 //!   interface fixes written.
 //! - [`device`] — the bring-up ladder (`gpud: gpu glue|core|fw|mmu ok (`), the interrupt
-//!   handler, the kernel command buffer's send-and-wait.
-//! - [`job`] — the null job and the fence bridge (`gpud: gpu fence ok (`).
+//!   handler, the kernel command buffer's send-and-wait, the firmware's cleanup of an object.
+//! - [`space`] — a context's GPU address space: its catalogue and firmware memory context.
+//! - [`job`] — a context's transfer queue, the null job and the fence bridge (`gpud: gpu fence
+//!   ok (`).
+//! - [`render`] — a context's render objects: the render context, free lists, dataset.
+//! - [`contexts`], [`bos`], [`gpu_vmo`], [`device_v2`] — `GfxDevice`: the context slots, the
+//!   buffers (CPU-mapped, the GPU's alone, a plane of the ring), the trait over them.
+//! - [`scene_load`] and the `render_*` rungs — the captured scenes loaded and drawn, the device's
+//!   board gates (`gpud: gpu fill|quad|render|library|quads|area|pipeline|mixed|contexts ok (`).
 //! OWNERS: @gpu @runtime
-//! STATUS: Functional (bring-up; `GfxDevice` on this device is layer 4)
+//! STATUS: Functional (`GfxDevice` with several contexts on the board, TASK-0215 5c-3 P2)
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: the board ladder (`scripts/board-test.sh`): `gpud: gpu glue ok (`,
-//!   `gpud: gpu core ok (`, `gpud: gpu fw ok (`, `gpud: gpu mmu ok (`, `gpud: gpu fence ok (`;
-//!   `gpud: FAIL gpu ` is a FAIL marker. QEMU grants no such GPU: nothing here runs there.
-//! INVARIANTS: the GPU reads only pages of the one DMA VMO the kernel made for its capability
-//!   (`vmo_runs` with it); the firmware blob is refused before a byte is placed when its id,
-//!   build or version differs; no `unwrap` on a firmware-written word.
+//! TEST_COVERAGE: the board ladder (`scripts/board-test.sh`): `gpud: gpu glue ok (` …
+//!   `gpud: gpu contexts ok (`; `gpud: FAIL gpu ` is a FAIL marker. QEMU grants no such GPU:
+//!   nothing here runs there.
+//! INVARIANTS: the GPU reads only pages of VMOs the kernel made for its capability (`vmo_runs`
+//!   with it) — the firmware heap's backing and the device's buffers — or the display's planes;
+//!   a context reaches only what is bound in its own space; nothing the firmware may still hold
+//!   is freed; the firmware blob is refused before a byte is placed when its id, build or
+//!   version differs; no `unwrap` on a firmware-written word.
 
+mod bos;
+mod contexts;
 pub(crate) mod device;
 mod device_v2;
 mod firmware;
 mod glue;
+mod gpu_vmo;
 mod job;
 mod memory;
 pub(crate) mod quad;
 mod regs;
 mod render;
 mod render_blur;
+pub(crate) mod render_contexts;
 pub(crate) mod render_cost;
 pub(crate) mod render_library;
 mod render_mixed;
 pub(crate) mod render_quad;
 pub(crate) mod render_quads;
 mod render_template;
+mod scene_load;
+mod space;
 
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 

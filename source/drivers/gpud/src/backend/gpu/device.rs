@@ -3,17 +3,18 @@
 
 //! The device online (TASK-0329 G1 P3/P4): the bring-up ladder — glue through socd, the window
 //! and the core id, the firmware placed and started, the first interrupt and `firmware_started`,
-//! a health-check round trip through the kernel command buffer, one GPU address space with a
-//! page bound, flushed, unbound — each rung a line a board cycle is judged from, each FAIL
-//! form with the registers that tell our fault from the firmware's. The interrupt is waited
-//! for on gpud's own notify endpoint (bounded, in slices: the firmware's boot raises no
-//! interrupt the interface promises), never spun for. The kernel command buffer's send is one
-//! command written, cleaned, published, kicked.
+//! a health-check round trip through the kernel command buffer, a GPU address space with a page
+//! bound, flushed, unbound and the space given back — each rung a line a board cycle is judged
+//! from, each FAIL form with the registers that tell our fault from the firmware's. The
+//! interrupt is waited for on gpud's own notify endpoint (bounded, in slices: the firmware's
+//! boot raises no interrupt the interface promises), never spun for. The kernel command
+//! buffer's send is one command written, cleaned, published, kicked; the firmware's cleanup of
+//! an object (TASK-0215 5c-3 P2b) is such a command, answered — or busy — in its return slot.
 
 use nexus_abi::Cap;
 use nexus_gfx::backend::gpu::ccb::{Fwccb, FwccbMemory, Kccb, KccbMemory};
-use nexus_gfx::backend::gpu::fwif::{self, CcbCtl, FwMemContext, KccbCmd};
-use nexus_gfx::backend::gpu::mmu::{PageFlags, PageTables, TablePage, TablePages};
+use nexus_gfx::backend::gpu::fwif::{self, CcbCtl, KccbCmd};
+use nexus_gfx::backend::gpu::mmu::{PageFlags, TablePage, TablePages, TableStorage};
 use nexus_gfx::backend::gpu::start;
 use nexus_gfx::backend::gpu::{heaps, CoreId};
 use nexus_ipc::timer::{NotifyTimer, Waitset};
@@ -22,6 +23,7 @@ use nexus_service_topology::DEVICE_MMIO_SLOT;
 use super::firmware::{self, Loaded};
 use super::memory::{FwMemory, HeapObj};
 use super::regs::Window;
+use super::space::Space;
 use super::{emit, glue, job};
 
 /// The firmware's boot budget (the open driver's).
@@ -31,6 +33,8 @@ const KCCB_TIMEOUT_NS: u64 = 1_000_000_000;
 /// One wait slice: the interrupt wakes the wait early; the slice bounds a boot that raises
 /// none.
 const WAIT_SLICE_NS: u64 = 1_000_000;
+/// A cleanup the firmware answers busy is asked again, at most this often in all.
+const CLEANUP_ATTEMPTS: u32 = 4;
 
 fn now_ns() -> u64 {
     nexus_abi::nsec().unwrap_or(0)
@@ -51,10 +55,11 @@ pub(crate) struct Gpu {
     pub(super) irqs: u32,
     /// The kernel timeline fence the null job's completions are signalled on.
     pub(super) fence: Cap,
-    /// The bring-up's own address space and its firmware memory context.
-    pub(super) tables: Option<PageTables>,
-    pub(super) fw_mem_ctx: Option<HeapObj>,
-    pub(super) context: Option<job::Context>,
+    /// Backing pages free once the ladder gave its spaces back: what the device holds with no
+    /// context — every context's pages come back to it.
+    pub(super) baseline_free: usize,
+    /// Cleanups the firmware answered busy first (each asked again after its next interrupt).
+    pub(super) cleanup_busy: u32,
 }
 
 /// The kernel command buffer's memory, over the firmware heap.
@@ -113,9 +118,8 @@ impl TablePages for Tables<'_> {
     fn alloc(&mut self) -> Option<TablePage> {
         self.0.alloc_page().map(|p| TablePage { handle: p.index as u32, phys: p.phys })
     }
-    fn free(&mut self, _page: TablePage) {
-        // The pool is a bump allocator for the bring-up's life (TASK-0329 G1); layer 4's
-        // device returns pages.
+    fn free(&mut self, page: TablePage) {
+        self.0.free_page(super::memory::Page { index: page.handle as usize, phys: page.phys });
     }
     fn write_u32(&mut self, page: TablePage, index: usize, value: u32) {
         let p = super::memory::Page { index: page.handle as usize, phys: page.phys };
@@ -222,9 +226,8 @@ impl Gpu {
             waits,
             irqs: 0,
             fence,
-            tables: None,
-            fw_mem_ctx: None,
-            context: None,
+            baseline_free: 0,
+            cleanup_busy: 0,
         });
         let started = gpu.wait_until(t0 + FW_BOOT_TIMEOUT_NS, |g| {
             g.mem.read_u32(&g.fw.sysinit, fwif::SYSINIT_FIRMWARE_STARTED as u32) != 0
@@ -286,6 +289,7 @@ impl Gpu {
             return None;
         }
         job::fence_rung(&mut gpu);
+        gpu.baseline_free = gpu.mem.free_pages();
         gpu.timer.disarm();
         let _ = gpu.timer.drain();
         Some(gpu)
@@ -386,7 +390,6 @@ impl Gpu {
         self.irqs = self.irqs.saturating_add(drained);
         self.ack_irq();
         self.drain_fwccb();
-        job::completions(self);
     }
 
     /// The firmware's messages: each named once; a request for a restart or a context reset
@@ -432,37 +435,32 @@ impl Gpu {
         }
     }
 
-    /// P4: one address space, a page bound, the firmware's MMU cache flushed and acknowledged,
-    /// the page unbound and flushed again.
+    /// P4: an address space made, a page bound, the firmware's MMU cache flushed and
+    /// acknowledged, the page unbound and flushed again, the space given back — every page of
+    /// it back in the pool (`freed=`).
     #[inline(never)]
     fn mmu_rung(&mut self) -> bool {
         let t0 = now_ns();
-        let mut tables = match PageTables::new(&mut Tables(&mut self.mem)) {
-            Ok(t) => t,
-            Err(e) => {
-                emit(&alloc::format!("gpud: FAIL gpu mmu (no catalogue page: {e:?})"));
+        let free_before = self.mem.free_pages();
+        let mut space = match Space::create(self, TableStorage::new()) {
+            Ok(s) => s,
+            Err((e, _)) => {
+                emit(&alloc::format!("gpud: FAIL gpu mmu ({e})"));
                 return false;
             }
         };
-        // The firmware memory context names the catalogue; the firmware assigns the slot.
-        let Some(ctx) = self.mem.alloc(FwMemContext::SIZE as u32) else {
-            emit("gpud: FAIL gpu mmu (no memory for the firmware memory context)");
-            return false;
-        };
-        self.fw.map_object(&mut self.mem, &ctx);
-        self.mem.write(&ctx, 0, &FwMemContext::new(tables.root_phys()).to_bytes());
         let Some(page) = self.mem.alloc_page() else {
             emit("gpud: FAIL gpu mmu (no page to bind)");
             return false;
         };
         let flags = PageFlags { read_only: false, slc_bypass: true, pm_fw_protect: false };
         if let Err(e) =
-            tables.map(&mut Tables(&mut self.mem), heaps::GENERAL_BASE, page.phys, flags)
+            space.tables.map(&mut Tables(&mut self.mem), heaps::GENERAL_BASE, page.phys, flags)
         {
             emit(&alloc::format!("gpud: FAIL gpu mmu (map: {e:?})"));
             return false;
         }
-        let map_flags = tables.take_flush_flags();
+        let map_flags = space.tables.take_flush_flags();
         if !self.mmu_flush(map_flags) {
             emit(&alloc::format!(
                 "gpud: FAIL gpu mmu (the flush after a map got no return; flags={map_flags:#x})"
@@ -471,24 +469,73 @@ impl Gpu {
         }
         let map_us = now_ns().saturating_sub(t0) / 1000;
         let t1 = now_ns();
-        if let Err(e) = tables.unmap(&mut Tables(&mut self.mem), heaps::GENERAL_BASE) {
+        if let Err(e) = space.tables.unmap(&mut Tables(&mut self.mem), heaps::GENERAL_BASE) {
             emit(&alloc::format!("gpud: FAIL gpu mmu (unmap: {e:?})"));
             return false;
         }
-        let unmap_flags = tables.take_flush_flags();
+        let unmap_flags = space.tables.take_flush_flags();
         if !self.mmu_flush(unmap_flags) {
             emit(&alloc::format!("gpud: FAIL gpu mmu (the flush after an unmap got no return; flags={unmap_flags:#x})"));
             return false;
         }
         let unmap_us = now_ns().saturating_sub(t1) / 1000;
+        let (pc, table_pages) = (space.root_phys(), space.tables.table_pages());
+        self.mem.free_page(page);
+        let (_, flushed) = space.destroy(self);
+        let free_after = self.mem.free_pages();
+        if !flushed || free_after != free_before {
+            emit(&alloc::format!(
+                "gpud: FAIL gpu mmu (the space was not given back: flushed={flushed} free={free_after} of {free_before})"
+            ));
+            return false;
+        }
         emit(&alloc::format!(
-            "gpud: gpu mmu ok (map_us={map_us} unmap_us={unmap_us} pc={:#x} map_flags={map_flags:#x} unmap_flags={unmap_flags:#x} table_pages={})",
-            tables.root_phys(),
-            tables.table_pages()
+            "gpud: gpu mmu ok (map_us={map_us} unmap_us={unmap_us} pc={pc:#x} map_flags={map_flags:#x} unmap_flags={unmap_flags:#x} table_pages={table_pages} freed={free_after}/{free_before})"
         ));
-        self.tables = Some(tables);
-        self.fw_mem_ctx = Some(ctx);
         true
+    }
+
+    /// Unmaps heap objects the firmware let go of from its page table, flushes its MMU cache
+    /// and waits, then gives their pages back; `false` when the flush got no return (they stay
+    /// held: the firmware may still reach them).
+    pub(super) fn release(&mut self, objs: &[HeapObj]) -> bool {
+        for obj in objs {
+            self.fw.unmap_object(&mut self.mem, obj);
+        }
+        if !self.mmu_flush(fwif::mmucache::LEVEL_2) {
+            return false;
+        }
+        for obj in objs {
+            self.mem.free(*obj);
+        }
+        true
+    }
+
+    /// The firmware's cleanup of the object of `kind` at `fw_addr` (the open kernel driver's
+    /// `pvr_fw_structure_cleanup`): the command, its return slot waited. Busy — the firmware
+    /// still holds work on it — is asked again after the firmware's messages were read (a
+    /// reconstruction or a reset may hold it, as the open driver retries a free list) and its
+    /// next interrupt — its work completing — or one slice; then named. The caller waited for
+    /// the object's last point first.
+    pub(super) fn cleanup(&mut self, kind: u32, fw_addr: u32) -> Result<(), &'static str> {
+        for attempt in 0..CLEANUP_ATTEMPTS {
+            if attempt > 0 {
+                self.cleanup_busy = self.cleanup_busy.saturating_add(1);
+                self.drain_fwccb();
+                let irqs = self.irqs;
+                self.wait_until(now_ns() + WAIT_SLICE_NS, |g| g.irqs != irqs);
+            }
+            let t0 = now_ns();
+            let slot = self.kccb_send(&KccbCmd::cleanup(kind, fw_addr))?;
+            if !self.wait_slot(slot, t0 + KCCB_TIMEOUT_NS) {
+                return Err("no return");
+            }
+            let rtn = self.mem.read_u32(&self.fw.kccb_rtn, slot * 4);
+            if rtn & fwif::kccb::RTN_SLOT_CLEANUP_BUSY == 0 {
+                return Ok(());
+            }
+        }
+        Err("busy")
     }
 
     /// The firmware's MMU-cache command, waited on its return slot.

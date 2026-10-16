@@ -25,7 +25,7 @@ use nexus_gfx::backend::v2::{GfxDevice, TimelinePoint};
 use super::device_v2::Device;
 use super::emit;
 use super::render_blur::{descriptor, plane};
-use super::render_cost::{named, read, run_draws, sample_at, Rig, STRIDE};
+use super::render_cost::{named, read, run_draws, sample_at, Pass, Rig, STRIDE};
 use super::render_template::{
     clear_bgr, colour_over_clear_bgr, opaque_bgr, premultiplied_bgr, straight_bgr, Captured,
     Target, Targets, TARGET_PDS,
@@ -119,13 +119,13 @@ fn pass<'p>(
     draw: &dyn Fn(usize) -> Draw<'p>,
     area: (u32, u32, u32, u32),
     target: Target,
-) -> Result<u64, String> {
+) -> Result<Pass, String> {
     rings.rings.begin();
     match run_draws(dev, rig, t, n, draw, rings, Some(area), target) {
         Ok(p) => {
             rings.rings.submitted(p.point.0).map_err(|e| format!("rings {e:?}"))?;
             rings.rings.retire(&|point| dev.reached(TimelinePoint(point)));
-            Ok(p.us)
+            Ok(p)
         }
         Err(e) => {
             rings.rings.abandon();
@@ -158,7 +158,7 @@ fn mixed(
     captured: &Captured,
 ) -> Result<String, String> {
     let names = ["layer-opaque", "layer-straight", "layer-rounded", "layer-premultiplied"];
-    let [opaque, straight, rounded, premultiplied] = names.map(|n| named(dev, n));
+    let [opaque, straight, rounded, premultiplied] = names.map(|n| named(dev, rig, n));
     let (opaque, straight, rounded, premultiplied): (Placed, Placed, Placed, Placed) =
         (opaque?, straight?, rounded?, premultiplied?);
     if !write_block(display, canvas) {
@@ -171,9 +171,10 @@ fn mixed(
         &plane(rig, BLOCK, BLOCK_SIDE, BLOCK_SIDE),
     )?;
     let mut targets = Targets::new();
-    let first = targets.at(dev, rig.client, captured, rig.target.va, rig.target.rows)?;
+    let first = targets.at(dev, (rig.client, rig.ctx), captured, rig.target.va, rig.target.rows)?;
     let second_va = rig.target.va + u64::from(SECOND_ROW) * STRIDE as u64;
-    let second = targets.at(dev, rig.client, captured, second_va, rig.target.rows - SECOND_ROW)?;
+    let second_rows = rig.target.rows - SECOND_ROW;
+    let second = targets.at(dev, (rig.client, rig.ctx), captured, second_va, second_rows)?;
     let mut rings = Watched {
         rings: Rings::new(GENERAL_RING, PDS_RING, STREAM_RING, VERTEX_RING),
         high_water: 0,
@@ -192,10 +193,16 @@ fn mixed(
     let colour = BLOCK_RGB.map(|c| f32::from(c) / 255.0);
     let block_over_clear = colour_over_clear_bgr([colour[0], colour[1], colour[2], 1.0], 0.75);
     let mut mixed_us = 0;
+    // Each mixed pass's stages: the cost the pixel gate does not predict, taken apart.
+    let mut stages = [(0u64, 0u64); 2];
     let mut reads = 0;
-    for (target, row) in [(first, 0usize), (second, SECOND_ROW as usize)] {
-        mixed_us += pass(dev, rig, t, &mut rings, draws.len(), &|i| draws[i], AREA, target)
+    for (k, (target, row)) in
+        [(first, 0usize), (second, SECOND_ROW as usize)].into_iter().enumerate()
+    {
+        let p = pass(dev, rig, t, &mut rings, draws.len(), &|i| draws[i], AREA, target)
             .map_err(|e| format!("mixed pass at row {row}: {e}"))?;
+        mixed_us += p.us;
+        stages[k] = (p.geom_us, p.frag_us);
         let at = |xy: (usize, usize)| (xy.0, xy.1 + row);
         let (o, s, r) = (draws[0].quad, draws[1].quad, draws[2].quad);
         let corner = (r.x as usize + 1, r.y as usize + 1);
@@ -235,8 +242,12 @@ fn mixed(
     }
     let heap_bytes = nexus_service_entry::os::heap_cursor().1.saturating_sub(heap_before);
     Ok(format!(
-        "(draws={} targets=2 reads={reads}/{reads} mixed_us={mixed_us} ring_passes={RING_PASSES} ring_reads={ring_reads}/{ring_reads} reused={} stale=0 heap_bytes={heap_bytes})",
+        "(draws={} targets=2 reads={reads}/{reads} mixed_us={mixed_us} geom_us={}/{} frag_us={}/{} ring_passes={RING_PASSES} ring_reads={ring_reads}/{ring_reads} reused={} stale=0 heap_bytes={heap_bytes})",
         draws.len(),
+        stages[0].0,
+        stages[1].0,
+        stages[0].1,
+        stages[1].1,
         rings.reused
     ))
 }

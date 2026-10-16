@@ -132,6 +132,10 @@ ladder_headless=(
   # in one pass, into two targets through their own end-of-tile programs; then passes through
   # rings that reuse lines once the timeline reached the pass that read them — every sample right.
   "gpud: gpu mixed ok ("
+  # TASK-0215 5c-3 P2: several contexts — the rungs' context torn down by the firmware's
+  # cleanup, then two contexts of two clients drawing side by side through the same addresses
+  # into their own memory, each refused the other's, both torn down with every page back.
+  "gpud: gpu contexts ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

@@ -161,12 +161,12 @@ proves = "TASK-0329 G1: the published firmware, placed by its documented layout 
 [marker."gpud: gpu mmu ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0329 G1: one GPU address space (a page catalogue the firmware memory context names), a page bound and unbound through the host-tested encoder, the firmware's MMU-cache flush acknowledged in its return slot after each"
+proves = "TASK-0329 G1: one GPU address space (a page catalogue the firmware memory context names), a page bound and unbound through the host-tested encoder, the firmware's MMU-cache flush acknowledged in its return slot after each; since TASK-0215 5c-3 P2 the space given back — its table pages and memory context unmapped, flushed and returned, the firmware pool's free pages as before (freed=)"
 
 [marker."gpud: gpu fence ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0329 G1: a null job (one timeline UPDATE in a transfer context's client buffer, one kick) completed sixty-four times: the firmware wrote the word, the interrupt fired, gpud signalled the kernel timeline fence — the fence bridge; rt_us is the frame's fixed cost on our side against the stock 640 us"
+proves = "TASK-0329 G1: a null job (one timeline UPDATE in a transfer context's client buffer, one kick) completed sixty-four times: the firmware wrote the word, the interrupt fired, gpud signalled the kernel timeline fence — the fence bridge; rt_us is the frame's fixed cost on our side against the stock 640 us; since TASK-0215 5c-3 P2 the transfer context let go by the firmware's cleanup (cleanup_us=) and its space given back, every page returned (freed=)"
 
 # TASK-0169B (RFC-0101 Phase 3 / §8c): the GPU draws — the open driver's two transfer jobs for
 # this core, captured on the host as the scene bundle, replayed through `GfxDevice` into a plane
@@ -174,7 +174,7 @@ proves = "TASK-0329 G1: a null job (one timeline UPDATE in a transfer context's 
 [marker."gpud: gpu fill ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0169B: the bundle's 29 buffers created, filled and bound at their captured addresses, the plane adopted at the target's; the clear (a TQ_3D command plus the timeline UPDATE, one kick) completed and timed — ns_per_px against the stock stack's 1.8"
+proves = "TASK-0169B: the bundle's buffers filled and bound at their captured addresses (since TASK-0215 5c-3 P2a packed by flag class into one buffer each, bound in ranges), the plane adopted at the target's; the clear (a TQ_3D command plus the timeline UPDATE, one kick) completed and timed — ns_per_px against the stock stack's 1.8"
 
 [marker."gpud: gpu quad ok ("]
 phase = "bringup"
@@ -229,6 +229,14 @@ proves = "TASK-0215 5c-2 P3c-P5d: every pipeline of the compositor library (comp
 phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-3 P1: one pass of three draws — the opaque layer over the checker, a straight layer over a colour block the CPU wrote (its own texture descriptor), a rounded layer over the checker (the pass type changing at the second draw) — drawn into two targets (the plane at its address and 540 rows down, each through its own copy of the end-of-tile program), every sample and the rounded layer's corner right in both; then 48 passes of one to three draws, each draw its own tint, through rings a few passes deep that wrapped many times: every sample right (no line the GPU held from an earlier pass) and gpud's heap unmoved"
+
+# TASK-0215 5c-3 P2 (RFC-0101 §1/§6): several contexts, each its own GPU address space, torn down
+# by the firmware's cleanup; `gpud: FAIL gpu contexts (` and `gpud: FAIL gpu context cleanup (`
+# are its FAIL forms.
+[marker."gpud: gpu contexts ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P2: the render rungs' context torn down (its render objects and transfer queue let go by the firmware's cleanup, its space and scene returned: no context, no buffer, the firmware pool as the G1 ladder left it); then twice two contexts of two clients, each its own page catalogue (pc_a != pc_b), the render bundle loaded into each at the same addresses — A's target a plane, B's a buffer of B's, B's texture with red and blue exchanged — both passes in flight together: A's four samples in the plane and B's four in its buffer each their own context's (the same address reached other memory, read and written); each context refused the other's buffers, contexts and addresses by name, a bound buffer refused destruction, the first round's context numbers refused in the second; both torn down by the firmware's cleanup with every page and buffer back, nothing in quarantine, gpud's heap unmoved over the second round"
 
 [marker."gpud: FAIL gpu "]
 phase = "bringup"

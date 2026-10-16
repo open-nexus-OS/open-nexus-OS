@@ -146,13 +146,33 @@ struct Pt {
     live: [u64; PT_ENTRIES / 64],
 }
 
+/// A space's slot tables (`MAX_PDS` / `MAX_PTS` entries) on the heap — a fixed array of 64
+/// tables was 6.5 KiB of a service's stack frame wherever the space was held (gpud's 32 KiB
+/// stack overflowed on the QEMU lane, 2026-10-13) — kept from one space to the next: a device
+/// whose heap never frees makes and destroys contexts over the same storage
+/// ([`PageTables::destroy`] hands it back).
+#[derive(Clone, Debug)]
+pub struct TableStorage {
+    pds: alloc::vec::Vec<Option<Pd>>,
+    pts: alloc::vec::Vec<Option<Pt>>,
+}
+
+impl TableStorage {
+    pub fn new() -> Self {
+        Self { pds: alloc::vec![None; MAX_PDS], pts: alloc::vec![None; MAX_PTS] }
+    }
+}
+
+impl Default for TableStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// One context's address space: a page catalogue and the directories and tables under it.
 #[derive(Clone, Debug)]
 pub struct PageTables {
     pc: TablePage,
-    /// Slot tables on the heap (`MAX_PDS` / `MAX_PTS` entries): a fixed array of 64 tables was
-    /// 6.5 KiB of a service's stack frame wherever the space was held (gpud's 32 KiB stack
-    /// overflowed on the QEMU lane, 2026-10-13).
     pds: alloc::vec::Vec<Option<Pd>>,
     pts: alloc::vec::Vec<Option<Pt>>,
     /// The flush flags accumulated since the last flush was taken.
@@ -160,10 +180,21 @@ pub struct PageTables {
 }
 
 impl PageTables {
-    /// A new catalogue (one table page).
+    /// A new catalogue (one table page) over fresh slot storage.
     pub fn new(pages: &mut impl TablePages) -> Result<Self, MmuError> {
-        let pc = pages.alloc().ok_or(MmuError::NoTablePage)?;
-        Ok(Self { pc, pds: alloc::vec![None; MAX_PDS], pts: alloc::vec![None; MAX_PTS], flush: 0 })
+        Self::new_in(TableStorage::new(), pages).map_err(|(e, _)| e)
+    }
+
+    /// A new catalogue over `storage`, its slots emptied; the storage comes back with a refusal.
+    pub fn new_in(
+        storage: TableStorage,
+        pages: &mut impl TablePages,
+    ) -> Result<Self, (MmuError, TableStorage)> {
+        let Some(pc) = pages.alloc() else { return Err((MmuError::NoTablePage, storage)) };
+        let TableStorage { mut pds, mut pts } = storage;
+        pds.fill(None);
+        pts.fill(None);
+        Ok(Self { pc, pds, pts, flush: 0 })
     }
 
     /// The catalogue's physical address — what the firmware memory context names.
@@ -291,15 +322,21 @@ impl PageTables {
         Ok(())
     }
 
-    /// Frees every table and the catalogue (the context's destruction).
-    pub fn destroy(self, pages: &mut impl TablePages) {
-        for pt in self.pts.iter().flatten() {
+    /// Frees every table and the catalogue (the context's destruction) and hands the slot
+    /// storage back for the next space. The caller MUST send a waited MMU-cache flush before
+    /// the pages are reused.
+    pub fn destroy(self, pages: &mut impl TablePages) -> TableStorage {
+        let Self { pc, mut pds, mut pts, .. } = self;
+        for pt in pts.iter().flatten() {
             pages.free(pt.page);
         }
-        for pd in self.pds.iter().flatten() {
+        for pd in pds.iter().flatten() {
             pages.free(pd.page);
         }
-        pages.free(self.pc);
+        pages.free(pc);
+        pds.fill(None);
+        pts.fill(None);
+        TableStorage { pds, pts }
     }
 
     /// Mapped pages.
@@ -409,6 +446,29 @@ mod tests {
         assert_eq!(pages.freed, vec![2, 1]);
         assert_eq!(pages.word(pc, 0x200 / 2), 0);
         assert_eq!(t.take_flush_flags(), mmucache::LEVEL_2);
+    }
+
+    #[test]
+    fn a_destroyed_space_returns_every_page_and_its_storage_serves_the_next() {
+        let mut pages = Pages::new(16);
+        let mut t = PageTables::new(&mut pages).unwrap();
+        t.map(&mut pages, 0x80_0000_0000, 0x1_0000_0000, UNCACHED).unwrap();
+        t.map(&mut pages, 0xE0_0000_0000, 0x1_0000_1000, UNCACHED).unwrap();
+        assert_eq!(t.table_pages(), 5);
+        let slots = t.pts.as_ptr();
+        let storage = t.destroy(&mut pages);
+        let mut freed = pages.freed.clone();
+        freed.sort_unstable();
+        assert_eq!(freed, vec![0, 1, 2, 3, 4], "the catalogue, two directories, two tables");
+        let mut next = PageTables::new_in(storage, &mut pages).unwrap();
+        assert_eq!(next.pts.as_ptr(), slots, "the same slot storage, nothing new from the heap");
+        assert_eq!((next.table_pages(), next.mapped_pages()), (1, 0), "an empty space");
+        next.map(&mut pages, 0x80_0000_0000, 0x1_0000_0000, UNCACHED).unwrap();
+        assert_eq!(next.mapped_pages(), 1);
+        let mut none = Pages::new(0);
+        let (e, back) = PageTables::new_in(TableStorage::new(), &mut none).unwrap_err();
+        assert_eq!(e, MmuError::NoTablePage);
+        assert_eq!(back.pds.len(), MAX_PDS, "the storage comes back with the refusal");
     }
 
     #[test]

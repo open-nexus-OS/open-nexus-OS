@@ -940,3 +940,114 @@ reused=49 stale=0 heap_bytes=0)`; every other line as in cycle 20.
 **Verdict.** A pass can now be a frame's pass: mixed pipelines and textures, any target of the
 plane's stride, its memory reused as soon as the timeline says the pass that read it is done.
 
+
+## 5c-3 P2a/P2b — memory for many contexts, and several contexts (host 2026-10-16; board cycle 23)
+
+**Question.** The frame wants windowd's own context beside gpud's, and every production GPU
+stack gives each client its own GPU address space and takes everything back when the client
+goes (the operator, 2026-10-16: "production grade, as Fuchsia would do it"). What stood in the
+way, read from the code (ledger "P2 — measured first"): a buffer was a region of gpud's address
+space (64; the render bundle alone took 36), the firmware heap's map a table of 128 ranges, its
+backing pool and the page tables a bump allocator, the free lists' parameter pages CPU-mapped,
+no cleanup command at all, one context whose destruction dropped its client's every buffer. The
+open kernel driver: a VM context (catalogue + firmware memory context, the catalogue register
+set left to the firmware) under each client's contexts; the dataset and the free lists their own
+objects; queues cleaned up first, then the render-target data, then the free lists (a busy free
+list retried after the firmware's messages), the memory context last.
+
+**Instrument.** P2a on the host: a binding is a range of a buffer (`Mapping`, driverkit's
+`Binding.offset`), a buffer is destroyed by its client once nothing binds it, the firmware heap
+is a page bitmap, the page tables hand their slot storage back (`TableStorage`), the cleanup
+command encodes kind and address — the mock and the encoders tested, the rejects named
+(`test_reject_mapping_past_the_buffer`, `test_reject_destroy_bound_bo`,
+`test_reject_free_of_a_page_not_held`). On the board: the scene loader packs a bundle by flag
+class (one CPU-mapped buffer per class, the 8 MiB partial-render scratch the GPU's alone: three
+regions where there were 36); the G1 rungs give their spaces back (`gpud: gpu mmu ok (… freed=)`,
+`gpud: gpu fence ok (… cleanup_us= freed=)`); every render rung draws in the render rung's
+context. P2b: `gpud: gpu contexts ok (rounds=2 contexts=2 samples= refused= both_us= cleanup_us=
+teardown_us= pc_a= pc_b= backing= bos= quarantined= cleanup_busy= heap_delta= shown=)` — the
+rungs' context torn down first, then twice: A (gpud's) and B (a second client) each its own
+catalogue, the render bundle loaded into both at the same addresses, A's target a plane, B's a
+buffer of B's, B's texture the checker with red and blue exchanged, both passes in flight, eight
+samples, nine refusals (A's buffer and context to B, B's context to A, an address only B binds,
+bound buffers not destroyed, a buffer not B's, a context not A's), both torn down; the second
+round also refuses the first round's numbers. Carried from P1: the mixed passes' stages
+(`gpud: gpu mixed ok (… geom_us=a/b frag_us=a/b …)`).
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H51 | The loader's packing draws as the per-buffer binding did: a binding of a range reaches the same pages | every render rung's line as in cycle 22 (fill, quad, render, library, quads, area, pipeline, mixed), their samples right; a fault or a wrong sample names a range |
+| H52 | The firmware lets go of an idle common context, render-target data and free list at the first cleanup | `cleanup_busy=0`; `cleanup_us` of the fence rung about one kernel command's round trip (50–150 µs); a `busy` or `no return` FAIL line names the object |
+| H53 | Pages come back exactly: the firmware pool's bitmap, the zeroed reuse, the flush before reuse | `freed=N/N` in the mmu and fence rungs; `backing=` the G1 baseline after the rungs' teardown and after each round; refuted, a page stays held or a recycled page faults the firmware |
+| H54 | Two contexts with their own catalogues run in flight together, each through its own space | `pc_a != pc_b`, both passes reached, A's four samples in the plane and B's four (the exchanged checker) in its buffer; refuted forms: B's colours in A's plane (one space), A's colours in B's buffer, a firmware page fault (a range missing in B) |
+| H55 | A slot serves again with nothing grown | round 2 refuses round 1's numbers; `heap_delta=0`; `bos=0 quarantined=0` |
+| H56 | Two passes in flight overlap (one's geometry beside the other's fragment) | measured: `both_us` against twice one pass (`gpu render ok` us) |
+| H57 | (from P1) The mixed pass's 7.5 ms sits in one stage | `geom_us` / `frag_us` of each mixed pass; the larger names the next lever |
+
+**Cycle 23 — red, the cause in the kernel** (`board--2026-10-16T16-23-28`, `cycle23-gpu-lines.txt`,
+`cycle23-board-test.txt`; `[FAIL] board-visible` on the rung's FAIL form; the operator: seven of
+eight, the screenshot broken). Every render rung green on the new memory — **H51 confirmed**
+(`fill ok (ns_per_px=0.9)`, `quad ok`, `render ok (us=6007)`, `library ok`, `quads ok`, `area ok`,
+`pipeline ok`, `mixed ok`, the quad rung's context torn down between them); the G1 rungs gave
+their spaces back — `mmu ok (… freed=957/957)`, `fence ok (… cleanup_us=111 freed=957/957)`: the
+firmware let go of the transfer context at the first cleanup (H52's first half, H53 for the
+ladder). Then `gpud: FAIL gpu contexts (round 0: b's target Exhausted)` beside
+`[ERROR vm] VM-MAP-FAIL reason=pte va=0x57600000 mapped_to=0x57600000 err=Overlap` — the same
+line at every screenshot afterwards (`screencapd: deny (reason=readback)`). Read in the kernel:
+an unmap clears the leaves and leaves an emptied level-0 table linked under its level-1 entry
+(`unmap_leaf`: "intermediate table pages are NOT reclaimed"); a later map of 2 MiB or more gets a
+superpage there and `map_2m` refuses the valid table entry as `Overlap`. gpud never gave a buffer
+back before P2; now the rungs' packed buffers go, and the next 8 MiB map in gpud — B's target, the
+frame readback — lands in the span such a buffer held. The fix (operator: give the tables back, as
+Zircon does): the unmap's clear unlinks every table it emptied and retires it with its region,
+the unmap's last phase frees it after the TLB shootdown (CLEAR-SHOOTDOWN-FORGET for the tables);
+a superpage that still meets a table is mapped as 4 KiB leaves into it
+(`mm/page_table/reclaim.rs`, `vm_ops`); `KSELFTEST: vm unmap ok` now also proves both. Also
+measured, **H57 decided**: the mixed passes' time is the geometry stage's — `geom_us=11195/3998
+frag_us=0/0`: the geometry word was reached after 11.2 ms (the first pass, into the plane) and
+4.0 ms (the second, 540 rows down), and the fragment word within the same slice of a millisecond.
+Three draws cost milliseconds before a pixel is shaded: the next lever is the geometry stage of a
+mixed pass (vertex programs' first runs, the state loads, or a partial render on a short free
+list — the next cycle's line names it).
+
+**Results — the board, cycle 24** (`board--2026-10-16T17-04-44`, `cycle24-gpu-lines.txt`,
+`cycle24-board-test.txt`; `[PASS] board-visible`, 64 rungs, the operator's eight confirmations,
+the screenshot saved again — `screencapd: saved (kind=window …)`, no `VM-MAP-FAIL`):
+
+`gpud: gpu contexts ok (rounds=2 contexts=2 samples=16/16 refused=20/20 both_us=11854/11848
+cleanup_us=1656/1487 teardown_us=1282 pc_a=0x6443000 pc_b=0x6445000 backing=957/957 bos=0
+quarantined=0 cleanup_busy=0 heap_delta=0 shown=true)`; `mmu ok (… freed=957/957)`, `fence ok
+(rt_us=83 … cleanup_us=122 freed=957/957)`; every render rung as in cycle 23.
+
+- **H51 confirmed** (cycle 23 already): a range of a packed buffer reaches the pages a buffer of
+  its own did — every render rung's samples right on three regions where there were 36.
+- **H52 confirmed.** The firmware let go of every object at the first cleanup — the transfer
+  queues, both render contexts' common contexts, four render-target data, four free lists in two
+  rounds, the rungs' context before them (`cleanup_busy=0`); a cleanup is one kernel command's
+  round trip (122 µs), a whole render context with its transfer queue and space 0.7–0.8 ms
+  (`cleanup_us=1656/1487` for two).
+- **H53 confirmed.** The firmware pool back to the G1 baseline after the rungs' teardown and after
+  each round (`backing=957/957`), the buffers all destroyed (`bos=0`), nothing quarantined.
+- **H54 confirmed.** Two catalogues (`pc_a=0x6443000`, `pc_b=0x6445000`), both passes in flight,
+  A's four samples in the plane and B's four — the checker with red and blue exchanged — in B's
+  own buffer: the same addresses reached each context's own memory, read and written. Each was
+  refused the other's buffers, contexts and addresses by name (`refused=20/20`: nine a round and
+  the first round's two numbers in the second).
+- **H55 confirmed.** Round 2 on the same slots: the first round's numbers refused, gpud's heap
+  unmoved (`heap_delta=0`) — a context costs gpud's heap nothing after its slot's first use.
+- **H56 refuted.** Two passes in flight took 11.85 ms, twice one pass (`render ok us=6008`): the
+  firmware ran the two contexts' passes one after the other — no overlap to count on; the frame
+  stays one context's passes.
+- **H57 (cycle 23) holds:** the mixed passes' time is the geometry stage's (`geom_us=19443/6836
+  frag_us=0/1`, 26.3 ms this boot against 15.2 ms in cycle 23 — the stage varies by boot); the
+  geometry stage of a mixed pass is the frame's next lever (P4's first cycle names the cause:
+  partial renders on a short free list, the vertex programs' first runs, the state loads).
+- **The kernel fix proven twice:** QEMU `KSELFTEST: vm unmap ok` (smp1, SMP=2, visible lanes) with
+  `reclaimed` and `fallback`, and the board — B's 8 MiB target and every frame readback mapped in
+  gpud after its buffers came and went.
+
+**Verdict.** The device holds several contexts the way the production stacks do: each client its
+own GPU address space and its own firmware objects, refused everything of another's, torn down
+by the firmware's cleanup with every page, buffer and table back — and the kernel gives an
+address space's page tables back with them. Next: P2c (a fault stays in its context), then P3
+(windowd's context over IPC).

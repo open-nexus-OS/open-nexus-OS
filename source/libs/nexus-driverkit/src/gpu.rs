@@ -15,8 +15,9 @@
 //! STATUS: Functional (contract; the device consumer is TASK-0329 G1)
 //! API_STABILITY: Unstable until RFC-0101 Phase 2
 //! TEST_COVERAGE: host (`cargo test -p nexus-driverkit gpu`) — the reject matrix of RFC-0101 §9
-//! INVARIANTS: a binding is page-aligned, non-empty, inside the space and disjoint from every
-//!   other; a lookup resolves a whole range inside ONE binding or nothing.
+//! INVARIANTS: a binding (a range of a buffer: address, length and offset page-aligned) is
+//!   non-empty, inside the space and disjoint from every other; a lookup resolves a whole range
+//!   inside ONE binding or nothing.
 
 /// The three queue kinds of every submit (§2). A device declares which it executes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,19 +140,27 @@ pub enum VmError {
     Unbound,
 }
 
-/// One buffer bound at one address.
+/// A range of one buffer bound at one address: `len` bytes of the buffer from `offset`, at `va`
+/// (a client binds ranges of a few large buffers, as every production GPU stack does).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Binding {
     pub va: GpuVa,
     pub len: u64,
     /// The buffer object, as the device server numbers it.
     pub bo: u32,
+    /// The binding's first byte in the buffer (page-aligned).
+    pub offset: u64,
     pub access: Access,
 }
 
 impl Binding {
     fn end(&self) -> u64 {
         self.va.0.saturating_add(self.len)
+    }
+
+    /// Where `va` (inside the binding) lies in the buffer.
+    pub fn offset_of(&self, va: GpuVa) -> u64 {
+        self.offset + va.0.saturating_sub(self.va.0)
     }
 
     fn overlaps(&self, other: &Binding) -> bool {
@@ -183,7 +192,10 @@ impl<const N: usize> VmSpace<N> {
         if self.page == 0 || binding.len == 0 {
             return Err(VmError::Unaligned);
         }
-        if binding.va.0 % self.page != 0 || binding.len % self.page != 0 {
+        if binding.va.0 % self.page != 0
+            || binding.len % self.page != 0
+            || binding.offset % self.page != 0
+        {
             return Err(VmError::Unaligned);
         }
         if binding.end() > self.limit() || binding.end() < binding.va.0 {
@@ -256,7 +268,7 @@ mod tests {
     }
 
     fn binding(va: u64, len: u64, bo: u32) -> Binding {
-        Binding { va: GpuVa(va), len, bo, access: Access::ReadWrite }
+        Binding { va: GpuVa(va), len, bo, offset: 0, access: Access::ReadWrite }
     }
 
     #[test]
@@ -269,6 +281,17 @@ mod tests {
         assert_eq!(space.bound_bytes(), 0x4000);
         assert_eq!(space.unbind(GpuVa(0x10000)).unwrap().bo, 7);
         assert_eq!(space.unbind(GpuVa(0x10000)), Err(VmError::Unbound));
+    }
+
+    #[test]
+    fn two_ranges_of_one_buffer_resolve_to_their_own_offsets() {
+        let mut space = VmSpace::<4>::new(40, PAGE);
+        space.bind(Binding { offset: 0x3000, ..binding(0x10000, 0x2000, 7) }).unwrap();
+        space.bind(Binding { offset: 0x1000, ..binding(0x80000, 0x1000, 7) }).unwrap();
+        let low = space.resolve(GpuVa(0x11000), 0x10).unwrap();
+        assert_eq!(low.offset_of(GpuVa(0x11008)), 0x4008);
+        let high = space.resolve(GpuVa(0x80000), 0x1000).unwrap();
+        assert_eq!(high.offset_of(GpuVa(0x80010)), 0x1010);
     }
 
     #[test]
@@ -286,6 +309,8 @@ mod tests {
         assert_eq!(space.bind(binding(0x10800, 0x1000, 1)), Err(VmError::Unaligned));
         assert_eq!(space.bind(binding(0x10000, 0x0800, 1)), Err(VmError::Unaligned));
         assert_eq!(space.bind(binding(0x10000, 0, 1)), Err(VmError::Unaligned));
+        let mid_page = Binding { offset: 0x800, ..binding(0x10000, 0x1000, 1) };
+        assert_eq!(space.bind(mid_page), Err(VmError::Unaligned), "a range starts on a page");
     }
 
     #[test]

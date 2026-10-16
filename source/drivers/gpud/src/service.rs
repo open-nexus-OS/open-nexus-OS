@@ -95,16 +95,23 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             crate::gpu::quad::rung(dev, &mut display);
             // TASK-0215 5a (RFC-0101 Phase 4): the render queue — the captured render pass with
             // the render context, free lists and dataset built here: `gpud: gpu render ok (`.
-            crate::gpu::render_quad::rung(dev, &mut display);
-            // TASK-0215 5c-2 P4d (RFC-0101 §7b): the compositor's pipeline library taken for the
-            // context — validated, its programs placed: `gpud: gpu library ok (`.
-            crate::gpu::render_library::rung(dev);
-            // TASK-0215 5b: dynamic geometry — three quads at the device's positions and tints,
-            // the per-draw blocks and records written by the device: `gpud: gpu quads ok (`.
-            crate::gpu::render_quads::rung(dev, &mut display);
-            // TASK-0215 5c-1: the cost of a pass taken apart, one factor at a time — the GPU
-            // cache policy, pixel merging, the render area: `gpud: gpu cost (` lines.
-            crate::gpu::render_cost::rung(dev, &mut display);
+            // Its context serves the render rungs after it.
+            let mut rungs = crate::gpu::render_quad::rung(dev, &mut display);
+            if let Some(rc) = rungs.as_mut() {
+                // TASK-0215 5c-2 P4d (RFC-0101 §7b): the compositor's pipeline library taken for
+                // the context — validated, its programs placed: `gpud: gpu library ok (`.
+                crate::gpu::render_library::rung(dev, rc);
+                // TASK-0215 5b: dynamic geometry — three quads at the device's positions and
+                // tints, the per-draw blocks and records written by the device: `gpud: gpu
+                // quads ok (`.
+                crate::gpu::render_quads::rung(dev, &mut display, rc);
+                // TASK-0215 5c-1: the cost of a pass taken apart, one factor at a time — the GPU
+                // cache policy, pixel merging, the render area: `gpud: gpu cost (` lines.
+                crate::gpu::render_cost::rung(dev, &mut display, rc);
+            }
+            // TASK-0215 5c-3 P2: the rungs' context torn down by the firmware's cleanup, then two
+            // contexts side by side, each its own space and memory: `gpud: gpu contexts ok (`.
+            crate::gpu::render_contexts::rung(dev, &mut display, rungs);
         }
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let clock = {

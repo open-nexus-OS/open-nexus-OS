@@ -82,10 +82,16 @@ pub(super) struct PageTablePage {
     pub(super) entries: [usize; PT_ENTRIES],
 }
 
-/// Three-level Sv39 page table allocating intermediate levels on demand.
+mod reclaim;
+
+/// Three-level Sv39 page table allocating intermediate levels on demand; an unmap that empties
+/// an intermediate table unlinks it and frees it once the TLB shootdown landed ([`reclaim`]).
 pub struct PageTable {
     pub(super) root: NonNull<PageTablePage>,
     owned: Vec<NonNull<PageTablePage>>,
+    /// Intermediate tables an unmap unlinked, each with the region `(va, len)` whose unmap did:
+    /// freed by that unmap's last phase, after its shootdown (CLEAR-SHOOTDOWN-FORGET).
+    retired: Vec<(usize, usize, NonNull<PageTablePage>)>,
     // Pre-SMP contract: page-table mutation remains single-context until SMP VM ownership split.
     _not_send_sync: PhantomData<*mut ()>,
 }
@@ -95,7 +101,7 @@ impl PageTable {
     /// Creates an empty Sv39 page table with a fresh root page.
     pub fn new() -> Self {
         let root = Self::alloc_page();
-        Self { root, owned: vec![root], _not_send_sync: PhantomData }
+        Self { root, owned: vec![root], retired: Vec::new(), _not_send_sync: PhantomData }
     }
 
     /// Returns the physical page number of the root page suitable for SATP.
@@ -283,8 +289,9 @@ impl PageTable {
     ///
     /// Alignment: `va` must be page-aligned; a 2 MiB leaf additionally
     /// requires `va` to be superpage-aligned (v1 unmaps exactly what was
-    /// mapped — no splitting). Intermediate table pages are NOT reclaimed
-    /// (bounded: reused by remaps, freed at address-space destroy).
+    /// mapped — no splitting). An intermediate table this empties stays linked
+    /// here; the unmap's executor retires it ([`Self::retire_empty`]) and frees
+    /// it after the shootdown ([`Self::free_retired`]).
     ///
     /// The caller owns TLB maintenance: this only edits the table.
     pub(crate) fn unmap_leaf(&mut self, va: usize) -> Result<usize, MapError> {

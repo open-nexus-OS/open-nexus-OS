@@ -12,7 +12,7 @@
 //! keep the diagnosis sharp: one quad (data 1), one again (data 0), two, three (the gate):
 //! `gpud: gpu quads ok (n=3 us= samples=3/3)`.
 
-use nexus_driverkit::gpu::{Access, GpuVa};
+use nexus_driverkit::gpu::GpuVa;
 use nexus_gfx::backend::gpu::fwif::GeomCmd;
 use nexus_gfx::backend::gpu::pipelines::Placed;
 use nexus_gfx::backend::gpu::quads::{self, Bump, Placer, Quad, Template};
@@ -26,7 +26,7 @@ use nexus_gfx::backend::v2::{
 use super::device_v2::Device;
 use super::emit;
 use super::render_template::{
-    premultiplied_bgr, render_streams, Captured, PassSink, GENERAL_ARENA, QUADS_TAILS,
+    premultiplied_bgr, render_streams, Captured, PassSink, RungContext, GENERAL_ARENA, QUADS_TAILS,
     SAMPLE_FRACTION, STREAM_BUFFER, VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
@@ -65,7 +65,7 @@ fn probe(
     quads: &[Quad],
     place: &mut dyn Placer,
 ) -> Result<(u64, u32), alloc::string::String> {
-    let mut sink = PassSink { dev: &mut *dev, client, refused: None };
+    let mut sink = PassSink { dev: &mut *dev, client, ctx, refused: None };
     let emitted = match quads::emit(t, pipeline, quads, place, &mut sink) {
         Ok(e) => e,
         Err(e) => {
@@ -101,7 +101,7 @@ fn probe(
         .map_err(|e| alloc::format!("submit {e:?}"))?;
     if !dev.wait_point(point, t0 + PASS_TIMEOUT_NS) {
         dev.gpu.drain_fwccb();
-        let (gw, fw) = dev.render_words().unwrap_or((0, 0));
+        let (gw, fw) = dev.render_words(client, ctx).unwrap_or((0, 0));
         return Err(alloc::format!(
             "pass not done in {}us (point {:#x} geom_word={gw} frag_word={fw} irqs={})",
             now_ns().saturating_sub(t0) / 1000,
@@ -148,9 +148,9 @@ fn probe(
     }
 }
 
-/// The rung: after `gpu render ok`, with the render rung's bindings and objects.
+/// The rung: after `gpu render ok`, in the render rung's context with its objects.
 #[inline(never)]
-pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
+pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display, rc: &mut RungContext) {
     let fail = |what: &str| emit(&alloc::format!("gpud: FAIL gpu quads ({what})"));
     let core = CoreId(dev.gpu.win.core_id());
     let scene = match Scene::parse(BUNDLE, core) {
@@ -160,29 +160,20 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
     let (Some(target), Some(streams)) = (scene.target(), render_streams(&scene)) else {
         return fail("scene without a target or the three render jobs");
     };
-    let client = ClientId(nexus_abi::service_id_from_name(b"gpud"));
-    let ctx = ContextId(1);
-    let captured = match Captured::read(dev, client) {
+    let (client, ctx) = (rc.client, rc.ctx);
+    let captured = match Captured::read(dev, client, ctx) {
         Ok(c) => c,
         Err(e) => return fail(e),
     };
     let template = captured.template(GENERAL_ARENA, VERTEX_BUFFER, STREAM_BUFFER);
-    let pipeline = match dev.pipelines.id_of(LAYER).map(|id| dev.pipelines.get(id)) {
-        Some(Ok(p)) => p.clone(),
-        _ => return fail("the library's premultiplied layer is not in the context"),
+    let Some(pipeline) = dev.pipeline(client, ctx, LAYER) else {
+        return fail("the library's premultiplied layer is not in the context");
     };
     // A fresh plane under the target address.
     let Some(canvas) = display.gpu_canvas() else {
         return fail("no plane of the ring free");
     };
-    if let Err(e) = dev.vm_unbind(client, ctx, GpuVa(target.va)) {
-        display.gpu_canvas_discard(canvas.row);
-        return fail(&alloc::format!("unbind target {e:?}"));
-    }
-    let rebind = dev
-        .adopt_plane(client, canvas.bus, target.len as usize)
-        .and_then(|bo| dev.vm_bind(client, ctx, bo, GpuVa(target.va), Access::ReadWrite));
-    if let Err(e) = rebind {
+    if let Err(e) = rc.scene.retarget(dev, client, ctx, canvas.bus) {
         display.gpu_canvas_discard(canvas.row);
         return fail(&alloc::format!("rebind target {e:?}"));
     }

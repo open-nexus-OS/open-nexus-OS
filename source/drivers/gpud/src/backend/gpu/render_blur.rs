@@ -127,7 +127,7 @@ pub(super) fn descriptor(
     let bytes = descriptor_bytes(image, &Sampler::BILINEAR_CLAMP)
         .map_err(|e| format!("descriptor {}", e.0))?;
     let off = place.place(0, Need::Descriptor).ok_or("no line for a descriptor")?;
-    write_bound(dev, rig.client, GENERAL_ARENA, off, &bytes)?;
+    write_bound(dev, rig.client, rig.ctx, GENERAL_ARENA, off, &bytes)?;
     Ok(GENERAL_ARENA + u64::from(off))
 }
 

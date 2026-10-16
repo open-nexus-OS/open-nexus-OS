@@ -25,7 +25,7 @@
 //! cursor layer found none (the second cycle's first boot). A pass names its pipeline by id;
 //! the pipeline's setup sets the pass type and the setup programs.
 
-use nexus_driverkit::gpu::{Access, GpuVa};
+use nexus_driverkit::gpu::GpuVa;
 use nexus_gfx::backend::gpu::csb::{isp, pbe};
 use nexus_gfx::backend::gpu::fwif::{FragCmd, GeomCmd, RenderFeatures, StreamBytes};
 use nexus_gfx::backend::gpu::pipelines::Placed;
@@ -43,8 +43,8 @@ use super::emit;
 use super::render_blur;
 use super::render_template::{
     clear_bgr, colour_over_clear_bgr, opaque_bgr, premultiplied_bgr, render_streams, straight_bgr,
-    Captured, PassSink, Target, COST_TAILS, GENERAL_ARENA, SAMPLE_FRACTION, STREAM_BUFFER,
-    VERTEX_BUFFER,
+    Captured, PassSink, RungContext, Target, COST_TAILS, GENERAL_ARENA, SAMPLE_FRACTION,
+    STREAM_BUFFER, VERTEX_BUFFER,
 };
 use crate::backend::display::{Display, GpuCanvas};
 
@@ -240,7 +240,7 @@ pub(super) fn run_draws<'p>(
 ) -> Result<Pass, alloc::string::String> {
     let heap_before = nexus_service_entry::os::heap_cursor().1;
     let (client, ctx) = (rig.client, rig.ctx);
-    let mut sink = PassSink { dev: &mut *dev, client, refused: None };
+    let mut sink = PassSink { dev: &mut *dev, client, ctx, refused: None };
     let emitted = match quads::emit_draws(t, n, draw, place, &mut sink) {
         Ok(e) => e,
         Err(e) => {
@@ -270,7 +270,7 @@ pub(super) fn run_draws<'p>(
     let point = dev
         .submit(client, ctx, QueueKind::Render, &batch)
         .map_err(|e| alloc::format!("submit {e:?}"))?;
-    let Some(((gtl, gseq), (ftl, fseq))) = dev.render_progress() else {
+    let Some(((gtl, gseq), (ftl, fseq))) = dev.render_progress(client, ctx) else {
         return Err(alloc::string::String::from("no render objects"));
     };
     let reached = |word: u32, point: u32| word.wrapping_sub(point) < 0x8000_0000;
@@ -435,12 +435,14 @@ fn cost(
     cns
 }
 
-/// The library pipeline of `name`.
-pub(super) fn named(dev: &Device, name: &str) -> Result<Placed, alloc::string::String> {
-    match dev.pipelines.id_of(name).map(|id| dev.pipelines.get(id)) {
-        Some(Ok(p)) => Ok(p.clone()),
-        _ => Err(alloc::format!("{name} is not in the context's library")),
-    }
+/// The library pipeline of `name` in the rig's context.
+pub(super) fn named(
+    dev: &Device,
+    rig: &Rig<'_>,
+    name: &str,
+) -> Result<Placed, alloc::string::String> {
+    dev.pipeline(rig.client, rig.ctx, name)
+        .ok_or_else(|| alloc::format!("{name} is not in the context's library"))
 }
 
 /// The pipeline gate: each probe's library pipeline on a pass limited to its quad, its reads,
@@ -460,7 +462,7 @@ fn pipelines(
     let mut cns = [0u64; 5];
     let mut reads = 0;
     for (i, probe) in probes.iter().enumerate() {
-        let p = match named(dev, probe.name) {
+        let p = match named(dev, rig, probe.name) {
             Ok(p) => p,
             Err(e) => return fail(&e),
         };
@@ -481,7 +483,7 @@ fn pipelines(
         }
         reads += probe.reads.len();
     }
-    let chain = [BLUR_ACROSS, BLUR_DOWN, "layer-rounded"].map(|name| named(dev, name));
+    let chain = [BLUR_ACROSS, BLUR_DOWN, "layer-rounded"].map(|name| named(dev, rig, name));
     let [Ok(across), Ok(down), Ok(rounded)] = chain else {
         let e = chain.into_iter().find_map(Result::err).unwrap_or_default();
         return fail(&e);
@@ -519,9 +521,9 @@ fn pipelines(
     }
 }
 
-/// The rung: after `gpu quads ok`, with the render rung's bindings and objects.
+/// The rung: after `gpu quads ok`, in the render rung's context with its objects.
 #[inline(never)]
-pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
+pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display, rc: &mut RungContext) {
     let fail = |what: &str| emit(&alloc::format!("gpud: FAIL gpu area ({what})"));
     let core = CoreId(dev.gpu.win.core_id());
     let Ok(scene) = Scene::parse(BUNDLE, core) else {
@@ -530,9 +532,8 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
     let (Some(target), Some(base)) = (scene.target(), render_streams(&scene)) else {
         return fail("scene without a target or the three render jobs");
     };
-    let client = ClientId(nexus_abi::service_id_from_name(b"gpud"));
-    let ctx = ContextId(1);
-    let captured = match Captured::read(dev, client) {
+    let (client, ctx) = (rc.client, rc.ctx);
+    let captured = match Captured::read(dev, client, ctx) {
         Ok(c) => c,
         Err(e) => return fail(e),
     };
@@ -540,11 +541,7 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
     let Some(canvas) = display.gpu_canvas() else {
         return fail("no plane of the ring free");
     };
-    let rebind = dev
-        .vm_unbind(client, ctx, GpuVa(target.va))
-        .and_then(|_| dev.adopt_plane(client, canvas.bus, target.len as usize))
-        .and_then(|bo| dev.vm_bind(client, ctx, bo, GpuVa(target.va), Access::ReadWrite));
-    if let Err(e) = rebind {
+    if let Err(e) = rc.scene.retarget(dev, client, ctx, canvas.bus) {
         display.gpu_canvas_discard(canvas.row);
         return fail(&alloc::format!("rebind target {e:?}"));
     }
@@ -554,12 +551,9 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display) {
             nexus_abi::cache_clean(bytes, canvas.block);
         }
     }
-    let area_layer = match dev.pipelines.id_of(AREA_LAYER).map(|id| dev.pipelines.get(id)) {
-        Some(Ok(p)) => p.clone(),
-        _ => {
-            display.gpu_canvas_discard(canvas.row);
-            return fail("the library's premultiplied layer is not in the context");
-        }
+    let Some(area_layer) = dev.pipeline(client, ctx, AREA_LAYER) else {
+        display.gpu_canvas_discard(canvas.row);
+        return fail("the library's premultiplied layer is not in the context");
     };
     let mut place: Bump = COST_TAILS;
     if captured.target().va != target.va {

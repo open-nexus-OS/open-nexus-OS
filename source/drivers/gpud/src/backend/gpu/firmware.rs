@@ -25,12 +25,11 @@ const BLOB: &[u8] =
     include_bytes!("../../../../../../resources/firmware/gpu/rogue_36.29.52.182_v1.fw");
 
 /// Backing pages the firmware needs: code (0x19000) + data (0x5000) = 30, the config slots 3,
-/// the structures about 20, the trace buffer 12, the page table 4 — and room for the contexts
-/// and page tables of the device's address space. Table pages are not returned yet (the pool
-/// is a bump allocator): layer 4's scene and layer 5a's render scene each take about 20, the
-/// render context's two queues 20 more (cycle 1 of 2026-10-14 ran out at 192 — "no memory
-/// for the fragment queue"). Returning pages is the memory lane's.
-pub(super) const BACKING_PAGES: usize = 512;
+/// the structures about 20, the trace buffer 12, the page table 4 — and the contexts': a render
+/// context with its transfer queue holds about 60 (its catalogue, directories and tables, its
+/// memory context, three queues of 11, the render context, the free lists, the dataset). Pages
+/// come back when a context goes (5c-3 P2); 1024 hold the firmware and about fifteen contexts.
+pub(super) const BACKING_PAGES: usize = 1024;
 
 /// Where everything landed.
 pub(super) struct Loaded {
@@ -232,9 +231,9 @@ pub(super) fn load(
     Ok(Loaded {
         boot,
         features,
-        stream: nexus_gfx::backend::gpu::fwif::StreamFeatures::of(&info),
-        render: nexus_gfx::backend::gpu::fwif::RenderFeatures::of(&info),
-        tiles: nexus_gfx::backend::gpu::fwif::TileGeometry::of(&info),
+        stream: nexus_gfx::backend::gpu::fwif::StreamFeatures::of(info),
+        render: nexus_gfx::backend::gpu::fwif::RenderFeatures::of(info),
+        tiles: nexus_gfx::backend::gpu::fwif::TileGeometry::of(info),
         num_clusters,
         sysinit,
         osdata,
@@ -251,6 +250,16 @@ pub(super) fn load(
 }
 
 impl Loaded {
+    /// Unmaps a heap object from the firmware's page table (an object whose cleanup the firmware
+    /// answered); the caller flushes the firmware's MMU cache before the pages are reused.
+    pub(super) fn unmap_object(&self, mem: &mut FwMemory, obj: &HeapObj) {
+        let first = obj.off / mips_boot::PAGE;
+        for heap_page in first..first + obj.len.div_ceil(mips_boot::PAGE) {
+            let (table, index) = mips_boot::pte_slot(heap_page * mips_boot::PAGE);
+            mem.page_write_u32(&self.pt_pages[table], index, 0);
+        }
+    }
+
     /// Maps one more heap object into the firmware's page table (an object allocated after the
     /// load: a context, a client command buffer, a timeline word).
     pub(super) fn map_object(&self, mem: &mut FwMemory, obj: &HeapObj) {

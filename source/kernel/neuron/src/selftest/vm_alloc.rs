@@ -85,22 +85,27 @@ pub(super) fn run_vm_alloc_selftests(
 
     // vm unmap ok: translation gone, and a re-map of the same length
     // returns the SAME va (first-fit reuse — the anti-bump-arena
-    // proof at executor level).
+    // proof at executor level); the tables an unmap empties go back, and a
+    // superpage over a span a table still holds maps as pages (TASK-0215
+    // 5c-3 P2: left linked, that table refused every later large map there).
     let space = sys_ctx.address_spaces.get_mut(handle).expect("as space");
     vm_ops::unmap_range(space, va, vm_len).expect("vm unmap");
     let gone = space.page_table().translate(va).is_none()
         && space.page_table().translate(interior).is_none();
     let va2 = vm_ops::map_range(space, vm_base, vm_len, flags, RegionKind::Vmo, vm_id)
         .expect("vm re-map");
-    if gone && va2 == va {
+    let (reclaimed, fallback) = vm_ops::table_reclaim_probe(space, vm_base, flags);
+    if gone && va2 == va && reclaimed && fallback {
         log_info!(target: "selftest", "KSELFTEST: vm unmap ok");
     } else {
         log_info!(
             target: "selftest",
-            "KSELFTEST: vm unmap FAIL gone={} va=0x{:x} va2=0x{:x}",
+            "KSELFTEST: vm unmap FAIL gone={} va=0x{:x} va2=0x{:x} reclaimed={} fallback={}",
             gone,
             va,
-            va2
+            va2,
+            reclaimed,
+            fallback
         );
     }
 

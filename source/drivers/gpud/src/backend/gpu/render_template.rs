@@ -14,9 +14,18 @@
 use nexus_gfx::backend::gpu::eot;
 use nexus_gfx::backend::gpu::quads::{Bump, Region, Sink, Template};
 use nexus_gfx::backend::gpu::scene::{JobKind, Scene};
-use nexus_gfx::backend::v2::{ClientId, RenderStreams};
+use nexus_gfx::backend::v2::{ClientId, ContextId, RenderStreams};
 
 use super::device_v2::Device;
+use super::scene_load::Loaded;
+
+/// The render rungs' context: its client, its number, the render bundle loaded into it — made by
+/// the render rung, drawn in by the rungs after it, destroyed by the contexts rung (5c-3 P2b).
+pub(crate) struct RungContext {
+    pub client: ClientId,
+    pub ctx: ContextId,
+    pub scene: Loaded,
+}
 
 /// The captured pass's arenas (`docs/board/measurements/2026-10-13-gpu-render-queue/README.md`, 5b).
 pub(super) const GENERAL_ARENA: u64 = 0x80_0004_b000;
@@ -121,22 +130,22 @@ pub(super) fn colour_over_clear_bgr(colour: [f32; 4], a: f32) -> [u8; 3] {
     [mix(colour[2], CLEAR_BGR[0]), mix(colour[1], CLEAR_BGR[1]), mix(colour[0], CLEAR_BGR[2])]
 }
 
-/// Copies `bytes` into the bound buffer at `va + at` and cleans it (CPU → device).
+/// Copies `bytes` into the memory bound at `va + at` in the context and cleans it (CPU →
+/// device).
 pub(super) fn write_bound(
     dev: &mut Device,
     client: ClientId,
+    ctx: ContextId,
     va: u64,
     at: u32,
     bytes: &[u8],
 ) -> Result<(), alloc::string::String> {
-    let bo = dev
-        .bo_at(va, u64::from(at) + bytes.len() as u64)
-        .ok_or_else(|| alloc::format!("{va:#x}+{at:#x} not bound"))?;
-    let view = dev.bo_bytes_mut(client, bo).ok_or("no cpu view")?;
-    let dst =
-        view.get_mut(at as usize..at as usize + bytes.len()).ok_or("write past the buffer")?;
+    let addr = va + u64::from(at);
+    let dst = dev
+        .bound_bytes_mut(client, ctx, addr, bytes.len())
+        .ok_or_else(|| alloc::format!("{va:#x}+{at:#x} not bound to the cpu"))?;
     dst.copy_from_slice(bytes);
-    dev.clean(client, bo);
+    dev.clean_bound(client, ctx, addr, bytes.len());
     Ok(())
 }
 
@@ -145,6 +154,7 @@ pub(super) fn write_bound(
 pub(super) struct PassSink<'a> {
     pub dev: &'a mut Device,
     pub client: ClientId,
+    pub ctx: ContextId,
     pub refused: Option<alloc::string::String>,
 }
 
@@ -156,7 +166,7 @@ impl Sink for PassSink<'_> {
             Region::Stream => (STREAM_BUFFER, offset),
             Region::Vertex => (VERTEX_BUFFER, offset),
         };
-        match write_bound(self.dev, self.client, va, at, bytes) {
+        match write_bound(self.dev, self.client, self.ctx, va, at, bytes) {
             Ok(()) => true,
             Err(e) => {
                 self.refused.get_or_insert(e);
@@ -169,13 +179,12 @@ impl Sink for PassSink<'_> {
 pub(super) fn read_bound(
     dev: &mut Device,
     client: ClientId,
+    ctx: ContextId,
     va: u64,
     at: u32,
     len: usize,
 ) -> Option<alloc::vec::Vec<u8>> {
-    let bo = dev.bo_at(va, u64::from(at) + len as u64)?;
-    let view = dev.bo_bytes_mut(client, bo)?;
-    view.get(at as usize..at as usize + len).map(|s| s.to_vec())
+    dev.bound_bytes_mut(client, ctx, va + u64::from(at), len).map(|s| s.to_vec())
 }
 
 /// A PDS heap offset as an offset into the PDS buffer bound at `bo_va`.
@@ -235,7 +244,7 @@ impl Targets {
     pub(super) fn at(
         &mut self,
         dev: &mut Device,
-        client: ClientId,
+        (client, ctx): (ClientId, ContextId),
         c: &Captured,
         va: u64,
         rows: u32,
@@ -252,8 +261,8 @@ impl Targets {
         }
         let code_heap = (CODE_ARENA - CODE_HEAP_BASE) as u32 + code_at;
         let data = eot::data(&c.pixel_event, code_heap).map_err(|e| alloc::format!("{e:?}"))?;
-        write_bound(dev, client, CODE_ARENA, code_at, &program)?;
-        write_bound(dev, client, PDS_ARENA, pds_at(PDS_ARENA, pds_at_heap), &data)?;
+        write_bound(dev, client, ctx, CODE_ARENA, code_at, &program)?;
+        write_bound(dev, client, ctx, PDS_ARENA, pds_at(PDS_ARENA, pds_at_heap), &data)?;
         (self.code_free, self.pds_free) = (code_at + 64, pds_at_heap + 16);
         let t = Target { va, rows, pixel_event: pds_at_heap };
         self.placed[slot] = Some(t);
@@ -275,20 +284,25 @@ pub(super) struct Captured {
 }
 
 impl Captured {
-    pub(super) fn read(dev: &mut Device, client: ClientId) -> Result<Self, &'static str> {
-        let stream0 = read_bound(dev, client, STREAM_BUFFER, 0, 0x30)
+    pub(super) fn read(
+        dev: &mut Device,
+        client: ClientId,
+        ctx: ContextId,
+    ) -> Result<Self, &'static str> {
+        let stream0 = read_bound(dev, client, ctx, STREAM_BUFFER, 0, 0x30)
             .ok_or("the stream buffer is not bound (the render rung did not run)")?;
         let w: alloc::vec::Vec<u32> =
             stream0.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
-        let vs = read_bound(dev, client, PDS_ARENA, pds_at(PDS_ARENA, VS_PDS_DATA_HEAP as u32), 64)
+        let vs_at = pds_at(PDS_ARENA, VS_PDS_DATA_HEAP as u32);
+        let vs = read_bound(dev, client, ctx, PDS_ARENA, vs_at, 64)
             .ok_or("the PDS arena is not bound")?;
-        let ppp26 = read_bound(dev, client, GENERAL_ARENA, PPP26_OFFSET, 104)
+        let ppp26 = read_bound(dev, client, ctx, GENERAL_ARENA, PPP26_OFFSET, 104)
             .ok_or("the general arena is not bound")?;
         let eot_at = (CODE_HEAP_BASE + EOT_PROGRAM_HEAP - CODE_ARENA) as u32;
-        let eot = read_bound(dev, client, CODE_ARENA, eot_at, eot::PROGRAM_BYTES)
+        let eot = read_bound(dev, client, ctx, CODE_ARENA, eot_at, eot::PROGRAM_BYTES)
             .ok_or("the code arena is not bound")?;
         let pixel_event =
-            read_bound(dev, client, PDS_ARENA, pds_at(PDS_ARENA, PIXEL_EVENT_HEAP), 8)
+            read_bound(dev, client, ctx, PDS_ARENA, pds_at(PDS_ARENA, PIXEL_EVENT_HEAP), 8)
                 .ok_or("the PDS arena is not bound")?;
         let eot_target =
             eot::target(&eot).map_err(|_| "the end-of-tile program is not the captured one")?;

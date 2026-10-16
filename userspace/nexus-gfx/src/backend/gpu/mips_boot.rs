@@ -195,22 +195,22 @@ pub enum HeapError {
     Unaligned,
     /// A fixed placement overlaps an existing one or leaves the heap.
     Overlap,
-    /// No free range fits.
+    /// No free run of pages fits.
     Full,
-    /// The table of ranges is full.
-    TableFull,
 }
 
-/// Ranges the map holds: the firmware's objects (about 15), the transfer context (5), the render
-/// context with its two queues (9), the free lists and the dataset (5) — each small object its own
-/// page (cycle 2 of 2026-10-14 hit the table's end at 32: "no memory for the fragment queue").
-const MAX_RANGES: usize = 128;
+/// The heap in pages (16 MiB of 4 KiB).
+const HEAP_PAGES: usize = (HEAP_SIZE / PAGE) as usize;
+/// The pages first fit hands out: below the reservation and the config heap.
+const USABLE_PAGES: usize = (HEAP_USABLE / PAGE) as usize;
 
 /// The heap's map: fixed placements (code at 0, data at the private-data section's offset,
-/// the three config slots) and first-fit page allocations below the config heap. Pure.
+/// the three config slots) and first-fit page runs below the config heap — one bit a page,
+/// no table of ranges to run out of (a render context holds about twenty objects, and the
+/// 128-range table of 5a held four contexts; TASK-0215 5c-3 P2). Pure.
 #[derive(Clone, Debug)]
 pub struct HeapMap {
-    ranges: [Option<(u32, u32)>; MAX_RANGES],
+    used: [u64; HEAP_PAGES / 64],
 }
 
 impl Default for HeapMap {
@@ -222,25 +222,25 @@ impl Default for HeapMap {
 impl HeapMap {
     /// An empty map with the three config slots reserved.
     pub fn new() -> Self {
-        let mut m = Self { ranges: [None; MAX_RANGES] };
+        let mut m = Self { used: [0; HEAP_PAGES / 64] };
         for off in [CONNECTION_CTL_OFFSET, OSINIT_OFFSET, SYSINIT_OFFSET] {
             let _ = m.reserve(off, CONFIG_SLOT);
         }
         m
     }
 
-    fn overlaps(&self, start: u32, len: u32) -> bool {
-        let end = start as u64 + len as u64;
-        self.ranges
-            .iter()
-            .flatten()
-            .any(|&(s, l)| (s as u64) < end && (start as u64) < s as u64 + l as u64)
+    fn held(&self, page: usize) -> bool {
+        (self.used[page / 64] >> (page % 64)) & 1 == 1
     }
 
-    fn insert(&mut self, start: u32, len: u32) -> Result<(), HeapError> {
-        let slot = self.ranges.iter_mut().find(|r| r.is_none()).ok_or(HeapError::TableFull)?;
-        *slot = Some((start, len));
-        Ok(())
+    fn mark(&mut self, first: usize, count: usize, held: bool) {
+        for p in first..first + count {
+            if held {
+                self.used[p / 64] |= 1 << (p % 64);
+            } else {
+                self.used[p / 64] &= !(1 << (p % 64));
+            }
+        }
     }
 
     /// Reserves `len` bytes at the fixed `offset` (page-aligned both).
@@ -248,10 +248,15 @@ impl HeapMap {
         if len == 0 || offset % PAGE != 0 || len % PAGE != 0 {
             return Err(HeapError::Unaligned);
         }
-        if (offset as u64 + len as u64) > HEAP_SIZE as u64 || self.overlaps(offset, len) {
+        if offset as u64 + len as u64 > HEAP_SIZE as u64 {
             return Err(HeapError::Overlap);
         }
-        self.insert(offset, len)
+        let (first, count) = ((offset / PAGE) as usize, (len / PAGE) as usize);
+        if (first..first + count).any(|p| self.held(p)) {
+            return Err(HeapError::Overlap);
+        }
+        self.mark(first, count, true);
+        Ok(())
     }
 
     /// First-fit allocation of `len` bytes (rounded up to pages) below the config heap and
@@ -260,46 +265,38 @@ impl HeapMap {
         if len == 0 {
             return Err(HeapError::Unaligned);
         }
-        let len = len.div_ceil(PAGE) * PAGE;
-        let mut cursor = 0u32;
-        loop {
-            if cursor as u64 + len as u64 > HEAP_USABLE as u64 {
-                return Err(HeapError::Full);
-            }
-            // The lowest range that overlaps the candidate pushes the cursor past it.
-            let bump = self
-                .ranges
-                .iter()
-                .flatten()
-                .filter(|&&(s, l)| {
-                    (s as u64) < cursor as u64 + len as u64 && (cursor as u64) < s as u64 + l as u64
-                })
-                .map(|&(s, l)| s + l)
-                .min();
-            match bump {
-                Some(next) => cursor = next,
+        let count = len.div_ceil(PAGE) as usize;
+        let mut first = 0;
+        while first + count <= USABLE_PAGES {
+            // The highest held page of the candidate run pushes the start past it.
+            match (first..first + count).rev().find(|&p| self.held(p)) {
+                Some(held) => first = held + 1,
                 None => {
-                    self.insert(cursor, len)?;
-                    return Ok(cursor);
+                    self.mark(first, count, true);
+                    return Ok(first as u32 * PAGE);
                 }
             }
         }
+        Err(HeapError::Full)
     }
 
-    /// Frees the range that starts at `offset`.
-    pub fn free(&mut self, offset: u32) -> bool {
-        match self.ranges.iter_mut().find(|r| r.is_some_and(|(s, _)| s == offset)) {
-            Some(slot) => {
-                *slot = None;
-                true
-            }
-            None => false,
+    /// Frees the `len` bytes (page-rounded) at `offset`; refused, changing nothing, unless every
+    /// page of them is held.
+    pub fn free(&mut self, offset: u32, len: u32) -> bool {
+        if len == 0 || offset % PAGE != 0 {
+            return false;
         }
+        let (first, count) = ((offset / PAGE) as usize, len.div_ceil(PAGE) as usize);
+        if first + count > HEAP_PAGES || (first..first + count).any(|p| !self.held(p)) {
+            return false;
+        }
+        self.mark(first, count, false);
+        true
     }
 
     /// Bytes held.
     pub fn used(&self) -> u32 {
-        self.ranges.iter().flatten().map(|&(_, l)| l).sum()
+        self.used.iter().map(|w| w.count_ones()).sum::<u32>() * PAGE
     }
 }
 
@@ -364,10 +361,42 @@ mod tests {
         assert_eq!(m.alloc(0x19000), Ok(0x19000));
         // The next page goes after the data region.
         assert_eq!(m.alloc(0x1000), Ok(0x37000));
-        assert!(m.free(0x19000));
+        assert!(m.free(0x19000, 0x19000));
         assert_eq!(m.alloc(0x1000), Ok(0x19000), "a freed range is reused");
         assert_eq!(m.alloc(0), Err(HeapError::Unaligned));
         assert_eq!(m.alloc(HEAP_USABLE), Err(HeapError::Full));
+    }
+
+    #[test]
+    fn the_map_holds_every_page_and_returns_them() {
+        let mut m = HeapMap::new();
+        let config = m.used();
+        assert_eq!(config, 3 * CONFIG_SLOT);
+        // Far more objects than the 128-range table held: every usable page, one by one.
+        let pages = HEAP_USABLE / PAGE;
+        for i in 0..pages {
+            assert_eq!(m.alloc(4), Ok(i * PAGE));
+        }
+        assert_eq!(m.alloc(4), Err(HeapError::Full), "the reservation stays free");
+        assert!(m.free(0x5000, 3 * PAGE));
+        assert_eq!(m.alloc(2 * PAGE + 1), Ok(0x5000), "a freed run takes a run that fits");
+        assert_eq!(m.alloc(PAGE), Err(HeapError::Full));
+        for i in 0..pages {
+            assert!(m.free(i * PAGE, 4));
+        }
+        assert_eq!(m.used(), config, "everything back but the config slots");
+    }
+
+    #[test]
+    fn test_reject_free_of_a_page_not_held() {
+        let mut m = HeapMap::new();
+        let at = m.alloc(2 * PAGE).unwrap();
+        assert!(!m.free(at + PAGE, 2 * PAGE), "half of it is not held");
+        assert!(!m.free(at + 8, PAGE), "not a page start");
+        assert!(!m.free(at, 0));
+        assert!(m.free(at, 2 * PAGE));
+        assert!(!m.free(at, 2 * PAGE), "freed once only");
+        assert!(!m.free(HEAP_SIZE - PAGE, 2 * PAGE), "outside the heap");
     }
 
     #[test]

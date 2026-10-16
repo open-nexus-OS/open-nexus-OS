@@ -132,12 +132,13 @@ pub(crate) fn fence_asid(asid: crate::types::Asid) {
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
 pub(crate) fn fence_asid(_asid: crate::types::Asid) {}
 
-/// Phase A of an unmap: validate `(va, len)` and clear its PTEs. The region
-/// STAYS recorded — its va must not become reusable before the TLB
-/// shootdown lands (CLEAR-SHOOTDOWN-FORGET). The syscall shell runs the
-/// shootdown with the BKL DROPPED (phased like VMO_CREATE; a BKL-held
-/// shootdown wait tripped the 10ms `bkl budget ok` gate at SMP≥2), then
-/// calls [`forget_range`].
+/// Phase A of an unmap: validate `(va, len)` and clear its PTEs; each
+/// intermediate table that emptied is unlinked and retired with the region.
+/// The region STAYS recorded and the retired tables stay allocated — neither
+/// its va nor a table page may be reused before the TLB shootdown lands
+/// (CLEAR-SHOOTDOWN-FORGET). The syscall shell runs the shootdown with the
+/// BKL DROPPED (phased like VMO_CREATE; a BKL-held shootdown wait tripped the
+/// 10ms `bkl budget ok` gate at SMP≥2), then calls [`forget_range`].
 pub fn clear_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<(), VmOpError> {
     let region = space.va_space().peek_exact(va, len).map_err(VmOpError::Va)?;
     let end = region.va + region.len;
@@ -151,12 +152,22 @@ pub fn clear_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<()
             Err(_) => cursor += PAGE_SIZE,
         }
     }
+    // The tables the clear emptied (a level-0 table per 2 MiB span the region
+    // touched, the level-1 table above when nothing is left under it): left
+    // linked, a later superpage over the span was refused as `Overlap`.
+    let mut span = region.va & !(SUPERPAGE - 1);
+    while span < end {
+        space.page_table_mut().retire_empty(span, (region.va, region.len));
+        span += SUPERPAGE;
+    }
     Ok(())
 }
 
-/// Phase C: forget the region after the shootdown completed. Idempotent-ish
-/// by construction: phase A peeked the same arguments.
+/// Phase C: after the shootdown completed, free the tables phase A retired
+/// and forget the region. Idempotent-ish by construction: phase A peeked the
+/// same arguments.
 pub fn forget_range(space: &mut AddressSpace, va: usize, len: usize) {
+    space.page_table_mut().free_retired((va, len));
     let _ = space.va_space_mut().remove_exact(va, len);
 }
 
@@ -202,6 +213,50 @@ pub fn leaf_span_at(space: &AddressSpace, va: usize) -> Option<usize> {
     None
 }
 
+/// The selftest oracle for the tables an unmap gives back, on a 2 MiB span of
+/// `space`'s window no region uses (direct table edits, nothing recorded): a
+/// lone 4 KiB leaf mapped and unmapped, its emptied tables retired and freed
+/// after a shootdown, the table pages as before (`reclaimed`); then a leaf
+/// left behind empty as a failed map leaves one, a superpage over the span
+/// from the 2 MiB-aligned page inside `[pa, pa + 4 MiB)` mapped as 4 KiB
+/// leaves into it, translating, and given back (`fallback`).
+#[must_use]
+pub fn table_reclaim_probe(space: &mut AddressSpace, pa: usize, flags: PageFlags) -> (bool, bool) {
+    // 256 MiB into the window: far past every region the selftest maps.
+    let span = (super::USER_VM_WINDOW_BASE + 128 * SUPERPAGE) & !(SUPERPAGE - 1);
+    let region = (span, PAGE_SIZE);
+    let pa_2m = (pa + SUPERPAGE - 1) & !(SUPERPAGE - 1);
+    let pt = space.page_table_mut();
+    let before = pt.allocated_pages();
+    let mapped = pt.map(span, pa, flags).is_ok() && pt.allocated_pages() > before;
+    let unmapped = pt.unmap_leaf(span) == Ok(PAGE_SIZE);
+    let retired = pt.retire_empty(span, region);
+    crate::smp::tlb::shootdown_all();
+    pt.free_retired(region);
+    let reclaimed = mapped
+        && unmapped
+        && retired >= 1
+        && pt.allocated_pages() == before
+        && pt.retired_tables() == 0;
+    // A table left behind under the span, as a failed map's rollback leaves it.
+    let left = pt.map(span, pa, flags).is_ok() && pt.unmap_leaf(span).is_ok();
+    let paged = pt.map_span(span, pa_2m, flags) == Ok(PAGE_SIZE);
+    let translates = pt.translate(span + 5 * PAGE_SIZE + 8) == Some(pa_2m + 5 * PAGE_SIZE + 8);
+    let mut cleared = 0;
+    for i in 0..super::page_table::PT_ENTRIES {
+        cleared += usize::from(pt.unmap_leaf(span + i * PAGE_SIZE).is_ok());
+    }
+    pt.retire_empty(span, region);
+    crate::smp::tlb::shootdown_all();
+    pt.free_retired(region);
+    let fallback = left
+        && paged
+        && translates
+        && cleared == super::page_table::PT_ENTRIES
+        && pt.allocated_pages() == before;
+    (reclaimed, fallback)
+}
+
 fn execute_plan(
     space: &mut AddressSpace,
     va: usize,
@@ -216,7 +271,8 @@ fn execute_plan(
         while off < chunk.len {
             let (cva, cpa) = (chunk.va + off, chunk.pa + off);
             if chunk.superpage {
-                space.page_table_mut().map_2m(cva, cpa, flags)?;
+                // One leaf, or 4 KiB leaves where a table already sits under the span.
+                space.page_table_mut().map_span(cva, cpa, flags)?;
             } else {
                 space.page_table_mut().map(cva, cpa, flags)?;
             }

@@ -65,11 +65,13 @@ impl KccbCmd {
         c
     }
 
-    /// `CLEANUP` of a firmware common context.
-    pub fn cleanup_common_context(context_fw_addr: u32) -> Self {
+    /// `CLEANUP` of the firmware object of `kind` ([`super::cleanup`]) at `fw_addr`: the
+    /// firmware lets go of it — or answers busy in the return slot while it still holds work
+    /// on it (the open kernel driver's `pvr_fw_structure_cleanup`).
+    pub fn cleanup(kind: u32, fw_addr: u32) -> Self {
         let mut c = Self::empty(kccb::CLEANUP);
-        c.data[0..4].copy_from_slice(&0u32.to_le_bytes()); // ROGUE_FWIF_CLEANUP_FWCOMMONCONTEXT
-        c.data[4..8].copy_from_slice(&context_fw_addr.to_le_bytes());
+        c.data[0..4].copy_from_slice(&kind.to_le_bytes());
+        c.data[4..8].copy_from_slice(&fw_addr.to_le_bytes());
         c
     }
 

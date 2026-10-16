@@ -14,13 +14,14 @@
 //! supply over IPC arrives with windowd's own context (5c-3).
 
 use nexus_gfx::backend::gpu::pipelines::{Heaps, Loaded};
-use nexus_gfx::backend::v2::{ClientId, GfxDevice};
+use nexus_gfx::backend::v2::{ClientId, ContextId, GfxDevice};
 use nexus_gfx::shader::library::feature;
 
 use super::device_v2::Device;
 use super::emit;
 use super::render_template::{
-    pds_at, write_bound, CODE_ARENA, CODE_HEAP_BASE, LIBRARY_CODE, LIBRARY_PDS, PDS_ARENA,
+    pds_at, write_bound, RungContext, CODE_ARENA, CODE_HEAP_BASE, LIBRARY_CODE, LIBRARY_PDS,
+    PDS_ARENA,
 };
 
 const LIBRARY: &[u8] = include_bytes!("../../../../../../resources/gpu/pipelines/compositor.nxgp");
@@ -33,6 +34,7 @@ const LINE: u32 = 64;
 struct Bound<'a> {
     dev: &'a mut Device,
     client: ClientId,
+    ctx: ContextId,
     /// The next free code arena offset and setup heap offset.
     code: u32,
     pds: u32,
@@ -45,7 +47,7 @@ impl Heaps for Bound<'_> {
         if end > LIBRARY_CODE.1 {
             return None;
         }
-        write_bound(self.dev, self.client, CODE_ARENA, at, bytes).ok()?;
+        write_bound(self.dev, self.client, self.ctx, CODE_ARENA, at, bytes).ok()?;
         self.code = end;
         Some((CODE_ARENA - CODE_HEAP_BASE) as u32 + at)
     }
@@ -56,27 +58,33 @@ impl Heaps for Bound<'_> {
         if end > LIBRARY_PDS.1 {
             return None;
         }
-        write_bound(self.dev, self.client, PDS_ARENA, pds_at(PDS_ARENA, at), bytes).ok()?;
+        write_bound(self.dev, self.client, self.ctx, PDS_ARENA, pds_at(PDS_ARENA, at), bytes)
+            .ok()?;
         self.pds = end;
         Some(at)
     }
 }
 
-/// The rung: after `gpu render ok`, with the render rung's bindings.
+/// The rung: after `gpu render ok`, in the render rung's context.
 #[inline(never)]
-pub(crate) fn rung(dev: &mut Device) {
-    let client = ClientId(nexus_abi::service_id_from_name(b"gpud"));
+pub(crate) fn rung(dev: &mut Device, rc: &RungContext) {
+    let (client, ctx) = (rc.client, rc.ctx);
     let target = dev.capabilities().gpu_code_target.0;
-    let mut table = core::mem::take(&mut dev.pipelines);
+    let mut table = match dev.take_pipelines(client, ctx) {
+        Ok(t) => t,
+        Err(e) => return emit(&alloc::format!("gpud: FAIL gpu library (context {e:?})")),
+    };
     // What the table keeps of gpud's heap, which never frees: each pipeline's placement and
     // setup, no program decoded into memory.
     let heap_before = nexus_service_entry::os::heap_cursor().1;
     let loaded = {
-        let mut heaps = Bound { dev, client, code: LIBRARY_CODE.0, pds: LIBRARY_PDS.0 };
+        let mut heaps = Bound { dev, client, ctx, code: LIBRARY_CODE.0, pds: LIBRARY_PDS.0 };
         table.load(LIBRARY, target, FEATURES, &mut heaps)
     };
     let table_bytes = nexus_service_entry::os::heap_cursor().1.saturating_sub(heap_before);
-    dev.pipelines = table;
+    if let Err(e) = dev.set_pipelines(client, ctx, table) {
+        return emit(&alloc::format!("gpud: FAIL gpu library (context {e:?})"));
+    }
     match loaded {
         Ok(Loaded { accepted, refused, code_bytes, setup_bytes }) if refused.is_empty() => {
             let ids =

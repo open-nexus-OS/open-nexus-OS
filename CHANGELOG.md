@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-16 (Block 4, layer 5c-3 P2a/P2b: memory for many contexts, several contexts — TASK-0215, RFC-0101 §1/§3)
+
+- **Several GPU contexts on the board**, each its own GPU address space (a page catalogue and the
+  firmware memory context naming it), its transfer queue on first use and its render objects,
+  numbered by slot and generation; points carry their context. A context goes in the open kernel
+  driver's order by the firmware's cleanup (`KCCB CLEANUP`: common contexts, render-target data,
+  free lists; busy asked again after the next interrupt) before any of its memory is reused; when
+  the firmware will not let go, the slot is quarantined and nothing is freed.
+- **Buffers bound in ranges** (`Mapping { bo, offset, len, va, access }`, driverkit
+  `Binding.offset`), destroyed by their client once nothing binds them (`destroy_bo`), and
+  `GpuPrivate` buffers that are the GPU's alone — no region of gpud's address space. The scene
+  loader packs a bundle by flag class: the render bundle costs three regions instead of 36.
+- **Everything a context held comes back**: the firmware heap is a page bitmap (no range table to
+  run out of), its backing pool and the GPU page tables return pages (recycled pages zeroed), the
+  tables' slot storage is kept per context slot — gpud's heap does not grow per context.
+- The board rung `gpud: gpu contexts ok (…)` (board ladder 64 rungs): two clients' contexts drawing
+  side by side through the same addresses into their own memory, each refused the other's
+  buffers, contexts and addresses, both torn down with every page back, twice; `gpu mmu ok` and
+  `gpu fence ok` now give their spaces back (`freed=`, `cleanup_us=`); `gpu mixed ok` splits its
+  passes' stages. Board cycles 23 (red on a kernel defect, below) and 24 (`[PASS] board-visible`).
+
+### Fixed - 2026-10-16 (kernel: page tables an unmap empties)
+
+- An unmap left the page table it emptied linked under its level-1 entry, and every later
+  superpage over that 2 MiB span was refused (`VM-MAP-FAIL reason=pte … Overlap`) — on the board,
+  once gpud gave buffers back, every frame readback (the screenshot) and the contexts rung's
+  target. The unmap's clear now unlinks each emptied table and retires it with its region; the
+  unmap's last phase frees it after the TLB shootdown; a superpage that still meets a table is
+  mapped as 4 KiB leaves into it (`mm/page_table/reclaim.rs`; `KSELFTEST: vm unmap ok` proves
+  both).
+
 ### Added - 2026-10-16 (Block 4, layer 5c-3 P1: the mixed pass — TASK-0215, RFC-0101 §8d)
 
 - **A pass of mixed draws** (`nexus_gfx::backend::gpu::quads::emit_draws`, `Draw`): each draw its
