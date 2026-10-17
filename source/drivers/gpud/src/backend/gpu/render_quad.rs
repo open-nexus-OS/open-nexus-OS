@@ -27,7 +27,7 @@ const BUNDLE: &[u8] = include_bytes!("../../../../../../resources/gpu/scenes/ren
 const PASS_TIMEOUT_NS: u64 = 2_000_000_000;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
-const STRIDE: usize = 7680;
+pub(super) const STRIDE: usize = 7680;
 /// Sample pixels (x, y, expected memory bytes B, G, R): the clear (0.10, 0.12, 0.16); the
 /// texture's white frame blended at alpha 252/255; checker (40,90,200) at alpha 215/255;
 /// checker (230,120,30) at alpha 188/255 — `docs/board/measurements/2026-10-13-gpu-render-queue/`.
@@ -137,7 +137,7 @@ fn pass(
         .submit(client, ctx, QueueKind::Render, &batch)
         .map_err(|e| alloc::format!("submit {e:?}"))?;
     if !dev.wait_point(point, t0 + PASS_TIMEOUT_NS) {
-        dev.gpu.drain_fwccb();
+        dev.serve_firmware();
         let (gw, fw) = dev.render_words(client, ctx).unwrap_or((0, 0));
         return Err(alloc::format!(
             "pass not done in {}us (point {:#x} geom_word={gw} frag_word={fw} irqs={})",

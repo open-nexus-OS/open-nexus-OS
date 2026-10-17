@@ -112,6 +112,10 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             // TASK-0215 5c-3 P2: the rungs' context torn down by the firmware's cleanup, then two
             // contexts side by side, each its own space and memory: `gpud: gpu contexts ok (`.
             crate::gpu::render_contexts::rung(dev, &mut display, rungs);
+            // TASK-0215 5c-3 P2c: a fault stays in its context — the context whose work writes
+            // an address its space no longer maps is lost alone, the others draw on, a fresh
+            // one draws after it: `gpud: gpu containment ok (`.
+            crate::gpu::render_containment::rung(dev, &mut display);
         }
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let clock = {
@@ -141,7 +145,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         #[cfg(all(feature = "os-lite", target_os = "none"))]
         let mut gpu_wake = || {
             if let Some(g) = gpu.as_mut() {
-                g.gpu.on_wake();
+                g.on_wake();
             }
         };
         #[cfg(all(feature = "os-lite", target_os = "none"))]

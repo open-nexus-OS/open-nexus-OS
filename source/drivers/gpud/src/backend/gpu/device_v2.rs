@@ -8,10 +8,12 @@
 //! through the context's page tables with the waited MMU-cache flush; a transfer submit is one
 //! transfer command plus the timeline `UPDATE` in the context's transfer queue, a render submit
 //! one pass on the context's render objects; one kick, one interrupt, one point. The device
-//! numbers the points (the firmware writes the sequence); `reached` reads the word. Every
-//! refusal is by name: a queue kind the device does not execute, the tree's command vocabulary,
-//! a cache mode M2 has not brought, a stream the decoder refused, a reference outside the
-//! context's space, a buffer still bound, a context that is not the client's.
+//! numbers the points (the firmware writes the sequence); `reached` reads the word. The
+//! firmware's messages are served wherever the device waits (5c-3 P2c, [`super::recovery`]): a
+//! fault loses the context it is held against, the others run on. Every refusal is by name: a
+//! queue kind the device does not execute, the tree's command vocabulary, a cache mode M2 has
+//! not brought, a stream the decoder refused, a reference outside the context's space, a buffer
+//! still bound, a context that is not the client's, a context the device lost.
 
 use alloc::boxed::Box;
 
@@ -30,11 +32,12 @@ use nexus_gfx::backend::v2::{
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 
 use super::bos::{Backing, Bo, Bos};
-use super::contexts::{Contexts, Holdings, Slot, MAX_CONTEXTS, RENDER, TRANSFER};
+use super::contexts::{Contexts, Holdings, Recovered, Slot, MAX_CONTEXTS, RENDER, TRANSFER};
 use super::device::{Gpu, Tables};
 use super::gpu_vmo::GpuVmo;
 use super::job::Queue;
 use super::memory::HeapObj;
+use super::recovery;
 use super::render::Render;
 
 /// The device: the G1 state plus G2's bookkeeping.
@@ -96,7 +99,8 @@ impl Device {
         ctx: ContextId,
         setup: &RenderSetup<'_>,
     ) -> Result<(), DeviceError> {
-        let slot = self.contexts.live(client, ctx)?;
+        let index = self.contexts.find(client, ctx)?;
+        let slot = self.contexts.running(client, ctx)?;
         if slot.render.is_some() {
             return Err(DeviceError::Exhausted);
         }
@@ -106,34 +110,17 @@ impl Device {
             slot.space.resolve(GpuVa(fl.gpu_addr), fl.list_bytes() as u64)?;
         }
         let fw_mem_ctx = slot.mmu.as_ref().ok_or(DeviceError::Lost)?.fw_mem_ctx.fw_addr();
-        let render =
-            Render::create(&mut self.gpu, setup, tiles, fw_mem_ctx, ctx.0, slot.fw_priority())?;
+        let ids = Slot::freelist_ids(ctx);
+        let priority = slot.fw_priority();
+        let render = Render::create(&mut self.gpu, setup, tiles, fw_mem_ctx, ctx.0, priority, ids)?;
+        slot.render = Some(render);
         let block = self.gpu.mem.block();
-        let bos = &mut self.bos;
-        let space = &slot.space;
-        let written = (0..2).all(|list| {
-            render.entries(list, |args, index, value| {
-                let va = GpuVa(args.gpu_addr + u64::from(index) * 4);
-                let Ok(b) = space.resolve(va, 4) else { return false };
-                let at = b.offset_of(va) as usize;
-                match bos.get_mut(client, BoId(b.bo)).ok().and_then(|bo| bo.bytes_mut(at, 4)) {
-                    Some(dst) => {
-                        dst.copy_from_slice(&value.to_le_bytes());
-                        if block != 0 {
-                            nexus_abi::cache_clean(dst, block);
-                        }
-                        true
-                    }
-                    None => false,
-                }
-            })
-        });
+        let written = (0..2).all(|list| slot.write_entries(&mut self.bos, list, block));
         if !written {
             // The firmware never ran on them: their cleanup answers at once.
-            let _ = render.destroy(&mut self.gpu);
+            let _ = self.contexts.drop_render(index, &mut self.gpu, &mut self.bos);
             return Err(DeviceError::Vm(VmError::Unbound));
         }
-        slot.render = Some(render);
         Ok(())
     }
 
@@ -204,10 +191,47 @@ impl Device {
         Some(self.contexts.get(client, ctx).ok()?.mmu.as_ref()?.root_phys())
     }
 
-    /// Waits for `point` with the device's interrupt-ended slices.
+    /// Waits until `done` holds or `deadline_ns` passes, in the device's interrupt-ended slices,
+    /// the firmware's messages served before each look (a reset may lose a context, whose points
+    /// then count as reached; a reconstruction is answered while the device waits).
+    pub(super) fn wait_until(
+        &mut self,
+        deadline_ns: u64,
+        mut done: impl FnMut(&Gpu, &Contexts) -> bool,
+    ) -> bool {
+        let Self { gpu, bos, contexts } = self;
+        gpu.wait_until(deadline_ns, |g| {
+            recovery::serve(g, contexts, bos);
+            done(g, contexts)
+        })
+    }
+
+    /// Waits for `point` ([`Self::wait_until`]).
     pub(super) fn wait_point(&mut self, point: TimelinePoint, deadline_ns: u64) -> bool {
-        let contexts = &self.contexts;
-        self.gpu.wait_until(deadline_ns, |g| contexts.reached(g, point))
+        self.wait_until(deadline_ns, |g, contexts| contexts.reached(g, point))
+    }
+
+    /// Serves what the firmware has written ([`recovery::serve`]): a rung after its pass, the
+    /// teardown, the service loop on the GPU's interrupt.
+    pub(crate) fn serve_firmware(&mut self) {
+        recovery::serve(&mut self.gpu, &mut self.contexts, &mut self.bos);
+    }
+
+    /// The service loop's wake on the GPU's endpoint: the interrupt taken, the firmware served.
+    pub(crate) fn on_wake(&mut self) {
+        if self.gpu.take_wake() {
+            self.serve_firmware();
+        }
+    }
+
+    /// What the device did about the firmware's recovery so far.
+    pub(super) fn recovered(&self) -> Recovered {
+        self.contexts.recovered
+    }
+
+    /// Whether `client`'s context `ctx` is lost (a fault was held against it).
+    pub(super) fn lost(&self, client: ClientId, ctx: ContextId) -> bool {
+        self.contexts.lost(client, ctx)
     }
 
     /// The pipeline table of `client`'s context, taken out to be filled (the library's heaps
@@ -217,7 +241,7 @@ impl Device {
         client: ClientId,
         ctx: ContextId,
     ) -> Result<PipelineTable, DeviceError> {
-        Ok(core::mem::take(&mut self.contexts.live(client, ctx)?.pipelines))
+        Ok(core::mem::take(&mut self.contexts.running(client, ctx)?.pipelines))
     }
 
     pub(super) fn set_pipelines(
@@ -226,7 +250,7 @@ impl Device {
         ctx: ContextId,
         table: PipelineTable,
     ) -> Result<(), DeviceError> {
-        self.contexts.live(client, ctx)?.pipelines = table;
+        self.contexts.get_mut(client, ctx)?.pipelines = table;
         Ok(())
     }
 
@@ -314,7 +338,7 @@ impl GfxDevice for Device {
     }
 
     fn vm_bind(&mut self, client: ClientId, ctx: ContextId, m: Mapping) -> Result<(), DeviceError> {
-        let slot = self.contexts.live(client, ctx)?;
+        let slot = self.contexts.running(client, ctx)?;
         let b = self.bos.get(client, m.bo)?;
         let end = m.offset.checked_add(m.len).ok_or(VmError::OutOfRange)?;
         if end > b.len as u64 {
@@ -366,7 +390,7 @@ impl GfxDevice for Device {
         ctx: ContextId,
         va: GpuVa,
     ) -> Result<(), DeviceError> {
-        let slot = self.contexts.live(client, ctx)?;
+        let slot = self.contexts.get_mut(client, ctx)?;
         let binding = slot.space.unbind(va)?;
         let answered = Self::unmap(&mut self.gpu, slot, binding.va.0, binding.len / PAGE);
         if let Some(b) = self.bos.any_mut(BoId(binding.bo)) {
@@ -398,11 +422,11 @@ impl GfxDevice for Device {
         if kind == QueueKind::Compute || !fits {
             return Err(DeviceError::QueueUnsupported(kind));
         }
-        self.contexts.get(client, ctx)?;
+        self.contexts.running(client, ctx)?;
         if let Some(&pending) = batch.waits.iter().find(|&&p| !self.reached(p)) {
             return Err(DeviceError::WouldBlock(pending));
         }
-        let slot = self.contexts.live(client, ctx)?;
+        let slot = self.contexts.running(client, ctx)?;
         // The target must be bound in this context (§1: nothing names memory outside it).
         slot.space.resolve(batch.target.va, batch.target.bytes())?;
         let gpu = &mut *self.gpu;
@@ -439,7 +463,7 @@ impl GfxDevice for Device {
     }
 
     fn reset_context(&mut self, client: ClientId, ctx: ContextId) -> Result<(), DeviceError> {
-        let slot = self.contexts.get(client, ctx)?;
+        let slot = self.contexts.running(client, ctx)?;
         // Nothing in flight is cancelled by force in this layer: a job still running is named.
         let pending = [
             slot.transfer.as_ref().map(|q| Slot::point(ctx, TRANSFER, q.seq)),

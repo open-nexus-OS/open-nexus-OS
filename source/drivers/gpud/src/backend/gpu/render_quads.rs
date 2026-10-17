@@ -100,7 +100,7 @@ fn probe(
         .submit(client, ctx, QueueKind::Render, &batch)
         .map_err(|e| alloc::format!("submit {e:?}"))?;
     if !dev.wait_point(point, t0 + PASS_TIMEOUT_NS) {
-        dev.gpu.drain_fwccb();
+        dev.serve_firmware();
         let (gw, fw) = dev.render_words(client, ctx).unwrap_or((0, 0));
         return Err(alloc::format!(
             "pass not done in {}us (point {:#x} geom_word={gw} frag_word={fw} irqs={})",
@@ -111,7 +111,7 @@ fn probe(
     }
     let us = now_ns().saturating_sub(t0) / 1000;
     let irqs = dev.gpu.irqs - irqs_before;
-    dev.gpu.drain_fwccb();
+    dev.serve_firmware();
     let bytes = display.gpu_canvas_bytes(canvas.row).ok_or("no cpu view of the plane")?;
     if canvas.block != 0 {
         nexus_abi::cache_flush(bytes, canvas.block);

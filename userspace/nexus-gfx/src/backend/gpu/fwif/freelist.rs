@@ -6,7 +6,7 @@
 //! (`ready_pages`, the stack top, the 16-byte-aligned current address), and the page-number
 //! entry the device writes for each of its PM pages. Part of [`super`] (`fwif`).
 
-use core::mem::size_of;
+use core::mem::{offset_of, size_of};
 
 use super::{put32, put64};
 
@@ -96,6 +96,15 @@ pub struct Freelist {
 
 impl Freelist {
     pub const SIZE: usize = 64;
+    /// The words a reconstruction after the firmware's hardware recovery rewrites (the open
+    /// kernel driver's `pvr_free_list_reconstruct`): the stack from the list's pages, the
+    /// allocation counts back to zero.
+    pub const CURRENT_DEV_ADDR_OFFSET: usize = 8;
+    pub const CURRENT_STACK_TOP_OFFSET: usize = 16;
+    pub const CURRENT_PAGES_OFFSET: usize = 28;
+    pub const ALLOCATED_PAGE_COUNT_OFFSET: usize = 32;
+    pub const ALLOCATED_MMU_PAGE_COUNT_OFFSET: usize = 36;
+    pub const READY_PAGES_OFFSET: usize = 48;
 
     /// The open kernel driver's `free_list_fw_init`; `id` is the device's number for the list.
     pub fn new(args: &FreelistArgs, id: u32) -> Self {
@@ -117,6 +126,24 @@ impl Freelist {
             pm_global_pb: 0,
             padding: 0,
         }
+    }
+
+    /// What a reconstruction writes into the list's struct after the firmware's hardware
+    /// recovery, as `(offset, word)`: the list as made — every page it was given back on its
+    /// stack (the device never grows a list, so its own count is the list's: no word the
+    /// firmware wrote is read), the ready pages reserved again, none allocated. The entries are
+    /// written again beside it (each page's number, as at creation).
+    pub fn rebuilt(args: &FreelistArgs) -> [(usize, u32); 7] {
+        let made = Self::new(args, 0);
+        [
+            (Self::CURRENT_DEV_ADDR_OFFSET, made.current_dev_addr as u32),
+            (Self::CURRENT_DEV_ADDR_OFFSET + 4, (made.current_dev_addr >> 32) as u32),
+            (Self::CURRENT_STACK_TOP_OFFSET, made.current_stack_top),
+            (Self::CURRENT_PAGES_OFFSET, made.current_pages),
+            (Self::ALLOCATED_PAGE_COUNT_OFFSET, 0),
+            (Self::ALLOCATED_MMU_PAGE_COUNT_OFFSET, 0),
+            (Self::READY_PAGES_OFFSET, made.ready_pages),
+        ]
     }
 
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
@@ -151,3 +178,13 @@ pub const fn page_entry(phys: u64) -> u32 {
 }
 
 const _: () = assert!(size_of::<Freelist>() == Freelist::SIZE);
+const _: () =
+    assert!(offset_of!(Freelist, current_stack_top) == Freelist::CURRENT_STACK_TOP_OFFSET);
+const _: () = assert!(offset_of!(Freelist, current_pages) == Freelist::CURRENT_PAGES_OFFSET);
+const _: () =
+    assert!(offset_of!(Freelist, allocated_page_count) == Freelist::ALLOCATED_PAGE_COUNT_OFFSET);
+const _: () = assert!(
+    offset_of!(Freelist, allocated_mmu_page_count) == Freelist::ALLOCATED_MMU_PAGE_COUNT_OFFSET
+);
+const _: () = assert!(offset_of!(Freelist, current_dev_addr) == Freelist::CURRENT_DEV_ADDR_OFFSET);
+const _: () = assert!(offset_of!(Freelist, ready_pages) == Freelist::READY_PAGES_OFFSET);

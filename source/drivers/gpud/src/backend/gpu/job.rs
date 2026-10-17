@@ -156,17 +156,16 @@ impl Queue {
         }
     }
 
-    /// The firmware lets go of the queue (its common context's cleanup answered; the caller
-    /// waited for its last point), then its objects come back. On a refusal nothing is freed —
-    /// the firmware may still reach the objects — and the reason is returned.
-    pub(super) fn destroy(self, gpu: &mut Gpu) -> Result<(), &'static str> {
-        gpu.cleanup(fwif::cleanup::COMMON_CONTEXT, self.fwctx.fw_addr())?;
-        let objs = [self.fwctx, self.cccb_ctl, self.cccb, self.reg_state, self.timeline];
-        if gpu.release(&objs) {
-            Ok(())
-        } else {
-            Err("the flush after the cleanup got no return")
-        }
+    /// What the firmware lets go of before the queue goes: its common context (`(kind, fw_addr)`
+    /// of its cleanup; the caller waited for the queue's last point).
+    pub(super) fn fw_object(&self) -> (u32, u32) {
+        (fwif::cleanup::COMMON_CONTEXT, self.fwctx.fw_addr())
+    }
+
+    /// The queue's objects back once the firmware let go of them; `false` when the flush got no
+    /// return (they stay held: the firmware may still reach them).
+    pub(super) fn release(&self, gpu: &mut Gpu) -> bool {
+        gpu.release(&[self.fwctx, self.cccb_ctl, self.cccb, self.reg_state, self.timeline])
     }
 }
 
@@ -212,7 +211,7 @@ pub(super) fn fence_rung(gpu: &mut Gpu) {
                 q.cccb_ctl.fw_addr(),
                 q.timeline.fw_addr()
             ));
-            gpu.drain_fwccb();
+            gpu.name_fwccb();
             return;
         }
         q.bridge(gpu);
@@ -229,8 +228,12 @@ pub(super) fn fence_rung(gpu: &mut Gpu) {
     let mean_us = total_ns / u64::from(ROUNDS) / 1000;
     let verdict = if mean_us < STOCK_FIXED_COST_US { "below" } else { "NOT below" };
     let t_clean = now_ns();
-    if let Err(e) = q.destroy(gpu) {
+    let (kind, fw_addr) = q.fw_object();
+    if let Err(e) = gpu.cleanup(kind, fw_addr, &mut Gpu::name_fwccb) {
         return emit(&alloc::format!("gpud: FAIL gpu fence (the queue's cleanup: {e})"));
+    }
+    if !q.release(gpu) {
+        return emit("gpud: FAIL gpu fence (the flush after the queue's cleanup got no return)");
     }
     let cleanup_us = now_ns().saturating_sub(t_clean) / 1000;
     let (_, flushed) = space.destroy(gpu);

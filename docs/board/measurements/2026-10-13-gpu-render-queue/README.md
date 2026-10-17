@@ -1051,3 +1051,101 @@ own GPU address space and its own firmware objects, refused everything of anothe
 by the firmware's cleanup with every page, buffer and table back — and the kernel gives an
 address space's page tables back with them. Next: P2c (a fault stays in its context), then P3
 (windowd's context over IPC).
+
+## 5c-3 P2c — a fault stays in its context (TASK-0215, RFC-0101 §6)
+
+**Question.** When one context's work faults, does the device keep the fault in that context —
+the context lost alone, the firmware running on, every other context drawing, the lost one
+given back whole?
+
+**Measured first** (the 5a logs, the code). The firmware reports a reset of a context's work in
+its message buffer (`CONTEXT_RESET_NOTIFICATION`: the context's number, a reason, the data master,
+flags, and after a page fault the faulting context's page catalogue and the address). The board
+sent three forms: cycle 3 a write fault in the geometry stage reported as an *innocent* lockup
+(`reason=2 dm=2 flags=0x1 pc=0x5c43000 fault=0xdbf0000000`), cycles 5–7 a fragment-stage fault as a
+guilty one (`reason=1 dm=3 flags=0x1 pc=0x6db2001`) — the reason does not tell the culprit, the
+page-fault flag and the catalogue do, and the catalogue's address carries a low bit of the
+firmware's own. In cycle 3 the reset was followed by a free-list reconstruction request (message
+104) that nothing answered: the geometry's update had run (`geom_word=1`), the fragment queue never
+moved (`frag_word=0`) and the pass timed out — a reset context's queue waits for the host's
+answer. Until P2c gpud named every such message as a FAIL line and answered none; every context
+used the same two free-list ids.
+
+**What P2c builds.** A reset is held against the context it blames (`fwif::ContextReset::blame`,
+host-tested against the board's three forms): after a page fault the context whose catalogue is
+the named page, otherwise the context it numbers unless the reason calls it innocent. That
+context is lost: its points count as reached, its submits, binds, resets and setups are refused
+`ContextLost`, its memory stays its client's until the client destroys it. A reconstruction
+request is answered as the open kernel driver answers it — each list rebuilt as made (its entries
+written again, its stack, its counts; `Freelist::rebuilt`, host-tested) and the render-target data
+on it put in the recovery's state — then the ids it named sent back; a growth request is answered
+with no pages. The free lists carry ids unique on the device (the context's number above the
+list's bit). The device serves the messages wherever it waits and between the firmware's busy
+answers to a cleanup; each event is a line formatted on the stack (a client faulting again and
+again takes nothing of gpud's heap).
+
+**The rung** (`render_containment.rs`, after the contexts rung). Two contexts of two clients
+load the render bundle at the same addresses — A's target a plane, F's a buffer of F's own — and
+each draws once. F then unbinds the buffer its passes write their region headers into (cycle 3's
+fault, made on purpose), and F's next pass is submitted with A's beside it. Every pass's samples
+are marked before it runs, so a picture read is that pass's own. Then F is refused by name, A
+draws once more, F is torn down, and a fresh context of a third client draws. Gate:
+`gpud: gpu containment ok (contexts=3 samples=20/20 refused=4/4 lost=1 pc_f= fault= headers=
+fault_us= f_words=g/f of g/f f_teardown_us= c_slot_of_f= resets= innocent= reconstructions=
+rebuilt= unknown_lists=0 grows= unattributed=0 teardown_us= backing= bos=0 quarantined=0
+cleanup_busy=)`; `gpud: gpu context lost (` names each loss as the firmware reported it.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H58 | The reset after F's write fault names F's catalogue and nothing names A | `gpud: gpu context lost (… pc=)` masked equals `pc_f=`; `unattributed=0`; A not lost (the rung's FAIL form names either) |
+| H59 | The firmware asks for F's free lists after the reset and runs on once answered: F's queues finish their updates | `reconstructions≥1 rebuilt=` two per request, `unknown_lists=0`; `f_words` equal to the points after `of`; words short of them — the firmware holds a reset context's queue, the teardown decides |
+| H60 | The firmware lets go of a lost context's objects at its cleanup as of a live one's | F torn down before C is made: `quarantined=0`, `f_teardown_us` near the contexts rung's 0.7–0.8 ms, `cleanup_busy` unmoved; the final `backing=` the baseline |
+| H61 | A's pass in flight beside F's fault lands right — the firmware never started it before its recovery, or replays work its reset cut off | A's four samples beside the fault right; a reset naming A counted `innocent=`; a timeout names A's point |
+| H62 | A context made after the fault draws in the lost context's slot | C's four samples right, `c_slot_of_f=true` |
+| H63 | (measured) what a client's fault costs the device: the firmware's recovery | `fault_us` from F's faulting submit until both points were reached — against the frame's 8.3 ms at 120 Hz |
+
+**Results — the board, cycle 25** (`board--2026-10-17T15-48-51`, `cycle25-gpu-lines.txt`,
+`cycle25-board-test.txt`; `[PASS] board-visible`, 65 rungs, the operator's seven confirmations,
+the screenshot saved again, no `VM-MAP-FAIL`) — green on the package's first cycle:
+
+`gpud: gpu context lost (ctx=0x301 reason=2 dm=2 job=2 flags=0x1 pc=0x5c45000 fault=0xdbf00032c0)`,
+`gpud: gpu free lists rebuilt (n=2 unwritten=0 unknown=0 answered=true hwr=1 first_id=0x602)`,
+`gpud: gpu containment ok (contexts=3 samples=20/20 refused=4/4 lost=1 pc_f=0x5c45000
+fault=0xdbf00032c0 headers=0xdbf0000000+0x7000 fault_us=6759 f_words=2/4 of 2/4 f_teardown_us=1450
+c_slot_of_f=true resets=1 innocent=0 reconstructions=1 rebuilt=2 unknown_lists=0 grows=0
+unattributed=0 teardown_us=2722 backing=957/957 bos=0 quarantined=0 cleanup_busy=0)`; the contexts
+rung as in cycle 24 (`both_us=11861/11846 cleanup_us=1458/1500 teardown_us=1287`), `render ok
+us=6007`.
+
+- **H58 confirmed.** The reset came in cycle 3's form — an innocent lockup's reason in the geometry
+  stage with the page-fault flag (`reason=2 dm=2 flags=0x1`) — with F's catalogue (`pc=0x5c45000`
+  = `pc_f`) and an address inside F's region headers (`0xdbf00032c0` in `0xdbf0000000+0x7000`): the
+  provoked fault, held against F by its catalogue where the reason alone would have called it
+  innocent. Nothing named A (`unattributed=0 innocent=0`, A not lost).
+- **H59 confirmed.** One reconstruction request, for F's two lists (`first_id=0x602`: F's number
+  `0x301` above the list's bit), both rebuilt and answered (`hwr=1`); F's queues then finished their
+  updates (`f_words=2/4 of 2/4`), where cycle 3's, unanswered, stood at `frag_word=0` until the pass
+  timed out. The firmware asked for no growth (`grows=0`).
+- **H60 confirmed** (its time named the wrong span). The firmware let go of the lost context's
+  objects at the first cleanup (`cleanup_busy=0`, `quarantined=0`), the pool back at the baseline
+  (`backing=957/957`, `bos=0`). `f_teardown_us=1450` times the context with its scene and its 8 MiB
+  target; the 0.7–0.8 ms the hypothesis named were the contexts rung's context alone
+  (`cleanup_us=1458/1500` for two this boot). In the same rung A and C went in 2722 µs together, A
+  without a target of its own: a lost context goes as fast as a live one.
+- **H61 confirmed.** A's four samples beside the fault right and no reset named A (`innocent=0`):
+  A's pass ran whole beside F's fault — the two contexts' passes run one after the other (H56).
+- **H62 confirmed.** C, made after F's teardown, drew in F's slot (`c_slot_of_f=true`), its four
+  samples right in its own buffer.
+- **H63 measured.** The faulting pass and A's whole pass beside it took 6.76 ms (`fault_us=6759`)
+  against 6.01 ms for the same scene's pass alone (`render ok us=6007`, this boot): F's fault with
+  the firmware's recovery added 0.75 ms to the work beside it — A's whole pass and the fault fit in
+  one 120 Hz frame (8.3 ms).
+- **The gate's red form** was measured before P2c existed: 5a cycle 3 (`cycle3-gpu-lines.txt`) made
+  the same write fault, answered nothing, and the faulting pass timed out — the rung's FAIL
+  `the passes of the fault: point … not reached`.
+
+**Verdict.** A client's fault stays in its context: the firmware's report is held against the
+context whose page catalogue it names, that context is refused by name until its client destroys
+it, the firmware's request for its free lists is answered so the device runs on, and the other
+contexts draw beside it and after it — at 0.75 ms to the work in flight. Next: P3 (windowd's
+context over IPC).

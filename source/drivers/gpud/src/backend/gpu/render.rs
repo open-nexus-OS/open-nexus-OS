@@ -13,7 +13,10 @@
 //! fragment `[FENCE_PR (geometry ≥ g), FRAG_PR, UPDATE f1, FRAG, UPDATE f2]`, one kick per
 //! queue. A context's render objects go in the open kernel driver's order (5c-3 P2b): the two
 //! common contexts, the two render-target data, the free lists — each by the firmware's
-//! cleanup — then their memory; nothing is taken from gpud's heap, which never frees.
+//! cleanup — then their memory; nothing is taken from gpud's heap, which never frees. The lists
+//! carry ids unique on the device, so the firmware's request to rebuild one after its hardware
+//! recovery names one list of one context (5c-3 P2c): rebuilt as made, the data on it in the
+//! recovery's state.
 
 use nexus_gfx::backend::gpu::ccb::Cccb;
 use nexus_gfx::backend::gpu::fwif::{
@@ -40,9 +43,6 @@ const STATIC_STATE_OFFSET: u32 = 2 * FwCommonContext::SIZE as u32;
 const RENDER_CTX_SIZE: u32 = STATIC_STATE_OFFSET + StaticRenderContextState::FW_SIZE as u32 + 8;
 /// The core's minimum for the local free list (roguexe).
 const FREELIST_MIN_PAGES: u32 = 25;
-/// The device's ids of the free lists, as the firmware names them in its messages.
-const LOCAL_FREELIST_ID: u32 = 1;
-const GLOBAL_FREELIST_ID: u32 = 2;
 /// Firmware objects of one render context: the context, four per queue, two free lists, the
 /// common block, two render-target data.
 const OBJECTS: usize = 1 + 2 * 4 + 2 + 1 + 2;
@@ -64,6 +64,8 @@ pub(super) struct Render {
     geom: Queue,
     frag: Queue,
     freelists: [HeapObj; 2],
+    /// The lists' ids, as the firmware names them in its messages (unique on the device).
+    ids: [u32; 2],
     /// The parameter memory behind the lists, alive as long as the lists are.
     pm: [GpuVmo; 2],
     args: [FreelistArgs; 2],
@@ -138,8 +140,8 @@ fn queue(
 impl Render {
     /// Builds the render context, the free lists and the dataset for `setup` on a core of
     /// `tiles`, on the space whose firmware memory context is `fw_mem_ctx`, its common contexts
-    /// numbered `id` at `priority`. The list entries are written afterwards by the device
-    /// ([`Self::entries`]).
+    /// numbered `id` at `priority`, the lists numbered `ids` (local, global). The list entries
+    /// are written afterwards by the device ([`Self::entries`]).
     #[inline(never)]
     pub(super) fn create(
         gpu: &mut Gpu,
@@ -148,6 +150,7 @@ impl Render {
         fw_mem_ctx: u32,
         id: u32,
         priority: u32,
+        ids: [u32; 2],
     ) -> Result<Self, DeviceError> {
         let args = HwrtArgs::parse(setup.hwrt_args)
             .map_err(|_| fail("the dataset's arguments refused"))?;
@@ -175,7 +178,7 @@ impl Render {
             &state,
             &common_block,
             fw_mem_ctx,
-            id,
+            (id, ids),
             priority,
         ) {
             Ok((ctx, geom, frag, freelists, common, data)) => Ok(Self {
@@ -183,6 +186,7 @@ impl Render {
                 geom,
                 frag,
                 freelists,
+                ids,
                 pm: [pm0, pm1],
                 args: setup.freelists,
                 common,
@@ -206,7 +210,7 @@ impl Render {
         state: &StaticRenderContextState,
         common_block: &HwrtDataCommon,
         fw_mem_ctx: u32,
-        id: u32,
+        (id, ids): (u32, [u32; 2]),
         priority: u32,
     ) -> Result<(HeapObj, Queue, Queue, [HeapObj; 2], HeapObj, [HeapObj; 2]), DeviceError> {
         // The render context object and its two queues.
@@ -240,9 +244,8 @@ impl Render {
         // The free lists' firmware structs, the kernel's init.
         let mut freelists = [HeapObj { off: 0, len: 0 }; 2];
         for (i, fl) in setup.freelists.iter().enumerate() {
-            let list_id = if i == 0 { LOCAL_FREELIST_ID } else { GLOBAL_FREELIST_ID };
             let obj = taken.alloc(gpu, Freelist::SIZE as u32, "no memory for a free list")?;
-            gpu.mem.write(&obj, 0, &Freelist::new(fl, list_id).to_bytes());
+            gpu.mem.write(&obj, 0, &Freelist::new(fl, ids[i]).to_bytes());
             freelists[i] = obj;
         }
         // The dataset.
@@ -281,27 +284,26 @@ impl Render {
         walked && i == args.initial_pages
     }
 
-    /// The context's render objects go, in the open kernel driver's order: each common context's
-    /// cleanup (the caller waited for their last points), each render-target data's, each free
-    /// list's; then every object's memory and the parameter pages. On a refusal nothing is freed
-    /// — the firmware may still reach any of it — and the reason is returned.
-    pub(super) fn destroy(self, gpu: &mut Gpu) -> Result<(), &'static str> {
+    /// What the firmware lets go of before the render objects go, in the open kernel driver's
+    /// order, as `(kind, fw_addr)` of each cleanup: the two common contexts (the caller waited
+    /// for their last points), the two render-target data, the two free lists.
+    pub(super) fn fw_objects(&self) -> [(u32, u32); 6] {
         use fwif::cleanup::{COMMON_CONTEXT, FREELIST, HWRT_DATA};
-        let order = [
+        [
             (COMMON_CONTEXT, self.frag.fwctx_fw_addr),
             (COMMON_CONTEXT, self.geom.fwctx_fw_addr),
             (HWRT_DATA, self.data[1].fw_addr()),
             (HWRT_DATA, self.data[0].fw_addr()),
             (FREELIST, self.freelists[0].fw_addr()),
             (FREELIST, self.freelists[1].fw_addr()),
-        ];
-        for (kind, addr) in order {
-            if let Err(e) = gpu.cleanup(kind, addr) {
-                // The parameter pages stay the device's for good: the firmware may still use them.
-                core::mem::forget(self);
-                return Err(e);
-            }
-        }
+        ]
+    }
+
+    /// Every object's memory back once the firmware let go of them all ([`Self::fw_objects`]);
+    /// the parameter pages follow when the render is dropped. `false` when the flush got no
+    /// return: nothing is freed, and the caller keeps the render (never dropped: the firmware
+    /// may still reach any of it).
+    pub(super) fn release(&self, gpu: &mut Gpu) -> bool {
         let objs = [
             self.ctx,
             self.geom.cccb_ctl,
@@ -318,11 +320,37 @@ impl Render {
             self.data[0],
             self.data[1],
         ];
-        if !gpu.release(&objs) {
-            core::mem::forget(self);
-            return Err("the flush after the cleanup got no return");
+        gpu.release(&objs)
+    }
+
+    /// Which of the render's lists the firmware names by `id` (0 local, 1 global).
+    pub(super) fn list_of(&self, id: u32) -> Option<usize> {
+        self.ids.iter().position(|&i| i == id)
+    }
+
+    /// List `list`'s firmware address and its parameters (a growth request's answer).
+    pub(super) fn list(&self, list: usize) -> Option<(u32, FreelistArgs)> {
+        Some((self.freelists.get(list)?.fw_addr(), *self.args.get(list)?))
+    }
+
+    /// Free list `list` rebuilt after the firmware's hardware recovery, its struct's side: the
+    /// list as made ([`Freelist::rebuilt`]) and both render-target data in the recovery's state
+    /// ([`HwrtData::recovered`]); the device writes the entries again ([`Self::entries`]).
+    pub(super) fn rebuild(&self, gpu: &mut Gpu, list: usize) -> bool {
+        let (Some(obj), Some(args)) = (self.freelists.get(list), self.args.get(list)) else {
+            return false;
+        };
+        let mut written = true;
+        for (at, word) in Freelist::rebuilt(args) {
+            written &= gpu.mem.write_u32(obj, at as u32, word);
         }
-        Ok(())
+        for data in &self.data {
+            let flags = gpu.mem.read_u32(data, HwrtData::FLAGS_OFFSET as u32);
+            for (at, word) in HwrtData::recovered(flags) {
+                written &= gpu.mem.write_u32(data, at as u32, word);
+            }
+        }
+        written
     }
 
     /// The fragment queue's timeline word.

@@ -238,6 +238,19 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-3 P2: the render rungs' context torn down (its render objects and transfer queue let go by the firmware's cleanup, its space and scene returned: no context, no buffer, the firmware pool as the G1 ladder left it); then twice two contexts of two clients, each its own page catalogue (pc_a != pc_b), the render bundle loaded into each at the same addresses — A's target a plane, B's a buffer of B's, B's texture with red and blue exchanged — both passes in flight together: A's four samples in the plane and B's four in its buffer each their own context's (the same address reached other memory, read and written); each context refused the other's buffers, contexts and addresses by name, a bound buffer refused destruction, the first round's context numbers refused in the second; both torn down by the firmware's cleanup with every page and buffer back, nothing in quarantine, gpud's heap unmoved over the second round"
 
+# TASK-0215 5c-3 P2c (RFC-0101 §6): a fault stays in its context; `gpud: FAIL gpu containment (`,
+# `gpud: FAIL gpu context reset (` (a reset that blames no context of the device) and
+# `gpud: FAIL gpu free lists rebuilt (` (a list no context holds) are its FAIL forms.
+[marker."gpud: gpu containment ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P2c: two contexts of two clients load the render bundle at the same addresses and each draws once, both pictures right; then F unbinds the buffer its passes write their region headers into and F's next pass runs beside A's: the GPU faults in F's work alone, the firmware's reset is held against F by F's page catalogue (pc_f), F is lost — its point counted reached, its submit, bind, reset and setup refused ContextLost — the free lists the reset cut off are rebuilt and the firmware's request answered; A's pass beside the fault and A's next pass land right (every sample marked before its pass), F is torn down by the firmware's cleanup with nothing in quarantine, a fresh context of a third client draws right; every page and buffer back"
+
+[marker."gpud: gpu context lost ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P2c: the firmware's context-reset message held against the context it blames (by its page catalogue after a page fault, else by its number unless innocent): that context lost, the others untouched (the containment rung's F; a measurement line: reason, data master, flags, catalogue and faulting address as the firmware reported them)"
+
 [marker."gpud: FAIL gpu "]
 phase = "bringup"
 emit_when = { profile = "board-headless" }

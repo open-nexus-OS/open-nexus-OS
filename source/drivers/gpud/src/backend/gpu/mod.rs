@@ -28,19 +28,26 @@
 //! - [`render`] — a context's render objects: the render context, free lists, dataset.
 //! - [`contexts`], [`bos`], [`gpu_vmo`], [`device_v2`] — `GfxDevice`: the context slots, the
 //!   buffers (CPU-mapped, the GPU's alone, a plane of the ring), the trait over them.
+//! - [`recovery`] — the firmware's messages about a context served: a reset held against the
+//!   context it blames (lost, the others untouched), the free lists rebuilt after the firmware's
+//!   recovery, a growth request answered.
 //! - [`scene_load`] and the `render_*` rungs — the captured scenes loaded and drawn, the device's
-//!   board gates (`gpud: gpu fill|quad|render|library|quads|area|pipeline|mixed|contexts ok (`).
+//!   board gates (`gpud: gpu fill|quad|render|library|quads|area|pipeline|mixed|contexts|
+//!   containment ok (`).
 //! OWNERS: @gpu @runtime
-//! STATUS: Functional (`GfxDevice` with several contexts on the board, TASK-0215 5c-3 P2)
+//! STATUS: Functional (`GfxDevice` with several contexts on the board, a fault kept in its
+//!   context, TASK-0215 5c-3 P2)
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the board ladder (`scripts/board-test.sh`): `gpud: gpu glue ok (` …
-//!   `gpud: gpu contexts ok (`; `gpud: FAIL gpu ` is a FAIL marker. QEMU grants no such GPU:
-//!   nothing here runs there.
+//!   `gpud: gpu containment ok (`; `gpud: FAIL gpu ` is a FAIL marker. QEMU grants no such GPU:
+//!   nothing here runs there. The decisions the device takes on the firmware's messages
+//!   (whom a reset blames, a list rebuilt as made) are host-tested in `nexus_gfx`.
 //! INVARIANTS: the GPU reads only pages of VMOs the kernel made for its capability (`vmo_runs`
 //!   with it) — the firmware heap's backing and the device's buffers — or the display's planes;
-//!   a context reaches only what is bound in its own space; nothing the firmware may still hold
-//!   is freed; the firmware blob is refused before a byte is placed when its id, build or
-//!   version differs; no `unwrap` on a firmware-written word.
+//!   a context reaches only what is bound in its own space; a fault loses only the context it
+//!   is held against; nothing the firmware may still hold is freed; the firmware blob is
+//!   refused before a byte is placed when its id, build or version differs; no `unwrap` on a
+//!   firmware-written word.
 
 mod bos;
 mod contexts;
@@ -52,9 +59,11 @@ mod gpu_vmo;
 mod job;
 mod memory;
 pub(crate) mod quad;
+mod recovery;
 mod regs;
 mod render;
 mod render_blur;
+pub(crate) mod render_containment;
 pub(crate) mod render_contexts;
 pub(crate) mod render_cost;
 pub(crate) mod render_library;
@@ -72,6 +81,32 @@ pub(crate) use device_v2::Device;
 
 fn emit(line: &str) {
     let _ = nexus_abi::debug_println(line);
+}
+
+/// The longest line [`emit_fmt`] writes; a longer one is cut.
+const LINE_MAX: usize = 256;
+
+/// A line on the stack: what a client can cause again and again is never formatted into gpud's
+/// heap, which never frees.
+struct Line {
+    buf: [u8; LINE_MAX],
+    len: usize,
+}
+
+impl core::fmt::Write for Line {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let end = (self.len + s.len()).min(LINE_MAX);
+        let take = end - self.len;
+        self.buf[self.len..end].copy_from_slice(&s.as_bytes()[..take]);
+        self.len = end;
+        Ok(())
+    }
+}
+
+fn emit_fmt(args: core::fmt::Arguments<'_>) {
+    let mut line = Line { buf: [0; LINE_MAX], len: 0 };
+    let _ = core::fmt::Write::write_fmt(&mut line, args);
+    emit(core::str::from_utf8(&line.buf[..line.len]).unwrap_or("gpud: line not utf-8"));
 }
 
 /// Whether init granted gpud a GPU window beside the board's display plane — the board's GPU

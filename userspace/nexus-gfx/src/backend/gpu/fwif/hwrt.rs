@@ -397,10 +397,30 @@ pub struct HwrtData {
     pub cleanup_state: CleanupCtl,
 }
 
+/// The render-target data's state after the firmware's hardware recovery, which a free-list
+/// reconstruction writes (`ROGUE_FWIF_RTDATA_STATE_HWR`).
+pub const RTDATA_STATE_HWR: u32 = 9;
+/// The flag a reconstruction clears: the data holds the last geometry of a frame.
+pub const HWRTDATA_HAS_LAST_GEOM: u32 = 1 << 2;
+
 impl HwrtData {
     pub const SIZE: usize = 384;
     /// The cleanup control's offset: every kick of a job on this data names it.
     pub const CLEANUP_OFFSET: usize = 320;
+    /// The flags and state words a free-list reconstruction rewrites (the open kernel driver's
+    /// `pvr_free_list_reconstruct`).
+    pub const FLAGS_OFFSET: usize = 168;
+    pub const STATE_OFFSET: usize = 172;
+
+    /// What a reconstruction writes into render-target data on a rebuilt list, as `(offset,
+    /// word)` from its `flags` word: the recovery's state, the last-geometry flag cleared (the
+    /// geometry the reset cut off is no frame's).
+    pub const fn recovered(flags: u32) -> [(usize, u32); 2] {
+        [
+            (Self::FLAGS_OFFSET, flags & !HWRTDATA_HAS_LAST_GEOM),
+            (Self::STATE_OFFSET, RTDATA_STATE_HWR),
+        ]
+    }
 
     /// The open kernel driver's `hwrt_data_init_fw_structure` for render-target data `index`
     /// of `args`: `common` is the common block's firmware address, `freelists` the local and
@@ -481,6 +501,8 @@ impl HwrtData {
 const _: () = assert!(size_of::<HwrtDataCommon>() == HwrtDataCommon::SIZE);
 const _: () = assert!(offset_of!(HwrtDataCommon, isp_mtile_size) == 80);
 const _: () = assert!(size_of::<HwrtData>() == HwrtData::SIZE);
+const _: () = assert!(offset_of!(HwrtData, hwrt_data_flags) == HwrtData::FLAGS_OFFSET);
+const _: () = assert!(offset_of!(HwrtData, state) == HwrtData::STATE_OFFSET);
 const _: () = assert!(offset_of!(HwrtData, freelists_fw_addr) == 176);
 const _: () = assert!(offset_of!(HwrtData, vheap_table_dev_addr) == 200);
 const _: () = assert!(offset_of!(HwrtData, rta_ctl) == 208);

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-17 (Block 4, layer 5c-3 P2c: a fault stays in its context — TASK-0215, RFC-0101 §6)
+
+- **A GPU fault loses only the context it is held against.** The firmware's context-reset report
+  is held against the context whose page catalogue it names after a page fault (the board reported
+  such faults with an innocent reason as well as a guilty one), otherwise against the context it
+  numbers unless the reason calls it innocent (`fwif::ContextReset::blame`). That context is lost:
+  its points count as reached, its submits, binds, resets and setups are refused `ContextLost`
+  (`test_reject_submit_on_a_lost_context`), its memory stays its client's until the client
+  destroys it.
+- **The firmware runs on after a fault.** Its free-list reconstruction request is answered as the
+  open kernel driver answers it — each list rebuilt as made, the render-target data on it put in
+  the recovery's state, the ids sent back; a growth request is answered with no pages. gpud serves
+  the firmware's messages wherever the device waits, between busy answers to a cleanup and on the
+  GPU's interrupt; each event line is formatted on the stack, so a client faulting again and again
+  costs gpud's heap nothing. Free-list ids are unique on the device.
+- The board rung `gpud: gpu containment ok (…)` (board ladder 65 rungs) and the line
+  `gpud: gpu context lost (…)`: a context made to fault (its region headers unbound) is lost alone,
+  another context's passes beside and after the fault land right, a fresh context draws in its
+  slot, every page back; the fault with the firmware's recovery added 0.75 ms to the pass beside
+  it. Board cycle 25 (`[PASS] board-visible`).
+
 ### Added - 2026-10-16 (Block 4, layer 5c-3 P2a/P2b: memory for many contexts, several contexts — TASK-0215, RFC-0101 §1/§3)
 
 - **Several GPU contexts on the board**, each its own GPU address space (a page catalogue and the

@@ -340,6 +340,35 @@ mod hwrt {
         assert_eq!(page_entry(0x1_2345_6000), 0x12345_6);
     }
 
+    /// After the firmware's recovery a list is the list as made — whatever the firmware's
+    /// words said — and the render-target data on it is in the recovery's state.
+    #[test]
+    fn a_rebuilt_list_is_the_list_as_made() {
+        let global = FreelistArgs {
+            gpu_addr: 0x80_0000_9000,
+            initial_pages: 512,
+            max_pages: 65536,
+            grow_pages: 256,
+            grow_threshold_percent: 13,
+        };
+        let made = Freelist::new(&global, 0x205);
+        let mut bytes = made.to_bytes();
+        // The firmware took pages, used the ready ones, counted them; the reset cut it off.
+        for (at, word) in [(8, 0x0bad_f00du32), (16, 120), (28, 512), (32, 328), (36, 5), (48, 0)] {
+            bytes[at..at + 4].copy_from_slice(&word.to_le_bytes());
+        }
+        for (at, word) in Freelist::rebuilt(&global) {
+            bytes[at..at + 4].copy_from_slice(&word.to_le_bytes());
+        }
+        assert_eq!(bytes, made.to_bytes(), "the struct as made, the id and every other word kept");
+        // The data on it: the recovery's state, the last-geometry flag cleared, others kept.
+        let flags = HWRTDATA_HAS_LAST_GEOM | 1;
+        assert_eq!(
+            HwrtData::recovered(flags),
+            [(HwrtData::FLAGS_OFFSET, 1), (HwrtData::STATE_OFFSET, RTDATA_STATE_HWR)]
+        );
+    }
+
     #[test]
     fn test_reject_freelist_bounds() {
         let a = |initial, max, grow| FreelistArgs {

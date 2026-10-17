@@ -136,6 +136,10 @@ ladder_headless=(
   # cleanup, then two contexts of two clients drawing side by side through the same addresses
   # into their own memory, each refused the other's, both torn down with every page back.
   "gpud: gpu contexts ok ("
+  # TASK-0215 5c-3 P2c: a fault stays in its context — the context whose pass writes an
+  # address its space no longer maps is lost alone (refused by name, its lists rebuilt for the
+  # firmware), the other draws beside and after it, a fresh context draws, every page back.
+  "gpud: gpu containment ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

@@ -10,10 +10,12 @@
 //! boot raises no interrupt the interface promises), never spun for. The kernel command
 //! buffer's send is one command written, cleaned, published, kicked; the firmware's cleanup of
 //! an object (TASK-0215 5c-3 P2b) is such a command, answered — or busy — in its return slot.
+//! The firmware's messages are taken one at a time: the device serves those about a context
+//! (TASK-0215 5c-3 P2c, [`super::recovery`]); here, before the device exists, each is named.
 
 use nexus_abi::Cap;
 use nexus_gfx::backend::gpu::ccb::{Fwccb, FwccbMemory, Kccb, KccbMemory};
-use nexus_gfx::backend::gpu::fwif::{self, CcbCtl, KccbCmd};
+use nexus_gfx::backend::gpu::fwif::{self, CcbCtl, FwccbCmd, KccbCmd};
 use nexus_gfx::backend::gpu::mmu::{PageFlags, TablePage, TablePages, TableStorage};
 use nexus_gfx::backend::gpu::start;
 use nexus_gfx::backend::gpu::{heaps, CoreId};
@@ -336,11 +338,12 @@ impl Gpu {
         fired || drained > 0
     }
 
-    /// Waits until `done` holds or `deadline_ns` passes, in interrupt-ended slices.
+    /// Waits until `done` holds or `deadline_ns` passes, in interrupt-ended slices; `done` may
+    /// act on the device between slices (the device serves the firmware's messages there).
     pub(super) fn wait_until(
         &mut self,
         deadline_ns: u64,
-        mut done: impl FnMut(&Gpu) -> bool,
+        mut done: impl FnMut(&mut Gpu) -> bool,
     ) -> bool {
         loop {
             if done(self) {
@@ -375,9 +378,9 @@ impl Gpu {
         self.wait_until(deadline_ns, |g| g.slot_executed(slot))
     }
 
-    /// The service loop's wake on the GPU's endpoint: drain, acknowledge, read the firmware's
-    /// messages (a context reset is named), signal what completed.
-    pub(crate) fn on_wake(&mut self) {
+    /// The service loop's wake on the GPU's endpoint: the notifications drained and the device
+    /// acknowledged; whether there were any (the device then serves the firmware's messages).
+    pub(crate) fn take_wake(&mut self) -> bool {
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut note = [0u8; 16];
         let mut drained = 0;
@@ -385,53 +388,60 @@ impl Gpu {
             drained += 1;
         }
         if drained == 0 {
-            return;
+            return false;
         }
         self.irqs = self.irqs.saturating_add(drained);
         self.ack_irq();
-        self.drain_fwccb();
+        true
     }
 
-    /// The firmware's messages: each named once; a request for a restart or a context reset
-    /// is a line (the reset path is layer 4's).
-    pub(super) fn drain_fwccb(&mut self) {
+    /// The firmware's next message, taken out of its command buffer.
+    pub(super) fn next_fwccb(&mut self) -> Option<FwccbCmd> {
         let (ctl, slots) = (self.fw.fwccb_ctl, self.fw.fwccb);
-        let mut m = FwccbMem { mem: &mut self.mem, ctl, slots };
-        let reader = Fwccb;
-        let mut n = 0;
-        while let Some(cmd) = reader.next(&mut m) {
-            n += 1;
-            if n > fwif::fwccb::NUM_CMDS {
-                break;
+        Fwccb.next(&mut FwccbMem { mem: &mut self.mem, ctl, slots })
+    }
+
+    /// A line for a message the device does not serve: the firmware's own faults, its request
+    /// for a restart, and — before the device holds contexts (the G1 ladder) — the messages about
+    /// a context, which nothing can answer then.
+    pub(super) fn name(cmd: &FwccbCmd) {
+        if !cmd.has_magic() {
+            return emit(&alloc::format!(
+                "gpud: gpu fwccb dropped (type={:#x} without the magic)",
+                cmd.cmd_type
+            ));
+        }
+        if let Some(r) = cmd.context_reset() {
+            return emit(&alloc::format!(
+                "gpud: FAIL gpu context reset (ctx={:#x} reason={} dm={} job={} flags={:#x} pc={:#x} fault={:#x})",
+                r.context_id, r.reason, r.dm, r.job_ref, r.flags, r.pc_address, r.fault_address
+            ));
+        }
+        match cmd.cmd_type {
+            fwif::fwccb::REQUEST_GPU_RESTART => {
+                emit("gpud: FAIL gpu restart requested by the firmware")
             }
-            if !cmd.has_magic() {
+            fwif::fwccb::CONTEXT_FW_PF_NOTIFICATION => {
+                let fault = u64::from_le_bytes(cmd.data[0..8].try_into().unwrap_or([0; 8]));
+                emit(&alloc::format!("gpud: FAIL gpu firmware page fault (addr={fault:#x})"));
+            }
+            fwif::fwccb::FREELIST_GROW | fwif::fwccb::FREELISTS_RECONSTRUCTION => {
                 emit(&alloc::format!(
-                    "gpud: gpu fwccb dropped (type={:#x} without the magic)",
-                    cmd.cmd_type
-                ));
-                continue;
+                    "gpud: FAIL gpu free-list request (type={}) with no list",
+                    cmd.kind()
+                ))
             }
-            match cmd.cmd_type {
-                fwif::fwccb::CONTEXT_RESET_NOTIFICATION => {
-                    if let Some((ctx, reason, dm, job, flags, pc, fault)) = cmd.context_reset() {
-                        emit(&alloc::format!(
-                            "gpud: FAIL gpu context reset (ctx={ctx} reason={reason} dm={dm} job={job} flags={flags:#x} pc={pc:#x} fault={fault:#x})"
-                        ));
-                    }
-                }
-                fwif::fwccb::REQUEST_GPU_RESTART => {
-                    emit("gpud: FAIL gpu restart requested by the firmware")
-                }
-                fwif::fwccb::CONTEXT_FW_PF_NOTIFICATION => {
-                    let fault = u64::from_le_bytes(cmd.data[0..8].try_into().unwrap_or([0; 8]));
-                    emit(&alloc::format!("gpud: FAIL gpu firmware page fault (addr={fault:#x})"));
-                }
-                fwif::fwccb::UPDATE_STATS => {}
-                other => emit(&alloc::format!(
-                    "gpud: gpu fwccb (type={})",
-                    other & !fwif::CMD_MAGIC_MASK
-                )),
-            }
+            fwif::fwccb::UPDATE_STATS => {}
+            _ => emit(&alloc::format!("gpud: gpu fwccb (type={})", cmd.kind())),
+        }
+    }
+
+    /// The G1 ladder's reading of the firmware's messages: each named once (no context exists
+    /// that a message could concern; the device serves them once it does).
+    pub(super) fn name_fwccb(&mut self) {
+        for _ in 0..fwif::fwccb::NUM_CMDS {
+            let Some(cmd) = self.next_fwccb() else { return };
+            Self::name(&cmd);
         }
     }
 
@@ -513,15 +523,20 @@ impl Gpu {
 
     /// The firmware's cleanup of the object of `kind` at `fw_addr` (the open kernel driver's
     /// `pvr_fw_structure_cleanup`): the command, its return slot waited. Busy — the firmware
-    /// still holds work on it — is asked again after the firmware's messages were read (a
+    /// still holds work on it — is asked again after its messages were served by `serve` (a
     /// reconstruction or a reset may hold it, as the open driver retries a free list) and its
     /// next interrupt — its work completing — or one slice; then named. The caller waited for
     /// the object's last point first.
-    pub(super) fn cleanup(&mut self, kind: u32, fw_addr: u32) -> Result<(), &'static str> {
+    pub(super) fn cleanup(
+        &mut self,
+        kind: u32,
+        fw_addr: u32,
+        serve: &mut dyn FnMut(&mut Gpu),
+    ) -> Result<(), &'static str> {
         for attempt in 0..CLEANUP_ATTEMPTS {
             if attempt > 0 {
                 self.cleanup_busy = self.cleanup_busy.saturating_add(1);
-                self.drain_fwccb();
+                serve(self);
                 let irqs = self.irqs;
                 self.wait_until(now_ns() + WAIT_SLICE_NS, |g| g.irqs != irqs);
             }

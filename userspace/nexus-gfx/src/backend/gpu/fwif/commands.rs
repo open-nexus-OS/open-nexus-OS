@@ -6,7 +6,7 @@
 //! device uses (health check, MMU-cache flush, kick, cleanup) and the readers for what the
 //! firmware sends. Part of [`super`] (`fwif`); the sizes are pinned there.
 
-use super::{fwccb, kccb, CMD_MAGIC, CMD_MAGIC_MASK};
+use super::{fwccb, kccb, reset, CMD_MAGIC, CMD_MAGIC_MASK, MAX_FREELISTS_TO_RECONSTRUCT};
 
 /// A kernel command: type, flags, 80 bytes of payload (the union).
 #[repr(C, align(8))]
@@ -75,6 +75,33 @@ impl KccbCmd {
         c
     }
 
+    /// `FREELIST_GROW_UPDATE`: the answer to a growth request of the free list at `fw_addr` —
+    /// `delta_pages` added (zero: none), the list's pages and ready pages after it.
+    pub fn freelist_grow_update(
+        fw_addr: u32,
+        delta_pages: u32,
+        new_pages: u32,
+        ready_pages: u32,
+    ) -> Self {
+        let mut c = Self::empty(kccb::FREELIST_GROW_UPDATE);
+        for (i, v) in [fw_addr, delta_pages, new_pages, ready_pages].iter().enumerate() {
+            c.data[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        c
+    }
+
+    /// `FREELISTS_RECONSTRUCTION_UPDATE`: the lists rebuilt after a reconstruction request (at
+    /// most [`MAX_FREELISTS_TO_RECONSTRUCT`]), as the request named them.
+    pub fn reconstruction_update(ids: &[u32]) -> Self {
+        let mut c = Self::empty(kccb::FREELISTS_RECONSTRUCTION_UPDATE);
+        let ids = &ids[..ids.len().min(MAX_FREELISTS_TO_RECONSTRUCT)];
+        c.data[0..4].copy_from_slice(&(ids.len() as u32).to_le_bytes());
+        for (i, id) in ids.iter().enumerate() {
+            c.data[4 + i * 4..8 + i * 4].copy_from_slice(&id.to_le_bytes());
+        }
+        c
+    }
+
     /// The command as bytes.
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
         let mut b = [0u8; Self::SIZE];
@@ -82,6 +109,81 @@ impl KccbCmd {
         b[4..8].copy_from_slice(&self.kccb_flags.to_le_bytes());
         b[8..].copy_from_slice(&self.data);
         b
+    }
+}
+
+/// A context-reset notification: the firmware reset a context's work (its hardware recovery).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContextReset {
+    /// The common context's id, as the device numbered it at creation.
+    pub context_id: u32,
+    /// [`reset`]'s reasons.
+    pub reason: u32,
+    /// The data master the reset hit.
+    pub dm: u32,
+    pub job_ref: u32,
+    /// [`reset::FLAG_PF`], [`reset::FLAG_ALL_CTXS`].
+    pub flags: u32,
+    /// The page catalogue of the faulting context (a page fault).
+    pub pc_address: u64,
+    /// The address that faulted (a page fault).
+    pub fault_address: u64,
+}
+
+/// The context a reset is held against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Blame {
+    /// The context whose page catalogue sits at this address: its work touched an address its
+    /// space does not map.
+    Catalogue(u64),
+    /// The context of this id: its own work was reset (a lockup, an overrun, a forced switch).
+    Context(u32),
+    /// The context of this id lost work to another's reset; nothing is held against it.
+    Innocent(u32),
+}
+
+impl ContextReset {
+    /// The reset followed a page fault: `pc_address` names the context that touched an address
+    /// its space does not map.
+    pub const fn page_fault(&self) -> bool {
+        self.flags & reset::FLAG_PF != 0
+    }
+
+    /// The faulting context's page catalogue: the page `pc_address` lies in (its low bits carry
+    /// the firmware's own information — the board reported `0x6db2001` for a catalogue at
+    /// `0x6db2000`).
+    pub const fn catalogue(&self) -> u64 {
+        self.pc_address & !0xfff
+    }
+
+    /// Whom the reset is held against. A page fault names its context by the catalogue, whatever
+    /// the reason says (the board reported a page fault as an innocent lockup, reason 2, of the
+    /// only context there was); otherwise the reason decides about the context the notification
+    /// names: an innocent one runs on, any other reason loses it.
+    pub const fn blame(&self) -> Blame {
+        if self.page_fault() {
+            Blame::Catalogue(self.catalogue())
+        } else if matches!(self.reason, reset::INNOCENT_LOCKUP | reset::INNOCENT_OVERRUNING) {
+            Blame::Innocent(self.context_id)
+        } else {
+            Blame::Context(self.context_id)
+        }
+    }
+}
+
+/// A free-list reconstruction request: the lists to rebuild after the firmware's hardware
+/// recovery, and the recovery's counter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reconstruction {
+    pub hwr_counter: u32,
+    count: usize,
+    ids: [u32; MAX_FREELISTS_TO_RECONSTRUCT],
+}
+
+impl Reconstruction {
+    /// The lists named, at most [`MAX_FREELISTS_TO_RECONSTRUCT`].
+    pub fn ids(&self) -> &[u32] {
+        &self.ids[..self.count]
     }
 }
 
@@ -117,16 +219,43 @@ impl FwccbCmd {
         self.cmd_type & !CMD_MAGIC_MASK
     }
 
-    /// A context-reset notification's fields: `(server_common_context_id, reset_reason, dm,
-    /// reset_job_ref, flags, pc_address, fault_address)`.
-    pub fn context_reset(&self) -> Option<(u32, u32, u32, u32, u32, u64, u64)> {
-        if self.cmd_type != fwccb::CONTEXT_RESET_NOTIFICATION {
+    fn word(&self, at: usize) -> u32 {
+        u32::from_le_bytes([self.data[at], self.data[at + 1], self.data[at + 2], self.data[at + 3]])
+    }
+
+    fn dword(&self, at: usize) -> u64 {
+        u64::from(self.word(at)) | (u64::from(self.word(at + 4)) << 32)
+    }
+
+    /// A context-reset notification.
+    pub fn context_reset(&self) -> Option<ContextReset> {
+        (self.cmd_type == fwccb::CONTEXT_RESET_NOTIFICATION).then(|| ContextReset {
+            context_id: self.word(0),
+            reason: self.word(4),
+            dm: self.word(8),
+            job_ref: self.word(12),
+            flags: self.word(16),
+            pc_address: self.dword(24),
+            fault_address: self.dword(32),
+        })
+    }
+
+    /// A free list's growth request: the list's id.
+    pub fn freelist_grow(&self) -> Option<u32> {
+        (self.cmd_type == fwccb::FREELIST_GROW).then(|| self.word(0))
+    }
+
+    /// A free-list reconstruction request (a count beyond the message's room is held to it).
+    pub fn reconstruction(&self) -> Option<Reconstruction> {
+        if self.cmd_type != fwccb::FREELISTS_RECONSTRUCTION {
             return None;
         }
-        let d = &self.data;
-        let w = |o: usize| u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
-        let q = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap_or([0; 8]));
-        Some((w(0), w(4), w(8), w(12), w(16), q(24), q(32)))
+        let count = (self.word(0) as usize).min(MAX_FREELISTS_TO_RECONSTRUCT);
+        let mut ids = [0u32; MAX_FREELISTS_TO_RECONSTRUCT];
+        for (i, id) in ids.iter_mut().enumerate().take(count) {
+            *id = self.word(8 + i * 4);
+        }
+        Some(Reconstruction { hwr_counter: self.word(4), count, ids })
     }
 }
 

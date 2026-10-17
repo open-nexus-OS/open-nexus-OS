@@ -136,7 +136,7 @@ fn draw(
             .submit(client, ctx, QueueKind::Transfer, &batch)
             .map_err(|e| alloc::format!("submit {i} {e:?}"))?;
         if !dev.wait_point(point, t0 + JOB_TIMEOUT_NS) {
-            dev.gpu.drain_fwccb();
+            dev.serve_firmware();
             return Err(alloc::format!(
                 "job {i} not done in {}us (point {:#x} irqs={})",
                 now_ns().saturating_sub(t0) / 1000,

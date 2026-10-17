@@ -49,6 +49,10 @@ pub mod kccb {
     pub const POW: u32 = 107 | CMD_MAGIC;
     pub const HEALTH_CHECK: u32 = 115 | CMD_MAGIC;
     pub const COMBINED_GEOM_FRAG_KICK: u32 = 117 | CMD_MAGIC;
+    /// The answer to a free list's growth request.
+    pub const FREELIST_GROW_UPDATE: u32 = 110 | CMD_MAGIC;
+    /// The answer to a free-list reconstruction request.
+    pub const FREELISTS_RECONSTRUCTION_UPDATE: u32 = 112 | CMD_MAGIC;
     pub const LOGTYPE_UPDATE: u32 = 206 | CMD_MAGIC;
     /// The buffer holds 2^7 commands.
     pub const NUM_CMDS_LOG2: u32 = 7;
@@ -67,6 +71,24 @@ pub mod cleanup {
     /// One render-target data of a dataset.
     pub const HWRT_DATA: u32 = 1;
     pub const FREELIST: u32 = 2;
+}
+
+/// Free lists one reconstruction request or answer names at most.
+pub const MAX_FREELISTS_TO_RECONSTRUCT: usize = 18;
+
+/// A context-reset notification's reasons and flags (the interface's).
+pub mod reset {
+    pub const GUILTY_LOCKUP: u32 = 1;
+    pub const INNOCENT_LOCKUP: u32 = 2;
+    pub const GUILTY_OVERRUNING: u32 = 3;
+    pub const INNOCENT_OVERRUNING: u32 = 4;
+    pub const HARD_CONTEXT_SWITCH: u32 = 5;
+    pub const FW_PAGEFAULT: u32 = 13;
+    /// The reset followed a page fault; the notification names its address and the faulting
+    /// context's page catalogue.
+    pub const FLAG_PF: u32 = 1 << 0;
+    /// Every context was reset.
+    pub const FLAG_ALL_CTXS: u32 = 1 << 1;
 }
 
 /// Firmware-to-host command buffer command types.
@@ -381,11 +403,79 @@ mod tests {
         b[0..4].copy_from_slice(&fwccb::CONTEXT_RESET_NOTIFICATION.to_le_bytes());
         b[8..12].copy_from_slice(&7u32.to_le_bytes());
         b[12..16].copy_from_slice(&1u32.to_le_bytes());
+        b[24..28].copy_from_slice(&reset::FLAG_PF.to_le_bytes());
+        b[32..40].copy_from_slice(&0x5c4_3000u64.to_le_bytes());
         b[40..48].copy_from_slice(&0x8000_1000u64.to_le_bytes());
         let c = FwccbCmd::from_bytes(&b);
         assert!(c.has_magic());
         assert_eq!(c.kind(), 105);
-        assert_eq!(c.context_reset(), Some((7, 1, 0, 0, 0, 0, 0x8000_1000)));
+        let r = c.context_reset().unwrap();
+        assert_eq!((r.context_id, r.reason, r.flags), (7, reset::GUILTY_LOCKUP, reset::FLAG_PF));
+        assert_eq!((r.pc_address, r.fault_address), (0x5c4_3000, 0x8000_1000));
+        assert!(r.page_fault());
+        assert_eq!(c.reconstruction(), None, "not a reconstruction request");
+    }
+
+    /// The notifications the board reported (5a cycles 3 and 5,
+    /// `docs/board/measurements/2026-10-13-gpu-render-queue/cycle{3,5}-gpu-lines.txt`) and the
+    /// reasons without a page fault.
+    #[test]
+    fn a_reset_is_held_against_the_context_its_fault_or_its_reason_names() {
+        let reset = |reason, flags, pc| ContextReset {
+            context_id: 0x102,
+            reason,
+            dm: dm::FRAG,
+            job_ref: 1,
+            flags,
+            pc_address: pc,
+            fault_address: 0xdb_f000_0000,
+        };
+        // Cycle 3: a write fault reported as an innocent lockup of the only context.
+        let c3 = reset(reset::INNOCENT_LOCKUP, reset::FLAG_PF, 0x5c4_3000);
+        assert_eq!(c3.blame(), Blame::Catalogue(0x5c4_3000));
+        // Cycle 5: the catalogue's address with a low bit of the firmware's own.
+        let c5 = reset(reset::GUILTY_LOCKUP, reset::FLAG_PF, 0x6db_2001);
+        assert_eq!(c5.blame(), Blame::Catalogue(0x6db_2000));
+        // Without a page fault the reason decides about the context named.
+        for reason in [reset::GUILTY_LOCKUP, reset::GUILTY_OVERRUNING, reset::HARD_CONTEXT_SWITCH] {
+            assert_eq!(reset(reason, 0, 0).blame(), Blame::Context(0x102), "reason {reason}");
+        }
+        for reason in [reset::INNOCENT_LOCKUP, reset::INNOCENT_OVERRUNING] {
+            let all = reset(reason, reset::FLAG_ALL_CTXS, 0);
+            assert_eq!(all.blame(), Blame::Innocent(0x102), "reason {reason}");
+        }
+    }
+
+    #[test]
+    fn the_recovery_messages_read_and_answer_as_the_interface_lays_them() {
+        // A reconstruction request: count, the recovery's counter, then the ids.
+        let mut b = [0u8; 88];
+        b[0..4].copy_from_slice(&fwccb::FREELISTS_RECONSTRUCTION.to_le_bytes());
+        b[8..12].copy_from_slice(&2u32.to_le_bytes());
+        b[12..16].copy_from_slice(&5u32.to_le_bytes());
+        b[16..20].copy_from_slice(&0x0302u32.to_le_bytes());
+        b[20..24].copy_from_slice(&0x0303u32.to_le_bytes());
+        let r = FwccbCmd::from_bytes(&b).reconstruction().unwrap();
+        assert_eq!((r.hwr_counter, r.ids()), (5, &[0x0302, 0x0303][..]));
+        // A count beyond the message's room is held to it.
+        b[8..12].copy_from_slice(&99u32.to_le_bytes());
+        let r = FwccbCmd::from_bytes(&b).reconstruction().unwrap();
+        assert_eq!(r.ids().len(), MAX_FREELISTS_TO_RECONSTRUCT);
+        // The answer: the count, then the ids, at the union's start.
+        let a = KccbCmd::reconstruction_update(&[0x0302, 0x0303]).to_bytes();
+        assert_eq!(&a[0..4], &kccb::FREELISTS_RECONSTRUCTION_UPDATE.to_le_bytes());
+        assert_eq!(&a[8..12], &2u32.to_le_bytes());
+        assert_eq!(&a[12..20], &[0x02, 0x03, 0, 0, 0x03, 0x03, 0, 0]);
+        assert_eq!(kccb::FREELISTS_RECONSTRUCTION_UPDATE, 0x2ABC_0070);
+        // A growth request names its list; the answer carries the list's address and pages.
+        let mut g = [0u8; 88];
+        g[0..4].copy_from_slice(&fwccb::FREELIST_GROW.to_le_bytes());
+        g[8..12].copy_from_slice(&0x0302u32.to_le_bytes());
+        assert_eq!(FwccbCmd::from_bytes(&g).freelist_grow(), Some(0x0302));
+        let u = KccbCmd::freelist_grow_update(0xC012_0000, 0, 512, 0).to_bytes();
+        assert_eq!(&u[0..4], &kccb::FREELIST_GROW_UPDATE.to_le_bytes());
+        assert_eq!(&u[8..24], &[0, 0, 0x12, 0xC0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(kccb::FREELIST_GROW_UPDATE, 0x2ABC_006E);
     }
 
     #[test]

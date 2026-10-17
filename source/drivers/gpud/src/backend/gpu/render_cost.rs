@@ -275,14 +275,14 @@ pub(super) fn run_draws<'p>(
     };
     let reached = |word: u32, point: u32| word.wrapping_sub(point) < 0x8000_0000;
     let mut t_geom = 0u64;
-    let done = dev.gpu.wait_until(t0 + PASS_TIMEOUT_NS, |g| {
+    let done = dev.wait_until(t0 + PASS_TIMEOUT_NS, |g, _| {
         if t_geom == 0 && reached(g.mem.read_u32(&gtl, 0), gseq) {
             t_geom = now_ns();
         }
         reached(g.mem.read_u32(&ftl, 0), fseq)
     });
     let t_end = now_ns();
-    dev.gpu.drain_fwccb();
+    dev.serve_firmware();
     let irqs = dev.gpu.irqs - irqs_before;
     // What the pass took of gpud's heap, which never frees: nothing, when the pass went through.
     let grown = nexus_service_entry::os::heap_cursor().1.saturating_sub(heap_before);

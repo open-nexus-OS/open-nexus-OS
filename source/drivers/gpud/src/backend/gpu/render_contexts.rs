@@ -260,7 +260,7 @@ fn drive(
         .map_err(|e| alloc::format!("b submit {e:?}"))?;
     let deadline = t0 + PASS_TIMEOUT_NS;
     if !dev.wait_point(pa, deadline) || !dev.wait_point(pb, deadline) {
-        dev.gpu.drain_fwccb();
+        dev.serve_firmware();
         let wa = dev.render_words(a.client, a.ctx).unwrap_or((0, 0));
         let wb = dev.render_words(b.client, b.ctx).unwrap_or((0, 0));
         return Err(alloc::format!(
@@ -340,7 +340,7 @@ fn refusals(
     Ok(refused)
 }
 
-fn batch_at(
+pub(super) fn batch_at(
     va: u64,
     width: u32,
     height: u32,

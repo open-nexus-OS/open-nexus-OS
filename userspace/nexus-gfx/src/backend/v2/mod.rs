@@ -173,6 +173,9 @@ pub enum DeviceError {
     NoRenderTarget,
     /// A buffer still bound in a context: unbind it before it is destroyed (§3).
     BufferBound,
+    /// The context's work faulted and the device lost it (§6): nothing new runs in it; its
+    /// points count as reached; its client destroys it and makes a new one.
+    ContextLost,
 }
 
 impl From<VmError> for DeviceError {
@@ -222,7 +225,8 @@ pub trait GfxDevice {
         kind: QueueKind,
         batch: &Batch<'_>,
     ) -> Result<TimelinePoint, DeviceError>;
-    /// Whether the device's timeline reached `point`.
+    /// Whether the device's timeline reached `point` (a point of a lost or destroyed context
+    /// counts as reached: nothing waits for work that will not run).
     fn reached(&self, point: TimelinePoint) -> bool;
     /// Cancels the context's in-flight work; its space is kept (§6).
     fn reset_context(&mut self, client: ClientId, ctx: ContextId) -> Result<(), DeviceError>;
