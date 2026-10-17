@@ -21,6 +21,12 @@ use crate::shader::library::{self, LibraryError, Refusal};
 use crate::shader::rogue::count_groups;
 use crate::shader::rogue::setup::Setup;
 
+/// The room a context gives its library (RFC-0101 §7b): code-heap and setup-heap bytes — the
+/// board's places in its render template (gpud's `render_template::LIBRARY_*`) and the mock's,
+/// so both refuse the same library for room.
+pub const LIBRARY_CODE_BYTES: u32 = 0x8000;
+pub const LIBRARY_SETUP_BYTES: u32 = 0xc00;
+
 /// Where a pipeline's bytes go: the client's code heap and setup heap.
 pub trait Heaps {
     /// Writes a program where the code heap has room: its offset from the heap's base.

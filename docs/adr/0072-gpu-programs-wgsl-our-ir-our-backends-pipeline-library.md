@@ -75,7 +75,10 @@
    board with the pipeline's constant block — the values no constant register holds, which the
    state load DMAs into shared registers, 5c-2 P5d-3), its budget and a digest. The format lives in `nexus_gfx::shader::library`, the contract in
    RFC-0101 §7b. The client (windowd) supplies the library; gpud validates and binds it and
-   holds no program of its own.
+   holds no program of its own (since TASK-0215 5c-3 P3 on both paths: windowd carries one
+   library per code target and moves the one the device's capabilities name to gpud when it
+   opens its context — RFC-0101 §7b's wire; gpud's code embeds none beyond the board rungs'
+   fixture).
 7. **A budget is part of a pipeline's definition**: its instruction-group count. A host test
    fails above it; the board measures ns a pixel on the 5c-1 line against the stock's numbers.
 8. **The proof method**: the `rogue` encoder disassembles and re-encodes the captured programs

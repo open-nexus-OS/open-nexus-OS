@@ -30,6 +30,10 @@ pub(super) enum TargetMem {
     Plane { bus: u64 },
     /// A buffer of the caller's, bound whole.
     Buffer(BoId),
+    /// Nothing at the captured target's address: a context that names every pass's target
+    /// itself (windowd's, 5c-3 P3) — a pass writing the captured one faults there, and the
+    /// fault stays in that context (RFC-0101 §6).
+    Unbound,
 }
 
 /// The texture's formula.
@@ -189,6 +193,7 @@ fn fill_and_bind(
                         bo
                     }
                     TargetMem::Buffer(bo) => bo,
+                    TargetMem::Unbound => continue,
                 };
                 loaded.target = Some((GpuVa(buf.va), buf.len));
                 (bo, 0, Access::ReadWrite)

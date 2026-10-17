@@ -174,4 +174,11 @@ pub(crate) trait Display {
 
     /// One self-paced frame; `attached` = windowd's framebuffer is attached.
     fn frame_tick(&mut self, _attached: bool, _stats: &mut PresentStats) {}
+
+    /// The GPU of this display that clients open contexts on (RFC-0101 §7b) — the virtio GPU's
+    /// virgl context on QEMU. `None` when the display has none of its own: the board's GPU sits
+    /// beside its controller and reaches the request loop by itself.
+    fn gpu_service(&mut self) -> Option<&mut dyn crate::gpu_context::GpuService> {
+        None
+    }
 }

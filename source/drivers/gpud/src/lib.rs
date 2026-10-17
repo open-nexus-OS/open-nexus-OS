@@ -21,6 +21,9 @@ pub mod error;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 #[path = "backend/gpu/mod.rs"]
 pub(crate) mod gpu;
+/// A client's GPU context over IPC (TASK-0215 5c-3 P3, RFC-0101 §7b): the capabilities, the
+/// open for windowd alone, the library's VMO checked and mapped read-only; host-tested gates.
+pub(crate) mod gpu_context;
 pub mod markers;
 pub mod protocol;
 
@@ -51,6 +54,11 @@ pub mod gl_probe;
 /// through it. Empty unless the virgl OS build is active.
 #[cfg(feature = "virgl")]
 pub mod virgl_pipelines;
+
+/// QEMU's GPU as windowd opens its context on it (TASK-0215 5c-3 P3): windowd's library in the
+/// virgl context, proved by readback. Empty unless the virgl OS build is active.
+#[cfg(feature = "virgl")]
+pub(crate) mod virgl_context;
 
 /// GPU vector draws (G3): a layer's drop shadow and the gradient-filled rounded
 /// rectangle, with the library's pipelines. Empty unless the virgl OS build is active.

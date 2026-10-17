@@ -27,6 +27,11 @@ pub(crate) struct RungContext {
     pub scene: Loaded,
 }
 
+/// The render bundle (`resources/gpu/scenes/render-quad.scene`, 5a): the captured pass every
+/// render context is made from — the rungs' and windowd's (5c-3 P3).
+pub(super) const RENDER_BUNDLE: &[u8] =
+    include_bytes!("../../../../../../resources/gpu/scenes/render-quad.scene");
+
 /// The captured pass's arenas (`docs/board/measurements/2026-10-13-gpu-render-queue/README.md`, 5b).
 pub(super) const GENERAL_ARENA: u64 = 0x80_0004_b000;
 pub(super) const PDS_ARENA: u64 = 0xda_0000_1000;

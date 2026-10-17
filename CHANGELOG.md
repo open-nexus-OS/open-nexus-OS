@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-17 (Block 4, layer 5c-3 P3: windowd's GPU context — TASK-0215, RFC-0101 §7b)
+
+- **windowd opens its own GPU context and supplies its pipeline library.** Two display-protocol
+  ops (`nexus_display_proto::gpu_context`): op 16 answers the GPU's code target, its feature bits
+  and the context bound; op 17 opens the sender's context at the priority it asks, its library
+  moved in as a VMO, and answers the context and the entries taken and refused. gpud serves
+  windowd alone by the kernel's sender id (`test_reject_open_from_another_service`), checks the
+  VMO's kind and length before it maps it read-only, closes it whatever the answer, and replaces
+  a context windowd already holds whole, so a restarted windowd gets a fresh one.
+- **gpud holds no GPU code of its own.** windowd carries one library per code target and moves
+  the one the device names (the board's GPU, QEMU's virtual GPU); `GfxDevice::take_library`
+  places it on every device, the mock as the oracle. The library compiled into gpud for the QEMU
+  path is deleted: its pipelines and its draw, gradient and composite readbacks now come from
+  windowd's library, before windowd's attach starts the GL scanout. A host test fails on a
+  library embedded in gpud (the board rungs' fixture excepted).
+- Lines `gpud: gpu library ok (client=windowd …)` (board ladder, 66 rungs), `windowd: gpu
+  context ok (…)` and `gpud: virgl library ok (client=windowd …)` (QEMU's GL lanes); the rungs'
+  fixture line now names `client=gpud`. Board cycle 26 (`[PASS] board-visible`); QEMU visible,
+  headless and display-gpu green.
+
 ### Added - 2026-10-17 (Block 4, layer 5c-3 P2c: a fault stays in its context — TASK-0215, RFC-0101 §6)
 
 - **A GPU fault loses only the context it is held against.** The firmware's context-reset report

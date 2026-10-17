@@ -27,7 +27,7 @@ use nexus_gfx::backend::gpu::mmu::PAGE;
 use nexus_gfx::backend::gpu::pipelines::{PipelineTable, Placed};
 use nexus_gfx::backend::gpu::scene::RenderSetup;
 use nexus_gfx::backend::v2::{
-    Batch, BoId, ClientId, ContextId, DeviceError, GfxDevice, Mapping, Stream,
+    Batch, BoId, ClientId, ContextId, DeviceError, GfxDevice, LibraryTaken, Mapping, Stream,
 };
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 
@@ -254,6 +254,11 @@ impl Device {
         Ok(())
     }
 
+    /// The ids the context's library gave it, in the library's order.
+    pub(super) fn pipeline_ids(&self, client: ClientId, ctx: ContextId) -> alloc::vec::Vec<u32> {
+        self.contexts.get(client, ctx).map(|s| s.pipelines.ids().collect()).unwrap_or_default()
+    }
+
     /// The pipeline the context's library named `name`.
     pub(super) fn pipeline(&self, client: ClientId, ctx: ContextId, name: &str) -> Option<Placed> {
         let table = &self.contexts.get(client, ctx).ok()?.pipelines;
@@ -289,6 +294,7 @@ impl GfxDevice for Device {
             page_size: PAGE as u32,
             executes_gpu_code: true,
             gpu_code_target: CodeTarget(self.gpu.win.core_id()),
+            gpu_code_features: super::library::CODE_FEATURES,
         }
     }
 
@@ -473,5 +479,14 @@ impl GfxDevice for Device {
             Some(p) => Err(DeviceError::WouldBlock(p)),
             None => Ok(()),
         }
+    }
+
+    fn take_library(
+        &mut self,
+        client: ClientId,
+        ctx: ContextId,
+        library: &[u8],
+    ) -> Result<LibraryTaken, DeviceError> {
+        self.place_library(client, ctx, library)
     }
 }

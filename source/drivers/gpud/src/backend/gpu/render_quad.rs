@@ -23,7 +23,7 @@ use super::render_template::{render_streams, RungContext};
 use super::scene_load::{self, TargetMem, Texel};
 use crate::backend::display::{Display, GpuCanvas};
 
-const BUNDLE: &[u8] = include_bytes!("../../../../../../resources/gpu/scenes/render-quad.scene");
+const BUNDLE: &[u8] = super::render_template::RENDER_BUNDLE;
 const PASS_TIMEOUT_NS: u64 = 2_000_000_000;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;

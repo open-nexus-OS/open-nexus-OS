@@ -1149,3 +1149,95 @@ context whose page catalogue it names, that context is refused by name until its
 it, the firmware's request for its free lists is answered so the device runs on, and the other
 contexts draw beside it and after it — at 0.75 ms to the work in flight. Next: P3 (windowd's
 context over IPC).
+
+## 5c-3 P3 — windowd's context (TASK-0215, RFC-0101 §1, §7, §7b)
+
+**Question.** Can windowd open its own GPU context at the highest priority and hand gpud its
+pipeline library over IPC — on the board and on QEMU — so that gpud holds no GPU code of its own
+and a restarted windowd gets a fresh context?
+
+**Measured first** (the code read through). windowd and gpud share one endpoint pair init mints,
+windowd the only sender; the wire is `nexus-display-proto` (ADR-0038), ops 1–15, a reply told
+apart by its length. gpud discarded the sender's id. A service's id is the kernel's hash of its
+name — a restarted windowd keeps it — and nothing tells gpud that windowd went (init keeps a send
+right on gpud's endpoint, so no end-of-file reaches it; windowd is not respawned today): the
+tree's pattern is that the newest attach wins. gpud compiled the library in twice — the board
+rungs' and QEMU's, whose GL scanout and splash draw with it from windowd's attach on, so
+windowd's library can arrive before it.
+
+**What P3 builds.** Op 16 answers the GPU's code target, its feature bits and the context bound;
+op 17 opens the sender's context with its library moved in as a VMO and answers the context and
+the entries taken and refused (`nexus_display_proto::gpu_context`, sixteen-byte answers with the
+op in their second byte). gpud serves windowd alone (the kernel's id), checks the VMO before it
+maps it read-only, closes it whatever the answer, and replaces a context the client holds whole.
+`GfxDevice::take_library` places a library on every device (the mock places it as the board
+does). On the board windowd's context is made as the render rungs' is — the render bundle bound
+with its target unbound, the render objects set up, the library placed; on QEMU the virgl
+pipelines are made from windowd's library and the draw, gradient and composite readbacks run on
+them. windowd carries one library per code target and picks it by the target op 16 names; gpud's
+code embeds none (a host test fails on one, the board rungs' fixture excepted).
+
+**The gate.** Board: `gpud: gpu library ok (client=windowd ctx= prio=0 bytes= entries= refused=0
+code_bytes= setup_bytes= open_us= replaced= heap_bytes=)` (REQUIRED), windowd's `windowd: gpu
+context ok (ctx= entries= bytes= target= features=)`; the rungs' line now `gpud: gpu library ok
+(client=gpud …`. QEMU, every GL lane (`scripts/qemu-test.sh`): `windowd: gpu context ok (` and
+`gpud: virgl library ok (client=windowd …)`, the virgl readbacks after it.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H64 | windowd's library reaches gpud whole and is placed as the rungs' fixture is | `client=windowd … entries=7 refused=0 code_bytes=2808 setup_bytes=852` — the fixture line's numbers, which the mock predicts (`a_context_takes_its_library_as_the_board_places_it`); windowd's `target=0x24001d003400b6 features=0x1` |
+| H65 | windowd's context costs its start about the render rung's bind | `open_us` near `render ok … bind_us=6467` (the bundle bound and the render objects set up, no plane adopted) |
+| H66 | an open costs gpud's heap the library's table alone | `heap_bytes` near the rung's `table_bytes=7039`: the context's slot storage is reused after the rungs |
+| H67 | windowd's context fits beside the display | no `VM-MAP-FAIL`; the desktop and the screenshot as in cycle 25 (the operator's confirmations) |
+| H68 | QEMU's virgl path draws on windowd's library | `gpud: virgl library ok (client=windowd … fresh=true draw_ok=true)`, then `virgl draw ok`, `virgl gradient ok`, `layer composite ok`; the visible lane green (decided in QEMU before the board) |
+
+**Results — QEMU** (2026-10-17, `visible--2026-10-17T17-05-26`, `headless`, `display-gpu`: each
+`SELFTEST: Completed (markers verified)`). The visible lane's probe stops before the library
+(`gpud: virgl ready`, `gl draw unproven at probe …`); windowd's open brings it — `virgl shader
+ok`, `virgl draw ok`, `virgl gradient ok`, `layer composite ok`, `gpud: virgl library ok
+(client=windowd ctx=1 bytes=36880 entries=15 fresh=true draw_ok=true)`, `windowd: gpu context ok
+(ctx=0x1 entries=15 bytes=36880 target=0x5447534900000001 features=0x0)` — and the desktop
+composites live on windowd's pipelines (`gpud: layer composite live`). The 2D lanes name the
+other answer: `windowd: gpu context none (the display's GPU runs no code)`. **H68 confirmed.**
+
+**Results — the board, cycle 26** (`board--2026-10-17T21-48-46`, `cycle26-gpu-lines.txt` — gpud's
+GPU lines and windowd's context line, `cycle26-board-test.txt`; `[PASS] board-visible`, 66 rungs,
+the operator's seven confirmations, no `VM-MAP-FAIL`) — green on the package's first cycle:
+
+`gpud: gpu library ok (client=windowd ctx=0x600 prio=0 bytes=4748 entries=7 refused=0
+code_bytes=2808 setup_bytes=852 open_us=9971 replaced=false heap_bytes=9023)`, `windowd: gpu
+context ok (ctx=0x600 entries=7 bytes=4748 target=0x24001d003400b6 features=0x1)`; the rungs'
+fixture `gpud: gpu library ok (client=gpud bytes=4748 entries=7 refused=0 code_bytes=2808
+setup_bytes=852 table_bytes=7039 …)`, `render ok … bind_us=6572`.
+
+- **H64 confirmed.** windowd's library reached gpud whole and was placed as the fixture is: the
+  same seven entries, nothing refused, the same 2808 code and 852 setup bytes the mock predicted.
+  windowd picked it by the target op 16 named (`target=0x24001d003400b6`), with the feature bit
+  the layers need (`features=0x1`).
+- **H65 named the wrong span** (as H60's time did). `open_us=9971` times the whole open — the
+  bundle parsed, the context created, the bundle bound with its target unbound, the render objects
+  set up, the library placed; the rung's `bind_us=6572` (this boot) times the binding and the
+  setup alone. The open costs windowd's start 10 ms, once; how the 3.4 ms beyond the binding split
+  among the parse, the context and the library this cycle did not measure.
+- **H66 refuted in its number.** `heap_bytes=9023` against the table's `table_bytes=7039`: an open
+  costs gpud's heap 1984 bytes beside the table. By the code, the open parses the render bundle
+  again and keeps the bound bundle's buffer list, both per open; this cycle did not split the
+  1984 bytes. gpud's heap never frees, so each open costs it 9 KB for good — once a boot today
+  (windowd is not respawned).
+- **H67 confirmed.** No `VM-MAP-FAIL`; the desktop, the pointer, typed input and the screenshot
+  confirmed by the operator as in cycle 25.
+
+**Observed outside P3 — a teardown held up while the console printed a crash.** The containment
+rung's lost context took 130 ms to tear down this boot (`f_teardown_us=129833`; cycle 25: 1450) on
+a path P3 did not change. Between the rung's loss line and its verdict the log holds the
+supervision probe's second crash (`init: restart svc=fault-probe`): 1540 bytes of `[USER-PF]`
+lines, 133.7 ms on the 115 200-baud console in a proof boot, which prints the dump whole. In cycle
+25 the probe's dumps fell before and after the rung. The 128 ms the teardown lost match the dump's
+console time; what held gpud meanwhile is not measured (the kernel's lock accounting shows no
+single wait above 29 ms this boot). Carried: measured before P4 puts the desktop's frames through
+gpud, where such a hold would show as a stall.
+
+**Verdict.** windowd opens its own context at the highest priority and hands gpud its library
+over IPC, on the board and on QEMU; gpud serves windowd alone, replaces a context windowd holds
+whole, and holds no GPU code of its own (the board rungs' fixture excepted). P3 complete; P4 next —
+the desktop drawn on the GPU in windowd's context.

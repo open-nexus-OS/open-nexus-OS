@@ -48,7 +48,7 @@ use super::render_template::{
 };
 use crate::backend::display::{Display, GpuCanvas};
 
-const BUNDLE: &[u8] = include_bytes!("../../../../../../resources/gpu/scenes/render-quad.scene");
+const BUNDLE: &[u8] = super::render_template::RENDER_BUNDLE;
 const PASS_TIMEOUT_NS: u64 = 2_000_000_000;
 /// The plane: 1920x1080 pixels of four bytes.
 pub(super) const WIDTH: u32 = 1920;

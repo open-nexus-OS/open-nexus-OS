@@ -37,6 +37,12 @@ impl Display for VirtioGpuBackend {
         (self.display_w, self.display_h)
     }
 
+    /// The virgl context windowd opens its context on (TASK-0215 5c-3 P3, `virgl_context.rs`).
+    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
+    fn gpu_service(&mut self) -> Option<&mut dyn crate::gpu_context::GpuService> {
+        Some(self)
+    }
+
     fn framebuffer(&mut self) -> Option<u32> {
         self.make_framebuffer()
     }

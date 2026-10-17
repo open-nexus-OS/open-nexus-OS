@@ -107,6 +107,9 @@ pub struct Capabilities {
     /// Whether a binary for [`Self::gpu_code_target`] can be executed at all.
     pub executes_gpu_code: bool,
     pub gpu_code_target: CodeTarget,
+    /// The feature bits beyond the code target's baseline the device runs — what a client's
+    /// pipeline library may ask for (RFC-0101 §7b); 0 when it runs none.
+    pub gpu_code_features: u32,
 }
 
 /// A batch's size against the device's bound (§4).
@@ -264,6 +267,7 @@ mod tests {
             page_size: PAGE,
             executes_gpu_code: false,
             gpu_code_target: CodeTarget(0x24001D003400B6),
+            gpu_code_features: 0,
         }
     }
 

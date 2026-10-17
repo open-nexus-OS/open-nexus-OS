@@ -99,7 +99,7 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
             let mut rungs = crate::gpu::render_quad::rung(dev, &mut display);
             if let Some(rc) = rungs.as_mut() {
                 // TASK-0215 5c-2 P4d (RFC-0101 §7b): the compositor's pipeline library taken for
-                // the context — validated, its programs placed: `gpud: gpu library ok (`.
+                // the context — validated, its programs placed: `gpud: gpu library ok (client=gpud`.
                 crate::gpu::render_library::rung(dev, rc);
                 // TASK-0215 5b: dynamic geometry — three quads at the device's positions and
                 // tints, the per-draw blocks and records written by the device: `gpud: gpu
@@ -142,14 +142,17 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
         let clock = crate::frame_clock::FrameClock::default();
         nexus_service_entry::ready(GPUD_READY)?;
         nexus_abi::service_verdict_flush("gpud");
+        // TASK-0215 5c-3 P3 (RFC-0101 §7b): the GPU as the request loop serves it — its
+        // interrupt's messages, the capabilities, windowd's context with windowd's library.
         #[cfg(all(feature = "os-lite", target_os = "none"))]
-        let mut gpu_wake = || {
-            if let Some(g) = gpu.as_mut() {
-                g.on_wake();
-            }
-        };
+        let mut board = gpu.map(crate::gpu::BoardGpu::new);
         #[cfg(all(feature = "os-lite", target_os = "none"))]
-        return service_requests(server, &mut display, clock, Some(&mut gpu_wake));
+        return service_requests(
+            server,
+            &mut display,
+            clock,
+            board.as_mut().map(|b| b as &mut dyn crate::gpu_context::GpuService),
+        );
         #[cfg(not(all(feature = "os-lite", target_os = "none")))]
         return service_requests(server, &mut display, clock, None);
     }
@@ -264,8 +267,9 @@ fn service_requests(
     server: KernelServer,
     display: &mut dyn Display,
     mut clock: crate::frame_clock::FrameClock,
-    // TASK-0329 G1: the board GPU's wake (its interrupt endpoint is a waitset member).
-    mut gpu_wake: Option<&mut dyn FnMut()>,
+    // The board's GPU beside its display (TASK-0329 G1: its interrupt endpoint is a waitset
+    // member; 5c-3 P3: the clients' contexts). QEMU's GPU is its display's (`gpu_service`).
+    mut gpu: Option<&mut dyn crate::gpu_context::GpuService>,
 ) -> Result<(), nexus_abi::AbiError> {
     // 8192 bytes: large enough for full cursor upload (32×32×4 = 4096B BGRA + 9B header).
     let mut recv_frame = [0u8; 8192];
@@ -327,11 +331,11 @@ fn service_requests(
                 active_handoff_id,
             );
         }
-        if let Some(wake) = gpu_wake.as_mut() {
-            wake();
+        if let Some(g) = gpu.as_deref_mut() {
+            g.on_wake();
         }
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
-            Ok((frame_len, _sid, mut moved_cap)) => {
+            Ok((frame_len, sender, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
                 let op = match frame.first().copied() {
                     Some(op) => op,
@@ -482,6 +486,25 @@ fn service_requests(
                     }
                     nexus_display_proto::OP_READBACK => {
                         (crate::readback::serve(display, frame, moved_cap.take()), None)
+                    }
+                    nexus_display_proto::gpu_context::OP_GPU_CAPABILITIES
+                    | nexus_display_proto::gpu_context::OP_GPU_CONTEXT_OPEN => {
+                        // RFC-0101 §7b: a client's GPU context on the GPU beside the display
+                        // (the board's) or the display's own (QEMU's virgl context); the
+                        // sixteen-byte answer is sent there.
+                        let service: Option<&mut dyn crate::gpu_context::GpuService> =
+                            match gpu.as_deref_mut() {
+                                Some(g) => Some(g),
+                                None => display.gpu_service(),
+                            };
+                        crate::gpu_context::serve(
+                            &server,
+                            sender,
+                            frame,
+                            moved_cap.take(),
+                            service,
+                        );
+                        continue;
                     }
                     _ => (handle_frame(display, frame, &mut scroll_flush_pending), None),
                 };

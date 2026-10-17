@@ -53,6 +53,7 @@
 mod damage;
 mod frame_causes;
 mod framebuffer_grant;
+mod gpu_context;
 #[cfg(nexus_env = "os")]
 mod loop_telemetry;
 pub(crate) mod material_glass;
@@ -394,6 +395,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     // exists, because the compositor is built at the granted mode. No default stands in: a
     // stack without gpud is named (`windowd: display none (…)`) and runs display-less.
     let grant = framebuffer_grant::request();
+    // TASK-0215 5c-3 P3 (RFC-0101 §7b): windowd's GPU context with its pipeline library — before
+    // the attach, which starts QEMU's GL scanout with windowd's pipelines (gpud holds none).
+    if grant.framebuffer.is_some() {
+        gpu_context::open();
+    }
     let (visible_w, visible_h) = grant.mode;
     let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
         Ok(rt) => {

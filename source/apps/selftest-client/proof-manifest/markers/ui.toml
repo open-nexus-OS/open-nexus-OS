@@ -31,6 +31,18 @@ proves = "windowd built its compositor at the mode gpud granted, on the framebuf
 phase = "bringup"
 proves = "inputd asked windowd once for its hit-test space (gpud's mode) over its declared reply inbox"
 
+# TASK-0215 5c-3 P3 (RFC-0101 §7b): windowd's GPU context, opened at windowd's start with its
+# pipeline library — on QEMU's virgl device and on the board, so no `emit_when` (a display whose
+# GPU runs no code names `windowd: gpu context none (` instead). `scripts/qemu-test.sh` requires
+# both lines on every GL lane; `scripts/board-test.sh` requires gpud's board line.
+[marker."windowd: gpu context ok ("]
+phase = "bringup"
+proves = "windowd asked gpud for its GPU's capabilities, picked its pipeline library for the code target they name, moved it to gpud in a VMO with the open at the highest priority, and gpud took every entry"
+
+[marker."gpud: virgl library ok (client=windowd"]
+phase = "bringup"
+proves = "QEMU's virgl context made its pipelines from windowd's library (gpud holds none of its own); the draw, gradient and layer-composite readbacks run on them"
+
 [marker."windowd: display none ("]
 phase = "bringup"
 proves = "no gpud answered (no display device, e.g. the board before its controller driver): windowd runs display-less at the layout maximum and says so"

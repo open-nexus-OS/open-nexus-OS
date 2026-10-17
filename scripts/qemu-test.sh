@@ -2680,6 +2680,15 @@ if [[ "${GPU_MODE:-}" == "virgl" ]]; then
     echo "[error] CONTRACT VIOLATION: 'gpud: cpu fallback' on a GL device (virgl context/draw failed)" >&2
     exit 1
   fi
+  # TASK-0215 5c-3 P3 (RFC-0101 §7b): the desktop's GPU code is windowd's — windowd opened its
+  # context with its pipeline library and gpud made the virgl pipelines from it (gpud holds none).
+  for m in "windowd: gpu context ok (" "gpud: virgl library ok (client=windowd"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+      echo "[error] windowd's GPU context missing (TASK-0215 5c-3 P3): the virgl pipelines are windowd's library's" >&2
+      exit 1
+    fi
+  done
 fi
 
 # TASK-0324 P0 display truth: judge what the HOST display showed. The launcher's

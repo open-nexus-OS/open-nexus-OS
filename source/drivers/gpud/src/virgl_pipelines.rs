@@ -3,17 +3,19 @@
 
 //! CONTEXT: The QEMU path's pipelines (TASK-0215 5c-2 P6, ADR-0072 §4–6): the compositor's WGSL
 //! programs, compiled by our toolchain into the host renderer's shader text and carried as a
-//! pipeline library (`resources/gpu/pipelines/compositor-virgl.nxgp`) — parsed and checked
-//! before a byte reaches the device, created in the virgl context once, bound per draw: the
-//! quad's vertex program, the pipeline's fragment program, its blend, its push constants as the
-//! fragment stage's constant buffer, its texture through the one bilinear sampler. Every draw of
-//! the virgl path is [`VirtioGpuBackend::emit_draw`]; gpud writes no shader text of its own.
+//! pipeline library (`resources/gpu/pipelines/compositor-virgl.nxgp`) that windowd supplies when
+//! it opens its context (5c-3 P3, `virgl_context.rs`) — parsed and checked before a byte reaches
+//! the device, created in the virgl context once a boot, bound per draw: the quad's vertex
+//! program, the pipeline's fragment program, its blend, its push constants as the fragment
+//! stage's constant buffer, its texture through the one bilinear sampler. Every draw of the
+//! virgl path is [`VirtioGpuBackend::emit_draw`]; gpud holds no library and writes no shader text
+//! of its own.
 //! OWNERS: @gpu @ui
 //! STATUS: Experimental
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: the probe's readback proofs (`gpud: virgl draw ok`, `gpud: virgl gradient ok`,
-//!   `gpud: layer composite ok`) and the visible QEMU lanes; the library's text is golden-tested
-//!   by `tools/nxgpu/tests/tgsi.rs`.
+//! TEST_COVERAGE: the readback proofs on windowd's library (`gpud: virgl draw ok`, `gpud: virgl
+//!   gradient ok`, `gpud: layer composite ok`) and the visible QEMU lanes; the library's text is
+//!   golden-tested by `tools/nxgpu/tests/tgsi.rs`.
 
 #![cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
 
@@ -34,9 +36,6 @@ use crate::virgl::{
     PIPE_FORMAT_R8_UNORM, PIPE_PRIM_TRIANGLES, PIPE_SHADER_FRAGMENT, PIPE_SHADER_VERTEX,
     VIRGL_OBJECT_BLEND, VIRGL_OBJECT_DSA, VIRGL_OBJECT_RASTERIZER, VIRGL_OBJECT_VERTEX_ELEMENTS,
 };
-
-/// The library (`nxgpu library resources/gpu/pipelines/compositor-virgl.toml`).
-const LIBRARY: &[u8] = include_bytes!("../../../../resources/gpu/pipelines/compositor-virgl.nxgp");
 
 // Object handles — the context has one object table, so a handle is unique across every
 // subsystem of gpud (the surfaces, sampler views and resources keep their own modules' ranges).
@@ -104,6 +103,11 @@ pub(crate) struct Pipelines {
     /// The blur pairs the library holds.
     blurs: [BlurPair; MAX_BLURS],
     blur_count: usize,
+    /// The library the pipelines came from — its digest (`library::digest` over the archive,
+    /// the header's target field aside: the first take's parse checked it) and its entries — so
+    /// a restarted client's open with the same library finds them standing.
+    digest: u64,
+    pub(crate) entries: u16,
 }
 
 impl Pipelines {
@@ -163,18 +167,24 @@ impl Pipelines {
 }
 
 impl VirtioGpuBackend {
-    /// Create the library's pipelines in the virgl context — its programs (each checked, a long
-    /// one in chunks), the blends they name, the fixed-function state, the sampler and the quad —
-    /// and resolve the ones gpud draws with by name. Idempotent; synchronous outside a batch, in
-    /// ring order inside one. A library refused in part, or missing a pipeline gpud draws with, is
-    /// refused whole (the renderer drops a program it cannot parse without a word, so the probe's
-    /// draws prove the programs).
-    pub(crate) fn virgl_pipelines_init(&mut self) -> Result<(), GfxError> {
+    /// Create the pipelines of windowd's `library` in the virgl context — its programs (each
+    /// checked, a long one in chunks), the blends they name, the fixed-function state, the
+    /// sampler and the quad — and resolve the ones gpud draws with by name; the entries made.
+    /// Synchronous outside a batch. A library refused in part, or missing a pipeline gpud draws
+    /// with, is refused whole (the renderer drops a program it cannot parse without a word, so
+    /// the readback proofs after it prove the programs). The virgl context takes one library a
+    /// boot: the same library again finds its pipelines standing, another one is refused.
+    pub(crate) fn virgl_pipelines_take(&mut self, library: &[u8]) -> Result<u16, GfxError> {
+        let digest = library::digest(library);
         if self.pipelines.ready {
-            return Ok(());
+            return if digest == self.pipelines.digest {
+                Ok(self.pipelines.entries)
+            } else {
+                Err(GfxError::Unsupported)
+            };
         }
         let lib =
-            library::parse(LIBRARY, tgsi::CODE_TARGET, 0).map_err(|_| GfxError::InvalidArgument)?;
+            library::parse(library, tgsi::CODE_TARGET, 0).map_err(|_| GfxError::InvalidArgument)?;
         if !lib.refused.is_empty() {
             return Err(GfxError::InvalidArgument);
         }
@@ -220,8 +230,11 @@ impl VirtioGpuBackend {
             return Err(GfxError::InvalidArgument);
         }
         table.ready = true;
+        table.digest = digest;
+        table.entries = u16::try_from(lib.accepted.len()).unwrap_or(u16::MAX);
+        let entries = table.entries;
         self.pipelines = table;
-        Ok(())
+        Ok(entries)
     }
 
     /// The quad's buffer and the objects every draw binds: the blends the library names, depth

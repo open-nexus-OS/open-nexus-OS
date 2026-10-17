@@ -8,14 +8,15 @@
 //! bound, points signalled on the one timeline. It executes the tree's
 //! command vocabulary only as far as proving the data flow (`DrawTiles` lands in the bound
 //! target); pixels through v2 are Phase 3's. GPU code is refused by name: the mock executes
-//! none, and says so.
+//! none, and says so. A context takes its pipeline library once (§7b), validated and placed as
+//! the board places it — within the same room, no program byte kept.
 //! OWNERS: @gpu @ui
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: unit tests (this file) — the reject matrix of RFC-0101 §9
+//! TEST_COVERAGE: unit tests (`cpu_mock/tests.rs`) — the reject matrix of RFC-0101 §9
 //! INVARIANTS: no batch runs with a reference outside its context's space; a context or
 //!   buffer answers only to its owner; a range binds inside its buffer; a bound buffer is never
-//!   destroyed; the timeline never moves backwards.
+//!   destroyed; the timeline never moves backwards; a context holds one library.
 
 use alloc::vec;
 use alloc::vec::Vec;
@@ -24,7 +25,10 @@ use nexus_driverkit::gpu::{check_batch, Binding, VmSpace};
 
 use super::{
     Batch, BoId, CacheMode, Capabilities, ClientId, CodeTarget, ContextId, DeviceError, GfxDevice,
-    GpuVa, Mapping, Priority, QueueKind, QueueKinds, Stream, TimelinePoint, VmError,
+    GpuVa, LibraryTaken, Mapping, Priority, QueueKind, QueueKinds, Stream, TimelinePoint, VmError,
+};
+use crate::backend::gpu::pipelines::{
+    Heaps, PipelineTable, LIBRARY_CODE_BYTES, LIBRARY_SETUP_BYTES,
 };
 use crate::command::buffer::Command;
 use crate::sync::timeline::Timeline;
@@ -33,6 +37,8 @@ use crate::sync::timeline::Timeline;
 pub const MOCK_BINDINGS: usize = 32;
 /// The mock's page.
 pub const MOCK_PAGE: u32 = 4096;
+/// Programs and setup programs each start a 64-byte line, as on the board.
+const LINE: u32 = 64;
 
 struct Context {
     owner: ClientId,
@@ -41,6 +47,37 @@ struct Context {
     resets: u32,
     /// The device lost it (a fault): nothing new runs in it.
     lost: bool,
+    /// The pipelines its library gave it (§7b); empty until it takes one.
+    pipelines: PipelineTable,
+}
+
+/// A context's library places in the mock: what each heap took, bounded as the board's places
+/// are — the mock keeps no program bytes (it executes none).
+struct MockHeaps {
+    code: u32,
+    setup: u32,
+}
+
+impl MockHeaps {
+    fn place(next: &mut u32, room: u32, bytes: &[u8]) -> Option<u32> {
+        let at = next.next_multiple_of(LINE);
+        let end = at.checked_add(u32::try_from(bytes.len()).ok()?)?;
+        if end > room {
+            return None;
+        }
+        *next = end;
+        Some(at)
+    }
+}
+
+impl Heaps for MockHeaps {
+    fn code(&mut self, bytes: &[u8]) -> Option<u32> {
+        Self::place(&mut self.code, LIBRARY_CODE_BYTES, bytes)
+    }
+
+    fn setup(&mut self, bytes: &[u8]) -> Option<u32> {
+        Self::place(&mut self.setup, LIBRARY_SETUP_BYTES, bytes)
+    }
 }
 
 struct Bo {
@@ -76,6 +113,7 @@ impl CpuMockDevice {
             page_size: MOCK_PAGE,
             executes_gpu_code: false,
             gpu_code_target: CodeTarget(0x24001D003400B6),
+            gpu_code_features: 0,
         })
     }
 
@@ -193,6 +231,7 @@ impl GfxDevice for CpuMockDevice {
             space: VmSpace::new(self.caps.va_bits, self.caps.page_size),
             resets: 0,
             lost: false,
+            pipelines: PipelineTable::default(),
         };
         self.contexts.push(Some(context));
         Ok(ContextId((self.contexts.len() - 1) as u32))
@@ -325,6 +364,24 @@ impl GfxDevice for CpuMockDevice {
         let context = self.running_context(client, ctx)?;
         context.resets += 1;
         Ok(())
+    }
+
+    fn take_library(
+        &mut self,
+        client: ClientId,
+        ctx: ContextId,
+        library: &[u8],
+    ) -> Result<LibraryTaken, DeviceError> {
+        let caps = self.caps;
+        let context = self.running_context(client, ctx)?;
+        let mut heaps = MockHeaps { code: 0, setup: 0 };
+        let loaded = context.pipelines.load(
+            library,
+            caps.gpu_code_target.0,
+            caps.gpu_code_features,
+            &mut heaps,
+        )?;
+        Ok(LibraryTaken::from(&loaded))
     }
 }
 

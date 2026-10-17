@@ -22,6 +22,38 @@
 
 use nexus_abi::debug_putc;
 
+/// The longest line [`fmt_line`] writes; a longer one is cut at a character's boundary.
+const LINE_MAX: usize = 256;
+
+/// A line on the stack: what a client can cause again and again is never formatted into gpud's
+/// heap, which never frees.
+struct Line {
+    buf: [u8; LINE_MAX],
+    len: usize,
+}
+
+impl core::fmt::Write for Line {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let mut take = s.len().min(LINE_MAX - self.len);
+        while !s.is_char_boundary(take) {
+            take -= 1;
+        }
+        self.buf[self.len..self.len + take].copy_from_slice(&s.as_bytes()[..take]);
+        self.len += take;
+        Ok(())
+    }
+}
+
+/// One line formatted on the stack (at most [`LINE_MAX`] bytes) — the board GPU's events and
+/// the clients' contexts (TASK-0215 5c-3 P2c, P3).
+pub(crate) fn fmt_line(args: core::fmt::Arguments<'_>) {
+    let mut line = Line { buf: [0; LINE_MAX], len: 0 };
+    let _ = core::fmt::Write::write_fmt(&mut line, args);
+    let _ = nexus_abi::debug_println(
+        core::str::from_utf8(&line.buf[..line.len]).unwrap_or("gpud: line not utf-8"),
+    );
+}
+
 fn put(byte: u8) {
     let _ = debug_putc(byte);
 }

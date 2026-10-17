@@ -16,6 +16,7 @@ use super::*;
 use crate::backend::v2::{Access, RenderTarget, Shader};
 use crate::command::buffer::{Command, RgbaColor};
 use crate::core::types::TileRect;
+use crate::shader::library::{feature, LibraryError};
 use nexus_driverkit::gpu::BatchError;
 
 const WINDOWD: ClientId = ClientId(0x600e3345cc7104bb);
@@ -292,4 +293,77 @@ fn a_wait_the_mock_cannot_defer_is_refused_not_ignored() {
     let mut full = full;
     full.create_context(APP, Priority::Low).unwrap();
     assert_eq!(full.create_context(APP, Priority::Low), Err(DeviceError::Exhausted));
+}
+
+/// The compositor's library as windowd supplies it, built for the board's code target.
+const LIBRARY: &[u8] = include_bytes!("../../../../../../resources/gpu/pipelines/compositor.nxgp");
+
+/// A mock with the board's features: every entry of the library runs on it.
+fn library_device() -> CpuMockDevice {
+    let caps = CpuMockDevice::phase2().capabilities();
+    CpuMockDevice::new(Capabilities { gpu_code_features: feature::FUSED_ITERATE_SAMPLE, ..caps })
+}
+
+#[test]
+fn a_context_takes_its_library_as_the_board_places_it() {
+    let mut dev = library_device();
+    let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
+    // The board placed the same bytes alike (cycle 25: `gpu library ok (… entries=7 refused=0
+    // code_bytes=2808 setup_bytes=852 …`).
+    assert_eq!(
+        dev.take_library(WINDOWD, ctx, LIBRARY),
+        Ok(LibraryTaken {
+            accepted: 7,
+            refused: 0,
+            first_refused: 0,
+            code_bytes: 2808,
+            setup_bytes: 852
+        })
+    );
+}
+
+#[test]
+fn test_reject_second_library_for_a_context() {
+    let mut dev = library_device();
+    let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
+    dev.take_library(WINDOWD, ctx, LIBRARY).unwrap();
+    assert_eq!(dev.take_library(WINDOWD, ctx, LIBRARY), Err(DeviceError::LibraryHeld));
+    // A restarted client's fresh context takes it again; the old number is gone.
+    dev.destroy_context(WINDOWD, ctx).unwrap();
+    let fresh = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
+    assert_eq!(dev.take_library(WINDOWD, fresh, LIBRARY).map(|t| t.accepted), Ok(7));
+    assert_eq!(dev.take_library(WINDOWD, ctx, LIBRARY), Err(DeviceError::NoSuchContext));
+}
+
+#[test]
+fn test_reject_library_into_another_clients_context() {
+    let mut dev = library_device();
+    let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
+    assert_eq!(dev.take_library(APP, ctx, LIBRARY), Err(DeviceError::NotOwner));
+    dev.lose_context(ctx).unwrap();
+    assert_eq!(dev.take_library(WINDOWD, ctx, LIBRARY), Err(DeviceError::ContextLost));
+}
+
+#[test]
+fn test_reject_library_for_another_target_truncated_or_beyond_the_features() {
+    let foreign =
+        Capabilities { gpu_code_target: CodeTarget(1), ..library_device().capabilities() };
+    let mut dev = CpuMockDevice::new(foreign);
+    let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
+    assert!(matches!(
+        dev.take_library(WINDOWD, ctx, LIBRARY),
+        Err(DeviceError::Library(LibraryError::WrongTarget { .. }))
+    ));
+    let mut dev = library_device();
+    let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
+    assert!(matches!(
+        dev.take_library(WINDOWD, ctx, &LIBRARY[..LIBRARY.len() - 1]),
+        Err(DeviceError::Library(_))
+    ));
+    // A device without the feature refuses the entries that ask for it and keeps the rest.
+    let mut plain = CpuMockDevice::phase2();
+    let ctx = plain.create_context(WINDOWD, Priority::Realtime).unwrap();
+    let taken = plain.take_library(WINDOWD, ctx, LIBRARY).unwrap();
+    assert!(taken.refused > 0 && taken.first_refused != 0, "{taken:?}");
+    assert_eq!(taken.accepted + taken.refused, 7);
 }

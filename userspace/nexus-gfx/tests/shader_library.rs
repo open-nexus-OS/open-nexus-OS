@@ -229,3 +229,19 @@ fn every_truncation_and_every_flipped_bit_parses_without_a_panic() {
         }
     }
 }
+
+#[test]
+fn a_client_picks_its_library_by_the_header_target() {
+    const BOARD: &[u8] = include_bytes!("../../../resources/gpu/pipelines/compositor.nxgp");
+    const VIRGL: &[u8] = include_bytes!("../../../resources/gpu/pipelines/compositor-virgl.nxgp");
+    use nexus_gfx::shader::library::header_target;
+    assert_eq!(header_target(BOARD), Some(TARGET));
+    assert_eq!(header_target(VIRGL), Some(nexus_gfx::shader::tgsi::CODE_TARGET));
+    assert_eq!(header_target(&BOARD[..31]), None, "a header cut short");
+    let mut magic = BOARD[..32].to_vec();
+    magic[0] = b'X';
+    assert_eq!(header_target(&magic), None, "another magic");
+    let mut version = BOARD[..32].to_vec();
+    version[4] = 2;
+    assert_eq!(header_target(&version), None, "another version");
+}

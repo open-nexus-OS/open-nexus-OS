@@ -116,11 +116,15 @@ reveal_and_readback_rules() {
     return $bad
 }
 
-# Rule 7 runs against a ROOT (windowd's source, or the self-test fixtures).
+# Rule 7 runs against a ROOT (windowd's source, or the self-test fixtures). The one VMO windowd
+# makes is its pipeline library's carrier, moved to gpud with the open of its GPU context
+# (RFC-0101 §7b, TASK-0215 5c-3 P3: `compositor/gpu_context.rs`, `vmo_create(library.len())`) —
+# never a framebuffer; any other VMO, that file's included, stays a violation.
 framebuffer_owner_rule() {
     local root="$1" hits
     hits=$(grep -rnE '\bvmo_create(_for|_contiguous)?[[:space:]]*\(' "$root" --include='*.rs' \
-        | grep -vE ':[0-9]+:[[:space:]]*//' || true)
+        | grep -vE ':[0-9]+:[[:space:]]*//' \
+        | grep -vE '/compositor/gpu_context\.rs:[0-9]+:.*\bvmo_create\(library\.len\(\)\)' || true)
     if [ -n "$hits" ]; then
         echo "[FAIL] display-ssot: windowd allocates a VMO — the framebuffer is gpud's (RFC-0098 C7):" >&2
         printf '%s\n' "$hits" >&2
@@ -175,6 +179,19 @@ FIX
     fi
     if ! framebuffer_owner_rule "$tmp/wgood"; then
         echo "[FAIL] display-ssot: the framebuffer-owner rule rejects a clean tree" >&2
+        exit 1
+    fi
+    # The library's carrier passes; another VMO in the same file does not.
+    mkdir -p "$tmp/wlib/compositor" "$tmp/wlibbad/compositor"
+    printf 'fn open() { let vmo = match nexus_abi::vmo_create(library.len()) { Ok(v) => v, Err(_) => return }; }\n' \
+        > "$tmp/wlib/compositor/gpu_context.rs"
+    printf 'fn open() { let fb = nexus_abi::vmo_create(fb_len); }\n' > "$tmp/wlibbad/compositor/gpu_context.rs"
+    if ! framebuffer_owner_rule "$tmp/wlib"; then
+        echo "[FAIL] display-ssot: the framebuffer-owner rule rejects the library's carrier" >&2
+        exit 1
+    fi
+    if framebuffer_owner_rule "$tmp/wlibbad" 2>/dev/null; then
+        echo "[FAIL] display-ssot: the framebuffer-owner rule let another VMO pass beside the library's" >&2
         exit 1
     fi
     echo "[ok]   display-ssot: scanner self-test passed (5 shapes caught, test block skipped, reveal/readback and framebuffer-owner rules fail on fixtures)"

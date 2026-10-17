@@ -132,6 +132,13 @@ impl DisplayServerRuntime {
                 }
                 true
             }
+            // RFC-0101 §7b: a GPU-context answer belongs to the start-up exchange
+            // (`gpu_context::open`); one that lands here came late — named, never read as a
+            // present ack.
+            _ if proto::gpu_context::is_gpu_context_reply(reply) => {
+                let _ = debug_println("windowd: gpud reply late (a gpu context answer, ignored)");
+                true
+            }
             n if n >= proto::PRESENT_ACK_LEN => {
                 let Some((status, seq)) = proto::decode_present_ack(reply) else {
                     return true;

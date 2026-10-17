@@ -12,7 +12,10 @@ cf0, the first input at cf4, a texture's descriptor at sh4 with its sampler stat
 immediates at sh24), holds it to its budget, generates its setup programs (`rogue::setup`: the
 kick, the varying iteration, the state load) and its state (temporaries, pass type, register
 counts, the constant block), and builds the archive. The device validates it entry by entry and
-places the programs in the client's context; it holds no program of its own.
+places the programs in the client's context; it holds no program of its own. windowd carries both
+archives (`compositor.nxgp` for the board's GPU, `compositor-virgl.nxgp` for QEMU's host
+renderer) and moves the one whose header names the device's code target to gpud when it opens
+its context (TASK-0215 5c-3 P3, RFC-0101 §7b).
 
 | Id | Name | Source, overrides, blend | Groups / budget | Temporaries (fours) | Pass type | Program bytes |
 |---|---|---|---|---|---|---|

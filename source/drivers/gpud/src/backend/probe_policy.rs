@@ -3,11 +3,12 @@
 
 //! CONTEXT: Probe-time GPU capability proof + scanout policy enforcement,
 //! split out of `backend/mod.rs::probe` (structure gate). The virgl build runs
-//! the 3D self-test cascade (context → SUBMIT_3D → RT clear → the pipeline
-//! library → draw readback → gradient → layer composite) and emits exactly one of
-//! `gpud: virgl ready` / `gpud: cpu fallback`; then BOTH builds apply
-//! `scanout_policy`: a GL device is driven through the GL render target or the
-//! service exits loudly (TASK-0324 P0).
+//! the 3D self-test cascade (context → SUBMIT_3D → RT clear) and emits exactly
+//! one of `gpud: virgl ready` / `gpud: cpu fallback`; the pipeline library and
+//! the draw, gradient and layer-composite readbacks follow when windowd opens its
+//! context with its library (TASK-0215 5c-3 P3, `virgl_context.rs`). Then BOTH
+//! builds apply `scanout_policy`: a GL device is driven through the GL render
+//! target or the service exits loudly (TASK-0324 P0).
 //! OWNERS: @gpu
 //! STATUS: Functional
 
@@ -47,62 +48,10 @@ impl VirtioGpuBackend {
                 } else {
                     let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_RT_CLEAR_FAIL);
                 }
-                // The pipeline library's programs and state reach the context (the renderer
-                // drops a program it cannot parse without a word: the draws below prove them).
-                if self.virgl_pipelines_init().is_err() {
-                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SHADER_FAIL);
-                } else {
-                    let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_SHADER_OK);
-                    // Full-pipeline draw proof with readback pixel verification: the
-                    // gradient pipeline red over a blue clear — the center pixel (BGRA
-                    // bytes) tells us exactly how far the pipeline got.
-                    match self.virgl_draw_selftest() {
-                        Ok([0, 0, 255, 255]) => {
-                            let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_OK);
-                            self.virgl_draw_ok = true;
-                        }
-                        Ok([255, 0, 0, 255]) => {
-                            let _ = nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_NOOP);
-                        }
-                        Ok(_) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_DRAW_MISMATCH);
-                        }
-                        Err(_) => {
-                            let _ = nexus_abi::debug_println("gpud: virgl draw submit fail");
-                        }
-                    }
-                    // Gradient proof: red at the top, blue at the bottom — interpolation and
-                    // the orientation of `uv` the programs assume.
-                    match self.virgl_gradient_selftest() {
-                        Ok(true) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_GRADIENT_OK);
-                        }
-                        Ok(false) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_VIRGL_GRADIENT_WRONG);
-                        }
-                        Err(_) => {
-                            let _ = nexus_abi::debug_println("gpud: virgl gradient submit fail");
-                        }
-                    }
-                    // G2: GPU layer compositor primitive proof (the client-surface
-                    // pipeline's textured layer composited into an RT, readback).
-                    match self.virgl_composite_selftest() {
-                        Ok(true) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_OK);
-                        }
-                        Ok(false) => {
-                            let _ =
-                                nexus_abi::debug_println(crate::markers::GPUD_LAYER_COMPOSITE_OFF);
-                        }
-                        Err(_) => {
-                            let _ = nexus_abi::debug_println("gpud: virgl composite submit fail");
-                        }
-                    }
-                }
+                // The draws need a pipeline library — windowd's, taken when windowd opens its
+                // context before its attach (TASK-0215 5c-3 P3): the readback proofs of the
+                // pipelines run there (`virgl_context.rs`). Until then the draw is unproven and
+                // the scanout policy defers the decision to the first scanout.
             } else {
                 // `virgl_capable` is NOT cleared here. It records what the DEVICE
                 // offered and we acked during feature negotiation — a fact — and

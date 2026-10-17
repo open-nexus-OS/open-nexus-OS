@@ -126,6 +126,17 @@ pub fn digest(entry: &[u8]) -> u64 {
     })
 }
 
+/// The code target an archive of this format names in its header — what a client picks its
+/// library by, against the target the device's capabilities name (RFC-0101 §7b). Only the
+/// header is read: the device parses the rest.
+pub fn header_target(bytes: &[u8]) -> Option<u64> {
+    let h = bytes.get(..HEADER_BYTES)?;
+    if h[..4] != MAGIC || u16::from_le_bytes([h[4], h[5]]) != VERSION {
+        return None;
+    }
+    Some(u64::from_le_bytes([h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15]]))
+}
+
 fn u16_at(b: &[u8], at: usize) -> Result<u16, LibraryError> {
     match b.get(at..at + 2) {
         Some(w) => Ok(u16::from_le_bytes([w[0], w[1]])),

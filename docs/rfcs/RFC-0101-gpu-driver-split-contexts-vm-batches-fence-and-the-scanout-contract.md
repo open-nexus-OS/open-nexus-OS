@@ -105,9 +105,28 @@ The driver holds no built-in list of kernels or shaders. `Shader { target, entry
   (`test_reject_library_unsupported_feature`).
 - **The client supplies it** (a VMO) once per context. The device validates it, places the
   programs in memory bound in the client's context (code is a buffer like any other, §3) and
-  answers with the ids it accepted; a draw names an accepted id
-  (`test_reject_draw_unknown_pipeline`). The device holds no program of its own and patches no
+  answers with the entries it took and refused, the first refusal named
+  (`GfxDevice::take_library`; `test_reject_second_library_for_a_context`,
+  `test_reject_library_into_another_clients_context`); a draw names an accepted id
+  (`DeviceError::UnknownPipeline`). The device holds no program of its own and patches no
   program byte; only the setup programs receive the per-draw addresses, as the open driver's do.
+- **The wire** (TASK-0215 5c-3 P3, `nexus_display_proto::gpu_context`, windowd → gpud):
+  `OP_GPU_CAPABILITIES` (16) answers the code target, its feature bits and the context bound —
+  `STATUS_UNSUPPORTED` from a display whose GPU runs no code; `OP_GPU_CONTEXT_OPEN` (17) carries
+  the priority and the library's length with the library moved in as a VMO, and answers the
+  context and the entries taken and refused. Both answers are sixteen bytes with the op in their
+  second byte. Only windowd opens (identity = `sender_service_id`; anyone else `STATUS_DENIED`,
+  `test_reject_open_from_another_service`); the frame is decoded fail-closed (a known priority, no
+  flag bits, a library of 1 B to 1 MiB, `test_reject_open_frames_of_unknown_flags_priorities_
+  lengths_and_bounds`); the VMO is checked before it is mapped (a VMO whose window holds the
+  declared bytes, `test_reject_library_vmo_shorter_than_declared_or_of_another_kind`), mapped
+  read-only for the take and closed whatever the answer. An open by a client that holds a
+  context replaces it whole — a restarted windowd keeps its kernel id and gets a fresh context.
+  windowd carries one library per code target and picks it by the target the capabilities name;
+  gpud embeds none (a gate fails on one in its code, the board rungs' fixture excepted). On the
+  board windowd's context is made as the render rungs' is (the render bundle bound, its target
+  left unbound — windowd names every pass's target); on QEMU the one virgl context takes the
+  library once a boot, before windowd's attach starts its GL scanout.
 - **A budget is part of an entry**: its instruction-group count. The host build fails above it;
   a board rung measures the pipeline's ns a pixel against 4c's line (0.15 ns + 0.206 ns a group).
 - **The format keeps the horizon open**: its version and the feature bits leave room for

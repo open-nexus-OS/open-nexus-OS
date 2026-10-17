@@ -189,12 +189,20 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5a: the render context (two queues, the captured context-switch state), two free lists of the device's pages and the render-target dataset accepted by the firmware; the geometry and fragment jobs completed in the kernel's sequence; four sample pixels read back after the cache flush match the clear and the blended textured quad; the plane went to the glass"
 
-# TASK-0215 5c-2 P4d (RFC-0101 §7b): the compositor's pipeline library taken for the context;
-# `gpud: FAIL gpu library (` is its FAIL form.
-[marker."gpud: gpu library ok ("]
+# TASK-0215 5c-2 P4d (RFC-0101 §7b): the compositor's pipeline library taken for the render
+# rungs' context (the boot rungs' fixture, a test client's); `gpud: FAIL gpu library (` is its
+# FAIL form, and windowd's below.
+[marker."gpud: gpu library ok (client=gpud"]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5c-2 P4d: resources/gpu/pipelines/compositor.nxgp parsed for this core's code target and features, every entry accepted (its program decoding into instruction groups within its budget, its setup programs the forms the generator writes for its interface), each program placed untouched in the context's code heap and our setup programs (kick, varying iteration, state load) in its setup heap, each kick naming its program"
+proves = "TASK-0215 5c-2 P4d: resources/gpu/pipelines/compositor.nxgp parsed for this core's code target and features, every entry accepted (its program decoding into instruction groups within its budget, its setup programs the forms the generator writes for its interface), each program placed untouched in the context's code heap and our setup programs (kick, varying iteration, state load) in its setup heap, each kick naming its program — through GfxDevice::take_library, the one placement windowd's context takes too"
+
+# TASK-0215 5c-3 P3 (RFC-0101 §1, §7b): windowd's own context, opened at windowd's request over
+# IPC with windowd's library in a moved VMO.
+[marker."gpud: gpu library ok (client=windowd"]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P3: windowd asked gpud for the GPU's capabilities and opened its context at the highest priority with its library for the board's code target, a VMO moved over IPC; gpud checked the sender's kernel id (windowd alone opens), the VMO's kind and length, mapped it read-only, made the context as the render rungs' is (the render bundle bound, its target unbound, the render objects set up) and placed every entry of windowd's library; gpud holds no library of its own beyond the boot rungs' fixture"
 
 # TASK-0215 5b (RFC-0101 Phase 4b): dynamic geometry — three quads at positions and tints the
 # device chose; the vertex buffer, tints, state-load data, PPP blocks and the stream's per-draw

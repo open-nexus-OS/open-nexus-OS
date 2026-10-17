@@ -35,6 +35,8 @@
 pub mod client_surface;
 pub mod control;
 pub mod envelope;
+/// A client's GPU context and its pipeline library, windowd → gpud (RFC-0101 §7b).
+pub mod gpu_context;
 /// The framebuffer grant — the display mode and the scanout memory are gpud's (RFC-0098 C7).
 pub mod grant;
 pub mod layout;
@@ -247,6 +249,14 @@ pub const STATUS_DEVICE_ERROR: u8 = 2;
 /// at or after [`OP_REVEAL`]). A pixel-backed event: windowd emits
 /// `display: first scanout ok` on it, never on a timer.
 pub const STATUS_REVEALED: u8 = 3;
+/// The sender may not do this (identity = the kernel's `sender_service_id`): only windowd opens
+/// a GPU context ([`gpu_context`]).
+pub const STATUS_DENIED: u8 = 4;
+/// The device runs no GPU code: no code target, no context ([`gpu_context`]).
+pub const STATUS_UNSUPPORTED: u8 = 5;
+/// The library was refused: not a VMO of its declared length, malformed, for another code
+/// target, or not placed ([`gpu_context`]).
+pub const STATUS_REFUSED: u8 = 6;
 
 // ── Cursor-upload reply magics (reply u32 at bytes [1..5]) ───────────────────
 //

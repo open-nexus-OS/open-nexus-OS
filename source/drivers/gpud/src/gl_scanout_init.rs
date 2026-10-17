@@ -56,9 +56,13 @@ impl VirtioGpuBackend {
     }
 
     fn gl_scanout_init_batched(&mut self) -> Result<(), GfxError> {
-        // Every draw below is a library pipeline: made at the probe, or here when the probe's
-        // proof was deferred (idempotent; in ring order before the draws that use them).
-        self.virgl_pipelines_init()?;
+        // Every draw below is a pipeline of windowd's library, made when windowd opened its
+        // context — before its attach, which brings us here (TASK-0215 5c-3 P3). gpud holds no
+        // library of its own: without windowd's, the GL scanout cannot start, and says so.
+        if !self.pipelines.ready {
+            let _ = nexus_abi::debug_println(crate::markers::GPUD_FAIL_GL_NO_LIBRARY);
+            return Err(GfxError::Unsupported);
+        }
 
         // Scanout RT: host GL texture QEMU can present directly. Guest backing
         // is attached for the one-shot present parity readback (G1 proof).

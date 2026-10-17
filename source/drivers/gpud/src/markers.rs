@@ -39,9 +39,14 @@ pub const GPUD_VIRGL_SUBMIT3D_OK: &str = "gpud: virgl submit3d ok";
 pub const GPUD_VIRGL_RT_CLEAR_OK: &str = "gpud: virgl rt clear ok";
 /// Emitted once the pipeline library's programs (our toolchain's shader text,
 /// `virgl_pipelines`) and the state every draw binds were created in the
-/// context. The renderer drops a program it cannot parse without a word: the
+/// context — windowd's library, taken when windowd opened its context (TASK-0215
+/// 5c-3 P3). The renderer drops a program it cannot parse without a word: the
 /// draw proofs that follow are what show the programs run.
 pub const GPUD_VIRGL_SHADER_OK: &str = "gpud: virgl shader ok";
+/// The GL scanout cannot start: windowd's pipeline library never arrived (gpud
+/// holds none of its own since TASK-0215 5c-3 P3).
+pub const GPUD_FAIL_GL_NO_LIBRARY: &str =
+    "gpud: FAIL gl scanout (no pipeline library: windowd opened no context)";
 /// Emitted when a full GPU draw with a library pipeline (the gradient, red over
 /// a blue clear) renders the expected pixels, verified by TRANSFER_FROM_HOST_3D
 /// readback into guest memory. This is an on-device end-to-end GPU proof.
@@ -87,12 +92,15 @@ pub const GPUD_VIRGL_SUBMIT3D_FAIL: &str = "gpud: virgl submit3d fail";
 pub const GPUD_VIRGL_RT_CLEAR_FAIL: &str = "gpud: virgl rt clear fail";
 /// See [`GPUD_VIRGL_SUBMIT3D_FAIL`].
 pub const GPUD_VIRGL_SHADER_FAIL: &str = "gpud: virgl shader fail";
-/// The GL draw could not be proven AT START-UP, which is not the same as a
-/// device that cannot do it: QEMU's GTK backend is transiently absent until its
-/// window is realized. The decision moves to the moment GL is first needed
-/// (TASK-0326, the rule RFC-0074 already applies to the display mode).
+/// The GL draw is not proven AT START-UP, which is not the same as a device
+/// that cannot do it: the draws need windowd's pipeline library, which arrives
+/// when windowd opens its context (TASK-0215 5c-3 P3) — its readbacks prove the
+/// draw there — and QEMU's GTK backend is transiently absent until its window is
+/// realized. The decision moves to the moment GL is first needed (TASK-0326, the
+/// rule RFC-0074 already applies to the display mode): at the latest the first
+/// scanout.
 pub const GPUD_GL_DRAW_DEFERRED: &str =
-    "gpud: gl draw unproven at probe (deciding at first scanout)";
+    "gpud: gl draw unproven at probe (deciding at windowd's library or the first scanout)";
 /// The deferred proof passed when GL was first needed.
 pub const GPUD_GL_DRAW_PROVEN_LATE: &str = "gpud: gl draw proven at first scanout";
 

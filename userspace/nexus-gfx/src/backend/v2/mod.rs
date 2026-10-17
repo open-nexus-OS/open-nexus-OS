@@ -5,7 +5,8 @@
 //! RFC-0101 §1–§7: capabilities before the first context; a context per client with its own
 //! address space; buffers with a cache mode by type, destroyed by their client; ranges of them
 //! bound (`Mapping`); one batch per submit, bounded, waiting on and signalling points of the
-//! one timeline; GPU code as client data with a declared target. The client's identity is
+//! one timeline; GPU code as client data with a declared target, a context's pipelines as the
+//! library its client supplies once (§7b). The client's identity is
 //! passed in by the server that derived it from the kernel (`sender_service_id`) — never read
 //! from a payload. [`scanout`] is §8, the
 //! contract between the compositor and the display; [`cpu_mock`] implements this trait on
@@ -27,7 +28,9 @@ pub use nexus_driverkit::gpu::{
     QueueKinds, TimelinePoint, VmError, MAX_BATCH_COMMANDS,
 };
 
+use crate::backend::gpu::pipelines::{Loaded, TableError};
 use crate::command::buffer::Command;
+use crate::shader::library::LibraryError;
 
 /// The client a context or buffer belongs to: the kernel's `sender_service_id`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -176,6 +179,48 @@ pub enum DeviceError {
     /// The context's work faulted and the device lost it (§6): nothing new runs in it; its
     /// points count as reached; its client destroys it and makes a new one.
     ContextLost,
+    /// The pipeline library refused whole (§7b): not the format, an unknown version, built for
+    /// another code target, or past the format's bounds.
+    Library(LibraryError),
+    /// The context holds its library already (§7b: one a context).
+    LibraryHeld,
+    /// A draw named a pipeline its context's library did not give it (§7b).
+    UnknownPipeline(u32),
+}
+
+/// What a context took of its library (§7b): the entries placed and refused, the first refused
+/// entry's id (0 when none), the bytes placed in its code and setup heaps.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LibraryTaken {
+    pub accepted: u16,
+    pub refused: u16,
+    pub first_refused: u32,
+    pub code_bytes: u32,
+    pub setup_bytes: u32,
+}
+
+impl From<&Loaded> for LibraryTaken {
+    fn from(l: &Loaded) -> Self {
+        let narrow = |n: usize| u16::try_from(n).unwrap_or(u16::MAX);
+        Self {
+            accepted: narrow(l.accepted.len()),
+            refused: narrow(l.refused.len()),
+            first_refused: l.refused.first().map_or(0, |(id, _)| *id),
+            code_bytes: u32::try_from(l.code_bytes).unwrap_or(u32::MAX),
+            setup_bytes: u32::try_from(l.setup_bytes).unwrap_or(u32::MAX),
+        }
+    }
+}
+
+impl From<TableError> for DeviceError {
+    fn from(e: TableError) -> Self {
+        match e {
+            TableError::Library(e) => Self::Library(e),
+            TableError::Loaded => Self::LibraryHeld,
+            TableError::NoRoom => Self::Exhausted,
+            TableError::UnknownPipeline(id) => Self::UnknownPipeline(id),
+        }
+    }
 }
 
 impl From<VmError> for DeviceError {
@@ -230,4 +275,14 @@ pub trait GfxDevice {
     fn reached(&self, point: TimelinePoint) -> bool;
     /// Cancels the context's in-flight work; its space is kept (§6).
     fn reset_context(&mut self, client: ClientId, ctx: ContextId) -> Result<(), DeviceError>;
+    /// Takes the context's pipeline library (§7b) — the client's archive for the device's code
+    /// target and features: validated, each entry checked for this device, the accepted ones'
+    /// programs placed in memory bound in the context. Once a context; a lost context is
+    /// refused.
+    fn take_library(
+        &mut self,
+        client: ClientId,
+        ctx: ContextId,
+        library: &[u8],
+    ) -> Result<LibraryTaken, DeviceError>;
 }

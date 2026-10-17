@@ -50,6 +50,7 @@
 //!   firmware-written word.
 
 mod bos;
+pub(crate) mod client_context;
 mod contexts;
 pub(crate) mod device;
 mod device_v2;
@@ -57,6 +58,7 @@ mod firmware;
 mod glue;
 mod gpu_vmo;
 mod job;
+mod library;
 mod memory;
 pub(crate) mod quad;
 mod recovery;
@@ -76,6 +78,7 @@ mod space;
 
 use nexus_service_topology::DEVICE_MMIO_SLOT;
 
+pub(crate) use client_context::BoardGpu;
 pub(crate) use device::Gpu;
 pub(crate) use device_v2::Device;
 
@@ -83,31 +86,9 @@ fn emit(line: &str) {
     let _ = nexus_abi::debug_println(line);
 }
 
-/// The longest line [`emit_fmt`] writes; a longer one is cut.
-const LINE_MAX: usize = 256;
-
-/// A line on the stack: what a client can cause again and again is never formatted into gpud's
-/// heap, which never frees.
-struct Line {
-    buf: [u8; LINE_MAX],
-    len: usize,
-}
-
-impl core::fmt::Write for Line {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        let end = (self.len + s.len()).min(LINE_MAX);
-        let take = end - self.len;
-        self.buf[self.len..end].copy_from_slice(&s.as_bytes()[..take]);
-        self.len = end;
-        Ok(())
-    }
-}
-
-fn emit_fmt(args: core::fmt::Arguments<'_>) {
-    let mut line = Line { buf: [0; LINE_MAX], len: 0 };
-    let _ = core::fmt::Write::write_fmt(&mut line, args);
-    emit(core::str::from_utf8(&line.buf[..line.len]).unwrap_or("gpud: line not utf-8"));
-}
+// A line formatted on the stack (`diag::fmt_line`): what a client can cause again and again is
+// never formatted into gpud's heap, which never frees.
+use crate::diag::fmt_line as emit_fmt;
 
 /// Whether init granted gpud a GPU window beside the board's display plane — the board's GPU
 /// node (`init: gpu plane from tree`). On QEMU the GPU window is the virtio one and the display
