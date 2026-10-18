@@ -1,0 +1,4 @@
+[board-test] judging build/logs/board--2026-10-18T15-56-13/uart.log as profile board-visible
+[board-test] known board reds tolerated (config/fail-marker-allow-board.txt): 12
+[board-test] ladder complete: 67 rungs present
+[PASS] board-visible: 67 rungs, 7 operator marker(s), no FAIL marker, manifest clean (build/logs/board--2026-10-18T15-56-13/uart.log)

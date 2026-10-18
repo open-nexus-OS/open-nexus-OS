@@ -13,6 +13,7 @@
 //!   core/       — Device, Queue, Fence, Error, Types (fundament)
 //!   resource/   — Buffer, Image, Sampler, Heap, Descriptor
 //!   command/    — CommandBuffer, Render/Compute/Blit encoders, Pass, Validation
+//!   frame/      — the frame planner: the retained layer set → a frame's steps, every executor's
 //!   pipeline/   — RenderPipeline, ComputePipeline, VertexDescriptor, PipelineCache
 //!   shader/     — ShaderModule, ShaderFunction, ShaderLibrary, Reflection
 //!   backend/    — GfxBackend trait, CpuMockBackend (re-exports from gfx-backend)
@@ -34,6 +35,9 @@ pub mod resource;
 
 // ── Command ───────────────────────────────────────────────────────
 pub mod command;
+
+// ── Frame ─────────────────────────────────────────────────────────
+pub mod frame;
 
 // ── Pipeline ──────────────────────────────────────────────────────
 pub mod pipeline;

@@ -85,6 +85,8 @@ const STOCK_OPAQUE_FILL_CNS: u64 = 180;
 /// timeline point it was submitted at.
 pub(super) struct Pass {
     pub us: u64,
+    /// The submit's own time (the CPU's share: the streams written, the kick).
+    pub submit_us: u64,
     pub geom_us: u64,
     pub frag_us: u64,
     pub irqs: u32,
@@ -270,6 +272,7 @@ pub(super) fn run_draws<'p>(
     let point = dev
         .submit(client, ctx, QueueKind::Render, &batch)
         .map_err(|e| alloc::format!("submit {e:?}"))?;
+    let t_submitted = now_ns();
     let Some(((gtl, gseq), (ftl, fseq))) = dev.render_progress(client, ctx) else {
         return Err(alloc::string::String::from("no render objects"));
     };
@@ -296,6 +299,7 @@ pub(super) fn run_draws<'p>(
     }
     Ok(Pass {
         us: t_end.saturating_sub(t0) / 1000,
+        submit_us: t_submitted.saturating_sub(t0) / 1000,
         geom_us: t_geom.saturating_sub(t0) / 1000,
         frag_us: t_end.saturating_sub(t_geom.max(t0)) / 1000,
         irqs,

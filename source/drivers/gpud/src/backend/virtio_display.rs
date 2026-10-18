@@ -115,10 +115,7 @@ impl Display for VirtioGpuBackend {
         // The abandoned batch may have dropped an atlas TRANSFER — invalidate the uploaded epoch
         // so the re-presented frame uploads fresh content.
         #[cfg(feature = "virgl")]
-        {
-            self.atlas_uploaded_epoch = 0;
-            self.rt_layers_dirty = true;
-        }
+        self.frame.layers.invalidate_upload();
         true
     }
 
@@ -232,7 +229,7 @@ impl Display for VirtioGpuBackend {
         opacity: u8,
         scale_pct: u16,
     ) -> Result<bool, GfxError> {
-        let transform = super::LayerTransform { dx, dy, opacity, scale_pct };
+        let transform = nexus_gfx::frame::Transform { dx, dy, opacity, scale_pct };
         self.record_layer_transform(layer_id, transform).map(|()| true)
     }
 

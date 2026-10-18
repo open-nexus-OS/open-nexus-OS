@@ -238,6 +238,14 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-3 P1: one pass of three draws — the opaque layer over the checker, a straight layer over a colour block the CPU wrote (its own texture descriptor), a rounded layer over the checker (the pass type changing at the second draw) — drawn into two targets (the plane at its address and 540 rows down, each through its own copy of the end-of-tile program), every sample and the rounded layer's corner right in both; then 48 passes of one to three draws, each draw its own tint, through rings a few passes deep that wrapped many times: every sample right (no line the GPU held from an earlier pass) and gpud's heap unmoved"
 
+# TASK-0215 5c-3 P4a: the mixed pass taken apart — six passes into the mixed rung's target, each
+# timed at the submit's return, the geometry word and the fragment word; `gpud: FAIL gpu passes (`
+# is its FAIL form (a pass lost).
+[marker."gpud: gpu passes ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P4a: six passes reached on the board, each split into the CPU's submit, the geometry stage after it and the fragment stage after that — one opaque draw, three opaque draws, three pipelines, one draw sampling the display's memory, the mixed pass warm, and the mixed pass after 200 ms without GPU work — the numbers that name where a mixed pass's milliseconds go"
+
 # TASK-0215 5c-3 P2 (RFC-0101 §1/§6): several contexts, each its own GPU address space, torn down
 # by the firmware's cleanup; `gpud: FAIL gpu contexts (` and `gpud: FAIL gpu context cleanup (`
 # are its FAIL forms.

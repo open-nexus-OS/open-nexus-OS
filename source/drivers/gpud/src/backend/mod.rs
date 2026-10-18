@@ -34,7 +34,6 @@ use crate::protocol;
 
 mod attach;
 mod backing;
-mod blur_cache;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod bootstrap;
 // The CPU executor + the software cursor's state, shared by the 2D virtio path and the board's
@@ -222,9 +221,10 @@ pub struct VirtioGpuBackend {
     pub(crate) icon_tex_w: u32,
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) icon_tex_h: u32,
-    /// GL glass-blur cache (key/packing state + texture readiness).
+    /// The frame planner's state (TASK-0215 5c-3 P4): the retained layer set the GL scanout
+    /// composes every frame, its scroll and transform overrides, the glass cache's keys.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) blur_cache: blur_cache::BlurCacheState,
+    pub(crate) frame: nexus_gfx::frame::Frame,
     /// One-shot marker: first destination-so-far backdrop snapshot+blur submitted.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) rt_backdrop_marker_done: bool,
@@ -261,12 +261,6 @@ pub struct VirtioGpuBackend {
     /// contexts never merge; in practice gpud uses one ctx).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) submit3d_pend_ctx: u32,
-    /// Atlas content epoch currently uploaded to the GL atlas texture (`0` =
-    /// none/invalidated → next present re-uploads). Compared against the layer
-    /// set's stamped epoch in `composite_pending_rt_layers`; reset to 0 when a
-    /// present's batch is abandoned (its TRANSFER may have been dropped).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) atlas_uploaded_epoch: u32,
     /// Backing VA of the build-up wallpaper texture (`H_WALLPAPER_TEX`). Lets the
     /// build-up present upload the real wallpaper (windowd's decoded JPEG in
     /// shared-VMO Plane 0) into the GL texture once, replacing the boot bands.
@@ -298,100 +292,7 @@ pub struct VirtioGpuBackend {
     /// The last 2D bootstrap-splash pulse (~30 Hz redraw of the title band).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) last_splash_pulse_ns: u64,
-    /// Layers deferred this frame for RT-direct compositing (no per-frame alloc:
-    /// fixed stack capacity; overflow falls back to the VMO path).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pending_rt_layers: [PendingRtLayer; MAX_PENDING_RT_LAYERS],
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pending_rt_count: usize,
-    /// Scroll fast path: per-`scroll_id` source-row overrides. A retained layer
-    /// with a non-zero `scroll_id` is re-sampled at its override row (when set)
-    /// instead of its stored `src_row_abs`. Set by `OP_SET_LAYER_SCROLL` (a 54µs
-    /// GPU re-composite, no CPU re-render), cleared when a full present brings a
-    /// fresh authoritative layer set. Index = `scroll_id - 1`.
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) scroll_src_rows: [Option<u32>; MAX_SCROLL_IDS],
-    /// Transform fast path (Track C2, the scroll generalization): per-layer-id
-    /// translate/opacity/scale overrides. A retained layer whose id has an
-    /// override composites transformed — no re-render, no re-upload. Set by
-    /// `OP_SET_LAYER_TRANSFORM` (record + coalesced flush, the scroll
-    /// contract), cleared when a full present brings a fresh authoritative
-    /// layer set (windowd bakes the transform into the encoded layer).
-    /// Index = `layer_id - 1` (same id domain as `scroll_id`: slot + 1).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) layer_transforms: [Option<LayerTransform>; MAX_SCROLL_IDS],
-    /// Build-up only: the retained layer set's atlas content changed, so the next
-    /// composite must re-upload it to the GL texture (`virgl_transfer_to_host`).
-    /// Cleared after upload — cursor-move presents then re-composite from the
-    /// already-uploaded texture WITHOUT the per-frame transfer (the slow path).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) rt_layers_dirty: bool,
 }
-
-/// One recorded layer-transform override (Track C2): identity = absent.
-#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-#[derive(Clone, Copy)]
-pub(crate) struct LayerTransform {
-    pub(crate) dx: i16,
-    pub(crate) dy: i16,
-    /// Multiplies the layer's encoded opacity (255 = unchanged).
-    pub(crate) opacity: u8,
-    /// Uniform scale about the layer center, percent (100 = unchanged).
-    pub(crate) scale_pct: u16,
-}
-
-/// A CompositeLayer op deferred for RT-direct compositing after the base upload.
-#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-#[derive(Clone, Copy, Default)]
-pub(crate) struct PendingRtLayer {
-    src_row_abs: u32,
-    src_x: u32,
-    width: u32,
-    height: u32,
-    /// Content sub-size drawn at the layer's top-left (`0` = same as
-    /// `width`/`height`). Backdrop blur covers `width`×`height` (the frame); the
-    /// content texture is drawn at `content_w`×`content_h` (the band) — the
-    /// "glass frame grows, content 1:1" resize path.
-    content_w: u32,
-    content_h: u32,
-    dst_x: u32,
-    dst_y: u32,
-    opacity: u32,
-    corner_radius: u32,
-    shadow_blur: u32,
-    shadow_offset_y: i32,
-    shadow_alpha: u32,
-    /// Frosted-glass backdrop blur radius (0 = opaque/no glass). When > 0 the
-    /// build-up blurs the wallpaper behind this layer's rect before compositing.
-    backdrop_blur: u32,
-    /// Scroll identity (0 = not scrollable). Non-zero: gpud re-samples the layer
-    /// at the id's `scroll_src_rows` override on the lightweight scroll fast path.
-    scroll_id: u32,
-    /// WebRender scroll band (0 = not scrollable): the FULL resident-content band
-    /// `[scroll_band_top_abs, +scroll_band_h)` uploaded to the GL atlas texture
-    /// ONCE (on a full present) so the `src_row` override can shift within it. The
-    /// SAMPLE still uses `src_row_abs` + `height` (the overridden scroll row).
-    scroll_band_top_abs: u32,
-    scroll_band_h: u32,
-    /// Transform identity (`0` = none) - keys `layer_transforms` (Track C2).
-    /// DISTINCT from `scroll_id`: all slices of a window share one transform
-    /// id, only the scrolling body carries the scroll id.
-    layer_id: u32,
-    /// Content epoch of the layer's atlas source (`0` = unknown). The set-level
-    /// max gates the per-present atlas re-upload — see
-    /// `composite_pending_rt_layers`.
-    content_epoch: u32,
-}
-
-#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-// Sized for a REAL desktop: 4 app windows already need 16+ composites (a
-// scrollable window is 3 band slices + a title overlay; plus per-app glass
-// regions, dock, top bar). The old cap of 8 SILENTLY dropped the overflow —
-// windows/chrome vanished with 4 apps open. ~68 B/entry, static array.
-const MAX_PENDING_RT_LAYERS: usize = 32;
-/// Scroll-id table capacity (ids 1..=MAX_SCROLL_IDS; 0 = not scrollable).
-#[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-pub(crate) const MAX_SCROLL_IDS: usize = 8;
 
 impl VirtioGpuBackend {
     /// True while the boot splash is still held: the GL scanout owns the display but the
@@ -481,7 +382,7 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_atlas_ready: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            blur_cache: blur_cache::BlurCacheState::new(),
+            frame: nexus_gfx::frame::Frame::new(glass_blur::BLUR_CACHE_TEX_H),
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             rt_backdrop_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
@@ -504,8 +405,6 @@ impl VirtioGpuBackend {
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             submit3d_pend_ctx: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            atlas_uploaded_epoch: 0,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             gl_wallpaper_tex_va: 0,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             wallpaper_from_vmo_uploaded: false,
@@ -519,18 +418,6 @@ impl VirtioGpuBackend {
             hold_tick_logged: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             last_splash_pulse_ns: 0,
-            // RT-direct layer compositing on by default for the virgl path; the
-            // field is the kill-switch if a regression shows up in the thumbnail.
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            pending_rt_layers: [PendingRtLayer::default(); MAX_PENDING_RT_LAYERS],
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            layer_transforms: [None; MAX_SCROLL_IDS],
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            pending_rt_count: 0,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            scroll_src_rows: [None; MAX_SCROLL_IDS],
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            rt_layers_dirty: true,
         }
     }
 

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-18 (Block 4, layer 5c-3 P4a: one frame plan for every executor — TASK-0215, RFC-0101 §8d)
+
+- **The frame planner** (`nexus_gfx::frame`): the retained layer set of windowd's presents with
+  its scroll and transform overrides, walked back to front into the frame's steps — every layer
+  as drawn, a glass layer's blurred backdrop read from its cache or written into it (the
+  destination-so-far key), the atlas uploaded once per content generation. Allocation-free and
+  host-tested. The QEMU path's virgl backend draws this plan; its own walk, overrides and glass
+  cache are gone. The board's GPU executor (P4b) draws the same plan.
+- **The cost of a pass of mixed draws, named on the board** (`gpud: gpu passes (…)`, board ladder
+  67 rungs): the submit, the geometry and the fragment stage apart for one draw, three draws,
+  three pipelines, a texture in the display's memory and a pass after an idle GPU. A pass costs
+  its pixels at its programs' rates and a fixed half millisecond, whatever it draws; the
+  milliseconds a mixed pass spent before its geometry word in earlier cycles have been gone since
+  the GPU-fault package. Board cycle 28 (`[PASS] board-visible`); QEMU visible, headless and
+  display-gpu green.
+
 ### Fixed - 2026-10-18 (kernel: no console write waits for the serial line — TASK-0330 S2b, RFC-0107)
 
 - **The serial line reads the console ring.** Once the runtime runs, a console write records its

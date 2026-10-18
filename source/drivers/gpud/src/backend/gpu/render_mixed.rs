@@ -33,13 +33,13 @@ use super::render_template::{
 use crate::backend::display::{Display, GpuCanvas};
 
 /// The three draws (x, y, w, h): side by side over the pass's clear, inside its area.
-const OPAQUE: (f32, f32, f32, f32) = (64.0, 64.0, 512.0, 256.0);
-const STRAIGHT: (f32, f32, f32, f32) = (664.0, 64.0, 256.0, 128.0);
-const ROUNDED: (f32, f32, f32, f32) = (964.0, 64.0, 256.0, 256.0);
-const RADIUS: f32 = 64.0;
-const STRAIGHT_TINT: [f32; 4] = [1.0, 1.0, 1.0, 0.75];
+pub(super) const OPAQUE: (f32, f32, f32, f32) = (64.0, 64.0, 512.0, 256.0);
+pub(super) const STRAIGHT: (f32, f32, f32, f32) = (664.0, 64.0, 256.0, 128.0);
+pub(super) const ROUNDED: (f32, f32, f32, f32) = (964.0, 64.0, 256.0, 256.0);
+pub(super) const RADIUS: f32 = 64.0;
+pub(super) const STRAIGHT_TINT: [f32; 4] = [1.0, 1.0, 1.0, 0.75];
 /// The pass's area (inclusive), in its target.
-const AREA: (u32, u32, u32, u32) = (64, 64, 1219, 319);
+pub(super) const AREA: (u32, u32, u32, u32) = (64, 64, 1219, 319);
 /// The second target: the plane 540 rows down, 540 rows high.
 const SECOND_ROW: u32 = 540;
 /// The colour block the straight layer samples: a 64² block at (1792, 960) of the plane, its
@@ -70,7 +70,7 @@ const DESCRIPTOR_LINE: Bump = Bump {
 
 /// The rings, counting the passes whose stream landed on lines an earlier pass's stream used
 /// (below the stream ring's high-water mark).
-struct Watched {
+pub(super) struct Watched {
     rings: Rings,
     high_water: u32,
     reused: u32,
@@ -87,7 +87,7 @@ impl Placer for Watched {
     }
 }
 
-fn quad((x, y, w, h): (f32, f32, f32, f32), tint: [f32; 4], radius: f32) -> Quad {
+pub(super) fn quad((x, y, w, h): (f32, f32, f32, f32), tint: [f32; 4], radius: f32) -> Quad {
     Quad::layer(x, y, w, h, tint, radius)
 }
 
@@ -110,7 +110,7 @@ fn write_block(display: &mut dyn Display, canvas: &GpuCanvas) -> bool {
 
 /// One pass through the rings: begun, emitted, submitted at its point, retired once reached.
 #[allow(clippy::too_many_arguments)]
-fn pass<'p>(
+pub(super) fn pass<'p>(
     dev: &mut Device,
     rig: &Rig<'_>,
     t: &Template<'_>,
@@ -241,6 +241,19 @@ fn mixed(
         }
     }
     let heap_bytes = nexus_service_entry::os::heap_cursor().1.saturating_sub(heap_before);
+    // The mixed pass taken apart (5c-3 P4a), on this rung's pipelines, block, target and rings.
+    let kit = super::render_passes::Kit {
+        opaque: &opaque,
+        straight: &straight,
+        rounded: &rounded,
+        checker: t.texture_va,
+        block,
+        target: first,
+    };
+    match super::render_passes::measure(dev, rig, t, &mut rings, &kit) {
+        Ok(line) => emit(&format!("gpud: gpu passes {line}")),
+        Err(e) => emit(&format!("gpud: FAIL gpu passes ({e})")),
+    }
     Ok(format!(
         "(draws={} targets=2 reads={reads}/{reads} mixed_us={mixed_us} geom_us={}/{} frag_us={}/{} ring_passes={RING_PASSES} ring_reads={ring_reads}/{ring_reads} reused={} stale=0 heap_bytes={heap_bytes})",
         draws.len(),

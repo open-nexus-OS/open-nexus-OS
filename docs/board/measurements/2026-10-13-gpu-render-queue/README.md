@@ -1250,3 +1250,86 @@ itself: a crash report holds its hart 3 ms (cycle 27, two boots). The containmen
 over IPC, on the board and on QEMU; gpud serves windowd alone, replaces a context windowd holds
 whole, and holds no GPU code of its own (the board rungs' fixture excepted). P3 complete; P4 next —
 the desktop drawn on the GPU in windowd's context.
+
+## 5c-3 P4a — one plan for both paths, and the mixed pass taken apart (TASK-0215)
+
+**Question.** P4 draws the desktop on the board's GPU in windowd's context. Two things come
+first: the frame's model — today the QEMU path's backend alone knows how a frame is composed —
+and the cost of a pass of mixed draws, which P1 and P2 left unnamed.
+
+**Measured first** (the code read through; board cycles 21–24):
+
+- **The board presents on the CPU.** A ring slot taken, the retained plane copied into it whole
+  (about 3 ms), windowd's commands run by the CPU executor, the damage cleaned, the flip at the
+  blank: 100–200 ms a present. No GPU work on the present path; no switch between paths.
+- **The QEMU path composes the frame itself** from the `CompositeLayer` commands alone: the
+  wallpaper, then per layer back to front its glass (the destination so far snapshotted, blurred
+  at half resolution, cached by a key folded over every layer below), its shadow, its content
+  from the atlas; scroll and transform overrides applied first. That model — the retained set,
+  the overrides, the walk, the glass cache — lived in gpud's virgl backend only.
+- **One memory holds everything a frame touches**: the wallpaper plane, the retained plane, the
+  three ring slots and the atlas (windowd's copies of the clients' surfaces, straight alpha) are
+  rows of one contiguous DMA buffer (stride 7680). A context can take it the way the rungs take a
+  ring slot (`adopt_plane`), as targets and as textures.
+- **The open cost: a pass of mixed draws.** One draw a pass: the geometry word after 0.22–0.28
+  ms (submit included), the fragment by the program's ns a pixel. Three draws of three pipelines
+  over 1156x256 (P1): 7.5 ms a pass, all of it before the geometry word — 11.2 and 4.0 ms
+  (cycle 23), 19.4 and 6.8 ms (cycle 24), the first pass of the rung the slower. The stamp starts
+  before the submit, so the CPU's share was never apart; P1's straight draw samples a block of
+  the plane — the display's memory, outside the GPU's cache.
+
+**What P4a builds.** `nexus_gfx::frame` (host, 14 tests): the retained set (a present without
+layers keeps it; layers replace it with its scroll overrides; transform overrides stay), the
+overrides applied (moved, faded, scaled about the centre), the walk back to front with the glass
+cache's read, write or off against the destination-so-far key, and the atlas's upload once per
+content generation — allocation-free, the plan the frame's own storage. The QEMU path's virgl
+backend draws that plan: its own walk, overrides and cache (`blur_cache.rs`) are gone. On the
+board, a rung after the mixed one (`gpud: gpu passes (…)`) takes the mixed pass apart: six passes
+into its target and area, each stamped at the submit's return, the geometry word and the
+fragment word — `a` one opaque draw (the checker), `b` three opaque draws, `c` three pipelines,
+`d` one straight draw over the block in the plane, `e` the mixed pass, warm, `f` the mixed pass
+after 200 ms without GPU work; each of `a`–`e` run twice, the second reported.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H69 | The CPU's submit is not where the milliseconds go | every case's submit (`x=s/…`) below 1 000 µs; refuted, `e`'s submit carries the excess — the lever is the host's writes and cache maintenance |
+| H70 | Draws and pipeline changes cost the geometry stage little | `b`'s and `c`'s geometry within 500 µs of `a`'s; refuted, the state a draw changes (its pipeline's setup, its texture's state load) is the lever |
+| H71 | A texture in the display's memory costs its fetches | `d`'s fragment at least five times the straight program's 4.87 ns a pixel over its 32 768 pixels (160 µs); refuted, the display's memory serves textures as well as the GPU's own |
+| H72 | The GPU's idle costs the pass after it | `f`'s whole pass at least 3 ms above `e`'s; refuted, the first pass of P1's rung paid for something else |
+| H73 | No partial render: a mixed pass's interrupts are one pass's | `irqs=` of `b`, `c` and `e` equal `a`'s; more, the geometry outgrew its parameter memory and the fragment stage ran twice |
+
+**Results — QEMU** (2026-10-18, `visible--2026-10-18T15-27-18`, `headless`, `display-gpu`: each
+`SELFTEST: Completed (markers verified)`): `gpud: layer composite live`, `gpud: rt backdrop dst
+ok` — the layers and the glass drawn from the plan; every FAIL line as in the run before.
+
+**Results — the board, cycle 28** (`board--2026-10-18T15-56-13`, `cycle28-gpu-lines.txt`,
+`cycle28-board-test.txt`; `[PASS] board-visible`, 67 rungs, the operator's seven confirmations,
+the screenshot's selection dragged):
+
+`gpud: gpu passes (a=16/212/406 b=15/216/603 c=16/214/1174 d=19/211/353 e=16/215/1148
+f=29/212/1153 irqs=4/4/4/4/4/3 idle_ms=200)`; `gpud: gpu mixed ok (… mixed_us=2771
+geom_us=229/230 frag_us=1153/1158 …)`.
+
+- **H69 confirmed.** The submit took 15–29 µs in every case.
+- **H70 confirmed.** The geometry took 211–216 µs after the submit whatever the pass draws: one
+  draw, three, three pipelines.
+- **H71 refuted.** A texture in the display's memory costs nothing extra: `d`'s fragment took
+  353 µs — the straight program's 160 µs over its 32 768 pixels and the fixed part every pass has
+  (`a`: 406 µs for 166 µs of pixels).
+- **H72 refuted.** 200 ms without GPU work cost nothing: `f` 15 µs above `e`.
+- **H73 confirmed.** Four interrupts a pass in `a`–`e` (three in `f`): no partial render.
+- **The mixed pass's milliseconds are gone — since cycle 25.** The mixed rung's own line read
+  26 282 µs for its two passes in cycle 24 (geometry 19 443 and 6 836) and 2 790 µs in cycle 25
+  (geometry 239 and 228), 2 761–2 790 µs in every cycle since. Cycle 25 was P2c's: the device
+  answers the firmware's messages in every wait since, and the free lists' ids became unique on
+  the device. No growth request was ever asked (`grows=0`, no `free list not grown` line); which
+  of P2c's changes removed the wait was not measured before it vanished.
+- **What a pass costs now:** about 0.45 ms fixed (the submit's 0.02, the geometry's 0.21, the
+  fragment's own 0.19–0.27) and each draw's pixels at its program's rate — `c`: 166 + 160 + 581 µs
+  of pixels and 267 µs fixed, 1 174 µs. From that line P4b's full-screen frame (the desktop's
+  layers, their shadows, the glass read from its cache) is estimated at 15–20 ms against the CPU
+  path's 100–200 ms.
+
+**Verdict.** The frame has one model — the QEMU path draws the planner's steps — and a pass of
+mixed draws costs its pixels and a fixed half millisecond: the board's executor builds on the
+per-pixel model. P4a complete; P4b next.

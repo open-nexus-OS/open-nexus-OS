@@ -70,6 +70,7 @@ pub(crate) mod render_contexts;
 pub(crate) mod render_cost;
 pub(crate) mod render_library;
 mod render_mixed;
+mod render_passes;
 pub(crate) mod render_quad;
 pub(crate) mod render_quads;
 mod render_template;

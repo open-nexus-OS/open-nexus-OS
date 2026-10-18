@@ -133,6 +133,10 @@ ladder_headless=(
   # in one pass, into two targets through their own end-of-tile programs; then passes through
   # rings that reuse lines once the timeline reached the pass that read them — every sample right.
   "gpud: gpu mixed ok ("
+  # TASK-0215 5c-3 P4a: the mixed pass taken apart — six passes, each timed at the submit, the
+  # geometry and the fragment stage (the draw count, the pipeline changes, a texture in the
+  # display's memory, the GPU's idle).
+  "gpud: gpu passes ("
   # TASK-0215 5c-3 P2: several contexts — the rungs' context torn down by the firmware's
   # cleanup, then two contexts of two clients drawing side by side through the same addresses
   # into their own memory, each refused the other's, both torn down with every page back.

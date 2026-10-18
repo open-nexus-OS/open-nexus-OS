@@ -6,8 +6,9 @@
 //! halo, blurred at half resolution by the library's two passes (`blur.wgsl` — the horizontal
 //! one reads the full-resolution snapshot, each tap one bilinear fetch at the corner of four
 //! texels, which is the downsample; the vertical one reads the half-resolution result), drawn
-//! back over the glass with its corners cut by the client-surface pipeline. CACHED
-//! (`blur_cache`): an unchanged backdrop draws its blurred rectangle from the cache texture — one
+//! back over the glass with its corners cut by the client-surface pipeline. CACHED (the frame
+//! planner decides, `nexus_gfx::frame::glass`): an unchanged backdrop draws its blurred rectangle
+//! from the cache texture — one
 //! layer draw — instead of the snapshot and both passes; a changed one blurs into its cache rows.
 //! OWNERS: @ui @gpu
 //! STATUS: Functional
@@ -24,9 +25,9 @@
 
 use nexus_gfx::backend::error::GfxError;
 use nexus_gfx::backend::gpu::quads::Quad;
+use nexus_gfx::frame::{CacheStep, FrameLayer, Glass};
 
-use super::blur_cache::{fold, CacheStep, BLUR_CACHE_TEX_H};
-use super::{PendingRtLayer, VirtioGpuBackend};
+use super::VirtioGpuBackend;
 use crate::protocol::{
     VirtioGpuCtxAttachResource, VirtioGpuResourceCreate3d, VIRTIO_GPU_CMD_CTX_ATTACH_RESOURCE,
     VIRTIO_GPU_CMD_RESOURCE_CREATE_3D,
@@ -36,6 +37,10 @@ use crate::virgl::{
     PIPE_TEXTURE_2D,
 };
 use crate::virgl_pipelines::BlurPair;
+
+/// The cache texture's height (display-wide) in half-resolution rows: two windows of pane glass
+/// fit; what does not blurs live — the height bounds cost, never correctness.
+pub(crate) const BLUR_CACHE_TEX_H: u32 = 2048;
 
 /// The snapshot of the frame beneath a glass layer and its halo (display-sized, GPU-only: no
 /// guest backing, no transfers) — copied from the back RT before the glass's passes, so the blur
@@ -58,7 +63,7 @@ impl VirtioGpuBackend {
     /// create/attach ctrl commands — call OUTSIDE a present batch (like `cursor_tex_init`).
     /// Idempotent after the first success.
     pub(crate) fn glass_tex_init(&mut self) -> Result<(), GfxError> {
-        if self.blur_cache.tex_ready {
+        if self.frame.glass.ready {
             return Ok(());
         }
         let textures = [
@@ -94,37 +99,19 @@ impl VirtioGpuBackend {
             s.emit_create_surface(surface, res, PIPE_FORMAT_B8G8R8A8_UNORM);
         }
         self.submit3d(&s)?;
-        self.blur_cache.tex_ready = true;
+        self.frame.glass.ready = true;
         Ok(())
     }
 
-    /// One glass layer's blur in the composite walk (walk slot `slot`, the destination-so-far
-    /// fold `below`, the cache's packing cursor `cache_y`): no glass is a no-op; otherwise the
-    /// cache's read, the blur into the cache rows, or — no rows left — the blur alone, then the
-    /// blurred rectangle drawn over the glass. Returns the advanced cursor.
-    pub(crate) fn glass_blur_step(
-        &mut self,
-        slot: usize,
-        below: u64,
-        cache_y: u32,
-        l: &PendingRtLayer,
-    ) -> u32 {
+    /// One glass layer of the plan (`nexus_gfx::frame`, its cache step decided): the cache's
+    /// read, the blur into the cache rows, or — no rows left — the blur alone, then the blurred
+    /// rectangle drawn over the glass.
+    pub(crate) fn glass_draw(&mut self, l: &FrameLayer, glass: Glass) {
         let (x, y, w, h) = (l.dst_x, l.dst_y, l.width, l.height);
-        if l.backdrop_blur == 0 || w == 0 || h == 0 || !self.blur_cache.tex_ready {
-            return cache_y;
-        }
-        let Some(pair) = self.pipelines.blur(l.backdrop_blur) else { return cache_y };
-        // The result with its one-texel margin: half the glass, rounded up, and two.
-        let rows = h.div_ceil(2) + 2;
-        let key = fold(
-            fold(below, (u64::from(x) << 32) | u64::from(y)),
-            (u64::from(w) << 40)
-                | (u64::from(h) << 16)
-                | (u64::from(l.backdrop_blur) << 8)
-                | u64::from(l.corner_radius),
-        );
+        // The plan asks only for radii the library blurs.
+        let Some(pair) = self.pipelines.blur(l.backdrop_blur) else { return };
         let mut s = Submit3d::new();
-        let step = self.blur_cache.step(slot, key, cache_y, rows);
+        let step = glass.cache;
         let (view, tex_h, row) = match step {
             CacheStep::Read(row) => (H_SV_BLUR_CACHE, BLUR_CACHE_TEX_H, row),
             CacheStep::Write(row) => {
@@ -152,10 +139,6 @@ impl VirtioGpuBackend {
         if submitted && !matches!(step, CacheStep::Read(_)) && !self.rt_backdrop_marker_done {
             self.rt_backdrop_marker_done = true;
             let _ = nexus_abi::debug_println(crate::markers::GPUD_RT_BACKDROP_DST);
-        }
-        match step {
-            CacheStep::Read(_) | CacheStep::Write(_) => cache_y.saturating_add(rows),
-            CacheStep::Off => cache_y,
         }
     }
 

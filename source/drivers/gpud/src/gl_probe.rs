@@ -180,7 +180,7 @@ impl VirtioGpuBackend {
             };
             self.ctrl_submit_header_tail(&hdr, bytes)?;
             // The glass over the wallpaper re-samples the frozen frame.
-            self.blur_cache.wallpaper_epoch = self.blur_cache.wallpaper_epoch.wrapping_add(1);
+            self.frame.glass.wallpaper_epoch = self.frame.glass.wallpaper_epoch.wrapping_add(1);
         }
         Ok(())
     }

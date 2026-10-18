@@ -133,12 +133,9 @@ impl VirtioGpuBackend {
         scroll_id: u32,
         src_row_abs: u32,
     ) -> Result<(), GfxError> {
-        let Some(slot) =
-            scroll_id.checked_sub(1).and_then(|i| self.scroll_src_rows.get_mut(i as usize))
-        else {
+        if !self.frame.layers.set_scroll(scroll_id, src_row_abs) {
             return Err(GfxError::InvalidArgument); // id 0 / beyond the table
-        };
-        *slot = Some(src_row_abs);
+        }
         // Honest one-shot: the generalized scroll fast path actually took effect.
         if !self.layer_scroll_marker_done {
             self.layer_scroll_marker_done = true;
@@ -156,14 +153,11 @@ impl VirtioGpuBackend {
     pub(crate) fn record_layer_transform(
         &mut self,
         layer_id: u32,
-        t: crate::backend::LayerTransform,
+        t: nexus_gfx::frame::Transform,
     ) -> Result<(), GfxError> {
-        let Some(slot) =
-            layer_id.checked_sub(1).and_then(|i| self.layer_transforms.get_mut(i as usize))
-        else {
+        if !self.frame.layers.set_transform(layer_id, t) {
             return Err(GfxError::InvalidArgument); // id 0 / beyond the table
-        };
-        *slot = Some(t);
+        }
         // Honest one-shot: the unified layer-transform path took effect.
         if !self.layer_transform_marker_done {
             self.layer_transform_marker_done = true;
@@ -175,7 +169,7 @@ impl VirtioGpuBackend {
     }
 
     /// Scroll fast path, PRESENT half: one GPU re-composite at the latest
-    /// recorded override rows. `rt_layers_dirty` stays false → NO atlas
+    /// recorded override rows. The set stays clean → NO atlas
     /// re-upload, just a different source offset into the already-uploaded
     /// texture — a ~54µs GPU pass, no CPU re-render.
     pub(crate) fn flush_layer_scroll(&mut self) -> Result<(), GfxError> {
@@ -265,7 +259,7 @@ impl VirtioGpuBackend {
         {
             self.wallpaper_from_vmo_uploaded = true;
             // New RT base: every cached glass backdrop is stale.
-            self.blur_cache.wallpaper_epoch = self.blur_cache.wallpaper_epoch.wrapping_add(1);
+            self.frame.glass.wallpaper_epoch = self.frame.glass.wallpaper_epoch.wrapping_add(1);
             let _ = nexus_abi::trace_line("gpud: wallpaper uploaded from vmo (jpeg)");
         }
     }
