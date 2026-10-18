@@ -130,6 +130,13 @@ channel.
   page with magic `NXCRING1`, version, the data size and the head, then 128 KiB of data; the head
   counts every byte ever written). Every console path passes one hook, which records the byte
   and emits it under one lock, so the ring holds the bytes in the order the UART receives them.
+  Amended 2026-10-18 (TASK-0330 S2b): once the runtime runs, the serial line reads the ring
+  itself, from a cursor of its own — the hook records the byte and leaves the sending to the
+  line, so no writer waits for the transmitter (a full transmit queue had made a board's writers
+  wait for the line during every bring-up). The UART still receives the ring's bytes in the
+  ring's order, and the QEMU contract stays byte-equal; a line the writers lap — more than the
+  ring behind — skips to the oldest byte the ring keeps and says so in one line, while the trace
+  keeps every byte.
   - **No read syscall**: the kernel exposes the ring read-only, the way it exposes the tree —
     a `VmoRo` in init's slot 3 (`INIT_CONSOLE_RING_SLOT`), which init pins into the block owner's
     declared `ConsoleRing` slot and nowhere else.

@@ -341,6 +341,34 @@ pub(super) fn nearest_symbol(_addr: usize) -> Option<(&'static str, usize)> {
     }
 }
 
+// ——— how long a user fault's report holds its hart (TASK-0330 S2b) ———
+
+static USER_FAULT_REPORTS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+static USER_FAULT_REPORT_MAX: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+static USER_FAULT_REPORT_TOTAL: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
+
+/// A user fault's report is out; it began at `t0` (timer ticks). The hart takes no interrupt
+/// while it reports, so this is how long a crash held it — on the board 134 ms while a full
+/// console queue made the report wait for the serial line.
+pub(super) fn note_user_fault_report(t0: u64) {
+    use core::sync::atomic::Ordering::Relaxed;
+    let ticks = crate::arch::riscv::read_time().wrapping_sub(t0);
+    USER_FAULT_REPORTS.fetch_add(1, Relaxed);
+    USER_FAULT_REPORT_MAX.fetch_max(ticks, Relaxed);
+    USER_FAULT_REPORT_TOTAL.fetch_add(ticks, Relaxed);
+}
+
+/// `(reports, longest, all together)` since boot — the times in timer ticks.
+pub fn user_fault_report() -> (u32, u64, u64) {
+    use core::sync::atomic::Ordering::Relaxed;
+    (
+        USER_FAULT_REPORTS.load(Relaxed),
+        USER_FAULT_REPORT_MAX.load(Relaxed),
+        USER_FAULT_REPORT_TOTAL.load(Relaxed),
+    )
+}
+
 /// Fail-fast for a U-mode fault: kill the offending task (leaving it alive
 /// would be an infinite fault storm that blocks boot markers), then pick the
 /// next runnable task for the trap epilogue — or, with nothing runnable on

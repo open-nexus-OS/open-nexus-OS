@@ -137,3 +137,102 @@ overflowing the 8 KiB queue (expected; each costs one polled FIFO wait, inside t
   dropped). The three `virtio-blk: timeout` lines of the first red run did not recur in the
   green runs; they stay a watched class (`manual--2026-10-10` saw one with the synchronous
   console).
+
+## S2b — the serial line reads the ring (TASK-0330 S2b, 2026-10-18)
+
+**Question.** S2a's queue held 8 KiB; a write into a full queue sent its oldest bytes polled
+first. Does that still hold harts during a board bring-up, and can the serial line read the
+console ring itself, so that no writer ever waits for it?
+
+**Measured first** (board cycles 25 and 26 of the GPU lane, `board--2026-10-17T15-48-51`,
+`board--2026-10-17T21-48-46`; the code; QEMU):
+
+- Every bring-up filled the queue: `KINIT: console tx (… full=1175 … max_depth=8192)` and
+  `full=1139`. Each full push waited for one FIFO burst on the line (16 bytes, 1.4 ms at
+  115 200 baud) in the trap, interrupts off: about 1.6 s of hart time a boot (an estimate from
+  the counter, not a measurement of the waits).
+- The bring-up's longest kernel-lock holds were console writes: `KINIT: bkl bring-up burst
+  max_wait=28868us max_hold=20ms nr=44 gt10ms=41` (cycle 25: `28658us`, `21ms`, `nr=44`,
+  `38`). `debug_write` (44) runs under the kernel lock (it went back to the lock class so the log
+  channel stays serialized), so a line written into a full queue held the lock for its serial
+  time, and every other hart's syscall waited.
+- The GPU lane's cycle 26: the containment rung's lost context took 130 ms to tear down
+  (`f_teardown_us=129833`; cycle 25: 1450) while the supervision probe's second crash report —
+  1540 bytes, 133.7 ms of serial time — lay between the rung's loss line and its verdict. A user
+  fault's report is written in the trap: its hart takes no timer meanwhile, and a task homed on
+  it waits unless an idle hart steals it. Which hart gpud was on is not measured.
+- Nobody reads the board's serial line: the proof is the ring the block owner keeps on the boot
+  disk (RFC-0107). QEMU's transmitter never fills the queue (`full=0 max_depth=1`).
+
+**What S2b builds.** The serial line reads the ring from a cursor of its own
+(`console_tx::Cursor`, host-tested); a write records its byte and kicks the line — an idle
+transmitter is filled at once, otherwise the transmitter-empty interrupt is live while the line
+owes bytes. No writer waits for the line; the 8 KiB queue is gone (the queue is the ring's span
+between the cursor and the head). A line the writers lap — more than the ring, less a 4 KiB
+margin, behind — skips to the oldest byte kept and says so in one line; a panic sends what the
+line owes, polled, before its last words; the timer tick backs up a kick that found the line's
+lock held. New lines: `KINIT: console tx (irq_bursts= kicks= behind_max= lapped=
+lock_fallback=)` and `KINIT: user fault reports (n= max_us= total_us=)` (how long a user fault's
+report held its hart).
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H1 | The bring-up's long kernel-lock holds were console writes waiting for the line | `KINIT: bkl bring-up burst …`: `max_hold` no longer names `nr=44`, `gt10ms` falls from 41 to a few at most |
+| H2 | The ring absorbs the bring-up's burst without a loss | `KINIT: console tx (… behind_max= lapped=0 …)`: `behind_max` above 8192 (more than the old queue held), `lapped=0` |
+| H3 | A crash report no longer holds its hart for its serial time | `KINIT: user fault reports (n= max_us=)`: `max_us` below 10 000 (the 1540-byte report's serial time is 133 700) |
+| H4 | The console's steady hold stays as it was | `KSELFTEST: console off lock ok (max_us=)` near cycles 25–26 (202, 269) |
+| H5 | The GPU rung's teardown no longer depends on a crash report | `gpu containment ok (… f_teardown_us=)` near cycle 25's 1450, whether a report falls into the rung or not |
+
+**QEMU** (2026-10-18): `headless` and `visible` green, the trace contract byte-equal (65 262 and
+66 987 bytes of kernel console text on the disk, equal to the UART), `console tx (irq_bursts=0
+kicks=56280 behind_max=1 lapped=0 lock_fallback=0)` — QEMU's transmitter takes every byte at
+once — and `user fault reports (n=6 max_us=980 total_us=5882)`. The two-hart `smp` lane is red as
+before for its own reasons (`ipc call budget FAIL rt=210us` as on 2026-10-16; `settingsd: event
+send FAIL … QueueFull` seen there before too), no new FAIL, the trace contract byte-equal,
+`console off lock ok (max_us=871)` (754 and 1044 on 2026-10-16), `user fault reports (n=6
+max_us=10550)` under the emulator's two threads.
+
+**Results — the board, cycle 27** (two boots of one image, `board--2026-10-18T14-50-09` and
+`board--2026-10-18T15-01-29`; `s2b-board-lines.txt` with cycle 26 beside them;
+`s2b-board-test.txt`: `[PASS] board-visible`, 66 rungs, the operator's seven confirmations on the
+second boot):
+
+| | Cycle 26 (S2a) | Cycle 27, boot 1 | Cycle 27, boot 2 |
+|---|---|---|---|
+| bring-up lock: longest hold, holds over 10 ms, longest wait | 20 ms (`nr=44`), 41, 28 868 µs | under 1 ms (`nr=6`), 0, 1 499 µs | under 1 ms (`nr=6`), 0, 1 475 µs |
+| the line: farthest behind, skipped | the queue full (`full=1139`, 8192) | 22 491 bytes, 0 | 22 249 bytes, 0 |
+| user fault reports: longest, all six | about 134 ms by the serial time | 3 030 µs, 13 591 µs | 3 126 µs, 13 649 µs |
+| console off lock | 269 µs | 249 µs | 195 µs |
+| the GPU containment rung's teardown | 129 833 µs (a report inside the rung) | 1 504 µs | 1 501 µs |
+| windowd's GPU context open (TASK-0215 P3) | 9 971 µs | 6 119 µs | 6 098 µs |
+| `ipc call budget` | FAIL (76 µs) | ok (44 µs) | ok (44 µs) |
+
+- **H1 confirmed.** The bring-up's long holds were console writes: no hold above 10 ms in either
+  boot (41 before), the longest under a millisecond and no longer `nr=44`, the longest wait for
+  the lock 1.5 ms (28.9 before).
+- **H2 confirmed.** The line fell up to 22.5 KB behind — 2.7 times what the old queue held — and
+  caught up without skipping a byte (`lapped=0`, no `[serial:` line).
+- **H3 confirmed.** A crash report held its hart 3.0–3.1 ms at most; the 1540-byte report's
+  serial time is 133.7 ms.
+- **H4 confirmed.** The steady console hold 195–249 µs (202–269 before).
+- **H5 not decided by an overlap.** In both boots the probe's reports fell before and after the
+  containment rung; the teardown took 1.5 ms as in cycle 25, and H3 bounds what a report inside
+  it could now add: about 3 ms, not 128.
+- **Two boots, the same numbers** within a few percent (H1–H4 and the GPU rungs).
+- **Side findings.** windowd's GPU context opened in 6.1 ms in both boots against 10.0 ms in
+  cycle 26: the 3.4 ms that the GPU lane's H65 put on the open's own steps were the bring-up's
+  lock waits, and H65's prediction (near the rung's binding, `bind_us=6392` this cycle) holds —
+  corrected in `docs/board/measurements/2026-10-13-gpu-render-queue/README.md`. The boot:
+  `init: timing total_ms=501` against 566–567, hidrawd ready after 1.66 s against 2.0–2.2 s —
+  one cycle, observed, not a gate. `KSELFTEST: ipc call budget` ok in both boots (44 µs); it
+  failed in 12 of 48 board boots before, which one cycle does not decide.
+- **Boot 1's screenshot hung** after the selection was dragged (the operator rarely drags it):
+  windowd stopped taking input — inputd's pushes stopped, hidrawd's sends failed with
+  backpressure until the reset — with no `capture freeze off` and no save. The same signature
+  appeared on 2026-10-14 (`board--2026-10-14T11-25-48`), before S2b; boot 2 dragged the
+  selection and saved. Not the console's: handed to TASK-0215 P4, whose cycles drag the
+  selection on the new present path.
+
+**Verdict.** No console write waits for the serial line any more: the board's bring-up holds the
+kernel lock for no line's serial time, a crash report holds its hart for milliseconds, and the
+serial line, reading the ring, catches up without losing a byte. S2b complete.

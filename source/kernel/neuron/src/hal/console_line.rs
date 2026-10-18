@@ -28,7 +28,9 @@ use crate::smp::MAX_CPUS;
 static GATE: LineOwner = LineOwner::new();
 
 /// How long a hart waits at the gate, and the age at which a held gate counts as abandoned
-/// (a hart that died mid-unit): a full 256-byte unit at the slowest console rate is ~22 ms.
+/// (a hart that died mid-unit): a full 256-byte unit at the slowest console rate is ~22 ms
+/// while the console writes each byte to the transmitter itself (before the runtime, in a
+/// panic); once the serial line reads the ring a unit is a copy into it (TASK-0330 S2b).
 const WAIT_NS: u64 = 30_000_000;
 
 /// A hart's line buffer plus its re-entry latch.

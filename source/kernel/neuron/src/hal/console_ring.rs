@@ -9,7 +9,10 @@
 //! read-only (`nexus_abi::INIT_CONSOLE_RING_SLOT`) and pins it to the block owner alone, which
 //! keeps it in the boot trace on the boot disk. Static and allocation-free (ADR-0040 as amended
 //! by RFC-0107): the pages are part of the image's `.bss`, zeroed by the boot; `init` writes
-//! the header once before the first byte.
+//! the header once before the first byte. Since TASK-0330 S2b the serial line reads the ring
+//! (`hal::console_serial`): once the runtime runs, a write records its byte and leaves the
+//! sending to the line, which follows the head from a cursor of its own — no writer waits for
+//! the transmitter.
 //! OWNERS: @kernel-team @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal (the layout is RFC-0107's contract)
@@ -28,16 +31,20 @@ use crate::sync::spin_irq::SpinIrqLock;
 struct Pages(UnsafeCell<[u8; BYTES]>);
 
 // SAFETY: every write happens under `LOCK` (or, when the lock cannot be had within its bound,
-// from a path that must print regardless); readers only ever see the pages read-only, ordered
-// by the head's release store.
+// from a path that must print regardless); readers — the serial line among them — only ever
+// read, ordered by the head's release store.
 unsafe impl Sync for Pages {}
 
 static RING: Pages = Pages(UnsafeCell::new([0; BYTES]));
-/// Orders the ring with the UART: the byte is recorded and emitted under one hold.
+/// Orders the writers: a byte is recorded — and, before the serial line reads the ring, written
+/// to the transmitter — under one hold.
 static LOCK: SpinIrqLock<()> = SpinIrqLock::new(());
 /// The bound on waiting for the lock: far longer than any hold (one byte on the wire), short
 /// enough that a hart stopped while holding it cannot silence the console for good.
 const LOCK_TRIES: usize = 1 << 20;
+
+/// The ring's data bytes: the farthest the serial line can fall behind the writers.
+pub const CAPACITY: u64 = DATA_BYTES as u64;
 
 fn base() -> *mut u8 {
     RING.0.get().cast::<u8>()
@@ -68,17 +75,46 @@ pub fn stamp(seq: u64) {
     field.store(seq, Ordering::Release);
 }
 
-/// Records `byte` in the ring, then hands it to `emit` (the UART write), both under the ring's
-/// lock: the ring keeps the bytes in the order the console receives them.
-pub fn record_then(byte: u8, emit: impl FnOnce(u8)) {
-    let mut guard = None;
+/// The ring's lock, waited for up to the bound; `None` when a hart holds it past that.
+fn lock_bounded() -> Option<crate::sync::spin_irq::SpinIrqGuard<'static, ()>> {
     for _ in 0..LOCK_TRIES {
         if let Some(held) = LOCK.try_lock() {
-            guard = Some(held);
-            break;
+            return Some(held);
         }
         core::hint::spin_loop();
     }
+    None
+}
+
+/// Bytes ever written: the count of the next one.
+pub fn written() -> u64 {
+    head().load(Ordering::Acquire)
+}
+
+/// The byte the ring holds for `count` — the writers' byte while they have not lapped it, which
+/// the reader's cursor rule decides (`crate::console_tx`).
+pub fn byte_at(count: u64) -> u8 {
+    let at = DATA_AT + (count % CAPACITY) as usize;
+    // SAFETY: `at` lies inside the data area of the ring's pages; a byte is plain data.
+    unsafe { base().add(at).read_volatile() }
+}
+
+/// Runs `f` under the ring's lock (bounded as a write is): no byte is recorded meanwhile — the
+/// serial line's switch to reading the ring happens between two bytes.
+pub fn with_lock<R>(f: impl FnOnce() -> R) -> R {
+    let guard = lock_bounded();
+    let r = f();
+    drop(guard);
+    r
+}
+
+/// Records `byte` in the ring, then hands it to `emit` under the ring's lock and returns what
+/// `emit` says: before the serial line reads the ring (and in a panic) `emit` writes the byte to
+/// the transmitter, so the ring keeps the bytes in the order the UART receives them; once the
+/// line reads the ring, `emit` only says the line is to be kicked, which the caller does after
+/// the lock.
+pub fn record_then<R>(byte: u8, emit: impl FnOnce(u8) -> R) -> R {
+    let guard = lock_bounded();
     let h = head().load(Ordering::Relaxed);
     let at = DATA_AT + (h % DATA_BYTES as u64) as usize;
     // SAFETY: `at` lies inside the data area of the ring's pages.
@@ -95,8 +131,9 @@ pub fn record_then(byte: u8, emit: impl FnOnce(u8)) {
         flush_block(at, block);
         flush_block(OFF_HEAD, block);
     }
-    emit(byte);
+    let said = emit(byte);
     drop(guard);
+    said
 }
 
 /// Writes the cache block holding ring offset `at` back to memory.

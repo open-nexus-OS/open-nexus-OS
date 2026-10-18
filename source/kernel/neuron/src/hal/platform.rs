@@ -330,12 +330,13 @@ pub(super) fn uart_read_reg(base: usize, reg: usize) -> u8 {
     }
 }
 
-/// Emit one byte on the console: wait for the transmitter, then write. Dropped
-/// when no console is known yet (never a write to a guessed address). Every byte
-/// is first kept in the console ring (RFC-0107 Phase 2) — the one hook every
-/// console path passes, so the ring holds what the UART receives, in its order,
-/// and also what was written before the console was known. The line the byte
-/// belongs to is this hart's from its first byte to `\n` (`console_line`,
+/// Emit one byte on the console. Every byte is first kept in the console ring
+/// (RFC-0107 Phase 2) — the one hook every console path passes, so the ring holds
+/// what the UART receives, in its order, and also what was written before the
+/// console was known (dropped on the wire: never a write to a guessed address).
+/// From the runtime on the serial line reads the ring and no writer waits for it
+/// (TASK-0330 S2b); before that each byte waits for the transmitter. The line the
+/// byte belongs to is this hart's from its first byte to `\n` (`console_line`,
 /// TASK-0327B P4 H0d): on a multi-hart board two writers otherwise interleave
 /// byte by byte and no marker survives.
 pub fn console_write_byte(byte: u8) {
@@ -348,20 +349,23 @@ pub fn console_flush_line() {
     super::console_line::flush_current_hart(console_emit);
 }
 
-/// One byte to the ring and the UART, in that order, with no line discipline: the leaf every
-/// console path ends in.
+/// One byte to the ring, then the UART, with no line discipline: the leaf every console path
+/// ends in. Once the serial line reads the ring the byte only kicks it, after the ring's lock;
+/// before that (and in a panic) the byte goes to the transmitter under that lock, in order.
 fn console_emit(byte: u8) {
-    super::console_ring::record_then(byte, |byte| {
-        let base = UART_BASE.load(Ordering::Acquire);
-        if base == 0 {
-            return;
-        }
+    let kick = super::console_ring::record_then(byte, |byte| {
         if super::console_queue::enabled() {
-            super::console_queue::enqueue(base, byte);
-        } else {
+            return true;
+        }
+        let base = UART_BASE.load(Ordering::Acquire);
+        if base != 0 {
             uart_put_polled(base, byte);
         }
+        false
     });
+    if kick {
+        super::console_queue::kick();
+    }
 }
 
 /// One byte to the transmitter, waiting for it (TASK-0260B P3: the wait is bounded — 2 ms,

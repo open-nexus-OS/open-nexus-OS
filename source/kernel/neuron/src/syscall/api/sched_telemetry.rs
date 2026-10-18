@@ -184,8 +184,9 @@ pub(super) fn sched_telemetry_op(
                 top[2].0,
                 top[2].1
             );
-            // TASK-0330 S2a: the console syscalls (16 putc, 44 write) hold the lock for a copy
-            // into the ring and the queue, never for the UART — the board's 10.5 ms were that.
+            // TASK-0330 S2a, S2b: the console syscalls (16 putc, 44 write) hold the lock for a
+            // copy into the ring, never for the UART — the board's 10.5 ms were that, and so
+            // were the bring-up's 20 ms while a full queue made a write wait for the line.
             let tpu = crate::trap::budgets::ticks_per_us();
             let (console_ok, console_us) = crate::lock_stats::console_hold_verdict(
                 crate::lock_stats::max_hold_us(crate::syscall::SYSCALL_DEBUG_PUTC, tpu),
@@ -206,16 +207,26 @@ pub(super) fn sched_telemetry_op(
                     crate::lock_stats::CONSOLE_HOLD_BUDGET_US
                 );
             }
-            let (bursts, kicks, full, lock_fallback, depth) =
+            let (bursts, kicks, behind_max, lapped, lock_fallback) =
                 crate::hal::console_queue::console_tx_report();
             log_info!(
                 target: "smp",
-                "KINIT: console tx (irq_bursts={} kicks={} full={} lock_fallback={} max_depth={})",
+                "KINIT: console tx (irq_bursts={} kicks={} behind_max={} lapped={} lock_fallback={})",
                 bursts,
                 kicks,
-                full,
-                lock_fallback,
-                depth
+                behind_max,
+                lapped,
+                lock_fallback
+            );
+            // TASK-0330 S2b: how long a user fault's report held its hart (no interrupt taken
+            // meanwhile) — the board's crash reports waited for the serial line before S2b.
+            let (reports, max_ticks, total_ticks) = crate::trap::user_fault_report();
+            log_info!(
+                target: "smp",
+                "KINIT: user fault reports (n={} max_us={} total_us={})",
+                reports,
+                max_ticks / tpu.max(1),
+                total_ticks / tpu.max(1)
             );
             let by_hart = crate::ipc_stats::sends_by_hart();
             log_info!(target: "ipc", "KINIT: ipc sends by hart {:?}", by_hart);

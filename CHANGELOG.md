@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-10-18 (kernel: no console write waits for the serial line — TASK-0330 S2b, RFC-0107)
+
+- **The serial line reads the console ring.** Once the runtime runs, a console write records its
+  byte in RFC-0107's ring and kicks the line, which sends the ring's bytes in order from a cursor
+  of its own (`console_tx::Cursor`, host-tested); the 8 KiB transmit queue is gone. Every board
+  bring-up had filled that queue, and a write into it waited for the 115 200-baud line with its
+  hart's interrupts off: the console syscalls held the kernel lock for up to 20 ms, a crash
+  report held its hart for about 134 ms. On the board now: no kernel-lock hold above a
+  millisecond in the bring-up (41 above 10 ms before), the longest wait for the lock 1.5 ms
+  (28.9 before), a crash report 3 ms, and the line falls up to 22 KB behind and catches up
+  without losing a byte.
+- A line the writers lap — more than the ring behind — skips to the oldest byte kept and says
+  so in one line; a panic sends what the line owes before its last words. New boot-end lines
+  `KINIT: console tx (irq_bursts= kicks= behind_max= lapped= lock_fallback=)` and
+  `KINIT: user fault reports (n= max_us= total_us=)`. Board cycle 27 (`[PASS] board-visible`,
+  two boots with the same numbers); QEMU's trace contract byte-equal on the headless, visible
+  and two-hart lanes.
+
 ### Added - 2026-10-17 (Block 4, layer 5c-3 P3: windowd's GPU context — TASK-0215, RFC-0101 §7b)
 
 - **windowd opens its own GPU context and supplies its pipeline library.** Two display-protocol

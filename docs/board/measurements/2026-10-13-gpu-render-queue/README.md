@@ -1219,6 +1219,10 @@ setup_bytes=852 table_bytes=7039 …)`, `render ok … bind_us=6572`.
   set up, the library placed; the rung's `bind_us=6572` (this boot) times the binding and the
   setup alone. The open costs windowd's start 10 ms, once; how the 3.4 ms beyond the binding split
   among the parse, the context and the library this cycle did not measure.
+  **Corrected 2026-10-18 (TASK-0330 S2b, the console's measurement README):** with no console
+  write holding the kernel lock in the bring-up, the open took 6119 and 6098 µs in two boots
+  against the rung's `bind_us=6392` — the 3.4 ms were the bring-up's lock waits, not the open's
+  steps, and H65 holds as predicted (the open binds no target; the rung binds its plane).
 - **H66 refuted in its number.** `heap_bytes=9023` against the table's `table_bytes=7039`: an open
   costs gpud's heap 1984 bytes beside the table. By the code, the open parses the render bundle
   again and keeps the bound bundle's buffer list, both per open; this cycle did not split the
@@ -1235,7 +1239,12 @@ lines, 133.7 ms on the 115 200-baud console in a proof boot, which prints the du
 25 the probe's dumps fell before and after the rung. The 128 ms the teardown lost match the dump's
 console time; what held gpud meanwhile is not measured (the kernel's lock accounting shows no
 single wait above 29 ms this boot). Carried: measured before P4 puts the desktop's frames through
-gpud, where such a hold would show as a stall.
+gpud, where such a hold would show as a stall. **Measured and fixed 2026-10-18 (TASK-0330 S2b):**
+the report waited for the serial line — every bring-up filled the console's 8 KiB queue, and a
+write into it waited with its hart's interrupts off. The serial line now reads the console ring
+itself: a crash report holds its hart 3 ms (cycle 27, two boots). The containment teardown took
+1504 and 1501 µs there — no report fell into the rung in either boot; one now could add about
+3 ms.
 
 **Verdict.** windowd opens its own context at the highest priority and hands gpud its library
 over IPC, on the board and on QEMU; gpud serves windowd alone, replaces a context windowd holds

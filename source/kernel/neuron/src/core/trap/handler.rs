@@ -312,7 +312,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             {
                 let cpu = crate::smp::cpu_current_id();
                 let prev = crate::smp::record_timer_tick(cpu);
-                // TASK-0330 S2a: a console without an interrupt line drains its queue here.
+                // TASK-0330 S2a/S2b: the console line drains here without an interrupt line.
                 crate::hal::platform::console_tx_tick();
                 if prev == 0 && !cpu.is_boot() {
                     log_info!(target: "smp", "KSELFTEST: smp per-hart ticks ok");
@@ -829,6 +829,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             let from_user = (frame.sstatus & SSTATUS_SPP) == 0;
 
             if from_user {
+                let report_t0 = crate::arch::riscv::read_time();
                 // User page fault - ROBUST logging via direct MMIO (no heap, no fmt)
                 // This cannot crash because it uses no dynamic allocation
 
@@ -1038,6 +1039,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     dump_task_frame_snapshot(frame.x[2]);
                 }
 
+                super::fault::note_user_fault_report(report_t0);
                 super::fault::kill_faulting_user_task(frame);
                 return;
             }

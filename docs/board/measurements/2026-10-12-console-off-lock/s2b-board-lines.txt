@@ -1,0 +1,46 @@
+== board--2026-10-17T21-48-46 — cycle 26 (before S2b)
+175:KINIT: console tx queue (irq=42 fifo_burst=16 ier=0x40 mcr=0x08 iir=0xc1 plic_enabled=true)
+756:gpud: gpu containment ok (contexts=3 samples=20/20 refused=4/4 lost=1 pc_f=0x5c45000 fault=0xdbf00032c0 headers=0xdbf0000000+0x7000 fault_us=7848 f_words=2/4 of 2/4 f_teardown_us=129833 c_slot_of_f=true resets=1 innocent=0 reconstructions=1 rebuilt=2 unknown_lists=0 grows=0 unattributed=0 teardown_us=2868 backing=957/957 bos=0 quarantined=0 cleanup_busy=0)
+809:gpud: gpu library ok (client=windowd ctx=0x600 prio=0 bytes=4748 entries=7 refused=0 code_bytes=2808 setup_bytes=852 open_us=9971 replaced=false heap_bytes=9023)
+1201:KINIT: bkl bring-up burst max_wait=28868us max_hold=20ms nr=44 gt10ms=41
+1216:hidrawd: chain I2 wire sent to inputd
+1493:KSELFTEST: ipc call budget FAIL (rt=76us budget=64)
+1542:KINIT: bkl hold histogram le100us=1732010 le1ms=1762 le10ms=0 gt10ms=0 top nr=6:336us nr=20:335us nr=44:269us
+1543:KSELFTEST: console off lock ok (max_us=269 budget_us=1000)
+1544:KINIT: console tx (irq_bursts=2585 kicks=1115 full=1139 lock_fallback=0 max_depth=8192)
+1548:KSELFTEST: bkl budget ok (max_wait=519us max_hold=0ms nr=6)
+2153:windowd: capture freeze on
+2197:windowd: capture freeze off
+2198:screencapd: saved (kind=window w=320 h=272 bytes=16139)
+
+== board--2026-10-18T14-50-09 — cycle 27, boot 1 (S2b; the screenshot hung after a dragged selection)
+175:KINIT: console tx queue (irq=42 fifo_burst=16 ier=0x40 mcr=0x08 iir=0xc1 plic_enabled=true)
+689:gpud: gpu containment ok (contexts=3 samples=20/20 refused=4/4 lost=1 pc_f=0x6445000 fault=0xdbf00032c0 headers=0xdbf0000000+0x7000 fault_us=6757 f_words=2/4 of 2/4 f_teardown_us=1504 c_slot_of_f=true resets=1 innocent=0 reconstructions=1 rebuilt=2 unknown_lists=0 grows=0 unattributed=0 teardown_us=2711 backing=957/957 bos=0 quarantined=0 cleanup_busy=0)
+698:gpud: gpu library ok (client=windowd ctx=0x600 prio=0 bytes=4748 entries=7 refused=0 code_bytes=2808 setup_bytes=852 open_us=6119 replaced=false heap_bytes=9023)
+1189:KINIT: bkl bring-up burst max_wait=1499us max_hold=0ms nr=6 gt10ms=0
+1364:hidrawd: chain I2 wire sent to inputd
+1383:KSELFTEST: ipc call budget ok (rt=44us budget=64)
+1432:KINIT: bkl hold histogram le100us=1640207 le1ms=543 le10ms=0 gt10ms=0 top nr=44:249us nr=16:195us nr=46:138us
+1433:KSELFTEST: console off lock ok (max_us=249 budget_us=1000)
+1434:KINIT: console tx (irq_bursts=3375 kicks=403 behind_max=22491 lapped=0 lock_fallback=0)
+1435:KINIT: user fault reports (n=6 max_us=3030 total_us=13591)
+1439:KSELFTEST: bkl budget ok (max_wait=1161us max_hold=0ms nr=44)
+2165:windowd: capture freeze on
+2195:hidrawd: chain I2 wire send FAIL (inputd route)
+
+== board--2026-10-18T15-01-29 — cycle 27, boot 2 (S2b; same image, no new flash)
+175:KINIT: console tx queue (irq=42 fifo_burst=16 ier=0x40 mcr=0x08 iir=0xc1 plic_enabled=true)
+687:gpud: gpu containment ok (contexts=3 samples=20/20 refused=4/4 lost=1 pc_f=0x6445000 fault=0xdbf00032c0 headers=0xdbf0000000+0x7000 fault_us=6755 f_words=2/4 of 2/4 f_teardown_us=1501 c_slot_of_f=true resets=1 innocent=0 reconstructions=1 rebuilt=2 unknown_lists=0 grows=0 unattributed=0 teardown_us=2744 backing=957/957 bos=0 quarantined=0 cleanup_busy=0)
+696:gpud: gpu library ok (client=windowd ctx=0x600 prio=0 bytes=4748 entries=7 refused=0 code_bytes=2808 setup_bytes=852 open_us=6098 replaced=false heap_bytes=9023)
+1179:KINIT: bkl bring-up burst max_wait=1475us max_hold=0ms nr=6 gt10ms=0
+1361:KSELFTEST: ipc call budget ok (rt=44us budget=64)
+1410:KINIT: bkl hold histogram le100us=1635030 le1ms=940 le10ms=0 gt10ms=0 top nr=16:195us nr=20:128us nr=46:128us
+1411:KSELFTEST: console off lock ok (max_us=195 budget_us=1000)
+1412:KINIT: console tx (irq_bursts=3311 kicks=277 behind_max=22249 lapped=0 lock_fallback=0)
+1413:KINIT: user fault reports (n=6 max_us=3126 total_us=13649)
+1417:KSELFTEST: bkl budget ok (max_wait=1172us max_hold=0ms nr=16)
+1463:hidrawd: chain I2 wire sent to inputd
+2094:windowd: capture freeze on
+2169:windowd: capture freeze off
+2170:screencapd: saved (kind=window w=320 h=272 bytes=16869)
+

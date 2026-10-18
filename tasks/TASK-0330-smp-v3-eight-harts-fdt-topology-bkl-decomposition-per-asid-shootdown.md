@@ -133,6 +133,52 @@ FAIL in S1.
   possible": app-host's frame arena spills on the maximized layout (input path healthy) — the
   memory lane's (TASK-0290 "Input from Block 1").
 
+## S2b — the serial line reads the ring (Block 4 layer 2, 2026-10-18 → ✅ board 2026-10-18)
+
+- **Three lenses.** Scope: `source/kernel/neuron/src/{console_tx.rs, hal/console_queue.rs,
+  hal/console_ring.rs, hal/platform.rs, hal/console_line.rs, core/panic.rs,
+  core/trap/{fault,handler}.rs, syscall/api/sched_telemetry.rs, lib.rs}`; RFC-0107 (a note: the
+  serial line is the ring's reader). Out: the console syscalls' lock class (S2), the line
+  discipline, the folding of crash reports (RFC-0068), the console's rate, the interrupt
+  routing and the scheduler's stealing (S1–S3), the ring's layout. Invariant: no console write
+  waits for the transmitter; the serial line sends the ring's bytes in the ring's order; a line
+  the writers lap skips to the oldest byte kept and says so in one line, counted; every QEMU
+  lane's trace contract stays byte-equal. Contract: RFC-0107 (the ring), S2a (the interrupt,
+  the board's UART registers), ADR-0046 (the lock budgets).
+- **Measured cause** (the GPU lane's board cycles 25–26; measurement README "S2b"): every
+  bring-up filled S2a's 8 KiB queue (`full=1139`, `max_depth=8192`), and a write into a full
+  queue waited for the line with its hart's interrupts off — `debug_write` under the kernel lock
+  for its line's serial time (`bkl bring-up burst max_hold=20ms nr=44 gt10ms=41`), a crash
+  report of the supervision probe 134 ms on its hart, which held the GPU containment rung's
+  teardown for 128 ms (`f_teardown_us=129833` against 1450). The board's serial line has no
+  reader: the proof is the ring on the boot disk.
+- **Built**: `console_tx::Cursor` (host-tested: the ring's order a burst at a time, nothing past
+  the head, the lap skipped to the oldest byte kept, a burst the writers reached while it was
+  read not sent, the note's text) replaces the 8 KiB `TxRing`; `hal::console_queue` is the
+  line: a write records its byte under the ring's lock and kicks the line after it — an idle
+  transmitter filled at once, the transmitter-empty interrupt live while the line owes bytes;
+  the switch to reading the ring happens between two bytes under the ring's lock; a panic sends
+  what the line owes, polled, then its words; the tick backs up a kick that found the line's
+  lock held. Lines `KINIT: console tx (irq_bursts= kicks= behind_max= lapped= lock_fallback=)`,
+  `KINIT: user fault reports (n= max_us= total_us=)`.
+- **QEMU** (2026-10-18): `headless`, `visible` green, the trace contract byte-equal,
+  `behind_max=1 lapped=0`, `user fault reports (n=6 max_us=980)`; the two-hart `smp` lane red
+  for its own reasons as before (no new FAIL), its trace contract byte-equal.
+- **Gate** (board, H1–H5 of the measurement README): the bring-up's holds no longer the
+  console's, `lapped=0` with `behind_max` above the old queue, a crash report below 10 ms, the
+  steady console hold as before, the GPU rung's teardown near 1.5 ms.
+- **Board** (cycle 27, two boots of one image, `s2b-board-lines.txt`; `[PASS] board-visible`,
+  66 rungs, 7 acks on the second boot): `bkl bring-up burst max_wait=1499us max_hold=0ms nr=6
+  gt10ms=0` and `1475us … gt10ms=0` (cycle 26: `28868us max_hold=20ms nr=44 gt10ms=41`) — H1;
+  `console tx (… behind_max=22491 lapped=0 lock_fallback=0)` and `22249 … lapped=0` — H2; `user
+  fault reports (n=6 max_us=3030)` and `3126` against the report's 133.7 ms of serial time — H3;
+  `console off lock ok (max_us=249)` and `195` — H4; H5 not decided by an overlap (no report fell
+  into the GPU rung; its teardown 1504 and 1501 µs). The two boots agree within a few percent.
+  On the way: windowd's GPU context opens in 6.1 ms, not 10 (TASK-0215 P3's H65 corrected: the
+  3.4 ms were the bring-up's lock waits); `ipc call budget ok (rt=44us)` in both boots (one
+  cycle, not a verdict on its flake). The first boot's screenshot hung after a dragged selection
+  — the same signature as 2026-10-14, before S2b; handed to TASK-0215 P4.
+
 ## Non-Goals
 
 The scheduler lock itself (`TASK-0306` Phase 3 = S2), the placement policy (`TASK-0042B` = S5), heterogeneous scheduling beyond cluster awareness.

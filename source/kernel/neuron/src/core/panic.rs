@@ -19,8 +19,8 @@ use crate::{trap, uart};
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    // TASK-0330 S2a: the queue's bytes go out synchronously now, and everything after them —
-    // a dying kernel waits for its own last words.
+    // TASK-0330 S2a, S2b: what the serial line still owes goes out synchronously now, and
+    // everything after it — a dying kernel waits for its own last words.
     crate::hal::platform::console_async_disable_and_drain();
     // TASK-0327B P4 H0d: this hart's gathered partial line goes out first, so the trace ends
     // at the dying hart's last byte before the panic text.

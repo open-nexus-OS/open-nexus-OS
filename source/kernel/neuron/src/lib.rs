@@ -480,8 +480,8 @@ mod ipc_stats;
 // riscv/none-only), so the window rule and the units run on host. Fed by `trap::budgets`.
 #[path = "core/trap/lock_stats.rs"]
 mod lock_stats;
-// TASK-0330 S2a: the console's transmit queue — NOT target-gated, so its order and bound run on
-// host. Owned by `hal::platform` on the target.
+// TASK-0330 S2b: the serial line's cursor in the console ring — NOT target-gated, so its order
+// and lap rule run on host. Owned by `hal::console_queue` on the target.
 mod console_tx;
 // TASK-0054C P3b (RFC-0096): the payload tiers and the two ABI bounds — NOT
 // target-gated, for the same reason and with the same shape as `ipc_stats`:
