@@ -58,9 +58,9 @@ id = 6
 name = "blur-horizontal-20"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 20 }
+overrides = { radius = 20, scale = 4 }
 blend = "replace"
-budget = 89
+budget = 49
 
 # The vertical pass over the horizontal one's result, two taps a fetch, the saturation lifted;
 # the glass layer samples its result back with `layer-rounded`.
@@ -69,9 +69,9 @@ id = 7
 name = "blur-vertical-20"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 20 }
+overrides = { radius = 20, scale = 4 }
 blend = "replace"
-budget = 70
+budget = 50
 
 # The same chain at the other radii windowd's glass asks (TASK-0215 5c-3 P4b): 8 (a subtle
 # glass), 30 (the default), 40 (panels and overlays). The wider ones carry more weights than the
@@ -81,7 +81,7 @@ id = 8
 name = "blur-horizontal-8"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 8 }
+overrides = { radius = 8, scale = 2 }
 blend = "replace"
 budget = 41
 
@@ -90,7 +90,7 @@ id = 9
 name = "blur-vertical-8"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 8 }
+overrides = { radius = 8, scale = 2 }
 blend = "replace"
 budget = 40
 
@@ -99,33 +99,33 @@ id = 10
 name = "blur-horizontal-30"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 30 }
+overrides = { radius = 30, scale = 4 }
 blend = "replace"
-budget = 129
+budget = 65
 
 [[pipeline]]
 id = 11
 name = "blur-vertical-30"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 30 }
+overrides = { radius = 30, scale = 4 }
 blend = "replace"
-budget = 100
+budget = 60
 
 [[pipeline]]
 id = 12
 name = "blur-horizontal-40"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 40 }
+overrides = { radius = 40, scale = 4 }
 blend = "replace"
-budget = 169
+budget = 89
 
 [[pipeline]]
 id = 13
 name = "blur-vertical-40"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 40 }
+overrides = { radius = 40, scale = 4 }
 blend = "replace"
-budget = 120
+budget = 70

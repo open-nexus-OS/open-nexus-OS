@@ -33,7 +33,7 @@ fn the_manifest_builds_the_committed_library() {
     let manifest = parse_manifest(MANIFEST).expect("the manifest parses");
     let (bytes, built) = build(&manifest, source).expect("the library builds");
     assert_eq!(bytes, LIBRARY, "rebuild compositor.nxgp (README.md)");
-    assert_eq!(fnv1a64(LIBRARY), 0x1209_60ff_af5f_65c4, "and the README's digest");
+    assert_eq!(fnv1a64(LIBRARY), 0x853e_5fe7_d5cf_f61f, "and the README's digest");
     let facts: Vec<_> = built.iter().map(|b| (b.id, b.groups, b.temps, b.pass_type)).collect();
     assert_eq!(
         facts,
@@ -43,14 +43,14 @@ fn the_manifest_builds_the_committed_library() {
             (3, 15, 3, PASS_TRANSLUCENT),
             (4, 34, 3, PASS_TRANSLUCENT),
             (5, 43, 3, PASS_TRANSLUCENT),
-            (6, 89, 3, PASS_OPAQUE),
-            (7, 70, 3, PASS_OPAQUE),
+            (6, 49, 3, PASS_OPAQUE),
+            (7, 50, 3, PASS_OPAQUE),
             (8, 41, 3, PASS_OPAQUE),
             (9, 40, 3, PASS_OPAQUE),
-            (10, 129, 3, PASS_OPAQUE),
-            (11, 100, 3, PASS_OPAQUE),
-            (12, 169, 3, PASS_OPAQUE),
-            (13, 120, 3, PASS_OPAQUE)
+            (10, 65, 3, PASS_OPAQUE),
+            (11, 60, 3, PASS_OPAQUE),
+            (12, 89, 3, PASS_OPAQUE),
+            (13, 70, 3, PASS_OPAQUE)
         ]
     );
 }

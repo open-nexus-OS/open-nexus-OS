@@ -310,15 +310,15 @@ fn a_context_takes_its_library_as_the_board_places_it() {
     let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
     // The board places the same bytes alike (cycle 25 with the seven first entries: `gpu library
     // ok (… entries=7 refused=0 code_bytes=2808 setup_bytes=852 …`; the blur at windowd's other
-    // radii adds six, 5c-3 P4b).
+    // radii adds six, 5c-3 P4b; at quarter resolution from radius 20 on since P6).
     assert_eq!(
         dev.take_library(WINDOWD, ctx, LIBRARY),
         Ok(LibraryTaken {
             accepted: 13,
             refused: 0,
             first_refused: 0,
-            code_bytes: 9072,
-            setup_bytes: 2704
+            code_bytes: 5992,
+            setup_bytes: 1984
         })
     );
 }

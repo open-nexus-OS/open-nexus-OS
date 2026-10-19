@@ -216,21 +216,22 @@ fn a_glass_to_write_draws_its_scene_below_then_blurs_it_into_its_rows() {
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
     assert_eq!(b.glass, GlassCount { writes: 1, reads: 0, off: 0 });
     assert_eq!(b.pass_count(), 4);
-    // The scene below the glass, over the reach of the horizontal taps (radius 40: 20 taps).
+    // The scene below the glass, over the reach of the horizontal taps (radius 40 at quarter
+    // resolution: 10 taps four pixels apart).
     let scene = b.pass(0).unwrap();
     assert_eq!(scene.target, Target::Scratch);
     assert_eq!(scene.kind, PassKind::Scene { upto: 1 });
-    let (vw, vh, taps) = (202, 102, 20);
-    let reach = 2 * taps + 2;
+    let (vw, vh, taps) = (102, 52, 10);
+    let reach = 4 * taps + 4;
     assert_eq!(
         scene.area,
-        (300 - reach, 200 - reach, 300 + 2 * vw + 2 * taps - 3, 200 + 2 * vh + 2 * taps - 3)
+        (300 - reach, 200 - reach, 300 + 4 * vw + 4 * taps - 5, 200 + 4 * vh + 4 * taps - 5)
     );
     assert_eq!(
         draws(&b, &scene).iter().map(|d| d.pipe).collect::<Vec<_>>(),
         [Pipe::Opaque, Pipe::Straight]
     );
-    // The horizontal pass from the scratch into the half-resolution scratch (the QEMU geometry).
+    // The horizontal pass from the scratch into the reduced scratch (the QEMU geometry).
     let half = b.pass(1).unwrap();
     let hh = vh + 2 * taps;
     assert_eq!((half.target, half.area), (Target::Half, (0, 0, vw - 1, hh - 1)));
@@ -240,8 +241,8 @@ fn a_glass_to_write_draws_its_scene_below_then_blurs_it_into_its_rows() {
         0.0,
         vw as f32,
         hh as f32,
-        [2.0 * vw as f32 / fw, 2.0 * hh as f32 / fh, 298.0 / fw, (198.0 - 40.0) / fh],
-        [2.0 / fw, 0.0],
+        [4.0 * vw as f32 / fw, 4.0 * hh as f32 / fh, 296.0 / fw, (196.0 - 40.0) / fh],
+        [4.0 / fw, 0.0],
         1.0,
     );
     assert_eq!(
@@ -269,7 +270,7 @@ fn a_glass_to_write_draws_its_scene_below_then_blurs_it_into_its_rows() {
     // The slot: the wallpaper, the window, the glass drawn back from its rows, the panel.
     let d = draws(&b, &slot(&b));
     assert_eq!(d[2].pipe, Pipe::Rounded);
-    assert_eq!(d[2].tex, Tex::Cache { x: 1, row: 1, w: 200, h: 100 });
+    assert_eq!(d[2].tex, Tex::Cache { x: 1, row: 1, w: 100, h: 50 });
     assert_eq!(d.len(), 2 + 1 + 7);
 }
 

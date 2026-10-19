@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-19 (Block 4, layer 5c-3 P6: the glass at quarter resolution, the pass measured — TASK-0215; 5c-3 complete)
+
+- **The glass blurs at quarter resolution** from radius 20 on, on the board and on QEMU (the
+  stock stack's `glass-quarter`, RFC-0101 §8d): a quarter of the pixels and of the taps, within
+  ten levels of the full-resolution gaussian on the host and the board; the glass cache holds
+  four times the glasses. The pipeline library is rebuilt and pinned.
+- **The pass's cost named on the board**: a one-pixel pass waits 12 ms for its fragment job,
+  which the firmware starts that long after the pass's geometry job in windowd's context; two
+  passes in flight (the most the context's render-target data allow) hide none of it. The gate
+  scene of 5c-4 — our frame of the stock's picture — is drawn at windowd's first frame and
+  measured against the stock's 23.3 ms; it is above it (33 ms) for that reason, and the bar is
+  carried with its three levers: the fragment job's start, the passes a frame runs, the shell's
+  damage rectangles.
+- **The frame planner** blurs a glass again only for a change below it that is not the
+  layer's own (the desktop's regions, a window's slices); the firmware's reset is held against
+  the context it names or numbers; gpud's frame executor lives on the heap and gpud's stack is
+  64 KiB (the executor overflowed 32).
+- Board cycles 36–42, the QEMU display lanes green.
+
 ### Changed - 2026-10-19 (Block 4, layer 5c-3 P5: the frame draws what changed — TASK-0215, RFC-0101 §8)
 
 - **The present names its damage.** windowd sends each screen rectangle its scene changed, with

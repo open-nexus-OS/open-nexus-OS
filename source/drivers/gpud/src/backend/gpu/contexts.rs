@@ -297,8 +297,10 @@ impl Contexts {
     /// The context whose page catalogue is `catalogue` lost — one that is lost already or in
     /// quarantine stays so; its number. `None`: no context of the device has that catalogue.
     pub(super) fn lose_catalogue(&mut self, catalogue: u64) -> Option<ContextId> {
+        // The firmware names the catalogue's page; its low bits carry flags (the valid bit).
+        let page = catalogue & !0xfff;
         let index = self.slots.iter().position(|s| {
-            s.state != State::Free && s.mmu.as_ref().is_some_and(|m| m.root_phys() == catalogue)
+            s.state != State::Free && s.mmu.as_ref().is_some_and(|m| m.root_phys() == page)
         })?;
         Some(self.lose_at(index))
     }

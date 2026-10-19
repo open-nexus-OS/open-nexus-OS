@@ -46,14 +46,15 @@ const DOWN: (u32, u32) = (800, 640);
 /// its corner pixel, which the rounded layer leaves out — the pass's clear there, as for the
 /// rounded probe (a pass clears its area: loading what the plane held is the frame's, 5c-3).
 const READS: [(u32, u32); 5] = [(640, 192), (520, 192), (640, 100), (700, 260), (512, 96)];
-/// Levels a read may differ from the full-resolution formula at `radius`: the half-resolution
-/// chain's deviation on the host (`tools/nxgpu/tests/blur.rs`: seven levels at radius 8, three
-/// at 20, four at 30 and 40) and the texture unit's filter fractions (three).
+/// Levels a read may differ from the full-resolution formula at `radius`: the reduced chain's
+/// deviation on the host (`tools/nxgpu/tests/blur.rs`: seven levels at radius 8 at half
+/// resolution, ten at 20, 30 and 40 at quarter) and the texture unit's filter fractions (three).
 fn tolerance(radius: u32) -> u8 {
     3 + match radius {
         8 => 7,
-        20 => 3,
-        _ => 4,
+        // Quarter resolution from radius 20 on (P6): ten levels on the host at the checker's
+        // edges.
+        _ => 10,
     }
 }
 
@@ -173,27 +174,32 @@ pub(super) fn chain(
     }
     let (gx, gy, gw, gh) = GLASS;
     let (fw, fh) = (WIDTH as f32, HEIGHT as f32);
-    let (hw, hh, vw, vh) = (gw / 2, gh / 2 + radius, gw / 2, gh / 2);
+    // The chain's resolution (P6: half below radius 20, quarter from it on) and its taps.
+    let s = nexus_gfx::frame::blur_scale(radius);
+    let (taps, sf) = (radius / s, s as f32);
+    let (hw, hh, vw, vh) = (gw / s, gh / s + 2 * taps, gw / s, gh / s);
     let whole = descriptor(dev, rig, place, &plane(rig, (0, 0), WIDTH, HEIGHT))?;
     let on_plane = Template { texture_va: whole, ..*t };
-    // Horizontal: a half-resolution pixel's centre is the corner of the four backdrop texels it
-    // averages, R full-resolution rows above the glass on; a tap two texels across.
+    // Horizontal: a reduced pixel's centre is the corner of the four backdrop texels it
+    // averages, `scale · taps` full-resolution rows above the glass on; a tap `scale` texels
+    // across.
+    let halo = s * taps;
     let source =
-        [2.0 * hw as f32 / fw, 2.0 * hh as f32 / fh, gx as f32 / fw, (gy - radius) as f32 / fh];
+        [sf * hw as f32 / fw, sf * hh as f32 / fh, gx as f32 / fw, (gy - halo) as f32 / fh];
     let q = Quad::blur(
         ACROSS.0 as f32,
         ACROSS.1 as f32,
         hw as f32,
         hh as f32,
         source,
-        [2.0 / fw, 0.0],
+        [sf / fw, 0.0],
         1.0,
     );
     let across_pass = run(dev, rig, &on_plane, across, place, &[q], true)?;
-    // Vertical: the horizontal result's texel under the output pixel, R/2 rows down its halo; a
-    // tap one row down; the saturation.
+    // Vertical: the horizontal result's texel under the output pixel, `taps` rows down its halo;
+    // a tap one row down; the saturation.
     let source =
-        [vw as f32 / fw, vh as f32 / fh, ACROSS.0 as f32 / fw, (ACROSS.1 + radius / 2) as f32 / fh];
+        [vw as f32 / fw, vh as f32 / fh, ACROSS.0 as f32 / fw, (ACROSS.1 + taps) as f32 / fh];
     let q = Quad::blur(
         DOWN.0 as f32,
         DOWN.1 as f32,

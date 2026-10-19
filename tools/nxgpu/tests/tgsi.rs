@@ -83,7 +83,7 @@ fn the_manifest_builds_the_committed_virgl_library() {
     assert_eq!(manifest.target, tgsi::CODE_TARGET);
     let (bytes, built) = build(&manifest, source).expect("the library builds");
     assert_eq!(bytes, LIBRARY, "rebuild compositor-virgl.nxgp (README.md)");
-    assert_eq!(fnv1a64(LIBRARY), 0x7189_c506_645a_6fb2, "and the README's digest");
+    assert_eq!(fnv1a64(LIBRARY), 0xa747_afca_f7d3_cd00, "and the README's digest");
     // Every budget is the program's own count: a change in the toolchain shows here first.
     assert!(built.iter().all(|b| b.groups == usize::from(b.budget)), "{built:?}");
 }

@@ -65,7 +65,7 @@ id = 7
 name = "blur-horizontal-8"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 8 }
+overrides = { radius = 8, scale = 2 }
 blend = "replace"
 budget = 29
 
@@ -74,7 +74,7 @@ id = 8
 name = "blur-vertical-8"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 8 }
+overrides = { radius = 8, scale = 2 }
 blend = "replace"
 budget = 23
 
@@ -83,54 +83,54 @@ id = 9
 name = "blur-horizontal-20"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 20 }
+overrides = { radius = 20, scale = 4 }
 blend = "replace"
-budget = 65
+budget = 35
 
 [[pipeline]]
 id = 10
 name = "blur-vertical-20"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 20 }
+overrides = { radius = 20, scale = 4 }
 blend = "replace"
-budget = 41
+budget = 29
 
 [[pipeline]]
 id = 11
 name = "blur-horizontal-30"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 30 }
+overrides = { radius = 30, scale = 4 }
 blend = "replace"
-budget = 95
+budget = 47
 
 [[pipeline]]
 id = 12
 name = "blur-vertical-30"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 30 }
+overrides = { radius = 30, scale = 4 }
 blend = "replace"
-budget = 59
+budget = 35
 
 [[pipeline]]
 id = 13
 name = "blur-horizontal-40"
 source = "../shaders/blur.wgsl"
 entry = "horizontal"
-overrides = { radius = 40 }
+overrides = { radius = 40, scale = 4 }
 blend = "replace"
-budget = 125
+budget = 65
 
 [[pipeline]]
 id = 14
 name = "blur-vertical-40"
 source = "../shaders/blur.wgsl"
 entry = "vertical"
-overrides = { radius = 40 }
+overrides = { radius = 40, scale = 4 }
 blend = "replace"
-budget = 71
+budget = 41
 
 # The pointer before its sprite arrives: a rounded rectangle with a vertical gradient.
 [[pipeline]]

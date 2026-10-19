@@ -59,15 +59,30 @@ fn pass(m: &Module, w: u32, h: u32, tex: &Rgba8Texture, push: &[u8]) -> Vec<u8> 
 /// The chain: horizontal (full resolution in, half out), vertical (half in and out, the
 /// saturation), the layer sampling it back at full resolution.
 fn ours(radius: i32, saturation: f32) -> Vec<u8> {
-    let r = [("radius", f64::from(radius))];
+    ours_at(radius, scale_of(radius), saturation)
+}
+
+/// The resolution the library blurs `radius` at: half below 20, quarter from 20 on (the board's
+/// and the QEMU path's rule, `nexus_gfx::frame::blur_scale`).
+fn scale_of(radius: i32) -> i32 {
+    if radius < 20 {
+        2
+    } else {
+        4
+    }
+}
+
+fn ours_at(radius: i32, scale: i32, saturation: f32) -> Vec<u8> {
+    let r = [("radius", f64::from(radius)), ("scale", f64::from(scale))];
     let h = lower_fragment(BLUR, "horizontal", &r, Blend::Replace).expect("horizontal lowers");
     let v = lower_fragment(BLUR, "vertical", &r, Blend::Replace).expect("vertical lowers");
     let layer = lower_fragment(LAYER, "main", &[("tinted", 0.0)], Blend::Replace).expect("layer");
-    let (hw, hh) = (W / 2, H / 2);
+    let (hw, hh) = (W / scale as u32, H / scale as u32);
     let src = Rgba8Texture::new(W, H, backdrop()).expect("the backdrop");
-    // The horizontal pass: a half-resolution pixel's centre is the corner of the four texels it
-    // averages; a tap two texels across.
-    let across = pass(&h, hw, hh, &src, &push([1.0, 1.0, 0.0, 0.0], [2.0 / W as f32, 0.0], 1.0));
+    // The horizontal pass: a reduced pixel's centre is the corner of the four texels it
+    // averages; a tap `scale` texels across.
+    let step = scale as f32 / W as f32;
+    let across = pass(&h, hw, hh, &src, &push([1.0, 1.0, 0.0, 0.0], [step, 0.0], 1.0));
     let across = Rgba8Texture::new(hw, hh, across).expect("the horizontal result");
     let down = push([1.0, 1.0, 0.0, 0.0], [0.0, 1.0 / hh as f32], saturation);
     let blurred = pass(&v, hw, hh, &across, &down);
@@ -137,7 +152,7 @@ fn the_half_resolution_blur_is_the_virgl_blur_within_three_levels() {
     // quarter of one on average. (A small radius deviates more — seven levels at radius 8 on the
     // red squares' edges — so the library builds the half-resolution blur for radius 20.)
     for saturation in [1.0, 1.4] {
-        let (max, mean) = difference(&ours(20, saturation), &reference(20, saturation));
+        let (max, mean) = difference(&ours_at(20, 2, saturation), &reference(20, saturation));
         assert!(max <= 3 && mean < 0.35, "saturation {saturation}: max {max}, mean {mean}");
     }
 }
@@ -147,7 +162,7 @@ fn the_loops_unroll_into_their_taps_and_compile_for_the_board() {
     // Radius 20: the horizontal pass a tap every two pixels out to ±20 — 21 fetches; the vertical
     // pass the centre and five pairs a side — 11; straight-line float code, the weights the
     // pipeline's constant block.
-    let r = [("radius", 20.0)];
+    let r = [("radius", 20.0), ("scale", 2.0)];
     for (entry, taps) in [("horizontal", 21), ("vertical", 11)] {
         let m = lower_fragment(BLUR, entry, &r, Blend::Replace).expect("lowers");
         let samples = m.body.iter().filter(|i| matches!(i.op, Op::Sample { .. })).count();
@@ -164,7 +179,9 @@ fn the_other_radii_windowd_asks_follow_the_gaussian_and_compile_for_the_board() 
     // 8 up to seven levels on the red squares' edges, as on the virtual GPU's path; 30 and 40 four
     // at most). The wider passes carry more weights than the constant block's runs hold: their
     // compile is the codegen's other way — those taps a group a lane, the weights one register.
-    for (radius, max_levels, mean_levels) in [(8, 7, 0.6), (30, 4, 0.35), (40, 4, 0.4)] {
+    // Since P6 radius 30 and 40 run at quarter resolution: ten levels at most, under one on
+    // average (measured on the host: 7/10 levels, means 0.43–0.81).
+    for (radius, max_levels, mean_levels) in [(8, 7, 0.6), (30, 10, 0.6), (40, 10, 0.9)] {
         for saturation in [1.0, 1.4] {
             let (max, mean) = difference(&ours(radius, saturation), &reference(radius, saturation));
             assert!(
@@ -172,10 +189,35 @@ fn the_other_radii_windowd_asks_follow_the_gaussian_and_compile_for_the_board() 
                 "radius {radius} saturation {saturation}: max {max}, mean {mean}"
             );
         }
-        let r = [("radius", f64::from(radius))];
+        let r = [("radius", f64::from(radius)), ("scale", f64::from(scale_of(radius)))];
         for entry in ["horizontal", "vertical"] {
             let c = compile_fragment(BLUR, entry, &r, Blend::Replace, true).expect("compiles");
             assert!(!c.program.constants.is_empty(), "radius {radius} {entry}");
         }
+    }
+}
+
+/// TASK-0215 5c-3 P6: from radius 20 on the chain runs at quarter resolution (the stock stack's
+/// `glass-quarter`) — a quarter of the pixels, a quarter of the taps. Against the
+/// full-resolution gaussian it deviates more than the half-resolution chain did; the bound here
+/// is what the host measures, the board's rung holds its reads to it.
+#[test]
+fn the_quarter_resolution_blur_follows_the_gaussian_within_its_bound() {
+    for (radius, max_levels, mean_levels) in [(20, 10, 0.5), (30, 10, 0.6), (40, 10, 0.9)] {
+        for saturation in [1.0, 1.4] {
+            let (max, mean) =
+                difference(&ours_at(radius, 4, saturation), &reference(radius, saturation));
+            assert!(
+                max <= max_levels && mean < mean_levels,
+                "radius {radius} saturation {saturation}: max {max}, mean {mean}"
+            );
+        }
+    }
+    // The taps: radius 20 at quarter is five a side — eleven fetches across, seven down (the centre and three pairs).
+    let r = [("radius", 20.0), ("scale", 4.0)];
+    for (entry, taps) in [("horizontal", 11), ("vertical", 7)] {
+        let m = lower_fragment(BLUR, entry, &r, Blend::Replace).expect("lowers");
+        let samples = m.body.iter().filter(|i| matches!(i.op, Op::Sample { .. })).count();
+        assert_eq!(samples, taps, "{entry}");
     }
 }

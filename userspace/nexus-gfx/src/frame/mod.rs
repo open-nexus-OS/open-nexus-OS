@@ -30,7 +30,8 @@ pub mod layers;
 pub mod plan;
 
 pub use board::{
-    blur_radius, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe, Target, Tex, BLUR_RADII,
+    blur_radius, blur_scale, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe, Target, Tex,
+    BLUR_RADII,
 };
 pub use damage::{Area, History, HISTORY};
 pub use glass::{CacheStep, GlassCache};

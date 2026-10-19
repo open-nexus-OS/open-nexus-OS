@@ -238,15 +238,16 @@ fn a_glass_the_executor_cannot_blur_takes_no_slot() {
 
 #[test]
 fn rows_pack_in_walk_order_and_an_overflow_blurs_live() {
-    // Two glass layers of 100 rows (52 half-resolution rows each) in a cache of 100 rows.
-    let mut f = ready_frame(100);
+    // Two glass layers of 100 rows (27 quarter-resolution rows each at radius 20) in a cache of
+    // 40 rows.
+    let mut f = ready_frame(40);
     let a = glass(layer(0, 0, 100, 100), 20);
     let b = glass(layer(0, 200, 100, 100), 20);
     f.layers.take_frame(&[a.clone(), b]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 0), Some(CacheStep::Write(0)));
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Off));
-    assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.rows), Some(52));
+    assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.rows), Some(27));
     // Without the executor's cache no glass is planned at all (nor blurred live, as before).
     let mut cold = Frame::new(2048);
     cold.layers.take_frame(&[a]);
@@ -394,7 +395,8 @@ fn a_layer_that_moves_or_goes_damages_where_it_was_and_where_it_is() {
 #[test]
 fn a_glass_is_blurred_again_only_when_something_within_its_reach_changed() {
     let mut f = ready_frame(2048);
-    let glass = with(layer(500, 500, 200, 100), |l| l.backdrop_blur = 20);
+    // A window's glass (id 2): a change of the base under it is its backdrop's.
+    let glass = with(layer(500, 500, 200, 100), |l| (l.backdrop_blur, l.layer_id) = (20, 2));
     f.layers.take_frame(&[layer(0, 0, 1920, 1080), glass.clone(), damage(0, 0, 1920, 1080)]);
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.cache), Some(CacheStep::Write(0)));
@@ -490,4 +492,45 @@ fn a_glass_window_typed_into_keeps_its_blur_and_a_change_below_it_renews_it() {
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(p.damage, Area::Full);
     assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
+}
+
+#[test]
+fn a_desktop_glass_region_keeps_its_blur_when_its_own_pixels_change() {
+    let mut f = ready_frame(2048);
+    let base = layer(0, 0, 1920, 1080);
+    // A dock button: the desktop's own glass region (id 0) at the bottom.
+    let button = with(layer(1740, 1020, 44, 44), |l| l.backdrop_blur = 40);
+    f.layers.take_frame(&[base.clone(), button.clone(), damage(0, 0, 1920, 1080)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
+    // The button's own pixels change (the desktop surface within its rectangle): read.
+    f.layers.take_frame(&[damage(1744, 1024, 36, 36)]);
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Read(0)));
+    assert_eq!(p.damage, Area::Rect { x0: 1744, y0: 1024, x1: 1780, y1: 1060 });
+    // The desktop beside it changes, within its reach: blurred again.
+    f.layers.take_frame(&[damage(1700, 1024, 20, 20)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
+    // A change straddling the region's edge is not its own.
+    f.layers.take_frame(&[damage(1730, 1024, 20, 20)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
+}
+
+#[test]
+fn a_window_of_two_glass_slices_keeps_both_blurs_when_typed_into() {
+    let mut f = ready_frame(2048);
+    let base = layer(0, 0, 1920, 1080);
+    let head = with(layer(400, 300, 600, 40), |l| (l.backdrop_blur, l.layer_id) = (20, 1));
+    let body = with(layer(400, 340, 600, 400), |l| (l.backdrop_blur, l.layer_id) = (20, 1));
+    f.layers.take_frame(&[base.clone(), head.clone(), body.clone(), damage(0, 0, 1920, 1080)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
+    assert_eq!(cache_of(&f, 2).map(|c| matches!(c, CacheStep::Write(_))), Some(true));
+    // Typing into the body: the window's own change, below neither of its slices.
+    f.layers.take_frame(&[damage_from(1, 450, 400, 200, 40)]);
+    f.plan(DISPLAY, &every_blur);
+    assert!(matches!(cache_of(&f, 1), Some(CacheStep::Read(_))), "the head's glass kept");
+    assert!(matches!(cache_of(&f, 2), Some(CacheStep::Read(_))), "the body's glass kept");
 }

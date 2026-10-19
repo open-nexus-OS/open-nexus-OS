@@ -45,7 +45,11 @@ pub(super) fn serve(gpu: &mut Gpu, contexts: &mut Contexts, bos: &mut Bos) {
 fn reset(contexts: &mut Contexts, r: &ContextReset) {
     contexts.recovered.resets = contexts.recovered.resets.saturating_add(1);
     let (lost, catalogue) = match r.blame() {
-        Blame::Catalogue(pc) => (contexts.lose_catalogue(pc), pc),
+        // The catalogue the firmware names, else the context it numbers (cycle 40: a lockup
+        // reported with the page-fault flag, no fault address and the catalogue's valid bit).
+        Blame::Catalogue(pc) => {
+            (contexts.lose_catalogue(pc).or_else(|| contexts.lose(r.context_id)), pc)
+        }
         Blame::Context(id) => (contexts.lose(id), 0),
         Blame::Innocent(id) => {
             contexts.recovered.innocent = contexts.recovered.innocent.saturating_add(1);

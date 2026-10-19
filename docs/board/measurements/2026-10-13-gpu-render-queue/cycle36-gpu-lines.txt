@@ -1,0 +1,5 @@
+gpud: gpu pipeline ok (opaque_ns_px=1.28 premultiplied_ns_px=4.03 straight_ns_px=4.87 rounded_ns_px=8.85 shadow_ns_px=10.83 blur_h_ns_px=41.75 blur_v_ns_px=12.36 blur_layer_ns_px=8.78 blur_dev=4 samples=12/12 bar=1.80)
+gpud: gpu blur radii ok (r8=4/17.05/12.04 r30=1/53.93/9.11 r40=1/75.36/20.18 tolerance=10/13/13)
+gpud: gpu library ok (client=windowd ctx=0x600 prio=0 bytes=10012 entries=13 refused=0 code_bytes=5992 setup_bytes=1984 open_us=6151 replaced=false heap_bytes=16903)
+[USER-PF] STORE @ sepc=0x0000000000115e4a stval=0x000000001fff6c50 pid=0x002c
+init: service exit name=gpud reason=fault code=0x00000000ffffffea

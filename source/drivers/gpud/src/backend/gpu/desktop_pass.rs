@@ -22,12 +22,15 @@ use super::desktop::{
     Pipes, Refusal, CACHE_VA, FRAME_VA, HALF_VA, LAYOUT_VA, MAX_DRAWS, PASS_TIMEOUT_NS, SCRATCH_VA,
 };
 use super::device_v2::Device;
+use super::emit_fmt;
 use super::render_cost::streams_for;
 use super::render_template::{pds_at, write_bound, Target, PDS_ARENA};
 use crate::gpu_context::FrameTarget;
 
 const WIDTH: u32 = STRIDE_BYTES / 4;
 const STRIDE: u64 = STRIDE_BYTES as u64;
+/// Wait iterations a pass trace keeps.
+const TRACE_STEPS: usize = 24;
 
 fn now_ns() -> u64 {
     nexus_abi::nsec().unwrap_or(0)
@@ -95,8 +98,33 @@ fn descriptor(
     Ok(FRAME_VA + u64::from(off))
 }
 
-/// One pass of the frame: its descriptors, its draws emitted, submitted, waited; the number of
-/// draws.
+/// The context's fragment timeline reached `point` (the pass it names is drawn), waited.
+pub(super) fn wait_point(
+    dev: &mut Device,
+    who: (ClientId, ContextId),
+    point: TimelinePoint,
+) -> Result<(), Refusal> {
+    let Some((_, (ftl, _))) = dev.render_progress(who.0, who.1) else {
+        return Err("the context's render objects".into());
+    };
+    let seq = point.0 as u32;
+    let done = dev.wait_until(now_ns() + PASS_TIMEOUT_NS, |g, _| {
+        g.mem.read_u32(&ftl, 0).wrapping_sub(seq) < 0x8000_0000
+    });
+    dev.serve_firmware();
+    if done {
+        Ok(())
+    } else {
+        Err("a pass not reached in time".into())
+    }
+}
+
+/// One pass of the frame: its descriptors, its draws emitted, submitted — and waited when
+/// `wait` (the frame's last pass; the passes before it are pipelined: the firmware runs a
+/// context's passes in order, and a pass's fragment stage came 12 ms after its geometry on
+/// the board — cycle 39 — a latency hidden only by the next pass being in the queue). When the
+/// rings hold no line for the pass, the pass `last` submitted is waited for and the emit tried
+/// once more. The number of draws, the stamps, the pass's point.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_pass(
     dev: &mut Device,
@@ -108,27 +136,43 @@ pub(super) fn run_pass(
     board: &Board<'_>,
     spec: &PassSpec,
     target: Target,
-) -> Result<(usize, [u64; 4]), Refusal> {
+    (trace, wait): (bool, bool),
+    last: Option<TimelinePoint>,
+) -> Result<(usize, [u64; 6], TimelinePoint), Refusal> {
     let n = board.draws(spec);
     if n == 0 || n > MAX_DRAWS {
         return Err("a pass of no draws or more than the executor holds".into());
     }
-    rings.begin();
-    let ran = emit_and_wait(dev, who, base, t, pipes, rings, board, spec, n, target);
-    match ran {
-        Ok((point, mut stamps)) => {
-            let r0 = now_ns();
-            rings.submitted(point.0).map_err(|_| "the rings")?;
-            rings.retire(&|p| dev.reached(TimelinePoint(p)));
-            stamps[3] = now_ns().saturating_sub(r0);
-            Ok((n, stamps))
-        }
-        Err(e) => {
-            rings.abandon();
-            Err(e)
+    for attempt in 0..2 {
+        rings.begin();
+        let ran =
+            emit_and_wait(dev, who, base, t, pipes, rings, board, spec, n, target, trace, wait);
+        match ran {
+            Ok((point, mut stamps)) => {
+                let r0 = now_ns();
+                rings.submitted(point.0).map_err(|_| "the rings")?;
+                rings.retire(&|p| dev.reached(TimelinePoint(p)));
+                stamps[3] = now_ns().saturating_sub(r0);
+                return Ok((n, stamps, point));
+            }
+            Err(Refusal(NO_ROOM, None)) if attempt == 0 && last.is_some() => {
+                rings.abandon();
+                if let Some(p) = last {
+                    wait_point(dev, who, p)?;
+                }
+                rings.retire(&|p| dev.reached(TimelinePoint(p)));
+            }
+            Err(e) => {
+                rings.abandon();
+                return Err(e);
+            }
         }
     }
+    Err(NO_ROOM.into())
 }
+
+/// The emit's refusal when the rings hold no line (retried once after the last pass).
+const NO_ROOM: &str = "the pass's emit: no room in the pass memory";
 
 #[allow(clippy::too_many_arguments)]
 fn emit_and_wait(
@@ -142,7 +186,9 @@ fn emit_and_wait(
     spec: &PassSpec,
     n: usize,
     target: Target,
-) -> Result<(TimelinePoint, [u64; 4]), Refusal> {
+    trace: bool,
+    wait: bool,
+) -> Result<(TimelinePoint, [u64; 6]), Refusal> {
     let e0 = now_ns();
     // The emitter asks for a draw more than once: the descriptors are written first.
     let mut tex = [0u64; MAX_DRAWS];
@@ -160,7 +206,7 @@ fn emit_and_wait(
     };
     let mut sink = FrameSink { dev: &mut *dev, who };
     let emitted = emit_draws(t, n, &draw, rings, &mut sink).map_err(|e| match e {
-        EmitError::Space => "the pass's emit: no room in the pass memory",
+        EmitError::Space => NO_ROOM,
         EmitError::Sink => "the pass's emit: a write refused",
         EmitError::Pipeline => "the pass's emit: a pipeline's setup",
         EmitError::Template | EmitError::NoQuads => "the pass's emit: the template",
@@ -186,13 +232,46 @@ fn emit_and_wait(
     let Some((_, (ftl, fseq))) = dev.render_progress(who.0, who.1) else {
         return Err("the context's render objects".into());
     };
+    if !wait {
+        // Pipelined: the next pass follows in the queue; the frame's last pass waits for all.
+        let w0 = now_ns();
+        return Ok((point, [s0 - e0, w0 - s0, 0, 0, 0, 0]));
+    }
     let w0 = now_ns();
+    let irq0 = dev.gpu.irqs;
+    let mut iters = 0u64;
+    // The trace (the gate's last warm frame): each wait iteration's time since the submit, the
+    // interrupts seen by then, and whether the geometry and the fragment words were reached.
+    let mut steps = [(0u32, 0u32, 0u8); TRACE_STEPS];
+    let (gtl, gseq) = dev.render_progress(who.0, who.1).map(|(g, _)| g).unwrap_or((ftl, fseq));
     let done = dev.wait_until(w0 + PASS_TIMEOUT_NS, |g, _| {
-        g.mem.read_u32(&ftl, 0).wrapping_sub(fseq) < 0x8000_0000
+        let frag = g.mem.read_u32(&ftl, 0).wrapping_sub(fseq) < 0x8000_0000;
+        if trace {
+            if let Some(step) = steps.get_mut(iters as usize) {
+                let geom = g.mem.read_u32(&gtl, 0).wrapping_sub(gseq) < 0x8000_0000;
+                let at = (now_ns().saturating_sub(w0) / 1000) as u32;
+                *step = (at, g.irqs.wrapping_sub(irq0), u8::from(geom) | (u8::from(frag) << 1));
+            }
+        }
+        iters += 1;
+        frag
     });
     let w1 = now_ns();
     dev.serve_firmware();
-    let stamps = [s0 - e0, w0 - s0, w1 - w0, now_ns().saturating_sub(w1)];
+    let irqs = u64::from(dev.gpu.irqs.wrapping_sub(irq0));
+    if trace {
+        let mut line = alloc::string::String::new();
+        for (i, (at, irq, words)) in
+            steps.iter().enumerate().take((iters as usize).min(TRACE_STEPS))
+        {
+            use core::fmt::Write as _;
+            let _ = write!(line, "{}{at}:{irq}:{words}", if i == 0 { "" } else { " " });
+        }
+        emit_fmt(format_args!(
+            "gpud: gpu pass trace (iters={iters} irqs={irqs} us_at:irqs:words[g=1,f=2]= {line})"
+        ));
+    }
+    let stamps = [s0 - e0, w0 - s0, w1 - w0, now_ns().saturating_sub(w1), iters, irqs];
     if done {
         Ok((point, stamps))
     } else {

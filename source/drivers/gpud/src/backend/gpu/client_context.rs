@@ -44,8 +44,11 @@ pub(crate) struct BoardGpu {
     pub(crate) dev: Device,
     /// windowd's context, once it opened one (windowd alone opens).
     held: Option<Opened>,
-    /// The desktop drawn in it, made at its first frame.
-    desktop: Option<Desktop>,
+    /// The desktop drawn in it, made at its first frame — on the heap: the executor holds the
+    /// frame planner, the pipelines and the rings (some ten kilobytes), and this service sits on
+    /// the loop's stack (a replaced context leaves its executor to the heap that never frees:
+    /// one per windowd restart).
+    desktop: Option<alloc::boxed::Box<Desktop>>,
     /// The buffers a refused desktop took, given back with the context.
     stray: Taken,
     /// The desktop refused (said once): the display composes on the CPU.
@@ -88,7 +91,7 @@ impl BoardGpu {
         let client = old.client;
         let gone = self.retire(old);
         if let Some(desktop) = self.desktop.take() {
-            desktop.release(&mut self.dev);
+            (*desktop).release(&mut self.dev);
         }
         give_back(&mut self.dev, client, &mut self.stray);
         self.desktop_off = false;
@@ -249,7 +252,7 @@ impl FrameGpu for BoardGpu {
                 .unwrap_or(0);
             let layout = (target.layout_bus, rows);
             match Desktop::open(&mut self.dev, who, layout, target.display, &mut self.stray) {
-                Ok(d) => self.desktop = Some(d),
+                Ok(d) => self.desktop = Some(alloc::boxed::Box::new(d)),
                 Err(why) => {
                     self.desktop_refused("open", why);
                     return None;

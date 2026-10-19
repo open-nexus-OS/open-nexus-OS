@@ -26,7 +26,7 @@ use nexus_gfx::backend::v2::{
     BoId, ClientId, ContextId, DeviceError, GfxDevice, Mapping, RenderStreams,
 };
 use nexus_gfx::command::buffer::Command;
-use nexus_gfx::frame::{Area, Board, Frame, History, Pipe, Target as To, BLUR_RADII};
+use nexus_gfx::frame::{Area, Board, CacheStep, Frame, History, Pipe, Target as To, BLUR_RADII};
 
 use super::desktop_pass::{clean_rows, run_pass};
 use super::device_v2::Device;
@@ -151,6 +151,8 @@ struct Stats {
     /// Where a frame's time goes: the plan, the passes' emit, their submit, the waits, the
     /// retire and the firmware served (ns).
     split: [u64; 5],
+    /// The layer indices whose glass was blurred again in the window (a mask).
+    glass_idx: u32,
 }
 
 /// The buffers a desktop takes: the layout adopted, the scratches, the cache, the frame's own.
@@ -170,7 +172,7 @@ pub(crate) struct Desktop {
     ctx: ContextId,
     streams: RenderStreams<'static>,
     captured: Captured,
-    display: (u32, u32),
+    pub(super) display: (u32, u32),
     layout_rows: u32,
     bos: Taken,
     slots: [Target; 3],
@@ -183,15 +185,22 @@ pub(crate) struct Desktop {
     /// The frames' damage (RFC-0101 §8, TASK-0215 5c-3 P5) and the frame each slot was last
     /// drawn at (0: never): a slot is brought up to date by the frames it missed.
     history: History,
-    drawn: [u64; 3],
+    pub(super) drawn: [u64; 3],
     /// The source rectangle of each layer step last cleaned for the device (the atlas rows the
     /// CPU wrote): cleaned again when it moves (a scroll shows rows never cleaned) or the
     /// content generation changed.
-    cleaned: [Option<(u32, u32, u32, u32)>; nexus_gfx::frame::MAX_LAYERS],
+    pub(super) cleaned: [Option<(u32, u32, u32, u32)>; nexus_gfx::frame::MAX_LAYERS],
     /// The base plane cleaned for the device, by its first row.
     base: Option<u32>,
     stats: Stats,
     shown: bool,
+    /// The gate scene drawn (once, before the compositor's first frame).
+    gated: bool,
+    /// The last pass's wait (µs), the wait's iterations and the interrupts it saw.
+    pub(super) pass_witness: [u64; 3],
+    /// The glasses blurred again named once (`gpud: gpu glass written (`): the first window
+    /// whose frames wrote glass says which layers.
+    glass_named: bool,
     /// What the open cost (the bindings walk every page of the layout), for the first line.
     open_us: u64,
 }
@@ -311,6 +320,9 @@ impl Desktop {
             base: None,
             stats: Stats::default(),
             shown: false,
+            gated: false,
+            pass_witness: [0; 3],
+            glass_named: false,
             open_us: now_ns().saturating_sub(t0) / 1000,
         })
     }
@@ -321,13 +333,33 @@ impl Desktop {
     }
 
     /// One frame of windowd's commands into the slot `target` names: planned, its textures
-    /// cleaned where the CPU wrote them, its passes drawn and waited.
+    /// cleaned where the CPU wrote them, its passes drawn and waited. The gate scene first,
+    /// once (5c-4).
     pub(crate) fn draw(
         &mut self,
         dev: &mut Device,
         cmds: &[Command],
         target: &FrameTarget<'_>,
     ) -> Result<nexus_gfx::backend::types::Rect, Refusal> {
+        if !self.gated {
+            self.gated = true;
+            self.gate(dev, target)?;
+        }
+        // The frame's passes pipelined: one wait at the end (cycle 39's pass latency).
+        self.frame_of(dev, cmds, target, (false, false, true), target.base_dirty)
+            .map(|(rect, _, _)| rect)
+    }
+
+    /// A frame of `cmds`: the rectangle its slot pass redrew, its time and its passes; `quiet`
+    /// leaves the statistics and the lines alone (the gate scene).
+    pub(super) fn frame_of(
+        &mut self,
+        dev: &mut Device,
+        cmds: &[Command],
+        target: &FrameTarget<'_>,
+        (quiet, trace, pipelined): (bool, bool, bool),
+        base_dirty: bool,
+    ) -> Result<(nexus_gfx::backend::types::Rect, u64, usize), Refusal> {
         let t0 = now_ns();
         let k = RING_ROWS
             .iter()
@@ -339,7 +371,7 @@ impl Desktop {
         // The base the scene starts from: cleaned when it is new or the CPU rewrote it — and
         // every glass's backdrop over the old one is stale, every slot too.
         let mut lacks = Area::None;
-        if self.base != Some(target.base_row) || target.base_dirty {
+        if self.base != Some(target.base_row) || base_dirty {
             clean_rows(target, (0, target.base_row, WIDTH, PLANE_ROWS));
             self.frame.glass.wallpaper_epoch = self.frame.glass.wallpaper_epoch.wrapping_add(1);
             self.base = Some(target.base_row);
@@ -348,6 +380,45 @@ impl Desktop {
         let p0 = now_ns();
         let planned = self.frame.plan(self.display, &|_| true);
         let plan_ns = now_ns().saturating_sub(p0);
+        let mut glass_idx = 0u32;
+        for i in 0..planned.layers.min(32) {
+            let written = self.frame.step(i).and_then(|s| s.glass).map(|g| g.cache);
+            if matches!(written, Some(CacheStep::Write(_))) {
+                glass_idx |= 1 << i;
+            }
+        }
+        // The glasses blurred again, named once past the first frames (the settled desktop's
+        // writes are the question, cycles 35–37: `glass_idx=0x6` every frame while typing).
+        if !quiet && glass_idx != 0 && !self.glass_named && self.stats.frames >= 8 {
+            self.glass_named = true;
+            // The present's damage this frame, with its origins: what touched them.
+            let (named, count, full) = self.frame.layers.last_damage();
+            let mut line = alloc::string::String::new();
+            for (r, o) in named.iter().take(count) {
+                use core::fmt::Write as _;
+                if let Area::Rect { x0, y0, x1, y1 } = r {
+                    let _ = write!(line, " {x0},{y0},{}x{}@{o}", x1 - x0, y1 - y0);
+                }
+            }
+            emit_fmt(format_args!("gpud: gpu glass damage (full={full} rects={line})"));
+            for i in 0..planned.layers.min(32) {
+                if glass_idx & (1 << i) == 0 {
+                    continue;
+                }
+                if let Some(l) = self.frame.step(i).map(|s| s.layer) {
+                    emit_fmt(format_args!(
+                        "gpud: gpu glass written (i={i} rect={},{},{}x{} id={} blur={} src_row={})",
+                        l.dst_x,
+                        l.dst_y,
+                        l.width,
+                        l.height,
+                        l.layer_id,
+                        l.backdrop_blur,
+                        l.src_row_abs
+                    ));
+                }
+            }
+        }
         // What the slot lacks: the frames since it was last drawn (everything when the CPU
         // drew it since, or it never was) and this frame's damage.
         if !target.slot_stale {
@@ -388,6 +459,13 @@ impl Desktop {
         let t = captured.template(FRAME_VA, FRAME_VA, FRAME_VA);
         let mut draws = 0;
         let mut split = [plan_ns, 0, 0, 0, 0];
+        let mut witness = [0u64; 3];
+        // At most two passes in flight: the context's two render-target data alternate per
+        // pass (the firmware's, `render.rs`); a third pass in the queue would reuse the data of
+        // one still drawing — cycle 40's lockup. Pass p waits for pass p − 2 before it is
+        // submitted.
+        let mut last: Option<nexus_driverkit::gpu::TimelinePoint> = None;
+        let mut points: [Option<nexus_driverkit::gpu::TimelinePoint>; 2] = [None; 2];
         for p in 0..passes {
             let spec = board.pass(p).ok_or("a pass of the plan")?;
             let to = match spec.target {
@@ -396,70 +474,98 @@ impl Desktop {
                 To::Half => half,
                 To::Cache => cache,
             };
-            let (n, stamps) = run_pass(dev, who, streams, &t, pipes, rings, &board, &spec, to)?;
+            let wait = !pipelined || p + 1 == passes;
+            if let Some(two_back) = points[p % 2] {
+                let q0 = now_ns();
+                super::desktop_pass::wait_point(dev, who, two_back)?;
+                split[3] += now_ns().saturating_sub(q0);
+            }
+            let (n, stamps, point) = run_pass(
+                dev,
+                who,
+                streams,
+                &t,
+                pipes,
+                rings,
+                &board,
+                &spec,
+                to,
+                (trace && wait, wait),
+                last,
+            )?;
+            last = Some(point);
+            points[p % 2] = Some(point);
             draws += n;
             for (acc, ns) in split[1..].iter_mut().zip(stamps) {
                 *acc += ns;
             }
+            witness = [stamps[2] / 1000, stamps[4], stamps[5]];
         }
+        self.pass_witness = witness;
         let us = now_ns().saturating_sub(t0) / 1000;
         let glass = board.glass;
-        let s = &mut self.stats;
-        s.frames += 1;
-        s.us += us;
-        s.max_us = s.max_us.max(us);
-        s.clean_us += clean_us;
-        s.passes += passes as u64;
-        s.draws += draws as u64;
         let area_px =
             area.map_or(0, |(x0, y0, x1, y1)| u64::from(x1 - x0 + 1) * u64::from(y1 - y0 + 1));
-        s.area_px += area_px;
-        for (acc, ns) in s.split.iter_mut().zip(split) {
-            *acc += ns;
-        }
-        for (acc, n) in s.glass.iter_mut().zip([glass.writes, glass.reads, glass.off]) {
-            *acc += u64::from(n);
-        }
-        if !self.shown {
-            self.shown = true;
-            emit_fmt(format_args!(
-                "gpud: gpu desktop ok (frame_us={us} passes={passes} draws={draws} layers={} glass_writes={} glass_reads={} glass_off={} area_px={area_px} clean_us={clean_us} open_us={})",
-                planned.layers,
-                glass.writes,
-                glass.reads,
-                glass.off,
-                self.open_us
-            ));
-        }
-        if s.frames == WINDOW {
-            let n = u64::from(WINDOW);
-            emit_fmt(format_args!(
-                "gpud: gpu frame us (n={n} avg={} max={} clean={} passes={}.{} draws={} area_px={} glass_w={} glass_r={} glass_off={} split=plan {}/emit {}/submit {}/wait {}/retire {})",
-                s.us / n,
-                s.max_us,
-                s.clean_us / n,
-                s.passes / n,
-                (s.passes % n) * 10 / n,
-                s.draws / n,
-                s.area_px / n,
-                s.glass[0],
-                s.glass[1],
-                s.glass[2],
-                s.split[0] / n / 1000,
-                s.split[1] / n / 1000,
-                s.split[2] / n / 1000,
-                s.split[3] / n / 1000,
-                s.split[4] / n / 1000
-            ));
-            *s = Stats::default();
-        }
-        Ok(area.map_or(nexus_gfx::backend::types::Rect { x: 0, y: 0, width: 0, height: 0 }, |a| {
-            nexus_gfx::backend::types::Rect {
-                x: a.0,
-                y: a.1,
-                width: a.2 - a.0 + 1,
-                height: a.3 - a.1 + 1,
+        if !quiet {
+            let s = &mut self.stats;
+            s.frames += 1;
+            s.us += us;
+            s.max_us = s.max_us.max(us);
+            s.clean_us += clean_us;
+            s.passes += passes as u64;
+            s.draws += draws as u64;
+            s.area_px += area_px;
+            s.glass_idx |= glass_idx;
+            for (acc, ns) in s.split.iter_mut().zip(split) {
+                *acc += ns;
             }
-        }))
+            for (acc, n) in s.glass.iter_mut().zip([glass.writes, glass.reads, glass.off]) {
+                *acc += u64::from(n);
+            }
+            if !self.shown {
+                self.shown = true;
+                emit_fmt(format_args!(
+                    "gpud: gpu desktop ok (frame_us={us} passes={passes} draws={draws} layers={} glass_writes={} glass_reads={} glass_off={} area_px={area_px} clean_us={clean_us} open_us={})",
+                    planned.layers,
+                    glass.writes,
+                    glass.reads,
+                    glass.off,
+                    self.open_us
+                ));
+            }
+            if s.frames == WINDOW {
+                let n = u64::from(WINDOW);
+                emit_fmt(format_args!(
+                    "gpud: gpu frame us (n={n} avg={} max={} clean={} passes={}.{} draws={} area_px={} glass_w={} glass_r={} glass_off={} glass_idx={:#x} split=plan {}/emit {}/submit {}/wait {}/retire {})",
+                    s.us / n,
+                    s.max_us,
+                    s.clean_us / n,
+                    s.passes / n,
+                    (s.passes % n) * 10 / n,
+                    s.draws / n,
+                    s.area_px / n,
+                    s.glass[0],
+                    s.glass[1],
+                    s.glass[2],
+                    s.glass_idx,
+                    s.split[0] / n / 1000,
+                    s.split[1] / n / 1000,
+                    s.split[2] / n / 1000,
+                    s.split[3] / n / 1000,
+                    s.split[4] / n / 1000
+                ));
+                *s = Stats::default();
+            }
+        }
+        let rect =
+            area.map_or(nexus_gfx::backend::types::Rect { x: 0, y: 0, width: 0, height: 0 }, |a| {
+                nexus_gfx::backend::types::Rect {
+                    x: a.0,
+                    y: a.1,
+                    width: a.2 - a.0 + 1,
+                    height: a.3 - a.1 + 1,
+                }
+            });
+        Ok((rect, us, passes))
     }
 }

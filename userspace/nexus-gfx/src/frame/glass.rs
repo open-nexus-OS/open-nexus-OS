@@ -58,11 +58,11 @@ pub fn glass_key(below: u64, l: &FrameLayer) -> u64 {
     )
 }
 
-/// Half-resolution rows a glass's result takes: half its height, rounded up, and one texel of
-/// margin above and below (the layer's bilinear fetches at the glass's edges read blurred
-/// backdrop, never a neighbour's rows).
-pub fn glass_rows(height: u32) -> u32 {
-    height.div_ceil(2) + 2
+/// Cache rows a glass's result takes: its height over its blur's scale, rounded up, and one
+/// texel of margin above and below (the layer's bilinear fetches at the glass's edges read
+/// blurred backdrop, never a neighbour's rows).
+pub fn glass_rows(height: u32, scale: u32) -> u32 {
+    height.div_ceil(scale.max(1)) + 2
 }
 
 /// What a glass layer does this frame.

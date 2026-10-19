@@ -160,6 +160,8 @@ pub struct RetainedLayers {
     pub(super) damage: [(Area, u32); MAX_DAMAGE],
     pub(super) damage_count: usize,
     pub(super) damage_full: bool,
+    /// The count and the whole-screen flag of the damage the last plan took.
+    last: (usize, bool),
 }
 
 /// Damage rectangles a present's set keeps (windowd names at most seven).
@@ -200,6 +202,7 @@ impl RetainedLayers {
             damage: [(Area::None, 0); MAX_DAMAGE],
             damage_count: 0,
             damage_full: false,
+            last: (0, false),
         }
     }
 
@@ -270,6 +273,15 @@ impl RetainedLayers {
         Taken { replaced: true, dropped }
     }
 
+    /// The set emptied, its overrides with it (an executor's own scene drawn before the
+    /// compositor's first — the next present with layers replaces nothing).
+    pub fn clear(&mut self) {
+        self.count = 0;
+        self.dirty = true;
+        self.scroll_rows = [None; MAX_IDS];
+        self.transforms = [None; MAX_IDS];
+    }
+
     pub fn len(&self) -> usize {
         self.count
     }
@@ -282,9 +294,15 @@ impl RetainedLayers {
     /// none, or everything when it brought layers and named none).
     pub(super) fn take_damage(&mut self) -> ([(Area, u32); MAX_DAMAGE], usize, bool) {
         let out = (self.damage, self.damage_count, self.damage_full);
+        self.last = (self.damage_count, self.damage_full);
         self.damage_count = 0;
         self.damage_full = false;
         out
+    }
+
+    /// The damage the last plan took: its rectangles with their origins (an executor's line).
+    pub fn last_damage(&self) -> (&[(Area, u32)], usize, bool) {
+        (&self.damage[..], self.last.0, self.last.1)
     }
 
     /// The index of the first layer carrying transform id `layer_id`, if one does.

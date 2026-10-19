@@ -64,6 +64,18 @@ impl Area {
         }
     }
 
+    /// Whether every pixel of the area lies within `other`.
+    pub fn inside(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::None, _) | (_, Self::Full) => true,
+            (Self::Full, _) | (_, Self::None) => false,
+            (
+                Self::Rect { x0: a0, y0: b0, x1: a1, y1: b1 },
+                Self::Rect { x0: c0, y0: d0, x1: c1, y1: d1 },
+            ) => c0 <= a0 && a1 <= c1 && d0 <= b0 && b1 <= d1,
+        }
+    }
+
     /// Whether the area shares a pixel with `other`.
     pub fn touches(self, other: Self) -> bool {
         match (self, other) {

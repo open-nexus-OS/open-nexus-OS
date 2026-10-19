@@ -55,6 +55,7 @@ mod bos;
 pub(crate) mod client_context;
 mod contexts;
 mod desktop;
+mod desktop_gate;
 mod desktop_pass;
 pub(crate) mod device;
 mod device_v2;

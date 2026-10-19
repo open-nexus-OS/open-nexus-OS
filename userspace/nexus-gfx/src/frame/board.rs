@@ -27,6 +27,17 @@ pub fn blur_radius(asked: u32) -> u32 {
     BLUR_RADII.iter().copied().min_by_key(|r| r.abs_diff(asked)).unwrap_or(20)
 }
 
+/// The resolution the library blurs at `radius` (a library radius): a pixel every `scale`
+/// full-resolution pixels — half for the smallest radius, quarter from 20 on (TASK-0215 5c-3
+/// P6, the stock stack's `glass-quarter`; RFC-0101 §8d). The pipelines' `scale` override.
+pub fn blur_scale(radius: u32) -> u32 {
+    if radius < 20 {
+        2
+    } else {
+        4
+    }
+}
+
 /// What a draw runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pipe {
@@ -291,23 +302,24 @@ impl<'a> Board<'a> {
         let Some(CacheStep::Write(row)) = cache else { return None };
         let (dw, dh) = self.display;
         let r = blur_radius(l.backdrop_blur);
-        let taps = r / 2;
+        let s = blur_scale(r);
+        let taps = r / s;
         let (x, y, w, h) = (l.dst_x, l.dst_y, l.width, l.height);
-        let (vw, vh) = (w.div_ceil(2) + 2, h.div_ceil(2) + 2);
-        let (hh, halo) = (vh + 2 * taps, 2 * taps);
-        let reach = 2 * taps + 2;
+        let (vw, vh) = (w.div_ceil(s) + 2, h.div_ceil(s) + 2);
+        let (hh, halo) = (vh + 2 * taps, s * taps);
+        let reach = s * taps + s;
         let (x0, y0) = (x.saturating_sub(reach), y.saturating_sub(reach));
-        let x1 = (x + 2 * vw + 2 * taps - 2).min(dw);
-        let y1 = (y + 2 * vh + 2 * taps - 2).min(dh);
+        let x1 = (x + s * vw + s * taps - s).min(dw);
+        let y1 = (y + s * vh + s * taps - s).min(dh);
         let scene = PassSpec {
             target: Target::Scratch,
             area: (x0, y0, x1.max(x0 + 1) - 1, y1.max(y0 + 1) - 1),
             kind: PassKind::Scene { upto: j },
         };
-        let (fw, fh) = (dw as f32, dh as f32);
-        let (ox, oy) = (x as f32 - 2.0, y as f32 - 2.0);
-        let source = [2.0 * vw as f32 / fw, 2.0 * hh as f32 / fh, ox / fw, (oy - halo as f32) / fh];
-        let across = Quad::blur(0.0, 0.0, vw as f32, hh as f32, source, [2.0 / fw, 0.0], 1.0);
+        let (fw, fh, sf) = (dw as f32, dh as f32, s as f32);
+        let (ox, oy) = (x as f32 - sf, y as f32 - sf);
+        let source = [sf * vw as f32 / fw, sf * hh as f32 / fh, ox / fw, (oy - halo as f32) / fh];
+        let across = Quad::blur(0.0, 0.0, vw as f32, hh as f32, source, [sf / fw, 0.0], 1.0);
         let half = PassSpec {
             target: Target::Half,
             area: (0, 0, vw - 1, hh.min(self.half_rows) - 1),
@@ -423,14 +435,15 @@ fn shadow(l: &FrameLayer) -> Option<DrawSpec> {
     Some(DrawSpec { pipe: Pipe::Shadow, quad, tex: Tex::None })
 }
 
-/// A glass's blurred backdrop drawn back over it from its cache rows (the half-resolution result
-/// inside its one-texel margin), its corners cut.
+/// A glass's blurred backdrop drawn back over it from its cache rows (the reduced result inside
+/// its one-texel margin), its corners cut.
 fn glass_back(l: &FrameLayer, row: u32) -> DrawSpec {
     let r = l.corner_radius.min(l.width / 2).min(l.height / 2);
+    let s = blur_scale(blur_radius(l.backdrop_blur));
     let (x, y, w, h) = (l.dst_x as f32, l.dst_y as f32, l.width as f32, l.height as f32);
     DrawSpec {
         pipe: if r == 0 { Pipe::Opaque } else { Pipe::Rounded },
         quad: Quad::layer(x, y, w, h, [1.0; 4], r as f32),
-        tex: Tex::Cache { x: 1, row: row + 1, w: l.width.div_ceil(2), h: l.height.div_ceil(2) },
+        tex: Tex::Cache { x: 1, row: row + 1, w: l.width.div_ceil(s), h: l.height.div_ceil(s) },
     }
 }

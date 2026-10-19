@@ -211,6 +211,14 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-3 P4b: windowd's first frame drawn on the GPU — the layer set windowd presented, planned by the frame planner the QEMU path draws with and lowered for the board (per glass to blur, the scene below it into the scratch and the two blur passes into its cache rows; then the slot's pass: the wallpaper, each glass drawn back, the shadows, the content), drawn in windowd's own context with windowd's library into the ring's free slot, waited and flipped at the blank; the frame's time, passes, draws, glass written, read and left unblurred, the pixels of the slot's pass (P5: what the slot lacked, not the screen) and the clean of the textures the CPU wrote"
 
+# TASK-0215 5c-4: the gate scene — the stock stack's `glass-quarter` (the base plane and a
+# screen-sized glass blurred at quarter size) drawn by windowd's executor before its first frame;
+# `gpud: FAIL gpu gate scene (` is its FAIL form (the cold frame above the stock's 23.3 ms).
+[marker."gpud: gpu gate scene ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-4: our frame of the stock stack's gate scene on the board's GPU — the wallpaper and a screen-sized glass at radius 40 blurred at quarter resolution, drawn in windowd's context from the frame plan: the cold frame (the glass blurred into its cache, four passes) below the stock stack's 23.3 ms for the same picture, and the warm frame (a pointer-sized change, the glass read from its cache) beside it"
+
 [marker."gpud: gpu frame us ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
@@ -339,6 +347,10 @@ phase = "bringup"
 [marker."board-visual: desktop"]
 phase = "end"
 proves = "a person at the monitor confirmed the desktop of THIS boot (scripts/board-ack.sh; Block 1 gate)"
+
+[marker."board-visual: gpu-desktop"]
+phase = "end"
+proves = "a person at the monitor confirmed THIS boot's desktop drawn by the GPU in windowd's context — the windows with their rounded corners, their glass blurred, the shadows, typing and scrolling — as the desktop the CPU drew, and faster (TASK-0215 5c-4)"
 
 [marker."board-visual: typed"]
 phase = "end"

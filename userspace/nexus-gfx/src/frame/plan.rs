@@ -121,9 +121,14 @@ impl Frame {
         // A glass blurs its backdrop again for a change below it: the base's (origin 0), a
         // window's below it in the walk, an unknown origin's; never for its own content, a
         // window's above it or the pointer's.
-        let origin_below = |origin: u32, j: usize| -> bool {
+        let origin_below = |origin: u32, j: usize, own_id: u32| -> bool {
             origin == 0
-                || (origin != ORIGIN_ABOVE && self.layers.index_of_id(origin).is_none_or(|i| i < j))
+                || (origin != ORIGIN_ABOVE
+                    // Every slice of a window shares its id: a window's own change is never
+                    // below one of its own glasses (cycle 41: the second slice counted the
+                    // first as below it).
+                    && origin != own_id
+                    && self.layers.index_of_id(origin).is_none_or(|i| i < j))
         };
         let mut below = seed(display.0, display.1, self.glass.wallpaper_epoch);
         let mut cursor = 0u32;
@@ -145,11 +150,21 @@ impl Frame {
             {
                 None
             } else {
-                let rows = glass_rows(layer.height);
+                let rows = glass_rows(
+                    layer.height,
+                    super::board::blur_scale(super::board::blur_radius(layer.backdrop_blur)),
+                );
                 let rect = Area::rect(layer.dst_x, layer.dst_y, layer.width, layer.height);
                 let reach = rect.grown(GLASS_REACH);
-                let touched =
-                    full || named.iter().any(|(r, o)| origin_below(*o, i) && r.touches(reach));
+                // The desktop's own glass regions (id 0: the dock's buttons, the bar's pills)
+                // draw the desktop surface's pixels over a blur of the same surface: a change
+                // of the desktop within such a region is the region's own content, not its
+                // backdrop (cycle 38: those regions were blurred again every frame).
+                let own = |r: &Area, o: u32| o == 0 && layer.layer_id == 0 && r.inside(rect);
+                let touched = full
+                    || named.iter().any(|(r, o)| {
+                        origin_below(*o, i, layer.layer_id) && r.touches(reach) && !own(r, *o)
+                    });
                 let cache = self.glass.step(i, glass_key(below, &layer), cursor, rows, touched);
                 if !matches!(cache, CacheStep::Off) {
                     cursor = cursor.saturating_add(rows);

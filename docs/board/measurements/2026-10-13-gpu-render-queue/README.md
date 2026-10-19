@@ -1629,3 +1629,215 @@ remains is named and measured, not guessed: the blur programs' cost a pixel (the
 next package), one glass still rewritten every frame (its identity the first measurement of
 that package), the glass cache's rows (two columns), the capture scrim as a screen-sized glass.
 P5 complete.
+
+## 5c-3 P6 — the glass at quarter resolution, and the gate scene (TASK-0215; 5c-4)
+
+**Question.** P5 named the frame's cost: the passes' pixels at the programs' rates, the blur at
+40.7 and 23.7 ns a half-resolution pixel (a window-sized glass about 20 ms to write). RFC-0101
+§8d asks for the blur at quarter size, and the stock stack's bar is `glass-quarter` (23.3 ms,
+`../2026-10-10-gpu-stock-baseline/`). Does the chain at quarter resolution bring a glass's write
+near the stock's, and our frame of the gate scene below the bar?
+
+**Measured first** (host 2026-10-19): the chain at quarter resolution against the
+full-resolution gaussian (`tools/nxgpu/tests/blur.rs`, the checker backdrop, largest/mean
+deviation in levels): radius 20 7/0.46 and 10/0.46 (plain, 140 % saturation), 30 7/0.43 and
+10/0.51, 40 7/0.63 and 10/0.81; the half-resolution chain stays for radius 8 (5/0.44, 7/0.58 —
+at quarter the kernel would be a pixel wide). Taps: radius 20 eleven fetches across and seven
+down (21 and 11 at half); the programs 49/50, 65/60, 89/70 groups (89/70, 129/100, 169/120 at
+half). The library: 13 entries, 10 012 bytes (13 812).
+
+**What P6 builds.** `blur.wgsl` takes a `scale` override (2 or 4): a tap steps `scale` texels,
+the weights the full-resolution gaussian's at those distances; `nexus_gfx::frame::blur_scale`
+(half below 20, quarter from 20 on) drives the planner's cache rows, the board lowering, the QEMU
+path and the board rung; the glass cache holds four times the glasses it did. 5c-4's gate: at
+windowd's first frame the executor draws the stock's scene — the wallpaper and a screen-sized
+glass at radius 40 — twice into the slot before windowd's own frame: cold (the glass written) and
+warm (read from its cache): `gpud: gpu gate scene (cold_us= warm_us= passes= bar=23300)`, `ok`
+when cold is below the bar; and the operator's `board-visual: gpu-desktop`. The frame line
+names the glasses written (`glass_idx=`, a mask of layer indices) — the one blurred again every
+frame in cycle 35 gets its identity.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H90 | The quarter chain reads its gaussian on the board as on the host | `gpud: gpu pipeline ok (… blur_dev=` at most 13 and `gpu blur radii ok (r8=…/r30=…/r40=…)` within tolerance 10/13/13 |
+| H91 | A quarter pass costs a quarter of the pixels at about the same rate | the pipeline gate's `blur_h_ns_px=` and `blur_v_ns_px=` (per reduced pixel) within 25 % of the half chain's 40.7/23.7 at the same taps a pixel, i.e. about 21/14 ns at eleven and seven fetches |
+| H92 | Our frame of the gate scene is below the stock's | `gpud: gpu gate scene (cold_us=` below 23 300; `warm_us=` below 8 300 (a hover frame's bar, 5d's) |
+| H93 | A typing frame rewrites no glass once the shell's strip is told apart | `glass_idx=` names one index across the typing windows; its layer is the shell's top-bar strip (2b) when the window's top lies within 66 px of it, else the finding is new |
+| H94 | The frames are faster to the eye | typing windows `avg=` at or below 25 000 µs (49–54 before); the operator: smoother |
+
+**Results — the board, cycle 36** (`board--2026-10-19T11-45-48`, `cycle36-gpu-lines.txt`): the
+desktop never came — gpud died at windowd's first present.
+
+- `init: service exit name=gpud reason=fault`, the kernel's report before it: `[USER-PF] STORE
+  @ sepc=0x115e4a stval=0x1fff6c50 … sp=0x1fff6b50` — a store below the stack's mapped bottom
+  (`0x1fff7000`: eight pages under the top). The executor (the frame planner's 5.8 KB, the
+  pipelines' 2.8 KB, the rings, the per-layer bookkeeping — some 10 KB) lived inside `BoardGpu`,
+  a local of the service loop, on that stack beside the loop's 8 KB receive buffer and the
+  present path's frames; the gate scene's one extra call (`draw` → `gate` → `frame_of`) took the
+  last bytes. Fixed: the executor is boxed (one allocation per context open; gpud's heap never
+  frees — a windowd restart leaves 10 KB), and gpud's stack is 16 pages (the manifest's
+  `stack_pages`).
+- Before the fault, on the quarter chain: `gpu pipeline ok (… blur_h_ns_px=41.75
+  blur_v_ns_px=12.36 … blur_dev=4 …)` and `gpu blur radii ok (r8=4/17.05/12.04 r30=1/53.93/9.11
+  r40=1/75.36/20.18 tolerance=10/13/13)` — **H90 confirmed** (4, 1, 1 levels). **H91 refuted for
+  the horizontal pass**: its cost a reduced pixel stayed at the half chain's (41.8 vs 40.7 ns at
+  radius 20 — eleven fetches instead of twenty-one), while the vertical pass halved (12.4 vs
+  23.7; 9.1 vs 35.8 at 30, 20.2 vs 43.7 at 40). The horizontal pass's time is not its fetches:
+  with four times fewer pixels its share of a glass is still a quarter — its rate is the
+  lever to measure next (the fetches' spread across the full-resolution backdrop, four texels
+  apart, against the vertical pass's one-row steps in a 480-wide result).
+
+**Results — the board, cycle 37** (`board--2026-10-19T11-54-18`, `cycle37-gpu-lines.txt`; the
+operator: everything in order, the executor boxed and gpud's stack doubled):
+
+- **H90 confirmed again**: `blur_dev=4`, the radii 4/1/1 levels.
+- **The gate scene red**: `gpud: FAIL gpu gate scene (cold_us=34734 above the bar 23300;
+  warm_us=34718 passes=4/4)`. The warm frame cost the cold frame's: the display's `base_dirty`
+  (set for windowd's first present) was read for both gate frames, the base cleaned twice, the
+  wallpaper generation bumped twice, the glass's key changed and the glass blurred again. The
+  gate now cleans the base for the cold frame alone and draws three warm frames (one pass over a
+  pointer-sized change: the frame's floor), and names the last pass's wait, the wait's
+  iterations and the interrupts it saw (`pass_wait_us= iters= irqs=`).
+- **The cold frame's 34.7 ms against the bar**: four passes — the base into the scratch (1920x1080
+  opaque, 2.7 ms), the horizontal pass (482x292 at 43 ns, 6.1 ms), the vertical (482x272 at
+  18 ns, 2.4 ms), the slot's (the base 2.7, the glass drawn back 2.7, the glass layer's own
+  content — a screen-sized straight layer at 4.9 ns — 10 ms): about 27 ms of pixels, and the
+  rest the passes' waits beyond their pixels. The stock's picture has no screen-sized straight
+  content over its glass; ours draws the glass layer's own texture because a layer always has
+  one — the warm frame's floor and the per-pass wait are what the next cycle names.
+- **H91**: the vertical pass 18.2 ns a quarter pixel (23.7 at half), the horizontal 43.4 (40.7):
+  the horizontal pass costs the same a pixel with half the fetches — its cost is not its
+  fetches (carried: the rate of a pass over a wide, sparse source).
+- **H93 open**: `glass_idx=0x6` through the typing windows — layers 1 and 2 blurred again every
+  frame; which they are is named next cycle (`gpud: gpu glass written (…)`).
+- **H94 refuted**: the typing windows 44–49 ms (49–54 before) — the glass writes decide, not
+  the blur's rate.
+- The per-pass wait from the windows' `split=`: 5–8 ms a pass whatever the pass (passes 2.4:
+  19 ms of wait; 7.0: 48 ms) — the rungs' passes took 0.4 ms. The next cycle's warm frame (one
+  pass, one pixel) measures the pass's floor directly, with its wait iterations and
+  interrupts: a pass that waits 5 ms for a pixel is the firmware's or the device's doing, not
+  the frame's.
+
+**Results — the board, cycle 38** (`board--2026-10-19T12-05-58`, `cycle38-gpu-lines.txt`):
+
+- **The floor, measured**: `gpud: FAIL gpu gate scene (cold_us=35679 … warm_us=12365/12337/12318
+  passes=4/1 pass_wait_us=12175 iters=15 irqs=4)` — a warm frame is one pass over one pixel and
+  waits **12.2 ms** for it, in fifteen one-millisecond wait slices with four interrupts; three
+  warm frames alike. The rungs' passes took 0.4 ms (P4a) through the same wait on the same
+  words. Not the pixels, not the CPU (`split=` named them), not the glass: the pass's completion
+  reaches the word 12 ms after the submit in windowd's context. The next cycle traces the last
+  warm pass iteration by iteration — the time, the interrupts seen, the geometry and fragment
+  words (`gpud: gpu pass trace (…)`) — to tell a late device from a late word.
+- **H93 answered**: `gpud: gpu glass written (i=1 rect=916,484,88x88 id=0 blur=20 …)`, `(i=3
+  rect=837,626,246x44 id=0 blur=40 …)`, `(i=4..6 rect=1740|1796|1852,1020,44x44 id=0 blur=40
+  …)` — the desktop's own glass regions: the dock's three buttons, a pill, an 88x88 field. The
+  desktop surface changes within their rectangles (the shell repaints them), the damage's origin
+  is the desktop (0) and counts as below every glass — their own content, blurred again every
+  frame. Now a desktop change within a desktop glass region's rectangle is that region's own
+  (`a_desktop_glass_region_keeps_its_blur_when_its_own_pixels_change`).
+- **The capture hang, again**: dragging the screenshot's selection hung the input — the same
+  signature as cycle 27 on the CPU path: windowd's last line `raise id=desktop`, then `dbg:
+  hidrawd inputd send fail backpressure`, `hidrawd: chain I2 wire send FAIL (inputd route)` —
+  inputd's queue backs up because windowd stops draining; gpud's lines go on (the flips, the
+  frame windows). Outside the GPU path (windowd's capture drag: a send that never returns);
+  carried to the screenshot track.
+- `glass_w` through the typing windows 63–72 per 32 frames, `glass_idx=0x6|0x16|0x36|0x7e`.
+
+**Results — the board, cycle 39** (`board--2026-10-19T12-26-10`, `cycle39-gpu-lines.txt`; the
+operator: everything runs):
+
+- **The floor named**: `gpud: gpu pass trace (iters=14 irqs=3 us_at:irqs:words[g=1,f=2]= 5:0:0
+  85:1:0 500:2:1 1542:2:1 … 11381:2:1 12231:3:3)` — the one-pixel pass's geometry word is
+  reached 0.5 ms after the submit (the second interrupt); the fragment word 12.2 ms after it,
+  with the third interrupt, and nothing in between for eleven slices. The device is not
+  drawing for those 11.7 ms: the firmware starts the pass's fragment job that long after its
+  geometry job in windowd's context, where the rungs' fragment jobs followed within 0.2 ms
+  (P4a). A latency, not a throughput: the lever is to keep the queue full — a frame's passes
+  submitted one after the other and waited for once (the firmware runs a context's passes in
+  order; a pass's fragment stage reads only what earlier passes wrote). Built: the executor
+  pipelines a frame's passes (the last one waits; a pass that finds no line in the rings waits
+  for the one before and tries again), and the gate draws the cold scene both ways
+  (`pipelined_us=`).
+- `gpud: FAIL gpu gate scene (cold_us=33835 … warm_us=12352/12559/12708 passes=4/1
+  pass_wait_us=12232 iters=14 irqs=3)` — the warm frames 12.4–12.7 ms, all of it the one pass's
+  latency.
+- The dock's regions still blurred again every frame (`glass written` i=1, 3, 4, 5, 6 — the
+  planner's own-content rule was built after this image). The windows 17–67 ms; one with
+  `passes=1.6`: 17.6 ms, the floor plus little.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H95 | The fragment job's 12 ms is a latency the queue hides | `pipelined_us=` of the gate's cold frame below half its `cold_us=` (33.8 ms sequential); and the typing windows' `avg=` below 25 000 µs |
+| H96 | The desktop's own glass regions keep their blur | `glass_idx=` without bits 1 and 3–6 through the typing windows; `glass_w=` at most 32 per window (one glass a frame at most) |
+| H97 | Our frame of the gate scene reaches the bar through the queue | `gpud: gpu gate scene ok (… pipelined_us=` below 23 300 |
+
+**Results — the board, cycle 40** (`board--2026-10-19T12-36-10`, `cycle40-gpu-lines.txt`; the
+operator: it ran, felt slower, the glass's corners square — the CPU path):
+
+- **A pipelined frame locks the GPU up.** `gpud: FAIL gpu context reset (no context of the
+  device: ctx=0x600 reason=1 dm=3 job=20 flags=0x1 pc=0x73d3001 fault=0x0)` during the gate's
+  pipelined cold frame (reason 1: a guilty lockup, the fragment data master, the page-fault
+  flag with no fault address), then `gpud: gpu context lost (ctx=0x600 reason=1 dm=3 job=80
+  …)` in the desktop's frames and `FAIL gpu desktop (frame: the submit ContextLost …)` — the CPU
+  composed from then on. The cause, read from the code: a context's two render-target data
+  alternate per pass (`render.rs`, as the open driver does), so at most two passes may be in
+  flight; the executor queued a whole frame. **H95 and H97 are not decided**: the gate's
+  `pipelined_us=14537` was reached through the reset (a lost context's points count as
+  reached). Now a frame keeps two passes in flight — pass p waits for pass p − 2 — and the gate
+  measures that.
+- **Two attribution faults in the reset's handling**: the catalogue the firmware named carried
+  its valid bit (`0x73d3001` against the context's `0x73d3000`), and a catalogue that matched
+  no context was not followed by the context the message numbered (`ctx=0x600`). Both fixed:
+  the catalogue's page compared, the numbered context the fallback.
+- The warm frames 12.4–12.7 ms as in cycle 39 (`pass_wait_us=13261 iters=19 irqs=8`).
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H98 | Two passes in flight run without a lockup and hide the fragment's latency | no `gpud: FAIL gpu context reset (` nor `gpu context lost (ctx=0x600`; the gate's `pipelined_us=` below `cold_us=` by at least a third, and valid (no reset before it) |
+
+**Results — the board, cycle 41** (`board--2026-10-19T12-56-01`, `cycle41-gpu-lines.txt`; the
+operator: everything runs, feels quite good — the GPU path through the whole boot, no reset in
+windowd's context):
+
+- **H98 half**: no lockup with two passes in flight; but the queue hides nothing —
+  `gpud: FAIL gpu gate scene (cold_us=35644 pipelined_us=33051 … warm_us=12364/12323/12783
+  pass_wait_us=14846 iters=17 irqs=3)`. The fragment job's 12 ms follows its geometry whatever
+  is queued behind it: a cost per fragment job, not a latency the queue overlaps. On this
+  firmware a pass costs about 8–12 ms however small; a frame costs its passes. The typing
+  windows: `avg=42418–42845 passes=6.9 glass_w=63` — two glasses written a frame still.
+- **Still the desktop's regions**: `glass written` i=1, 3, 4, 5, 6 as in cycle 38 — the
+  own-content rule did not catch them: the shell's damage rectangles must be larger than the
+  regions (measured next: `gpud: gpu glass damage (rects=…)` beside the glasses named). And a
+  planner fault found by reading: a window's glass slices share one id, and a window's own
+  change counted as below its second slice (the first slice's index is lower) — fixed, tested.
+- The rest of a typing frame: 7 passes × about 6 ms. The structural lever on this firmware is
+  the number of passes a frame runs (the glass chains of a frame drawn in one scratch pass, one
+  horizontal and one vertical pass, whatever their count), not their pixels — the next package.
+
+**Results — the board, cycle 42** (`board--2026-10-19T13-10-06`, `cycle42-gpu-lines.txt`):
+
+- **The dock's regions, explained**: `gpud: gpu glass damage (full=false rects= 0,0,1920x1080@0)`
+  — the present that blurred them again carried one damage rectangle: the whole screen, from the
+  desktop. windowd turns a desktop surface present that declares no rectangles into whole-screen
+  damage (`queue_full_frame_damage`), and the shell presents without rectangles — on every
+  keystroke too (the typing windows' `glass_idx=0x6`, two glasses a frame, both touched by a
+  screen-sized desktop change). The planner's rules are right; the input is coarse: the
+  shell's tree knows what it repainted and must say so (the next package's first item — in
+  the app-host, where the rectangles are known, not in windowd).
+- Frames: 14–84 ms; the passes still 6–7 a typing frame, the wait 97 % of them.
+
+**Verdict (P6, and 5c-4's gate).** The glass runs at quarter resolution on both paths within
+ten levels of the full-resolution gaussian (H90 ✅), a frame keeps two passes in flight without
+a lockup, a reset is held against the context the firmware names or numbers, and the frame
+planner blurs a glass again only for a change below it that is not the layer's own. The gate
+scene is **red with its cause named**: our cold frame of the stock's `glass-quarter` picture
+costs 33–36 ms against the stock's 23.3 ms, and the cost is its four passes at 8–12 ms each —
+a one-pixel pass waits 12 ms for its fragment job, which the firmware starts that long after
+the pass's geometry job in windowd's context (the rungs' followed within 0.2 ms); two passes in
+flight hide nothing of it. Three levers, each measured here and none of them the planner's:
+the fragment job's start in windowd's context (a firmware-side investigation: what the rungs'
+context had that windowd's has not — the first item of the next package), the number of passes
+a frame runs (every glass chain of a frame in one scratch, one horizontal and one vertical
+pass), and the shell's damage rectangles (the app-host presents whole surfaces and full-width
+row bands, so a desktop change touches every glass in its rows). 5c-3 P6 complete; 5c-4's bar
+carried with these three.

@@ -24,21 +24,22 @@ its context (TASK-0215 5c-3 P3, RFC-0101 §7b).
 | 3 | `layer-straight` | `layer.wgsl` `main`, `straight=true` (a client's straight-alpha texel premultiplied), premultiplied over | 15 / 15 | 3 | translucent | 160 |
 | 4 | `layer-rounded` | `layer.wgsl` `main`, `straight=true`, `rounded=true` (the corners cut: the rounded rectangle's exact distance, a one-pixel band), premultiplied over | 34 / 34 | 3 | translucent | 360 |
 | 5 | `shadow` | `shadow.wgsl` `main`: the blurred rounded rectangle, knocked out under the layer; no texture, premultiplied over | 43 / 43 | 3 | translucent | 472 |
-| 6 | `blur-horizontal-20` | `blur.wgsl` `horizontal`, `radius=20`: the backdrop into half resolution, a tap every two pixels, each fetch averaging four texels (21 fetches); replace | 89 / 89 | 3 | opaque | 936 |
-| 7 | `blur-vertical-20` | `blur.wgsl` `vertical`, `radius=20`: the half-resolution result down, two taps a fetch (11 fetches), the saturation lifted; replace | 70 / 70 | 3 | opaque | 728 |
-| 8 | `blur-horizontal-8` | the horizontal pass at `radius=8` (a subtle glass); replace | 41 / 41 | 3 | opaque | 432 |
-| 9 | `blur-vertical-8` | the vertical pass at `radius=8`; replace | 40 / 40 | 3 | opaque | 416 |
-| 10 | `blur-horizontal-30` | the horizontal pass at `radius=30` (windowd's default glass); replace | 129 / 129 | 3 | opaque | 1352 |
-| 11 | `blur-vertical-30` | the vertical pass at `radius=30`; replace | 100 / 100 | 3 | opaque | 1040 |
-| 12 | `blur-horizontal-40` | the horizontal pass at `radius=40` (panels and overlays); replace | 169 / 169 | 3 | opaque | 1776 |
-| 13 | `blur-vertical-40` | the vertical pass at `radius=40`; replace | 120 / 120 | 3 | opaque | 1248 |
+| 6 | `blur-horizontal-20` | `blur.wgsl` `horizontal`, `radius=20`, `scale=4`: the backdrop into quarter resolution, a tap every four pixels, each fetch averaging four texels (11 fetches); replace | 49 / 49 | 3 | opaque | 512 |
+| 7 | `blur-vertical-20` | `blur.wgsl` `vertical`, `radius=20`, `scale=4`: the quarter-resolution result down, two taps a fetch (7 fetches), the saturation lifted; replace | 50 / 50 | 3 | opaque | 520 |
+| 8 | `blur-horizontal-8` | the horizontal pass at `radius=8`, `scale=2` (a subtle glass, half resolution); replace | 41 / 41 | 3 | opaque | 432 |
+| 9 | `blur-vertical-8` | the vertical pass at `radius=8`, `scale=2`; replace | 40 / 40 | 3 | opaque | 416 |
+| 10 | `blur-horizontal-30` | the horizontal pass at `radius=30`, `scale=4` (windowd's default glass); replace | 65 / 65 | 3 | opaque | 680 |
+| 11 | `blur-vertical-30` | the vertical pass at `radius=30`, `scale=4`; replace | 60 / 60 | 3 | opaque | 624 |
+| 12 | `blur-horizontal-40` | the horizontal pass at `radius=40`, `scale=4` (panels and overlays); replace | 89 / 89 | 3 | opaque | 936 |
+| 13 | `blur-vertical-40` | the vertical pass at `radius=40`, `scale=4`; replace | 70 / 70 | 3 | opaque | 728 |
 
-The archive: 13 812 bytes, FNV-1a 64 `0x120960ffaf5f65c4`, code target `0x0024001d003400b6` (the
+The archive: 10 012 bytes, FNV-1a 64 `0x853e5fe7d5cff61f`, code target `0x0024001d003400b6` (the
 board's core). Ids 8–13 (TASK-0215 5c-3 P4b) are the blur at the other radii windowd's glass asks;
 the wider ones carry more weights than the constant block's runs of four hold (a block holds 128
 values), so the codegen keeps their taps a group a lane and each weight one register. On the host
-the chain follows the full-resolution gaussian within seven levels at radius 8 (as on the virtual
-GPU) and four at 30 and 40 (`tools/nxgpu/tests/blur.rs`). The layers need iterate-and-sample of the device, the shadow and the blur passes
+the chain follows the full-resolution gaussian within seven levels at radius 8 (half resolution,
+as on the virtual GPU) and ten at 20, 30 and 40 — quarter resolution since TASK-0215 5c-3 P6, the
+stock stack's `glass-quarter`: a quarter of the pixels and of the taps (`tools/nxgpu/tests/blur.rs`). The layers need iterate-and-sample of the device, the shadow and the blur passes
 nothing; a layer's push block is 64 bytes (`Layer`: tint, size and minus half of it, the corner,
 the texture's rectangle an atlas variant reads — `Quad::layer` and `with_texture` write it), the
 shadow's 64 (`Shadow`: colour, the quad's size and half, the shape
@@ -82,7 +83,7 @@ program every draw runs is an entry of its own. Code target `TGSI` v1 (`tgsi::CO
 | 7–14 | `blur-horizontal-R`, `blur-vertical-R` | `blur.wgsl`, `radius` = 8, 20, 30, 40 (windowd's radii) | replace | 29/23, 65/41, 95/59, 125/71 |
 | 15 | `gradient` | `gradient.wgsl` (the pointer before its sprite) | premultiplied | 20 |
 
-The archive: 36 880 bytes, FNV-1a 64 `0x7189c506645a6fb2`. Rebuilding:
+The archive: 24 660 bytes, FNV-1a 64 `0xa747afcaf7d3cd00`. Rebuilding:
 
 ```text
 cargo run -p nxgpu -- library resources/gpu/pipelines/compositor-virgl.toml --out resources/gpu/pipelines/compositor-virgl.nxgp

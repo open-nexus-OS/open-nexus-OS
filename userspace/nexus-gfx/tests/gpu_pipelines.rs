@@ -73,10 +73,11 @@ fn the_compositor_library_is_placed_and_each_kick_names_its_program() {
         (loaded.accepted.as_slice(), loaded.refused.as_slice()),
         (&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13][..], &[][..])
     );
-    // The layers, the shadow, the blur at radius 20, then at 8, 30 and 40 (5c-3 P4b).
+    // The layers, the shadow, the blur at radius 20, then at 8, 30 and 40 (5c-3 P4b) — the
+    // blur at quarter resolution from radius 20 on since P6 (a quarter of the taps).
     assert_eq!(
         loaded.code_bytes,
-        32 + 120 + 160 + 360 + 472 + 936 + 728 + 432 + 416 + 1352 + 1040 + 1776 + 1248
+        32 + 120 + 160 + 360 + 472 + 512 + 520 + 432 + 416 + 680 + 624 + 936 + 728
     );
     for (id, temps, pass, program) in [
         (1, 1, PASS_OPAQUE, reference::opaque_itrsmp().unwrap().encode().unwrap()),

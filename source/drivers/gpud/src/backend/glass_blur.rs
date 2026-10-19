@@ -126,10 +126,11 @@ impl VirtioGpuBackend {
         // The glass's half-resolution rectangle (inside the margin) over the glass, its corners
         // cut, premultiplied over what is beneath.
         let r = l.corner_radius.min(w / 2).min(h / 2) as f32;
+        let sf = nexus_gfx::frame::blur_scale(pair.radius) as f32;
         let (tw, th) = (self.display_w as f32, tex_h as f32);
         let q = Quad::layer(x as f32, y as f32, w as f32, h as f32, [1.0; 4], r).with_texture([
-            w as f32 / 2.0 / tw,
-            h as f32 / 2.0 / th,
+            w as f32 / sf / tw,
+            h as f32 / sf / th,
             1.0 / tw,
             (row + 1) as f32 / th,
         ]);
@@ -155,26 +156,28 @@ impl VirtioGpuBackend {
         target: u32,
         row: u32,
     ) {
-        let taps = pair.radius / 2;
-        let (vw, vh) = (w.div_ceil(2) + 2, h.div_ceil(2) + 2);
-        // The result's origin in the frame: the glass less its margin (two full pixels).
-        let (ox, oy) = (x as f32 - 2.0, y as f32 - 2.0);
+        let sc = nexus_gfx::frame::blur_scale(pair.radius);
+        let taps = pair.radius / sc;
+        let (vw, vh) = (w.div_ceil(sc) + 2, h.div_ceil(sc) + 2);
+        // The result's origin in the frame: the glass less its margin (one reduced pixel).
+        let sf = sc as f32;
+        let (ox, oy) = (x as f32 - sf, y as f32 - sf);
         // The snapshot: every texel the horizontal pass's fetches reach.
-        let reach = 2 * taps + 2;
+        let reach = sc * taps + sc;
         let (x0, y0) = (x.saturating_sub(reach), y.saturating_sub(reach));
-        let x1 = (x + 2 * vw + 2 * taps - 2).min(self.display_w);
-        let y1 = (y + 2 * vh + 2 * taps - 2).min(self.display_h);
+        let x1 = (x + sc * vw + sc * taps - sc).min(self.display_w);
+        let y1 = (y + sc * vh + sc * taps - sc).min(self.display_h);
         if x1 > x0 && y1 > y0 {
             let back = self.rt_back_res();
             s.emit_resource_copy_region(H_BACKDROP_TEX, x0, y0, back, x0, y0, x1 - x0, y1 - y0);
         }
         let (fw, fh) = (self.display_w as f32, self.display_h as f32);
         let hh = vh + 2 * taps;
-        let halo = (2 * taps) as f32;
-        // Horizontal: a half-resolution pixel's centre is the corner of the four backdrop
-        // texels it averages, `2 taps` full rows above the result on; a tap two texels across.
-        let source = [2.0 * vw as f32 / fw, 2.0 * hh as f32 / fh, ox / fw, (oy - halo) / fh];
-        let q = Quad::blur(0.0, 0.0, vw as f32, hh as f32, source, [2.0 / fw, 0.0], 1.0);
+        let halo = (sc * taps) as f32;
+        // Horizontal: a reduced pixel's centre is the corner of the four backdrop texels it
+        // averages, `scale · taps` full rows above the result on; a tap `scale` texels across.
+        let source = [sf * vw as f32 / fw, sf * hh as f32 / fh, ox / fw, (oy - halo) / fh];
+        let q = Quad::blur(0.0, 0.0, vw as f32, hh as f32, source, [sf / fw, 0.0], 1.0);
         self.emit_draw(s, pair.horizontal, H_BLUR_TMP_SURF, &q, H_SV_BACKDROP);
         // Vertical: the horizontal result's texel under the output pixel, `taps` rows down its
         // halo; a tap one row down; the saturation left as it is.
