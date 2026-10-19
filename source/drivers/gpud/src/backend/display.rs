@@ -70,7 +70,8 @@ pub(crate) trait Display {
 
     /// [`Display::execute`] with the GPU that draws windowd's frames, once one is ready
     /// (TASK-0215 5c-3 P4b): a display with a ring has the GPU draw the frame into its slot and
-    /// composes it itself when the GPU did not. A display without one executes as ever.
+    /// refuses the present by name when the GPU did not (TASK-0215 5d). A display without one
+    /// executes as ever.
     fn execute_on(
         &mut self,
         _frames: Option<&mut dyn crate::gpu_context::FrameGpu>,

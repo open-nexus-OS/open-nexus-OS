@@ -16,7 +16,9 @@
 //! keep the raw-pointer / `write_volatile` access the cursor overlay needs, but
 //! delegate the blend math to the same `nexus_gfx::raster` cores.
 
-#![cfg(all(feature = "os-lite", target_os = "none"))]
+// The 2D path's alone: the virgl build composes through the GL device, the board's display
+// through its GPU (TASK-0215 5d) — neither rasterizes a present on the CPU.
+#![cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 
 use core::ptr::{read_volatile, write_volatile};
 

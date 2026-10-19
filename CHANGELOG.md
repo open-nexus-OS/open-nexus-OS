@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-19 (Block 4, layer 5d: the CPU composite deleted on the board — TASK-0215; layer 5 complete)
+
+- **The board's display has one drawing path.** A present is drawn by the GPU in windowd's
+  context into the ring's slot, or refused by name (`gpud: FAIL dc present (`, said once, the
+  present's status an error, the slot given back) — the CPU composite of the board's display
+  (the retained plane copied into the slot, the commands run by the CPU executor, the slot
+  cleaned) is deleted; no present-time line is tolerated. The CPU executor and its raster family
+  are the virtio 2D path's alone (cfg-gated to it); the pointer's shape cache is its own module,
+  read by the controller's layer and the 2D path.
+- **The hover frame measured against its bar**: the gate scene line carries the best warm frame
+  (`hover_us=`, bar 8 300 µs) and is `ok` only when the scene and the hover frame are both
+  below their bars — 12.3 ms on the board for the cause 5c-4 named (a pass's fragment job
+  starts 12 ms after its geometry job in windowd's context).
+- **Layer 5 complete; its open bars carried to Block 4 layer 8** with their measured cause
+  (`tasks/IMPLEMENTATION-ORDER.md`): the hover and gate-scene bars, the passes a frame runs,
+  the shell's damage rectangles, what moves alone on a controller plane, windowd's CPU scene on
+  the board, the v1 trait's retirement. RFC-0101 Phase 4 ✅.
+- Board cycle 43 (nothing refused through the boot, the operator's desktop confirmed);
+  `just test-all` before the deletion (one network-family flake, `SELFTEST: ingress allow FAIL`
+  in the reset lane, green on its rerun) and after.
+
 ### Changed - 2026-10-19 (Block 4, layer 5c-3 P6: the glass at quarter resolution, the pass measured — TASK-0215; 5c-3 complete)
 
 - **The glass blurs at quarter resolution** from radius 20 on, on the board and on QEMU (the

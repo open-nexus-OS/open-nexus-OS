@@ -1,0 +1,5 @@
+# cycle 43 (board--2026-10-19T16-23-56), 5d: the CPU composite deleted; the operator's confirmations but tile (TASK-0066 F8); the gate scene a measurement, its FAIL form allow-listed with its cause (the hover frame on it since 5d)
+[board-test] judging build/logs/board--2026-10-19T16-23-56/uart.log as profile board-visible
+[board-test] known board reds tolerated (config/fail-marker-allow-board.txt): 13
+[board-test] ladder complete: 70 rungs present
+[FAIL] board-visible: operator marker missing in the capture: board-visual: tile

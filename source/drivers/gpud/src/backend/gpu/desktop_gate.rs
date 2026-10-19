@@ -18,13 +18,17 @@ use crate::gpu_context::FrameTarget;
 /// blurred at quarter size): 23.3 ms a frame (`docs/board/measurements/2026-10-10-gpu-stock-
 /// baseline/`), the gate of TASK-0215 5c-4.
 const GATE_BAR_US: u64 = 23_300;
+/// The bar for a hover frame (TASK-0215 5d): a pointer-sized change over the cached glass —
+/// the stock stack's smallest frame, 8.3 ms (the same folder).
+const HOVER_BAR_US: u64 = 8_300;
 
 impl Desktop {
-    /// The gate scene (TASK-0215 5c-4): the stock stack's `glass-quarter` — the base plane and a
-    /// screen-sized glass at radius 40 — drawn into the slot before the compositor's first
+    /// The gate scene (TASK-0215 5c-4, 5d): the stock stack's `glass-quarter` — the base plane
+    /// and a screen-sized glass at radius 40 — drawn into the slot before the compositor's first
     /// frame: cold (the glass blurred and cached) and warm (a pointer-sized change, the glass
-    /// read); `gpud: gpu gate scene (…)`, `ok` when the cold frame is below the stock's 23.3 ms.
-    /// The set is cleared afterwards and every slot redrawn whole by the next frame.
+    /// read — the hover frame); `gpud: gpu gate scene (…)`, `ok` when the cold frame is below
+    /// the stock's 23.3 ms and the best warm frame below its 8.3 ms. The set is cleared
+    /// afterwards and every slot redrawn whole by the next frame.
     pub(super) fn gate(
         &mut self,
         dev: &mut Device,
@@ -83,14 +87,22 @@ impl Desktop {
         let (cold_us, cold_passes, warm_us, warm_passes, piped_us) = drawn?;
         // The last warm frame's one pass: its wait, the wait's iterations, the interrupts.
         let [wait_us, iters, irqs] = self.pass_witness;
-        if cold_us.min(piped_us) < GATE_BAR_US {
+        let hover_us = warm_us.iter().copied().min().unwrap_or(u64::MAX);
+        let scene_met = cold_us.min(piped_us) < GATE_BAR_US;
+        let hover_met = hover_us < HOVER_BAR_US;
+        if scene_met && hover_met {
             emit_fmt(format_args!(
-                "gpud: gpu gate scene ok (cold_us={cold_us} pipelined_us={piped_us} warm_us={}/{}/{} passes={cold_passes}/{warm_passes} pass_wait_us={wait_us} iters={iters} irqs={irqs} bar={GATE_BAR_US})",
+                "gpud: gpu gate scene ok (cold_us={cold_us} pipelined_us={piped_us} warm_us={}/{}/{} hover_us={hover_us} passes={cold_passes}/{warm_passes} pass_wait_us={wait_us} iters={iters} irqs={irqs} bar={GATE_BAR_US} hover_bar={HOVER_BAR_US})",
                 warm_us[0], warm_us[1], warm_us[2]
             ));
         } else {
+            let above = match (scene_met, hover_met) {
+                (false, false) => "the scene above its bar and the hover frame above its bar",
+                (false, true) => "the scene above its bar",
+                _ => "the hover frame above its bar",
+            };
             emit_fmt(format_args!(
-                "gpud: FAIL gpu gate scene (cold_us={cold_us} pipelined_us={piped_us} above the bar {GATE_BAR_US}; warm_us={}/{}/{} passes={cold_passes}/{warm_passes} pass_wait_us={wait_us} iters={iters} irqs={irqs})",
+                "gpud: FAIL gpu gate scene (cold_us={cold_us} pipelined_us={piped_us} bar={GATE_BAR_US} hover_us={hover_us} hover_bar={HOVER_BAR_US}: {above}; warm_us={}/{}/{} passes={cold_passes}/{warm_passes} pass_wait_us={wait_us} iters={iters} irqs={irqs})",
                 warm_us[0], warm_us[1], warm_us[2]
             ));
         }

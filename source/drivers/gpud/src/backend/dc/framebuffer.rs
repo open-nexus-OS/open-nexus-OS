@@ -8,16 +8,14 @@
 //! the whole shared layout (`nexus_display_proto::layout`: the planes and the atlas windowd
 //! composes with), whose display plane the controller scans from the reveal on. The controller
 //! does not snoop the caches: what the CPU wrote is cleaned out before the controller reads it
-//! (Zicbom, the block size the controller's capability carries) — the damage of every present,
-//! the whole plane before a switch.
+//! (Zicbom, the block size the controller's capability carries) — the splash, the whole plane
+//! before a switch; and what the GPU drew is dropped before the CPU reads it (a readback).
 
 use nexus_abi::{DmaCoherence, DmaVmo};
 use nexus_display_proto::layout;
 use nexus_gfx::backend::dc::{damage_spans, Plane};
 use nexus_gfx::backend::types::Rect;
 use nexus_service_topology::slots::gpud as topo;
-
-use crate::backend::cpu_frame::Target;
 
 /// Why a block could not be made.
 #[derive(Clone, Copy, Debug)]
@@ -161,34 +159,9 @@ impl Framebuffer {
         }
     }
 
-    /// Copy the `width`x`height` picture of the plane at row `from` into the plane at row `to`
-    /// (buffer age: what a present does not redraw comes from the frame on screen).
-    pub(super) fn copy_plane(&mut self, from: u32, to: u32, width: u32, height: u32) {
-        let stride = self.stride as usize;
-        let row_bytes = (width as usize * layout::BYTES_PER_PIXEL as usize).min(stride);
-        let (src, dst) = (layout::row_offset_bytes(from), layout::row_offset_bytes(to));
-        let bytes = self.mem.bytes_mut();
-        for y in 0..height as usize {
-            let (s, d) = (src + y * stride, dst + y * stride);
-            if d + row_bytes > bytes.len() || s + row_bytes > bytes.len() {
-                return;
-            }
-            bytes.copy_within(s..s + row_bytes, d);
-        }
-    }
-
-    /// The scanned plane's bytes, for the CPU to draw into.
+    /// The scanned plane's bytes, for the CPU to draw the splash into.
     pub(super) fn plane_mut(&mut self) -> &mut [u8] {
         &mut self.mem.bytes_mut()[self.plane_start..]
-    }
-
-    /// The whole block as the CPU executor's target (rows of the layout's stride).
-    pub(super) fn target(&mut self) -> Target {
-        let bytes = self.mem.bytes_mut();
-        let stride_px = (self.stride / layout::BYTES_PER_PIXEL) as usize;
-        // SAFETY: the block is this service's own mapping, alive while `self` is; the executor
-        // runs one command at a time on the service's one thread, nothing else borrows it then.
-        unsafe { Target::new(bytes.as_mut_ptr(), bytes.len(), stride_px) }
     }
 
     /// `OP_READBACK` (RFC-0095): `req` of the `w`x`h` display plane into the caller's VMO, rows

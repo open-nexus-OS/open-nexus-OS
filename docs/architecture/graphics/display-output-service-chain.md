@@ -57,10 +57,11 @@ contains the required evidence.
   stats, the reveal latch) drives ONE display behind `backend::display::Display` — the virtio
   GPU on QEMU (`backend/virtio_display.rs`: its 2D scanout or its virgl GL scanout) or the
   board's display controller (`backend/dc/`: a contiguous framebuffer made for the controller,
-  each present's damage cleaned out of the caches, the boot splash held until the first
-  present after windowd's reveal and then switched to the display plane). A present's commands
-  run through ONE CPU executor (`backend/cpu_frame.rs`) on every display that composites on the
-  CPU — the 2D scanout, the virgl path's per-command fallbacks, the controller. On the board
+  a ring of planes flipped at the vertical blank, the boot splash held until the first
+  present after windowd's reveal and then switched to the display plane). On QEMU's 2D scanout
+  a present's commands run through the CPU executor (`backend/cpu_frame.rs`); on the board every
+  present is drawn by the GPU in windowd's context (`backend/dc/gpu_frame.rs`, TASK-0215) or
+  refused by name — the board's display has no CPU composite (5d, 2026-10-19). On the board
   the mode is the CEA timing of the layout maximum, 1920x1080@60 (`gpud: dc scanout ok
   (1920x1080@60 cea …)`), until the EDID read over DDC lands with the GPU lane (RFC-0098 C7 as
   amended 2026-10-10); the pointer is the controller's own layer (`gpud: dc cursor layer ok`,

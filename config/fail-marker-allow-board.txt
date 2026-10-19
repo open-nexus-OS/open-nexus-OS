@@ -58,10 +58,12 @@ KSELFTEST: ipc call budget FAIL
 # Block 1"), the frame's cost the DSL/layout lane's (tasks/TASK-0251 finding 8, pretext).
 SELFTEST: frame arena spill FAIL
 #
-# TASK-0215 5c-4: the gate scene — windowd's executor draws the stock stack's `glass-quarter`
-# picture at windowd's first frame against the stock's 23.3 ms. Red since cycle 38 (2026-10-19)
-# with its cause measured: a pass's fragment job starts 12 ms after its geometry job in
-# windowd's context (`gpud: gpu pass trace`), four passes a frame; carried with its levers in
-# tasks/TASK-0215 (P6) and docs/board/measurements/2026-10-13-gpu-render-queue/ ("5c-3 P6").
+# TASK-0215 5c-4 + 5d: the gate scene — windowd's executor draws the stock stack's
+# `glass-quarter` picture at windowd's first frame against the stock's 23.3 ms, and a hover
+# frame (a pointer-sized change over the cached glass) against its 8.3 ms. Red since cycle 38
+# (2026-10-19) with its cause measured: a pass's fragment job starts 12 ms after its geometry
+# job in windowd's context (`gpud: gpu pass trace`) — four passes for the scene, one for the
+# hover frame (12.3 ms); carried to Block 4 layer 8 with its levers in tasks/TASK-0215 (5d),
+# tasks/IMPLEMENTATION-ORDER.md and docs/board/measurements/2026-10-13-gpu-render-queue/.
 # Remove this line once `gpud: gpu gate scene ok (` is the board's.
 gpud: FAIL gpu gate scene (

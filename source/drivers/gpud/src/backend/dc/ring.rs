@@ -109,7 +109,7 @@ impl Ring {
         }
     }
 
-    /// The running present is discarded (composed while the splash holds the glass).
+    /// The running present is discarded (drawn while the splash holds the glass, or refused).
     pub(super) fn discard(&mut self) {
         if let Some(slot) = self.drawing.take() {
             let _ = self.ring.release(slot);

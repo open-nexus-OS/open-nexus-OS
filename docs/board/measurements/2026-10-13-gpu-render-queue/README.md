@@ -1841,3 +1841,64 @@ a frame runs (every glass chain of a frame in one scratch, one horizontal and on
 pass), and the shell's damage rectangles (the app-host presents whole surfaces and full-width
 row bands, so a desktop change touches every glass in its rows). 5c-3 P6 complete; 5c-4's bar
 carried with these three.
+
+## 5d — the CPU composite deleted on the board (TASK-0215; layer 5 complete)
+
+**Question.** Since cycle 31 every present on the board has been the GPU's; the CPU composite
+(`DcDisplay::compose`: the retained plane copied into the slot, the commands run by the CPU
+executor, the slot cleaned) was reached only when the GPU refused — cycle 40's reset, which the
+operator saw as square blur corners and a slower desktop. With that path deleted, does the
+board's desktop run through a boot with every present the GPU's and nothing refused; and where
+does a hover frame — a pointer-sized change over the cached glass — stand against the stock
+stack's 8.3 ms?
+
+**Measured first** (cycle 42's log, `board--2026-10-19T13-10-06`): the present windows' stage
+times are zero (`gpud: dc present us (… blur=0 layer=0 shadow=0 blit=0 fill=0 …)` — no CPU
+command ran); windowd's context opens before its first present (`gpu library ok
+(client=windowd` at line 824, `dc first present` at 947); no `FAIL gpu desktop` since cycle 31.
+The hover frame exists as the gate scene's warm frame (cycles 38–42: `warm_us=12277/12350/12664`
+and the like), its cost the one pass's fragment start (P6).
+
+**What 5d builds.** `execute_on` hands the present to the GPU or refuses it by name —
+`gpud: FAIL dc present (windowd's GPU context is not open)` / `(the GPU did not draw the
+frame)`, once, the present's status an error, the ring's slot given back; `compose`, the
+retained→slot copy and the CPU target are deleted; the pointer's shape cache is its own module
+(`backend/cursor_shapes.rs`), the CPU executor and its raster family the 2D path's alone. The
+gate scene line carries the hover frame: `hover_us=` (the best warm frame), `hover_bar=8300`;
+`ok` only when the scene and the hover frame are both below their bars, the FAIL form naming
+which is above.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H99 | The board's desktop runs through a boot with every present the GPU's: nothing refused | no `gpud: FAIL dc present (` in the boot; `gpud: gpu desktop ok (`; the operator's desktop, typed input, scrolling, screenshot |
+| H100 | The hover frame is the warm frame of cycles 38–42: 12.3 ms, above the 8.3 ms bar for the fragment start | `hover_us=` within 12 000–13 000 in `gpud: FAIL gpu gate scene (… hover_bar=8300: …)` |
+| H101 | The present windows read as before — the GPU's frames, no CPU stage time | `gpud: dc present us (… blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 …)`, `avg=` in the range of cycles 41–42 |
+
+### Results (cycle 43, `board--2026-10-19T16-23-56`; `cycle43-gpu-lines.txt`, `cycle43-board-test.txt`)
+
+- **Nothing refused**: no `gpud: FAIL dc present (` in the boot; `gpud: gpu desktop ok
+  (frame_us=6168 passes=1 … clean_us=905 open_us=20388)`, `windowd: desktop revealed (seq=23)`,
+  the glasses written once per window as in cycle 42. The operator: the desktop, typed input,
+  the pointer, a dialog, the clipboard and a screenshot confirmed (`tile` not: TASK-0066 F8).
+  H99 ✅.
+- **The hover frame**: `gpud: FAIL gpu gate scene (cold_us=35676 pipelined_us=33529 bar=23300
+  hover_us=12367 hover_bar=8300: the scene above its bar and the hover frame above its bar;
+  warm_us=12367/12457/12655 passes=4/1 pass_wait_us=14850 iters=16 …)` — 12.4 ms, the one
+  pass's fragment start as in cycles 38–42. H100 ✅ (the bar carried to layer 8).
+- **The present windows**: fifteen `gpud: dc present us (…)` lines, every stage time zero
+  (`blur=0 layer=0 shadow=0 blit=0 fill=0 other=0`), `avg=` 21.6–85.6 ms, `clean=` 0–1 µs — the
+  GPU's frames alone, as in cycles 41–42 (the averages the frames' glass writes; the shell's
+  damage rectangles, layer 8). H101 ✅.
+- **Carried, not 5d's**: six `gpud: chain G3 exec FAIL` / `chain reason: resource exhausted` /
+  `present scanout damage FAIL` runs with `windowd: gpud present nack status=0x02` and a retry
+  — the ring's three planes all taken during a present burst (one scanned, one flip queued,
+  one waiting for the blank) and windowd's back-pressure answering; in every cycle since 33
+  (4–7 a boot), none before. The ring's size and the compositor's pacing against the blank are
+  the frame clock's item (RFC-0101 §8, layer 8's closing).
+- Ladder: 70 rungs present, 13 tolerated reds, `board-visual: tile` missing (as cycles 31–42).
+
+**Verdict (5d; layer 5).** The board's display composes nothing on the CPU: every present of
+the boot is the GPU's or would be refused by name, and none was. The hover frame stands at
+12.4 ms against the stock's 8.3 ms for the cause P6 measured; the bar is carried to Block 4
+layer 8 with the gate scene's, the passes a frame runs, the shell's damage rectangles, the
+planes for what moves and windowd's CPU scene. Layer 5 complete.

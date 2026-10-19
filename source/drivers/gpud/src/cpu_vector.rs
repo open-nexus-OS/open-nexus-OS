@@ -11,7 +11,8 @@
 //! API_STABILITY: Unstable
 //! RFC: docs/rfcs/RFC-0063-ui-v5b-scene-graph-gpu-pipeline-virtual-list-theme-contract.md
 
-#![cfg(all(feature = "os-lite", target_os = "none"))]
+// The 2D path's alone (the virgl build and the board's display compose on their GPUs).
+#![cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 
 use nexus_gfx::command::buffer::RgbaColor;
 use nexus_gfx::raster::{self, Surface};

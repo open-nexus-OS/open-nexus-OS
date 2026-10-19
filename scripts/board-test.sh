@@ -155,13 +155,16 @@ ladder_headless=(
   # highest priority with windowd's library (a moved VMO) — the sender checked, the context made
   # as the rungs' is, every entry placed; gpud holds no library of its own.
   "gpud: gpu library ok (client=windowd"
-  # TASK-0215 5c-3 P4b: windowd's desktop drawn on the GPU in windowd's context — the frame
-  # plan lowered for the board (glass blurred into its cache, the slot's pass), waited, flipped.
+  # TASK-0215 5c-3 P4b, 5d: windowd's desktop drawn on the GPU in windowd's context — the frame
+  # plan lowered for the board (glass blurred into its cache, the slot's pass), waited, flipped;
+  # the board's display has no other drawing path (5d deleted the CPU composite: a present the
+  # GPU does not draw is `gpud: FAIL dc present (`, never tolerated).
   "gpud: gpu desktop ok ("
-  # TASK-0215 5c-4: the stock stack's gate scene (the wallpaper and a screen-sized glass at
-  # quarter size) drawn by windowd's executor — a measurement until it meets the stock's
-  # 23.3 ms (`gpud: gpu gate scene ok (`; its FAIL form is allow-listed with its cause:
-  # a pass's fragment job starts 12 ms after its geometry job, cycles 38–42).
+  # TASK-0215 5c-4, 5d: the stock stack's gate scene (the wallpaper and a screen-sized glass at
+  # quarter size) and a hover frame over the cached glass, drawn by windowd's executor — a
+  # measurement until it meets the stock's 23.3 ms and 8.3 ms (`gpud: gpu gate scene ok (`; its
+  # FAIL form is allow-listed with its cause: a pass's fragment job starts 12 ms after its
+  # geometry job, cycles 38–42; carried to layer 8).
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

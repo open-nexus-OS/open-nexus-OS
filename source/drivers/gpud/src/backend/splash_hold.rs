@@ -61,7 +61,7 @@ impl SplashHold {
 mod tests {
     use super::*;
 
-    /// Presents before windowd's ask are composed, never shown: no switch, the splash holds.
+    /// Presents before windowd's ask are drawn, never shown: no switch, the splash holds.
     #[test]
     fn test_reject_a_switch_before_the_reveal_ask() {
         let hold = SplashHold::default();

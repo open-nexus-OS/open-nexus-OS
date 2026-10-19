@@ -3,14 +3,15 @@
 
 //! The board's display as the request loop's display (TASK-0251 P2a step 2): windowd's
 //! framebuffer is ONE contiguous block for the controller (the whole shared layout, made at
-//! bring-up, granted at windowd's first request); a present runs through the CPU executor the
-//! virtio 2D path runs, then its damage is cleaned out of the caches (the controller does not
-//! snoop them) — or, once windowd's GPU context is open, is drawn on the GPU (TASK-0215 5c-3
-//! P4b, `gpu_frame.rs`). The splash holds the glass until the first present after windowd's reveal: that
-//! present cleans the whole display plane and switches the controller to it. The pointer is the
-//! controller's own layer (`cursor.rs`, TASK-0251 P2a step 3c): windowd's upload arms it and
-//! hears `CURSOR_REPLY_HW`, a move is the layer's rectangle, a `BlendCursor` in a present is
-//! refused — no present carries the pointer on this path.
+//! bring-up, granted at windowd's first request); a present is drawn by the GPU in windowd's
+//! context into the ring's free slot (TASK-0215 5c-3 P4b, `gpu_frame.rs`) — or refused by name:
+//! nothing composes on the CPU here (TASK-0215 5d deleted the CPU executor from this display;
+//! the controller does not snoop the caches, and what the GPU wrote needs no clean). The splash
+//! holds the glass until the first present after windowd's reveal: that present cleans the
+//! whole display plane and switches the controller to it. The pointer is the controller's own
+//! layer (`cursor.rs`, TASK-0251 P2a step 3c): windowd's upload arms it and hears
+//! `CURSOR_REPLY_HW`, a move is the layer's rectangle, a `BlendCursor` in a present is refused
+//! — no present carries the pointer on this path.
 
 use nexus_abi::{debug_println, nsec};
 use nexus_display_proto::{CURSOR_REPLY_HW, STATUS_DEVICE_ERROR, STATUS_MALFORMED, STATUS_OK};
@@ -25,39 +26,18 @@ use super::{emit, ring, DcDisplay};
 /// Notifications drained per wake (xhcid's pattern): a coalesced burst, never a spin.
 const VBLANK_DRAIN_MAX: u32 = 8;
 use crate::backend::display::Display;
-use nexus_gfx::backend::dc::frame_stats::Stage;
 use nexus_gfx::backend::dc::regs;
 
 impl DcDisplay {
-    /// The present composed on the CPU into `slot`: screen-relative commands land on the slot's
-    /// rows, over its base.
-    fn compose(&mut self, commands: &[Command], slot: usize) -> Result<(), GfxError> {
-        let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));
-        let row = ring::ROWS[slot];
-        let Some(fb) = self.live.as_mut().and_then(|live| live.framebuffer.as_mut()) else {
-            return Err(GfxError::DeviceNotFound);
-        };
-        self.slot_cpu[slot] = true;
-        self.slot_gpu[slot] = false;
-        // The frame composed off-screen starts from its base: the retained plane — windowd's
-        // cursor-free scene, kept current by its damage writes — copied whole (about 3 ms of
-        // 8.3 MB; the scene's own retained blits restore only its damage, and a layer blended
-        // over a plane three frames old would ghost, over the last frame it darkened: the
-        // shadows of 2026-10-10). G4 deletes this composite; the copy goes with it.
-        fb.copy_plane(nexus_display_proto::layout::RETAINED_ROW, row, w, h);
-        self.cpu.display_row = row;
-        let target = fb.target();
-        for cmd in commands {
-            self.stats.count(cmd);
-            if matches!(cmd, Command::BlendCursor { .. }) {
-                self.blend_cursor_skipped();
-                continue;
-            }
-            let c0 = nsec().unwrap_or(0);
-            self.cpu.execute(&target, cmd)?;
-            self.stats.command(Stage::of(cmd), nsec().unwrap_or(c0).saturating_sub(c0));
+    /// A present the GPU did not draw is refused — said once with its reason, never composed
+    /// another way (TASK-0215 5d: the board's display has one drawing path).
+    fn refuse(&mut self, reason: &str) -> GfxError {
+        if !self.refused_reported {
+            self.refused_reported = true;
+            emit(&alloc::format!("gpud: FAIL dc present ({reason})"));
         }
-        Ok(())
+        self.ring.discard();
+        GfxError::Unsupported
     }
 
     /// The pointer is the controller's layer: a software-blended pointer in a present is the
@@ -155,8 +135,8 @@ impl Display for DcDisplay {
     }
 
     /// A present into the ring's free slot (RFC-0101 §8): drawn by the GPU in windowd's context
-    /// when it is ready and the plan covers the present (TASK-0215 5c-3 P4b), composed on the
-    /// CPU otherwise.
+    /// (TASK-0215 5c-3 P4b) — refused by name when no context is open or the GPU did not draw
+    /// it (TASK-0215 5d: no composite stands in; the ring's slot is given back).
     fn execute_on(
         &mut self,
         frames: Option<&mut dyn crate::gpu_context::FrameGpu>,
@@ -170,29 +150,30 @@ impl Display for DcDisplay {
             self.ring.discard();
             return Err(GfxError::DeviceNotFound);
         }
-        self.drawn_by_gpu = frames.is_some_and(|f| self.draw_on_gpu(f, commands, slot));
-        let composed = if self.drawn_by_gpu {
-            for cmd in commands {
-                self.stats.count(cmd);
-                if matches!(cmd, Command::BlendCursor { .. }) {
-                    self.blend_cursor_skipped();
-                }
-            }
-            Ok(())
-        } else {
-            self.compose(commands, slot)
+        let Some(frames) = frames else {
+            self.drawn_by_gpu = false;
+            return Err(self.refuse("windowd's GPU context is not open"));
         };
+        self.drawn_by_gpu = self.draw_on_gpu(frames, commands, slot);
+        if !self.drawn_by_gpu {
+            return Err(self.refuse("the GPU did not draw the frame"));
+        }
+        for cmd in commands {
+            self.stats.count(cmd);
+            if matches!(cmd, Command::BlendCursor { .. }) {
+                self.blend_cursor_skipped();
+            }
+        }
         self.exec_ns = nsec().unwrap_or(t0).saturating_sub(t0);
         if !self.first_reported {
             self.first_exec_ns = self.exec_ns;
         }
-        composed
+        Ok(())
     }
 
-    /// The drawn slot cleaned out of the caches (a frame the CPU composed; the GPU's is in
-    /// memory) and its flip queued for the next vertical blank — or, while the splash holds the
-    /// glass, discarded (the reveal's present switches the controller at once, the one
-    /// immediate flip).
+    /// The drawn slot's flip queued for the next vertical blank (the GPU's frame is in memory:
+    /// nothing to clean) — or, while the splash holds the glass, discarded (the reveal's present
+    /// switches the controller at once, the one immediate flip).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError> {
         let t0 = nsec().unwrap_or(0);
         // A GPU frame's damage is what its slot's pass redrew, not what the present named.
@@ -202,16 +183,6 @@ impl Display for DcDisplay {
             return Err(GfxError::CommandRejected);
         };
         let row = ring::ROWS[slot];
-        {
-            let fb = self
-                .live
-                .as_ref()
-                .and_then(|live| live.framebuffer.as_ref())
-                .ok_or(GfxError::DeviceNotFound)?;
-            if !self.drawn_by_gpu {
-                fb.clean_at(row, &fb.plane_at(row, w, h), damage);
-            }
-        }
         // The tear gate (RFC-0101 §8): the plane on screen is never drawn into. By the ring's
         // construction this cannot happen; the FAIL form keeps the lane honest if it does.
         let front = self.ring.scanned() == Some(slot);
@@ -453,14 +424,14 @@ impl Display for DcDisplay {
         h: u32,
         hot: (u32, u32),
     ) -> Result<(), GfxError> {
-        self.cpu.cache_shape(id, bgra, w, h, hot)
+        self.shapes.cache(id, bgra, w, h, hot)
     }
 
     /// `OP_SELECT_CURSOR_SHAPE`: the cached shape into the pointer's block, the layer moved to
     /// the new hotspot's rectangle (a shape change is a few bus writes, no present).
     fn select_cursor_shape(&mut self, id: u8) -> Result<(), GfxError> {
         let mode = self.mode;
-        let (bgra, w, h, hot) = self.cpu.shape(id).ok_or(GfxError::InvalidArgument)?;
+        let (bgra, w, h, hot) = self.shapes.get(id).ok_or(GfxError::InvalidArgument)?;
         let live = self.live.as_mut().ok_or(GfxError::DeviceNotFound)?;
         let layer = live.cursor.as_mut().filter(|l| l.armed).ok_or(GfxError::DeviceNotFound)?;
         layer.store(bgra, w, h, hot)?;
@@ -511,7 +482,7 @@ impl Display for DcDisplay {
 
     /// RFC-0095: a readback copies the frame on screen; the CPU reads a plane the GPU drew
     /// after dropping its stale lines (the controller never writes the block). A freeze copies
-    /// the frame into the retained plane, the base both paths start from until the thaw.
+    /// the frame into the retained plane, the base the GPU's scene starts from until the thaw.
     fn readback(&mut self, dest: u32, req: &nexus_display_proto::readback::Readback) -> u8 {
         use nexus_display_proto::readback::READBACK_FREEZE;
         let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));

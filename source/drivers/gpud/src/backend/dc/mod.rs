@@ -11,10 +11,9 @@
 //! own, cleans it out of the caches, programs the controller's pipeline
 //! (`nexus_gfx::backend::dc::bring_up`) and proves the scan (step 1, first light). windowd's
 //! desktop (step 2, `present.rs`): the framebuffer granted to windowd is ONE contiguous block for
-//! the controller, a present runs through the CPU executor the 2D virtio path runs
-//! (`cpu_frame`) and its damage is cleaned out of the caches — or, once windowd's GPU context is
-//! open, is drawn on the GPU in that context (TASK-0215 5c-3 P4b, `gpu_frame.rs`), the CPU
-//! composing a frame the GPU did not draw; the splash holds the glass until
+//! the controller; a present is drawn by the GPU in windowd's context into a slot of the ring
+//! (TASK-0215 5c-3 P4b, `gpu_frame.rs`) or refused by name — the board's display composes
+//! nothing on the CPU (TASK-0215 5d deleted that path); the splash holds the glass until
 //! the first present after windowd's reveal, which switches the controller to the framebuffer's
 //! display plane (RFC-0093 §5, `splash_hold`).
 //! OWNERS: @ui @runtime
@@ -42,7 +41,7 @@ use nexus_service_topology::slots::gpud as topo;
 use self::controller::Controller;
 use self::encoder::Encoder;
 use self::framebuffer::Framebuffer;
-use super::cpu_frame::CpuFrame;
+use super::cursor_shapes::CursorShapes;
 use super::splash_hold::SplashHold;
 
 fn emit(line: &str) {
@@ -93,9 +92,8 @@ pub(crate) struct DcDisplay {
     live: Option<Live>,
     /// The mode the controller drives.
     mode: (u16, u16),
-    /// The CPU executor's state (the pointer shape cache the controller's layer takes its
-    /// sprites from; its blend sprite is never used on this path — the layer is the pointer).
-    cpu: CpuFrame,
+    /// The pointer shape cache the controller's layer takes its sprites from.
+    shapes: CursorShapes,
     /// RFC-0093 §5: the splash holds until the first present after windowd's reveal.
     hold: SplashHold,
     /// The first present's cost, printed once with its clean (`gpud: dc first present (`).
@@ -114,12 +112,14 @@ pub(crate) struct DcDisplay {
     front_reported: bool,
     /// The ring's slots as the caches see them (TASK-0215 5c-3 P4b): the GPU drew the slot last
     /// (a readback drops the CPU's stale lines first); the CPU wrote it since the GPU last did
-    /// (a GPU frame drops the CPU's lines first — one written back late would land over the
-    /// GPU's pixels).
+    /// — the splash's planes, a rung's canvas (a GPU frame drops the CPU's lines first — one
+    /// written back late would land over the GPU's pixels).
     slot_gpu: [bool; ring::SLOTS],
     slot_cpu: [bool; ring::SLOTS],
-    /// The running present was drawn by the GPU: its slot needs no clean.
+    /// The running present was drawn by the GPU (every present that was not is refused).
     drawn_by_gpu: bool,
+    /// A present refused for want of a GPU frame, said once (`gpud: FAIL dc present (`).
+    refused_reported: bool,
     /// What the GPU's frame redrew of its slot (the present's damage for the ring and the
     /// statistics; empty when the slot lacked nothing).
     gpu_area: Option<nexus_gfx::backend::types::Rect>,
@@ -191,7 +191,7 @@ impl DcDisplay {
         DcDisplay {
             live: Live::bring_up(w, h),
             mode,
-            cpu: CpuFrame::new(),
+            shapes: CursorShapes::new(),
             hold: SplashHold::default(),
             first_exec_ns: 0,
             first_reported: false,
@@ -206,6 +206,7 @@ impl DcDisplay {
             // dropped once before the GPU's first frame in it.
             slot_cpu: [true; ring::SLOTS],
             drawn_by_gpu: false,
+            refused_reported: false,
             gpu_area: None,
             frozen: false,
             base_dirty: true,

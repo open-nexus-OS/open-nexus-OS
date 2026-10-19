@@ -36,11 +36,14 @@ mod attach;
 mod backing;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 mod bootstrap;
-// The CPU executor + the software cursor's state, shared by the 2D virtio path and the board's
-// display controller (TASK-0251 P2a step 2). The sprite store is host-tested.
+// The CPU executor + the software cursor's state of the 2D virtio path (the board's display
+// composes nothing on the CPU — TASK-0215 5d). The sprite store is host-tested.
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod cpu_frame;
 mod cursor;
+// The pointer's shape cache, shared by the CPU executor and the board's pointer layer.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod cursor_shapes;
 // TASK-0251 P2: the board's display controller + HDMI encoder (granted instead of a GPU).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod dc;
@@ -103,13 +106,13 @@ pub(crate) use bootstrap::splash_pulse_q8;
 // `raster` is os-lite only, matching its moved symbols.
 #[allow(unused_imports)]
 use cursor::*;
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 #[allow(unused_imports)]
 use raster::*;
 
 // External-surface re-export: `crate::backend::blend_pixel_vmo` is used by
 // `cpu_vector.rs`; keep it resolving after the move into `raster`.
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 pub(crate) use raster::blend_pixel_vmo;
 
 /// Wraps a virtio-gpu MMIO device and implements GfxBackend.
@@ -150,8 +153,7 @@ pub struct VirtioGpuBackend {
     resources: alloc::vec::Vec<ResourceRecord>,
     pub(crate) scanout_resource: Option<ResourceId>,
     /// What the CPU executor reads besides the framebuffer: windowd's fragment uniforms and the
-    /// software cursor (sprite, hotspot, shape cache) — shared with the board's display
-    /// controller (`cpu_frame`).
+    /// software cursor (sprite, hotspot, shape cache) — `cpu_frame`.
     #[cfg(all(feature = "os-lite", target_os = "none"))]
     pub(crate) cpu: cpu_frame::CpuFrame,
     /// Real icon sprite (premultiplied BGRA), windowd-rendered from SVG and

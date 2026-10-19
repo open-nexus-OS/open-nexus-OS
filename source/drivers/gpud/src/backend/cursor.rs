@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The cursor: the software sprite windowd's `BlendCursor` composites into the display plane
-//! (the blend below; the sprite itself lives in `cpu_frame`, shared with the board's display
-//! controller), the procedural arrow it falls back to before a sprite exists, and the virtio
+//! (the blend below; the sprite itself lives in `cpu_frame`, the shape cache in
+//! `cursor_shapes`), the procedural arrow it falls back to before a sprite exists, and the virtio
 //! GPU's hardware cursor overlay. The save-under cursor gpud once painted on its own (never
 //! armed since windowd composites the cursor) is deleted.
 
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 use super::raster::{blend_pixel_vmo, blend_premultiplied_vmo};
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use super::transport::ctrl_hdr;
@@ -22,7 +22,7 @@ use nexus_gfx::backend::types::Rect;
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 use nexus_gfx::core::types::PixelFormat;
 
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn blend_cursor_vmo(
     fb: *mut u8,
@@ -87,7 +87,7 @@ pub(crate) fn blend_cursor_vmo(
 /// `B` = dark border, `W` = white fill, space = transparent. This is a fixed
 /// crisp shape so the cursor reads as a normal pointer regardless of the 32×32
 /// footprint windowd reserves — the opaque arrow occupies only the top-left.
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 const CURSOR_ARROW: [&[u8; 12]; 19] = [
     b"B           ",
     b"BB          ",
@@ -112,7 +112,7 @@ const CURSOR_ARROW: [&[u8; 12]; 19] = [
 
 /// Sample the arrow sprite at (px, py). Pixels outside the 12×19 shape (or in a
 /// space cell) are fully transparent, so the cursor never fills its whole box.
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 pub(crate) fn cursor_pixel_bgra(px: u32, py: u32, _w: u32, _h: u32) -> [u8; 4] {
     if py >= CURSOR_ARROW.len() as u32 || px >= 12 {
         return [0, 0, 0, 0];

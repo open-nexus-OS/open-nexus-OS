@@ -1,40 +1,39 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: The CPU executor of windowd's present commands — ONE implementation for every
-//! display that composites on the CPU: the virtio GPU's 2D path (and the per-command fallbacks
-//! of its virgl path) on QEMU, and the board's display controller (TASK-0251 P2a step 2). A
-//! command lands in the shared framebuffer through `nexus_gfx::raster` (`raster.rs`' adapters):
+//! CONTEXT: The CPU executor of windowd's present commands — the virtio GPU's 2D path (and the
+//! per-command fallbacks of its virgl path) on QEMU. The board's display composes nothing on
+//! the CPU: its presents are the GPU's or refused (`backend/dc`, TASK-0215 5d). A command lands
+//! in the shared framebuffer through `nexus_gfx::raster` (`raster.rs`' adapters):
 //! screen-relative commands at the display plane's row, absolute ones where they say. What the
 //! commands read besides the framebuffer lives here too: windowd's fragment uniforms and the
-//! software cursor (its sprite, its hotspot and the shape cache windowd fills once).
+//! software cursor (its sprite and its hotspot; the shape cache windowd fills once is
+//! `cursor_shapes`, shared with the board's pointer layer).
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: the sprite store below (host, `test_reject_*`); the raster primitives in
-//!   nexus-gfx (host); every QEMU lane on the 2D path (`gpud: chain G3 exec ok`, the reveal);
-//!   the board ladder (`windowd: desktop revealed`)
+//!   nexus-gfx (host); every QEMU lane on the 2D path (`gpud: chain G3 exec ok`, the reveal)
 
 use alloc::vec::Vec;
 
 use nexus_gfx::backend::error::GfxError;
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 use nexus_gfx::command::buffer::{Command, RgbaColor};
 
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 use super::cursor::blend_cursor_vmo;
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+use super::cursor_shapes::{sprite_len, CursorShapes};
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 use super::raster::{
     blit_blend_vmo, blit_vmo, blur_backdrop_vmo, fill_rect_solid_vmo, fill_sdf_rounded_vmo,
 };
 
-/// One cached cursor shape: `(premultiplied BGRA, w, h, hot_x, hot_y)`.
-pub(crate) type CursorShapeEntry = (Vec<u8>, u32, u32, u32, u32);
-
-/// What a present's commands read besides the framebuffer.
+/// What a present's commands read besides the framebuffer. The executor itself (`execute`) is
+/// the 2D path's: the virgl build composes through the GL device and keeps only the sprite.
 pub(crate) struct CpuFrame {
     /// Fragment uniforms (`SetFragmentBytes`): windowd-pushed shader parameters.
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
+    #[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
     fragment: [u8; 64],
     /// The cursor sprite `BlendCursor` composites (premultiplied BGRA, `cursor_w`×`cursor_h`);
     /// empty until windowd uploads one — the procedural arrow stands in.
@@ -44,34 +43,24 @@ pub(crate) struct CpuFrame {
     /// The hotspot of the active sprite (the GL and overlay cursors subtract it).
     pub(crate) cursor_hot: (u32, u32),
     /// Pre-uploaded shapes (`OP_UPLOAD_CURSOR_SHAPE`): a shape change is a 2-byte select, not a
-    /// blocking re-upload. Slot = shape id.
-    shapes: [Option<CursorShapeEntry>; nexus_display_proto::CURSOR_SHAPE_SLOTS],
-    /// The layout row screen-relative commands land on: the display plane, or — on a display
-    /// with a ring of planes (RFC-0101 §8) — the slot the running present draws into.
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) display_row: u32,
-}
-
-/// The bytes a `w`×`h` BGRA sprite takes, if `bgra` holds at least that many.
-fn sprite_len(bgra: &[u8], w: u32, h: u32) -> Result<usize, GfxError> {
-    let needed = (w as usize).saturating_mul(h as usize).saturating_mul(4);
-    if needed == 0 || bgra.len() < needed {
-        return Err(GfxError::InvalidArgument);
-    }
-    Ok(needed)
+    /// blocking re-upload.
+    shapes: CursorShapes,
+    /// The layout row screen-relative commands land on: the display plane.
+    #[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
+    display_row: u32,
 }
 
 impl CpuFrame {
     pub(crate) fn new() -> Self {
         Self {
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            #[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
             fragment: [0u8; 64],
             cursor: Vec::new(),
             cursor_w: 0,
             cursor_h: 0,
             cursor_hot: (0, 0),
-            shapes: [const { None }; nexus_display_proto::CURSOR_SHAPE_SLOTS],
-            #[cfg(all(feature = "os-lite", target_os = "none"))]
+            shapes: CursorShapes::new(),
+            #[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
             display_row: nexus_display_proto::layout::DISPLAY_ROW,
         }
     }
@@ -85,8 +74,7 @@ impl CpuFrame {
         Ok(())
     }
 
-    /// Fill shape slot `id`; arms nothing (`select_shape` activates a slot). A re-upload reuses
-    /// the slot's allocation: the service's heap never frees.
+    /// Fill shape slot `id`; arms nothing (`select_shape` activates a slot).
     pub(crate) fn cache_shape(
         &mut self,
         id: u8,
@@ -95,55 +83,31 @@ impl CpuFrame {
         h: u32,
         hot: (u32, u32),
     ) -> Result<(), GfxError> {
-        let slot = self.shapes.get_mut(id as usize).ok_or(GfxError::InvalidArgument)?;
-        let needed = sprite_len(bgra, w, h)?;
-        match slot {
-            Some((buf, sw, sh, hx, hy)) => {
-                buf.clear();
-                buf.extend_from_slice(&bgra[..needed]);
-                (*sw, *sh, *hx, *hy) = (w, h, hot.0, hot.1);
-            }
-            empty => {
-                let mut buf = Vec::with_capacity(needed);
-                buf.extend_from_slice(&bgra[..needed]);
-                *empty = Some((buf, w, h, hot.0, hot.1));
-            }
-        }
-        Ok(())
-    }
-
-    /// The cached shape `id`: its sprite, size and hotspot (for a display that composites the
-    /// pointer itself and takes the bytes from the cache — the board's controller path).
-    #[cfg(all(feature = "os-lite", target_os = "none"))]
-    pub(crate) fn shape(&self, id: u8) -> Option<(&[u8], u32, u32, (u32, u32))> {
-        let (buf, w, h, hx, hy) = self.shapes.get(id as usize)?.as_ref()?;
-        Some((buf.as_slice(), *w, *h, (*hx, *hy)))
+        self.shapes.cache(id, bgra, w, h, hot)
     }
 
     /// Make the cached shape `id` the cursor sprite (and its hotspot the active one). Alloc-free:
     /// the sprite's own allocation takes the copy.
     pub(crate) fn select_shape(&mut self, id: u8) -> Result<(), GfxError> {
-        let Some(Some((buf, w, h, hot_x, hot_y))) = self.shapes.get(id as usize) else {
-            return Err(GfxError::InvalidArgument);
-        };
-        let needed = sprite_len(buf, *w, *h)?;
+        let (buf, w, h, hot) = self.shapes.get(id).ok_or(GfxError::InvalidArgument)?;
+        let needed = sprite_len(buf, w, h)?;
         self.cursor.clear();
         self.cursor.extend_from_slice(&buf[..needed]);
-        (self.cursor_w, self.cursor_h, self.cursor_hot) = (*w, *h, (*hot_x, *hot_y));
+        (self.cursor_w, self.cursor_h, self.cursor_hot) = (w, h, hot);
         Ok(())
     }
 }
 
 /// The framebuffer the commands land in: `len` bytes mapped at `fb`, rows of `stride_px` pixels,
 /// the shared layout (`nexus_display_proto::layout`) — the display plane at its row.
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 pub(crate) struct Target {
     fb: *mut u8,
     len: usize,
     stride_px: usize,
 }
 
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 impl Target {
     /// # Safety
     /// `fb` points to `len` writable bytes this service maps for as long as the target is used,
@@ -153,10 +117,10 @@ impl Target {
     }
 }
 
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 const DISPLAY_ROWS: u32 = nexus_display_proto::layout::PLANE_ROWS;
 
-#[cfg(all(feature = "os-lite", target_os = "none"))]
+#[cfg(all(feature = "os-lite", target_os = "none", not(feature = "virgl")))]
 impl CpuFrame {
     /// Execute one command into `t`. Screen-relative coordinates land in the display plane.
     pub(crate) fn execute(&mut self, t: &Target, cmd: &Command) -> Result<(), GfxError> {
@@ -345,7 +309,6 @@ mod tests {
         f.store_cursor(&sprite(2, 2, 1), 2, 2).unwrap();
         for (w, h) in [(3, 2), (0, 2), (2, 0), (u32::MAX, u32::MAX)] {
             assert!(f.store_cursor(&sprite(2, 2, 5), w, h).is_err(), "{w}x{h}");
-            assert!(f.cache_shape(0, &sprite(2, 2, 5), w, h, (0, 0)).is_err(), "{w}x{h}");
         }
         assert_eq!((f.cursor_w, f.cursor_h), (2, 2));
         assert_eq!(f.cursor, sprite(2, 2, 1));
@@ -355,7 +318,6 @@ mod tests {
     fn test_reject_a_shape_slot_outside_the_cache() {
         let mut f = CpuFrame::new();
         let past = nexus_display_proto::CURSOR_SHAPE_SLOTS as u8;
-        assert!(f.cache_shape(past, &sprite(1, 1, 1), 1, 1, (0, 0)).is_err());
         assert!(f.select_shape(past).is_err());
         assert!(f.select_shape(0).is_err(), "an empty slot selects nothing");
     }
