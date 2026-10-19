@@ -204,9 +204,9 @@ impl<const N: usize> PlaneRing<N> {
         }
     }
 
-    /// The vertical blank: the queued flip takes effect if its point is reached (the previous
-    /// plane becomes free), and every plane's age advances. Returns the slot that came on
-    /// screen, if one did.
+    /// The vertical blank: the queued flip takes effect if its point is reached and the
+    /// controller took the plane (the previous plane becomes free), and every plane's age
+    /// advances. Returns the slot that came on screen, if one did.
     pub fn vblank(&mut self, reached: impl Fn(TimelinePoint) -> bool) -> Option<usize> {
         self.frames += 1;
         for slot in self.slots.iter_mut() {
@@ -334,6 +334,25 @@ mod tests {
         assert_eq!(ring.vblank(reached), Some(a));
         assert_eq!(ring.scanned(), Some(a));
         assert_eq!(ring.frames(), 2);
+    }
+
+    /// A flip the controller takes at a later frame boundary (its latch still set after the
+    /// write — the board's display reports the blank as not reached, TASK-0215 5c-3 P5): the
+    /// previous plane stays on screen and is no target, the flip lands at the next blank.
+    #[test]
+    fn a_flip_the_controller_did_not_take_keeps_the_previous_plane_on_screen() {
+        let mut ring = PlaneRing::<3>::new(1920, 1080);
+        let a = ring.acquire().unwrap();
+        ring.flip(a, DONE).unwrap();
+        assert_eq!(ring.vblank(reached), Some(a));
+        let b = ring.acquire().unwrap();
+        ring.flip(b, DONE).unwrap();
+        assert_eq!(ring.vblank(|_| false), None, "the latch still set: not landed");
+        assert_eq!(ring.scanned(), Some(a), "the old plane is still on screen");
+        assert_eq!(ring.slot(b).unwrap().state(), SlotState::Queued);
+        assert_eq!(ring.render_into(a), Err(RingError::Scanned), "and no target");
+        assert_eq!(ring.vblank(reached), Some(b));
+        assert_eq!(ring.slot(a).unwrap().state(), SlotState::Free);
     }
 
     #[test]

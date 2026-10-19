@@ -80,6 +80,14 @@ pub(crate) trait Display {
         self.execute(commands, damage)
     }
 
+    /// Whether the running present was drawn by the GPU ([`Display::execute_on`]).
+    fn gpu_drew(&self) -> bool {
+        false
+    }
+
+    /// The running present is given up undrawn (a recompose the GPU did not draw).
+    fn abandon_present(&mut self) {}
+
     /// `damage` of the display plane to the glass (the chain's G4 hop).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError>;
 

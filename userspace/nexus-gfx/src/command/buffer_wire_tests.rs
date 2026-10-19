@@ -86,4 +86,39 @@ mod scroll_tag_tests {
             "scroll_id + content sub-size + content epoch preserved per layer"
         );
     }
+
+    /// The scene's damage (RFC-0101 §8) crosses the wire as its own command, beside the
+    /// pointer's blend that shares its four words.
+    #[test]
+    fn damage_roundtrips_over_the_wire() {
+        use crate::core::types::TileRect;
+        let rect = TileRect { x: 12, y: 34, width: 56, height: 78 };
+        let cb = CommittedBuffer {
+            commands: alloc::vec![
+                Command::Damage { rect, origin: 3 },
+                Command::BlendCursor { x: 1, y: 2, width: 3, height: 4 },
+            ],
+        };
+        let mut buf = [0u8; 64];
+        let n = cb.serialize_into(&mut buf).expect("serialize");
+        let (out, consumed) = CommittedBuffer::deserialize_from(&buf[..n]).expect("deserialize");
+        assert_eq!(consumed, n);
+        assert_eq!(out.commands, cb.commands);
+    }
+
+    /// A damage rectangle that is empty or wraps the coordinate space is refused at decode,
+    /// before any display sees it.
+    #[test]
+    fn test_reject_damage_empty_or_wrapping() {
+        use crate::core::types::TileRect;
+        for rect in [
+            TileRect { x: 0, y: 0, width: 0, height: 8 },
+            TileRect { x: u32::MAX, y: 0, width: 2, height: 2 },
+        ] {
+            let cb = CommittedBuffer { commands: alloc::vec![Command::Damage { rect, origin: 0 }] };
+            let mut buf = [0u8; 32];
+            let n = cb.serialize_into(&mut buf).expect("serialize");
+            assert!(CommittedBuffer::deserialize_from(&buf[..n]).is_err(), "{rect:?}");
+        }
+    }
 }

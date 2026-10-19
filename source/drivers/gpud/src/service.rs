@@ -510,7 +510,10 @@ fn service_requests(
                         );
                         continue;
                     }
-                    _ => (handle_frame(display, frame, &mut scroll_flush_pending), None),
+                    _ => {
+                        let frames = gpu.as_deref_mut().and_then(|g| g.frames());
+                        (handle_frame(display, frames, frame, &mut scroll_flush_pending), None)
+                    }
                 };
                 drop(moved_cap);
                 crate::reply::send(
@@ -529,6 +532,11 @@ fn service_requests(
                 if scroll_flush_pending {
                     scroll_flush_pending = false;
                     display.flush_layer_overrides();
+                    // 5c-3 P5: the GPU's retained set draws the override — the layers that
+                    // moved, into the free slot, flipped at the blank.
+                    if let Some(f) = gpu.as_deref_mut().and_then(|g| g.frames()) {
+                        crate::present_chain::recompose(display, f);
+                    }
                     continue;
                 }
                 // Frame due (the frame clock fired, windowd idle): the display self-presents
@@ -554,7 +562,12 @@ fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {
     nexus_display_proto::decode_handoff_id(frame)
 }
 
-fn handle_frame(display: &mut dyn Display, frame: &[u8], scroll_flush: &mut bool) -> u8 {
+fn handle_frame(
+    display: &mut dyn Display,
+    mut frames: Option<&mut dyn crate::gpu_context::FrameGpu>,
+    frame: &[u8],
+    scroll_flush: &mut bool,
+) -> u8 {
     let Some(op) = frame.first().copied() else {
         return STATUS_MALFORMED;
     };
@@ -617,7 +630,12 @@ fn handle_frame(display: &mut dyn Display, frame: &[u8], scroll_flush: &mut bool
             let scroll_id = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
             let src_row = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
             // RECORD the override only — the loop drains the whole queued burst (latest row
-            // wins) and re-composites ONCE when the queue is empty.
+            // wins) and re-composites ONCE when the queue is empty. The GPU's retained set
+            // first (the board, 5c-3 P5), the display's otherwise.
+            if frames.as_deref_mut().is_some_and(|f| f.set_layer_scroll(scroll_id, src_row)) {
+                *scroll_flush = true;
+                return STATUS_OK;
+            }
             match display.set_layer_scroll(scroll_id, src_row) {
                 Ok(retained) => {
                     *scroll_flush |= retained;
@@ -635,6 +653,13 @@ fn handle_frame(display: &mut dyn Display, frame: &[u8], scroll_flush: &mut bool
             else {
                 return STATUS_MALFORMED;
             };
+            if frames
+                .as_deref_mut()
+                .is_some_and(|f| f.set_layer_transform(layer_id, (dx, dy), opacity, scale_pct))
+            {
+                *scroll_flush = true;
+                return STATUS_OK;
+            }
             match display.set_layer_transform(layer_id, (dx, dy), opacity, scale_pct) {
                 Ok(retained) => {
                     *scroll_flush |= retained;

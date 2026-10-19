@@ -327,3 +327,12 @@ fn the_blur_radius_is_the_nearest_the_library_holds() {
         [0, 8, 12, 14, 20, 25, 30, 35, 40, 100].iter().map(|&r| blur_radius(r)).collect();
     assert_eq!(picks, [8, 8, 8, 8, 20, 20, 30, 30, 40, 40]);
 }
+
+#[test]
+fn the_slot_pass_is_limited_to_the_area_the_executor_names_inside_the_display() {
+    let mut f = Frame::new(2048);
+    let p = planned(&mut f, &[layer(rect(100, 50, 400, 300))]);
+    let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS).with_area((10, 20, 3000, 4000));
+    assert_eq!(slot(&b).area, (10, 20, 1919, 1079));
+    assert_eq!(b.draws(&slot(&b)), 2, "the whole scene is drawn into the area");
+}

@@ -119,6 +119,9 @@ pub struct Board<'a> {
     half_rows: u32,
     /// The first row of the plane the scene starts from.
     base_row: u32,
+    /// The slot's pass area (inclusive corners): the whole display unless the executor limits
+    /// it to what the slot lacks.
+    area: (u32, u32, u32, u32),
     /// Draws of the layers before `j`: `first[j]`.
     first: [u16; MAX_LAYERS + 1],
     /// The glass layers written this frame, in walk order.
@@ -144,6 +147,7 @@ impl<'a> Board<'a> {
             layout_rows,
             half_rows,
             base_row: 0,
+            area: (0, 0, display.0.saturating_sub(1), display.1.saturating_sub(1)),
             first: [0; MAX_LAYERS + 1],
             writes: [0; MAX_LAYERS],
             write_count: 0,
@@ -174,6 +178,15 @@ impl<'a> Board<'a> {
         self
     }
 
+    /// The slot's pass limited to `area` (inclusive corners, inside the display): what the slot
+    /// lacks — this frame's damage and the frames' since the slot was drawn (RFC-0101 §8).
+    pub fn with_area(mut self, area: (u32, u32, u32, u32)) -> Self {
+        let (w, h) = self.display;
+        self.area =
+            (area.0, area.1, area.2.min(w.saturating_sub(1)), area.3.min(h.saturating_sub(1)));
+        self
+    }
+
     /// Passes of the frame: three per glass written, then the slot's.
     pub fn pass_count(&self) -> usize {
         3 * self.write_count + 1
@@ -181,11 +194,10 @@ impl<'a> Board<'a> {
 
     /// Pass `p` of the frame.
     pub fn pass(&self, p: usize) -> Option<PassSpec> {
-        let (w, h) = self.display;
         if p == 3 * self.write_count {
             return Some(PassSpec {
                 target: Target::Slot,
-                area: (0, 0, w - 1, h - 1),
+                area: self.area,
                 kind: PassKind::Scene { upto: self.layers },
             });
         }

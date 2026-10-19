@@ -126,6 +126,19 @@ impl DisplayServerRuntime {
         // overlay and band geometry for EVERY app window, indexed by slot.
         let mut app_snaps: [AppSceneSnap; crate::window_scene::MAX_APP_WINDOWS] =
             core::array::from_fn(|_| AppSceneSnap::default());
+        // The visible windows' frames: a damage rectangle inside one came from that window
+        // (or something above it), the rest from the desktop under every window — the
+        // damage's origin (`Command::Damage`, RFC-0101 §8): a glass blurs its backdrop again
+        // only for a change below it, never for its own content.
+        let mut app_frames: [Option<DamageRect>; crate::window_scene::MAX_APP_WINDOWS] =
+            [None; crate::window_scene::MAX_APP_WINDOWS];
+        for idx in 0..self.apps.len() {
+            if self.apps[idx].win.visible {
+                if let Some(f) = app_frames.get_mut(idx) {
+                    *f = Some(self.app_window_rect(idx));
+                }
+            }
+        }
         for idx in 0..self.apps.len() {
             let wid = crate::window_scene::WindowId::App(idx as u8);
             let resizing = matches!(self.resize_drag, Some((w, ..)) if w == wid);
@@ -207,7 +220,9 @@ impl DisplayServerRuntime {
                 })
                 .map_err(|_| WindowdError::InvalidDamage)?;
 
-            // 1. Blit content damage from retained plane → display plane.
+            // 1. Blit content damage from retained plane → display plane — and name it as the
+            //    scene's damage (RFC-0101 §8, TASK-0215 5c-3 P5): a GPU executor that keeps its
+            //    planes redraws this, and what moved, instead of the screen.
             for rect in rects.iter().copied().take(rect_count) {
                 encoder
                     .try_blit_surface(
@@ -217,6 +232,37 @@ impl DisplayServerRuntime {
                         rect.y,
                         rect.width,
                         rect.height,
+                    )
+                    .map_err(|_| WindowdError::InvalidDamage)?;
+                let inside = |f: &DamageRect| {
+                    f.x <= rect.x
+                        && f.y <= rect.y
+                        && rect.x.saturating_add(rect.width) <= f.x.saturating_add(f.width)
+                        && rect.y.saturating_add(rect.height) <= f.y.saturating_add(f.height)
+                };
+                // The topmost window the rectangle lies within names the origin.
+                let origin = win_order[..win_n]
+                    .iter()
+                    .rev()
+                    .find_map(|wid| match wid {
+                        crate::window_scene::WindowId::App(slot) => app_frames
+                            .get(usize::from(*slot))
+                            .copied()
+                            .flatten()
+                            .filter(inside)
+                            .map(|_| u32::from(*slot) + 1),
+                        _ => None,
+                    })
+                    .unwrap_or(0);
+                encoder
+                    .try_damage(
+                        nexus_gfx::core::types::TileRect {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height,
+                        },
+                        origin,
                     )
                     .map_err(|_| WindowdError::InvalidDamage)?;
             }
@@ -282,6 +328,7 @@ impl DisplayServerRuntime {
                                             corner_radius: u32::from(l.radius),
                                             shadow_alpha: u32::from(l.shadow_alpha),
                                             blur_radius,
+                                            layer_id: u32::from(slot) + 1,
                                         },
                                         mode.width,
                                         mode.height,
@@ -377,6 +424,7 @@ impl DisplayServerRuntime {
                                                     corner_radius: u32::from(l.radius),
                                                     shadow_alpha: u32::from(l.shadow_alpha),
                                                     blur_radius,
+                                                    layer_id: u32::from(slot) + 1,
                                                 },
                                                 mode.width,
                                                 mode.height,
@@ -473,6 +521,7 @@ impl DisplayServerRuntime {
                                         corner_radius: u32::from(l.radius),
                                         shadow_alpha: u32::from(l.shadow_alpha),
                                         blur_radius,
+                                        layer_id: 0,
                                     },
                                     mode.width,
                                     mode.height,
@@ -517,6 +566,7 @@ impl DisplayServerRuntime {
                             corner_radius: u32::from(l.radius),
                             shadow_alpha: u32::from(l.shadow_alpha),
                             blur_radius: 40,
+                            layer_id: 0,
                         },
                         mode.width,
                         mode.height,

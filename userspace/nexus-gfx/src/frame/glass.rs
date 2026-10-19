@@ -36,12 +36,14 @@ pub fn seed(display_w: u32, display_h: u32, wallpaper_epoch: u32) -> u64 {
 }
 
 /// Folds one drawn layer (as drawn: overrides applied) into the destination so far. Every layer
-/// folds — an opaque one changes what a glass above it blurs as much as a glass does.
+/// folds — an opaque one changes what a glass above it blurs as much as a glass does. The
+/// layer's geometry alone: a change of its content reaches a glass above it as the present's
+/// damage (`Frame::plan`, TASK-0215 5c-3 P5), never through the key.
 pub fn fold_layer(h: u64, l: &FrameLayer) -> u64 {
     let a = (u64::from(l.src_row_abs) << 32) | u64::from(l.src_x);
     let b = (u64::from(l.width) << 32) | u64::from(l.height);
     let c = (u64::from(l.dst_x) << 32) | u64::from(l.dst_y);
-    let d = (u64::from(l.opacity) << 32) | u64::from(l.content_epoch);
+    let d = (u64::from(l.opacity) << 32) | u64::from(l.corner_radius);
     fold(fold(fold(fold(h, a), b), c), d)
 }
 
@@ -103,16 +105,24 @@ impl GlassCache {
 
     /// Read, write or off for glass layer `slot` with key `key` and `h` rows at the packing
     /// cursor `cursor_y` (the caller advances it by `h` on a read or a write). A hit needs the
-    /// same key at the same place: a reshuffled set writes instead of reading rows that now
-    /// belong to another layer.
-    pub fn step(&mut self, slot: usize, key: u64, cursor_y: u32, h: u32) -> CacheStep {
+    /// same key at the same place — a reshuffled set writes instead of reading rows that now
+    /// belong to another layer — and nothing within the glass's reach changed (`touched`).
+    pub fn step(
+        &mut self,
+        slot: usize,
+        key: u64,
+        cursor_y: u32,
+        h: u32,
+        touched: bool,
+    ) -> CacheStep {
         if !self.ready || slot >= MAX_LAYERS || cursor_y.saturating_add(h) > self.rows {
             if let Some(v) = self.valid.get_mut(slot) {
                 *v = false;
             }
             return CacheStep::Off;
         }
-        let hit = self.valid[slot] && self.keys[slot] == key && self.ys[slot] == cursor_y;
+        let hit =
+            !touched && self.valid[slot] && self.keys[slot] == key && self.ys[slot] == cursor_y;
         self.keys[slot] = key;
         self.ys[slot] = cursor_y;
         self.valid[slot] = true;

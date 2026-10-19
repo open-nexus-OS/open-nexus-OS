@@ -1482,3 +1482,150 @@ QEMU path draws, with every glass level and the screenshot: a frame 13–18 ms w
 cached, against the CPU path's 101–231 ms. What is slow is named: a glass written costs three
 passes and is rewritten whenever any content changes (the key folds a global generation), and
 gpud waits for every pass. P4b complete; P5 — what changed, only — next.
+
+## 5c-3 P5 — what changed, only (TASK-0215, RFC-0101 §8: damage per plane)
+
+**Question.** Cycle 31 named what is slow: a frame redraws the whole screen into its slot, a
+glass is blurred again (three passes, about 18 ms window-sized) whenever any content anywhere
+changed — the key folded windowd's one global content generation — and every glass above a
+changed layer with it. Does a frame that draws only what changed, and blurs a glass only when
+something within its reach changed, bring an idle desktop's frame under the pass's fixed cost and
+a typing or scrolling frame under the window's?
+
+**Measured first** (cycle 31's log, the code read through):
+
+- **windowd knows its damage already.** A client's present names its rectangles
+  (`OP_SURFACE_PRESENT`), windowd turns them into screen damage per rectangle, a window move
+  queues its old and new frame, and windowd's own CPU glass cache is invalidated by exactly that
+  (`invalidate_blur_over`). gpud got it only as the present's `BlitSurface` restores, which the
+  glass recipe's own restores are indistinguishable from; the present's header carries the op
+  and the sequence alone. RFC-0101 §8 promises damage per plane on the wire.
+- **A per-band content generation would not do**: the shell is one screen-sized layer, so a
+  hover anywhere on it would be whole-screen damage again. The gain is windowd's rectangles.
+- **Cycle 31's windows**: 5 of 28 had no input (`passes=` 1.1–1.3, 13–18 ms, 2–4 glass writes
+  each — the pointer's own presents rewrote glass); the others 24–88 ms with 9–81 glass writes.
+  The screenshot's drag: windowd presented a glass of the whole screen each pointer move
+  (`dc present mix (… glass_px=2137120 …)`) — the capture tool's scrim is a screen-sized glass
+  layer; its three passes cost about 90 ms a frame.
+- **A pass's cost** (P4a): 0.45 ms fixed and its pixels at the program's rate — the slot's pass
+  over the whole screen draws the shell's 2.07 million straight pixels (10 ms) plus the windows.
+
+**What P5 builds.** `Command::Damage { rect }` in the present (one per screen rectangle, inside
+the display, never empty — `test_reject_damage_empty_or_wrapping`); windowd sends one per damage
+rectangle beside its restore blit. The planner (`nexus_gfx::frame`, 322 host tests): a frame's
+damage is the present's rectangles, every layer drawn otherwise than in the last plan (where it
+was and where it is, its shadow's halo included), every layer gone, and every glass blurred
+again; a glass is blurred again when its key changed (the layers' geometry below it — the
+content generation left the key) or the damage touches its reach (66 px); a present that brings
+layers and names no damage is damage everywhere. `damage::History` keeps the last eight frames'
+damage; the board's executor records each slot's frame and limits the slot's pass to what the
+slot lacks (the frames since, everything when the CPU drew it since, the base changed or the
+slot's age is unknown) and this frame's damage — a frame that lacks nothing runs no pass. The
+QEMU path draws the whole frame as before and shares the glass rule. Lines: `gpud: gpu desktop
+ok (… area_px=)`, `gpud: gpu frame us (… area_px=)`.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H81 | An idle desktop's frame costs a pass's fixed share | windows without the operator's input: `avg=` at or below 3 000 µs and `area_px=` at or below 5 % of the screen (103 680); refuted, the pointer's presents carry damage the planner cannot keep small |
+| H82 | Typing in a window rewrites no glass of another window | windows under typing: `glass_w=` per frame at most the glasses over or beside the typed window (1 on this desktop); more, the damage reaches further than the planner says |
+| H83 | A typing or scrolling frame costs the window, not the screen | those windows' `avg=` at or below 10 000 µs and `area_px=` at or below the window's rectangle with its halo (about 1.0 million for a 1156x768 window) |
+| H84 | The screenshot's drag is the scrim | the capture drag's windows keep `glass_w=` 1 a frame and `avg=` above 20 000 µs: the screen-sized scrim glass is the next lever (the shell's, not the planner's) |
+| H85 | No stale pixel | the operator sees no remnant after moving, tiling, closing a window, typing, scrolling or the thaw; the screenshot shows the desktop |
+
+**Results — the board, cycle 33** (`board--2026-10-19T10-09-15`, `cycle33-gpu-lines.txt`): every
+present on the GPU, the operator: no remnant anywhere, scrolling and typing smoother, the desktop
+much better — not yet smooth; tearing while scrolling (a horizontal line, old above, new below);
+the screenshot's selection lags.
+
+- **H85 confirmed**: no stale pixel after moving, closing, typing, scrolling, the thaw.
+- **H81 refuted, and the floor named by its shape**: the idle windows draw 1 024 pixels a frame
+  (`area_px=1024`, the pointer's rectangle; `passes=1.0 draws=5 glass_w=0`) and still cost
+  12.6 ms (`avg=12643–12695`): a frame has a fixed cost of about 12 ms that is not GPU work —
+  a pass is 0.45 ms (P4a). Where it goes is unmeasured; the next cycle splits the frame into the
+  plan, the passes' emit, their submit, the waits and the retire (`split=`).
+- **H82 refuted**: typing rewrote two glasses a frame (`glass_w=64` per 32, `passes=7.0`): the
+  typed window's own glass — its content damage lies within its own reach — and the glass
+  beside it. The damage carries no origin; the planner cannot tell a change below a glass from
+  the glass's own. Now `Command::Damage { rect, origin }`: windowd names the topmost window the
+  rectangle lies within (its `layer_id`) or the desktop (0); a glass blurs again only for an
+  origin below it (the desktop, a window below it in the walk, an unknown one), never for its
+  own content, a window above it or the pointer (`ORIGIN_ABOVE`).
+- **H83 refuted with it**: typing windows 49–54 ms with `area_px=` 297–557 thousand.
+- **H84 confirmed**: the capture drag's windows `avg=` 99–182 ms, `area_px=` 1.3–2.1 million,
+  `glass_w=` 60–116: the scrim is a screen-sized glass blurred again at every move (the shell's
+  overlay, outside the planner's lever).
+- The glass cache ran out under many glasses (`glass_off=` 9–32 in three windows): a glass
+  without rows is drawn unblurred on the board — a visible difference between frames whenever
+  the set reorders. Carried: the cache packs by rows only; two columns of 960 half-resolution
+  texels would double it (the next package).
+- **The tear**: windowd's `front=0` in every window — the GPU never draws into the slot the ring
+  calls scanned. The flip itself: `flip_in_blank` writes the plane's address, then the
+  controller's config-ready latch and its start word (`dc::flip` ends with `flush`) — the
+  register documentation names the latch "for the next frame". If the controller takes the
+  plane at the frame boundary after the write, the slot the ring frees at the blank is scanned
+  for one more frame while the next GPU frame is drawn into it: old above the GPU's write
+  position, new below. Measured next cycle: whether the latch is still set right after the
+  write (`pending=`) and the line the write landed on (`gpud: dc flips (n= pending= crossed=
+  line_after_max=)`, every 64 flips).
+- **Scrolling** on the board is the app's re-render: windowd sends `OP_SET_LAYER_SCROLL` alone
+  and queues no present; the board's display answered "not retained" and nothing drew — the
+  app re-rendered on the scroll position instead. Now the loop records the override in the
+  GPU's retained set and, once the burst drained, draws one frame of it (`recompose`): the
+  layers that moved, nothing else.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H86 | The controller takes a flipped plane at the next frame boundary, so the slot the ring frees at the blank is still scanned for a frame — the tear | `gpud: dc flips (… pending=N …)` with N near n: confirmed, the ring frees a plane one blank later; N = 0 and `crossed=` 0: the write takes effect at once and the tear is elsewhere |
+| H87 | A wheel step draws the window's rows alone and the fling stays on the GPU | scroll windows: `passes=1.0`, `glass_w=0`, `area_px=` at or below the window's rectangle, `avg=` at or below the floor + the window's pixels (about 17 ms); the operator: scrolling smooth to the eye |
+| H88 | The 12 ms floor is the wait for the pass, not the CPU's emit | `split=` of the idle windows: `wait` above 10 000 µs and the others below 1 000; refuted, the named share is the lever |
+| H89 | Typing rewrites no glass | typing windows: `glass_w=0` (the typed window's glass kept; a glass beside it within 66 px rewrites — reported if so) |
+
+**Results — the board, cycle 34** (`board--2026-10-19T10-46-29`, `cycle34-gpu-lines.txt`; the
+operator: not much better — the GPU packages first, the feel later):
+
+- **H86 confirmed**: `gpud: dc flips (n=576 pending=90 crossed=0 line_after_max=0)` — one flip
+  in six or seven leaves the config-ready latch set after the write: the controller takes the
+  plane at a later frame boundary while the ring freed the old slot at once, and the next frame
+  was drawn into a plane still on screen. The ring now counts such a flip as not landed: it
+  stays queued and lands at the next blank (`ring.passed()`), the old slot stays scanned. The
+  line after the write reads 0 in the blank (no witness of the write's place).
+- **H88 unmeasured**: `split=` printed zeros — the frame's split was summed into the window
+  nowhere (the accumulation was edited against text the formatter had rewrapped); fixed.
+- **H89 refuted, and why**: typing windows still `glass_w=65` per 32 frames. An app window's
+  material glass regions and its live-resize title overlay carried `layer_id` 0 ("untagged"),
+  so the damage's origin (the window's `slot + 1`) matched no layer and counted as below. Every
+  slice of a window now carries the window's id (what the transform override wanted too).
+- **H87 open**: the scroll fast path reached the GPU's set, but every window still wrote glass;
+  judged next cycle with H89.
+- The frame windows: 10–134 ms; the idle ones gone from this log (the operator scrolled and
+  typed throughout).
+
+**Results — the board, cycle 35** (`board--2026-10-19T11-09-31`, `cycle35-gpu-lines.txt`,
+`cycle35-board-test.txt`: the ladder's 70 rungs, the operator's confirmations of the desktop,
+typed input, the pointer, the screenshot with its selection dragged, the search with the
+clipboard and the modal alert; `tile` not — the chords, TASK-0066 F8; the operator: good enough
+for now, the GPU packages first):
+
+- **H88 confirmed**: the wait for the passes is 96.9 % of the frame over 16 windows (`split=`:
+  plan 3–8 µs, emit 0.3–3.6 ms, submit 0.06–0.45 ms, wait 17–135 ms, retire 5–18 µs). A frame's
+  cost is its passes' pixels at the programs' rates — the blur at 40.7 and 23.7 ns a
+  half-resolution pixel is the lever: a window-sized glass costs about 20 ms to write (its scene
+  below at full resolution 4 ms, the horizontal pass 10 ms, the vertical 5 ms), far above the
+  pass's fixed 0.45 ms.
+- **H86's fix on the board**: `pending=59` of 576 flips kept queued until the next blank; no
+  tear reported in this boot (the operator did not name one; not asked separately).
+- **H89 still refuted**: `glass_w=` 31–34 per 32 frames in the steady windows — one glass is
+  blurred again every frame, its identity unmeasured (the shell's top bar strip above the
+  windows is the first suspect: its reach of 66 px touches any window whose top lies within
+  it). Carried.
+- **H87 open**: the scroll override reached the GPU's set; which windows were the wheel's is
+  not told apart in the line. Carried with H89.
+- Windows 18–138 ms; glass written 0.7–3.7 times a frame.
+
+**Verdict.** The frame draws what changed: the present's damage with its origin, the layers
+that moved, the glass blurred again only for a change below it, a slot brought up to date by
+the frames it missed, a flip counted landed only when the controller took the plane. What
+remains is named and measured, not guessed: the blur programs' cost a pixel (the lever for the
+next package), one glass still rewritten every frame (its identity the first measurement of
+that package), the glass cache's rows (two columns), the capture scrim as a screen-sized glass.
+P5 complete.

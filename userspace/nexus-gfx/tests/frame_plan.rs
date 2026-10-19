@@ -8,7 +8,8 @@ use nexus_gfx::command::buffer::{Command, RgbaColor};
 use nexus_gfx::core::types::TileRect;
 use nexus_gfx::frame::glass::{fold_layer, seed};
 use nexus_gfx::frame::{
-    CacheStep, Frame, FrameLayer, GlassCache, Planned, RetainedLayers, Transform, MAX_LAYERS,
+    Area, CacheStep, Frame, FrameLayer, GlassCache, History, Planned, RetainedLayers, Transform,
+    MAX_LAYERS,
 };
 
 const DISPLAY: (u32, u32) = (1920, 1080);
@@ -195,12 +196,24 @@ fn a_glass_reads_its_cache_until_something_below_it_changes() {
     // The same frame again (a pointer move): one draw from the cache.
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)));
-    // A layer above the glass changes: its backdrop does not.
-    f.layers.take_frame(&[base.clone(), window.clone(), pane.clone(), layer(950, 100, 200, 200)]);
+    // A layer above the glass changes (the present names where): its backdrop does not.
+    f.layers.take_frame(&[
+        base.clone(),
+        window.clone(),
+        pane.clone(),
+        layer(950, 100, 200, 200),
+        damage(900, 100, 250, 200),
+    ]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)));
     // The window below moves: the glass is blurred again.
-    f.layers.take_frame(&[base.clone(), layer(210, 200, 600, 400), pane.clone(), above.clone()]);
+    f.layers.take_frame(&[
+        base.clone(),
+        layer(210, 200, 600, 400),
+        pane.clone(),
+        above.clone(),
+        damage(0, 0, 1, 1),
+    ]);
     f.plan(DISPLAY, &every_blur);
     assert_eq!(cache_of(&f, 2), Some(CacheStep::Write(0)));
     // A transform override below counts as a change too.
@@ -246,7 +259,10 @@ fn the_atlas_uploads_once_per_generation() {
     let mut f = Frame::new(2048);
     let stamped = |epoch| with(layer(0, 0, 100, 100), |l| l.content_epoch = epoch);
     f.layers.take_frame(&[stamped(3)]);
-    assert_eq!(f.plan(DISPLAY, &every_blur), Planned { layers: 1, upload: true });
+    assert_eq!(
+        f.plan(DISPLAY, &every_blur),
+        Planned { layers: 1, upload: true, damage: Area::Full }
+    );
     // A pointer move: nothing new to upload.
     assert!(!f.plan(DISPLAY, &every_blur).upload);
     // A new set of the same generation (a window dragged): still nothing.
@@ -276,33 +292,33 @@ fn ready_cache() -> GlassCache {
 fn the_same_key_reads_on_the_second_frame() {
     assert_eq!(GlassCache::new(2048).wallpaper_epoch, 0);
     let mut c = ready_cache();
-    assert_eq!(c.step(0, 42, 0, 500), CacheStep::Write(0));
-    assert_eq!(c.step(0, 42, 0, 500), CacheStep::Read(0));
+    assert_eq!(c.step(0, 42, 0, 500, false), CacheStep::Write(0));
+    assert_eq!(c.step(0, 42, 0, 500, false), CacheStep::Read(0));
 }
 
 #[test]
 fn a_changed_backdrop_writes_again() {
     let mut c = ready_cache();
-    assert_eq!(c.step(0, 42, 0, 500), CacheStep::Write(0));
-    assert_eq!(c.step(0, 43, 0, 500), CacheStep::Write(0));
-    assert_eq!(c.step(0, 43, 0, 500), CacheStep::Read(0));
+    assert_eq!(c.step(0, 42, 0, 500, false), CacheStep::Write(0));
+    assert_eq!(c.step(0, 43, 0, 500, false), CacheStep::Write(0));
+    assert_eq!(c.step(0, 43, 0, 500, false), CacheStep::Read(0));
 }
 
 #[test]
 fn test_reject_reading_rows_at_a_moved_packing_offset() {
     let mut c = ready_cache();
-    assert_eq!(c.step(1, 7, 100, 300), CacheStep::Write(100));
+    assert_eq!(c.step(1, 7, 100, 300, false), CacheStep::Write(100));
     // A glass below vanished: the same key at another offset writes.
-    assert_eq!(c.step(1, 7, 0, 300), CacheStep::Write(0));
+    assert_eq!(c.step(1, 7, 0, 300, false), CacheStep::Write(0));
 }
 
 #[test]
 fn an_overflow_or_no_cache_blurs_live_and_keeps_no_stale_slot() {
     let mut c = ready_cache();
-    assert_eq!(c.step(0, 1, 2048 - 10, 500), CacheStep::Off);
-    assert_eq!(c.step(0, 1, 0, 500), CacheStep::Write(0));
+    assert_eq!(c.step(0, 1, 2048 - 10, 500, false), CacheStep::Off);
+    assert_eq!(c.step(0, 1, 0, 500, false), CacheStep::Write(0));
     let mut cold = GlassCache::new(2048);
-    assert_eq!(cold.step(0, 1, 0, 100), CacheStep::Off);
+    assert_eq!(cold.step(0, 1, 0, 100, false), CacheStep::Off);
 }
 
 #[test]
@@ -324,4 +340,154 @@ fn the_fold_separates_field_order() {
     );
     // A wallpaper uploaded again changes every key.
     assert_ne!(seed(1280, 800, 0), seed(1280, 800, 1));
+}
+
+// What a frame changes on the screen (TASK-0215 5c-3 P5, RFC-0101 §8).
+
+fn damage(x: u32, y: u32, w: u32, h: u32) -> Command {
+    Command::Damage { rect: TileRect { x, y, width: w, height: h }, origin: 0 }
+}
+
+fn damage_from(origin: u32, x: u32, y: u32, w: u32, h: u32) -> Command {
+    Command::Damage { rect: TileRect { x, y, width: w, height: h }, origin }
+}
+
+#[test]
+fn a_present_names_its_damage_and_one_with_layers_but_none_is_damage_everywhere() {
+    let mut f = Frame::new(2048);
+    f.layers.take_frame(&[layer(100, 100, 50, 50), damage(0, 0, 8, 8)]);
+    // The first plan: the layer is new, drawn where it was not.
+    assert_eq!(f.plan(DISPLAY, &every_blur).damage, Area::Rect { x0: 0, y0: 0, x1: 150, y1: 150 });
+    // A pointer move with its damage alone: that rectangle.
+    f.layers.take_frame(&[damage(10, 20, 30, 40)]);
+    assert_eq!(f.plan(DISPLAY, &every_blur).damage, Area::Rect { x0: 10, y0: 20, x1: 40, y1: 60 });
+    // Nothing named, nothing moved: nothing to redraw.
+    f.layers.take_frame(&[]);
+    assert_eq!(f.plan(DISPLAY, &every_blur).damage, Area::None);
+    // Layers without damage: everywhere.
+    f.layers.take_frame(&[layer(100, 100, 50, 50)]);
+    assert_eq!(f.plan(DISPLAY, &every_blur).damage, Area::Full);
+    // Two damage rectangles: their bounds.
+    f.layers.take_frame(&[damage(0, 0, 8, 8), damage(100, 100, 8, 8)]);
+    assert_eq!(f.plan(DISPLAY, &every_blur).damage, Area::Rect { x0: 0, y0: 0, x1: 108, y1: 108 });
+}
+
+#[test]
+fn a_layer_that_moves_or_goes_damages_where_it_was_and_where_it_is() {
+    let mut f = Frame::new(2048);
+    let shadowed =
+        |x, y| with(layer(x, y, 50, 50), |l| (l.shadow_blur, l.shadow_offset_y) = (8, 4));
+    f.layers.take_frame(&[shadowed(100, 100), damage(0, 0, 1, 1)]);
+    f.plan(DISPLAY, &every_blur);
+    // Moved, with the present's own damage elsewhere: both halos and the rectangle.
+    f.layers.take_frame(&[shadowed(300, 100), damage(0, 0, 1, 1)]);
+    assert_eq!(f.plan(DISPLAY, &every_blur).damage, Area::Rect { x0: 0, y0: 0, x1: 362, y1: 162 });
+    // The same drawing with a new content generation: the present's damage alone.
+    f.layers.take_frame(&[with(shadowed(300, 100), |l| l.content_epoch = 9), damage(5, 5, 1, 1)]);
+    assert_eq!(f.plan(DISPLAY, &every_blur).damage, Area::Rect { x0: 5, y0: 5, x1: 6, y1: 6 });
+    // Gone (an empty set keeps the set — a set of one other layer replaces it).
+    f.layers.take_frame(&[layer(0, 0, 10, 10), damage(0, 0, 1, 1)]);
+    let d = f.plan(DISPLAY, &every_blur).damage;
+    assert!(d.touches(Area::rect(300, 100, 50, 50)), "{d:?}");
+}
+
+#[test]
+fn a_glass_is_blurred_again_only_when_something_within_its_reach_changed() {
+    let mut f = ready_frame(2048);
+    let glass = with(layer(500, 500, 200, 100), |l| l.backdrop_blur = 20);
+    f.layers.take_frame(&[layer(0, 0, 1920, 1080), glass.clone(), damage(0, 0, 1920, 1080)]);
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.cache), Some(CacheStep::Write(0)));
+    assert_eq!(p.damage.on(DISPLAY), Area::Full.on(DISPLAY));
+    // Damage far from the glass: read, and the frame's damage is that rectangle alone.
+    f.layers.take_frame(&[damage(0, 0, 10, 10)]);
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.cache), Some(CacheStep::Read(0)));
+    assert_eq!(p.damage, Area::Rect { x0: 0, y0: 0, x1: 10, y1: 10 });
+    // Damage within the blur's reach of the glass: written again, the glass in the damage.
+    f.layers.take_frame(&[damage(450, 450, 10, 10)]);
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.cache), Some(CacheStep::Write(0)));
+    assert_eq!(p.damage, Area::Rect { x0: 450, y0: 450, x1: 700, y1: 600 });
+    // A content change below it, reported as damage under the glass: written again.
+    f.layers.take_frame(&[
+        with(layer(0, 0, 1920, 1080), |l| l.content_epoch = 5),
+        glass,
+        damage(600, 550, 1, 1),
+    ]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.cache), Some(CacheStep::Write(0)));
+}
+
+#[test]
+fn a_plane_shown_frames_ago_lacks_the_frames_since_and_an_old_or_unknown_one_everything() {
+    let mut h = History::new();
+    assert_eq!(h.since(0), Area::Full, "never drawn");
+    let f1 = h.record(Area::rect(0, 0, 10, 10));
+    let f2 = h.record(Area::rect(100, 100, 10, 10));
+    let f3 = h.record(Area::None);
+    assert_eq!((f1, f2, f3), (1, 2, 3));
+    assert_eq!(h.since(3), Area::None, "drawn at the newest frame: up to date");
+    assert_eq!(h.since(2), Area::None);
+    assert_eq!(h.since(1), Area::Rect { x0: 100, y0: 100, x1: 110, y1: 110 });
+    assert_eq!(h.since(0), Area::Full);
+    assert_eq!(h.since(9), Area::Full, "newer than the newest: unknown");
+    for _ in 0..nexus_gfx::frame::HISTORY {
+        h.record(Area::rect(5, 5, 1, 1));
+    }
+    assert_eq!(h.since(2), Area::Full, "older than the history holds");
+    assert_eq!(h.since(3), Area::Rect { x0: 5, y0: 5, x1: 6, y1: 6 }, "the oldest it holds");
+    assert_eq!(h.since(h.newest() - 1), Area::Rect { x0: 5, y0: 5, x1: 6, y1: 6 });
+}
+
+#[test]
+fn test_reject_an_area_off_the_display_and_clamp_one_past_it() {
+    assert_eq!(Area::rect(5, 5, 0, 3), Area::None);
+    assert_eq!(Area::rect(u32::MAX, 0, 4, 4), Area::None, "wraps: nothing");
+    assert_eq!(Area::rect(2000, 10, 4, 4).on(DISPLAY), None);
+    assert_eq!(Area::rect(1900, 1070, 100, 100).on(DISPLAY), Some((1900, 1070, 1919, 1079)));
+    assert_eq!(Area::Full.on(DISPLAY), Some((0, 0, 1919, 1079)));
+    assert_eq!(Area::Full.pixels(DISPLAY), 1920 * 1080);
+    assert_eq!(Area::None.union(Area::Full), Area::Full);
+    assert!(!Area::rect(0, 0, 10, 10).touches(Area::rect(10, 0, 10, 10)), "edge to edge");
+}
+
+#[test]
+fn a_glass_window_typed_into_keeps_its_blur_and_a_change_below_it_renews_it() {
+    use nexus_gfx::frame::layers::ORIGIN_ABOVE;
+    let mut f = ready_frame(2048);
+    let base = layer(0, 0, 1920, 1080);
+    // Window 1 (id 1) is glass; window 2 (id 2) lies above it, to its right.
+    let win1 = with(layer(400, 300, 600, 400), |l| (l.backdrop_blur, l.layer_id) = (20, 1));
+    let win2 = with(layer(900, 300, 400, 300), |l| l.layer_id = 2);
+    f.layers.take_frame(&[base.clone(), win1.clone(), win2.clone(), damage(0, 0, 1920, 1080)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
+    // Typing in window 1: damage inside it, from it. Its backdrop is unchanged.
+    f.layers.take_frame(&[damage_from(1, 450, 350, 200, 40)]);
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Read(0)));
+    assert_eq!(p.damage, Area::Rect { x0: 450, y0: 350, x1: 650, y1: 390 }, "the frame redraws it");
+    // Window 2 above it changes, overlapping window 1's reach: not below — unchanged backdrop.
+    f.layers.take_frame(&[damage_from(2, 900, 300, 100, 100)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Read(0)));
+    // The pointer over the glass: never below.
+    f.layers.take_frame(&[damage_from(ORIGIN_ABOVE, 500, 400, 32, 32)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Read(0)));
+    // The base under the glass changes: blurred again.
+    f.layers.take_frame(&[damage_from(0, 500, 400, 10, 10)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
+    // An origin the set does not know: taken as below.
+    f.layers.take_frame(&[damage_from(7, 500, 400, 10, 10)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
+    // More rectangles than the set keeps: everything.
+    let many: Vec<Command> = (0..9).map(|i| damage_from(2, 10 * i, 0, 4, 4)).collect();
+    f.layers.take_frame(&many);
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!(p.damage, Area::Full);
+    assert_eq!(cache_of(&f, 1), Some(CacheStep::Write(0)));
 }

@@ -209,7 +209,7 @@ proves = "TASK-0215 5c-3 P3: windowd asked gpud for the GPU's capabilities and o
 [marker."gpud: gpu desktop ok ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5c-3 P4b: windowd's first frame drawn on the GPU — the layer set windowd presented, planned by the frame planner the QEMU path draws with and lowered for the board (per glass to blur, the scene below it into the scratch and the two blur passes into its cache rows; then the slot's pass: the wallpaper, each glass drawn back, the shadows, the content), drawn in windowd's own context with windowd's library into the ring's free slot, waited and flipped at the blank; the frame's time, passes, draws, glass written, read and left unblurred, and the clean of the textures the CPU wrote"
+proves = "TASK-0215 5c-3 P4b: windowd's first frame drawn on the GPU — the layer set windowd presented, planned by the frame planner the QEMU path draws with and lowered for the board (per glass to blur, the scene below it into the scratch and the two blur passes into its cache rows; then the slot's pass: the wallpaper, each glass drawn back, the shadows, the content), drawn in windowd's own context with windowd's library into the ring's free slot, waited and flipped at the blank; the frame's time, passes, draws, glass written, read and left unblurred, the pixels of the slot's pass (P5: what the slot lacked, not the screen) and the clean of the textures the CPU wrote"
 
 [marker."gpud: gpu frame us ("]
 phase = "bringup"
@@ -313,6 +313,11 @@ proves = "TASK-0251 P2a step 2: the cost of windowd's first present on the board
 phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "Block 4 layer 0 (the M/G/S baseline): what a present costs on the controller path — the average and the slowest of a 32-present window, the cache clean, the split by command kind (blur, layer, shadow, blit, fill), the damage, and `front`: how many of the window's presents were drawn into the plane the controller was scanning (a measurement; the tear gate of the scanout contract reads `front=0`)"
+
+[marker."gpud: dc flips ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P5: what a per-frame flip's write left behind, every 64 flips — how many left the controller's config-ready latch set (the plane taken at a later frame boundary: the slot the ring frees at the blank still scanned), how many landed past the blank, the highest line a write landed on (a measurement: the tear's suspect)"
 
 [marker."gpud: dc present mix ("]
 phase = "bringup"

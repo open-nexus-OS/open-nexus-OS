@@ -211,6 +211,9 @@ impl CpuFrame {
             Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
                 blit_vmo(fb, len, w, *src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height)?;
             }
+            // The scene's damage (RFC-0101 §8) is the GPU frame's; the CPU executor draws every
+            // command whole.
+            Command::Damage { .. } => {}
             Command::FillSdfGradient { rect, radius, color_top, color_bottom } => {
                 let y = rect.y.saturating_add(display_row);
                 let (rw, rh) = (rect.width, rect.height);

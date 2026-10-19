@@ -1,6 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+use super::validation::{validate_command, validate_commands, validate_render_pass};
 use crate::command::render_encoder::RenderCommandEncoder;
 use crate::core::error::GfxError;
 use crate::core::types::{RenderPassDesc, TileRect};
@@ -150,6 +151,14 @@ pub enum Command {
         /// `TRANSFER_TO_HOST` — see `Layer::content_epoch`.
         content_epoch: u32,
     },
+    /// A screen rectangle the compositor's scene changed since its previous present (RFC-0101
+    /// §8, damage per plane): a display that keeps its planes redraws at least this — and every
+    /// layer that moved — into a plane shown frames ago. `origin` names whose content changed:
+    /// `0` the base (the desktop under every window), a layer's `layer_id` for that window, or
+    /// `u32::MAX` for what lies above every layer (the pointer) — a glass blurs its backdrop
+    /// again only for a change below it. A present without one is damage everywhere. Draws
+    /// nothing itself.
+    Damage { rect: TileRect, origin: u32 },
 }
 
 /// A recorded command buffer. Use begin_render_pass() to start a render pass.
@@ -254,6 +263,7 @@ const TAG_BLIT_ABSOLUTE: u8 = 6;
 const TAG_FILL_SDF_GRADIENT: u8 = 7;
 const TAG_DROP_SHADOW: u8 = 8;
 const TAG_COMPOSITE_LAYER: u8 = 9;
+const TAG_DAMAGE: u8 = 10;
 
 /// Maximum serialized size for a CommittedBuffer (guard against overflow).
 // Sized to fit gpud's 8192-byte present-frame receive buffer (minus the 1-byte
@@ -356,6 +366,12 @@ fn decode_commands_into(buf: &[u8], out: &mut Vec<Command>) -> Result<usize, Gfx
             TAG_FILL_SDF_GRADIENT => deser_sdf_gradient(buf, pos)?,
             TAG_DROP_SHADOW => deser_drop_shadow(buf, pos)?,
             TAG_COMPOSITE_LAYER => deser_composite_layer(buf, pos)?,
+            TAG_DAMAGE => {
+                let ((x, y, width, height), n) = deser_rect(buf, pos)?;
+                let o = buf.get(n..n + 4).ok_or(GfxError::InvalidArgument)?;
+                let origin = u32::from_le_bytes([o[0], o[1], o[2], o[3]]);
+                (Command::Damage { rect: TileRect { x, y, width, height }, origin }, n + 4)
+            }
             _ => return Err(GfxError::InvalidArgument),
         };
         pos = n;
@@ -415,6 +431,15 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
             }
             Command::BlendCursor { x, y, width, height } => {
                 pos = ser_cursor(buf, pos, TAG_BLEND_CURSOR, *x, *y, *width, *height)?;
+            }
+            Command::Damage { rect, origin } => {
+                pos = ser_cursor(buf, pos, TAG_DAMAGE, rect.x, rect.y, rect.width, rect.height)?;
+                let end = pos + 4;
+                if buf.len() < end || end > MAX_SERIALIZED {
+                    return Err(GfxError::ResourceExhausted);
+                }
+                buf[pos..end].copy_from_slice(&origin.to_le_bytes());
+                pos = end;
             }
             Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
                 pos = ser_blit(
@@ -875,133 +900,18 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
 }
 
 fn deser_cursor(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 16 {
-        return Err(GfxError::InvalidArgument);
-    }
-    Ok((
-        Command::BlendCursor {
-            x: u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]),
-            y: u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]),
-            width: u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]),
-            height: u32::from_le_bytes([
-                buf[pos + 12],
-                buf[pos + 13],
-                buf[pos + 14],
-                buf[pos + 15],
-            ]),
-        },
-        pos + 16,
-    ))
+    let ((x, y, width, height), n) = deser_rect(buf, pos)?;
+    Ok((Command::BlendCursor { x, y, width, height }, n))
 }
 
-// ── Validation ───────────────────────────────────────────────────
+/// A rectangle's x, y, width, height.
+type RectWords = (u32, u32, u32, u32);
 
-fn validate_render_pass(desc: &RenderPassDesc) -> Result<(), GfxError> {
-    if desc.width == 0
-        || desc.height == 0
-        || desc.width > MAX_RENDER_EXTENT
-        || desc.height > MAX_RENDER_EXTENT
-    {
-        return Err(GfxError::InvalidArgument);
-    }
-    Ok(())
-}
-
-fn validate_commands(
-    commands: &[Command],
-    render_extent: Option<(u32, u32)>,
-) -> Result<(), GfxError> {
-    if commands.len() > MAX_COMMANDS {
-        return Err(GfxError::ResourceExhausted);
-    }
-    for command in commands {
-        validate_command(command, render_extent)?;
-    }
-    Ok(())
-}
-
-fn validate_command(command: &Command, render_extent: Option<(u32, u32)>) -> Result<(), GfxError> {
-    match command {
-        Command::SetFragmentBytes { offset, data } => {
-            let end = offset.checked_add(data.len()).ok_or(GfxError::InvalidArgument)?;
-            if data.len() > MAX_FRAGMENT_BYTES || end > MAX_FRAGMENT_BYTES {
-                return Err(GfxError::ResourceExhausted);
-            }
-            Ok(())
-        }
-        Command::DrawTiles { tiles, .. } => validate_tile_list(tiles, render_extent),
-        Command::BlitSurface { width, height, .. } => {
-            if *width == 0 || *height == 0 {
-                return Err(GfxError::InvalidArgument);
-            }
-            Ok(())
-        }
-        Command::FillSdfRoundedRect { rect, .. }
-        | Command::BlurBackdrop { rect, .. }
-        | Command::FillSdfGradient { rect, .. } => validate_tile(*rect, render_extent),
-        Command::DropShadow { rect, blur, .. } => {
-            // The shape rect must be in-extent; the blur halo may exceed it
-            // (the executor clamps). Bound blur so the halo stays sane.
-            if *blur > 64 {
-                return Err(GfxError::InvalidArgument);
-            }
-            validate_tile(*rect, render_extent)
-        }
-        Command::CompositeLayer {
-            width,
-            height,
-            opacity,
-            shadow_blur,
-            shadow_alpha,
-            backdrop_blur,
-            ..
-        } => {
-            if *width == 0 || *height == 0 {
-                return Err(GfxError::InvalidArgument);
-            }
-            if *opacity > 255 || *shadow_alpha > 255 || *shadow_blur > 64 || *backdrop_blur > 64 {
-                return Err(GfxError::InvalidArgument);
-            }
-            Ok(())
-        }
-        Command::BlendCursor { width, height, .. } => {
-            if *width == 0 || *height == 0 {
-                return Err(GfxError::InvalidArgument);
-            }
-            Ok(())
-        }
-        Command::BlitAbsolute { width, height, .. } => {
-            if *width == 0 || *height == 0 {
-                return Err(GfxError::InvalidArgument);
-            }
-            Ok(())
-        }
-    }
-}
-
-fn validate_tile_list(
-    tiles: &[TileRect],
-    render_extent: Option<(u32, u32)>,
-) -> Result<(), GfxError> {
-    if tiles.is_empty() || tiles.len() > MAX_TILE_RECTS {
-        return Err(GfxError::InvalidArgument);
-    }
-    for tile in tiles {
-        validate_tile(*tile, render_extent)?;
-    }
-    Ok(())
-}
-
-fn validate_tile(tile: TileRect, render_extent: Option<(u32, u32)>) -> Result<(), GfxError> {
-    if tile.width == 0 || tile.height == 0 {
-        return Err(GfxError::InvalidArgument);
-    }
-    let end_x = tile.x.checked_add(tile.width).ok_or(GfxError::InvalidArgument)?;
-    let end_y = tile.y.checked_add(tile.height).ok_or(GfxError::InvalidArgument)?;
-    if let Some((width, height)) = render_extent {
-        if end_x > width || end_y > height {
-            return Err(GfxError::InvalidArgument);
-        }
-    }
-    Ok(())
+/// Four little-endian words: a rectangle's x, y, width, height.
+fn deser_rect(buf: &[u8], pos: usize) -> Result<(RectWords, usize), GfxError> {
+    let word = |i: usize| -> Result<u32, GfxError> {
+        let b = buf.get(pos + 4 * i..pos + 4 * i + 4).ok_or(GfxError::InvalidArgument)?;
+        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    Ok(((word(0)?, word(1)?, word(2)?, word(3)?), pos + 16))
 }

@@ -51,18 +51,40 @@ pub(crate) struct FrameTarget<'a> {
     pub display: (u32, u32),
     pub base_row: u32,
     pub base_dirty: bool,
+    /// The CPU drew the slot since the GPU last did: whatever the GPU drew there is gone, the
+    /// slot is redrawn whole (RFC-0101 §8, buffer age — TASK-0215 5c-3 P5).
+    pub slot_stale: bool,
 }
 
 /// The GPU a display draws windowd's frames with (TASK-0215 5c-3 P4b, RFC-0101 §8d).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) trait FrameGpu {
-    /// `commands`' layer set drawn into the slot `target` names, waited: `false` when the GPU
-    /// did not draw it — the display composes the frame on the CPU then.
+    /// `commands`' layer set drawn into the slot `target` names, waited: the screen rectangle
+    /// the slot's pass redrew (x, y, width, height; empty when the slot lacked nothing), or
+    /// `None` when the GPU did not draw it — the display composes the frame on the CPU then.
     fn draw_frame(
         &mut self,
         commands: &[nexus_gfx::command::buffer::Command],
         target: &FrameTarget<'_>,
-    ) -> bool;
+    ) -> Option<nexus_gfx::backend::types::Rect>;
+
+    /// `OP_SET_LAYER_SCROLL` recorded in the retained set (TASK-0215 5c-3 P5): `true` when the
+    /// set holds the id and the next frame draws the row — the loop recomposes once the burst
+    /// drained.
+    fn set_layer_scroll(&mut self, _scroll_id: u32, _src_row: u32) -> bool {
+        false
+    }
+
+    /// `OP_SET_LAYER_TRANSFORM` recorded in the retained set, as [`FrameGpu::set_layer_scroll`].
+    fn set_layer_transform(
+        &mut self,
+        _layer_id: u32,
+        _offset: (i16, i16),
+        _opacity: u8,
+        _scale_pct: u16,
+    ) -> bool {
+        false
+    }
 }
 
 /// What a display without a GPU answers.

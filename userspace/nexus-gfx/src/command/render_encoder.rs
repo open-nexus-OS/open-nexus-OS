@@ -480,6 +480,18 @@ impl<'a> RenderCommandEncoder<'a> {
         self.cmd.push_command(Command::BlendCursor { x, y, width, height })
     }
 
+    // ── Damage ────────────────────────────────────────────────
+
+    /// A screen rectangle this present's scene changed since the previous present (RFC-0101
+    /// §8), `origin` naming whose content changed (`Command::Damage`): a display that keeps its
+    /// planes redraws at least this. A present that names none is damage everywhere.
+    pub fn try_damage(&mut self, rect: TileRect, origin: u32) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
+        self.cmd.push_command(Command::Damage { rect, origin })
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────
 
     pub fn end_encoding(self) {

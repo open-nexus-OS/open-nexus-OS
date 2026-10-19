@@ -17,27 +17,22 @@
 //! `gpud: gpu frame us (…)` a window of 32 frames; a refusal is the caller's to say.
 
 use nexus_display_proto::layout::{self, PLANE_BYTES, PLANE_ROWS, RING_ROWS, STRIDE_BYTES};
-use nexus_driverkit::gpu::{Access, CacheMode, GpuVa, QueueKind, TimelinePoint};
+use nexus_driverkit::gpu::{Access, CacheMode, GpuVa};
 use nexus_gfx::backend::gpu::pipelines::Placed;
-use nexus_gfx::backend::gpu::quads::{
-    emit_draws, Arena, Draw, EmitError, Need, Placer, Quad, Region, Rings, Sink, Template,
-};
+use nexus_gfx::backend::gpu::quads::{Arena, Rings};
 use nexus_gfx::backend::gpu::scene::Scene;
-use nexus_gfx::backend::gpu::texstate::{descriptor_bytes, format, swizzle, Image, Sampler};
 use nexus_gfx::backend::gpu::CoreId;
 use nexus_gfx::backend::v2::{
-    Batch, BoId, ClientId, ContextId, DeviceError, GfxDevice, Mapping, RenderStreams, RenderTarget,
-    Stream,
+    BoId, ClientId, ContextId, DeviceError, GfxDevice, Mapping, RenderStreams,
 };
 use nexus_gfx::command::buffer::Command;
-use nexus_gfx::frame::{Board, Frame, PassSpec, Pipe, Target as To, Tex, BLUR_RADII};
+use nexus_gfx::frame::{Area, Board, Frame, History, Pipe, Target as To, BLUR_RADII};
 
+use super::desktop_pass::{clean_rows, run_pass};
 use super::device_v2::Device;
 use super::emit_fmt;
-use super::render_cost::streams_for;
 use super::render_template::{
-    pds_at, render_streams, write_bound, Captured, Target, Targets, PDS_ARENA, RENDER_BUNDLE,
-    TARGET_PDS,
+    render_streams, Captured, Target, Targets, RENDER_BUNDLE, TARGET_PDS,
 };
 use crate::gpu_context::FrameTarget;
 
@@ -46,11 +41,11 @@ use crate::gpu_context::FrameTarget;
 /// planes and atlas read-only, the ring's three slots read-write, one range each, so no page is
 /// mapped twice —, then the scratches, the cache and the frame's own buffer, each on a 2 MiB
 /// boundary (a page table each such span).
-const LAYOUT_VA: u64 = 0x20_0000_0000;
-const SCRATCH_VA: u64 = LAYOUT_VA + 0x0800_0000;
-const HALF_VA: u64 = LAYOUT_VA + 0x0A00_0000;
-const CACHE_VA: u64 = LAYOUT_VA + 0x0C00_0000;
-const FRAME_VA: u64 = LAYOUT_VA + 0x0E00_0000;
+pub(super) const LAYOUT_VA: u64 = 0x20_0000_0000;
+pub(super) const SCRATCH_VA: u64 = LAYOUT_VA + 0x0800_0000;
+pub(super) const HALF_VA: u64 = LAYOUT_VA + 0x0A00_0000;
+pub(super) const CACHE_VA: u64 = LAYOUT_VA + 0x0C00_0000;
+pub(super) const FRAME_VA: u64 = LAYOUT_VA + 0x0E00_0000;
 const WIDTH: u32 = STRIDE_BYTES / 4;
 const STRIDE: u64 = STRIDE_BYTES as u64;
 /// The half-resolution scratch's rows: the tallest glass's half and the vertical taps' halo.
@@ -67,8 +62,8 @@ const FRAME_BYTES: u32 = GENERAL_BYTES + STREAM_BYTES + VERTEX_BYTES;
 /// The PDS heap's lines after the targets' pixel event data, to the bundle's PDS arena's end.
 const PDS_END: u32 = 0x2_1000;
 /// The most draws a pass holds (the planner's 32 layers, each up to nine draws, the wallpaper).
-const MAX_DRAWS: usize = 320;
-const PASS_TIMEOUT_NS: u64 = 500_000_000;
+pub(super) const MAX_DRAWS: usize = 320;
+pub(super) const PASS_TIMEOUT_NS: u64 = 500_000_000;
 /// Frames in a `gpud: gpu frame us` window.
 const WINDOW: u32 = 32;
 
@@ -102,8 +97,8 @@ const DOWN: [&str; 4] =
     ["blur-vertical-8", "blur-vertical-20", "blur-vertical-30", "blur-vertical-40"];
 
 /// The library's pipelines a frame draws with.
-struct Pipes {
-    opaque: Placed,
+pub(super) struct Pipes {
+    pub(super) opaque: Placed,
     straight: Placed,
     rounded: Placed,
     shadow: Placed,
@@ -128,7 +123,7 @@ impl Pipes {
         })
     }
 
-    fn get(&self, p: Pipe) -> Option<&Placed> {
+    pub(super) fn get(&self, p: Pipe) -> Option<&Placed> {
         let blur = |r: u32| BLUR_RADII.iter().position(|&x| x == r);
         match p {
             Pipe::Opaque => Some(&self.opaque),
@@ -151,6 +146,11 @@ struct Stats {
     passes: u64,
     draws: u64,
     glass: [u64; 3],
+    /// Pixels of the slots' passes (what the frames redrew, RFC-0101 §8).
+    area_px: u64,
+    /// Where a frame's time goes: the plan, the passes' emit, their submit, the waits, the
+    /// retire and the firmware served (ns).
+    split: [u64; 5],
 }
 
 /// The buffers a desktop takes: the layout adopted, the scratches, the cache, the frame's own.
@@ -179,7 +179,15 @@ pub(crate) struct Desktop {
     cache: Target,
     pipes: Pipes,
     rings: Rings,
-    frame: Frame,
+    pub(crate) frame: Frame,
+    /// The frames' damage (RFC-0101 §8, TASK-0215 5c-3 P5) and the frame each slot was last
+    /// drawn at (0: never): a slot is brought up to date by the frames it missed.
+    history: History,
+    drawn: [u64; 3],
+    /// The source rectangle of each layer step last cleaned for the device (the atlas rows the
+    /// CPU wrote): cleaned again when it moves (a scroll shows rows never cleaned) or the
+    /// content generation changed.
+    cleaned: [Option<(u32, u32, u32, u32)>; nexus_gfx::frame::MAX_LAYERS],
     /// The base plane cleaned for the device, by its first row.
     base: Option<u32>,
     stats: Stats,
@@ -297,6 +305,9 @@ impl Desktop {
             pipes,
             rings,
             frame,
+            history: History::new(),
+            drawn: [0; 3],
+            cleaned: [None; nexus_gfx::frame::MAX_LAYERS],
             base: None,
             stats: Stats::default(),
             shown: false,
@@ -316,32 +327,52 @@ impl Desktop {
         dev: &mut Device,
         cmds: &[Command],
         target: &FrameTarget<'_>,
-    ) -> Result<(), Refusal> {
+    ) -> Result<nexus_gfx::backend::types::Rect, Refusal> {
         let t0 = now_ns();
-        let slot = RING_ROWS
+        let k = RING_ROWS
             .iter()
             .position(|&r| r == target.slot_row)
-            .map(|k| self.slots[k])
             .ok_or("a slot outside the ring")?;
+        let slot = self.slots[k];
         self.frame.layers.take_frame(cmds);
         let c0 = now_ns();
         // The base the scene starts from: cleaned when it is new or the CPU rewrote it — and
-        // every glass's backdrop over the old one is stale.
+        // every glass's backdrop over the old one is stale, every slot too.
+        let mut lacks = Area::None;
         if self.base != Some(target.base_row) || target.base_dirty {
             clean_rows(target, (0, target.base_row, WIDTH, PLANE_ROWS));
             self.frame.glass.wallpaper_epoch = self.frame.glass.wallpaper_epoch.wrapping_add(1);
             self.base = Some(target.base_row);
+            self.drawn = [0; 3];
         }
+        let p0 = now_ns();
         let planned = self.frame.plan(self.display, &|_| true);
-        if planned.upload {
-            for i in 0..planned.layers {
-                if let Some(s) = self.frame.step(i) {
-                    let l = s.layer;
-                    let (w, h) = (
-                        if l.content_w > 0 { l.content_w } else { l.width },
-                        if l.content_h > 0 { l.content_h } else { l.height },
-                    );
-                    clean_rows(target, (l.src_x, l.src_row_abs, w, h));
+        let plan_ns = now_ns().saturating_sub(p0);
+        // What the slot lacks: the frames since it was last drawn (everything when the CPU
+        // drew it since, or it never was) and this frame's damage.
+        if !target.slot_stale {
+            lacks = lacks.union(self.history.since(self.drawn[k]));
+        } else {
+            lacks = Area::Full;
+        }
+        self.drawn[k] = self.history.record(planned.damage);
+        let area = lacks.union(planned.damage).on(self.display);
+        // The atlas rows a layer reads, cleaned when they are new to the device — a content
+        // generation, or a source rectangle that moved (a scroll): rows the CPU wrote and
+        // never cleaned read stale.
+        for i in 0..planned.layers {
+            if let Some(s) = self.frame.step(i) {
+                let l = s.layer;
+                let (w, h) = (
+                    if l.content_w > 0 { l.content_w } else { l.width },
+                    if l.content_h > 0 { l.content_h } else { l.height },
+                );
+                let src = (l.src_x, l.src_row_abs, w, h);
+                if planned.upload || self.cleaned.get(i).copied().flatten() != Some(src) {
+                    clean_rows(target, src);
+                    if let Some(c) = self.cleaned.get_mut(i) {
+                        *c = Some(src);
+                    }
                 }
             }
         }
@@ -349,11 +380,15 @@ impl Desktop {
         let (display, layout_rows, who) = (self.display, self.layout_rows, (self.client, self.ctx));
         let (scratch, half, cache) = (self.scratch, self.half, self.cache);
         let Self { frame, rings, pipes, captured, streams, .. } = self;
-        let board =
-            Board::new(frame, planned, display, layout_rows, HALF_ROWS).with_base(target.base_row);
+        let board = Board::new(frame, planned, display, layout_rows, HALF_ROWS)
+            .with_base(target.base_row)
+            .with_area(area.unwrap_or((0, 0, 0, 0)));
+        // Nothing of the slot lacks: no pass at all — it shows the scene as it is.
+        let passes = if area.is_some() { board.pass_count() } else { 0 };
         let t = captured.template(FRAME_VA, FRAME_VA, FRAME_VA);
         let mut draws = 0;
-        for p in 0..board.pass_count() {
+        let mut split = [plan_ns, 0, 0, 0, 0];
+        for p in 0..passes {
             let spec = board.pass(p).ok_or("a pass of the plan")?;
             let to = match spec.target {
                 To::Slot => slot,
@@ -361,7 +396,11 @@ impl Desktop {
                 To::Half => half,
                 To::Cache => cache,
             };
-            draws += run_pass(dev, who, streams, &t, pipes, rings, &board, &spec, to)?;
+            let (n, stamps) = run_pass(dev, who, streams, &t, pipes, rings, &board, &spec, to)?;
+            draws += n;
+            for (acc, ns) in split[1..].iter_mut().zip(stamps) {
+                *acc += ns;
+            }
         }
         let us = now_ns().saturating_sub(t0) / 1000;
         let glass = board.glass;
@@ -370,16 +409,21 @@ impl Desktop {
         s.us += us;
         s.max_us = s.max_us.max(us);
         s.clean_us += clean_us;
-        s.passes += board.pass_count() as u64;
+        s.passes += passes as u64;
         s.draws += draws as u64;
+        let area_px =
+            area.map_or(0, |(x0, y0, x1, y1)| u64::from(x1 - x0 + 1) * u64::from(y1 - y0 + 1));
+        s.area_px += area_px;
+        for (acc, ns) in s.split.iter_mut().zip(split) {
+            *acc += ns;
+        }
         for (acc, n) in s.glass.iter_mut().zip([glass.writes, glass.reads, glass.off]) {
             *acc += u64::from(n);
         }
         if !self.shown {
             self.shown = true;
             emit_fmt(format_args!(
-                "gpud: gpu desktop ok (frame_us={us} passes={} draws={draws} layers={} glass_writes={} glass_reads={} glass_off={} clean_us={clean_us} open_us={})",
-                board.pass_count(),
+                "gpud: gpu desktop ok (frame_us={us} passes={passes} draws={draws} layers={} glass_writes={} glass_reads={} glass_off={} area_px={area_px} clean_us={clean_us} open_us={})",
                 planned.layers,
                 glass.writes,
                 glass.reads,
@@ -390,179 +434,32 @@ impl Desktop {
         if s.frames == WINDOW {
             let n = u64::from(WINDOW);
             emit_fmt(format_args!(
-                "gpud: gpu frame us (n={n} avg={} max={} clean={} passes={}.{} draws={} glass_w={} glass_r={} glass_off={})",
+                "gpud: gpu frame us (n={n} avg={} max={} clean={} passes={}.{} draws={} area_px={} glass_w={} glass_r={} glass_off={} split=plan {}/emit {}/submit {}/wait {}/retire {})",
                 s.us / n,
                 s.max_us,
                 s.clean_us / n,
                 s.passes / n,
                 (s.passes % n) * 10 / n,
                 s.draws / n,
+                s.area_px / n,
                 s.glass[0],
                 s.glass[1],
-                s.glass[2]
+                s.glass[2],
+                s.split[0] / n / 1000,
+                s.split[1] / n / 1000,
+                s.split[2] / n / 1000,
+                s.split[3] / n / 1000,
+                s.split[4] / n / 1000
             ));
             *s = Stats::default();
         }
-        Ok(())
-    }
-}
-
-/// The CPU's lines of the rectangle (`x`, `row`, `w`, `h`) of the layout written back, so the
-/// device reads what the CPU wrote.
-fn clean_rows(target: &FrameTarget<'_>, (x, row, w, h): (u32, u32, u32, u32)) {
-    if target.block == 0 {
-        return;
-    }
-    for r in row..row.saturating_add(h) {
-        let at = layout::row_offset_bytes(r) + x as usize * 4;
-        if let Some(span) = target.layout.get(at..at + w as usize * 4) {
-            nexus_abi::cache_clean(span, target.block);
-        }
-    }
-}
-
-/// The frame's pass memory: the PDS heap's lines in the bundle's PDS arena, everything else in
-/// the frame's buffer.
-struct FrameSink<'a> {
-    dev: &'a mut Device,
-    who: (ClientId, ContextId),
-}
-
-impl Sink for FrameSink<'_> {
-    fn write(&mut self, region: Region, offset: u32, bytes: &[u8]) -> bool {
-        let (va, at) = match region {
-            Region::Pds => (PDS_ARENA, pds_at(PDS_ARENA, offset)),
-            Region::General | Region::Stream | Region::Vertex => (FRAME_VA, offset),
-        };
-        write_bound(self.dev, self.who.0, self.who.1, va, at, bytes).is_ok()
-    }
-}
-
-/// `tex`'s descriptor written into fresh lines of the frame's buffer: its address (`none`, the
-/// bundle's own, for a draw that samples nothing).
-fn descriptor(
-    dev: &mut Device,
-    who: (ClientId, ContextId),
-    rings: &mut Rings,
-    tex: Tex,
-    none: u64,
-) -> Result<u64, &'static str> {
-    let at = |va: u64, x: u32, row: u32| va + u64::from(row) * STRIDE + u64::from(x) * 4;
-    let (address, width, height) = match tex {
-        Tex::None => return Ok(none),
-        Tex::Layout { x, row, w, h } => (at(LAYOUT_VA, x, row), w, h),
-        Tex::Scratch => (SCRATCH_VA, WIDTH, PLANE_ROWS),
-        Tex::Half { rows } => (HALF_VA, WIDTH, rows),
-        Tex::Cache { x, row, w, h } => (at(CACHE_VA, x, row), w, h),
-    };
-    let image = Image {
-        address,
-        width,
-        height,
-        stride: WIDTH,
-        format: format::U8U8U8U8,
-        swizzle: swizzle::BGRA,
-    };
-    let bytes = descriptor_bytes(&image, &Sampler::BILINEAR_CLAMP).map_err(|_| "a descriptor")?;
-    let off = rings.place(0, Need::Descriptor).ok_or("no line for a descriptor")?;
-    write_bound(dev, who.0, who.1, FRAME_VA, off, &bytes).map_err(|_| "a descriptor's write")?;
-    Ok(FRAME_VA + u64::from(off))
-}
-
-/// One pass of the frame: its descriptors, its draws emitted, submitted, waited; the number of
-/// draws.
-#[allow(clippy::too_many_arguments)]
-fn run_pass(
-    dev: &mut Device,
-    who: (ClientId, ContextId),
-    base: &RenderStreams<'_>,
-    t: &Template<'_>,
-    pipes: &Pipes,
-    rings: &mut Rings,
-    board: &Board<'_>,
-    spec: &PassSpec,
-    target: Target,
-) -> Result<usize, Refusal> {
-    let n = board.draws(spec);
-    if n == 0 || n > MAX_DRAWS {
-        return Err("a pass of no draws or more than the executor holds".into());
-    }
-    rings.begin();
-    let ran = emit_and_wait(dev, who, base, t, pipes, rings, board, spec, n, target);
-    match ran {
-        Ok(point) => {
-            rings.submitted(point.0).map_err(|_| "the rings")?;
-            rings.retire(&|p| dev.reached(TimelinePoint(p)));
-            Ok(n)
-        }
-        Err(e) => {
-            rings.abandon();
-            Err(e)
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn emit_and_wait(
-    dev: &mut Device,
-    who: (ClientId, ContextId),
-    base: &RenderStreams<'_>,
-    t: &Template<'_>,
-    pipes: &Pipes,
-    rings: &mut Rings,
-    board: &Board<'_>,
-    spec: &PassSpec,
-    n: usize,
-    target: Target,
-) -> Result<TimelinePoint, Refusal> {
-    // The emitter asks for a draw more than once: the descriptors are written first.
-    let mut tex = [0u64; MAX_DRAWS];
-    for (i, t_va) in tex.iter_mut().enumerate().take(n) {
-        let d = board.draw(spec, i).ok_or("a draw of the plan")?;
-        pipes.get(d.pipe).ok_or("a pipeline the library lacks")?;
-        *t_va = descriptor(dev, who, rings, d.tex, t.texture_va)?;
-    }
-    // Every draw was checked above; an empty quad keeps the closure total.
-    let draw = |i: usize| {
-        let d = board.draw(spec, i);
-        let pipeline = d.and_then(|d| pipes.get(d.pipe)).unwrap_or(&pipes.opaque);
-        let quad = d.map_or(Quad::layer(0.0, 0.0, 0.0, 0.0, [0.0; 4], 0.0), |d| d.quad);
-        Draw { pipeline, quad, texture_va: tex[i] }
-    };
-    let mut sink = FrameSink { dev: &mut *dev, who };
-    let emitted = emit_draws(t, n, &draw, rings, &mut sink).map_err(|e| match e {
-        EmitError::Space => "the pass's emit: no room in the pass memory",
-        EmitError::Sink => "the pass's emit: a write refused",
-        EmitError::Pipeline => "the pass's emit: a pipeline's setup",
-        EmitError::Template | EmitError::NoQuads => "the pass's emit: the template",
-    })?;
-    let feats = dev.gpu.fw.render;
-    let (geom, frag_pr, frag) =
-        streams_for(base, feats, emitted.vdm_ctrl_stream_base, Some(spec.area), target)?;
-    let batch = Batch {
-        target: RenderTarget { va: GpuVa(target.va), width: WIDTH, height: target.rows },
-        stream: Stream::Render(RenderStreams {
-            geom: &geom,
-            frag_pr: &frag_pr,
-            frag: &frag,
-            ..*base
-        }),
-        waits: &[],
-        signal: TimelinePoint(0),
-    };
-    let point = dev
-        .submit(who.0, who.1, QueueKind::Render, &batch)
-        .map_err(|e| Refusal("the submit", Some(e)))?;
-    let Some((_, (ftl, fseq))) = dev.render_progress(who.0, who.1) else {
-        return Err("the context's render objects".into());
-    };
-    let done = dev.wait_until(now_ns() + PASS_TIMEOUT_NS, |g, _| {
-        g.mem.read_u32(&ftl, 0).wrapping_sub(fseq) < 0x8000_0000
-    });
-    dev.serve_firmware();
-    if done {
-        Ok(point)
-    } else {
-        Err("a pass not reached in time".into())
+        Ok(area.map_or(nexus_gfx::backend::types::Rect { x: 0, y: 0, width: 0, height: 0 }, |a| {
+            nexus_gfx::backend::types::Rect {
+                x: a.0,
+                y: a.1,
+                width: a.2 - a.0 + 1,
+                height: a.3 - a.1 + 1,
+            }
+        }))
     }
 }

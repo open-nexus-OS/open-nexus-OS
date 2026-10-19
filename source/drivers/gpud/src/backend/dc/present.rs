@@ -195,6 +195,8 @@ impl Display for DcDisplay {
     /// immediate flip).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError> {
         let t0 = nsec().unwrap_or(0);
+        // A GPU frame's damage is what its slot's pass redrew, not what the present named.
+        let damage = self.gpu_area.take().unwrap_or(damage);
         let (w, h) = self.mode;
         let Some(slot) = self.ring.drawing() else {
             return Err(GfxError::CommandRejected);
@@ -257,7 +259,7 @@ impl Display for DcDisplay {
             // No interrupt (named at the bind): the flip is written now — between two complete
             // frames, never half-drawn — and the present is acked now.
             if let Some(fb) = live.framebuffer.as_ref() {
-                live.controller.flip_in_blank(&fb.plane_at(row, w, h));
+                let _ = live.controller.flip_in_blank(&fb.plane_at(row, w, h));
             }
             return self.ring.shown_now().map_err(|_| GfxError::ResourceExhausted);
         }
@@ -265,6 +267,15 @@ impl Display for DcDisplay {
         // A flip waits for the blank: the interrupt is live until it lands.
         live.controller.vblank_enable();
         Ok(())
+    }
+
+    fn gpu_drew(&self) -> bool {
+        self.drawn_by_gpu
+    }
+
+    fn abandon_present(&mut self) {
+        self.gpu_area = None;
+        self.ring.discard();
     }
 
     fn gpu_canvas(&mut self) -> Option<crate::backend::display::GpuCanvas> {
@@ -320,12 +331,36 @@ impl Display for DcDisplay {
             Some(slot) if nexus_gfx::backend::dc::in_blank(line, u32::from(h)) => {
                 if let Some(fb) = live.framebuffer.as_ref() {
                     let row = ring::ROWS[slot];
-                    live.controller.flip_in_blank(&fb.plane_at(row, w, h));
+                    let seen = live.controller.flip_in_blank(&fb.plane_at(row, w, h));
                     if !vb.flip_reported {
                         vb.flip_reported = true;
                         emit(&alloc::format!("gpud: dc flip ok (slot={slot} line={line})"));
                     }
-                    landed = self.ring.landed();
+                    vb.flips = vb.flips.saturating_add(1);
+                    vb.pending += u32::from(seen.pending);
+                    // The controller takes the plane at a later frame boundary (the latch
+                    // still set, about one flip in seven on the board — cycle 34): the old
+                    // plane is scanned for one more frame, so the flip stays queued and lands
+                    // at the next blank; freeing the old slot now would have the next frame
+                    // drawn into a plane on screen — the tear of cycles 33–34.
+                    let taken = !seen.pending;
+                    vb.crossed +=
+                        u32::from(!nexus_gfx::backend::dc::in_blank(seen.line_after, u32::from(h)));
+                    vb.line_after_max = vb.line_after_max.max(seen.line_after);
+                    if vb.flips % 64 == 0 {
+                        emit(&alloc::format!(
+                            "gpud: dc flips (n={} pending={} crossed={} line_after_max={})",
+                            vb.flips,
+                            vb.pending,
+                            vb.crossed,
+                            vb.line_after_max
+                        ));
+                    }
+                    if taken {
+                        landed = self.ring.landed();
+                    } else {
+                        self.ring.passed();
+                    }
                 }
             }
             Some(_) => {

@@ -120,6 +120,9 @@ pub(crate) struct DcDisplay {
     slot_cpu: [bool; ring::SLOTS],
     /// The running present was drawn by the GPU: its slot needs no clean.
     drawn_by_gpu: bool,
+    /// What the GPU's frame redrew of its slot (the present's damage for the ring and the
+    /// statistics; empty when the slot lacked nothing).
+    gpu_area: Option<nexus_gfx::backend::types::Rect>,
     /// A capture freeze holds the frame: the retained plane it was copied into is the base the
     /// GPU's scene starts from, until the thaw (`OP_WALLPAPER_DIRTY`).
     frozen: bool,
@@ -143,6 +146,13 @@ struct Vblank {
     first_line: u32,
     reported: bool,
     flip_reported: bool,
+    /// The flips' witness (TASK-0215 5c-3 P5): flips written, how many left the config-ready
+    /// latch set (taken at a later frame boundary), how many landed past the blank, the
+    /// highest line a write landed on — `gpud: dc flips (…)` every 64.
+    flips: u32,
+    pending: u32,
+    crossed: u32,
+    line_after_max: u32,
 }
 
 /// Served interrupts the witness line waits for.
@@ -196,6 +206,7 @@ impl DcDisplay {
             // dropped once before the GPU's first frame in it.
             slot_cpu: [true; ring::SLOTS],
             drawn_by_gpu: false,
+            gpu_area: None,
             frozen: false,
             base_dirty: true,
         }
@@ -230,6 +241,10 @@ impl DcDisplay {
             first_line: 0,
             reported: false,
             flip_reported: false,
+            flips: 0,
+            pending: 0,
+            crossed: 0,
+            line_after_max: 0,
         });
         true
     }

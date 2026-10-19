@@ -6,6 +6,7 @@
 //! layers (a pointer move) keeps the set; every frame composes it whole. Moved here from the
 //! QEMU path's backend so the board's executor draws the same set.
 
+use super::damage::Area;
 use crate::command::buffer::Command;
 
 /// The set's capacity: a real desktop — four windows of three band slices and a title overlay
@@ -153,7 +154,19 @@ pub struct RetainedLayers {
     pub(super) dirty: bool,
     /// The set generation the atlas was last uploaded at (`0` = none yet).
     pub(super) uploaded_epoch: u32,
+    /// What the last present said changed on the screen (RFC-0101 §8): its `Damage` commands,
+    /// each with its origin, up to `MAX_DAMAGE`; `damage_full` when a present brought layers and
+    /// named no damage, or named more than kept. Taken by the plan.
+    pub(super) damage: [(Area, u32); MAX_DAMAGE],
+    pub(super) damage_count: usize,
+    pub(super) damage_full: bool,
 }
+
+/// Damage rectangles a present's set keeps (windowd names at most seven).
+pub const MAX_DAMAGE: usize = 8;
+
+/// The origin of damage above every layer (the pointer): below no glass.
+pub const ORIGIN_ABOVE: u32 = u32::MAX;
 
 impl RetainedLayers {
     pub const fn new() -> Self {
@@ -184,6 +197,9 @@ impl RetainedLayers {
             transforms: [None; MAX_IDS],
             dirty: true,
             uploaded_epoch: 0,
+            damage: [(Area::None, 0); MAX_DAMAGE],
+            damage_count: 0,
+            damage_full: false,
         }
     }
 
@@ -204,16 +220,38 @@ impl RetainedLayers {
             Command::BlitSurface { .. }
             | Command::BlurBackdrop { .. }
             | Command::BlitAbsolute { .. }
-            | Command::BlendCursor { .. } => true,
+            | Command::BlendCursor { .. }
+            | Command::Damage { .. } => true,
             _ => false,
         })
     }
 
     /// A present's commands. Layers replace the set — the scroll overrides go with it (the
     /// encode carries the scroll offset), the transform overrides stay (the encode is the
-    /// untransformed base; windowd retires an override itself). No layers: the set stays.
+    /// untransformed base; windowd retires an override itself). No layers: the set stays. The
+    /// present's damage is recorded for the plan: its `Damage` rectangles' union, or everywhere
+    /// when layers came without one.
     pub fn take_frame(&mut self, cmds: &[Command]) -> Taken {
-        if !cmds.iter().any(|c| matches!(c, Command::CompositeLayer { .. })) {
+        let mut named = false;
+        for c in cmds {
+            if let Command::Damage { rect, origin } = c {
+                named = true;
+                let area = Area::rect(rect.x, rect.y, rect.width, rect.height);
+                match self.damage.get_mut(self.damage_count) {
+                    Some(slot) if area != Area::None => {
+                        *slot = (area, *origin);
+                        self.damage_count += 1;
+                    }
+                    Some(_) => {}
+                    None => self.damage_full = true,
+                }
+            }
+        }
+        let replaced = cmds.iter().any(|c| matches!(c, Command::CompositeLayer { .. }));
+        if replaced && !named {
+            self.damage_full = true;
+        }
+        if !replaced {
             return Taken { replaced: false, dropped: 0 };
         }
         self.count = 0;
@@ -238,6 +276,20 @@ impl RetainedLayers {
 
     pub fn is_empty(&self) -> bool {
         self.count == 0
+    }
+
+    /// The present's damage, taken: its rectangles with their origins (none when a present named
+    /// none, or everything when it brought layers and named none).
+    pub(super) fn take_damage(&mut self) -> ([(Area, u32); MAX_DAMAGE], usize, bool) {
+        let out = (self.damage, self.damage_count, self.damage_full);
+        self.damage_count = 0;
+        self.damage_full = false;
+        out
+    }
+
+    /// The index of the first layer carrying transform id `layer_id`, if one does.
+    pub fn index_of_id(&self, layer_id: u32) -> Option<usize> {
+        self.layers[..self.count].iter().position(|l| l.layer_id == layer_id)
     }
 
     /// The source row of scroll id `scroll_id` from now on; `false` for id 0 or beyond the table.

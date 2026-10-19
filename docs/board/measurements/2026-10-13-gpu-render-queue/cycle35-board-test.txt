@@ -1,0 +1,4 @@
+# cycle 35 (board--2026-10-19T11-09-31), the operator's confirmations but tile (TASK-0066 F8)
+[board-test] known board reds tolerated (config/fail-marker-allow-board.txt): 12
+[board-test] ladder complete: 70 rungs present
+[FAIL] board-visible: operator marker missing in the capture: board-visual: tile

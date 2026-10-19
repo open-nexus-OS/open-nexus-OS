@@ -96,12 +96,11 @@ impl BoardGpu {
     }
 
     /// The desktop refused at `step`: said once, the display composes on the CPU.
-    fn desktop_refused(&mut self, step: &str, why: DesktopRefusal) -> bool {
+    fn desktop_refused(&mut self, step: &str, why: DesktopRefusal) {
         self.desktop_off = true;
         emit_fmt(format_args!(
             "gpud: FAIL gpu desktop ({step}: {why}; the display composes on the cpu)"
         ));
-        false
     }
 
     /// The new context, made as the render rungs' is; on a refusal everything it took is given
@@ -235,12 +234,14 @@ impl GpuService for BoardGpu {
 }
 
 impl FrameGpu for BoardGpu {
-    fn draw_frame(&mut self, commands: &[Command], target: &FrameTarget<'_>) -> bool {
-        let Some(who) = self.held.as_ref().map(|h| (h.client, h.ctx)) else {
-            return false;
-        };
+    fn draw_frame(
+        &mut self,
+        commands: &[Command],
+        target: &FrameTarget<'_>,
+    ) -> Option<nexus_gfx::backend::types::Rect> {
+        let who = self.held.as_ref().map(|h| (h.client, h.ctx))?;
         if self.desktop_off {
-            return false;
+            return None;
         }
         if self.desktop.is_none() {
             let rows = (target.layout.len() / nexus_display_proto::layout::STRIDE_BYTES as usize)
@@ -249,15 +250,36 @@ impl FrameGpu for BoardGpu {
             let layout = (target.layout_bus, rows);
             match Desktop::open(&mut self.dev, who, layout, target.display, &mut self.stray) {
                 Ok(d) => self.desktop = Some(d),
-                Err(why) => return self.desktop_refused("open", why),
+                Err(why) => {
+                    self.desktop_refused("open", why);
+                    return None;
+                }
             }
         }
-        let Some(desktop) = self.desktop.as_mut() else {
-            return false;
-        };
+        let desktop = self.desktop.as_mut()?;
         match desktop.draw(&mut self.dev, commands, target) {
-            Ok(()) => true,
-            Err(why) => self.desktop_refused("frame", why),
+            Ok(area) => Some(area),
+            Err(why) => {
+                self.desktop_refused("frame", why);
+                None
+            }
         }
+    }
+
+    fn set_layer_scroll(&mut self, scroll_id: u32, src_row: u32) -> bool {
+        !self.desktop_off
+            && self.desktop.as_mut().is_some_and(|d| d.frame.layers.set_scroll(scroll_id, src_row))
+    }
+
+    fn set_layer_transform(
+        &mut self,
+        layer_id: u32,
+        (dx, dy): (i16, i16),
+        opacity: u8,
+        scale_pct: u16,
+    ) -> bool {
+        let t = nexus_gfx::frame::Transform { dx, dy, opacity, scale_pct };
+        !self.desktop_off
+            && self.desktop.as_mut().is_some_and(|d| d.frame.layers.set_transform(layer_id, t))
     }
 }

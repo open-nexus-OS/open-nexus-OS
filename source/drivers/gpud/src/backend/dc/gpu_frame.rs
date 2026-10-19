@@ -46,14 +46,16 @@ impl DcDisplay {
             display,
             base_row,
             base_dirty: self.base_dirty,
+            slot_stale: self.slot_cpu[slot],
         };
         let drawn = frames.draw_frame(commands, &target);
-        if drawn {
+        if let Some(area) = drawn {
             self.slot_cpu[slot] = false;
             self.slot_gpu[slot] = true;
             self.base_dirty = false;
+            self.gpu_area = Some(area);
         }
-        drawn
+        drawn.is_some()
     }
 
     /// The plane on screen as the CPU is about to read it: its stale lines dropped when the GPU

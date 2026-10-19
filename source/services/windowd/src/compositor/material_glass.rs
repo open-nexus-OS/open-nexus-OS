@@ -30,6 +30,10 @@ pub(crate) struct MaterialLayerParams {
     pub shadow_alpha: u32,
     /// Backdrop blur radius (from the glass level: panel/card/subtle/window).
     pub blur_radius: u32,
+    /// The window's transform id (`slot + 1`; `0` for the desktop's own regions): every slice of
+    /// a window shares it — the transform override, and the damage's origin (TASK-0215 5c-3 P5:
+    /// a glass blurs its backdrop again only for a change below it, never for its own content).
+    pub layer_id: u32,
 }
 
 /// Composite one app-declared glass region through the `nexus-gfx` layer SSOT —
@@ -61,8 +65,7 @@ pub(crate) fn composite_material_glass(
             opacity: 255,
             corner_radius: p.corner_radius,
             scroll_id: 0,
-            // Untagged: material glass rides the app's DESKTOP surface.
-            layer_id: 0,
+            layer_id: p.layer_id,
             content_epoch: crate::atlas::atlas_content_epoch(),
             scroll_band_top_abs: 0,
             scroll_band_h: 0,

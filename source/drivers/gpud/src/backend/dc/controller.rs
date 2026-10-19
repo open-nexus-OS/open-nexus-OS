@@ -70,6 +70,13 @@ pub(super) struct Scan {
 /// configuration — it clears config-ready when it latches the shadowed words at a frame boundary
 /// (the interrupt the stock driver unmasks is named `cfg_rdy_clr`). Observed, not yet a gate: the
 /// first switch on the board measures it (TASK-0251 P2a step 2).
+/// What a per-frame flip's write left behind.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct FlipSeen {
+    pub pending: bool,
+    pub line_after: u32,
+}
+
 pub(super) struct Flip {
     pub readback: Readback,
     /// Reads of config-ready until it read 0, or `None` when it stayed set within the bound.
@@ -137,9 +144,16 @@ impl Controller {
 
     /// Switch the scan to `plane` inside the blank: the address, the stride, the latch — bus
     /// writes only (a flip per frame; the reveal's `flip` reads back and observes the latch).
-    pub(super) fn flip_in_blank(&self, plane: &Plane) {
+    pub(super) fn flip_in_blank(&self, plane: &Plane) -> FlipSeen {
         let mut w = Writer { bus: &self.regs, written: Sequence::new() };
         dc::flip(&mut w, RDMA, plane);
+        // What the flip's write left behind (TASK-0215 5c-3 P5's tear measurement): the
+        // config-ready latch still set — the controller takes the plane at a later frame
+        // boundary, not at once — and the scan line the write landed on.
+        FlipSeen {
+            pending: self.regs.read(regs::CTL2_CFG_READY as usize) & 1 != 0,
+            line_after: self.line(),
+        }
     }
 
     /// Switch the scan to `plane` (the same mode): its address and stride, then the latch.

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-19 (Block 4, layer 5c-3 P5: the frame draws what changed — TASK-0215, RFC-0101 §8)
+
+- **The present names its damage.** windowd sends each screen rectangle its scene changed, with
+  its origin (the window whose content changed, or the desktop), as `Command::Damage`. The frame
+  planner adds every layer drawn otherwise than before and every glass blurred again, keeps the
+  last frames' damage, and the board's executor redraws into a ring slot only what that slot
+  lacks — nothing at all when it lacks nothing. A glass is blurred again only when something
+  below it changed within its reach, never for its own content, a window above it or the pointer.
+- **Scrolling and transforms on the board's GPU**: a wheel step or a transform override is
+  recorded in the GPU's retained set and drawn as one frame of the layers that moved; the app
+  re-rendered on every step before.
+- **A flip the controller takes later stays queued.** One flip in seven on the board leaves the
+  controller's latch set after the write; the ring counted it landed and freed the plane still
+  on screen — the tear while scrolling. Such a flip now lands at the next blank
+  (`gpud: dc flips (…)` witnesses it).
+- **Measured**: the frame's time is its passes' pixels (97 % waiting for the GPU); the blur
+  programs' cost a pixel is the next lever. A layer's source rows are cleaned for the device
+  whenever they move (a scroll showed rows never cleaned). Board cycles 33–35; QEMU visible,
+  headless, display-gpu and visible-2d green.
+
 ### Changed - 2026-10-19 (Block 4, layer 5c-3 P4b: the desktop on the board's GPU — TASK-0215, RFC-0101 §8d)
 
 - **windowd's desktop is drawn on the board's GPU**, in windowd's own context: the frame plan

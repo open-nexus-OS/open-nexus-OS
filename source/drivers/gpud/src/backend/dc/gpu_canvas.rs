@@ -61,7 +61,7 @@ impl DcDisplay {
         };
         if self.vblank.is_none() {
             if let Some(fb) = live.framebuffer.as_ref() {
-                live.controller.flip_in_blank(&fb.plane_at(row, w, h));
+                let _ = live.controller.flip_in_blank(&fb.plane_at(row, w, h));
             }
             return self.ring.shown_now().map_err(|_| GfxError::ResourceExhausted);
         }
