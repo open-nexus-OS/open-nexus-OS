@@ -22,6 +22,10 @@ impl DcDisplay {
             self.ring.discard();
             return None;
         };
+        // A rung's job and its CPU checks both touch the slot: a readback and windowd's first
+        // GPU frame in it maintain the caches first (5c-3 P4b).
+        self.slot_gpu[slot] = true;
+        self.slot_cpu[slot] = true;
         Some(GpuCanvas {
             row,
             bus: fb.plane_bus(row),

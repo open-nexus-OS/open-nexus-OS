@@ -23,16 +23,22 @@ use crate::backend::display::Display;
 /// absolute blit at or below it lands on screen.
 const DISPLAY_PLANE_ROW: u32 = nexus_display_proto::layout::DISPLAY_ROW;
 
-/// One present of validated commands: execute (G3), then scan the damage out (G4). The chain
-/// hops print while `trace`; the status is the present's before the reveal check.
-pub(crate) fn present(display: &mut dyn Display, cb: &CommittedBuffer, trace: bool) -> u8 {
+/// One present of validated commands: execute (G3) — on `frames`, the GPU that draws windowd's
+/// frames, when one is ready — then scan the damage out (G4). The chain hops print while
+/// `trace`; the status is the present's before the reveal check.
+pub(crate) fn present(
+    display: &mut dyn Display,
+    frames: Option<&mut dyn crate::gpu_context::FrameGpu>,
+    cb: &CommittedBuffer,
+    trace: bool,
+) -> u8 {
     let (w, h) = display.mode();
     let damage_rect = damage_rect_from_cb(cb, w, h);
     // A failed composite is never silent: the hop and the reason print.
     let executed = cb
         .validate()
         .map_err(crate::backend::map_nexus_error)
-        .and_then(|()| display.execute(cb.commands(), damage_rect));
+        .and_then(|()| display.execute_on(frames, cb.commands(), damage_rect));
     match executed {
         Ok(()) => {
             if trace {

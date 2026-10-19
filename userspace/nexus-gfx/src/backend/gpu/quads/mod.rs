@@ -61,6 +61,24 @@ impl Quad {
         Self { x, y, w, h, push }
     }
 
+    /// A part (`px`, `py`, `pw`, `ph`) of the layer at (`x`, `y`, `w`, `h`) — a rounded layer's
+    /// corner square (the compositor draws the rest of the layer unrounded, TASK-0215 5c-3 P4b):
+    /// the quad covers the part, its push constants name the whole layer's rounded rectangle, the
+    /// part's `uv` mapping to its offset from the layer's centre.
+    pub const fn part(
+        (x, y, w, h): (f32, f32, f32, f32),
+        (px, py, pw, ph): (f32, f32, f32, f32),
+        tint: [f32; 4],
+        radius: f32,
+    ) -> Self {
+        let mut q = Self::layer(px, py, pw, ph, tint, radius);
+        q.push[6] = px - (x + w * 0.5);
+        q.push[7] = py - (y + h * 0.5);
+        q.push[8] = w * 0.5 - radius;
+        q.push[9] = h * 0.5 - radius;
+        q
+    }
+
     /// The layer showing the rectangle `texture` = (scale x, scale y, offset x, offset y) of its
     /// texture, in its `uv` (an atlas variant reads it; others ignore it).
     pub const fn with_texture(mut self, texture: [f32; 4]) -> Self {

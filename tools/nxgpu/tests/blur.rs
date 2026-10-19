@@ -157,3 +157,25 @@ fn the_loops_unroll_into_their_taps_and_compile_for_the_board() {
         assert!(!c.program.constants.is_empty(), "{entry}: the weights are the constant block");
     }
 }
+
+#[test]
+fn the_other_radii_windowd_asks_follow_the_gaussian_and_compile_for_the_board() {
+    // TASK-0215 5c-3 P4b: the board's chain at 8, 30 and 40 as well (measured on the host: radius
+    // 8 up to seven levels on the red squares' edges, as on the virtual GPU's path; 30 and 40 four
+    // at most). The wider passes carry more weights than the constant block's runs hold: their
+    // compile is the codegen's other way — those taps a group a lane, the weights one register.
+    for (radius, max_levels, mean_levels) in [(8, 7, 0.6), (30, 4, 0.35), (40, 4, 0.4)] {
+        for saturation in [1.0, 1.4] {
+            let (max, mean) = difference(&ours(radius, saturation), &reference(radius, saturation));
+            assert!(
+                max <= max_levels && mean < mean_levels,
+                "radius {radius} saturation {saturation}: max {max}, mean {mean}"
+            );
+        }
+        let r = [("radius", f64::from(radius))];
+        for entry in ["horizontal", "vertical"] {
+            let c = compile_fragment(BLUR, entry, &r, Blend::Replace, true).expect("compiles");
+            assert!(!c.program.constants.is_empty(), "radius {radius} {entry}");
+        }
+    }
+}

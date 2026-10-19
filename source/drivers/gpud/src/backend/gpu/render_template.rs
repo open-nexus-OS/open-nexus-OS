@@ -44,15 +44,16 @@ pub(super) const CODE_HEAP_BASE: u64 = 0xe0_0000_0000;
 pub(super) const CODE_ARENA: u64 = 0xe0_0000_1000;
 /// The pipeline library's places, written once when the context takes its library and never
 /// again: the code arena's free tail (arena offsets) and the head of the PDS arena's free lines
-/// (heap offsets).
+/// (heap offsets) — 6 KiB since the blur at windowd's four radii (5c-3 P4b: 13 entries, their
+/// setup programs and weight blocks each on its own line).
 pub(super) const LIBRARY_CODE: (u32, u32) = (0x8000, 0x1_0000);
-pub(super) const LIBRARY_PDS: (u32, u32) = (0x3000, 0x3c00);
+pub(super) const LIBRARY_PDS: (u32, u32) = (0x3000, 0x4800);
 /// The passes' targets' places (5c-3 P1), each written once when a pass first names its target:
 /// the end-of-tile program copies after the library's code (arena offsets), their pixel event
 /// data after the library's setup programs (heap offsets) — the quads rung's PDS lines begin
 /// after them.
 pub(super) const TARGET_CODE: (u32, u32) = (0x1_0000, 0x1_1000);
-pub(super) const TARGET_PDS: (u32, u32) = (0x3c00, 0x4000);
+pub(super) const TARGET_PDS: (u32, u32) = (0x4800, 0x4c00);
 /// The bundle's end-of-tile program (code-heap offset) and its pixel event data (PDS-heap
 /// offset) — the captured target's.
 const EOT_PROGRAM_HEAP: u64 = 0x7e80;

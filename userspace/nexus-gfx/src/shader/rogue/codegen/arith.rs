@@ -186,7 +186,9 @@ impl Gen<'_> {
     /// A lane-stepping group's operands with every broadcast a constant: each broadcast made a
     /// run of the constant block, so one repeated group covers the lanes where a broadcast takes
     /// a group a lane (a shared operand more costs one repeated move at most). A computed
-    /// broadcast among them keeps the group a lane, and the constants their registers.
+    /// broadcast among them keeps the group a lane, and the constants their registers — and so
+    /// does a block too full for the runs (a wide blur's weights, TASK-0215 5c-3 P4b): every run
+    /// or none, the block as it was when they do not all fit.
     fn constant_runs(
         &mut self,
         at: usize,
@@ -205,9 +207,22 @@ impl Gen<'_> {
                 }
             }
         }
-        for (b, l) in bits.iter().zip(locs.iter_mut()) {
+        let kept = self.consts.len();
+        let mut runs = [None; 3];
+        for (run, b) in runs.iter_mut().zip(bits.iter()) {
             if let Some(v) = b {
-                *l = self.constant_run(at, *v, lanes)?;
+                match self.constant_run(at, *v, lanes) {
+                    Ok(loc) => *run = Some(loc),
+                    Err(_) => {
+                        self.consts.truncate(kept);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        for (l, run) in locs.iter_mut().zip(runs) {
+            if let Some(loc) = run {
+                *l = loc;
             }
         }
         Ok(())

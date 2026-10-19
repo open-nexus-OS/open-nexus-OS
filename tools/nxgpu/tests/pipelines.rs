@@ -33,7 +33,7 @@ fn the_manifest_builds_the_committed_library() {
     let manifest = parse_manifest(MANIFEST).expect("the manifest parses");
     let (bytes, built) = build(&manifest, source).expect("the library builds");
     assert_eq!(bytes, LIBRARY, "rebuild compositor.nxgp (README.md)");
-    assert_eq!(fnv1a64(LIBRARY), 0x04c4_3695_d216_90f9, "and the README's digest");
+    assert_eq!(fnv1a64(LIBRARY), 0x1209_60ff_af5f_65c4, "and the README's digest");
     let facts: Vec<_> = built.iter().map(|b| (b.id, b.groups, b.temps, b.pass_type)).collect();
     assert_eq!(
         facts,
@@ -44,7 +44,13 @@ fn the_manifest_builds_the_committed_library() {
             (4, 34, 3, PASS_TRANSLUCENT),
             (5, 43, 3, PASS_TRANSLUCENT),
             (6, 89, 3, PASS_OPAQUE),
-            (7, 70, 3, PASS_OPAQUE)
+            (7, 70, 3, PASS_OPAQUE),
+            (8, 41, 3, PASS_OPAQUE),
+            (9, 40, 3, PASS_OPAQUE),
+            (10, 129, 3, PASS_OPAQUE),
+            (11, 100, 3, PASS_OPAQUE),
+            (12, 169, 3, PASS_OPAQUE),
+            (13, 120, 3, PASS_OPAQUE)
         ]
     );
 }
@@ -53,9 +59,10 @@ fn the_manifest_builds_the_committed_library() {
 fn the_library_carries_the_references_and_their_setup() {
     let lib = parse(LIBRARY, CoreId::BOARD.0, feature::FUSED_ITERATE_SAMPLE).expect("parses");
     assert!(lib.refused.is_empty());
-    let [opaque, premultiplied, straight, rounded, shadow, across, down] = lib.accepted.as_slice()
+    let [opaque, premultiplied, straight, rounded, shadow, across, down, wide @ ..] =
+        lib.accepted.as_slice()
     else {
-        panic!("seven entries")
+        panic!("the layers, the shadow and the blur passes")
     };
     assert_eq!((opaque.id, opaque.name, opaque.budget), (1, "layer-opaque", 3));
     assert_eq!(opaque.program, reference::opaque_itrsmp().unwrap().encode().unwrap());
@@ -78,9 +85,27 @@ fn the_library_carries_the_references_and_their_setup() {
         assert_eq!((s.state.temps, s.state.pass_type), (temps, pass));
         assert_eq!(!s.constants.is_empty(), block, "{}", e.name);
     }
+    // The chain at windowd's other radii (5c-3 P4b), each pass its weights in a constant block.
+    let names: Vec<_> = wide.iter().map(|e| e.name).collect();
+    assert_eq!(
+        names,
+        [8, 30, 40]
+            .iter()
+            .flat_map(|r| [format!("blur-horizontal-{r}"), format!("blur-vertical-{r}")])
+            .collect::<Vec<_>>()
+    );
+    for e in wide {
+        let s = Setup::from_sections(&e.setup, e.state, &e.interface).expect("the setup decodes");
+        assert_eq!((s.state.temps, s.state.pass_type), (3, PASS_OPAQUE), "{}", e.name);
+        assert!(!s.constants.is_empty(), "{}", e.name);
+        assert_eq!(e.features, 0, "{}", e.name);
+    }
     // A device without iterate-and-sample takes the shadow and the blur passes.
     let bare = parse(LIBRARY, CoreId::BOARD.0, 0).unwrap();
-    assert_eq!(bare.accepted.iter().map(|e| e.id).collect::<Vec<_>>(), vec![5, 6, 7]);
+    assert_eq!(
+        bare.accepted.iter().map(|e| e.id).collect::<Vec<_>>(),
+        vec![5, 6, 7, 8, 9, 10, 11, 12, 13]
+    );
 }
 
 #[test]

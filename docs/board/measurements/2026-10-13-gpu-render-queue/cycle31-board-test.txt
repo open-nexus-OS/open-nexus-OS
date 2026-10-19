@@ -1,0 +1,9 @@
+# cycle 31 (board--2026-10-19T08-46-06), the operator's confirmations but tile
+[board-test] known board reds tolerated (config/fail-marker-allow-board.txt): 12
+[board-test] ladder complete: 70 rungs present
+[FAIL] board-visible: operator marker missing in the capture: board-visual: tile
+
+# cycle 32 (board--2026-10-19T09-03-46), the same image booted again for the tiling check
+[board-test] judging build/logs/board--2026-10-19T09-03-46/uart.log as profile board-visible
+[board-test] known board reds tolerated (config/fail-marker-allow-board.txt): 10
+[FAIL] board-visible: rung missing: 'inputd: live keyboard route on' (rung 68 of 70, last present: 'inputd: live pointer route on')

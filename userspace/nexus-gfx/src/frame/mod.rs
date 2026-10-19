@@ -7,8 +7,9 @@
 //! frame after frame, into the frame's steps — every layer as drawn, a glass layer's blurred
 //! backdrop read from its cache or written into it (the destination-so-far key), and whether the
 //! atlas's content must be uploaded first. The QEMU path's virgl executor and the board's GPU
-//! executor draw the same plan; the CPU path's own recipe commands (`BlitSurface`,
-//! `BlurBackdrop`, `BlitAbsolute`) are not the planner's.
+//! executor draw the same plan — the board's through `board`, the plan lowered into its passes;
+//! the CPU path's own recipe commands (`BlitSurface`, `BlurBackdrop`, `BlitAbsolute`) are not the
+//! planner's.
 //! OWNERS: @ui @gpu
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -17,10 +18,14 @@
 //!   keeps the set; a scroll override lives until the next set, a transform override until
 //!   windowd replaces it; a glass key folds every layer drawn below it, as drawn.
 
+pub mod board;
 pub mod glass;
 pub mod layers;
 pub mod plan;
 
+pub use board::{
+    blur_radius, Board, DrawSpec, GlassCount, PassKind, PassSpec, Pipe, Target, Tex, BLUR_RADII,
+};
 pub use glass::{CacheStep, GlassCache};
 pub use layers::{FrameLayer, RetainedLayers, Taken, Transform, MAX_IDS, MAX_LAYERS};
 pub use plan::{Frame, Glass, LayerStep, Planned};

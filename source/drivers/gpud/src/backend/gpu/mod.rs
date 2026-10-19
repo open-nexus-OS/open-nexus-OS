@@ -32,8 +32,10 @@
 //!   context it blames (lost, the others untouched), the free lists rebuilt after the firmware's
 //!   recovery, a growth request answered.
 //! - [`scene_load`] and the `render_*` rungs — the captured scenes loaded and drawn, the device's
-//!   board gates (`gpud: gpu fill|quad|render|library|quads|area|pipeline|mixed|contexts|
-//!   containment ok (`).
+//!   board gates (`gpud: gpu fill|quad|render|library|quads|area|pipeline|blur radii|texel
+//!   offsets|mixed|contexts|containment ok (`).
+//! - [`client_context`], [`desktop`] — windowd's context (`gpud: gpu library ok (client=windowd`)
+//!   and the desktop drawn in it from the frame planner's steps (`gpud: gpu desktop ok (`).
 //! OWNERS: @gpu @runtime
 //! STATUS: Functional (`GfxDevice` with several contexts on the board, a fault kept in its
 //!   context, TASK-0215 5c-3 P2)
@@ -52,6 +54,7 @@
 mod bos;
 pub(crate) mod client_context;
 mod contexts;
+mod desktop;
 pub(crate) mod device;
 mod device_v2;
 mod firmware;
@@ -74,6 +77,7 @@ mod render_passes;
 pub(crate) mod render_quad;
 pub(crate) mod render_quads;
 mod render_template;
+mod render_texels;
 mod scene_load;
 mod space;
 

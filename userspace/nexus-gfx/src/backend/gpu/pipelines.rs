@@ -25,7 +25,7 @@ use crate::shader::rogue::setup::Setup;
 /// board's places in its render template (gpud's `render_template::LIBRARY_*`) and the mock's,
 /// so both refuse the same library for room.
 pub const LIBRARY_CODE_BYTES: u32 = 0x8000;
-pub const LIBRARY_SETUP_BYTES: u32 = 0xc00;
+pub const LIBRARY_SETUP_BYTES: u32 = 0x1800;
 
 /// Where a pipeline's bytes go: the client's code heap and setup heap.
 pub trait Heaps {

@@ -11,6 +11,9 @@
 //! gaussian of it (σ = R/2, taps out to ±R) with the CPU path's saturation, computed here. The
 //! intermediates live in rows of the same plane below the picture: a pass names its area, so
 //! nothing else of the plane changes. (In the frame they are the context's GPU-only buffers.)
+//! Since 5c-3 P4b the chain runs at every radius windowd's glass asks — 20 in the pipeline
+//! gate's line, 8, 30 and 40 in `gpud: gpu blur radii ok (…)` — each read held to its radius's
+//! deviation on the host and the texture unit's three levels.
 
 use alloc::format;
 use alloc::string::String;
@@ -20,19 +23,20 @@ use nexus_gfx::backend::gpu::quads::{Bump, Need, Placer, Quad, Template};
 use nexus_gfx::backend::gpu::texstate::{descriptor_bytes, format, swizzle, Image, Sampler};
 
 use super::device_v2::Device;
-use super::render_cost::{peek, run, Pass, Rig, HEIGHT, STRIDE, WIDTH};
-use super::render_template::{clear_bgr, write_bound, GENERAL_ARENA};
+use super::render_cost::{cost, named, peek, run, Pass, Rig, HEIGHT, STRIDE, WIDTH};
+use super::render_template::{clear_bgr, write_bound, COST_TAILS, GENERAL_ARENA};
 use crate::backend::display::{Display, GpuCanvas};
 
-/// The glass: a 256x192 layer at (512, 96), corner radius 16; windowd's glass blur (radius 20,
-/// saturation 140 %).
+/// The glass: a 256x192 layer at (512, 96), corner radius 16; windowd's glass blur (saturation
+/// 140 %).
 const GLASS: (u32, u32, u32, u32) = (512, 96, 256, 192);
 const CORNER: f32 = 16.0;
-const RADIUS: u32 = 20;
 const SATURATION: f32 = 1.4;
-/// The backdrop the CPU writes: the glass and 32 pixels around it (the taps reach 20 pixels, a
-/// bilinear fetch one more).
-const MARGIN: u32 = 32;
+/// The backdrop the CPU writes: the glass and 48 pixels around it (the widest taps reach 40
+/// pixels, a bilinear fetch one more).
+const MARGIN: u32 = 48;
+/// The radii the chain runs at besides 20 (the pipeline gate's): windowd's other glass levels.
+const OTHER_RADII: [u32; 3] = [8, 30, 40];
 /// The intermediates, below the picture: the horizontal result at (512, 640) — the glass's
 /// half-resolution columns, its rows and R/2 more above and below for the vertical taps —, the
 /// vertical one at (800, 640).
@@ -42,9 +46,16 @@ const DOWN: (u32, u32) = (800, 640);
 /// its corner pixel, which the rounded layer leaves out — the pass's clear there, as for the
 /// rounded probe (a pass clears its area: loading what the plane held is the frame's, 5c-3).
 const READS: [(u32, u32); 5] = [(640, 192), (520, 192), (640, 100), (700, 260), (512, 96)];
-/// Levels a read may differ from the full-resolution formula: the half-resolution chain's three
-/// on the host (`tools/nxgpu/tests/blur.rs`) and the texture unit's filter fractions.
-const BLUR_TOLERANCE: u8 = 6;
+/// Levels a read may differ from the full-resolution formula at `radius`: the half-resolution
+/// chain's deviation on the host (`tools/nxgpu/tests/blur.rs`: seven levels at radius 8, three
+/// at 20, four at 30 and 40) and the texture unit's filter fractions (three).
+fn tolerance(radius: u32) -> u8 {
+    3 + match radius {
+        8 => 7,
+        20 => 3,
+        _ => 4,
+    }
+}
 
 /// What the chain cost and read.
 pub(super) struct Blur {
@@ -67,27 +78,28 @@ fn backdrop(x: u32, y: u32) -> [u8; 3] {
 }
 
 /// The virgl path's kernel: 2R + 1 weights 2^(k·i²), k = −1/(2σ² ln 2), σ = R/2, normalised.
-fn kernel() -> [f32; 2 * RADIUS as usize + 1] {
-    let sigma = (RADIUS as f32 / 2.0).max(0.5);
+fn kernel(radius: u32) -> alloc::vec::Vec<f32> {
+    let sigma = (radius as f32 / 2.0).max(0.5);
     let k = -1.0 / (2.0 * sigma * sigma * core::f32::consts::LN_2);
-    let mut w = [0.0; 2 * RADIUS as usize + 1];
-    for (i, x) in w.iter_mut().enumerate() {
-        let d = i as f32 - RADIUS as f32;
-        *x = libm::exp2f(k * d * d);
-    }
+    let mut w: alloc::vec::Vec<f32> = (0..=2 * radius)
+        .map(|i| {
+            let d = i as f32 - radius as f32;
+            libm::exp2f(k * d * d)
+        })
+        .collect();
     let total: f32 = w.iter().sum();
     w.iter_mut().for_each(|x| *x /= total);
     w
 }
 
 /// The expected bytes (B, G, R) at `(x, y)` inside the glass: the full-resolution gaussian of
-/// the backdrop, saturated.
-fn expected((x, y): (u32, u32)) -> [u8; 3] {
-    let w = kernel();
+/// the backdrop at `radius`, saturated.
+fn expected((x, y): (u32, u32), radius: u32) -> [u8; 3] {
+    let w = kernel(radius);
     let mut c = [0.0f32; 3];
     for (j, wj) in w.iter().enumerate() {
         for (i, wi) in w.iter().enumerate() {
-            let p = backdrop(x + i as u32 - RADIUS, y + j as u32 - RADIUS);
+            let p = backdrop(x + i as u32 - radius, y + j as u32 - radius);
             for (acc, v) in c.iter_mut().zip(p) {
                 *acc += wi * wj * f32::from(v);
             }
@@ -143,8 +155,8 @@ pub(super) fn plane(rig: &Rig<'_>, (x, y): (u32, u32), w: u32, h: u32) -> Image 
     }
 }
 
-/// The chain over the CPU's backdrop with the library's `across`, `down` and rounded `layer`
-/// pipelines, its reads against the formula.
+/// The chain at `radius` over the CPU's backdrop with the library's `across`, `down` and rounded
+/// `layer` pipelines, its reads against the formula.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn chain(
     dev: &mut Device,
@@ -153,6 +165,7 @@ pub(super) fn chain(
     rig: &Rig<'_>,
     t: &Template<'_>,
     place: &mut Bump,
+    radius: u32,
     [across, down, layer]: [&Placed; 3],
 ) -> Result<Blur, String> {
     if !write_backdrop(display, canvas) {
@@ -160,13 +173,13 @@ pub(super) fn chain(
     }
     let (gx, gy, gw, gh) = GLASS;
     let (fw, fh) = (WIDTH as f32, HEIGHT as f32);
-    let (hw, hh, vw, vh) = (gw / 2, gh / 2 + RADIUS, gw / 2, gh / 2);
+    let (hw, hh, vw, vh) = (gw / 2, gh / 2 + radius, gw / 2, gh / 2);
     let whole = descriptor(dev, rig, place, &plane(rig, (0, 0), WIDTH, HEIGHT))?;
     let on_plane = Template { texture_va: whole, ..*t };
     // Horizontal: a half-resolution pixel's centre is the corner of the four backdrop texels it
     // averages, R full-resolution rows above the glass on; a tap two texels across.
     let source =
-        [2.0 * hw as f32 / fw, 2.0 * hh as f32 / fh, gx as f32 / fw, (gy - RADIUS) as f32 / fh];
+        [2.0 * hw as f32 / fw, 2.0 * hh as f32 / fh, gx as f32 / fw, (gy - radius) as f32 / fh];
     let q = Quad::blur(
         ACROSS.0 as f32,
         ACROSS.1 as f32,
@@ -180,7 +193,7 @@ pub(super) fn chain(
     // Vertical: the horizontal result's texel under the output pixel, R/2 rows down its halo; a
     // tap one row down; the saturation.
     let source =
-        [vw as f32 / fw, vh as f32 / fh, ACROSS.0 as f32 / fw, (ACROSS.1 + RADIUS / 2) as f32 / fh];
+        [vw as f32 / fw, vh as f32 / fh, ACROSS.0 as f32 / fw, (ACROSS.1 + radius / 2) as f32 / fh];
     let q = Quad::blur(
         DOWN.0 as f32,
         DOWN.1 as f32,
@@ -198,10 +211,10 @@ pub(super) fn chain(
         run(dev, rig, &Template { texture_va: result, ..*t }, layer, place, &[q], true)?;
     let mut deviation = 0;
     for (i, xy) in READS.iter().enumerate() {
-        let want = if i + 1 == READS.len() { clear_bgr() } else { expected(*xy) };
+        let want = if i + 1 == READS.len() { clear_bgr() } else { expected(*xy, radius) };
         let px = peek(display, canvas, (xy.0 as usize, xy.1 as usize)).ok_or("bad(outside)")?;
         let d = px.iter().zip(&want).map(|(p, w)| p.abs_diff(*w)).max().unwrap_or(0);
-        if d > BLUR_TOLERANCE {
+        if d > tolerance(radius) {
             return Err(format!(
                 "bad(at={},{} read={:02x}{:02x}{:02x} want={:02x}{:02x}{:02x})",
                 xy.0, xy.1, px[0], px[1], px[2], want[0], want[1], want[2]
@@ -217,4 +230,61 @@ pub(super) fn chain(
         reads: READS.len(),
         deviation,
     })
+}
+
+/// The radii rung's line: `gpud: gpu blur radii ok (…)`, or its FAIL form.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn radii_rung(
+    dev: &mut Device,
+    display: &mut dyn Display,
+    canvas: &GpuCanvas,
+    rig: &Rig<'_>,
+    t: &Template<'_>,
+    place: &mut Bump,
+    layer: &Placed,
+    area_us: u64,
+) {
+    super::emit(&match radii(dev, display, canvas, rig, t, place, layer, area_us) {
+        Ok(radii) => format!("gpud: gpu blur radii ok {radii}"),
+        Err(e) => format!("gpud: FAIL gpu blur radii ({e})"),
+    });
+}
+
+/// The chain at windowd's other radii (5c-3 P4b): each radius's two passes from the library and
+/// the rounded layer sampling them back, every read against the radius's formula, each pass's
+/// cost line. The line's part per radius: `r<radius>=<deviation>/<horizontal ns a pixel>/<vertical
+/// ns a pixel>`.
+#[allow(clippy::too_many_arguments)]
+fn radii(
+    dev: &mut Device,
+    display: &mut dyn Display,
+    canvas: &GpuCanvas,
+    rig: &Rig<'_>,
+    t: &Template<'_>,
+    place: &mut Bump,
+    layer: &Placed,
+    area_us: u64,
+) -> Result<String, String> {
+    let ns = |c: u64| format!("{}.{:02}", c / 100, c % 100);
+    let ok = Ok(());
+    let mut line = String::from("(");
+    for radius in OTHER_RADII {
+        // Every pass before was waited: the cost rung's tails are free again (three chains
+        // overran them on the board, cycle 29).
+        *place = COST_TAILS;
+        let (h, v) = (format!("blur-horizontal-{radius}"), format!("blur-vertical-{radius}"));
+        let (across, down) = (named(dev, rig, &h)?, named(dev, rig, &v)?);
+        let b = chain(dev, display, canvas, rig, t, place, radius, [&across, &down, layer])
+            .map_err(|e| format!("radius {radius} {e}"))?;
+        let h_cns = cost(&h, &across, &b.across, b.pixels[0], area_us, &ok);
+        let v_cns = cost(&v, &down, &b.down, b.pixels[1], area_us, &ok);
+        line.push_str(&format!("r{radius}={}/{}/{} ", b.deviation, ns(h_cns), ns(v_cns)));
+    }
+    line.push_str(&format!(
+        "tolerance={}/{}/{})",
+        tolerance(OTHER_RADII[0]),
+        tolerance(OTHER_RADII[1]),
+        tolerance(OTHER_RADII[2])
+    ));
+    Ok(line)
 }

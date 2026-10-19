@@ -129,6 +129,12 @@ ladder_headless=(
   # (resources/gpu/pipelines), replace and premultiplied — both samples right, the opaque layer
   # no slower a pixel than the stock stack's opaque fill.
   "gpud: gpu pipeline ok ("
+  # TASK-0215 5c-3 P4b: the glass blur at windowd's other radii (8, 30, 40), each read against
+  # its radius's formula.
+  "gpud: gpu blur radii ok ("
+  # TASK-0215 5c-3 P4b: a texture named at any texel — rectangles of a strip named 1, 2, 3, 4
+  # and 8 texels past an aligned column, each read back at the texel its address names.
+  "gpud: gpu texel offsets ok ("
   # TASK-0215 5c-3 P1: what a frame needs of a pass — draws of different pipelines and textures
   # in one pass, into two targets through their own end-of-tile programs; then passes through
   # rings that reuse lines once the timeline reached the pass that read them — every sample right.
@@ -149,6 +155,9 @@ ladder_headless=(
   # highest priority with windowd's library (a moved VMO) — the sender checked, the context made
   # as the rungs' is, every entry placed; gpud holds no library of its own.
   "gpud: gpu library ok (client=windowd"
+  # TASK-0215 5c-3 P4b: windowd's desktop drawn on the GPU in windowd's context — the frame
+  # plan lowered for the board (glass blurred into its cache, the slot's pass), waited, flipped.
+  "gpud: gpu desktop ok ("
   # Block 2 (TASK-0328 U3, RFC-0099 §6): the host node and the on-board hub up through socd,
   # the DWC3 in host mode, the xHCI as measured on the stock system (version 1.10, two root
   # ports, 64 slots, 64-byte contexts, one scratchpad, line 125), the high-speed hub with its

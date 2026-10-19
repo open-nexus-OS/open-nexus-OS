@@ -204,6 +204,18 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-3 P3: windowd asked gpud for the GPU's capabilities and opened its context at the highest priority with its library for the board's code target, a VMO moved over IPC; gpud checked the sender's kernel id (windowd alone opens), the VMO's kind and length, mapped it read-only, made the context as the render rungs' is (the render bundle bound, its target unbound, the render objects set up) and placed every entry of windowd's library; gpud holds no library of its own beyond the boot rungs' fixture"
 
+# TASK-0215 5c-3 P4b (RFC-0101 §8d): windowd's desktop drawn on the GPU in windowd's context;
+# `gpud: FAIL gpu desktop (` is its FAIL form (the display composes on the CPU from then on).
+[marker."gpud: gpu desktop ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P4b: windowd's first frame drawn on the GPU — the layer set windowd presented, planned by the frame planner the QEMU path draws with and lowered for the board (per glass to blur, the scene below it into the scratch and the two blur passes into its cache rows; then the slot's pass: the wallpaper, each glass drawn back, the shadows, the content), drawn in windowd's own context with windowd's library into the ring's free slot, waited and flipped at the blank; the frame's time, passes, draws, glass written, read and left unblurred, and the clean of the textures the CPU wrote"
+
+[marker."gpud: gpu frame us ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P4b: what a desktop frame on the GPU costs over a 32-frame window — the average and the slowest frame, the texture clean, passes and draws per frame, the glass written, read and left unblurred (a measurement)"
+
 # TASK-0215 5b (RFC-0101 Phase 4b): dynamic geometry — three quads at positions and tints the
 # device chose; the vertex buffer, tints, state-load data, PPP blocks and the stream's per-draw
 # records written by the device from the open driver's word layouts, drawn with the library's
@@ -228,6 +240,22 @@ proves = "TASK-0215 5c-1: after a 16x16 pass over the whole plane, two sentinels
 phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-2 P3c-P5d: every pipeline of the compositor library (compiled from WGSL by our toolchain, placed by the library rung with our own setup programs and constant blocks) drawn on a pass limited to its quad: the opaque, premultiplied and straight-alpha layers read texel x tint (straight premultiplied by its own alpha) over the clear, the rounded layer reads it in its interior and leaves its corner pixel at the clear, a window's drop shadow is knocked out under the window and shows below it at the shadow formula's alpha; the glass blur's chain over a backdrop the CPU wrote (the horizontal pass into half resolution, the vertical pass with the saturation, the rounded layer sampling the result back, each texture read through our own descriptor) reads the full-resolution gaussian's formula inside the glass within six levels; and the opaque layer costs no more a pixel than the stock stack's opaque textured fill (1.8 ns)"
+
+# TASK-0215 5c-3 P4b: the glass blur's chain at windowd's other radii (8, 30, 40) — the library's
+# passes for each, sampled back by the rounded layer; `gpud: FAIL gpu blur radii (` is its FAIL
+# form (a pipeline missing, a pass lost, a read beyond its radius's tolerance).
+[marker."gpud: gpu blur radii ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P4b: the glass blur at radius 8, 30 and 40 on the board — the library's horizontal pass from the plane's full-resolution backdrop into half resolution, its vertical pass with the saturation, the rounded layer sampling the result back over the glass — every read inside the glass within its radius's tolerance of the full-resolution gaussian (the host's deviation of the half-resolution chain and three levels), the corner at the clear; each pass's cost a pixel in its line"
+
+# TASK-0215 5c-3 P4b: a texture named at any texel — the frame names an atlas band or a glass's
+# cache rows by its descriptor's address; `gpud: FAIL gpu texel offsets (` is its FAIL form (a
+# read short of its texel: the alignment the texture unit applied).
+[marker."gpud: gpu texel offsets ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0215 5c-3 P4b: the opaque layer drew five 8x8 rectangles of a strip the CPU wrote (each texel's column in blue, its row in green), each named by a descriptor whose address lies 1, 2, 3, 4 and 8 texels past an aligned column; two pixels of each read back the texel the address names — a texture's base at any 4-byte step is fetched from there"
 
 # TASK-0215 5c-3 P1 (RFC-0101 §8d): what a frame needs of a pass — draws of different pipelines,
 # pass types and textures in one pass, a target per pass through its own end-of-tile program,

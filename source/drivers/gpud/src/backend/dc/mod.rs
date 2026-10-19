@@ -12,7 +12,9 @@
 //! (`nexus_gfx::backend::dc::bring_up`) and proves the scan (step 1, first light). windowd's
 //! desktop (step 2, `present.rs`): the framebuffer granted to windowd is ONE contiguous block for
 //! the controller, a present runs through the CPU executor the 2D virtio path runs
-//! (`cpu_frame`) and its damage is cleaned out of the caches; the splash holds the glass until
+//! (`cpu_frame`) and its damage is cleaned out of the caches — or, once windowd's GPU context is
+//! open, is drawn on the GPU in that context (TASK-0215 5c-3 P4b, `gpu_frame.rs`), the CPU
+//! composing a frame the GPU did not draw; the splash holds the glass until
 //! the first present after windowd's reveal, which switches the controller to the framebuffer's
 //! display plane (RFC-0093 §5, `splash_hold`).
 //! OWNERS: @ui @runtime
@@ -29,6 +31,7 @@ mod encoder;
 mod framebuffer;
 mod glue;
 mod gpu_canvas;
+mod gpu_frame;
 mod present;
 mod ring;
 
@@ -109,6 +112,19 @@ pub(crate) struct DcDisplay {
     vblank: Option<Vblank>,
     /// The tear gate's FAIL form, said once.
     front_reported: bool,
+    /// The ring's slots as the caches see them (TASK-0215 5c-3 P4b): the GPU drew the slot last
+    /// (a readback drops the CPU's stale lines first); the CPU wrote it since the GPU last did
+    /// (a GPU frame drops the CPU's lines first — one written back late would land over the
+    /// GPU's pixels).
+    slot_gpu: [bool; ring::SLOTS],
+    slot_cpu: [bool; ring::SLOTS],
+    /// The running present was drawn by the GPU: its slot needs no clean.
+    drawn_by_gpu: bool,
+    /// A capture freeze holds the frame: the retained plane it was copied into is the base the
+    /// GPU's scene starts from, until the thaw (`OP_WALLPAPER_DIRTY`).
+    frozen: bool,
+    /// The CPU wrote the base plane since the GPU's last frame (the reveal, a freeze, a thaw).
+    base_dirty: bool,
 }
 
 /// The controller's vertical-blank interrupt as gpud's frame clock: the line, the endpoint
@@ -175,6 +191,13 @@ impl DcDisplay {
             ring: ring::Ring::new(w, h),
             vblank: None,
             front_reported: false,
+            slot_gpu: [false; ring::SLOTS],
+            // The CPU drew the splash's planes and the rungs' canvases: every slot's lines are
+            // dropped once before the GPU's first frame in it.
+            slot_cpu: [true; ring::SLOTS],
+            drawn_by_gpu: false,
+            frozen: false,
+            base_dirty: true,
         }
     }
 

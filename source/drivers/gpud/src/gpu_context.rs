@@ -31,6 +31,38 @@ pub(crate) trait GpuService {
     fn open(&mut self, client: u64, priority: u8, library: &[u8]) -> ContextOpened;
     /// The device's interrupt fired: its messages served (the board's firmware).
     fn on_wake(&mut self) {}
+    /// The GPU that draws windowd's frames, once windowd's context is open (the board's,
+    /// TASK-0215 5c-3 P4b); `None` while the display composes them itself.
+    fn frames(&mut self) -> Option<&mut dyn FrameGpu> {
+        None
+    }
+}
+
+/// What the display lends a frame drawn on the GPU: the shared layout (its bus address, its CPU
+/// view, the cache block that cleans it), the ring slot to draw, the display's size, the plane
+/// the scene starts from (the wallpaper plane; the retained plane while a capture freeze holds
+/// the frame) and whether the CPU wrote it since the last frame.
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) struct FrameTarget<'a> {
+    pub layout_bus: u64,
+    pub layout: &'a [u8],
+    pub block: usize,
+    pub slot_row: u32,
+    pub display: (u32, u32),
+    pub base_row: u32,
+    pub base_dirty: bool,
+}
+
+/// The GPU a display draws windowd's frames with (TASK-0215 5c-3 P4b, RFC-0101 §8d).
+#[cfg(all(feature = "os-lite", target_os = "none"))]
+pub(crate) trait FrameGpu {
+    /// `commands`' layer set drawn into the slot `target` names, waited: `false` when the GPU
+    /// did not draw it — the display composes the frame on the CPU then.
+    fn draw_frame(
+        &mut self,
+        commands: &[nexus_gfx::command::buffer::Command],
+        target: &FrameTarget<'_>,
+    ) -> bool;
 }
 
 /// What a display without a GPU answers.

@@ -61,6 +61,18 @@ links:
 
 ### Open findings (recorded, not built)
 
+- **F8 — the keyboard chords reach no window** (board, 2026-10-19, TASK-0215 5c-3 P4b's
+  cycle): the operator held Super+Ctrl+← and nothing tiled; drag-to-edge and the app menu tiled
+  (`windowd: wm tile (zone=left-half id=app0)`, `… right-half …`). Measured across the board
+  logs: `windowd: wm chord (` lines up to the boot of 2026-10-16 15:01, none in any boot since
+  — and no `windowd: wm tile deny (` either, so no chord reaches windowd's `apply_chord`; no
+  commit since 2026-10-16 12:00 touched inputd, hidrawd, the USB stack or windowd's input and
+  tiling code. The boots since then that carried `board-visual: tile` show no tiling line at all
+  (the acknowledgement was given without the act in its log). In the boot of 2026-10-19 09:03
+  no key reached inputd's dispatch at all (`inputd: live keyboard route on` missing, the
+  keyboard enumerated as in every boot, no send failure). Not measured yet: whether inputd sees
+  the chord's report (the GUI modifier) — the next step, before any change.
+
 - **F7 — drag feel and preview polish** (board cycle 2, user: "noch nicht rund"): the drag runs at the
   dc present rate (F6), so the preview pane and the window lag the pointer; tuning the preview's
   look (margin-aware frames, fade) and the corner band waits for the GPU lane's present path,

@@ -10,7 +10,10 @@
 //! left unbound (windowd names every pass's target), the render objects set up, the client's
 //! library placed (`library.rs`): `gpud: gpu library ok (client=windowd …)`. Every line is
 //! formatted on the stack: an open costs gpud's heap, which never frees, the library's table
-//! alone (`heap_bytes=`).
+//! alone (`heap_bytes=`). Once the context is open, the display draws windowd's frames in it
+//! (5c-3 P4b, [`FrameGpu`]): the desktop (`desktop.rs`) is made at the first frame; a refusal is
+//! said once (`gpud: FAIL gpu desktop (`) and the display composes on the CPU from then on —
+//! until a new context replaces this one, which gives the desktop's buffers back with it.
 
 use nexus_display_proto::gpu_context::{
     ContextOpened, GpuCapabilities, PRIORITY_HIGH, PRIORITY_NORMAL, PRIORITY_REALTIME,
@@ -20,11 +23,14 @@ use nexus_gfx::backend::gpu::scene::Scene;
 use nexus_gfx::backend::gpu::CoreId;
 use nexus_gfx::backend::v2::{ClientId, ContextId, DeviceError, GfxDevice, LibraryTaken, Priority};
 
+use nexus_gfx::command::buffer::Command;
+
+use super::desktop::{give_back, Desktop, Refusal as DesktopRefusal, Taken};
 use super::device_v2::Device;
 use super::emit_fmt;
 use super::render_template::RENDER_BUNDLE;
 use super::scene_load::{self, Loaded, TargetMem, Texel};
-use crate::gpu_context::{refused, GpuService};
+use crate::gpu_context::{refused, FrameGpu, FrameTarget, GpuService};
 
 /// A context a client opened, with the render bundle in it.
 struct Opened {
@@ -38,6 +44,12 @@ pub(crate) struct BoardGpu {
     pub(crate) dev: Device,
     /// windowd's context, once it opened one (windowd alone opens).
     held: Option<Opened>,
+    /// The desktop drawn in it, made at its first frame.
+    desktop: Option<Desktop>,
+    /// The buffers a refused desktop took, given back with the context.
+    stray: Taken,
+    /// The desktop refused (said once): the display composes on the CPU.
+    desktop_off: bool,
 }
 
 /// Why an open made nothing: the step and the device's word, when it said one.
@@ -58,7 +70,7 @@ const fn priority(p: u8) -> Priority {
 
 impl BoardGpu {
     pub(crate) fn new(dev: Device) -> Self {
-        Self { dev, held: None }
+        Self { dev, held: None, desktop: None, stray: [None; 5], desktop_off: false }
     }
 
     /// Tears an opened context down: the context by the firmware's cleanup (quarantined, its
@@ -68,6 +80,28 @@ impl BoardGpu {
         let gone = self.dev.destroy_context(old.client, old.ctx);
         old.scene.release(&mut self.dev, old.client, old.ctx);
         gone
+    }
+
+    /// The held context torn down with what its frames took: the desktop's buffers, or a
+    /// refused desktop's, after the context.
+    fn retire_held(&mut self, old: Opened) -> Result<(), DeviceError> {
+        let client = old.client;
+        let gone = self.retire(old);
+        if let Some(desktop) = self.desktop.take() {
+            desktop.release(&mut self.dev);
+        }
+        give_back(&mut self.dev, client, &mut self.stray);
+        self.desktop_off = false;
+        gone
+    }
+
+    /// The desktop refused at `step`: said once, the display composes on the CPU.
+    fn desktop_refused(&mut self, step: &str, why: DesktopRefusal) -> bool {
+        self.desktop_off = true;
+        emit_fmt(format_args!(
+            "gpud: FAIL gpu desktop ({step}: {why}; the display composes on the cpu)"
+        ));
+        false
     }
 
     /// The new context, made as the render rungs' is; on a refusal everything it took is given
@@ -131,7 +165,7 @@ impl GpuService for BoardGpu {
         // The client's old context goes whole first: a restart gets a fresh one.
         let replaced = match self.held.take() {
             Some(old) if old.client == client => {
-                if let Err(e) = self.retire(old) {
+                if let Err(e) = self.retire_held(old) {
                     emit_fmt(format_args!(
                         "gpud: FAIL gpu library (client=windowd the old context's teardown {e:?})"
                     ));
@@ -189,5 +223,41 @@ impl GpuService for BoardGpu {
 
     fn on_wake(&mut self) {
         self.dev.on_wake();
+    }
+
+    fn frames(&mut self) -> Option<&mut dyn FrameGpu> {
+        if self.held.is_some() && !self.desktop_off {
+            Some(self)
+        } else {
+            None
+        }
+    }
+}
+
+impl FrameGpu for BoardGpu {
+    fn draw_frame(&mut self, commands: &[Command], target: &FrameTarget<'_>) -> bool {
+        let Some(who) = self.held.as_ref().map(|h| (h.client, h.ctx)) else {
+            return false;
+        };
+        if self.desktop_off {
+            return false;
+        }
+        if self.desktop.is_none() {
+            let rows = (target.layout.len() / nexus_display_proto::layout::STRIDE_BYTES as usize)
+                .try_into()
+                .unwrap_or(0);
+            let layout = (target.layout_bus, rows);
+            match Desktop::open(&mut self.dev, who, layout, target.display, &mut self.stray) {
+                Ok(d) => self.desktop = Some(d),
+                Err(why) => return self.desktop_refused("open", why),
+            }
+        }
+        let Some(desktop) = self.desktop.as_mut() else {
+            return false;
+        };
+        match desktop.draw(&mut self.dev, commands, target) {
+            Ok(()) => true,
+            Err(why) => self.desktop_refused("frame", why),
+        }
     }
 }

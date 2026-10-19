@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Changed - 2026-10-18 (Block 4, layer 5c-3 P4a: one frame plan for every executor — TASK-0215, RFC-0101 §8d)
+### Changed - 2026-10-19 (Block 4, layer 5c-3 P4b: the desktop on the board's GPU — TASK-0215, RFC-0101 §8d)
+
+- **windowd's desktop is drawn on the board's GPU**, in windowd's own context: the frame plan
+  the QEMU path draws, lowered into the board's passes (`nexus_gfx::frame::board`) — per glass to
+  blur, the scene below it into a scratch and the two blur passes into its cache rows; then the
+  ring slot's pass: the wallpaper, each glass drawn back with its corners cut, the shadows, the
+  content. gpud's executor (`backend/gpu/desktop.rs`) is made at windowd's first present after
+  its context opened and gives its buffers back with the context. A present the plan does not
+  cover is composed on the CPU as before; a refusal is said once and leaves the CPU composing.
+- **The caches around the GPU's frame**: a slot the CPU wrote is dropped from the caches before
+  the GPU draws it, the front slot before a readback reads what the GPU drew; the base plane and
+  the atlas's new content cleaned before a frame reads them. A screenshot's freeze makes the
+  retained plane the base until the thaw.
+- **The glass at every level windowd asks**: the library gains the blur at radius 8, 30 and 40;
+  the shader compiler places a constant block whole or not at all, and the block holds 128
+  values. A context's GPU page tables hold 256 MiB (they held 128 and refused the shared layout).
+- **On the board**: a desktop frame 13–18 ms with its glass from the cache, 24–88 ms while glass
+  is written — the CPU path took 101–231 ms; the windows' corners and their blur right. New board
+  rungs: the blur at the other radii, a texture named at any texel.
+
 
 - **The frame planner** (`nexus_gfx::frame`): the retained layer set of windowd's presents with
   its scroll and transform overrides, walked back to front into the frame's steps — every layer

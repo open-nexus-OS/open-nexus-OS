@@ -4,7 +4,8 @@
 //! The frame planner (TASK-0215 5c-3 P4): the retained set, its overrides, the glass cache and
 //! the atlas upload as every executor sees them.
 
-use nexus_gfx::command::buffer::Command;
+use nexus_gfx::command::buffer::{Command, RgbaColor};
+use nexus_gfx::core::types::TileRect;
 use nexus_gfx::frame::glass::{fold_layer, seed};
 use nexus_gfx::frame::{
     CacheStep, Frame, FrameLayer, GlassCache, Planned, RetainedLayers, Transform, MAX_LAYERS,
@@ -146,6 +147,39 @@ fn layers_past_the_capacity_are_counted_not_kept() {
     assert_eq!(taken.dropped, 3);
     assert_eq!(set.len(), MAX_LAYERS);
     assert_eq!(set.effective(MAX_LAYERS), None);
+}
+
+#[test]
+fn the_plan_covers_the_layers_the_glass_recipe_and_the_pointer_and_nothing_else() {
+    let blit =
+        Command::BlitSurface { src_x: 0, src_y: 1080, dst_x: 0, dst_y: 0, width: 8, height: 8 };
+    let pointer = Command::BlendCursor { x: 4, y: 4, width: 16, height: 16 };
+    assert!(RetainedLayers::covers(&[blit.clone(), layer(0, 0, 10, 10), pointer.clone()]));
+    assert!(RetainedLayers::covers(&[]), "no layers: the plan draws the set it keeps");
+    // A glass layer as the layer encoder emits it: the backdrop restored, blurred, cached, then
+    // the layer with its blur radius (the plan's own glass).
+    let rect = TileRect { x: 0, y: 0, width: 8, height: 8 };
+    let glass = [
+        blit.clone(),
+        Command::BlurBackdrop { rect, radius: 30, saturation_percent: 140 },
+        Command::BlitAbsolute {
+            src_x: 0,
+            src_y_abs: 2160,
+            dst_x: 0,
+            dst_y_abs: 5400,
+            width: 8,
+            height: 8,
+        },
+        with(layer(0, 0, 8, 8), |l| l.backdrop_blur = 30),
+        pointer.clone(),
+    ];
+    assert!(RetainedLayers::covers(&glass), "the glass recipe beside its layer");
+    let fill = Command::FillSdfRoundedRect { rect, radius: 4, color: RgbaColor(0xff00_00ff) };
+    assert!(!RetainedLayers::covers(&[blit, fill, pointer]), "a fill the plan would lose");
+    let full: Vec<Command> = (0..MAX_LAYERS as u32).map(|i| layer(i, 0, 10, 10)).collect();
+    assert!(RetainedLayers::covers(&full));
+    let past: Vec<Command> = (0..MAX_LAYERS as u32 + 1).map(|i| layer(i, 0, 10, 10)).collect();
+    assert!(!RetainedLayers::covers(&past), "a layer the set cannot hold");
 }
 
 #[test]

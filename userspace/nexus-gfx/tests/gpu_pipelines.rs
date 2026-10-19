@@ -71,9 +71,13 @@ fn the_compositor_library_is_placed_and_each_kick_names_its_program() {
     let loaded = table.load(LIBRARY, TARGET, FEATURES, &mut heaps).expect("loads");
     assert_eq!(
         (loaded.accepted.as_slice(), loaded.refused.as_slice()),
-        (&[1, 2, 3, 4, 5, 6, 7][..], &[][..])
+        (&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13][..], &[][..])
     );
-    assert_eq!(loaded.code_bytes, 32 + 120 + 160 + 360 + 472 + 936 + 728);
+    // The layers, the shadow, the blur at radius 20, then at 8, 30 and 40 (5c-3 P4b).
+    assert_eq!(
+        loaded.code_bytes,
+        32 + 120 + 160 + 360 + 472 + 936 + 728 + 432 + 416 + 1352 + 1040 + 1776 + 1248
+    );
     for (id, temps, pass, program) in [
         (1, 1, PASS_OPAQUE, reference::opaque_itrsmp().unwrap().encode().unwrap()),
         (2, 3, PASS_TRANSLUCENT, reference::premultiplied_itrsmp().unwrap().encode().unwrap()),
@@ -92,7 +96,7 @@ fn the_compositor_library_is_placed_and_each_kick_names_its_program() {
         assert_eq!(w(8), 0xf400_0002, "dout U, end");
         assert_eq!(p.pds_state(0x4000).uniformdatabase, 0x4000);
     }
-    assert_eq!(table.ids().collect::<Vec<_>>(), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(table.ids().collect::<Vec<_>>(), (1..=13).collect::<Vec<_>>());
 }
 
 #[test]
@@ -100,7 +104,7 @@ fn test_reject_draw_unknown_pipeline() {
     let mut table = PipelineTable::default();
     assert_eq!(table.get(1), Err(TableError::UnknownPipeline(1)), "before any library");
     table.load(LIBRARY, TARGET, FEATURES, &mut mem()).expect("loads");
-    assert_eq!(table.get(8), Err(TableError::UnknownPipeline(8)));
+    assert_eq!(table.get(14), Err(TableError::UnknownPipeline(14)));
     assert_eq!(table.get(0), Err(TableError::UnknownPipeline(0)));
 }
 

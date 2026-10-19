@@ -5,7 +5,8 @@
 //! framebuffer is ONE contiguous block for the controller (the whole shared layout, made at
 //! bring-up, granted at windowd's first request); a present runs through the CPU executor the
 //! virtio 2D path runs, then its damage is cleaned out of the caches (the controller does not
-//! snoop them). The splash holds the glass until the first present after windowd's reveal: that
+//! snoop them) — or, once windowd's GPU context is open, is drawn on the GPU (TASK-0215 5c-3
+//! P4b, `gpu_frame.rs`). The splash holds the glass until the first present after windowd's reveal: that
 //! present cleans the whole display plane and switches the controller to it. The pointer is the
 //! controller's own layer (`cursor.rs`, TASK-0251 P2a step 3c): windowd's upload arms it and
 //! hears `CURSOR_REPLY_HW`, a move is the layer's rectangle, a `BlendCursor` in a present is
@@ -28,6 +29,53 @@ use nexus_gfx::backend::dc::frame_stats::Stage;
 use nexus_gfx::backend::dc::regs;
 
 impl DcDisplay {
+    /// The present composed on the CPU into `slot`: screen-relative commands land on the slot's
+    /// rows, over its base.
+    fn compose(&mut self, commands: &[Command], slot: usize) -> Result<(), GfxError> {
+        let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));
+        let row = ring::ROWS[slot];
+        let Some(fb) = self.live.as_mut().and_then(|live| live.framebuffer.as_mut()) else {
+            return Err(GfxError::DeviceNotFound);
+        };
+        self.slot_cpu[slot] = true;
+        self.slot_gpu[slot] = false;
+        // The frame composed off-screen starts from its base: the retained plane — windowd's
+        // cursor-free scene, kept current by its damage writes — copied whole (about 3 ms of
+        // 8.3 MB; the scene's own retained blits restore only its damage, and a layer blended
+        // over a plane three frames old would ghost, over the last frame it darkened: the
+        // shadows of 2026-10-10). G4 deletes this composite; the copy goes with it.
+        fb.copy_plane(nexus_display_proto::layout::RETAINED_ROW, row, w, h);
+        self.cpu.display_row = row;
+        let target = fb.target();
+        for cmd in commands {
+            self.stats.count(cmd);
+            if matches!(cmd, Command::BlendCursor { .. }) {
+                self.blend_cursor_skipped();
+                continue;
+            }
+            let c0 = nsec().unwrap_or(0);
+            self.cpu.execute(&target, cmd)?;
+            self.stats.command(Stage::of(cmd), nsec().unwrap_or(c0).saturating_sub(c0));
+        }
+        Ok(())
+    }
+
+    /// The pointer is the controller's layer: a software-blended pointer in a present is the
+    /// second implementation this path retired — skipped and counted, the present's other
+    /// commands still land (cycle 12 refused whole presents and the desktop stopped with the
+    /// pointer). Said — the forbidden marker — only once the layer is armed: windowd's first
+    /// present blends its sprite before it has uploaded it (ADR-0034 restores that region once
+    /// the overlay answers), which is the path's start, not a second path.
+    fn blend_cursor_skipped(&mut self) {
+        let armed = self.live.as_ref().is_some_and(|l| l.cursor.as_ref().is_some_and(|c| c.armed));
+        if armed && self.blend_cursor_refused == 0 {
+            emit("gpud: dc refused BlendCursor (the pointer is the controller's layer)");
+        }
+        if armed {
+            self.blend_cursor_refused = self.blend_cursor_refused.saturating_add(1);
+        }
+    }
+
     /// The switch from the splash to the desktop: the whole display plane cleaned, the
     /// controller pointed at it, the words read back and the latch observed — one line. Whether
     /// the switch took.
@@ -102,60 +150,49 @@ impl Display for DcDisplay {
         Ok(())
     }
 
-    /// A present into the ring's free slot (RFC-0101 §8): screen-relative commands land on that
-    /// slot's rows; what the present does not redraw comes from the frame on screen first.
     fn execute(&mut self, commands: &[Command], damage: Rect) -> Result<(), GfxError> {
+        self.execute_on(None, commands, damage)
+    }
+
+    /// A present into the ring's free slot (RFC-0101 §8): drawn by the GPU in windowd's context
+    /// when it is ready and the plan covers the present (TASK-0215 5c-3 P4b), composed on the
+    /// CPU otherwise.
+    fn execute_on(
+        &mut self,
+        frames: Option<&mut dyn crate::gpu_context::FrameGpu>,
+        commands: &[Command],
+        damage: Rect,
+    ) -> Result<(), GfxError> {
+        let _ = damage;
         let t0 = nsec().unwrap_or(0);
-        let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));
         let slot = self.ring.begin().map_err(|_| GfxError::ResourceExhausted)?;
-        let row = ring::ROWS[slot];
-        let Some(fb) = self.live.as_mut().and_then(|live| live.framebuffer.as_mut()) else {
+        if self.live.as_ref().and_then(|live| live.framebuffer.as_ref()).is_none() {
             self.ring.discard();
             return Err(GfxError::DeviceNotFound);
-        };
-        // The frame composed off-screen starts from its base: the retained plane — windowd's
-        // cursor-free scene, kept current by its damage writes — copied whole (about 3 ms of
-        // 8.3 MB; the scene's own retained blits restore only its damage, and a layer blended
-        // over a plane three frames old would ghost, over the last frame it darkened: the
-        // shadows of 2026-10-10). G4 deletes this composite; the copy goes with it.
-        let _ = damage;
-        fb.copy_plane(nexus_display_proto::layout::RETAINED_ROW, row, w, h);
-        self.cpu.display_row = row;
-        let target = fb.target();
-        for cmd in commands {
-            self.stats.count(cmd);
-            // The pointer is the controller's layer: a software-blended pointer in a present is
-            // the second implementation this path retired — skipped and counted, the present's
-            // other commands still land (cycle 12 refused whole presents and the desktop
-            // stopped with the pointer). Said — the forbidden marker — only once the layer is
-            // armed: windowd's first present blends its sprite before it has uploaded it (ADR-0034
-            // restores that region once the overlay answers), which is the path's start, not
-            // a second path.
-            if matches!(cmd, Command::BlendCursor { .. }) {
-                let armed =
-                    self.live.as_ref().is_some_and(|l| l.cursor.as_ref().is_some_and(|c| c.armed));
-                if armed && self.blend_cursor_refused == 0 {
-                    emit("gpud: dc refused BlendCursor (the pointer is the controller's layer)");
-                }
-                if armed {
-                    self.blend_cursor_refused = self.blend_cursor_refused.saturating_add(1);
-                }
-                continue;
-            }
-            let c0 = nsec().unwrap_or(0);
-            self.cpu.execute(&target, cmd)?;
-            self.stats.command(Stage::of(cmd), nsec().unwrap_or(c0).saturating_sub(c0));
         }
+        self.drawn_by_gpu = frames.is_some_and(|f| self.draw_on_gpu(f, commands, slot));
+        let composed = if self.drawn_by_gpu {
+            for cmd in commands {
+                self.stats.count(cmd);
+                if matches!(cmd, Command::BlendCursor { .. }) {
+                    self.blend_cursor_skipped();
+                }
+            }
+            Ok(())
+        } else {
+            self.compose(commands, slot)
+        };
         self.exec_ns = nsec().unwrap_or(t0).saturating_sub(t0);
         if !self.first_reported {
             self.first_exec_ns = self.exec_ns;
         }
-        Ok(())
+        composed
     }
 
-    /// The drawn slot cleaned out of the caches and its flip queued for the next vertical
-    /// blank — or, while the splash holds the glass, discarded (the reveal's present switches
-    /// the controller at once, the one immediate flip).
+    /// The drawn slot cleaned out of the caches (a frame the CPU composed; the GPU's is in
+    /// memory) and its flip queued for the next vertical blank — or, while the splash holds the
+    /// glass, discarded (the reveal's present switches the controller at once, the one
+    /// immediate flip).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError> {
         let t0 = nsec().unwrap_or(0);
         let (w, h) = self.mode;
@@ -169,7 +206,9 @@ impl Display for DcDisplay {
                 .as_ref()
                 .and_then(|live| live.framebuffer.as_ref())
                 .ok_or(GfxError::DeviceNotFound)?;
-            fb.clean_at(row, &fb.plane_at(row, w, h), damage);
+            if !self.drawn_by_gpu {
+                fb.clean_at(row, &fb.plane_at(row, w, h), damage);
+            }
         }
         // The tear gate (RFC-0101 §8): the plane on screen is never drawn into. By the ring's
         // construction this cannot happen; the FAIL form keeps the lane honest if it does.
@@ -421,19 +460,37 @@ impl Display for DcDisplay {
         self.scan_out(whole)
     }
 
+    /// windowd's reveal: the wallpaper plane is written (RFC-0093 §5) — the GPU's base is
+    /// cleaned again before its next frame.
     fn request_reveal(&mut self) {
         self.hold.ask();
+        self.base_dirty = true;
     }
 
-    /// RFC-0095: the controller scans the CPU-written display plane; a readback copies it. The
-    /// controller never writes the block, so the CPU reads it without cache maintenance.
+    /// The thaw after a capture, or a new wallpaper: the wallpaper plane is the GPU's base again,
+    /// cleaned before its next frame.
+    fn wallpaper_dirty(&mut self) {
+        self.frozen = false;
+        self.base_dirty = true;
+    }
+
+    /// RFC-0095: a readback copies the frame on screen; the CPU reads a plane the GPU drew
+    /// after dropping its stale lines (the controller never writes the block). A freeze copies
+    /// the frame into the retained plane, the base both paths start from until the thaw.
     fn readback(&mut self, dest: u32, req: &nexus_display_proto::readback::Readback) -> u8 {
+        use nexus_display_proto::readback::READBACK_FREEZE;
         let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));
         let front = self.ring.scanned_row().unwrap_or(nexus_display_proto::layout::DISPLAY_ROW);
+        self.front_for_cpu();
         let Some(fb) = self.live.as_mut().and_then(|live| live.framebuffer.as_mut()) else {
             return nexus_display_proto::STATUS_DEVICE_ERROR;
         };
-        fb.readback(dest, req, w, h, front)
+        let status = fb.readback(dest, req, w, h, front);
+        if status == STATUS_OK && req.flags & READBACK_FREEZE != 0 {
+            self.frozen = true;
+            self.base_dirty = true;
+        }
+        status
     }
 
     fn reveal_requested(&self) -> bool {

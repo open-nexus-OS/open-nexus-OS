@@ -58,8 +58,10 @@ impl Layout {
     }
 }
 
-/// The most values a pipeline's constant block holds.
-pub const MAX_CONSTANTS: usize = 64;
+/// The most values a pipeline's constant block holds: the widest blur windowd asks (radius 40,
+/// TASK-0215 5c-3 P4b) with room. The state load's DMA moves up to 4095 dwords and the library's
+/// DMA record names them in a byte (255); a source names a shared register in eleven bits.
+pub const MAX_CONSTANTS: usize = 128;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Options {

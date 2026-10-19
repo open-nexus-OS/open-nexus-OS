@@ -104,10 +104,31 @@ impl Framebuffer {
         }
     }
 
-    /// Make `damage` of the plane at layout row `row` visible to the controller.
     /// The bus address of the plane at layout row `row` (RFC-0101 §8c: the GPU's target).
     pub(super) fn plane_bus(&self, row: u32) -> u64 {
         self.mem.runs()[0].bus + layout::row_offset_bytes(row) as u64
+    }
+
+    /// The block's bus address: the layout's first byte, as the GPU adopts it (5c-3 P4b).
+    pub(super) fn bus(&self) -> u64 {
+        self.mem.runs()[0].bus
+    }
+
+    /// The whole block as the CPU sees it: the cache maintenance around a GPU frame.
+    pub(super) fn bytes(&self) -> &[u8] {
+        self.mem.bytes()
+    }
+
+    /// The plane at layout row `row` written back and dropped from the caches: before the GPU
+    /// draws a plane the CPU wrote, before the CPU reads one the GPU drew.
+    pub(super) fn flush_plane(&self, row: u32) {
+        let DmaCoherence::Maintained { block } = self.coherence else {
+            return;
+        };
+        let start = layout::row_offset_bytes(row);
+        if let Some(plane) = self.mem.bytes().get(start..start + layout::PLANE_BYTES) {
+            nexus_abi::cache_flush(plane, block);
+        }
     }
 
     /// The bytes of one plane at layout row `row`, for the cache maintenance and the readback
@@ -125,6 +146,7 @@ impl Framebuffer {
         }
     }
 
+    /// Make `damage` of the plane at layout row `row` visible to the controller.
     pub(super) fn clean_at(&self, row: u32, plane: &Plane, damage: Rect) {
         let DmaCoherence::Maintained { block } = self.coherence else {
             return;

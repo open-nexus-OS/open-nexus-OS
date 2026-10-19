@@ -68,6 +68,18 @@ pub(crate) trait Display {
     /// lies outside it from the frame on screen first — RFC-0101 §8, buffer age).
     fn execute(&mut self, commands: &[Command], damage: Rect) -> Result<(), GfxError>;
 
+    /// [`Display::execute`] with the GPU that draws windowd's frames, once one is ready
+    /// (TASK-0215 5c-3 P4b): a display with a ring has the GPU draw the frame into its slot and
+    /// composes it itself when the GPU did not. A display without one executes as ever.
+    fn execute_on(
+        &mut self,
+        _frames: Option<&mut dyn crate::gpu_context::FrameGpu>,
+        commands: &[Command],
+        damage: Rect,
+    ) -> Result<(), GfxError> {
+        self.execute(commands, damage)
+    }
+
     /// `damage` of the display plane to the glass (the chain's G4 hop).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError>;
 

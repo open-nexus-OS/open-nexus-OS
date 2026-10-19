@@ -1333,3 +1333,152 @@ geom_us=229/230 frag_us=1153/1158 …)`.
 **Verdict.** The frame has one model — the QEMU path draws the planner's steps — and a pass of
 mixed draws costs its pixels and a fixed half millisecond: the board's executor builds on the
 per-pixel model. P4a complete; P4b next.
+
+## 5c-3 P4b — the desktop on the board's GPU (TASK-0215, RFC-0101 §8d)
+
+**Question.** Does windowd's desktop draw on the board's GPU — in windowd's own context, from
+the plan the QEMU path draws — at a fraction of the CPU path's cost, with every glass level
+windowd asks for, and does the screenshot still see it?
+
+**Measured first** (the code read through; host 2026-10-18; cycle 28's log):
+
+- **The CPU path's cost, the baseline.** Cycle 28's windows of 32 presents: 104 393, 116 194
+  and 138 586 µs on average with 4.3–5.9 layers, 2.3–3.9 of them glass, the whole screen
+  damaged (`gpud: dc present us (…)`); the layers' blending takes 82–96 ms of it, the blurs
+  9–32 ms.
+- **windowd asks for four blur radii**: 8 (subtle), 20 (card), 30 (the default), 40 (panel,
+  overlay). The board's library held 20 alone. Radius 30 did not compile: a run of constants
+  that did not fit the pipeline's block of 64 dwords left the block half placed; placed whole or
+  not at all, the vertical pass's constants still outgrew 64. The shared block can hold 128 (the
+  DMA's size field holds 12 bits, the library's record a dword count in a byte, a source names a
+  shared register in 11 bits).
+- **The half-resolution chain against the full-resolution gaussian** (host, two backdrops, the
+  largest and the mean deviation in levels): radius 8 5/0.44 and 7/0.58, 20 2/0.19 and 3/0.28,
+  30 3/0.24 and 4/0.32, 40 2/0.21 and 4/0.36.
+- **A pass cannot read its own target** (no load: a pass clears its area): the QEMU path's
+  destination snapshot under a glass becomes, on the board, the scene below the glass drawn
+  again into a scratch over the horizontal taps' reach.
+- **The render dataset is the display's 1920x1080**: a pass draws inside it alone, so the glass
+  cache (half-resolution rows, one per glass) holds 1024 rows.
+- **One memory holds what a frame touches** (P4a): the wallpaper plane, the retained plane, the
+  ring and the atlas, rows of one contiguous buffer the CPU writes and the device does not snoop.
+  windowd raises the atlas's content generation with every write (the QEMU path uploads by it);
+  it writes the wallpaper plane at boot and with a new theme, then says so (`OP_REVEAL`,
+  `OP_WALLPAPER_DIRTY`); a capture's freeze copies the frame into the retained plane, its thaw
+  says `OP_WALLPAPER_DIRTY`.
+
+**What P4b builds.**
+
+- **The compiler and the library**: a constant block is placed whole or not at all (the
+  broadcasts stay), the shared block holds 128 dwords; the library gains the blur's two passes
+  at 8, 30 and 40 (ids 8–13: 13 entries, 9 072 code bytes, 2 704 setup bytes; the library's PDS
+  lines 6 KiB). A board rung samples each radius's chain back (`gpud: gpu blur radii ok (`);
+  another names five 8x8 rectangles of a strip the CPU wrote 1, 2, 3, 4 and 8 texels past an
+  aligned column and reads which texel each fetched (`gpud: gpu texel offsets ok (`).
+- **`nexus_gfx::frame::board`** (host, 9 tests): the plan lowered for the board — per glass
+  written, the scene below it into the scratch, the horizontal pass into the half-resolution
+  scratch, the vertical pass into its cache rows; then the slot's pass: the base, per layer its
+  glass drawn back, its shadow, its content (a rounded layer as its three bands and four corner
+  squares, the rounded program for the corners alone). `RetainedLayers::covers`: a present the
+  plan draws whole (its layers, the damage blits, the pointer); any other command is the CPU's.
+- **gpud** (`backend/gpu/desktop.rs`, `backend/dc/gpu_frame.rs`): at windowd's first present
+  after its context opened, the context takes the layout read-only and the ring's slots as
+  targets, three buffers of its own for the scratches and the cache, one for the passes' memory;
+  a present the plan covers is drawn into the free slot, its passes waited, the flip queued at
+  the blank. The caches: the base plane cleaned when it is new or the CPU rewrote it, the layers'
+  atlas rows cleaned once per content generation, a slot the CPU wrote dropped from the caches
+  before the GPU draws it, the front slot before a readback reads what the GPU drew. A freeze
+  makes the retained plane the base until the thaw. A refusal is said once
+  (`gpud: FAIL gpu desktop (`) and the CPU composes from then on.
+  Lines: `gpud: gpu desktop ok (frame_us= passes= draws= layers= glass_writes= glass_reads=
+  glass_off= clean_us=)` once, `gpud: gpu frame us (n=32 avg= max= clean= passes= draws=
+  glass_w= glass_r= glass_off=)` per 32 frames.
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H74 | The board's chain at 8, 30 and 40 reads its radius's gaussian as 20's does | `gpud: gpu blur radii ok (` — every read inside the glass within three levels of the host's largest deviation for its radius |
+| H75 | windowd's desktop draws on the GPU from the first frame after its context opened | `gpud: gpu desktop ok (` and no `gpud: FAIL gpu desktop (`; the operator sees the desktop, its glass, shadows and windows as on the CPU path |
+| H76 | A desktop frame costs a fifth of the CPU's present or less | every `gpud: gpu frame us (` window's `avg=` at or below 20 000 µs (P4a's estimate 15–20 ms; the CPU path 104–139 ms); above: the line's passes, draws and clean name the lever |
+| H77 | The caches cost the GPU frame little | `clean=` of every window at or below 2 000 µs |
+| H78 | The glass cache carries an idle desktop | windows without the operator's input read their glass (`glass_r=`) at least four times as often as they write it (`glass_w=`) |
+| H79 | The screenshot sees the GPU's frame | the operator's capture with its selection dragged shows the desktop; the freeze holds it under the shell's overlay and the thaw returns the live desktop |
+| H80 | A texture's base at any 4-byte step is fetched from there (every rung before sampled at 128-byte steps; the frame names atlas bands at any column, a glass's cache rows one texel in) | `gpud: gpu texel offsets ok (k=1/2/3/4/8 read=1/2/3/4/8)`; refuted, the reads name the alignment the unit applied — the board's layer variants then take the atlas mapping (the rectangle in the push constants, the base aligned) |
+
+**Results — the board, cycle 29** (`board--2026-10-18T22-40-30`, `cycle29-gpu-lines.txt`): the
+desktop stayed on the CPU — three FAIL lines, all before a GPU frame was drawn.
+
+- `gpud: FAIL gpu blur radii (radius 40 emit Space)` and `gpud: FAIL gpu texel offsets (emit
+  Space)`: both rungs placed their passes' memory in the cost rung's tails after the pipeline
+  gate, never reusing it; the chains at 20, 8 and 30 filled them. Every pass is waited, so each
+  chain and the texel rung now start from the tails again. H74 and H80 are open.
+- `gpud: FAIL gpu desktop (open: a binding; the display composes on the cpu)`: a context's page
+  tables held 64 tables (128 MiB of addresses) in 8 directories (a GiB each). Counted on the host
+  from the render bundle: windowd's context holds 9 tables in 4 directories before the desktop;
+  the layout takes 52, the ring's slots bound a second time 12 more — 73, refused at the second
+  binding; the scratches, the cache and the pass memory, each in a GiB of its own, would have
+  needed 9 directories. Now the layout is bound once, in three ranges by access (the planes and
+  the atlas read-only, the slots read-write), and everything in one GiB: 64 tables beside the
+  bundle's 9 in 5 directories; a context holds 128 tables (256 MiB). A refusal names its step and
+  the device's word; the first frame's line carries the open's cost (`open_us=`).
+- The CPU path meanwhile: windows of 94–224 ms a present, as in cycle 28.
+- The pipeline gate's rates on this build (ns a pixel): opaque 1.30, premultiplied 4.04, straight
+  4.87, rounded 8.84, shadow 10.77, blur horizontal 39.19 and vertical 24.57 (half-resolution
+  pixels), the glass drawn back 8.85 — in the order of the programs' instruction-group budgets
+  (3, 11, 15, 34, 43). For H76: the shell's full-screen layer alone is 2.07 million straight
+  pixels, about 10 ms.
+
+**Results — the board, cycle 30** (`board--2026-10-19T08-27-38`, `cycle30-gpu-lines.txt`):
+
+- **H74 confirmed**: `gpud: gpu blur radii ok (r8=4/17.12/12.69 r30=1/54.62/35.80
+  r40=1/78.81/43.70 tolerance=10/7/7)` — the reads 4, 1 and 1 levels from their gaussian; a
+  half-resolution pixel of the horizontal pass costs 17.1, 54.6 and 78.8 ns, of the vertical
+  12.7, 35.8 and 43.7 (radius 20: 40.7 and 23.7).
+- **H80 confirmed**: `gpud: gpu texel offsets ok (k=1/2/3/4/8 read=1/2/3/4/8)` — a texture named
+  at any 4-byte step is fetched from there.
+- The desktop opened in 20 ms (`open_us=20326`) and drew windowd's first 32 frames on the GPU —
+  `frame_us=6333`, the window `avg=5578 max=10126 clean=32`, one pass of the wallpaper alone:
+  the presents before windowd's first layer. Every present with a glass layer went to the CPU
+  (its windows 101–231 ms): the layer encoder emits the CPU's recipe beside each glass layer
+  (the backdrop restored, `BlurBackdrop`, the cache's `BlitAbsolute`), and `covers` refused
+  those commands — the stats' `blur=` column, 7–49 ms a present, is them. The QEMU path draws its
+  layer set and leaves the recipe; `covers` now takes the recipe as the plan's to supersede (a
+  fill or a shadow of its own still goes to the CPU).
+- The operator: a little better, not smooth yet; the windows rounded, their blur not — the CPU's
+  recipe blurs the layer's rectangle, so its square corners show beside the rounded content (the
+  GPU's glass is drawn back by the rounded program). H75–H79 open.
+
+**Results — the board, cycle 31** (`board--2026-10-19T08-46-06`, `cycle31-gpu-lines.txt`): every
+present on the GPU — 28 windows of 32 frames, no FAIL line, the ladder's 70 rungs.
+
+- **H75 confirmed.** `gpud: gpu desktop ok (frame_us=6077 … open_us=17499)`; the operator: the
+  desktop much faster, the windows' corners clean, the blur right.
+- **H76 refuted.** Windows whose glass was read from its cache (`passes=` 1.1–1.3): 13.3–18.1 ms
+  a frame on average. Windows that wrote glass (`passes=` 2–8.5): 24–88 ms, the slowest frame
+  186 ms. The CPU path's windows were 101–231 ms. A glass written costs three passes — the scene
+  below it again at full resolution over the taps' reach, the horizontal blur at about 40 ns and
+  the vertical at about 24 ns a half-resolution pixel — about 18 ms for a window-sized glass. And
+  every content write anywhere rewrites every glass above a layer: the key folds the layers'
+  content generation, which windowd raises for any atlas write (one global counter, the QEMU
+  path's upload rule).
+- **H77 confirmed.** `clean=` 29–704 µs a frame in 27 windows, 1 685 in one.
+- **H78 confirmed for an idle desktop**: the windows without input read their glass 7–47 times
+  as often as they wrote it (93/3, 94/2, 30/2, 28/4); under input reads and writes are alike.
+- **H79**: the operator dragged the screenshot's selection and saved it — the drag lags the
+  pointer (the frame's cost while the shell's overlay rewrites its glass).
+- The operator's notes for the next packages: scrolling not smooth yet, windows slow to open,
+  typed input late — the frames that write glass, and gpud waiting for every pass.
+
+**The board test** (`cycle31-board-test.txt`): cycle 31's capture holds the ladder's 70 rungs
+and the operator's confirmations of the desktop, typed input, the pointer, the screenshot
+(selection dragged, saved — **H79 confirmed**), the search with the clipboard and the modal
+alert; not `tile`. The same image booted again for the tiling check (cycle 32): drag-to-edge and
+the app menu tile, the keyboard chords do not — no `windowd: wm chord (` line in any board boot
+since 2026-10-16 15:01, nor a refusal, with no commit on the input path since (TASK-0066 F8);
+in that boot no key reached inputd at all (`inputd: live keyboard route on` missing). Both are
+outside this package's path and recorded there; the operator decided to carry on with the GPU.
+
+**Verdict.** windowd's desktop draws on the board's GPU in its own context, from the plan the
+QEMU path draws, with every glass level and the screenshot: a frame 13–18 ms with its glass
+cached, against the CPU path's 101–231 ms. What is slow is named: a glass written costs three
+passes and is rewritten whenever any content changes (the key folds a global generation), and
+gpud waits for every pass. P4b complete; P5 — what changed, only — next.

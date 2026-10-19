@@ -308,16 +308,17 @@ fn library_device() -> CpuMockDevice {
 fn a_context_takes_its_library_as_the_board_places_it() {
     let mut dev = library_device();
     let ctx = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
-    // The board placed the same bytes alike (cycle 25: `gpu library ok (… entries=7 refused=0
-    // code_bytes=2808 setup_bytes=852 …`).
+    // The board places the same bytes alike (cycle 25 with the seven first entries: `gpu library
+    // ok (… entries=7 refused=0 code_bytes=2808 setup_bytes=852 …`; the blur at windowd's other
+    // radii adds six, 5c-3 P4b).
     assert_eq!(
         dev.take_library(WINDOWD, ctx, LIBRARY),
         Ok(LibraryTaken {
-            accepted: 7,
+            accepted: 13,
             refused: 0,
             first_refused: 0,
-            code_bytes: 2808,
-            setup_bytes: 852
+            code_bytes: 9072,
+            setup_bytes: 2704
         })
     );
 }
@@ -331,7 +332,7 @@ fn test_reject_second_library_for_a_context() {
     // A restarted client's fresh context takes it again; the old number is gone.
     dev.destroy_context(WINDOWD, ctx).unwrap();
     let fresh = dev.create_context(WINDOWD, Priority::Realtime).unwrap();
-    assert_eq!(dev.take_library(WINDOWD, fresh, LIBRARY).map(|t| t.accepted), Ok(7));
+    assert_eq!(dev.take_library(WINDOWD, fresh, LIBRARY).map(|t| t.accepted), Ok(13));
     assert_eq!(dev.take_library(WINDOWD, ctx, LIBRARY), Err(DeviceError::NoSuchContext));
 }
 
@@ -365,5 +366,5 @@ fn test_reject_library_for_another_target_truncated_or_beyond_the_features() {
     let ctx = plain.create_context(WINDOWD, Priority::Realtime).unwrap();
     let taken = plain.take_library(WINDOWD, ctx, LIBRARY).unwrap();
     assert!(taken.refused > 0 && taken.first_refused != 0, "{taken:?}");
-    assert_eq!(taken.accepted + taken.refused, 7);
+    assert_eq!(taken.accepted + taken.refused, 13);
 }

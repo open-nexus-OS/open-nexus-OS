@@ -125,8 +125,12 @@ pub enum MmuError {
     TableFull,
 }
 
+/// Directories a space holds: a GiB of addresses each.
 const MAX_PDS: usize = 8;
-const MAX_PTS: usize = 64;
+/// Tables a space holds: 2 MiB of addresses each, 256 MiB in all. The compositor's context maps
+/// the whole shared layout (52 tables), its own scratches, cache and pass memory (12) beside the
+/// render bundle's ranges (9) — TASK-0215 5c-3 P4b; 64 held 128 MiB and refused the layout.
+const MAX_PTS: usize = 128;
 
 #[derive(Clone, Copy, Debug)]
 struct Pd {

@@ -170,7 +170,7 @@ pub(super) fn read(
 /// The three streams of a pass: the geometry naming the pass's control stream; the fragment
 /// jobs naming the target's end-of-tile program, with the back end's clip and no background on
 /// empty tiles when the pass is limited to an area (`x0`, `y0`, `x1`, `y1`, inclusive).
-fn streams_for(
+pub(super) fn streams_for(
     base: &RenderStreams<'_>,
     feats: RenderFeatures,
     stream_base: u64,
@@ -414,7 +414,7 @@ fn probes() -> [Probe; 5] {
 
 /// A pass's cost a pixel beyond the limited 16² pass (`area_us`), in hundredths of a ns, and its
 /// line.
-fn cost(
+pub(super) fn cost(
     name: &str,
     p: &Placed,
     pass: &Pass,
@@ -492,11 +492,19 @@ fn pipelines(
         let e = chain.into_iter().find_map(Result::err).unwrap_or_default();
         return fail(&e);
     };
-    let blur =
-        match render_blur::chain(dev, display, canvas, rig, t, place, [&across, &down, &rounded]) {
-            Ok(b) => b,
-            Err(e) => return fail(&alloc::format!("blur {e}")),
-        };
+    let blur = match render_blur::chain(
+        dev,
+        display,
+        canvas,
+        rig,
+        t,
+        place,
+        20,
+        [&across, &down, &rounded],
+    ) {
+        Ok(b) => b,
+        Err(e) => return fail(&alloc::format!("blur {e}")),
+    };
     let ok = Ok(());
     let blur_cns = [
         cost(BLUR_ACROSS, &across, &blur.across, blur.pixels[0], area_us, &ok),
@@ -523,6 +531,9 @@ fn pipelines(
     } else {
         fail(&alloc::format!("the opaque layer above the stock fill {line}"));
     }
+    // 5c-3 P4b: the chain at windowd's other glass radii; a texture named at any texel.
+    render_blur::radii_rung(dev, display, canvas, rig, t, place, &rounded, area_us);
+    super::render_texels::rung(dev, display, canvas, rig, t, place);
 }
 
 /// The rung: after `gpu quads ok`, in the render rung's context with its objects.

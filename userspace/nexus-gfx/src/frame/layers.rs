@@ -187,6 +187,28 @@ impl RetainedLayers {
         }
     }
 
+    /// Whether the plan draws everything a present of `cmds` shows: its layers (no more than the
+    /// set holds); the CPU's recipe beside each glass layer — the backdrop restored from the
+    /// retained plane (`BlitSurface`, also the damage blits), blurred (`BlurBackdrop`) and
+    /// copied to or from its cache (`BlitAbsolute`), which the plan's own glass supersedes (the
+    /// layer encoder emits them with every glass `CompositeLayer`, cycle 30); and the pointer
+    /// (the display's own — a hardware layer or the executor's overlay). A fill, a shadow of its
+    /// own or any other command is drawn by the CPU alone: the plan would lose it.
+    pub fn covers(cmds: &[Command]) -> bool {
+        let mut layers = 0;
+        cmds.iter().all(|c| match c {
+            Command::CompositeLayer { .. } => {
+                layers += 1;
+                layers <= MAX_LAYERS
+            }
+            Command::BlitSurface { .. }
+            | Command::BlurBackdrop { .. }
+            | Command::BlitAbsolute { .. }
+            | Command::BlendCursor { .. } => true,
+            _ => false,
+        })
+    }
+
     /// A present's commands. Layers replace the set — the scroll overrides go with it (the
     /// encode carries the scroll offset), the transform overrides stay (the encode is the
     /// untransformed base; windowd retires an override itself). No layers: the set stays.

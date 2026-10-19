@@ -390,8 +390,12 @@ fn service_requests(
                                         let _ = debug_println(crate::markers::GPUD_CHAIN_PARSE_OK);
                                     }
                                     let t0 = nsec().unwrap_or(0);
-                                    let st =
-                                        crate::present_chain::present(display, &scene_cb, trace);
+                                    // 5c-3 P4b: the board's GPU draws windowd's frames in
+                                    // windowd's context once it is open.
+                                    let frames = gpu.as_deref_mut().and_then(|g| g.frames());
+                                    let st = crate::present_chain::present(
+                                        display, frames, &scene_cb, trace,
+                                    );
                                     if trace && st == STATUS_OK {
                                         // Whole chain reached the end: stop tracing.
                                         chain_trace_done = true;
