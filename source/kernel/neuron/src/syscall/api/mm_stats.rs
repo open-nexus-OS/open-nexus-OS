@@ -19,7 +19,13 @@ pub(super) fn sys_mm_stats(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     check_out_len(out_len).map_err(|_| AddressSpaceError::InvalidArgs)?;
     ensure_user_slice(out_ptr, MM_STATS_BYTES)?;
     let own = ctx.tasks.current_task().address_space();
-    let (stats, _) = crate::mm::usage::snapshot(ctx.address_spaces, own);
+    let (mut stats, _) = crate::mm::usage::snapshot(ctx.address_spaces, own);
+    // TASK-0333 6a: the kernel objects that die with their last capability, counted so a
+    // loop of exits proves they do (`SELFTEST: rss loop ok (… kobjects=0)`).
+    stats.endpoints = ctx.router.live_endpoint_count() as u64;
+    stats.timers = ctx.hart_timers.len() as u64;
+    stats.waitsets = ctx.waitsets.len() as u64;
+    stats.fences = ctx.fences.len() as u64;
     let mut record = [0u8; MM_STATS_BYTES];
     let written = stats.encode(&mut record).map_err(|_| AddressSpaceError::InvalidArgs)?;
     // SAFETY: `out_ptr..out_ptr + MM_STATS_BYTES` was checked to be a user slice.

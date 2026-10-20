@@ -98,7 +98,7 @@ mod boot_env;
 use boot_env::{map_atlas_base, nsec_now, payload_addr};
 
 pub(super) fn run() -> Result<(), &'static str> {
-    raw_marker("apphost: start");
+    raw_marker(&alloc::format!("apphost: start t_us={}", nsec_now() / 1000));
     // RFC-0080: install the shared atlas BEFORE any text renders.
     map_atlas_base();
 

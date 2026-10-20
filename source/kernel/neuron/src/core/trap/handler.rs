@@ -181,7 +181,7 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
             if let Some(handle) = task.address_space() {
                 if ctx.address_spaces.activate(handle).is_err() {
                     // Fail-fast: returning with a mismatched SATP is unsafe.
-                    api::exit_current_killed(ctx.tasks, ctx.router, ctx.scheduler);
+                    api::exit_current_killed_in(ctx);
                 }
             }
         }
@@ -613,7 +613,13 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 let _ = u.write_str("\n");
                             });
                             frame.x[10] = errno(EINVAL);
-                            api::exit_current_faulted(tasks, router, scheduler, 0xF1);
+                            api::exit_current_faulted(
+                                tasks,
+                                router,
+                                scheduler,
+                                api::ExitTables { hart_timers, waitsets, fences },
+                                0xF1,
+                            );
                             return;
                         }
                     }

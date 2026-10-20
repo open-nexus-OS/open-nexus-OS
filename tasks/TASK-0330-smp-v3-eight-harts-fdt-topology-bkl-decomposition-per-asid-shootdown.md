@@ -13,7 +13,7 @@ links:
   - Scheduler half: tasks/TASK-0306-ui-responsiveness-input-integrity-smp-rendezvous.md (Phase 3)
   - IPC fastpath numbers to hold: docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md
   - Gate consumer: tasks/TRACK-TIME-AS-RESOURCE.md
-  - RFC/ADR seeds (at P0): RFC-0102 SMP lock decomposition, ADR-0072 cluster-aware spreading, ADR-0073 BKL split order (from R9)
+  - RFC/ADR seeds (at P0): RFC-0102 SMP lock decomposition, the cluster-aware spreading ADR and the BKL split-order ADR (from R9) at the next free numbers when seeded — 0072 and 0073 were taken meanwhile (GPU programs 2026-10-15; object lifetime / death as an event 2026-10-20)
 ---
 
 ## Origin

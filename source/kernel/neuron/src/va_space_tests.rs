@@ -24,6 +24,27 @@ fn vmo(va: usize, len: usize, pa: usize) -> VaRegion {
     VaRegion { va, len, pa, flags: 0xF, kind: RegionKind::Vmo, vmo: 0 }
 }
 
+/// TASK-0333 6a (RFC-0100 §1): the objects a space maps, each once, the object-less regions
+/// (MMIO, kernel-placed: `vmo == 0`) left out — what a reap may free once the space is gone.
+#[test]
+fn vmo_ids_names_each_mapped_object_once_and_no_object_less_region() {
+    let mut s = space();
+    let mut a = vmo(BASE, 2 * PAGE, 0x8000_0000);
+    a.vmo = 7;
+    s.insert(a).unwrap();
+    let mut b = vmo(BASE + 2 * PAGE, PAGE, 0x8010_0000);
+    b.vmo = 7;
+    s.insert(b).unwrap();
+    let mut c = vmo(BASE + 3 * PAGE, PAGE, 0x8020_0000);
+    c.vmo = 9;
+    s.insert(c).unwrap();
+    s.insert(vmo(BASE + 4 * PAGE, PAGE, 0x8030_0000)).unwrap();
+    let mut ids = Vec::new();
+    s.vmo_ids(&mut ids);
+    assert_eq!(ids, vec![7, 9]);
+    assert!(s.any_backed_by_vmo(7) && !s.any_backed_by_vmo(0));
+}
+
 /// ① Determinism: a fixed op sequence yields EXACT addresses, byte for byte.
 /// This is the normative artifact — if first-fit, sorting, or the window
 /// base ever change behavior, this fails before any boot does.

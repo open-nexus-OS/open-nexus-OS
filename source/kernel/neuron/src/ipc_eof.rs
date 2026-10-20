@@ -39,9 +39,82 @@ pub fn foreign_sender_remains(
     holders.into_iter().any(|(pid, count)| count > 0 && Some(pid) != owner)
 }
 
+/// What a recv does when it finds the queue empty (TASK-0333 6a). The wait mode chooses
+/// between parking and `WouldBlock`; it never changes the EOF verdict — a non-blocking,
+/// EOF-opted receiver whose last peer is gone learns it NOW. Before this the verdict lived in
+/// the blocking branch alone: a waitset receiver (non-blocking recv after the wake) saw
+/// `WouldBlock`, the latch was consumed, and the next wait parked forever on a peer that was
+/// already dead (the closed window's app-host never exited, measured on the board).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmptyQueue {
+    /// The last peer is gone and the receiver opted in: `PeerClosed`.
+    PeerClosed,
+    /// Nothing to read, no parking asked: `WouldBlock`.
+    WouldBlock,
+    /// Park until a sender writes, a peer leaves, or the deadline passes.
+    Park,
+}
+
+/// The verdict for an empty queue; `should_disconnect` is the one rule inside it.
+#[must_use]
+pub fn empty_queue_verdict(
+    nonblock: bool,
+    eof_opt: bool,
+    had_sender: bool,
+    any_sender: bool,
+) -> EmptyQueue {
+    if should_disconnect(eof_opt, had_sender, any_sender) {
+        EmptyQueue::PeerClosed
+    } else if nonblock {
+        EmptyQueue::WouldBlock
+    } else {
+        EmptyQueue::Park
+    }
+}
+
+/// The sender's mirror of the rule (TASK-0333 6a): whether ANY live RECV capability to an
+/// endpoint still exists — in a task's table or moving inside a queued message. The owner is
+/// not excluded here: a receive needs a RECV capability, so when none exists nobody can ever
+/// drain the queue, and a send into it is futile. The scan that finds none latches the
+/// endpoint; every send after that returns `PeerClosed` instead of parking the sender on a
+/// peer that is gone (windowd on a crashed app).
+#[must_use]
+pub fn receiver_remains(in_flight: usize, holders: impl IntoIterator<Item = usize>) -> bool {
+    in_flight > 0 || holders.into_iter().any(|count| count > 0)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{foreign_sender_remains, should_disconnect};
+    use super::{
+        empty_queue_verdict, foreign_sender_remains, receiver_remains, should_disconnect,
+        EmptyQueue,
+    };
+
+    #[test]
+    fn the_wait_mode_never_changes_the_eof_verdict() {
+        // The one true EOF case disconnects whether the receiver parks or not.
+        assert_eq!(empty_queue_verdict(true, true, true, false), EmptyQueue::PeerClosed);
+        assert_eq!(empty_queue_verdict(false, true, true, false), EmptyQueue::PeerClosed);
+        // No EOF: the mode decides between WouldBlock and Park.
+        assert_eq!(empty_queue_verdict(true, true, true, true), EmptyQueue::WouldBlock);
+        assert_eq!(empty_queue_verdict(false, true, true, true), EmptyQueue::Park);
+        assert_eq!(empty_queue_verdict(true, false, true, false), EmptyQueue::WouldBlock);
+    }
+
+    #[test]
+    fn test_reject_eof_before_any_sender_in_either_mode() {
+        // A receiver that never had a peer blocks or would-block, never disconnects.
+        assert_eq!(empty_queue_verdict(true, true, false, false), EmptyQueue::WouldBlock);
+        assert_eq!(empty_queue_verdict(false, true, false, false), EmptyQueue::Park);
+    }
+
+    #[test]
+    fn a_receiver_remains_while_any_recv_capability_lives() {
+        assert!(receiver_remains(0, [0, 1]));
+        assert!(receiver_remains(1, [0, 0]), "a RECV cap in flight will be received");
+        assert!(!receiver_remains(0, [0, 0]));
+        assert!(!receiver_remains(0, core::iter::empty()));
+    }
 
     #[test]
     fn owner_is_never_its_own_peer() {

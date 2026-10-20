@@ -16,7 +16,11 @@
 //! QEMU ladder (`apphost: presentation gen=N applied`).
 //! RFC: docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md
 
+#[cfg(nexus_env = "os")]
+use super::app_death::ClientSend;
 use super::*;
+#[cfg(nexus_env = "os")]
+use crate::client_surface::Delivery;
 use crate::presentation_state::DESKTOP;
 use nexus_display_proto::surface_settings;
 
@@ -71,13 +75,19 @@ impl DisplayServerRuntime {
                     continue;
                 }
                 if self.presentation.due(i) {
-                    let ok = send_snapshot(slot, &frame[..n]);
-                    self.presentation.note_send(i, ok);
+                    let outcome = send_snapshot(slot, &frame[..n]);
+                    self.presentation.note_send(i, outcome == ClientSend::Sent);
+                    // TASK-0333 6a: a dead app's channel answers by name; its window closes.
+                    if outcome == ClientSend::Dead {
+                        if let Some(idx) = self.app_slot_of_channel(slot) {
+                            self.note_app_channel_dead(idx);
+                        }
+                    }
                 }
             }
             if let Some(slot) = desktop_slot {
                 if self.presentation.due(DESKTOP) {
-                    let ok = send_snapshot(slot, &frame[..n]);
+                    let ok = send_snapshot(slot, &frame[..n]) == ClientSend::Sent;
                     self.presentation.note_send(DESKTOP, ok);
                 }
             }
@@ -156,9 +166,9 @@ impl DisplayServerRuntime {
 
 /// One NONBLOCK snapshot send. Failure is fine — the state machine retries.
 #[cfg(nexus_env = "os")]
-fn send_snapshot(slot: u32, frame: &[u8]) -> bool {
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0).is_ok()
+#[cfg(nexus_env = "os")]
+fn send_snapshot(slot: u32, frame: &[u8]) -> ClientSend {
+    super::app_death::send_client_frame_outcome(slot, frame, Delivery::Coalescing)
 }
 
 /// Accent NAME (the settingsd vocabulary) → palette index; `default`/unknown

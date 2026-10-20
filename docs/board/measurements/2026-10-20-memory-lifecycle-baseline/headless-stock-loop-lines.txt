@@ -1,0 +1,40 @@
+778:windowd: launch request app=greeter t_us=3651139
+796:execd: reaped pid=51 code=0 (free=32188 vmos=40 vmo_bytes=133087232)
+811:apphost: start t_us=3677688
+889:WINDOWD: surface presented id=1 seq=1 t_us=4890725
+890:APPHOST: probe surface presented
+1378:execd: reaped pid=65 code=0 (free=28902 vmos=57 vmo_bytes=139456512)
+1430:execd: reaped pid=66 code=-22 (free=28902 vmos=57 vmo_bytes=139456512)
+1461:SELFTEST: mm loop (cycle=0 free=28902 vmos=57 vmo_bytes=139456512)
+1462:child: vmo holder start
+1464:execd: reaped pid=68 code=0 (free=28646 vmos=58 vmo_bytes=140505088)
+1465:SELFTEST: mm loop (cycle=1 free=28646 vmos=58 vmo_bytes=140505088)
+1466:child: vmo holder start
+1468:execd: reaped pid=69 code=0 (free=28390 vmos=59 vmo_bytes=141553664)
+1469:SELFTEST: mm loop (cycle=2 free=28390 vmos=59 vmo_bytes=141553664)
+1470:child: vmo holder start
+1472:execd: reaped pid=70 code=0 (free=28134 vmos=60 vmo_bytes=142602240)
+1473:SELFTEST: mm loop (cycle=3 free=28134 vmos=60 vmo_bytes=142602240)
+1474:child: vmo holder start
+1476:execd: reaped pid=71 code=0 (free=27878 vmos=61 vmo_bytes=143650816)
+1477:SELFTEST: mm loop (cycle=4 free=27878 vmos=61 vmo_bytes=143650816)
+1478:child: vmo holder start
+1480:execd: reaped pid=72 code=0 (free=27622 vmos=62 vmo_bytes=144699392)
+1481:SELFTEST: mm loop (cycle=5 free=27622 vmos=62 vmo_bytes=144699392)
+1482:child: vmo holder start
+1484:execd: reaped pid=73 code=0 (free=27366 vmos=63 vmo_bytes=145747968)
+1485:SELFTEST: mm loop (cycle=6 free=27366 vmos=63 vmo_bytes=145747968)
+1486:child: vmo holder start
+1488:execd: reaped pid=74 code=0 (free=27110 vmos=64 vmo_bytes=146796544)
+1489:SELFTEST: mm loop (cycle=7 free=27110 vmos=64 vmo_bytes=146796544)
+1490:child: vmo holder start
+1492:execd: reaped pid=75 code=0 (free=26854 vmos=65 vmo_bytes=147845120)
+1493:SELFTEST: mm loop (cycle=8 free=26854 vmos=65 vmo_bytes=147845120)
+1494:child: vmo holder start
+1496:execd: reaped pid=76 code=0 (free=26598 vmos=66 vmo_bytes=148893696)
+1497:SELFTEST: mm loop (cycle=9 free=26598 vmos=66 vmo_bytes=148893696)
+1498:child: vmo holder start
+1500:execd: reaped pid=77 code=0 (free=26342 vmos=67 vmo_bytes=149942272)
+1501:SELFTEST: mm loop (cycle=10 free=26342 vmos=67 vmo_bytes=149942272)
+1502:SELFTEST: rss loop FAIL (cycles=10 leaked=10485760 vmos=10)
+1649:[INFO mm] KSELFTEST: mm frames (banks=1 total=77178 free=26221 reserved=96 excluded=4646 allocs=3477 frees=263 exhausted=0 pt_frames=234 vmos=70 vmo_bytes=150437888 dma_bytes=278528 spaces=40 rss_sum=173858816 rss_m

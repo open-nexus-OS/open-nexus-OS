@@ -72,6 +72,7 @@ const ANIMATION_UPDATE_CAP: usize = 8;
 // file (TASK-0063 modularization). Child modules of `runtime` so they retain
 // access to the struct's private fields without weakening encapsulation.
 mod anim;
+mod app_death;
 mod app_surface;
 pub(crate) mod app_window;
 mod capture;

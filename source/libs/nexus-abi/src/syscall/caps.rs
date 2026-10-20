@@ -62,6 +62,29 @@ pub fn irq_complete(irq: u32) -> SysResult<()> {
     }
 }
 
+/// Binds `endpoint_cap` (a SEND capability the caller holds) as the sink for its children's
+/// deaths (TASK-0333 6a, syscall 62): every child's exit writes one [`OP_CHILD_EXITED`]
+/// frame into it — the shape of a timer's fire and an interrupt's. The reaper of record waits
+/// on the RECV half beside its server endpoint and reaps on the wake, never on a sweep.
+/// `None` clears the binding.
+///
+/// [`OP_CHILD_EXITED`]: crate::syscall::task::OP_CHILD_EXITED
+#[cfg(nexus_env = "os")]
+pub fn child_exit_bind(endpoint_cap: Option<Cap>) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_CHILD_EXIT_BIND: usize = 62;
+        let slot = endpoint_cap.map_or(usize::MAX, |cap| cap as usize);
+        let raw = unsafe { ecall1(SYSCALL_CHILD_EXIT_BIND, slot) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = endpoint_cap;
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Transfers a capability from the current task to `dst_task` with intersected `rights`.
 #[cfg(nexus_env = "os")]
 pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {

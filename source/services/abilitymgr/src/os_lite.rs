@@ -84,9 +84,11 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
+                                                      // The reaper of record's kernel identity: the one sender whose death reports count.
+    let execd_sid = nexus_abi::service_id_from_name(b"execd");
     loop {
         match server.serve_next(&mut pending, Wait::Blocking, &mut recv_frame) {
-            Ok((_hdr, frame_len, _sender_service_id, reply)) => {
+            Ok((_hdr, frame_len, sender_service_id, reply)) => {
                 let frame = &recv_frame[..frame_len];
                 breaker.on_success();
                 // TASK-0065B session gate: OP_LAUNCH is refused until sessiond
@@ -99,6 +101,14 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                 {
                     emit_line("abilitymgr: launch denied (session)");
                     crate::wire::Dispatched { response: launch_denied_response(), event: None }
+                } else if !crate::wire::exited_frame_allowed(frame, sender_service_id, execd_sid) {
+                    // TASK-0333 6a: a death is the reaper's to report — the kernel sender id
+                    // decides, never the frame (a forged death would free a live instance).
+                    emit_line("abilitymgr: exited denied (sender)");
+                    crate::wire::Dispatched {
+                        response: crate::wire::denied_response(crate::protocol::OP_INSTANCE_EXITED),
+                        event: None,
+                    }
                 } else {
                     dispatch(&mut broker, frame)
                 };
@@ -108,9 +118,17 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                     // broker approved the launch — abilitymgr (the ONLY
                     // spawner of apps, policy `proc.spawn`) now asks execd
                     // for the process. Failures are markers, never silent.
-                    if let crate::wire::Event::Launched { app_id, .. } = &event {
-                        spawn_app(app_id);
+                    // The pid it answers binds the instance to the process
+                    // whose death the reaper will report (TASK-0333 6a).
+                    if let crate::wire::Event::Launched { app_id, instance_id } = &event {
+                        if let Some(pid) = spawn_app(app_id) {
+                            let _ = broker.bind_pid(*instance_id, pid);
+                        }
                     }
+                }
+                // A one-way event (`OP_INSTANCE_EXITED`) has no answer.
+                if out.response.is_empty() {
+                    continue;
                 }
                 if let Some(reply) = reply {
                     pending.park(reply, &out.response);
@@ -250,12 +268,12 @@ fn image_for_app(app_id: &str) -> Option<u8> {
 /// Requests the process spawn from execd (`OP_EXEC_IMAGE` frame, requester
 /// = "abilitymgr"; policyd verifies identity + `proc.spawn`). Bounded reply
 /// wait; every failure path is a marker.
-fn spawn_app(app_id: &str) {
+fn spawn_app(app_id: &str) -> Option<u32> {
     let Some(image_id) = image_for_app(app_id) else {
         // Registry apps without a spawnable payload (chat/search placeholder
         // ELFs) launch their windowd-hosted windows instead — by value.
         emit_line("abilitymgr: launch spawn skipped (no payload image)");
-        return;
+        return None;
     };
     // The declared execd leg (TASK-0324 P7-d): pinned before this task runs.
     let (send_slot, recv_slot) = (topo::EXECD.send, topo::EXECD.recv);
@@ -266,7 +284,7 @@ fn spawn_app(app_id: &str) {
     let app = app_id.as_bytes();
     if app.is_empty() || app.len() > 48 {
         emit_line("abilitymgr: FAIL launch spawn (app id length)");
-        return;
+        return None;
     }
     let mut req = [0u8; 128];
     req[0] = b'E';
@@ -290,11 +308,11 @@ fn spawn_app(app_id: &str) {
     len += 1 + app.len();
     let Ok(client) = KernelClient::new_with_slots(send_slot, recv_slot) else {
         emit_line("abilitymgr: FAIL launch spawn (client)");
-        return;
+        return None;
     };
     if client.send(&req[..len], Wait::Blocking).is_err() {
         emit_line("abilitymgr: FAIL launch spawn (send)");
-        return;
+        return None;
     }
     // WAIT for the reply `[E,X,ver,op|0x80,status,pid:u32le]` — no clock (TASK-0324 P7-b):
     // execd answers on its response endpoint or dies (which closes it and ends the wait).
@@ -303,16 +321,17 @@ fn spawn_app(app_id: &str) {
         match client.recv_into(Wait::Blocking, &mut rsp) {
             Ok(n) if n >= 9 && rsp[3] == 0x81 => {
                 if rsp[4] == 0 {
-                    emit_line("abilitymgr: spawn ok");
-                } else {
-                    emit_line("abilitymgr: FAIL launch spawn (execd status)");
+                    let pid = u32::from_le_bytes([rsp[5], rsp[6], rsp[7], rsp[8]]);
+                    emit_inst_line(b"abilitymgr: spawn ok (pid=", pid);
+                    return Some(pid);
                 }
-                return;
+                emit_line("abilitymgr: FAIL launch spawn (execd status)");
+                return None;
             }
             Ok(_) => {} // unrelated frame on the shared channel — keep waiting
             Err(_) => {
                 emit_line("abilitymgr: FAIL launch spawn (execd channel closed)");
-                return;
+                return None;
             }
         }
     }
@@ -345,6 +364,27 @@ fn emit_event(event: &Event) {
             AbilityState::Started => emit_inst_line(b"abilitymgr: start (inst=", *instance_id),
             AbilityState::Created => {}
         },
+        // TASK-0333 6a: `abilitymgr: stop (inst=<id> app=<app> pid=<pid> code=<code> live=<n>)`
+        // — the reaper reported the death; the instance is gone, `live` instances remain.
+        Event::Exited { instance_id, app_id, pid, code, live } => {
+            nexus_abi::debug_ts_prefix();
+            emit_prefix(b"abilitymgr: stop (inst=");
+            emit_u32(*instance_id);
+            emit_prefix(b" app=");
+            emit_str(app_id);
+            emit_prefix(b" pid=");
+            emit_u32(*pid);
+            emit_prefix(b" code=");
+            if *code < 0 {
+                emit_prefix(b"-");
+            }
+            emit_u32(code.unsigned_abs());
+            emit_prefix(b" live=");
+            emit_u32(*live as u32);
+            emit_prefix(b")");
+            emit_newline();
+        }
+        Event::ExitedUnknown { pid } => emit_inst_line(b"abilitymgr: exited unknown (pid=", *pid),
     }
 }
 

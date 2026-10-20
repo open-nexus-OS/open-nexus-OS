@@ -1,6 +1,6 @@
 ---
 title: TASK-0235 Ability/Lifecycle v1.1b (OS/QEMU): appmgrd extension + samgr hooks + FG/BG policies (CPU budget/timer slack) + kill reasons plumbing + nx-ability CLI + selftests
-status: Draft
+status: Draft — absorbed into Block 4 layer 6d under tasks/TASK-0333 (2026-10-19): FG/BG policies become the lifecycle bands `memd` reads; no appmgrd extension — abilitymgr stays the lifecycle owner (ADR-0036)
 owner: @runtime
 created: 2025-12-29
 depends-on: []

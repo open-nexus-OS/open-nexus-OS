@@ -237,6 +237,8 @@ pub(crate) fn vmo_create_reserve(
     let aligned = align_len(typed.len).ok_or(Error::Capability(CapError::PermissionDenied))?;
     let id = crate::mm::vmo::create(aligned, typed.kind(), &reach)
         .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+    // Named by no capability until phase C: out of the lifetime rule's reach meanwhile.
+    crate::mm::vmo::set_creating(id, true);
     Ok((id, aligned, typed.slot_raw))
 }
 
@@ -248,6 +250,12 @@ pub(crate) fn vmo_create_finish(
     aligned: usize,
     slot_raw: usize,
 ) -> SysResult<usize> {
+    crate::mm::vmo::set_creating(id, false);
+    if crate::mm::vmo::with(id, |_| ()).is_none() {
+        // The object vanished between the phases: named, so the lane sees it, never silent.
+        log_error!(target: "mm", "VMO-CREATE lost id={} between phases", id);
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     let cap = Capability { kind: CapabilityKind::Vmo { id, len: aligned }, rights: Rights::MAP };
     let result = if slot_raw == usize::MAX {
         ctx.tasks.current_caps_mut().allocate(cap)

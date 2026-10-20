@@ -95,6 +95,24 @@ proves = "boot state committed and the registry populated — a session may begi
 phase = "bringup"
 proves = "windowd reported @stage shell-visible — the shell's first frame is on screen (fence 4)"
 
+# TASK-0333 6a (RFC-0100 §1, ADR-0073): an object dies with its last capability, and a death is
+# an event. Four kernel selftests against the real tables and the real syscall table.
+[marker."KSELFTEST: ipc eof nonblocking ok"]
+phase = "bringup"
+proves = "a NON-BLOCKING, EOF-opted recv returns PeerClosed once the last peer's SEND capability closed — the wait mode never changes the verdict (the closed window's app-host parked forever before this)"
+
+[marker."KSELFTEST: ipc peer closed send ok"]
+phase = "bringup"
+proves = "a send into an endpoint no RECV capability names any more returns PeerClosed instead of parking the sender"
+
+[marker."KSELFTEST: task exit releases ok ("]
+phase = "bringup"
+proves = "a task's exit frees the timer, waitset, fence and endpoint it owned and the endpoint only it named — every exit path, like a cap_close of each"
+
+[marker."KSELFTEST: child exit notify ok ("]
+phase = "bringup"
+proves = "a child's exit writes one OP_CHILD_EXITED frame (pid, code, reason) into the endpoint its parent bound with child_exit_bind"
+
 # TASK-0324 P5-a (ADR-0062): the boot-stage fence a child receives may WAIT but never SIGNAL.
 [marker."KSELFTEST: fence transfer ok"]
 phase = "bringup"

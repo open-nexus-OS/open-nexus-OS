@@ -513,3 +513,58 @@ pub fn wait_nohang_with_reason() -> SysResult<Option<(Pid, i32, ExitReason)>> {
         Err(AbiError::Unsupported)
     }
 }
+
+/// The op byte of the frame a child's death writes into the endpoint its parent bound with
+/// [`child_exit_bind`](crate::syscall::caps::child_exit_bind) (TASK-0333 6a). Payload:
+/// `op: u8, pid: u32le, code: i32le, reason: u32le` — the reason word is the kernel's
+/// (ADR-0056), the same word `wait` packs into its status.
+pub const OP_CHILD_EXITED: u8 = 0x31;
+
+/// Decodes one child-death frame: the pid, the exit code, WHY (`Fault`/`Killed` are the
+/// kernel's own). `None` for anything else on the endpoint — the frame is a wake, the zombie
+/// table (`wait_nohang_with_reason`) stays the truth. Pure, host-tested.
+pub fn decode_child_exited(frame: &[u8]) -> Option<(u32, i32, crate::ExitReason)> {
+    if frame.len() != 13 || frame[0] != OP_CHILD_EXITED {
+        return None;
+    }
+    let pid = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
+    let code = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
+    let word = u32::from_le_bytes([frame[9], frame[10], frame[11], frame[12]]);
+    let (code, reason) =
+        crate::ExitReason::decode_wait_status(((word as usize) << 32) | code as usize);
+    Some((pid, code, reason))
+}
+
+#[cfg(test)]
+mod child_exit_tests {
+    use super::{decode_child_exited, OP_CHILD_EXITED};
+    use crate::ExitReason;
+
+    fn frame(pid: u32, code: i32, word: u32) -> [u8; 13] {
+        let mut f = [0u8; 13];
+        f[0] = OP_CHILD_EXITED;
+        f[1..5].copy_from_slice(&pid.to_le_bytes());
+        f[5..9].copy_from_slice(&code.to_le_bytes());
+        f[9..13].copy_from_slice(&word.to_le_bytes());
+        f
+    }
+
+    #[test]
+    fn a_death_frame_names_the_child_the_code_and_the_reason() {
+        assert_eq!(decode_child_exited(&frame(77, 0, 0)), Some((77, 0, ExitReason::Clean)));
+        assert_eq!(decode_child_exited(&frame(77, -22, 0)), Some((77, -22, ExitReason::Error)));
+        assert_eq!(
+            decode_child_exited(&frame(9, -22, 2 | (0x0d << 8))),
+            Some((9, -22, ExitReason::Fault { cause: 0x0d }))
+        );
+        assert_eq!(decode_child_exited(&frame(9, -22, 3)), Some((9, -22, ExitReason::Killed)));
+    }
+
+    #[test]
+    fn test_reject_frames_of_another_shape() {
+        assert_eq!(decode_child_exited(&frame(1, 0, 0)[..12]), None, "short");
+        let mut other = frame(1, 0, 0);
+        other[0] = 0x30; // a timer's fire
+        assert_eq!(decode_child_exited(&other), None, "another op");
+    }
+}

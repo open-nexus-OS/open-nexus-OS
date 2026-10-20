@@ -696,6 +696,12 @@ expected_sequence=(
   "KSELFTEST: vmo runs ok ("
   "KSELFTEST: vmo reach ok ("
   "KSELFTEST: w^x enforced"
+  # TASK-0333 6a (RFC-0100 §1, ADR-0073): an object dies with its last capability, a death
+  # is an event — four kernel selftests, before the fence ones they run beside.
+  "KSELFTEST: ipc eof nonblocking ok"
+  "KSELFTEST: ipc peer closed send ok"
+  "KSELFTEST: task exit releases ok ("
+  "KSELFTEST: child exit notify ok ("
   "KSELFTEST: fence transfer ok"
   "KSELFTEST: spawn reasons ok"
   "KSELFTEST: resource sentinel ok"
@@ -1009,6 +1015,10 @@ expected_sequence=(
   "SELFTEST: minidump mismatched build_id rejected"
   "SELFTEST: exec denied ok"
   "SELFTEST: execd malformed ok"
+  # TASK-0333 6a: ten VMO-holding children in a row; the kernel's record before and after
+  # (`SELFTEST: mm loop (`); the verdict `SELFTEST: rss loop ok (` joins once 6a's reclaim lands.
+  "child: vmo holder start"
+  "SELFTEST: rss loop ok ("
   "logd: reject invalid_args"
   "logd: reject over_limit"
   "logd: reject rate_limited"
@@ -1040,6 +1050,8 @@ expected_sequence=(
   "KSELFTEST: ipc call budget ok (rt="
   "KSELFTEST: ipc stats ("
   "KSELFTEST: mm frames ("
+  # TASK-0333 6a: the objects freed at reaps and last capability closes (RFC-0100 §1).
+  "KSELFTEST: vm reclaim ("
   # TASK-0330 S2a: the console's serial time is off the kernel lock.
   "KSELFTEST: console off lock ok ("
   "KSELFTEST: ipc payload hist ("
@@ -1258,6 +1270,10 @@ case "${PROFILE:-full}" in
       "KSELFTEST: vmo runs ok ("
       "KSELFTEST: vmo reach ok ("
       "KSELFTEST: w^x enforced"
+      "KSELFTEST: ipc eof nonblocking ok"
+      "KSELFTEST: ipc peer closed send ok"
+      "KSELFTEST: task exit releases ok ("
+      "KSELFTEST: child exit notify ok ("
       "KSELFTEST: fence transfer ok"
       "KSELFTEST: spawn reasons ok"
       "KSELFTEST: resource sentinel ok"

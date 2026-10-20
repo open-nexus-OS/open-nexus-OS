@@ -38,6 +38,107 @@ fn main() {
     let fault = build_elf(&build_fault_text(b"child: fault start\n\0"));
     let out_path = out_dir.join("demo-fault.elf");
     fs::write(&out_path, fault).expect("write demo-fault");
+
+    // TASK-0333 6a: the VMO holder — prints its marker, creates a VMO, maps it, writes one
+    // byte into it and exits WITHOUT destroying it: what a task leaves behind at exit is what
+    // the kernel must take back (RFC-0100 §1). A failed syscall exits 5, never hangs.
+    let holder = build_elf(&build_vmo_holder_text(b"child: vmo holder start\n\0"));
+    let out_path = out_dir.join("demo-vmo-holder.elf");
+    fs::write(&out_path, holder).expect("write demo-vmo-holder");
+}
+
+/// The bytes the VMO holder keeps at exit (one holder a cycle in the selftest's loop).
+const VMO_HOLDER_BYTES: i32 = 0x100000;
+
+/// The VMO holder (TASK-0333 6a): print `msg`, `vmo_create(1 MiB)`, `vm_map` it read/write,
+/// store a byte, `exit(0)`. Syscalls as `nexus_abi::syscall::memory` makes them: vmo_create = 5
+/// (a0 = slot usize::MAX, a1 = len, a2 = kind 0, a3 = device usize::MAX) → the capability slot;
+/// vm_map = 53 (a0 = slot, a1 = offset, a2 = len, a3 = flags READ|WRITE) → the address.
+fn build_vmo_holder_text(msg: &[u8]) -> Vec<u8> {
+    const SYSCALL_VMO_CREATE: i32 = 5;
+    const SYSCALL_EXIT: i32 = 11;
+    const SYSCALL_DEBUG_PUTC: i32 = 16;
+    const SYSCALL_VM_MAP: i32 = 53;
+    const PAGE_READ_WRITE: i32 = (1 << 1) | (1 << 2);
+    /// `vmo_create` answered an error (the exit code names the syscall that failed).
+    const EXIT_CREATE_FAILED: i32 = 5;
+    /// `vm_map` answered an error.
+    const EXIT_MAP_FAILED: i32 = 6;
+
+    let mut ins: Vec<u32> = Vec::new();
+    let count = Cell::new(0usize);
+    let mut emit = |w: u32| {
+        ins.push(w);
+        count.set(count.get() + 1);
+    };
+
+    // s0 = &msg (patched below once the code size is known).
+    emit(encode_auipc(8, 0));
+    let patch_msg_idx = 1;
+    emit(0);
+    // loop: a0 = *s0; if a0 == 0 goto done; debug_putc; s0 += 1; goto loop
+    let loop_idx = count.get();
+    emit(encode_lbu(10, 8, 0));
+    let beq_done_idx = count.get();
+    emit(0);
+    emit(encode_addi(17, 0, SYSCALL_DEBUG_PUTC));
+    emit(0x00000073); // ecall
+    emit(encode_addi(8, 8, 1));
+    let jal_loop_idx = count.get();
+    emit(0);
+    let done_idx = count.get();
+
+    // vmo_create(slot = -1, len, kind = 0, device = -1) → a0 = the slot, or an error below 0.
+    emit(encode_addi(10, 0, -1));
+    emit(encode_lui(11, VMO_HOLDER_BYTES >> 12));
+    emit(encode_addi(12, 0, 0));
+    emit(encode_addi(13, 0, -1));
+    emit(encode_addi(17, 0, SYSCALL_VMO_CREATE));
+    emit(0x00000073); // ecall
+    let blt_create_fail_idx = count.get();
+    emit(0);
+    // vm_map(slot, 0, len, READ|WRITE) → a0 = the address, or an error below 0.
+    emit(encode_addi(11, 0, 0));
+    emit(encode_lui(12, VMO_HOLDER_BYTES >> 12));
+    emit(encode_addi(13, 0, PAGE_READ_WRITE));
+    emit(encode_addi(17, 0, SYSCALL_VM_MAP));
+    emit(0x00000073); // ecall
+    let blt_map_fail_idx = count.get();
+    emit(0);
+    // *(u8*)a0 = 1: the page is touched, then the task exits holding the object.
+    emit(encode_addi(5, 0, 1));
+    emit(encode_sb(5, 10, 0));
+    emit(encode_addi(10, 0, 0));
+    emit(encode_addi(17, 0, SYSCALL_EXIT));
+    emit(0x00000073); // ecall
+    emit(0x0000006f); // jal x0, 0
+                      // create_failed: exit(5)
+    let create_fail_idx = count.get();
+    emit(encode_addi(10, 0, EXIT_CREATE_FAILED));
+    emit(encode_addi(17, 0, SYSCALL_EXIT));
+    emit(0x00000073); // ecall
+    emit(0x0000006f); // jal x0, 0
+                      // map_failed: exit(6)
+    let map_fail_idx = count.get();
+    emit(encode_addi(10, 0, EXIT_MAP_FAILED));
+    emit(encode_addi(17, 0, SYSCALL_EXIT));
+    emit(0x00000073); // ecall
+    emit(0x0000006f); // jal x0, 0
+
+    let code_size = (count.get() * 4) as i32;
+    let at = |idx: usize| (idx * 4) as i32;
+    ins[patch_msg_idx] = encode_addi(8, 8, code_size);
+    ins[beq_done_idx] = encode_beq(10, 0, at(done_idx) - at(beq_done_idx));
+    ins[jal_loop_idx] = encode_jal(0, at(loop_idx) - at(jal_loop_idx));
+    ins[blt_create_fail_idx] = encode_blt(10, 0, at(create_fail_idx) - at(blt_create_fail_idx));
+    ins[blt_map_fail_idx] = encode_blt(10, 0, at(map_fail_idx) - at(blt_map_fail_idx));
+
+    let mut text = Vec::with_capacity(ins.len() * 4 + msg.len());
+    for w in ins {
+        push(&mut text, w);
+    }
+    text.extend_from_slice(msg);
+    text
 }
 
 fn build_elf(text: &[u8]) -> Vec<u8> {
@@ -356,6 +457,21 @@ fn encode_auipc(rd: u8, imm20: i32) -> u32 {
 
 fn encode_addi(rd: u8, rs1: u8, imm: i32) -> u32 {
     encode_i_type(0x13, rd, rs1, imm, 0)
+}
+
+/// `lui rd, imm20` (U-type, opcode 0x37): the upper twenty bits of a constant.
+fn encode_lui(rd: u8, imm20: i32) -> u32 {
+    (((imm20 as u32) & 0xf_ffff) << 12) | ((rd as u32) << 7) | 0x37
+}
+
+/// `sb rs2, imm(rs1)` (S-type, opcode 0x23, funct3 0): one byte stored.
+fn encode_sb(rs2: u8, rs1: u8, imm: i32) -> u32 {
+    let imm = imm as u32;
+    (((imm >> 5) & 0x7f) << 25)
+        | ((rs2 as u32) << 20)
+        | ((rs1 as u32) << 15)
+        | ((imm & 0x1f) << 7)
+        | 0x23
 }
 
 fn encode_lbu(rd: u8, rs1: u8, imm: i32) -> u32 {

@@ -60,6 +60,19 @@ pub fn bind(irq: IrqId, endpoint: EndpointId) {
     plic::enable_source(irq, cpu);
 }
 
+/// Drops every binding that targets `endpoint` — the endpoint died (TASK-0333 6a), and a
+/// line firing into its slot's next tenant would be a message nobody sent. The PLIC source
+/// stays enabled; an unbound fire is dropped like one before any bind. Returns the lines.
+pub fn forget_endpoint(endpoint: EndpointId) -> usize {
+    let mut dropped = 0;
+    for slot in IRQ_ENDPOINT.iter().skip(1) {
+        if slot.compare_exchange(endpoint, 0, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+            dropped += 1;
+        }
+    }
+    dropped
+}
+
 /// Returns the endpoint bound to `irq`, if any.
 #[must_use]
 pub fn binding(irq: IrqId) -> Option<EndpointId> {

@@ -1,6 +1,6 @@
 ---
 title: TASK-0234 Ability/Lifecycle v1.1a (host-first): deterministic lifecycle state machine + backoff/crash-loop + kill reasons + tests
-status: Draft
+status: Draft — absorbed into Block 4 layer 6d under tasks/TASK-0333 (2026-10-19): the state machine driven by windowd's focus/visibility/occlusion, kernel-enforced suspend/kill through execd, kill reasons per ADR-0056
 owner: @runtime
 created: 2025-12-29
 depends-on: []

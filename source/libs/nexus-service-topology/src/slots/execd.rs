@@ -58,3 +58,8 @@ pub const TIMER: SlotPair = SlotPair::new(26, 25);
 pub const CLIPBOARDD: SlotPair = SlotPair::new(27, REPLY.recv);
 /// `svc.screencap.*` (TASK-0068): cloned into app children holding `SCREENCAP`.
 pub const SCREENCAPD: SlotPair = SlotPair::new(28, REPLY.recv);
+/// Child-death endpoint (TASK-0333 6a): the SEND half is bound with `child_exit_bind`, the
+/// RECV half is a waitset member beside the server endpoint — one `OP_CHILD_EXITED` frame per
+/// dead child, the reaper's wake (RFC-0081 made execd the reaper of record; this makes the
+/// reap reactive).
+pub const CHILD_EXIT: SlotPair = SlotPair::new(30, 29);

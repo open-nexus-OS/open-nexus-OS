@@ -389,7 +389,8 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
         );
         // U-mode fault → this hart holds no BKL; safe to acquire.
         {
-            let (scheduler, tasks, router, spaces, _timer, _ht, _ws, _fences) = kernel.parts();
+            let (scheduler, tasks, router, spaces, _timer, hart_timers, waitsets, fences) =
+                kernel.parts();
 
             // Kill the faulting task (never scheduled again). RFC-0005
             // lifecycle: close its endpoints + wake any blocked peers.
@@ -409,7 +410,13 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
             // kill must wake it like `sys_exit` does; masked until blocking syscalls stopped
             // self-waking — init in `wait` for the supervised fault-probe stayed parked
             // forever, 2026-09-08).
-            crate::syscall::api::exit_current_faulted(tasks, router, scheduler, frame.scause as u8);
+            crate::syscall::api::exit_current_faulted(
+                tasks,
+                router,
+                scheduler,
+                crate::syscall::api::ExitTables { hart_timers, waitsets, fences },
+                frame.scause as u8,
+            );
             crate::smp::tlb::note_activity(
                 crate::smp::cpu_current_id(),
                 crate::smp::tlb::ACT_FAULT_KILL,
@@ -433,7 +440,12 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
                         if spaces.activate(handle).is_err() {
                             // Fail-fast: this task cannot be resumed.
                             let doomed = tasks.current_pid();
-                            crate::syscall::api::exit_current_killed(tasks, router, scheduler);
+                            crate::syscall::api::exit_current_killed(
+                                tasks,
+                                router,
+                                scheduler,
+                                crate::syscall::api::ExitTables { hart_timers, waitsets, fences },
+                            );
                             scheduler.purge(doomed);
                             scheduler.finish_current();
                             continue;

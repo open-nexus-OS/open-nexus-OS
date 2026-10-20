@@ -1,0 +1,9 @@
+844:windowd: launch request app=greeter t_us=3977721
+862:execd: reaped pid=51 code=0 (free=31126 vmos=50 vmo_bytes=137396224)
+877:apphost: start t_us=4005500
+956:WINDOWD: surface presented id=1 seq=1 t_us=5232513
+957:APPHOST: probe surface presented
+1410:execd: reaped pid=65 code=0 (free=27847 vmos=62 vmo_bytes=143736832)
+1532:execd: reaped pid=77 code=0 (free=27847 vmos=62 vmo_bytes=143736832)
+1534:SELFTEST: rss loop ok (cycles=10 leaked=0)
+1694:[INFO mm] KSELFTEST: vm reclaim (vmos=19 bytes=11038720)

@@ -119,6 +119,8 @@ pub(crate) const EXECD: ServiceSpec = ServiceSpec {
         NamedSlotBinding { name: NamedSlot::ProbeReplyRecv, slot: slots::execd::PROBE_REPLY.recv },
         NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::execd::TIMER.recv },
         NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::execd::TIMER.send },
+        NamedSlotBinding { name: NamedSlot::ChildExitRecv, slot: slots::execd::CHILD_EXIT.recv },
+        NamedSlotBinding { name: NamedSlot::ChildExitSend, slot: slots::execd::CHILD_EXIT.send },
     ],
 };
 

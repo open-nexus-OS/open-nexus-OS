@@ -34,6 +34,11 @@ pub(super) struct Endpoint {
     /// peer's death like a single blocked receiver does; cleared by the next send to, or
     /// recv from, this endpoint (the receiver observed it; the dynamic scan stays the truth).
     pub(super) eof_pending: bool,
+    /// TASK-0333 6a: no RECV capability to this endpoint exists anywhere (the scan at a
+    /// `cap_close` or an exit decided it). A send after this returns `PeerClosed` — nobody
+    /// can ever drain the queue, so a sender must not park on it. Cleared only by a revive
+    /// (the slot's next tenant starts fresh).
+    pub(super) receiver_gone: bool,
 }
 
 impl Endpoint {
@@ -56,12 +61,16 @@ impl Endpoint {
             send_waiters: VecDeque::new(),
             had_sender: false,
             eof_pending: false,
+            receiver_gone: false,
         }
     }
 
     pub(super) fn push(&mut self, msg: Message) -> core::result::Result<(), (IpcError, Message)> {
         if !self.alive {
             return Err((IpcError::NoSuchEndpoint, msg));
+        }
+        if self.receiver_gone {
+            return Err((IpcError::PeerClosed, msg));
         }
         if self.queue.len() >= self.depth {
             return Err((IpcError::QueueFull, msg));

@@ -125,6 +125,13 @@ pub enum NamedSlot {
     TimerNotifyRecv,
     /// Timer-notify endpoint: the SEND half the service's kernel timer cap is bound to.
     TimerNotifySend,
+    /// Child-death endpoint (TASK-0333 6a): the RECV half, a waitset member beside the
+    /// server endpoint — the kernel writes one `OP_CHILD_EXITED` frame per dead child here,
+    /// so the reaper of record (execd) wakes on a death instead of sweeping on its next
+    /// request. A death is an event, never something polled.
+    ChildExitRecv,
+    /// Child-death endpoint: the SEND half bound with `child_exit_bind`.
+    ChildExitSend,
     /// Device-watchdog endpoint (TASK-0054C P2-b): the RECV half, a waitset member beside the
     /// device's IRQ endpoint. A device that never answers ends the wait through this timer —
     /// never through a receive deadline. Its own endpoint: one endpoint per timer.

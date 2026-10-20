@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-19 (Block 4, layer 6a: what dies is freed — TASK-0333, RFC-0100 §1)
+
+- **A VMO dies with its last capability.** A reaped task's objects — the ones its capability
+  table named at exit and the ones its address space mapped — are freed when no other table
+  names them and no space maps them; the last `cap_close` of a VMO capability does the same.
+  Before, an exiting task's objects stayed in the kernel's table with their frames: measured on
+  the stock tree as exactly one object and 1 MiB per child (`docs/board/measurements/2026-10-20-
+  memory-lifecycle-baseline/`). `sys_vmo_destroy` keeps its sole-owner rule as the owner's fast
+  path. The rule is a pure predicate with its reject matrix on the host
+  (`mm/vmo_lifetime.rs`); `KSELFTEST: vm reclaim (vmos= bytes=)` counts what came back.
+- **Every kernel object dies with its last capability, and a death is an event (ADR-0073,
+  2026-10-20).** The board showed a window closed with its button never ends its process: the
+  kernel decided EOF only in `recv`'s blocking branch, and a waitset receiver (non-blocking after
+  its wake) parked forever on a peer already gone. Now the verdict never depends on the wait
+  mode (`ipc_eof` truth tables); the one exit funnel frees the timers, waitsets, fences and
+  endpoints a task owned like a `cap_close` of each, on every exit path; an endpoint nothing
+  names is destroyed and forgotten by every waitset, timer, interrupt line and exit binding, its
+  slot reused once nothing names its id (two endpoints leaked per app launch before, ids never
+  reused — a launch counter); a send into an endpoint no RECV capability names returns
+  `PeerClosed`; `child_exit_bind` (syscall 62) makes a child's death one `OP_CHILD_EXITED` frame
+  into the parent's endpoint, the shape of a timer's fire. execd (the reaper of record) waits on
+  its declared child-death pair beside its server endpoint, reaps on the wake and reports an app
+  child's death to abilitymgr (`OP_INSTANCE_EXITED`, taken from execd's kernel sender id alone);
+  abilitymgr moves the instance to `Stopped` and removes it (`abilitymgr: stop (inst= app= pid=
+  code= live=)`); windowd closes a dead client's window by name (`windowd: app died (slot=`).
+  `MmStats` v2 counts endpoints, timers, waitsets and fences; the loop's verdict is
+  `SELFTEST: rss loop ok (cycles=10 leaked=0 kobjects=0)`; four kernel selftests prove the rule
+  every boot (`KSELFTEST: ipc eof nonblocking ok`, `ipc peer closed send ok`,
+  `task exit releases ok (…)`, `child exit notify ok (…)`).
+- **execd closes its payload capability after the grant (cycle 46).** The reap lines showed
+  one 129-page VMO more after every app open/close: execd created the payload VMO, copied
+  the capability into the child (`cap_transfer_to_slot` copies) and never closed its own, so
+  the object outlived the child and execd's table was one more launch counter. Closed once
+  bundlemgrd's answer is in; cycle 47: `free`/`vmos` flat across four closes.
+- **One census per dropped endpoint capability.** The three verdicts a close or exit needs
+  (last-sender EOF, sender-side `PeerClosed`, reclaim) were three passes over the capability
+  tables and the queues — 8 % on an IPC call (`ipc call budget rt=` 43–44 → 47 µs on the
+  headless lane). `eof_scan::census` counts senders, receivers and names in one pass
+  (`CapTable::endpoint_census`, `Router::in_flight_census`); `judge_dropped` applies the
+  three rules from it.
+- **The boot hart's idle spin acks shootdowns.** The smp lane showed `KPANIC: tlb shootdown
+  ack timeout hart=0 … activity=class4` right after the MMIO-deny fixture's kill (2 of 5 runs
+  on the new tree, 0 of 11 before): the boot hart is a shootdown target while it spins idle
+  (it never marks itself idle), and it polled the mailbox only on a lock miss or an IPI trap —
+  a doorbell consumed by another wake left the ack to a lock miss that never comes while the
+  requester runs with the lock dropped. The spin now polls each turn (`cpu_main.rs`); 0 of 3
+  runs after. The lane's remaining reds (`ipc call budget`, `console off lock`,
+  `virtio-blk: timeout`) predate this tree (the 2026-10-19 runs show them).
+- **The measurement instrument of layer 6**: a VMO-holding payload (`demo.vmo-holder`) the
+  selftest spawns ten times, reading the kernel's record between the reaps
+  (`SELFTEST: mm loop (`, the verdict `SELFTEST: rss loop ok (cycles=10 leaked=0)`, REQUIRED on
+  the QEMU lanes and the board); execd's reap line carries the record; the launch's stages
+  (`windowd: launch request`, `apphost: start`, `WINDOWD: surface presented`) carry one clock.
+- **Block 4 recut**: memory and the app lifecycle come before SMP (layer 6, TASK-0333 6a–6f:
+  unified memory with the GPU committed on touch, shared code, freeze/kill like a phone,
+  restore, pressure, compression before swap); RFC-0100 seeded; the memory and lifecycle
+  ledgers retitled under it.
+
 ### Changed - 2026-10-19 (Block 4, layer 5d: the CPU composite deleted on the board — TASK-0215; layer 5 complete)
 
 - **The board's display has one drawing path.** A present is drawn by the GPU in windowd's

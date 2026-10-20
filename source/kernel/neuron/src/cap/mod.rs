@@ -283,6 +283,46 @@ impl CapTable {
         }
     }
 
+    /// Live caps referencing endpoint `id`, counted in ONE pass as `(senders, receivers,
+    /// any)` (TASK-0333 6a): the senders behind last-sender EOF, the receivers behind the
+    /// sender-side `PeerClosed`, and "does anything still name it" behind the reclaim.
+    pub fn endpoint_census(&self, id: EndpointId) -> (usize, usize, usize) {
+        let (mut send, mut recv, mut any) = (0, 0, 0);
+        for cap in self.slots.iter().flatten() {
+            if !matches!(cap.kind, CapabilityKind::Endpoint(ep) if ep == id) {
+                continue;
+            }
+            any += 1;
+            send += usize::from(cap.rights.contains(Rights::SEND));
+            recv += usize::from(cap.rights.contains(Rights::RECV));
+        }
+        (send, recv, any)
+    }
+
+    /// The distinct endpoints this table names with every right in `rights`, each once
+    /// (`Rights::empty()` = every endpoint it names) — what a dying task's exit must judge.
+    pub fn endpoint_ids_with(&self, rights: Rights, out: &mut alloc::vec::Vec<EndpointId>) {
+        for cap in self.slots.iter().flatten() {
+            if let CapabilityKind::Endpoint(id) = cap.kind {
+                if cap.rights.contains(rights) && !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+        }
+    }
+
+    /// Every VMO this table names (`Vmo` and its `VmoRo` aliases alike), each once — what a
+    /// dying task may leave orphaned (TASK-0333 6a, RFC-0100 §1).
+    pub fn vmo_ids(&self, out: &mut alloc::vec::Vec<u32>) {
+        for cap in self.slots.iter().flatten() {
+            if let CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } = cap.kind {
+                if !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+        }
+    }
+
     /// True when some slot holds a device capability carrying PLIC line `irq`
     /// (RFC-0098 C3: the line a task may bind or complete is the one its device
     /// capability carries — never a number it names).

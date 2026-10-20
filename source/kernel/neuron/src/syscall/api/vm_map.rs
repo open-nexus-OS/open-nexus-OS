@@ -67,7 +67,11 @@ pub(super) fn vmo_runs_in(
     offset: usize,
     len: usize,
 ) -> SysResult<alloc::vec::Vec<(usize, usize)>> {
-    let runs = crate::mm::vmo::runs(id).ok_or(Error::Capability(CapError::PermissionDenied))?;
+    let runs = crate::mm::vmo::runs(id).ok_or_else(|| {
+        // A capability names an object the table no longer holds: named, never silent.
+        log_error!(target: "sysmap", "VM-MAP-FAIL reason=no-object id={}", id);
+        Error::Capability(CapError::PermissionDenied)
+    })?;
     let end = offset.checked_add(len).ok_or(AddressSpaceError::InvalidArgs)?;
     let mut out = alloc::vec::Vec::new();
     let mut at = 0usize;

@@ -61,10 +61,9 @@ pub enum IpcError {
 
 pub use crate::ipc_payload::{Payload, IPC_PAYLOAD_MAX};
 
-/// Representation of an endpoint queue.
-mod endpoint;
-/// RFC-0079 last-sender EOF accessors (`had_sender` latch, owner, recv-waiter drain).
-mod eof;
+mod endpoint; // the queue
+mod eof; // RFC-0079 last-sender EOF accessors (`had_sender` latch, owner, recv-waiter drain)
+mod lifetime; // TASK-0333 6a: an endpoint dies with its last capability; its slot is reused
 use endpoint::Endpoint;
 
 /// The kernel IPC message (header + tiered payload + moved cap).

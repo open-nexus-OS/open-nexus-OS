@@ -1,6 +1,6 @@
 ---
 title: TASK-0269B Boot gates v1b — boot to FIRST FRAME is a measured budget, not a feeling
-status: Draft (seeded 2026-09-20 from TASK-0077C's scope firewall)
+status: Draft (seeded 2026-09-20 from TASK-0077C's scope firewall) — the app launch budget (stages `SELFTEST: launch stage (spawn_us= entry_us= create_us= present_us=)`, a warm restart under 200 ms) is Block 4 layer 6a/6e's under tasks/TASK-0333 (2026-10-19); the boot → first frame row stays here
 owner: @ui @runtime @kernel
 created: 2026-09-20
 depends-on:

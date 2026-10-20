@@ -1,6 +1,6 @@
 ---
 title: TASK-0237 Power/Idle v1.0b (OS/QEMU): powerd + alarmsd + standbyd + kernel idle hooks + SystemUI battery/sleep + nx-power CLI + selftests
-status: Draft
+status: Draft — standbyd's app-standby half is Block 4 layer 6d's (tasks/TASK-0333, 2026-10-19: a suspended app receives nothing, input on it is a wake request); powerd/alarmsd stay parked
 owner: @runtime
 created: 2025-12-29
 depends-on: []

@@ -241,3 +241,34 @@ pub fn stats() -> (usize, usize, usize) {
 pub fn is_contiguous(id: VmoId) -> bool {
     with(id, |o| o.kind == VmoKind::Contiguous).unwrap_or(false)
 }
+
+/// Whether the live object `id` is over frames the pool does not own (`destroy` frees nothing).
+pub fn is_fixed(id: VmoId) -> bool {
+    with(id, |o| o.kind == VmoKind::Fixed).unwrap_or(false)
+}
+
+/// Objects between a create's phases (TASK-0333 6a, RFC-0100 §1): reserved and being zeroed
+/// with the kernel lock dropped, named by no capability yet and mapped nowhere — exactly what
+/// the lifetime rule would free. `set_creating` marks them from the reserve to the finish, and
+/// `reclaim` leaves a marked object alone. One slot per hart at most is in that window.
+const CREATING_SLOTS: usize = crate::smp::MAX_CPUS * 2;
+static CREATING: TableLock<[VmoId; CREATING_SLOTS]> = TableLock::new([0; CREATING_SLOTS]);
+
+/// Mark (`on`) or clear the in-creation state of `id`.
+pub fn set_creating(id: VmoId, on: bool) {
+    let mut set = CREATING.lock();
+    if on {
+        if let Some(slot) = set.iter_mut().find(|s| **s == 0) {
+            *slot = id;
+        }
+    } else {
+        for slot in set.iter_mut().filter(|s| **s == id) {
+            *slot = 0;
+        }
+    }
+}
+
+/// Whether `id` is between a create's phases.
+pub fn is_creating(id: VmoId) -> bool {
+    id != 0 && CREATING.lock().contains(&id)
+}

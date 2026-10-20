@@ -1,0 +1,72 @@
+# cycle 47 (board--2026-10-20T11-33-22): the records per reap (payload capability closed), the launch stages, the input stall
+967:execd: reaped pid=59 code=0 (free=981404 vmos=49 vmo_bytes=178470912 kobjects=252)
+993:apphost: start t_us=3917748
+1005:abilitymgr: spawn ok (pid=68)
+1085:WINDOWD: surface presented id=1 seq=1 t_us=4780514
+1143:abilitymgr: launch (app=desktop-shell, inst=2)
+1161:apphost: start t_us=7234870
+1165:abilitymgr: spawn ok (pid=69)
+1211:WINDOWD: surface presented id=2 seq=1 t_us=8364747
+1258:abilitymgr: launch (app=calculator, inst=3)
+1278:apphost: start t_us=10067113
+1309:abilitymgr: spawn ok (pid=70)
+1391:execd: reaped pid=75 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1443:WINDOWD: surface presented id=3 seq=1 t_us=10534861
+1458:execd: reaped pid=76 code=-22 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1507:execd: reaped pid=78 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1512:execd: reaped pid=79 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1517:execd: reaped pid=80 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1522:execd: reaped pid=81 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1527:execd: reaped pid=82 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1532:execd: reaped pid=83 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1537:execd: reaped pid=84 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1542:execd: reaped pid=85 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1547:execd: reaped pid=86 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1552:execd: reaped pid=87 code=0 (free=971355 vmos=60 vmo_bytes=196984832 kobjects=270)
+1554:SELFTEST: rss loop ok (cycles=10 leaked=0 kobjects=0)
+1701:[INFO mm] KSELFTEST: vm reclaim (vmos=19 bytes=11022336 endpoints=3)
+1719:APPHOST: window closed - exiting
+1725:execd: reaped pid=70 code=0 (free=973648 vmos=58 vmo_bytes=196149248 kobjects=263)
+1728:abilitymgr: stop (inst=3 app=calculator pid=70 code=0 live=2)
+1738:gpud: gpu frame us (n=32 avg=34309 max=105492 clean=601 passes=4.8 draws=32 area_px=1709100 glass_w=41 glass_r=39 glass_off=0 glass_idx=0x7e split=plan 10/emit 700/submit 329/wait 32525/retire 26)
+1763:abilitymgr: launch (app=chat, inst=4)
+1773:apphost: start t_us=19652695
+1783:abilitymgr: spawn ok (pid=94)
+1884:WINDOWD: surface presented id=4 seq=1 t_us=20479670
+1936:APPHOST: window closed - exiting
+1943:execd: reaped pid=94 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+1945:abilitymgr: stop (inst=4 app=chat pid=94 code=0 live=2)
+1957:abilitymgr: launch (app=settings, inst=5)
+1967:apphost: start t_us=25397207
+1978:abilitymgr: spawn ok (pid=98)
+2003:gpud: gpu frame us (n=32 avg=33131 max=110975 clean=439 passes=4.5 draws=28 area_px=942349 glass_w=38 glass_r=44 glass_off=0 glass_idx=0xbe split=plan 10/emit 573/submit 148/wait 31903/retire 16)
+2016:WINDOWD: surface presented id=5 seq=1 t_us=32849700
+2063:APPHOST: window closed - exiting
+2070:execd: reaped pid=98 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+2072:abilitymgr: stop (inst=5 app=settings pid=98 code=0 live=2)
+2087:abilitymgr: launch (app=stash, inst=6)
+2098:apphost: start t_us=42981059
+2109:abilitymgr: spawn ok (pid=99)
+2140:gpud: gpu frame us (n=32 avg=71334 max=250835 clean=713 passes=3.8 draws=18 area_px=1082815 glass_w=30 glass_r=33 glass_off=0 glass_idx=0x2e split=plan 10/emit 723/submit 122/wait 69712/retire 14)
+2151:WINDOWD: surface presented id=6 seq=1 t_us=47365001
+2201:APPHOST: window closed - exiting
+2206:execd: reaped pid=99 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+2208:abilitymgr: stop (inst=6 app=stash pid=99 code=0 live=2)
+2224:abilitymgr: launch (app=chat, inst=7)
+2233:apphost: start t_us=56762322
+2243:abilitymgr: spawn ok (pid=100)
+2345:WINDOWD: surface presented id=7 seq=1 t_us=57654536
+2386:gpud: gpu frame us (n=32 avg=76161 max=312257 clean=784 passes=5.1 draws=40 area_px=1234099 glass_w=45 glass_r=62 glass_off=0 glass_idx=0xfe split=plan 11/emit 938/submit 164/wait 74189/retire 19)
+2397:APPHOST: window closed - exiting
+2402:execd: reaped pid=100 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+2404:abilitymgr: stop (inst=7 app=chat pid=100 code=0 live=2)
+2419:abilitymgr: launch (app=chat, inst=8)
+2430:apphost: start t_us=63362331
+2447:alloc-carve gen=0x0000000000000001 svc=app-host size=0x000000000000140abilitymgr: spawn ok (pid=101)
+2547:WINDOWD: surface presented id=8 seq=1 t_us=64769671
+2645:gpud: gpu frame us (n=32 avg=41221 max=109182 clean=556 passes=6.0 draws=37 area_px=939163 glass_w=54 glass_r=50 glass_off=0 glass_idx=0xbe split=plan 11/emit 711/submit 179/wait 39686/retire 21)
+2734:gpud: gpu frame us (n=32 avg=74482 max=167155 clean=588 passes=11.4 draws=101 area_px=1176444 glass_w=111 glass_r=57 glass_off=0 glass_idx=0x3f6 split=plan 12/emit 2436/submit 472/wait 70678/retire 178)
+2815:gpud: gpu frame us (n=32 avg=57535 max=159355 clean=489 passes=8.5 draws=64 area_px=926057 glass_w=81 glass_r=50 glass_off=0 glass_idx=0x3f6 split=plan 11/emit 1442/submit 603/wait 54882/retire 28)
+2890:gpud: gpu frame us (n=32 avg=69677 max=119065 clean=617 passes=9.7 draws=72 area_px=1475052 glass_w=93 glass_r=45 glass_off=0 glass_idx=0x7e split=plan 13/emit 1829/submit 527/wait 66394/retire 33)
+2905:dbg: hidrawd inputd send fail backpressure
+2906:hidrawd: chain I2 wire send FAIL (inputd route)

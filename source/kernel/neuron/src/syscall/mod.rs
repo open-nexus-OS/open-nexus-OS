@@ -214,6 +214,9 @@ pub const SYSCALL_VMO_DESTROY: usize = 46;
 /// damage-blit reads app surface VMOs through this — userspace has no VMO
 /// mapping path, so read, like write, is an explicit bounded copy.
 pub const SYSCALL_VMO_READ: usize = 47;
+/// Binds the caller's child-death endpoint (TASK-0333 6a): each child's exit writes one
+/// `OP_CHILD_EXITED` frame into it. Args: (endpoint_slot; `usize::MAX` clears).
+pub const SYSCALL_CHILD_EXIT_BIND: usize = 62;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

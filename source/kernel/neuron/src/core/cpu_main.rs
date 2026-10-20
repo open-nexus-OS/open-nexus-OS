@@ -388,6 +388,14 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 if cpu.is_boot() {
                     // Boot hart keeps its short spin so backstop delivery and
                     // the liveness watchdog stay responsive.
+                    // The boot hart is a shootdown target while it spins here (it never
+                    // marks itself idle), and a doorbell consumed by another wake leaves
+                    // its ack to the next lock miss — which never comes while the
+                    // requester runs with the lock dropped (phase B). A hart holding no
+                    // kernel state keeps acking: poll the mailbox each turn
+                    // (`tlb shootdown ack timeout hart=0 … activity=class4`, the smp lane
+                    // after the MMIO-deny fixture's kill, 2026-10-20).
+                    let _ = crate::smp::tlb::poll_mailbox(cpu);
                     for _ in 0..1000 {
                         core::hint::spin_loop();
                     }

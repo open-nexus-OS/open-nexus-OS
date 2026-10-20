@@ -1,0 +1,139 @@
+# cycle 46 (board--2026-10-20T11-21-25): the death chain per window close, the records per reap, the kernel selftests
+97:[INFO ipc] KINIT: ipc reclaim (id=15 by=close endpoints=13)
+105:[INFO selftest] KSELFTEST: ipc eof nonblocking ok
+108:[INFO selftest] KSELFTEST: ipc peer closed send ok
+109:[INFO ipc] KINIT: ipc reclaim (id=22 by=exit endpoints=18)
+110:[INFO selftest] KSELFTEST: task exit releases ok (endpoints=2 timers=1 waitsets=1 fences=1)
+113:[INFO selftest] KSELFTEST: child exit notify ok (pid=21 code=7)
+645:execd: reaper armed
+769:[INFO mm] KINIT: vm reclaim (id=36 bytes=12288 by=close free=986537 vmos=44)
+961:windowd: launch request app=greeter t_us=8746903
+981:abilitymgr: launch (app=greeter, inst=1)
+985:execd: reaped pid=59 code=0 (free=981404 vmos=49 vmo_bytes=178470912 kobjects=255)
+998:apphost: start t_us=8853623
+1009:abilitymgr: spawn ok (pid=68)
+1089:WINDOWD: surface presented id=1 seq=1 t_us=9742969
+1227:[INFO mm] KINIT: vm reclaim (id=57 bytes=4096 by=close free=977406 vmos=56)
+1230:[INFO mm] KINIT: vm reclaim (id=57 bytes=8192 by=close free=977406 vmos=56)
+1233:[INFO mm] KINIT: vm reclaim (id=57 bytes=4096 by=close free=977406 vmos=56)
+1235:[INFO mm] KINIT: vm reclaim (id=57 bytes=4096 by=close free=977406 vmos=56)
+1238:[INFO mm] KINIT: vm reclaim (id=57 bytes=8192 by=close free=977406 vmos=56)
+1250:execd: reaped pid=73 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1302:execd: reaped pid=74 code=-22 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1311:[INFO ipc] KINIT: ipc reclaim (id=230 by=exit endpoints=230)
+1334:SELFTEST: mm loop (cycle=0 free=977385 vmos=56 vmo_bytes=187326464 endpoints=230 timers=10 waitsets=15)
+1336:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1338:execd: reaped pid=76 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1341:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1343:execd: reaped pid=77 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1346:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1348:execd: reaped pid=78 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1351:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1353:execd: reaped pid=79 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1356:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1358:execd: reaped pid=80 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1361:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1363:execd: reaped pid=81 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1366:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1368:execd: reaped pid=82 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1371:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1373:execd: reaped pid=83 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1376:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1378:execd: reaped pid=84 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1381:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977385 vmos=56)
+1383:execd: reaped pid=85 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1384:SELFTEST: mm loop (cycle=10 free=977385 vmos=56 vmo_bytes=187326464 endpoints=230 timers=10 waitsets=15)
+1385:SELFTEST: rss loop ok (cycles=10 leaked=0 kobjects=0)
+1470:windowd: launch request app=desktop-shell t_us=21024282
+1474:abilitymgr: launch (app=desktop-shell, inst=2)
+1492:apphost: start t_us=21127848
+1503:abilitymgr: spawn ok (pid=86)
+1563:[INFO mm] KINIT: vm reclaim (id=59 bytes=65536 by=close free=973395 vmos=58)
+1566:[INFO mm] KINIT: vm reclaim (id=59 bytes=143360 by=close free=973395 vmos=58)
+1570:[INFO mm] KINIT: vm reclaim (id=59 bytes=286720 by=close free=973395 vmos=58)
+1590:[INFO mm] KSELFTEST: vm reclaim (vmos=19 bytes=11022336 endpoints=3)
+1611:WINDOWD: surface presented id=2 seq=1 t_us=21856586
+1659:abilitymgr: launch (app=calculator, inst=3)
+1666:apphost: start t_us=24256937
+1675:abilitymgr: spawn ok (pid=93)
+1705:WINDOWD: surface presented id=3 seq=1 t_us=24791772
+1751:windowd: press app0 zone=close at 595,159
+1755:WINDOWD: app window closed slot=0
+1756:APPHOST: window closed - exiting
+1757:[INFO ipc] KINIT: ipc reclaim (id=233 by=exit endpoints=234)
+1758:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=233)
+1760:[INFO mm] KINIT: vm reclaim (id=60 bytes=307200 by=reap free=973251 vmos=59)
+1762:execd: reaped pid=93 code=0 (free=973251 vmos=59 vmo_bytes=196677632 kobjects=266)
+1768:execd: exit notified (pid=93 code=0 reason=clean to=abilitymgr)
+1769:abilitymgr: stop (inst=3 app=calculator pid=93 code=0 live=2)
+1783:abilitymgr: launch (app=chat, inst=4)
+1793:apphost: start t_us=28490457
+1805:abilitymgr: spawn ok (pid=97)
+1904:WINDOWD: surface presented id=4 seq=1 t_us=29566800
+1949:windowd: press app0 zone=close at 594,152
+1963:WINDOWD: app window closed slot=0
+1964:APPHOST: window closed - exiting
+1965:[INFO ipc] KINIT: ipc reclaim (id=233 by=exit endpoints=235)
+1966:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=234)
+1967:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=233)
+1968:[INFO mm] KINIT: vm reclaim (id=61 bytes=307200 by=reap free=973122 vmos=60)
+1970:execd: reaped pid=97 code=0 (free=973122 vmos=60 vmo_bytes=197206016 kobjects=266)
+1971:execd: exit notified (pid=97 code=0 reason=clean to=abilitymgr)
+1972:abilitymgr: stop (inst=4 app=chat pid=97 code=0 live=2)
+1985:abilitymgr: launch (app=settings, inst=5)
+1996:apphost: start t_us=36548910
+2007:abilitymgr: spawn ok (pid=98)
+2041:WINDOWD: surface presented id=5 seq=1 t_us=43237147
+2088:WINDOWD: app window closed slot=0
+2089:APPHOST: window closed - exiting
+2091:[INFO ipc] KINIT: ipc reclaim (id=233 by=exit endpoints=235)
+2092:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=234)
+2093:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=233)
+2094:[INFO mm] KINIT: vm reclaim (id=62 bytes=4915200 by=reap free=972993 vmos=61)
+2096:execd: reaped pid=98 code=0 (free=972993 vmos=61 vmo_bytes=197734400 kobjects=266)
+2097:execd: exit notified (pid=98 code=0 reason=clean to=abilitymgr)
+2098:abilitymgr: stop (inst=5 app=settings pid=98 code=0 live=2)
+2114:abilitymgr: launch (app=stash, inst=6)
+2125:apphost: start t_us=54331936
+2136:abilitymgr: spawn ok (pid=99)
+2170:WINDOWD: surface presented id=6 seq=1 t_us=59037178
+2306:WINDOWD: app window closed slot=0
+2307:APPHOST: window closed - exiting
+2308:[INFO ipc] KINIT: ipc reclaim (id=233 by=exit endpoints=235)
+2309:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=234)
+2310:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=233)
+2311:[INFO mm] KINIT: vm reclaim (id=63 bytes=4915200 by=reap free=972864 vmos=62)
+2313:execd: reaped pid=99 code=0 (free=972864 vmos=62 vmo_bytes=198262784 kobjects=266)
+2314:execd: exit notified (pid=99 code=0 reason=clean to=abilitymgr)
+2315:abilitymgr: stop (inst=6 app=stash pid=99 code=0 live=2)
+2325:abilitymgr: launch (app=chat, inst=7)
+2334:apphost: start t_us=76543189
+2347:alloc-carve gen=0x0000000000000001 svc=app-host size=0x000000000abilitymgr: spawn ok (pid=100)
+2451:WINDOWD: surface presented id=7 seq=1 t_us=77377060
+2481:windowd: press app0 zone=close at 595,153
+2495:WINDOWD: app window closed slot=0
+2496:APPHOST: window closed - exiting
+2497:[INFO ipc] KINIT: ipc reclaim (id=233 by=exit endpoints=235)
+2498:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=234)
+2499:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=233)
+2500:[INFO mm] KINIT: vm reclaim (id=64 bytes=307200 by=reap free=972735 vmos=63)
+2502:execd: reaped pid=100 code=0 (free=972735 vmos=63 vmo_bytes=198791168 kobjects=266)
+2503:execd: exit notified (pid=100 code=0 reason=clean to=abilitymgr)
+2504:abilitymgr: stop (inst=7 app=chat pid=100 code=0 live=2)
+2514:abilitymgr: launch (app=chat, inst=8)
+2524:apphost: start t_us=81866505
+2535:abilitymgr: spawn ok (pid=101)
+2635:WINDOWD: surface presented id=8 seq=1 t_us=82701892
+2666:windowd: press app0 zone=close at 603,155
+2680:WINDOWD: app window closed slot=0
+2681:APPHOST: window closed - exiting
+2682:[INFO ipc] KINIT: ipc reclaim (id=233 by=exit endpoints=235)
+2683:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=234)
+2684:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=233)
+2686:execd: reaped pid=101 code=0 (free=972606 vmos=64 vmo_bytes=199319552 kobjects=266)
+2687:execd: exit notified (pid=101 code=0 reason=clean to=abilitymgr)
+2689:abilitymgr: stop (inst=8 app=chat pid=101 code=0 live=2)
+2702:abilitymgr: launch (app=chat, inst=9)
+2712:apphost: start t_us=88563500
+2722:abilitymgr: spawn ok (pid=102)
+2823:WINDOWD: surface presented id=9 seq=1 t_us=88982057

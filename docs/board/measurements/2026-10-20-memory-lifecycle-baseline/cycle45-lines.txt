@@ -1,0 +1,119 @@
+# cycle 45 (board--2026-10-19T21-44-15): the holder loop, the reclaims, the launches and closes
+867:[INFO mm] KINIT: vm reclaim (id=35 bytes=12288 by=close free=986552 vmos=42)
+975:windowd: launch request app=greeter t_us=3555072
+994:abilitymgr: launch (app=greeter, inst=1)
+995:execd: exit pid=51 reason=clean code=0
+996:execd: reaped pid=51 code=0 (free=981416 vmos=49 vmo_bytes=178462720)
+1012:apphost: start t_us=3579040
+1019:abilitymgr: spawn ok
+1079:WINDOWD: surface presented id=1 seq=1 t_us=4219828
+1219:[INFO mm] KINIT: vm reclaim (id=57 bytes=4096 by=close free=977418 vmos=56)
+1222:[INFO mm] KINIT: vm reclaim (id=57 bytes=8192 by=close free=977418 vmos=56)
+1225:[INFO mm] KINIT: vm reclaim (id=57 bytes=4096 by=close free=977418 vmos=56)
+1227:[INFO mm] KINIT: vm reclaim (id=57 bytes=4096 by=close free=977418 vmos=56)
+1230:[INFO mm] KINIT: vm reclaim (id=57 bytes=8192 by=close free=977418 vmos=56)
+1241:execd: exit pid=65 reason=clean code=0
+1242:execd: reaped pid=65 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1282:execd: exit pid=66 reason=fault code=-22
+1294:execd: reaped pid=66 code=-22 (free=977397 vmos=56 vmo_bytes=187318272)
+1303:execd: exit pid=67 reason=error code=42
+1325:SELFTEST: mm loop (cycle=0 free=977397 vmos=56 vmo_bytes=187318272)
+1326:child: vmo holder start
+1327:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1328:execd: exit pid=68 reason=clean code=0
+1329:execd: reaped pid=68 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1330:SELFTEST: mm loop (cycle=1 free=977397 vmos=56 vmo_bytes=187318272)
+1331:child: vmo holder start
+1332:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1333:execd: exit pid=69 reason=clean code=0
+1334:execd: reaped pid=69 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1335:SELFTEST: mm loop (cycle=2 free=977397 vmos=56 vmo_bytes=187318272)
+1336:child: vmo holder start
+1337:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1338:execd: exit pid=70 reason=clean code=0
+1339:execd: reaped pid=70 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1340:SELFTEST: mm loop (cycle=3 free=977397 vmos=56 vmo_bytes=187318272)
+1341:child: vmo holder start
+1342:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1343:execd: exit pid=71 reason=clean code=0
+1344:execd: reaped pid=71 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1345:SELFTEST: mm loop (cycle=4 free=977397 vmos=56 vmo_bytes=187318272)
+1346:child: vmo holder start
+1347:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1348:execd: exit pid=72 reason=clean code=0
+1349:execd: reaped pid=72 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1350:SELFTEST: mm loop (cycle=5 free=977397 vmos=56 vmo_bytes=187318272)
+1351:child: vmo holder start
+1352:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1353:execd: exit pid=73 reason=clean code=0
+1354:execd: reaped pid=73 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1355:SELFTEST: mm loop (cycle=6 free=977397 vmos=56 vmo_bytes=187318272)
+1356:child: vmo holder start
+1357:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1358:execd: exit pid=74 reason=clean code=0
+1359:execd: reaped pid=74 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1360:SELFTEST: mm loop (cycle=7 free=977397 vmos=56 vmo_bytes=187318272)
+1361:child: vmo holder start
+1362:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1363:execd: exit pid=75 reason=clean code=0
+1364:execd: reaped pid=75 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1365:SELFTEST: mm loop (cycle=8 free=977397 vmos=56 vmo_bytes=187318272)
+1366:child: vmo holder start
+1367:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1368:execd: exit pid=76 reason=clean code=0
+1369:execd: reaped pid=76 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1370:SELFTEST: mm loop (cycle=9 free=977397 vmos=56 vmo_bytes=187318272)
+1371:child: vmo holder start
+1372:[INFO mm] KINIT: vm reclaim (id=57 bytes=1048576 by=reap free=977397 vmos=56)
+1373:execd: exit pid=77 reason=clean code=0
+1374:execd: reaped pid=77 code=0 (free=977397 vmos=56 vmo_bytes=187318272)
+1375:SELFTEST: mm loop (cycle=10 free=977397 vmos=56 vmo_bytes=187318272)
+1376:SELFTEST: rss loop ok (cycles=10 leaked=0)
+1444:windowd: launch request app=desktop-shell t_us=7531840
+1445:abilitymgr: launch (app=desktop-shell, inst=2)
+1459:apphost: start t_us=7548352
+1468:abilitymgr: spawn ok
+1534:WINDOWD: surface presented id=2 seq=1 t_us=8005804
+1587:[INFO mm] KINIT: vm reclaim (id=59 bytes=65536 by=close free=973407 vmos=58)
+1589:[INFO mm] KINIT: vm reclaim (id=59 bytes=143360 by=close free=973407 vmos=58)
+1595:[INFO mm] KINIT: vm reclaim (id=59 bytes=286720 by=close free=973407 vmos=58)
+1600:[INFO mm] KSELFTEST: mm frames (banks=2 total=1043800 free=973407 reserved=256 excluded=4648 allocs=3711 frees=469 exhausted=0 pt_frames=240 vmos=58 vmo_bytes=196141056 dma_bytes=116199424 spaces=41 rss_sum=198463488 rss_max=123785216)
+1613:[INFO mm] KSELFTEST: vm reclaim (vmos=19 bytes=11022336)
+1641:abilitymgr: launch (app=calculator, inst=3)
+1648:apphost: start t_us=9557216
+1673:abilitymgr: spawn ok
+1685:WINDOWD: surface presented id=3 seq=1 t_us=9925807
+1741:windowd: press app0 zone=close at 601,160
+1764:WINDOWD: app window closed slot=0
+1794:abilitymgr: launch (app=chat, inst=4)
+1804:apphost: start t_us=13054412
+1814:abilitymgr: spawn ok
+1921:WINDOWD: surface presented id=4 seq=1 t_us=13343917
+1958:windowd: press app0 zone=close at 598,161
+1973:WINDOWD: app window closed slot=0
+1986:abilitymgr: launch (app=settings, inst=5)
+1996:apphost: start t_us=17509805
+2025:abilitymgr: spawn ok
+2060:abilitymgr: launch (app=stash, inst=6)
+2072:apphost: start t_us=23974896
+2107:abilitymgr: spawn ok
+2123:WINDOWD: surface presented id=5 seq=1 t_us=24214546
+2176:WINDOWD: surface presented id=6 seq=1 t_us=27414899
+2270:WINDOWD: app window closed slot=0
+2311:WINDOWD: app window closed slot=1
+2332:abilitymgr: launch (app=chat, inst=7)
+2341:apphost: start t_us=40995640
+2352:alloc-carve gen=0x0000000000000001 svc=app-host size=0x00000abilitymgr: spawn ok
+2451:WINDOWD: surface presented id=7 seq=1 t_us=41239986
+2481:windowd: press app0 zone=close at 595,151
+2513:WINDOWD: app window closed slot=0
+2529:abilitymgr: launch (app=chat, inst=8)
+2539:apphost: start t_us=44621312
+2543:abilitymgr: spawn ok
+2650:WINDOWD: surface presented id=8 seq=1 t_us=44906166
+2686:windowd: press app0 zone=close at 602,159
+2715:WINDOWD: app window closed slot=0
+2729:abilitymgr: launch (app=chat, inst=9)
+2741:apphost: start t_us=49092324
+2745:abilitymgr: spawn ok
+2855:WINDOWD: surface presented id=9 seq=1 t_us=49431116

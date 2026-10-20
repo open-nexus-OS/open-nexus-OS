@@ -11,7 +11,9 @@
 //! TEST_COVERAGE: neuron host tests + QEMU marker gates (just test-os / ci-os-smp)
 //! ADR: docs/adr/0016-kernel-libs-architecture.md
 
+use super::eof_scan::empty_queue_verdict;
 use super::*;
+use crate::ipc_eof::EmptyQueue;
 
 // Typed decoders for the Decode→Check→Execute syscall discipline
 
@@ -62,12 +64,6 @@ pub(super) const IPC_SYS_TRUNCATE: usize = 1 << 1;
 /// RFC-0079 opt-in: a blocking recv with this flag returns `PeerClosed`
 /// instead of blocking when the endpoint has had a sender and now has none.
 pub(super) const IPC_SYS_EOF: usize = 1 << 2;
-
-/// RFC-0079: true while a PEER (any task but the endpoint's owner) still holds a live SEND
-/// cap to `endpoint` — the one scan every EOF path shares (`eof_scan`, TASK-0324 P7-b).
-fn any_sender_cap(ctx: &Context<'_>, endpoint: ipc::EndpointId) -> bool {
-    super::eof_scan::foreign_sender_remains(ctx.tasks, ctx.router, endpoint)
-}
 
 #[derive(Copy, Clone)]
 pub(super) struct IpcSendV1ArgsTyped {
@@ -446,19 +442,12 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                         return Err(e.into());
                     }
                 }
-                // RFC-0079 last-sender EOF (opt-in): decide via the pure,
-                // host-tested predicate. A live sender also latches the
-                // endpoint (belt-and-suspenders with the send path).
-                if eof_opt {
-                    let any_sender = any_sender_cap(ctx, endpoint);
-                    if any_sender {
-                        ctx.router.mark_endpoint_had_sender(endpoint);
-                    }
-                    let had_sender = ctx.router.endpoint_had_sender(endpoint);
-                    if crate::ipc_eof::should_disconnect(true, had_sender, any_sender) {
-                        let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                        return Err(Error::Ipc(ipc::IpcError::PeerClosed));
-                    }
+                // RFC-0079 last-sender EOF (opt-in): the one host-tested verdict.
+                if empty_queue_verdict(ctx.tasks, ctx.router, endpoint, false, eof_opt)
+                    == EmptyQueue::PeerClosed
+                {
+                    let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
+                    return Err(Error::Ipc(ipc::IpcError::PeerClosed));
                 }
                 ctx.tasks.block_current(
                     BlockReason::IpcRecv { endpoint, deadline_ns: typed.deadline_ns },
@@ -476,7 +465,15 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
             }
             Err(e) => {
                 if matches!(e, ipc::IpcError::QueueEmpty) {
+                    // TASK-0333 6a: the verdict does not depend on the wait mode — a waitset
+                    // receiver (non-blocking after its wake) learns of its last peer's death
+                    // here, instead of consuming the latch and parking forever.
+                    let verdict =
+                        empty_queue_verdict(ctx.tasks, ctx.router, endpoint, true, eof_opt);
                     ctx.router.clear_eof_pending(endpoint);
+                    if verdict == EmptyQueue::PeerClosed {
+                        return Err(Error::Ipc(ipc::IpcError::PeerClosed));
+                    }
                 }
                 return Err(e.into());
             }

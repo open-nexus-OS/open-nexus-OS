@@ -316,6 +316,16 @@ impl VaSpace {
         id != 0 && self.regions[..self.len].iter().any(|r| r.vmo == id)
     }
 
+    /// Every VMO a live region maps, each once (`0` = no object: MMIO, kernel-placed) — what
+    /// a reaped task's space may leave orphaned (TASK-0333 6a, RFC-0100 §1).
+    pub fn vmo_ids(&self, out: &mut alloc::vec::Vec<u32>) {
+        for region in &self.regions[..self.len] {
+            if region.vmo != 0 && !out.contains(&region.vmo) {
+                out.push(region.vmo);
+            }
+        }
+    }
+
     /// Is `[va, va+len)` free of tracked regions AND outside the managed
     /// window? The legacy fixed-VA syscall's admission check: it may map
     /// anywhere EXCEPT into the kernel's window (that is the invariant that

@@ -295,6 +295,13 @@ pub struct Task {
     children: Vec<Pid>,
     /// Arena ranges backing this task's image (`exec` records; teardown frees).
     image_allocs: ImageAllocs,
+    /// The VMOs this task's capabilities named when it exited (TASK-0333 6a, RFC-0100 §1):
+    /// the zombie carries them to its reap, where the ones nobody else names or maps are freed
+    /// together with what its address space mapped.
+    orphan_vmos: Vec<u32>,
+    /// The endpoint this task bound for its children's deaths (TASK-0333 6a, like a timer's
+    /// notify endpoint): every child's exit funnel writes one `OP_CHILD_EXITED` frame into it.
+    exit_notify: Option<crate::ipc::EndpointId>,
 }
 
 /// Minimal guard metadata used by the trap handler to attribute user page faults.
@@ -348,6 +355,8 @@ impl Task {
             bootstrap_slot: None,
             children: Vec::new(),
             image_allocs: ImageAllocs::new(),
+            orphan_vmos: Vec::new(),
+            exit_notify: None,
         }
     }
 
@@ -369,6 +378,16 @@ impl Task {
     /// Returns the parent PID, if any.
     pub fn parent(&self) -> Option<Pid> {
         self.parent
+    }
+
+    /// The endpoint this task's children's deaths are written to, if it bound one.
+    pub fn exit_notify(&self) -> Option<crate::ipc::EndpointId> {
+        self.exit_notify
+    }
+
+    /// Binds (or clears) the child-death endpoint.
+    pub fn set_exit_notify(&mut self, endpoint: Option<crate::ipc::EndpointId>) {
+        self.exit_notify = endpoint;
     }
 
     /// Returns the lifecycle state of the task.
@@ -582,6 +601,8 @@ impl TaskTable {
             bootstrap_slot: None,
             children: Vec::new(),
             image_allocs: ImageAllocs::new(),
+            orphan_vmos: Vec::new(),
+            exit_notify: None,
         };
         // B: the round-robin placement must respect the inherited mask.
         let clamped = clamp_home_to_affinity(
@@ -806,6 +827,8 @@ impl TaskTable {
             bootstrap_slot: Some(slot),
             children: Vec::new(),
             image_allocs: ImageAllocs::new(),
+            orphan_vmos: Vec::new(),
+            exit_notify: None,
         };
         if let Some(block) = stack_block {
             task.image_allocs.push(block);
@@ -955,6 +978,10 @@ impl TaskTable {
         };
         task.state = TaskState::Zombie;
         task.exit_code = Some((status, reason));
+        // What the table named is remembered for the reap (RFC-0100 §1): the caps go now, the
+        // objects nobody else names or maps go with the address space.
+        task.orphan_vmos.clear();
+        task.caps.vmo_ids(&mut task.orphan_vmos);
         task.caps = CapTable::default();
         task.bootstrap_slot = None;
         task.frame = TrapFrame::default();
@@ -995,6 +1022,21 @@ impl TaskTable {
     }
 
     /// Wakes the current task's parent if it is blocked in `wait` for this child.
+    /// The endpoint `child`'s parent bound for its children's deaths (TASK-0333 6a).
+    pub fn parent_exit_notify(&self, child: Pid) -> Option<crate::ipc::EndpointId> {
+        let parent = self.task(child)?.parent()?;
+        self.task(parent)?.exit_notify()
+    }
+
+    /// Clears every binding of `endpoint` as a child-death notifier — it died.
+    pub fn forget_exit_notify(&mut self, endpoint: crate::ipc::EndpointId) {
+        for task in self.tasks.iter_mut() {
+            if task.exit_notify == Some(endpoint) {
+                task.exit_notify = None;
+            }
+        }
+    }
+
     pub fn wake_parent_waiter(&mut self, child: Pid, scheduler: &mut Scheduler) {
         let Some(child_task) = self.task(child) else {
             return;
@@ -1085,6 +1127,10 @@ impl TaskTable {
             parent_task.children.retain(|pid| *pid != selected_pid);
         }
 
+        // TASK-0333 6a (RFC-0100 §1): the objects the child named at its exit and the ones its
+        // space maps — freed below once the space is gone, unless another table names them or
+        // another space (a sibling thread's, a sharer's) still maps them.
+        let mut orphans = Vec::new();
         if let Some(child_task) = self.tasks.get_mut(child_index) {
             child_task.exit_code = None;
             child_task.parent = None;
@@ -1092,7 +1138,11 @@ impl TaskTable {
             child_task.bootstrap_slot = None;
             child_task.frame = TrapFrame::default();
             child_task.children.clear();
+            orphans = core::mem::take(&mut child_task.orphan_vmos);
             if let Some(handle) = child_task.address_space.take() {
+                if let Ok(space) = address_spaces.get(handle) {
+                    space.va_space().vmo_ids(&mut orphans);
+                }
                 if let Err(err) = address_spaces.detach(handle, selected_pid) {
                     log_error!(
                         target: "task",
@@ -1125,67 +1175,11 @@ impl TaskTable {
             }
         }
 
+        crate::mm::reclaim::orphans(self, address_spaces, &orphans, "reap");
+
         Ok((selected_pid, status, reason))
     }
 }
 
 #[cfg(all(test, target_arch = "riscv64", target_os = "none"))]
-mod tests {
-    use super::*;
-    use crate::cap::{CapError, Capability, CapabilityKind, Rights};
-    use crate::ipc::Router;
-    use crate::mm::AddressSpaceManager;
-    use crate::sched::Scheduler;
-
-    #[test]
-    fn bootstrap_task_present() {
-        let table = TaskTable::new();
-        assert_eq!(table.current_pid(), Pid::KERNEL);
-        assert_eq!(table.current_task().pid, Pid::KERNEL);
-    }
-
-    #[test]
-    fn transfer_capability_respects_rights() {
-        let mut table = TaskTable::new();
-        {
-            let caps = table.bootstrap_mut().caps_mut();
-            caps.set(
-                0,
-                Capability {
-                    kind: CapabilityKind::Endpoint(0),
-                    rights: Rights::SEND | Rights::RECV,
-                },
-            )
-            .unwrap();
-        }
-        let mut scheduler = Scheduler::new();
-        let mut router = Router::new(1);
-        let mut spaces = AddressSpaceManager::new();
-        let bootstrap_as = spaces.create().unwrap();
-        spaces.attach(bootstrap_as, Pid::KERNEL).unwrap();
-        table.bootstrap_mut().address_space = Some(bootstrap_as);
-        let entry = VirtAddr::instr_aligned(0).unwrap();
-        let child = table
-            .spawn(
-                Pid::KERNEL,
-                entry,
-                None,
-                None,
-                0,
-                SlotIndex(0),
-                &mut scheduler,
-                &mut router,
-                &mut spaces,
-            )
-            .unwrap();
-
-        let slot = table.transfer_cap(Pid::KERNEL, child, 0, Rights::RECV).unwrap();
-        assert_ne!(slot, 0);
-        let cap = table.caps_of(child).unwrap().get(slot).unwrap();
-        assert_eq!(cap.kind, CapabilityKind::Endpoint(0));
-        assert_eq!(cap.rights, Rights::RECV);
-
-        let err = table.transfer_cap(Pid::KERNEL, child, 0, Rights::MAP).unwrap_err();
-        assert_eq!(err, TransferError::Capability(CapError::PermissionDenied));
-    }
-}
+mod tests;

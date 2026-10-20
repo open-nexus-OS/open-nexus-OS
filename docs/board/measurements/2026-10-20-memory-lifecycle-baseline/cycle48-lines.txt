@@ -1,0 +1,104 @@
+# cycle 48 (board--2026-10-20T11-50-56): the chain with the census fold and the payload capability closed; the operator's full series incl. tiling
+97:[INFO ipc] KINIT: ipc reclaim (id=15 by=close endpoints=13)
+105:[INFO selftest] KSELFTEST: ipc eof nonblocking ok
+108:[INFO selftest] KSELFTEST: ipc peer closed send ok
+109:[INFO ipc] KINIT: ipc reclaim (id=22 by=exit endpoints=18)
+110:[INFO selftest] KSELFTEST: task exit releases ok (endpoints=2 timers=1 waitsets=1 fences=1)
+113:[INFO selftest] KSELFTEST: child exit notify ok (pid=21 code=7)
+648:execd: reaper armed
+977:abilitymgr: launch (app=greeter, inst=1)
+979:execd: reaped pid=59 code=0 (free=981404 vmos=49 vmo_bytes=178470912 kobjects=254)
+995:apphost: start t_us=4096763
+1009:abilitymgr: spawn ok (pid=68)
+1086:WINDOWD: surface presented id=1 seq=1 t_us=4954385
+1248:execd: reaped pid=73 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1300:execd: reaped pid=74 code=-22 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1309:[INFO ipc] KINIT: ipc reclaim (id=230 by=exit endpoints=230)
+1336:execd: reaped pid=76 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1341:execd: reaped pid=77 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1346:execd: reaped pid=78 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1351:execd: reaped pid=79 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1356:execd: reaped pid=80 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1361:execd: reaped pid=81 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1366:execd: reaped pid=82 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1371:execd: reaped pid=83 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1376:execd: reaped pid=84 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1381:execd: reaped pid=85 code=0 (free=977385 vmos=56 vmo_bytes=187326464 kobjects=261)
+1383:SELFTEST: rss loop ok (cycles=10 leaked=0 kobjects=0)
+1497:[INFO mm] KSELFTEST: vm reclaim (vmos=19 bytes=11022336 endpoints=3)
+1594:abilitymgr: launch (app=desktop-shell, inst=2)
+1616:apphost: start t_us=52207594
+1632:abilitymgr: spawn ok (pid=95)
+1665:WINDOWD: surface presented id=2 seq=1 t_us=52975792
+1689:abilitymgr: launch (app=calculator, inst=3)
+1697:apphost: start t_us=55160169
+1701:abilitymgr: spawn ok (pid=96)
+1730:WINDOWD: surface presented id=3 seq=1 t_us=55594219
+1747:gpud: gpu frame us (n=32 avg=29849 max=86992 clean=524 passes=4.3 draws=28 area_px=1331285 glass_w=36 glass_r=38 glass_off=0 glass_idx=0x7e split=plan 9/emit 575/submit 128/wait 28560/retire 15)
+1765:APPHOST: window closed - exiting
+1766:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=234)
+1767:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=233)
+1771:execd: reaped pid=96 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+1774:abilitymgr: stop (inst=3 app=calculator pid=96 code=0 live=2)
+1785:abilitymgr: launch (app=chat, inst=4)
+1795:apphost: start t_us=59794635
+1805:abilitymgr: spawn ok (pid=97)
+1907:WINDOWD: surface presented id=4 seq=1 t_us=60253663
+1940:APPHOST: window closed - exiting
+1941:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=235)
+1942:[INFO ipc] KINIT: ipc reclaim (id=236 by=exit endpoints=234)
+1943:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=233)
+1947:execd: reaped pid=97 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+1949:abilitymgr: stop (inst=4 app=chat pid=97 code=0 live=2)
+1961:abilitymgr: launch (app=settings, inst=5)
+1971:apphost: start t_us=65304910
+1982:abilitymgr: spawn ok (pid=98)
+2009:WINDOWD: surface presented id=5 seq=1 t_us=72634423
+2027:gpud: gpu frame us (n=32 avg=44192 max=232474 clean=674 passes=5.1 draws=31 area_px=1246087 glass_w=44 glass_r=47 glass_off=0 glass_idx=0xbe split=plan 11/emit 684/submit 192/wait 42411/retire 174)
+2050:APPHOST: window closed - exiting
+2051:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=235)
+2052:[INFO ipc] KINIT: ipc reclaim (id=236 by=exit endpoints=234)
+2053:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=233)
+2057:execd: reaped pid=98 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+2059:abilitymgr: stop (inst=5 app=settings pid=98 code=0 live=2)
+2072:abilitymgr: launch (app=stash, inst=6)
+2084:apphost: start t_us=84969073
+2095:abilitymgr: spawn ok (pid=99)
+2128:WINDOWD: surface presented id=6 seq=1 t_us=89619625
+2179:gpud: gpu frame us (n=32 avg=93922 max=311694 clean=1352 passes=4.3 draws=35 area_px=1089098 glass_w=36 glass_r=67 glass_off=0 glass_idx=0x7e split=plan 11/emit 1127/submit 157/wait 91034/retire 17)
+2185:APPHOST: window closed - exiting
+2186:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=235)
+2187:[INFO ipc] KINIT: ipc reclaim (id=236 by=exit endpoints=234)
+2188:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=233)
+2190:execd: reaped pid=99 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+2192:abilitymgr: stop (inst=6 app=stash pid=99 code=0 live=2)
+2199:abilitymgr: launch (app=chat, inst=7)
+2208:apphost: start t_us=108509166
+2222:alloc-carve gen=0x0abilitymgr: spawn ok (pid=100)
+2323:WINDOWD: surface presented id=7 seq=1 t_us=109030132
+2361:APPHOST: window closed - exiting
+2362:[INFO ipc] KINIT: ipc reclaim (id=234 by=exit endpoints=235)
+2363:[INFO ipc] KINIT: ipc reclaim (id=236 by=exit endpoints=234)
+2364:[INFO ipc] KINIT: ipc reclaim (id=235 by=exit endpoints=233)
+2366:execd: reaped pid=100 code=0 (free=973380 vmos=58 vmo_bytes=196149248 kobjects=266)
+2368:abilitymgr: stop (inst=7 app=chat pid=100 code=0 live=2)
+2387:abilitymgr: launch (app=chat, inst=8)
+2397:apphost: start t_us=118177141
+2407:abilitymgr: spawn ok (pid=101)
+2508:WINDOWD: surface presented id=8 seq=1 t_us=119089313
+2513:gpud: gpu frame us (n=32 avg=43891 max=289093 clean=394 passes=5.5 draws=34 area_px=1247099 glass_w=48 glass_r=48 glass_off=0 glass_idx=0xfe split=plan 11/emit 664/submit 169/wait 42574/retire 19)
+2602:gpud: gpu frame us (n=32 avg=47336 max=110718 clean=370 passes=7.4 draws=44 area_px=675944 glass_w=69 glass_r=39 glass_off=0 glass_idx=0xbe split=plan 10/emit 818/submit 206/wait 45844/retire 24)
+2672:gpud: gpu frame us (n=32 avg=69261 max=151204 clean=423 passes=10.9 draws=99 area_px=1110513 glass_w=106 glass_r=84 glass_off=0 glass_idx=0x3f6 split=plan 11/emit 1649/submit 315/wait 66710/retire 48)
+2750:gpud: gpu frame us (n=32 avg=64096 max=151471 clean=318 passes=10.0 draws=83 area_px=965814 glass_w=97 glass_r=54 glass_off=0 glass_idx=0x3f6 split=plan 12/emit 1464/submit 305/wait 61873/retire 33)
+2806:gpud: gpu frame us (n=32 avg=60966 max=102734 clean=560 passes=9.0 draws=65 area_px=1475788 glass_w=86 glass_r=49 glass_off=0 glass_idx=0x7e split=plan 11/emit 1271/submit 322/wait 58684/retire 32)
+2871:WINDOWD: surface presented id=9 seq=1 t_us=173353998
+2884:gpud: gpu frame us (n=32 avg=58563 max=111896 clean=338 passes=7.8 draws=58 area_px=1437094 glass_w=73 glass_r=44 glass_off=0 glass_idx=0x7e split=plan 11/emit 1098/submit 241/wait 56622/retire 27)
+2922:gpud: gpu frame us (n=32 avg=35582 max=142322 clean=367 passes=3.4 draws=21 area_px=1234962 glass_w=26 glass_r=19 glass_off=0 glass_idx=0x2e split=plan 9/emit 447/submit 109/wait 34605/retire 13)
+2927:board-visual: desktop
+2928:board-visual: gpu-desktop
+2929:board-visual: typed
+2930:board-visual: pointer
+2931:board-visual: modal
+2932:board-visual: tile
+2933:board-visual: clipboard
+2934:board-visual: screenshot

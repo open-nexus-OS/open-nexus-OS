@@ -90,6 +90,9 @@ pub struct AbilityInstance {
     /// The manifest-declared, validated capabilities granted to this instance —
     /// the exact set the per-app spawn will request (RFC-0065 launch authority).
     pub granted_caps: Vec<String>,
+    /// The process behind the instance once execd spawned it (TASK-0333 6a): the key the
+    /// reaper's death report names. `None` before the spawn or for a window-only launch.
+    pub pid: Option<u32>,
 }
 
 /// Maximum concurrently-tracked instances (bounded resource).
@@ -170,10 +173,38 @@ impl Broker {
                 launch_ability: String::from(launch_ability),
                 state: AbilityState::Created,
                 granted_caps: required_caps.iter().map(|c| String::from(*c)).collect(),
+                pid: None,
             },
         );
         self.touch_recent(id);
         Ok(id)
+    }
+
+    /// Records the process execd spawned for `id` (TASK-0333 6a).
+    pub fn bind_pid(&mut self, id: u32, pid: u32) -> Result<(), LifecycleError> {
+        let inst = self.instances.get_mut(&id).ok_or(LifecycleError::UnknownInstance)?;
+        inst.pid = Some(pid);
+        Ok(())
+    }
+
+    /// The instance whose process is `pid`, if any.
+    pub fn instance_by_pid(&self, pid: u32) -> Option<&AbilityInstance> {
+        self.instances.values().find(|i| i.pid == Some(pid))
+    }
+
+    /// The process behind an instance died (TASK-0333 6a): the instance goes to `Stopped`
+    /// and leaves the table and recents — a dead process holds no slot (the table was a
+    /// launch counter before: `MAX_INSTANCES` launches, then `STATUS_FULL` for good). Returns
+    /// the instance as it was, so the caller can name it.
+    pub fn exited(&mut self, pid: u32) -> Result<AbilityInstance, LifecycleError> {
+        let id = self
+            .instance_by_pid(pid)
+            .map(|i| i.instance_id)
+            .ok_or(LifecycleError::UnknownInstance)?;
+        let mut inst = self.instances.remove(&id).ok_or(LifecycleError::UnknownInstance)?;
+        inst.state = AbilityState::Stopped;
+        self.recents.retain(|r| *r != id);
+        Ok(inst)
     }
 
     /// Applies a validated transition; returns the new state.
@@ -372,5 +403,44 @@ mod tests {
             assert_eq!(AbilityState::from_wire(s.as_wire()), Some(s));
         }
         assert_eq!(AbilityState::from_wire(99), None);
+    }
+
+    #[test]
+    fn an_exited_process_frees_its_instance_and_recents() {
+        let mut broker = Broker::new();
+        let id = broker.launch("chat", "chat.main").unwrap();
+        broker.bind_pid(id, 77).unwrap();
+        broker.start(id).unwrap();
+        broker.to_foreground(id).unwrap();
+        assert_eq!(broker.instance_by_pid(77).map(|i| i.instance_id), Some(id));
+        let gone = broker.exited(77).unwrap();
+        assert_eq!(
+            (gone.instance_id, gone.state, gone.app_id.as_str()),
+            (id, AbilityState::Stopped, "chat")
+        );
+        assert!(broker.is_empty(), "a dead process holds no instance slot");
+        assert!(broker.recents().is_empty(), "and no recents entry");
+        assert_eq!(broker.state(id), None);
+    }
+
+    #[test]
+    fn test_reject_exited_for_an_unknown_pid() {
+        let mut broker = Broker::new();
+        let id = broker.launch("chat", "chat.main").unwrap();
+        broker.bind_pid(id, 77).unwrap();
+        assert_eq!(broker.exited(78), Err(LifecycleError::UnknownInstance));
+        assert_eq!(broker.len(), 1, "the live instance stays");
+        assert_eq!(broker.bind_pid(999, 1), Err(LifecycleError::UnknownInstance));
+    }
+
+    #[test]
+    fn forty_launch_exit_cycles_never_fill_the_table() {
+        let mut broker = Broker::new();
+        for pid in 100..140u32 {
+            let id = broker.launch("chat", "chat.main").expect("the table never fills");
+            broker.bind_pid(id, pid).unwrap();
+            broker.exited(pid).unwrap();
+        }
+        assert!(broker.is_empty());
     }
 }

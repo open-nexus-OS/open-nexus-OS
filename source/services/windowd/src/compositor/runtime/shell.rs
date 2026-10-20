@@ -259,7 +259,10 @@ impl DisplayServerRuntime {
     /// `[A,M,ver,OP_LAUNCH, app_len, app…, abil_len, abil…]`; the reply is
     /// drained bounded so the shared response queue never fills up.
     pub(super) fn launch_app(&mut self, app_id: &str) {
-        let _ = debug_println(&alloc::format!("windowd: launch request app={app_id}"));
+        // `t_us=`: the launch's first stage (TASK-0333 6a); the app-host's start and the
+        // surface's first present carry the same clock.
+        let t_us = nexus_abi::nsec().unwrap_or(0) / 1000;
+        let _ = debug_println(&alloc::format!("windowd: launch request app={app_id} t_us={t_us}"));
         // Animated wait cursor until the fresh window's surface arrives
         // (`handle_surface_create` ends it; a failsafe deadline backs it up).
         self.begin_cursor_wait();

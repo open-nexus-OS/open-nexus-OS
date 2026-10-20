@@ -205,8 +205,22 @@ impl FenceTable {
         Ok(())
     }
 
-    #[cfg(test)]
-    /// Number of live fences (test helper).
+    /// Frees every fence `pid` owns — its exit (TASK-0333 6a); the waiters of each are
+    /// returned so the caller wakes them (they re-run their wait and find no fence).
+    pub fn free_owned_by(&mut self, pid: u32) -> Vec<u32> {
+        let mut waiters = Vec::new();
+        self.table.retain(|_, e| {
+            if e.owner_pid == pid {
+                waiters.extend(e.waiters.iter().map(|w| w.pid));
+                false
+            } else {
+                true
+            }
+        });
+        waiters
+    }
+
+    /// Number of live fences (the record).
     pub fn len(&self) -> usize {
         self.table.len()
     }

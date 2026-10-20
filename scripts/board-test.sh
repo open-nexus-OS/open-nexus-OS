@@ -83,6 +83,10 @@ ladder_headless=(
   # TASK-0330 S2a: the console's serial time is off the kernel lock (the board's layer-0
   # longest holders were the two console syscalls).
   "KSELFTEST: console off lock ok ("
+  # TASK-0333 6a (RFC-0100 §1, ADR-0073): a task's exit frees every object it owned, and a
+  # child's death is one frame into the endpoint its parent bound — on four harts too.
+  "KSELFTEST: task exit releases ok ("
+  "KSELFTEST: child exit notify ok ("
   "KSELFTEST: spawn ok pid="
   "init: ready"
   "blkd: backend ok (kind="
@@ -93,6 +97,9 @@ ladder_headless=(
   "policyd: ready"
   "stage: platform"
   "SELFTEST: soc glue display ok"
+  # TASK-0333 6a (RFC-0100 §1): ten VMO-holding children exited and reaped; the kernel's
+  # record after the loop holds less than one holder more than before — what dies is freed.
+  "SELFTEST: rss loop ok ("
   "gpud: dc encoder ok (hpd=1"
   "gpud: dc scanout ok ("
   "gpud: dc vblank armed ("

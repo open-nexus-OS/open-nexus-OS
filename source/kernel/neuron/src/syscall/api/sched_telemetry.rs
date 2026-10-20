@@ -112,6 +112,16 @@ pub(super) fn sched_telemetry_op(
             all.rss_max
         );
         log_top_spaces(spaces, tasks);
+        // TASK-0333 6a (RFC-0100 §1): what the reaps and the last capability closes of this
+        // boot gave back — objects nobody named or mapped any more, and their bytes.
+        let (reclaimed, reclaimed_bytes) = crate::mm::reclaim::stats();
+        log_info!(
+            target: "mm",
+            "KSELFTEST: vm reclaim (vmos={} bytes={} endpoints={})",
+            reclaimed,
+            reclaimed_bytes,
+            super::ipc_reclaim::stats()
+        );
         #[cfg(all(target_arch = "riscv64", target_os = "none"))]
         {
             // TASK-0054C P1 (RFC-0096 Phase 1): the IPC path as numbers over the

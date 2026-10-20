@@ -106,6 +106,27 @@ pub(super) fn sys_irq_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     Ok(0)
 }
 
+/// `SYSCALL_CHILD_EXIT_BIND` (62, TASK-0333 6a): binds an endpoint the caller holds a SEND
+/// capability to as the sink for its children's deaths — the exit funnel writes one
+/// `OP_CHILD_EXITED` frame per dead child into it, the shape of a timer's fire and an
+/// interrupt's. The reaper of record (execd, RFC-0081) waits on it instead of sweeping on its
+/// next request: a process's death is an event, never something polled. Args:
+/// (endpoint_slot); slot `usize::MAX` clears the binding. Only the caller's own binding.
+pub(super) fn sys_child_exit_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let endpoint_slot = args.get(0);
+    let endpoint = if endpoint_slot == usize::MAX {
+        None
+    } else {
+        let cap = ctx.tasks.current_caps_mut().get(endpoint_slot)?;
+        match cap.kind {
+            CapabilityKind::Endpoint(id) if cap.rights.contains(Rights::SEND) => Some(id),
+            _ => return Err(Error::Capability(CapError::PermissionDenied)),
+        }
+    };
+    ctx.tasks.current_task_mut().set_exit_notify(endpoint);
+    Ok(0)
+}
+
 /// Acknowledges a delivered IRQ so the PLIC re-arms it. The driver calls this
 /// after it has drained the device (cleared the interrupt condition). Args:
 /// (irq_source_id).

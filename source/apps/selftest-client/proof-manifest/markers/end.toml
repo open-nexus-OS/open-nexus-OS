@@ -29,6 +29,13 @@ phase = "end"
 [marker."KSELFTEST: mm frames ("]
 phase = "end"
 
+# TASK-0333 6a (RFC-0100 §1): the objects freed because nobody named or mapped them any more —
+# at a reap (what the zombie named at its exit, what its space mapped) and at the last
+# `cap_close` of a VMO — and their bytes. A measurement at the same fence; the verdict is the
+# exec phase's `SELFTEST: rss loop ok (`.
+[marker."KSELFTEST: vm reclaim ("]
+phase = "end"
+
 # TASK-0330 S2a: the console syscalls hold the kernel lock for a copy into the ring and the
 # transmit queue, never for the UART's serial time — the longest hold of either in the steady
 # window against a 1 ms budget (the board's layer-0 holds were 10.5 ms and 5.0 ms).

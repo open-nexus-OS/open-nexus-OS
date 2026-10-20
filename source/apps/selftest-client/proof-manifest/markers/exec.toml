@@ -125,6 +125,24 @@ phase = "exec"
 [marker."SELFTEST: exec denied ok"]
 phase = "exec"
 
+# TASK-0333 6a (RFC-0100 §1): the memory a task leaves behind at exit. The VMO holder child
+# creates, maps and touches a 1 MiB VMO and exits holding it; the selftest spawns it ten times
+# and reads the kernel's memory record (`mm_stats`) before the loop and after every cycle —
+# `SELFTEST: mm loop (cycle= free= vmos= vmo_bytes=)` is the series (a measurement, no verdict);
+# the loop is `ok` when the record after the loop holds less than one holder more than before.
+[marker."child: vmo holder start"]
+phase = "exec"
+
+[marker."SELFTEST: mm loop ("]
+phase = "exec"
+
+[marker."SELFTEST: rss loop ok ("]
+phase = "exec"
+proves = "TASK-0333 6a: ten VMO-holding children exited and the kernel's record holds less than one holder more than before — what dies is freed (RFC-0100 §1)"
+
+[marker."SELFTEST: rss loop FAIL ("]
+phase = "exec"
+
 [marker."SELFTEST: execd malformed ok"]
 phase = "exec"
 

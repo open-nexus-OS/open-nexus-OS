@@ -466,6 +466,10 @@ pub mod dma_reach;
 // bounded exhaustion log — NOT target-gated so the wire form runs on host.
 #[path = "mm/accounting.rs"]
 pub mod accounting;
+// TASK-0333 6a (RFC-0100 §1): the lifetime rule of a VMO — a pure predicate, NOT target-gated
+// so its reject matrix runs on host; `mm::reclaim` applies it.
+#[path = "mm/vmo_lifetime.rs"]
+pub mod vmo_lifetime;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
 /// One console line at a time across harts — the pure owner logic (TASK-0327B P4 H0d),

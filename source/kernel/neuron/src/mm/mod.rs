@@ -18,6 +18,7 @@
 
 pub mod address_space;
 pub mod page_table;
+pub mod reclaim;
 pub mod vm_ops;
 
 pub use address_space::{AddressSpaceError, AddressSpaceManager, AsHandle};

@@ -29,11 +29,12 @@ use nexus_abi::{
     yield_, ExitReason, Pid,
 };
 use nexus_ipc::{KernelServer, Server as _, Wait};
-use nexus_metrics::client::MetricsClient;
 use nexus_metrics::{DeterministicIdSource, SpanId};
 use nexus_service_topology::slots::execd as topo;
 
+mod reaper;
 mod recv_wake_probe;
+use reaper::{Death, Reaper};
 use recv_wake_probe::run_recv_wake_probe;
 
 use crash::{
@@ -123,6 +124,9 @@ const IMG_EXIT42: u8 = 3;
 /// ADR-0056 fault-truth proof child: prints its marker, then dereferences
 /// VA 0 — the kernel kills it with `ExitReason::Fault` (TASK-0049).
 const IMG_FAULT: u8 = 5;
+/// TASK-0333 6a: the VMO holder — creates, maps and touches a VMO and exits holding it; the
+/// selftest's loop spawns it ten times and reads what the kernel took back.
+const IMG_VMO_HOLDER: u8 = 6;
 /// TASK-0080D R1: the app-host runtime (ADR-0042 transport probe). The ELF is
 /// embedded by `build.rs` when `scripts/build.sh` provides it; empty ⇒
 /// UNSUPPORTED (fail-closed, never a fake payload).
@@ -207,18 +211,42 @@ fn wait_ok_response(pid: u32, code: i32, reason: ExitReason) -> Vec<u8> {
 /// (idempotent crash handling) so a later `OP_WAIT_PID` answers from cache.
 /// Bounded by the tracked-child count; human-rate, so the per-reap marker and
 /// `format!` are acceptable (same discipline as the spawn markers).
-fn reap_ready_children(state: &mut State) {
+fn reap_ready_children(state: &mut State) -> Vec<Death> {
+    let mut apps = Vec::new();
     // Children are bounded to 16; 32 iterations covers any transient burst.
     for _ in 0..32 {
         match wait_nohang_with_reason() {
             Ok(Some((pid, code, reason))) => {
+                let is_app = state.image_of(pid) == Some(IMG_APPHOST);
                 state.handle_child_exit(pid, code, reason);
+                // TASK-0333 6a: the kernel's memory record right after the reap — what a dead
+                // child gave back is read here, at the one moment it is true, on every lane.
+                let mm = nexus_abi::mm_stats().ok();
                 let _ = nexus_abi::debug_println(&alloc::format!(
-                    "execd: reaped pid={pid} code={code}"
+                    "execd: reaped pid={pid} code={code} (free={} vmos={} vmo_bytes={} kobjects={})",
+                    mm.as_ref().map_or(0, |m| m.free),
+                    mm.as_ref().map_or(0, |m| m.vmos),
+                    mm.as_ref().map_or(0, |m| m.vmo_bytes),
+                    mm.as_ref().map_or(0, |m| m.kernel_objects())
                 ));
+                if is_app {
+                    apps.push(Death { pid, code, reason });
+                }
             }
             Ok(None) | Err(_) => break,
         }
+    }
+    apps
+}
+
+/// One sweep and its report: every zombie reaped, every app child's death told to abilitymgr.
+fn reap_and_report(state: &mut State, reaper: &mut Option<Reaper>) {
+    let deaths = reap_ready_children(state);
+    if let Some(r) = reaper.as_mut() {
+        for death in deaths {
+            r.report(death);
+        }
+        r.flush();
     }
 }
 
@@ -243,17 +271,31 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     // RFC-0080: create the shared glyph-atlas VMO ONCE (RO-cloned per spawn).
     state.atlas_vmo = crate::atlas_vmo::create();
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX]; // ONE buffer (P5b)
+                                                                       // TASK-0333 6a: the reaper of record wakes on a death. The waitset over the server endpoint
+                                                                       // and the child-death endpoint is the loop's one wait; a death frame is the wake, the sweep
+                                                                       // is the reap, and an app child's death is reported to abilitymgr. Without the binding the
+                                                                       // loop is RFC-0081's: a blocking request wait, the sweep on each request.
+    let mut reaper = Reaper::arm();
+    let wait = if reaper.is_some() { Wait::NonBlocking } else { Wait::Blocking };
     loop {
-        match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {
+        if let Some(r) = reaper.as_ref() {
+            r.wait();
+            if r.drain() {
+                reap_and_report(&mut state, &mut reaper);
+            }
+        }
+        match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((n, sender_service_id, _reply)) => {
                 // RFC-0081: reap children that exited since the last request so a spawn first
                 // reclaims their AS — the app-launch ALLOC-FAIL fix. Non-blocking, bounded.
-                reap_ready_children(&mut state);
+                reap_and_report(&mut state, &mut reaper);
                 let rsp = handle_frame(&mut state, sender_service_id, &recv_frame[..n]);
                 let _ = server.send(rsp.as_slice(), Wait::Blocking);
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                let _ = yield_();
+                if reaper.is_none() {
+                    let _ = yield_();
+                }
             }
             Err(_) => {
                 let _ = yield_();
@@ -301,8 +343,14 @@ impl State {
             IMG_APPHOST => "app.probe",
             IMG_EXIT42 => "demo.minidump",
             IMG_FAULT => "demo.fault",
+            IMG_VMO_HOLDER => "demo.vmo-holder",
             _ => "unknown",
         }
+    }
+
+    /// The image a tracked child runs (an app child's death is the lifecycle authority's).
+    fn image_of(&self, pid: u32) -> Option<u8> {
+        self.children.iter().find(|c| c.pid == pid).map(|c| c.image_id)
     }
 
     /// RFC-0081: records a reaped child's exit and runs the crash-marker /
@@ -873,6 +921,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         IMG_EXIT0 => DEMO_EXIT0_ELF,
         IMG_EXIT42 => DEMO_MINIDUMP_ELF,
         IMG_FAULT => demo_exit0::DEMO_FAULT_ELF,
+        IMG_VMO_HOLDER => demo_exit0::DEMO_VMO_HOLDER_ELF,
         IMG_APPHOST if !apphost_payload::APPHOST_ELF.is_empty() => apphost_payload::APPHOST_ELF,
         _ => return rsp(op, STATUS_UNSUPPORTED, 0).to_vec(),
     };
@@ -948,6 +997,14 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
             // replied — the child starts with a complete payload or a marked failure.
             if payload_vmo.is_some() && !await_app_payload() {
                 emit_line("execd: FAIL app payload (unserved)");
+            }
+            // The child holds its own MAP capability to the payload (`cap_transfer_to_slot`
+            // COPIES), bundlemgrd closed its armed one on reply: execd's is the last name that
+            // would keep the object alive past the child's death — and the slot that made its
+            // own table a launch counter. Measured on the board (cycle 46, TASK-0333 6a): one
+            // 129-page VMO more after every open/close. Mint→grant→close, like every grant.
+            if let Some(vmo) = payload_vmo {
+                let _ = nexus_abi::cap_close(vmo);
             }
             if nexus_abi::task_resume(pid as u32).is_err() {
                 emit_line("execd: FAIL child resume");
@@ -1183,97 +1240,10 @@ pub fn exec_elf(
     Err(ExecError::Unsupported)
 }
 
-pub(crate) fn emit_line(message: &str) {
-    // Verdict folding: pre-`ready` markers tally into `execd N/N`; post-`ready` runtime lines fold
-    // into recall-only detail (`NEXUS_LOG_EXPAND=execd`). Failures & proof boots print live & raw.
-    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
-    // folding): the per-byte `debug_putc` fallback tears mid-line against the
-    // kernel's locked log records and DROPS the tail — a torn ready marker is a
-    // red ladder gate.
-    let _ = nexus_abi::debug_println(message);
-}
-
-/// ADR-0056 exit-truth line — one per reaped child, exactly once:
-/// `execd: exit pid=<p> reason=<label> code=<c>`.
-fn emit_exit_reason_marker(pid: u32, code: i32, reason: ExitReason) {
-    emit_line_no_nl("execd: exit pid=");
-    emit_u64(pid as u64);
-    emit_line_no_nl(" reason=");
-    emit_line_no_nl(reason.label());
-    emit_line_no_nl(" code=");
-    emit_i64(code as i64);
-    let _ = debug_putc(b'\n');
-}
-
-fn emit_crash_marker(pid: u32, code: i32, name: &str) {
-    emit_line_no_nl("execd: crash report pid=");
-    emit_u64(pid as u64);
-    emit_line_no_nl(" code=");
-    emit_i64(code as i64);
-    emit_line_no_nl(" name=");
-    for b in name.as_bytes() {
-        let _ = debug_putc(*b);
-    }
-    let _ = debug_putc(b'\n');
-}
-
-fn emit_line_no_nl(message: &str) {
-    for byte in message.as_bytes().iter().copied() {
-        let _ = debug_putc(byte);
-    }
-}
-
-fn metrics_counter_inc_best_effort(name: &str) {
-    let Ok(metrics) = MetricsClient::new() else {
-        return;
-    };
-    let _ = metrics.counter_inc(name, b"svc=execd\n", 1);
-}
-
-fn metrics_span_start_best_effort(
-    span_id: SpanId,
-    trace_id: nexus_metrics::TraceId,
-    name: &str,
-    attrs: &[u8],
-) {
-    let Ok(metrics) = MetricsClient::new() else {
-        return;
-    };
-    let _ = metrics.span_start(span_id, trace_id, SpanId(0), nsec().ok().unwrap_or(0), name, attrs);
-}
-
-fn metrics_span_end_best_effort(span_id: SpanId, end_ns: u64, status: u8, attrs: &[u8]) {
-    let Ok(metrics) = MetricsClient::new() else {
-        return;
-    };
-    let _ = metrics.span_end(span_id, end_ns, status, attrs);
-}
-
-fn emit_u64(mut value: u64) {
-    let mut buf = [0u8; 20];
-    let mut idx = buf.len();
-    if value == 0 {
-        idx -= 1;
-        buf[idx] = b'0';
-    } else {
-        while value != 0 {
-            idx -= 1;
-            buf[idx] = b'0' + (value % 10) as u8;
-            value /= 10;
-        }
-    }
-    for &b in &buf[idx..] {
-        let _ = debug_putc(b);
-    }
-}
-
-fn emit_i64(value: i64) {
-    if value < 0 {
-        let _ = debug_putc(b'-');
-        emit_u64((-value) as u64);
-    } else {
-        emit_u64(value as u64);
-    }
-}
-
-// (helpers removed; crash record is emitted through nexus-log sink-logd)
+// The console lines and the best-effort metrics (split out under the structure ratchet).
+mod emit;
+pub(crate) use emit::emit_line;
+use emit::{
+    emit_crash_marker, emit_exit_reason_marker, emit_line_no_nl, emit_u64,
+    metrics_counter_inc_best_effort, metrics_span_end_best_effort, metrics_span_start_best_effort,
+};

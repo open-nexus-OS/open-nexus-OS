@@ -1,6 +1,6 @@
 ---
 title: TASK-0228 OOM watchdog v1 (OS): deterministic memory watchdog (`oomd`) with cooperative memstat + samgr/execd kill + selftests
-status: Draft
+status: Superseded — `memd` (one memory authority: bands from abilitymgr, pressure from the kernel, kills through execd) is born in Block 4 layer 6e under tasks/TASK-0333 (2026-10-19), its journal in 6f
 owner: @runtime @reliability
 created: 2025-12-29
 depends-on: []

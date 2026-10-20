@@ -39,6 +39,7 @@ mod exec_copy;
 mod exec_image;
 mod ipc_call;
 mod ipc_msg;
+mod ipc_reclaim;
 mod ipc_recv_v2;
 mod mm_stats;
 mod sched_task;
@@ -63,7 +64,10 @@ use ipc_msg::*;
 use ipc_recv_v2::*;
 use sched_task::*;
 use sync_objects::*;
-pub(crate) use task_image::{exit_current_and_release, exit_current_faulted, exit_current_killed};
+pub(crate) use task_image::{
+    exit_current_and_release, exit_current_faulted, exit_current_killed, exit_current_killed_in,
+    ExitTables, OP_CHILD_EXITED,
+};
 use vm_map::*;
 pub(crate) use vm_map::{vm_unmap_clear, vm_unmap_finish};
 use vmo::*;
@@ -384,6 +388,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_TIMER_CANCEL, sys_timer_cancel);
     table.register(crate::syscall::SYSCALL_IRQ_BIND, sys_irq_bind);
     table.register(crate::syscall::SYSCALL_IRQ_COMPLETE, sys_irq_complete);
+    table.register(crate::syscall::SYSCALL_CHILD_EXIT_BIND, sys_child_exit_bind);
     table.register(crate::syscall::SYSCALL_WAITSET_CREATE, sys_waitset_create);
     table.register(crate::syscall::SYSCALL_WAITSET_ADD, sys_waitset_add);
     table.register(crate::syscall::SYSCALL_WAITSET_WAIT, sys_waitset_wait);

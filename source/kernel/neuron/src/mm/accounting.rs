@@ -18,9 +18,9 @@
 //!   logged on the 1st, 2nd, 4th, 8th … occurrence.
 
 /// The record's layout version (bumped on any field change).
-pub const MM_STATS_VERSION: u32 = 1;
+pub const MM_STATS_VERSION: u32 = 2;
 /// 64-bit fields after the 8-byte header.
-pub const MM_STATS_FIELDS: usize = 14;
+pub const MM_STATS_FIELDS: usize = 18;
 /// Bytes of the record: `version: u32`, `fields: u32`, then the fields.
 pub const MM_STATS_BYTES: usize = 8 + MM_STATS_FIELDS * 8;
 
@@ -55,6 +55,15 @@ pub struct MmStats {
     pub own_rss_bytes: u64,
     /// The part of those that is contiguous-DMA memory.
     pub own_dma_bytes: u64,
+    /// Live kernel endpoints (TASK-0333 6a: the objects that die with their last capability,
+    /// counted so a loop of exits proves they do).
+    pub endpoints: u64,
+    /// Live kernel timers.
+    pub timers: u64,
+    /// Live waitsets.
+    pub waitsets: u64,
+    /// Live fences.
+    pub fences: u64,
 }
 
 /// A buffer shorter than the record.
@@ -79,6 +88,10 @@ impl MmStats {
             self.dma_bytes,
             self.own_rss_bytes,
             self.own_dma_bytes,
+            self.endpoints,
+            self.timers,
+            self.waitsets,
+            self.fences,
         ]
     }
 
@@ -120,6 +133,7 @@ mod tests {
             total: 77280,
             free: 1,
             own_dma_bytes: 0x1234,
+            fences: 0x1234,
             ..Default::default()
         };
         let mut out = [0xffu8; MM_STATS_BYTES + 3];

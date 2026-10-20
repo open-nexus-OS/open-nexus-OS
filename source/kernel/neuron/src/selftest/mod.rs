@@ -28,9 +28,6 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-// Import assertion helpers only when used.
-// use crate::{st_assert, st_expect_eq, task};
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::task::Pid;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::{
@@ -59,6 +56,8 @@ pub mod assert;
 mod fence;
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
 mod init_image;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod lifetime;
 #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
 use init_image::{
     align_down, align_up, alloc_init_page, copy_segment_bytes, log_symbol_words, read_u16,
@@ -580,6 +579,7 @@ pub fn entry(ctx: &mut Context<'_>) {
     run_ipc_owner_exit_wakes_waiters_selftest(ctx);
     run_timer_cap_selftest(ctx);
     run_waitset_selftest(ctx);
+    lifetime::run_lifetime_selftests(ctx);
     fence::run_fence_selftest(ctx);
     fence::run_fence_rights_selftest(ctx);
     run_spawn_reason_selftest();

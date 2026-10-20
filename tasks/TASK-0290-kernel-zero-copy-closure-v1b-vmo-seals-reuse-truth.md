@@ -1,6 +1,6 @@
 ---
 title: TASK-0290 Kernel zero-copy closure v1b: VMO sealing rights + write-map denial + reuse truth
-status: Draft
+status: Draft — M5, executed as Block 4 layer 6e under tasks/TASK-0333 (2026-10-19): purgeable VMOs + seals (atlas bands, glass cache, blur cache); the frame-arena input below is 6b's (commit on touch)
 owner: @runtime @kernel-team @ui
 created: 2026-04-13
 depends-on:

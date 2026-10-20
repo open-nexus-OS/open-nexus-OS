@@ -82,7 +82,7 @@ pub(super) fn sys_ipc_endpoint_create_v2(ctx: &mut Context<'_>, args: &Args) -> 
     if cap.kind != CapabilityKind::EndpointFactory || !cap.rights.contains(Rights::MANAGE) {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    let id = ctx.router.create_endpoint(depth, Some(current.as_raw()))?;
+    let id = super::ipc_reclaim::create_endpoint(ctx, depth, Some(current.as_raw()))?;
     let ep_cap = Capability {
         kind: CapabilityKind::Endpoint(id),
         rights: Rights::SEND | Rights::RECV | Rights::MANAGE,
@@ -124,7 +124,7 @@ pub(super) fn sys_ipc_endpoint_create_for(ctx: &mut Context<'_>, args: &Args) ->
         }
     }
 
-    let id = ctx.router.create_endpoint(depth, Some(owner_pid.as_raw()))?;
+    let id = super::ipc_reclaim::create_endpoint(ctx, depth, Some(owner_pid.as_raw()))?;
     #[cfg(feature = "ipc_trace_ring")]
     {
         crate::ipc::trace::record_ep_create(
@@ -149,17 +149,25 @@ pub(super) fn sys_cap_close(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     let cap = ctx.tasks.current_caps_mut().take(slot)?;
     // Release the backing kernel object for caps that own one (no dangling table entries).
     match cap.kind {
-        CapabilityKind::Endpoint(id) if cap.rights.contains(Rights::SEND) => {
-            // RFC-0079 last-sender EOF: this dropped a SEND cap. If no PEER holds one any
-            // more (the owner's own base never counts, TASK-0324 P7-b), wake the endpoint's
-            // recv-waiters so a blocked EOF-opted receiver re-runs recv and returns
-            // `PeerClosed`. The cap is already removed above, so the scan reflects the drop.
-            super::eof_scan::wake_receivers_if_last_peer_gone(
+        CapabilityKind::Endpoint(id) => {
+            // A dropped endpoint capability — one census, three verdicts (RFC-0079 last-sender
+            // EOF for the receivers, the sender-side `PeerClosed`, and RFC-0100 §1: an endpoint
+            // dies with its last capability). The cap is already removed above, so the census
+            // reflects the drop.
+            let _ = super::eof_scan::judge_dropped(
                 ctx.tasks,
                 ctx.router,
                 ctx.scheduler,
+                ctx.waitsets,
+                ctx.hart_timers,
                 id,
+                "close",
             );
+        }
+        CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => {
+            // RFC-0100 §1 (TASK-0333 6a): a VMO dies with its last capability — when no other
+            // table names the object and no address space maps it, its frames return now.
+            crate::mm::reclaim::orphans(ctx.tasks, ctx.address_spaces, &[id], "close");
         }
         CapabilityKind::Timer(id) => {
             let _ = ctx.hart_timers.free(crate::timer::TimerId(id));
@@ -207,6 +215,7 @@ pub(super) fn sys_ipc_endpoint_close(ctx: &mut Context<'_>, args: &Args) -> SysR
         crate::ipc::trace::record_ep_close(ctx.tasks.current_pid().as_raw(), id);
     }
     let waiters = ctx.router.close_endpoint(id)?;
+    super::ipc_reclaim::forget_dead(ctx.tasks, ctx.waitsets, ctx.hart_timers, id);
     for pid in waiters {
         observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(pid), ctx.scheduler));
     }

@@ -148,8 +148,26 @@ impl WaitsetTable {
         Ok(())
     }
 
-    #[cfg(test)]
-    /// Number of live waitsets (test helper).
+    /// Frees every waitset `pid` owns — its exit (TASK-0333 6a). Returns how many.
+    pub fn free_owned_by(&mut self, pid: u32) -> usize {
+        let before = self.table.len();
+        self.table.retain(|_, e| e.owner_pid != pid);
+        before - self.table.len()
+    }
+
+    /// Drops `endpoint` from every member list — the endpoint died, and its slot's next
+    /// tenant must not wake a waiter that never named it. Returns the lists it left.
+    pub fn forget_endpoint(&mut self, endpoint: u32) -> usize {
+        let mut touched = 0;
+        for e in self.table.values_mut() {
+            let before = e.members.len();
+            e.members.retain(|m| *m != endpoint);
+            touched += usize::from(e.members.len() != before);
+        }
+        touched
+    }
+
+    /// Number of live waitsets (the record).
     pub fn len(&self) -> usize {
         self.table.len()
     }

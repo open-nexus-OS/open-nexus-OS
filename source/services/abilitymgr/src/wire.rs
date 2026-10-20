@@ -27,6 +27,16 @@ pub enum Event {
     Launched { app_id: String, instance_id: u32 },
     /// An instance changed lifecycle state.
     Transitioned { instance_id: u32, to: AbilityState },
+    /// An instance's process died (TASK-0333 6a): execd reaped it; the instance is gone.
+    Exited { instance_id: u32, app_id: String, pid: u32, code: i32, live: usize },
+    /// execd reported a death no instance claims (a child this service never launched).
+    ExitedUnknown { pid: u32 },
+}
+
+/// Whether `frame` is the reaper's death report — the one request only execd may send; the OS
+/// loop answers it from the kernel sender id (`execd_sender_id`), never from the frame.
+pub fn exited_frame_allowed(frame: &[u8], sender_service_id: u64, execd_sender_id: u64) -> bool {
+    frame.get(3) != Some(&OP_INSTANCE_EXITED) || sender_service_id == execd_sender_id
 }
 
 /// The result of dispatching one request frame.
@@ -53,8 +63,46 @@ pub fn dispatch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
         OP_TRANSITION => dispatch_transition(broker, frame),
         OP_RECENTS => dispatch_recents(broker, frame),
         OP_RESOLVE_EXPORT => dispatch_resolve_export(frame),
+        OP_INSTANCE_EXITED => dispatch_exited(broker, frame),
         other => Dispatched { response: resp_status(other, STATUS_MALFORMED), event: None },
     }
+}
+
+/// `OP_INSTANCE_EXITED`: a one-way event — the response is EMPTY (the OS loop sends nothing),
+/// except for a malformed frame, which is answered like any other so a broken sender learns.
+fn dispatch_exited(broker: &mut Broker, frame: &[u8]) -> Dispatched {
+    // [A,M,ver,OP, pid:u32le, code:i32le, reason:u8]
+    if frame.len() != 13 {
+        return Dispatched {
+            response: resp_status(OP_INSTANCE_EXITED, STATUS_MALFORMED),
+            event: None,
+        };
+    }
+    let pid = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+    let code = i32::from_le_bytes([frame[8], frame[9], frame[10], frame[11]]);
+    match broker.exited(pid) {
+        Ok(inst) => Dispatched {
+            response: Vec::new(),
+            event: Some(Event::Exited {
+                instance_id: inst.instance_id,
+                app_id: inst.app_id,
+                pid,
+                code,
+                live: broker.len(),
+            }),
+        },
+        Err(_) => Dispatched { response: Vec::new(), event: Some(Event::ExitedUnknown { pid }) },
+    }
+}
+
+/// Encodes the reaper's death report (for callers/tests): the reason byte is the
+/// consumer-side tag (0 clean, 1 error, 2 fault, 3 killed, 4 unknown).
+pub fn encode_instance_exited(pid: u32, code: i32, reason: u8) -> Vec<u8> {
+    let mut out = vec![MAGIC0, MAGIC1, VERSION, OP_INSTANCE_EXITED];
+    out.extend_from_slice(&pid.to_le_bytes());
+    out.extend_from_slice(&code.to_le_bytes());
+    out.push(reason);
+    out
 }
 
 fn dispatch_launch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
@@ -179,6 +227,11 @@ fn resp_status(op: u8, status: u8) -> Vec<u8> {
     header(op, status)
 }
 
+/// `STATUS_DENIED` for `op` — the OS loop's answer when the kernel sender id refuses a frame.
+pub fn denied_response(op: u8) -> Vec<u8> {
+    resp_status(op, STATUS_DENIED)
+}
+
 fn resp_instance(op: u8, status: u8, instance_id: u32, state: AbilityState) -> Vec<u8> {
     let mut out = header(op, status);
     out.extend_from_slice(&instance_id.to_le_bytes());
@@ -273,6 +326,48 @@ mod tests {
         assert_eq!(
             resp_op_status(&dispatch(&mut broker, &[MAGIC0, MAGIC1, 99, OP_LAUNCH]).response).1,
             STATUS_MALFORMED
+        );
+    }
+
+    #[test]
+    fn a_death_report_removes_the_instance_and_answers_nothing() {
+        let mut broker = Broker::new();
+        let d = dispatch(&mut broker, &encode_launch("chat", "chat.main"));
+        let id = u32::from_le_bytes([d.response[5], d.response[6], d.response[7], d.response[8]]);
+        broker.bind_pid(id, 77).unwrap();
+        let d = dispatch(&mut broker, &encode_instance_exited(77, 0, 0));
+        assert!(d.response.is_empty(), "an event, never a request");
+        assert_eq!(
+            d.event,
+            Some(Event::Exited {
+                instance_id: id,
+                app_id: "chat".into(),
+                pid: 77,
+                code: 0,
+                live: 0
+            })
+        );
+        assert!(broker.is_empty());
+        // The same report again names a pid no instance claims.
+        let d = dispatch(&mut broker, &encode_instance_exited(77, 0, 0));
+        assert_eq!(d.event, Some(Event::ExitedUnknown { pid: 77 }));
+        assert!(d.response.is_empty());
+    }
+
+    #[test]
+    fn test_reject_death_report_from_anyone_but_execd() {
+        let frame = encode_instance_exited(77, 0, 0);
+        let (execd, other) = (0x1111u64, 0x2222u64);
+        assert!(exited_frame_allowed(&frame, execd, execd));
+        assert!(!exited_frame_allowed(&frame, other, execd), "a forged death is refused");
+        // Every other op is sender-agnostic here (its own gates apply).
+        assert!(exited_frame_allowed(&encode_launch("chat", "chat.main"), other, execd));
+        // A malformed report is answered as malformed, not applied.
+        let mut broker = Broker::new();
+        let d = dispatch(&mut broker, &frame[..12]);
+        assert_eq!(
+            resp_op_status(&d.response),
+            (OP_INSTANCE_EXITED | OP_RESPONSE, STATUS_MALFORMED)
         );
     }
 

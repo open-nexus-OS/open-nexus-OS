@@ -1,6 +1,6 @@
 ---
 title: TASK-0236 Power/Idle v1.0a (host-first): deterministic governor + wake locks + residency metrics + app standby + tests
-status: Draft
+status: Draft — the wake-lock / app-standby half is Block 4 layer 6d's manifest `background = [...]` declaration (tasks/TASK-0333, 2026-10-19); the governor stays parked
 owner: @runtime
 created: 2025-12-29
 depends-on: []

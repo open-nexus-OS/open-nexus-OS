@@ -168,10 +168,13 @@ pub(crate) fn pin_declared_waits(pid: u32, svc: ServiceId) {
     }
     // (RECV, SEND, what, queue depth). A push channel (TASK-0253B: xhcid's HID class pushes a
     // frame per drain) is deeper than a timer's one pending fire.
-    const PAIRS: [(NamedSlot, NamedSlot, &[u8], usize); 3] = [
+    const PAIRS: [(NamedSlot, NamedSlot, &[u8], usize); 4] = [
         (NamedSlot::TimerNotifyRecv, NamedSlot::TimerNotifySend, b"timer-notify", 8),
         (NamedSlot::DeviceWatchdogRecv, NamedSlot::DeviceWatchdogSend, b"device-watchdog", 8),
         (NamedSlot::UsbHidRecv, NamedSlot::UsbHidSend, b"usb-hid", 32),
+        // TASK-0333 6a: a frame per dead child; execd's sweep reaps every zombie on one wake,
+        // so a dropped frame under a burst delays nothing past the next death.
+        (NamedSlot::ChildExitRecv, NamedSlot::ChildExitSend, b"child-exit", 16),
     ];
     for (recv_name, send_name, what, depth) in PAIRS {
         if extra_slot(svc, recv_name).is_none() {

@@ -22,7 +22,7 @@
 
 use nexus_abi::yield_;
 
-use crate::markers::emit_line;
+use crate::markers::{emit_bytes, emit_line, emit_u64};
 use crate::os_lite::context::PhaseCtx;
 use crate::os_lite::ipc::routing::route_with_retry;
 use crate::os_lite::{probes, services};
@@ -322,6 +322,91 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_EXECD_MALFORMED_FAIL);
     }
 
+    // TASK-0333 6a (RFC-0100 §1): what a task leaves behind at exit. The VMO holder child
+    // creates, maps and touches a 1 MiB VMO and exits holding it; ten of them in a row, the
+    // kernel's memory record read before the loop and after every reap — the series is the
+    // measurement, the verdict compares the record after the loop with the one before.
+    vmo_holder_loop(&execd_client);
+
     let _ = (logd, execd_client, statefsd);
     Ok(())
+}
+
+/// The VMO holder image in execd's table (`IMG_VMO_HOLDER`).
+const IMG_VMO_HOLDER: u8 = 6;
+/// Holders spawned in a row.
+const VMO_HOLDER_CYCLES: u64 = 10;
+/// The bytes one holder keeps at exit (`userspace/apps/demo-exit0/build.rs`).
+const VMO_HOLDER_BYTES: u64 = 0x10_0000;
+
+/// `SELFTEST: mm loop (cycle= free= vmos= vmo_bytes=)`: the kernel's record at this point of
+/// the loop (`free` in frames, the objects and their bytes).
+fn emit_mm_loop(cycle: u64, mm: &nexus_abi::MmStats) {
+    emit_bytes(b"SELFTEST: mm loop (cycle=");
+    emit_u64(cycle);
+    emit_bytes(b" free=");
+    emit_u64(mm.free);
+    emit_bytes(b" vmos=");
+    emit_u64(mm.vmos);
+    emit_bytes(b" vmo_bytes=");
+    emit_u64(mm.vmo_bytes);
+    emit_bytes(b" endpoints=");
+    emit_u64(mm.endpoints);
+    emit_bytes(b" timers=");
+    emit_u64(mm.timers);
+    emit_bytes(b" waitsets=");
+    emit_u64(mm.waitsets);
+    emit_line(")");
+}
+
+/// Ten VMO holders spawned and reaped; `SELFTEST: rss loop ok (cycles= leaked=0)` when the
+/// record after the loop holds less than one holder more than before, else the FAIL form
+/// with the bytes and objects left behind. A refused spawn or a lost child is a FAIL too.
+fn vmo_holder_loop(execd_client: &nexus_ipc::KernelClient) {
+    let Ok(before) = nexus_abi::mm_stats() else {
+        emit_line("SELFTEST: rss loop FAIL (no memory record)");
+        return;
+    };
+    emit_mm_loop(0, &before);
+    let mut after = before;
+    for cycle in 1..=VMO_HOLDER_CYCLES {
+        let Ok(pid) =
+            services::execd::execd_spawn_image(execd_client, "selftest-client", IMG_VMO_HOLDER)
+        else {
+            emit_line("SELFTEST: rss loop FAIL (holder not spawned)");
+            return;
+        };
+        if services::execd::wait_for_pid(execd_client, pid) != Some(0) {
+            emit_line("SELFTEST: rss loop FAIL (holder did not exit 0)");
+            return;
+        }
+        let Ok(now) = nexus_abi::mm_stats() else {
+            emit_line("SELFTEST: rss loop FAIL (no memory record)");
+            return;
+        };
+        emit_mm_loop(cycle, &now);
+        after = now;
+    }
+    let leaked = after.vmo_bytes.saturating_sub(before.vmo_bytes);
+    let objects = after.vmos.saturating_sub(before.vmos);
+    // The kernel objects a child's exit must give back (endpoints, timers, waitsets, fences):
+    // flat over the loop, or the loop names what stayed.
+    let kobjects = after.kernel_objects().saturating_sub(before.kernel_objects());
+    if leaked < VMO_HOLDER_BYTES && kobjects == 0 {
+        emit_bytes(b"SELFTEST: rss loop ok (cycles=");
+        emit_u64(VMO_HOLDER_CYCLES);
+        emit_bytes(b" leaked=");
+        emit_u64(leaked);
+        emit_line(" kobjects=0)");
+    } else {
+        emit_bytes(b"SELFTEST: rss loop FAIL (cycles=");
+        emit_u64(VMO_HOLDER_CYCLES);
+        emit_bytes(b" leaked=");
+        emit_u64(leaked);
+        emit_bytes(b" vmos=");
+        emit_u64(objects);
+        emit_bytes(b" kobjects=");
+        emit_u64(kobjects);
+        emit_line(")");
+    }
 }

@@ -51,6 +51,16 @@ pub const OP_RECENTS: u8 = 3;
 ///             exporter_len:u8, exporter...]`
 pub const OP_RESOLVE_EXPORT: u8 = 4;
 
+/// An instance's process died (TASK-0333 6a): the reaper of record (execd) reports what it
+/// reaped — a one-way EVENT, never answered, so a death never makes execd wait on this
+/// service while this service waits on execd's spawn reply. The OS loop takes it from execd's
+/// kernel sender id alone; a frame from anyone else is denied. The instance goes to `Stopped`
+/// and leaves the table (and recents): a dead process holds no instance slot.
+/// Request:  `[A,M,ver,OP_INSTANCE_EXITED, pid:u32le, code:i32le, reason:u8]`
+///           (reason: 0 clean, 1 error, 2 fault, 3 killed, 4 unknown)
+/// Response: none.
+pub const OP_INSTANCE_EXITED: u8 = 5;
+
 // --- Status codes ---
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;

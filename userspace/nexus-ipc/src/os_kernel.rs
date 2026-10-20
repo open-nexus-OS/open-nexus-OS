@@ -71,6 +71,9 @@ fn map_send_err(err: nexus_abi::IpcError, wait: Wait) -> IpcError {
         nexus_abi::IpcError::QueueFull if matches!(wait, Wait::NonBlocking) => IpcError::WouldBlock,
         nexus_abi::IpcError::TimedOut => IpcError::Timeout,
         nexus_abi::IpcError::NoSpace => IpcError::NoSpace,
+        // TASK-0333 6a: no RECV capability to the endpoint exists any more — nobody can ever
+        // drain it (the sender's mirror of RFC-0079's EOF).
+        nexus_abi::IpcError::PeerClosed => IpcError::Disconnected,
         other => IpcError::Kernel(other),
     }
 }

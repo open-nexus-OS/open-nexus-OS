@@ -435,7 +435,8 @@ impl DisplayServerRuntime {
                 // privacy rule) and hover rates (the non-freeing bump heap).
                 if seq == 1 {
                     let _ = debug_println(&alloc::format!(
-                        "WINDOWD: surface presented id={surface_id} seq={seq}"
+                        "WINDOWD: surface presented id={surface_id} seq={seq} t_us={}",
+                        nexus_abi::nsec().unwrap_or(0) / 1000
                     ));
                 }
                 wire::encode_surface_ack(wire::OP_SURFACE_PRESENT, wire::SURFACE_STATUS_OK, seq)
@@ -703,10 +704,15 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             let Some(slot) = self.apps[idx].event_channel else { return false };
-            if send_client_frame(slot, frame, Delivery::Critical) {
-                return true;
+            use super::app_death::{send_client_frame_outcome, ClientSend};
+            match send_client_frame_outcome(slot, frame, Delivery::Critical) {
+                ClientSend::Sent => return true,
+                // TASK-0333 6a: the peer is gone — the window closes by name, no park.
+                ClientSend::Dead => self.note_app_channel_dead(idx),
+                ClientSend::Behind => {
+                    let _ = debug_println("WINDOWD: FAIL app event send");
+                }
             }
-            let _ = debug_println("WINDOWD: FAIL app event send");
             false
         }
         #[cfg(not(nexus_env = "os"))]
@@ -879,19 +885,10 @@ impl DisplayServerRuntime {
 /// `Wait::Blocking`, neither losable). The lie is what kept that recovery
 /// from ever running.
 pub(super) fn send_client_frame(slot: u32, frame: &[u8], delivery: Delivery) -> bool {
-    let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
-    if !delivery.parks() {
-        // Coalescing: one attempt. A full queue means the client is behind,
-        // and the frame after this one carries the newer truth.
-        return nexus_abi::ipc_send_v1(slot, &hdr, frame, nexus_abi::IPC_SYS_NONBLOCK, 0).is_ok();
-    }
-    // REACTIVE, not polled: dropping NONBLOCK makes the kernel park us as a
-    // send-waiter on the endpoint and wake us the instant the client drains
-    // (`register_send_waiter` / `pop_send_waiter`). One syscall, one wakeup, no
-    // deadline (RFC-0093 §7, TASK-0054C P2-a): the deadline this send carried
-    // only chose between this park and the blocking fallback — the same park,
-    // one clock later. A dead client closes its endpoint and wakes us with an error.
-    nexus_abi::ipc_send_v1(slot, &hdr, frame, 0, 0).is_ok()
+    // One push, classified in `app_death` (REACTIVE: a parking delivery is a kernel
+    // send-waiter woken when the client drains, RFC-0093 §7; a dead client ends it by name).
+    use super::app_death::{send_client_frame_outcome, ClientSend};
+    send_client_frame_outcome(slot, frame, delivery) == ClientSend::Sent
 }
 
 pub(super) fn send_input_frame(slot: u32, frame: &[u8], kind: u8) -> bool {

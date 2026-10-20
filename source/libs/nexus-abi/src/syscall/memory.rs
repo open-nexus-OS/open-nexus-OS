@@ -310,11 +310,30 @@ pub struct MmStats {
     pub own_rss_bytes: u64,
     /// The part of those that is contiguous-DMA memory.
     pub own_dma_bytes: u64,
+    /// Live kernel endpoints (TASK-0333 6a: the objects that die with their last capability).
+    pub endpoints: u64,
+    /// Live kernel timers.
+    pub timers: u64,
+    /// Live waitsets.
+    pub waitsets: u64,
+    /// Live fences.
+    pub fences: u64,
+}
+
+impl MmStats {
+    /// The kernel objects a task's exit must give back, as one number (`endpoints + timers +
+    /// waitsets + fences`) — what a loop of exits proves flat (`SELFTEST: rss loop ok (…
+    /// kobjects=0)`).
+    pub fn kernel_objects(&self) -> u64 {
+        self.endpoints + self.timers + self.waitsets + self.fences
+    }
 }
 
 /// The record layout this ABI speaks.
-pub const MM_STATS_VERSION: u32 = 1;
-const _: () = assert!(core::mem::size_of::<MmStats>() == 8 + 14 * 8);
+pub const MM_STATS_VERSION: u32 = 2;
+/// 64-bit fields after the 8-byte header.
+pub const MM_STATS_FIELDS: u32 = 18;
+const _: () = assert!(core::mem::size_of::<MmStats>() == 8 + MM_STATS_FIELDS as usize * 8);
 
 /// Frame size of the pool (`MmStats::total` / `free` count these).
 pub const FRAME_BYTES: u64 = 4096;
@@ -330,7 +349,7 @@ pub fn mm_stats() -> SysResult<MmStats> {
         // SAFETY: `stats` is a live, writable `repr(C)` record of `len` bytes.
         let raw = unsafe { ecall2(SYSCALL_MM_STATS, (&mut stats as *mut MmStats) as usize, len) };
         decode_syscall(raw)?;
-        if stats.version != MM_STATS_VERSION || stats.fields != 14 {
+        if stats.version != MM_STATS_VERSION || stats.fields != MM_STATS_FIELDS {
             return Err(AbiError::Unsupported);
         }
         Ok(stats)

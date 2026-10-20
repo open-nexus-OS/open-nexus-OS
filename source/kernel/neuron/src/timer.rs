@@ -192,6 +192,33 @@ impl HartTimers {
     pub fn owned_by(&self, timer_id: TimerId, pid: u32) -> bool {
         self.table.get(&timer_id.0).is_some_and(|t| t.owner_pid == pid)
     }
+
+    /// Frees every timer `pid` owns — its exit (TASK-0333 6a: a task's objects die with it,
+    /// as a `cap_close` of each would free them). Returns how many.
+    pub fn free_owned_by(&mut self, pid: u32) -> usize {
+        let ids: Vec<u32> =
+            self.table.iter().filter(|(_, t)| t.owner_pid == pid).map(|(id, _)| *id).collect();
+        for id in &ids {
+            let _ = self.free(TimerId(*id));
+        }
+        ids.len()
+    }
+
+    /// Frees every timer that notifies `endpoint` — the endpoint died, so a fire would write
+    /// into whatever its slot holds next. Returns how many.
+    pub fn forget_endpoint(&mut self, endpoint: u32) -> usize {
+        let ids: Vec<u32> =
+            self.table.iter().filter(|(_, t)| t.notify_ep == endpoint).map(|(id, _)| *id).collect();
+        for id in &ids {
+            let _ = self.free(TimerId(*id));
+        }
+        ids.len()
+    }
+
+    /// Live timers (the record).
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
 }
 
 impl fmt::Debug for HartTimers {

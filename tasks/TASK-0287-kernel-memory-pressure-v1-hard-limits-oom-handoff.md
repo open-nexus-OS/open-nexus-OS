@@ -1,6 +1,6 @@
 ---
 title: TASK-0287 Kernel memory pressure v1: watermarks + hard limits + canonical OOM handoff
-status: Draft
+status: Draft — M4, executed as Block 4 layer 6e under tasks/TASK-0333 (2026-10-19): accounting incl. GPU memory charged to the client, four levels as fractions of the FDT's free total, told to `memd` by an endpoint notification (RFC-0100 §3)
 owner: @runtime @kernel-team @reliability
 created: 2026-04-13
 depends-on:
