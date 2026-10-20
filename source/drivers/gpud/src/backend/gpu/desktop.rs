@@ -153,6 +153,8 @@ struct Stats {
     split: [u64; 5],
     /// The layer indices whose glass was blurred again in the window (a mask).
     glass_idx: u32,
+    /// RFC-0108: the frames past the panel's period in this window, and the worst.
+    ux: nexus_ux_budgets::FrameWindow,
 }
 
 /// The buffers a desktop takes: the layout adopted, the scratches, the cache, the frame's own.
@@ -511,6 +513,7 @@ impl Desktop {
             s.frames += 1;
             s.us += us;
             s.max_us = s.max_us.max(us);
+            s.ux.note(us);
             s.clean_us += clean_us;
             s.passes += passes as u64;
             s.draws += draws as u64;
@@ -553,6 +556,15 @@ impl Desktop {
                     s.split[2] / n / 1000,
                     s.split[3] / n / 1000,
                     s.split[4] / n / 1000
+                ));
+                // RFC-0108: the window judged — frames past 16.7 ms are dropped frames.
+                emit_fmt(format_args!(
+                    "gpud: ux frame {} (dropped={} of={} max_us={} budget_us={})",
+                    s.ux.verdict().as_str(),
+                    s.ux.dropped,
+                    s.ux.frames,
+                    s.ux.max_us,
+                    nexus_ux_budgets::FRAME_US
                 ));
                 *s = Stats::default();
             }

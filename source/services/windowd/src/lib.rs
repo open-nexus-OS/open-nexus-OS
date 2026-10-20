@@ -121,6 +121,7 @@ mod smoke;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod systemui_shell;
 mod telemetry;
+pub mod ux_input;
 mod visible_state;
 // RFC-0067 P3: window-frame geometry moved to `nexus-widget-window` (`frame`);
 // windowd consumes it as a client (re-exported in `compositor::shell_window`).

@@ -102,6 +102,10 @@ ladder_headless=(
   "SELFTEST: rss loop ok ("
   "gpud: dc encoder ok (hpd=1"
   "gpud: dc scanout ok ("
+  # RFC-0108 (TASK-0334): the greeter's launch judged against the UX contract — the prefix is
+  # the rung; a `FAIL` is red unless config/fail-marker-allow-board.txt names it with the
+  # package that tracks it.
+  "apphost: ux launch "
   "gpud: dc vblank armed ("
   # TASK-0329 G1 (RFC-0101 Phase 2): the GPU online — its node through socd, the window and
   # the core id, the published firmware started and answering, one address space bound and
@@ -212,6 +216,10 @@ ladder_visible=(
   "windowd: hw cursor on"
   "inputd: live pointer route on"
   "inputd: live keyboard route on"
+  # RFC-0108 (TASK-0334): a 32-frame window on the GPU and a 16-input window in the
+  # compositor, each judged — the operator's series fills both.
+  "gpud: ux frame "
+  "windowd: ux input "
   # RFC-0101 §8 (TASK-0216): the vertical blank is the frame clock and no present is drawn in
   # view — the interrupt served for a second, the first flip written inside the blank.
   "gpud: dc vblank ok ("

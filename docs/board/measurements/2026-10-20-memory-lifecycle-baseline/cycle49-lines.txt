@@ -1,0 +1,101 @@
+# cycle 49 (board--2026-10-20T12-32-45): the UX contract's first reading on the board (RFC-0108) beside the lifecycle chain
+973:execd: reaped pid=59 code=0 (free=981388 vmos=49 vmo_bytes=178503680 kobjects=253)
+993:apphost: start t_us=3823154
+1086:WINDOWD: surface presented id=1 seq=1 t_us=4704328
+1088:apphost: ux launch warn (first_frame_ms=881 budget_ms=300)
+1162:apphost: start t_us=8292622
+1213:WINDOWD: surface presented id=2 seq=1 t_us=8900540
+1215:apphost: ux launch warn (first_frame_ms=608 budget_ms=300)
+1352:execd: reaped pid=74 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1404:execd: reaped pid=75 code=-22 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1445:execd: reaped pid=77 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1450:execd: reaped pid=78 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1455:execd: reaped pid=79 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1460:execd: reaped pid=80 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1465:execd: reaped pid=81 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1471:execd: reaped pid=82 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1476:execd: reaped pid=83 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1481:execd: reaped pid=84 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1486:execd: reaped pid=85 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1496:execd: reaped pid=86 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1532:apphost: start t_us=13084589
+1577:WINDOWD: surface presented id=3 seq=1 t_us=13789351
+1581:apphost: ux launch warn (first_frame_ms=709 budget_ms=300)
+1617:windowd: ux input FAIL (to_submit_us=989601 of=16 budget_us=50000)
+1619:gpud: gpu frame us (n=32 avg=30165 max=91672 clean=514 passes=4.1 draws=23 area_px=1234488 glass_w=34 glass_r=32 glass_off=0 glass_idx=0x7e split=plan 9/emit 1015/submit 153/wait 28269/retire 15)
+1620:gpud: ux frame FAIL (dropped=14 of=32 max_us=91672 budget_us=16667)
+1621:gpud: dc present us (n=32 avg=34356 max=137471 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=1234488 front=0)
+1676:execd: reaped pid=87 code=0 (free=973379 vmos=58 vmo_bytes=196182016 kobjects=266)
+1678:abilitymgr: stop (inst=3 app=calculator pid=87 code=0 live=2)
+1780:apphost: start t_us=18243800
+1905:WINDOWD: surface presented id=4 seq=1 t_us=18869469
+1907:apphost: ux launch warn (first_frame_ms=634 budget_ms=300)
+1953:windowd: ux input FAIL (to_submit_us=768379 of=16 budget_us=50000)
+1985:execd: reaped pid=91 code=0 (free=973364 vmos=58 vmo_bytes=196182016 kobjects=266)
+1987:abilitymgr: stop (inst=4 app=chat pid=91 code=0 live=2)
+1995:gpud: gpu frame us (n=32 avg=32888 max=124024 clean=770 passes=4.1 draws=33 area_px=1371344 glass_w=34 glass_r=81 glass_off=0 glass_idx=0xbe split=plan 11/emit 614/submit 218/wait 31222/retire 15)
+1996:gpud: ux frame FAIL (dropped=24 of=32 max_us=124024 budget_us=16667)
+1997:gpud: dc present us (n=32 avg=32917 max=124038 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=1371344 front=0)
+2013:apphost: start t_us=24234368
+2058:WINDOWD: surface presented id=5 seq=1 t_us=32347240
+2060:apphost: ux launch FAIL (first_frame_ms=8116 budget_ms=300)
+2090:windowd: ux input FAIL (to_submit_us=634560 of=16 budget_us=50000)
+2129:execd: reaped pid=98 code=0 (free=973364 vmos=58 vmo_bytes=196182016 kobjects=266)
+2131:abilitymgr: stop (inst=5 app=settings pid=98 code=0 live=2)
+2159:apphost: start t_us=39720254
+2202:gpud: gpu frame us (n=32 avg=75320 max=250834 clean=854 passes=4.0 draws=19 area_px=1251413 glass_w=32 glass_r=34 glass_off=0 glass_idx=0x2e split=plan 10/emit 614/submit 135/wait 73336/retire 175)
+2203:gpud: ux frame FAIL (dropped=18 of=32 max_us=250834 budget_us=16667)
+2204:gpud: dc present us (n=32 avg=75350 max=250849 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=1251413 front=0)
+2214:WINDOWD: surface presented id=6 seq=1 t_us=43453755
+2216:apphost: ux launch FAIL (first_frame_ms=3739 budget_ms=300)
+2245:windowd: ux input FAIL (to_submit_us=995500 of=16 budget_us=50000)
+2270:dbg: hidrawd inputd send fail backpressure
+2271:hidrawd: chain I2 wire send FAIL (inputd route)
+2283:execd: reaped pid=99 code=0 (free=973364 vmos=58 vmo_bytes=196182016 kobjects=266)
+2285:abilitymgr: stop (inst=6 app=stash pid=99 code=0 live=2)
+2291:gpud: gpu frame us (n=32 avg=97653 max=315380 clean=645 passes=5.0 draws=31 area_px=875517 glass_w=43 glass_r=49 glass_off=0 glass_idx=0x5e split=plan 11/emit 749/submit 198/wait 95823/retire 22)
+2292:gpud: ux frame FAIL (dropped=17 of=32 max_us=315380 budget_us=16667)
+2293:gpud: dc present us (n=32 avg=97682 max=315395 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=875517 front=0)
+2319:apphost: start t_us=52645042
+2423:windowd: ux input FAIL (to_submit_us=1002969 of=16 budget_us=50000)
+2429:WINDOWD: surface presented id=7 seq=1 t_us=53100936
+2431:apphost: ux launch warn (first_frame_ms=456 budget_ms=300)
+2486:execd: reaped pid=100 code=0 (free=973364 vmos=58 vmo_bytes=196182016 kobjects=266)
+2488:abilitymgr: stop (inst=7 app=chat pid=100 code=0 live=2)
+2515:apphost: start t_us=60649235
+2627:WINDOWD: surface presented id=8 seq=1 t_us=61254037
+2629:apphost: ux launch warn (first_frame_ms=605 budget_ms=300)
+2633:windowd: ux input FAIL (to_submit_us=918842 of=16 budget_us=50000)
+2639:gpud: gpu frame us (n=32 avg=43913 max=113453 clean=717 passes=6.5 draws=42 area_px=1423416 glass_w=59 glass_r=48 glass_off=0 glass_idx=0xbe split=plan 43/emit 1056/submit 203/wait 41842/retire 24)
+2640:gpud: ux frame FAIL (dropped=18 of=32 max_us=113453 budget_us=16667)
+2641:gpud: dc present us (n=32 avg=43964 max=113465 clean=23 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=1423416 front=0)
+2740:windowd: ux input FAIL (to_submit_us=783615 of=16 budget_us=50000)
+2741:gpud: gpu frame us (n=32 avg=44903 max=107464 clean=445 passes=6.9 draws=45 area_px=778590 glass_w=63 glass_r=60 glass_off=0 glass_idx=0xbe split=plan 11/emit 880/submit 234/wait 43244/retire 26)
+2742:gpud: ux frame FAIL (dropped=31 of=32 max_us=107464 budget_us=16667)
+2743:gpud: dc present us (n=32 avg=44933 max=107480 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=778590 front=0)
+2840:gpud: gpu frame us (n=32 avg=83560 max=163301 clean=330 passes=13.0 draws=121 area_px=1231022 glass_w=129 glass_r=67 glass_off=0 glass_idx=0x3f6 split=plan 12/emit 3147/submit 407/wait 79462/retire 79)
+2841:gpud: ux frame FAIL (dropped=32 of=32 max_us=163301 budget_us=16667)
+2842:gpud: dc present us (n=32 avg=83589 max=163317 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=1231022 front=0)
+2859:windowd: ux input FAIL (to_submit_us=1883777 of=16 budget_us=50000)
+2917:windowd: ux input FAIL (to_submit_us=4095216 of=16 budget_us=50000)
+2929:gpud: gpu frame us (n=32 avg=54166 max=105715 clean=1006 passes=7.6 draws=47 area_px=917294 glass_w=71 glass_r=41 glass_off=0 glass_idx=0x36 split=plan 11/emit 1303/submit 506/wait 51242/retire 27)
+2930:gpud: ux frame FAIL (dropped=31 of=32 max_us=105715 budget_us=16667)
+2931:gpud: dc present us (n=32 avg=54195 max=105730 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=917294 front=0)
+2974:windowd: ux input FAIL (to_submit_us=3728213 of=16 budget_us=50000)
+3023:WINDOWD: surface presented id=9 seq=1 t_us=132243570
+3025:gpud: gpu frame us (n=32 avg=61088 max=128275 clean=725 passes=8.3 draws=60 area_px=1217171 glass_w=78 glass_r=49 glass_off=0 glass_idx=0x7e split=plan 12/emit 1950/submit 303/wait 57980/retire 43)
+3026:gpud: ux frame FAIL (dropped=31 of=32 max_us=128275 budget_us=16667)
+3027:gpud: dc present us (n=32 avg=61123 max=128290 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=1217171 front=0)
+3042:windowd: ux input FAIL (to_submit_us=1335378 of=16 budget_us=50000)
+3111:gpud: gpu frame us (n=32 avg=48170 max=154433 clean=792 passes=4.3 draws=26 area_px=1600756 glass_w=36 glass_r=17 glass_off=0 glass_idx=0x3e split=plan 10/emit 894/submit 134/wait 46131/retire 168)
+3112:gpud: ux frame FAIL (dropped=21 of=32 max_us=154433 budget_us=16667)
+3113:gpud: dc present us (n=32 avg=48202 max=154448 clean=1 blur=0 layer=0 shadow=0 blit=0 fill=0 other=0 damage_px=1600756 front=0)
+3134:windowd: ux input FAIL (to_submit_us=5024594 of=16 budget_us=50000)
+3135:board-visual: desktop
+3136:board-visual: gpu-desktop
+3137:board-visual: typed
+3138:board-visual: pointer
+3139:board-visual: modal
+3140:board-visual: tile
+3141:board-visual: clipboard
+3142:board-visual: screenshot

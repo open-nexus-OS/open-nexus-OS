@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added - 2026-10-20 (the UX latency contract — RFC-0108, TASK-0334)
+
+- **"Instant" and "smooth" as numbers every lane judges.** Cycle 47 on the desk board was green
+  on every gate and felt like a slideshow, then froze — the numbers existed, no line judged
+  them. One SSOT of budgets (`nexus-ux-budgets`: a frame 16.7 ms with one dropped per 32 as
+  warn and four as FAIL, an input's wait 50 / 100 ms, a launch's first frame 300 ms / 1 s, a
+  tap's feedback 100 ms) and one verdict rule (`judge`, host truth table); one line shape
+  (`<svc>: ux <name> ok|warn|FAIL (…)`). Three lines: `gpud: ux frame` per 32-frame window,
+  `windowd: ux input` per 16 inputs (the first staged input to the submit of the frame that
+  carries it), `apphost: ux launch` per app (first instruction to first frame's ack). The
+  prefixes are rungs on the ladders; a `FAIL` is red unless the lane's allow-list names it
+  with its tracking reference (QEMU: TCG timing is not the contract; the board: the frame with
+  glass, the input's wait, the launch of the large apps — each named with its package).
+  `docs/testing/os-markers.md` carries the standard.
+
 ### Changed - 2026-10-19 (Block 4, layer 6a: what dies is freed — TASK-0333, RFC-0100 §1)
 
 - **A VMO dies with its last capability.** A reaped task's objects — the ones its capability

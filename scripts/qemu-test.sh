@@ -1074,6 +1074,9 @@ expected_sequence=(
   "windowd: systemui loaded (profile=desktop)"
   "windowd: present ok (seq=1 dmg=1)"
   "launcher: first frame ok"
+  # RFC-0108 (TASK-0334): the greeter's first frame judged against the launch budget — the
+  # prefix is the rung; under TCG the verdict is `FAIL` and allow-listed by name.
+  "apphost: ux launch "
   "SELFTEST: ui launcher present ok"
   "SELFTEST: ui resize ok"
 )

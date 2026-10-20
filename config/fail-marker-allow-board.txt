@@ -17,6 +17,20 @@ SELFTEST: statefs tamper deny FAIL
 SELFTEST: statefs rollback deny FAIL
 SELFTEST: statefs enc roundtrip FAIL
 #
+# RFC-0108 (TASK-0334): the UX latency contract's verdicts, red on the board today and each
+# tracked by the package that meets it — measured 2026-10-20 (cycles 47/48,
+# docs/board/measurements/2026-10-20-memory-lifecycle-baseline/README.md). Remove each line
+# when its package turns the verdict green on the board.
+# The frame: 36–69 ms of GPU time at several glass layers → the frame-cost package (gpud:
+# blur only the damage, cache static backdrops), after the non-parking compositor.
+gpud: ux frame FAIL
+# The input's wait: windowd parks on a client's full queue → the non-parking compositor
+# (ADR-0075, pulled from 6d).
+windowd: ux input FAIL
+# The launch: settings 7.3 s, stash 4.6 s to their first frame → 6c (the image without a
+# copy) and the DSL apps' first frame by stage.
+apphost: ux launch FAIL
+#
 # The board's RTC (`rtc@d4010000`, `spacemit,k1-rtc`) has no driver yet, so the wall-clock
 # proof has no source. Found by tasks/TASK-0327B P4 (H0), measured 2026-09-29
 # (board--2026-09-29T18-26-58 — whole once the console was line-atomic; torn and invisible to

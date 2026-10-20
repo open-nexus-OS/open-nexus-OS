@@ -362,6 +362,19 @@ impl DisplayServerRuntime {
         self.tile_map.clear();
         let gpud_ok = self
             .send_gpud_present(&mut frame_buf[..nexus_display_proto::PRESENT_HEADER_LEN + written]);
+        if gpud_ok {
+            // RFC-0108: the frame that carries the pending input left for gpud — the input's
+            // wait in windowd is judged once a window of them is in.
+            if let Some(line) = self.ux_input.note_submit(nexus_abi::nsec().unwrap_or(0)) {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: ux input {} (to_submit_us={} of={} budget_us={})",
+                    line.verdict.as_str(),
+                    line.max_us,
+                    line.inputs,
+                    nexus_ux_budgets::INPUT_WARN_US
+                ));
+            }
+        }
         if !gpud_ok {
             // gpud queue full / backpressured — requeue so the next tick retries.
             for rect in content.iter().copied().take(content_count) {

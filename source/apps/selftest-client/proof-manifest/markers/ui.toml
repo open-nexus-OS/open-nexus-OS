@@ -450,3 +450,19 @@ proves = "windowd refused a capture command (identity or greeter, busy, no frame
 [marker."SELFTEST: ui v7 screenshot ok"]
 phase = "end"
 proves = "Print opened the screenshot UI over the frozen frame, a dragged selection was shot and saved as a PNG in the Pictures folder's Screenshots (the UI path end to end, once per boot)"
+
+# RFC-0108 (TASK-0334): the UX latency contract — one line per window with a verdict
+# (`ok|warn|FAIL`) against the budgets in `nexus-ux-budgets`. The prefix is the rung; the
+# verdict is read by the no-fake-green scan (a `FAIL` is red unless the lane's allow-list
+# names it with its tracking reference — an emulated lane's timing is not the contract).
+[marker."apphost: ux launch "]
+phase = "end"
+proves = "an app's first frame was acked, judged from its first instruction against the launch budget (warm 300 ms, red at 1 s)"
+
+[marker."gpud: ux frame "]
+phase = "end"
+proves = "a 32-frame window on the board's GPU judged: frames past the panel's 16.7 ms are dropped frames (one is warn, four FAIL)"
+
+[marker."windowd: ux input "]
+phase = "end"
+proves = "a 16-input window judged: how long the first staged input waited for the frame that carried it to gpud (50 ms warn, 100 ms FAIL)"

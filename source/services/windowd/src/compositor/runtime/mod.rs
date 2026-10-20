@@ -572,6 +572,8 @@ pub(crate) struct DisplayServerRuntime {
     chrome_cache: chrome_widget::ChromeCache,
     /// Bounded S1 rate diagnostics: wheel deltas staged from inputd pushes.
     wheel_stage_count: u32,
+    /// RFC-0108: how long a staged input waits for the frame that carries it.
+    ux_input: crate::ux_input::UxInput,
     /// One-time proof marker latch for the hover chain.
     hover_marker_emitted: bool,
     /// Last hover-MOVE forward (ns) — ~33Hz throttle.
@@ -870,6 +872,7 @@ impl DisplayServerRuntime {
             cursor_ring_active: false,
             chrome_cache: chrome_widget::ChromeCache::new(),
             wheel_stage_count: 0,
+            ux_input: Default::default(),
             hover_marker_emitted: false,
             hover_last_move_ns: 0,
             shell_config,

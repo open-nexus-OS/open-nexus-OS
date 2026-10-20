@@ -47,6 +47,26 @@ pub(super) fn map_atlas_base() {
     raw_marker("APPHOST: atlas mapped");
 }
 
+/// The launch clock starts: the process's first instruction, named on one clock with
+/// windowd's `launch request` and `surface presented` (TASK-0333 6a's stages).
+pub(super) fn mark_start() -> u64 {
+    let start_ns = nsec_now();
+    raw_marker(&alloc::format!("apphost: start t_us={}", start_ns / 1000));
+    start_ns
+}
+
+/// The first frame is acked: the launch as the user feels it, judged against the UX
+/// contract (RFC-0108: warm 300 ms, red at 1 s) — `apphost: ux launch <verdict> (…)`.
+pub(super) fn mark_first_frame(start_ns: u64) {
+    raw_marker("APPHOST: probe surface presented");
+    let first_frame_ms = nsec_now().saturating_sub(start_ns) / 1_000_000;
+    raw_marker(&alloc::format!(
+        "apphost: ux launch {} (first_frame_ms={first_frame_ms} budget_ms={})",
+        nexus_ux_budgets::judge_launch(first_frame_ms).as_str(),
+        nexus_ux_budgets::LAUNCH_WARN_MS
+    ));
+}
+
 /// Monotonic now (ns) for physics dt; 0 on ABI failure (tick clamps dt).
 pub(super) fn nsec_now() -> u64 {
     #[cfg(nexus_env = "os")]

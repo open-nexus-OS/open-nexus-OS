@@ -337,6 +337,15 @@ W2 ← M4). SMP waits: the board runs its four harts already, and no package of 
 lock path. The package table below keeps its numbers; read it with M2–M7 (rows 2, 5, 9, 15, 20)
 and the new 6a/6d packages (TASK-0333) ahead of S1–S3 (rows 1, 4, 8); M6 + M7 leave layer 8 for 6f.
 
+**Recut 2026-10-20 (6a complete; the operator's demand — instant, no freeze, smooth as the
+reference class, with glass):** the goal becomes a contract judged on every lane first —
+**package 0, the UX latency contract** (TASK-0334, RFC-0108: one SSOT of budgets, three lines
+with a verdict, red named by the allow-list with its package) — then, in this order and each
+read against those lines: the non-parking compositor (windowd never blocks on an app, app-host
+never on windowd; ADR-0075 pulled from 6d; the fullscreen and settings/stash click defects with
+it), the frame cost with glass (gpud: blur only the damage, cache static backdrops), the launch
+without a copy (6c) and the DSL apps' first frame by stage. 6b/6d–6f keep their places behind.
+
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by
 whoever picks it up; the GPU lane runs straight to the desktop (layers 2–5) because the
@@ -434,7 +443,7 @@ as reported on 4/8/16 GB boards.
 | 0234 / 0235 / 0236 / 0237 | lifecycle and the wake-lock half of power: absorbed into layer 6d (TASK-0333, 2026-10-19); the governor/powerd half of 0236/0237 stays parked |
 | 0281 / 0282 | kernel Rust-idiom closures — unchanged, run with S when a package touches the same files |
 | 0316 – 0320 | storage end-state ladder (nxfs v2, nxfsd, perf, CoW/snapshots, encryption) — parked, unchanged |
-| 0145B / 0269B | runtime quality budgets — parked; 0269B's launch budget (app start by stages, a warm restart under 200 ms) is layer 6a/6e's (TASK-0333, 2026-10-19), its boot → first frame row stays |
+| 0145B / 0269B | runtime quality budgets — parked; 0269B's launch budget (app start by stages, a warm restart under 200 ms) is layer 6a/6e's (TASK-0333, 2026-10-19), its boot → first frame row stays; the user-felt budgets (a frame, an input, a launch, a tap) are TASK-0334's (RFC-0108, 2026-10-20) |
 | 0122B / 0122C | DSL app platform — parked (0122C's clipboard bridge is in 0067) |
 | 0323 | ingress follow-ups: TLS → N3; UDP data plane + listener close stay with the family (N5) |
 

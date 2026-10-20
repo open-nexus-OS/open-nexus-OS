@@ -56,6 +56,7 @@ nexus-hal = { path = "../../libs/nexus-hal" }
 nexus-sdf = { path = "../../../userspace/ui/sdf" }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
+nexus-ux-budgets = { path = "../../libs/nexus-ux-budgets" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", default-features = false, features = ["os-lite", "kernel-ipc"], optional = true }
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
 nexus-driverkit = { path = "../../libs/nexus-driverkit", optional = true }

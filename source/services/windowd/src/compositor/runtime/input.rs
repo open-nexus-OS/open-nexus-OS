@@ -31,6 +31,8 @@ impl DisplayServerRuntime {
                 state.wheel_delta_y
             ));
         }
+        // RFC-0108: the first input since the last submit starts the input clock.
+        self.ux_input.note_input(nexus_abi::nsec().unwrap_or(0));
         if let Some(edge) = self.input_stage.stage(state) {
             self.apply_input_state(edge);
         }

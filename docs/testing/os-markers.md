@@ -214,6 +214,37 @@ Keep this file focused on the global testing workflow. For DHCP/DSoftBus proof g
   - Example: `just miri-fs` (uses `MIRIFLAGS='-Zmiri-disable-isolation --cfg nexus_env="host"'`).
 - Under `#[cfg(miri)]`, keep property tests lightweight (lower case count, disable persistence) to avoid long runtimes.
 
+## Measurement lines and UX budgets (RFC-0108, TASK-0334)
+
+A measurement line names a number; a **judged** measurement line names it against a budget and
+carries a verdict. The shape is one for every emitter:
+
+```
+<service>: ux <name> <ok|warn|FAIL> (<measure>=<value> … budget_<unit>=<budget>)
+```
+
+- The budgets live in ONE place, `source/libs/nexus-ux-budgets/src/lib.rs` (a frame 16 667 µs
+  with one dropped frame per 32 as `warn` and four as `FAIL`; an input's wait in the compositor
+  50 ms / 100 ms; a launch's first frame 300 ms / 1 s; a tap's feedback 100 ms). A service reads
+  them; it never re-types a number. The verdict is the crate's `judge` (host truth table), never
+  a service's own comparison — `ok` only inside the budget.
+- The lines of Phase 0: `gpud: ux frame <v> (dropped= of=32 max_us= budget_us=16667)` once per
+  32-frame window beside `gpu frame us`; `windowd: ux input <v> (to_submit_us= of=16
+  budget_us=50000)` once per 16 inputs (the first staged input to the submit of the frame that
+  carries it — the way to the pixel is gpud's `dc present us`, the way from the device is
+  hidrawd's `drain_us` until the input carries its own stamp); `apphost: ux launch <v>
+  (first_frame_ms= budget_ms=300)` once per app, from its first instruction to its first
+  frame's ack.
+- **The rung is the prefix** (`gpud: ux frame `): a ladder requires the line's presence. **The
+  verdict is the scan's**: `FAIL` is red unless the lane's allow-list names it with its tracking
+  reference (`config/fail-marker-allow.txt` for QEMU — an emulated lane's timing is not the
+  contract; `config/fail-marker-allow-board.txt` for the board — each red named with the package
+  that meets it, removed when it turns green). A reader of any run judges it the same way:
+  the lines, then the allow-list.
+- Where a lane's rungs go: `apphost: ux launch ` on `headless`/`visible`/`board-headless`
+  (the greeter); `gpud: ux frame ` and `windowd: ux input ` on `board-visible` (the operator's
+  series fills the windows; the GPU path exists on the board alone).
+
 ## Display truth: build provenance + host pixel proof (TASK-0324 P0)
 
 UART markers are the compositor's and the driver's *claims*; the display is

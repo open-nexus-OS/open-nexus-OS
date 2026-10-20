@@ -195,6 +195,19 @@ launch's time goes; the board's numbers (cycle 44) decide for the hardware. The 
 - GPU frame time 36–69 ms at several glass layers (the next package after the non-parking
   compositor).
 
+### The board (cycle 49, `board--2026-10-20T12-32-45`; `cycle49-lines.txt`) — the UX contract's first reading (RFC-0108)
+
+| Line | Windows | Reading |
+|---|---|---|
+| `gpud: ux frame` | 10, all `FAIL` | 14–32 of 32 frames past 16.7 ms; `max_us` 92–315 ms; `gpu frame us` avg 44–84 ms with 95 % in `wait` (the GPU) at 2.4 Mpx of layer pixels per frame — whether 1.6 or 6.1 glass layers |
+| `windowd: ux input` | 12, all `FAIL` | the first staged input waits 0.6–5.0 s for the frame that carries it (the submit loop throttled by frames in flight of 50–300 ms each) |
+| `apphost: ux launch` | 8 | calculator/chat/greeter/shell `warn` 456–881 ms; settings `FAIL` 8.1 s, stash 3.7 s |
+
+The chain of 6a holds beside it (five closes, `free=973364 vmos=58 kobjects=266` at every
+reap); one transient `hidrawd inputd send fail backpressure` recovered this cycle. The lesson for
+the order: the frame cost (the whole screen redrawn every frame, on the GPU) drives both the
+slideshow and the input's wait; the non-parking compositor prevents the freeze.
+
 ## Verdict (6a)
 
 What dies is freed: a VMO, an endpoint, a timer, a waitset, a fence die with their last

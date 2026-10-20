@@ -98,7 +98,7 @@ mod boot_env;
 use boot_env::{map_atlas_base, nsec_now, payload_addr};
 
 pub(super) fn run() -> Result<(), &'static str> {
-    raw_marker(&alloc::format!("apphost: start t_us={}", nsec_now() / 1000));
+    let start_ns = boot_env::mark_start();
     // RFC-0080: install the shared atlas BEFORE any text renders.
     map_atlas_base();
 
@@ -331,7 +331,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
     send_wait(&client, &buf[..len])?;
     let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect, &mut boot_region)?;
-    raw_marker("APPHOST: probe surface presented");
+    boot_env::mark_first_frame(start_ns);
     // R1 layer seam: declare the initial glass regions to windowd.
     if let Some(dsl) = app.as_ref() {
         dsl.submit_layers(&client, surface_id);

@@ -201,6 +201,7 @@ dependencies = [
  "nexus-style",
  "nexus-text-baked",
  "nexus-theme-tokens",
+ "nexus-ux-budgets",
  "nexus-vfs-types",
  "nexus-wire",
  "tz-lite",
@@ -1324,6 +1325,7 @@ dependencies = [
  "nexus-service-entry",
  "nexus-service-topology",
  "nexus-svg",
+ "nexus-ux-budgets",
  "nexus-wire",
 ]
 
@@ -2562,6 +2564,10 @@ dependencies = [
 
 [[package]]
 name = "nexus-usb"
+version = "0.1.0"
+
+[[package]]
+name = "nexus-ux-budgets"
 version = "0.1.0"
 
 [[package]]
@@ -5328,6 +5334,7 @@ dependencies = [
  "nexus-text-baked",
  "nexus-theme",
  "nexus-theme-tokens",
+ "nexus-ux-budgets",
  "nexus-widget-text",
  "nexus-widget-window",
  "nexus-wire",

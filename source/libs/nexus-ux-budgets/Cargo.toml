@@ -1,0 +1,11 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-ux-budgets"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "THE SSOT of the UX latency contract (RFC-0108): the budgets a frame, an input, a launch must meet to feel instant and smooth, and the one verdict rule (ok / warn / FAIL) every measurement line applies. no_std, no dependencies; gpud, windowd and app-host read it, the proof ladders judge its lines."
+
+[dependencies]
