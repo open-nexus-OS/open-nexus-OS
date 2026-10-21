@@ -34,6 +34,12 @@ pub struct TileRect {
     pub height: u32,
 }
 
+impl TileRect {
+    /// The empty rectangle at the origin: as a `Command::Damage` it names no damage (RFC-0101
+    /// §8) — the one empty rectangle the wire accepts.
+    pub const NONE: Self = Self { x: 0, y: 0, width: 0, height: 0 };
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderPassDesc {
     pub color_attachments: Vec<ResourceId>,

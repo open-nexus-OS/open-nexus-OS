@@ -116,9 +116,7 @@ pub(crate) struct DcDisplay {
     /// written back late would land over the GPU's pixels).
     slot_gpu: [bool; ring::SLOTS],
     slot_cpu: [bool; ring::SLOTS],
-    /// The running present was drawn by the GPU (every present that was not is refused).
-    drawn_by_gpu: bool,
-    /// A present refused for want of a GPU frame, said once (`gpud: FAIL dc present (`).
+    /// A present refused (no GPU frame, no free plane), said once (`gpud: FAIL dc present (`).
     refused_reported: bool,
     /// What the GPU's frame redrew of its slot (the present's damage for the ring and the
     /// statistics; empty when the slot lacked nothing).
@@ -205,7 +203,6 @@ impl DcDisplay {
             // The CPU drew the splash's planes and the rungs' canvases: every slot's lines are
             // dropped once before the GPU's first frame in it.
             slot_cpu: [true; ring::SLOTS],
-            drawn_by_gpu: false,
             refused_reported: false,
             gpu_area: None,
             frozen: false,

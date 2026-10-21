@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-21 (cycle 53's overflow fixed — one frame producer, TASK-0338)
+
+- **The display shows only frames windowd sent.** gpud drew a frame of its own for every
+  transition tick, drag step and scroll step (`OP_SET_LAYER_TRANSFORM`, `OP_SET_LAYER_SCROLL`)
+  into the three-plane ring that windowd's two in-flight presents already fill; windowd's next
+  present found no plane, was refused, and windowd answered with a full-screen recompose — on
+  the board 1–7 presents a second and inputs waiting up to 5.7 s (cycle 53). Now a tick, a drag
+  step and a scroll step owe a frame and the next present carries the latest state, inside the
+  budget and coalesced to the display's blank; the present names no damage
+  (`TileRect::NONE`) and the planner redraws only what moved. The two ops (wire 6 and 10) and the
+  layer's `scroll_id` are retired; a full ring is refused by name.
+- **A transition tick no longer damages a legacy panel**: every tick queued an 826×260 px desktop
+  rectangle under the windows' glass.
+- **The frame clock's keep-alive owes a frame instead of re-drawing the pointer's region**, and
+  windowd's loop line counts frames owed for motion alone (`frames(… moved= …)`).
+
+### Changed - 2026-10-21 (cycle 52's numbers acted on — the first frame's raster, the shell's full repaints, the input clock)
+
+- **A big window's first frame rasters 4–10× faster on the CPU.** Every box interior went
+  pixel by pixel through `blend`, and every material box's 1-px border ran two rounded-rect
+  distance fields on every pixel of every row; settings, stash and chat spent 3–4 s of their
+  launch there on the board. Interiors are one span a row (`blend_span`, `set_span`), the ring
+  is computed only where it is not zero, the straight top and bottom edges of a ring or a shine
+  are one coverage a row — byte-identical (`span_identity.rs` against the pixel path; the design
+  goldens unchanged). Host: settings 27 → 4.9 ms, stash 17 → 3.8, chat 14 → 1.4.
+- **The shell no longer repaints the desktop on every window open, close or focus.** The window
+  feed re-renders the rows its layout diff names, like a tap (25 full-screen frames in cycle 52).
+- **`windowd: ux input` times frames windowd owes, not idleness**: the clock starts at the
+  first queued damage after a submit; a pointer move the pointer plane shows starts nothing.
+  `apphost: ux launch` also names `vmo_ms`.
+- **An incomplete system volume cannot be flashed**: `scripts/board-image.sh` refuses it (cycle
+  52a packed bundles a stopped QEMU lane was rewriting — no signal on the board at all).
+
+### Changed - 2026-10-21 (a window as one surface, one window path, the materials — TASK-0336, TASK-0337, TASK-0335 P2)
+
+- **A window opens as one surface and becomes the app in one frame.** At the launch's geometry
+  handshake windowd shows the window's starting surface — one opaque patch of the window colour
+  spread over the frame (`LAYER_SOLID`) — and runs the enter spring on it; the spawn, the mount
+  and the first frame (0.5–6.9 s on the board) happen behind a window that is already there,
+  and the app's surface takes over in one present with its regions already declared. The close
+  button swaps the window to the same surface at once and the exit spring moves that, never the
+  app's layers with their glass. Every window asks its geometry now (`mode: auto` gets the WM's
+  320×270 utility frame).
+- **Glass blurs at rest.** A glass of a window in motion — a transition, a drag — keeps its last
+  blur and is blurred once when the window rests; a drag rides as the window's layer transform
+  (no present per pointer move), every present carries the windows' transforms
+  (`Command::LayerTransform`), and a moved frame and its transform always land together. gpud
+  names why each glass was written (`gpud: glass writes (band= backdrop= moved= new= full=)`),
+  `windowd: loop` reports every window with a present, `apphost: ux launch` its stages.
+- **One window path.** windowd composes no title bar for any style any more (the title-bar
+  raster, its overlay and its hovers deleted); calculator and chat draw window-kit's chrome like
+  settings and stash.
+- **The materials rules in the pixels.** The content pane is opaque (`LAYER_OPAQUE`), the board
+  draws nothing under it — the wallpaper, the layers, their shadows and a cached glass cut to
+  the pieces around it (`frame::occlude`) — and opaque straight parts run the opaque program.
+  **Reduce transparency** (`ui.material`, Settings → Erscheinungsbild) makes every material its
+  tint at full opacity, blurs nothing and turns every material region into an occluder.
+- The stock tree has eight display planes, two in use; the dragged window on a plane waits for
+  the overlay plane's measured register sequence (TASK-0336 P4).
+
 ### Changed - 2026-10-21 (the frame cost: the vendor's numbers, the passes shared — TASK-0335 P2/P3)
 
 - **The vendor stack priced the open questions** (`docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/`):

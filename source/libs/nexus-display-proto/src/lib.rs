@@ -54,6 +54,7 @@ pub mod surface_settings;
 pub mod surface_text;
 pub mod surface_windows;
 pub use surface_windows::{OP_SURFACE_TASKBAR, OP_SURFACE_WINDOWS};
+pub mod theme_byte;
 
 // ── Opcodes (frame byte 0) ───────────────────────────────────────────────────
 
@@ -70,12 +71,10 @@ pub const OP_SET_FRAMEBUFFER_VMO: u8 = 3;
 pub const OP_PRESENT_DAMAGE: u8 = 4;
 /// Upload a cursor sprite (BGRA) for software BlendCursor compositing.
 pub const OP_UPLOAD_CURSOR: u8 = 5;
-/// Scroll fast path: new absolute atlas source row for the scrollable layer
-/// identified by `scroll_id`. Payload: `scroll_id: u32` + `src_row: u32`
-/// (little-endian). Generalizes the former chat-only scroll op (TASK-0070
-/// Phase 7) — any layer composited with a non-zero `scroll_id` can be
-/// re-sampled without a CPU re-render.
-pub const OP_SET_LAYER_SCROLL: u8 = 6;
+// 6 and 10 are retired (TASK-0338): the layer scroll and layer transform overrides that gpud
+// drew as frames of its own, outside the compositor's present budget — a scroll and a
+// transform now ride in the present (`Command::CompositeLayer`'s row, `Command::LayerTransform`),
+// the present is the only frame. Never reuse the numbers: an old sender gets `STATUS_MALFORMED`.
 /// Upload a real icon sprite to composite as a GPU layer.
 pub const OP_UPLOAD_ICON: u8 = 7;
 /// Fill a cursor shape-cache slot WITHOUT arming it. Payload:
@@ -87,19 +86,6 @@ pub const OP_UPLOAD_CURSOR_SHAPE: u8 = 8;
 /// Switch the active cursor sprite to a previously cached shape slot.
 /// Payload: `[shape_id: u8]`. Reply: single status byte (fire-and-forget safe).
 pub const OP_SELECT_CURSOR_SHAPE: u8 = 9;
-
-/// Track C2 — the unified compositor layer-transform override (the
-/// generalization of [`OP_SET_LAYER_SCROLL`]): windowd animates a retained
-/// window layer's translate/opacity/scale WITHOUT any re-render or re-upload.
-/// gpud RECORDS the override per layer id and re-composites ONCE per drained
-/// burst (the scroll coalescing contract); a full present clears the table —
-/// windowd bakes the current transform into the encoded layer (snap-back
-/// agreement). Frame: `[op, layer_id u32, dx i16, dy i16, opacity u8,
-/// scale_pct u16]` = 12 bytes; opacity 255 + scale 100 + 0/0 = identity.
-pub const OP_SET_LAYER_TRANSFORM: u8 = 10;
-
-/// Encoded [`OP_SET_LAYER_TRANSFORM`] frame length.
-pub const SET_LAYER_TRANSFORM_LEN: usize = 12;
 
 /// windowd → gpud: the wallpaper SOURCE plane (VMO plane 0) was rewritten
 /// (theme-matched wallpaper swap) — re-upload the wallpaper GL texture from
@@ -125,40 +111,6 @@ pub const PRESENT_ACK_LEN: usize = 5;
 /// content_w, content_h]` (u32 le, then u16 le ×6).
 pub const ATTACH_ACK_LEN: usize = 21;
 
-/// Encode the layer-transform override (see [`OP_SET_LAYER_TRANSFORM`]).
-#[must_use]
-pub fn encode_set_layer_transform(
-    layer_id: u32,
-    dx: i16,
-    dy: i16,
-    opacity: u8,
-    scale_pct: u16,
-) -> [u8; SET_LAYER_TRANSFORM_LEN] {
-    let mut f = [0u8; SET_LAYER_TRANSFORM_LEN];
-    f[0] = OP_SET_LAYER_TRANSFORM;
-    f[1..5].copy_from_slice(&layer_id.to_le_bytes());
-    f[5..7].copy_from_slice(&dx.to_le_bytes());
-    f[7..9].copy_from_slice(&dy.to_le_bytes());
-    f[9] = opacity;
-    f[10..12].copy_from_slice(&scale_pct.to_le_bytes());
-    f
-}
-
-/// Decode an [`OP_SET_LAYER_TRANSFORM`] frame → `(layer_id, dx, dy, opacity,
-/// scale_pct)`; `None` when malformed.
-#[must_use]
-pub fn decode_set_layer_transform(frame: &[u8]) -> Option<(u32, i16, i16, u8, u16)> {
-    if frame.len() < SET_LAYER_TRANSFORM_LEN || frame[0] != OP_SET_LAYER_TRANSFORM {
-        return None;
-    }
-    Some((
-        u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]),
-        i16::from_le_bytes([frame[5], frame[6]]),
-        i16::from_le_bytes([frame[7], frame[8]]),
-        frame[9],
-        u16::from_le_bytes([frame[10], frame[11]]),
-    ))
-}
 /// Number of cursor shape-cache slots gpud guarantees: 5 pointer shapes
 /// (default + 4 resize) + 8 loading-ring frames (the animated wait cursor
 /// cycles pre-uploaded slots via the 2-byte SELECT — no per-frame upload).

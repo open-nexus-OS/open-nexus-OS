@@ -71,9 +71,9 @@ impl VirtioGpuBackend {
     /// Nothing of the stream is drawn into the VMO.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) fn execute_commands(&mut self, cmds: &[Command]) -> Result<(), GfxError> {
-        // A pointer move brings no layer and keeps the set (every present composes it whole;
-        // clearing it would flicker); layers replace it — the scroll overrides with it, the
-        // transform overrides kept (windowd retires them itself).
+        // A present without layers keeps the set (every present composes it whole; clearing it
+        // would flicker); layers replace it — a scrolled body comes with its new row — and the
+        // windows' transforms ride in every present (TASK-0338).
         if self.gl_scanout_active && self.frame.layers.take_frame(cmds).dropped > 0 {
             // NEVER silent: a dropped layer is a missing window or lost chrome on screen.
             let _ = nexus_abi::debug_println("gpud: FAIL rt-layer overflow");

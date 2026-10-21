@@ -329,13 +329,13 @@ mod tests {
             shadow_offset_y: 0,
             shadow_alpha: 0,
             backdrop_blur: blur,
-            scroll_id: 0,
             content_w: 0,
             content_h: 0,
             scroll_band_top_abs: 0,
             scroll_band_h: 0,
             layer_id: 0,
             content_epoch: 0,
+            flags: 0,
         };
         let mut window = None;
         for _ in 0..FrameStats::WINDOW {

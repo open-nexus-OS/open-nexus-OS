@@ -224,17 +224,12 @@ pub struct VirtioGpuBackend {
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) icon_tex_h: u32,
     /// The frame planner's state (TASK-0215 5c-3 P4): the retained layer set the GL scanout
-    /// composes every frame, its scroll and transform overrides, the glass cache's keys.
+    /// composes every frame, the windows' transforms, the glass cache's keys.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) frame: nexus_gfx::frame::Frame,
     /// One-shot marker: first destination-so-far backdrop snapshot+blur submitted.
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     pub(crate) rt_backdrop_marker_done: bool,
-    /// One-shot marker: first `OP_SET_LAYER_SCROLL` applied (scroll fast path live).
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) layer_scroll_marker_done: bool,
-    #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-    pub(crate) layer_transform_marker_done: bool,
     /// First GPU layer composited (marker bookkeeping).
     #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
     virgl_layer_marker_done: bool,
@@ -387,10 +382,6 @@ impl VirtioGpuBackend {
             frame: nexus_gfx::frame::Frame::new(glass_blur::BLUR_CACHE_TEX_H),
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             rt_backdrop_marker_done: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            layer_scroll_marker_done: false,
-            #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
-            layer_transform_marker_done: false,
             #[cfg(all(feature = "virgl", feature = "os-lite", target_os = "none"))]
             virgl_layer_marker_done: false,
             #[cfg(feature = "virgl")]

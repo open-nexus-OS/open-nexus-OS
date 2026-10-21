@@ -100,6 +100,17 @@ impl super::DslApp {
         true
     }
 
+    /// The page base's alpha: the surface's (`base_alpha` — 0 on the desktop, opaque for an
+    /// overlay or a fullscreen window, frosted for a floating one) — and opaque for a floating
+    /// window too under solid materials (TASK-0337, reduce transparency).
+    fn page_base_alpha(&self) -> u8 {
+        if wire::theme_is_solid(self.theme_mode) && self.base_alpha > 0 {
+            255
+        } else {
+            self.base_alpha
+        }
+    }
+
     pub(super) fn render(&mut self, vmo: u32) -> bool {
         // Every dispatch path presents through here: mirror the modal depth to
         // windowd and keep the transient timer honest BEFORE the pixels (TASK-0074).
@@ -117,7 +128,7 @@ impl super::DslApp {
         // Page base = the theme Surface token: OPAQUE for a desktop/
         // fullscreen surface (the base layer), frosted-translucent for
         // floating windows (`base_alpha`).
-        let base = [s.b, s.g, s.r, self.base_alpha];
+        let base = [s.b, s.g, s.r, self.page_base_alpha()];
         // HOVER = WASH + MOTION, which is what the handoff specifies
         // ("hover:rgba(255,255,255,0.15)" AND "Icons: scale(1.08) hover").
         //
@@ -397,7 +408,7 @@ impl super::DslApp {
             band_h = band_h.min(self.alloc_band_h as i32);
         }
         let s = tokens_for(self.theme_mode).color(ColorToken::Surface);
-        let base = [s.b, s.g, s.r, self.base_alpha];
+        let base = [s.b, s.g, s.r, self.page_base_alpha()];
         let surf_w = self.w as usize;
         let row_bytes = surf_w * 4;
         let mut row = core::mem::take(&mut self.row_scratch);

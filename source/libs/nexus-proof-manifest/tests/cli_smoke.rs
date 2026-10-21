@@ -113,14 +113,17 @@ fn list_markers_full_is_byte_identical_lower_bound() {
     // shell-visible`, which are printed at the signal site and were never
     // declared before); ~875 after TASK-0327B P4 H0 (the board's vocabulary in
     // `markers/board.toml`, the selftest-client's `skipped (no device granted)`
-    // probes, init's control-frame witnesses). If it drifts outside the range,
-    // the harness must be told.
+    // probes, init's control-frame witnesses); ~968 after the GPU desktop's
+    // board rungs (TASK-0215 P2c–P6), TASK-0333 6a (a death is an event: the
+    // kernel's exit and EOF rungs, the reaper, the memory loops) and TASK-0334
+    // (the UX contract's judged lines). If it drifts outside the range, the
+    // harness must be told.
     let (code, stdout, stderr) = run(&["list-markers", "--profile=full", &manifest_arg()]);
     assert_eq!(code, 0, "stderr=`{stderr}`");
     let count = stdout.lines().filter(|l| !l.is_empty()).count();
     assert!(
-        (800..=960).contains(&count),
-        "list-markers full produced {count} markers; expected ~875 (range 800..=960)"
+        (900..=1060).contains(&count),
+        "list-markers full produced {count} markers; expected ~968 (range 900..=1060)"
     );
 }
 

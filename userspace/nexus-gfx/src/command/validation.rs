@@ -98,8 +98,23 @@ pub(super) fn validate_command(
             Ok(())
         }
         // A rectangle of the screen: never empty, never wrapping; inside the render pass when
-        // its extent is known (the display clamps it to its plane besides).
+        // its extent is known (the display clamps it to its plane besides). The one exception is
+        // `TileRect::NONE` from the base: a present that names no damage (a frame owed for what
+        // moved alone, TASK-0338) — an empty rectangle anywhere else is malformed.
+        Command::Damage { rect, origin } if *rect == TileRect::NONE => {
+            if *origin != 0 {
+                return Err(GfxError::InvalidArgument);
+            }
+            Ok(())
+        }
         Command::Damage { rect, .. } => validate_tile(*rect, render_extent),
+        // A window's transform: an id (`0` names no window), an opacity and a positive scale.
+        Command::LayerTransform { layer_id, opacity, scale_pct, .. } => {
+            if *layer_id == 0 || *opacity > 255 || *scale_pct == 0 || *scale_pct > 400 {
+                return Err(GfxError::InvalidArgument);
+            }
+            Ok(())
+        }
     }
 }
 

@@ -1,14 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: windowd compositor runtime — the WebRender compositor-scroll slice
-//! of input routing (a pure move out of `input.rs`, no behavior change).
-//! windowd is the SINGLE scroll writer for a scrollable app body: a wheel notch
-//! feeds the per-slot `ScrollMomentum`, shifts the gpud layer `src_row`
-//! (`OP_SET_LAYER_SCROLL`) and pushes the app an absolute `INPUT_KIND_SCROLL_POS`
-//! (no per-notch app re-render); flings advance on the pacer tick. Wheel HIT
-//! routing (topmost window wins) lives here; the frame-aligned input staging +
-//! hover/tap routing stays in `input.rs`.
+//! CONTEXT: windowd compositor runtime — the compositor-scroll slice of input
+//! routing. windowd is the SINGLE scroll writer for a scrollable app body: a
+//! wheel notch feeds the per-slot `ScrollMomentum`, owes a frame whose present
+//! carries the body at its new `src_row` (TASK-0338: the present is the only
+//! frame) and pushes the app an absolute `INPUT_KIND_SCROLL_POS` (no per-notch
+//! app re-render); flings advance on the frame clock. Wheel HIT routing (topmost
+//! window wins) lives here; the frame-aligned input staging + hover/tap routing
+//! stays in `input.rs`.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -56,10 +56,10 @@ impl DisplayServerRuntime {
                     match frame.press(cursor_x, cursor_y) {
                         WindowPress::Miss => continue,
                         WindowPress::Body => {
-                            // WebRender compositor-scroll: a scrollable body is
-                            // owned by windowd — the notch shifts the gpud layer
-                            // `src_row` (`OP_SET_LAYER_SCROLL`) and pushes the app
-                            // an absolute scroll position (NO per-notch re-render).
+                            // Compositor-scroll: a scrollable body is owned by
+                            // windowd — the notch moves the body's `src_row` in the
+                            // next present and pushes the app an absolute scroll
+                            // position (NO per-notch re-render).
                             // A non-scroll body forwards the raw wheel as before.
                             if self.apps[idx].scroll_id != 0 {
                                 self.forward_body_scroll(idx, delta_y);
@@ -83,15 +83,12 @@ impl DisplayServerRuntime {
     }
 
     /// Visible scroll viewport height (rows) of a scrollable app window: the
-    /// frame height minus the WM title bar and the app's fixed header + footer.
+    /// frame height minus the app's fixed header + footer.
     fn visible_body_h(&self, idx: usize) -> u32 {
-        self.apps[idx].win.h.saturating_sub(
-            self.apps[idx]
-                .win
-                .title_h
-                .saturating_add(self.apps[idx].header_h)
-                .saturating_add(self.apps[idx].footer_h),
-        )
+        self.apps[idx]
+            .win
+            .h
+            .saturating_sub(self.apps[idx].header_h.saturating_add(self.apps[idx].footer_h))
     }
 
     /// The max absolute scroll offset (rows) for a scrollable app window:
@@ -101,14 +98,13 @@ impl DisplayServerRuntime {
         self.apps[idx].content_h.saturating_sub(self.visible_body_h(idx))
     }
 
-    /// A wheel notch over a compositor-scrolled window body (Scroll-Track /
-    /// WebRender): feed the notch into the per-slot `ScrollMomentum`, apply the
-    /// eased first step, and (a) emit `OP_SET_LAYER_SCROLL` so gpud re-samples
-    /// the body at the new `src_row`, (b) push the app an absolute
-    /// `INPUT_KIND_SCROLL_POS` so its hit-test / EndReached stay in sync WITHOUT
-    /// a re-render. windowd is the SINGLE scroll writer; the app never sees
-    /// `INPUT_KIND_WHEEL` for a scrollable body. Flings advance in
-    /// `advance_app_scrolls` on the pacer tick.
+    /// A wheel notch over a compositor-scrolled window body: feed the notch into
+    /// the per-slot `ScrollMomentum`, apply the eased first step, and (a) owe a
+    /// frame whose present re-samples the body at the new `src_row`, (b) push the
+    /// app an absolute `INPUT_KIND_SCROLL_POS` so its hit-test / EndReached stay
+    /// in sync WITHOUT a re-render. windowd is the SINGLE scroll writer; the app
+    /// never sees `INPUT_KIND_WHEEL` for a scrollable body. Flings advance in
+    /// `advance_app_scrolls` on the frame clock.
     pub(crate) fn forward_body_scroll(&mut self, idx: usize, delta_notches: i32) {
         let max_rows = self.max_scroll_rows(idx);
         if max_rows == 0 {
@@ -116,8 +112,8 @@ impl DisplayServerRuntime {
         }
         // Eased wheel scroll: the notch extends the momentum TARGET (fixed step
         // per notch, no acceleration); `pos` coasts toward it in
-        // `advance_app_scrolls` on the pacer tick — each tick a pure gpud
-        // `src_row` shift, the app OUT of the loop. Linux REL_WHEEL: +1 = wheel
+        // `advance_app_scrolls` on the frame clock — each tick a present that
+        // moves the body's `src_row`, the app OUT of the loop. Linux REL_WHEEL: +1 = wheel
         // UP (away) ⇒ wheel DOWN grows the offset (content moves up).
         let visible = self.visible_body_h(idx) as f32;
         let content = self.apps[idx].content_h as f32;
@@ -137,35 +133,17 @@ impl DisplayServerRuntime {
         self.apply_scroll_rows(idx, pos);
     }
 
-    /// Set the window's absolute scroll offset (rows) and publish it: emit
-    /// `OP_SET_LAYER_SCROLL` to gpud (the src_row shift) and push
-    /// `INPUT_KIND_SCROLL_POS` to the owning app. The gpud override row equals
-    /// the body layer's full-present `src_row_abs` (`atlas_row + title_h +
-    /// header_h + footer_h + scroll_rows`) so a full present mid-scroll agrees.
+    /// Set the window's absolute scroll offset (rows) and publish it: owe a frame
+    /// — its present carries the body layer at `src_row_abs = atlas_row +
+    /// header_h + footer_h + scroll_rows` (the scene encode reads `scroll_rows`),
+    /// a pure GPU re-composite of the retained layers, no app re-render and no
+    /// CPU recomposite — and push `INPUT_KIND_SCROLL_POS` to the owning app.
+    /// One frame per completion: a burst of notches coalesces into the latest
+    /// row (TASK-0338: the present is the only frame, inside the budget).
     pub(crate) fn apply_scroll_rows(&mut self, idx: usize, scroll_rows: u32) {
         self.apps[idx].scroll_rows = scroll_rows;
-        // Emit the gpud src_row override (fire-and-forget 9-byte frame).
-        if let Some(surface) = self.apps[idx].win.atlas {
-            let src_row = surface
-                .abs_row
-                .saturating_add(self.apps[idx].win.title_h)
-                .saturating_add(self.apps[idx].header_h)
-                .saturating_add(self.apps[idx].footer_h)
-                .saturating_add(scroll_rows);
-            let scroll_id = self.apps[idx].scroll_id;
-            let mut frame = [0u8; 9];
-            frame[0] = GPU_SET_LAYER_SCROLL_OP;
-            frame[1..5].copy_from_slice(&scroll_id.to_le_bytes());
-            frame[5..9].copy_from_slice(&src_row.to_le_bytes());
-            let _ = self.send_gpud_fire_forget(&frame);
-        }
+        self.owe_frame();
         // Push the absolute scroll position to the app (hit-test / EndReached).
-        // NO windowd present is queued here — gpud's `OP_SET_LAYER_SCROLL` fast
-        // path re-composites its RETAINED layer set with the new `src_row`
-        // (that is the payoff: a scroll frame is a pure GPU re-composite, not an
-        // app re-render + windowd re-present). A later full present (window move,
-        // other damage) snapshots the current `scroll_rows` into the body layer's
-        // `src_row_abs`, so the two paths always agree (no snap-to-top).
         self.push_scroll_pos(idx, scroll_rows);
     }
 
@@ -192,8 +170,8 @@ impl DisplayServerRuntime {
     }
 
     /// Advance every scrollable window's scroll physics by real elapsed time and
-    /// re-emit `OP_SET_LAYER_SCROLL` while animating — the fling keeps scrolling
-    /// with the app OUT of the per-frame loop (mirrors the frame-pulse cadence).
+    /// owe a frame per step while animating — the fling keeps scrolling with the
+    /// app OUT of the per-frame loop (mirrors the frame-pulse cadence).
     pub(crate) fn advance_app_scrolls(&mut self, now_ns: u64) {
         for idx in 0..self.apps.len() {
             if self.apps[idx].scroll_id == 0 || !self.apps[idx].scroll_momentum.is_animating() {

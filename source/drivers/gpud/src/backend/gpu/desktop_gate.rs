@@ -49,13 +49,13 @@ impl Desktop {
             shadow_offset_y: 0,
             shadow_alpha: 0,
             backdrop_blur: 40,
-            scroll_id: 0,
             content_w: 0,
             content_h: 0,
             scroll_band_top_abs: 0,
             scroll_band_h: 0,
             layer_id: 0,
             content_epoch: 1,
+            flags: 0,
         };
         let whole = TileRect { x: 0, y: 0, width: w, height: h };
         let cold = [glass, Command::Damage { rect: whole, origin: 0 }];

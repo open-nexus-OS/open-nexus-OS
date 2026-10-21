@@ -68,8 +68,23 @@ impl super::DslApp {
         if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
             return false;
         }
+        // Bounded like a tap's (TASK-0337, cycle 52): the window feed changes the taskbar's
+        // rows, not the screen — the full repaint this was cost the desktop a full-screen CPU
+        // raster and the board a full-screen frame on every window open, close and focus
+        // (25 of them in one cycle). The diff of the layout before and after names the rows.
+        self.tap_render_span = None;
         if matches!(damage, Some(Damage::Layout)) {
+            let old_boxes = core::mem::take(&mut self.layout.boxes);
+            let old_texts = core::mem::take(&mut self.texts);
             self.relayout_retained();
+            self.tap_render_span = crate::layout_diff::changed_row_span(
+                &old_boxes,
+                &self.layout.boxes,
+                &old_texts,
+                &self.texts,
+                self.h as i32,
+            );
+            self.layers_dirty = true;
         }
         true
     }

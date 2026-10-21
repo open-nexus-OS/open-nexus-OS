@@ -51,9 +51,6 @@ pub struct WindowPresentation {
     /// Z-BAND role: the desktop base (shell/greeter, composited at the bottom)
     /// vs. a floating window. Derived from the declared `level`.
     pub role: WindowRole,
-    /// Whether windowd draws a title bar (chrome). Dropped for plain / desktop /
-    /// fullscreen surfaces by intent, and ALWAYS dropped under a kiosk policy.
-    pub has_chrome: bool,
     /// Whether the surface covers the whole display (the desktop base, or a
     /// fullscreen-mode window). Such a surface is composed edge-to-edge, no
     /// rounded corners / shadow.
@@ -98,18 +95,17 @@ impl WindowPresentation {
             WindowRole::Window
         };
 
-        // Chrome = intent ⟂ policy. The app drops it by declaring `plain`, or
-        // implicitly for a desktop/fullscreen surface; a kiosk policy drops it
-        // unconditionally (single-app OS = no window controls).
-        let intent_chromeless = style == wire::WIN_STYLE_PLAIN || full_screen || is_overlay;
-        let has_chrome = !intent_chromeless && !matches!(policy, WindowingPolicy::Kiosk);
+        // Chrome is the app's (TASK-0337, one window path): the window kit draws the bar
+        // and the controls inside the surface for every style; windowd composes no title
+        // bar — `style` names what the app does, not what the compositor adds.
+        let _ = style;
 
         // Resize = intent ⟂ policy. Only a freeform, non-fullscreen, non-desktop
         // surface under a resize-permitting policy is user-resizable.
         let resizable =
             resizable && !full_screen && !is_overlay && !matches!(policy, WindowingPolicy::Kiosk);
 
-        Self { role, has_chrome, full_screen, resizable, docked_bottom: is_overlay }
+        Self { role, full_screen, resizable, docked_bottom: is_overlay }
     }
 }
 
@@ -156,7 +152,7 @@ pub fn bar_geometry(p: &WindowPresentation, maximized: bool) -> BarGeometry {
     // Only ordinary app windows yield to the bar. The shell IS the bar
     // (`level: desktop`) and the OSK is docked to the bottom edge.
     let bar = if matches!(p.role, WindowRole::Window) { SHELL_TOPBAR_H } else { 0 };
-    if (p.full_screen || maximized) && !p.has_chrome {
+    if p.full_screen || maximized {
         BarGeometry { frame_min_y: 0, content_top_inset: bar }
     } else {
         BarGeometry { frame_min_y: bar as i32, content_top_inset: 0 }
@@ -245,8 +241,8 @@ mod bar_tests {
                 0,
                 bar,
             ),
-            // a CHROMED window keeps windowd's own title bar clickable, so it
-            // is placed below the bar instead of inset — both states
+            // a `titlebar` intent presents like `plain` (TASK-0337: the app draws its
+            // bar inside the surface): floating below the bar, maximized inset under it
             (
                 "chat floating",
                 resolve(wire::WIN_STYLE_TITLEBAR, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_AUTO),
@@ -258,8 +254,8 @@ mod bar_tests {
                 "chat maximized",
                 resolve(wire::WIN_STYLE_TITLEBAR, wire::WIN_LEVEL_NORMAL, wire::WIN_MODE_AUTO),
                 true,
-                bar as i32,
                 0,
+                bar,
             ),
         ];
         for (name, p, maximized, min_y, inset) in cases {
@@ -347,7 +343,6 @@ mod tests {
             WindowingPolicy::Desktop,
         );
         assert_eq!(p.role, WindowRole::Desktop);
-        assert!(!p.has_chrome, "the desktop base has no title bar");
         assert!(p.full_screen);
         assert!(!p.resizable);
         // Declaring BOTH (legacy pages did) resolves identically — the combo
@@ -373,7 +368,6 @@ mod tests {
             WindowingPolicy::Desktop,
         );
         assert_eq!(p.role, WindowRole::Window);
-        assert!(p.has_chrome);
         assert!(!p.full_screen);
         assert!(p.resizable);
     }
@@ -388,7 +382,6 @@ mod tests {
             WindowingPolicy::Desktop,
         );
         assert_eq!(p.role, WindowRole::Window);
-        assert!(!p.has_chrome, "plain surfaces have no title bar");
         assert!(!p.full_screen);
     }
 
@@ -402,7 +395,6 @@ mod tests {
             WindowingPolicy::Desktop,
         );
         assert!(p.full_screen);
-        assert!(!p.has_chrome, "a fullscreen window covers the chrome");
         assert!(!p.resizable, "a fullscreen window is not user-resizable");
         assert_eq!(p.role, WindowRole::Window, "fullscreen is a MODE, not the desktop LEVEL");
     }
@@ -419,7 +411,6 @@ mod tests {
             true,
             WindowingPolicy::Kiosk,
         );
-        assert!(!p.has_chrome, "kiosk = no close/minimize (user's single-app-OS requirement)");
         assert!(!p.resizable, "kiosk = no resize");
         assert_eq!(p.role, WindowRole::Window);
     }
@@ -435,5 +426,28 @@ impl crate::compositor::shell_window::ShellWindow {
     pub(crate) fn set_frame_clamped(&mut self, w: u32, h: u32, area: (u32, u32), min_y: i32) {
         let (x, y) = clamp_frame_origin((self.x, self.y), (w, h), area, min_y);
         self.set_frame(x, y, w, h);
+    }
+
+    /// TASK-0337: windowd composes NO chrome for any style — a `titlebar` intent presents
+    /// exactly like a `plain` one (the window kit draws the bar inside the surface).
+    #[test]
+    fn test_reject_a_title_bar_from_windowd() {
+        let titled = WindowPresentation::resolve(
+            wire::WIN_STYLE_TITLEBAR,
+            wire::WIN_LEVEL_NORMAL,
+            wire::WIN_MODE_AUTO,
+            true,
+            WindowingPolicy::Desktop,
+        );
+        let plain = WindowPresentation::resolve(
+            wire::WIN_STYLE_PLAIN,
+            wire::WIN_LEVEL_NORMAL,
+            wire::WIN_MODE_AUTO,
+            true,
+            WindowingPolicy::Desktop,
+        );
+        assert_eq!(titled, plain);
+        assert_eq!(bar_geometry(&titled, false), bar_geometry(&plain, false));
+        assert_eq!(bar_geometry(&titled, true), bar_geometry(&plain, true));
     }
 }

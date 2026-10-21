@@ -212,32 +212,6 @@ impl Display for VirtioGpuBackend {
         GfxBackend::submit(self, commands).map(|_| ())
     }
 
-    /// RECORD the override only — the loop drains the whole queued burst (latest row wins) and
-    /// re-composites ONCE; presenting per request turned a fling into a backlog of full
-    /// re-composites of stale positions (seconds of dead UI).
-    #[cfg(feature = "virgl")]
-    fn set_layer_scroll(&mut self, scroll_id: u32, src_row: u32) -> Result<bool, GfxError> {
-        self.record_layer_scroll(scroll_id, src_row).map(|()| true)
-    }
-
-    /// Track C2 (the scroll generalization): record-only + the same coalesced flush.
-    #[cfg(feature = "virgl")]
-    fn set_layer_transform(
-        &mut self,
-        layer_id: u32,
-        (dx, dy): (i16, i16),
-        opacity: u8,
-        scale_pct: u16,
-    ) -> Result<bool, GfxError> {
-        let transform = nexus_gfx::frame::Transform { dx, dy, opacity, scale_pct };
-        self.record_layer_transform(layer_id, transform).map(|()| true)
-    }
-
-    #[cfg(feature = "virgl")]
-    fn flush_layer_overrides(&mut self) {
-        let _ = self.flush_layer_scroll();
-    }
-
     /// windowd rewrote the wallpaper SOURCE plane (theme swap): the next build-up present
     /// re-uploads the wallpaper texture (a frame-clock tick picks it up).
     #[cfg(feature = "virgl")]

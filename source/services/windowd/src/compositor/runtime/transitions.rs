@@ -1,15 +1,14 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 //
-//! CONTEXT: windowd compositor runtime — WINDOW TRANSITIONS on the unified
-//! layer-transform primitive (Track C2+C3, the scroll generalization): open =
-//! fade+scale-in, close = fade-out then close, minimize = fly-to-taskbar then
-//! minimize. windowd's own `AnimationDriver` interpolates the springs on the
-//! 120Hz pacer (all three tick paths — the fling lesson); every tick folds
-//! into the slot's `WinTransform` and emits ONE fire-and-forget
-//! `OP_SET_LAYER_TRANSFORM` — gpud records it and re-composites the retained
-//! layer (record + coalesced flush, the scroll contract). NO app re-render,
-//! NO band re-blit, NO CPU recomposite per animation frame — the 120Hz+ path.
+//! CONTEXT: windowd compositor runtime — WINDOW TRANSITIONS on the window transform (Track
+//! C2+C3): open = fade+scale-in, close = fade-out then close, minimize = fly-to-taskbar then
+//! minimize. windowd's own `AnimationDriver` interpolates the springs on the frame clock (the
+//! display's acks); every tick folds into the slot's `WinTransform` and OWES a frame: the next
+//! present carries every window's transform (`Command::LayerTransform`) beside the unchanged
+//! layers and names no damage — the planner redraws where the window was and is (TASK-0338: the
+//! present is the only frame, inside the budget of two in flight). NO app re-render, NO band
+//! re-blit, NO CPU recomposite per animation frame.
 //! OWNERS: @ui
 //! STATUS: Functional (Track C3)
 //! API_STABILITY: Unstable
@@ -49,8 +48,8 @@ impl DisplayServerRuntime {
 
     /// OPEN transition: the window fades + scales IN from 92% (the decided
     /// enter look). Called for a FRESH window right after its first mount —
-    /// the first full present bakes the initial (transparent) transform, and
-    /// the pacer-driven overrides carry it to identity on the GPU.
+    /// the first present carries the initial (transparent) transform with the
+    /// window's layers, and each tick's present carries it on to identity.
     pub(super) fn start_open_transition(&mut self, idx: usize) {
         let t = &mut self.apps[idx].transform;
         *t = WinTransform { dx: 0.0, dy: 0.0, opacity: 0.0, scale: OPEN_SCALE_FROM, active: true };
@@ -65,11 +64,9 @@ impl DisplayServerRuntime {
             1.0,
             ENTER_SPRING,
         );
-        // Record the INITIAL state at gpud BEFORE the first present flush
-        // (the gpud queue is sequential) - the window composites from
-        // transparent instead of flashing full-on for one frame, and a
-        // stale override from the slot's previous tenant is replaced.
-        self.send_layer_transform(idx);
+        // The next present carries the INITIAL state with the window's layers: it composites
+        // from transparent instead of flashing full-on for one frame.
+        self.owe_frame();
         let _ = debug_println("windowd: transition open");
     }
 
@@ -82,6 +79,9 @@ impl DisplayServerRuntime {
         let cur = self.apps[idx].transform;
         self.apps[idx].transform.active = true;
         self.apps[idx].pending_wm = Some(PendingWm::Close);
+        // The content leaves at once (TASK-0336): the exit spring moves the window's closing
+        // surface — one opaque solid layer — never the app's layers with their glass.
+        let _ = self.show_solid(idx);
         let layer = Self::wt_layer(idx);
         let now = nexus_abi::nsec().unwrap_or(0);
         self.animation_driver.reset_clock(now);
@@ -164,10 +164,8 @@ impl DisplayServerRuntime {
         self.animation_driver.spring_to(layer, AnimProp::TranslateY, dy, 0.0, ENTER_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::Opacity, 0.15, 1.0, ENTER_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::ScaleX, MIN_SCALE_TO, 1.0, ENTER_SPRING);
-        // Pre-seed the taskbar-origin state at gpud before the restore's queued
-        // present composites (the gpud queue is sequential) — no full-size
-        // flash before the first spring tick.
-        self.send_layer_transform(idx);
+        // The restore's queued present carries the taskbar-origin state with the re-mounted
+        // frame (TASK-0336: atomic — no full-size flash, no frame shown at the old place).
         let _ = debug_println("windowd: transition restore");
     }
 
@@ -195,12 +193,12 @@ impl DisplayServerRuntime {
         if new_w <= 0.0 || (new_w - old_w).abs() < 1.0 {
             // Geometry did not change — nothing to animate. But never leave a
             // previous transition's non-identity transform standing on the
-            // flipped frame: the gpud override survives full presents, so a
-            // stale scale/offset here rendered the window displaced until the
-            // next transition (which `pending_wm` might never allow).
+            // flipped frame: a stale scale/offset here rendered the window
+            // displaced until the next transition (which `pending_wm` might
+            // never allow).
             if self.apps[idx].transform.active {
                 self.apps[idx].transform = WinTransform::IDENTITY;
-                self.send_layer_transform(idx);
+                self.owe_frame();
             }
             return;
         }
@@ -215,8 +213,8 @@ impl DisplayServerRuntime {
         self.animation_driver.spring_to(layer, AnimProp::TranslateX, dx, 0.0, ENTER_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::TranslateY, dy, 0.0, ENTER_SPRING);
         self.animation_driver.spring_to(layer, AnimProp::ScaleX, scale_from, 1.0, ENTER_SPRING);
-        // Seed before the toggle's queued full present (sequential gpud queue).
-        self.send_layer_transform(idx);
+        // The toggle's queued full present carries the seed with the flipped frame (TASK-0336:
+        // atomic — the old frame never shows the seed, the new one never shows identity).
         let _ = debug_println("windowd: transition fullscreen");
     }
 
@@ -238,22 +236,39 @@ impl DisplayServerRuntime {
             }
             t.active = true;
         }
-        self.send_layer_transform(idx);
+        self.owe_frame();
         true
     }
 
-    /// Emit the slot's CURRENT transform as one `OP_SET_LAYER_TRANSFORM`
-    /// (fire-and-forget; gpud records + coalesces — never present-per-op).
-    pub(super) fn send_layer_transform(&mut self, idx: usize) {
+    /// The window's transform as gpud draws it now (TASK-0336): the transition's — moved,
+    /// faded, scaled about the centre — plus a drag's offset; in the wire's units (px, px,
+    /// `0..=255`, percent). Every present carries it (`Command::LayerTransform`), the only way
+    /// it reaches the display (TASK-0338).
+    pub(super) fn wire_transform(&self, idx: usize) -> (i32, i32, u32, u32) {
         let t = self.apps[idx].transform;
-        let frame = nexus_display_proto::encode_set_layer_transform(
-            (idx as u32) + 1,
-            t.dx as i16,
-            t.dy as i16,
-            (t.opacity * 255.0).clamp(0.0, 255.0) as u8,
-            (t.scale * 100.0).clamp(1.0, 400.0) as u16,
-        );
-        let _ = self.send_gpud_fire_forget(&frame);
+        let (ddx, ddy) = self.apps[idx].drag_offset.unwrap_or((0, 0));
+        (
+            t.dx as i32 + ddx,
+            t.dy as i32 + ddy,
+            (t.opacity * 255.0).clamp(0.0, 255.0) as u32,
+            (t.scale * 100.0).clamp(1.0, 400.0) as u32,
+        )
+    }
+
+    /// Every window slot's transform for the present being built: a mounted (or starting)
+    /// window's as it draws now, the identity for a free slot — so a slot's next tenant never
+    /// inherits the last tenant's fade (TASK-0338: no op retires it any more).
+    pub(super) fn present_transforms(
+        &self,
+    ) -> [(i32, i32, u32, u32); crate::window_scene::MAX_APP_WINDOWS] {
+        const IDENTITY: (i32, i32, u32, u32) = (0, 0, 255, 100);
+        let mut transforms = [IDENTITY; crate::window_scene::MAX_APP_WINDOWS];
+        for (idx, t) in transforms.iter_mut().enumerate().take(self.apps.len()) {
+            if self.apps[idx].surface_id.is_some() || self.apps[idx].starting {
+                *t = self.wire_transform(idx);
+            }
+        }
+        transforms
     }
 
     /// After a driver tick: finish transitions whose springs all converged —
@@ -280,11 +295,11 @@ impl DisplayServerRuntime {
                 Some(PendingWm::Minimize) => {
                     self.minimize_window(crate::window_scene::WindowId::App(idx as u8));
                     // The parked window re-enters at identity on restore.
-                    self.send_layer_transform(idx);
+                    self.owe_frame();
                 }
                 None => {
-                    // Open settled: one final exact-identity override.
-                    self.send_layer_transform(idx);
+                    // Open settled: one final frame at the exact identity.
+                    self.owe_frame();
                 }
             }
         }

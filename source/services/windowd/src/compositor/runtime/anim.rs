@@ -64,6 +64,12 @@ impl DisplayServerRuntime {
         let mut sidebar_dirty = false;
         let mut button_dirty = false;
         for update in updates {
+            // A window's transform owed its own frame (`apply_window_transform_update`): it names
+            // no damage — never the legacy panel's rectangle (cycle 53: every transition tick
+            // queued 826×260 px of desktop damage under the windows' glass).
+            if Self::wt_slot(update.layer_id).is_some() {
+                continue;
+            }
             match update.layer_id {
                 SIDEBAR_LAYER_ID => sidebar_dirty = true,
                 // HOVER drives the (proof) hover highlight alpha.
@@ -123,8 +129,8 @@ impl DisplayServerRuntime {
 
     fn apply_scene_updates(&mut self, updates: &[SceneUpdate]) {
         for update in updates {
-            // Track C3: window transitions fold into the slot transform
-            // and emit the gpud layer-transform override (no re-render).
+            // Track C3: window transitions fold into the slot transform and
+            // owe a frame that carries it (no re-render, TASK-0338).
             if self.apply_window_transform_update(update) {
                 continue;
             }

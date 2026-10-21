@@ -18,6 +18,8 @@ use super::damage::Area;
 use super::glass::CacheStep;
 use super::layers::{FrameLayer, MAX_LAYERS};
 use super::merge::{mergeable, Written};
+use super::occlude::{self, Px};
+use super::pieces::{Content, LayerDraws};
 use super::plan::{Frame, Planned};
 use crate::backend::gpu::quads::Quad;
 
@@ -139,8 +141,6 @@ pub struct Board<'a> {
     /// The slot's pass area (inclusive corners): the whole display unless the executor limits
     /// it to what the slot lacks.
     area: (u32, u32, u32, u32),
-    /// Draws of the layers before `j`: `first[j]`.
-    first: [u16; MAX_LAYERS + 1],
     /// The glass layers written this frame, in walk order.
     writes: [u8; MAX_LAYERS],
     write_count: usize,
@@ -172,7 +172,6 @@ impl<'a> Board<'a> {
             half_rows,
             base_row: 0,
             area: (0, 0, display.0.saturating_sub(1), display.1.saturating_sub(1)),
-            first: [0; MAX_LAYERS + 1],
             writes: [0; MAX_LAYERS],
             write_count: 0,
             glass: GlassCount::default(),
@@ -181,8 +180,6 @@ impl<'a> Board<'a> {
             unions: [(0, 0, 0, 0); 3],
         };
         for j in 0..b.layers {
-            let n = b.layer_draws(j);
-            b.first[j + 1] = b.first[j] + n as u16;
             let cache = frame.step(j).and_then(|s| s.glass).map(|g| g.cache);
             match cache {
                 Some(CacheStep::Write(_)) => {
@@ -281,7 +278,7 @@ impl<'a> Board<'a> {
     /// Draws of pass `pass`.
     pub fn draws(&self, pass: &PassSpec) -> usize {
         match pass.kind {
-            PassKind::Scene { upto } => 1 + usize::from(self.first[upto.min(self.layers)]),
+            PassKind::Scene { upto } => self.scene_draws(upto.min(self.layers)),
             PassKind::One(_) => 1,
             PassKind::Blurs { .. } => self.write_count,
         }
@@ -297,14 +294,7 @@ impl<'a> Board<'a> {
                 let own = if vertical { c.rows_area } else { c.half_area };
                 Some(Self::blur_draw(&c, vertical, Some(own)))
             }
-            PassKind::Scene { upto } => {
-                if i == 0 {
-                    return Some(self.wallpaper());
-                }
-                let k = (i - 1) as u16;
-                let j = (0..upto.min(self.layers)).find(|&j| k < self.first[j + 1])?;
-                self.layer_draw(j, usize::from(k - self.first[j]))
-            }
+            PassKind::Scene { upto } => self.scene_draw(upto.min(self.layers), i),
         }
     }
 
@@ -337,6 +327,7 @@ impl<'a> Board<'a> {
             .sum()
     }
 
+    /// The whole wallpaper as one draw.
     fn wallpaper(&self) -> DrawSpec {
         let (w, h) = self.display;
         DrawSpec {
@@ -346,33 +337,87 @@ impl<'a> Board<'a> {
         }
     }
 
+    /// Piece `p` of the wallpaper around the opaque layer over it (TASK-0335 P2).
+    fn wallpaper_piece(&self, upto: usize, p: Px) -> DrawSpec {
+        let whole = self.wallpaper();
+        let (w, h) = self.display;
+        if p == (0, 0, w, h) {
+            return whole;
+        }
+        let _ = upto;
+        DrawSpec {
+            pipe: Pipe::Opaque,
+            quad: Quad::layer(p.0 as f32, p.1 as f32, p.2 as f32, p.3 as f32, [1.0; 4], 0.0),
+            tex: Tex::Layout { x: p.0, row: self.base_row + p.1, w: p.2, h: p.3 },
+        }
+    }
+
+    /// The largest opaque rectangle (`occlude::opaque_rect`) of the layers `from..upto` that
+    /// touches `target`: what hides part of a draw of `target` in a scene pass up to `upto`.
+    fn occluder(&self, target: Px, from: usize, upto: usize) -> Option<Px> {
+        let mut best: Option<Px> = None;
+        for k in from..upto.min(self.layers) {
+            let Some((l, _)) = self.layer(k) else { continue };
+            let Some(o) = occlude::opaque_rect(&l) else { continue };
+            if !occlude::intersects(o, target) {
+                continue;
+            }
+            if best.is_none_or(|b| occlude::area(o) > occlude::area(b)) {
+                best = Some(o);
+            }
+        }
+        best
+    }
+
     fn layer(&self, j: usize) -> Option<(FrameLayer, Option<CacheStep>)> {
         let s = self.frame.step(j)?;
         Some((s.layer, s.glass.map(|g| g.cache)))
     }
 
-    /// Draws of layer `j`: its glass drawn back (a cache read or write), its shadow, its content.
-    fn layer_draws(&self, j: usize) -> usize {
-        let Some((l, cache)) = self.layer(j) else { return 0 };
-        let glass = matches!(cache, Some(CacheStep::Read(_) | CacheStep::Write(_)));
-        usize::from(glass) + usize::from(shadow(&l).is_some()) + content_count(&self.content(&l))
+    /// The draws of layer `j` in a scene pass up to `upto`: its glass back, its shadow, its
+    /// content — in pieces around the opaque layer above it.
+    fn layer_draws(&self, j: usize, upto: usize) -> Option<LayerDraws> {
+        let (l, cache) = self.layer(j)?;
+        let back = match cache {
+            Some(CacheStep::Read(row) | CacheStep::Write(row)) => Some(row),
+            _ => None,
+        };
+        let pad =
+            if l.shadow_blur > 0 { l.shadow_blur + l.shadow_offset_y.unsigned_abs() } else { 0 };
+        let extent = (
+            l.dst_x.saturating_sub(pad),
+            l.dst_y.saturating_sub(pad),
+            l.width + 2 * pad,
+            l.height + 2 * pad,
+        );
+        let occluder = self.occluder(extent, j + 1, upto);
+        Some(LayerDraws::new(&l, back, self.content(&l), occluder))
     }
 
-    fn layer_draw(&self, j: usize, mut k: usize) -> Option<DrawSpec> {
-        let (l, cache) = self.layer(j)?;
-        if let Some(CacheStep::Read(row) | CacheStep::Write(row)) = cache {
-            if k == 0 {
-                return Some(glass_back(&l, row));
-            }
-            k -= 1;
+    /// The wallpaper's pieces and every layer's, in walk order.
+    fn scene_draws(&self, upto: usize) -> usize {
+        let (w, h) = self.display;
+        let wall = occlude::count((0, 0, w, h), self.occluder((0, 0, w, h), 0, upto));
+        wall + (0..upto).filter_map(|j| self.layer_draws(j, upto)).map(|d| d.count()).sum::<usize>()
+    }
+
+    fn scene_draw(&self, upto: usize, mut i: usize) -> Option<DrawSpec> {
+        let (w, h) = self.display;
+        let occ = self.occluder((0, 0, w, h), 0, upto);
+        let wall = occlude::count((0, 0, w, h), occ);
+        if i < wall {
+            return Some(self.wallpaper_piece(upto, occlude::piece((0, 0, w, h), occ, i)?));
         }
-        if let Some(s) = shadow(&l) {
-            if k == 0 {
-                return Some(s);
+        i -= wall;
+        for j in 0..upto {
+            let Some(d) = self.layer_draws(j, upto) else { continue };
+            let n = d.count();
+            if i < n {
+                return d.draw(i);
             }
-            k -= 1;
+            i -= n;
         }
-        content_draw(&self.content(&l), k)
+        None
     }
 
     /// The layer's content: its rectangle, its band in the layout (shrunk to the layout's rows),
@@ -389,6 +434,8 @@ impl<'a> Board<'a> {
             band: (l.src_x, l.src_row_abs, bw, bh),
             tint: [1.0, 1.0, 1.0, l.opacity.min(255) as f32 / 255.0],
             radius: l.corner_radius.min(l.width / 2).min(h / 2),
+            solid: l.solid,
+            opaque: l.opaque && l.opacity >= 255,
         }
     }
 
@@ -456,112 +503,5 @@ impl<'a> Board<'a> {
                 self.chains[w] = self.chain_of(j, 0);
             }
         }
-    }
-}
-
-/// A rectangle in pixels: x, y, width, height.
-type Px = (u32, u32, u32, u32);
-
-/// A part of a rounded layer: its rectangle, and whether a corner of the layer is in it.
-type Part = Option<(Px, bool)>;
-
-/// A layer's content as drawn.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Content {
-    rect: Px,
-    band: Px,
-    tint: [f32; 4],
-    radius: u32,
-}
-
-impl Content {
-    /// The band shown at the layer's own size: its parts can be drawn apart.
-    fn one_to_one(&self) -> bool {
-        (self.band.2, self.band.3) == (self.rect.2, self.rect.3)
-    }
-
-    /// The parts of a rounded layer drawn one to one: the middle band, the left and right
-    /// bands, the four corner squares — the empty ones skipped.
-    fn parts(&self) -> [Part; 7] {
-        let (x, y, w, h) = self.rect;
-        let r = self.radius;
-        let some = |p: Px, rounded| (p.2 > 0 && p.3 > 0).then_some((p, rounded));
-        [
-            some((x + r, y, w - 2 * r, h), false),
-            some((x, y + r, r, h - 2 * r), false),
-            some((x + w - r, y + r, r, h - 2 * r), false),
-            some((x, y, r, r), true),
-            some((x + w - r, y, r, r), true),
-            some((x, y + h - r, r, r), true),
-            some((x + w - r, y + h - r, r, r), true),
-        ]
-    }
-}
-
-fn content_count(c: &Content) -> usize {
-    let (_, _, w, h) = c.rect;
-    if w == 0 || h == 0 || c.band.2 == 0 || c.band.3 == 0 {
-        0
-    } else if c.radius == 0 || !c.one_to_one() {
-        1
-    } else {
-        c.parts().iter().flatten().count()
-    }
-}
-
-fn content_draw(c: &Content, k: usize) -> Option<DrawSpec> {
-    if k >= content_count(c) {
-        return None;
-    }
-    let (x, y, w, h) = c.rect;
-    let (sx, srow, bw, bh) = c.band;
-    let r = c.radius as f32;
-    if c.radius == 0 || !c.one_to_one() {
-        let pipe = if c.radius == 0 { Pipe::Straight } else { Pipe::Rounded };
-        let quad = Quad::layer(x as f32, y as f32, w as f32, h as f32, c.tint, r);
-        return Some(DrawSpec { pipe, quad, tex: Tex::Layout { x: sx, row: srow, w: bw, h: bh } });
-    }
-    let ((px, py, pw, ph), rounded) = c.parts().into_iter().flatten().nth(k)?;
-    let tex = Tex::Layout { x: sx + (px - x), row: srow + (py - y), w: pw, h: ph };
-    let f = |v: u32| v as f32;
-    let quad = if rounded {
-        Quad::part((f(x), f(y), f(w), f(h)), (f(px), f(py), f(pw), f(ph)), c.tint, r)
-    } else {
-        Quad::layer(f(px), f(py), f(pw), f(ph), c.tint, 0.0)
-    };
-    let pipe = if rounded { Pipe::Rounded } else { Pipe::Straight };
-    Some(DrawSpec { pipe, quad, tex })
-}
-
-/// The layer's drop shadow, when it has one (the QEMU path's).
-fn shadow(l: &FrameLayer) -> Option<DrawSpec> {
-    if l.shadow_blur == 0 || l.width == 0 || l.height == 0 {
-        return None;
-    }
-    let r = l.corner_radius.min(l.width / 2).min(l.height / 2) as f32;
-    let alpha = l.shadow_alpha.min(255) as f32 / 255.0;
-    let quad = Quad::shadow(
-        l.dst_x as f32,
-        l.dst_y as f32,
-        l.width as f32,
-        l.height as f32,
-        r,
-        l.shadow_blur as f32,
-        [0.0, l.shadow_offset_y as f32],
-        [0.0, 0.0, 0.0, alpha],
-    );
-    Some(DrawSpec { pipe: Pipe::Shadow, quad, tex: Tex::None })
-}
-
-/// A glass's blurred backdrop drawn back over it from its cache rows (the reduced result inside
-/// its one-texel margin), its corners cut.
-fn glass_back(l: &FrameLayer, row: u32) -> DrawSpec {
-    let r = l.corner_radius.min(l.width / 2).min(l.height / 2);
-    let s = blur_scale(blur_radius(l.backdrop_blur));
-    let (x, y, w, h) = (l.dst_x as f32, l.dst_y as f32, l.width as f32, l.height as f32);
-    DrawSpec {
-        pipe: if r == 0 { Pipe::Opaque } else { Pipe::Rounded },
-        quad: Quad::layer(x, y, w, h, [1.0; 4], r as f32),
-        tex: Tex::Cache { x: 1, row: row + 1, w: l.width.div_ceil(s), h: l.height.div_ceil(s) },
     }
 }

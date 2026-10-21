@@ -177,7 +177,7 @@ impl CpuFrame {
             }
             // The scene's damage (RFC-0101 §8) is the GPU frame's; the CPU executor draws every
             // command whole.
-            Command::Damage { .. } => {}
+            Command::Damage { .. } | Command::LayerTransform { .. } => {}
             Command::FillSdfGradient { rect, radius, color_top, color_bottom } => {
                 let y = rect.y.saturating_add(display_row);
                 let (rw, rh) = (rect.width, rect.height);

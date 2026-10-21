@@ -34,13 +34,14 @@ fn layer(f: impl FnOnce(&mut FrameLayer)) -> Command {
         shadow_offset_y: l.shadow_offset_y,
         shadow_alpha: l.shadow_alpha,
         backdrop_blur: l.backdrop_blur,
-        scroll_id: l.scroll_id,
         content_w: l.content_w,
         content_h: l.content_h,
         scroll_band_top_abs: l.scroll_band_top_abs,
         scroll_band_h: l.scroll_band_h,
         layer_id: l.layer_id,
         content_epoch: l.content_epoch,
+        flags: (if l.opaque { nexus_gfx::command::buffer::LAYER_OPAQUE } else { 0 })
+            | (if l.solid { nexus_gfx::command::buffer::LAYER_SOLID } else { 0 }),
     }
 }
 

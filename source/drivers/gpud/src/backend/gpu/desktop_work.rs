@@ -10,16 +10,17 @@
 //! OWNERS: @gpu
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: `Board::work_px` on the host (`tests/frame_board.rs`); the line on the board
+//! TEST_COVERAGE: `Board::work_px` on the host (`tests/frame_board.rs`), the write causes in
+//!   `tests/frame_motion.rs`; the lines on the board
 
-use nexus_gfx::frame::Target;
+use nexus_gfx::frame::{Target, Writes};
 
 use super::emit_fmt;
 
 /// Textured pixels by pass kind: the slot's, the glass scenes' (scratch), the blurs' (half and
-/// cache rows).
+/// cache rows); and the glass writes by cause (TASK-0336 P0: band, backdrop, moved, new, full).
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Work([u64; 3]);
+pub(super) struct Work([u64; 3], [u64; 5]);
 
 impl Work {
     /// A pass into `target` drew `px` textured pixels.
@@ -32,9 +33,19 @@ impl Work {
         self.0[k] += px;
     }
 
+    /// A frame's glass writes, by cause.
+    pub(super) fn note_writes(&mut self, w: Writes) {
+        for (acc, n) in self.1.iter_mut().zip([w.band, w.backdrop, w.moved, w.new, w.full]) {
+            *acc += u64::from(n);
+        }
+    }
+
     /// Folds a frame's work into the window's.
     pub(super) fn add(&mut self, frame: Work) {
         for (acc, w) in self.0.iter_mut().zip(frame.0) {
+            *acc += w;
+        }
+        for (acc, w) in self.1.iter_mut().zip(frame.1) {
             *acc += w;
         }
     }
@@ -48,6 +59,12 @@ impl Work {
             self.0[1] / frames,
             self.0[2] / frames,
             wait_ns / total
+        ));
+        // TASK-0336 P0: why the glasses were blurred again — the cause each cut aims at.
+        let w = self.1;
+        emit_fmt(format_args!(
+            "gpud: glass writes (band={} backdrop={} moved={} new={} full={})",
+            w[0], w[1], w[2], w[3], w[4]
         ));
     }
 }

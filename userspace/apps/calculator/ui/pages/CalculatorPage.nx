@@ -9,20 +9,69 @@
 //
 // The page is a thin composition; state lives in `composables/calc.store.nx`
 // and the surfaces in `components/keypad/`.
+// ONE window path (TASK-0337): the chrome is window-kit's, inside this surface —
+// `style: plain` leaves windowd no title bar to draw; `mode: auto` keeps the
+// calculator's fixed small frame; the keypad's pane is the OPAQUE content layer
+// (the materials rules), the top bar the window's functional layer.
+Window {
+    style: plain,
+    mode: auto,
+    resizable: false,
+}
+
 Page CalculatorPage {
     Stack {
-        CalcDisplay { }
-        CalcKeypad { }
+        WinTopBar {
+            icon: "calculator",
+            tool1: "",
+            tool2: "",
+            tool3: "",
+            tool1Active: false,
+            tool2Active: false,
+            tool3Active: false,
+            navBack: "",
+            navFwd: "",
+            navRefresh: "",
+            sideLeft: "",
+            sideRight: "",
+            more: "",
+            appId: "calculator",
+        }
+        WinAppWindow {
+            showSidebar: false,
+            showProps: false,
+            sidebarOverlay: false,
+            propsOverlay: false,
+            menuFullscreen: @t("win.fullscreen"),
+            menuMoveDevice: @t("win.moveDevice"),
+            menuMinimize: @t("win.minimize"),
+            menuClose: @t("win.close"),
+        } {
+            sidebarLeft {
+                Stack { }
+            }
+            contentArea {
+                Stack {
+                    CalcDisplay { }
+                    CalcKeypad { }
+                }
+                .material(windowPane)
+                .rounded(16)
+                // SPACING IS IN 4px STEPS, not pixels (`registry::spacing` = step * 4) —
+                // writing the handoff's raw 16/14 here made the pane pad 64px and gap
+                // 56px, which squeezed the keypad rows down to their text height. Radii,
+                // `.minHeight` and `.basis` DO take raw px; only padding/gap are stepped.
+                // Handoff 18/16/16 + gap 14 -> 4/4/4 steps (16px) + 3 steps (12px).
+                .paddingTop(4)
+                .paddingX(4)
+                .paddingBottom(4)
+                .gap(3)
+                .grow(1)
+            }
+            sidebarRight {
+                Stack { }
+            }
+        }
     }
-    .material(windowPane)
-    .rounded(16)
-    // SPACING IS IN 4px STEPS, not pixels (`registry::spacing` = step * 4) —
-    // writing the handoff's raw 16/14 here made the pane pad 64px and gap
-    // 56px, which squeezed the keypad rows down to their text height. Radii,
-    // `.minHeight` and `.basis` DO take raw px; only padding/gap are stepped.
-    // Handoff 18/16/16 + gap 14 -> 4/4/4 steps (16px) + 3 steps (12px).
-    .paddingTop(4)
-    .paddingX(4)
-    .paddingBottom(4)
-    .gap(3)
+    .gap(0)
 }

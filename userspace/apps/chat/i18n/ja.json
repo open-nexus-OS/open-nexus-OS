@@ -13,5 +13,9 @@
   "chat.teamLast": "ビルドはグリーン — リリース準備完了。",
   "chat.lea": "レア",
   "chat.leaLast": "ありがとう！",
-  "chat.yesterday": "昨日"
+  "chat.yesterday": "昨日",
+  "win.close": "Close",
+  "win.fullscreen": "Full screen",
+  "win.minimize": "Minimise",
+  "win.moveDevice": "Move to another device"
 }

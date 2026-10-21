@@ -93,6 +93,12 @@ measures correctness alone cannot carry it; a budget with a verdict can.
 - Phase 0 lines: `gpud: ux frame … (dropped= of=32 max_us= budget_us=16667)`,
   `windowd: ux input … (to_submit_us= of=16 budget_us=50000)`,
   `apphost: ux launch … (first_frame_ms= budget_ms=300)`.
+- Refined 2026-10-21 (cycle 52): `windowd: ux input` times a frame windowd OWES — its clock
+  starts at the first damage queued after a submit (an applied input that changed the scene, an
+  app's present, a tick) and stops at the submit; a sample that owes no frame (a pointer move the
+  controller's pointer plane shows) starts nothing — counting every staged sample read seconds of
+  idleness as waiting. `apphost: ux launch` names its stages (`mount_ms= vmo_ms= render_ms=
+  create_ms=`, each since the process's start).
 - The ladders require the line's PREFIX (`gpud: ux frame `) — presence is the rung; the verdict
   is read by the no-fake-green scan: a `FAIL` is red unless the lane's allow-list names it with
   its tracking reference (`config/fail-marker-allow*.txt`).

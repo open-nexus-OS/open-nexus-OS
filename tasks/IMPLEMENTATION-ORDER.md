@@ -366,6 +366,18 @@ controls tinted, hover/press as a wash layer's opacity, reduce-transparency in s
 `docs/dev/ui/foundations/visual/materials.md`) → **TASK-0335 P2** occlusion in the planner
 (the opaque pane is the occluder) and the programs → the non-parking compositor (ADR-0075)
 → 6c. Every package read against RFC-0108's lines on the board.
+State 2026-10-21 (later): TASK-0336 P0–P3 and TASK-0337 P1–P2 built with TASK-0335 P2 in one
+package (host-green, board cycle 52 pending) — the starting and closing surface, blur at rest,
+the drag as a transform with the transform carried in the present, windowd's title bar deleted,
+the opaque pane and occlusion with the opaque program, reduce transparency. Behind cycle 52's
+numbers: the window plane for a drag (TASK-0336 P4: eight planes measured, the overlay plane's
+register sequence next), the wash layer (TASK-0337 P3), chat's virtual band, the programs.
+State 2026-10-21 (cycle 53): launches 140–727 ms to the first frame (cycle 52: 3–4 s for the
+big windows: the rasterizer's spans, the shell's row-bounded repaints); frames still red — the
+display ring overflowed: gpud drew every transition tick, drag step and scroll step as a frame
+of its own beside windowd's two in flight, every NACK forced a full-screen recompose. **TASK-0338**
+(one frame producer: the tick, the step and the scroll owe a present, the override ops retired)
+built, host- and QEMU-green, board cycle 54 next. Then the wash layer, the drag plane, ADR-0075.
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

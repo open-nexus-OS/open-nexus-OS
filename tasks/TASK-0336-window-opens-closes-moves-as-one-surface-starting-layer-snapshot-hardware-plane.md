@@ -1,6 +1,6 @@
 ---
 title: TASK-0336 A window opens, closes and moves as ONE surface — the starting layer at the tap, the snapshot on close and drag, the dragged window on a display-controller plane, glass blurred at rest
-status: Planned
+status: In Progress (P0–P3 built 2026-10-21, board cycles 52–53 read; the frame throttle cycle 53 found is TASK-0338's; P4 at its measurement)
 owner: @ui @gpu
 created: 2026-10-21
 depends-on: [TASK-0335 (P3 ✅ cycle 51), TASK-0333 (6a ✅ — a death is an event)]
@@ -87,3 +87,61 @@ drag; `windowd: ux input ok` during drag.
   during the drag (`gpu work` slot_px ≈ 0 in a drag window).
 - **Proof**: host tests per step; `just test-os visible`; board cycles with the operator's
   series; the package closes when a drag window and an open/close window read `ux frame ok`.
+
+## Results
+
+- **Built 2026-10-21 (host-green, board cycle 52 pending)** — the window as one surface:
+  - **P0 the causes and the stages.** The planner names why each glass is written
+    (`frame::glass::WriteCause`: band, backdrop, moved, new, full; `Planned::writes`), gpud
+    prints `gpud: glass writes (band= backdrop= moved= new= full=)` per 32-frame window beside
+    `gpu work`; `windowd: loop` reports every one-second window with a present (the ≥ 8 gate
+    hid the board); `apphost: ux launch` carries `mount_ms= render_ms= create_ms=`.
+  - **P1 the starting surface.** At the geometry handshake of a fresh floating window windowd
+    reserves the slot, frames it and draws it as ONE solid surface (`solid_surface.rs`: a 16×16
+    atlas patch of the window colour spread over the frame, `LAYER_SOLID | LAYER_OPAQUE`); the
+    enter spring runs on it; at the app's `SURFACE_CREATE` the app's surface takes the window
+    over in the same present (`end_starting_surface`). The starting slot is never handed to
+    another launch (`free_app_index`), closes on a dead push (`note_app_channel_dead`) and on the
+    launch deadline (15 s, the wait ring's clock). Every window asks its geometry now — `mode:
+    auto` included (the WM's `AUTO_WINDOW` 320×270; app-host's probe size is gone) — so the
+    calculator gets a starting surface too. The app's material regions go out before its first
+    present (the first composite is the whole window, not its parts).
+  - **P2 the closing surface.** The close button swaps the window to the same solid surface at
+    once; the exit spring moves it; the slot closes at convergence. (The design asked for one
+    surface without content both ways — the operator's model, 2026-10-21; no GPU snapshot
+    texture is needed for it.)
+  - **P3 blur at rest.** A glass of a window whose transform is not the identity — or touched
+    only by such a window's damage — keeps its rows (`GlassCache::keep`,
+    `RetainedLayers::in_motion`) and is written once at rest. A drag rides as the window's layer
+    transform: no re-render per pointer move, the frame moves once at the release; every present
+    carries the windows' transforms (`Command::LayerTransform`, RFC-0101 §8) — a release, a
+    fullscreen toggle or a restore never shows the new frame with the old transform or the
+    reverse. (The transform op between presents and its hold were retired by TASK-0338: gpud
+    drew those as frames of its own and overflowed the ring — a drag step owes a present now.)
+  - Host: `tests/frame_motion.rs` (causes, blur at rest, the transform in the present), the
+    wire tests of `Command::LayerTransform` and the layer flags, `tests/frame_occlusion.rs`
+    (the solid patch split into parts); windowd 193, nexus-gfx 153 + the frame suites.
+- **P4 the dragged window on a composer plane — at its measurement (2026-10-21, read-only on
+  the stock tree):** the DRM device exposes eight planes on the one CRTC (plane-0 the frame
+  XR24 1920×1080, plane-1 the 64×64 AR24 cursor, plane-2..7 idle); the driver prints no plane
+  capabilities (`dpu plane init ok`), and its debugfs holds no property listing. Next measure:
+  the register sequence the stock driver writes when an overlay plane carries a buffer (a
+  `kmssink` on plane-2), then the window plane as the pointer plane was brought up. **Trap:**
+  reading the stock driver's debugfs `dump` file makes it write every framebuffer to `/tmp`
+  (`spacemit_drm_dump_show`) — never read it (the two dumps it wrote were removed at once).
+- **Cycle 52 (board, 2026-10-21 — `docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/`
+  "Cycle 52"):** the operator: "much, much better — still far from instant". Frames 19–37 ms
+  (51: 33–81), passes 1.7–5.4 (3.4–12.8), layers a frame 3.7–5.8 (8.3); every launch shows its
+  starting surface at its intent. Launches: calculator ≈ 0.4–0.46 s, the big windows 3–4 s —
+  all of it the first frame's CPU raster (fixed in the rasterizer: interiors as spans, the ring
+  where it is not zero; 4–10× on the host, byte-identical), the shell's window feed repainted
+  the whole desktop (25 full-screen frames — now the rows its diff names), and `ux input`
+  counted idleness (now the frames windowd owes). Cycle 53 reads all three.
+- **Cycle 53 (board, 2026-10-21):** the operator: "better again". Launches to the first frame:
+  calculator 140 ms, the shell 299 ms, chat 601–653 ms, settings 591 ms, stash 635 ms (cycle 52:
+  3–4 s for the big windows). Frames still red (`gpud: ux frame FAIL`, 15–32 of 32 dropped;
+  `windowd: ux input` up to 5.7 s): windowd presented 1–7 times a second. The cause: all 21
+  present NACKs were a ring without a free plane — gpud drew every transition tick and drag step
+  (`OP_SET_LAYER_TRANSFORM`) as a frame of its own beside windowd's two in flight; each NACK
+  forced a full-screen recompose. Fixed by TASK-0338 (one frame producer), cycle 54.
+

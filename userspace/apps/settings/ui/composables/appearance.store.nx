@@ -29,6 +29,9 @@ Store AppearanceStore {
     apIconStyle: Str = "default",
     // "teal" | "accent" | "violet" | "amber" | "rose" | "graphite" — local only.
     apFolder: Str = "teal",
+    // "glass" | "solid" — `ui.material` (TASK-0337, reduce transparency): windowd and every
+    // app-host apply it live; read back at mount by the root effect below.
+    apMaterial: Str = "glass",
     // Non-zero when settingsd refused or the call timed out.
     apError: Int = 0,
 }
@@ -39,6 +42,9 @@ Event AppearanceEvent {
     SetAccent(Str),
     SetIconStyle(Str),
     SetFolder(Str),
+    ApLoad,
+    ApMaterialLoaded(Str),
+    SetMaterial(Str),
     ApApplied(Bool),
     ApFailed(Int),
 }
@@ -64,8 +70,29 @@ reduce AppearanceEvent {
         state.apFolder = color;
         state.apError = 0;
     },
+    ApLoad => state.apError = 0,
+    ApMaterialLoaded(v) => state.apMaterial = v,
+    SetMaterial(v) => {
+        state.apMaterial = v;
+        state.apError = 0;
+    },
     ApApplied(ok) => state.apError = 0,
     ApFailed(code) => state.apError = code,
+}
+
+// Root effect (nothing dispatches `ApLoad`): the material as settingsd holds it, at mount.
+@effect on ApLoad {
+    match svc.settings.get("ui.material") {
+        Ok(v) => dispatch(ApMaterialLoaded(v)),
+        Err(e) => dispatch(ApFailed(e)),
+    }
+}
+
+@effect on SetMaterial(v) {
+    match svc.settings.set("ui.material", v) {
+        Ok(ok) => dispatch(ApApplied(ok)),
+        Err(e) => dispatch(ApFailed(e)),
+    }
 }
 
 @effect on SetTheme(mode) {

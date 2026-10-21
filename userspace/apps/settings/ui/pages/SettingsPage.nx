@@ -31,6 +31,9 @@ Page SettingsPage {
             navBack: "arrow.left",
             navFwd: "",
             navRefresh: "",
+            sideLeft: "sidebar.left",
+            sideRight: "sidebar.right",
+            more: "ellipsis.vertical",
             appId: "settings",
         }
         WinAppWindow {

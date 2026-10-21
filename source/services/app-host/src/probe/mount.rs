@@ -101,6 +101,9 @@ impl DslApp {
             texts,
             host,
             base_alpha,
+            // The desktop base paints at base alpha 0 (the wallpaper shows): its regions are
+            // the shell's glass.
+            desktop: base_alpha == 0,
             w,
             h,
             theme_mode,

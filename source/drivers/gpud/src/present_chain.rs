@@ -60,23 +60,6 @@ pub(crate) fn present(
     }
     st
 }
-/// A recorded scroll or transform override drawn (TASK-0215 5c-3 P5): one frame of the retained
-/// set on `frames`, no commands, its damage the layers that moved — queued for the blank
-/// without an ack (nothing presented it). A frame the GPU does not draw is abandoned: the CPU's
-/// composite of no commands would show the base alone.
-pub(crate) fn recompose(display: &mut dyn Display, frames: &mut dyn crate::gpu_context::FrameGpu) {
-    let (w, h) = display.mode();
-    let whole = Rect { x: 0, y: 0, width: w, height: h };
-    display.begin_present();
-    if display.execute_on(Some(frames), &[], whole).is_ok() && display.gpu_drew() {
-        if display.scan_out(whole).is_err() {
-            let _ = debug_println("gpud: present scanout damage FAIL");
-        }
-    } else {
-        display.abandon_present();
-    }
-}
-
 /// Human-readable reason for a present-chain hop failure (G3 exec). Static
 /// strings only — no alloc on gpud's bump heap.
 fn gfx_error_label(e: GfxError) -> &'static str {
@@ -144,7 +127,9 @@ fn damage_rect_from_cb(cb: &CommittedBuffer, display_w: u32, display_h: u32) -> 
             }
             Command::BlurBackdrop { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
             Command::BlendCursor { x, y, width, height } => (*x, *y, *width, *height),
-            // The scene's own damage (RFC-0101 §8, TASK-0215 5c-3 P5).
+            // The scene's own damage (RFC-0101 §8, TASK-0215 5c-3 P5); `TileRect::NONE` names none
+            // (a frame owed for what moved alone, TASK-0338: the planner finds the rest).
+            Command::Damage { rect, .. } if rect.width == 0 || rect.height == 0 => continue,
             Command::Damage { rect, .. } => (rect.x, rect.y, rect.width, rect.height),
             _ => continue,
         };

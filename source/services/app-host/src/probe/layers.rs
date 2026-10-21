@@ -52,22 +52,65 @@ impl super::DslApp {
             // whose radius the theme authors for them — `windowPane` 20 = card,
             // `windowBar` 40 = panel — instead of costing two new wire values
             // that would carry no extra information.
-            let glass_level = match b.visual.material {
-                SurfaceMaterial::Glass(GlassLevel::Panel) => wire::GLASS_PANEL,
-                SurfaceMaterial::Glass(GlassLevel::Card) => wire::GLASS_CARD,
-                SurfaceMaterial::Glass(GlassLevel::Subtle) => wire::GLASS_SUBTLE,
-                SurfaceMaterial::Glass(GlassLevel::Window) => wire::GLASS_WINDOW,
-                SurfaceMaterial::Glass(GlassLevel::WindowPane) => wire::GLASS_CARD,
-                SurfaceMaterial::Glass(GlassLevel::WindowBar) => wire::GLASS_PANEL,
-                SurfaceMaterial::Glass(GlassLevel::Overlay) => wire::GLASS_OVERLAY,
-                SurfaceMaterial::Opaque => continue,
+            // The materials rules (docs/dev/ui/foundations/visual/materials.md, TASK-0337)
+            // inside a WINDOW: the content pane is an OPAQUE region (no blur, an occluder —
+            // its pixels are painted opaque); bars, cards and subtle rows are tint, painted
+            // into the surface and no region at all; the window's own glass, panels and
+            // overlays (the functional layer) stay glass. The desktop base keeps every
+            // region as glass: its regions sit straight on the wallpaper.
+            let full = b.visual.opacity.is_none_or(|o| o.0 >= 255);
+            if wire::theme_is_solid(self.theme_mode) {
+                // Solid materials (TASK-0337): every material box is painted at its tint's full
+                // opacity — an opaque region (an occluder), never a blur.
+                if matches!(b.visual.material, SurfaceMaterial::Opaque) || !full {
+                    continue;
+                }
+                layers[n] = wire::LayerDesc {
+                    x: clamp(b.rect.x.0),
+                    y: clamp(b.rect.y.0),
+                    w: clamp(b.rect.width.0),
+                    h: clamp(b.rect.height.0),
+                    material: wire::MATERIAL_OPAQUE,
+                    glass_level: 0,
+                    radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
+                    shadow_alpha: if b.visual.shadow.is_some() { 80 } else { 0 },
+                };
+                n += 1;
+                continue;
+            }
+            let (material, glass_level) = match b.visual.material {
+                SurfaceMaterial::Glass(GlassLevel::Panel) => {
+                    (wire::MATERIAL_GLASS, wire::GLASS_PANEL)
+                }
+                SurfaceMaterial::Glass(GlassLevel::Card) if self.desktop => {
+                    (wire::MATERIAL_GLASS, wire::GLASS_CARD)
+                }
+                SurfaceMaterial::Glass(GlassLevel::Subtle) if self.desktop => {
+                    (wire::MATERIAL_GLASS, wire::GLASS_SUBTLE)
+                }
+                SurfaceMaterial::Glass(GlassLevel::Window) => {
+                    (wire::MATERIAL_GLASS, wire::GLASS_WINDOW)
+                }
+                // Opaque only while it is drawn at full opacity: a faded pane shows what lies
+                // below it, and an occluder that is not would leave a hole.
+                SurfaceMaterial::Glass(GlassLevel::WindowPane) if full => {
+                    (wire::MATERIAL_OPAQUE, 0)
+                }
+                SurfaceMaterial::Glass(GlassLevel::WindowPane) => continue,
+                SurfaceMaterial::Glass(GlassLevel::Overlay) => {
+                    (wire::MATERIAL_GLASS, wire::GLASS_OVERLAY)
+                }
+                SurfaceMaterial::Glass(GlassLevel::Card)
+                | SurfaceMaterial::Glass(GlassLevel::Subtle)
+                | SurfaceMaterial::Glass(GlassLevel::WindowBar)
+                | SurfaceMaterial::Opaque => continue,
             };
             layers[n] = wire::LayerDesc {
                 x: clamp(b.rect.x.0),
                 y: clamp(b.rect.y.0),
                 w: clamp(b.rect.width.0),
                 h: clamp(b.rect.height.0),
-                material: wire::MATERIAL_GLASS,
+                material,
                 glass_level,
                 radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
                 shadow_alpha: if b.visual.shadow.is_some() { 80 } else { 0 },

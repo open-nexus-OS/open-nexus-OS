@@ -121,61 +121,6 @@ impl VirtioGpuBackend {
         }
     }
 
-    /// Scroll fast path, RECORD half (analogue of `OP_MOVE_CURSOR`): store the
-    /// source-row override for the retained scrollable layer with this id. NO
-    /// present here — the service loop drains a whole burst of queued scroll
-    /// requests first (latest row wins) and then calls
-    /// [`Self::flush_layer_scroll`] ONCE. Without the split, every queued
-    /// request triggered a full GL re-composite of an already-stale position —
-    /// under a fling the backlog snowballed into seconds of dead UI.
-    pub(crate) fn record_layer_scroll(
-        &mut self,
-        scroll_id: u32,
-        src_row_abs: u32,
-    ) -> Result<(), GfxError> {
-        if !self.frame.layers.set_scroll(scroll_id, src_row_abs) {
-            return Err(GfxError::InvalidArgument); // id 0 / beyond the table
-        }
-        // Honest one-shot: the generalized scroll fast path actually took effect.
-        if !self.layer_scroll_marker_done {
-            self.layer_scroll_marker_done = true;
-            let _ = nexus_abi::debug_println(&alloc::format!(
-                "gpud: layer scroll live id={scroll_id} row={src_row_abs}"
-            ));
-        }
-        Ok(())
-    }
-
-    /// Transform fast path, RECORD half (Track C2 — mirrors
-    /// [`Self::record_layer_scroll`]): store the latest translate/opacity/
-    /// scale override for `layer_id`; the service loop drains the queued burst
-    /// (latest wins) and re-composites ONCE via [`Self::flush_layer_scroll`].
-    pub(crate) fn record_layer_transform(
-        &mut self,
-        layer_id: u32,
-        t: nexus_gfx::frame::Transform,
-    ) -> Result<(), GfxError> {
-        if !self.frame.layers.set_transform(layer_id, t) {
-            return Err(GfxError::InvalidArgument); // id 0 / beyond the table
-        }
-        // Honest one-shot: the unified layer-transform path took effect.
-        if !self.layer_transform_marker_done {
-            self.layer_transform_marker_done = true;
-            let _ = nexus_abi::debug_println(&alloc::format!(
-                "gpud: layer transform live id={layer_id}"
-            ));
-        }
-        Ok(())
-    }
-
-    /// Scroll fast path, PRESENT half: one GPU re-composite at the latest
-    /// recorded override rows. The set stays clean → NO atlas
-    /// re-upload, just a different source offset into the already-uploaded
-    /// texture — a ~54µs GPU pass, no CPU re-render.
-    pub(crate) fn flush_layer_scroll(&mut self) -> Result<(), GfxError> {
-        self.gl_present_damage(Rect { x: 0, y: 0, width: self.display_w, height: self.display_h })
-    }
-
     /// Boot-time GPU pipeline warmup — absorb the one-time virgl texture-sampling
     /// stall during boot instead of on the user's first present/scroll.
     ///

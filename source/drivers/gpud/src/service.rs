@@ -34,12 +34,6 @@ pub const OP_MOVE_CURSOR: u8 = nexus_display_proto::OP_MOVE_CURSOR;
 pub const OP_SET_FRAMEBUFFER_VMO: u8 = nexus_display_proto::OP_SET_FRAMEBUFFER_VMO;
 pub const OP_PRESENT_DAMAGE: u8 = nexus_display_proto::OP_PRESENT_DAMAGE;
 pub const OP_UPLOAD_CURSOR: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
-/// Scroll fast path: windowd sends the chat layer's new absolute atlas source row
-/// (5 bytes: op + u32). gpud re-samples the retained scrollable layer at that row
-/// and re-composites on the GPU (~54µs) — no windowd CPU compose, the analogue of
-/// `OP_MOVE_CURSOR`.
-pub const OP_SET_LAYER_SCROLL: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
-pub const OP_SET_LAYER_TRANSFORM: u8 = nexus_display_proto::OP_SET_LAYER_TRANSFORM;
 /// Upload a real icon sprite to composite as a GPU layer in the virgl buildup.
 /// Payload: op + tex_w(u32) + tex_h(u32) + dst_x(u32) + dst_y(u32) + dst_w(u32) +
 /// dst_h(u32) + BGRA pixels. The texture may be rendered at 2× (supersampled) and
@@ -289,12 +283,9 @@ fn service_requests(
     // hops once a frame gets all the way through, but keep re-tracing every frame
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
     let mut chain_trace_done = false;
-    // Scroll coalescing: `OP_SET_LAYER_SCROLL` requests only RECORD their row;
-    // this flag makes the next recv NonBlocking so the whole queued burst drains
-    // (latest row wins), and the single re-composite happens in the WouldBlock
-    // arm below. A full present (`OP_PRESENT_DAMAGE`) clears it — that present
-    // already composites the recorded rows.
-    let mut scroll_flush_pending = false;
+    // gpud draws a frame only for a present (TASK-0338): a scroll or a window's move rides in
+    // windowd's present, inside its budget of two in flight — the ring's three planes never
+    // hold a frame the compositor did not send.
     loop {
         // Reactive by default: BLOCK until windowd sends a command (framebuffer VMO,
         // present damage, or animation submit) — no polling, no busy-wait; the kernel
@@ -303,20 +294,14 @@ fn service_requests(
         // gpud re-evaluates the reveal gate itself — windowd stalls its present loop after
         // its first frame. Once revealed this reverts to Blocking (fully reactive).
         let pacing = display.pacing();
-        // A recorded scroll row awaits its composite, or a frame is due: drain any further
-        // queued requests first (latest wins), then act in the WouldBlock arm. Otherwise WAIT
-        // on the waitset (server + frame clock) — no recv timeout.
+        // A frame is due: drain any further queued requests first, then act in the WouldBlock
+        // arm. Otherwise WAIT on the waitset (server + frame clock) — no recv timeout.
         #[cfg(nexus_env = "os")]
-        let wait =
-            if scroll_flush_pending || clock.due { Wait::NonBlocking } else { clock.wait(pacing) };
+        let wait = if clock.due { Wait::NonBlocking } else { clock.wait(pacing) };
         #[cfg(not(nexus_env = "os"))]
         let wait = {
             let _ = (pacing, &clock);
-            if scroll_flush_pending {
-                Wait::NonBlocking
-            } else {
-                Wait::Blocking
-            }
+            Wait::Blocking
         };
         // The display's vertical blank (RFC-0101 §8): a flip that landed acks its present now —
         // the compositor's frame clock is the display's. Drained before the requests so an ack
@@ -371,9 +356,6 @@ fn service_requests(
                         (crate::framebuffer_grant::grant(display), None)
                     }
                     OP_PRESENT_DAMAGE => {
-                        // This present composites the recorded scroll rows — the
-                        // deferred flush would be a redundant second re-composite.
-                        scroll_flush_pending = false;
                         // Phase 6c: carries a serialized CommittedBuffer with batched
                         // BlitSurface commands describing all damage regions.
                         let seq = nexus_display_proto::decode_present_seq(frame).unwrap_or(0);
@@ -510,10 +492,7 @@ fn service_requests(
                         );
                         continue;
                     }
-                    _ => {
-                        let frames = gpu.as_deref_mut().and_then(|g| g.frames());
-                        (handle_frame(display, frames, frame, &mut scroll_flush_pending), None)
-                    }
+                    _ => (handle_frame(display, frame), None),
                 };
                 drop(moved_cap);
                 crate::reply::send(
@@ -526,19 +505,6 @@ fn service_requests(
                 );
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                // Deferred scroll composite: the queued burst is drained (every
-                // request already recorded its row, latest wins) — re-composite
-                // ONCE at the final position, then return to reactive blocking.
-                if scroll_flush_pending {
-                    scroll_flush_pending = false;
-                    display.flush_layer_overrides();
-                    // 5c-3 P5: the GPU's retained set draws the override — the layers that
-                    // moved, into the free slot, flipped at the blank.
-                    if let Some(f) = gpu.as_deref_mut().and_then(|g| g.frames()) {
-                        crate::present_chain::recompose(display, f);
-                    }
-                    continue;
-                }
                 // Frame due (the frame clock fired, windowd idle): the display self-presents
                 // (the reveal gate re-evaluates the instant the desktop is ready; the spin demo).
                 // Once nothing paces, the clock stays disarmed (a purely reactive wait).
@@ -562,12 +528,7 @@ fn decode_handoff_id_attach(frame: &[u8]) -> Option<u32> {
     nexus_display_proto::decode_handoff_id(frame)
 }
 
-fn handle_frame(
-    display: &mut dyn Display,
-    mut frames: Option<&mut dyn crate::gpu_context::FrameGpu>,
-    frame: &[u8],
-    scroll_flush: &mut bool,
-) -> u8 {
+fn handle_frame(display: &mut dyn Display, frame: &[u8]) -> u8 {
     let Some(op) = frame.first().copied() else {
         return STATUS_MALFORMED;
     };
@@ -623,57 +584,7 @@ fn handle_frame(
                 Err(_) => STATUS_DEVICE_ERROR,
             }
         }
-        OP_SET_LAYER_SCROLL => {
-            if frame.len() < 9 {
-                return STATUS_MALFORMED;
-            }
-            let scroll_id = u32::from_le_bytes([frame[1], frame[2], frame[3], frame[4]]);
-            let src_row = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]);
-            // RECORD the override only — the loop drains the whole queued burst (latest row
-            // wins) and re-composites ONCE when the queue is empty. The GPU's retained set
-            // first (the board, 5c-3 P5), the display's otherwise.
-            if frames.as_deref_mut().is_some_and(|f| f.set_layer_scroll(scroll_id, src_row)) {
-                *scroll_flush = true;
-                return STATUS_OK;
-            }
-            match display.set_layer_scroll(scroll_id, src_row) {
-                Ok(retained) => {
-                    *scroll_flush |= retained;
-                    STATUS_OK
-                }
-                Err(_) => STATUS_DEVICE_ERROR,
-            }
-        }
-        OP_SET_LAYER_TRANSFORM => {
-            // Track C2 (the scroll generalization): RECORD-only + the same
-            // coalesced flush — presenting per request would backlog stale
-            // transforms exactly like the scroll fling did.
-            let Some((layer_id, dx, dy, opacity, scale_pct)) =
-                nexus_display_proto::decode_set_layer_transform(frame)
-            else {
-                return STATUS_MALFORMED;
-            };
-            if frames
-                .as_deref_mut()
-                .is_some_and(|f| f.set_layer_transform(layer_id, (dx, dy), opacity, scale_pct))
-            {
-                *scroll_flush = true;
-                return STATUS_OK;
-            }
-            match display.set_layer_transform(layer_id, (dx, dy), opacity, scale_pct) {
-                Ok(retained) => {
-                    *scroll_flush |= retained;
-                    STATUS_OK
-                }
-                Err(_) => STATUS_DEVICE_ERROR,
-            }
-        }
-        OP_PRESENT_DAMAGE => {
-            // A full present composites the recorded scroll/transform overrides
-            // anyway — the deferred flush would be a redundant re-composite.
-            *scroll_flush = false;
-            crate::present_chain::handle_present_damage(display, frame)
-        }
+        OP_PRESENT_DAMAGE => crate::present_chain::handle_present_damage(display, frame),
         _ => STATUS_MALFORMED,
     }
 }

@@ -28,6 +28,6 @@ impl DisplayServerRuntime {
 
     /// A free slot for a NEW app window (no bound surface).
     pub(crate) fn free_app_index(&self) -> Option<usize> {
-        self.apps.iter().position(|a| a.surface_id.is_none())
+        self.apps.iter().position(|a| a.surface_id.is_none() && !a.starting)
     }
 }

@@ -29,7 +29,8 @@ use crate::backend::display::Display;
 use nexus_gfx::backend::dc::regs;
 
 impl DcDisplay {
-    /// A present the GPU did not draw is refused — said once with its reason, never composed
+    /// A present the GPU did not draw, or one that found no free plane (TASK-0338: a frame
+    /// beyond the compositor's budget), is refused — said once with its reason, never composed
     /// another way (TASK-0215 5d: the board's display has one drawing path).
     fn refuse(&mut self, reason: &str) -> GfxError {
         if !self.refused_reported {
@@ -145,17 +146,19 @@ impl Display for DcDisplay {
     ) -> Result<(), GfxError> {
         let _ = damage;
         let t0 = nsec().unwrap_or(0);
-        let slot = self.ring.begin().map_err(|_| GfxError::ResourceExhausted)?;
+        // Presents are the ring's only frames and windowd keeps at most two in flight (TASK-0338),
+        // so a ring without a free plane is a broken budget: refused by name, never silently.
+        let Ok(slot) = self.ring.begin() else {
+            return Err(self.refuse("no free plane: a frame beyond the compositor's budget"));
+        };
         if self.live.as_ref().and_then(|live| live.framebuffer.as_ref()).is_none() {
             self.ring.discard();
             return Err(GfxError::DeviceNotFound);
         }
         let Some(frames) = frames else {
-            self.drawn_by_gpu = false;
             return Err(self.refuse("windowd's GPU context is not open"));
         };
-        self.drawn_by_gpu = self.draw_on_gpu(frames, commands, slot);
-        if !self.drawn_by_gpu {
+        if !self.draw_on_gpu(frames, commands, slot) {
             return Err(self.refuse("the GPU did not draw the frame"));
         }
         for cmd in commands {
@@ -238,15 +241,6 @@ impl Display for DcDisplay {
         // A flip waits for the blank: the interrupt is live until it lands.
         live.controller.vblank_enable();
         Ok(())
-    }
-
-    fn gpu_drew(&self) -> bool {
-        self.drawn_by_gpu
-    }
-
-    fn abandon_present(&mut self) {
-        self.gpu_area = None;
-        self.ring.discard();
     }
 
     fn gpu_canvas(&mut self) -> Option<crate::backend::display::GpuCanvas> {

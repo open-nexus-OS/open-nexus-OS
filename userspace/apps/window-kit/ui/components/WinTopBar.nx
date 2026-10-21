@@ -24,6 +24,12 @@ Component WinTopBar {
         navBack: Str,
         navFwd: Str,
         navRefresh: Str,
+        // The sidebar toggles and the app's own "more" menu (TASK-0337: one window path —
+        // a window without sidebars or an app menu shows no control for them). The symbol
+        // to draw, or "" to hide — the navigation group's rule.
+        sideLeft: Str,
+        sideRight: Str,
+        more: Str,
         appId: Str,
     }
     Stack {
@@ -49,16 +55,20 @@ Component WinTopBar {
             .material(subtle)
             on Tap -> dispatch(WinMenu("app"))
         }
-        Stack {
-            Icon { symbol: "sidebar.left", size: 15 }
-                .fg(onGlassMuted)
+        if $props.sideLeft != "" {
+            Stack {
+                Icon { symbol: $props.sideLeft, size: 15 }
+                    .fg(onGlassMuted)
+            }
+            .width(30)
+            .height(30)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinLeft)
+        } else {
+            Stack { }
         }
-        .width(30)
-        .height(30)
-        .rounded(md)
-        .align(center)
-        .justify(center)
-        on Tap -> dispatch(WinLeft)
         // Optional navigation group (file-manager back / forward / refresh).
         // Empty symbol = hidden, so apps that don't navigate stay unaffected.
         if $props.navBack != "" {
@@ -211,26 +221,34 @@ Component WinTopBar {
         // VERTICAL ellipsis: the handoff draws the toolbar's "Mehr" as
         // `circle cx=12 cy=5|12|19` and the action bar's as `cx=5|12|19 cy=12`.
         // Two different glyphs, not one rotated — so two symbols.
-        Stack {
-            Icon { symbol: "ellipsis.vertical", size: 15 }
-                .fg(onGlassMuted)
+        if $props.more != "" {
+            Stack {
+                Icon { symbol: $props.more, size: 15 }
+                    .fg(onGlassMuted)
+            }
+            .width(30)
+            .height(30)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinMenu("more"))
+        } else {
+            Stack { }
         }
-        .width(30)
-        .height(30)
-        .rounded(md)
-        .align(center)
-        .justify(center)
-        on Tap -> dispatch(WinMenu("more"))
-        Stack {
-            Icon { symbol: "sidebar.right", size: 15 }
-                .fg(onGlassMuted)
+        if $props.sideRight != "" {
+            Stack {
+                Icon { symbol: $props.sideRight, size: 15 }
+                    .fg(onGlassMuted)
+            }
+            .width(30)
+            .height(30)
+            .rounded(md)
+            .align(center)
+            .justify(center)
+            on Tap -> dispatch(WinRight)
+        } else {
+            Stack { }
         }
-        .width(30)
-        .height(30)
-        .rounded(md)
-        .align(center)
-        .justify(center)
-        on Tap -> dispatch(WinRight)
         Stack {
             Icon { symbol: "minus", size: 14 }
                 .fg(onGlassMuted)

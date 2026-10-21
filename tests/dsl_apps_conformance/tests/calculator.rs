@@ -87,7 +87,9 @@ fn every_key_is_a_full_cell_and_tappable_to_its_edges() {
         .boxes;
 
     // The handoff grid: 4 columns over a 360px content box with 12px gaps =
-    // 81px cells, five 84px rows. Anything much smaller is a label, not a key.
+    // 81px cells, five 84px rows — less the window-kit bar the surface carries
+    // since TASK-0337 (one window path: windowd draws no title bar), which
+    // leaves ~72px rows. A label is ~23px: anything under 64 is a label, not a key.
     let key_boxes: Vec<_> = view
         .handlers()
         .iter()
@@ -98,7 +100,7 @@ fn every_key_is_a_full_cell_and_tappable_to_its_edges() {
     assert_eq!(key_boxes.len(), 19, "the keypad has 19 keys");
     for b in &key_boxes {
         assert!(
-            b.rect.width.0 >= 75 && b.rect.height.0 >= 75,
+            b.rect.width.0 >= 64 && b.rect.height.0 >= 64,
             "key at ({},{}) is {}x{} — a label-sized hit box, not a cell",
             b.rect.x.0,
             b.rect.y.0,

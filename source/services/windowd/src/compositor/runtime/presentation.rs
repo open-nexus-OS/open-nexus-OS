@@ -127,6 +127,16 @@ impl DisplayServerRuntime {
                             debug_println(&alloc::format!("uitheme: accent switched (to={idx})"));
                     }
                 }
+                // TASK-0337: solid materials are a theme variant — every surface re-resolves
+                // (the snapshot's theme byte), every window body loses its blur.
+                "ui.material" => {
+                    let solid = value == "solid";
+                    if solid != self.solid_materials {
+                        self.solid_materials = solid;
+                        self.presentation_changed();
+                        self.queue_full_frame_damage();
+                    }
+                }
                 // TASK-0066 tiling settings — apply-only, settingsd validated them.
                 "ui.tile.edges" => self.tile_edges = value == "on",
                 "ui.tile.chords" => self.tile_chords = value == "on",

@@ -60,6 +60,13 @@ impl RgbaColor {
 }
 
 /// Internal command representation — not exposed to users.
+/// `CompositeLayer::flags`: the layer's content is opaque inside its rounded rectangle.
+pub const LAYER_OPAQUE: u32 = 1;
+/// `CompositeLayer::flags`: the layer's content is ONE colour — every texel of its band is
+/// every other (TASK-0336: a window's starting and closing surface, a small patch spread over
+/// the frame). An executor may sample any part of the band for any part of the layer.
+pub const LAYER_SOLID: u32 = 2;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     /// Set shader uniform data at a byte offset.
@@ -126,20 +133,10 @@ pub enum Command {
         /// scaling; the client re-renders sharp on settle). Backend: virgl RT.
         content_w: u32,
         content_h: u32,
-        /// Scroll identity of the layer (`0` = not scrollable). The backend keeps
-        /// a per-id source-row override that a lightweight scroll command
-        /// (`OP_SET_LAYER_SCROLL(scroll_id, src_row)`) updates — a ~54µs GPU
-        /// re-composite at the new `src_row_abs`, instead of the embedder
-        /// re-composing the whole region on the CPU per frame. This is the scroll
-        /// fast path, the analogue of the cursor's `OP_MOVE_CURSOR`; the id
-        /// generalizes it beyond the single hardcoded chat layer (TASK-0070 Phase 7).
-        scroll_id: u32,
-        /// WebRender scroll band bounds (`0` = not scrollable). When
-        /// `scroll_band_h > 0` the backend uploads the WHOLE band
-        /// `[scroll_band_top_abs, +scroll_band_h)` to the GPU atlas texture ONCE
-        /// (on a full present) so the per-id `src_row` override can shift within
-        /// it — otherwise only the visible `height` rows are uploaded and a
-        /// shifted `src_row` samples never-uploaded rows (body doesn't scroll).
+        /// Scroll band bounds (`0` = not scrollable). When `scroll_band_h > 0` a backend that
+        /// uploads the atlas uploads the WHOLE band `[scroll_band_top_abs, +scroll_band_h)`
+        /// ONCE, so a later present that scrolls the body (a new `src_row_abs`, TASK-0338)
+        /// samples rows already uploaded — otherwise only the visible `height` rows are there.
         /// The SAMPLE row stays `src_row_abs` (+ `height`).
         scroll_band_top_abs: u32,
         scroll_band_h: u32,
@@ -150,15 +147,28 @@ pub enum Command {
         /// already-uploaded GPU atlas texture without a per-frame
         /// `TRANSFER_TO_HOST` — see `Layer::content_epoch`.
         content_epoch: u32,
+        /// `LAYER_*` bits (RFC-0101 §8, TASK-0337): `LAYER_OPAQUE` — every pixel inside the
+        /// layer's rounded rectangle is opaque, so nothing below it shows there (the planner's
+        /// occluder); `LAYER_SOLID` — the content is one colour (TASK-0336).
+        flags: u32,
     },
     /// A screen rectangle the compositor's scene changed since its previous present (RFC-0101
     /// §8, damage per plane): a display that keeps its planes redraws at least this — and every
     /// layer that moved — into a plane shown frames ago. `origin` names whose content changed:
     /// `0` the base (the desktop under every window), a layer's `layer_id` for that window, or
     /// `u32::MAX` for what lies above every layer (the pointer) — a glass blurs its backdrop
-    /// again only for a change below it. A present without one is damage everywhere. Draws
-    /// nothing itself.
+    /// again only for a change below it. A present without one is damage everywhere; the empty
+    /// rectangle at the origin ([`TileRect::NONE`]) names no damage — a frame owed for what moved
+    /// alone (a transform, a scroll, the frame clock: the planner redraws the layers that changed).
+    /// Draws nothing itself.
     Damage { rect: TileRect, origin: u32 },
+    /// A window's transform as this present draws it (RFC-0101 §8, TASK-0336): the layers of
+    /// transform id `layer_id` moved by (`dx`, `dy`), their opacity multiplied by `opacity`
+    /// (`0..=255`) and scaled by `scale_pct` about their centre — taking effect TOGETHER with the
+    /// present's layers. Presents are the only way a transform reaches the display (TASK-0338: one
+    /// frame producer), so a frame that moves a window and retires its transform (a drag's
+    /// release, a transition's end) never shows one without the other. Draws nothing itself.
+    LayerTransform { layer_id: u32, dx: i32, dy: i32, opacity: u32, scale_pct: u32 },
 }
 
 /// A recorded command buffer. Use begin_render_pass() to start a render pass.
@@ -264,6 +274,7 @@ const TAG_FILL_SDF_GRADIENT: u8 = 7;
 const TAG_DROP_SHADOW: u8 = 8;
 const TAG_COMPOSITE_LAYER: u8 = 9;
 const TAG_DAMAGE: u8 = 10;
+const TAG_LAYER_TRANSFORM: u8 = 11;
 
 /// Maximum serialized size for a CommittedBuffer (guard against overflow).
 // Sized to fit gpud's 8192-byte present-frame receive buffer (minus the 1-byte
@@ -372,6 +383,20 @@ fn decode_commands_into(buf: &[u8], out: &mut Vec<Command>) -> Result<usize, Gfx
                 let origin = u32::from_le_bytes([o[0], o[1], o[2], o[3]]);
                 (Command::Damage { rect: TileRect { x, y, width, height }, origin }, n + 4)
             }
+            TAG_LAYER_TRANSFORM => {
+                let w = buf.get(pos..pos + 20).ok_or(GfxError::InvalidArgument)?;
+                let word = |i: usize| u32::from_le_bytes([w[i], w[i + 1], w[i + 2], w[i + 3]]);
+                (
+                    Command::LayerTransform {
+                        layer_id: word(0),
+                        dx: word(4) as i32,
+                        dy: word(8) as i32,
+                        opacity: word(12),
+                        scale_pct: word(16),
+                    },
+                    pos + 20,
+                )
+            }
             _ => return Err(GfxError::InvalidArgument),
         };
         pos = n;
@@ -441,6 +466,19 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 buf[pos..end].copy_from_slice(&origin.to_le_bytes());
                 pos = end;
             }
+            Command::LayerTransform { layer_id, dx, dy, opacity, scale_pct } => {
+                let end = pos + 1 + 20;
+                if buf.len() < end || end > MAX_SERIALIZED {
+                    return Err(GfxError::ResourceExhausted);
+                }
+                buf[pos] = TAG_LAYER_TRANSFORM;
+                let words = [*layer_id, *dx as u32, *dy as u32, *opacity, *scale_pct];
+                for (i, w) in words.iter().enumerate() {
+                    let at = pos + 1 + i * 4;
+                    buf[at..at + 4].copy_from_slice(&w.to_le_bytes());
+                }
+                pos = end;
+            }
             Command::BlitAbsolute { src_x, src_y_abs, dst_x, dst_y_abs, width, height } => {
                 pos = ser_blit(
                     buf,
@@ -474,13 +512,13 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 shadow_offset_y,
                 shadow_alpha,
                 backdrop_blur,
-                scroll_id,
                 content_w,
                 content_h,
                 scroll_band_top_abs,
                 scroll_band_h,
                 layer_id,
                 content_epoch,
+                flags,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -498,13 +536,13 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *shadow_offset_y as u32,
                         *shadow_alpha,
                         *backdrop_blur,
-                        *scroll_id,
                         *content_w,
                         *content_h,
                         *scroll_band_top_abs,
                         *scroll_band_h,
                         *layer_id,
                         *content_epoch,
+                        *flags,
                     ],
                 )?;
             }
@@ -662,7 +700,7 @@ fn ser_drop_shadow(
     Ok(pos + 37)
 }
 
-/// 12 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
+/// 19 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
 fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 19]) -> Result<usize, GfxError> {
     let needed = pos + 1 + 19 * 4;
     if buf.len() < needed || needed > MAX_SERIALIZED {
@@ -887,13 +925,13 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             shadow_offset_y: w[9] as i32,
             shadow_alpha: w[10],
             backdrop_blur: w[11],
-            scroll_id: w[12],
-            content_w: w[13],
-            content_h: w[14],
-            scroll_band_top_abs: w[15],
-            scroll_band_h: w[16],
-            layer_id: w[17],
-            content_epoch: w[18],
+            content_w: w[12],
+            content_h: w[13],
+            scroll_band_top_abs: w[14],
+            scroll_band_h: w[15],
+            layer_id: w[16],
+            content_epoch: w[17],
+            flags: w[18],
         },
         pos + 76,
     ))

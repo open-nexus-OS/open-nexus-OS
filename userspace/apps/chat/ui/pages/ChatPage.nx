@@ -10,7 +10,47 @@
 // is a plain BRANCH SWAP instead; the transcript's scroll container
 // re-appears with the thread.
 
+// ONE window path (TASK-0337): window-kit's chrome inside this surface, the
+// transcript in an OPAQUE content pane (the materials rules — no glass on the
+// content layer), the window freeform and resizable like every other app.
+Window {
+    style: plain,
+    mode: freeform,
+    resizable: true,
+}
+
 Page ChatPage {
+    Stack {
+        WinTopBar {
+            icon: "message",
+            tool1: "",
+            tool2: "",
+            tool3: "",
+            tool1Active: false,
+            tool2Active: false,
+            tool3Active: false,
+            navBack: "",
+            navFwd: "",
+            navRefresh: "",
+            sideLeft: "",
+            sideRight: "",
+            more: "",
+            appId: "chat",
+        }
+        WinAppWindow {
+            showSidebar: false,
+            showProps: false,
+            sidebarOverlay: false,
+            propsOverlay: false,
+            menuFullscreen: @t("win.fullscreen"),
+            menuMoveDevice: @t("win.moveDevice"),
+            menuMinimize: @t("win.minimize"),
+            menuClose: @t("win.close"),
+        } {
+            sidebarLeft {
+                Stack { }
+            }
+            contentArea {
     Stack {
         Stack {
             if $state.thread == "" {
@@ -124,6 +164,15 @@ Page ChatPage {
             .gap(2)
             .padding(2)
             .bg(surface)
+        }
+    }
+    .gap(0)
+    .material(windowPane)
+    .grow(1)
+            }
+            sidebarRight {
+                Stack { }
+            }
         }
     }
     .gap(0)

@@ -35,6 +35,10 @@ pub(super) struct DslApp {
     /// fallback — bleed through), frosted-translucent for floating
     /// windows (the glass material over the blurred backdrop).
     pub(super) base_alpha: u8,
+    /// The surface is the desktop base (`level=desktop`): its regions are the shell's glass
+    /// (dock, bar, cards on the wallpaper). A window's regions follow the materials rules
+    /// (TASK-0337): one glass, the pane opaque, the rest tint.
+    pub(super) desktop: bool,
     /// Surface dimensions (the WM-composed content rect, or the probe
     /// default). Layout width + render bounds derive from these — a
     /// full-screen shell lays out at the display size, a windowed app at its

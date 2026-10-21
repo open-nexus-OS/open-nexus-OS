@@ -67,24 +67,6 @@ pub(crate) trait FrameGpu {
         commands: &[nexus_gfx::command::buffer::Command],
         target: &FrameTarget<'_>,
     ) -> Option<nexus_gfx::backend::types::Rect>;
-
-    /// `OP_SET_LAYER_SCROLL` recorded in the retained set (TASK-0215 5c-3 P5): `true` when the
-    /// set holds the id and the next frame draws the row — the loop recomposes once the burst
-    /// drained.
-    fn set_layer_scroll(&mut self, _scroll_id: u32, _src_row: u32) -> bool {
-        false
-    }
-
-    /// `OP_SET_LAYER_TRANSFORM` recorded in the retained set, as [`FrameGpu::set_layer_scroll`].
-    fn set_layer_transform(
-        &mut self,
-        _layer_id: u32,
-        _offset: (i16, i16),
-        _opacity: u8,
-        _scale_pct: u16,
-    ) -> bool {
-        false
-    }
 }
 
 /// What a display without a GPU answers.

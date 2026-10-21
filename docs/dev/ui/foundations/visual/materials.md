@@ -53,11 +53,19 @@ fits 16.7 ms, so these are design rules and cost rules in one:
 
 Corollaries: nested corner radii follow their container (concentric); a shadow belongs to the
 window, not to every panel in it; the shell's glass (dock, top bar) and one chrome glass per
-window are the only blur chains a desktop frame normally carries. In the code: the registry
-(`userspace/dsl/runtime/src/registry.rs`) and app-host's layer encoding
-(`source/services/app-host/src/probe/layers.rs`) carry the material → layer mapping
-(TASK-0337); the pane's `opaque` hint is the occluder TASK-0335 P2 consumes; rule 4 is a
-planner rule (TASK-0336).
+window are the only blur chains a desktop frame normally carries.
+
+In the code (built 2026-10-21): the registry (`userspace/dsl/runtime/src/registry.rs`) paints
+`windowPane` at full alpha; app-host's layer encoding (`source/services/app-host/src/probe/layers.rs`)
+sends a window's pane as an opaque region (`MATERIAL_OPAQUE` → `LAYER_OPAQUE`, only at full
+opacity), its cards, subtle rows and bar as no region at all (tint in the surface), the desktop's
+regions as glass; the planner cuts what lies under an opaque layer (`nexus_gfx::frame::occlude`)
+and runs the opaque program on its straight parts. Rule 4 is the planner's: a glass of a window in
+motion keeps its rows (`GlassCache::keep`). Rule 5 is `ui.material = solid` — the theme byte's
+`THEME_SOLID`, `SolidTokens` in app-host, the window body unblurred and opaque in windowd. State
+as a layer property (rule 3's wash) is not built: with the pane opaque and blur kept at rest a
+hover blurs nothing; whether the per-control layer protocol is worth its wire is measured first
+(TASK-0337 P3).
 
 ## Where we use glass (recommended)
 

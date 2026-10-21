@@ -34,6 +34,9 @@ pub(crate) struct MaterialLayerParams {
     /// a window shares it — the transform override, and the damage's origin (TASK-0215 5c-3 P5:
     /// a glass blurs its backdrop again only for a change below it, never for its own content).
     pub layer_id: u32,
+    /// An opaque region (TASK-0337: the content pane): no backdrop blur, and the planner draws
+    /// nothing below it inside its rounded rectangle (`LAYER_OPAQUE`).
+    pub opaque: bool,
 }
 
 /// Composite one app-declared glass region through the `nexus-gfx` layer SSOT —
@@ -64,7 +67,6 @@ pub(crate) fn composite_material_glass(
             dst_y: p.dst_y,
             opacity: 255,
             corner_radius: p.corner_radius,
-            scroll_id: 0,
             layer_id: p.layer_id,
             content_epoch: crate::atlas::atlas_content_epoch(),
             scroll_band_top_abs: 0,
@@ -74,13 +76,15 @@ pub(crate) fn composite_material_glass(
                 offset_y: 8,
                 alpha: p.shadow_alpha,
             }),
-            backdrop: Some(LayerBackdrop {
+            backdrop: (!p.opaque).then_some(LayerBackdrop {
                 blur_radius: p.blur_radius,
                 saturation_percent: DARK_GLASS_SATURATION_PERCENT,
                 restore_halo_pad: 0,
                 retained_src_y_offset: RETAINED_ROW_OFFSET,
                 cache: BackdropCache::None,
             }),
+            opaque: p.opaque,
+            solid: false,
         },
         (mode_w, mode_h),
     );

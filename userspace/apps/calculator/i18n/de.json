@@ -4,5 +4,9 @@
   "calc.error": "Fehler",
   "calc.hist.op": "{0:n,.} {1}",
   "calc.hist.eq": "{0:n,.} {1} {2:n,.} =",
-  "calc.raw.digit": "{0}"
+  "calc.raw.digit": "{0}",
+  "win.close": "Schließen",
+  "win.fullscreen": "Vollbild",
+  "win.minimize": "Minimieren",
+  "win.moveDevice": "Auf anderes Gerät bewegen"
 }

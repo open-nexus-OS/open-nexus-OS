@@ -13,5 +13,9 @@
   "chat.teamLast": "Build ist grün — Release steht.",
   "chat.lea": "Lea",
   "chat.leaLast": "Danke dir!",
-  "chat.yesterday": "Gestern"
+  "chat.yesterday": "Gestern",
+  "win.close": "Schließen",
+  "win.fullscreen": "Vollbild",
+  "win.minimize": "Minimieren",
+  "win.moveDevice": "Auf anderes Gerät bewegen"
 }

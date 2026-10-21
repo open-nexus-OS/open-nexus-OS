@@ -49,6 +49,28 @@ Component AppearanceView {
             }
         }
         .gap(2)
+        // ── 1b · Transparenz (TASK-0337: `ui.material`) ──────────────────
+        // Reduce transparency: every material its tint at full opacity, nothing blurred —
+        // the accessibility setting, and the cheapest frames the board draws.
+        Stack {
+            Text(@t("ap.material")).textSize(xs).fontWeight(semibold).fg(onGlassMuted)
+            if $state.apMaterial == "solid" {
+                Stack {
+                    SetRow { title: @t("ap.reduceTransparency"), subtitle: @t("ap.reduceTransparencyD"), icon: "eye", showChevron: false } {
+                        trailing { SetValue { value: @t("set.on") } }
+                    }
+                }
+                on Tap -> dispatch(SetMaterial("glass"))
+            } else {
+                Stack {
+                    SetRow { title: @t("ap.reduceTransparency"), subtitle: @t("ap.reduceTransparencyD"), icon: "eye", showChevron: false } {
+                        trailing { SetValue { value: @t("set.off") } }
+                    }
+                }
+                on Tap -> dispatch(SetMaterial("solid"))
+            }
+        }
+        .gap(2)
         // ── 2 · Akzentfarbe ──────────────────────────────────────────────
         Stack {
             Text(@t("ap.accent")).textSize(xs).fontWeight(semibold).fg(onGlassMuted)

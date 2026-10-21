@@ -257,7 +257,25 @@ impl DisplayServerRuntime {
         Ok(())
     }
 
+    /// RFC-0108: a frame became owed — the first since the last submit starts the clock
+    /// (`windowd: ux input`), whatever owes it: an input's effect, an app's present, a tick.
+    pub(super) fn note_frame_owed(&mut self) {
+        if !self.ux_input.owed() {
+            self.ux_input.note_owed(nexus_abi::nsec().unwrap_or(0));
+        }
+    }
+
+    /// A frame is owed for what moved alone (TASK-0338): a window's transform, a body's scroll,
+    /// the frame clock. The next present carries every window's transform and the layers as
+    /// they are when it is built (the latest state wins: coalesced to the frame clock) and names
+    /// no damage — gpud draws a frame only for a present, never one of its own.
+    pub(super) fn owe_frame(&mut self) {
+        self.note_frame_owed();
+        self.pending_layer_frame = true;
+    }
+
     pub(super) fn queue_dirty_rect(&mut self, rect: DamageRect) {
+        self.note_frame_owed();
         crate::compositor::frame_causes::queued(u64::from(rect.width) * u64::from(rect.height));
         self.tile_map.mark_rect(rect);
         crate::compositor::damage::queue_damage_rect(&mut self.pending_damage_rects, rect);
@@ -267,6 +285,7 @@ impl DisplayServerRuntime {
     /// (translate_x, opacity) changed. Plane 1 is already current — no CPU
     /// recomposite. The rect still needs a display-plane refresh from Plane 1.
     pub(super) fn queue_gpu_blit_rect(&mut self, rect: DamageRect) {
+        self.note_frame_owed();
         self.pending_gpu_blit_rect = Some(match self.pending_gpu_blit_rect {
             Some(existing) => existing.merge(rect),
             None => rect,
@@ -305,11 +324,17 @@ impl DisplayServerRuntime {
         // Cursor-only move: skip CPU recomposite — just a cheap blit of the
         // cursor region from the retained Plane 1 + BlendCursor (the hot path).
         let cursor_rect = self.pending_cursor_rect.take();
+        // A frame owed for what moved alone: the present names no damage when nothing else did.
+        let owed = core::mem::take(&mut self.pending_layer_frame);
 
-        if content_count == 0 && gpu_blit_rect.is_none() && cursor_rect.is_none() {
+        if content_count == 0 && gpu_blit_rect.is_none() && cursor_rect.is_none() && !owed {
             return Ok(());
         }
-        crate::compositor::frame_causes::sent(content_count > 0, gpu_blit_rect.is_some());
+        crate::compositor::frame_causes::sent(
+            content_count > 0,
+            gpu_blit_rect.is_some(),
+            cursor_rect.is_some(),
+        );
 
         // 2. Recomposite ONLY content damage into Plane 1 (CPU, blur cached).
         // (The login greeter is a composited LAYER above this base — Plane 1
@@ -384,6 +409,7 @@ impl DisplayServerRuntime {
                     None => rect,
                 });
             }
+            self.pending_layer_frame |= owed;
             self.paint_only_damage = false;
             return Ok(());
         }
@@ -420,6 +446,7 @@ impl DisplayServerRuntime {
             || !self.pending_damage_rects.is_empty()
             || self.pending_damage_rect.is_some()
             || self.pending_cursor_rect.is_some()
+            || self.pending_layer_frame
     }
 
     /// P0.3 self-heal: gpud NACKed a present (`gpud: FAIL present deadline` — its

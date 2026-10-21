@@ -81,14 +81,6 @@ pub(crate) trait Display {
         self.execute(commands, damage)
     }
 
-    /// Whether the running present was drawn by the GPU ([`Display::execute_on`]).
-    fn gpu_drew(&self) -> bool {
-        false
-    }
-
-    /// The running present is given up undrawn (a recompose the GPU did not draw).
-    fn abandon_present(&mut self) {}
-
     /// `damage` of the display plane to the glass (the chain's G4 hop).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError>;
 
@@ -145,28 +137,6 @@ pub(crate) trait Display {
 
     /// `OP_SUBMIT_ANIMATION_FRAME`: commands into the framebuffer outside a present.
     fn submit(&mut self, commands: CommittedBuffer) -> Result<(), GfxError>;
-
-    /// `OP_SET_LAYER_SCROLL`: record a layer's source row. `Ok(true)` = the display re-composites
-    /// its retained layers on [`Display::flush_layer_overrides`] (the loop drains the burst
-    /// first); `Ok(false)` = it retains no layer set — the next full present carries the row.
-    fn set_layer_scroll(&mut self, _scroll_id: u32, _src_row: u32) -> Result<bool, GfxError> {
-        Ok(false)
-    }
-
-    /// `OP_SET_LAYER_TRANSFORM`: as [`Display::set_layer_scroll`], for a layer's transform — its
-    /// translation, the opacity it multiplies by and its scale about its centre (percent).
-    fn set_layer_transform(
-        &mut self,
-        _layer_id: u32,
-        _offset: (i16, i16),
-        _opacity: u8,
-        _scale_pct: u16,
-    ) -> Result<bool, GfxError> {
-        Ok(false)
-    }
-
-    /// Re-composite the recorded overrides once (the burst is drained).
-    fn flush_layer_overrides(&mut self) {}
 
     /// `OP_WALLPAPER_DIRTY`: windowd rewrote the wallpaper plane.
     fn wallpaper_dirty(&mut self) {}

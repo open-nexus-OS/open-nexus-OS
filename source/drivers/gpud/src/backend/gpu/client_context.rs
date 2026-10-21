@@ -268,21 +268,4 @@ impl FrameGpu for BoardGpu {
             }
         }
     }
-
-    fn set_layer_scroll(&mut self, scroll_id: u32, src_row: u32) -> bool {
-        !self.desktop_off
-            && self.desktop.as_mut().is_some_and(|d| d.frame.layers.set_scroll(scroll_id, src_row))
-    }
-
-    fn set_layer_transform(
-        &mut self,
-        layer_id: u32,
-        (dx, dy): (i16, i16),
-        opacity: u8,
-        scale_pct: u16,
-    ) -> bool {
-        let t = nexus_gfx::frame::Transform { dx, dy, opacity, scale_pct };
-        !self.desktop_off
-            && self.desktop.as_mut().is_some_and(|d| d.frame.layers.set_transform(layer_id, t))
-    }
 }

@@ -37,6 +37,7 @@ impl DisplayServerRuntime {
             resizable,
             self.windowing_policy,
         );
+        let auto = mode == wire::WIN_MODE_AUTO && level == wire::WIN_LEVEL_NORMAL;
         let (rw, rh) = if p.docked_bottom {
             // OVERLAY (RFC-0075 Phase 2): the WM owns the OSK band geometry —
             // full display width, fixed band height, docked bottom.
@@ -65,14 +66,17 @@ impl DisplayServerRuntime {
             // caught it because app-host never asked on this path until a
             // window declared `mode: freeform`.
             //
-            // The title reserve comes from THIS intent's resolved
-            // presentation — a chromeless (`plain`) window draws no WM title
-            // bar, and charging it one anyway (via the free slot's default)
-            // shrank every chromeless window by a bar it never shows.
-            let title = if p.has_chrome { app_window::APP_TITLE_H } else { 0 };
+            // The surface IS the frame (TASK-0337): no title reserve, the app draws its bar.
             let w = (self.mode.width * 3 / 4).max(super::wm::MIN_WIN_W);
             let h = (self.work_area_h() * 5 / 6).max(super::wm::MIN_WIN_H);
-            (w as u16, h.saturating_sub(title) as u16)
+            (w as u16, h as u16)
+        };
+        // A window that declares no size (`mode: auto`) gets the WM's small utility frame
+        // (TASK-0336: the WM owns every window's geometry — the app asks, never assumes).
+        let (rw, rh) = if auto && !p.full_screen && !p.docked_bottom {
+            (super::app_window::AUTO_WINDOW.0 as u16, super::app_window::AUTO_WINDOW.1 as u16)
+        } else {
+            (rw, rh)
         };
         let rect = wire::encode_surface_rect(0, 0, rw, rh);
         // Reply on the ASKING client's own event channel (nonce correlation —
@@ -100,6 +104,20 @@ impl DisplayServerRuntime {
         let _ = debug_println(&alloc::format!(
             "WINDOWD: surface intent style={style} level={level} mode={mode} -> {rw}x{rh}"
         ));
+        // A fresh floating window shows its starting surface now (TASK-0336): the spawn, the
+        // mount and the first frame happen behind a window that is already there.
+        #[cfg(nexus_env = "os")]
+        if !p.full_screen && !p.docked_bottom && level == wire::WIN_LEVEL_NORMAL {
+            if let Some(ch) = self.event_channel_for(nonce) {
+                if !self.apps.iter().any(|a| a.event_channel == Some(ch)) {
+                    self.begin_starting_surface(
+                        ch,
+                        (u32::from(rw), u32::from(rh)),
+                        (style, level, mode, resizable),
+                    );
+                }
+            }
+        }
     }
 
     /// The frame a full-screen/maximized surface takes: `(y, height)`.
@@ -134,31 +152,51 @@ impl DisplayServerRuntime {
 
     /// The status-bar drag envelope for one app window — ONE definition for
     /// the title drag AND the top-edge resize, so the two clamps can never
-    /// disagree. The grab strip is the WM title bar when the window has
-    /// chrome; a chromeless window's strip is its own top chrome row, assumed
-    /// bar-height (the app draws it, windowd only needs a reachable band).
-    pub(super) fn drag_bounds(&self, idx: usize) -> nexus_widget_window::DragBounds {
-        let title_h = self.apps[idx].win.title_h;
+    /// disagree. The grab strip is the window's own top chrome row (the app draws
+    /// it, TASK-0337), assumed bar-height: windowd only needs a reachable band.
+    pub(super) fn drag_bounds(&self, _idx: usize) -> nexus_widget_window::DragBounds {
         nexus_widget_window::DragBounds {
             min_y: crate::surface_presentation::SHELL_TOPBAR_H as i32,
             max_grab_bottom: self.work_area_h() as i32,
-            grab_h: if title_h > 0 { title_h } else { crate::surface_presentation::SHELL_TOPBAR_H },
+            grab_h: crate::surface_presentation::SHELL_TOPBAR_H,
             min_visible_w: 64,
         }
     }
 
-    /// One drag step of an app window: `drag_to` under this window's
-    /// [`drag_bounds`](Self::drag_bounds) envelope. Returns the vacated damage
-    /// rect when the window moved.
-    pub(super) fn drag_app_window(
-        &mut self,
-        idx: usize,
-        cx: i32,
-        cy: i32,
-    ) -> Option<crate::compositor::damage::DamageRect> {
+    /// One drag step of an app window (TASK-0336 P3): the window's frame stays where the
+    /// drag began; the pointer's offset, clamped under this window's
+    /// [`drag_bounds`](Self::drag_bounds) envelope, rides in the next present as the window's
+    /// transform (TASK-0338: owed, coalesced to the frame clock — the latest offset when the
+    /// present is built) — the retained layers move on the GPU, no re-render and no re-blur per
+    /// pointer move. Returns whether the offset changed.
+    pub(super) fn drag_app_window(&mut self, idx: usize, cx: i32, cy: i32) -> bool {
+        let b = self.drag_bounds(idx);
+        let w = self.mode.width;
+        let Some((nx, ny)) = self.apps[idx].win.drag_target(cx, cy, w, b) else { return false };
+        let win = &self.apps[idx].win;
+        let offset = (nx - win.x, ny - win.y);
+        if self.apps[idx].drag_offset == Some(offset) {
+            return false;
+        }
+        self.apps[idx].drag_offset = Some(offset);
+        self.owe_frame();
+        true
+    }
+
+    /// The drag ends: the frame moves to where the transform showed it (clamped as every
+    /// step was) and the offset leaves the transform — both in the next present
+    /// (`Command::LayerTransform` beside the moved layers, atomic), which draws the window at
+    /// its place and blurs its glass once (the planner's blur at rest).
+    pub(super) fn end_app_drag(&mut self, idx: usize, cx: i32, cy: i32) {
         let b = self.drag_bounds(idx);
         let (w, h) = (self.mode.width, self.mode.height);
-        self.apps[idx].win.drag_to(cx, cy, w, h, b)
+        let old = self.apps[idx].win.damage_rect(w, h);
+        let _ = self.apps[idx].win.drag_to(cx, cy, w, h, b);
+        self.apps[idx].drag_offset = None;
+        self.apps[idx].win.end_drag();
+        let new = self.apps[idx].win.damage_rect(w, h);
+        self.queue_gpu_blit_rect(old.merge(new));
+        self.invalidate_blur_over(old.merge(new), Some(idx));
     }
 
     /// The work-area HEIGHT for fullscreen/maximized APP windows: the display

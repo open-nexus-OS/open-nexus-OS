@@ -145,3 +145,12 @@ the Control Center open — and the input's wait with it (the GPU's backlog gone
   on the plain path, whole-frame presents), settings and stash `style=plain` with window-kit's
   `WinAppWindow` on the band path. One window path first (windows-as-widgets.md), or every
   cut here is measured on one construction and missed on the other two.
+- **P2 built 2026-10-21 (host-green, board cycle 52 pending):** occlusion on the board — an
+  opaque layer (`LAYER_OPAQUE`, full opacity; the rectangle inset by its corner radius,
+  `frame::occlude`) cuts every draw below it to the pieces around it: the wallpaper, the layers,
+  their shadows (`Quad::part_of`), a glass's cached backdrop on its scale's grid; one occluder a
+  draw (the largest touching), ≤ 4 pieces, deterministic (`frame::pieces` holds a layer's draws
+  now, out of `board.rs`). Opaque straight parts run the **opaque program** (1.2 instead of 4.9
+  ns a pixel). Host: `tests/frame_occlusion.rs` (the four bands disjoint and complete, the texels
+  of a piece the part its pixels showed, the reject cases: no flag, faded, the corners).
+

@@ -43,7 +43,6 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 const GPU_ANIMATION_SUBMIT_OP: u8 = nexus_display_proto::OP_SUBMIT_ANIMATION_FRAME;
 const GPU_MOVE_CURSOR_OP: u8 = nexus_display_proto::OP_MOVE_CURSOR;
 const GPU_UPLOAD_CURSOR_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR;
-const GPU_SET_LAYER_SCROLL_OP: u8 = nexus_display_proto::OP_SET_LAYER_SCROLL;
 const GPU_UPLOAD_ICON_OP: u8 = nexus_display_proto::OP_UPLOAD_ICON;
 const GPU_UPLOAD_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_UPLOAD_CURSOR_SHAPE;
 const GPU_SELECT_CURSOR_SHAPE_OP: u8 = nexus_display_proto::OP_SELECT_CURSOR_SHAPE;
@@ -76,10 +75,10 @@ mod app_death;
 mod app_surface;
 pub(crate) mod app_window;
 mod capture;
-mod chrome_widget;
 mod clipboard_focus;
 mod cursor;
 mod desktop_surface;
+mod solid_surface;
 use crate::present_acks as acks;
 mod framebuffer;
 pub(crate) mod gpud;
@@ -151,10 +150,12 @@ pub(crate) struct AppWindowSlot {
     pub(crate) win: super::shell_window::ShellWindow,
     /// The bound client surface id (`None` = slot free).
     pub(crate) surface_id: Option<u32>,
-    /// Live-resize title-bar overlay (TASK #23).
-    pub(crate) title_overlay: Option<crate::atlas::AtlasSurface>,
-    /// Frame width the overlay was last rendered at (0 = never).
-    pub(crate) title_overlay_w: u32,
+    /// A drag's offset, carried as the layer transform until the release (TASK-0336).
+    pub(crate) drag_offset: Option<(i32, i32)>,
+    /// Drawn as one solid surface: starting or closing (TASK-0336, `solid_surface.rs`).
+    pub(crate) solid: Option<crate::atlas::AtlasSurface>,
+    /// Reserved by a launch whose surface does not exist yet (its starting surface is up).
+    pub(crate) starting: bool,
     /// R1 layer seam: the app's material-tagged glass regions.
     pub(crate) layers: [nexus_display_proto::client_surface::LayerDesc;
         nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
@@ -187,11 +188,11 @@ pub(crate) struct AppWindowSlot {
     /// contract): answered with ONE `OP_SURFACE_FRAME` after the next
     /// composited frame, then cleared — the client re-requests while animating.
     pub(crate) frame_pulse_pending: bool,
-    /// WebRender compositor-scroll id (0 = non-scrollable, unchanged behavior).
-    /// Assigned `slot_index + 1` at create when the surface declared a scroll
-    /// band (`content_h > 0`); ≤ `MAX_SCROLL_IDS`. windowd is the SINGLE writer
-    /// of the scroll position: a wheel notch shifts the gpud layer `src_row`
-    /// (`OP_SET_LAYER_SCROLL`) instead of the app re-rendering per frame.
+    /// Compositor-scroll id (0 = non-scrollable, unchanged behavior). Assigned
+    /// `slot_index + 1` at create when the surface declared a scroll band
+    /// (`content_h > 0`); ≤ `MAX_SCROLL_IDS`. windowd is the SINGLE writer of the
+    /// scroll position: a wheel notch moves the body's `src_row` in the next present
+    /// (TASK-0338) instead of the app re-rendering per frame.
     pub(crate) scroll_id: u32,
     /// Scroll band geometry from `SURFACE_CREATE` (surface rows): tall
     /// resident-content height + fixed top/bottom chrome heights the app
@@ -200,11 +201,11 @@ pub(crate) struct AppWindowSlot {
     pub(crate) header_h: u32,
     pub(crate) footer_h: u32,
     /// Current absolute scroll offset (rows), windowd-owned. Clamped to
-    /// `content_h - visible_body_h`; drives the `src_row` override.
+    /// `content_h - visible_body_h`; the body layer's `src_row` in each present.
     pub(crate) scroll_rows: u32,
     /// Per-slot scroll physics (reused `animation::ScrollMomentum`): a wheel
-    /// notch extends a target the offset eases toward; the pacer ticks it and
-    /// re-emits `OP_SET_LAYER_SCROLL` (flings without the app in the loop).
+    /// notch extends a target the offset eases toward; the frame clock ticks it
+    /// and each step owes a frame (flings without the app in the loop).
     pub(crate) scroll_momentum: ScrollMomentum,
     /// Last scroll-physics tick (ns) for dt integration.
     pub(crate) scroll_last_ns: u64,
@@ -214,10 +215,9 @@ pub(crate) struct AppWindowSlot {
     /// `render_app_surface` copies only these rows out of the client VMO.
     pub(crate) surface_dirty_rows: Option<(u32, u32)>,
     /// Track C3: the window's CURRENT animated whole-layer transform
-    /// (open/close/minimize). Identity at rest; the `AnimationDriver` ticks
-    /// it, each tick emits ONE `OP_SET_LAYER_TRANSFORM` (no re-render). Full
-    /// presents BAKE translate+opacity into the encoded layer (gpud clears
-    /// its override table then — the scroll snap-back contract).
+    /// (open/close/minimize). Identity at rest; the `AnimationDriver` ticks it
+    /// on the frame clock and each tick owes ONE frame (no re-render): every
+    /// present carries it beside the untransformed layers (TASK-0336/0338).
     pub(crate) transform: WinTransform,
     /// Deferred WM action executed when the transition converges (close
     /// after fade-out, minimize after fly-to-taskbar).
@@ -235,7 +235,7 @@ pub(crate) struct WinTransform {
     pub(crate) opacity: f32,
     /// 1.0 = identity (uniform, about the window center).
     pub(crate) scale: f32,
-    /// True while a transition drives this window (emit overrides + bake).
+    /// True while a transition drives this window (each tick owes a frame).
     pub(crate) active: bool,
 }
 
@@ -270,8 +270,6 @@ impl AppWindowSlot {
             140 + (index as i32) * 56,
             app_window::APP_WIN_MAX_W,
             app_window::APP_WIN_MAX_H,
-            app_window::APP_TITLE_H,
-            app_window::APP_CLOSE_W,
             app_window::APP_WIN_RADIUS,
             18,
             5,
@@ -280,8 +278,9 @@ impl AppWindowSlot {
         Self {
             win,
             surface_id: None,
-            title_overlay: None,
-            title_overlay_w: 0,
+            drag_offset: None,
+            solid: None,
+            starting: false,
             layers: [nexus_display_proto::client_surface::LayerDesc::default();
                 nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
             layer_count: 0,
@@ -352,12 +351,14 @@ pub(crate) struct DisplayServerRuntime {
     /// separately from content damage: cursor rects only need a retained→display
     /// blit + cursor overlay (no CPU recomposite — Plane 1 is already cursor-free).
     pending_cursor_rect: Option<DamageRect>,
-    /// Monotonic stamp of the last paced damage flush — vsync alignment for
-    /// sustained input bursts (see `flush_pending_damage_paced`).
     /// Animation-driven frame: only GPU CB params changed (translate_x, opacity).
     /// Plane 1 is already current — no CPU recomposite needed. Merged rect passed
     /// to the GPU CB blit list so the display plane is refreshed from Plane 1.
     pending_gpu_blit_rect: Option<DamageRect>,
+    /// A frame owed for what moved alone (TASK-0338): a window's transform, a body's scroll,
+    /// the frame clock. The next present carries the layers as they are now and names no
+    /// damage — the planner redraws only what moved — inside the budget of two in flight.
+    pending_layer_frame: bool,
     telemetry: crate::telemetry::WindowdDisplayTelemetry,
     /// Whether flush_pending_damage has verified v3b composition (P1 fix: no longer fake).
     v3b_composition_verified: bool,
@@ -444,6 +445,8 @@ pub(crate) struct DisplayServerRuntime {
     /// `nexus-theme-tokens::accent_color`. windowd's own baked chrome accent
     /// is unaffected (follow-up if chrome ever paints accent-role pixels).
     pub(crate) theme_accent: u8,
+    /// Solid materials (`ui.material = solid`, TASK-0337): the theme byte's `THEME_SOLID`.
+    pub(crate) solid_materials: bool,
     /// The cross-process app-client windows (ADR-0042 R1 → RFC-0065
     /// multi-window): one SLOT per concurrently open floating app window
     /// (`WindowId::App(i)` indexes this array). Each slot bundles what used to
@@ -567,9 +570,6 @@ pub(crate) struct DisplayServerRuntime {
     cursor_wait_deadline_ns: u64,
     cursor_ring_frame: u8,
     cursor_ring_active: bool,
-    /// P3.2 windows-as-widgets: the ONE shared widget-rendered title-bar
-    /// raster (see `chrome_widget.rs`).
-    chrome_cache: chrome_widget::ChromeCache,
     /// Bounded S1 rate diagnostics: wheel deltas staged from inputd pushes.
     wheel_stage_count: u32,
     /// RFC-0108: how long a staged input waits for the frame that carries it.
@@ -785,6 +785,7 @@ impl DisplayServerRuntime {
             pending_damage_rect: None,
             pending_cursor_rect: None,
             pending_gpu_blit_rect: None,
+            pending_layer_frame: false,
             paint_only_damage: false,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
             v3b_composition_verified: false,
@@ -814,6 +815,7 @@ impl DisplayServerRuntime {
             shape_cache_pushed: false,
             theme_mode: crate::theme::ThemeMode::Dark,
             theme_accent: 0,
+            solid_materials: false,
             session_resolved: false,
             presentation: crate::presentation_state::PresentationState::new(),
             greeter_login_watch: false,
@@ -870,7 +872,6 @@ impl DisplayServerRuntime {
             cursor_wait_deadline_ns: 0,
             cursor_ring_frame: 0,
             cursor_ring_active: false,
-            chrome_cache: chrome_widget::ChromeCache::new(),
             wheel_stage_count: 0,
             ux_input: Default::default(),
             hover_marker_emitted: false,

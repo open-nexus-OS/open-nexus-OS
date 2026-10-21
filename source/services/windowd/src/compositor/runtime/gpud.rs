@@ -233,8 +233,9 @@ impl DisplayServerRuntime {
     /// Keeps the frame clock running while something animates but nothing is queued
     /// (TASK-0324 P7-c): a frame-pulse client waits for a pulse before it draws, a scroll
     /// coast advances per frame, a spring may converge without damage — with no present in
-    /// flight there would be no completion and the animation would freeze. One pointer-rect
-    /// present (the smallest real frame) restores the clock; its completion is the next tick.
+    /// flight there would be no completion and the animation would freeze. One owed frame
+    /// naming no damage (TASK-0338: the planner redraws only what moved — nothing, if nothing
+    /// did) restores the clock; its completion is the next tick.
     pub(crate) fn keep_frame_clock_alive(&mut self) {
         if self.has_pending_damage() || self.frames_in_flight() > 0 {
             return;
@@ -245,12 +246,7 @@ impl DisplayServerRuntime {
             || self.cursor_ring_active
         {
             crate::compositor::frame_causes::keepalive();
-            self.queue_cursor_damage(
-                self.state.cursor_x,
-                self.state.cursor_y,
-                self.state.cursor_x,
-                self.state.cursor_y,
-            );
+            self.owe_frame();
         }
     }
 

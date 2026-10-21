@@ -226,6 +226,18 @@ impl Mods {
                     if visual.background_gradient.is_none() {
                         visual.background_gradient = glass.background_gradient;
                     }
+                    // The content pane is OPAQUE (the materials rules, TASK-0337): its tint
+                    // at full alpha — nothing shows through the content layer, so the
+                    // compositor blurs nothing under it and draws nothing below it.
+                    if level == GlassLevel::WindowPane {
+                        if let Some(bg) = visual.background.as_mut() {
+                            bg.a = 255;
+                        }
+                        if let Some((top, bottom)) = visual.background_gradient.as_mut() {
+                            top.a = 255;
+                            bottom.a = 255;
+                        }
+                    }
                     if visual.border == nexus_layout_types::EdgeBorder::none() {
                         visual.border = glass.border;
                     }

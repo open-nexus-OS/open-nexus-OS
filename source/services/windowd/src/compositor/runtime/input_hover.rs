@@ -120,7 +120,7 @@ impl DisplayServerRuntime {
                         match frame.press(cursor_x, cursor_y) {
                             WindowPress::Miss => continue,
                             WindowPress::Body => {
-                                let body_y = cursor_y - frame.y - self.apps[idx].win.title_h as i32;
+                                let body_y = cursor_y - frame.y;
                                 if body_y >= 0 {
                                     route = HOVER_ROUTE_APP;
                                     route_idx = idx;
@@ -195,7 +195,7 @@ impl DisplayServerRuntime {
             PressTarget::Desktop => (x, y),
             PressTarget::App(idx) => {
                 let frame = self.apps[idx].win.frame();
-                (x - frame.x, y - frame.y - self.apps[idx].win.title_h as i32)
+                (x - frame.x, y - frame.y)
             }
         }
     }

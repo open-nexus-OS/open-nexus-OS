@@ -31,8 +31,6 @@ impl DisplayServerRuntime {
                 state.wheel_delta_y
             ));
         }
-        // RFC-0108: the first input since the last submit starts the input clock.
-        self.ux_input.note_input(nexus_abi::nsec().unwrap_or(0));
         if let Some(edge) = self.input_stage.stage(state) {
             self.apply_input_state(edge);
         }
@@ -236,10 +234,9 @@ impl DisplayServerRuntime {
                         if let Some(idx) = app_idx {
                             if cursor_y >= frame.y {
                                 let local_x = cursor_x - frame.x;
-                                // Declarative: the body starts below the RESOLVED
-                                // chrome height (0 for chromeless presentations),
-                                // not a hardcoded title constant.
-                                let body_y = cursor_y - frame.y - self.apps[idx].win.title_h as i32;
+                                // The body starts at the frame's row 0 (TASK-0337: no
+                                // compositor chrome).
+                                let body_y = cursor_y - frame.y;
                                 if body_y >= 0 {
                                     // RFC-0095: this window hears the drag the press may become.
                                     self.press_route = Some(input_hover::PressRoute::app(idx));
@@ -259,30 +256,21 @@ impl DisplayServerRuntime {
                 break;
             }
         }
-        // Continue dragging whichever app window is mid-drag (ADR-0042).
-        // Track C1 (layer transform): a MOVE changes only the composite
-        // DESTINATION — the band content is untouched. Queue a GPU-only
-        // recomposite of old ∪ new (Plane 1 is wallpaper-only and already
-        // current there; the window is a retained GPU layer drawn at the new
-        // `win.x/y` each present, `drag_to` invalidates the backdrop blur for
-        // the live GPU re-blur). The old path CPU-recomposited Plane 1 AND
-        // full-re-blitted the band per pointer move — the drag jank.
+        // Continue dragging whichever app window is mid-drag (ADR-0042, TASK-0336 P3): a
+        // MOVE is the window's layer transform at gpud — fire-and-forget per pointer event,
+        // composited at gpud's pace; the frame, the scene and every glass stay as they are
+        // until the release (the planner keeps a moving window's blur). The old path
+        // presented the scene at the new place per move and re-blurred the glass each time
+        // — cycle 51's 12.8 passes a frame.
         for idx in 0..self.apps.len() {
             if !self.apps[idx].win.is_dragging() {
                 continue;
             }
             // TASK-0066: the shell previews the zone a release here would take.
             self.push_tile_preview(idx, Some((cursor_x, cursor_y)));
-            if let Some(old) = self.drag_app_window(idx, cursor_x, cursor_y) {
-                let rect = self.app_window_rect(idx);
-                self.queue_gpu_blit_rect(old.merge(rect));
-                // Other glass windows overlapping the vacated/covered region
-                // hold a stale backdrop snapshot — re-blur them live.
-                self.invalidate_blur_over(old.merge(rect), Some(idx));
-                if !self.drag_transform_marker {
-                    self.drag_transform_marker = true;
-                    let _ = debug_println("windowd: drag gpu-transform");
-                }
+            if self.drag_app_window(idx, cursor_x, cursor_y) && !self.drag_transform_marker {
+                self.drag_transform_marker = true;
+                let _ = debug_println("windowd: drag gpu-transform");
             }
         }
         // Continue an active edge-resize drag (TASK-0070 Phase 3).
@@ -297,8 +285,9 @@ impl DisplayServerRuntime {
             // top = Fill).
             for idx in 0..self.apps.len() {
                 if self.apps[idx].win.is_dragging() {
+                    // The frame moves to where the drag showed it, then a tile may take it.
+                    self.end_app_drag(idx, cursor_x, cursor_y);
                     let _ = self.apply_release_tile(idx, cursor_x, cursor_y);
-                    self.apps[idx].win.end_drag();
                 }
             }
             self.end_window_resize();
@@ -328,9 +317,6 @@ impl DisplayServerRuntime {
         self.state.wheel_down_visible = upstream.wheel_down_visible;
         self.state.cursor_x = upstream.cursor_x;
         self.state.cursor_y = upstream.cursor_y;
-        // Title-bar button hover `[– □ ×]` for the topmost window under the
-        // cursor (TASK-0070 Phase 2; re-renders that window's title on change).
-        self.update_title_hovers(self.state.cursor_x, self.state.cursor_y);
         // Pointer shape (TASK-0070 Phase 3): an active resize keeps its edge
         // shape; otherwise the topmost floating window's border band under the
         // cursor selects it; anything else restores the default pointer.

@@ -254,7 +254,9 @@ fn measure(app: &str, w: i32, h: i32, host: &mut dyn EffectHost) -> Frame {
 /// `settings` emits nothing at mount without its services (the stub host), so only its layout
 /// is held.
 const BUDGET: [(&str, usize, usize); 4] = [
-    ("chat", 297_000, 460_000),
+    // chat re-measured 2026-10-21 (TASK-0337: window-kit's chrome in its own surface — the
+    // bar and the window scaffold moved from windowd into the app): 296 368 / 469 544 B.
+    ("chat", 326_000, 517_000),
     ("settings", 0, 243_000),
     ("stash", 99_000, 210_000),
     ("desktop-shell", 64_000, 103_000),

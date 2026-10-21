@@ -79,24 +79,14 @@ pub struct Layer {
     pub dst_y: u32,
     pub opacity: u32,
     pub corner_radius: u32,
-    /// Scroll identity (`0` = not scrollable): the backend re-samples the layer
-    /// at the id's source-row override on a lightweight scroll command (GPU
-    /// scroll fast path).
-    pub scroll_id: u32,
-    /// Transform identity of the layer (`0` = none). The backend keeps a
-    /// per-id translate/opacity/scale override (`OP_SET_LAYER_TRANSFORM`) —
-    /// the Track C2 generalization of the scroll override. DISTINCT from
-    /// `scroll_id`: a scrollable window tags only its BODY slice scrollable,
-    /// but ALL its slices share one transform id (whole-window transitions).
+    /// Transform identity of the layer (`0` = none): every slice of a window shares it; the
+    /// window's transform (`Command::LayerTransform`) rides in each present (TASK-0336/0338).
     pub layer_id: u32,
-    /// WebRender scroll band: the FULL resident-content band the compositor must
-    /// upload to the GPU atlas texture ONCE so the `src_row` override can shift
-    /// WITHIN it (`0` = not scrollable, upload only the visible rows). Without
-    /// this the backend uploads only `height` rows at the current source row, so
-    /// a shifted `src_row` samples never-uploaded rows (the body never scrolls).
-    /// `scroll_band_top_abs` = absolute atlas row of the band top;
-    /// `scroll_band_h` = band height (rows). The SAMPLE still uses `src_row_abs`
-    /// + `height` (the overridden scroll position) — only the UPLOAD region grows.
+    /// Scroll band: the FULL resident-content band a backend that uploads the atlas uploads
+    /// ONCE, so a later present that scrolls the body (a new `src_row_abs`) samples rows already
+    /// there (`0` = not scrollable, upload only the visible rows). `scroll_band_top_abs` = the
+    /// band top's absolute atlas row; `scroll_band_h` = its height (rows). The SAMPLE still uses
+    /// `src_row_abs` + `height` — only the UPLOAD region grows.
     pub scroll_band_top_abs: u32,
     pub scroll_band_h: u32,
     /// Content epoch of the layer's atlas source (`0` = unknown → the backend
@@ -108,6 +98,12 @@ pub struct Layer {
     pub content_epoch: u32,
     pub shadow: Option<LayerShadow>,
     pub backdrop: Option<LayerBackdrop>,
+    /// Every pixel inside the rounded rectangle is opaque (`LAYER_OPAQUE`): the planner draws
+    /// nothing below it there (TASK-0337, the content pane).
+    pub opaque: bool,
+    /// The content is one colour (`LAYER_SOLID`, TASK-0336): a window's starting or closing
+    /// surface, a small patch spread over the frame.
+    pub solid: bool,
 }
 
 impl Layer {
@@ -131,13 +127,14 @@ impl Layer {
             dst_y,
             opacity: 255,
             corner_radius: 0,
-            scroll_id: 0,
             layer_id: 0,
             content_epoch: 0,
             scroll_band_top_abs: 0,
             scroll_band_h: 0,
             shadow: None,
             backdrop: None,
+            opaque: false,
+            solid: false,
         }
     }
 }
@@ -181,13 +178,13 @@ mod tests {
                 shadow_offset_y: 0,
                 shadow_alpha: 0,
                 backdrop_blur: 0,
-                scroll_id: 0,
                 content_w: 0,
                 content_h: 0,
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
                 layer_id: 0,
                 content_epoch: 0,
+                flags: 0,
             }
         );
     }
@@ -398,12 +395,19 @@ mod tests {
         assert!(matches!(cmds[2], Command::CompositeLayer { .. }));
     }
 
-    // A scrollable layer tags the composite with its id so the backend retains it.
+    // A scrolled body carries its band so a backend that uploads the atlas uploads it once.
     #[test]
-    fn scroll_id_tags_the_composite() {
-        let layer = Layer { scroll_id: 3, ..Layer::opaque(100, 0, 200, 64, 40, 50) };
+    fn scroll_band_tags_the_composite() {
+        let layer = Layer {
+            scroll_band_top_abs: 90,
+            scroll_band_h: 640,
+            ..Layer::opaque(100, 0, 200, 64, 40, 50)
+        };
         let cmds = emit(&layer);
-        assert!(matches!(cmds[0], Command::CompositeLayer { scroll_id: 3, .. }));
+        assert!(matches!(
+            cmds[0],
+            Command::CompositeLayer { scroll_band_top_abs: 90, scroll_band_h: 640, .. }
+        ));
     }
 
     #[test]

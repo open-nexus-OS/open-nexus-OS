@@ -124,7 +124,7 @@ impl CpuMockBackend {
                     self.blit(*src_x, *src_y_abs, *dst_x, *dst_y_abs, *width, *height)?;
                 }
                 // The mock draws every command whole: damage limits nothing here.
-                Command::Damage { .. } => {}
+                Command::Damage { .. } | Command::LayerTransform { .. } => {}
                 Command::FillSdfGradient { rect, radius, color_top, color_bottom } => {
                     self.fill_sdf_gradient(
                         rect.x,

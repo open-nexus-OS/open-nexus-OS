@@ -162,27 +162,11 @@ pub fn decode_surface_layers(
 /// standalone theme push. Theme mode + accent now travel in the versioned
 /// presentation snapshot (`surface_settings::OP_SURFACE_SETTINGS = 26`).
 pub const OP_SURFACE_THEME: u8 = 16;
-/// Theme modes (align with windowd `ThemeMode` + the DSL `LightTokens`/`DarkTokens`).
-pub const THEME_LIGHT: u8 = 0;
-pub const THEME_DARK: u8 = 1;
-/// The theme byte packs `mode | accent << 4`: the LOW nibble is the mode
-/// (`THEME_*`), the HIGH nibble the accent-palette index (0 = the theme's
-/// built-in accent). Lives on inside the presentation snapshot's `theme`
-/// field; split with these on decode.
-pub const THEME_MODE_MASK: u8 = 0x0F;
-pub const THEME_ACCENT_SHIFT: u8 = 4;
-
-/// Packs `mode` + accent-palette index into the theme byte.
-#[must_use]
-pub fn pack_theme(mode: u8, accent: u8) -> u8 {
-    (mode & THEME_MODE_MASK) | (accent << THEME_ACCENT_SHIFT)
-}
-
-/// Splits the theme byte → `(mode, accent)`.
-#[must_use]
-pub fn unpack_theme(byte: u8) -> (u8, u8) {
-    (byte & THEME_MODE_MASK, byte >> THEME_ACCENT_SHIFT)
-}
+/// The theme byte (mode, accent, solid materials) — its own module (`theme_byte.rs`).
+pub use crate::theme_byte::{
+    pack_theme, theme_is_solid, unpack_theme, THEME_ACCENT_SHIFT, THEME_DARK, THEME_LIGHT,
+    THEME_MODE_MASK, THEME_SOLID,
+};
 
 /// RETIRED (RFC-0083 P5, number reserved forever — never reuse): the
 /// standalone shell-profile push, folded into the presentation snapshot.

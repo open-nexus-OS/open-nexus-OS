@@ -23,15 +23,17 @@ The motion surface below is **implemented** for in-surface DSL nodes: `.animate`
 runtime** end-to-end. This is **Tier 2** of the animation architecture (ADR-0031,
 RFC-0059).
 
-**Tier 1 is implemented too** (Track C): `OP_SET_LAYER_TRANSFORM` (wire op 10)
-generalizes the compositor scroll override — windowd animates a retained window
-layer's translate / opacity / uniform scale purely on the GPU (record + coalesced
-flush in gpud, no re-render, no re-upload). Every window slice carries a
-`Layer::layer_id` (slot+1, DISTINCT from `scroll_id` so scrolling never moves the
-chrome slices); gpud keys a per-id override table applied in
-`composite_pending_rt_layers`. **Override semantics: the encode is always the
-untransformed base and the override survives full presents** (no bake, no clear —
-a baked opacity multiplied with the override froze windows invisible at 0×x).
+**Tier 1 is implemented too** (Track C): the window transform — windowd animates a
+retained window's translate / opacity / uniform scale purely on the GPU (no re-render, no
+re-upload). Every window slice carries a `Layer::layer_id` (slot+1); every present carries
+every slot's transform (`Command::LayerTransform`, the identity for a free slot) and the frame
+planner applies it to the slices of that id. **The encode is always the untransformed base**
+(no bake — a baked opacity multiplied with the transform froze windows invisible at 0×x).
+**The present is the only frame** (TASK-0338, cycle 53): a tick, a drag step and a scroll step
+owe a frame — the next present carries the latest state, names no damage
+(`TileRect::NONE`) and the planner redraws only what moved, inside windowd's budget of two
+presents in flight, clocked by the display's blank. (The fire-and-forget override ops gpud drew
+as frames of its own overflowed the display ring and were retired.)
 windowd's own `AnimationDriver` drives the WINDOW TRANSITIONS on it
 (`runtime/transitions.rs`): open = fade+scale-in from 92%; close = fade-out then
 the deferred close; minimize = fly to the window's EXACT future dock cell
@@ -41,8 +43,8 @@ the deferred minimize; restore = the reverse fly-in FROM the clicked dock cell
 action); fullscreen enter/leave = the geometry flips instantly and the
 transform seeds the OLD frame's apparent rect, springing to identity while the
 async band re-create swaps in sharp content (the live-resize clamping covers
-the gap). Markers: `windowd: transition open/close/minimize/restore/fullscreen`,
-`gpud: layer transform live id=N`.
+the gap). Markers: `windowd: transition open/close/minimize/restore/fullscreen`; the
+frames they owe are counted on windowd's loop line (`frames(… moved= …)`).
 
 The compositor also owns the **wait cursor** (loading ring): 8 procedurally
 rastered ring frames ride the cursor shape cache (slots 5..12 of 16, uploaded

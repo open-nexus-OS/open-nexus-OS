@@ -22,8 +22,6 @@
 /// The banded window's geometry, all in surface rows.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct BandGeometry {
-    /// WM title-bar rows painted into the band top by windowd (0 = plain).
-    pub title_h: u32,
     /// The APP's fixed header rows (scene rows `[0, header_h)`).
     pub header_h: u32,
     /// The app's fixed footer rows (the scene's bottom `footer_h` rows).
@@ -60,7 +58,7 @@ pub(crate) fn band_region_slice(y: u32, h: u32, g: &BandGeometry) -> Option<Band
     if y < g.header_h {
         // Fixed header: band rows follow the WM title rows 1:1.
         let h = h.min(g.header_h - y);
-        return Some(BandSlice { src_row: g.title_h + y, dst_y: g.title_h + y, h });
+        return Some(BandSlice { src_row: y, dst_y: y, h });
     }
     if y >= footer_scene_y {
         // Fixed footer: packed right after the header block; shown at the
@@ -71,17 +69,17 @@ pub(crate) fn band_region_slice(y: u32, h: u32, g: &BandGeometry) -> Option<Band
         }
         let h = h.min(g.footer_h - off);
         let dst_y = g.frame_h.saturating_sub(g.footer_h) + off;
-        return Some(BandSlice { src_row: g.title_h + g.header_h + off, dst_y, h });
+        return Some(BandSlice { src_row: g.header_h + off, dst_y, h });
     }
     // Scrollable content: band block starts after header+footer; on screen it
     // starts below the fixed top and is clipped to the viewport.
-    let viewport_top = g.title_h + g.header_h;
+    let viewport_top = g.header_h;
     let viewport_h = g.frame_h.saturating_sub(viewport_top).saturating_sub(g.footer_h);
     if viewport_h == 0 {
         return None;
     }
     let content_y = y - g.header_h; // row within the tall content block
-    let content_base = g.title_h + g.header_h + g.footer_h;
+    let content_base = g.header_h + g.footer_h;
     // Visible content rows are [scroll_rows, scroll_rows + viewport_h).
     let vis_start = content_y.max(g.scroll_rows);
     let vis_end = (content_y + h).min(g.scroll_rows + viewport_h).min(g.content_h);
@@ -139,14 +137,8 @@ mod tests {
 
     /// A plain (title-less) window: 40 header rows, 30 footer rows, 800
     /// content rows, 526-row frame → viewport of 456 rows.
-    const G: BandGeometry = BandGeometry {
-        title_h: 0,
-        header_h: 40,
-        footer_h: 30,
-        content_h: 800,
-        scroll_rows: 0,
-        frame_h: 526,
-    };
+    const G: BandGeometry =
+        BandGeometry { header_h: 40, footer_h: 30, content_h: 800, scroll_rows: 0, frame_h: 526 };
 
     #[test]
     fn a_header_region_maps_onto_the_band_top() {
@@ -184,12 +176,6 @@ mod tests {
         );
         // A short card at the content top is scrolled fully out.
         assert_eq!(band_region_slice(40, 80, &g), None);
-    }
-
-    #[test]
-    fn a_chromed_window_offsets_by_its_title_rows() {
-        let g = BandGeometry { title_h: 28, ..G };
-        assert_eq!(band_region_slice(4, 30, &g), Some(BandSlice { src_row: 32, dst_y: 32, h: 30 }));
     }
 
     #[test]

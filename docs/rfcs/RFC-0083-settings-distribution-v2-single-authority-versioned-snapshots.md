@@ -132,7 +132,10 @@ app (DSL svc.settings.set) ──► settingsd  (validate → apply live → rep
 ```
 
 Max frame 70 bytes. `theme` reuses the existing packed byte (low nibble mode, high
-nibble accent index). Decode is fail-closed (bounds + UTF-8); future fields append
+nibble accent index); bit 3 of the mode nibble is `THEME_SOLID` (2026-10-21, TASK-0337:
+`ui.material = solid`, reduce transparency — every material its tint at full opacity, nothing
+blurred), a theme variant like dark or light, so a flip re-resolves every surface on the same
+path (`unpack_theme` returns the mode without it, `theme_is_solid` reads it). Decode is fail-closed (bounds + UTF-8); future fields append
 as optional tails (the keymap-tail precedent). The generation is **windowd-local**,
 monotonic wrapping u32 — kernel IPC is FIFO per channel, so ordering is structural;
 gen serves as a short-circuit and dedupe token only. The settingsd `OP_EVENT` frame

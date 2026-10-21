@@ -251,50 +251,6 @@ impl<'a> RenderCommandEncoder<'a> {
         )
     }
 
-    /// Composite a **scrollable** layer under `scroll_id` (non-zero) — the
-    /// backend retains it and re-samples it at the id's source-row override on a
-    /// lightweight scroll command (the GPU scroll fast path), instead of the
-    /// embedder re-composing per frame.
-    #[allow(clippy::too_many_arguments)]
-    pub fn try_composite_layer_scrollable(
-        &mut self,
-        src_row_abs: u32,
-        src_x: u32,
-        width: u32,
-        height: u32,
-        dst_x: u32,
-        dst_y: u32,
-        opacity: u32,
-        corner_radius: u32,
-        shadow_blur: u32,
-        shadow_offset_y: i32,
-        shadow_alpha: u32,
-        backdrop_blur: u32,
-        scroll_id: u32,
-    ) -> Result<(), GfxError> {
-        self.try_composite_layer_tagged(
-            src_row_abs,
-            src_x,
-            width,
-            height,
-            dst_x,
-            dst_y,
-            opacity,
-            corner_radius,
-            shadow_blur,
-            shadow_offset_y,
-            shadow_alpha,
-            backdrop_blur,
-            scroll_id,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        )
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn try_composite_layer_tagged(
         &mut self,
@@ -310,13 +266,13 @@ impl<'a> RenderCommandEncoder<'a> {
         shadow_offset_y: i32,
         shadow_alpha: u32,
         backdrop_blur: u32,
-        scroll_id: u32,
         content_w: u32,
         content_h: u32,
         scroll_band_top_abs: u32,
         scroll_band_h: u32,
         layer_id: u32,
         content_epoch: u32,
+        flags: u32,
     ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
@@ -334,13 +290,13 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
-            scroll_id,
             content_w,
             content_h,
             scroll_band_top_abs,
             scroll_band_h,
             layer_id,
             content_epoch,
+            flags,
         })
     }
 
@@ -431,13 +387,14 @@ impl<'a> RenderCommandEncoder<'a> {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
-            layer.scroll_id,
             layer.content_w,
             layer.content_h,
             layer.scroll_band_top_abs,
             layer.scroll_band_h,
             layer.layer_id,
             layer.content_epoch,
+            (if layer.opaque { crate::command::buffer::LAYER_OPAQUE } else { 0 })
+                | (if layer.solid { crate::command::buffer::LAYER_SOLID } else { 0 }),
         )
     }
 
@@ -490,6 +447,28 @@ impl<'a> RenderCommandEncoder<'a> {
             return Err(GfxError::CommandRejected);
         }
         self.cmd.push_command(Command::Damage { rect, origin })
+    }
+
+    /// This present names no damage (`TileRect::NONE`, RFC-0101 §8): it is owed for what moved
+    /// alone — a window's transform, a body's scroll, the frame clock (TASK-0338) — and a display
+    /// that keeps its planes redraws only the layers drawn otherwise than before.
+    pub fn try_damage_none(&mut self) -> Result<(), GfxError> {
+        self.try_damage(TileRect::NONE, 0)
+    }
+
+    /// The transform of window `layer_id` as this present draws it (`Command::LayerTransform`,
+    /// TASK-0336): it takes effect with the present's layers.
+    pub fn try_layer_transform(
+        &mut self,
+        layer_id: u32,
+        (dx, dy): (i32, i32),
+        opacity: u32,
+        scale_pct: u32,
+    ) -> Result<(), GfxError> {
+        if !self.active {
+            return Err(GfxError::CommandRejected);
+        }
+        self.cmd.push_command(Command::LayerTransform { layer_id, dx, dy, opacity, scale_pct })
     }
 
     // ── Lifecycle ─────────────────────────────────────────────

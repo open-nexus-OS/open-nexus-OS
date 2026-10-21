@@ -34,6 +34,8 @@ pub use scrolled::{
 
 mod shapes;
 use shapes::sqrt_f32;
+#[cfg(test)]
+mod span_identity;
 
 use nexus_layout::LayoutBox;
 use nexus_layout_types::{Rgba8, ShapeKind};

@@ -52,7 +52,7 @@ impl DisplayServerRuntime {
     /// The app behind window slot `idx` is gone: close its window like the close button does
     /// and say so. Idempotent — a slot without a surface has nothing left to close.
     pub(crate) fn note_app_channel_dead(&mut self, idx: usize) {
-        if self.apps[idx].surface_id.is_none() {
+        if self.apps[idx].surface_id.is_none() && !self.apps[idx].starting {
             return;
         }
         let _ = nexus_abi::debug_println(&alloc::format!(

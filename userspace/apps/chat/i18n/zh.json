@@ -13,5 +13,9 @@
   "chat.teamLast": "构建通过 — 发布就绪。",
   "chat.lea": "蕾亚",
   "chat.leaLast": "谢谢你！",
-  "chat.yesterday": "昨天"
+  "chat.yesterday": "昨天",
+  "win.close": "Close",
+  "win.fullscreen": "Full screen",
+  "win.minimize": "Minimise",
+  "win.moveDevice": "Move to another device"
 }

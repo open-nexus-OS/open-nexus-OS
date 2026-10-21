@@ -50,6 +50,27 @@ static ACCENTED_LIGHT: [nexus_dsl_runtime::theme_tokens::AccentTokens; 5] = [
     accented(&LIGHT_TOKENS, 5, false),
 ];
 
+/// The solid-materials variant of every set above (TASK-0337, `THEME_SOLID`: reduce
+/// transparency) — the same alloc-free statics, each wrapping its translucent twin.
+type Solid = nexus_dsl_runtime::theme_tokens::SolidTokens;
+static SOLID_BASE: Solid = Solid { base: &BASE_TOKENS };
+static SOLID_DARK: Solid = Solid { base: &DARK_TOKENS };
+static SOLID_LIGHT: Solid = Solid { base: &LIGHT_TOKENS };
+static SOLID_ACCENTED_DARK: [Solid; 5] = [
+    Solid { base: &ACCENTED_DARK[0] },
+    Solid { base: &ACCENTED_DARK[1] },
+    Solid { base: &ACCENTED_DARK[2] },
+    Solid { base: &ACCENTED_DARK[3] },
+    Solid { base: &ACCENTED_DARK[4] },
+];
+static SOLID_ACCENTED_LIGHT: [Solid; 5] = [
+    Solid { base: &ACCENTED_LIGHT[0] },
+    Solid { base: &ACCENTED_LIGHT[1] },
+    Solid { base: &ACCENTED_LIGHT[2] },
+    Solid { base: &ACCENTED_LIGHT[3] },
+    Solid { base: &ACCENTED_LIGHT[4] },
+];
+
 /// The token set for a PACKED wire theme byte (`mode | accent << 4`) — the
 /// app renders with the SAME tokens the compositor pushed (dark desktop ⇒
 /// dark app; user accent ⇒ accented widgets). The packed byte flows
@@ -58,6 +79,17 @@ static ACCENTED_LIGHT: [nexus_dsl_runtime::theme_tokens::AccentTokens; 5] = [
 pub(crate) fn tokens_for(packed: u8) -> &'static dyn nexus_dsl_runtime::theme_tokens::Tokens {
     let (mode, accent) = wire::unpack_theme(packed);
     let accent_slot = (accent as usize).checked_sub(1);
+    if wire::theme_is_solid(packed) {
+        return match (mode, accent_slot) {
+            (wire::THEME_DARK, Some(i)) if i < SOLID_ACCENTED_DARK.len() => &SOLID_ACCENTED_DARK[i],
+            (wire::THEME_LIGHT, Some(i)) if i < SOLID_ACCENTED_LIGHT.len() => {
+                &SOLID_ACCENTED_LIGHT[i]
+            }
+            (wire::THEME_DARK, _) => &SOLID_DARK,
+            (wire::THEME_LIGHT, _) => &SOLID_LIGHT,
+            _ => &SOLID_BASE,
+        };
+    }
     match (mode, accent_slot) {
         (wire::THEME_DARK, Some(i)) if i < ACCENTED_DARK.len() => &ACCENTED_DARK[i],
         (wire::THEME_LIGHT, Some(i)) if i < ACCENTED_LIGHT.len() => &ACCENTED_LIGHT[i],

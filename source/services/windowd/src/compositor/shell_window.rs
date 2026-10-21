@@ -41,40 +41,9 @@ use nexus_gfx::{BackdropCache, Layer, LayerBackdrop, LayerShadow, RenderCommandE
 const SHADOW_HALO_PAD: u32 = 24;
 
 // ── Window chrome: P3.2 windows-as-widgets — the title bar renders FROM the
-// `ui/widgets/window` chrome via `runtime/chrome_widget.rs` (widget → layout →
-// nexus-scene-raster into ONE shared cache). The hand-rasterizer that lived
-// here is retired; only the corner mask below remains (shared by the cache).
-
-/// Clear the out-of-arc pixels of the two TOP corners (transparent), so a
-/// square-composited title bar still presents rounded top corners.
-pub(crate) fn round_top_corners(local_y: u32, row: &mut [u8], w: u32, radius: u32) {
-    if radius == 0 || local_y >= radius {
-        return;
-    }
-    let rp = (row.len() / 4) as u32;
-    let r = radius;
-    // Vertical distance from the arc centre (at y = r), squared.
-    let dy = r - 1 - local_y; // local_y in [0, r)
-    let dy2 = dy as u32 * dy as u32;
-    let r2 = r * r;
-    // Top-left: arc centre at x = r. Clear x in [0, r) outside the arc.
-    for x in 0..r.min(rp) {
-        let dx = r - 1 - x;
-        if dx as u32 * dx as u32 + dy2 > r2 {
-            let idx = x as usize * 4;
-            row[idx..idx + 4].copy_from_slice(&[0, 0, 0, 0]);
-        }
-    }
-    // Top-right: arc centre at x = w - r. Clear x in [w - r, w) outside the arc.
-    let start = w.saturating_sub(r);
-    for x in start..w.min(rp) {
-        let dx = x - start;
-        if dx * dx + dy2 > r2 {
-            let idx = x as usize * 4;
-            row[idx..idx + 4].copy_from_slice(&[0, 0, 0, 0]);
-        }
-    }
-}
+// (TASK-0337: windowd composes no title bar at all — the window kit draws the
+// chrome inside the app's surface; the hand-rasterizer and the widget raster
+// cache that lived here are gone.)
 
 /// Write one straight-alpha BGRA span (gpud's layer blend does the SRC_ALPHA
 /// compositing over the blurred backdrop). Shared with the dock renderer.
@@ -90,7 +59,7 @@ pub(crate) fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
 // crate (`frame`) so every `ShellWindow` (chat + search) shares one
 // implementation; re-export so existing `shell_window::{Frame,WindowPress}` call
 // sites keep working (RFC-0067 P3: window geometry is a widget concern).
-pub(crate) use nexus_widget_window::{Frame, ResizeEdge, TitleButton, WindowPress};
+pub(crate) use nexus_widget_window::{Frame, ResizeEdge, WindowPress};
 
 // The per-region material-glass recipe lives in its own module (ratchet
 // split); re-exported here so `scene.rs` keeps one import path.
@@ -106,12 +75,9 @@ pub(crate) struct ShellWindow {
     /// Top-left on the display (display-space).
     pub(crate) x: i32,
     pub(crate) y: i32,
-    /// Window size. `h` is the full window height (title + body).
+    /// Window size: the surface's (TASK-0337: the app draws its chrome inside it).
     pub(crate) w: u32,
     pub(crate) h: u32,
-    /// Title bar height + close-button width (chrome geometry, reusable).
-    pub(crate) title_h: u32,
-    pub(crate) close_w: u32,
     /// Glass frame parameters applied by the composite.
     pub(crate) radius: u32,
     pub(crate) shadow_blur: u32,
@@ -121,8 +87,6 @@ pub(crate) struct ShellWindow {
     pub(crate) visible: bool,
     /// Active title-bar drag: cursor offset from the window origin at grab.
     pub(crate) drag: Option<(i32, i32)>,
-    /// Hovered title-bar button `[– □ ×]` (re-renders the title bar on change).
-    pub(crate) title_hover: Option<TitleButton>,
     /// Floating frame remembered while fullscreen, restored on toggle-off.
     pub(crate) fullscreen_restore: Option<(i32, i32, u32, u32)>,
     /// Scroll offset of the body list (rows, for now; GPU-offset in W2).
@@ -150,8 +114,6 @@ impl ShellWindow {
         y: i32,
         w: u32,
         h: u32,
-        title_h: u32,
-        close_w: u32,
         radius: u32,
         shadow_blur: u32,
         shadow_offset_y: i32,
@@ -163,15 +125,12 @@ impl ShellWindow {
             y,
             w,
             h,
-            title_h,
-            close_w,
             radius,
             shadow_blur,
             shadow_offset_y,
             shadow_alpha,
             visible: false,
             drag: None,
-            title_hover: None,
             fullscreen_restore: None,
             scroll: 0,
             surface_dirty: true,
@@ -213,19 +172,10 @@ impl ShellWindow {
             y: self.y,
             w: self.w,
             h: self.h,
-            title_h: self.title_h,
-            close_w: self.close_w,
+            // No compositor chrome (TASK-0337): the widget's title geometry is empty.
+            title_h: 0,
+            close_w: 0,
         }
-    }
-
-    /// True if `(cx, cy)` is anywhere inside the window.
-    pub(crate) fn contains(&self, cx: i32, cy: i32) -> bool {
-        self.frame().contains(cx, cy)
-    }
-
-    /// The title-bar button `[– □ ×]` under `(cx, cy)`, if any.
-    pub(crate) fn title_button_at(&self, cx: i32, cy: i32) -> Option<TitleButton> {
-        self.frame().title_button_at(cx, cy)
     }
 
     /// Apply a new display-space frame (move + resize in one step, TASK-0070
@@ -272,6 +222,20 @@ impl ShellWindow {
 
     pub(crate) fn end_drag(&mut self) {
         self.drag = None;
+    }
+
+    /// Where an in-progress drag would put the window for the pointer at (`cx`, `cy`), clamped
+    /// to the drag envelope — nothing moved (TASK-0336 P3: the move rides as a transform
+    /// until the release).
+    pub(crate) fn drag_target(
+        &self,
+        cx: i32,
+        cy: i32,
+        mode_w: u32,
+        bounds: nexus_widget_window::DragBounds,
+    ) -> Option<(i32, i32)> {
+        let (gx, gy) = self.drag?;
+        Some(self.frame().clamp_pos(cx - gx, cy - gy, mode_w, bounds))
     }
 
     /// Continue an in-progress drag, clamped to the status-bar drag envelope
@@ -345,6 +309,7 @@ impl ShellWindow {
             shadow_blur: self.shadow_blur,
             shadow_offset_y: self.shadow_offset_y,
             shadow_alpha: self.shadow_alpha,
+            solid: false,
         })
     }
 
@@ -377,7 +342,6 @@ impl ShellWindow {
                 dst_y: p.y,
                 opacity: p.opacity as u32,
                 corner_radius: p.radius,
-                scroll_id: 0,
                 layer_id: p.layer_id,
                 content_epoch: crate::atlas::atlas_content_epoch(),
                 scroll_band_top_abs: 0,
@@ -387,7 +351,11 @@ impl ShellWindow {
                     offset_y: p.shadow_offset_y,
                     alpha: p.shadow_alpha,
                 }),
-                backdrop: if p.content_w > 0 {
+                opaque: p.solid && p.content_w == 0 && p.opacity == 255,
+                solid: false,
+                backdrop: if p.solid {
+                    None
+                } else if p.content_w > 0 {
                     // Live resize: the frame grew past the content band. The blur
                     // cache is content-size and can't cover the frame, so blur
                     // LIVE at the frame rect (no cache) — the exposed area beyond
@@ -423,13 +391,11 @@ impl ShellWindow {
     /// atlas band, GPU `src_row` offset per scroll, no per-frame re-render). This
     /// is a THREE-slice composite:
     ///
-    /// 1. **Body** (the scrolling viewport): a `scroll_id`-tagged layer covering
-    ///    the region between the fixed top and bottom. gpud retains it and
-    ///    re-samples it at the id's `src_row` override on `OP_SET_LAYER_SCROLL`
-    ///    (the scroll fast path). Its full-present `src_row_abs =
-    ///    atlas_row + content_offset` — where `content_offset =
-    ///    header_h + footer_h + scroll_rows` — MUST equal the override row
-    ///    windowd emits, so a full present mid-scroll agrees (no snap-to-top).
+    /// 1. **Body** (the scrolling viewport): the layer covering the region
+    ///    between the fixed top and bottom, sampled at `src_row_abs =
+    ///    atlas_row + content_offset` — where `content_offset = header_h +
+    ///    footer_h + scroll_rows`: a scroll step is a present that moves this row
+    ///    (TASK-0338), the retained layers re-composited on the GPU.
     /// 2. **Fixed top slice** (`header_h` rows = WM title bar + app header):
     ///    composited from atlas row 0, opaque, occludes the top of the body.
     /// 3. **Fixed bottom slice** (`footer_h` rows = app composer): composited from
@@ -442,7 +408,6 @@ impl ShellWindow {
     pub(crate) fn composite_scrollable_glass(
         encoder: &mut RenderCommandEncoder<'_>,
         p: GlassCompositeParams,
-        scroll_id: u32,
         content_offset: u32,
         header_h: u32,
         footer_h: u32,
@@ -453,17 +418,14 @@ impl ShellWindow {
         if p.x >= mode_w || p.y >= mode_h {
             return false;
         }
-        // 1. Body (viewport): the scrolling content between the fixed slices.
-        //    `scroll_id` set + `content_w/h: 0` (1:1 scroll path). The frosted
-        //    backdrop is cached (built once, re-read thereafter). No corners /
-        //    shadow — those belong to the fixed top/bottom (a scroll viewport in
-        //    the middle of a window has straight edges).
-        //    `scroll_band_*`: gpud must upload the WHOLE atlas band
-        //    `[atlas_row, +header_h+footer_h+content_h]` (WM title + header +
-        //    footer + tall content) to its GL texture ONCE, so the `src_row`
-        //    override can shift within uploaded rows (else the body never
-        //    scrolls — only the visible rows were ever uploaded). The header/
-        //    footer fixed slices then sample already-uploaded rows.
+        // 1. Body (viewport): the scrolling content between the fixed slices,
+        //    `content_w/h: 0` (1:1). The frosted backdrop is cached (built once,
+        //    re-read thereafter). No corners / shadow — those belong to the fixed
+        //    top/bottom (a scroll viewport in the middle of a window has straight
+        //    edges). `scroll_band_*`: a backend that uploads the atlas uploads the
+        //    WHOLE band `[atlas_row, +header_h+footer_h+content_h]` ONCE, so the
+        //    present that scrolls samples rows already uploaded. The header/footer
+        //    fixed slices then sample already-uploaded rows.
         let viewport_h = p.h.saturating_sub(header_h.saturating_add(footer_h));
         let band_h = header_h.saturating_add(footer_h).saturating_add(content_h);
         if viewport_h > 0 {
@@ -479,12 +441,13 @@ impl ShellWindow {
                     dst_y: p.y + header_h,
                     opacity: p.opacity as u32,
                     corner_radius: 0,
-                    scroll_id,
                     layer_id: p.layer_id,
                     content_epoch: crate::atlas::atlas_content_epoch(),
                     scroll_band_top_abs: p.atlas_row,
                     scroll_band_h: band_h,
                     shadow: None,
+                    opaque: false,
+                    solid: false,
                     backdrop: p.blur.map(|blur| LayerBackdrop {
                         blur_radius: DARK_GLASS_BLUR_RADIUS,
                         saturation_percent: DARK_GLASS_SATURATION_PERCENT,
@@ -523,12 +486,13 @@ impl ShellWindow {
                     dst_y,
                     opacity: 255,
                     corner_radius: 0,
-                    scroll_id: 0,
                     layer_id: 0,
                     content_epoch: crate::atlas::atlas_content_epoch(),
                     scroll_band_top_abs: 0,
                     scroll_band_h: 0,
                     shadow: None,
+                    opaque: false,
+                    solid: false,
                     backdrop: Some(LayerBackdrop {
                         blur_radius: DARK_GLASS_BLUR_RADIUS,
                         saturation_percent: DARK_GLASS_SATURATION_PERCENT,
@@ -597,14 +561,16 @@ pub(crate) struct GlassCompositeParams {
     pub(crate) content_h: u32,
     pub(crate) radius: u32,
     /// Transform identity (Track C2): tags every slice of this window's
-    /// composite so `OP_SET_LAYER_TRANSFORM` can move/fade/scale the whole
-    /// window on the GPU. `slot + 1`; 0 = untagged.
+    /// composite so the present's `Command::LayerTransform` moves/fades/scales
+    /// the whole window on the GPU. `slot + 1`; 0 = untagged.
     pub(crate) layer_id: u32,
-    /// Baked whole-window opacity (255 = opaque) — a full present mid-
-    /// transition encodes the CURRENT animated opacity (snap-back
-    /// agreement; gpud clears its override table on full presents).
+    /// The window's own opacity (255 = opaque); the transition's fade is the
+    /// present's `Command::LayerTransform`, multiplied on the GPU.
     pub(crate) opacity: u8,
     pub(crate) shadow_blur: u32,
     pub(crate) shadow_offset_y: i32,
     pub(crate) shadow_alpha: u32,
+    /// Solid materials (TASK-0337): the window's page base is opaque — no backdrop is blurred,
+    /// and the body occludes what lies below it.
+    pub(crate) solid: bool,
 }

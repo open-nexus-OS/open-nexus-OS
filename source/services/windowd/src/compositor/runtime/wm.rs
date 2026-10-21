@@ -107,12 +107,7 @@ impl DisplayServerRuntime {
         let idx = i as usize;
         let (mode_w, mode_h) = (self.mode.width, self.mode.height);
         if self.windows.is_fullscreen(id) {
-            // Restore the floating frame + chrome height (fullscreen zeroed
-            // `title_h`). Restoring it here — not waiting for the re-create —
-            // keeps `push_app_content_rect`'s title inset correct, so the
-            // window doesn't grow by `title_h` each fullscreen round-trip.
             self.apps[idx].win.leave_fullscreen();
-            self.apps[idx].win.title_h = self.app_title_h(idx);
             self.windows.set_fullscreen(id, false);
             // The fullscreen band shrinks on the re-create; the occluded
             // windows re-mount as soon as rows free up (retried below and on
@@ -147,8 +142,6 @@ impl DisplayServerRuntime {
         // content rect so the app re-renders at the new size
         // (`push_app_content_rect` reads the flag → full display vs. inset).
         self.push_app_content_rect(idx);
-        // Title stays sharp at the new frame width while the band re-creates.
-        self.update_app_title_overlay(idx);
         // Chrome visibility + window geometry both changed → full present.
         self.queue_full_frame_damage();
     }
@@ -161,32 +154,6 @@ impl DisplayServerRuntime {
             width: self.mode.width,
             height: self.mode.height,
         });
-    }
-
-    /// Title-bar button hover `[– □ ×]`: only the TOPMOST window under the
-    /// cursor may show a hover (same front-to-back order as presses); every
-    /// other window's hover clears. Changes re-render that window's surface.
-    pub(super) fn update_title_hovers(&mut self, cx: i32, cy: i32) {
-        use crate::compositor::shell_window::TitleButton;
-        let (hit, n) = self.windows.hit_order(self.capture.frozen());
-        // The desktop base has no window chrome — only app windows own hovers,
-        // and only the TOPMOST one under the cursor may show one.
-        let owner = hit[..n]
-            .iter()
-            .copied()
-            .find(|&wid| self.app_slot(wid).map(|a| a.win.contains(cx, cy)).unwrap_or(false));
-        for idx in 0..self.apps.len() {
-            let wid = WindowId::App(idx as u8);
-            let hover: Option<TitleButton> =
-                if owner == Some(wid) { self.apps[idx].win.title_button_at(cx, cy) } else { None };
-            if hover != self.apps[idx].win.title_hover {
-                self.apps[idx].win.title_hover = hover;
-                self.apps[idx].win.surface_dirty = true;
-                self.apps[idx].surface_dirty_rows = None; // title chrome: full
-                let rect = self.app_window_rect(idx);
-                self.queue_dirty_rect(rect);
-            }
-        }
     }
 
     // ── Edge/corner resize + drag-to-edge snap (TASK-0070 Phase 3) ──
@@ -300,7 +267,6 @@ impl DisplayServerRuntime {
                 if self.windows.is_fullscreen(wid) {
                     self.toggle_fullscreen(wid);
                 }
-                self.apps[idx].win.title_h = self.app_title_h(idx);
                 // The legacy "split" mode IS the left-half tile (TASK-0066): one
                 // geometry path, the feed learns the zone, Return knows the way back.
                 self.apply_zone(idx, crate::zones::Zone::LeftHalf);
@@ -326,7 +292,6 @@ impl DisplayServerRuntime {
                 let h = (wa_h * 5 / 6).max(MIN_WIN_H);
                 let x = ((self.mode.width.saturating_sub(w)) / 2) as i32;
                 let y = top + ((wa_h.saturating_sub(h)) / 2) as i32;
-                self.apps[idx].win.title_h = self.app_title_h(idx);
                 self.apply_window_frame(wid, x, y, w, h);
                 self.push_app_content_rect(idx);
                 let _ = debug_println("windowd: win mode freeform");
@@ -338,14 +303,9 @@ impl DisplayServerRuntime {
     /// Tell the app-client its current CONTENT rect (`OP_SURFACE_RECT`) so it
     /// re-creates its surface at that size (WM owns geometry).
     pub(crate) fn push_app_content_rect(&mut self, idx: usize) {
-        // The content reserves `title_h` for the WM-drawn title bar. This is
-        // INTENT-driven (`app_title_h`), NOT fullscreen-driven: a titled app that
-        // maximizes keeps its title bar (□ = maximize), so the content stays
-        // `frame − title`; only an intent-chromeless shell/single-app surface
-        // gets the whole frame.
-        let title = self.app_title_h(idx);
+        // The content IS the frame (TASK-0337): the app draws its chrome inside it.
         let cw = self.apps[idx].win.w.min(u32::from(u16::MAX)) as u16;
-        let ch = self.apps[idx].win.h.saturating_sub(title).min(u32::from(u16::MAX)) as u16;
+        let ch = self.apps[idx].win.h.min(u32::from(u16::MAX)) as u16;
         // The status-bar rows this surface keeps clear, in the `y` the wire has
         // always reserved and always sent as 0 (see `content_top_inset`).
         let inset = self.content_top_inset(idx).min(u32::from(u16::MAX)) as u16;
@@ -376,9 +336,6 @@ impl DisplayServerRuntime {
         self.apps[idx].win.set_frame(x, y, w, h);
         self.apps[idx].win.surface_dirty = true;
         self.apps[idx].surface_dirty_rows = None; // resized: full re-blit
-                                                  // TASK #23: keep the title bar sharp at the TRUE frame width while the
-                                                  // band lags (live resize) — re-rasterized only on width change.
-        self.update_app_title_overlay(idx);
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);
     }

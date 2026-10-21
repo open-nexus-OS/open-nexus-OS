@@ -13,5 +13,9 @@
   "chat.teamLast": "Build is green — release is on.",
   "chat.lea": "Lea",
   "chat.leaLast": "Thank you!",
-  "chat.yesterday": "Yesterday"
+  "chat.yesterday": "Yesterday",
+  "win.close": "Close",
+  "win.fullscreen": "Full screen",
+  "win.minimize": "Minimise",
+  "win.moveDevice": "Move to another device"
 }

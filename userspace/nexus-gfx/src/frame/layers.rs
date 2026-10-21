@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The retained layer set (TASK-0215 5c-3 P4): the `CompositeLayer` commands of the last present
-//! that brought layers, with the scroll and transform overrides recorded since. A present without
-//! layers (a pointer move) keeps the set; every frame composes it whole. Moved here from the
-//! QEMU path's backend so the board's executor draws the same set.
+//! that brought layers, with the windows' transforms the presents carry (TASK-0336/0338: presents
+//! are the only source of a frame — a scroll or a move is a present). A present without layers
+//! keeps the set; every frame composes it whole. Moved here from the QEMU path's backend so the
+//! board's executor draws the same set.
 
 use super::damage::Area;
 use crate::command::buffer::Command;
@@ -13,7 +14,7 @@ use crate::command::buffer::Command;
 /// each, their glass regions, the dock and the top bar.
 pub const MAX_LAYERS: usize = 32;
 
-/// Scroll and transform ids, `1..=MAX_IDS` (`0` = none): a window's slot plus one.
+/// Transform ids, `1..=MAX_IDS` (`0` = none): a window's slot plus one.
 pub const MAX_IDS: usize = 8;
 
 /// One `CompositeLayer` as the frame keeps it.
@@ -37,15 +38,18 @@ pub struct FrameLayer {
     pub shadow_alpha: u32,
     /// The glass's blur radius (`0` = no glass).
     pub backdrop_blur: u32,
-    /// The scroll override's id (`0` = not scrollable).
-    pub scroll_id: u32,
-    /// The scroll band resident in the atlas, the override shifting within it.
+    /// The scroll band resident in the atlas (`0` = not scrollable): a backend that uploads the
+    /// atlas uploads it whole, so a present that scrolls samples rows already there.
     pub scroll_band_top_abs: u32,
     pub scroll_band_h: u32,
-    /// The transform override's id (`0` = none); every slice of a window shares it.
+    /// The window transform's id (`0` = none); every slice of a window shares it.
     pub layer_id: u32,
     /// The atlas generation of the layer's content (`0` = unknown).
     pub content_epoch: u32,
+    /// Opaque inside its rounded rectangle (`LAYER_OPAQUE`): an occluder (TASK-0337).
+    pub opaque: bool,
+    /// One colour (`LAYER_SOLID`): any part of its band draws any part of it (TASK-0336).
+    pub solid: bool,
 }
 
 impl FrameLayer {
@@ -64,13 +68,13 @@ impl FrameLayer {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
-            scroll_id,
             content_w,
             content_h,
             scroll_band_top_abs,
             scroll_band_h,
             layer_id,
             content_epoch,
+            flags,
         } = *cmd
         else {
             return None;
@@ -90,17 +94,18 @@ impl FrameLayer {
             shadow_offset_y,
             shadow_alpha,
             backdrop_blur,
-            scroll_id,
             scroll_band_top_abs,
             scroll_band_h,
             layer_id,
             content_epoch,
+            opaque: flags & super::super::command::buffer::LAYER_OPAQUE != 0,
+            solid: flags & super::super::command::buffer::LAYER_SOLID != 0,
         })
     }
 }
 
-/// A transform override (an identity one is recorded too: windowd retires an override by
-/// sending it).
+/// A window's transform as a present carries it (windowd sends every window's in every present,
+/// the identity at rest — so a slot's next tenant never inherits a transform).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Transform {
     pub dx: i16,
@@ -112,7 +117,7 @@ pub struct Transform {
 }
 
 impl Transform {
-    /// The override applied: moved, its opacity multiplied, scaled about its centre — the
+    /// The transform applied: moved, its opacity multiplied, scaled about its centre — the
     /// content band keeps its size, so the executor spreads it over the scaled layer.
     pub fn apply(&self, l: &mut FrameLayer) {
         l.dst_x = (l.dst_x as i32 + i32::from(self.dx)).max(0) as u32;
@@ -144,11 +149,10 @@ pub struct Taken {
     pub dropped: usize,
 }
 
-/// The retained set and its overrides.
+/// The retained set and the windows' transforms.
 pub struct RetainedLayers {
     layers: [FrameLayer; MAX_LAYERS],
     count: usize,
-    scroll_rows: [Option<u32>; MAX_IDS],
     transforms: [Option<Transform>; MAX_IDS],
     /// The set changed since the frame last decided its atlas upload.
     pub(super) dirty: bool,
@@ -188,14 +192,14 @@ impl RetainedLayers {
                 shadow_offset_y: 0,
                 shadow_alpha: 0,
                 backdrop_blur: 0,
-                scroll_id: 0,
                 scroll_band_top_abs: 0,
                 scroll_band_h: 0,
                 layer_id: 0,
                 content_epoch: 0,
+                opaque: false,
+                solid: false,
             }; MAX_LAYERS],
             count: 0,
-            scroll_rows: [None; MAX_IDS],
             transforms: [None; MAX_IDS],
             dirty: true,
             uploaded_epoch: 0,
@@ -224,17 +228,31 @@ impl RetainedLayers {
             | Command::BlurBackdrop { .. }
             | Command::BlitAbsolute { .. }
             | Command::BlendCursor { .. }
-            | Command::Damage { .. } => true,
+            | Command::Damage { .. }
+            | Command::LayerTransform { .. } => true,
             _ => false,
         })
     }
 
-    /// A present's commands. Layers replace the set — the scroll overrides go with it (the
-    /// encode carries the scroll offset), the transform overrides stay (the encode is the
-    /// untransformed base; windowd retires an override itself). No layers: the set stays. The
-    /// present's damage is recorded for the plan: its `Damage` rectangles' union, or everywhere
-    /// when layers came without one.
+    /// A present's commands. Layers replace the set (a scrolled body comes with its new source
+    /// row); the transforms stay (the encode is the untransformed base, each present carries
+    /// every window's). No layers: the set stays. The present's damage is recorded for the plan:
+    /// its `Damage` rectangles' union — none for `TileRect::NONE` — or everywhere when layers
+    /// came without one.
     pub fn take_frame(&mut self, cmds: &[Command]) -> Taken {
+        // The present's transforms first: they hold from this present's layers on (TASK-0336),
+        // whether or not the present brings layers.
+        for c in cmds {
+            if let Command::LayerTransform { layer_id, dx, dy, opacity, scale_pct } = *c {
+                let t = Transform {
+                    dx: dx.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
+                    dy: dy.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
+                    opacity: opacity.min(255) as u8,
+                    scale_pct: scale_pct.clamp(1, 400) as u16,
+                };
+                let _ = self.set_transform(layer_id, t);
+            }
+        }
         let mut named = false;
         for c in cmds {
             if let Command::Damage { rect, origin } = c {
@@ -259,7 +277,6 @@ impl RetainedLayers {
         }
         self.count = 0;
         self.dirty = true;
-        self.scroll_rows = [None; MAX_IDS];
         let mut dropped = 0;
         for layer in cmds.iter().filter_map(FrameLayer::from_command) {
             match self.layers.get_mut(self.count) {
@@ -273,12 +290,11 @@ impl RetainedLayers {
         Taken { replaced: true, dropped }
     }
 
-    /// The set emptied, its overrides with it (an executor's own scene drawn before the
+    /// The set emptied, its transforms with it (an executor's own scene drawn before the
     /// compositor's first — the next present with layers replaces nothing).
     pub fn clear(&mut self) {
         self.count = 0;
         self.dirty = true;
-        self.scroll_rows = [None; MAX_IDS];
         self.transforms = [None; MAX_IDS];
     }
 
@@ -310,17 +326,6 @@ impl RetainedLayers {
         self.layers[..self.count].iter().position(|l| l.layer_id == layer_id)
     }
 
-    /// The source row of scroll id `scroll_id` from now on; `false` for id 0 or beyond the table.
-    pub fn set_scroll(&mut self, scroll_id: u32, src_row_abs: u32) -> bool {
-        match scroll_id.checked_sub(1).and_then(|i| self.scroll_rows.get_mut(i as usize)) {
-            Some(slot) => {
-                *slot = Some(src_row_abs);
-                true
-            }
-            None => false,
-        }
-    }
-
     /// The transform of layer id `layer_id` from now on; `false` for id 0 or beyond the table.
     pub fn set_transform(&mut self, layer_id: u32, t: Transform) -> bool {
         match layer_id.checked_sub(1).and_then(|i| self.transforms.get_mut(i as usize)) {
@@ -339,8 +344,7 @@ impl RetainedLayers {
         self.dirty = true;
     }
 
-    /// Layer `i` as the frame draws it: its transform override applied, its source row the
-    /// scroll override's when one is recorded.
+    /// Layer `i` as the frame draws it: its window's transform applied.
     pub fn effective(&self, i: usize) -> Option<FrameLayer> {
         let mut l = *self.layers.get(i).filter(|_| i < self.count)?;
         if let Some(t) = l
@@ -352,16 +356,19 @@ impl RetainedLayers {
         {
             t.apply(&mut l);
         }
-        if let Some(row) = l
-            .scroll_id
+        Some(l)
+    }
+
+    /// Whether the window of transform id `layer_id` is in motion: a transform that is not the
+    /// identity (moved, scaled or faded). A glass of a window in motion keeps its last blur
+    /// (TASK-0336 P3: blur at rest) — what moves is not re-blurred until it stops.
+    pub fn in_motion(&self, layer_id: u32) -> bool {
+        layer_id
             .checked_sub(1)
-            .and_then(|id| self.scroll_rows.get(id as usize))
+            .and_then(|id| self.transforms.get(id as usize))
             .copied()
             .flatten()
-        {
-            l.src_row_abs = row;
-        }
-        Some(l)
+            .is_some_and(|t| t.dx != 0 || t.dy != 0 || t.opacity != 255 || t.scale_pct != 100)
     }
 
     /// The highest content generation of the set (`0`: no layer is stamped).

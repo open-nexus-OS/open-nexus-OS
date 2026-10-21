@@ -113,6 +113,69 @@ impl RowCanvas<'_> {
         (x >= 0 && x < self.width && i + 4 <= self.buf.len()).then_some(i)
     }
 
+    /// The bytes of model-x span `[x0, x1)` on this row after the scroll shift and the scissor
+    /// (`None` when nothing of it lands) — the clip of `blend`/`set`, taken once for a span.
+    #[inline]
+    fn span_bytes(&self, x0: i32, x1: i32) -> Option<(usize, usize)> {
+        let (mut s0, mut s1) = (x0 - self.shift_x, x1 - self.shift_x);
+        if let Some((c0, c1)) = self.clip_x {
+            s0 = s0.max(c0);
+            s1 = s1.min(c1);
+        }
+        let n = (self.buf.len() / 4) as i32;
+        let (s0, s1) = (s0.max(0).min(self.width).min(n), s1.min(self.width).min(n));
+        (s1 > s0).then_some((s0 as usize * 4, s1 as usize * 4))
+    }
+
+    /// Src-over blend of one colour over span `[x0, x1)` — exactly `blend` on each pixel, its
+    /// clip and its constants taken once (TASK-0337: a box's interior is one colour a row, and
+    /// pixel-at-a-time cost the board seconds of a big window's first frame).
+    pub(crate) fn blend_span(&mut self, x0: i32, x1: i32, c: Rgba8) {
+        if c.a == 0 {
+            return;
+        }
+        let Some((b0, b1)) = self.span_bytes(x0, x1) else { return };
+        let span = &mut self.buf[b0..b1];
+        if c.a == 255 {
+            for px in span.chunks_exact_mut(4) {
+                px.copy_from_slice(&[c.b, c.g, c.r, 255]);
+            }
+            return;
+        }
+        let (a, inv) = (c.a as u32, 255 - c.a as u32);
+        let (sb, sg, sr) = (c.b as u32 * a, c.g as u32 * a, c.r as u32 * a);
+        for px in span.chunks_exact_mut(4) {
+            px[0] = ((px[0] as u32 * inv + sb) / 255) as u8;
+            px[1] = ((px[1] as u32 * inv + sg) / 255) as u8;
+            px[2] = ((px[2] as u32 * inv + sr) / 255) as u8;
+            px[3] = (a + px[3] as u32 * inv / 255) as u8;
+        }
+    }
+
+    /// `blend_covered` with one coverage over span `[x0, x1)`.
+    pub(crate) fn blend_span_covered(&mut self, x0: i32, x1: i32, c: Rgba8, coverage: f32) {
+        if coverage >= 1.0 {
+            self.blend_span(x0, x1, c);
+        } else if coverage > 0.0 {
+            self.blend_span(x0, x1, covered(c, coverage));
+        }
+    }
+
+    /// REPLACE span `[x0, x1)` with `c` — exactly `set` on each pixel (premultiplied), once.
+    pub(crate) fn set_span(&mut self, x0: i32, x1: i32, c: Rgba8) {
+        let Some((b0, b1)) = self.span_bytes(x0, x1) else { return };
+        let a = c.a as u32;
+        let px = [
+            (c.b as u32 * a / 255) as u8,
+            (c.g as u32 * a / 255) as u8,
+            (c.r as u32 * a / 255) as u8,
+            c.a,
+        ];
+        for dst in self.buf[b0..b1].chunks_exact_mut(4) {
+            dst.copy_from_slice(&px);
+        }
+    }
+
     /// REPLACE the fraction `coverage` of one pixel with `c` (premultiplied, alpha included) and
     /// keep the rest of what was there — the anti-aliased edge of a glass reset.
     #[inline]
@@ -159,24 +222,20 @@ impl RowCanvas<'_> {
             return;
         }
         let r = radius.max(0).min(w / 2).min(h / 2);
-        // Rows clear of the corner arcs, and every pixel between the arcs, are wholly covered.
+        // Rows clear of the corner arcs, and every pixel between the arcs, are wholly covered:
+        // one span each (`blend_span`, pixel-identical to `blend` per pixel).
         let in_corner_rows = self.y < y + r || self.y >= y + h - r;
         if !in_corner_rows {
-            for xx in x..x + w {
-                self.blend(xx, c);
-            }
+            self.blend_span(x, x + w, c);
             return;
         }
         let rect = (x as f32, y as f32, w as f32, h as f32);
         let py = self.y as f32 + 0.5;
-        for xx in x..x + w {
-            if xx >= x + r && xx < x + w - r {
-                self.blend(xx, c);
-            } else {
-                let cov = round_rect_coverage(xx as f32 + 0.5, py, rect, r as f32);
-                self.blend_covered(xx, c, cov);
-            }
+        for xx in (x..x + r).chain(x + w - r..x + w) {
+            let cov = round_rect_coverage(xx as f32 + 0.5, py, rect, r as f32);
+            self.blend_covered(xx, c, cov);
         }
+        self.blend_span(x + r, x + w - r, c);
     }
 
     /// This row's slice of an (optionally rounded) rect fill, REPLACING the destination pixels
@@ -201,14 +260,15 @@ impl RowCanvas<'_> {
         let rect = (x as f32, y as f32, w as f32, h as f32);
         let py = self.y as f32 + 0.5;
         let in_corner_rows = self.y < y + r || self.y >= y + h - r;
-        for xx in x..x + w {
-            let cov = if !in_corner_rows || (xx >= x + r && xx < x + w - r) {
-                1.0
-            } else {
-                round_rect_coverage(xx as f32 + 0.5, py, rect, r as f32)
-            };
+        if !in_corner_rows {
+            self.set_span(x, x + w, c);
+            return;
+        }
+        for xx in (x..x + r).chain(x + w - r..x + w) {
+            let cov = round_rect_coverage(xx as f32 + 0.5, py, rect, r as f32);
             self.set_covered(xx, c, cov);
         }
+        self.set_span(x + r, x + w - r, c);
     }
 
     /// This row's slice of a rounded BORDER ring: the outer rounded rect minus the
@@ -238,11 +298,40 @@ impl RowCanvas<'_> {
         );
         let (r_out, r_in) = (radius.max(0) as f32, (radius - width).max(0) as f32);
         let py = self.y as f32 + 0.5;
-        for xx in x..x + w {
+        let ring = |canvas: &mut Self, xx: i32| {
             let px = xx as f32 + 0.5;
             let cov = round_rect_coverage(px, py, outer, r_out)
                 - round_rect_coverage(px, py, inner, r_in);
-            self.blend_covered(xx, c, cov);
+            canvas.blend_covered(xx, c, cov);
+        };
+        // The straight sides' rows (below the top edge and its arcs, above the bottom ones): the
+        // ring lives in the outer `width + 2` columns of each side — between them a pixel lies
+        // wholly inside both the outer and the inner shape (both coverages exactly 1), so the
+        // ring there is exactly 0 and nothing is computed (a hairline cost two distance fields
+        // on every pixel of every row of a window before).
+        let reach = width.max(0) + radius.max(0) + 1;
+        let side = width.max(0) + 2;
+        if self.y >= y + reach && self.y < y + h - reach && w > 2 * side {
+            for xx in (x..x + side).chain(x + w - side..x + w) {
+                ring(self, xx);
+            }
+            return;
+        }
+        // The top and bottom edges' rows: between the corner zones the edge is straight, so both
+        // coverages are one value a row — computed at the middle column, laid as one span.
+        let margin = width.max(0) + radius.max(0) + 2;
+        if w > 2 * margin {
+            for xx in (x..x + margin).chain(x + w - margin..x + w) {
+                ring(self, xx);
+            }
+            let px = (x + w / 2) as f32 + 0.5;
+            let cov = round_rect_coverage(px, py, outer, r_out)
+                - round_rect_coverage(px, py, inner, r_in);
+            self.blend_span_covered(x + margin, x + w - margin, c, cov);
+            return;
+        }
+        for xx in x..x + w {
+            ring(self, xx);
         }
     }
 

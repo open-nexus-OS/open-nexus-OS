@@ -358,6 +358,39 @@ impl Tokens for AccentTokens {
     }
 }
 
+/// A theme with SOLID materials (TASK-0337, "reduce transparency"): every glass level is its
+/// tint at full opacity and blurs nothing — the accessibility setting, the low-power mode and the
+/// frame-cost A/B switch in one. Wraps any theme like [`AccentTokens`] does.
+#[derive(Clone, Copy)]
+pub struct SolidTokens {
+    pub base: &'static (dyn Tokens + Sync),
+}
+
+impl Tokens for SolidTokens {
+    fn color(&self, token: ColorToken) -> Rgba8 {
+        self.base.color(token)
+    }
+    fn length(&self, token: LengthToken) -> FxPx {
+        self.base.length(token)
+    }
+    fn type_size(&self, token: TypographyToken) -> FxPx {
+        self.base.type_size(token)
+    }
+    fn motion_ms(&self, token: MotionDurationToken) -> u32 {
+        self.base.motion_ms(token)
+    }
+    fn glass(&self, token: MaterialToken) -> GlassSurface {
+        let g = self.base.glass(token);
+        let opaque = |c: Rgba8| Rgba8::new(c.r, c.g, c.b, 255);
+        GlassSurface {
+            tint: opaque(g.tint),
+            tint_bottom: g.tint_bottom.map(opaque),
+            blur_radius: 0,
+            ..g
+        }
+    }
+}
+
 /// High-contrast a11y theme, resolved from `highcontrast.nxtheme.toml`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HighContrastTokens;
@@ -377,6 +410,25 @@ impl Tokens for HighContrastTokens {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Solid materials (TASK-0337): every glass level of the wrapped theme becomes its tint at
+    /// full opacity and blurs nothing; the colours stay the theme's.
+    #[test]
+    fn a_solid_theme_is_its_tints_opaque_and_unblurred() {
+        static DARK: DarkTokens = DarkTokens;
+        let solid = SolidTokens { base: &DARK };
+        for level in [MaterialToken::Panel, MaterialToken::WindowPane, MaterialToken::Subtle] {
+            let (glass, flat) = (DARK.glass(level), solid.glass(level));
+            assert_eq!(flat.blur_radius, 0);
+            assert_eq!(flat.tint.a, 255);
+            assert_eq!(
+                (flat.tint.r, flat.tint.g, flat.tint.b),
+                (glass.tint.r, glass.tint.g, glass.tint.b)
+            );
+            assert!(flat.tint_bottom.is_none_or(|c| c.a == 255));
+        }
+        assert_eq!(solid.color(ColorToken::Surface), DARK.color(ColorToken::Surface));
+    }
 
     #[test]
     fn base_tokens_resolve_every_role() {

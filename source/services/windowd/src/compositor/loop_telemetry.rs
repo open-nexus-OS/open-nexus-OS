@@ -43,7 +43,8 @@ impl LoopTelemetry {
     }
 
     /// Per-iteration window bookkeeping: counts the iteration and emits/rolls
-    /// the 1s window. Only windows with real traffic (>=8 presents) report —
+    /// the 1s window. Every window with traffic (a present) reports — the old
+    /// gate of eight presents hid the board, which presents fewer (cycle 51);
     /// boots and idle periods stay quiet.
     pub(super) fn tick(&mut self, now_ns: u64, runtime: &DisplayServerRuntime) {
         self.iters += 1;
@@ -55,17 +56,17 @@ impl LoopTelemetry {
             return;
         }
         let presents = runtime.present_seq_value().wrapping_sub(self.seq_base);
-        if presents >= 8 {
+        if presents >= 1 {
             let nacks = runtime.nack_total().wrapping_sub(self.nack_base);
             let fullrq = runtime.nack_full_recompose_total().wrapping_sub(self.fullrq_base);
             // TASK-0054C P2-g: where the replies of this window went. `shared`
             // is the fallback onto windowd's own response endpoint — the route
             // that can wedge the compositor, so it belongs next to the cadence.
             let (ch, cap, shared) = super::reply_route::counts();
-            let (content, blit, pointer, keepalive, shape) = super::frame_causes::take();
+            let (content, blit, pointer, moved, keepalive, shape) = super::frame_causes::take();
             let (rects, queued_px, flushed_px) = super::frame_causes::take_damage();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px})",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px})",
                 self.iters,
                 self.applies,
                 presents,
@@ -77,12 +78,14 @@ impl LoopTelemetry {
                 content,
                 blit,
                 pointer,
+                moved,
                 keepalive,
                 shape,
             ));
         } else {
-            // A quiet window's few frames are not carried into the next one.
+            // A quiet window's counters are not carried into the next one.
             let _ = super::frame_causes::take();
+            let _ = super::frame_causes::take_damage();
         }
         self.rebase(now_ns, runtime);
         self.iters = 0;

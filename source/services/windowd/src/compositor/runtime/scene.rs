@@ -24,20 +24,18 @@ struct AppSceneSnap {
     layers: [nexus_display_proto::client_surface::LayerDesc;
         nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
     layer_count: usize,
-    /// (abs_row, x, w, h, dst_x, dst_y) of the live-resize title overlay.
-    title_overlay: Option<(u32, u32, u32, u32, u32, u32)>,
-    fullscreen: bool,
-    /// (atlas_row, atlas_x, win_x, win_y, title_h) of the content band.
-    layer_geom: Option<(u32, u32, u32, u32, u32)>,
+    /// (atlas_row, atlas_x, win_x, win_y) of the content band.
+    layer_geom: Option<(u32, u32, u32, u32)>,
     /// WebRender compositor-scroll (0 = non-scrollable, unchanged compose path).
     scroll_id: u32,
-    /// The app's fixed top/bottom chrome heights + tall content + WM title bar
-    /// height + current scroll offset — the 3-slice scrollable-glass params.
+    /// The app's fixed top/bottom chrome heights + tall content + current scroll
+    /// offset — the 3-slice scrollable-glass params.
     header_h: u32,
     footer_h: u32,
     content_h: u32,
     scroll_rows: u32,
-    title_h: u32,
+    /// The window drawn as one solid surface (TASK-0336, `solid_surface.rs`).
+    solid: Option<super::solid_surface::SolidSnap>,
 }
 
 impl Default for AppSceneSnap {
@@ -47,15 +45,13 @@ impl Default for AppSceneSnap {
             layers: [nexus_display_proto::client_surface::LayerDesc::default();
                 nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
             layer_count: 0,
-            title_overlay: None,
-            fullscreen: false,
             layer_geom: None,
             scroll_id: 0,
             header_h: 0,
             footer_h: 0,
             content_h: 0,
             scroll_rows: 0,
-            title_h: 0,
+            solid: None,
         }
     }
 }
@@ -150,13 +146,13 @@ impl DisplayServerRuntime {
                     p.shadow_alpha = 0;
                 }
                 // Track C2: tag every slice with the window's transform id
-                // (slot+1). The encode is ALWAYS the untransformed base -
-                // the gpud override (delta translate / multiplied opacity /
-                // center scale) SURVIVES full presents (no clear, no bake).
-                // Baking multiplied WITH the override: an open baked at
-                // opacity 0 stayed 0x-anything = invisible forever unless
-                // unrelated presents happened to re-bake it brighter.
+                // (slot+1). The encode is ALWAYS the untransformed base — the
+                // present's `Command::LayerTransform` (delta translate /
+                // multiplied opacity / centre scale) is applied on the GPU, never
+                // baked: an open baked at opacity 0 and multiplied again stayed
+                // invisible.
                 p.layer_id = (idx as u32) + 1;
+                p.solid = self.solid_materials;
                 if resizing {
                     if let Some(a) = win.atlas {
                         p.content_w = a.width.min(win.w);
@@ -171,26 +167,15 @@ impl DisplayServerRuntime {
                 glass,
                 layers: self.apps[idx].layers,
                 layer_count: self.apps[idx].layer_count,
-                title_overlay: self.apps[idx].title_overlay.map(|s| {
-                    (
-                        s.abs_row,
-                        s.x,
-                        s.width.min(win.w),
-                        win.title_h.min(s.height),
-                        win.x.max(0) as u32,
-                        win.y.max(0) as u32,
-                    )
-                }),
-                fullscreen,
-                layer_geom: win.atlas.map(|a| {
-                    (a.abs_row, a.x, win.x.max(0) as u32, win.y.max(0) as u32, win.title_h)
-                }),
+                layer_geom: win
+                    .atlas
+                    .map(|a| (a.abs_row, a.x, win.x.max(0) as u32, win.y.max(0) as u32)),
                 scroll_id: self.apps[idx].scroll_id,
                 header_h: self.apps[idx].header_h,
                 footer_h: self.apps[idx].footer_h,
                 content_h: self.apps[idx].content_h,
                 scroll_rows: self.apps[idx].scroll_rows,
-                title_h: win.title_h,
+                solid: super::solid_surface::SolidSnap::of(&self.apps[idx], fullscreen),
             };
         }
         // Desktop base surface (declarative, Umbau #17): the shell/greeter
@@ -208,6 +193,10 @@ impl DisplayServerRuntime {
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
         let (win_order, win_n) = self.windows.order(self.capture.frozen());
+        // Every window slot's transform as this present draws it (TASK-0336/0338): carried with
+        // the layers, so a moved frame and its transform take effect together — the present is
+        // the only way a transform reaches the display.
+        let transforms = self.present_transforms();
         // Dock layer params (bar rect is None while inactive/covered).
         self.scene_cb.clear();
         {
@@ -267,6 +256,20 @@ impl DisplayServerRuntime {
                     .map_err(|_| WindowdError::InvalidDamage)?;
             }
 
+            // 1a. A frame owed for what moved alone names no damage (TASK-0338): the planner
+            //     redraws the layers drawn otherwise than before — never the whole screen, which
+            //     is what a present with layers and no `Damage` means.
+            if rect_count == 0 {
+                encoder.try_damage_none().map_err(|_| WindowdError::InvalidDamage)?;
+            }
+
+            // 1b. The windows' transforms (`Command::LayerTransform`), before their layers.
+            for (idx, &(dx, dy, opacity, scale)) in transforms.iter().enumerate() {
+                encoder
+                    .try_layer_transform(idx as u32 + 1, (dx, dy), opacity, scale)
+                    .map_err(|_| WindowdError::InvalidDamage)?;
+            }
+
             // 2. Windows, BACK-TO-FRONT in the z/focus stack's order
             //    (window_scene SSOT): the topmost window composites last and
             //    wins occlusion.
@@ -281,6 +284,12 @@ impl DisplayServerRuntime {
                     crate::window_scene::WindowId::App(slot) => {
                         use nexus_display_proto::client_surface as wire;
                         let sn = &app_snaps[slot as usize];
+                        // The window as ONE solid surface (TASK-0336): its starting or closing
+                        // surface — a patch spread over the frame, opaque; nothing else of it.
+                        if let Some(s) = sn.solid {
+                            s.encode(&mut encoder, slot, (mode.width, mode.height));
+                            continue;
+                        }
                         // A scrollable surface owns the whole-window 3-slice
                         // composite — it takes priority over per-region material
                         // glass (the body's frosted backdrop covers the viewport).
@@ -303,13 +312,16 @@ impl DisplayServerRuntime {
                                         mode.height,
                                     );
                             }
-                            if let Some((atlas_row, atlas_x, win_x, win_y, title_h)) = sn.layer_geom
-                            {
+                            if let Some((atlas_row, atlas_x, win_x, win_y)) = sn.layer_geom {
                                 for l in sn.layers.iter().take(sn.layer_count) {
-                                    if l.material != wire::MATERIAL_GLASS {
+                                    // TASK-0337: an opaque region (the content pane) is a
+                                    // layer without blur that occludes what lies below it.
+                                    let opaque = l.material == wire::MATERIAL_OPAQUE;
+                                    if !opaque && l.material != wire::MATERIAL_GLASS {
                                         continue;
                                     }
                                     let blur_radius = match l.glass_level {
+                                        _ if opaque => 0,
                                         wire::GLASS_PANEL => 40,
                                         wire::GLASS_OVERLAY => 40,
                                         wire::GLASS_CARD => 20,
@@ -319,16 +331,17 @@ impl DisplayServerRuntime {
                                     crate::compositor::shell_window::composite_material_glass(
                                         &mut encoder,
                                         crate::compositor::shell_window::MaterialLayerParams {
-                                            src_row_abs: atlas_row + title_h + u32::from(l.y),
+                                            src_row_abs: atlas_row + u32::from(l.y),
                                             src_x: atlas_x + u32::from(l.x),
                                             width: u32::from(l.w),
                                             height: u32::from(l.h),
                                             dst_x: win_x + u32::from(l.x),
-                                            dst_y: win_y + title_h + u32::from(l.y),
+                                            dst_y: win_y + u32::from(l.y),
                                             corner_radius: u32::from(l.radius),
                                             shadow_alpha: u32::from(l.shadow_alpha),
                                             blur_radius,
                                             layer_id: u32::from(slot) + 1,
+                                            opaque,
                                         },
                                         mode.width,
                                         mode.height,
@@ -336,16 +349,13 @@ impl DisplayServerRuntime {
                                 }
                             }
                         } else if sn.scroll_id != 0 {
-                            // WebRender compositor-scroll: a 3-slice packed-band
-                            // composite — the fixed top (WM title + app header)
-                            // and fixed bottom (app footer) stay put while the
-                            // body layer scrolls purely by a gpud `src_row` shift
-                            // (`OP_SET_LAYER_SCROLL`). The body's full-present
-                            // `src_row_abs` = `atlas_row + content_offset` MUST
-                            // equal the override row windowd emits, so a full
-                            // present mid-scroll agrees (no snap-to-top).
+                            // Compositor-scroll: a 3-slice packed-band composite —
+                            // the fixed top (app header) and fixed bottom (app
+                            // footer) stay put while the body layer scrolls by its
+                            // `src_row_abs` = `atlas_row + content_offset` in each
+                            // present (TASK-0338: a scroll step is a present).
                             if let Some(p) = sn.glass {
-                                let top_h = sn.title_h.saturating_add(sn.header_h);
+                                let top_h = sn.header_h;
                                 let bot_h = sn.footer_h;
                                 let content_offset =
                                     top_h.saturating_add(bot_h).saturating_add(sn.scroll_rows);
@@ -353,7 +363,6 @@ impl DisplayServerRuntime {
                                     crate::compositor::shell_window::ShellWindow::composite_scrollable_glass(
                                         &mut encoder,
                                         p,
-                                        sn.scroll_id,
                                         content_offset,
                                         top_h,
                                         bot_h,
@@ -373,16 +382,16 @@ impl DisplayServerRuntime {
                                 // the layered model (panel sees window,
                                 // window sees windows below).
                                 let g = crate::band_map::BandGeometry {
-                                    title_h: sn.title_h,
                                     header_h: sn.header_h,
                                     footer_h: sn.footer_h,
                                     content_h: sn.content_h,
                                     scroll_rows: sn.scroll_rows,
                                     frame_h: p.h,
                                 };
-                                if let Some((atlas_row, atlas_x, win_x, win_y, _)) = sn.layer_geom {
+                                if let Some((atlas_row, atlas_x, win_x, win_y)) = sn.layer_geom {
                                     for l in sn.layers.iter().take(sn.layer_count) {
-                                        if l.material != wire::MATERIAL_GLASS {
+                                        let opaque = l.material == wire::MATERIAL_OPAQUE;
+                                        if !opaque && l.material != wire::MATERIAL_GLASS {
                                             continue;
                                         }
                                         // A region may STRADDLE the packed
@@ -405,6 +414,7 @@ impl DisplayServerRuntime {
                                             &mut slices,
                                         );
                                         let blur_radius = match l.glass_level {
+                                            _ if opaque => 0,
                                             wire::GLASS_PANEL => 40,
                                             wire::GLASS_OVERLAY => 40,
                                             wire::GLASS_CARD => 20,
@@ -425,6 +435,7 @@ impl DisplayServerRuntime {
                                                     shadow_alpha: u32::from(l.shadow_alpha),
                                                     blur_radius,
                                                     layer_id: u32::from(slot) + 1,
+                                                    opaque,
                                                 },
                                                 mode.width,
                                                 mode.height,
@@ -440,25 +451,6 @@ impl DisplayServerRuntime {
                                 mode.width,
                                 mode.height,
                             );
-                        }
-                        // TASK #23: sharp frame-width title bar over the
-                        // scaled band during a live resize / fullscreen
-                        // transition (retired once the band catches up).
-                        if let Some((row, sx, w, h, dx, dy)) = sn.title_overlay {
-                            if w > 0 && h > 0 {
-                                let _ = encoder.composite_layer_full(
-                                    &Layer {
-                                        corner_radius: if sn.fullscreen {
-                                            0
-                                        } else {
-                                            crate::compositor::runtime::app_window::APP_WIN_RADIUS
-                                        },
-                                        content_epoch: crate::atlas::atlas_content_epoch(),
-                                        ..Layer::opaque(row, sx, w, h, dx, dy)
-                                    },
-                                    (mode.width, mode.height),
-                                );
-                            }
                         }
                     }
                     // The desktop base surface (the shell / greeter app-host):
@@ -522,6 +514,7 @@ impl DisplayServerRuntime {
                                         shadow_alpha: u32::from(l.shadow_alpha),
                                         blur_radius,
                                         layer_id: 0,
+                                        opaque: false,
                                     },
                                     mode.width,
                                     mode.height,
@@ -567,6 +560,7 @@ impl DisplayServerRuntime {
                             shadow_alpha: u32::from(l.shadow_alpha),
                             blur_radius: 40,
                             layer_id: 0,
+                            opaque: false,
                         },
                         mode.width,
                         mode.height,

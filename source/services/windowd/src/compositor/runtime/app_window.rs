@@ -32,11 +32,12 @@ use nexus_display_proto::client_surface as wire;
 /// LARGEST allowed surface; smaller surfaces render into the top-left of the
 /// body. (`crate::client_surface` enforces the surface-size bounds.)
 pub(crate) const APP_WIN_MAX_W: u32 = crate::client_surface::MAX_SURFACE_W as u32;
-pub(crate) const APP_WIN_MAX_H: u32 = crate::client_surface::MAX_SURFACE_H as u32 + APP_TITLE_H;
-pub(crate) const APP_TITLE_H: u32 = 32;
+pub(crate) const APP_WIN_MAX_H: u32 = crate::client_surface::MAX_SURFACE_H as u32;
+/// The frame of a window that declares no size (`mode: auto`): the WM's small utility window
+/// (TASK-0336: the WM owns every window's geometry; app-host's probe size before).
+pub(crate) const AUTO_WINDOW: (u32, u32) = (320, 270);
 /// Rounded-corner radius of the floating app window's glass frame.
 pub(crate) const APP_WIN_RADIUS: u32 = 12;
-pub(crate) const APP_CLOSE_W: u32 = 40;
 
 impl DisplayServerRuntime {
     /// `SURFACE_CREATE`: validate + register the surface, retain the moved
@@ -104,8 +105,9 @@ impl DisplayServerRuntime {
             .and_then(|ch| self.apps.iter().position(|a| a.event_channel == Some(ch)));
         // FRESH launch (vs a resize/fullscreen re-create resuming its slot):
         // only a fresh window plays the open transition (Track C3).
+        // A slot reserved by the launch's starting surface (TASK-0336) is a fresh launch too.
         #[cfg(nexus_env = "os")]
-        let fresh_launch = bound_idx.is_none();
+        let fresh_launch = bound_idx.is_none_or(|i| self.apps[i].starting);
         #[cfg(not(nexus_env = "os"))]
         let fresh_launch = true;
         #[cfg(nexus_env = "os")]
@@ -122,6 +124,7 @@ impl DisplayServerRuntime {
             );
         };
         // The launch surfaced: stop the wait ring (one waiter done).
+        let was_starting = self.end_starting_surface(idx);
         if fresh_launch {
             self.end_cursor_wait();
             // A NEW window follows its declared intent: clear the slot's stale WM override + modal flag.
@@ -157,12 +160,6 @@ impl DisplayServerRuntime {
                 // content instead of a fixed window max — no full-screen band
                 // for a small window, no oversized shadow. Chrome per intent: a
                 // `plain` surface drops the title bar (`chrome = intent ⟂ policy`).
-                // Chrome is INTENT-driven (⟂ policy) — fullscreen changes the
-                // FRAME, never the chrome. A titled app keeps its title bar
-                // (min/max/close) both floating AND maximized (the □ = MAXIMIZE);
-                // only an intent-chromeless surface (plain / desktop / fullscreen
-                // intent — a shell or single-app-OS launcher) goes edge-to-edge.
-                self.apps[idx].win.title_h = self.app_title_h(idx);
                 if self.app_presentation(idx).docked_bottom {
                     // OVERLAY dock (OSK): bottom edge, full width, no chrome.
                     let h = u32::from(height);
@@ -180,8 +177,12 @@ impl DisplayServerRuntime {
                 } else {
                     let area = (self.mode.width, self.work_area_h());
                     let min_y = self.full_surface_frame(idx).0;
-                    let fh = u32::from(height).saturating_add(self.apps[idx].win.title_h);
-                    self.apps[idx].win.set_frame_clamped(u32::from(width), fh, area, min_y);
+                    self.apps[idx].win.set_frame_clamped(
+                        u32::from(width),
+                        u32::from(height),
+                        area,
+                        min_y,
+                    );
                 }
                 if !self.open_app_window(idx) {
                     // Atlas exhausted: roll the registration back fail-closed
@@ -205,15 +206,15 @@ impl DisplayServerRuntime {
                 }
                 // Track C3: a FRESH floating window fades+scales in (the
                 // decided enter motion); re-creates resume without replay.
+                // The starting surface ran the enter spring already (TASK-0336): the app's
+                // surface takes over the window — and whatever is left of the spring — as is.
                 if fresh_launch
+                    && !was_starting
                     && !self.app_presentation(idx).full_screen
                     && !self.windows.is_fullscreen(wid)
                 {
                     self.start_open_transition(idx);
                 }
-                // The freshly created band matches the frame again — the
-                // live-resize title overlay (if any) retires here (TASK #23).
-                self.update_app_title_overlay(idx);
                 // A RE-CREATE (mode switch / resize) can shrink the frame:
                 // repaint the whole scene so vacated area doesn't keep the
                 // old band's pixels (fullscreen→freeform left stale rows).
@@ -405,10 +406,7 @@ impl DisplayServerRuntime {
                         // Bounded: damage only the presented body rows on
                         // screen (body starts under the WM title bar).
                         Some((y0, y1)) => {
-                            let top = rect
-                                .y
-                                .saturating_add(self.apps[idx].win.title_h)
-                                .saturating_add(y0);
+                            let top = rect.y.saturating_add(y0);
                             let bottom = (rect.y + rect.height).min(top.saturating_add(y1 - y0));
                             if bottom > top {
                                 self.queue_dirty_rect(DamageRect {
@@ -540,19 +538,6 @@ impl DisplayServerRuntime {
             self.apps[idx].intent_resizable,
             self.windowing_policy,
         )
-    }
-
-    /// The app-client title-bar height — a pure client of the declarative
-    /// presentation: chrome resolved from `intent ⟂ policy` (a titled app keeps
-    /// `APP_TITLE_H` floating OR maximized; plain/desktop/fullscreen intent and
-    /// the Kiosk policy are chromeless). Maximizing changes the FRAME, never the
-    /// chrome. SSOT for the create branch and the content-rect push.
-    pub(super) fn app_title_h(&self, idx: usize) -> u32 {
-        if self.app_presentation(idx).has_chrome {
-            APP_TITLE_H
-        } else {
-            0
-        }
     }
 
     /// R1 layer seam: store the app's material-tagged glass regions
@@ -687,7 +672,8 @@ impl DisplayServerRuntime {
             crate::theme::ThemeMode::Dark => wire::THEME_DARK,
             crate::theme::ThemeMode::Light => wire::THEME_LIGHT,
         };
-        wire::pack_theme(mode, self.theme_accent)
+        let solid = if self.solid_materials { wire::THEME_SOLID } else { 0 };
+        wire::pack_theme(mode, self.theme_accent) | solid
     }
 
     /// Sends one app-bound frame (a text commit, a key, a tap's ack, a surface ack) on the

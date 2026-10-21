@@ -1,6 +1,6 @@
 ---
 title: TASK-0337 One window path and the materials — every app on window-kit, windowd's title bar retired, glass only on the functional layer, the content pane opaque, controls tinted, state as a layer's opacity, reduce-transparency
-status: Planned
+status: In Progress (P1, P2 built 2026-10-21, board cycles 52–53 read; P3 read against cycle 54, after TASK-0338 freed the frame clock)
 owner: @ui
 created: 2026-10-21
 depends-on: [TASK-0336 (the window as one surface)]
@@ -77,3 +77,34 @@ pixels; `glass_w` per frame ≤ the shell's glasses + one per window.
   visible` (the apps mount, the markers); board: `submitted 1 layers` for all four apps,
   `glass_w` per frame, a hover series without presents, and the visual check by the operator:
   nothing looks different, only faster.
+
+## Results
+
+- **P1 one path — built 2026-10-21.** calculator (`mode: auto`) and chat (`mode: freeform`,
+  resizable) draw window-kit's chrome (`WinTopBar` + `WinAppWindow`, the window store contract,
+  the window strings) with `style: plain`; windowd composes **no title bar for any style** —
+  `has_chrome`, the title-bar raster cache (`chrome_widget.rs`), the live-resize title overlay,
+  the title-row band offsets, the title hovers and the title-button presses are deleted
+  (`test_reject_a_title_bar_from_windowd`: a `titlebar` intent presents exactly like `plain`).
+  A kit window moves through the bar's `window.control = "move"`, as stash and settings did.
+- **P2 the materials — built 2026-10-21.** The content pane is opaque: window-kit's
+  `windowPane` paints its tint at full alpha and goes to windowd as an opaque region
+  (`MATERIAL_OPAQUE` → `LAYER_OPAQUE`, only at full opacity); cards, subtle rows and the bar
+  inside a window are tint, no region; the window's body glass is the one glass; the desktop
+  keeps its regions. **Reduce transparency** (`ui.material = glass | solid`, settingsd; Settings
+  → Erscheinungsbild → Transparenz) is a theme variant (`THEME_SOLID` in the snapshot's theme
+  byte, RFC-0083): app-host resolves `SolidTokens` (every glass level its tint at full opacity,
+  no blur), paints the floating page base opaque and sends every material box as an opaque
+  region; windowd drops the window body's blur and marks the body opaque.
+- **P3 state as a property — measured first.** With the pane opaque, blur kept at rest and a
+  window's own content never its glass's backdrop, a hover re-blurs nothing any more; what is
+  left is app-host's raster of the hovered rows and one small slot pass. Whether the wash layer
+  (a per-control layer protocol) is worth its wire is read from cycle 52's `windowd: ux input`
+  under a hover series.
+- **Chat's band** stays on the plain path this round (`band too tall`): the band's real form is
+  the viewport's rows with a margin (a virtual band), not the cap raised — read against chat's
+  scroll frames in cycle 52 before it is cut.
+- **Cycle 53 (board, 2026-10-21):** every window on one path, launches 140–727 ms to the first
+  frame; the hover read (P3) was masked by the ring overflow TASK-0338 fixes — each NACK forced a
+  full-screen recompose, so no frame number of cycle 53 measures a hover. Read again in cycle 54.
+

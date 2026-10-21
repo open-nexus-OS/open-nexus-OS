@@ -48,6 +48,28 @@ err() { printf '\033[1;31m[board-image][error]\033[0m %s\n' "$*" >&2; }
   err "vendor boot pieces missing or not matching their pins — run: just board-inputs"; exit 1; }
 [ -f "$KERNEL" ] || { err "no kernel at $KERNEL — run: just build-os-workspace"; exit 1; }
 [ -d "$BUNDLES" ] || { err "no system bundles at $BUNDLES — run: just build-os-workspace"; exit 1; }
+# A whole volume or none (cycle 52a, 2026-10-21): a QEMU lane stopped while it rebuilt
+# build/system-bundles left them half-written, this script packed them, and init on the board
+# found no service at all (`volume spawn FAIL svc=gpud reason=not-found`, no signal on the
+# monitor). Every service the volume list names must be whole, every app bundle present must
+# carry its payload, and the set must pass its provenance — or nothing is built.
+missing=""
+while read -r svc; do
+  for f in manifest.nxb payload.elf meta/launch.json; do
+    [ -s "$BUNDLES/$svc/$f" ] || missing="$missing $svc/$f"
+  done
+done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$ROOT/scripts/system-volume-services.txt")
+for dir in "$BUNDLES"/*/; do
+  name="$(basename "$dir")"
+  [ -s "$dir/manifest.nxb" ] || missing="$missing $name/manifest.nxb"
+  ls "$dir"payload.* >/dev/null 2>&1 || missing="$missing $name/payload"
+done
+[ -z "$missing" ] || {
+  err "system bundles incomplete:$missing — run: just build-os-workspace (never beside a QEMU lane)"
+  exit 1
+}
+"$ROOT/scripts/check-bundle-provenance.sh" >/dev/null || {
+  err "system bundles fail their provenance — run: just build-os-workspace"; exit 1; }
 
 # The HOST nx: the OS RUSTFLAGS (nexus_env=os) must not leak in (as the launcher builds it).
 (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo build --release -p nx >/dev/null) || {

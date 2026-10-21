@@ -90,10 +90,6 @@ const PAYLOAD_BUDGET_NS: u64 = 8_000_000_000;
 /// of the old bound.
 const PAYLOAD_MAX_LEN: usize = 512 * 1024;
 
-/// Probe surface: well under the transport bounds.
-const SURFACE_W: u16 = 320;
-const SURFACE_H: u16 = 240;
-
 mod boot_env;
 use boot_env::{map_atlas_base, nsec_now, payload_addr};
 
@@ -189,14 +185,10 @@ pub(super) fn run() -> Result<(), &'static str> {
         && level != wire::WIN_LEVEL_OVERLAY
         && mode != wire::WIN_MODE_FULLSCREEN;
     let win = WindowIntent { style, level, mode, nonce };
-    let (mut safe_top, mut surf_w, mut surf_h) = if level == wire::WIN_LEVEL_DESKTOP
-        || level == wire::WIN_LEVEL_OVERLAY
-        || matches!(mode, wire::WIN_MODE_FULLSCREEN | wire::WIN_MODE_FREEFORM)
-    {
-        compositor_owned_geometry(&client, &events, &win, &mut boot_region)?
-    } else {
-        (0, SURFACE_W as u32, SURFACE_H as u32)
-    };
+    // The WM owns every window's geometry (TASK-0336): an `auto` window asks too — the ask
+    // shows the launch's starting surface.
+    let (mut safe_top, mut surf_w, mut surf_h) =
+        compositor_owned_geometry(&client, &events, &win, &mut boot_region)?;
     // Content rect arriving DURING an ack wait (windowd's corrective push
     // after a small create) — stashed by `recv_ack` instead of dropped,
     // applied by the event loop as if it had just been received.
@@ -234,6 +226,7 @@ pub(super) fn run() -> Result<(), &'static str> {
         168
     };
     let mut app = DslApp::mount(payload, surf_w, surf_h, theme_mode, shell_profile, base_alpha);
+    boot_env::mark_stage(0, start_ns);
     if let Some(dsl) = app.as_mut() {
         dsl.apply_safe_area_top(safe_top);
     }
@@ -277,7 +270,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     //    whole resident scroll content lives in it ONCE; visible-sized
     //    otherwise. Mutable: a WM resize re-creates it at the new size. No
     //    device reads it (windowd copies it with `vmo_read`): an anonymous object.
-    let mut vmo = vmo_create(surf_w as usize * vmo_h as usize * 4)
+    let mut vmo = boot_env::surface_vmo(surf_w as usize * vmo_h as usize * 4, start_ns)
         .map_err(|_| "apphost: vmo create failed")?;
 
     let first_render_ok = app
@@ -295,6 +288,7 @@ pub(super) fn run() -> Result<(), &'static str> {
         return Err("apphost: dsl mount failed");
     }
     raw_marker("APPHOST: dsl frame rendered");
+    boot_env::mark_stage(1, start_ns);
     raw_marker("apphost: vmo filled");
 
     // 5. SURFACE_CREATE — a CLONE of the VMO cap moves with the message
@@ -324,7 +318,13 @@ pub(super) fn run() -> Result<(), &'static str> {
         dsl.taps_are_keystrokes = level == wire::WIN_LEVEL_OVERLAY;
     }
     raw_marker("APPHOST: surface created");
+    boot_env::mark_stage(2, start_ns);
 
+    // R1 layer seam: the regions BEFORE the first present (TASK-0336) — the first composite is
+    // the whole window, not its parts (windowd clears them at create: after the ack).
+    if let Some(dsl) = app.as_ref() {
+        dsl.submit_layers(&client, surface_id);
+    }
     // 6. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
     let mut damage = [wire::DamageRect { x: 0, y: 0, width: surf_w as u16, height: surf_h as u16 }];
     let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
@@ -332,9 +332,7 @@ pub(super) fn run() -> Result<(), &'static str> {
     send_wait(&client, &buf[..len])?;
     let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect, &mut boot_region)?;
     boot_env::mark_first_frame(start_ns);
-    // R1 layer seam: declare the initial glass regions to windowd.
     if let Some(dsl) = app.as_ref() {
-        dsl.submit_layers(&client, surface_id);
         // Mount-time `.transition` enter animations were seeded in
         // `anim_sync`: arm the frame pulse so they play from the first
         // frame (value/effect tokens are inert until a state change).
@@ -603,7 +601,9 @@ pub(super) fn run() -> Result<(), &'static str> {
                 }
             }
         } else if app.as_mut().is_some_and(|d| d.absorb_shell_push(&event_frame[..len])) {
-            (dirty, dirty_rows) = (true, None); // RFC-0086 feed → full repaint
+            if let Some(dsl) = app.as_mut() {
+                dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
+            }
         } else if let Some(snap) =
             nexus_display_proto::surface_settings::decode_surface_settings(&event_frame[..len])
         {

@@ -8,7 +8,7 @@
 //! reused frame after frame (gpud's heap never frees).
 
 use super::damage::Area;
-use super::glass::{fold_layer, glass_key, glass_rows, seed, CacheStep, GlassCache};
+use super::glass::{fold_layer, glass_key, glass_rows, seed, CacheStep, GlassCache, WriteCause};
 use super::layers::{FrameLayer, RetainedLayers, MAX_LAYERS, ORIGIN_ABOVE};
 
 /// How far a glass's blur reads beyond its rectangle: the widest blur a layer may ask (64, the
@@ -41,7 +41,7 @@ pub struct Glass {
 /// One layer of the plan.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LayerStep {
-    /// The layer as drawn (overrides applied).
+    /// The layer as drawn (its window's transform applied).
     pub layer: FrameLayer,
     /// Its glass, when it is a glass layer the executor blurs.
     pub glass: Option<Glass>,
@@ -52,11 +52,45 @@ pub struct LayerStep {
 pub struct Planned {
     /// Layers in the plan (`Frame::step(0..layers)`).
     pub layers: usize,
+    /// The glass writes of this frame by cause (TASK-0336 P0).
+    pub writes: Writes,
     /// The atlas's content changed since its last upload: upload before the layers draw.
     pub upload: bool,
     /// What this frame changes on the screen (RFC-0101 §8): a plane shown this frame must be
     /// redrawn here at least — and wherever it lags earlier frames (`damage::History`).
     pub damage: Area,
+}
+
+/// The glass writes of a frame by cause (`WriteCause`): what made each glass blur again.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Writes {
+    pub band: u16,
+    pub backdrop: u16,
+    pub moved: u16,
+    pub new: u16,
+    pub full: u16,
+}
+
+impl Writes {
+    fn note(&mut self, cause: WriteCause) {
+        let n = match cause {
+            WriteCause::Band => &mut self.band,
+            WriteCause::Backdrop => &mut self.backdrop,
+            WriteCause::Moved => &mut self.moved,
+            WriteCause::New => &mut self.new,
+            WriteCause::Full => &mut self.full,
+        };
+        *n = n.saturating_add(1);
+    }
+
+    /// Every write of the frame.
+    pub fn total(self) -> u32 {
+        u32::from(self.band)
+            + u32::from(self.backdrop)
+            + u32::from(self.moved)
+            + u32::from(self.new)
+            + u32::from(self.full)
+    }
 }
 
 /// The retained set, the glass cache and the plan they give.
@@ -89,11 +123,12 @@ impl Frame {
                     shadow_offset_y: 0,
                     shadow_alpha: 0,
                     backdrop_blur: 0,
-                    scroll_id: 0,
                     scroll_band_top_abs: 0,
                     scroll_band_h: 0,
                     layer_id: 0,
                     content_epoch: 0,
+                    opaque: false,
+                    solid: false,
                 },
                 glass: None,
             }; MAX_LAYERS],
@@ -134,6 +169,7 @@ impl Frame {
                     && self.layers.index_of_id(origin).is_none_or(|i| i < j))
         };
         let mut below = seed(display.0, display.1, self.glass.wallpaper_epoch);
+        let mut writes = Writes::default();
         let mut cursor = 0u32;
         let mut count = 0;
         for i in 0..self.layers.len() {
@@ -180,8 +216,21 @@ impl Frame {
                 };
                 let touched = band != Area::None;
                 let key = glass_key(below, &layer);
-                let band = if self.glass.would_hit(i, key, cursor) { band } else { Area::Full };
-                let cache = self.glass.step(i, key, cursor, rows, touched);
+                let miss = self.glass.miss(i, key, cursor);
+                let band = if miss == WriteCause::Band { band } else { Area::Full };
+                // Blur at rest (TASK-0336 P3): a glass of a window in motion, or one whose
+                // reach only a moving window touched, keeps its last blur — what nobody can
+                // see sharp is not computed; one write when the motion rests.
+                let moving = self.layers.in_motion(layer.layer_id)
+                    || (touched
+                        && named.iter().all(|(r, o)| {
+                            !(origin_below(*o, i, layer.layer_id) && r.touches(reach))
+                                || (*o != 0 && *o != ORIGIN_ABOVE && self.layers.in_motion(*o))
+                        }));
+                let cache = match self.glass.keep(i, cursor, rows).filter(|_| moving && !full) {
+                    Some(kept) => kept,
+                    None => self.glass.step(i, key, cursor, rows, touched),
+                };
                 if !matches!(cache, CacheStep::Off) {
                     cursor = cursor.saturating_add(rows);
                 }
@@ -190,6 +239,7 @@ impl Frame {
                 match cache {
                     CacheStep::Read(_) => {}
                     CacheStep::Write(_) => {
+                        writes.note(if full { WriteCause::Full } else { miss });
                         damage = damage.union(band.grown(GLASS_REACH).intersect(rect));
                     }
                     CacheStep::Off => damage = damage.union(rect),
@@ -208,7 +258,7 @@ impl Frame {
         if upload && set_epoch != 0 {
             self.layers.uploaded_epoch = set_epoch;
         }
-        Planned { layers: count, upload, damage }
+        Planned { layers: count, writes, upload, damage }
     }
 
     /// Step `i` of the last plan.

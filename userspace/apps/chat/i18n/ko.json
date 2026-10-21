@@ -13,5 +13,9 @@
   "chat.teamLast": "빌드는 그린 — 릴리스 준비 완료.",
   "chat.lea": "레아",
   "chat.leaLast": "고마워요!",
-  "chat.yesterday": "어제"
+  "chat.yesterday": "어제",
+  "win.close": "Close",
+  "win.fullscreen": "Full screen",
+  "win.minimize": "Minimise",
+  "win.moveDevice": "Move to another device"
 }

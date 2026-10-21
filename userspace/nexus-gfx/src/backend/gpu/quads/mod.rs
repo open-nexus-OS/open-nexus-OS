@@ -129,6 +129,22 @@ impl Quad {
         Self { x: x - blur + offset[0], y: y - blur + offset[1], w: qw, h: qh, push }
     }
 
+    /// The part (`px`, `py`, `pw`, `ph`) of this quad (a shadow's, TASK-0335 P2: the pieces
+    /// around an opaque layer): the quad covers the part, its push constants keep the whole
+    /// shape and name the part's offset from the quad's centre.
+    pub const fn part_of(&self, (px, py, pw, ph): (f32, f32, f32, f32)) -> Self {
+        let mut q = *self;
+        q.x = px;
+        q.y = py;
+        q.w = pw;
+        q.h = ph;
+        q.push[4] = pw;
+        q.push[5] = ph;
+        q.push[6] = px - (self.x + self.w * 0.5);
+        q.push[7] = py - (self.y + self.h * 0.5);
+        q
+    }
+
     /// A filled rounded rectangle at (`x`, `y`, `w`, `h`) with a vertical gradient
     /// (`resources/gpu/shaders/gradient.wgsl`, its `Gradient` block): the straight colours at the
     /// top and at the bottom, the size and minus half of it, half the size less the corner radius

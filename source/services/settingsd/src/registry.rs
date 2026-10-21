@@ -125,7 +125,15 @@ const SPECS: &[KeySpec] = &[
     KeySpec { key: "ui.tile.edges", default: "on", validate: is_on_off },
     KeySpec { key: "ui.tile.margin", default: "0", validate: is_tile_margin },
     KeySpec { key: "ui.tile.chords", default: "on", validate: is_on_off },
+    // TASK-0337 materials (Settings → Personalisierung → Darstellung, "Transparenz
+    // reduzieren"): `solid` paints every material at its tint's full opacity, blurs nothing.
+    KeySpec { key: "ui.material", default: "glass", validate: is_material },
 ];
+
+/// `ui.material`: glass (translucent, blurred) or solid (reduce transparency).
+fn is_material(v: &str) -> bool {
+    matches!(v, "glass" | "solid")
+}
 
 fn is_on_off(v: &str) -> bool {
     matches!(v, "on" | "off")
@@ -226,6 +234,15 @@ mod tests {
         assert_eq!(r.get("ui.theme.mode"), Some("dark"));
         assert_eq!(r.get("ui.font.family"), Some("inter"));
         assert_eq!(r.get("nope"), None);
+    }
+
+    #[test]
+    fn test_reject_a_material_beyond_glass_and_solid() {
+        let mut r = SettingsRegistry::new();
+        assert_eq!(r.get("ui.material"), Some("glass"));
+        assert_eq!(r.set("ui.material", "solid"), Ok(true));
+        assert_eq!(r.set("ui.material", "frosted"), Err(SetError::InvalidValue));
+        assert_eq!(r.get("ui.material"), Some("solid"));
     }
 
     #[test]

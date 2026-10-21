@@ -239,6 +239,8 @@ impl DisplayServerRuntime {
     pub(crate) fn cursor_wait_tick(&mut self, now_ns: u64) -> bool {
         if self.cursor_wait_n > 0 && now_ns > self.cursor_wait_deadline_ns {
             self.cursor_wait_n = 0; // failsafe: the launch never surfaced
+                                    // TASK-0336: a starting surface whose launch never surfaced closes with it.
+            self.close_starting_surfaces();
         }
         if self.cursor_wait_n == 0 {
             if self.cursor_ring_active {
@@ -521,6 +523,7 @@ impl DisplayServerRuntime {
             // Cursor-only damage: no CPU recomposite. Merge into the dedicated
             // cursor track so flush blits it from the (cursor-free) retained plane
             // and overlays the pointer — pure GPU, no panel/text re-render.
+            self.note_frame_owed();
             self.tile_map.mark_rect(rect);
             self.pending_cursor_rect = Some(match self.pending_cursor_rect {
                 Some(existing) => existing.merge(rect),

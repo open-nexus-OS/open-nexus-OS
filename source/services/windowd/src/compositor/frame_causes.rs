@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: why windowd sent a frame — the count of each cause over the loop window, printed
-//! on the `windowd: loop hz=…` line. A present is one of three kinds at the point it leaves
-//! (content was recomposited, a retained region was only re-blitted, or only the pointer's
-//! region moved); two causes that queue a pointer-region present without the pointer moving
-//! are counted where they arise: the frame clock's keep-alive and a pointer SHAPE change —
-//! which on a display with a hardware pointer layer changes no pixel of the frame.
+//! on the `windowd: loop hz=…` line. A present is one of four kinds at the point it leaves
+//! (content was recomposited, a retained region was only re-blitted, only the pointer's region
+//! moved, or nothing was named — a frame owed for what moved alone: a window's transform, a
+//! body's scroll, the frame clock, TASK-0338); two causes are counted where they arise: the
+//! frame clock's keep-alive and a pointer SHAPE change — which on a display with a hardware
+//! pointer layer changes no pixel of the frame.
 //!
 //! WHY THIS FILE EXISTS: on the board every present is a full CPU composite into the scanned
 //! plane (Block 4 layer 0, 2026-10-10), so "which presents need not exist" is a number the
@@ -23,6 +24,7 @@ use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 static CONTENT: AtomicU32 = AtomicU32::new(0);
 static BLIT: AtomicU32 = AtomicU32::new(0);
 static POINTER: AtomicU32 = AtomicU32::new(0);
+static MOVED: AtomicU32 = AtomicU32::new(0);
 static KEEPALIVE: AtomicU32 = AtomicU32::new(0);
 static SHAPE: AtomicU32 = AtomicU32::new(0);
 /// TASK-0335 P2: the damage queued (rectangles, their pixels) against what left for gpud
@@ -33,17 +35,22 @@ static QUEUED_PX: AtomicU64 = AtomicU64::new(0);
 static FLUSHED_PX: AtomicU64 = AtomicU64::new(0);
 
 /// One frame left for gpud: `content` rects were recomposited, or a retained region was only
-/// re-blitted (`blit`), or neither — the pointer's region alone.
-pub(super) fn sent(content: bool, blit: bool) {
-    let kind = match (content, blit) {
-        (true, _) => &CONTENT,
-        (false, true) => &BLIT,
-        (false, false) => &POINTER,
+/// re-blitted (`blit`), or the pointer's region alone (`pointer`), or none of them — owed for
+/// what moved alone.
+pub(super) fn sent(content: bool, blit: bool, pointer: bool) {
+    let kind = if content {
+        &CONTENT
+    } else if blit {
+        &BLIT
+    } else if pointer {
+        &POINTER
+    } else {
+        &MOVED
     };
     kind.fetch_add(1, Ordering::Relaxed);
 }
 
-/// The frame clock queued a pointer-region present to keep its completions coming.
+/// The frame clock owed a frame to keep its completions coming.
 pub(super) fn keepalive() {
     KEEPALIVE.fetch_add(1, Ordering::Relaxed);
 }
@@ -73,12 +80,13 @@ pub(super) fn take_damage() -> (u32, u64, u64) {
     )
 }
 
-/// The window's counts `(content, blit, pointer, keepalive, shape)`, and a fresh window.
-pub(super) fn take() -> (u32, u32, u32, u32, u32) {
+/// The window's counts `(content, blit, pointer, moved, keepalive, shape)`, and a fresh window.
+pub(super) fn take() -> (u32, u32, u32, u32, u32, u32) {
     (
         CONTENT.swap(0, Ordering::Relaxed),
         BLIT.swap(0, Ordering::Relaxed),
         POINTER.swap(0, Ordering::Relaxed),
+        MOVED.swap(0, Ordering::Relaxed),
         KEEPALIVE.swap(0, Ordering::Relaxed),
         SHAPE.swap(0, Ordering::Relaxed),
     )

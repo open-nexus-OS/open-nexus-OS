@@ -48,6 +48,9 @@ Page StashPage {
             navBack: "chevron.left",
             navFwd: "chevron.right",
             navRefresh: "arrow.clockwise",
+            sideLeft: "sidebar.left",
+            sideRight: "sidebar.right",
+            more: "ellipsis.vertical",
             appId: "stash",
         }
         WinAppWindow {

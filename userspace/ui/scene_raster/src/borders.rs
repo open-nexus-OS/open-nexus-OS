@@ -37,11 +37,24 @@ pub(crate) fn paint_inset_highlight_row(
     }
     let inner = (ix as f32, iy as f32, iw as f32, ih as f32);
     let py = canvas.y as f32 + 0.5;
+    let band = |px: f32| {
+        round_rect_coverage(px, py, inner, r as f32)
+            - round_rect_coverage(px, py - 1.0, inner, r as f32)
+    };
+    // Between the corner zones the top edge is straight: the band is one value a row there —
+    // computed at the middle column, laid as one span (the shine ran two distance fields on
+    // every pixel of its rows before).
+    let margin = r + 2;
+    if iw > 2 * margin {
+        for xx in (ix..ix + margin).chain(ix + iw - margin..ix + iw) {
+            canvas.blend_covered(xx, color, band(xx as f32 + 0.5));
+        }
+        let mid = band((ix + iw / 2) as f32 + 0.5);
+        canvas.blend_span_covered(ix + margin, ix + iw - margin, color, mid);
+        return;
+    }
     for xx in ix..ix + iw {
-        let px = xx as f32 + 0.5;
-        let band = round_rect_coverage(px, py, inner, r as f32)
-            - round_rect_coverage(px, py - 1.0, inner, r as f32);
-        canvas.blend_covered(xx, color, band);
+        canvas.blend_covered(xx, color, band(xx as f32 + 0.5));
     }
 }
 

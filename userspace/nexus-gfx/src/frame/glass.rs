@@ -10,7 +10,7 @@
 //!
 //! MODEL: a glass layer's blurred backdrop is a function of everything composited below it.
 //! Walking the set back to front, a running FNV-1a hash folds each drawn layer's inputs as drawn
-//! (its overrides applied, its content generation included); a glass layer's key is that fold and
+//! (its transform applied, its content generation included); a glass layer's key is that fold and
 //! its own rectangle and radii. The same key at the same packed place: the cached rows are read
 //! (one draw). Otherwise the blur is written into its rows and read from them. Rows pack in walk
 //! order (half-resolution results); a layer that no longer fits blurs live, uncached — the cache
@@ -65,6 +65,22 @@ pub fn glass_rows(height: u32, scale: u32) -> u32 {
     height.div_ceil(scale.max(1)) + 2
 }
 
+/// Why a glass is written rather than read (TASK-0336 P0: the cause of every write, counted
+/// per window in `gpud: glass writes`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteCause {
+    /// The same backdrop in the same rows; only a band of it changed (TASK-0335 P1).
+    Band,
+    /// What lies below the glass changed (its key).
+    Backdrop,
+    /// The glass's rows moved in the cache (a reshuffled set).
+    Moved,
+    /// No rows held this glass yet.
+    New,
+    /// A full present: everything blurs again.
+    Full,
+}
+
 /// What a glass layer does this frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CacheStep {
@@ -103,14 +119,31 @@ impl GlassCache {
         }
     }
 
-    /// Whether `slot` holds `key` at `cursor_y` — the rows a write may update in a band alone
-    /// (TASK-0335 P1): the same backdrop in the same rows, only the band's pixels changed.
-    pub fn would_hit(&self, slot: usize, key: u64, cursor_y: u32) -> bool {
-        self.ready
+    /// Why `slot` would be written for `key` at `cursor_y` rather than read — `Band` when it
+    /// would hit (then only a touched band writes).
+    pub fn miss(&self, slot: usize, key: u64, cursor_y: u32) -> WriteCause {
+        if slot >= MAX_LAYERS || !self.valid[slot] {
+            WriteCause::New
+        } else if self.keys[slot] != key {
+            WriteCause::Backdrop
+        } else if self.ys[slot] != cursor_y {
+            WriteCause::Moved
+        } else {
+            WriteCause::Band
+        }
+    }
+
+    /// The rows `slot` holds kept as they are, whatever they show (TASK-0336 P3: a glass in
+    /// motion keeps its last blur until it rests): a read at `cursor_y` when the slot's rows
+    /// are there, the key left for the write that follows the motion; `None` when the slot
+    /// holds nothing at that place (then the glass is written like any other).
+    pub fn keep(&self, slot: usize, cursor_y: u32, h: u32) -> Option<CacheStep> {
+        (self.ready
             && slot < MAX_LAYERS
             && self.valid[slot]
-            && self.keys[slot] == key
             && self.ys[slot] == cursor_y
+            && cursor_y.saturating_add(h) <= self.rows)
+            .then_some(CacheStep::Read(cursor_y))
     }
 
     /// Read, write or off for glass layer `slot` with key `key` and `h` rows at the packing
