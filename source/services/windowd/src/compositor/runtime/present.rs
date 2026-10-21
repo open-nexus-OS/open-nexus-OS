@@ -258,20 +258,9 @@ impl DisplayServerRuntime {
     }
 
     pub(super) fn queue_dirty_rect(&mut self, rect: DamageRect) {
+        crate::compositor::frame_causes::queued(u64::from(rect.width) * u64::from(rect.height));
         self.tile_map.mark_rect(rect);
-        for existing in &mut self.pending_damage_rects {
-            if rect.x <= existing.end_x()
-                && rect.end_x() >= existing.x
-                && rect.y <= existing.end_y()
-                && rect.end_y() >= existing.y
-            {
-                *existing = existing.merge(rect);
-                return;
-            }
-        }
-        if self.pending_damage_rects.len() < 4 {
-            self.pending_damage_rects.push(rect);
-        }
+        crate::compositor::damage::queue_damage_rect(&mut self.pending_damage_rects, rect);
     }
 
     /// Queue a GPU-only blit rect for animation frames where only GPU CB params
@@ -307,6 +296,9 @@ impl DisplayServerRuntime {
             }
         }
         content_count = premerge_damage_rects(&mut content, content_count);
+        crate::compositor::frame_causes::flushed(
+            content[..content_count].iter().map(|r| u64::from(r.width) * u64::from(r.height)).sum(),
+        );
 
         // GPU-blit-only rect from animation ticks (Plane 1 already current).
         let gpu_blit_rect = self.pending_gpu_blit_rect.take();

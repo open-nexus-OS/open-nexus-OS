@@ -208,6 +208,24 @@ reap); one transient `hidrawd inputd send fail backpressure` recovered this cycl
 the order: the frame cost (the whole screen redrawn every frame, on the GPU) drives both the
 slideshow and the input's wait; the non-parking compositor prevents the freeze.
 
+**The cost model (read from the same windows, TASK-0335 P0):**
+
+| window | avg | passes | area_px | GPU wait | wait per pass |
+|---|---|---|---|---|---|
+| 1 | 30 ms | 4.1 | 1.23 M | 28 ms | 6.9 ms |
+| 5 | 44 ms | 6.5 | 1.42 M | 42 ms | 6.4 ms |
+| 7 | 84 ms | 13.0 | 1.23 M | 79 ms | 6.1 ms |
+| 10 | 48 ms | 4.3 | 1.60 M | 46 ms | 10.7 ms |
+
+The GPU's wait is ~6.5 ms per pass, nearly flat across areas and draws (two windows with the
+largest glass scenes 18 ms a pass); the boot trace puts a full-screen pass at 12 ms
+(`gpu pass trace … 12300:2:3`), the raw fill at 1 ns a pixel (`gpu fill ok (… ns_per_px=1.0`).
+So the GPU is memory-bound at a few nanoseconds per **textured** pixel: a frame costs the pixels
+its passes draw — the slot's area × its layers, each re-blurred glass's scene below it over its
+reach, the blurs — not its draws or its passes. 5–10 Mpx a frame today; 16.7 ms buys ~3. The
+16 KiB system-level cache every binding bypasses is no lever at these sizes. `gpud: gpu work`
+(cycle 50) counts the pixels by pass kind to confirm the model and name the dominant kind.
+
 ## Verdict (6a)
 
 What dies is freed: a VMO, an endpoint, a timer, a waitset, a fence die with their last

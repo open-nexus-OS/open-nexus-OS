@@ -57,6 +57,7 @@ mod contexts;
 mod desktop;
 mod desktop_gate;
 mod desktop_pass;
+mod desktop_work;
 pub(crate) mod device;
 mod device_v2;
 mod firmware;

@@ -6,6 +6,7 @@
 
 use nexus_gfx::backend::gpu::quads::Quad;
 use nexus_gfx::command::buffer::Command;
+use nexus_gfx::core::types::TileRect;
 use nexus_gfx::frame::{
     blur_radius, Board, DrawSpec, Frame, FrameLayer, GlassCount, PassKind, PassSpec, Pipe, Planned,
     Target, Tex,
@@ -336,4 +337,108 @@ fn the_slot_pass_is_limited_to_the_area_the_executor_names_inside_the_display() 
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS).with_area((10, 20, 3000, 4000));
     assert_eq!(slot(&b).area, (10, 20, 1919, 1079));
     assert_eq!(b.draws(&slot(&b)), 2, "the whole scene is drawn into the area");
+}
+
+#[test]
+fn the_work_of_a_pass_is_its_draws_clipped_to_its_area() {
+    let mut f = Frame::new(2048);
+    let p = planned(&mut f, &[layer(rect(100, 50, 400, 300))]);
+    let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+    // The whole display: the wallpaper's 1920×1080 and the layer's 400×300.
+    assert_eq!(b.work_px(&slot(&b)), 1920 * 1080 + 400 * 300);
+    // A slot that lacks only a 200×100 corner of the layer: both draws clipped to it.
+    let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS).with_area((400, 250, 599, 349));
+    assert_eq!(b.work_px(&slot(&b)), 200 * 100 + 100 * 100);
+}
+
+#[test]
+fn a_glass_written_for_a_band_blurs_the_band_alone() {
+    let mut f = ready(2048);
+    let window = layer(|l| {
+        rect(100, 100, 800, 600)(l);
+        l.layer_id = 1;
+    });
+    let panel = layer(|l| {
+        rect(300, 200, 400, 200)(l);
+        (l.backdrop_blur, l.corner_radius, l.layer_id) = (40, 20, 2);
+    });
+    planned(&mut f, &[window.clone(), panel.clone()]);
+    // A 20×10 change under the panel at (500, 300): origin 0 (the base) is below the glass.
+    let damage =
+        Command::Damage { rect: TileRect { x: 500, y: 300, width: 20, height: 10 }, origin: 0 };
+    let p = planned(&mut f, &[window, panel, damage]);
+    let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+    assert_eq!(b.glass, GlassCount { writes: 1, reads: 0, off: 0 });
+    let (taps, s) = (10, 4);
+    let reach = s * taps + s;
+    // The scene below over the band's reach.
+    let scene = b.pass(0).unwrap();
+    assert_eq!(scene.area, (500 - reach, 300 - reach, 520 + reach - 1, 310 + reach - 1));
+    // The horizontal pass: the band's half-resolution columns (origin x − 4), one of margin;
+    // its rows plus the vertical taps (origin y − 4 − halo).
+    let half = b.pass(1).unwrap();
+    let (c0, c1) = ((500 - 296) / s - 1, (519 - 296) / s + 1);
+    let (h0, h1) = ((300 + 40 - 196) / s - taps - 1, (309 + 40 - 196) / s + taps + 1);
+    assert_eq!(half.area, (c0, h0, c1, h1));
+    // The vertical pass: the band's cache rows, one of margin.
+    let rows = b.pass(2).unwrap();
+    assert_eq!(rows.area, (c0, (300 - 196) / s - 1, c1, (309 - 196) / s + 1));
+    // Far less work than the whole glass's chain.
+    assert!(b.work_px(&scene) < 100 * 1000 / 2);
+}
+
+#[test]
+fn two_glasses_written_apart_share_one_scene_and_two_blur_passes() {
+    let mut f = ready(2048);
+    let window = layer(|l| {
+        rect(100, 100, 800, 600)(l);
+        l.layer_id = 1;
+    });
+    let bar = layer(|l| {
+        rect(0, 0, 1920, 40)(l);
+        (l.backdrop_blur, l.layer_id) = (40, 2);
+    });
+    let dock = layer(|l| {
+        rect(560, 980, 800, 90)(l);
+        (l.backdrop_blur, l.layer_id) = (40, 3);
+    });
+    // The first frame writes both (new rows): the chains share passes — four in all.
+    let p = planned(&mut f, &[window.clone(), bar.clone(), dock.clone()]);
+    let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+    assert_eq!(b.glass, GlassCount { writes: 2, reads: 0, off: 0 });
+    assert_eq!(b.pass_count(), 4);
+    let scene = b.pass(0).unwrap();
+    assert_eq!((scene.target, scene.kind), (Target::Scratch, PassKind::Scene { upto: 1 }));
+    assert_eq!(scene.area, (0, 0, 1919, 1079), "both reaches: the bar's top, the dock's bottom");
+    let half = b.pass(1).unwrap();
+    assert_eq!((half.target, half.kind), (Target::Half, PassKind::Blurs { vertical: false }));
+    assert_eq!(b.draws(&half), 2);
+    let (d0, d1) = (b.draw(&half, 0).unwrap(), b.draw(&half, 1).unwrap());
+    assert_eq!((d0.pipe, d1.pipe), (Pipe::BlurH(40), Pipe::BlurH(40)));
+    // The dock's horizontal result lies below the bar's in the half scratch: its rows follow.
+    assert!(d1.quad.y >= d0.quad.y + d0.quad.h, "{} {} {}", d0.quad.y, d0.quad.h, d1.quad.y);
+    let rows = b.pass(2).unwrap();
+    assert_eq!((rows.target, rows.kind), (Target::Cache, PassKind::Blurs { vertical: true }));
+    assert_eq!(b.draws(&rows), 2);
+    assert_eq!(b.pass(3).unwrap().target, Target::Slot);
+    assert_eq!(b.pass(4), None);
+}
+
+#[test]
+fn a_glass_over_another_written_glass_keeps_its_own_chain() {
+    let mut f = ready(2048);
+    let dock = layer(|l| {
+        rect(560, 980, 800, 90)(l);
+        (l.backdrop_blur, l.layer_id) = (40, 2);
+    });
+    let pill = layer(|l| {
+        rect(600, 1000, 100, 40)(l);
+        (l.backdrop_blur, l.layer_id) = (20, 3);
+    });
+    let p = planned(&mut f, &[dock, pill]);
+    let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
+    assert_eq!(b.glass.writes, 2);
+    assert_eq!(b.pass_count(), 7, "the pill's backdrop is the dock's fresh blur: one by one");
+    assert_eq!(b.pass(0).unwrap().kind, PassKind::Scene { upto: 0 });
+    assert_eq!(b.pass(3).unwrap().kind, PassKind::Scene { upto: 1 });
 }

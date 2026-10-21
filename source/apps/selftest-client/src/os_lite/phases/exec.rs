@@ -342,7 +342,8 @@ const VMO_HOLDER_BYTES: u64 = 0x10_0000;
 /// `SELFTEST: mm loop (cycle= free= vmos= vmo_bytes=)`: the kernel's record at this point of
 /// the loop (`free` in frames, the objects and their bytes).
 fn emit_mm_loop(cycle: u64, mm: &nexus_abi::MmStats) {
-    emit_bytes(b"SELFTEST: mm loop (cycle=");
+    emit_bytes(crate::markers::M_SELFTEST_MM_LOOP.as_bytes());
+    emit_bytes(b"cycle=");
     emit_u64(cycle);
     emit_bytes(b" free=");
     emit_u64(mm.free);
@@ -364,7 +365,8 @@ fn emit_mm_loop(cycle: u64, mm: &nexus_abi::MmStats) {
 /// with the bytes and objects left behind. A refused spawn or a lost child is a FAIL too.
 fn vmo_holder_loop(execd_client: &nexus_ipc::KernelClient) {
     let Ok(before) = nexus_abi::mm_stats() else {
-        emit_line("SELFTEST: rss loop FAIL (no memory record)");
+        emit_bytes(crate::markers::M_SELFTEST_RSS_LOOP_FAIL.as_bytes());
+        emit_line("no memory record)");
         return;
     };
     emit_mm_loop(0, &before);
@@ -373,15 +375,18 @@ fn vmo_holder_loop(execd_client: &nexus_ipc::KernelClient) {
         let Ok(pid) =
             services::execd::execd_spawn_image(execd_client, "selftest-client", IMG_VMO_HOLDER)
         else {
-            emit_line("SELFTEST: rss loop FAIL (holder not spawned)");
+            emit_bytes(crate::markers::M_SELFTEST_RSS_LOOP_FAIL.as_bytes());
+            emit_line("holder not spawned)");
             return;
         };
         if services::execd::wait_for_pid(execd_client, pid) != Some(0) {
-            emit_line("SELFTEST: rss loop FAIL (holder did not exit 0)");
+            emit_bytes(crate::markers::M_SELFTEST_RSS_LOOP_FAIL.as_bytes());
+            emit_line("holder did not exit 0)");
             return;
         }
         let Ok(now) = nexus_abi::mm_stats() else {
-            emit_line("SELFTEST: rss loop FAIL (no memory record)");
+            emit_bytes(crate::markers::M_SELFTEST_RSS_LOOP_FAIL.as_bytes());
+            emit_line("no memory record)");
             return;
         };
         emit_mm_loop(cycle, &now);
@@ -393,13 +398,15 @@ fn vmo_holder_loop(execd_client: &nexus_ipc::KernelClient) {
     // flat over the loop, or the loop names what stayed.
     let kobjects = after.kernel_objects().saturating_sub(before.kernel_objects());
     if leaked < VMO_HOLDER_BYTES && kobjects == 0 {
-        emit_bytes(b"SELFTEST: rss loop ok (cycles=");
+        emit_bytes(crate::markers::M_SELFTEST_RSS_LOOP_OK.as_bytes());
+        emit_bytes(b"cycles=");
         emit_u64(VMO_HOLDER_CYCLES);
         emit_bytes(b" leaked=");
         emit_u64(leaked);
         emit_line(" kobjects=0)");
     } else {
-        emit_bytes(b"SELFTEST: rss loop FAIL (cycles=");
+        emit_bytes(crate::markers::M_SELFTEST_RSS_LOOP_FAIL.as_bytes());
+        emit_bytes(b"cycles=");
         emit_u64(VMO_HOLDER_CYCLES);
         emit_bytes(b" leaked=");
         emit_u64(leaked);

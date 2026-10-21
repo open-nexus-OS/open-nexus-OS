@@ -155,6 +155,8 @@ struct Stats {
     glass_idx: u32,
     /// RFC-0108: the frames past the panel's period in this window, and the worst.
     ux: nexus_ux_budgets::FrameWindow,
+    /// TASK-0335 P0: the textured pixels the passes drew, by kind (`desktop_work`).
+    work: super::desktop_work::Work,
 }
 
 /// The buffers a desktop takes: the layout adopted, the scratches, the cache, the frame's own.
@@ -462,6 +464,7 @@ impl Desktop {
         let mut draws = 0;
         let mut split = [plan_ns, 0, 0, 0, 0];
         let mut witness = [0u64; 3];
+        let mut work = super::desktop_work::Work::default();
         // At most two passes in flight: the context's two render-target data alternate per
         // pass (the firmware's, `render.rs`); a third pass in the queue would reuse the data of
         // one still drawing — cycle 40's lockup. Pass p waits for pass p − 2 before it is
@@ -476,6 +479,7 @@ impl Desktop {
                 To::Half => half,
                 To::Cache => cache,
             };
+            work.note(spec.target, board.work_px(&spec));
             let wait = !pipelined || p + 1 == passes;
             if let Some(two_back) = points[p % 2] {
                 let q0 = now_ns();
@@ -514,6 +518,7 @@ impl Desktop {
             s.us += us;
             s.max_us = s.max_us.max(us);
             s.ux.note(us);
+            s.work.add(work);
             s.clean_us += clean_us;
             s.passes += passes as u64;
             s.draws += draws as u64;
@@ -566,6 +571,9 @@ impl Desktop {
                     s.ux.max_us,
                     nexus_ux_budgets::FRAME_US
                 ));
+                // TASK-0335 P0: the textured pixels per frame by pass kind and the GPU's time
+                // per pixel — the cost model every cut of this package is judged by.
+                s.work.emit(n, s.split[3]);
                 *s = Stats::default();
             }
         }

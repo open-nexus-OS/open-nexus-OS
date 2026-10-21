@@ -18,13 +18,19 @@
 //! TEST_COVERAGE: QEMU and board transcripts (`windowd: loop hz=… frames(…)`)
 //! ADR: docs/adr/0028-windowd-surface-present-and-visible-bootstrap-architecture.md
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 static CONTENT: AtomicU32 = AtomicU32::new(0);
 static BLIT: AtomicU32 = AtomicU32::new(0);
 static POINTER: AtomicU32 = AtomicU32::new(0);
 static KEEPALIVE: AtomicU32 = AtomicU32::new(0);
 static SHAPE: AtomicU32 = AtomicU32::new(0);
+/// TASK-0335 P2: the damage queued (rectangles, their pixels) against what left for gpud
+/// (the merged rectangles' pixels) — a bounding box that swallows the screen between two
+/// small changes shows here as `flushed_px` far above `queued_px`.
+static QUEUED_RECTS: AtomicU32 = AtomicU32::new(0);
+static QUEUED_PX: AtomicU64 = AtomicU64::new(0);
+static FLUSHED_PX: AtomicU64 = AtomicU64::new(0);
 
 /// One frame left for gpud: `content` rects were recomposited, or a retained region was only
 /// re-blitted (`blit`), or neither — the pointer's region alone.
@@ -45,6 +51,26 @@ pub(super) fn keepalive() {
 /// A pointer shape change queued a pointer-region present.
 pub(super) fn shape() {
     SHAPE.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A damage rectangle of `px` pixels was queued.
+pub(super) fn queued(px: u64) {
+    QUEUED_RECTS.fetch_add(1, Ordering::Relaxed);
+    QUEUED_PX.fetch_add(px, Ordering::Relaxed);
+}
+
+/// A frame's merged content rectangles of `px` pixels left for gpud.
+pub(super) fn flushed(px: u64) {
+    FLUSHED_PX.fetch_add(px, Ordering::Relaxed);
+}
+
+/// The window's damage counts `(rects, queued_px, flushed_px)`, and a fresh window.
+pub(super) fn take_damage() -> (u32, u64, u64) {
+    (
+        QUEUED_RECTS.swap(0, Ordering::Relaxed),
+        QUEUED_PX.swap(0, Ordering::Relaxed),
+        FLUSHED_PX.swap(0, Ordering::Relaxed),
+    )
 }
 
 /// The window's counts `(content, blit, pointer, keepalive, shape)`, and a fresh window.

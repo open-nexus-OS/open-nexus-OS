@@ -33,6 +33,9 @@ pub struct Glass {
     pub cache: CacheStep,
     /// Half-resolution rows its result takes.
     pub rows: u32,
+    /// What a write blurs again (TASK-0335 P1): the damage below the glass within its reach
+    /// when its rows already hold this backdrop — `Full` for a new or reshuffled backdrop.
+    pub band: Area,
 }
 
 /// One layer of the plan.
@@ -161,18 +164,37 @@ impl Frame {
                 // of the desktop within such a region is the region's own content, not its
                 // backdrop (cycle 38: those regions were blurred again every frame).
                 let own = |r: &Area, o: u32| o == 0 && layer.layer_id == 0 && r.inside(rect);
-                let touched = full
-                    || named.iter().any(|(r, o)| {
-                        origin_below(*o, i, layer.layer_id) && r.touches(reach) && !own(r, *o)
-                    });
-                let cache = self.glass.step(i, glass_key(below, &layer), cursor, rows, touched);
+                // The damage below the glass within its reach: the band it blurs again
+                // (TASK-0335 P1). A full present, a new backdrop (the key) or rows at a new
+                // place blur the whole glass.
+                let band = if full {
+                    Area::Full
+                } else {
+                    named.iter().fold(Area::None, |a, (r, o)| {
+                        if origin_below(*o, i, layer.layer_id) && r.touches(reach) && !own(r, *o) {
+                            a.union(r.intersect(reach))
+                        } else {
+                            a
+                        }
+                    })
+                };
+                let touched = band != Area::None;
+                let key = glass_key(below, &layer);
+                let band = if self.glass.would_hit(i, key, cursor) { band } else { Area::Full };
+                let cache = self.glass.step(i, key, cursor, rows, touched);
                 if !matches!(cache, CacheStep::Off) {
                     cursor = cursor.saturating_add(rows);
                 }
-                if !matches!(cache, CacheStep::Read(_)) {
-                    damage = damage.union(rect);
+                // What the glass shows changes where its blurred backdrop did: the band grown by
+                // the blur's reach, within the glass (the whole glass when blurred live or anew).
+                match cache {
+                    CacheStep::Read(_) => {}
+                    CacheStep::Write(_) => {
+                        damage = damage.union(band.grown(GLASS_REACH).intersect(rect));
+                    }
+                    CacheStep::Off => damage = damage.union(rect),
                 }
-                Some(Glass { cache, rows })
+                Some(Glass { cache, rows, band })
             };
             self.steps[count] = LayerStep { layer, glass };
             count += 1;

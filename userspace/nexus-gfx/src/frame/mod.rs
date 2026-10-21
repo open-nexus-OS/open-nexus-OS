@@ -24,9 +24,11 @@
 //!   is redrawn whole — a frame never shows a stale pixel where the scene changed.
 
 pub mod board;
+pub mod chain;
 pub mod damage;
 pub mod glass;
 pub mod layers;
+pub mod merge;
 pub mod plan;
 
 pub use board::{

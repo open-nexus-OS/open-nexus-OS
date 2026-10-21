@@ -1,0 +1,10 @@
+sweep2: renderer='PowerVR B-Series BXE-2-32' version='OpenGL ES 3.2 build 24.2@6603887'
+sweep2: gbm bo flags=0x10
+sweep2: linear texture stride=7680
+sweep2: opaque 1920x1080 from LINEAR       median_us=4189 p95_us=4281 irqs/frame=2.0
+sweep2: opaque 1920x1080 from driver layout median_us=4401 p95_us=4525 irqs/frame=2.0
+sweep2: blended 1920x1080 from LINEAR      median_us=6763 p95_us=6869 irqs/frame=2.0
+sweep2: blended 1920x1080 from driver layout median_us=7186 p95_us=7319 irqs/frame=2.0
+sweep2: 1 render of 16x16                  median_us=483 p95_us=525 irqs/frame=2.0
+sweep2: 8 renders of 16x16 (8 targets)     median_us=4125 p95_us=4232 irqs/frame=21.0
+sweep2: 8 draws of 16x16 (1 target)        median_us=922 p95_us=1000 irqs/frame=2.0

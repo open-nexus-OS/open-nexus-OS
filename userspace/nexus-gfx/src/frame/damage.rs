@@ -64,6 +64,25 @@ impl Area {
         }
     }
 
+    /// The pixels both areas share (`None` when they share none).
+    pub fn intersect(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::None, _) | (_, Self::None) => Self::None,
+            (Self::Full, a) | (a, Self::Full) => a,
+            (
+                Self::Rect { x0: a0, y0: b0, x1: a1, y1: b1 },
+                Self::Rect { x0: c0, y0: d0, x1: c1, y1: d1 },
+            ) => {
+                let (x0, y0, x1, y1) = (a0.max(c0), b0.max(d0), a1.min(c1), b1.min(d1));
+                if x0 < x1 && y0 < y1 {
+                    Self::Rect { x0, y0, x1, y1 }
+                } else {
+                    Self::None
+                }
+            }
+        }
+    }
+
     /// Whether every pixel of the area lies within `other`.
     pub fn inside(self, other: Self) -> bool {
         match (self, other) {

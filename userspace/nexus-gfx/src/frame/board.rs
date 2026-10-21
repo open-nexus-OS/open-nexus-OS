@@ -13,8 +13,11 @@
 //! path's. Pure and allocation-free: the executor names the pipelines and writes the textures'
 //! descriptors.
 
+use super::chain::{chain, clip_blur, Chain, PassArea};
+use super::damage::Area;
 use super::glass::CacheStep;
 use super::layers::{FrameLayer, MAX_LAYERS};
+use super::merge::{mergeable, Written};
 use super::plan::{Frame, Planned};
 use crate::backend::gpu::quads::Quad;
 
@@ -100,6 +103,9 @@ pub enum PassKind {
     Scene { upto: usize },
     /// One draw.
     One(DrawSpec),
+    /// The blur pass of every glass written this frame, in one (TASK-0335 P3): the horizontal
+    /// passes into their half rows, or the vertical ones into their cache rows.
+    Blurs { vertical: bool },
 }
 
 /// One pass: its target, its area (inclusive corners) and its draws.
@@ -139,6 +145,13 @@ pub struct Board<'a> {
     writes: [u8; MAX_LAYERS],
     write_count: usize,
     pub glass: GlassCount,
+    /// Each write's re-blur geometry, at the half rows the frame packed it to (TASK-0335 P3).
+    chains: [Option<Chain>; MAX_LAYERS],
+    /// The writes share one scene pass, one horizontal and one vertical (`merge::mergeable`,
+    /// and every chain fit the half scratch).
+    merged: bool,
+    /// The shared passes' areas: the scenes' union, the half areas', the cache rows'.
+    unions: [PassArea; 3],
 }
 
 impl<'a> Board<'a> {
@@ -163,6 +176,9 @@ impl<'a> Board<'a> {
             writes: [0; MAX_LAYERS],
             write_count: 0,
             glass: GlassCount::default(),
+            chains: [None; MAX_LAYERS],
+            merged: false,
+            unions: [(0, 0, 0, 0); 3],
         };
         for j in 0..b.layers {
             let n = b.layer_draws(j);
@@ -179,6 +195,7 @@ impl<'a> Board<'a> {
                 None => {}
             }
         }
+        b.lay_out_chains();
         b
     }
 
@@ -198,22 +215,67 @@ impl<'a> Board<'a> {
         self
     }
 
-    /// Passes of the frame: three per glass written, then the slot's.
+    /// Passes of the frame: the writes' chains — three shared when the writes may share them
+    /// (TASK-0335 P3), three per write otherwise — then the slot's.
     pub fn pass_count(&self) -> usize {
-        3 * self.write_count + 1
+        if self.write_count == 0 {
+            1
+        } else if self.merged {
+            4
+        } else {
+            3 * self.write_count + 1
+        }
     }
 
     /// Pass `p` of the frame.
     pub fn pass(&self, p: usize) -> Option<PassSpec> {
-        if p == 3 * self.write_count {
+        if p + 1 == self.pass_count() {
             return Some(PassSpec {
                 target: Target::Slot,
                 area: self.area,
                 kind: PassKind::Scene { upto: self.layers },
             });
         }
-        let j = usize::from(*self.writes[..self.write_count].get(p / 3)?);
-        self.chain(j).map(|c| c[p % 3])
+        if self.merged {
+            let low = usize::from(*self.writes[..self.write_count].first()?);
+            return Some(match p {
+                0 => PassSpec {
+                    target: Target::Scratch,
+                    area: self.unions[0],
+                    kind: PassKind::Scene { upto: low },
+                },
+                1 => PassSpec {
+                    target: Target::Half,
+                    area: self.unions[1],
+                    kind: PassKind::Blurs { vertical: false },
+                },
+                2 => PassSpec {
+                    target: Target::Cache,
+                    area: self.unions[2],
+                    kind: PassKind::Blurs { vertical: true },
+                },
+                _ => return None,
+            });
+        }
+        let w = p / 3;
+        let (j, c) = (usize::from(*self.writes[..self.write_count].get(w)?), self.chains[w]?);
+        Some(match p % 3 {
+            0 => PassSpec {
+                target: Target::Scratch,
+                area: c.scene_area,
+                kind: PassKind::Scene { upto: j },
+            },
+            1 => PassSpec {
+                target: Target::Half,
+                area: c.half_area,
+                kind: PassKind::One(Self::blur_draw(&c, false, None)),
+            },
+            _ => PassSpec {
+                target: Target::Cache,
+                area: c.rows_area,
+                kind: PassKind::One(Self::blur_draw(&c, true, None)),
+            },
+        })
     }
 
     /// Draws of pass `pass`.
@@ -221,6 +283,7 @@ impl<'a> Board<'a> {
         match pass.kind {
             PassKind::Scene { upto } => 1 + usize::from(self.first[upto.min(self.layers)]),
             PassKind::One(_) => 1,
+            PassKind::Blurs { .. } => self.write_count,
         }
     }
 
@@ -228,6 +291,12 @@ impl<'a> Board<'a> {
     pub fn draw(&self, pass: &PassSpec, i: usize) -> Option<DrawSpec> {
         match pass.kind {
             PassKind::One(d) => (i == 0).then_some(d),
+            PassKind::Blurs { vertical } => {
+                let c = self.chains.get(i).copied().flatten()?;
+                // Each write's quad cut to its own band: one scissor serves them all.
+                let own = if vertical { c.rows_area } else { c.half_area };
+                Some(Self::blur_draw(&c, vertical, Some(own)))
+            }
             PassKind::Scene { upto } => {
                 if i == 0 {
                     return Some(self.wallpaper());
@@ -237,6 +306,35 @@ impl<'a> Board<'a> {
                 self.layer_draw(j, usize::from(k - self.first[j]))
             }
         }
+    }
+
+    /// A chain's blur draw: horizontal into the half scratch, vertical into the cache rows;
+    /// `cut` clips the quad to that area (a shared pass).
+    fn blur_draw(c: &Chain, vertical: bool, cut: Option<PassArea>) -> DrawSpec {
+        let (pipe, quad, tex) = if vertical {
+            (Pipe::BlurV(c.radius), c.rows_quad, Tex::Half { rows: c.half_rows_total })
+        } else {
+            (Pipe::BlurH(c.radius), c.half_quad, Tex::Scratch)
+        };
+        let quad = cut.map_or(quad, |a| clip_blur(quad, a));
+        DrawSpec { pipe, quad, tex }
+    }
+
+    /// The textured work of a pass in pixels: every draw's quad clipped to the pass's area,
+    /// summed (RFC-0108 / TASK-0335 P0 — the board's GPU is memory-bound at a few ns per
+    /// textured pixel, so a frame's cost is this count, not its draws).
+    pub fn work_px(&self, pass: &PassSpec) -> u64 {
+        let (ax0, ay0, ax1, ay1) = pass.area;
+        (0..self.draws(pass))
+            .filter_map(|i| self.draw(pass, i))
+            .map(|d| {
+                let (x0, y0) = (d.quad.x.max(0.0) as u32, d.quad.y.max(0.0) as u32);
+                let (x1, y1) = ((d.quad.x + d.quad.w) as u32, (d.quad.y + d.quad.h) as u32);
+                let (cx0, cy0) = (x0.max(ax0), y0.max(ay0));
+                let (cx1, cy1) = (x1.min(ax1 + 1), y1.min(ay1 + 1));
+                u64::from(cx1.saturating_sub(cx0)) * u64::from(cy1.saturating_sub(cy0))
+            })
+            .sum()
     }
 
     fn wallpaper(&self) -> DrawSpec {
@@ -294,50 +392,70 @@ impl<'a> Board<'a> {
         }
     }
 
-    /// The three passes of glass layer `j`: the scene below it into the scratch over the reach of
-    /// the horizontal pass's taps, the horizontal pass into the half-resolution scratch, the
-    /// vertical pass into its cache rows (the QEMU path's geometry).
-    fn chain(&self, j: usize) -> Option<[PassSpec; 3]> {
+    /// The re-blur of written glass `j` placed at half rows `half_row`, for the band the plan
+    /// recorded (`chain::chain`); `None` when it is not a write or the half scratch cannot
+    /// hold it there.
+    fn chain_of(&self, j: usize, half_row: u32) -> Option<Chain> {
         let (l, cache) = self.layer(j)?;
         let Some(CacheStep::Write(row)) = cache else { return None };
-        let (dw, dh) = self.display;
-        let r = blur_radius(l.backdrop_blur);
-        let s = blur_scale(r);
-        let taps = r / s;
-        let (x, y, w, h) = (l.dst_x, l.dst_y, l.width, l.height);
-        let (vw, vh) = (w.div_ceil(s) + 2, h.div_ceil(s) + 2);
-        let (hh, halo) = (vh + 2 * taps, s * taps);
-        let reach = s * taps + s;
-        let (x0, y0) = (x.saturating_sub(reach), y.saturating_sub(reach));
-        let x1 = (x + s * vw + s * taps - s).min(dw);
-        let y1 = (y + s * vh + s * taps - s).min(dh);
-        let scene = PassSpec {
-            target: Target::Scratch,
-            area: (x0, y0, x1.max(x0 + 1) - 1, y1.max(y0 + 1) - 1),
-            kind: PassKind::Scene { upto: j },
+        let band = self.frame.step(j).and_then(|s| s.glass).map_or(Area::Full, |g| g.band);
+        chain(&l, band, row, half_row, self.display, self.half_rows)
+    }
+
+    /// Lays the writes' chains out (TASK-0335 P3): packed one after another in the half
+    /// scratch when they all fit and may share the scene (`merge::mergeable`) — then the frame
+    /// runs four passes; otherwise each at half row 0, three passes each, as before.
+    fn lay_out_chains(&mut self) {
+        let mut cursor = 0u32;
+        let mut written = [Written { index: 0, scene: Area::None, rect: Area::None }; MAX_LAYERS];
+        let mut fits = self.write_count > 1;
+        let writes = self.writes;
+        for (w, j) in writes[..self.write_count].iter().map(|j| usize::from(*j)).enumerate() {
+            let Some(c) = self.chain_of(j, cursor) else {
+                fits = false;
+                break;
+            };
+            let (x0, y0, x1, y1) = c.scene_area;
+            let rect = self
+                .layer(j)
+                .map_or(Area::None, |(l, _)| Area::rect(l.dst_x, l.dst_y, l.width, l.height));
+            written[w] =
+                Written { index: j, scene: Area::rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1), rect };
+            self.chains[w] = Some(c);
+            cursor += c.half_rows_used;
+        }
+        let top = self.layers;
+        let extent = |i: usize| {
+            self.layer(i).map_or(Area::None, |(l, _)| {
+                let pad = if l.shadow_blur > 0 {
+                    l.shadow_blur + l.shadow_offset_y.unsigned_abs()
+                } else {
+                    0
+                };
+                Area::rect(l.dst_x, l.dst_y, l.width, l.height).grown(pad)
+            })
         };
-        let (fw, fh, sf) = (dw as f32, dh as f32, s as f32);
-        let (ox, oy) = (x as f32 - sf, y as f32 - sf);
-        let source = [sf * vw as f32 / fw, sf * hh as f32 / fh, ox / fw, (oy - halo as f32) / fh];
-        let across = Quad::blur(0.0, 0.0, vw as f32, hh as f32, source, [sf / fw, 0.0], 1.0);
-        let half = PassSpec {
-            target: Target::Half,
-            area: (0, 0, vw - 1, hh.min(self.half_rows) - 1),
-            kind: PassKind::One(DrawSpec { pipe: Pipe::BlurH(r), quad: across, tex: Tex::Scratch }),
-        };
-        let hr = self.half_rows as f32;
-        let source = [vw as f32 / fw, vh as f32 / hr, 0.0, taps as f32 / hr];
-        let down = Quad::blur(0.0, row as f32, vw as f32, vh as f32, source, [0.0, 1.0 / hr], 1.0);
-        let rows = PassSpec {
-            target: Target::Cache,
-            area: (0, row, vw - 1, row + vh - 1),
-            kind: PassKind::One(DrawSpec {
-                pipe: Pipe::BlurV(r),
-                quad: down,
-                tex: Tex::Half { rows: self.half_rows },
-            }),
-        };
-        Some([scene, half, rows])
+        let low = self.writes.first().map_or(0, |j| usize::from(*j));
+        if fits && mergeable(&written[..self.write_count], low, top, extent) {
+            self.merged = true;
+            let union = |pick: &dyn Fn(&Chain) -> PassArea| {
+                self.chains[..self.write_count]
+                    .iter()
+                    .flatten()
+                    .map(pick)
+                    .fold((u32::MAX, u32::MAX, 0, 0), |u, a| {
+                        (u.0.min(a.0), u.1.min(a.1), u.2.max(a.2), u.3.max(a.3))
+                    })
+            };
+            self.unions =
+                [union(&|c| c.scene_area), union(&|c| c.half_area), union(&|c| c.rows_area)];
+        } else {
+            // One by one, each chain at the half scratch's top.
+            for w in 0..self.write_count {
+                let j = usize::from(self.writes[w]);
+                self.chains[w] = self.chain_of(j, 0);
+            }
+        }
     }
 }
 

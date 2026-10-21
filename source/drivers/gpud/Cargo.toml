@@ -29,8 +29,11 @@ kind = "service"
 # used to declare — a value scripts/build.sh never honoured before TASK-0324 P0
 # (every service silently got 8); the board's frame executor overflowed 8 at
 # the gate scene's one extra call (TASK-0215 5c-4, cycle 36: `[USER-PF] STORE`
-# below the stack). Now the manifest is the only source.
-stack_pages = 16
+# below the stack). Now the manifest is the only source. 32 pages (128 KiB) since
+# TASK-0335 P3 (cycle 51: `[USER-PF] STORE` 6 KiB below the 64 KiB stack at the first
+# present): the frame executor's board carries every write's re-blur chain (7.4 KiB)
+# on top of the pass list and the plan, and 64 KiB had no margin left.
+stack_pages = 32
 # Build-truth SSOT (TASK-0324 P0): the cargo features EVERY build path uses
 # for this service — the embedded init-lite table and the system-volume bundle
 # alike (`scripts/discover-services.sh --cargo-features gpud`). A missing

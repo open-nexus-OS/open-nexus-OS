@@ -6,7 +6,8 @@
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 2 unit tests (cursor_damage_rect)
+//! TEST_COVERAGE: the rect model and its queue in `crate::damage_rects` (host); glass quality
+//!   below (OS-only, with the compositor)
 
 use crate::assets;
 use crate::error::WindowdError;
@@ -47,91 +48,13 @@ pub(crate) fn flush_error_label(err: WindowdError) -> &'static str {
     }
 }
 
-// ── Re-homed from the deleted `live_runtime.rs` (right-place move): the
-// damage-rect model + premerge — pure damage/row accounting, i.e.
-// compositor-service concerns. (The proof-panel layout hot-path row index
-// was deleted with the proof panel itself.)
-const DAMAGE_MERGE_AREA_PERCENT: u64 = 125;
-const DAMAGE_MERGE_NEAR_GAP: u32 = 64;
+pub(crate) use crate::damage_rects::{premerge_damage_rects, queue_damage_rect, DamageRect};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GlassQuality {
     High,
     Low,
     Opaque,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DamageRect {
-    pub(crate) x: u32,
-    pub(crate) y: u32,
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-}
-
-impl DamageRect {
-    pub(crate) const fn end_x(self) -> u32 {
-        self.x.saturating_add(self.width)
-    }
-
-    pub(crate) const fn end_y(self) -> u32 {
-        self.y.saturating_add(self.height)
-    }
-
-    pub(crate) fn merge(self, other: Self) -> Self {
-        let x = self.x.min(other.x);
-        let y = self.y.min(other.y);
-        let end_x = self.end_x().max(other.end_x());
-        let end_y = self.end_y().max(other.end_y());
-        Self { x, y, width: end_x.saturating_sub(x), height: end_y.saturating_sub(y) }
-    }
-}
-
-fn damage_area(rect: DamageRect) -> u64 {
-    u64::from(rect.width).saturating_mul(u64::from(rect.height))
-}
-
-#[allow(clippy::implicit_saturating_sub)]
-fn damage_gap(a_start: u32, a_end: u32, b_start: u32, b_end: u32) -> u32 {
-    if a_end < b_start {
-        b_start - a_end
-    } else if b_end < a_start {
-        a_start - b_end
-    } else {
-        0
-    }
-}
-
-fn should_premerge_damage(a: DamageRect, b: DamageRect) -> bool {
-    let x_gap = damage_gap(a.x, a.end_x(), b.x, b.end_x());
-    let y_gap = damage_gap(a.y, a.end_y(), b.y, b.end_y());
-    let spatially_close = (x_gap == 0 && y_gap <= DAMAGE_MERGE_NEAR_GAP)
-        || (y_gap == 0 && x_gap <= DAMAGE_MERGE_NEAR_GAP);
-    if !spatially_close {
-        return false;
-    }
-    let merged = a.merge(b);
-    let merged_area = damage_area(merged);
-    let source_area = damage_area(a).saturating_add(damage_area(b));
-    merged_area.saturating_mul(100) <= source_area.saturating_mul(DAMAGE_MERGE_AREA_PERCENT).max(1)
-}
-
-pub(crate) fn premerge_damage_rects(rects: &mut [DamageRect], mut count: usize) -> usize {
-    let mut idx = 0;
-    while idx < count {
-        let mut scan = idx + 1;
-        while scan < count {
-            if should_premerge_damage(rects[idx], rects[scan]) {
-                rects[idx] = rects[idx].merge(rects[scan]);
-                rects[scan] = rects[count - 1];
-                count -= 1;
-            } else {
-                scan += 1;
-            }
-        }
-        idx += 1;
-    }
-    count
 }
 
 pub(crate) fn select_glass_quality(dirty_span_rows: u32) -> GlassQuality {
@@ -160,18 +83,5 @@ mod tests {
         let left = DamageRect { x: 10, y: 20, width: 30, height: 40 };
         let right = DamageRect { x: 32, y: 10, width: 20, height: 12 };
         assert_eq!(left.merge(right), DamageRect { x: 10, y: 10, width: 42, height: 50 });
-    }
-
-    #[test]
-    fn damage_premerge_merges_only_bounded_area_growth() {
-        let mut rects = [
-            DamageRect { x: 10, y: 10, width: 20, height: 20 },
-            DamageRect { x: 25, y: 10, width: 20, height: 20 },
-            DamageRect { x: 400, y: 400, width: 20, height: 20 },
-        ];
-        let count = premerge_damage_rects(&mut rects, 3);
-        assert_eq!(count, 2);
-        assert!(rects[..count].iter().any(|rect| rect.width == 35 && rect.height == 20));
-        assert!(rects[..count].iter().any(|rect| rect.x == 400 && rect.y == 400));
     }
 }

@@ -1,0 +1,8 @@
+sweep2: renderer='PowerVR B-Series BXE-2-32' version='OpenGL ES 3.2 build 24.2@6603887'
+sweep2: straight blended 512x512           median_us=1429 p95_us=1476 irqs/frame=2.0
+sweep2: rounded blended 512x512            median_us=1639 p95_us=1685 irqs/frame=2.0
+sweep2: opaque 512x512                     median_us=1070 p95_us=1120 irqs/frame=2.0
+sweep2: straight blended 1024x1024         median_us=3927 p95_us=3980 irqs/frame=2.0
+sweep2: rounded blended 1024x1024          median_us=4565 p95_us=4607 irqs/frame=2.0
+sweep2: opaque 1024x1024                   median_us=2522 p95_us=2803 irqs/frame=2.0
+gate-scene: FAIL no linear bo

@@ -26,6 +26,39 @@ Our “glass” is a **frosted layer**:
 
 We do **not** aim for physically correct refraction or per-pixel distortion.
 
+## The five rules (2026-10-21 — measured on the board, the reference platforms' guidelines say the same)
+
+On the board's GPU a blurred pixel costs 20–60 ns and a glass layer a scene pass plus two blur
+passes whenever its backdrop changes (TASK-0335, cycle 51: nine glass layers in a desktop scene,
+three to four of them one window's own; 3.4× overdraw). Where glass goes decides whether a frame
+fits 16.7 ms, so these are design rules and cost rules in one:
+
+1. **Glass only on the functional layer.** Bars, sidebars, docks, the Control Center, menus,
+   toasts and transient overlays may be glass. **The content layer is opaque**: a window's content
+   pane, lists, tables, documents, media, forms. Never a glass content pane (`glassWindowPane`
+   becomes an opaque surface with the pane's tint; its token name stays, its blur goes).
+2. **One glass per window, never glass on glass.** A window's chrome (top bar + sidebar) is ONE
+   material layer over the desktop. Panels, cards and controls inside it are *tinted* (a solid
+   colour with alpha), never blurred again — what lies under them is already the blurred base,
+   and a blur of a blur is the same frost, only wider.
+3. **Controls are opaque or tinted, not translucent.** A button inherits its bar's material and
+   has no blur of its own; primary actions are tinted, not glassed. Hover, press, selection and
+   focus are the **opacity of a wash layer** the compositor owns (its colour and radius declared
+   once), not pixels the app repaints.
+4. **Blur at rest.** A glass is blurred when its backdrop changed and the scene is still. While a
+   window is animated, dragged or resized its glass keeps its last blur (or a tint from the
+   backdrop's average); one blur when it comes to rest. What nobody can see is not computed.
+5. **Reduce transparency is a setting** (below): every material becomes its tint — accessibility,
+   the board's low-power mode and the A/B switch of every frame-cost measurement in one.
+
+Corollaries: nested corner radii follow their container (concentric); a shadow belongs to the
+window, not to every panel in it; the shell's glass (dock, top bar) and one chrome glass per
+window are the only blur chains a desktop frame normally carries. In the code: the registry
+(`userspace/dsl/runtime/src/registry.rs`) and app-host's layer encoding
+(`source/services/app-host/src/probe/layers.rs`) carry the material → layer mapping
+(TASK-0337); the pane's `opaque` hint is the occluder TASK-0335 P2 consumes; rule 4 is a
+planner rule (TASK-0336).
+
 ## Where we use glass (recommended)
 
 Primary:
@@ -34,13 +67,15 @@ Primary:
 - **Control Center** / quick settings overlay
 - **Popovers, menus, toasts** (where appropriate)
 
-Secondary (subtle):
+Secondary:
 
-- window chrome / top bars (optional, low translucency)
+- window chrome — top bar + sidebar as the window's ONE glass layer (rule 2)
 
-Avoid:
+Never:
 
-- large continuous backgrounds behind text-heavy content (can hurt readability and perf).
+- the content pane, lists, tables, documents (rule 1 — the content layer is opaque),
+- a glass inside a glass (rule 2),
+- large continuous backgrounds behind text-heavy content (readability and cost alike).
 
 ## Material tokens
 
@@ -120,11 +155,15 @@ We want the glass to feel “attached to the world” while moving, but be cheap
 
 ### Backdrop refresh triggers
 
-Refresh the backdrop when:
+Refresh the backdrop when the scene is at rest and:
 
-- the glass surface is **animating** (opening/closing, dragging, resizing),
-- the **background content** behind it changes (damage/dirty rect intersects the backdrop region),
-- the window stack changes (window moved underneath, new overlay appears).
+- the **background content** behind it changed (the damage intersects the backdrop region —
+  and only that band is blurred again, TASK-0335 P1),
+- the window stack changed (a window moved underneath, a new overlay appeared).
+
+**Not** while the glass surface itself is animating, dragged or resized (rule 4): it keeps its
+last blur — or a tint from the backdrop's average — and blurs once when it comes to rest. The
+earlier policy refreshed during motion; cycle 51 measured that at 12.8 passes a frame.
 
 ### Throttling and degradation
 

@@ -406,11 +406,13 @@ fn a_glass_is_blurred_again_only_when_something_within_its_reach_changed() {
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.cache), Some(CacheStep::Read(0)));
     assert_eq!(p.damage, Area::Rect { x0: 0, y0: 0, x1: 10, y1: 10 });
-    // Damage within the blur's reach of the glass: written again, the glass in the damage.
+    // Damage within the blur's reach of the glass: written again — in its band alone, so the
+    // frame's damage is the rectangle and the part of the glass the band's reach touches
+    // (TASK-0335 P1), not the whole glass.
     f.layers.take_frame(&[damage(450, 450, 10, 10)]);
     let p = f.plan(DISPLAY, &every_blur);
     assert_eq!(f.step(1).and_then(|s| s.glass).map(|g| g.cache), Some(CacheStep::Write(0)));
-    assert_eq!(p.damage, Area::Rect { x0: 450, y0: 450, x1: 700, y1: 600 });
+    assert_eq!(p.damage, Area::Rect { x0: 450, y0: 450, x1: 526, y1: 526 });
     // A content change below it, reported as damage under the glass: written again.
     f.layers.take_frame(&[
         with(layer(0, 0, 1920, 1080), |l| l.content_epoch = 5),
@@ -533,4 +535,50 @@ fn a_window_of_two_glass_slices_keeps_both_blurs_when_typed_into() {
     f.plan(DISPLAY, &every_blur);
     assert!(matches!(cache_of(&f, 1), Some(CacheStep::Read(_))), "the head's glass kept");
     assert!(matches!(cache_of(&f, 2), Some(CacheStep::Read(_))), "the body's glass kept");
+}
+
+fn band_of(f: &Frame, i: usize) -> Option<Area> {
+    f.step(i).and_then(|s| s.glass).map(|g| g.band)
+}
+
+#[test]
+fn a_change_under_a_cached_glass_names_the_band_it_blurs_again() {
+    let mut f = ready_frame(2048);
+    let base = layer(0, 0, 1920, 1080);
+    let window = layer(200, 200, 600, 400);
+    let pane = with(glass(layer(300, 300, 400, 200), 40), |l| l.layer_id = 2);
+    f.layers.take_frame(&[base.clone(), window.clone(), pane.clone()]);
+    f.plan(DISPLAY, &every_blur);
+    // The first blur is the whole glass (new rows).
+    assert_eq!(cache_of(&f, 2), Some(CacheStep::Write(0)));
+    assert_eq!(band_of(&f, 2), Some(Area::Full));
+    // A small change in the window below, within the glass's reach: the band alone.
+    f.layers.take_frame(&[
+        base.clone(),
+        window.clone(),
+        pane.clone(),
+        damage_from(0, 350, 350, 20, 10),
+    ]);
+    let p = f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 2), Some(CacheStep::Write(0)));
+    assert_eq!(band_of(&f, 2), Some(Area::rect(350, 350, 20, 10)));
+    // The frame's damage: the band grown by the blur's reach, within the glass — not the glass.
+    assert_eq!(
+        p.damage,
+        Area::rect(300, 300, 400, 200).intersect(Area::rect(350, 350, 20, 10).grown(66))
+    );
+    // A change beyond its reach: a read, no band.
+    f.layers.take_frame(&[
+        base.clone(),
+        window.clone(),
+        pane.clone(),
+        damage_from(0, 1500, 900, 20, 10),
+    ]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 2), Some(CacheStep::Read(0)));
+    // The window below moves (the key changes): the whole glass again.
+    f.layers.take_frame(&[base, layer(210, 200, 600, 400), pane, damage(0, 0, 1, 1)]);
+    f.plan(DISPLAY, &every_blur);
+    assert_eq!(cache_of(&f, 2), Some(CacheStep::Write(0)));
+    assert_eq!(band_of(&f, 2), Some(Area::Full));
 }

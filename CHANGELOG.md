@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-21 (the frame cost: the vendor's numbers, the passes shared — TASK-0335 P2/P3)
+
+- **The vendor stack priced the open questions** (`docs/board/measurements/2026-10-21-gpu-vendor-per-pixel/`):
+  a pixel costs it 1.85 ns opaque, 3.18 blended, 3.72 rounded (ours 1.21 / 4.89 / 8.85 — the
+  shader is 1.5–2.4× of it, not the 10–30 ns a pixel cycle 50 read in frames), a linear
+  texture costs nothing extra (the atlas's layout stays), and **a render costs 0.52 ms fixed**
+  (eight renders 4.1 ms, eight draws into one 0.9 ms). A 60 Hz frame on this GPU is two
+  full-screen blended layers or a few renders, never both — so the passes come first.
+- **The glasses written in a frame share passes.** A frame with three re-blurred glasses ran
+  ten passes (one scene below each, two blurs each, the slot); now, when the writes may share a
+  scene — no layer between the lowest write and the top that is not itself a write, and no
+  other write's rectangle, in any write's reach (`frame::merge`, host-tested) — and their
+  horizontal results fit the half scratch packed one after another, the frame runs four: the
+  scene below the lowest write over every reach, one horizontal pass of every write's quad cut
+  to its band (`frame::chain::clip_blur`, exact), one vertical, the slot. Otherwise the chains
+  one by one as before. The executor is untouched.
+- **What windowd's damage joins, counted — and a fifth rect no longer dropped.** The planner
+  cuts a frame to the damage windowd sends, so the damage's size is the frame's cost: windowd's
+  present collects its rects into a list of four, each rect joining the first it touches (a
+  bounding box), and `windowd: loop … damage(rects= queued_px= flushed_px=)` now says how many
+  rects were queued, their pixels, and the pixels the present sent — the ratio names the
+  bounding-box growth. Reading the list found that a fifth rect touching none of the four was
+  dropped on the floor (a stale pixel on the screen); it now joins the rect whose union grows
+  the least. The rect model moved from the OS-only compositor into `windowd::damage_rects`,
+  where its unit tests run on the host (they never had — the compositor does not compile
+  there): the union, the pre-merge, `test_reject_dropping_a_fifth_disjoint_damage_rect`.
+- **The selftest's loop lines name their markers** (the architecture gate's rule 3): the
+  memory and RSS loop rungs emit `crate::markers::M_*` constants, no literals.
+- **The materials rules and the next two packages, written down** (cycle 51's reading):
+  `docs/dev/ui/foundations/visual/materials.md` (glass only on the functional layer, one glass
+  per window, controls tinted, blur at rest, reduce-transparency); TASK-0336 (a window opens,
+  closes and moves as one surface: the starting layer at the tap, the snapshot, the dragged
+  window on a composer plane of the controller — the stock tree shows eight, two in use —
+  glass blurred at rest); TASK-0337 (one window path: every app on window-kit, windowd's
+  title bar deleted, the content pane opaque, state as a wash layer's opacity). The order in
+  `tasks/IMPLEMENTATION-ORDER.md` ("Recut 2026-10-21").
+- **gpud's stack is 128 KiB** (the manifest's `stack_pages = 32`): cycle 51a faulted at the
+  first present 6 KiB below the 64 KiB declared in cycle 36 — the board's frame path now
+  carries every write's re-blur chain (7.4 KiB) beside the pass list and the plan, and the
+  old size had no margin. Cycle 51's reading (the pixels rule, 3.4× overdraw, P3 holding
+  where writes share) is in the vendor measurement folder.
+
+### Added - 2026-10-20 (the frame cost, the count — TASK-0335 P0)
+
+- **The textured pixels a frame draws, counted.** Cycle 49's windows read ~6.5 ms of GPU wait per
+  pass across 0.8–1.6 Mpx and 4–13 passes; the boot trace a full-screen pass at 12 ms, the raw
+  fill at 1 ns a pixel: the board's GPU is memory-bound at a few nanoseconds per textured pixel,
+  so a frame's cost follows the pixels its passes draw (5–10 Mpx a frame today; 16.7 ms buys
+  ~3). `Board::work_px` (host-tested) counts a pass's draws clipped to its area;
+  `gpud: gpu work (slot_px= scene_px= blur_px= ns_per_px=)` per 32-frame window names the
+  count by pass kind and the GPU's wait per pixel — the model every cut of the package is
+  judged by (the glass in its changed band, occluded surfaces not drawn, the scene under glass
+  drawn once).
+- **The glass re-blurred in its changed band (TASK-0335 P1).** A pointer move over a window
+  under the shell's glass re-blurred the whole glass — its scene below over its whole reach,
+  two blur passes over all of it — for a change of a few hundred pixels; the Control Center's
+  full-screen glass re-blurred the screen for any change. The planner now carries the damage
+  that touched a glass as a band: a write whose cache rows already hold this backdrop blurs the
+  band alone (the scene below over the band's reach, the horizontal pass over its half-resolution
+  columns and the rows the vertical taps read, the vertical pass over its cache rows; the rest
+  of the rows keep), and the frame's damage is the band's reach within the glass. A new or
+  reshuffled backdrop or a full present blurs the whole glass as before. Pure planner change,
+  host-tested (the three areas, the banded damage); the executor draws only inside a pass's
+  area and the targets persist outside it, as the slot's damage and the cache's rows already
+  rely on.
+
 ### Added - 2026-10-20 (the UX latency contract — RFC-0108, TASK-0334)
 
 - **"Instant" and "smooth" as numbers every lane judges.** Cycle 47 on the desk board was green

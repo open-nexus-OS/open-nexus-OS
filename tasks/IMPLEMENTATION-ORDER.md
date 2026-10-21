@@ -345,6 +345,27 @@ read against those lines: the non-parking compositor (windowd never blocks on an
 never on windowd; ADR-0075 pulled from 6d; the fullscreen and settings/stash click defects with
 it), the frame cost with glass (gpud: blur only the damage, cache static backdrops), the launch
 without a copy (6c) and the DSL apps' first frame by stage. 6b/6d–6f keep their places behind.
+Cycle 49's reading moved the frame cost first (TASK-0335: the GPU is memory-bound at a few ns
+per textured pixel — the count is the lever; it drives the slideshow and the input's wait alike),
+the non-parking compositor second.
+
+**Recut 2026-10-21 (cycle 51; the operator's observations on the board, the reference
+platforms' rules read):** P3 holds where glass writes share, and the wait did not move — the
+pixels rule (8.3 layers a frame over 1.0–1.4 Mpx of damage, 3.4× overdraw at 8–20 ns a pixel);
+a window opens in three parts (the enter spring on an unpainted surface, the content 0.6–6.9 s
+later, the chrome's glass after that) and every animation tick re-draws it; a drag is 12.8
+passes a frame; three constructions of a window share one screen (windowd's legacy title bar
+over a plain surface, window-kit's chrome on the plain path, window-kit's chrome on the band
+path); window-kit's content pane is glass. The order after the P3 commit: **TASK-0336** the
+window as one surface (the starting layer at the tap, the snapshot on close and drag, the
+dragged window on one of the controller's six idle composer planes, glass blurred at rest, the
+glass-write cause line, the loop line without its ≥ 8-presents gate, the launch stages in
+`ux launch`) → **TASK-0337** one window path and the materials (every app on window-kit,
+windowd's title bar deleted, glass only on the functional layer, the content pane opaque,
+controls tinted, hover/press as a wash layer's opacity, reduce-transparency in settingsd;
+`docs/dev/ui/foundations/visual/materials.md`) → **TASK-0335 P2** occlusion in the planner
+(the opaque pane is the occluder) and the programs → the non-parking compositor (ADR-0075)
+→ 6c. Every package read against RFC-0108's lines on the board.
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

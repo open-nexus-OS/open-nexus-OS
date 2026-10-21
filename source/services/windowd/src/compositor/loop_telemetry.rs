@@ -63,8 +63,9 @@ impl LoopTelemetry {
             // that can wedge the compositor, so it belongs next to the cadence.
             let (ch, cap, shared) = super::reply_route::counts();
             let (content, blit, pointer, keepalive, shape) = super::frame_causes::take();
+            let (rects, queued_px, flushed_px) = super::frame_causes::take_damage();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} keepalive={} shape={})",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px})",
                 self.iters,
                 self.applies,
                 presents,

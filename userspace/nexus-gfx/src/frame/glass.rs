@@ -103,6 +103,16 @@ impl GlassCache {
         }
     }
 
+    /// Whether `slot` holds `key` at `cursor_y` — the rows a write may update in a band alone
+    /// (TASK-0335 P1): the same backdrop in the same rows, only the band's pixels changed.
+    pub fn would_hit(&self, slot: usize, key: u64, cursor_y: u32) -> bool {
+        self.ready
+            && slot < MAX_LAYERS
+            && self.valid[slot]
+            && self.keys[slot] == key
+            && self.ys[slot] == cursor_y
+    }
+
     /// Read, write or off for glass layer `slot` with key `key` and `h` rows at the packing
     /// cursor `cursor_y` (the caller advances it by `h` on a read or a write). A hit needs the
     /// same key at the same place — a reshuffled set writes instead of reading rows that now
