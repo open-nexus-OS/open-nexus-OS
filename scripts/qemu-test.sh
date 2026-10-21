@@ -697,7 +697,10 @@ expected_sequence=(
   "KSELFTEST: vmo reach ok ("
   "KSELFTEST: w^x enforced"
   # TASK-0333 6a (RFC-0100 §1, ADR-0073): an object dies with its last capability, a death
-  # is an event — four kernel selftests, before the fence ones they run beside.
+  # is an event — four kernel selftests, before the fence ones they run beside. TASK-0339
+  # (RFC-0033 amendment, ADR-0075) runs first among them: a sender is told once when a full
+  # queue has room, or when nobody can drain it — the compositor's never-park signal.
+  "KSELFTEST: waitset writable ok"
   "KSELFTEST: ipc eof nonblocking ok"
   "KSELFTEST: ipc peer closed send ok"
   "KSELFTEST: task exit releases ok ("
@@ -1273,6 +1276,7 @@ case "${PROFILE:-full}" in
       "KSELFTEST: vmo runs ok ("
       "KSELFTEST: vmo reach ok ("
       "KSELFTEST: w^x enforced"
+      "KSELFTEST: waitset writable ok"
       "KSELFTEST: ipc eof nonblocking ok"
       "KSELFTEST: ipc peer closed send ok"
       "KSELFTEST: task exit releases ok ("

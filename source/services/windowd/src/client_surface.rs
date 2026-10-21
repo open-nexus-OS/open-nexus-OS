@@ -14,73 +14,50 @@
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
 use nexus_display_proto::client_surface::{
-    DamageRect, FORMAT_BGRA8888, INPUT_KIND_RELEASE, INPUT_KIND_TAP, MAX_DAMAGE_RECTS,
-    SURFACE_STATUS_BAD_SEQ, SURFACE_STATUS_BAD_SURFACE, SURFACE_STATUS_MALFORMED,
+    DamageRect, FORMAT_BGRA8888, INPUT_KIND_RELEASE, INPUT_KIND_TAP, INPUT_KIND_WHEEL,
+    MAX_DAMAGE_RECTS, SURFACE_STATUS_BAD_SEQ, SURFACE_STATUS_BAD_SURFACE, SURFACE_STATUS_MALFORMED,
     SURFACE_STATUS_QUOTA,
 };
 
-/// How a frame must reach a client's event channel (TASK-0306).
+/// What a frame is to the client it goes to (TASK-0306, ADR-0075 — TASK-0339).
 ///
-/// The distinction is not "important vs unimportant" — it is **whether the
-/// client is waiting**. Getting it wrong is invisible in the code and very
-/// visible on screen: a dropped present-ack does not lose a pixel, it leaves
-/// the client blocked on a reply that will never come, and the user sees a
-/// frozen UI. That is the exact shape of the 2026-07-26 report.
-///
-/// `Blocking` is a REACTIVE park, not a retry loop. The kernel already
-/// implements the rendezvous — a non-NONBLOCK `ipc_send_v1` registers the
-/// sender as a send-waiter on the endpoint and the receive path pops it the
-/// moment capacity appears. Polling with `yield_()` instead would issue
-/// hundreds of syscalls of the very kind measured at up to 21 ms under lock
-/// contention, and could still lose the frame.
+/// No class waits on the client any more: windowd sends non-blocking and what does not fit
+/// waits in the client's bounded outbox (`crate::client_outbox`), leaving in order as the client
+/// drains — the kernel says when (an armed writable waitset member). The class decides only
+/// what may be MERGED while it waits. Before this, `Blocking`/`Critical` frames parked the
+/// compositor on the client's queue: an app rendering its first frame for half a second froze
+/// every window for that half second (cycle 54: input waits of 0.3–1.5 s at the launches).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Delivery {
-    /// The client is (or may be) BLOCKED on this frame: present, create and
-    /// destroy acks. Failure is real and must be reported as failure — but a
-    /// RECOVERY PATH exists (`compositor/mod.rs` falls back to
-    /// `reply_and_close_wait` / `server.send`, both `Wait::Blocking`), so the
-    /// budget only has to cover the common case.
-    Blocking,
-    /// USER INTENT with no recovery path: a tap, or a settings push (region /
-    /// locale / theme / shell profile). Nothing downstream reconstructs it and
-    /// no fallback catches it — if this send expires the click is gone, or the
-    /// window keeps the old language forever. It therefore gets a LIVENESS
-    /// budget instead of a frame budget.
-    Critical,
-    /// The NEXT frame supersedes this one: hover motion. One attempt — a full
-    /// queue means the client is behind, and the newer frame carries the newer
-    /// truth anyway. Retrying would only add latency to data already stale.
-    ///
-    /// NOT for settings pushes. This doc used to list "region/theme pushes"
-    /// here, which was wrong in the way that matters: hover motion regenerates
-    /// dozens of times a second, a region push happens ONCE when the user picks
-    /// a language and nothing ever repeats it. They are opposites, not
-    /// neighbours. See [`Delivery::Critical`].
-    Coalescing,
+    /// The client waits for it: a present, create or destroy ack. Ordered, never merged, never
+    /// dropped while the client lives (a lost ack froze the client — the 2026-07-26 report).
+    Ack,
+    /// User intent with no recovery path: a tap, a release, a wheel step, a key, a text commit,
+    /// a settings push. Ordered, never merged (nothing downstream reconstructs it).
+    Intent,
+    /// State the next frame supersedes: the pointer over the window, a drag's position, the
+    /// scroll position, a frame pulse, a presentation snapshot. While the client is behind, the
+    /// newest frame of its kind replaces the older one — never a backlog of stale positions.
+    Latest,
 }
 
 impl Delivery {
-    /// Whether a send of this class PARKS on the client's endpoint until the frame is
-    /// queued (the client drains, or it dies) — or is one non-blocking attempt because the
-    /// next frame supersedes this one. No deadline exists (RFC-0093 §7, TASK-0054C P2-a):
-    /// the 16 ms / 250 ms bounds this policy once carried only chose between the parked
-    /// send and the parked fallback the caller ran anyway.
-    pub(crate) const fn parks(self) -> bool {
+    /// Whether frames of this class are kept in order and never merged.
+    pub(crate) const fn ordered(self) -> bool {
         match self {
-            Delivery::Blocking | Delivery::Critical => true,
-            Delivery::Coalescing => false,
+            Delivery::Ack | Delivery::Intent => true,
+            Delivery::Latest => false,
         }
     }
 
-    /// The class an input kind belongs to. A tap and a press's release are
-    /// discrete — nothing downstream can reconstruct them (a lost release
-    /// leaves a drag without its end, RFC-0095). Hover and drag motion, a
-    /// wheel step and a frame pulse are superseded by the next one, so
-    /// retrying them only delivers stale coordinates late.
+    /// The class an input kind belongs to. A tap and a press's release are discrete — nothing
+    /// downstream can reconstruct them (a lost release leaves a drag without its end, RFC-0095);
+    /// a wheel step is a delta — merged away it would lose distance. Hover and drag motion and
+    /// the scroll position are where things are NOW: the newest supersedes the older.
     pub(crate) const fn for_input(kind: u8) -> Self {
         match kind {
-            INPUT_KIND_TAP | INPUT_KIND_RELEASE => Delivery::Critical,
-            _ => Delivery::Coalescing,
+            INPUT_KIND_TAP | INPUT_KIND_RELEASE | INPUT_KIND_WHEEL => Delivery::Intent,
+            _ => Delivery::Latest,
         }
     }
 }
@@ -347,75 +324,36 @@ mod tests {
 #[cfg(test)]
 mod delivery_tests {
     use super::{Delivery, INPUT_KIND_RELEASE, INPUT_KIND_TAP};
+    use nexus_display_proto::client_surface::{
+        INPUT_KIND_DRAG, INPUT_KIND_LEAVE, INPUT_KIND_MOVE, INPUT_KIND_SCROLL_POS, INPUT_KIND_WHEEL,
+    };
 
-    /// TASK-0306: the bug was a POLICY bug, so the policy is what gets pinned.
-    /// A frame the client is blocked on must be retried; a frame the next one
-    /// supersedes must not be. Getting this backwards is invisible in review
-    /// and shows up as a frozen UI — a present-ack was fired once, dropped on
-    /// a full queue, and the client waited 504 ms for a reply that never came.
+    /// TASK-0306 → ADR-0075: the bug was a POLICY bug, so the policy is what gets pinned. What
+    /// the client waits for, and what the user meant, is kept whole and in order; only state
+    /// may be merged while the client is behind. Nothing parks the compositor.
     #[test]
-    fn blocking_retries_and_coalescing_does_not() {
-        assert!(!Delivery::Coalescing.parks(), "stale data must not block");
-        assert!(
-            Delivery::Blocking.parks(),
-            "a client is waiting on this frame — park on the endpoint, do not poll"
-        );
+    fn acks_and_intent_are_ordered_state_is_merged() {
+        assert!(Delivery::Ack.ordered(), "a client is waiting on this frame");
+        assert!(Delivery::Intent.ordered(), "user intent has no recovery path");
+        assert!(!Delivery::Latest.ordered(), "the next state supersedes this one");
     }
 
-    /// RFC-0083 superseded `Critical` FOR SETTINGS: a snapshot is retained
-    /// latest-wins state — delivery is a NONBLOCK attempt per frame with
-    /// per-channel retry (`crate::presentation_state`), so it is never LOST
-    /// and never BLOCKS the compositor. `Critical` remains the class for
-    /// TAPS (user intent, no recovery path) and, during the dual-emit
-    /// migration window, for the legacy region/attach pushes (retired in P5).
+    /// A tap, a release and a wheel step are discrete: kept, in order. The pointer's move and
+    /// leave, a drag's motion and the scroll position are state: the newest wins.
     #[test]
-    fn a_settings_push_is_not_coalescable() {
-        // The transitional legacy pushes still ride Critical: bounded block,
-        // never silently dropped. The endgame lives in presentation_state.
-        assert!(Delivery::Critical.parks());
-        assert_ne!(
-            Delivery::Critical.parks(),
-            Delivery::Coalescing.parks(),
-            "a settings frame is never fire-and-forget"
-        );
-    }
-
-    /// The follow-up bug: sizing the TAP budget to a frame was wrong, because
-    /// nothing catches an expired tap. The compositor loop was measured at
-    /// 13 Hz under load (77 ms), so a 16 ms budget dropped real clicks with
-    /// `FAIL desktop input send`. User intent outlives one frame — and since
-    /// TASK-0054C P2-a it outlives every frame: a tap PARKS until the client
-    /// drains or dies, no budget can expire on it.
-    #[test]
-    fn a_tap_outlives_a_slow_frame() {
-        assert!(Delivery::Critical.parks(), "user intent has no recovery path; it parks");
-        assert!(Delivery::for_input(INPUT_KIND_TAP).parks(), "a tap is never one attempt");
-    }
-
-    #[test]
-    fn taps_block_hover_coalesces() {
-        use nexus_display_proto::client_surface::{INPUT_KIND_MOVE, INPUT_KIND_WHEEL};
-        assert_eq!(
-            Delivery::for_input(INPUT_KIND_TAP),
-            Delivery::Critical,
-            "a tap is discrete AND unrecoverable"
-        );
-        for kind in [INPUT_KIND_MOVE, INPUT_KIND_WHEEL] {
-            assert_eq!(
-                Delivery::for_input(kind),
-                Delivery::Coalescing,
-                "the next motion supersedes this one"
-            );
+    fn the_input_kinds_split_into_intent_and_state() {
+        for kind in [INPUT_KIND_TAP, INPUT_KIND_RELEASE, INPUT_KIND_WHEEL] {
+            assert_eq!(Delivery::for_input(kind), Delivery::Intent, "kind {kind}");
+        }
+        for kind in [INPUT_KIND_MOVE, INPUT_KIND_LEAVE, INPUT_KIND_DRAG, INPUT_KIND_SCROLL_POS] {
+            assert_eq!(Delivery::for_input(kind), Delivery::Latest, "kind {kind}");
         }
     }
 
-    /// RFC-0095 (the drag gesture): the drag's motion coalesces like hover, but
-    /// its release is the gesture's END — a busy client that dropped it would
-    /// keep the drag open and lose where the pointer let go.
+    /// A merged wheel step would lose scroll distance; a merged release would leave a drag open.
     #[test]
-    fn a_release_is_discrete_drag_motion_coalesces() {
-        use nexus_display_proto::client_surface::INPUT_KIND_DRAG;
-        assert_eq!(Delivery::for_input(INPUT_KIND_RELEASE), Delivery::Critical);
-        assert_eq!(Delivery::for_input(INPUT_KIND_DRAG), Delivery::Coalescing);
+    fn test_reject_merging_a_release_or_a_wheel_step() {
+        assert!(Delivery::for_input(INPUT_KIND_RELEASE).ordered());
+        assert!(Delivery::for_input(INPUT_KIND_WHEEL).ordered());
     }
 }

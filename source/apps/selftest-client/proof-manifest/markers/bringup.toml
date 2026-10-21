@@ -95,6 +95,11 @@ proves = "boot state committed and the registry populated — a session may begi
 phase = "bringup"
 proves = "windowd reported @stage shell-visible — the shell's first frame is on screen (fence 4)"
 
+# TASK-0339 (RFC-0033 amendment, ADR-0075): the compositor never waits on a client.
+[marker."KSELFTEST: waitset writable ok"]
+phase = "bringup"
+proves = "a sender that found a queue full arms a waitset member with its SEND-only capability and is told once the queue has room — not while it is full, not twice without arming again — and a queue no receiver can drain any more reports ready too (the next send learns the death)"
+
 # TASK-0333 6a (RFC-0100 §1, ADR-0073): an object dies with its last capability, and a death is
 # an event. Four kernel selftests against the real tables and the real syscall table.
 [marker."KSELFTEST: ipc eof nonblocking ok"]

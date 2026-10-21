@@ -18,6 +18,9 @@
 - Phase 3 — **`nexus-driverkit`** userland lib (submit ring + fence + backpressure + buffers): **landed** (21 host goldens).
 - Phase 4 — consumers: **landed** (gpud `CtrlQueue` on `SubmitRing`, boot-verified ~64µs presents; windowd pacing blocks on the timer-cap, `spin_hz` 2320→0). The *full* waitset present-scheduler (multi-source) is a follow-up gated on a gpud completion fence.
 - Phase 5 — **clean idle/deadline** (retire the degenerate-spin): **deferred** — see ADR-0033 (load-bearing, riskiest, and its user-visible payoff is already banked by Phase 4).
+- Amendment 2026-10-21 — the **writable member** (TASK-0339, ADR-0075): **landed** (`waitset_add`
+  with a SEND-only capability arms a sender's member; boot-proven `KSELFTEST: waitset writable ok`
+  on QEMU and the board; windowd's outbox uses it).
 
 ## Context
 
@@ -84,6 +87,23 @@ deterministic pacing (the timer's *fixed* cap-deadline drives it via the working
 - Wake path reuses `router.send → pop_recv_waiter → tasks.wake`; the only new bit is
   multi-endpoint waiter registration + on-wake readiness scan + deregistration. **The
   existing single-endpoint recv path is untouched** (this is purely additive).
+- **Amendment 2026-10-21 — the writable member (TASK-0339, ADR-0075).** A member is a word: the
+  endpoint id and, above it, its interest. `waitset_add` with a **SEND-only** capability (refused
+  before: `RECV` was required) adds a SENDER's member, **armed**: the sender found the queue full.
+  An armed sender's member is ready when the queue has room (`len < depth`) or no receiver can
+  drain it any more (dead endpoint, last RECV capability gone — the next send learns the death);
+  the wait that reports it **disarms** it, and `waitset_add` again re-arms the same member (no
+  duplicate, no new syscall; nexus-abi names the call `waitset_arm_writable`). While armed, the
+  waiter registers in the endpoint's **writable-waiter list**, apart from its parked senders:
+  every receive (`wake_after_recv`) wakes the first parked sender, as before, AND every writable
+  waiter — so a waitset never takes a parked sender's wake (one shared list would let a waitset
+  that does not send swallow the room a parked sender waits for). An endpoint's death or its
+  last receiver's departure wakes the writable waiters with the parked senders. Deregistration
+  on every exit of the wait (ready, deadline, park) covers both interests. One
+  waitset therefore serves a server that must never park on a slow client (the compositor, with
+  its per-client outbox) and never spins on a client it has nothing for. A receiver's member and a
+  sender's member of one endpoint are two members. Proof: the member word's host tests
+  (`waitset.rs`), `KSELFTEST: waitset writable ok` on every boot.
 
 ### 2. Timeline fence object (Phase 2) — additive
 

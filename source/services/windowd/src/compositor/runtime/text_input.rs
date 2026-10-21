@@ -313,13 +313,14 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// A frame to the desktop surface's event channel — user intent (`Delivery::Critical`):
-    /// parked until the desktop drains, never dropped; a real failure is reported.
+    /// A frame to the desktop surface's event channel — user intent (`Delivery::Intent`):
+    /// ordered, never dropped while the desktop lives, never a park (ADR-0075); a real failure
+    /// is reported.
     #[allow(unused_variables)]
     pub(super) fn send_desktop_frame(&mut self, frame: &[u8]) {
         #[cfg(nexus_env = "os")]
         if let Some(slot) = self.desktop_channel {
-            if !super::app_window::send_client_frame(slot, frame, Delivery::Critical) {
+            if !self.client_send(slot, frame, Delivery::Intent).accepted() {
                 let _ = debug_println("WINDOWD: FAIL desktop text send");
             }
         }

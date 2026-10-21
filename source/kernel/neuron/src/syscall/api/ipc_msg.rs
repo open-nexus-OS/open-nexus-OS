@@ -404,12 +404,9 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     let mut msg = loop {
         match ctx.router.recv(endpoint) {
             Ok(msg) => {
-                // Receiving frees queue capacity; wake one sender blocked on this endpoint (if any).
-                if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                    observe_wake_outcome(
-                        ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler),
-                    );
-                }
+                // Receiving frees queue capacity: wake one parked sender and the waitsets
+                // waiting for room (TASK-0339).
+                wake_after_recv(ctx, endpoint);
                 break msg;
             }
             Err(ipc::IpcError::QueueEmpty) if !nonblock => {
@@ -426,11 +423,7 @@ pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
                 match ctx.router.recv(endpoint) {
                     Ok(msg) => {
                         let _ = ctx.router.remove_recv_waiter(endpoint, cur.as_raw());
-                        if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
-                            observe_wake_outcome(
-                                ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler),
-                            );
-                        }
+                        wake_after_recv(ctx, endpoint);
                         break msg;
                     }
                     Err(ipc::IpcError::QueueEmpty) => {

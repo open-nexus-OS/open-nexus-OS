@@ -150,7 +150,8 @@ impl DisplayServerRuntime {
     /// Push `INPUT_KIND_SCROLL_POS` (absolute scroll rows in the `y` field) to
     /// the app on its dedicated event channel — the app mirrors it into its
     /// `scroll_y` for hit-testing + the EndReached lazy-load check, WITHOUT
-    /// re-rendering on every notch.
+    /// re-rendering on every notch. State (ADR-0075): a busy app gets the newest
+    /// position once it drains — this push parked the compositor before.
     fn push_scroll_pos(&mut self, idx: usize, scroll_rows: u32) {
         let Some(id) = self.apps[idx].surface_id else { return };
         let y = scroll_rows.min(u16::MAX as u32) as u16;
@@ -160,7 +161,7 @@ impl DisplayServerRuntime {
             0,
             y,
         );
-        let _ = self.send_app_frame(idx, &frame);
+        let _ = self.send_app_state(idx, &frame);
     }
 
     /// True while any scrollable app window's fling is still easing/coasting —

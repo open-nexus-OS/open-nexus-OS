@@ -78,6 +78,17 @@ impl Router {
         self.endpoints.get(id as usize).is_some_and(|ep| ep.alive && ep.eof_pending)
     }
 
+    /// Whether a send to `id` would find room — the readiness of a waitset's WRITABLE member
+    /// (RFC-0033, TASK-0339). A missing or dead endpoint, or one no receiver can drain any more,
+    /// reads as writable too: the sender's next send learns the death (`PeerClosed`) instead of
+    /// waiting for room that never comes.
+    #[must_use]
+    pub fn writable(&self, id: EndpointId) -> bool {
+        self.endpoints
+            .get(id as usize)
+            .is_none_or(|ep| !ep.alive || ep.receiver_gone || ep.queue.len() < ep.depth)
+    }
+
     /// RFC-0079: drains endpoint `id`'s recv-waiters so they re-run recv (used
     /// when the last SEND cap closed — a blocked EOF-opted receiver re-scans
     /// and returns `PeerClosed`). Empty for a missing/dead endpoint.
@@ -86,5 +97,36 @@ impl Router {
             Some(ep) if ep.alive => ep.recv_waiters.drain(..).collect(),
             _ => Vec::new(),
         }
+    }
+
+    /// TASK-0339: registers `pid` — a waitset with an armed sender's member — as waiting for
+    /// room in `id`. Apart from the parked senders (`register_send_waiter`): a receive wakes
+    /// every writable waiter beside the first parked sender, never instead of it.
+    pub fn register_writable_waiter(
+        &mut self,
+        id: EndpointId,
+        pid: WaiterId,
+    ) -> Result<(), super::IpcError> {
+        let ep = self.endpoints.get_mut(id as usize).ok_or(super::IpcError::NoSuchEndpoint)?;
+        if !ep.alive {
+            return Err(super::IpcError::NoSuchEndpoint);
+        }
+        if !ep.writable_waiters.contains(&pid) {
+            ep.writable_waiters.push_back(pid);
+        }
+        Ok(())
+    }
+
+    /// Removes `pid` from `id`'s writable waiters (idempotent).
+    pub fn remove_writable_waiter(&mut self, id: EndpointId, pid: WaiterId) {
+        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+            ep.writable_waiters.retain(|p| *p != pid);
+        }
+    }
+
+    /// One waitset waiting for room in `id` — a receive takes them all, one at a time (no
+    /// allocation on the receive path).
+    pub fn pop_writable_waiter(&mut self, id: EndpointId) -> Option<WaiterId> {
+        self.endpoints.get_mut(id as usize).filter(|ep| ep.alive)?.writable_waiters.pop_front()
     }
 }

@@ -75,6 +75,7 @@ mod app_death;
 mod app_surface;
 pub(crate) mod app_window;
 mod capture;
+mod client_send;
 mod clipboard_focus;
 mod cursor;
 mod desktop_surface;
@@ -440,10 +441,8 @@ pub(crate) struct DisplayServerRuntime {
     /// baked snapshot (`theme()`); a switch is a const swap + full redraw. Boot
     /// default = Dark until settingsd's `ui.theme.mode` is applied (Phase 10).
     theme_mode: crate::theme::ThemeMode,
-    /// Accent-palette index (`ui.theme.accent`, 0 = the theme's built-in
-    /// accent). Rides the theme push's high nibble; app-hosts resolve it via
-    /// `nexus-theme-tokens::accent_color`. windowd's own baked chrome accent
-    /// is unaffected (follow-up if chrome ever paints accent-role pixels).
+    /// Accent-palette index (`ui.theme.accent`, 0 = built-in); rides the theme push's high
+    /// nibble, app-hosts resolve it via `nexus-theme-tokens::accent_color`.
     pub(crate) theme_accent: u8,
     /// Solid materials (`ui.material = solid`, TASK-0337): the theme byte's `THEME_SOLID`.
     pub(crate) solid_materials: bool,
@@ -455,15 +454,16 @@ pub(crate) struct DisplayServerRuntime {
     apps: [AppWindowSlot; crate::window_scene::MAX_APP_WINDOWS],
     /// ADR-0042 surface table + flow control (host-tested bookkeeping).
     client_surfaces: crate::client_surface::ClientSurfaces,
-    /// Nonce → event-channel map (bounded, LRU-replace): each app-host attaches
-    /// its OWN channel tagged with a self-minted nonce and repeats the nonce on
-    /// SURFACE_CREATE — the bind is deterministic under N concurrent connects
-    /// (the pending-slot era crossed channels between greeter/shell/counter).
-    /// Non-consuming: a resize RE-create binds the same nonce again.
+    /// Nonce → event-channel map (bounded, LRU-replace): each app-host attaches its OWN channel
+    /// tagged with a self-minted nonce and repeats it on SURFACE_CREATE (deterministic under N
+    /// concurrent connects); non-consuming: a resize RE-create binds the same nonce again.
     #[cfg(nexus_env = "os")]
     event_channels: [(u64, u32); 8],
     #[cfg(nexus_env = "os")]
     event_channels_len: usize,
+    /// ADR-0075: what waits for each client — windowd never waits on one (`client_send`).
+    #[cfg(nexus_env = "os")]
+    outboxes: crate::client_outbox::Outboxes,
     /// The DESKTOP surface (RFC-0065 Umbau #17): the shell/greeter app-host
     /// that declared `level: desktop`. Own slot — fully separate from the
     /// floating `app_win`; composited as the base layer (bottom z-band).
@@ -825,6 +825,8 @@ impl DisplayServerRuntime {
             event_channels: [(0, 0); 8],
             #[cfg(nexus_env = "os")]
             event_channels_len: 0,
+            #[cfg(nexus_env = "os")]
+            outboxes: crate::client_outbox::Outboxes::new(),
             desktop_surface_id: None,
             desktop_cursor_hint: 0,
             #[cfg(nexus_env = "os")]

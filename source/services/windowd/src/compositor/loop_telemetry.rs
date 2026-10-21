@@ -65,8 +65,13 @@ impl LoopTelemetry {
             let (ch, cap, shared) = super::reply_route::counts();
             let (content, blit, pointer, moved, keepalive, shape) = super::frame_causes::take();
             let (rects, queued_px, flushed_px) = super::frame_causes::take_damage();
+            let (flush_us, copy_rows, copy_us, base_rows, base_us) =
+                super::frame_causes::take_work();
+            // ADR-0075: the clients windowd did not wait on — behind, their deepest outbox,
+            // the intent refused because a client was far behind.
+            let (behind, queued_max, dropped) = runtime.client_census();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px})",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} copy_rows={copy_rows} copy_us={copy_us} base_rows={base_rows} base_us={base_us})",
                 self.iters,
                 self.applies,
                 presents,
@@ -86,6 +91,7 @@ impl LoopTelemetry {
             // A quiet window's counters are not carried into the next one.
             let _ = super::frame_causes::take();
             let _ = super::frame_causes::take_damage();
+            let _ = super::frame_causes::take_work();
         }
         self.rebase(now_ns, runtime);
         self.iters = 0;

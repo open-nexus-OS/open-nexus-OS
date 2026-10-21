@@ -169,9 +169,14 @@ impl DisplayServerRuntime {
             band_start = band_end;
         }
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
+        let ns = nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns);
         self.telemetry.record_compose_timed(
             u64::from(self.mode.width).saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
+            ns,
+        );
+        crate::compositor::frame_causes::work_base(
+            u64::from(end_y.saturating_sub(start_y)),
+            ns / 1000,
         );
         self.telemetry.record_present();
         self.refresh_observer_state();
@@ -247,10 +252,15 @@ impl DisplayServerRuntime {
             band_start = band_end;
         }
         self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
+        let ns = nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns);
         self.telemetry.record_compose_timed(
             u64::from(end_x.saturating_sub(start_x))
                 .saturating_mul(u64::from(end_y.saturating_sub(start_y))),
-            nsec().unwrap_or(render_start_ns).saturating_sub(render_start_ns),
+            ns,
+        );
+        crate::compositor::frame_causes::work_base(
+            u64::from(end_y.saturating_sub(start_y)),
+            ns / 1000,
         );
         self.telemetry.record_present();
         self.refresh_observer_state();
@@ -299,6 +309,14 @@ impl DisplayServerRuntime {
     /// No CPU compositing — wallpaper is a `BlitSurface` from Plane 0,
     /// panels are `FillSdfRoundedRect`/`BlurBackdrop`, and the cursor is `BlendCursor`.
     pub(crate) fn flush_pending_damage(&mut self) -> Result<(), WindowdError> {
+        // TASK-0339: windowd's own work per frame, on the loop line (`work(flush_us_max=`).
+        let t0 = nsec().unwrap_or(0);
+        let result = self.flush_pending_damage_now();
+        crate::compositor::frame_causes::work_flush(nsec().unwrap_or(t0).saturating_sub(t0) / 1000);
+        result
+    }
+
+    fn flush_pending_damage_now(&mut self) -> Result<(), WindowdError> {
         let paint_only = self.paint_only_damage;
 
         // 1. Collect content damage (panels/text — needs CPU recomposite of Plane 1).

@@ -161,8 +161,8 @@ impl DisplayServerRuntime {
         // washes track the pointer at display rate. The historical flood risk
         // (unthrottled per-EVENT forwarding filled the client queue and starved
         // TAP delivery) is gone twice over: moves apply frame-aligned (once per
-        // staged sample) and `send_input_frame` drops MOVEs on a full queue
-        // while TAPs retry — so display-rate forwarding is safe.
+        // staged sample) and a busy client's outbox keeps ONE pending move while
+        // taps queue in order (ADR-0075) — so display-rate forwarding is safe.
         let now = nexus_abi::nsec().unwrap_or(0);
         let move_due = now.saturating_sub(self.hover_last_move_ns) >= PACER_INTERVAL_NS;
         if move_due {

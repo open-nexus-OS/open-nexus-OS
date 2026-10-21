@@ -435,8 +435,12 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     #[cfg(nexus_env = "os")]
     let waitset = build_waitset(&server);
     #[cfg(nexus_env = "os")]
-    if waitset.is_none() {
-        let _ = debug_println("windowd: FAIL waitset (blocking on the server endpoint alone)");
+    match waitset {
+        // ADR-0075: a full client channel's writable signal is armed in the same waitset.
+        Some(ws) => runtime.set_client_waitset(ws),
+        None => {
+            let _ = debug_println("windowd: FAIL waitset (blocking on the server endpoint alone)");
+        }
     }
     #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
     {
@@ -509,6 +513,9 @@ pub fn service_main_loop() -> Result<(), &'static str> {
         // Frame pulses AFTER the frame's compose/present work: animating clients tick their
         // physics on the REAL frame cadence.
         runtime.flush_frame_pulses();
+        // ADR-0075: what waited for a busy client leaves as it drained (its receive woke us).
+        #[cfg(nexus_env = "os")]
+        runtime.flush_client_outboxes();
         // 6. WAIT — no clock. Any member with a queued message wakes us; nothing pending
         //    anywhere means zero CPU until the next event.
         #[cfg(nexus_env = "os")]

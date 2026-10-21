@@ -63,6 +63,7 @@ pub(crate) use exec_copy::run_copy_plan;
 use ipc_msg::*;
 use ipc_recv_v2::*;
 use sched_task::*;
+pub(crate) use sync_objects::wake_after_recv;
 use sync_objects::*;
 pub(crate) use task_image::{
     exit_current_and_release, exit_current_faulted, exit_current_killed, exit_current_killed_in,
@@ -283,9 +284,9 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
             Some(BlockReason::Waitset { ws_id, deadline_ns })
                 if deadline_ns != 0 && now >= deadline_ns =>
             {
-                // Deregister the timed-out waiter from every member, then wake it (it
-                // returns `TimedOut` on re-entry). Snapshot members to a stack buffer so
-                // the `waitsets` and `router` borrows stay disjoint (no heap, bounded ≤16).
+                // Deregister the timed-out waiter from every member (a receiver's and a
+                // sender's), then wake it (it returns `TimedOut` on re-entry). Snapshot members
+                // to a stack buffer so the `waitsets` and `router` borrows stay disjoint.
                 let mut buf = [0u32; crate::waitset::MAX_WAITSET_MEMBERS];
                 let n = ctx
                     .waitsets
@@ -295,9 +296,7 @@ fn wake_expired_blocked(ctx: &mut Context<'_>) {
                         m.len()
                     })
                     .unwrap_or(0);
-                for &ep in &buf[..n] {
-                    let _ = ctx.router.remove_recv_waiter(ep, pid.as_raw());
-                }
+                sync_objects::deregister_members(ctx.router, &buf[..n], pid.as_raw());
                 observe_wake_outcome(ctx.tasks.wake(pid, ctx.scheduler));
             }
             Some(BlockReason::Fence { fence_id, deadline_ns, .. })

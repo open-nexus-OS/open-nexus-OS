@@ -24,10 +24,19 @@
 //! boot by the QEMU selftest. Keeping the data structure host-testable makes the host
 //! the deterministic oracle (RFC-0033 §Proof) — QEMU timing never decides correctness.
 //!
+//! WRITABLE MEMBERS (TASK-0339, RFC-0033 amendment): a member is a word — the endpoint id and,
+//! above it, its interest. A receiver's member is ready when a message is pending; a SENDER's
+//! member (added through a SEND-only capability) is ready when the queue has room, and only
+//! while ARMED: the sender found the queue full, armed the member, and is told once — the wait
+//! that reports it disarms it, the next add re-arms it. So a server never parks on a slow
+//! client and never spins on a client with room it has nothing to send to.
+//!
 //! INVARIANTS:
 //! - Bounded table: at most `MAX_WAITSETS` live waitsets; over-limit → `ResourceExhausted`.
 //! - Bounded members: at most `MAX_WAITSET_MEMBERS` (64) per waitset; over-limit → `ResourceExhausted`.
-//! - Member set is deduplicated: adding an endpoint already present is a no-op (`Ok`).
+//! - Member set is deduplicated: adding an endpoint already present is a no-op (`Ok`); arming a
+//!   writable member already present re-arms it. A receiver's and a sender's member of one
+//!   endpoint are two members.
 //! - Ownership: a waitset records its owner pid; the syscall layer rejects cross-owner use.
 //! - Cap lifecycle: closing a waitset cap frees its table entry (no dangling members).
 
@@ -56,6 +65,31 @@ pub(crate) const MAX_WAITSETS: usize = 64;
 /// MIRROR: `nexus_abi::WAITSET_MEMBERS_MAX`; `scripts/check-ipc-bounds.sh` fails the build if
 /// the two differ.
 pub(crate) const MAX_WAITSET_MEMBERS: usize = 64;
+
+/// A member word's interest bit: the member waits for ROOM to send, not for a message.
+pub(crate) const MEMBER_WRITABLE: u32 = 1 << 31;
+/// A writable member's arm: its owner found the queue full and is told once when it has room.
+pub(crate) const MEMBER_ARMED: u32 = 1 << 30;
+const MEMBER_FLAGS: u32 = MEMBER_WRITABLE | MEMBER_ARMED;
+
+/// The endpoint a member word names (endpoint ids stay far below the flag bits: the router's
+/// quota is a few hundred).
+#[inline]
+pub(crate) const fn member_endpoint(member: u32) -> u32 {
+    member & !MEMBER_FLAGS
+}
+
+/// Whether a member waits for room to send.
+#[inline]
+pub(crate) const fn member_writable(member: u32) -> bool {
+    member & MEMBER_WRITABLE != 0
+}
+
+/// Whether a writable member is armed.
+#[inline]
+pub(crate) const fn member_armed(member: u32) -> bool {
+    member & MEMBER_ARMED != 0
+}
 
 /// Opaque kernel-local waitset identifier (type-safe currency for the table API).
 ///
@@ -122,6 +156,9 @@ impl WaitsetTable {
     /// `ResourceExhausted` if the set is full; `InvalidHandle` if the waitset is unknown.
     pub fn add_member(&mut self, id: WaitsetId, endpoint: u32) -> Result<(), WaitsetError> {
         let entry = self.table.get_mut(&id.0).ok_or(WaitsetError::InvalidHandle)?;
+        if endpoint & MEMBER_FLAGS != 0 {
+            return Err(WaitsetError::InvalidHandle);
+        }
         if entry.members.iter().any(|e| *e == endpoint) {
             return Ok(());
         }
@@ -130,6 +167,32 @@ impl WaitsetTable {
         }
         entry.members.push(endpoint);
         Ok(())
+    }
+
+    /// Arms `endpoint` as a WRITABLE member (TASK-0339): the caller found its queue full and is
+    /// told once when it has room. The first arm adds the member; a later one re-arms it.
+    pub fn arm_writable(&mut self, id: WaitsetId, endpoint: u32) -> Result<(), WaitsetError> {
+        let entry = self.table.get_mut(&id.0).ok_or(WaitsetError::InvalidHandle)?;
+        if endpoint & MEMBER_FLAGS != 0 {
+            return Err(WaitsetError::InvalidHandle);
+        }
+        let mine = |m: &u32| member_writable(*m) && member_endpoint(*m) == endpoint;
+        if let Some(m) = entry.members.iter_mut().find(|m| mine(m)) {
+            *m |= MEMBER_ARMED;
+            return Ok(());
+        }
+        if entry.members.len() >= MAX_WAITSET_MEMBERS {
+            return Err(WaitsetError::ResourceExhausted);
+        }
+        entry.members.push(endpoint | MEMBER_WRITABLE | MEMBER_ARMED);
+        Ok(())
+    }
+
+    /// The wait reported member `index`: a writable member's arm is spent (told once).
+    pub fn disarm(&mut self, id: WaitsetId, index: usize) {
+        if let Some(m) = self.table.get_mut(&id.0).and_then(|e| e.members.get_mut(index)) {
+            *m &= !MEMBER_ARMED;
+        }
     }
 
     /// Borrow the member endpoint ids of a waitset.
@@ -161,7 +224,7 @@ impl WaitsetTable {
         let mut touched = 0;
         for e in self.table.values_mut() {
             let before = e.members.len();
-            e.members.retain(|m| *m != endpoint);
+            e.members.retain(|m| member_endpoint(*m) != endpoint);
             touched += usize::from(e.members.len() != before);
         }
         touched
@@ -273,6 +336,51 @@ mod tests {
         assert!(t.members(a).is_none());
         assert_eq!(t.members(b).unwrap(), &[5]);
         assert!(t.owned_by(b, 2));
+    }
+
+    /// TASK-0339: a sender's member is added armed, re-armed in place, spent by a report, and
+    /// distinct from a receiver's member of the same endpoint.
+    #[test]
+    fn a_writable_member_is_armed_once_and_rearmed_in_place() {
+        let mut t = new_table();
+        let ws = t.alloc(1).unwrap();
+        t.add_member(ws, 7).unwrap();
+        t.arm_writable(ws, 7).unwrap();
+        let m = t.members(ws).unwrap();
+        assert_eq!(m.len(), 2, "a receiver's and a sender's member are two");
+        assert!(!member_writable(m[0]) && member_writable(m[1]) && member_armed(m[1]));
+        assert_eq!(member_endpoint(m[1]), 7);
+        t.disarm(ws, 1);
+        assert!(!member_armed(t.members(ws).unwrap()[1]), "a report spends the arm");
+        t.arm_writable(ws, 7).unwrap();
+        assert_eq!(t.members(ws).unwrap().len(), 2, "re-arming adds nothing");
+        assert!(member_armed(t.members(ws).unwrap()[1]));
+        t.disarm(ws, 0);
+        assert_eq!(t.members(ws).unwrap()[0], 7, "a receiver's member has no arm to spend");
+    }
+
+    /// A dead endpoint leaves every list in both interests.
+    #[test]
+    fn forget_endpoint_drops_a_writable_member_too() {
+        let mut t = new_table();
+        let ws = t.alloc(1).unwrap();
+        t.add_member(ws, 9).unwrap();
+        t.arm_writable(ws, 9).unwrap();
+        t.arm_writable(ws, 10).unwrap();
+        assert_eq!(t.forget_endpoint(9), 1);
+        let m = t.members(ws).unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(member_endpoint(m[0]), 10);
+    }
+
+    /// An endpoint id that collides with the member flags is refused in either interest.
+    #[test]
+    fn test_reject_an_endpoint_id_in_the_flag_bits() {
+        let mut t = new_table();
+        let ws = t.alloc(1).unwrap();
+        assert_eq!(t.add_member(ws, MEMBER_ARMED | 3), Err(WaitsetError::InvalidHandle));
+        assert_eq!(t.arm_writable(ws, MEMBER_WRITABLE | 3), Err(WaitsetError::InvalidHandle));
+        assert!(t.members(ws).unwrap().is_empty());
     }
 
     #[test]

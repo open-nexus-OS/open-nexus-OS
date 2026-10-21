@@ -54,12 +54,13 @@ impl Router {
     }
 
     /// Latches `id` as receiver-less and drains its send waiters so each re-runs its send and
-    /// returns `PeerClosed` (the caller wakes them). No-op on a missing or dead endpoint.
+    /// returns `PeerClosed` — and its writable waiters, whose waitset now reports the member
+    /// ready (the caller wakes them). No-op on a missing or dead endpoint.
     pub fn mark_receiver_gone(&mut self, id: EndpointId) -> Vec<WaiterId> {
         match self.endpoints.get_mut(id as usize) {
             Some(ep) if ep.alive => {
                 ep.receiver_gone = true;
-                ep.send_waiters.drain(..).collect()
+                ep.send_waiters.drain(..).chain(ep.writable_waiters.drain(..)).collect()
             }
             _ => Vec::new(),
         }

@@ -33,6 +33,15 @@ static SHAPE: AtomicU32 = AtomicU32::new(0);
 static QUEUED_RECTS: AtomicU32 = AtomicU32::new(0);
 static QUEUED_PX: AtomicU64 = AtomicU64::new(0);
 static FLUSHED_PX: AtomicU64 = AtomicU64::new(0);
+/// TASK-0339: windowd's own CPU work per frame — the longest flush, the app-surface rows copied
+/// into the atlas (two syscalls a row) and the wallpaper rows rewritten into the retained plane
+/// (a syscall a row), each with its microseconds. The measurement that splits an input's wait
+/// into "windowd works" and "windowd waits".
+static FLUSH_MAX_US: AtomicU64 = AtomicU64::new(0);
+static COPY_ROWS: AtomicU64 = AtomicU64::new(0);
+static COPY_US: AtomicU64 = AtomicU64::new(0);
+static BASE_ROWS: AtomicU64 = AtomicU64::new(0);
+static BASE_US: AtomicU64 = AtomicU64::new(0);
 
 /// One frame left for gpud: `content` rects were recomposited, or a retained region was only
 /// re-blitted (`blit`), or the pointer's region alone (`pointer`), or none of them — owed for
@@ -69,6 +78,34 @@ pub(super) fn queued(px: u64) {
 /// A frame's merged content rectangles of `px` pixels left for gpud.
 pub(super) fn flushed(px: u64) {
     FLUSHED_PX.fetch_add(px, Ordering::Relaxed);
+}
+
+/// One flush took `us`.
+pub(super) fn work_flush(us: u64) {
+    FLUSH_MAX_US.fetch_max(us, Ordering::Relaxed);
+}
+
+/// `rows` app-surface rows were copied into the atlas in `us`.
+pub(super) fn work_copy(rows: u64, us: u64) {
+    COPY_ROWS.fetch_add(rows, Ordering::Relaxed);
+    COPY_US.fetch_add(us, Ordering::Relaxed);
+}
+
+/// `rows` wallpaper rows were rewritten into the retained plane in `us`.
+pub(super) fn work_base(rows: u64, us: u64) {
+    BASE_ROWS.fetch_add(rows, Ordering::Relaxed);
+    BASE_US.fetch_add(us, Ordering::Relaxed);
+}
+
+/// The window's work `(flush_max_us, copy_rows, copy_us, base_rows, base_us)`, and a fresh one.
+pub(super) fn take_work() -> (u64, u64, u64, u64, u64) {
+    (
+        FLUSH_MAX_US.swap(0, Ordering::Relaxed),
+        COPY_ROWS.swap(0, Ordering::Relaxed),
+        COPY_US.swap(0, Ordering::Relaxed),
+        BASE_ROWS.swap(0, Ordering::Relaxed),
+        BASE_US.swap(0, Ordering::Relaxed),
+    )
 }
 
 /// The window's damage counts `(rects, queued_px, flushed_px)`, and a fresh window.

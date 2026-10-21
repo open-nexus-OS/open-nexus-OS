@@ -79,6 +79,10 @@ mod buffer;
 mod cli;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod client_surface;
+// ADR-0075 (TASK-0339): the compositor never waits on a client — the bounded per-client
+// outbox, pure and host-TESTED, consumed by the OS-only compositor runtime.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod client_outbox;
 #[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
 mod compositor;
 /// The damage-rect model (TASK-0335): pure, host-TESTED, consumed by the OS-only compositor.

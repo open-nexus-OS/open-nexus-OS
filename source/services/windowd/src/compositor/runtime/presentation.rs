@@ -17,7 +17,7 @@
 //! RFC: docs/rfcs/RFC-0083-settings-distribution-v2-single-authority-versioned-snapshots.md
 
 #[cfg(nexus_env = "os")]
-use super::app_death::ClientSend;
+use super::client_send::ClientSend;
 use super::*;
 #[cfg(nexus_env = "os")]
 use crate::client_surface::Delivery;
@@ -75,8 +75,9 @@ impl DisplayServerRuntime {
                     continue;
                 }
                 if self.presentation.due(i) {
-                    let outcome = send_snapshot(slot, &frame[..n]);
-                    self.presentation.note_send(i, outcome == ClientSend::Sent);
+                    // State (ADR-0075): a busy client gets the newest snapshot once it drains.
+                    let outcome = self.client_send(slot, &frame[..n], Delivery::Latest);
+                    self.presentation.note_send(i, outcome.accepted());
                     // TASK-0333 6a: a dead app's channel answers by name; its window closes.
                     if outcome == ClientSend::Dead {
                         if let Some(idx) = self.app_slot_of_channel(slot) {
@@ -87,7 +88,7 @@ impl DisplayServerRuntime {
             }
             if let Some(slot) = desktop_slot {
                 if self.presentation.due(DESKTOP) {
-                    let ok = send_snapshot(slot, &frame[..n]) == ClientSend::Sent;
+                    let ok = self.client_send(slot, &frame[..n], Delivery::Latest).accepted();
                     self.presentation.note_send(DESKTOP, ok);
                 }
             }
@@ -172,13 +173,6 @@ impl DisplayServerRuntime {
             }
         }
     }
-}
-
-/// One NONBLOCK snapshot send. Failure is fine — the state machine retries.
-#[cfg(nexus_env = "os")]
-#[cfg(nexus_env = "os")]
-fn send_snapshot(slot: u32, frame: &[u8]) -> ClientSend {
-    super::app_death::send_client_frame_outcome(slot, frame, Delivery::Coalescing)
 }
 
 /// Accent NAME (the settingsd vocabulary) → palette index; `default`/unknown

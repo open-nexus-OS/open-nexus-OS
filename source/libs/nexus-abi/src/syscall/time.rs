@@ -92,10 +92,12 @@ pub fn waitset_create() -> SysResult<Cap> {
     }
 }
 
-/// Adds an endpoint (RECV right required) as a member of `waitset_cap`. Bounded:
-/// over the member limit rejects with `ResourceExhausted`; a non-endpoint cap
-/// rejects with `InvalidArgument`. A timer- or fence-notify endpoint is added the
-/// same way, so one waitset unifies command, timer, and completion waits.
+/// Adds an endpoint as a member of `waitset_cap`. With the RECV right it is a receiver's
+/// member: ready when a message is pending. A timer- or fence-notify endpoint is added the
+/// same way, so one waitset unifies command, timer, and completion waits. With a SEND-only
+/// capability it is a sender's member, ARMED (RFC-0033 amendment, TASK-0339 — see
+/// [`waitset_arm_writable`]). Bounded: over the member limit rejects with
+/// `ResourceExhausted`; a non-endpoint cap rejects with `InvalidArgument`.
 #[cfg(nexus_env = "os")]
 pub fn waitset_add(waitset_cap: Cap, endpoint_cap: Cap) -> SysResult<()> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -112,7 +114,19 @@ pub fn waitset_add(waitset_cap: Cap, endpoint_cap: Cap) -> SysResult<()> {
     }
 }
 
-/// Blocks until any member endpoint of `waitset_cap` has a pending message, then
+/// A sender found the queue behind `send_cap` (a SEND-only capability) full: tell its waitset
+/// ONCE when the queue has room again — or when no receiver can drain it any more, so the next
+/// send learns the death (RFC-0033 amendment, TASK-0339). The wait that reports the member
+/// spends the arm; arming again after the next full queue re-arms the same member. A server
+/// therefore never parks on a slow client and never spins on one with room: it sends
+/// non-blocking, keeps what did not fit, arms, and waits on its one waitset.
+#[cfg(nexus_env = "os")]
+pub fn waitset_arm_writable(waitset_cap: Cap, send_cap: Cap) -> SysResult<()> {
+    waitset_add(waitset_cap, send_cap)
+}
+
+/// Blocks until any member of `waitset_cap` is ready — a receiver's member has a pending
+/// message, an armed sender's member has room — then
 /// returns that member's **slot index** (the order it was added). The caller then
 /// `ipc_recv`s that endpoint. `deadline_ns == 0` blocks indefinitely (pacing comes
 /// from a timer member's fixed deadline, not from this call — so re-entry never

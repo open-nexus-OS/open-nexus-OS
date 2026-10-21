@@ -24,6 +24,10 @@ pub(super) struct Endpoint {
     pub(super) alive: bool,
     pub(super) recv_waiters: VecDeque<WaiterId>,
     pub(super) send_waiters: VecDeque<WaiterId>,
+    /// TASK-0339 (RFC-0033 amendment): waitsets waiting for ROOM here (an armed sender's
+    /// member). Apart from the parked senders: every receive wakes all of them beside the first
+    /// parked sender, so a waitset never takes a parked sender's wake.
+    pub(super) writable_waiters: VecDeque<WaiterId>,
     /// RFC-0079: monotonic latch — set once a sender has been OBSERVED (a
     /// successful send, or a recv-block scan that found a live SEND cap).
     /// Never cleared. Last-sender EOF requires this true, so an endpoint that
@@ -59,6 +63,7 @@ impl Endpoint {
             alive: true,
             recv_waiters: VecDeque::new(),
             send_waiters: VecDeque::new(),
+            writable_waiters: VecDeque::new(),
             had_sender: false,
             eof_pending: false,
             receiver_gone: false,
@@ -165,7 +170,9 @@ impl Endpoint {
         self.queue.clear();
         self.queued_bytes = 0;
         let recv: Vec<WaiterId> = self.recv_waiters.drain(..).collect();
-        let send: Vec<WaiterId> = self.send_waiters.drain(..).collect();
+        // A waitset waiting for room learns the death like a parked sender does.
+        let send: Vec<WaiterId> =
+            self.send_waiters.drain(..).chain(self.writable_waiters.drain(..)).collect();
         Some((recv, send))
     }
 }

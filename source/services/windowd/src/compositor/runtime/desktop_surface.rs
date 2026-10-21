@@ -15,6 +15,7 @@
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
 use super::*;
+use crate::client_surface::Delivery;
 use nexus_display_proto::client_surface as wire;
 
 impl DisplayServerRuntime {
@@ -147,8 +148,8 @@ impl DisplayServerRuntime {
             self.mode.width.min(u32::from(u16::MAX)) as u16,
             self.mode.height.min(u32::from(u16::MAX)) as u16,
         );
-        let hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, rect.len() as u32);
-        let _ = nexus_abi::ipc_send_v1(slot, &hdr, &rect, nexus_abi::IPC_SYS_NONBLOCK, 0);
+        // The content rect is state: the newest wins while the client is behind (ADR-0075).
+        let _ = self.client_send(slot, &rect, Delivery::Latest);
         // RFC-0086: same retained re-push as the non-deferred bind path.
         self.windows_feed.owed = true;
         let _ = debug_println("WINDOWD: desktop bind completed (late channel attach)");
@@ -160,10 +161,8 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             let Some(slot) = self.desktop_channel else { return false };
-            // The client BLOCKS on this ack — retry it (TASK-0306).
-            use super::app_window::send_client_frame;
-            use crate::client_surface::Delivery;
-            if send_client_frame(slot, frame, Delivery::Blocking) {
+            // The client waits on this ack (TASK-0306): ordered and kept, never a park.
+            if self.client_send(slot, frame, Delivery::Ack).accepted() {
                 return true;
             }
             let _ = debug_println("WINDOWD: FAIL desktop event send");
@@ -243,7 +242,7 @@ impl DisplayServerRuntime {
                 }
                 return false;
             };
-            let sent = super::app_window::send_input_frame(slot, &frame, kind);
+            let sent = self.client_send(slot, &frame, Delivery::for_input(kind)).accepted();
             if sent && kind == wire::INPUT_KIND_TAP && super::input_hover::first_tap_routed(true) {
                 let _ = debug_println("WINDOWD: desktop input routed");
             } else if !sent && kind == wire::INPUT_KIND_TAP {
@@ -270,11 +269,8 @@ impl DisplayServerRuntime {
                 wire_delta,
             );
             if let Some(slot) = self.desktop_channel {
-                let _ = super::app_window::send_input_frame(
-                    slot,
-                    &frame,
-                    nexus_display_proto::client_surface::INPUT_KIND_WHEEL,
-                );
+                let kind = nexus_display_proto::client_surface::INPUT_KIND_WHEEL;
+                let _ = self.client_send(slot, &frame, Delivery::for_input(kind));
             }
         }
         #[cfg(not(nexus_env = "os"))]

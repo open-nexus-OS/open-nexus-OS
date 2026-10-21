@@ -183,6 +183,8 @@ impl DisplayServerRuntime {
                 }
                 self.event_channels_len -= 1;
             }
+            // What waited for the closed window's client goes with its channel (ADR-0075).
+            self.forget_client_channel(ch);
             let _ = nexus_abi_cap_close(ch);
         }
         self.apps[idx].frame_pulse_pending = false;
@@ -316,6 +318,8 @@ impl DisplayServerRuntime {
                 None => (0, blit_rows),
             }
         };
+        // TASK-0339: the rows this present copies into the atlas, timed (`work(copy_rows=`).
+        let copy_t0 = nexus_abi::nsec().unwrap_or(0);
         for ly in ly_start..ly_end {
             let row_bytes = win_w as usize * 4;
             let row = &mut self.band_scratch[0..stride];
@@ -352,6 +356,10 @@ impl DisplayServerRuntime {
                 .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
         crate::atlas::note_atlas_content_write();
+        crate::compositor::frame_causes::work_copy(
+            u64::from(ly_end.saturating_sub(ly_start)),
+            nexus_abi::nsec().unwrap_or(copy_t0).saturating_sub(copy_t0) / 1000,
+        );
         Ok(())
     }
 

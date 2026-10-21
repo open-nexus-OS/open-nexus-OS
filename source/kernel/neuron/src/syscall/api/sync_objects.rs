@@ -189,27 +189,98 @@ pub(super) fn sys_waitset_create(ctx: &mut Context<'_>, _args: &Args) -> SysResu
     }
 }
 
-/// `SYSCALL_WAITSET_ADD` (39): add an endpoint as a waitset member. The caller must
-/// hold `RECV` right on the endpoint (proves it is the legitimate receiver). Bounded to
+/// `SYSCALL_WAITSET_ADD` (39): add an endpoint as a waitset member. A capability with the
+/// `RECV` right adds a RECEIVER's member (ready when a message is pending — the right proves the
+/// caller is the legitimate receiver). A SEND-only capability arms a SENDER's member (TASK-0339,
+/// RFC-0033 amendment): the caller found the queue full; the member is ready once the queue has
+/// room, or no receiver remains, and is reported once — adding it again re-arms it. Bounded to
 /// `MAX_WAITSET_MEMBERS`; over-limit → `NoSpace`. Args: (waitset_slot, endpoint_slot).
 pub(super) fn sys_waitset_add(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let ws_slot = args.get(0);
     let ep_slot = args.get(1);
     let ws_id = waitset_id_from_cap(ctx, ws_slot)?;
-    let endpoint =
-        ctx.tasks.current_caps_mut().derive_endpoint_ref(ep_slot, Rights::RECV)?.endpoint();
-    ctx.waitsets.add_member(ws_id, endpoint).map_err(map_waitset_error)?;
+    let caps = ctx.tasks.current_caps_mut();
+    if let Ok(endpoint) = caps.derive_endpoint_ref(ep_slot, Rights::RECV).map(|r| r.endpoint()) {
+        ctx.waitsets.add_member(ws_id, endpoint).map_err(map_waitset_error)?;
+        return Ok(0);
+    }
+    let endpoint = caps.derive_endpoint_ref(ep_slot, Rights::SEND)?.endpoint();
+    ctx.waitsets.arm_writable(ws_id, endpoint).map_err(map_waitset_error)?;
     Ok(0)
 }
 
-/// `SYSCALL_WAITSET_WAIT` (40): block until any member endpoint has a pending message,
-/// then return the ready member index (in add order). `deadline_ns == 0` blocks
-/// indefinitely; a non-zero deadline yields `TimedOut`. Args: (waitset_slot, deadline_ns).
+/// Whether member word `m` is ready: a receiver's when a message (or the EOF latch) is pending,
+/// an armed sender's when its queue has room (TASK-0339).
+fn member_ready(router: &ipc::Router, m: u32) -> bool {
+    let ep = crate::waitset::member_endpoint(m);
+    if crate::waitset::member_writable(m) {
+        crate::waitset::member_armed(m) && router.writable(ep)
+    } else {
+        router.pending(ep) || router.eof_pending(ep)
+    }
+}
+
+/// Registers `pid` on every member: a receiver's as a recv-waiter (a send wakes it), an armed
+/// sender's as a writable waiter (every receive that frees room wakes it).
+fn register_members(router: &mut ipc::Router, members: &[u32], pid: u32) {
+    for &m in members {
+        let ep = crate::waitset::member_endpoint(m);
+        if !crate::waitset::member_writable(m) {
+            let _ = router.register_recv_waiter(ep, pid);
+        } else if crate::waitset::member_armed(m) {
+            let _ = router.register_writable_waiter(ep, pid);
+        }
+    }
+}
+
+/// Clears `pid`'s registrations on every member (idempotent) — before a scan, after a ready
+/// report, on a deadline (`api::wake_expired_blocked`).
+pub(super) fn deregister_members(router: &mut ipc::Router, members: &[u32], pid: u32) {
+    for &m in members {
+        let ep = crate::waitset::member_endpoint(m);
+        if crate::waitset::member_writable(m) {
+            router.remove_writable_waiter(ep, pid);
+        } else {
+            let _ = router.remove_recv_waiter(ep, pid);
+        }
+    }
+}
+
+/// A receive took a message from `endpoint` and freed room: the first parked sender wakes to
+/// retry its send (FIFO, one per receive), and every waitset waiting for room wakes to report
+/// its armed member (TASK-0339) — from a list apart, so it never takes the parked sender's wake.
+pub(crate) fn wake_after_recv(ctx: &mut Context<'_>, endpoint: ipc::EndpointId) {
+    if let Ok(Some(waiter)) = ctx.router.pop_send_waiter(endpoint) {
+        observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+    }
+    while let Some(waiter) = ctx.router.pop_writable_waiter(endpoint) {
+        observe_wake_outcome(ctx.tasks.wake(task::Pid::from_raw(waiter), ctx.scheduler));
+    }
+}
+
+/// The wait reports member `index`: a sender's arm is spent there (told once).
+fn report(
+    ctx: &mut Context<'_>,
+    ws_id: crate::waitset::WaitsetId,
+    m: &[u32],
+    index: usize,
+) -> usize {
+    if m.get(index).is_some_and(|&w| crate::waitset::member_writable(w)) {
+        ctx.waitsets.disarm(ws_id, index);
+    }
+    index
+}
+
+/// `SYSCALL_WAITSET_WAIT` (40): block until any member is ready — a receiver's member has a
+/// pending message, an armed sender's member has room — then return the ready member index (in
+/// add order). `deadline_ns == 0` blocks indefinitely; a non-zero deadline yields `TimedOut`.
+/// Args: (waitset_slot, deadline_ns).
 ///
-/// This is purely additive: it reuses the existing recv-waiter / wake / deadline
-/// machinery. The task registers as a recv-waiter on *every* member; the first member a
-/// sender delivers to wakes it (via the unchanged `router.send → pop_recv_waiter →
-/// tasks.wake` path). The single-endpoint recv path is untouched.
+/// It reuses the existing waiter / wake / deadline machinery. The task registers as a
+/// recv-waiter on every receiver's member and as a writable waiter on every armed sender's
+/// member; the first send to the former (`router.send → pop_recv_waiter`) or receive from the
+/// latter (`wake_after_recv`, which wakes the writable waiters beside the first parked sender)
+/// wakes it. A blocking send or receive is otherwise untouched.
 pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let ws_slot = args.get(0);
     let deadline_ns = args.get(1) as u64;
@@ -232,35 +303,25 @@ pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     let members = &buf[..n];
     let cur = ctx.tasks.current_pid();
 
-    // Clear any registrations left from a prior blocking round: when a sender woke us via
+    // Clear any registrations left from a prior blocking round: when a peer woke us via
     // one member, the *other* members still list us as a waiter. Idempotent on first entry.
     // Guarantees we hold no member registrations whenever we return ready/timed-out.
-    for &ep in members {
-        let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
-    }
+    deregister_members(ctx.router, members, cur.as_raw());
 
-    // Level-ready scan: first member with a pending message wins.
-    if let Some(index) = crate::waitset::first_ready(members, |ep| {
-        ctx.router.pending(ep) || ctx.router.eof_pending(ep)
-    }) {
-        return Ok(index);
+    // Level-ready scan: the first ready member wins.
+    if let Some(index) = crate::waitset::first_ready(members, |m| member_ready(ctx.router, m)) {
+        return Ok(report(ctx, ws_id, members, index));
     }
     if deadline_ns != 0 && ctx.timer.now() >= deadline_ns {
         return Err(Error::Ipc(ipc::IpcError::TimedOut));
     }
 
-    // Register on every member, then re-scan once (a sender may have enqueued between the
-    // scan above and registration — the missed-wakeup guard, as in sys_ipc_recv_v1).
-    for &ep in members {
-        let _ = ctx.router.register_recv_waiter(ep, cur.as_raw());
-    }
-    if let Some(index) = crate::waitset::first_ready(members, |ep| {
-        ctx.router.pending(ep) || ctx.router.eof_pending(ep)
-    }) {
-        for &ep in members {
-            let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
-        }
-        return Ok(index);
+    // Register on every member, then re-scan once (a peer may have sent or received between
+    // the scan above and registration — the missed-wakeup guard, as in sys_ipc_recv_v1).
+    register_members(ctx.router, members, cur.as_raw());
+    if let Some(index) = crate::waitset::first_ready(members, |m| member_ready(ctx.router, m)) {
+        deregister_members(ctx.router, members, cur.as_raw());
+        return Ok(report(ctx, ws_id, members, index));
     }
 
     ctx.tasks.block_current(BlockReason::Waitset { ws_id: ws_id.0, deadline_ns }, ctx.scheduler);
@@ -272,9 +333,7 @@ pub(super) fn sys_waitset_wait(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     // Nothing else runnable on this hart: park it (legacy self-wake pre-runtime, where
     // the idle loop re-drives us — mirrors the single-endpoint recv path).
     Err(park_hart_or_self_wake(ctx, cur, |ctx| {
-        for &ep in members {
-            let _ = ctx.router.remove_recv_waiter(ep, cur.as_raw());
-        }
+        deregister_members(ctx.router, members, cur.as_raw());
     }))
 }
 

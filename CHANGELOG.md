@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-21 (the compositor never waits on a client — TASK-0339, ADR-0075)
+
+- **windowd no longer stops while an app is busy.** Every ack, tap, key, text commit and settings
+  push — and the scroll position — went to the app's 8-deep event queue as a parking send: hover
+  moves filled the queue while a launching app rendered its first frame, and the next ack parked
+  the compositor for the rest of that render (no frame, no pointer, no other window; cycle 54's
+  0.3–1.5 s input waits sat at the launches). Now every frame goes out non-blocking; what does not
+  fit waits in the client's bounded outbox (ordered for acks and intent, the newest state per kind
+  for the pointer, a drag, the scroll position, frame pulses, presentation snapshots) and leaves
+  in order as the client drains.
+- **The kernel says when a full queue has room** (RFC-0033 amendment): a SEND-only capability
+  added to a waitset is a writable member, armed once, reported once; the router's send-waiter
+  wake wakes it. Boot proof `KSELFTEST: waitset writable ok`.
+- **windowd's own work per frame is on its loop line** — `clients(behind= queued_max= dropped=)`
+  and `work(flush_us_max= copy_rows= copy_us= base_rows= base_us=)`: the input's wait split into
+  windowd working and windowd waiting.
+- **`apphost: ux launch` is printed whole** (it was cut before its `budget_ms=`).
+
 ### Changed - 2026-10-21 (cycle 53's overflow fixed — one frame producer, TASK-0338)
 
 - **The display shows only frames windowd sent.** gpud drew a frame of its own for every

@@ -10,7 +10,9 @@ pub(crate) fn raw_marker(line: &str) {
     // RFC-0068 verdict folding: in an interactive boot the routine `apphost:`
     // / `APPHOST:` markers fold into one `app-host N/N` grid line (failures
     // — `FAIL`/`err` — still print); proof boots print every marker raw.
-    let mut buf = [0u8; 96];
+    // Bounded at 192 bytes: the longest line is RFC-0108's judged `apphost: ux launch`
+    // with its stages (~130) — 96 cut it before its `budget_ms=` (cycles 52–54).
+    let mut buf = [0u8; 192];
     let bytes = line.as_bytes();
     let n = bytes.len().min(buf.len() - 1);
     buf[..n].copy_from_slice(&bytes[..n]);

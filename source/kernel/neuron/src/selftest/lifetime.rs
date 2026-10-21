@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Boot-time proofs of "an object dies with its last capability" and "a death is an
-//! event" (RFC-0100 §1, TASK-0333 6a), against the real tables and the real syscall table:
+//! event" (RFC-0100 §1, TASK-0333 6a), against the real tables and the real syscall table —
+//! and of their sender's side (TASK-0339): a sender that found a queue full is told once when
+//! it has room, or when nobody can drain it any more, through a waitset (never by parking);
 //! a non-blocking EOF-opted receiver learns of its last peer's death (the closed window's
 //! app-host parked forever before this, measured on the board); a send into an endpoint no
 //! RECV capability names returns `PeerClosed`; a task's exit frees the timers, waitsets,
@@ -18,7 +20,7 @@ use crate::cap::{Capability, CapabilityKind, Rights};
 use crate::ipc::{header::MessageHeader, IpcError, Message, Payload};
 use crate::syscall::{
     api, Args, Error as SysError, SyscallTable, SYSCALL_CAP_CLOSE, SYSCALL_CHILD_EXIT_BIND,
-    SYSCALL_IPC_RECV_V1,
+    SYSCALL_IPC_RECV_V1, SYSCALL_WAITSET_ADD, SYSCALL_WAITSET_CREATE, SYSCALL_WAITSET_WAIT,
 };
 use crate::task::{ExitReason, Pid};
 
@@ -43,6 +45,7 @@ fn give(ctx: &mut Context<'_>, pid: Pid, slot: usize, ep: u32, rights: Rights) -
 }
 
 pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
+    run_waitset_writable(ctx);
     run_eof_nonblocking(ctx);
     run_peer_closed_send(ctx);
     run_exit_releases(ctx);
@@ -99,6 +102,107 @@ fn run_eof_nonblocking(ctx: &mut Context<'_>) {
             "KSELFTEST: ipc eof nonblocking FAIL (close={:?} recv={:?})",
             closed,
             verdict
+        ),
+    }
+}
+
+/// One wait whose deadline has already passed: the ready member's index, or `TimedOut` — the
+/// proof never blocks.
+fn wait_now(
+    table: &SyscallTable,
+    sys: &mut api::Context<'_>,
+    ws: usize,
+) -> Result<usize, SysError> {
+    let now = sys.timer.now() as usize;
+    table.dispatch(SYSCALL_WAITSET_WAIT, sys, &Args::new([ws, now, 0, 0, 0, 0]))
+}
+
+/// TASK-0339 (RFC-0033 amendment): a sender that found a queue full arms a waitset member with
+/// its SEND-only capability and is told once the queue has room — not while it is full, not
+/// twice without arming again — and a queue no receiver can drain any more reports ready too
+/// (the next send learns the death instead of waiting for room that never comes). The
+/// compositor's shape: it never parks on a client, and never spins on one.
+fn run_waitset_writable(ctx: &mut Context<'_>) {
+    ctx.tasks.set_current(Pid::KERNEL);
+    let receiver = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let sender = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    let Ok(ep) = ctx.router.create_endpoint(1, Some(receiver.as_raw())) else {
+        log_error!(target: "selftest", "KSELFTEST: waitset writable FAIL (create)");
+        return;
+    };
+    if !give(ctx, receiver, RECV_SLOT, ep, Rights::RECV)
+        || !give(ctx, sender, SEND_SLOT, ep, Rights::SEND)
+    {
+        log_error!(target: "selftest", "KSELFTEST: waitset writable FAIL (caps)");
+        return;
+    }
+    let full = ctx.router.send(ep, frame(ep)).is_ok();
+    let mut table = SyscallTable::new();
+    api::install_handlers(&mut table);
+    let timer = ctx.hal.timer();
+    let mut sys = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
+    );
+    sys.tasks.set_current(sender);
+    let Ok(ws) = table.dispatch(SYSCALL_WAITSET_CREATE, &mut sys, &Args::new([0; 6])) else {
+        sys.tasks.set_current(Pid::KERNEL);
+        log_error!(target: "selftest", "KSELFTEST: waitset writable FAIL (waitset)");
+        return;
+    };
+    let arm = Args::new([ws, SEND_SLOT, 0, 0, 0, 0]);
+    let armed = table.dispatch(SYSCALL_WAITSET_ADD, &mut sys, &arm).is_ok();
+    let timed_out =
+        |r: Result<usize, SysError>| matches!(r, Err(SysError::Ipc(IpcError::TimedOut)));
+    let while_full = timed_out(wait_now(&table, &mut sys, ws));
+    let drained = sys.router.recv(ep).is_ok();
+    let with_room = wait_now(&table, &mut sys, ws) == Ok(0);
+    let spent = timed_out(wait_now(&table, &mut sys, ws));
+    let rearmed = table.dispatch(SYSCALL_WAITSET_ADD, &mut sys, &arm).is_ok()
+        && wait_now(&table, &mut sys, ws) == Ok(0);
+    // Full again and armed; then the only receiver goes.
+    let refilled = sys.router.send(ep, frame(ep)).is_ok()
+        && table.dispatch(SYSCALL_WAITSET_ADD, &mut sys, &arm).is_ok();
+    sys.tasks.set_current(receiver);
+    let closed =
+        table.dispatch(SYSCALL_CAP_CLOSE, &mut sys, &Args::new([RECV_SLOT, 0, 0, 0, 0, 0])).is_ok();
+    sys.tasks.set_current(sender);
+    let gone = wait_now(&table, &mut sys, ws) == Ok(0);
+    let _ = table.dispatch(SYSCALL_CAP_CLOSE, &mut sys, &Args::new([ws, 0, 0, 0, 0, 0]));
+    let _ = table.dispatch(SYSCALL_CAP_CLOSE, &mut sys, &Args::new([SEND_SLOT, 0, 0, 0, 0, 0]));
+    sys.tasks.set_current(Pid::KERNEL);
+    // A parked sender and a waitset waiting for room wait in two lists: one receive wakes both,
+    // so a waitset never takes the parked sender's wake (its room would be lost to it).
+    let apart = match sys.router.create_endpoint(1, Some(receiver.as_raw())) {
+        Ok(ep2) => {
+            let _ = sys.router.send(ep2, frame(ep2));
+            let parked = sys.router.register_send_waiter(ep2, sender.as_raw()).is_ok();
+            let waiting = sys.router.register_writable_waiter(ep2, receiver.as_raw()).is_ok();
+            let taken = sys.router.recv(ep2).is_ok();
+            api::wake_after_recv(&mut sys, ep2);
+            parked
+                && waiting
+                && taken
+                && sys.router.pop_send_waiter(ep2) == Ok(None)
+                && sys.router.pop_writable_waiter(ep2).is_none()
+        }
+        Err(_) => false,
+    };
+    let steps = [
+        full, armed, while_full, drained, with_room, spent, rearmed, refilled, closed, gone, apart,
+    ];
+    match steps.iter().position(|ok| !ok) {
+        None => log_info!(target: "selftest", "KSELFTEST: waitset writable ok"),
+        Some(step) => log_error!(
+            target: "selftest",
+            "KSELFTEST: waitset writable FAIL (step={} of full,armed,while_full,drained,with_room,spent,rearmed,refilled,closed,gone,apart)",
+            step
         ),
     }
 }

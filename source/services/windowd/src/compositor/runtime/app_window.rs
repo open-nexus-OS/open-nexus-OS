@@ -246,8 +246,8 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             let Some(slot) = self.event_channel_for(nonce) else { return false };
-            // The creating client BLOCKS in `recv_ack` on this frame.
-            if send_client_frame(slot, frame, Delivery::Blocking) {
+            // The creating client waits in `recv_ack` on this frame: an ack, ordered, kept.
+            if self.client_send(slot, frame, Delivery::Ack).accepted() {
                 return true;
             }
             let _ = debug_println("WINDOWD: FAIL nonce event send");
@@ -270,18 +270,17 @@ impl DisplayServerRuntime {
         {
             if self.desktop_surface_id == Some(surface_id) {
                 let Some(slot) = self.desktop_channel else { return false };
-                // PRESENT/DESTROY ack — the client is blocked on it. Dropping
-                // one stalls the client until its own timeout: the 504 ms
-                // `STALL present stuck` in the 2026-07-26 log landed 1.2 ms
-                // after exactly this send failing.
-                if send_client_frame(slot, frame, Delivery::Blocking) {
+                // PRESENT/DESTROY ack — the client waits on it. Dropping one stalled the
+                // client until its own timeout (the 504 ms `STALL present stuck` of
+                // 2026-07-26): an ack is ordered and kept while the client lives.
+                if self.client_send(slot, frame, Delivery::Ack).accepted() {
                     return true;
                 }
                 let _ = debug_println("WINDOWD: FAIL desktop event send");
                 return false;
             }
             let Some(idx) = self.app_index_by_surface(surface_id) else { return false };
-            self.send_app_frame(idx, frame)
+            self.send_app_class(idx, frame, Delivery::Ack)
         }
         #[cfg(not(nexus_env = "os"))]
         {
@@ -598,6 +597,8 @@ impl DisplayServerRuntime {
             if let Some(i) =
                 self.event_channels[..self.event_channels_len].iter().position(|e| e.0 == nonce)
             {
+                // The replaced channel's waiting frames go with it (ADR-0075).
+                self.forget_client_channel(self.event_channels[i].1);
                 let _ = nexus_abi_cap_close(self.event_channels[i].1);
                 self.event_channels[i].1 = slot;
                 self.presentation.note_bound(i);
@@ -609,6 +610,7 @@ impl DisplayServerRuntime {
                 // Bounded: replace the OLDEST entry (index 0), shift left.
                 // The shift renumbers every channel — rebind them ALL (an
                 // extra idempotent snapshot per channel, at window-churn rate).
+                self.forget_client_channel(self.event_channels[0].1);
                 let _ = nexus_abi_cap_close(self.event_channels[0].1);
                 self.event_channels.rotate_left(1);
                 let last = self.event_channels.len() - 1;
@@ -676,26 +678,37 @@ impl DisplayServerRuntime {
         wire::pack_theme(mode, self.theme_accent) | solid
     }
 
-    /// Sends one app-bound frame (a text commit, a key, a tap's ack, a surface ack) on the
-    /// dedicated event channel. Returns false when no channel is attached (caller falls back
-    /// to the shared response endpoint). The frame is USER INTENT with no recovery path
-    /// (`Delivery::Critical`): the send parks on the client's endpoint until it drains — the
-    /// kernel wakes the sender the instant it does — and is never dropped. A first cut sent
-    /// non-blocking and dropped on a full queue (`WINDOWD: FAIL app event send`): the clipboard's
-    /// text commit and the screenshot's shutter went missing the moment the console stopped
-    /// throttling the services (TASK-0330 S2a, 2026-10-12); a real failure (a dead client) is
-    /// reported, not claimed.
+    /// Sends one app-bound frame of USER INTENT (a text commit, a key, a tap, a window rect)
+    /// on the dedicated event channel. Returns false when no channel is attached (the caller
+    /// falls back to the shared response endpoint) or the frame could not be accepted. Intent
+    /// has no recovery path: it is ordered and never dropped while the client lives — and never
+    /// parks the compositor (ADR-0075): a busy client's frames wait in its outbox. (A first cut
+    /// dropped intent on a full queue — the clipboard's commit and the screenshot's shutter went
+    /// missing, TASK-0330 S2a; the next one parked windowd on the queue — a launching app froze
+    /// every window, cycle 54.)
     #[allow(unused_variables)]
     pub(crate) fn send_app_frame(&mut self, idx: usize, frame: &[u8]) -> bool {
+        self.send_app_class(idx, frame, Delivery::Intent)
+    }
+
+    /// Sends app-bound STATE the next frame supersedes (the scroll position): while the app is
+    /// behind, the newest replaces the older — never a backlog of stale positions.
+    #[allow(unused_variables)]
+    pub(crate) fn send_app_state(&mut self, idx: usize, frame: &[u8]) -> bool {
+        self.send_app_class(idx, frame, Delivery::Latest)
+    }
+
+    #[allow(unused_variables)]
+    fn send_app_class(&mut self, idx: usize, frame: &[u8], delivery: Delivery) -> bool {
         #[cfg(nexus_env = "os")]
         {
+            use super::client_send::ClientSend;
             let Some(slot) = self.apps[idx].event_channel else { return false };
-            use super::app_death::{send_client_frame_outcome, ClientSend};
-            match send_client_frame_outcome(slot, frame, Delivery::Critical) {
-                ClientSend::Sent => return true,
-                // TASK-0333 6a: the peer is gone — the window closes by name, no park.
+            match self.client_send(slot, frame, delivery) {
+                ClientSend::Sent | ClientSend::Queued => return true,
+                // TASK-0333 6a: the peer is gone — the window closes by name.
                 ClientSend::Dead => self.note_app_channel_dead(idx),
-                ClientSend::Behind => {
+                ClientSend::Refused => {
                     let _ = debug_println("WINDOWD: FAIL app event send");
                 }
             }
@@ -703,7 +716,7 @@ impl DisplayServerRuntime {
         }
         #[cfg(not(nexus_env = "os"))]
         {
-            let _ = frame;
+            let _ = (frame, delivery);
             false
         }
     }
@@ -732,7 +745,8 @@ impl DisplayServerRuntime {
                 wire_delta,
             );
             if let Some(slot) = self.apps[idx].event_channel {
-                let _ = send_client_frame(slot, &frame, Delivery::Coalescing);
+                let kind = nexus_display_proto::client_surface::INPUT_KIND_WHEEL;
+                let _ = self.client_send(slot, &frame, Delivery::for_input(kind));
             }
         }
         #[cfg(not(nexus_env = "os"))]
@@ -776,9 +790,8 @@ impl DisplayServerRuntime {
 
     /// Send the armed frame pulses (once per composited frame, after the
     /// present work): ONE `OP_SURFACE_FRAME` per requesting client, then the
-    /// request clears — the Choreographer one-shot contract. NONBLOCK +
-    /// droppable: a lost pulse only delays one physics tick; the client's
-    /// timeout fallback keeps motion alive.
+    /// request clears — the Choreographer one-shot contract. State (ADR-0075):
+    /// a busy client gets the newest pulse once it drains, never a backlog.
     pub(crate) fn flush_frame_pulses(&mut self) {
         #[cfg(nexus_env = "os")]
         {
@@ -803,13 +816,13 @@ impl DisplayServerRuntime {
                 let Some(id) = self.apps[idx].surface_id else { continue };
                 let Some(slot) = self.apps[idx].event_channel else { continue };
                 let frame = nexus_display_proto::client_surface::encode_surface_frame(id);
-                let _ = send_client_frame(slot, &frame, Delivery::Coalescing);
+                let _ = self.client_send(slot, &frame, Delivery::Latest);
             }
             if self.desktop_frame_pulse {
                 self.desktop_frame_pulse = false;
                 if let (Some(id), Some(slot)) = (self.desktop_surface_id, self.desktop_channel) {
                     let frame = nexus_display_proto::client_surface::encode_surface_frame(id);
-                    let _ = send_client_frame(slot, &frame, Delivery::Coalescing);
+                    let _ = self.client_send(slot, &frame, Delivery::Latest);
                 }
             }
         }
@@ -839,7 +852,7 @@ impl DisplayServerRuntime {
                 }
                 return false;
             };
-            let sent = send_input_frame(slot, &frame, kind);
+            let sent = self.client_send(slot, &frame, Delivery::for_input(kind)).accepted();
             if sent && is_tap && super::input_hover::first_tap_routed(false) {
                 let _ = debug_println("WINDOWD: surface input routed");
             } else if !sent && is_tap {
@@ -853,32 +866,6 @@ impl DisplayServerRuntime {
             false
         }
     }
-}
-
-/// Sends one input frame. TAPS RETRY BOUNDED (~40ms yield loop): a click is
-/// rare and must never be dropped behind hover-MOVE spam when the client's
-/// queue is momentarily full (the "nothing is clickable" bug — the user's
-/// pre-click mouse motion filled the queue). MOVE/LEAVE stay single-shot
-/// NONBLOCK — dropping motion under pressure is correct.
-#[cfg(nexus_env = "os")]
-/// Sends one frame on a client's event channel with the given delivery
-/// discipline. Returns whether it was **actually delivered**.
-///
-/// Callers must not paper over a `false`. Before TASK-0306 the three ack
-/// paths returned `true` on failure with the note "channel exists — no
-/// shared-endpoint fallback" — but the callers in `compositor/mod.rs` already
-/// had the right recovery (`reply_and_close_wait` / `server.send`, both
-/// `Wait::Blocking`, neither losable). The lie is what kept that recovery
-/// from ever running.
-pub(super) fn send_client_frame(slot: u32, frame: &[u8], delivery: Delivery) -> bool {
-    // One push, classified in `app_death` (REACTIVE: a parking delivery is a kernel
-    // send-waiter woken when the client drains, RFC-0093 §7; a dead client ends it by name).
-    use super::app_death::{send_client_frame_outcome, ClientSend};
-    send_client_frame_outcome(slot, frame, delivery) == ClientSend::Sent
-}
-
-pub(super) fn send_input_frame(slot: u32, frame: &[u8], kind: u8) -> bool {
-    send_client_frame(slot, frame, Delivery::for_input(kind))
 }
 
 /// Thin cap-close shim so the handlers above read cleanly on host builds

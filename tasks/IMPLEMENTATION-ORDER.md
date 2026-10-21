@@ -378,6 +378,11 @@ display ring overflowed: gpud drew every transition tick, drag step and scroll s
 of its own beside windowd's two in flight, every NACK forced a full-screen recompose. **TASK-0338**
 (one frame producer: the tick, the step and the scroll owe a present, the override ops retired)
 built, host- and QEMU-green, board cycle 54 next. Then the wash layer, the drag plane, ADR-0075.
+State 2026-10-21 (cycle 54): 0 NACKs, input waits 3.7× shorter, the rest at the app launches —
+windowd parked on a busy app's 8-deep event queue. **TASK-0339** (ADR-0075, RFC-0033 amendment:
+non-blocking delivery, a bounded per-client outbox, the kernel's writable signal; windowd's own
+work per frame on its loop line) built, board cycle 55 next. Then by cycle 55's `work(` numbers:
+the atlas copy per row, the retained-plane rewrite, the frame cost.
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

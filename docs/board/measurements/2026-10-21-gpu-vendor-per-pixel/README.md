@@ -238,3 +238,31 @@ left, both measured as "not the ring":
    (`write_damage_rect`, one `vmo_write` per row — read on the CPU executor only), and may park on
    a full app queue (ADR-0075). Also: the `apphost: ux launch` line is cut at 95 characters
    before its `budget_ms=` (the probe's marker buffer) — fixed with the next package.
+
+## Cycle 55 (2026-10-21) — the compositor never waits on a client (TASK-0339, ADR-0075)
+
+The operator: "a little better again". Lines: `cycle55-lines.txt`. Ladder complete; the kernel's
+`KSELFTEST: waitset writable ok` in its place on the board too.
+
+| | cycle 54 | cycle 55 |
+|---|---|---|
+| present NACKs / refused presents | 0 / 0 | 0 / 0 |
+| a client behind (one-second windows) | — (windowd parked) | 12 of 147, at most 1 frame waiting, 0 dropped |
+| `windowd: ux input`: median / max of the window maxima | 833 / 1 531 ms | 1 147 / 9 210 ms (one window `ok`) |
+| `gpud: ux frame`: frames over 16.7 ms | 376 of 480 | 334 of 416 |
+| launch to first frame (the line now whole, `budget_ms=300`) | 0.17–1.0 s | 0.17–1.3 s (calculator 0.17–0.22 `ok`; chat 1.0–1.3 `FAIL`: `vmo_ms` 707–937) |
+
+**The split the new line gives (`work(…)`, all 147 windows):** windowd rewrote **84 561 wallpaper
+rows into the retained plane for 10.2 s** of its own CPU — **120 µs a row** (a scaled copy and one
+`vmo_write` per row), 95–220 ms for every window-sized content rectangle; it copied 42 081
+app-surface rows into the atlas for 1.6 s — 37 µs a row (two syscalls a row; 853 rows ≈ 30 ms for
+a full window). The longest flush: 254 ms; the median of the per-window maxima: 30 ms.
+
+**Verdict:** the parking is gone (12 windows had a client behind; before, each was a park), but
+the input's wait is windowd's OWN work: every app or desktop frame blocks the loop 100–250 ms in
+the retained-plane rewrite — a plane the GPU executors (the board's, QEMU's virgl) read only while
+a capture freezes the screen; the CPU 2D executor is its only steady reader. The 9.2 s window sat
+under the shell's modal (full-screen desktop frames, 1 080 rows rewritten each, ~1 present a
+second). Next cut, by these numbers: no retained-plane rewrite where the GPU composes; the atlas
+copy without two syscalls a row. Also seen: `gpud: gpu frame us max=100000` (a 100 ms cap on a GPU
+wait — to be read), chat's `vmo_ms` 0.7–0.9 s at launch.
