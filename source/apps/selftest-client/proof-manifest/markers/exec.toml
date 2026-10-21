@@ -138,7 +138,7 @@ phase = "exec"
 
 [marker."SELFTEST: rss loop ok ("]
 phase = "exec"
-proves = "TASK-0333 6a: ten VMO-holding children exited and the kernel's record holds less than one holder more than before — what dies is freed (RFC-0100 §1)"
+proves = "TASK-0333 6a: ten VMO-holding children exited and no cycle's step of the kernel's record held a tenth of a holder or a kernel object more — what dies is freed (RFC-0100 §1); the smallest step of the ten is judged, so a launch elsewhere during the loop (one step) is not read as a leak (TASK-0340)"
 
 [marker."SELFTEST: rss loop FAIL ("]
 phase = "exec"

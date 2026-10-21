@@ -23,8 +23,10 @@ const LIBRARIES: [&[u8]; 2] = [
 ];
 
 /// Opens windowd's GPU context with its library (once, at start); a line names the outcome.
+/// `true`: the context is open — the display's GPU composes windowd's layer set (the board's,
+/// QEMU's virgl), so the CPU-side retained plane is nobody's base (TASK-0340).
 #[cfg(nexus_env = "os")]
-pub(crate) fn open() {
+pub(crate) fn open() -> bool {
     use nexus_display_proto::gpu_context::{self as wire, ContextOpen, PRIORITY_REALTIME};
     use nexus_display_proto::{STATUS_OK, STATUS_UNSUPPORTED};
     let route = nexus_service_topology::slots::windowd::GPUD;
@@ -44,7 +46,7 @@ pub(crate) fn open() {
             let _ = nexus_abi::debug_println(
                 "windowd: gpu context none (the display's GPU runs no code)",
             );
-            return;
+            return false;
         }
         other => return fail(&alloc::format!("capabilities {other:?}")),
     };
@@ -83,16 +85,21 @@ pub(crate) fn open() {
                 library.len(),
                 caps.features
             ));
+            true
         }
         other => fail(&alloc::format!("open {other:?}")),
     }
 }
 
+/// A named failure: the GPU composes nothing for windowd (the retained plane stays a base).
 #[cfg(nexus_env = "os")]
-fn fail(why: &str) {
+fn fail(why: &str) -> bool {
     let _ = nexus_abi::debug_println(&alloc::format!("windowd: FAIL gpu context ({why})"));
+    false
 }
 
 /// Host builds have no gpud: nothing to open.
 #[cfg(not(nexus_env = "os"))]
-pub(crate) fn open() {}
+pub(crate) fn open() -> bool {
+    false
+}

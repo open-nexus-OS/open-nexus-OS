@@ -108,6 +108,26 @@ impl DisplayServerRuntime {
         self.write_rows(0, self.mode.height, select_glass_quality(PROOF_PANEL_H), false)
     }
 
+    /// The GPU composes the layer set (TASK-0340): set once at start from the GPU context.
+    pub(crate) fn set_gpu_composes(&mut self, gpu_composes: bool) {
+        self.gpu_composes = gpu_composes;
+    }
+
+    /// Where the GPU composes, the retained plane is not rewritten (TASK-0340): the board's
+    /// executor composes from the wallpaper plane and reads the retained plane only as the frozen
+    /// frame of a capture — which gpud copies there itself; QEMU's virgl samples its wallpaper
+    /// texture. Cycle 55 measured the rewrite at 120 µs a row (95–220 ms per window-sized frame,
+    /// 10 s of windowd's CPU in a session). The CPU 2D executor blits the plane and keeps it.
+    fn retained_plane_unread(&mut self) -> bool {
+        if !self.gpu_composes {
+            return false;
+        }
+        self.state.cursor_overlay_visible = self.state.cursor_svg_visible;
+        self.telemetry.record_present();
+        self.refresh_observer_state();
+        true
+    }
+
     pub(super) fn write_rows(
         &mut self,
         start_y: u32,
@@ -115,6 +135,9 @@ impl DisplayServerRuntime {
         _glass_quality: GlassQuality,
         _paint_only: bool,
     ) -> Result<(), WindowdError> {
+        if self.retained_plane_unread() {
+            return Ok(());
+        }
         let render_start_ns = nsec().unwrap_or(0);
         let Some(handle) = self.framebuffer else {
             return Ok(());
@@ -189,6 +212,9 @@ impl DisplayServerRuntime {
         _glass_quality: GlassQuality,
         _paint_only: bool,
     ) -> Result<(), WindowdError> {
+        if self.retained_plane_unread() {
+            return Ok(());
+        }
         let render_start_ns = nsec().unwrap_or(0);
         let Some(handle) = self.framebuffer else {
             return Ok(());

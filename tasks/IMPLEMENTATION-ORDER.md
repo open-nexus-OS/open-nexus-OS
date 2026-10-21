@@ -383,6 +383,10 @@ windowd parked on a busy app's 8-deep event queue. **TASK-0339** (ADR-0075, RFC-
 non-blocking delivery, a bounded per-client outbox, the kernel's writable signal; windowd's own
 work per frame on its loop line) built, board cycle 55 next. Then by cycle 55's `work(` numbers:
 the atlas copy per row, the retained-plane rewrite, the frame cost.
+State 2026-10-21 (cycle 55): no park any more; windowd's own work measured — the retained-plane
+rewrite 120 µs a row (10 s of CPU a session), the atlas copy 37 µs a row. **TASK-0340** (no
+retained-plane rewrite where the GPU composes) built, board cycle 56 next; then zero-copy client
+surfaces (RFC-0101 §7b: the GPU samples the app's buffer — the copy goes), the frame cost.
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

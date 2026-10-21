@@ -397,12 +397,11 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let grant = framebuffer_grant::request();
     // TASK-0215 5c-3 P3 (RFC-0101 §7b): windowd's GPU context with its pipeline library — before
     // the attach, which starts QEMU's GL scanout with windowd's pipelines (gpud holds none).
-    if grant.framebuffer.is_some() {
-        gpu_context::open();
-    }
+    let gpu_composes = grant.framebuffer.is_some() && gpu_context::open();
     let (visible_w, visible_h) = grant.mode;
     let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
-        Ok(rt) => {
+        Ok(mut rt) => {
+            rt.set_gpu_composes(gpu_composes);
             let _ = nexus_service_entry::ready(&ready_marker(visible_w, visible_h));
             rt
         }

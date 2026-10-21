@@ -266,3 +266,44 @@ under the shell's modal (full-screen desktop frames, 1 080 rows rewritten each, 
 second). Next cut, by these numbers: no retained-plane rewrite where the GPU composes; the atlas
 copy without two syscalls a row. Also seen: `gpud: gpu frame us max=100000` (a 100 ms cap on a GPU
 wait — to be read), chat's `vmo_ms` 0.7–0.9 s at launch.
+
+## Cycle 56 (2026-10-21) — no retained-plane rewrite where the GPU composes (TASK-0340)
+
+Lines: `cycle56-lines.txt`. The operator: hover still re-renders instead of a layer under the
+text; scrolling seems to render the background with the content — nothing like the reference
+platform's technique or smoothness.
+
+| | cycle 55 | cycle 56 |
+|---|---|---|
+| `work(base_rows=)` over the session | 84 561 rows, 10.2 s | **0** |
+| windowd's slowest flush per second: median / max | 30 / 254 ms | **2.2** / 198 ms |
+| `windowd: ux input`: median / max of the window maxima | 1 147 / 9 210 ms | 842 / 2 780 ms |
+| `gpud: ux frame`: frames over 16.7 ms | 334 of 416 (80 %) | 430 of 576 (75 %) |
+| a screenshot (freeze → thaw) | — | works (`screencapd: saved`) |
+
+**The operator's two observations, checked:**
+
+1. **Scrolling draws the background with the content.** windowd's band composite makes the
+   scrolled body layer — and the header and footer slices — GLASS (a backdrop blur, never
+   `LAYER_OPAQUE`), although TASK-0337 made the window's content pane opaque. The shared planner
+   on the host, one scroll step of a 1440×853 window, the slot area being the frame's damage (the
+   ring's buffer age while scrolling): **3.93 Mpx drawn** with the body as glass (wallpaper, the
+   body's blurred backdrop, the content, the header re-blurred — its backdrop is the moving body),
+   2.75 Mpx without the glass, **1.58 Mpx with the body opaque** (occlusion cuts everything below
+   it). At 8–11 ns a pixel: 31–43 ms against 13–17 ms — the difference between ~25 fps and 60 fps.
+2. **A hover is a re-render, not a layer.** A hover change goes MOVE → app-host re-rasterizes the
+   full-width rows of the old and the new control on the CPU → presents them → windowd copies them
+   into the atlas (two syscalls a row) → gpud redraws that strip with every layer below it. No
+   layer's opacity changes anywhere.
+
+**The red rung, explained:** `SELFTEST: rss loop FAIL (cycles=10 leaked=876544 vmos=2
+kobjects=4)` on the board only (QEMU: `leaked=0`) — the calculator was launched (line 1475) while
+the boot loop measured the system-wide record (until line 1577): one launch's channels and
+surface read as a leak. The rung now judges the smallest step of its ten cycles (a holder's leak
+repeats ten times; a launch elsewhere is one step) with the same tolerance per cycle.
+
+**Next (by these numbers, the reference platforms' technique):** a window's content is ONE opaque
+layer under its functional glass bar — the scroll moves its rows, one pass over the viewport;
+glass inside a window blurs what is behind the window, not the content that scrolls; hover and
+press are state layers whose opacity the compositor changes — no app raster, no copy; then
+zero-copy client surfaces.

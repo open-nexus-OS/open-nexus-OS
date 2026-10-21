@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-21 (windowd rewrites no retained plane where the GPU composes — TASK-0340)
+
+- **An app's frame no longer costs windowd 100–200 ms of CPU.** For every content rectangle
+  windowd rewrote the wallpaper into the retained plane, row by row (120 µs a row on the board,
+  10 s of its CPU in one session, cycle 55) — a plane the GPU executors read only as a frozen
+  capture's frame, which gpud copies there itself. Where windowd's GPU context opened, the rewrite
+  is skipped; QEMU's 2D executor, which blits the plane, keeps it.
+- The desktop surface's copy is counted on windowd's loop line (`work(copy_rows=`).
+
 ### Changed - 2026-10-21 (the compositor never waits on a client — TASK-0339, ADR-0075)
 
 - **windowd no longer stops while an app is busy.** Every ack, tap, key, text commit and settings

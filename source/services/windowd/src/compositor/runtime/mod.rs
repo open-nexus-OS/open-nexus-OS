@@ -352,13 +352,13 @@ pub(crate) struct DisplayServerRuntime {
     /// separately from content damage: cursor rects only need a retained→display
     /// blit + cursor overlay (no CPU recomposite — Plane 1 is already cursor-free).
     pending_cursor_rect: Option<DamageRect>,
-    /// Animation-driven frame: only GPU CB params changed (translate_x, opacity).
-    /// Plane 1 is already current — no CPU recomposite needed. Merged rect passed
-    /// to the GPU CB blit list so the display plane is refreshed from Plane 1.
+    /// A region only re-blitted (an animation's GPU params changed): no CPU recomposite.
     pending_gpu_blit_rect: Option<DamageRect>,
-    /// A frame owed for what moved alone (TASK-0338): a window's transform, a body's scroll,
-    /// the frame clock. The next present carries the layers as they are now and names no
-    /// damage — the planner redraws only what moved — inside the budget of two in flight.
+    /// TASK-0340: the GPU composes the layer set (board, QEMU virgl) — the retained plane is
+    /// gpud's frozen frame in a capture, read by nobody else: windowd never rewrites it.
+    gpu_composes: bool,
+    /// A frame owed for what moved alone (TASK-0338: a transform, a scroll, the frame clock):
+    /// the next present names no damage, the planner redraws only what moved.
     pending_layer_frame: bool,
     telemetry: crate::telemetry::WindowdDisplayTelemetry,
     /// Whether flush_pending_damage has verified v3b composition (P1 fix: no longer fake).
@@ -786,6 +786,7 @@ impl DisplayServerRuntime {
             pending_cursor_rect: None,
             pending_gpu_blit_rect: None,
             pending_layer_frame: false,
+            gpu_composes: false,
             paint_only_damage: false,
             telemetry: crate::telemetry::WindowdDisplayTelemetry::default(),
             v3b_composition_verified: false,

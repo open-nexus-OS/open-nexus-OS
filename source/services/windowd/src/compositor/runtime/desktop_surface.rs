@@ -199,6 +199,8 @@ impl DisplayServerRuntime {
             return Ok(());
         }
         let y_end = h.min(r1);
+        // TASK-0339/0340: the desktop's copy counts in `work(copy_rows=` with the windows'.
+        let copy_t0 = nexus_abi::nsec().unwrap_or(0);
         for y in r0.min(y_end)..y_end {
             let row = &mut self.band_scratch[0..stride];
             #[cfg(nexus_env = "os")]
@@ -217,6 +219,10 @@ impl DisplayServerRuntime {
             }
         }
         crate::atlas::note_atlas_content_write();
+        crate::compositor::frame_causes::work_copy(
+            u64::from(y_end.saturating_sub(r0.min(y_end))),
+            nexus_abi::nsec().unwrap_or(copy_t0).saturating_sub(copy_t0) / 1000,
+        );
         Ok(())
     }
 
