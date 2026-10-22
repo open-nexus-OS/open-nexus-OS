@@ -1,60 +1,53 @@
-# Open Nexus OS — a capability-based RISC-V microkernel operating system written in Rust
+# Open Nexus OS — an independent, capability-based operating system for RISC-V, written in Rust
 
-**Open Nexus OS is an open source RISC-V operating system: a capability-based
-microkernel written in Rust, with userspace drivers and services and a graphical
-desktop.** It targets `qemu-system-riscv64 virt` and boots to an interactive GUI —
-a compositor service, a virgl/virtio-gpu backend, and a declarative app platform.
+**Open Nexus OS is an independent, capability-based operating system for RISC-V,
+from microkernel to desktop. It is early-stage: it boots to a graphical desktop
+in QEMU and on real RISC-V hardware, but it is not yet a daily driver.**
+
+The `neuron` microkernel keeps only scheduling, virtual memory, IPC and
+capabilities. Everything else — drivers, filesystem, networking, the window
+system — runs as userspace services under deny-by-default capability policy.
 
 [![Software DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.18934993-blue)](https://doi.org/10.5281/zenodo.18934993)
-
-Support ongoing development:
-
+[![Discussions](https://img.shields.io/badge/GitHub-Discussions-181717?logo=github)](https://github.com/open-nexus-OS/open-nexus-OS/discussions)
 [![Sponsor open-nexus-OS](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/open-nexus-OS)
 
-It is a research operating system, not a general-purpose distribution: the RISC-V
-microkernel keeps only scheduling, virtual memory, IPC and capabilities, and
-everything else — drivers, filesystem, networking, window system — runs as
-userspace services under deny-by-default capability policy, in a
-distributed-services userland.
-
-The repo is run **host-first, QEMU-last**: most logic lives in host-testable userspace crates, while QEMU is used for bounded end-to-end smoke proofs.
-
 <p align="center">
-  <img src="docs/assets/desktop.png" alt="Open Nexus OS, a Rust RISC-V microkernel operating system, running its graphical desktop in QEMU: launcher dock, settings, calendar and calculator windows composited by windowd" width="900">
+  <img src="docs/assets/desktop.png" alt="Open Nexus OS, a Rust RISC-V microkernel operating system, running its graphical desktop: launcher dock, settings, calendar and calculator windows composited by windowd" width="900">
 </p>
 <p align="center">
-  <sub>The desktop booted in QEMU RISC‑V — <code>windowd</code> compositor, <code>gpud</code> virgl backend, and DSL apps (settings, calendar, calculator) on the app-host.</sub>
+  <sub>The desktop on RISC‑V — <code>windowd</code> compositor, <code>gpud</code> GPU backend, and DSL apps (settings, calendar, calculator) on the app-host.</sub>
 </p>
+
+## Why Open Nexus
+
+- **Rust from kernel to apps.** Kernel, drivers, services and the desktop are
+  written in Rust; userspace crates carry `#![forbid(unsafe_code)]`.
+- **Drivers live in userspace.** A crashing driver, filesystem or compositor
+  fails as a service, not as the kernel.
+- **No ambient authority.** A service can only touch what it holds a capability
+  for. Identity comes from the kernel, never from a string a caller can forge.
+- **Its own desktop.** A compositor service, a GPU backend and a declarative
+  `.nx` app platform — not a Linux derivative.
+- **Runs on real hardware.** A RISC-V single-board computer boots it from eMMC
+  to a 1080p desktop driven by a USB keyboard and mouse.
 
 ## At a glance
 
 | | |
 | --- | --- |
+| **Status** | Early-stage. Boots to a usable desktop; not yet a daily driver. |
 | **Kernel** | `neuron` — a capability microkernel in Rust (`no_std`): scheduling, virtual memory, IPC, capabilities. Drivers and policy stay out of it. |
-| **Architecture** | RISC-V 64-bit (`riscv64imac-unknown-none-elf`), `qemu-system-riscv64 virt`, SMP=4 by default |
-| **Language** | Rust throughout — kernel, userspace services and drivers; `#![forbid(unsafe_code)]` in userspace crates |
-| **Security model** | Capability-based, deny-by-default; identity comes from kernel-provided `sender_service_id`, never from payload strings |
-| **Desktop / GUI** | `windowd` compositor service + `gpud` (virtio-gpu 2D, virgl 3D) + a declarative `.nx` app platform |
+| **Architecture** | RISC-V 64-bit (`riscv64imac-unknown-none-elf`), SMP=4 by default |
+| **Runs on** | `qemu-system-riscv64 virt` (virtio-gpu 2D, virgl 3D) and one RISC-V single-board computer (eMMC boot, HDMI 1080p60, USB input) |
+| **Security model** | Capability-based, deny-by-default; identity is the kernel-provided `sender_service_id`, never payload strings |
+| **Desktop / GUI** | `windowd` compositor service + `gpud` GPU backend + a declarative `.nx` app platform |
 | **License** | Apache-2.0 — see [LICENSE](LICENSE); third-party notices in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) |
 
-## Citation
-
-If you use Open Nexus OS in research or reference its architecture, please cite the software record and the related architecture series. Note that the records below are self-archived preprints deposited on Zenodo; none of them has been peer reviewed.
-
-- Software DOI: [10.5281/zenodo.18934993](https://doi.org/10.5281/zenodo.18934993)
-- Part I, Type-Driven Deterministic Construction of a Capability Microkernel: [10.5281/zenodo.18935402](https://doi.org/10.5281/zenodo.18935402)
-- Part II, Bounded Control-Plane IPC and Explicit Bulk Data Paths: [10.5281/zenodo.18935755](https://doi.org/10.5281/zenodo.18935755)
-- Part III, Service Planes and a Capability-Governed Mesh: [10.5281/zenodo.18938789](https://doi.org/10.5281/zenodo.18938789)
-- Part IV, Userspace Device Services Substrate: [10.5281/zenodo.18939217](https://doi.org/10.5281/zenodo.18939217)
-- Contract-Governed LLM Development: [10.5281/zenodo.18941284](https://doi.org/10.5281/zenodo.18941284)
-
-## Quickstart (new machine)
+## Quickstart
 
 Supported hosts: **Debian/Ubuntu, Fedora and Arch** (and their derivatives).
-
-**Prerequisites: `git`, `curl` and `make` — nothing else.** A bare distro
-install has no `make` (it arrives with `build-essential` / `base-devel`), and no
-Makefile can bootstrap the tool that reads it, so install those three first:
+The only prerequisites are `git`, `curl` and `make`:
 
 ```sh
 sudo apt install -y git curl make          # Debian/Ubuntu
@@ -62,143 +55,43 @@ sudo dnf install -y git curl make          # Fedora
 sudo pacman -S --needed git curl make      # Arch
 ```
 
-Then one command does the rest:
+Clone under `$HOME` and let one command install and verify everything else.
+Run it as yourself, not with `sudo` — it asks for your password when it needs it.
 
 ```sh
-git clone <repo>
+git clone https://github.com/open-nexus-OS/open-nexus-OS.git ~/open-nexus-OS
 cd ~/open-nexus-OS
-make initial-setup          # installs everything, then verifies it
+make initial-setup          # toolchain, QEMU, build inputs — then `make doctor`
 ```
 
-The checkout **must live under `$HOME`** — rootless podman maps this tree into a
-user namespace and cargo writes `target/` as you, so both need a user-owned
-path. `make initial-setup` refuses to run anywhere else.
-
-**Run it as yourself, not with `sudo`.** The setup needs root for exactly three
-things — installing packages, the board's udev rule, your serial-group
-membership — and the scripts ask for your password at those points. Under
-`sudo make initial-setup` everything else (rustup in `~/.cargo`, cargo's
-`target/`, rootless podman) would be created for root instead of you, so
-`make doctor` refuses to continue and says why. The prompt needs a real
-terminal: an editor/agent shell without a TTY fails with "sudo needs a password
-but this shell has no terminal" — run `sudo -v` in a terminal first, or run
-the whole command there.
-
-(If you would rather not install `make` by hand, `./scripts/install-deps.sh`
-does the same package step with nothing but bash — `make initial-setup` is
-idempotent, so run it afterwards either way.)
-
-`make initial-setup` installs the system packages, the pinned Rust toolchain
-(`nightly-2025-01-15` + `stable`, the `riscv64imac-unknown-none-elf` target and
-the `clippy`/`rustfmt`/`rust-src`/`llvm-tools-preview`/`miri` components),
-`cargo-deny` and `cargo-nextest`, fetches the declared build inputs (three
-submodules + pinned Noto fonts), wires `scripts/fmt-clippy-deny.sh` as your
-`pre-commit` hook, installs the board tools (`fastboot`, a serial terminal,
-`mkimage`, `dtc`, `sgdisk`) plus the udev rule and serial-group membership that
-let `just board-*` reach the reference board without sudo, and finishes with
-`make doctor`.
-
-Useful flags:
-
-| Flag | Effect |
-| --- | --- |
-| `YES=1` | non-interactive (no sudo prompt) |
-| `GUI=0` | skip GTK/EGL/virgl — headless lanes only, `just start` will not work |
-| `PODMAN=0` | skip the rootless-podman checks; use `make build MODE=host` |
-| `BOARD=0` | skip the board flash/serial tools + udev rule — no reference board on this host |
-
-Then try a build and a boot:
+Then boot it:
 
 ```sh
-make build
-make run
+just start                  # build + launch the desktop in a QEMU window
+make build && make run      # or: one bounded headless boot
 ```
 
-### Checking a host: `make doctor`
+Setup flags, `make doctor`, the `just`/`make` entrypoints and the verification
+ladder are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-```sh
-make doctor
-```
+## Current state
 
-Verifies **capabilities**, not package names — binaries on `PATH`, Python ≥ 3.11,
-the pinned toolchain/target/components, `llvm-objcopy`, that QEMU knows the
-`virt` machine and the `gtk` + `egl-headless` display backends (which is what
-`just start` actually needs), that the submodules and pinned fonts are present,
-that podman runs rootless, and that the board tools, udev rule and serial group
-are in place (with an informational line when a board or a USB-UART adapter is
-actually connected). Every failure prints the exact command that fixes it. No
-sudo, runs in seconds.
+The system boots to an interactive graphical desktop in QEMU RISC-V and on a
+real RISC-V board. Every feature below is regression-gated by deterministic
+QEMU marker proofs:
 
-`just start` opens a real virgl window (`-display gtk,gl=on`). On Debian/Ubuntu
-the GTK and OpenGL display backends live in packages separate from the RISC-V
-emulator (`qemu-system-gui`, `qemu-system-modules-opengl`); `make initial-setup`
-installs them unless you pass `GUI=0`.
-
-### QEMU (virtio-mmio modern for persistence)
-
-StateFS persistence requires **modern virtio-mmio** semantics for virtio-blk.
-The canonical QEMU harness (`scripts/qemu-launcher.sh`, driven by `scripts/qemu-test.sh` / `just test-os`) enforces this by default using:
-`-global virtio-mmio.force-legacy=off`.
-
-If you need a standalone QEMU build with force-modern defaults (e.g. an external harness that cannot set QEMU globals),
-you can build the local modern-QEMU variant:
-
-```sh
-./tools/qemu/build-modern.sh
-export PATH="$PWD/tools/qemu-src/build:$PATH"
-```
-
-## Day-to-day development
-
-The repo intentionally has **two complementary entrypoint spurs**, neither of which calls into the other:
-
-- `just …` — developer ergonomics for host-first iteration and granular QEMU profile matrix. Lazy-build (every recipe rebuilds what it needs).
-- `make …` — self-contained "container CI / QEMU-last" pipeline. Strict build → test → run discipline.
-
-Pick whichever fits the flow you're in.
-
-### `just` spur (dev / per-task iteration)
-
-- **Host tests**: `just test-host`, `just test-e2e`
-- **Miri**: `just miri-strict`, `just miri-fs`
-- **Architecture guard**: `just arch-check`
-- **QEMU smoke**: `RUN_UNTIL_MARKER=1 just test-os` (wraps `scripts/qemu-test.sh`)
-- **Aggregate release gate**: `just test-all` (fmt + clippy + deny + host + e2e + miri + arch + kernel + SMP CI)
-
-### Make spur (build → test → run, no `just` dependency)
-
-The `Makefile` is the self-contained "build once, then test/run against the artifacts" path. It is intentionally **not** a thin shim over `just`; it owns its own build step.
-
-```sh
-make build           # compile only: host workspace + host test binaries + cross OS services + neuron-boot (with EMBED_INIT_ELF)
-make test            # host-first nextest run + SMP=2 then SMP=1 QEMU ladder against the `make build` artifacts
-make run             # one QEMU smoke (smart smp/full profile pick) against the `make build` artifacts
-```
-
-| Target | Owns the build? | Runs QEMU? | Notes |
-|---|---|---|---|
-| `make build` | yes (single source of truth for compilation) | no | `MODE=container` (default, podman) or `MODE=host` (direct cargo). Builds **and** pre-compiles host test binaries. |
-| `make test` | no — requires `make build` to have run | yes — SMP=2 (`--profile=smp`) then SMP=1 (`--profile=full`) | Host tests run via `cargo nextest` (instant if `make build` ran), then the QEMU ladder. |
-| `make run` | no — requires `make build` to have run | yes — single boot, profile auto-picked from `SMP` env (or `PROFILE=…`) | For fast local iteration use `RUN_UNTIL_MARKER=1 make run` (default). |
-
-`make test` and `make run` set `NEXUS_SKIP_BUILD=1` when invoking `scripts/qemu-test.sh` / `scripts/qemu-launcher.sh`. The script then skips its per-component `cargo build` calls and **fails fast** with a clear `[error] NEXUS_SKIP_BUILD=1 but … artifact is missing — run 'make build' first` message if any artifact is absent. This makes "I forgot `make build`" a loud one-line error instead of a silent 30-second rebuild.
-
-If you want the historical eager-rebuild behavior in a one-shot run, use `NEXUS_SKIP_BUILD=0 make run` or chain `make build run`.
-
-`make verify` was retired; the canonical aggregate gate is `just test-all`.
-
-## Current state (2026)
-
-The system boots to an interactive graphical desktop in QEMU RISC-V (see the screenshot above).
-The current stack, all regression-gated by deterministic QEMU marker proofs:
-
-- **UI stack**: `windowd` compositor service + `gpud` (virtio-gpu 2D and virgl 3D backends)
-  + a declarative DSL app platform — apps are `.nx` files run by the app-host (launcher,
-  settings, file manager, chat, calculator, ...).
-- **SMP**: soft-realtime SMP=4 is the interactive default (declarative CPU placement,
-  phased/lock-free syscall classes).
-- **Storage**: nxfs + VFS v2 provide persistent user-data storage (`svc.files`, cold-boot
-  persistence proofs).
+- **UI stack**: `windowd` compositor service + `gpud` (virtio-gpu 2D, virgl 3D,
+  and the board's own GPU) + a declarative DSL app platform — apps are `.nx`
+  files run by the app-host (launcher, settings, file manager, chat,
+  calculator, ...).
+- **Hardware**: the board boots from eMMC through its stock boot chain, drives
+  HDMI at 1920x1080@60 through the SoC's display controller and takes USB
+  keyboard and mouse input. Its proof ladder is `just board-test`
+  (see `docs/board/`).
+- **SMP**: soft-realtime SMP=4 is the interactive default (declarative CPU
+  placement, phased/lock-free syscall classes).
+- **Storage**: nxfs + VFS v2 provide persistent user-data storage (`svc.files`,
+  cold-boot persistence proofs).
 - **Networking**: DSoftBus with stream mux and a Noise XK handshake. Session
   establishment and transport selection are proven host-first and in single-VM
   QEMU (`ci-os-dhcp` green); real QUIC (quinn/rustls) exists on the host
@@ -208,42 +101,14 @@ The current stack, all regression-gated by deterministic QEMU marker proofs:
 
 Day-to-day status (open tasks, tracks, blockers) lives in `tasks/STATUS-BOARD.md`.
 
-Canonical security proof ladder:
-
-- `cargo test -p nexus-abi -- reject --nocapture`
-- `just dep-gate`
-- `just diag-os`
-- `RUN_UNTIL_MARKER=1 RUN_TIMEOUT=90s ./scripts/qemu-test.sh`
-
-## How we work (authority model)
-
-- **Tasks (`tasks/TASK-*.md`) are the execution truth**: scope, stop conditions (DoD), and proof commands/markers.
-- **RFCs (`docs/rfcs/RFC-*.md`) are design seeds / contracts**: interfaces, invariants, versioning; they must link to tasks for implementation + evidence.
-- **ADRs (`docs/adr/*.md`) are narrow decision records**: one decision + rationale.
-
-Start here:
-
-- `tasks/README.md` (workflow + anti-drift rules)
-- `docs/rfcs/README.md` (RFC process + authority model)
-
-## Git workflow (quick reference)
-
-- `make initial-setup` wires `scripts/fmt-clippy-deny.sh` as your `pre-commit`
-  hook (it leaves an existing hook alone — link it yourself with
-  `ln -sf ../../scripts/fmt-clippy-deny.sh .git/hooks/pre-commit`).
-- Use `just diag-host` and `just dep-gate` before OS commits.
-- Keep commits scoped to a single task intent.
-- Full workflow (branches, commit style, verify-before-commit ladder): `docs/dev/git-workflow.md`
-
 ## FAQ
 
 ### Is this a real operating system, or a kernel study?
 
 It is a full OS image: the `neuron` microkernel plus a userland of services and
-drivers that boots to a graphical desktop. It is a **research** OS, though — every
-lane proves it on `qemu-system-riscv64 virt`, real hardware is one RISC-V board so far
-(see "Does the RISC-V desktop run on real hardware?" below), and it is not a
-distribution you would install as a daily driver.
+drivers that boots to a graphical desktop. It is **early-stage**, though —
+every lane proves it on `qemu-system-riscv64 virt`, real hardware is one RISC-V
+board so far, and it is not a distribution you would install as a daily driver.
 
 ### Why a microkernel written in Rust for RISC-V?
 
@@ -262,14 +127,13 @@ payload. See `docs/architecture/11-policyd-and-policy-flow.md`.
 
 ### Does the RISC-V desktop run on real hardware?
 
-Real hardware: yes — first steps: since 2026-10 the desk's RISC-V single-board computer boots
-the OS from its eMMC through the vendor boot chain, shows the desktop at
-1920x1080@60 (from the CEA timing table — reading the monitor's EDID follows with
-the GPU work) on its HDMI output through the SoC's display controller, and a USB
-keyboard and mouse drive it (the pointer rides the controller's own hardware
-layer) — proven by the board ladder (`just board-test`,
-`docs/board/`). The proof target for every lane is still QEMU `virt` with
-virtio devices (virtio-gpu 2D and virgl 3D); the board added drivers and SoC
+Yes, as of 2026-10: a RISC-V single-board computer boots the OS from its eMMC
+through the stock boot chain, shows the desktop at 1920x1080@60 (from the CEA
+timing table — reading the monitor's EDID follows with the GPU work) on its
+HDMI output through the SoC's display controller, and a USB keyboard and mouse
+drive it (the pointer rides the controller's own hardware layer). The board
+ladder (`just board-test`, `docs/board/`) proves it. The proof target for every
+lane is still QEMU `virt` with virtio devices; the board added drivers and SoC
 glue, not a new kernel.
 
 ### How does it relate to other RISC-V operating systems?
@@ -281,47 +145,44 @@ graphics path is this project's own compositor service.
 
 ## Contributing
 
-- **How to contribute (setup, verification ladder, PR conventions)**: [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Security policy (scope + how to report)**: [SECURITY.md](SECURITY.md)
-- **Code of conduct**: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Start here**: [CONTRIBUTING.md](CONTRIBUTING.md) — setup, verification
+  ladder, how decisions are made, PR conventions.
+- **Questions and ideas**: [GitHub Discussions](https://github.com/open-nexus-OS/open-nexus-OS/discussions)
+  or [Discord](https://discord.gg/3sTZvH4PEq). Updates on
+  [Mastodon](https://mastodon.social/@open_nexus_os) and
+  [YouTube](https://www.youtube.com/@opennexusOS).
+- **First issues**: look for the
+  [`good first issue`](https://github.com/open-nexus-OS/open-nexus-OS/labels/good%20first%20issue) label.
+- **Security policy**: [SECURITY.md](SECURITY.md) ·
+  **Code of conduct**: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
-## Updates (OTA v1.0)
+Work is tracked in task ledgers (`tasks/TASK-*.md`, the execution truth),
+design contracts (`docs/rfcs/`) and architecture decisions (`docs/adr/`).
 
-The repository includes a **userspace-only A/B update skeleton** (non-persistent) that
-proves stage → switch → health → rollback behavior via deterministic QEMU markers.
-See `docs/packaging/ab-updates-skeleton-v1.md` and `docs/rfcs/RFC-0012-updates-packaging-ab-skeleton-v1.md`.
+## Documentation
 
-## Security (Policy Authority + Audit)
+- **Overview and layout**: `docs/README.md`
+- **Architecture** (start here for the design): `docs/architecture/README.md`
+- **Testing (host-first, QEMU-last)**: `docs/testing/README.md`
+- **Security** — policy authority and audit: `docs/security/signing-and-policy.md`,
+  `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md`; device identity
+  keys (virtio-rng → `rngd` → `keystored`): `docs/security/identity-and-sessions.md`
+- **Updates** — userspace A/B update skeleton: `docs/packaging/ab-updates-skeleton-v1.md`
+- **Observability** — logd journal and crash reports: `docs/observability/logging.md`
+- **Standards** — headers, ownership, drift rules: `docs/standards/DOCUMENTATION_STANDARDS.md`
+- **CI**: `.github/workflows/ci.yml` wraps the canonical `just` recipes;
+  `cla-check.yml` checks the CLA on pull requests (`.github/CLA.md`).
 
-The OS uses a capability-based policy model with deny-by-default semantics:
+## Citation
 
-- **Policy Engine (`nexus-sel`)**: Service-id based capability lookups
-- **Audit Trail**: All allow/deny decisions logged via `logd`
-- **Channel-bound Identity**: Policy binds to kernel-provided `sender_service_id`
-- **Policy-gated Operations**: Sensitive operations (signing, exec, bundle install) require explicit capabilities
+If you reference Open Nexus OS or its architecture, please cite the software
+record and the related architecture series. The records below are
+self-archived preprints deposited on Zenodo; none of them has been peer
+reviewed.
 
-See `docs/rfcs/RFC-0015-policy-authority-audit-baseline-v1.md` and `docs/architecture/11-policyd-and-policy-flow.md`.
-
-## Security (Device Identity Keys)
-
-OS builds cannot rely on `getrandom` for entropy. Device identity keys are generated on OS/QEMU via a bounded, policy-gated path:
-
-- virtio-rng MMIO → `rngd` (entropy authority) → `keystored` (device keygen + pubkey-only export)
-
-See `docs/rfcs/RFC-0016-device-identity-keys-v1.md` and `docs/security/identity-and-sessions.md`.
-
-## Documentation and standards
-
-- **Project overview**: `docs/README.md`
-- **Architecture index**: `docs/architecture/README.md`
-- **Testing methodology (host-first, QEMU-last)**: `docs/testing/README.md`
-- **Observability (logd journal + crash reports)**: `docs/observability/logging.md`
-- **Security (policy + audit)**: `docs/security/signing-and-policy.md`
-- **Docs/code standards (headers, ownership, drift rules)**: `docs/standards/DOCUMENTATION_STANDARDS.md`
-
-## Continuous Integration
-
-CI is checked in under `.github/workflows/`:
-
-- **`ci.yml`**: thin wrappers over the canonical `just` recipes — `just check` (fmt + clippy + cargo-deny + arch-check), `just test-host` + `just test-e2e`, `just miri-strict` + `just miri-fs`, `just deadcode`, `just build-kernel` + `just lint-kernel`, plus a bounded QEMU selftest run (`scripts/qemu-test.sh --profile=full`; failure artifacts from `build/logs/`).
-- **`cla-check.yml`**: CLA signature check on pull requests (see `.github/CLA.md`).
+- Software DOI: [10.5281/zenodo.18934993](https://doi.org/10.5281/zenodo.18934993)
+- Part I, Type-Driven Deterministic Construction of a Capability Microkernel: [10.5281/zenodo.18935402](https://doi.org/10.5281/zenodo.18935402)
+- Part II, Bounded Control-Plane IPC and Explicit Bulk Data Paths: [10.5281/zenodo.18935755](https://doi.org/10.5281/zenodo.18935755)
+- Part III, Service Planes and a Capability-Governed Mesh: [10.5281/zenodo.18938789](https://doi.org/10.5281/zenodo.18938789)
+- Part IV, Userspace Device Services Substrate: [10.5281/zenodo.18939217](https://doi.org/10.5281/zenodo.18939217)
+- Contract-Governed LLM Development: [10.5281/zenodo.18941284](https://doi.org/10.5281/zenodo.18941284)

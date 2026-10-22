@@ -55,7 +55,8 @@ board-ack MARKER:
 
 # TASK-0327B P4 (H0c): the board proof lane — flash, operator-prompted boot, the trace pulled
 # and judged (ladder, FAIL gate, manifest); `--log=<uart.log>` judges a capture without a board.
-board-test PROFILE='board-headless' *args:
+# `*args=''`: CI's distro `just` (1.21) rejects a bare variadic after a defaulted parameter.
+board-test PROFILE='board-headless' *args='':
     @scripts/board-test.sh --profile={{PROFILE}} {{args}}
 
 # The board lane inside test-all: only with NEXUS_BOARD=1 (a desk with the board), never silent.

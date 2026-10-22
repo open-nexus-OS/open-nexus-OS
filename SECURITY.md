@@ -2,12 +2,13 @@
 
 ## Scope disclaimer
 
-Open Nexus OS is a **research operating system**. It is not a production
+Open Nexus OS is an **early-stage operating system**. It is not a production
 system, ships no supported releases, and comes with **no stability or
-security guarantees**. It runs against QEMU RISC-V `virt`; there is no
-supported deployment on real hardware or in production environments. Please
-calibrate expectations (and CVE requests) accordingly — findings are very
-welcome, but they are research findings against a research target.
+security guarantees**. It runs against QEMU RISC-V `virt` and boots on one
+RISC-V development board, but there is no supported deployment on real
+hardware or in production environments. Please calibrate expectations (and CVE
+requests) accordingly — findings are very welcome, and they are treated as
+findings against a pre-release target.
 
 ## Reporting a vulnerability
 

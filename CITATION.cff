@@ -12,7 +12,7 @@ version: "0.0.1"
 date-released: "2026-03-10"
 repository-code: "https://github.com/open-nexus-OS/open-nexus-OS"
 url: "https://github.com/open-nexus-OS/open-nexus-OS"
-abstract: "Open Nexus OS is a Rust-based research microkernel operating system for RISC-V virtual hardware, focused on deterministic construction, capability-based security, and host-first, QEMU-last validation."
+abstract: "Open Nexus OS is an independent, capability-based operating system in Rust for RISC-V, from microkernel to desktop, running in QEMU and on real RISC-V hardware. It is focused on deterministic construction, capability-based security, and host-first, QEMU-last validation."
 keywords:
   - "microkernel"
   - "operating system"
