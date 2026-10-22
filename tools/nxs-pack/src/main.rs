@@ -5,7 +5,7 @@
 //! OWNERS: @tools-team
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: No tests
+//! TEST_COVERAGE: 17 unit tests in `tests.rs` (`cargo test -p nxs-pack`)
 //!
 //! PUBLIC API:
 //!   - CLI: nxs-pack --input <dir> --meta <toml> --key <hex> --output <file.nxs>
@@ -106,7 +106,14 @@ struct Args {
 }
 
 fn parse_args() -> Result<Args, Box<dyn std::error::Error>> {
-    let mut args = env::args().skip(1);
+    parse_args_from(env::args().skip(1))
+}
+
+/// The argument parser proper, over any argument list (without the program
+/// name), so the unit tests can drive it.
+fn parse_args_from(
+    mut args: impl Iterator<Item = String>,
+) -> Result<Args, Box<dyn std::error::Error>> {
     let mut input_dir = None;
     let mut meta_path = None;
     let mut key_path = None;
@@ -423,3 +430,6 @@ fn enforce_archive_size(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

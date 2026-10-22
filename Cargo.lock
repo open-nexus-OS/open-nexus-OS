@@ -3221,6 +3221,7 @@ dependencies = [
  "nexus-idl-runtime",
  "sha2",
  "tar",
+ "tempfile",
  "toml",
 ]
 
