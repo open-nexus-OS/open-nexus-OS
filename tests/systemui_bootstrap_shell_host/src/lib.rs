@@ -113,7 +113,8 @@ impl<'p> Mounted<'p> {
     #[must_use]
     pub fn store_index(&self, name: &str) -> u32 {
         let sym = self.sym(name);
-        let root = self.view.runtime.reader().root().expect("root");
+        let reader = self.view.runtime.reader();
+        let root = reader.root().expect("root");
         let stores = root.get_stores().expect("stores");
         for (i, store) in stores.iter().enumerate() {
             if store.get_name() == sym {

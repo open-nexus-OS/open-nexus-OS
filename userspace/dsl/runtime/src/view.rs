@@ -38,24 +38,31 @@ use nexus_theme_tokens::Tokens;
 /// **The contract that makes it safe — and that the harness enforces:** while
 /// the scope is held, emission touches NOTHING that outlives the frame. Store
 /// mutations, focus revalidation and the live-instance sweep run after the
-/// guard has dropped, and every retained output (`deps`, `handlers`,
+/// scope has ended, and every retained output (`deps`, `handlers`,
 /// `animations`, the scene) is a FRESH value each frame — a buffer kept across
 /// frames with `clear()` would be written in generation g+1 and reset
-/// underneath its owner in g+2.
+/// underneath its owner in g+2. And a frame that FAILS is abandoned, never
+/// kept: its outputs are dropped, so the retained ones must stay readable.
 pub trait FrameScope {
-    /// Called before emission begins; the returned guard is dropped after.
+    /// Called before emission begins; the returned guard is completed when the
+    /// frame is built and dropped unfinished when emission failed.
     fn enter(&self) -> FrameScopeGuard;
 }
 
-/// What a [`FrameScope`] hands back. Dropping it ends the scope.
+/// What a [`FrameScope`] hands back. [`FrameScopeGuard::complete`] ends the
+/// scope with its frame KEPT; dropping it unfinished — emission failed and
+/// returned early — ends it ABANDONED: the frame it built is discarded and the
+/// last completed one stays the retained frame. A failed frame kept as if it
+/// had completed let the next frame reset the scene still on screen (board
+/// cycle 62: the chat's crash in the focus walk, TASK-0344).
 pub struct FrameScopeGuard {
-    on_exit: Option<fn()>,
+    on_exit: Option<fn(bool)>,
 }
 
 impl FrameScopeGuard {
-    /// A guard that runs `on_exit` when emission finishes.
+    /// A guard that runs `on_exit(completed)` when emission ends.
     #[must_use]
-    pub fn new(on_exit: fn()) -> Self {
+    pub fn new(on_exit: fn(bool)) -> Self {
         Self { on_exit: Some(on_exit) }
     }
 
@@ -64,12 +71,20 @@ impl FrameScopeGuard {
     pub fn inert() -> Self {
         Self { on_exit: None }
     }
+
+    /// The frame is built: the scope ends with it kept.
+    pub fn complete(mut self) {
+        if let Some(on_exit) = self.on_exit.take() {
+            on_exit(true);
+        }
+    }
 }
 
 impl Drop for FrameScopeGuard {
+    /// Dropped without [`FrameScopeGuard::complete`]: the frame failed.
     fn drop(&mut self) {
         if let Some(on_exit) = self.on_exit.take() {
-            on_exit();
+            on_exit(false);
         }
     }
 }
@@ -122,8 +137,8 @@ impl<'p> View<'p> {
         locale: &dyn LocaleSource,
     ) -> Result<Self, MountError> {
         let runtime = Runtime::mount(bytes)?;
-        let reader = nexus_dsl_ir::read::ProgramReader::from_canonical_bytes(bytes)
-            .map_err(MountError::Ir)?;
+        // The mount's reads are one operation: one reader of the checked program.
+        let reader = runtime.reader();
         let root = reader.root().map_err(MountError::Ir)?;
         let nav = Nav::mount(root).map_err(MountError::Rt)?;
         let keys: Vec<u32> = root
@@ -346,7 +361,7 @@ impl<'p> View<'p> {
         locale: &dyn LocaleSource,
     ) -> Result<(), RtError> {
         let (scene, deps, handlers, animations, live_instances, overlays) = {
-            let _scope = self.frame_scope.map(FrameScope::enter);
+            let scope = self.frame_scope.map(FrameScope::enter);
             let bytes_reader = self.runtime.reader();
             let root = bytes_reader.root().map_err(|_| RtError::Malformed)?;
             let components = root.get_components().map_err(|_| RtError::Malformed)?;
@@ -408,6 +423,12 @@ impl<'p> View<'p> {
             // happens for an emitted container).
             for entry in overlays.entries_mut() {
                 entry.box_id = interact::path_to_box_id(&scene, &entry.path).unwrap_or(0);
+            }
+            // The frame is built: its generation is kept. Every `?` above drops
+            // the scope unfinished instead — the failed frame is abandoned and
+            // the scene on screen stays the retained one.
+            if let Some(scope) = scope {
+                scope.complete();
             }
             (scene, deps, handlers, animations, live_instances, overlays)
         };

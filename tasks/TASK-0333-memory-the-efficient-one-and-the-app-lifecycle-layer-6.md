@@ -175,6 +175,10 @@ line, CHANGELOG, `docs/testing`).
   6b commits them on touch; the allocator's freeing by default (and gpud's boxed executor per
   windowd restart, 10 KB above the free list's largest class) is judged there, where growth
   becomes RSS the `KINIT: mm space` line shows.
+  **2026-10-22: the bounded large-block list was pulled forward by TASK-0344** (under the existing
+  `small-object-free-list` opt-in: app-host, vfsd, screencapd) — the chat's spilled layout lost
+  ~155 KB of base heap a keystroke and the app died after ~20; the default-on allocator for every
+  service and gpud's adoption stay here.
 - **P3, cycle 45 (board, 2026-10-19):** the loop green on four harts (`rss loop ok leaked=0`,
   ten `by=reap` reclaims, the create-phase guard holds); **a window closed with its button never
   ends its process** — nine launches, nine live app-hosts, `abilitymgr` instances 4…9, no

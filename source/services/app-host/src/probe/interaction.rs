@@ -154,7 +154,14 @@ impl super::DslApp {
     pub(super) fn relayout_bounded(&mut self) {
         let old_boxes = core::mem::take(&mut self.layout.boxes);
         let old_texts = core::mem::take(&mut self.texts);
-        self.relayout_retained();
+        if !self.relayout_retained() {
+            // The layout failed and was abandoned: the screen still shows the retained boxes —
+            // they go back, and nothing is repainted (an empty span).
+            self.layout.boxes = old_boxes;
+            self.texts = old_texts;
+            self.tap_render_span = Some((0, 0));
+            return;
+        }
         self.tap_render_span = crate::layout_diff::changed_row_span(
             &old_boxes,
             &self.layout.boxes,

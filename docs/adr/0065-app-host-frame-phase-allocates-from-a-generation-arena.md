@@ -179,3 +179,31 @@ recycled bytes (a user page fault in app-host on the board, reproduced on the `u
 lane: toast timeout → alert). The rule, now explicit: inside a generation only the frame's own
 outputs are built; anything that persists across frames is touched after the guard drops.
 `relayout_retained` = `relayout_in_generation()` (the guard) + `anim_sync()` (after).
+
+## Amendment 2026-10-22 (TASK-0344, board cycle 62): a frame that fails is abandoned, never kept
+
+A generation used to end one way — `close` — whether its frame was built or its emission had
+failed half-way and returned early. A failed emit keeps the scene it failed to replace, yet its
+generation counted as a frame: the next open reset the half that scene lived in while it was
+still on screen. Two failed emits in a row on the board (the program reader's budget spent —
+TASK-0344) and the next tap's focus walk read the poison: the chat's crash in
+`focus::subtree_is_secure`, cycles 61 and 62. The rule, now: a frame scope ends **kept**
+(`complete()`) or **abandoned** (dropped unfinished). An abandoned generation is discarded and
+the next frame reuses its half (`Generations::abandon`), so the half of the last frame that
+completed is never the next one reset. `FrameGeneration` and the DSL runtime's `FrameScopeGuard`
+keep a frame only on `complete()`; app-host's emit scope ends by the runtime's word, and a layout
+that fails is abandoned with its boxes on screen kept. `apphost: frame arena (… abandoned=)` counts
+the frames discarded. Host: `generation.rs`
+(`test_reject_resetting_the_frame_on_screen_after_failed_frames`) and the poisoning harness's
+duplicate-key emits (`arena_invariant.rs`; under the old rule it aborts on a slice whose length is
+the poison).
+
+And the base heap reuses its LARGE blocks (the same task): a block above the largest size class
+went to the bump and never came back, so a frame that spilled — the chat's layout, larger than an
+arena half — lost ~155 KB of base heap per re-layout until the 4 MiB heap was full (`alloc-fail`
+after ~20 keystrokes, board 2026-10-22). Large blocks now return to a bounded list
+(`crate::large`, under the `small-object-free-list` opt-in): address order, first fit with the
+rest split off, freed neighbours merged, a double free refused, a block with no slot dropped and
+counted (`apphost: frame arena (… large= lost=)`). The spill itself, and the arena's size, stay the
+memory lane's (6b); a spilling session's heap is flat after its first two layouts
+(`a_spilling_session_stops_growing_after_two_layouts`).

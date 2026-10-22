@@ -52,6 +52,8 @@ static GENERATIONS: AtomicUsize = AtomicUsize::new(0);
 /// Bytes handed out by the SYSTEM heap — i.e. outside every scope. On the OS
 /// this is exactly what the never-freeing base heap would keep.
 static SYSTEM_BYTES: AtomicUsize = AtomicUsize::new(0);
+/// Frames abandoned — emissions that failed half-way.
+static ABANDONED: AtomicUsize = AtomicUsize::new(0);
 
 fn arena_base() -> usize {
     core::ptr::addr_of!(ARENA) as usize
@@ -80,6 +82,15 @@ fn open_generation() {
 
 fn close_generation() {
     OPEN.store(false, Ordering::Relaxed);
+}
+
+/// A frame that failed: its generation is discarded and the next one flips
+/// onto the same half again — the retained half is never the next reset
+/// (`Generations::abandon` on the OS, TASK-0344).
+fn abandon_generation() {
+    OPEN.store(false, Ordering::Relaxed);
+    ACTIVE.fetch_xor(1, Ordering::Relaxed);
+    ABANDONED.fetch_add(1, Ordering::Relaxed);
 }
 
 struct PoisoningArena;
@@ -135,7 +146,13 @@ static EMIT_SCOPE: EmitScope = EmitScope;
 impl FrameScope for EmitScope {
     fn enter(&self) -> FrameScopeGuard {
         open_generation();
-        FrameScopeGuard::new(close_generation)
+        FrameScopeGuard::new(|completed| {
+            if completed {
+                close_generation();
+            } else {
+                abandon_generation();
+            }
+        })
     }
 }
 
@@ -278,10 +295,73 @@ fn nothing_emission_allocates_outlives_its_generation() {
         &[("SetPanel", vec![Value::Str("control".into())]), ("PanelNoop", vec![])],
         FRAMES,
     );
-    // `settings` is deliberately absent: driving `WindowEvent::WinMenu` for
-    // 34 frames returns `Malformed` from the runtime on a PLAIN heap too
-    // (verified with `ARENA_OFF=1`), so it would fail this test for a reason
-    // this test is not about. Recorded as a defect in TASK-0077C's ledger.
+    // `settings` is back: its window menu answered `Malformed` after ~28
+    // toggles because the runtime spent ONE reader's traversal budget over the
+    // app's life — a reader per operation now (TASK-0344).
+    drive(
+        "settings",
+        "WindowEvent",
+        &[("WinMenu", vec![Value::Str("app".into())]), ("WinMenu", vec![Value::Str("".into())])],
+        FRAMES,
+    );
     drive("stash", "StashEvent", &[("WinLeft", vec![]), ("WinRight", vec![])], FRAMES);
     drive_text_focus(FRAMES);
+    drive_failed_emits();
+}
+
+/// A frame that FAILS keeps the frame on screen readable (TASK-0344): two
+/// list items with the same key make every emit fail (`DuplicateKey`) while
+/// the store holds them. Before, each failed emit kept its generation, so the
+/// second one reset the half of the scene still shown — the board's crash in
+/// the next tap's focus walk. The canary reads the scene after the failures.
+fn drive_failed_emits() {
+    let src = r#"Store S { items: List<Int> = [1, 2], }
+Event E { Add(Int), }
+reduce E { Add(n) => state.items = state.items + [n], }
+Page Main {
+    Stack {
+        List($state.items) { it in
+            Text(it).key(it)
+        }
+    }
+}
+"#;
+    let file = nexus_dsl_core::parse_file(src).expect("parses");
+    let (model, diags) = nexus_dsl_core::check_file(&file);
+    assert!(!nexus_dsl_core::has_errors(&diags), "check: {diags:?}");
+    let nxir = nexus_dsl_core::lower_file(&file, &model, src).expect("lowers").nxir;
+    let tokens = nexus_theme_tokens::BaseTokens;
+    let device = FixtureEnv::tablet("landscape");
+    let symbols = common::program_symbols(&nxir);
+    let keys = common::program_i18n_keys(&nxir);
+    let locale = IdentityLocale { symbols: &symbols, keys: &keys };
+    let mut view = View::mount(&nxir, &tokens, &device, &locale).expect("mounts");
+    if std::env::var_os("ARENA_OFF").is_none() {
+        view.set_frame_scope(&EMIT_SCOPE);
+    }
+    let mut host = NoIo;
+    let (e, c) = view.runtime().event_case("E", "Add").expect("E::Add");
+    view.dispatch(&tokens, &device, &locale, &mut host, e, c, vec![Value::Int(3)])
+        .expect("a new key emits");
+    let shown = common::scene_texts(&view);
+    assert_eq!(shown, ["1", "2", "3"], "the frame on screen");
+    let abandoned = ABANDONED.load(Ordering::Relaxed);
+    // A second 3: from now on the store holds a duplicate, every emit fails.
+    for (frame, n) in [3, 4, 5].into_iter().enumerate() {
+        let failed = view.dispatch(&tokens, &device, &locale, &mut host, e, c, vec![Value::Int(n)]);
+        assert_eq!(
+            failed.err(),
+            Some(nexus_dsl_runtime::RtError::DuplicateKey),
+            "failed frame {frame}: the duplicate key fails the emit"
+        );
+        canary(&view, frame, "failed emits");
+        assert_eq!(
+            common::scene_texts(&view),
+            shown,
+            "failed frame {frame} lost the frame on screen"
+        );
+    }
+    if std::env::var_os("ARENA_OFF").is_none() {
+        assert_eq!(ABANDONED.load(Ordering::Relaxed) - abandoned, 3, "each failed emit abandoned");
+    }
 }

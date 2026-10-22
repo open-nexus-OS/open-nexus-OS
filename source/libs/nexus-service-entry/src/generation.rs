@@ -90,6 +90,8 @@ pub(crate) struct Generations {
     /// point of the arena is that this never happens, so it is reported once
     /// and gated on, not counted.
     spilled: bool,
+    /// Frames that failed half-way and were discarded ([`Generations::abandon`]).
+    abandoned: usize,
 }
 
 impl Generations {
@@ -102,6 +104,7 @@ impl Generations {
             open: false,
             peak: 0,
             spilled: false,
+            abandoned: 0,
         }
     }
 
@@ -144,6 +147,28 @@ impl Generations {
     /// the next frame diffs against; only its SUCCESSOR's open resets it.
     pub(crate) fn close(&mut self) {
         self.open = false;
+    }
+
+    /// Ends the scope of a frame that FAILED half-way, discarding it: the next
+    /// open flips onto the same half again. So the half holding the last frame
+    /// that completed — the one on screen — is never the next one reset.
+    ///
+    /// `close` would keep a failed frame as if it had completed: its successor
+    /// would then reset the half the screen still reads. Two failed emits in a
+    /// row did exactly that on the board, and the next tap's focus walk read
+    /// the poison (cycle 62, TASK-0344).
+    pub(crate) fn abandon(&mut self) {
+        if !self.open {
+            return;
+        }
+        self.open = false;
+        self.active ^= 1;
+        self.abandoned += 1;
+    }
+
+    /// Frames discarded so far — the number the budget probe prints.
+    pub(crate) fn abandoned(&self) -> usize {
+        self.abandoned
     }
 
     /// Where the next allocation of `size`/`align` goes.
@@ -308,6 +333,47 @@ mod tests {
         let boxes_half = layout_base + ((boxes - layout_base) / HALF) * HALF;
         assert_ne!(reset.0, boxes_half, "an emit-only frame must never reset the boxes");
         assert_eq!(pairs[Region::Layout.index()].peak(), 256, "layout's peak is its own");
+    }
+
+    /// A failed frame is discarded and its half reused by the next frame; the
+    /// frame that completed before it stays where it is.
+    #[test]
+    fn a_failed_frame_is_discarded_and_the_frame_on_screen_kept() {
+        let mut g = gens();
+        g.open();
+        let Place::Arena(shown) = g.place(128, 8) else { panic!("arena expected") };
+        g.close();
+        g.open(); // a frame that fails half-way
+        let Place::Arena(failed) = g.place(64, 8) else { panic!("arena expected") };
+        g.abandon();
+        assert_eq!(g.abandoned(), 1);
+        let reset = g.open(); // the next frame
+        assert_eq!(reset, (failed, 64), "the next frame reuses the failed frame's half");
+        let Place::Arena(next) = g.place(64, 8) else { panic!("arena expected") };
+        assert_eq!(next, failed, "…from its start");
+        assert!(!(shown..shown + 128).contains(&next), "the frame on screen was written");
+        g.close();
+    }
+
+    /// The board's crash, as a rule: failed frames in a row must never reach
+    /// the half of the frame on screen — with `close` instead of `abandon` the
+    /// second one reset it.
+    #[test]
+    fn test_reject_resetting_the_frame_on_screen_after_failed_frames() {
+        let mut g = gens();
+        g.open();
+        let Place::Arena(shown) = g.place(128, 8) else { panic!("arena expected") };
+        g.close();
+        for frame in 0..4 {
+            let (reset, _) = g.open();
+            assert_ne!(reset, shown, "failed frame {frame} reset the frame on screen");
+            let _ = g.place(64, 8);
+            g.abandon();
+        }
+        assert_eq!(g.abandoned(), 4);
+        // Abandoning without an open scope changes nothing.
+        g.abandon();
+        assert_eq!(g.abandoned(), 4);
     }
 
     #[test]

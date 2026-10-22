@@ -471,7 +471,8 @@ fn cmd_run(args: &[String]) -> ExitCode {
 /// Resolves a bare case name against the mounted program's events.
 fn find_case(view: &nexus_dsl_runtime::View<'_>, case: &str) -> Option<(u32, u32)> {
     let runtime = view.runtime();
-    let root = runtime.reader().root().ok()?;
+    let reader = runtime.reader();
+    let root = reader.root().ok()?;
     let case_sym = runtime.symbols().iter().position(|s| s == case)? as u32;
     for (e, decl) in root.get_events().ok()?.iter().enumerate() {
         for (c, case_decl) in decl.get_cases().ok()?.iter().enumerate() {

@@ -55,7 +55,7 @@ pub use view::{FrameScope, FrameScopeGuard, View};
 
 use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
 use effects::Pending;
-use nexus_dsl_ir::read::ProgramReader;
+use nexus_dsl_ir::read::{Program, ProgramReader};
 use nexus_dsl_ir::IrError;
 
 /// Deterministic runtime errors (stable, matchable — never formatted away).
@@ -155,7 +155,9 @@ pub struct ChangedField {
 
 /// The mounted program.
 pub struct Runtime<'p> {
-    reader: ProgramReader<'p>,
+    /// The checked program bytes. Read through [`Runtime::reader`] — a fresh
+    /// reader, and so a whole traversal budget, per operation (TASK-0344).
+    program: Program<'p>,
     symbols: Vec<String>,
     stores: Vec<StoreSlot>,
     locals: Vec<Option<Value>>,
@@ -175,7 +177,9 @@ impl<'p> Runtime<'p> {
     /// Any [`IrError`] from reading/validation, [`RtError`] from default
     /// evaluation.
     pub fn mount(bytes: &'p [u8]) -> Result<Self, MountError> {
-        let reader = ProgramReader::from_canonical_bytes(bytes).map_err(MountError::Ir)?;
+        let program = Program::from_canonical_bytes(bytes).map_err(MountError::Ir)?;
+        // Validation and the stores' defaults are one operation: one reader.
+        let reader = program.reader();
         {
             let root = reader.root().map_err(MountError::Ir)?;
             nexus_dsl_ir::validate::validate_program(root).map_err(MountError::Ir)?;
@@ -229,7 +233,7 @@ impl<'p> Runtime<'p> {
         }
 
         Ok(Self {
-            reader,
+            program,
             symbols,
             stores,
             locals: vec![None; max_locals],
@@ -243,10 +247,14 @@ impl<'p> Runtime<'p> {
         &self.symbols
     }
 
-    /// The underlying bounded program reader.
+    /// A reader of the program for ONE operation — an emit, a dispatch step, a
+    /// lookup — with a whole traversal budget. Never keep one across
+    /// operations: capnp's budget belongs to the reader and only counts down,
+    /// and the reader an app once kept for its life ran dry after 28 menu
+    /// toggles, answering every later read `Malformed` (TASK-0344).
     #[must_use]
-    pub fn reader(&self) -> &ProgramReader<'p> {
-        &self.reader
+    pub fn reader(&self) -> ProgramReader<'p> {
+        self.program.reader()
     }
 
     #[must_use]
@@ -326,7 +334,8 @@ impl<'p> Runtime<'p> {
 
     /// Reads a store field by names (test/debug convenience).
     pub fn field(&self, store_name: &str, field_name: &str) -> Option<&Value> {
-        let root = self.reader.root().ok()?;
+        let reader = self.reader();
+        let root = reader.root().ok()?;
         let store_sym = self.symbols.iter().position(|s| s == store_name)? as u32;
         let field_sym = self.symbols.iter().position(|s| s == field_name)? as u32;
         let stores = root.get_stores().ok()?;
@@ -342,7 +351,8 @@ impl<'p> Runtime<'p> {
 
     /// Resolves an event case by names (test/host convenience).
     pub fn event_case(&self, event: &str, case: &str) -> Option<(u32, u32)> {
-        let root = self.reader.root().ok()?;
+        let reader = self.reader();
+        let root = reader.root().ok()?;
         let event_sym = self.symbols.iter().position(|s| s == event)? as u32;
         let case_sym = self.symbols.iter().position(|s| s == case)? as u32;
         for (e, decl) in root.get_events().ok()?.iter().enumerate() {
@@ -430,7 +440,8 @@ impl<'p> Runtime<'p> {
         pending: &Pending,
         queue: &mut Vec<Pending>,
     ) -> Result<(), RtError> {
-        let root = self.reader.root().map_err(|_| RtError::Malformed)?;
+        let reader = self.reader();
+        let root = reader.root().map_err(|_| RtError::Malformed)?;
 
         // 1. Reduce (pure) + commit.
         for reducer in root.get_reducers().map_err(|_| RtError::Malformed)?.iter() {

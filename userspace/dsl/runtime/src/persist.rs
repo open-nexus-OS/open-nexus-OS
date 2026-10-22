@@ -28,7 +28,8 @@ impl Runtime<'_> {
     /// True when the mounted program declares at least one `@persist` field.
     #[must_use]
     pub fn has_persist_fields(&self) -> bool {
-        let Ok(root) = self.reader().root() else { return false };
+        let reader = self.reader();
+        let Ok(root) = reader.root() else { return false };
         let Ok(stores) = root.get_stores() else { return false };
         stores
             .iter()
@@ -40,7 +41,8 @@ impl Runtime<'_> {
     /// program has no persisted fields (hosts skip the write entirely).
     #[must_use]
     pub fn persist_snapshot(&self) -> Option<Vec<u8>> {
-        let root = self.reader().root().ok()?;
+        let reader = self.reader();
+        let root = reader.root().ok()?;
         let ir_stores = root.get_stores().ok()?;
         let mut entries: u16 = 0;
         let mut body = Vec::new();
@@ -100,7 +102,8 @@ impl Runtime<'_> {
     /// Writes one restored value if the target still exists, is still
     /// `@persist`, and the value variant matches the current default.
     fn restore_field(&mut self, store_name: &str, field_name: &str, value: Value) -> bool {
-        let Ok(root) = self.reader().root() else { return false };
+        let reader = self.reader();
+        let Ok(root) = reader.root() else { return false };
         let Ok(ir_stores) = root.get_stores() else { return false };
         for (si, store) in ir_stores.iter().enumerate() {
             if self.symbols().get(store.get_name() as usize).map(String::as_str) != Some(store_name)

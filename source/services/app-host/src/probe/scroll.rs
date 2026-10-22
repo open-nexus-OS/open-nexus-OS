@@ -440,8 +440,13 @@ impl super::DslApp {
 
     /// Re-run layout for the CURRENT scene (model changed) and reconcile the scroll layers:
     /// offsets clamp to the new content, the end triggers re-arm, the store follows a new set.
-    pub(super) fn relayout_retained(&mut self) {
-        self.relayout_in_generation();
+    ///
+    /// Returns whether it laid out: a layout that fails is abandoned with its generation and
+    /// the boxes on screen stay the retained ones (TASK-0344).
+    pub(super) fn relayout_retained(&mut self) -> bool {
+        if !self.relayout_in_generation() {
+            return false;
+        }
         // OUTSIDE the generation: the animation driver's Vecs are DURABLE state.
         // Synced inside it, their pushes landed in arena memory the layout two
         // frames later reset under a running fade (ADR-0065 amendment, 2026-10-06).
@@ -454,9 +459,10 @@ impl super::DslApp {
             self.store_replan |= self.outgrows(plan);
         }
         // What the bands hold is redrawn where the change's damage names it (`band::redraw`).
+        true
     }
 
-    fn relayout_in_generation(&mut self) {
+    fn relayout_in_generation(&mut self) -> bool {
         // ADR-0065: THIS is the frame phase. Everything allocated from here to
         // the end of the function comes from the generation arena and is freed
         // wholesale two frames later.
@@ -467,7 +473,7 @@ impl super::DslApp {
         // `relayout_retained`. Exactly one caller holds one (the damage diff keeps
         // `old_boxes`/`old_texts`), across exactly one.
         #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
-        let _generation =
+        let generation =
             nexus_service_entry::os::frame_generation(nexus_service_entry::os::Region::Layout);
         let engine = nexus_layout::LayoutEngine::new();
         let Ok(layout) = engine.layout_with_viewport(
@@ -476,7 +482,9 @@ impl super::DslApp {
             Some(nexus_layout_types::FxPx::new(self.h as i32)),
             &nexus_text_baked::measure_text::BakedTextMeasure,
         ) else {
-            return;
+            // The guard drops unfinished: the failed layout is abandoned, and the boxes on
+            // screen — the retained generation — are never the next layout's to reset.
+            return false;
         };
         self.layout = layout;
         // FRESH, not `clear()`+refill: a buffer kept across frames would be
@@ -495,6 +503,9 @@ impl super::DslApp {
             super::paint::collect_dump_text_runs(&self.texts, &self.layout.boxes);
         }
         self.report_frame_arena();
+        #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+        generation.complete();
+        true
     }
 
     /// The lowest row the layout reaches (a layer's content runs far below the surface): the

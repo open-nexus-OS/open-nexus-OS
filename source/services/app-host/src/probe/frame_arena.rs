@@ -59,6 +59,9 @@ impl super::DslApp {
         // requests (never on a list). A flat heap shows 0/0.
         let (class_total, large_total) = nexus_service_entry::os::carve_stats();
         let gen = nexus_service_entry::os::generation_count();
+        let abandoned = nexus_service_entry::os::abandoned_frames();
+        // The large list (TASK-0344): a spilling frame's blocks come back here.
+        let (large_blocks, large_bytes, lost) = nexus_service_entry::os::large_list_stats();
         let class_delta = class_total - LAST_CARVE.0.swap(class_total, Ordering::Relaxed);
         let large_delta = large_total - LAST_CARVE.1.swap(large_total, Ordering::Relaxed);
         let mut m = alloc::string::String::new();
@@ -66,7 +69,8 @@ impl super::DslApp {
             &mut m,
             format_args!(
                 "apphost: frame arena (layouts={n} gen={gen} base={base} peak={peak} of={size} \
-                 spill={} free={free} carve={class_delta}/{large_delta})",
+                 spill={} free={free} large={large_blocks}/{large_bytes} lost={lost} \
+                 carve={class_delta}/{large_delta} abandoned={abandoned})",
                 usize::from(spilled)
             ),
         );

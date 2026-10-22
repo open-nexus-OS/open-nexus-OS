@@ -27,6 +27,10 @@ mod generation;
 #[cfg(any(test, feature = "small-object-free-list"))]
 #[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
 mod freelist;
+// Its large-block half (TASK-0344), under the same opt-in.
+#[cfg(any(test, feature = "small-object-free-list"))]
+#[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
+mod large;
 
 mod cursor_tripwire;
 mod debug_write;
@@ -197,6 +201,10 @@ pub mod os {
         /// Opt-in per service; a service without the feature has no field.
         #[cfg(feature = "small-object-free-list")]
         lists: crate::freelist::FreeLists,
+        /// Freed blocks above the largest class (TASK-0344) — a frame's spill
+        /// among them, which otherwise never came back.
+        #[cfg(feature = "small-object-free-list")]
+        large: crate::large::LargeList,
     }
 
     impl Bump {
@@ -208,6 +216,8 @@ pub mod os {
                 gens: [crate::generation::Generations::empty(); crate::generation::Region::COUNT],
                 #[cfg(feature = "small-object-free-list")]
                 lists: crate::freelist::FreeLists::empty(),
+                #[cfg(feature = "small-object-free-list")]
+                large: crate::large::LargeList::empty(),
             }
         }
 
@@ -237,7 +247,9 @@ pub mod os {
         }
 
         /// The class-rounded layout a small request is carved with, so the
-        /// block can serve ANY later request of its class (`crate::freelist`).
+        /// block can serve ANY later request of its class (`crate::freelist`);
+        /// a large one is carved on the large list's granule, so its free names
+        /// exactly the bytes it was handed (`crate::large`).
         #[cfg(feature = "small-object-free-list")]
         fn class_layout(layout: Layout) -> (Option<usize>, Layout) {
             match crate::freelist::class_for(layout.size(), layout.align()) {
@@ -252,7 +264,12 @@ pub mod os {
                         )
                     },
                 ),
-                None => (None, layout),
+                None => match crate::large::large_size(layout.size(), layout.align())
+                    .and_then(|size| Layout::from_size_align(size, crate::large::LARGE_ALIGN).ok())
+                {
+                    Some(rounded) => (None, rounded),
+                    None => (None, layout),
+                },
             }
         }
 
@@ -261,16 +278,24 @@ pub mod os {
             (None, layout)
         }
 
-        /// A block a free list can hand back for this layout, if one is parked.
+        /// A block a free list can hand back for this (class-rounded) layout,
+        /// if one is parked: its class's, or the large list's.
         #[cfg(feature = "small-object-free-list")]
-        fn reuse(&mut self, class: Option<usize>) -> Option<*mut u8> {
-            // SAFETY: only `dealloc` pushes, only with blocks this allocator
-            // carved for that class and that nothing references any more.
-            class.and_then(|c| unsafe { self.lists.pop(c) }).map(|addr| addr as *mut u8)
+        fn reuse(&mut self, class: Option<usize>, layout: Layout) -> Option<*mut u8> {
+            let addr = match class {
+                // SAFETY: only `dealloc` pushes, only with blocks this
+                // allocator carved for that class and that nothing references.
+                Some(c) => unsafe { self.lists.pop(c) },
+                None if layout.align() <= crate::large::LARGE_ALIGN => {
+                    self.large.take(layout.size())
+                }
+                None => None,
+            };
+            addr.map(|a| a as *mut u8)
         }
 
         #[cfg(not(feature = "small-object-free-list"))]
-        fn reuse(&mut self, _class: Option<usize>) -> Option<*mut u8> {
+        fn reuse(&mut self, _class: Option<usize>, _layout: Layout) -> Option<*mut u8> {
             None
         }
 
@@ -343,8 +368,8 @@ pub mod os {
     static ALLOCATOR: LockedBump = LockedBump::new();
     mod frame_arena;
     pub use frame_arena::{
-        arena_stats, close_frame_generation, frame_generation, free_list_stats, generation_count,
-        FrameGeneration,
+        abandon_frame_generation, abandoned_frames, arena_stats, close_frame_generation,
+        frame_generation, free_list_stats, generation_count, large_list_stats, FrameGeneration,
     };
     pub use global_alloc::carve_stats;
 

@@ -7,8 +7,9 @@
 //! the allocator, and the seam is the `ALLOCATOR` static it borrows.
 //!
 //! The rule it implements lives in `crate::generation` (host-proven); the
-//! memory lives in the parent module. This file is the guard, the close for a
-//! guard someone else owns, the poison tripwire, and the probe's read side.
+//! memory lives in the parent module. This file is the guard, the close and the
+//! abandon for a guard someone else owns (a failed frame is discarded, never
+//! kept — TASK-0344), the poison tripwire, and the probe's read side.
 //!
 //! OWNERS: @runtime @ui
 //! STATUS: Functional
@@ -18,7 +19,7 @@
 
 use super::{Region, ALLOCATOR, ARENA_SIZE};
 
-/// A frame generation, open until this guard drops (ADR-0065).
+/// A frame generation, open until this guard ends (ADR-0065).
 ///
 /// While it lives, allocations come from the arena instead of the base
 /// heap, and the generation opened two frames ago is reset. A guard rather
@@ -26,11 +27,23 @@ use super::{Region, ALLOCATOR, ARENA_SIZE};
 /// would put a later store write into memory that is about to be reused,
 /// and that is the one hazard this design has.
 ///
+/// [`FrameGeneration::complete`] keeps the frame; a guard DROPPED unfinished —
+/// the early return of a frame that failed — abandons it, so the last frame
+/// that completed stays the retained one (TASK-0344).
+///
 /// A service that did not enable `frame-arena`, or one whose arena is not
 /// armed, gets a guard that changes nothing.
-#[must_use = "the generation closes when this guard drops; binding it to `_` closes it at once"]
+#[must_use = "a dropped guard abandons its generation; `complete()` keeps the frame"]
 pub struct FrameGeneration {
     region: Region,
+}
+
+impl FrameGeneration {
+    /// The frame is built: the generation ends with it kept.
+    pub fn complete(self) {
+        close_frame_generation(self.region);
+        core::mem::forget(self);
+    }
 }
 
 /// Opens the next frame generation for `region`. See [`FrameGeneration`].
@@ -57,17 +70,33 @@ pub fn frame_generation(region: Region) -> FrameGeneration {
 }
 
 impl Drop for FrameGeneration {
+    /// Dropped without [`FrameGeneration::complete`]: the frame failed.
     fn drop(&mut self) {
-        close_frame_generation(self.region);
+        abandon_frame_generation(self.region);
     }
 }
 
 /// Closes a generation opened with [`frame_generation`] whose guard was
-/// deliberately leaked — the shape a caller needs when the guard's
-/// lifetime is owned by someone else's type (the DSL runtime's
+/// deliberately leaked, keeping its frame — the shape a caller needs when the
+/// guard's lifetime is owned by someone else's type (the DSL runtime's
 /// `FrameScopeGuard`).
 pub fn close_frame_generation(region: Region) {
     ALLOCATOR.inner.lock().gens[region.index()].close();
+}
+
+/// Abandons a generation opened with [`frame_generation`] whose guard was
+/// leaked: its frame failed and is discarded, the next one reuses its half
+/// (`Generations::abandon`).
+pub fn abandon_frame_generation(region: Region) {
+    ALLOCATOR.inner.lock().gens[region.index()].abandon();
+}
+
+/// Frames abandoned since boot, across both regions — `0` while no frame
+/// ever failed.
+pub fn abandoned_frames() -> usize {
+    ALLOCATOR.ensure_init();
+    let bump = ALLOCATOR.inner.lock();
+    bump.gens.iter().map(crate::generation::Generations::abandoned).sum()
 }
 
 /// Arena introspection for the budget probe: `(peak_bytes, spilled, size)`.
@@ -94,6 +123,23 @@ pub fn free_list_stats() -> usize {
     #[cfg(not(feature = "small-object-free-list"))]
     {
         0
+    }
+}
+
+/// The large list (TASK-0344): `(blocks, bytes)` free on it, and the frees it
+/// lost (no slot) or refused (a double free). `(0, 0, 0)` where the feature is
+/// off.
+pub fn large_list_stats() -> (usize, usize, usize) {
+    #[cfg(feature = "small-object-free-list")]
+    {
+        ALLOCATOR.ensure_init();
+        let bump = ALLOCATOR.inner.lock();
+        let (blocks, bytes) = bump.large.free();
+        (blocks, bytes, bump.large.lost())
+    }
+    #[cfg(not(feature = "small-object-free-list"))]
+    {
+        (0, 0, 0)
     }
 }
 

@@ -171,10 +171,21 @@ static EMIT_ARENA: EmitArena = EmitArena;
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 impl nexus_dsl_runtime::FrameScope for EmitArena {
     fn enter(&self) -> nexus_dsl_runtime::FrameScopeGuard {
-        use nexus_service_entry::os::{close_frame_generation, frame_generation, Region};
-        // The allocator's own guard would close on drop; the runtime owns the
-        // lifetime instead, so leak that guard and close explicitly.
+        use nexus_service_entry::os::{
+            abandon_frame_generation, close_frame_generation, frame_generation, Region,
+        };
+        // The allocator's own guard would end the generation on drop; the runtime
+        // owns the lifetime instead, so leak that guard and end it by the
+        // runtime's word: kept when the frame completed, abandoned when emission
+        // failed — the scene on screen is never the next frame's to reset
+        // (TASK-0344).
         core::mem::forget(frame_generation(Region::Emit));
-        nexus_dsl_runtime::FrameScopeGuard::new(|| close_frame_generation(Region::Emit))
+        nexus_dsl_runtime::FrameScopeGuard::new(|completed| {
+            if completed {
+                close_frame_generation(Region::Emit);
+            } else {
+                abandon_frame_generation(Region::Emit);
+            }
+        })
     }
 }

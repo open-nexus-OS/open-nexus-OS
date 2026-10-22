@@ -103,7 +103,8 @@ static EMIT_SCOPE: EmitScope = EmitScope;
 impl FrameScope for EmitScope {
     fn enter(&self) -> FrameScopeGuard {
         begin(EMIT);
-        FrameScopeGuard::new(|| {
+        // Kept or abandoned, the phase ends: this probe measures, it does not recycle.
+        FrameScopeGuard::new(|_completed| {
             let _ = end(EMIT);
         })
     }

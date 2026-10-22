@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-10-22 (apps stopped answering taps and typing after a while, the chat crashed or ran out of memory — TASK-0344)
+
+- **An app reads its program with a fresh budget per operation.** The DSL runtime read an app's
+  compiled program through one reader for the app's whole life, and that reader's traversal
+  budget only counts down: settings stopped answering after 28 menu toggles, a text field after
+  482 keystrokes (`Malformed`). Every emit, dispatch step and lookup now reads through its own
+  reader; one operation that reads past its budget is still refused.
+- **A frame that fails leaves the frame on screen intact.** A failed emit used to keep its
+  arena generation, so the next frame reset the scene still shown and the next tap read the
+  poison — the chat's crash while typing. A failed frame is now discarded and the next frame
+  reuses its memory (ADR-0065 amended); a failed layout keeps its boxes on screen.
+  `apphost: frame arena (… abandoned=)` counts the frames discarded.
+- **Typing in the chat no longer runs the app out of memory.** Each keystroke re-lays out the
+  chat page, whose boxes spill out of the frame arena as blocks above the largest size class —
+  and those never came back: ~155 KB a keystroke until the 4 MiB heap was full after ~20. The
+  base heap now returns such blocks to a bounded list (first fit, neighbours merged, a double
+  free refused); a spilling session's heap is flat after two layouts.
+
 ### Changed - 2026-10-22 (frame pacing and a scroll frame without corners — TASK-0343, RFC-0110, TASK-0335 P4)
 
 - **A scroll frame draws only what scrolls.** A glass's back runs the opaque program over its

@@ -134,6 +134,18 @@ generation.
   stores and the text-focus record run after the emit guard has dropped.
 - A reducer never runs inside a scope; store writes are on the ordinary heap by
   construction, because the scope opens in `View::emit`, after the reduce.
+- A frame that **fails** is abandoned, never kept: the scope ends with
+  `complete()` only when the frame is built, and a scope dropped on an early
+  return discards its generation — the next frame reuses that half, so the frame
+  on screen (the last one that completed) is never the one reset. A failed emit
+  kept as a frame let the next one reset the scene still shown (TASK-0344).
+
+**And the program is read per operation.** capnp's traversal budget belongs to a
+reader and only counts down, so the runtime keeps the checked bytes (`Program`)
+and reads them through a fresh reader for each emit, dispatch step or lookup
+(`Runtime::reader()`). Never keep a reader across operations: one kept for an
+app's life ran dry after 28 menu toggles and answered every later read
+`Malformed` (TASK-0344).
 
 **And durable state frees.** What the arena cannot hold — store values, the
 dispatch queue, anything that outlives a frame — still churned on a heap that
@@ -141,14 +153,18 @@ never freed: 432 B per layout on a real boot, a ceiling of ~39 000 interactions.
 So the app-host's base heap frees by size class (`small-object-free-list`,
 ADR-0065): eight classes from 16 to 2048 bytes, LIFO reuse, O(1), no coalescing
 — a session's working set is bounded by its peak per class, and the heap is
-back on the 4 MiB floor the 8 and 16 MiB raises had left.
+back on the 4 MiB floor the 8 and 16 MiB raises had left. Blocks above the
+largest class return to a bounded large list (first fit, neighbours merged —
+TASK-0344): a frame that spills out of its arena half reuses its blocks instead
+of losing them on every re-layout.
 
 This is enforced, not trusted: `tests/dsl_apps_conformance/tests/arena_invariant.rs`
 runs the real apps for 64 frames under a POISONING two-generation allocator and
 aborts on any stale read, and the OS build fills a reset generation with `0xDE`
 (`frame-arena-poison`) so a violation fails loudly in a boot instead of corrupting
 silently. The boot log reports `apphost: frame arena (layouts=… base=… peak=… of=…
-spill=…)`; `spill=1` means a frame outgrew its generation and the leak is back.
+spill=… abandoned=…)`; `spill=1` means a frame outgrew its generation and the leak
+is back, `abandoned=` counts the frames that failed and were discarded.
 
 ## Persistence tiers
 

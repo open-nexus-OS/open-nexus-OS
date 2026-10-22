@@ -436,6 +436,19 @@ band takes new strips. The keyboard and the hangs measured: the DSL runtime read
 program through one capnp reader whose traversal budget is spent over the app's life
 (`Malformed` after 28 menu toggles in settings, linear in the budget), and a failed emit leaves
 its scene to the arena's next reset (the chat's crash). Next: that package, then the prediction.
+State 2026-10-22 (after `79b78d95`): **TASK-0344** built for board cycle 63 — an app reads its
+program through a fresh reader per operation (an emit, a dispatch step, a lookup), each with the
+whole budget, and one operation past it is still refused; a frame that fails is abandoned — its
+arena generation discarded, the frame on screen kept (ADR-0065 amended; a failed layout keeps its
+boxes). Host: settings 1 000 menu toggles and the greeter 5 000 keystrokes in one session (were
+dead after 28 and 482); the poisoning harness takes settings back and fails three emits in a row
+without losing the scene. A second session on the cycle 62 image named a third cause — the chat
+ran its 4 MiB heap full (`alloc-fail` after ~20 keystrokes: its layout spills out of the arena half
+as blocks above the largest class, never reused) — and the operator pulled TASK-0333 6a's bounded
+large-block list forward (no size raised). Cycle 63: **TASK-0344 Done** — no runtime `ERR`, no app
+crash, the chat's heap flat while typing (`carve=0/0`, `heap steady`). Handed on: a large CPU
+re-raster's latency (the control center 0.65 s, the theme switch 0.74 s). Next: the prediction's
+early landings (TASK-0343), the band's clean (TASK-0335).
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

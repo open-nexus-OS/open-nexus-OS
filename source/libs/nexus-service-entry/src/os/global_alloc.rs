@@ -90,10 +90,11 @@ unsafe impl GlobalAlloc for GlobalAllocator {
         if let Some(ptr) = bump.arena_alloc(layout) {
             return ptr;
         }
-        // Durable state: a parked block of this class first; otherwise
-        // carve one the class can reuse later (TASK-0077C P3).
+        // Durable state: a parked block of this class (or a large one) first;
+        // otherwise carve one a list can reuse later (TASK-0077C P3,
+        // TASK-0344).
         let (class, layout) = Bump::class_layout(layout);
-        if let Some(ptr) = bump.reuse(class) {
+        if let Some(ptr) = bump.reuse(class, layout) {
             return ptr;
         }
         let heap_start = bump.start;
@@ -137,7 +138,7 @@ unsafe impl GlobalAlloc for GlobalAllocator {
         }
         let requested = layout.size();
         let (class, layout) = Bump::class_layout(layout);
-        if let Some(ptr) = bump.reuse(class) {
+        if let Some(ptr) = bump.reuse(class, layout) {
             // A block that was FREED holds its old bytes (or poison).
             ptr::write_bytes(ptr, 0, requested);
             return ptr;
@@ -198,8 +199,8 @@ unsafe impl GlobalAlloc for GlobalAllocator {
         // The bump never reclaims. Two things do (ADR-0065): a frame
         // arena block is reclaimed by its generation's reset — it must
         // NOT be parked on a list, or the list would hand out memory the
-        // next reset overwrites — and a small durable block goes back to
-        // its size class, if this service opted in.
+        // next reset overwrites — and a durable block goes back to its
+        // size class or to the large list, if this service opted in.
         if layout.size() == 0 || Bump::in_arena(ptr as usize) {
             return;
         }
@@ -216,6 +217,20 @@ unsafe impl GlobalAlloc for GlobalAllocator {
                     cfg!(feature = "frame-arena-poison"),
                 );
             }
+        } else if let Some(size) = crate::large::large_size(layout.size(), layout.align()) {
+            ALLOCATOR.ensure_init();
+            // A large block — a spilled frame's among them — returns to the
+            // large list (TASK-0344). With the poison it is filled first, so a
+            // use-after-free fails as loudly as a use-after-reset.
+            if cfg!(feature = "frame-arena-poison") {
+                // SAFETY: `ptr` was handed out for exactly `size` bytes (same
+                // `large_size` rounding on both paths) and the caller is done
+                // with it — the `GlobalAlloc` contract.
+                unsafe { ptr::write_bytes(ptr, 0xDE, size) };
+            }
+            // A refused (double) or dropped (no slot) free is counted by the
+            // list and shown by the probe; nothing else to do in a `dealloc`.
+            let _ = ALLOCATOR.inner.lock().large.park(ptr as usize, size);
         }
         #[cfg(not(feature = "small-object-free-list"))]
         let _ = (ptr, layout);
