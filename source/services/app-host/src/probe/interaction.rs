@@ -125,25 +125,7 @@ impl super::DslApp {
         // pre-measured text + kept layout make that the cheap path.
         self.tap_render_span = None;
         if matches!(damage, Some(Damage::Layout)) {
-            // Take (not clone) the previous retained state: `relayout_retained`
-            // rebuilds both, and the old lists feed the damage diff — a
-            // structural tap whose change is bounded (an overlay toggles, a
-            // row swaps its value) then re-renders ONLY the changed rows
-            // instead of the whole frame. On the QEMU TCG boot a full-frame
-            // CPU raster costs >1s per click, which read as "menus never
-            // open" (the user's next click toggled the menu back closed
-            // before the first one ever presented).
-            let old_boxes = core::mem::take(&mut self.layout.boxes);
-            let old_texts = core::mem::take(&mut self.texts);
-            self.relayout_retained();
-            self.tap_render_span = crate::layout_diff::changed_row_span(
-                &old_boxes,
-                &self.layout.boxes,
-                &old_texts,
-                &self.texts,
-                self.layout_bottom(),
-            );
-            self.tree_dirty = true;
+            self.relayout_bounded();
         }
         self.tap_present_owed = self.trace_tap(x, y, hit, damage);
         // Part-press (toggle thumb): the flip has re-laid-out, the knob sits
@@ -161,6 +143,26 @@ impl super::DslApp {
         // its motion). The caller arms the frame pulse when `anim_active`.
         self.anim_sync();
         TapOutcome::Repainted
+    }
+
+    /// Re-lays out after a structural change and keeps the rows it changed as the next present's
+    /// span (`merge_tap_damage`): a bounded change — an overlay toggles, a row swaps its value, a
+    /// typed character — re-renders ONLY those rows instead of the whole frame (on the board a
+    /// full-frame CPU raster costs most of a second; on the QEMU TCG boot it read as "menus never
+    /// open"). The previous retained state is taken, not cloned: the relayout rebuilds both
+    /// lists and the old ones feed the diff.
+    pub(super) fn relayout_bounded(&mut self) {
+        let old_boxes = core::mem::take(&mut self.layout.boxes);
+        let old_texts = core::mem::take(&mut self.texts);
+        self.relayout_retained();
+        self.tap_render_span = crate::layout_diff::changed_row_span(
+            &old_boxes,
+            &self.layout.boxes,
+            &old_texts,
+            &self.texts,
+            self.layout_bottom(),
+        );
+        self.tree_dirty = true;
     }
 
     /// Folds the last tap's damage span into the present-loop's dirty state:

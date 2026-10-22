@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-22 (the frame chain: flips through the display's latch, hop markers — TASK-0342)
+
+- **The board's display flips through its latch.** A drawn frame's plane is written with the
+  controller's configuration latch at once, at any line; the controller takes it at its next frame
+  boundary, so a flip no longer waits for gpud to catch the 0.67 ms blank behind its GPU wait.
+  A flip lands when the latch reads clear, and only then is its present acked.
+- **No more interrupt storm.** The display's interrupt words are used as the vendor's register
+  header names them: an enable word (a set bit turns a source on), a write-1-to-clear status and a
+  read-only raw word. Before, the enable word was read as a mask and the clears went to the raw
+  word, so the line never fell and gpud served thousands of wakes per flip (board cycles 59–60).
+  Now only the latch-taken and vsync sources are on, and only while a flip is latched.
+- **Hop markers along the input and the frame chains** (RFC-0108 §hops): `gpud: hops frame`,
+  `windowd: hops frame`, `apphost: hops input` — each stage's mean, worst and count, so a slow
+  frame or input names the stage that held it.
+- **A typed character re-renders its field, not the page**: a text commit or an editing action
+  re-lays out and repaints only the rows it changed, as a tap already did.
+
 ### Changed - 2026-10-21 (a scroll step and a hover cost the app no raster — TASK-0341, RFC-0109, ADR-0076)
 
 - **Every `.scroll(...)` container is a scroll layer the compositor moves.** Its content is

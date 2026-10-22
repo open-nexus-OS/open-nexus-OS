@@ -30,12 +30,12 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Security, Policy & Identity | 13 / 35 | 37% | `TASK-0008`, `TASK-0019`, `TASK-0028`, `TASK-0043`, `TASK-0047` | Policy authority, identity, sandboxing, ABI guardrails, and security surfaces. |
 | Storage, PackageFS & Content | 17 / 36 | 47% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
 | Updates, Packaging & Recovery | 13 / 21 | 62% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
-| Bringup, Hardware & Drivers | 6 / 13 | 46% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 33 / 80 | 41% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
+| Bringup, Hardware & Drivers | 7 / 14 | 50% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
+| Windowing, UI & Graphics | 40 / 89 | 45% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 4 / 8 | 50% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
-| DSL, App Platform & SDK | 5 / 14 | 36% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
+| DSL, App Platform & SDK | 6 / 14 | 43% | — | DSL, app platform, scene/runtime scaffolding, and SDK layers. |
 | DevX, Config & Tooling | 3 / 9 | 33% | — | CLI/dev tooling, config/schema plumbing, and repo hygiene. |
 
 ---
@@ -165,16 +165,16 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Bringup, Hardware & Drivers
 
-- Progress: `6 / 13` done (`46%`)
+- Progress: `7 / 14` done (`50%`)
 - Kernel-touch tasks: `TASK-0244`, `TASK-0251`
-- Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`, `TASK-0297`, `TASK-0299`
+- Tasks: `TASK-0055D`, `TASK-0244`, `TASK-0250`..`TASK-0251`, `TASK-0255`..`TASK-0258`, `TASK-0271`..`TASK-0272`, `TASK-0280`, `TASK-0297`, `TASK-0299`, `TASK-0329`
 - Notes (2026-07-21): `TASK-0297` (goldfish rtcd + timed walltime + tz-lite + live clock, RFC-0076) is part of the active IME/General-management track; `TASK-0299` (SNTP time-syncd) is a seed gated on netstackd UDP readiness.
 
 ### Windowing, UI & Graphics
 
-- Progress: `33 / 80` done (`41%`)
+- Progress: `40 / 89` done (`45%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`
+- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`, `TASK-0334`..`TASK-0342`
 
 ### Text, IME, I18N & Accessibility
 
@@ -197,7 +197,7 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### DSL, App Platform & SDK
 
-- Progress: `5 / 14` done (`36%`)
+- Progress: `6 / 14` done (`43%`)
 - Kernel-touch tasks: —
 - Tasks: `TASK-0077B`, `TASK-0077C`, `TASK-0078`, `TASK-0078B`, `TASK-0079`, `TASK-0122B`, `TASK-0163`..`TASK-0166`, `TASK-0169B`, `TASK-0274`, `TASK-0280B`, `TASK-0284B`
 
@@ -375,6 +375,15 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 | ✅ TASK-0216 | Block 4 layer 2 — the scanout contract on the board: a ring of planes flipped at the vertical blank, the frame clock from it, the pointer plane whole at every border (RFC-0101 Phase 1) | Done | 2026-10-12 — `[PASS] board-visible` 49 rungs, 7 operator markers; `front=0`, first flip at line 1080, `late=0`; no tearing, no flicker (recut from compositor v2.2b) |
 | ✅ TASK-0280 | Block 4 layer 1 — the base: the GPU and scanout contracts as host-tested types (driver-kit v2, GfxDevice v2, the one timeline, the plane ring) | Done | 2026-10-12 — RFC-0101 seeded (Phase 0 ✅); `nexus_driverkit::gpu`, `nexus_gfx::sync::timeline`, `nexus_gfx::backend::v2` with the mock device; the 18 `test_reject_*` of RFC-0101 §9; no OS code |
 | ✅ TASK-0251 | Display v1.0b: the display controller + HDMI in gpud — the first picture (Block 1 D5) | Done | 2026-10-10 — the desktop at 1920x1080@60 on the board with USB input; gate boot 46/46 + 6 of 7 operator rungs, clipboard accepted from 2026-10-08; EDID + CPU composite → G |
+| ✅ TASK-0329 | Block 4 layer 3 — GPU device online: the published firmware, the GPU MMU, power through socd, the interrupt, the fence bridge | Done | 2026-10-13 — RFC-0101 Phase 2; `gpu fence ok (rt_us=131 …)` below the stock 640 µs |
+| ✅ TASK-0169B | Block 4 layer 4 — the GPU draws: `GfxDevice` on the device and the first textured quad from offline shaders | Done | 2026-10-13 — RFC-0101 Phase 3; `gpu fill ok (ns_per_px=0.8 …)`, `gpu quad ok (samples=4/4)` |
+| ✅ TASK-0215 | Block 4 layer 5 — the desktop on the GPU: the render queue, the compositor's ops as GPU pipelines, the CPU composite deleted on the board | Done | 2026-10-19 — RFC-0101 Phase 4, 5a–5d each with a board gate; the bars it could not meet carried to layer 8 |
+| ✅ TASK-0334 | The UX latency contract — budgets SSOT, measurement lines with a verdict, the lines on every ladder | Done | 2026-10-20 — RFC-0108 Phase 0, board cycle 49: every line red by name, the first honest reading |
+| ✅ TASK-0338 | One frame producer — the display ring holds only presents | Done | 2026-10-21 — board cycle 54: present NACKs 21 → 0 |
+| ✅ TASK-0339 | The compositor never waits on a client — non-blocking delivery, a bounded per-client outbox, windowd's own work measured | Done | 2026-10-21 — ADR-0075, board cycle 55: no park on a client |
+| ✅ TASK-0340 | windowd rewrites no retained plane where the GPU composes | Done | 2026-10-21 — board cycle 56: windowd's flush 30 → 2.2 ms median |
+| ✅ TASK-0341 | Surface layers — every `.scroll` a scroll layer the compositor moves, every hover a wash layer | Done | 2026-10-22 — RFC-0109, ADR-0076, board cycles 57–59: hover and scroll without an app raster |
+| ✅ TASK-0342 | The frame chain — flips through the display's latch, one interrupt a flip, hop markers along the input and frame chains | Done | 2026-10-22 — board cycles 60–61: 1.03 wakes a flip (was ~2 400), a frame on the glass 22 ms after drawn (was 723), ~3 → 20 presents a second |
 
 `TASK-0065` / UI v6b app lifecycle + notifications + navigation — **DONE (2026-06-23)**. RFC-0065 + ADR-0036/0037; `bundlemgrd` registry **generated from real `bundles/<app>/manifest.toml`** at build time (no hardcoded list; phantom `notes` removed; `windowd: apps ok (n=2)` chat/search); `abilitymgr` real service + lifecycle broker + **manifest-caps launch authority** (fail-closed `STATUS_DENIED`; `abilitymgr: caps ok app=<id>`); policyd `BundleQuery` gating + greppable `!route-deny`/`!cap-deny`; real `.nxb` bundles + Cap'n Proto manifests; per-app-surface model (ADR-0037); `search-app` (no_std) owns its data, windowd hosts it. 25 abilitymgr + 2 nxb-pack + 126 windowd + 10 search-app tests, riscv-checked. **Descoped to follow-ups:** apps as spawned processes w/ own surfaces → DSL App Runtime **`TASK-0080D`** (execd only runs asm stubs today; needs a userspace app runtime + surface handoff) + `TASK-0234`/`0235` + SystemUI DSL phases.
 `TASK-0065B` / Session v1: sessiond session authority + login greeter + SystemUI shell selection — **DONE (2026-07-02)**. `sessiond` = the session authority (host-tested `Greeter → Active` state machine, `Locked`/`OP_LOCK` reserved; manifest user registry `users.toml` with optional `auto_login`; wire protocol `nexus_abi::sessiond` GET_STATE/LOGIN, golden-frame-tested). Login greeter in windowd: blurred+dimmed wallpaper baked into Plane 1 (separable box blur, no atlas cost), round SDF avatar + Lucide `circle-user` + name, hover, click → `OP_LOGIN` → session shell via SystemUI `resolve_product` (the user's `product` selects the shell — profiles.md contract; greeter appearance from `manifests/greeter/default/greeter.toml`). Pre-session gating at BOTH layers: windowd suppresses all shell affordances (host-tested `resolve_click_session`) AND `abilitymgr` refuses `OP_LAUNCH` fail-closed via injected `SessionGate` + live sessiond query (`abilitymgr: launch denied (session)`). Never bricks: bounded probe → `windowd: session unavailable (auto shell)` (proven via an OS_SKIP=sessiond boot). Proof injector logs in like a user; ladder + `docs/dev/ui/shell/session.md` shipped; windowd heap → 2MiB (`heap-2m`). Boot-verified over virgl (greeter → click → desktop). Follow-ups: credential auth behind OP_LOGIN, lock/unlock UI, session switching, multi-user avatar grid.

@@ -23,7 +23,7 @@
 892	source/libs/nexus-proof-manifest/src/lib.rs
 739	source/services/app-host/src/effect_host.rs
 707	source/services/app-host/src/probe/anim.rs
-679	source/services/app-host/src/probe/mod.rs
+678	source/services/app-host/src/probe/mod.rs
 673	source/services/bundlemgrd/src/os_lite.rs
 1878	source/services/bundlemgrd/src/std_server.rs
 602	source/services/dsoftbusd/src/os/gateway/local_ipc.rs

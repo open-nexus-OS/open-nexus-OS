@@ -325,7 +325,12 @@ proves = "Block 4 layer 0 (the M/G/S baseline): what a present costs on the cont
 [marker."gpud: dc flips ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5c-3 P5: what a per-frame flip's write left behind, every 64 flips — how many left the controller's config-ready latch set (the plane taken at a later frame boundary: the slot the ring frees at the blank still scanned), how many landed past the blank, the highest line a write landed on (a measurement: the tear's suspect); and since board cycle 58 the blank wakes gpud served and how many it served after the blank had passed (`wakes= late=`: a flip waiting a whole frame more on gpud's own wake latency)"
+proves = "TASK-0342 (flips through the controller's latch): every 64 landed flips — found at the flip interrupt's wake or at the request loop's next pass (`at_wake= at_pass=`), presents that waited behind a latched flip (`behind=`), the wakes served and those that found the latch still held (`wakes= held=`), what raised them (`taken=` the latch taken, `vsyncs=`, `unraised=`, `underflows=` the scan starved) and every source seen in the pipeline's and the output control's raw words (`onl2= out=`) — one interrupt a flip reads wakes ≈ n (a measurement)"
+
+[marker."gpud: hops frame ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0342 (RFC-0108 §hops): the frame chain's hops in gpud over 32 frames on screen — a present received → drawn (its flip queued), drawn → shown (the flip landed at a blank)"
 
 [marker."gpud: dc present mix ("]
 phase = "bringup"
@@ -386,12 +391,12 @@ emit_when = { profile = "board-headless" }
 [marker."gpud: dc vblank armed ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "RFC-0101 §8 (TASK-0216): the controller's vertical-blank interrupt is bound to gpud's control-reply endpoint and armed at the controller (every source but the vsync masked, as measured 2026-10-12) — the display's own blank is the frame clock from here on"
+proves = "RFC-0101 §8 (TASK-0216, TASK-0342): the controller's interrupt is bound to gpud's control-reply endpoint with every source off — armed (the latch taken, the vsync) only while a flip is latched; the display's own frame boundary is the frame clock from here on"
 
 [marker."gpud: dc vblank ok ("]
 phase = "bringup"
 emit_when = { profile = "board-visible" }
-proves = "RFC-0101 §8 (TASK-0216): one second of the vertical-blank interrupt served — the rate (60 a second when idle; fewer while a present holds the thread), the scan line the first handler saw (inside the 45-line blank when the thread was free) and the flips written late (deferred to the next blank, never torn)"
+proves = "RFC-0101 §8 (TASK-0216, TASK-0342): thirty-two wakes of the flip interrupt served — the shortest interval between two (a frame or more with one source a flip; a fraction of a millisecond in a storm), the scan line the first saw, and what raised them (`taken=` the latch taken, `vsyncs=`)"
 
 [marker."gpud: FAIL dc vblank ("]
 phase = "bringup"
@@ -401,7 +406,7 @@ forbidden_when = { profile = ["board-headless", "board-visible"] }
 [marker."gpud: dc flip ok ("]
 phase = "bringup"
 emit_when = { profile = "board-visible" }
-proves = "RFC-0101 §8 (TASK-0216): the first flip after the reveal — a present drawn into a free plane of the ring, its address and stride written inside the vertical blank (the line the handler read), latched; nothing is drawn in view from here on"
+proves = "RFC-0101 §8 (TASK-0216, TASK-0342): the first flip after the reveal — a present drawn into a free plane of the ring, its address and stride written with the configuration latch at whatever line the scan was on (`line=`), taken by the controller at its next frame boundary; nothing is drawn in view from here on"
 
 [marker."gpud: FAIL dc present front ("]
 phase = "bringup"

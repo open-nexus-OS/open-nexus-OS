@@ -166,6 +166,15 @@ pub const KNOWN_VERSION: u32 = 0x0300_1030;
 /// output control's base): it moves while the timing generator scans (measured 857 with the
 /// picture on, 920 in the next capture).
 pub const OUTCTRL_LINE_COUNT: u32 = 0xc8;
+/// The output control's interrupt words (relative to its base; the same three-word pattern as
+/// the pipeline's): raw (read-only) at `+0xb0` — bits 0–4 start-of-frame, eof, cfg-eof,
+/// cfg-eol, underflow of output 0, 5–9 of output 1 — its enables at `+0xb8` (the stock `0x252`:
+/// both outputs' eof and underflow; left as found) and its latched status at `+0xc0`
+/// (write-1-to-clear). A wake reads the raw word and clears what it raised.
+pub const OUTCTRL_INT_RAW: u32 = 0xb0;
+pub const OUTCTRL_INT_STATUS: u32 = 0xc0;
+/// The output control's sources (10 bits).
+pub const OUTCTRL_INT_ALL: u32 = 0x3ff;
 // ── The pointer layer (TASK-0251 P2a step 3c) ──────────────────────────────────────────────
 // Measured on the stock system with its pointer on the monitor (2026-10-05,
 // `docs/board/measurements/2026-10-05-cursor-layer/`): DRM plane-1 (ARGB8888 64×64, pitch 256)
@@ -213,24 +222,31 @@ pub const LAYER_ALPHA: u32 = 0x1c;
 pub const CURSOR_BLEND_MODE: u32 = 5;
 pub const CURSOR_ALPHA_WORD: u32 = 0x00ff_000a;
 
-/// Pipeline 2's raw interrupt word (`onl2_nml_*_int_raw`): bit 0 vsync, 1 eof, 2 cfg-eof,
-/// 3 cfg-line (measured `0xd` with the picture on: vsync, cfg-eof and cfg-line raised). A raw
-/// vsync is the second witness that the timing generator scans.
+// ── Pipeline 2's interrupt block (`0x900`; the vendor kernel's register header, reference
+// only — TASK-0342). Three words per pipeline, one bit layout: bit 0 vsync, 1 eof, 2 cfg-eof,
+// 3 cfg-line, 4 cfg-ready-clear (the controller took the latched configuration), 5 histogram,
+// 6 curve, 7–8 write-back done, 9 underflow, 10–11 write-back overflow, 12–25 the command
+// list's channels done. Board cycles 59–60 read the enable word as a mask and cleared the raw
+// word: every source but the vsync was on, nothing was ever cleared — the line stayed up and
+// gpud served ~2 400–4 000 wakes a flip.
+
+/// The enable word (`onl2_nml_*_int_msk`): a SET bit lets the source raise the line. The stock
+/// system runs `0xf212` (eof, cfg-ready-clear, underflow, the command list's first four
+/// channels), the vsync added while its compositor waits for a blank.
+pub const INT_ENABLE_ONL2: u32 = 0x910;
+/// The latched status (`onl2_nml_*_int_sts`): what raised the line, cleared by writing its bits
+/// (write-1-to-clear) — the raw word clears with it.
+pub const INT_STS_ONL2: u32 = 0x938;
+/// The raw word (`onl2_nml_*_int_raw`): read-only — written, nothing changes (cycle 60). Read at
+/// every wake for what raised it; a raw vsync is the second witness that the scan runs
+/// (measured `0xd` with the picture on).
 pub const INT_RAW_ONL2: u32 = 0x960;
-pub const INT_RAW_VSYNC: u32 = 1 << 0;
-pub const INT_RAW_CFG_EOF: u32 = 1 << 2;
-pub const INT_RAW_CFG_LINE: u32 = 1 << 3;
-/// The raw word is cleared by writing its bits (measured 2026-10-12: the stock driver's write
-/// took it to 0 at line 1071, the vsync raised it again at 1078–1080).
-pub const INT_RAW_CLEAR_ALL: u32 = 0xf;
-/// Pipeline 2's interrupt mask (`onl2_nml_*_int_msk`): a set bit holds a source back. The
-/// stock driver runs `0xf212` — vsync, cfg-eof and cfg-line live, two interrupts a frame
-/// (`docs/board/measurements/2026-10-12-scanout-vblank/`).
-pub const INT_MASK_ONL2: u32 = 0x910;
-pub const INT_MASK_STOCK: u32 = 0xf212;
-/// Every source but the vsync held back: one interrupt a frame, raised at line 1080 — the
-/// first line of the 45-line blank, the frame clock.
-pub const INT_MASK_ALL_BUT_VSYNC: u32 = INT_MASK_STOCK | INT_RAW_CFG_EOF | INT_RAW_CFG_LINE;
-/// Every source held back: the idle display raises no interrupt (the blank is enabled only
-/// while a flip waits for it — zero wakes otherwise).
-pub const INT_MASK_ALL: u32 = 0xffff;
+pub const INT_VSYNC: u32 = 1 << 0;
+/// The controller took the configuration the latch held (`CTL2_CFG_READY` fell): a flip landed.
+pub const INT_CFG_TAKEN: u32 = 1 << 4;
+pub const INT_UNDERFLOW: u32 = 1 << 9;
+/// Every source of the word (26 bits).
+pub const INT_ALL: u32 = 0x03ff_ffff;
+/// The sources a latched flip enables (TASK-0342): the latch taken — the flip's own event —
+/// and the vsync, which wakes the frame after it if the first does not come.
+pub const INT_FLIP_SOURCES: u32 = INT_CFG_TAKEN | INT_VSYNC;

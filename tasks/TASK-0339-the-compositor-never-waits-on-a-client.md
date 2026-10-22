@@ -1,6 +1,6 @@
 ---
 title: TASK-0339 The compositor never waits on a client — non-blocking delivery, a bounded per-client outbox, the kernel's writable signal, and windowd's own work measured
-status: In Progress (built 2026-10-21; host, kernel, `just check`, `just diag`, QEMU headless + visible green; board cycle 55: no park, the work split measured — the commit next)
+status: Done (2026-10-21, board cycle 55: no park on a client, windowd's own work measured; committed in f35ad587)
 owner: @ui @kernel-team
 created: 2026-10-21
 depends-on: [TASK-0338 (one frame producer — cycle 54), TASK-0333 6a (a send to a dead client is `PeerClosed`)]

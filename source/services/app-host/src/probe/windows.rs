@@ -89,17 +89,7 @@ impl super::DslApp {
         // (25 of them in one cycle). The diff of the layout before and after names the rows.
         self.tap_render_span = None;
         if matches!(damage, Some(Damage::Layout)) {
-            let old_boxes = core::mem::take(&mut self.layout.boxes);
-            let old_texts = core::mem::take(&mut self.texts);
-            self.relayout_retained();
-            self.tap_render_span = crate::layout_diff::changed_row_span(
-                &old_boxes,
-                &self.layout.boxes,
-                &old_texts,
-                &self.texts,
-                self.layout_bottom(),
-            );
-            self.tree_dirty = true;
+            self.relayout_bounded();
         }
         true
     }

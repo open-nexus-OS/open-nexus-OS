@@ -142,6 +142,8 @@ impl DslApp {
             vis_anim: alloc::vec::Vec::new(),
             vis_text: alloc::vec::Vec::new(),
             tap_render_span: None,
+            input_rx_ns: None,
+            hop_input: nexus_ux_budgets::Hop::new(),
             taps_are_keystrokes: false,
             tap_present_owed: false,
         };

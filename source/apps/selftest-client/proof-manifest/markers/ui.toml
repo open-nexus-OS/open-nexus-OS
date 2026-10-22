@@ -466,3 +466,13 @@ proves = "a 32-frame window on the board's GPU judged: frames past the panel's 1
 [marker."windowd: ux input "]
 phase = "end"
 proves = "a 16-input window judged: how long the first staged input waited for the frame that carried it to gpud (50 ms warn, 100 ms FAIL)"
+
+# RFC-0108 §hops (TASK-0342): where a chain's time goes — one line per window and service, each
+# hop `<from>><to>=<avg_us>/<max_us>/<count>`. Measurements, never judged (the chain's ends are).
+[marker."windowd: hops frame ("]
+phase = "end"
+proves = "the frame chain's hops in windowd over a 1 s window: a frame owed (the first change since the last submit) → sent to gpud, sent → its credit back (gpud's work, its flip, the blank it waits for)"
+
+[marker."apphost: hops input ("]
+phase = "end"
+proves = "the input chain's hop in an app over 16 inputs: an input that asked for work (a repaint, a motion) received → its answer sent, the wait for the previous present's credit included"

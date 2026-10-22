@@ -68,6 +68,14 @@ the Control Center open — and the input's wait with it (the GPU's backlog gone
   it for app windows whose surface is opaque and for the wallpaper.
 - **P3 — the scene under glass drawn once.** Several glasses re-blurred in one frame share one
   scratch: the scene below is drawn once up to the highest, each glass's reach taken from it.
+- **P4 — the programs** (handed over from TASK-0342 steps 4–6, 2026-10-22: since the frame chain
+  holds, the GPU's frame is the pace — cycle 61: 25 ms median, 33 ms while typing, 13 ns a pixel
+  on the median against the vendor compositor's 1.9–3.7, frames of three or more passes 33.6 ms
+  against 18.2 at one; `docs/board/measurements/2026-10-22-frame-chain/`): a layer's interior a
+  plain copy and the SDF at its rounded edges alone (where the corner squares do not already cut
+  it), the shadow shaded only outside the box that knocks it out (a ring), the blur's dual filter
+  (a down/up chain at half and quarter resolution in place of the separable gaussian) — each
+  priced first by `gpud: gpu work` against the operator's series.
 - **Proof**: host tests per step; `just test-os visible`; board cycles with the operator's
   series, the `ux frame` verdict and `gpu work` read into the measurement folder; the package
   closes when `gpud: ux frame FAIL` leaves `config/fail-marker-allow-board.txt`.

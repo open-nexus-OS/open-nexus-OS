@@ -31,6 +31,9 @@ RETIRED=(
   'negotiated_band render_band band_statics_intersect_viewport MAX_BAND_ROWS;app-host scroll layers and their virtual bands (probe/scroll.rs, probe/band.rs);RFC-0109, TASK-0341: no band negotiation, no plain-path re-raster per scroll step'
   'encode_surface_layers decode_surface_layers SURFACE_LAYERS_MAX_LEN handle_surface_layers;OP_SURFACE_TREE (the regions ride the surface'"'"'s structure);RFC-0109, TASK-0341: OP_SURFACE_LAYERS (15) retired'
   'HoverWash paint_row_hover paint_row_scrolled;the wash layer the compositor draws (OP_SURFACE_MOTION);RFC-0109, TASK-0341: a hover re-rasters nothing'
+  'vblank_ack;nexus_gfx::backend::dc::irq_clear (a blank wake clears every source it saw raised);TASK-0342 (board cycle 59): clearing the vsync alone left raised sources holding the line up — an interrupt storm'
+  'INT_MASK_ONL2 INT_MASK_ALL INT_MASK_STOCK INT_RAW_CLEAR_ALL vblank_enable vblank_disable;INT_ENABLE_ONL2 / INT_STS_ONL2, flip_irq_arm / flip_irq_disarm (an enable word and a write-1-to-clear status, as the vendor header names them);TASK-0342 (board cycles 59–60): the enable word read as a mask and the clears written to the read-only raw word held the line up'
+  'flip_in_blank in_blank;flip_latched (the controller takes the latch at its next frame boundary);TASK-0342: a flip that waited for a wake inside the blank waited behind the GPU'
 )
 # Dated records describe the tree as it was, so they keep the names it had.
 HISTORY=(tasks/ CHANGELOG.md docs/adr/ docs/rfcs/ docs/board/measurements/ scripts/check-retired-names.sh)

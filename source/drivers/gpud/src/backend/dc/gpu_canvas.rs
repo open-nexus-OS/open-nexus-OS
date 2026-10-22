@@ -4,8 +4,8 @@
 //! A plane of the ring lent to the GPU (TASK-0169B P2, RFC-0101 §8c): a free slot acquired
 //! like a present's, its bus address and bytes handed out for the GPU's binding and the cache
 //! maintenance around the job, and the way to the glass — the splash's reveal while the splash
-//! still holds (the GPU's first picture is what replaces the boot splash), a flip at the next
-//! blank otherwise, the ring's rules unchanged.
+//! still holds (the GPU's first picture is what replaces the boot splash), a latched flip
+//! otherwise (`flip.rs`), the ring's rules unchanged.
 
 use nexus_display_proto::layout;
 use nexus_gfx::backend::error::GfxError;
@@ -59,15 +59,13 @@ impl DcDisplay {
             self.ring.discard();
             return Err(GfxError::DeviceNotFound);
         };
-        if self.vblank.is_none() {
+        if self.flip_irq.is_none() {
             if let Some(fb) = live.framebuffer.as_ref() {
-                let _ = live.controller.flip_in_blank(&fb.plane_at(row, w, h));
+                live.controller.flip_latched(&fb.plane_at(row, w, h));
             }
             return self.ring.shown_now().map_err(|_| GfxError::ResourceExhausted);
         }
-        self.ring.drawn().map_err(|_| GfxError::ResourceExhausted)?;
-        live.controller.vblank_enable();
-        Ok(())
+        self.queue_flip()
     }
 
     pub(super) fn canvas_discard(&mut self) {

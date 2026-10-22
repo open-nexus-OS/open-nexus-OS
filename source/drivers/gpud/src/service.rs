@@ -70,9 +70,9 @@ pub fn service_main_loop() -> Result<(), nexus_abi::AbiError> {
     if crate::backend::dc::granted() {
         let mut display = crate::backend::dc::DcDisplay::bring_up();
         let server = bind_server()?;
-        // RFC-0101 §8: the controller's vertical-blank interrupt on the idle control-reply
-        // endpoint (the slot the GPU's IRQ takes on QEMU), a waitset member next to the server
-        // endpoint — no timer: the display's own blank is the frame clock.
+        // RFC-0101 §8: the controller's flip interrupt (the latch taken, the vsync) on the idle
+        // control-reply endpoint (the slot the GPU's IRQ takes on QEMU), a waitset member next
+        // to the server endpoint — no timer: the display's own frame boundary is the clock.
         // TASK-0329 G1 (RFC-0101 Phase 2): the board's GPU beside its display — brought online
         // before the display's clock is armed (its own notify endpoint joins the waitset), the
         // rungs `gpud: gpu glue|core|fw|mmu|fence ok (`; a FAIL leaves the display running.
@@ -303,9 +303,9 @@ fn service_requests(
             let _ = (pacing, &clock);
             Wait::Blocking
         };
-        // The display's vertical blank (RFC-0101 §8): a flip that landed acks its present now —
-        // the compositor's frame clock is the display's. Drained before the requests so an ack
-        // never waits behind the next present.
+        // The display's frame clock (RFC-0101 §8): a flip that landed acks its present now —
+        // looked at on every pass (a flip latched while gpud drew lands here without a wake),
+        // before the requests, so an ack never waits behind the next present.
         while let Some((seq, status)) = display.vblank_wake() {
             crate::reply::send(
                 &server,
@@ -359,6 +359,8 @@ fn service_requests(
                         // Phase 6c: carries a serialized CommittedBuffer with batched
                         // BlitSurface commands describing all damage regions.
                         let seq = nexus_display_proto::decode_present_seq(frame).unwrap_or(0);
+                        // The frame chain's first hop in gpud starts here (RFC-0108 §hops).
+                        let received_ns = nsec().unwrap_or(0);
                         display.begin_present();
                         let trace = !chain_trace_done;
                         if trace {
@@ -409,9 +411,9 @@ fn service_requests(
                             if display.present_lost() { STATUS_DEVICE_ERROR } else { status };
                         let status =
                             crate::reply::present_status(display, status, seq, &mut reveal_acked);
-                        // RFC-0101 §8: a display with a ring acks the present at the vertical
-                        // blank its flip lands on (`vblank_wake` below), never before.
-                        if display.present_ack_deferred(seq, status) {
+                        // RFC-0101 §8: a display with a ring acks the present when its flip
+                        // lands (`vblank_wake` at the loop's top), never before.
+                        if display.present_ack_deferred(seq, status, received_ns) {
                             continue;
                         }
                         (status, Some(seq))

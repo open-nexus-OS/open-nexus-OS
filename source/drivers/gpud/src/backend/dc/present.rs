@@ -23,8 +23,6 @@ use super::cursor::CursorLayer;
 use super::framebuffer::Framebuffer;
 use super::{emit, ring, DcDisplay};
 
-/// Notifications drained per wake (xhcid's pattern): a coalesced burst, never a spin.
-const VBLANK_DRAIN_MAX: u32 = 8;
 use crate::backend::display::Display;
 use nexus_gfx::backend::dc::regs;
 
@@ -174,9 +172,9 @@ impl Display for DcDisplay {
         Ok(())
     }
 
-    /// The drawn slot's flip queued for the next vertical blank (the GPU's frame is in memory:
-    /// nothing to clean) — or, while the splash holds the glass, discarded (the reveal's present
-    /// switches the controller at once, the one immediate flip).
+    /// The drawn slot's flip latched — the controller takes it at its next frame boundary
+    /// (`flip.rs`; the GPU's frame is in memory: nothing to clean) — or, while the splash holds
+    /// the glass, discarded (the reveal's present switches the controller at once).
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError> {
         let t0 = nsec().unwrap_or(0);
         // A GPU frame's damage is what its slot's pass redrew, not what the present named.
@@ -229,18 +227,16 @@ impl Display for DcDisplay {
         let Some(live) = self.live.as_ref() else {
             return Err(GfxError::DeviceNotFound);
         };
-        if self.vblank.is_none() {
-            // No interrupt (named at the bind): the flip is written now — between two complete
-            // frames, never half-drawn — and the present is acked now.
+        if self.flip_irq.is_none() {
+            // No interrupt (named at the bind): the flip is latched now — the controller takes
+            // it at its next frame boundary, never half-drawn — and the present is acked now.
             if let Some(fb) = live.framebuffer.as_ref() {
-                let _ = live.controller.flip_in_blank(&fb.plane_at(row, w, h));
+                live.controller.flip_latched(&fb.plane_at(row, w, h));
             }
             return self.ring.shown_now().map_err(|_| GfxError::ResourceExhausted);
         }
-        self.ring.drawn().map_err(|_| GfxError::ResourceExhausted)?;
-        // A flip waits for the blank: the interrupt is live until it lands.
-        live.controller.vblank_enable();
-        Ok(())
+        // Latched at once, or behind the latched flip (`flip.rs`).
+        self.queue_flip()
     }
 
     fn gpu_canvas(&mut self) -> Option<crate::backend::display::GpuCanvas> {
@@ -259,104 +255,17 @@ impl Display for DcDisplay {
         self.canvas_discard();
     }
 
-    /// A present whose flip is queued or waiting is acked when it lands (`vblank_wake`).
-    fn present_ack_deferred(&mut self, seq: u32, status: u8) -> bool {
-        self.vblank.is_some() && self.ring.attach_ack((seq, status))
+    /// A present whose flip is latched or waiting is acked when it lands (`vblank_wake`), its
+    /// hops measured from when it was received and drawn.
+    fn present_ack_deferred(&mut self, seq: u32, status: u8, received_ns: u64) -> bool {
+        let stamps = ring::Stamps { received_ns, drawn_ns: nsec().unwrap_or(0) };
+        self.flip_irq.is_some() && self.ring.attach_ack((seq, status), stamps)
     }
 
-    /// The vertical blank: the notification drained, the queued flip written if the scan is
-    /// inside the blank (else deferred to the next blank, counted late), the blank acknowledged
-    /// at the controller and the kernel, the ring advanced — the present that landed.
+    /// The loop's pass over the display: a flip the controller took has landed — its present's
+    /// ack (`flip.rs`).
     fn vblank_wake(&mut self) -> Option<(u32, u8)> {
-        let vb = self.vblank.as_mut()?;
-        let mut drained = 0u32;
-        let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
-        let mut note = [0u8; 16];
-        while drained < VBLANK_DRAIN_MAX
-            && nexus_abi::ipc_recv_v1_nb(vb.slot, &mut hdr, &mut note, true).is_ok()
-        {
-            drained += 1;
-        }
-        if drained == 0 {
-            return None;
-        }
-        let now = nsec().unwrap_or(0);
-        let (w, h) = self.mode;
-        let live = self.live.as_ref()?;
-        let line = live.controller.line();
-        if vb.n == 0 {
-            vb.first_line = line;
-        } else {
-            vb.min_period_us = vb.min_period_us.min(now.saturating_sub(vb.last_ns) / 1000);
-        }
-        vb.n = vb.n.saturating_add(1);
-        vb.last_ns = now;
-        let mut landed = None;
-        match self.ring.flip_pending() {
-            Some(slot) if nexus_gfx::backend::dc::in_blank(line, u32::from(h)) => {
-                if let Some(fb) = live.framebuffer.as_ref() {
-                    let row = ring::ROWS[slot];
-                    let seen = live.controller.flip_in_blank(&fb.plane_at(row, w, h));
-                    if !vb.flip_reported {
-                        vb.flip_reported = true;
-                        emit(&alloc::format!("gpud: dc flip ok (slot={slot} line={line})"));
-                    }
-                    vb.flips = vb.flips.saturating_add(1);
-                    vb.pending += u32::from(seen.pending);
-                    // The controller takes the plane at a later frame boundary (the latch
-                    // still set, about one flip in seven on the board — cycle 34): the old
-                    // plane is scanned for one more frame, so the flip stays queued and lands
-                    // at the next blank; freeing the old slot now would have the next frame
-                    // drawn into a plane on screen — the tear of cycles 33–34.
-                    let taken = !seen.pending;
-                    vb.crossed +=
-                        u32::from(!nexus_gfx::backend::dc::in_blank(seen.line_after, u32::from(h)));
-                    vb.line_after_max = vb.line_after_max.max(seen.line_after);
-                    if vb.flips % 64 == 0 {
-                        // `wakes`/`late`: blank wakes served and those served after the blank
-                        // had passed (the flip waits a whole frame more) — the measurement of
-                        // whether the flip waits on gpud's own wake latency.
-                        emit(&alloc::format!(
-                            "gpud: dc flips (n={} pending={} crossed={} line_after_max={} \
-                             wakes={} late={})",
-                            vb.flips,
-                            vb.pending,
-                            vb.crossed,
-                            vb.line_after_max,
-                            vb.n,
-                            vb.late
-                        ));
-                    }
-                    if taken {
-                        landed = self.ring.landed();
-                    } else {
-                        self.ring.passed();
-                    }
-                }
-            }
-            Some(_) => {
-                vb.late = vb.late.saturating_add(1);
-                self.ring.passed();
-            }
-            None => self.ring.passed(),
-        }
-        live.controller.vblank_ack();
-        if self.ring.flip_pending().is_none() {
-            // Nothing waits for the next blank: the idle display wakes nobody.
-            live.controller.vblank_disable();
-        }
-        let _ = nexus_abi::irq_complete(vb.irq);
-        if !vb.reported && vb.n >= super::VBLANK_WITNESS_N {
-            vb.reported = true;
-            emit(&alloc::format!(
-                "gpud: dc vblank ok (min_period_us={} line={} late={} n={})",
-                vb.min_period_us,
-                vb.first_line,
-                vb.late,
-                vb.n
-            ));
-        }
-        landed.and_then(|d| d.ack)
+        self.flip_wake()
     }
 
     /// `OP_UPLOAD_CURSOR`: the sprite into the pointer's block, the layer armed on the composer

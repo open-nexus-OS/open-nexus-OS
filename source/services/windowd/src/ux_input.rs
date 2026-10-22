@@ -45,9 +45,10 @@ impl UxInput {
         }
     }
 
-    /// Whether a frame is owed (the clock runs) — the caller skips its clock read then.
-    pub fn owed(&self) -> bool {
-        self.first_pending_ns.is_some()
+    /// When the owed frame became owed (`None`: nothing owed, the clock is idle) — the caller
+    /// skips its clock read while one is owed; the submit reads it as the frame chain's first hop.
+    pub fn owed_since(&self) -> Option<u64> {
+        self.first_pending_ns
     }
 
     /// A frame was handed to gpud at `now_ns`: the pending input (if any) arrived. Returns the
@@ -83,7 +84,7 @@ mod tests {
         assert_eq!(ux.note_submit(5_000_000), None, "a submit owed nothing: not a frame");
         ux.note_owed(1_000_000);
         ux.note_owed(9_000_000); // coalesced into the same frame: the clock stays
-        assert!(ux.owed());
+        assert_eq!(ux.owed_since(), Some(1_000_000));
         for _ in 0..(INPUT_WINDOW - 1) {
             assert_eq!(ux.note_submit(1_000_000 + 10_000_000), None);
             ux.note_owed(1_000_000);

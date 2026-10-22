@@ -59,6 +59,25 @@ impl DslApp {
         }
     }
 
+    /// A text frame (RFC-0075) in the present loop: applied to the focused field, the rows it
+    /// changed merged into the loop's dirty state (`relayout_bounded` — a typed character
+    /// re-renders the field, not the page), the input chain's hop started (RFC-0108 §hops).
+    pub(in crate::probe) fn text_frame(
+        &mut self,
+        frame: &[u8],
+        dirty: &mut bool,
+        dirty_rows: &mut Option<(i32, i32)>,
+    ) {
+        let rx_ns = super::super::boot_env::nsec_now();
+        // A typed character re-renders the rows its edit changed (`relayout_bounded`), never the
+        // page; a caret move, an escape or a paint-only change repaints in full (no span).
+        self.tap_render_span = None;
+        if self.apply_surface_text(frame) {
+            self.merge_tap_damage(dirty, dirty_rows);
+        }
+        self.note_input_rx(rx_ns, *dirty);
+    }
+
     /// RFC-0075 committed-text delivery: insert into the FOCUSED field.
     /// Returns whether a re-render is needed.
     pub(crate) fn text_commit(&mut self, text: &str) -> bool {
@@ -83,7 +102,7 @@ impl DslApp {
             raw_marker("apphost: text commit applied");
         }
         if matches!(damage, Some(Damage::Layout)) {
-            self.relayout_retained();
+            self.relayout_bounded();
         }
         true
     }

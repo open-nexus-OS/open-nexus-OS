@@ -405,6 +405,18 @@ outside the blank: an interrupt storm (six display sources left unmasked, only t
 Next: **the frame chain** — one interrupt a frame, hop markers along the input and frame chains
 (who spends how long), then the reference platforms' levers by measured cost (planes for what
 moves, the program's fast paths, the shadow as a ring, the blur's dual filter).
+State 2026-10-22: **TASK-0342** (the frame chain; RFC-0108 §hops, RFC-0101 §8 amended) — cycle
+60: the hops name the wait (gpud `drawn>shown` 723 ms against 37 ms of GPU work), typing bounded,
+the storm untouched — the display's interrupt words were read backwards (vendor header: enable,
+write-1-to-clear status, read-only raw). Rebuilt with the flip through the controller's latch
+(written when drawn, taken at the next frame boundary). Cycle 61: **TASK-0342 Done** — 1.03 wakes
+a flip (was ~2 400), a frame on the glass 22 ms after it is drawn (was 723), ~3 → 20 presents a
+second; the operator: "a quantum leap — fluid, but the messages cannot be followed; now and then a
+flicker; typing slower". The GPU's frame is the pace now (25 ms median, 13 ns a pixel): the
+programs go to the frame-cost lane (TASK-0335 P4: fast paths, the shadow as a ring, the blur's dual
+filter), the planes for what moves stay layer 8's. Next: **frame pacing** (a steady cadence, the
+motion computed for the time a frame is shown — the judder), the frames that change no pixel
+while typing, the 8 scan-out underflows (the flicker's suspect).
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

@@ -100,3 +100,15 @@ the first full pass of the visible ladder since 2026-10-06, with the three new r
 What follows: Phase 1 of RFC-0101 is on the board. The scanout contract's gates stay in the
 ladder; the one open thread (the second interrupt) is a measurement for the next board cycle,
 not a correctness fault today.
+
+## Correction (2026-10-22, TASK-0342)
+
+The interrupt words were read backwards above. The vendor kernel's register header (reference
+only) names `0x910` an ENABLE word (`onl2_nml_*_int_msk`: a set bit lets the source raise the
+line), `0x938` the latched status (`*_int_sts`, cleared by writing its bits — the word that
+"changed once to `0x6002`": the stock handler clears it within microseconds) and `0x960` the raw
+word (read-only). The stock `0xf212` therefore turns ON eof, cfg-ready-clear, underflow and the
+command list's first four channels, not "vsync, cfg-eof and cfg-line live". H1's "second
+interrupt at once" was this: our "mask" turned sources on and our clear wrote the read-only raw
+word, so the line never fell. Board cycles 59–60 measured the consequence
+(`../2026-10-22-frame-chain/README.md`).

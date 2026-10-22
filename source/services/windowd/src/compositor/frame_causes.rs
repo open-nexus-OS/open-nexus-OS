@@ -45,16 +45,42 @@ static BASE_US: AtomicU64 = AtomicU64::new(0);
 /// RFC-0109: the surface structures and motions refused — each is said once per surface, the
 /// count of all of them rides the loop line (a refused motion drops its offsets too).
 static LAYERS_REFUSED: AtomicU32 = AtomicU32::new(0);
-/// A present's issue time by its seq (two in flight: a ring of four holds them) and the window's
-/// issue → ack latencies — how long gpud keeps a frame (its work, the flip, the blank it waits
-/// for) before the credit returns.
+/// One hop's window of the frame chain in windowd (RFC-0108 §hops, `nexus_ux_budgets::Hop`'s
+/// shape in the per-second counters).
+struct AtomicHop {
+    n: AtomicU32,
+    sum_us: AtomicU64,
+    max_us: AtomicU64,
+}
+
+impl AtomicHop {
+    const fn new() -> Self {
+        Self { n: AtomicU32::new(0), sum_us: AtomicU64::new(0), max_us: AtomicU64::new(0) }
+    }
+
+    fn note(&self, us: u64) {
+        self.n.fetch_add(1, Ordering::Relaxed);
+        self.sum_us.fetch_add(us, Ordering::Relaxed);
+        self.max_us.fetch_max(us, Ordering::Relaxed);
+    }
+
+    /// `(mean_us, max_us, count)` — and a fresh window.
+    fn take(&self) -> (u64, u64, u32) {
+        let n = self.n.swap(0, Ordering::Relaxed);
+        let sum = self.sum_us.swap(0, Ordering::Relaxed);
+        (sum / u64::from(n.max(1)), self.max_us.swap(0, Ordering::Relaxed), n)
+    }
+}
+
+/// The frame chain's hops in windowd: a frame owed (the first change since the last submit) →
+/// sent to gpud, and sent → its credit back (gpud's work, its flip, the blank it waits for).
+static HOP_OWED_SENT: AtomicHop = AtomicHop::new();
+static HOP_SENT_ACKED: AtomicHop = AtomicHop::new();
+/// A present's issue time by its seq (two in flight: a ring of four holds them).
 const ISSUE_RING: usize = 4;
 #[allow(clippy::declare_interior_mutable_const)]
 const ZERO_NS: AtomicU64 = AtomicU64::new(0);
 static ISSUED_NS: [AtomicU64; ISSUE_RING] = [ZERO_NS; ISSUE_RING];
-static ACK_N: AtomicU32 = AtomicU32::new(0);
-static ACK_SUM_US: AtomicU64 = AtomicU64::new(0);
-static ACK_MAX_US: AtomicU64 = AtomicU64::new(0);
 
 /// One frame left for gpud: `content` rects were recomposited, or a retained region was only
 /// re-blitted (`blit`), or the pointer's region alone (`pointer`), or none of them — owed for
@@ -118,21 +144,20 @@ pub(super) fn present_issued(seq: u32, now_ns: u64) {
 /// Present `seq`'s credit came back at `now_ns`.
 pub(super) fn present_acked(seq: u32, now_ns: u64) {
     let issued = ISSUED_NS[seq as usize % ISSUE_RING].load(Ordering::Relaxed);
-    if issued == 0 || now_ns < issued {
-        return;
+    if issued != 0 && now_ns >= issued {
+        HOP_SENT_ACKED.note((now_ns - issued) / 1000);
     }
-    let us = (now_ns - issued) / 1000;
-    ACK_N.fetch_add(1, Ordering::Relaxed);
-    ACK_SUM_US.fetch_add(us, Ordering::Relaxed);
-    ACK_MAX_US.fetch_max(us, Ordering::Relaxed);
 }
 
-/// The window's acks `(n, avg_us, max_us)`, and a fresh window.
-pub(super) fn take_acks() -> (u32, u64, u64) {
-    let n = ACK_N.swap(0, Ordering::Relaxed);
-    let sum = ACK_SUM_US.swap(0, Ordering::Relaxed);
-    let max = ACK_MAX_US.swap(0, Ordering::Relaxed);
-    (n, sum / u64::from(n.max(1)), max)
+/// A frame owed for `us` was sent.
+pub(super) fn frame_sent_after(us: u64) {
+    HOP_OWED_SENT.note(us);
+}
+
+/// The window's frame hops `[owed>sent, sent>acked]` as `(mean_us, max_us, count)`, and a fresh
+/// window.
+pub(super) fn take_frame_hops() -> [(u64, u64, u32); 2] {
+    [HOP_OWED_SENT.take(), HOP_SENT_ACKED.take()]
 }
 
 /// A client's structure or motion frame was refused.

@@ -1,6 +1,6 @@
 ---
 title: TASK-0338 One frame producer — the display ring holds only presents; a window's move, a transition tick and a scroll ride in windowd's present, inside its budget
-status: In Progress (built 2026-10-21; host, `just check`, `just diag`, QEMU headless + visible green; board cycle 54: 0 NACKs — the commit next)
+status: Done (2026-10-21, board cycle 54: 0 present NACKs; committed in 984a977c)
 owner: @ui @gpu
 created: 2026-10-21
 depends-on: [TASK-0336 (the transform carried in every present), TASK-0335 (the planner's damage)]

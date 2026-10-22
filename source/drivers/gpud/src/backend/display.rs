@@ -44,7 +44,7 @@ pub(crate) trait Display {
     }
 
     /// The GPU's picture in the canvas goes to the glass: the splash's reveal while the splash
-    /// still holds, a flip at the next blank otherwise.
+    /// still holds, a flip the controller takes at its next frame boundary otherwise.
     fn gpu_canvas_show(&mut self, _row: u32) -> Result<(), GfxError> {
         Err(GfxError::DeviceNotFound)
     }
@@ -85,16 +85,16 @@ pub(crate) trait Display {
     fn scan_out(&mut self, damage: Rect) -> Result<(), GfxError>;
 
     /// After [`Display::scan_out`]: whether the present `seq` is acked LATER — once its flip has
-    /// landed at a vertical blank ([`Display::vblank_wake`] returns it then) — instead of now.
+    /// landed ([`Display::vblank_wake`] returns it then) — instead of now.
     /// A display without a ring answers `false` and the loop acks at once.
-    fn present_ack_deferred(&mut self, _seq: u32, _status: u8) -> bool {
+    fn present_ack_deferred(&mut self, _seq: u32, _status: u8, _received_ns: u64) -> bool {
         false
     }
 
-    /// The loop woke (its waitset fired): a display with a vertical-blank interrupt drains it,
-    /// flips what is queued if the scan is inside the blank, and returns the present whose
-    /// flip landed — `(seq, status)` for the ack that is the compositor's frame clock. `None`
-    /// when the wake was not the display's, or nothing landed.
+    /// Every pass of the loop: a display with a flip interrupt drains it and returns the present
+    /// whose flip landed — `(seq, status)` for the ack that is the compositor's frame clock (a
+    /// flip latched while gpud drew lands at the next pass, woken or not). `None` when nothing
+    /// landed.
     fn vblank_wake(&mut self) -> Option<(u32, u8)> {
         None
     }

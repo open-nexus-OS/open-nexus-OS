@@ -392,6 +392,11 @@ impl super::DslApp {
         }
         self.fill_bands(vmo, Some(FILL_BUDGET_NS), &mut damage);
         if damage.is_empty() && !self.tree_dirty {
+            // Nothing to show: an input that asked for a repaint alone was answered with nothing
+            // (no hop); one that moved a layer is answered by the motion.
+            if !self.motion_dirty {
+                self.input_rx_ns = None;
+            }
             return Ok(false);
         }
         if self.tree_dirty {
@@ -403,6 +408,7 @@ impl super::DslApp {
         }
         *seq = seq.wrapping_add(1);
         self.send_present(client, surface_id, *seq, &damage)?;
+        self.note_input_answered();
         Ok(true)
     }
 
@@ -498,6 +504,25 @@ impl super::DslApp {
         let len = lw::encode_surface_motion(surface_id, &motion, &mut buf);
         let _ = client.send(&buf[..len], Wait::Blocking);
         self.motion_dirty = false;
+        self.note_input_answered();
+    }
+
+    /// An input arrived at `rx_ns` (RFC-0108 §hops): the input chain's hop in the app starts — for
+    /// an input that asked for work (a repaint, a motion), the first one since the last answer.
+    pub(super) fn note_input_rx(&mut self, rx_ns: u64, dirty: bool) {
+        if (dirty || self.motion_dirty) && self.input_rx_ns.is_none() {
+            self.input_rx_ns = Some(rx_ns);
+        }
+    }
+
+    /// The answer left — a present or a motion: the hop ends; its line every `INPUT_WINDOW`.
+    fn note_input_answered(&mut self) {
+        let Some(rx) = self.input_rx_ns.take() else { return };
+        self.hop_input.note(nsec_now().saturating_sub(rx) / 1000);
+        if self.hop_input.count() >= nexus_ux_budgets::INPUT_WINDOW {
+            let (n, avg, max) = self.hop_input.take();
+            raw_marker(&alloc::format!("apphost: hops input (rx>sent={avg}/{max}/{n})"));
+        }
     }
 
     /// The wash of the hovered control (RFC-0109, materials rule 3): the patch spread over the

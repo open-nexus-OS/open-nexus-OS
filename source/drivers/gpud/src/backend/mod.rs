@@ -47,6 +47,10 @@ pub(crate) mod cursor_shapes;
 // TASK-0251 P2: the board's display controller + HDMI encoder (granted instead of a GPU).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod dc;
+// The board display's ring of planes and its latched flips — outside `dc` so its rules run in
+// the host's tests (TASK-0342).
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+mod flip_ring;
 // What the request loop drives: the virtio GPU or the board's display controller.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) mod display;

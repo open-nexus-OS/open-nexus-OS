@@ -70,13 +70,6 @@ pub(super) struct Scan {
 /// configuration — it clears config-ready when it latches the shadowed words at a frame boundary
 /// (the interrupt the stock driver unmasks is named `cfg_rdy_clr`). Observed, not yet a gate: the
 /// first switch on the board measures it (TASK-0251 P2a step 2).
-/// What a per-frame flip's write left behind.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct FlipSeen {
-    pub pending: bool,
-    pub line_after: u32,
-}
-
 pub(super) struct Flip {
     pub readback: Readback,
     /// Reads of config-ready until it read 0, or `None` when it stayed set within the bound.
@@ -118,42 +111,49 @@ impl Controller {
         w.written
     }
 
-    /// Enable the vertical blank as the frame clock (RFC-0101 §8) — while a flip waits for it.
-    pub(super) fn vblank_enable(&self) {
+    /// Arm the flip's interrupt (RFC-0101 §8, TASK-0342) — while a flip is latched.
+    pub(super) fn flip_irq_arm(&self) {
         let mut w = Writer { bus: &self.regs, written: Sequence::new() };
-        dc::vblank_enable(&mut w);
+        dc::flip_irq_arm(&mut w);
     }
 
-    /// Hold every interrupt source back: the idle display wakes nobody.
-    pub(super) fn vblank_disable(&self) {
+    /// No interrupt source enabled: the idle display wakes nobody.
+    pub(super) fn flip_irq_disarm(&self) {
         let mut w = Writer { bus: &self.regs, written: Sequence::new() };
-        dc::vblank_disable(&mut w);
+        dc::flip_irq_disarm(&mut w);
     }
 
-    /// Acknowledge one vertical blank at the controller (the vsync bit cleared).
-    pub(super) fn vblank_ack(&self) {
-        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
-        dc::vblank_ack(&mut w);
+    /// The interrupt sources raised now: the pipeline's raw word and the output control's.
+    pub(super) fn irq_raised(&self) -> (u32, u32) {
+        let out = (regs::outctrl_base(regs::PIPELINE) + regs::OUTCTRL_INT_RAW) as usize;
+        (
+            self.regs.read(regs::INT_RAW_ONL2 as usize) & regs::INT_ALL,
+            self.regs.read(out) & regs::OUTCTRL_INT_ALL,
+        )
     }
 
-    /// The output's line counter now — the witness of "inside the blank".
+    /// Acknowledge a wake at the controller: exactly the sources it saw raised cleared.
+    pub(super) fn irq_clear(&self, (onl2, out): (u32, u32)) {
+        let mut w = Writer { bus: &self.regs, written: Sequence::new() };
+        dc::irq_clear(&mut w, onl2, out);
+    }
+
+    /// The output's line counter now (the scan line a flip was written on).
     pub(super) fn line(&self) -> u32 {
         self.regs.read((regs::outctrl_base(regs::PIPELINE) + regs::OUTCTRL_LINE_COUNT) as usize)
             & 0xffff
     }
 
-    /// Switch the scan to `plane` inside the blank: the address, the stride, the latch — bus
-    /// writes only (a flip per frame; the reveal's `flip` reads back and observes the latch).
-    pub(super) fn flip_in_blank(&self, plane: &Plane) -> FlipSeen {
+    /// A ring flip to `plane` at any line (TASK-0342): the address, the stride, the latch — bus
+    /// writes only; the controller takes it at its next frame boundary.
+    pub(super) fn flip_latched(&self, plane: &Plane) {
         let mut w = Writer { bus: &self.regs, written: Sequence::new() };
-        dc::flip(&mut w, RDMA, plane);
-        // What the flip's write left behind (TASK-0215 5c-3 P5's tear measurement): the
-        // config-ready latch still set — the controller takes the plane at a later frame
-        // boundary, not at once — and the scan line the write landed on.
-        FlipSeen {
-            pending: self.regs.read(regs::CTL2_CFG_READY as usize) & 1 != 0,
-            line_after: self.line(),
-        }
+        dc::flip_latched(&mut w, RDMA, plane);
+    }
+
+    /// Whether the latch still holds configuration the controller has not taken.
+    pub(super) fn latch_pending(&self) -> bool {
+        self.regs.read(regs::CTL2_CFG_READY as usize) & 1 != 0
     }
 
     /// Switch the scan to `plane` (the same mode): its address and stride, then the latch.
@@ -236,7 +236,7 @@ impl Controller {
         let first = self.regs.read(counter);
         for _ in 0..SCAN_POLL_READS {
             let now = self.regs.read(counter);
-            let vsync = self.regs.read(raw) & regs::INT_RAW_VSYNC != 0;
+            let vsync = self.regs.read(raw) & regs::INT_VSYNC != 0;
             if now != first || vsync {
                 let lines = (now != first).then_some((first, now));
                 return Ok(Scan { lines, vsync });

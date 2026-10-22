@@ -296,7 +296,7 @@ impl DisplayServerRuntime {
     /// RFC-0108: a frame became owed — the first since the last submit starts the clock
     /// (`windowd: ux input`), whatever owes it: an input's effect, an app's present, a tick.
     pub(super) fn note_frame_owed(&mut self) {
-        if !self.ux_input.owed() {
+        if self.ux_input.owed_since().is_none() {
             self.ux_input.note_owed(nexus_abi::nsec().unwrap_or(0));
         }
     }
@@ -425,8 +425,13 @@ impl DisplayServerRuntime {
             .send_gpud_present(&mut frame_buf[..nexus_display_proto::PRESENT_HEADER_LEN + written]);
         if gpud_ok {
             // RFC-0108: the frame that carries the pending input left for gpud — the input's
-            // wait in windowd is judged once a window of them is in.
-            if let Some(line) = self.ux_input.note_submit(nexus_abi::nsec().unwrap_or(0)) {
+            // wait in windowd is judged once a window of them is in; the wait is also the frame
+            // chain's first hop in windowd (§hops).
+            let now = nexus_abi::nsec().unwrap_or(0);
+            if let Some(owed) = self.ux_input.owed_since() {
+                crate::compositor::frame_causes::frame_sent_after(now.saturating_sub(owed) / 1000);
+            }
+            if let Some(line) = self.ux_input.note_submit(now) {
                 let _ = debug_println(&alloc::format!(
                     "windowd: ux input {} (to_submit_us={} of={} budget_us={})",
                     line.verdict.as_str(),

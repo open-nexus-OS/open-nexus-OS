@@ -6,9 +6,10 @@
 - Status: In Progress
 - Owners: @ui @runtime
 - Created: 2026-10-20
-- Last Updated: 2026-10-20
+- Last Updated: 2026-10-22
 - Links:
-  - Tasks: `tasks/TASK-0334-ux-latency-contract-budgets-measurement-lines-gates.md` (execution + proof)
+  - Tasks: `tasks/TASK-0334-ux-latency-contract-budgets-measurement-lines-gates.md` (execution + proof),
+    `tasks/TASK-0342-the-frame-chain-one-interrupt-a-frame-hops-and-the-reference-levers.md` (§hops)
   - SSOT: `source/libs/nexus-ux-budgets/src/lib.rs` (the budgets, the verdict rule)
   - Related RFCs: `docs/rfcs/RFC-0096-ipc-performance-contract-v2-call-reply-recv-fastpath.md`
     (the IPC budget), `docs/rfcs/RFC-0101-…` (the GPU driver's frame), `docs/rfcs/RFC-0100-…`
@@ -25,6 +26,8 @@
 - **Phase 2 (a UI alarm: the shell's status pill yellow/red from the same numbers via metricsd)**: ⬜
 - **Phase 3 (the budgets green on the board with glass: the consumer floor)**: ⬜ (packages:
   the non-parking compositor, the frame cost with glass, the launch without a copy)
+- **Amendment §hops (where a chain's time goes)**: ✅ 2026-10-22 (TASK-0342, board cycles 60–61:
+  the hops named the frame's wait — 723 ms for the flip against 37 ms of GPU — and its fix)
 
 "Complete" means every budget line is `ok` on the board lane with the operator's series.
 
@@ -104,6 +107,29 @@ measures correctness alone cannot carry it; a budget with a verdict can.
   its tracking reference (`config/fail-marker-allow*.txt`).
 - An emulated lane (QEMU, TCG) never meets a timing budget; its `FAIL` lines are allow-listed
   as such. The board's are allow-listed only while a package tracks them.
+
+### The hops (normative; amended 2026-10-22, TASK-0342)
+
+A chain's ends are judged (`ux input`, `ux frame`); its hops say where the time went. Cycles
+55–59 read ~3 composed frames a second with every judged line red and no line saying which stage
+held the frame — a hop line is that stage's measurement, never judged (no verdict word).
+
+```
+<service>: hops <chain> (<from>><to>=<avg_us>/<max_us>/<count> …)
+```
+
+- One `nexus_ux_budgets::Hop` per hop: count, mean and worst over the emitter's window; each hop
+  carries its own count (not every frame passes every hop).
+- The frame chain: `windowd: hops frame (owed>sent= sent>acked=)` each second with traffic — a
+  frame owed (the first change since the last submit) → handed to gpud → its credit back;
+  `gpud: hops frame (recv>drawn= drawn>shown=)` every 32 frames on screen (the board's ring) —
+  the present received → drawn (its flip queued) → the flip landed at a blank. windowd's
+  `sent>acked` is gpud's two hops plus the way between them.
+- The input chain: `apphost: hops input (rx>sent=)` every 16 inputs that asked for work — the
+  input received → its answer sent (a present or a motion; the wait for the previous present's
+  credit included); windowd's and gpud's frame hops carry it on.
+- Like the budget lines, a hop line carries times and counts only — no identity, no input's
+  content.
 
 ### Proof gates
 

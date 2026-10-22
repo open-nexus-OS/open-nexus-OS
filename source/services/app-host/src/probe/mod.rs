@@ -19,6 +19,7 @@ use nexus_abi::{cap_clone, debug_println, nsec, vmo_create, vmo_write, yield_};
 mod marker;
 pub(crate) use marker::raw_marker;
 use nexus_display_proto::client_surface as wire;
+use nexus_display_proto::surface_text;
 
 use nexus_ipc::{Client as _, KernelClient, Wait};
 
@@ -466,11 +467,9 @@ pub(super) fn run() -> Result<(), &'static str> {
                 if dsl.momentum_tick() {
                     dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
                 }
-                // Animation tick: damage EXACTLY the animated nodes' union
-                // row span (old ∪ new transformed AABB) — the 120Hz damage
-                // contract; a full repaint per breathe tick starved the
-                // input path. Unions with any scroll span; a pending full
-                // request still wins.
+                // Animation tick: damage EXACTLY the animated nodes' union row span (old ∪ new
+                // transformed AABB) — the 120Hz damage contract; a full repaint per breathe tick
+                // starved the input path. Unions with any scroll span; a pending full request wins.
                 if let Some(span) = dsl.anim_tick() {
                     crate::layout_diff::merge_span(&mut dirty, &mut dirty_rows, span);
                 }
@@ -480,6 +479,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                 }
             }
         } else if let Some((_, kind, x, y)) = wire::decode_surface_input(&event_frame[..len]) {
+            let rx_ns = nsec_now();
             if matches!(
                 kind,
                 wire::INPUT_KIND_MOVE
@@ -529,6 +529,9 @@ pub(super) fn run() -> Result<(), &'static str> {
                     }
                 }
             }
+            if let Some(dsl) = app.as_mut() {
+                dsl.note_input_rx(rx_ns, dirty);
+            }
         } else if app.as_mut().is_some_and(|d| d.absorb_shell_push(&event_frame[..len])) {
             if let Some(dsl) = app.as_mut() {
                 dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
@@ -557,15 +560,11 @@ pub(super) fn run() -> Result<(), &'static str> {
                 dirty = true;
                 dirty_rows = None;
             }
-        } else if nexus_display_proto::surface_text::decode_surface_text(&event_frame[..len])
-            .is_some()
-        {
-            if app.as_mut().is_some_and(|d| d.apply_surface_text(&event_frame[..len])) {
-                dirty = true;
-                dirty_rows = None; // model change: full repaint
+        } else if surface_text::decode_surface_text(&event_frame[..len]).is_some() {
+            if let Some(dsl) = app.as_mut() {
+                dsl.text_frame(&event_frame[..len], &mut dirty, &mut dirty_rows);
             }
-        } else if nexus_display_proto::surface_text::decode_ime_state(&event_frame[..len]).is_some()
-        {
+        } else if surface_text::decode_ime_state(&event_frame[..len]).is_some() {
             // Composition-strip push (RFC-0075 Phase 3, ime-ui only —
             // apps without the event ignore it).
             if app.as_mut().is_some_and(|d| d.apply_ime_state(&event_frame[..len])) {

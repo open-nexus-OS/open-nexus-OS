@@ -95,7 +95,7 @@ impl DslApp {
         };
         match result {
             Ok(EditResult::Value(Damage::Layout)) => {
-                self.relayout_retained();
+                self.relayout_bounded();
                 true
             }
             Ok(EditResult::Value(_) | EditResult::Caret) => true,

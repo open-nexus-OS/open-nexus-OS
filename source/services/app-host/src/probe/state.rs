@@ -139,6 +139,10 @@ pub(super) struct DslApp {
     /// the diffed row window (may be empty — pixels identical), `None` =
     /// full repaint. Set by `tap()`, consumed once by the event loop.
     pub(super) tap_render_span: Option<(i32, i32)>,
+    /// The first input since the last answer that asked for work (RFC-0108 §hops,
+    /// `probe/band.rs`), and the input chain's hop in the app: received → answered.
+    pub(super) input_rx_ns: Option<u64>,
+    pub(super) hop_input: nexus_ux_budgets::Hop,
     /// The keyboard overlay (`level: overlay`): a tap here IS a keystroke, so it
     /// is never traced — no per-tap line carries what was typed (privacy rule).
     pub(super) taps_are_keystrokes: bool,

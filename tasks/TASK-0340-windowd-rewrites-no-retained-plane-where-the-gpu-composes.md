@@ -1,6 +1,6 @@
 ---
 title: TASK-0340 windowd rewrites no retained plane where the GPU composes — the 120 µs-a-row CPU work cycle 55 measured, gone from every frame
-status: In Progress (built 2026-10-21; board cycle 56: no retained row, windowd's flush 30 → 2.2 ms median — the commit next)
+status: Done (2026-10-21, board cycle 56: no retained row where the GPU composes, windowd's flush 30 → 2.2 ms median; committed in 77b30576)
 owner: @ui
 created: 2026-10-21
 depends-on: [TASK-0339 (the work split that measured it)]

@@ -117,6 +117,43 @@ impl FrameWindow {
     }
 }
 
+/// One hop of a chain (RFC-0108 §hops): how long one stage of a frame or an input took — its
+/// count, mean and worst over a window. A measurement nobody judges: a chain's ends are judged
+/// (`ux input`, `ux frame`), its hops say where the time went. Every service prints its hops in
+/// one shape: `<svc>: hops <chain> (<from>><to>=<avg_us>/<max_us>/<count> …)` — each hop with its
+/// own count (not every frame passes every hop).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Hop {
+    n: u32,
+    sum_us: u64,
+    max_us: u64,
+}
+
+impl Hop {
+    pub const fn new() -> Self {
+        Self { n: 0, sum_us: 0, max_us: 0 }
+    }
+
+    /// Records one pass through the hop.
+    pub fn note(&mut self, us: u64) {
+        self.n = self.n.saturating_add(1);
+        self.sum_us = self.sum_us.saturating_add(us);
+        self.max_us = self.max_us.max(us);
+    }
+
+    /// The passes recorded in this window.
+    pub const fn count(&self) -> u32 {
+        self.n
+    }
+
+    /// The window's `(count, mean_us, max_us)` — and a fresh window.
+    pub fn take(&mut self) -> (u32, u64, u64) {
+        let window = (self.n, self.sum_us / u64::from(self.n.max(1)), self.max_us);
+        *self = Self::new();
+        window
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +199,16 @@ mod tests {
             w.note(20_000);
         }
         assert_eq!(w.verdict(), Verdict::Fail, "cycle 47's slideshow");
+    }
+
+    #[test]
+    fn a_hop_reports_its_mean_and_worst_and_starts_afresh() {
+        let mut h = Hop::new();
+        assert_eq!(h.take(), (0, 0, 0), "an empty window divides by nothing");
+        h.note(10_000);
+        h.note(30_000);
+        assert_eq!(h.count(), 2);
+        assert_eq!(h.take(), (2, 20_000, 30_000));
+        assert_eq!(h.count(), 0);
     }
 }

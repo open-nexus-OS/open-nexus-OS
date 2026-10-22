@@ -27,12 +27,13 @@
 mod controller;
 mod cursor;
 mod encoder;
+mod flip;
 mod framebuffer;
 mod glue;
 mod gpu_canvas;
 mod gpu_frame;
 mod present;
-mod ring;
+use super::flip_ring as ring;
 
 use nexus_gfx::backend::dc::frame_stats::FrameStats;
 use nexus_gfx::backend::dc::{cea_mode, Mode};
@@ -106,8 +107,8 @@ pub(crate) struct DcDisplay {
     exec_ns: u64,
     /// The ring of planes (RFC-0101 §8) and the presents in flight on it.
     ring: ring::Ring,
-    /// The vertical-blank interrupt, once bound.
-    vblank: Option<Vblank>,
+    /// The flip's interrupt, once bound (`flip.rs`).
+    flip_irq: Option<flip::FlipIrq>,
     /// The tear gate's FAIL form, said once.
     front_reported: bool,
     /// The ring's slots as the caches see them (TASK-0215 5c-3 P4b): the GPU drew the slot last
@@ -127,34 +128,6 @@ pub(crate) struct DcDisplay {
     /// The CPU wrote the base plane since the GPU's last frame (the reveal, a freeze, a thaw).
     base_dirty: bool,
 }
-
-/// The controller's vertical-blank interrupt as gpud's frame clock: the line, the endpoint
-/// it notifies, and its witness (`gpud: dc vblank ok (min_period_us= line= late= n=)`): the
-/// shortest interval between two served interrupts over the first thirty-two — a frame
-/// (16 667 µs at 60 Hz) when the vsync alone is live, a fraction of a millisecond if a
-/// line-1 source were live too — the scan line the first handler saw, and the flips written
-/// late. Enabled only while a flip waits for the blank; an idle display wakes nobody.
-struct Vblank {
-    irq: u32,
-    slot: u32,
-    n: u32,
-    late: u32,
-    last_ns: u64,
-    min_period_us: u64,
-    first_line: u32,
-    reported: bool,
-    flip_reported: bool,
-    /// The flips' witness (TASK-0215 5c-3 P5): flips written, how many left the config-ready
-    /// latch set (taken at a later frame boundary), how many landed past the blank, the
-    /// highest line a write landed on — `gpud: dc flips (…)` every 64.
-    flips: u32,
-    pending: u32,
-    crossed: u32,
-    line_after_max: u32,
-}
-
-/// Served interrupts the witness line waits for.
-pub(super) const VBLANK_WITNESS_N: u32 = 32;
 
 struct Live {
     controller: Controller,
@@ -197,7 +170,7 @@ impl DcDisplay {
             stats: FrameStats::default(),
             exec_ns: 0,
             ring: ring::Ring::new(w, h),
-            vblank: None,
+            flip_irq: None,
             front_reported: false,
             slot_gpu: [false; ring::SLOTS],
             // The CPU drew the splash's planes and the rungs' canvases: every slot's lines are
@@ -210,10 +183,10 @@ impl DcDisplay {
         }
     }
 
-    /// Bind the controller's vertical-blank interrupt to the notify endpoint `slot` and arm it
-    /// at the controller (RFC-0101 §8): `true` when the blank is the frame clock from here on.
-    /// A display without the interrupt names it and stays as it was — the ring flips at the
-    /// next present instead, never torn by a frame drawn in view, only late.
+    /// Bind the controller's interrupt to the notify endpoint `slot` (RFC-0101 §8): `true` when
+    /// the flips land by it from here on — every source off until a flip is latched (`flip.rs`).
+    /// A display without the interrupt names it and stays as it was — each flip is shown at
+    /// once instead, never torn by a frame drawn in view, only unpaced.
     pub(crate) fn bind_vblank(&mut self, slot: u32) -> bool {
         let Some(live) = self.live.as_ref() else {
             return false;
@@ -227,23 +200,9 @@ impl DcDisplay {
             emit(&alloc::format!("gpud: FAIL dc vblank (irq {irq} not bound)"));
             return false;
         }
-        live.controller.vblank_disable();
+        live.controller.flip_irq_disarm();
         emit(&alloc::format!("gpud: dc vblank armed (irq={irq})"));
-        self.vblank = Some(Vblank {
-            irq,
-            slot,
-            n: 0,
-            late: 0,
-            last_ns: 0,
-            min_period_us: u64::MAX,
-            first_line: 0,
-            reported: false,
-            flip_reported: false,
-            flips: 0,
-            pending: 0,
-            crossed: 0,
-            line_after_max: 0,
-        });
+        self.flip_irq = Some(flip::FlipIrq::new(irq, slot));
         true
     }
 }

@@ -155,30 +155,41 @@ pub fn flip<W: RegWriter>(w: &mut W, rdma: u32, plane: &Plane) {
     flush(w);
 }
 
-/// Enables the vertical blank as the frame clock (RFC-0101 §8, Phase 1): the raw word cleared
-/// FIRST (a vsync raised while masked stays raised and would fire at once), then every source
-/// but the vsync held back — one interrupt a frame, at the first line of the blank
-/// (`docs/board/measurements/2026-10-12-scanout-vblank/`). Enabled only while a flip waits.
-pub fn vblank_enable<W: RegWriter>(w: &mut W) {
-    w.write(regs::INT_RAW_ONL2, regs::INT_RAW_CLEAR_ALL);
-    w.write(regs::INT_MASK_ONL2, regs::INT_MASK_ALL_BUT_VSYNC);
+/// A ring flip (TASK-0342): the plane's address and stride written at ANY line, then the
+/// configuration latch alone — the controller takes the latched configuration at its next frame
+/// boundary and the scan runs on (the vendor kernel's commit path: the start word only at the
+/// first frame, [`flip`]). The address is shadowed until the latch is taken, so no frame shows
+/// two planes; `CTL2_CFG_READY` reads 1 until then.
+pub fn flip_latched<W: RegWriter>(w: &mut W, rdma: u32, plane: &Plane) {
+    let ch = regs::rdma_base(rdma);
+    write_plane_address(w, ch, plane.bus_addr);
+    w.write(ch + regs::RDMA_STRIDE_BYTES, plane.stride);
+    w.write(regs::CTL2_CFG_READY, 1);
 }
 
-/// Holds every source back: the idle display wakes nobody.
-pub fn vblank_disable<W: RegWriter>(w: &mut W) {
-    w.write(regs::INT_MASK_ONL2, regs::INT_MASK_ALL);
+/// Arms the flip's interrupt (RFC-0101 §8, TASK-0342): the latched status cleared whole first
+/// (an old event would fire at once), then the flip's sources alone enabled — the latch taken,
+/// and the vsync behind it. Armed only while a flip is latched; an idle display wakes nobody.
+pub fn flip_irq_arm<W: RegWriter>(w: &mut W) {
+    w.write(regs::INT_STS_ONL2, regs::INT_ALL);
+    w.write(regs::INT_ENABLE_ONL2, regs::INT_FLIP_SOURCES);
 }
 
-/// Acknowledges one vertical blank: the vsync bit cleared by writing it, nothing else touched.
-pub fn vblank_ack<W: RegWriter>(w: &mut W) {
-    w.write(regs::INT_RAW_ONL2, regs::INT_RAW_VSYNC);
+/// No source enabled: the idle display raises no interrupt.
+pub fn flip_irq_disarm<W: RegWriter>(w: &mut W) {
+    w.write(regs::INT_ENABLE_ONL2, 0);
 }
 
-/// Whether `line` (the output's line counter) is inside the blank of a mode `v_active` lines
-/// high — at or past the active height (the counter reads the active height at the vsync) or
-/// at the first line, before the active picture: the lines a flip may be written in.
-pub fn in_blank(line: u32, v_active: u32) -> bool {
-    line >= v_active || line == 0
+/// Acknowledges a wake: exactly the sources it saw raised cleared in each latched status —
+/// `onl2` the pipeline's, `out` the output control's (write-1-to-clear; the raw words follow).
+/// A status left set keeps the level line up and wakes the handler again at once.
+pub fn irq_clear<W: RegWriter>(w: &mut W, onl2: u32, out: u32) {
+    if onl2 != 0 {
+        w.write(regs::INT_STS_ONL2, onl2);
+    }
+    if out != 0 {
+        w.write(regs::outctrl_base(regs::PIPELINE) + regs::OUTCTRL_INT_STATUS, out);
+    }
 }
 
 /// Bytes per pixel of the controller's XRGB8888 plane.
@@ -266,38 +277,64 @@ mod tests {
         Plane { bus_addr: 0x0fb7_c000, stride: 7680, width: 1920, height: 1080 }
     }
 
-    /// The vertical blank as the frame clock: the raw word cleared before the mask opens the
-    /// vsync alone (the stock mask plus the two line-1 sources); disabled is every source held
-    /// back; an ack writes the vsync bit alone.
+    /// The flip's interrupt as the vendor's register header names the words (TASK-0342): armed
+    /// is the latched status cleared whole, then the latch-taken and vsync sources enabled —
+    /// nothing else; disarmed is no source; a wake clears what it saw raised in each status.
     #[test]
-    fn the_vertical_blank_is_enabled_as_measured() {
+    fn the_flip_interrupt_is_armed_as_the_header_names_it() {
         let mut w = Sequence::new();
-        vblank_enable(&mut w);
+        flip_irq_arm(&mut w);
         assert_eq!(
             w.as_slice(),
             &[
-                Write { offset: regs::INT_RAW_ONL2, value: 0xf },
-                Write { offset: regs::INT_MASK_ONL2, value: 0xf21e },
+                Write { offset: regs::INT_STS_ONL2, value: 0x03ff_ffff },
+                Write { offset: regs::INT_ENABLE_ONL2, value: 0x11 },
             ]
         );
         let mut w = Sequence::new();
-        vblank_disable(&mut w);
-        assert_eq!(w.as_slice(), &[Write { offset: regs::INT_MASK_ONL2, value: 0xffff }]);
+        flip_irq_disarm(&mut w);
+        assert_eq!(w.as_slice(), &[Write { offset: regs::INT_ENABLE_ONL2, value: 0 }]);
         let mut w = Sequence::new();
-        vblank_ack(&mut w);
-        assert_eq!(w.as_slice(), &[Write { offset: regs::INT_RAW_ONL2, value: 1 }]);
+        irq_clear(&mut w, 0x211, 0x2);
+        let out_status = regs::outctrl_base(regs::PIPELINE) + regs::OUTCTRL_INT_STATUS;
+        assert_eq!(
+            w.as_slice(),
+            &[
+                Write { offset: regs::INT_STS_ONL2, value: 0x211 },
+                Write { offset: out_status, value: 0x2 },
+            ]
+        );
     }
 
-    /// The blank is the lines at or past the active height, and the first line.
+    /// Board cycles 59–60: the enable word read as a mask turned every source but the vsync
+    /// on, and the clears went to the read-only raw words — the line never fell. Neither may
+    /// come back: the flip enables two sources, and nothing writes a raw word.
     #[test]
-    fn the_blank_is_past_the_active_height() {
-        let v = u32::from(mode_1080p60().v_active);
-        assert!(in_blank(1080, v));
-        assert!(in_blank(1124, v));
-        assert!(in_blank(0, v));
-        assert!(!in_blank(1, v));
-        assert!(!in_blank(540, v));
-        assert!(!in_blank(1079, v));
+    fn test_reject_a_source_beyond_the_flip_or_a_write_to_a_raw_word() {
+        assert_eq!(regs::INT_FLIP_SOURCES, regs::INT_CFG_TAKEN | regs::INT_VSYNC);
+        assert_eq!(regs::INT_FLIP_SOURCES.count_ones(), 2);
+        let raw = [regs::INT_RAW_ONL2, regs::outctrl_base(regs::PIPELINE) + regs::OUTCTRL_INT_RAW];
+        let mut w = Sequence::new();
+        flip_irq_arm(&mut w);
+        irq_clear(&mut w, regs::INT_ALL, regs::OUTCTRL_INT_ALL);
+        flip_latched(&mut w, 1, &plane_1080p());
+        flip_irq_disarm(&mut w);
+        assert!(w.as_slice().iter().all(|x| !raw.contains(&x.offset)));
+    }
+
+    /// A ring flip writes the plane, then the latch — never the start word (the scan runs; the
+    /// reveal's [`flip`] alone starts it).
+    #[test]
+    fn a_ring_flip_latches_without_restarting_the_scan() {
+        let mut w = Sequence::new();
+        flip_latched(&mut w, 1, &plane_1080p());
+        assert_eq!(w.value_at(regs::CTL2_SW_START), None);
+        assert_eq!(w.value_at(regs::rdma_base(1) + regs::RDMA_STRIDE_BYTES), Some(7680));
+        let last = w.as_slice().last().map(|x| (x.offset, x.value));
+        assert_eq!(last, Some((regs::CTL2_CFG_READY, 1)), "the latch after the plane");
+        let mut w = Sequence::new();
+        flip(&mut w, 1, &plane_1080p());
+        assert_eq!(w.value_at(regs::CTL2_SW_START), Some(1), "the reveal starts the scan");
     }
 
     /// The timing words come out exactly as the live dump holds them at 1920x1080@60
