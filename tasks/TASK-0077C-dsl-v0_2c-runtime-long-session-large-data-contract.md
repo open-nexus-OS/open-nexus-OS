@@ -269,6 +269,12 @@ fragmentation, service floor stays bump — see D1 rationale); kernel changes.
   (`ARENA_OFF=1`), while `budget_probe` does one and passes. A runtime or settings-app defect
   after ~17 open/close cycles (a bounded list? nav history?). Recorded here so it is not lost;
   the harness leaves `settings` out with a comment naming this.
+  **Cause measured 2026-10-22 (board cycle 62, `docs/board/measurements/2026-10-22-frame-pace/`):**
+  the runtime reads the program through ONE capnp reader for the app's life, and capnp's
+  traversal budget (`TRAVERSAL_LIMIT_WORDS`) belongs to the reader — every emit and dispatch
+  spends from it, nothing refills it (settings `Malformed` after 28 toggles, the greeter after
+  482 keystrokes; ×8 budget → 260 and 3 886). On the board it stops taps and typing, and a failed
+  emit leaves its scene to the arena's next reset — the chat's crash. Fixed in the next package.
 
   **Boot-proven 2026-09-21** (visible profile, poison ON): `alloc-fail` **0**; arena peak flat
   at **76 733 B** across both regions, `spill=0`; base heap 123 472 → 128 224 B over 11 layouts

@@ -129,39 +129,11 @@ pub const OP_SURFACE_FRAME_REQ: u8 = 19;
 /// The compositor's pulse answering `OP_SURFACE_FRAME_REQ`.
 pub const OP_SURFACE_FRAME: u8 = 20;
 
-pub const SURFACE_FRAME_FRAME_LEN: usize = HEADER_LEN + 4;
-
-#[must_use]
-pub fn encode_surface_frame_req(surface_id: u32) -> [u8; SURFACE_FRAME_FRAME_LEN] {
-    let mut f = [0u8; SURFACE_FRAME_FRAME_LEN];
-    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_FRAME_REQ));
-    f[4..8].copy_from_slice(&surface_id.to_le_bytes());
-    f
-}
-
-#[must_use]
-pub fn decode_surface_frame_req(frame: &[u8]) -> Option<u32> {
-    if !has_op(frame, OP_SURFACE_FRAME_REQ) || frame.len() != SURFACE_FRAME_FRAME_LEN {
-        return None;
-    }
-    Some(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]))
-}
-
-#[must_use]
-pub fn encode_surface_frame(surface_id: u32) -> [u8; SURFACE_FRAME_FRAME_LEN] {
-    let mut f = [0u8; SURFACE_FRAME_FRAME_LEN];
-    f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_FRAME));
-    f[4..8].copy_from_slice(&surface_id.to_le_bytes());
-    f
-}
-
-#[must_use]
-pub fn decode_surface_frame(frame: &[u8]) -> Option<u32> {
-    if !has_op(frame, OP_SURFACE_FRAME) || frame.len() != SURFACE_FRAME_FRAME_LEN {
-        return None;
-    }
-    Some(u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]))
-}
+// The pulse's frames — and the time a pulse names (RFC-0110) — live in `crate::frame_time`.
+pub use crate::frame_time::{
+    decode_surface_frame, decode_surface_frame_req, encode_surface_frame, encode_surface_frame_req,
+    SURFACE_FRAME_FRAME_LEN,
+};
 // Control kinds (`CONTROL_*`) live in `crate::control` (split out when the
 // window-control vocabulary outgrew this file); re-exported below so
 // `client_surface::CONTROL_*` stays the path.

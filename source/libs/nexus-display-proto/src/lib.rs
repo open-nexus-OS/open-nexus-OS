@@ -35,6 +35,8 @@
 pub mod client_surface;
 pub mod control;
 pub mod envelope;
+/// Frame timing: when a present reached the glass, the time a frame is computed for (RFC-0110).
+pub mod frame_time;
 /// A client's GPU context and its pipeline library, windowd → gpud (RFC-0101 §7b).
 pub mod gpu_context;
 /// The framebuffer grant — the display mode and the scanout memory are gpud's (RFC-0098 C7).

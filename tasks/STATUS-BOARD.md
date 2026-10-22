@@ -31,7 +31,7 @@ This section adds a navigation layer over the full `TASK-*` set. Task files rema
 | Storage, PackageFS & Content | 17 / 36 | 47% | `TASK-0031` | Persistent state, VFS/content contracts, packagefs, quotas, and zero-copy content paths. FS ladder `TRACK-STASH-USER-DATA-FS` (RFC-0071/0072/0073 → TASK-0291..0295) Done; end-state ladder 0314–0320 now counted (0314 Done). |
 | Updates, Packaging & Recovery | 13 / 21 | 62% | `TASK-0289` | Updates, packages, provisioning, installer, rollback, and recovery tooling. ACTIVE LANE 2026-08-25 (RFC-0089). |
 | Bringup, Hardware & Drivers | 7 / 14 | 50% | `TASK-0244`, `TASK-0245`, `TASK-0251` | RISC-V bringup, device-class services, display/audio, and driver-facing tracks. |
-| Windowing, UI & Graphics | 40 / 89 | 45% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
+| Windowing, UI & Graphics | 40 / 90 | 44% | — | Early renderer, windowing, compositor, UI/input performance floor, and Orbital-Level UX gates. |
 | Text, IME, I18N & Accessibility | 4 / 8 | 50% | — | Text stack, input methods, locale, and accessibility foundations. ACTIVE TRACK 2026-07-21: IME v2 (0146/0147/0149/0150/0203/0204, RFC-0075) + i18n v2 locale packs (0240/0241, RFC-0077); 0096/0174/0175 Superseded, 0148 Deferred. |
 | Media & Creative | 0 / 5 | 0% | — | Media sessions, audio/video/camera, and creative/media UX slices. |
 | Messaging, Search, Store & Sharing | 0 / 9 | 0% | — | Search, sharing, notifications, store, and user-facing data exchange. |
@@ -172,9 +172,9 @@ Use these groups to review a domain without opening every task file. `Kernel-tou
 
 ### Windowing, UI & Graphics
 
-- Progress: `40 / 89` done (`45%`)
+- Progress: `40 / 90` done (`44%`)
 - Kernel-touch tasks: —
-- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`, `TASK-0334`..`TASK-0342`
+- Tasks: `TASK-0054`..`TASK-0055`, `TASK-0055B`, `TASK-0055C`, `TASK-0056`, `TASK-0056B`, `TASK-0056C`, `TASK-0057`..`TASK-0059`, `TASK-0060B`, `TASK-0061`..`TASK-0064`, `TASK-0067B`, `TASK-0069`..`TASK-0076`, `TASK-0076B`, `TASK-0080B`, `TASK-0080C`, `TASK-0082`..`TASK-0083`, `TASK-0085`..`TASK-0100`, `TASK-0100B`, `TASK-0101`..`TASK-0102`, `TASK-0104`..`TASK-0106`, `TASK-0113`..`TASK-0122`, `TASK-0125`, `TASK-0127`..`TASK-0128`, `TASK-0146`..`TASK-0147`, `TASK-0150`, `TASK-0156`, `TASK-0169`, `TASK-0170B`, `TASK-0171`, `TASK-0176`, `TASK-0199`..`TASK-0200`, `TASK-0207`..`TASK-0208`, `TASK-0215`, `TASK-0252`..`TASK-0253`, `TASK-0275`, `TASK-0334`..`TASK-0343`
 
 ### Text, IME, I18N & Accessibility
 

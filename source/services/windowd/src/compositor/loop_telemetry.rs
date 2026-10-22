@@ -3,8 +3,8 @@
 
 //! CONTEXT: windowd main-loop cadence telemetry (SMP-flicker triage) — the 1s
 //! `windowd: loop hz=…` window plus the NACK counters, why its frames were sent
-//! (`frame_causes`),
-//! and the `OP_TIMER_FIRED` payload decode both recv sites share.
+//! (`frame_causes`), the frame chain's hops and the frame pace (RFC-0110: the presents shown
+//! when windowd predicted), and the `OP_TIMER_FIRED` payload decode both recv sites share.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -30,11 +30,21 @@ pub(super) struct LoopTelemetry {
     seq_base: u32,
     nack_base: u32,
     fullrq_base: u32,
+    /// RFC-0110: the judged landings (on time, late, early) at the window's start.
+    pace_base: [u32; 3],
 }
 
 impl LoopTelemetry {
     pub(super) const fn new() -> Self {
-        Self { window_start_ns: 0, iters: 0, applies: 0, seq_base: 0, nack_base: 0, fullrq_base: 0 }
+        Self {
+            window_start_ns: 0,
+            iters: 0,
+            applies: 0,
+            seq_base: 0,
+            nack_base: 0,
+            fullrq_base: 0,
+            pace_base: [0; 3],
+        }
     }
 
     /// Count one staged-input application (at most one per loop iteration).
@@ -98,6 +108,18 @@ impl LoopTelemetry {
                      sent>acked={sa_avg}/{sa_max}/{sa_n})"
                 ));
             }
+            // RFC-0110: the presents shown when windowd predicted — the time the clients'
+            // frame pulses named — more than half a period late, or early; the cadence gpud holds.
+            let (judged, cadence, period_ns) = runtime.frame_pace();
+            let [on_time, late, early] =
+                core::array::from_fn(|k| judged[k].wrapping_sub(self.pace_base[k]));
+            if on_time + late + early > 0 {
+                let _ = debug_println(&alloc::format!(
+                    "windowd: frame pace (on_time={on_time} late={late} early={early} \
+                     cadence={cadence} period_us={})",
+                    period_ns / 1000
+                ));
+            }
         } else {
             // A quiet window's counters are not carried into the next one.
             let _ = super::frame_causes::take();
@@ -116,5 +138,6 @@ impl LoopTelemetry {
         self.seq_base = runtime.present_seq_value();
         self.nack_base = runtime.nack_total();
         self.fullrq_base = runtime.nack_full_recompose_total();
+        self.pace_base = runtime.frame_pace().0;
     }
 }

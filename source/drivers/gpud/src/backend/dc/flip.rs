@@ -7,9 +7,12 @@
 //! flip is latched: the latch taken (`cfg-ready-clear`), the vsync behind it. A flip has landed
 //! when the latch reads clear: at the interrupt's wake, or at the request loop's next pass (a
 //! wake that came while gpud drew the next frame). The present that waited behind it is latched
-//! the moment it lands. Board cycles 59–60 waited for a wake inside the 45-line blank instead —
-//! behind a GPU wait of ~35 ms — and served an interrupt storm: the enable word was read as a
-//! mask and the clears went to the read-only raw word.
+//! the moment it lands — unless the cadence holds it (RFC-0110, `frame_pace.rs`): a frame drawn
+//! before its slot is held, the interrupt armed, until the boundary before the slot. A landing is
+//! timed at the boundary its flip was taken at, from the scan line counter, and acked with that
+//! time. Board cycles 59–60 waited for a wake inside the 45-line blank instead — behind a GPU wait
+//! of ~35 ms — and served an interrupt storm: the enable word was read as a mask and the clears
+//! went to the read-only raw word.
 
 use nexus_abi::nsec;
 use nexus_gfx::backend::dc::regs;
@@ -17,6 +20,7 @@ use nexus_gfx::backend::error::GfxError;
 use nexus_ux_budgets::Hop;
 
 use super::{emit, ring, DcDisplay};
+use crate::backend::display::Landed;
 
 /// Notifications drained per wake (xhcid's pattern): a coalesced burst, never a spin.
 const DRAIN_MAX: u32 = 8;
@@ -24,6 +28,8 @@ const DRAIN_MAX: u32 = 8;
 const WITNESS_WAKES: u32 = 32;
 /// Landed flips per `gpud: dc flips (…)` line.
 const FLIPS_LINE: u32 = 64;
+/// Scan-out underflows named one by one (`gpud: dc underflow (…)`), then counted only.
+const UNDERFLOWS_NAMED: u32 = 16;
 
 /// The flip's interrupt, bound: its line, the endpoint it notifies, and what its wakes found.
 pub(super) struct FlipIrq {
@@ -54,6 +60,8 @@ pub(super) struct FlipIrq {
     underflows: u32,
     seen_onl2: u32,
     seen_out: u32,
+    /// Frames held for their slot by the cadence (RFC-0110).
+    paced: u32,
     /// The frame chain's hops in gpud (RFC-0108 §hops): a present received → drawn, drawn → on
     /// screen — `gpud: hops frame (…)` every `FRAME_WINDOW` landed presents.
     hop_work: Hop,
@@ -82,6 +90,7 @@ impl FlipIrq {
             underflows: 0,
             seen_onl2: 0,
             seen_out: 0,
+            paced: 0,
             hop_work: Hop::new(),
             hop_flip: Hop::new(),
         }
@@ -99,7 +108,20 @@ impl FlipIrq {
         self.taken += u32::from(onl2 & regs::INT_CFG_TAKEN != 0);
         self.vsyncs += u32::from(onl2 & regs::INT_VSYNC != 0);
         self.unraised += u32::from(onl2 == 0 && out == 0);
-        self.underflows += u32::from(onl2 & regs::INT_UNDERFLOW != 0);
+        if onl2 & regs::INT_UNDERFLOW != 0 {
+            self.underflows += 1;
+            // The flicker's suspect (cycle 61: 8 a session, not repeatable): each named with its
+            // time, the line the wake saw and whether a flip was taken at the same boundary.
+            if self.underflows <= UNDERFLOWS_NAMED {
+                emit(&alloc::format!(
+                    "gpud: dc underflow (n={} at_ms={} line={line} taken={} flips={})",
+                    self.underflows,
+                    now / 1_000_000,
+                    u8::from(onl2 & regs::INT_CFG_TAKEN != 0),
+                    self.landed
+                ));
+            }
+        }
         self.seen_onl2 |= onl2;
         self.seen_out |= out;
         if !self.witnessed && self.wakes >= WITNESS_WAKES {
@@ -115,15 +137,23 @@ impl FlipIrq {
         }
     }
 
-    /// One landed flip: where it was found, its present's hops, the lines when due.
-    fn note_landed(&mut self, at_wake: bool, stamps: Option<ring::Stamps>, now: u64) {
+    /// One landed flip: where it was found, its present's hops, the lines when due (the cadence
+    /// and the landings past their slot from the pace).
+    fn note_landed(
+        &mut self,
+        at_wake: bool,
+        stamps: Option<ring::Stamps>,
+        now: u64,
+        (cadence, late): (u8, u32),
+    ) {
         self.landed = self.landed.saturating_add(1);
         self.at_wake += u32::from(at_wake);
         self.at_pass += u32::from(!at_wake);
         if self.landed % FLIPS_LINE == 0 {
             emit(&alloc::format!(
                 "gpud: dc flips (n={} at_wake={} at_pass={} behind={} wakes={} held={} taken={} \
-                 vsyncs={} unraised={} underflows={} onl2=0x{:x} out=0x{:x})",
+                 vsyncs={} unraised={} underflows={} onl2=0x{:x} out=0x{:x} cadence={cadence} \
+                 paced={} late={late})",
                 self.landed,
                 self.at_wake,
                 self.at_pass,
@@ -135,7 +165,8 @@ impl FlipIrq {
                 self.unraised,
                 self.underflows,
                 self.seen_onl2,
-                self.seen_out
+                self.seen_out,
+                self.paced
             ));
         }
         let Some(s) = stamps.filter(|s| s.received_ns != 0) else { return };
@@ -153,11 +184,11 @@ impl FlipIrq {
 }
 
 impl DcDisplay {
-    /// The running present is drawn: its flip latched now when none is, else it waits behind
-    /// the latched one (latched when that one lands).
+    /// The running present is drawn: its flip latched now when none is (or held for its slot),
+    /// else it waits behind the latched one (latched when that one lands).
     pub(super) fn queue_flip(&mut self) -> Result<(), GfxError> {
         match self.ring.drawn().map_err(|_| GfxError::ResourceExhausted)? {
-            Some(slot) => self.latch(slot),
+            Some(slot) => self.latch_or_hold(slot),
             None => {
                 if let Some(f) = self.flip_irq.as_mut() {
                     f.behind = f.behind.saturating_add(1);
@@ -165,6 +196,28 @@ impl DcDisplay {
             }
         }
         Ok(())
+    }
+
+    /// The boundary the frame being scanned began at (the line counter's lines before now).
+    fn boundary_now(&self) -> u64 {
+        let line = self.live.as_ref().map_or(0, |l| l.controller.line());
+        self.pace.timing().boundary(nsec().unwrap_or(0), line)
+    }
+
+    /// `slot`'s flip latched now — or, at a cadence whose slot it would come before, held: the
+    /// flip's interrupt armed, the next wake at a boundary looks again (`flip_wake`).
+    fn latch_or_hold(&mut self, slot: usize) {
+        if self.pace.may_latch(self.boundary_now()) {
+            self.latch(slot);
+            return;
+        }
+        self.held = Some(slot);
+        if let Some(live) = self.live.as_ref() {
+            live.controller.flip_irq_arm();
+        }
+        if let Some(f) = self.flip_irq.as_mut() {
+            f.paced = f.paced.saturating_add(1);
+        }
     }
 
     /// `slot`'s plane written with the latch at whatever line the scan is on, and the flip's
@@ -175,6 +228,7 @@ impl DcDisplay {
         let Some(fb) = live.framebuffer.as_ref() else { return };
         live.controller.flip_latched(&fb.plane_at(ring::ROWS[slot], w, h));
         live.controller.flip_irq_arm();
+        self.latched_ns = nsec().unwrap_or(0);
         if let Some(f) = self.flip_irq.as_mut().filter(|f| !f.first_flip_said) {
             f.first_flip_said = true;
             emit(&alloc::format!(
@@ -185,11 +239,19 @@ impl DcDisplay {
     }
 
     /// The loop's pass over the display (the flip's interrupt woke it, or a request was served):
-    /// the notifications drained and what raised them cleared; a latched flip whose latch reads
-    /// clear has landed — its present's ack returned, the one waiting behind it latched. `None`:
-    /// nothing landed.
-    pub(super) fn flip_wake(&mut self) -> Option<(u32, u8)> {
+    /// the notifications drained and what raised them cleared; a held frame latched once its
+    /// slot is next; a latched flip whose latch reads clear has landed — its present's ack
+    /// returned with the boundary it was taken at, the one waiting behind it latched (or held).
+    /// `None`: nothing landed.
+    pub(super) fn flip_wake(&mut self) -> Option<Landed> {
         let woke = self.serve_flip_irq()?;
+        if let Some(slot) = self.held {
+            if self.pace.may_latch(self.boundary_now()) {
+                self.held = None;
+                self.latch(slot);
+            }
+            return None;
+        }
         self.ring.latched()?;
         if self.live.as_ref()?.controller.latch_pending() {
             if let Some(f) = self.flip_irq.as_mut().filter(|_| woke) {
@@ -198,8 +260,10 @@ impl DcDisplay {
             return None;
         }
         let landed = self.ring.landed()?;
+        let at_ns = self.pace.taken_at(self.latched_ns, self.boundary_now());
+        self.pace.note_shown(at_ns);
         match landed.next {
-            Some(next) => self.latch(next),
+            Some(next) => self.latch_or_hold(next),
             None => {
                 if let Some(live) = self.live.as_ref() {
                     live.controller.flip_irq_disarm();
@@ -208,8 +272,15 @@ impl DcDisplay {
         }
         let now = nsec().unwrap_or(0);
         let stamps = landed.drawn.ack.map(|_| landed.drawn.stamps);
-        self.flip_irq.as_mut()?.note_landed(woke, stamps, now);
-        landed.drawn.ack
+        let pace = (self.pace.cadence(), self.pace.late);
+        self.flip_irq.as_mut()?.note_landed(woke, stamps, now, pace);
+        let (seq, status) = landed.drawn.ack?;
+        let shown = nexus_display_proto::frame_time::Shown {
+            at_ns,
+            period_ns: u32::try_from(self.pace.timing().period_ns).unwrap_or(u32::MAX),
+            cadence: self.pace.cadence(),
+        };
+        Some(Landed { seq, status, shown })
     }
 
     /// Drains the flip interrupt's notifications: `Some(true)` when it woke the loop (what

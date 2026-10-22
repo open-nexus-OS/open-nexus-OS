@@ -84,7 +84,7 @@ impl Desktop {
             });
         self.frame.layers.clear();
         self.drawn = [0; 3];
-        self.cleaned = [None; nexus_gfx::frame::MAX_LAYERS];
+        self.cleaned.forget();
         let (cold_us, cold_passes, warm_us, warm_passes, piped_us) = drawn?;
         // The last warm frame's one pass: its wait, the wait's iterations, the interrupts.
         let [wait_us, iters, irqs] = self.pass_witness;

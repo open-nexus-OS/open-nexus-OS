@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-22 (frame pacing and a scroll frame without corners — TASK-0343, RFC-0110, TASK-0335 P4)
+
+- **A scroll frame draws only what scrolls.** A glass's back runs the opaque program over its
+  cross and the rounded program only in its four corner squares; a shadow is drawn as its ring;
+  nothing is drawn under a glass's back; a pass emits only the draws that touch its area. Each
+  draw keeps its pixels (checked pixel by pixel against the shaders' formulas). On the board a
+  scroll frame waits 6.5–8.1 ms on the GPU instead of 16.4–17.1. `gpud: gpu work` counts the
+  pixels by program.
+- **Frames are paced** (RFC-0110). gpud's present ack names when a frame reached the glass (the
+  frame boundary from the scan line counter) and the cadence gpud holds — a frame drawn early
+  for its slot waits for the boundary before it, so slow phases run at a steady 30 instead of
+  alternating. windowd predicts when its next present is shown and names that time in the frame
+  pulse; an app's scroll and animations advance to it.
+- **Typing sends no frame without pixels**: a key press no longer starts a spring on a proof card
+  nothing draws.
+- **Underflows are timed**: `gpud: dc underflow (n= at_ms= line= taken= flips=)` for the first 16.
+
 ### Changed - 2026-10-22 (the frame chain: flips through the display's latch, hop markers — TASK-0342)
 
 - **The board's display flips through its latch.** A drawn frame's plane is written with the

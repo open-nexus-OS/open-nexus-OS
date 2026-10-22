@@ -293,7 +293,7 @@ constants. Deleted (P4a–P4f, atomic per consumer): every `new_with_slots(…)`
 | attach request | `[OP_SET_FRAMEBUFFER_VMO=3, handoff_id:u32]` — since v3 **no cap**: the framebuffer is the one gpud granted; an attach carrying a cap is refused (`STATUS_MALFORMED`, cap closed) |
 | **attach ack v2** | `[status:u8, handoff_id:u32, seq:u32, mode_w:u16, mode_h:u16, content_x:u16, content_y:u16, content_w:u16, content_h:u16]` (21 bytes; `status` = `STATUS_OK/MALFORMED/DEVICE_ERROR`) |
 | present | `[OP_PRESENT_DAMAGE=4, seq:u32, CommittedBuffer…]` — `seq` strictly increasing per windowd instance, window ≤ 64 outstanding |
-| **present ack v2** | `[status:u8, seq:u32]` — echoes the presented `seq`; an unknown or already-acked `seq` at windowd is `windowd: FAIL present ack seq=<n> unexpected` (never forgotten, never "stalled") |
+| **present ack v2** | `[status:u8, seq:u32]` — echoes the presented `seq`; an unknown or already-acked `seq` at windowd is `windowd: FAIL present ack seq=<n> unexpected` (never forgotten, never "stalled"). Amended 2026-10-22 (RFC-0110): followed by `[at_ns:u64, period_ns:u32, cadence:u8]` — when the present reached the glass, the refresh period, the cadence the driver holds (18 bytes); a decoder of the head reads its first five bytes alike |
 | **reveal** | `[OP_REVEAL=13]` from windowd when the desktop is complete (wallpaper + cursor upload + first present) AND the session's desktop surface — the greeter, or the shell of an active session — has presented its first frame (P7-d, TASK-0065B: the revealed frame contains the login; `present_acks::RevealGate`); gpud latches `reveal_requested` and answers `[STATUS_REVEALED=3, seq:u32]` after the first presented frame at or after that seq |
 
 Rules:

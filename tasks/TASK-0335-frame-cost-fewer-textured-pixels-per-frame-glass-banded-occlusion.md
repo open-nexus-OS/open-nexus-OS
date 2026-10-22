@@ -162,3 +162,33 @@ the Control Center open — and the input's wait with it (the GPU's backlog gone
   ns a pixel). Host: `tests/frame_occlusion.rs` (the four bands disjoint and complete, the texels
   of a piece the part its pixels showed, the reject cases: no flag, faded, the corners).
 
+- **P4 — the first cuts built 2026-10-22 (board cycle 62 pending, with TASK-0343; the operator:
+  "when scrolling no rounded corners need to be computed, only the scroll content"):** cycle
+  61's scroll frames waited 16.4–17.1 ms on the GPU for 0.95 Mpx of damage — the boot gate's
+  prices (rounded 8.69 ns a pixel, shadow 10.55, straight 4.89, opaque 1.34; a frame's base
+  ~3.9 ms) give 3.9 + 0.95 × (8.69 + 4.89) ≈ 16.8 ms: the glass's cached backdrop drawn with the
+  rounded program over the whole viewport. Cut, each draw the same pixels as before:
+  (1) a glass's back is its cross on the opaque program and its four corner squares on the
+  rounded one, cut on the cache's grid (`pieces::rounded_parts`, shared with the content's
+  parts: the corner squares grown to the grid, the straight parts inside the cross where the
+  coverage is 1); (2) a shadow is its ring — its quad less the layer's shape, plus the shape's
+  corner squares; inside the cross its knockout is zero at every pixel centre (`shadow.wgsl`);
+  (3) a glass whose back is drawn hides what lies under it inside its corners — the wallpaper,
+  lower windows (`occlude::opaque_rect(l, back)`); (4) the executor emits only the draws that
+  touch a pass's area (the back end's clip writes no other pixel); (5) a scroll step cleans only
+  the atlas rows it shows new (`desktop_pass::CleanedRows`; a new content generation forgets
+  every range — which also closes a stale-range hole of the old rule); (6) `gpud: gpu work`
+  counts the pixels by program (`Board::work_by_program`). Host: the parts' coverage and the
+  ring's knockout checked pixel by pixel against the shaders' formulas
+  (`a_rounded_rectangle_is_its_cross_and_its_corner_squares_on_any_grid`,
+  `a_shadow_is_drawn_as_its_ring_and_test_reject_a_lost_shadow_pixel`),
+  `a_scroll_inside_a_glass_window_computes_no_corner_and_no_shadow` (the slot's work: the glass
+  back opaque over the viewport, the window's content and the scroll layer straight, nothing
+  rounded, no shadow), `a_drawn_glass_back_hides_what_is_below_and_test_reject_a_glass_without_it`;
+  nexus-gfx 159 + the integration suites green. The blur's dual filter stays open.
+  **Board cycle 62** (`docs/board/measurements/2026-10-22-frame-pace/README.md`): in the nine
+  scroll windows `rounded_px=0 shadow_px=0`, `opaque_px` ≈ the damage (the glass's back alone,
+  nothing under it), the GPU's wait **6.5–8.1 ms** a frame (was 16.4–17.1), `gpud: ux frame ok
+  (dropped=0 of=32)` in all nine; the operator: scrolling "great". **Open:** the CPU's clean
+  stays 2.3–2.6 ms in six of the nine — the chat's band takes new strips while it scrolls, and a
+  frame with an upload forgets every cleaned row; next: forget only the rows the upload wrote.

@@ -109,6 +109,12 @@ pub(crate) struct DcDisplay {
     ring: ring::Ring,
     /// The flip's interrupt, once bound (`flip.rs`).
     flip_irq: Option<flip::FlipIrq>,
+    /// The cadence the flips are held to and the scan's clock (RFC-0110, `frame_pace.rs`); a
+    /// frame drawn before its slot, held (its slot latched in the ring, not yet written); when
+    /// the latched flip was written.
+    pace: super::frame_pace::Pace,
+    held: Option<usize>,
+    latched_ns: u64,
     /// The tear gate's FAIL form, said once.
     front_reported: bool,
     /// The ring's slots as the caches see them (TASK-0215 5c-3 P4b): the GPU drew the slot last
@@ -171,6 +177,12 @@ impl DcDisplay {
             exec_ns: 0,
             ring: ring::Ring::new(w, h),
             flip_irq: None,
+            pace: super::frame_pace::Pace::new(match standard_timing(w, h) {
+                Some(m) => super::frame_pace::Timing::of(&m),
+                None => super::frame_pace::Timing { period_ns: 16_666_666, line_ns: 14_814 },
+            }),
+            held: None,
+            latched_ns: 0,
             front_reported: false,
             slot_gpu: [false; ring::SLOTS],
             // The CPU drew the splash's planes and the rungs' canvases: every slot's lines are

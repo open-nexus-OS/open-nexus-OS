@@ -325,12 +325,17 @@ proves = "Block 4 layer 0 (the M/G/S baseline): what a present costs on the cont
 [marker."gpud: dc flips ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0342 (flips through the controller's latch): every 64 landed flips — found at the flip interrupt's wake or at the request loop's next pass (`at_wake= at_pass=`), presents that waited behind a latched flip (`behind=`), the wakes served and those that found the latch still held (`wakes= held=`), what raised them (`taken=` the latch taken, `vsyncs=`, `unraised=`, `underflows=` the scan starved) and every source seen in the pipeline's and the output control's raw words (`onl2= out=`) — one interrupt a flip reads wakes ≈ n (a measurement)"
+proves = "TASK-0342 (flips through the controller's latch): every 64 landed flips — found at the flip interrupt's wake or at the request loop's next pass (`at_wake= at_pass=`), presents that waited behind a latched flip (`behind=`), the wakes served and those that found the latch still held (`wakes= held=`), what raised them (`taken=` the latch taken, `vsyncs=`, `unraised=`, `underflows=` the scan starved) and every source seen in the pipeline's and the output control's raw words (`onl2= out=`) — one interrupt a flip reads wakes ≈ n; and the cadence the flips are held to (RFC-0110, TASK-0343: `cadence=` periods a frame, `paced=` frames held for their slot, `late=` landings past it) (a measurement)"
 
 [marker."gpud: hops frame ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0342 (RFC-0108 §hops): the frame chain's hops in gpud over 32 frames on screen — a present received → drawn (its flip queued), drawn → shown (the flip landed at a blank)"
+
+[marker."gpud: dc underflow ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0343 (the flicker's suspect): each of a boot's first 16 scan-out underflows — the display's read channel starved for a frame — with its time, the scan line the wake saw, whether a flip was taken at the same boundary and the flips landed so far (a measurement)"
 
 [marker."gpud: dc present mix ("]
 phase = "bringup"

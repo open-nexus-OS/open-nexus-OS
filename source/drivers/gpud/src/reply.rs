@@ -4,17 +4,19 @@
 //! CONTEXT: gpud's reply encoding (RFC-0093 §5) — the ONE place a request's answer takes its
 //! wire shape: the framebuffer grant (its sender in `framebuffer_grant`, it moves a cap), the
 //! 21-byte attach ack (with the mode gpud commands, as evidence for windowd's
-//! cross-check against the one mode source), the 5-byte present ack `[status, seq]` (also the
-//! shape of a cursor reply, whose payload is a magic no present seq ever equals), and the bare
-//! status byte of a fire-and-forget control op. Split out of `service.rs` under the
-//! module-size ratchet.
+//! cross-check against the one mode source), the present ack `[status, seq]` with the time its
+//! frame reached the glass (RFC-0110: a landed flip's boundary, or the time a present acked at
+//! once completed), the 5-byte `[status, magic]` of a cursor reply (a magic no present seq ever
+//! equals), and the bare status byte of a fire-and-forget control op. Split out of `service.rs`
+//! under the module-size ratchet.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
 
-use crate::backend::display::Display;
+use crate::backend::display::{Display, Landed};
+use nexus_display_proto::frame_time::{encode_present_ack_shown, Shown};
 use nexus_display_proto::{
-    encode_attach_ack, encode_present_ack, AttachAck, OP_SET_FRAMEBUFFER_VMO,
+    encode_attach_ack, encode_present_ack, AttachAck, OP_PRESENT_DAMAGE, OP_SET_FRAMEBUFFER_VMO,
 };
 use nexus_ipc::{KernelServer, Server as _, Wait};
 
@@ -56,10 +58,25 @@ pub(crate) fn send(
         };
         let _ = server.send(&encode_attach_ack(&ack), Wait::Blocking);
     } else if let Some(payload) = payload {
-        let _ = server.send(&encode_present_ack(status, payload), Wait::Blocking);
+        if op == OP_PRESENT_DAMAGE {
+            // RFC-0110: a present acked at once names the time it completed (a display without a
+            // scan clock: QEMU's) and its period; a landed flip names its boundary (`send_landed`).
+            let at_ns = nexus_abi::nsec().unwrap_or(0);
+            let shown = Shown { at_ns, period_ns: display.period_ns(), cadence: 1 };
+            let _ = server.send(&encode_present_ack_shown(status, payload, shown), Wait::Blocking);
+        } else {
+            let _ = server.send(&encode_present_ack(status, payload), Wait::Blocking);
+        }
     } else {
         let _ = server.send(&[status], Wait::Blocking);
     }
+}
+
+/// A present whose flip landed (RFC-0101 §8, RFC-0110): its ack, with the frame boundary it
+/// reached the glass at, the refresh period and the cadence the display holds.
+pub(crate) fn send_landed(server: &KernelServer, landed: Landed) {
+    let ack = encode_present_ack_shown(landed.status, landed.seq, landed.shown);
+    let _ = server.send(&ack, Wait::Blocking);
 }
 
 /// The status a successful present is acked with (RFC-0093 §5): the FIRST present after

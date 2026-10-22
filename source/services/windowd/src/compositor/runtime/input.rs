@@ -419,30 +419,10 @@ impl DisplayServerRuntime {
                     self.animation_proof.timeline_marker = true;
                 }
             }
-            // Click card opacity
-            if old_state.launcher_click_visible != self.state.launcher_click_visible {
-                let from = if old_state.launcher_click_visible { 1.0 } else { 0.0 };
-                let to = if self.state.launcher_click_visible { 1.0 } else { 0.0 };
-                self.animation_driver.spring_to(
-                    CLICK_LAYER_ID,
-                    AnimProp::Opacity,
-                    from,
-                    to,
-                    spring,
-                );
-            }
-            // Keyboard card opacity
-            if old_state.keyboard_visible != self.state.keyboard_visible {
-                let from = if old_state.keyboard_visible { 1.0 } else { 0.0 };
-                let to = if self.state.keyboard_visible { 1.0 } else { 0.0 };
-                self.animation_driver.spring_to(
-                    KEYBOARD_LAYER_ID,
-                    AnimProp::Opacity,
-                    from,
-                    to,
-                    spring,
-                );
-            }
+            // The click and keyboard proof cards take no spring: no surface shows them where
+            // the GPU composes, and every key press and release started one — ~0.4 s of frames
+            // that change no pixel (cycle 61: 10–20 a second while typing, the keystroke's own
+            // frame queued behind them; TASK-0335 P4).
         }
         if old_state.sidebar_open_visible != self.state.sidebar_open_visible {
             let _ = debug_println(if self.state.sidebar_open_visible {

@@ -43,6 +43,19 @@ pub fn blur_scale(radius: u32) -> u32 {
     }
 }
 
+/// The program kinds `Board::work_by_program` counts: opaque, straight, rounded, shadow, blur.
+pub const PROGRAM_KINDS: usize = 5;
+
+/// The pixels of `d`'s quad inside the pass area `area` (inclusive corners): what it shades.
+pub fn drawn_px(d: &DrawSpec, area: (u32, u32, u32, u32)) -> u64 {
+    let (ax0, ay0, ax1, ay1) = area;
+    let (x0, y0) = (d.quad.x.max(0.0) as u32, d.quad.y.max(0.0) as u32);
+    let (x1, y1) = ((d.quad.x + d.quad.w).max(0.0) as u32, (d.quad.y + d.quad.h).max(0.0) as u32);
+    let (cx0, cy0) = (x0.max(ax0), y0.max(ay0));
+    let (cx1, cy1) = (x1.min(ax1 + 1), y1.min(ay1 + 1));
+    u64::from(cx1.saturating_sub(cx0)) * u64::from(cy1.saturating_sub(cy0))
+}
+
 /// What a draw runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pipe {
@@ -314,17 +327,24 @@ impl<'a> Board<'a> {
     /// summed (RFC-0108 / TASK-0335 P0 — the board's GPU is memory-bound at a few ns per
     /// textured pixel, so a frame's cost is this count, not its draws).
     pub fn work_px(&self, pass: &PassSpec) -> u64 {
-        let (ax0, ay0, ax1, ay1) = pass.area;
-        (0..self.draws(pass))
-            .filter_map(|i| self.draw(pass, i))
-            .map(|d| {
-                let (x0, y0) = (d.quad.x.max(0.0) as u32, d.quad.y.max(0.0) as u32);
-                let (x1, y1) = ((d.quad.x + d.quad.w) as u32, (d.quad.y + d.quad.h) as u32);
-                let (cx0, cy0) = (x0.max(ax0), y0.max(ay0));
-                let (cx1, cy1) = (x1.min(ax1 + 1), y1.min(ay1 + 1));
-                u64::from(cx1.saturating_sub(cx0)) * u64::from(cy1.saturating_sub(cy0))
-            })
-            .sum()
+        self.work_by_program(pass).iter().sum()
+    }
+
+    /// `work_px` by program (TASK-0335 P4): the textured pixels of the pass's opaque, straight,
+    /// rounded and shadow draws, and of its blurs — which program a frame's time goes to.
+    pub fn work_by_program(&self, pass: &PassSpec) -> [u64; PROGRAM_KINDS] {
+        let mut px = [0u64; PROGRAM_KINDS];
+        for d in (0..self.draws(pass)).filter_map(|i| self.draw(pass, i)) {
+            let k = match d.pipe {
+                Pipe::Opaque => 0,
+                Pipe::Straight => 1,
+                Pipe::Rounded => 2,
+                Pipe::Shadow => 3,
+                Pipe::BlurH(_) | Pipe::BlurV(_) => 4,
+            };
+            px[k] += drawn_px(&d, pass.area);
+        }
+        px
     }
 
     /// The whole wallpaper as one draw.
@@ -352,13 +372,15 @@ impl<'a> Board<'a> {
         }
     }
 
-    /// The largest opaque rectangle (`occlude::opaque_rect`) of the layers `from..upto` that
-    /// touches `target`: what hides part of a draw of `target` in a scene pass up to `upto`.
+    /// The largest opaque rectangle (`occlude::opaque_rect`: an opaque layer's, or a glass's
+    /// whose back is drawn) of the layers `from..upto` that touches `target`: what hides part
+    /// of a draw of `target` in a scene pass up to `upto`.
     fn occluder(&self, target: Px, from: usize, upto: usize) -> Option<Px> {
         let mut best: Option<Px> = None;
         for k in from..upto.min(self.layers) {
-            let Some((l, _)) = self.layer(k) else { continue };
-            let Some(o) = occlude::opaque_rect(&l) else { continue };
+            let Some((l, cache)) = self.layer(k) else { continue };
+            let back = matches!(cache, Some(CacheStep::Read(_) | CacheStep::Write(_)));
+            let Some(o) = occlude::opaque_rect(&l, back) else { continue };
             if !occlude::intersects(o, target) {
                 continue;
             }

@@ -306,15 +306,8 @@ fn service_requests(
         // The display's frame clock (RFC-0101 §8): a flip that landed acks its present now —
         // looked at on every pass (a flip latched while gpud drew lands here without a wake),
         // before the requests, so an ack never waits behind the next present.
-        while let Some((seq, status)) = display.vblank_wake() {
-            crate::reply::send(
-                &server,
-                display,
-                OP_PRESENT_DAMAGE,
-                status,
-                Some(seq),
-                active_handoff_id,
-            );
+        while let Some(landed) = display.vblank_wake() {
+            crate::reply::send_landed(&server, landed);
         }
         if let Some(g) = gpu.as_deref_mut() {
             g.on_wake();

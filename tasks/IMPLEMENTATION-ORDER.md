@@ -417,6 +417,25 @@ programs go to the frame-cost lane (TASK-0335 P4: fast paths, the shadow as a ri
 filter), the planes for what moves stay layer 8's. Next: **frame pacing** (a steady cadence, the
 motion computed for the time a frame is shown — the judder), the frames that change no pixel
 while typing, the 8 scan-out underflows (the flicker's suspect).
+State 2026-10-22 (after `d517749d`; the operator: "the stock system scrolls cleanly, even in its
+browser — so it is possible"; "when scrolling no rounded corners need to be computed, only the
+scroll content"): **TASK-0343** (frame pacing, RFC-0110) with **TASK-0335 P4's first cuts**,
+built for board cycle 62 — gpud's present ack names when a frame reached the glass (the frame
+boundary from the scan line counter) and the cadence gpud holds (a frame drawn before its slot is
+held to the boundary before it), windowd predicts when its next present is shown and names it in
+the frame pulse, the apps' scroll and animations advance to that time; a scroll frame computes no
+corner and no shadow (cycle 61's 17 ms were the glass's cached backdrop on the rounded program
+over the whole viewport): a glass's back on the opaque program but its corner squares, the shadow
+as its ring, nothing drawn under a glass's back, only the atlas rows a scroll shows new cleaned;
+typing's pixel-less frames gone (every key press started a spring on a proof card nothing shows);
+the underflows timed. Cycle 62: the operator "everything great except the keyboard and hangs" —
+a scroll frame waits 6.5–8.1 ms on the GPU (was 16.4–17.1), nothing rounded and no shadow in it,
+`cadence=1` held while scrolling, typing's frames carry pixels, 2 underflows (was 8); open: the
+prediction lands early (62–72 % on time while scrolling), the clean stays 2.3–2.6 ms where the
+band takes new strips. The keyboard and the hangs measured: the DSL runtime reads an app's
+program through one capnp reader whose traversal budget is spent over the app's life
+(`Malformed` after 28 menu toggles in settings, linear in the budget), and a failed emit leaves
+its scene to the arena's next reset (the chat's crash). Next: that package, then the prediction.
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

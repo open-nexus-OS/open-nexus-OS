@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! A desktop frame's passes on the device (TASK-0215 5c-3 P4b/P5, split out of `desktop.rs`
-//! under the module-size ratchet): the layout's lines cleaned for the device, the frame's pass
-//! memory as the emitter's sink, a texture's descriptor in fresh lines, and one pass — its
-//! descriptors, its draws emitted, submitted and waited, stamped at each step for the frame's
-//! time split.
+//! under the module-size ratchet): the layout's lines cleaned for the device (a scroll's new rows
+//! alone, TASK-0335 P4), the frame's pass memory as the emitter's sink, a texture's descriptor in
+//! fresh lines, and one pass — its descriptors, the draws that touch its area emitted, submitted
+//! and waited, stamped at each step for the frame's time split.
 
 use nexus_display_proto::layout::{self, PLANE_ROWS, STRIDE_BYTES};
 use nexus_driverkit::gpu::{GpuVa, QueueKind, TimelinePoint};
@@ -48,6 +48,66 @@ pub(super) fn clean_rows(target: &FrameTarget<'_>, (x, row, w, h): (u32, u32, u3
             nexus_abi::cache_clean(span, target.block);
         }
     }
+}
+
+/// The atlas rows each layer step reads, as far as they were cleaned for the device in the
+/// current content generation: columns `x`, width `w`, rows `lo..hi` (TASK-0335 P4). A scroll
+/// moves a layer's source by a few rows a frame and only those are new to the device — cleaning
+/// the whole source again cost a scroll frame 2.5 ms of CPU (cycle 61). A new generation (the
+/// CPU wrote rows: the plan's `upload`, windowd's content epoch moved) forgets every range; a
+/// source in other columns or apart from its cleaned rows is cleaned whole.
+pub(super) struct CleanedRows([Option<(u32, u32, u32, u32)>; nexus_gfx::frame::MAX_LAYERS]);
+
+impl CleanedRows {
+    pub(super) const fn new() -> Self {
+        Self([None; nexus_gfx::frame::MAX_LAYERS])
+    }
+
+    /// A new content generation: no row counts as cleaned.
+    pub(super) fn forget(&mut self) {
+        *self = Self::new();
+    }
+
+    /// Cleans what layer step `i`'s source `(x, row, w, h)` holds beyond the rows cleaned since
+    /// the generation began.
+    pub(super) fn clean(
+        &mut self,
+        target: &FrameTarget<'_>,
+        i: usize,
+        (x, row, w, h): (u32, u32, u32, u32),
+    ) {
+        let end = row.saturating_add(h);
+        let Some(slot) = self.0.get_mut(i) else {
+            clean_rows(target, (x, row, w, h));
+            return;
+        };
+        match *slot {
+            Some((cx, cw, lo, hi)) if (cx, cw) == (x, w) && row <= hi && end >= lo => {
+                if row < lo {
+                    clean_rows(target, (x, row, w, lo - row));
+                }
+                if end > hi {
+                    clean_rows(target, (x, hi, w, end - hi));
+                }
+                *slot = Some((x, w, lo.min(row), hi.max(end)));
+            }
+            _ => {
+                clean_rows(target, (x, row, w, h));
+                *slot = Some((x, w, row, end));
+            }
+        }
+    }
+}
+
+/// Whether `q` covers any of the pass area's pixels (inclusive corners) — a draw that does not
+/// writes none of them.
+fn touches(q: &Quad, (x0, y0, x1, y1): (u32, u32, u32, u32)) -> bool {
+    q.w > 0.0
+        && q.h > 0.0
+        && q.x < (x1 + 1) as f32
+        && q.x + q.w > x0 as f32
+        && q.y < (y1 + 1) as f32
+        && q.y + q.h > y0 as f32
 }
 
 /// The frame's pass memory: the PDS heap's lines in the bundle's PDS arena, everything else in
@@ -124,7 +184,8 @@ pub(super) fn wait_point(
 /// context's passes in order, and a pass's fragment stage came 12 ms after its geometry on
 /// the board — cycle 39 — a latency hidden only by the next pass being in the queue). When the
 /// rings hold no line for the pass, the pass `last` submitted is waited for and the emit tried
-/// once more. The number of draws, the stamps, the pass's point.
+/// once more. The number of draws emitted (those touching the pass's area), the stamps, the
+/// pass's point.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_pass(
     dev: &mut Device,
@@ -148,12 +209,12 @@ pub(super) fn run_pass(
         let ran =
             emit_and_wait(dev, who, base, t, pipes, rings, board, spec, n, target, trace, wait);
         match ran {
-            Ok((point, mut stamps)) => {
+            Ok((point, mut stamps, kept)) => {
                 let r0 = now_ns();
                 rings.submitted(point.0).map_err(|_| "the rings")?;
                 rings.retire(&|p| dev.reached(TimelinePoint(p)));
                 stamps[3] = now_ns().saturating_sub(r0);
-                return Ok((n, stamps, point));
+                return Ok((kept, stamps, point));
             }
             Err(Refusal(NO_ROOM, None)) if attempt == 0 && last.is_some() => {
                 rings.abandon();
@@ -188,24 +249,34 @@ fn emit_and_wait(
     target: Target,
     trace: bool,
     wait: bool,
-) -> Result<(TimelinePoint, [u64; 6]), Refusal> {
+) -> Result<(TimelinePoint, [u64; 6], usize), Refusal> {
     let e0 = now_ns();
-    // The emitter asks for a draw more than once: the descriptors are written first.
+    // The draws that touch the pass's area — one outside it writes no pixel (the back end's
+    // clip; TASK-0335 P4: a frame inside a window skips the shadows, the corners and the layers
+    // elsewhere; the last draw stands in when none does) — their descriptors first: the emitter
+    // asks for a draw more than once.
+    let mut kept = [0u16; MAX_DRAWS];
     let mut tex = [0u64; MAX_DRAWS];
-    for (i, t_va) in tex.iter_mut().enumerate().take(n) {
+    let mut m = 0usize;
+    for i in 0..n {
         let d = board.draw(spec, i).ok_or("a draw of the plan")?;
+        if !touches(&d.quad, spec.area) && (m > 0 || i + 1 < n) {
+            continue;
+        }
         pipes.get(d.pipe).ok_or("a pipeline the library lacks")?;
-        *t_va = descriptor(dev, who, rings, d.tex, t.texture_va)?;
+        tex[m] = descriptor(dev, who, rings, d.tex, t.texture_va)?;
+        kept[m] = i as u16;
+        m += 1;
     }
     // Every draw was checked above; an empty quad keeps the closure total.
-    let draw = |i: usize| {
-        let d = board.draw(spec, i);
+    let draw = |j: usize| {
+        let d = board.draw(spec, usize::from(kept[j]));
         let pipeline = d.and_then(|d| pipes.get(d.pipe)).unwrap_or(&pipes.opaque);
         let quad = d.map_or(Quad::layer(0.0, 0.0, 0.0, 0.0, [0.0; 4], 0.0), |d| d.quad);
-        Draw { pipeline, quad, texture_va: tex[i] }
+        Draw { pipeline, quad, texture_va: tex[j] }
     };
     let mut sink = FrameSink { dev: &mut *dev, who };
-    let emitted = emit_draws(t, n, &draw, rings, &mut sink).map_err(|e| match e {
+    let emitted = emit_draws(t, m, &draw, rings, &mut sink).map_err(|e| match e {
         EmitError::Space => NO_ROOM,
         EmitError::Sink => "the pass's emit: a write refused",
         EmitError::Pipeline => "the pass's emit: a pipeline's setup",
@@ -235,7 +306,7 @@ fn emit_and_wait(
     if !wait {
         // Pipelined: the next pass follows in the queue; the frame's last pass waits for all.
         let w0 = now_ns();
-        return Ok((point, [s0 - e0, w0 - s0, 0, 0, 0, 0]));
+        return Ok((point, [s0 - e0, w0 - s0, 0, 0, 0, 0], m));
     }
     let w0 = now_ns();
     let irq0 = dev.gpu.irqs;
@@ -273,7 +344,7 @@ fn emit_and_wait(
     }
     let stamps = [s0 - e0, w0 - s0, w1 - w0, now_ns().saturating_sub(w1), iters, irqs];
     if done {
-        Ok((point, stamps))
+        Ok((point, stamps, m))
     } else {
         Err("a pass not reached in time".into())
     }

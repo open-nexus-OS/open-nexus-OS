@@ -90,6 +90,10 @@ mod compositor;
 /// The damage-rect model (TASK-0335): pure, host-TESTED, consumed by the OS-only compositor.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod damage_rects;
+/// The display's timeline from gpud's timed acks (RFC-0110, TASK-0343): pure, host-TESTED,
+/// consumed by the OS-only compositor.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod frame_clock;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod presentation_state;
 // RFC-0093 §5 (TASK-0324 P6-b): sequence-tracked present-ack window — pure, host-TESTED

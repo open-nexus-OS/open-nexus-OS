@@ -577,18 +577,18 @@ impl super::DslApp {
         }
     }
 
-    /// Advance the animation physics by real elapsed time on the frame pulse and
-    /// fold the driver's `SceneUpdate`s into the per-node transform table.
+    /// Advance the animation physics to `at` on the frame pulse (RFC-0110: when the frame is
+    /// shown; the own clock under a plain pulse) and fold the `SceneUpdate`s into the node table.
     /// Returns the union ROW SPAN the changes damage (old ∪ new transformed
     /// AABB per touched node, ±1 row rounding pad) — `None` = nothing moved.
     /// The caller repaints EXACTLY that span (the 120Hz damage contract: a
     /// 16px skeleton breathe must never trigger a full-surface repaint +
     /// full-band re-blit + full recomposite). Allocation-free.
-    pub(super) fn anim_tick(&mut self) -> Option<(i32, i32)> {
+    pub(super) fn anim_tick(&mut self, at: Option<u64>) -> Option<(i32, i32)> {
         if self.anim.driver.active_count() == 0 && self.anim.loops.is_empty() {
             return None;
         }
-        let now = nsec_now();
+        let now = at.unwrap_or_else(nsec_now).max(self.anim.last_ns);
         let mut updates = [SceneUpdate::default(); MAX_NODE_ANIMS * 2];
         let count = self.anim.driver.tick_into(now, &mut updates);
         self.anim.last_ns = now;

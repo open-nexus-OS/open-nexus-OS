@@ -256,16 +256,23 @@ impl Display for DcDisplay {
     }
 
     /// A present whose flip is latched or waiting is acked when it lands (`vblank_wake`), its
-    /// hops measured from when it was received and drawn.
+    /// hops measured from when it was received and drawn; its draw paces the flips (RFC-0110).
     fn present_ack_deferred(&mut self, seq: u32, status: u8, received_ns: u64) -> bool {
         let stamps = ring::Stamps { received_ns, drawn_ns: nsec().unwrap_or(0) };
+        if received_ns != 0 {
+            self.pace.note_draw(stamps.drawn_ns.saturating_sub(received_ns));
+        }
         self.flip_irq.is_some() && self.ring.attach_ack((seq, status), stamps)
     }
 
     /// The loop's pass over the display: a flip the controller took has landed — its present's
-    /// ack (`flip.rs`).
-    fn vblank_wake(&mut self) -> Option<(u32, u8)> {
+    /// ack and when it reached the glass (`flip.rs`).
+    fn vblank_wake(&mut self) -> Option<crate::backend::display::Landed> {
         self.flip_wake()
+    }
+
+    fn period_ns(&self) -> u32 {
+        u32::try_from(self.pace.timing().period_ns).unwrap_or(u32::MAX)
     }
 
     /// `OP_UPLOAD_CURSOR`: the sprite into the pointer's block, the layer armed on the composer

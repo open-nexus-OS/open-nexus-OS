@@ -458,19 +458,19 @@ pub(super) fn run() -> Result<(), &'static str> {
                 recreate_surface = true;
             }
         } else if wire::decode_surface_frame(&event_frame[..len]).is_some() {
-            // Compositor frame pulse (Choreographer): advance the scroll
-            // physics AND the DSL animation physics one REAL frame, and
-            // re-arm while either is still in motion.
+            // The compositor's frame pulse (RFC-0110): the scroll and the DSL animations advance
+            // to the time the next frame is shown (`at`; the own clock under a plain pulse).
+            let at = scroll::frame_time(&event_frame[..len]);
             if let Some(dsl) = app.as_mut() {
                 // The scroll layers' physics: offsets committed as motion, never a raster; an
                 // `EndReached` that loaded more is a model change.
-                if dsl.momentum_tick() {
+                if dsl.momentum_tick(at) {
                     dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
                 }
                 // Animation tick: damage EXACTLY the animated nodes' union row span (old ∪ new
                 // transformed AABB) — the 120Hz damage contract; a full repaint per breathe tick
                 // starved the input path. Unions with any scroll span; a pending full request wins.
-                if let Some(span) = dsl.anim_tick() {
+                if let Some(span) = dsl.anim_tick(at) {
                     crate::layout_diff::merge_span(&mut dirty, &mut dirty_rows, span);
                 }
                 if dsl.momentum_active() || dsl.anim_active() || dsl.bands_pending() {

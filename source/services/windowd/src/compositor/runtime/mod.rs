@@ -58,7 +58,7 @@ pub(crate) const GPUD_WIRED_RECV_SLOT: u32 = nexus_service_topology::slots::wind
 pub(crate) use crate::surface_presentation::SHELL_TOPBAR_H;
 pub(crate) const SHELL_TASKBAR_H: u32 = 56;
 pub(crate) const OSK_BAND_H: u32 = 312;
-use crate::systemui_shell::{CLICK_LAYER_ID, HOVER_LAYER_ID, KEYBOARD_LAYER_ID, SIDEBAR_LAYER_ID};
+use crate::systemui_shell::{HOVER_LAYER_ID, SIDEBAR_LAYER_ID};
 // Interactive geometry lives in `interaction` — the single source of truth shared
 // by the live renderer and the hit-tester (hit area == rendered rect).
 use crate::interaction::SIDEBAR_WIDTH;
@@ -81,6 +81,7 @@ mod cursor;
 mod desktop_surface;
 mod solid_surface;
 use crate::present_acks as acks;
+mod frame_pulse;
 mod framebuffer;
 pub(crate) mod gpud;
 mod input;
@@ -108,7 +109,6 @@ mod wm;
 // `runtime/mod.rs`, so the compositor-level siblings + consts they reference via
 // `super::` are re-exported here under `runtime` to keep those paths resolving
 // (TASK-0063 modularization; pure path plumbing, no behavior change).
-
 mod gpud_wire;
 use gpud_wire::{
     encode_gpud_attach_frame, encode_gpud_damage_frame, log_gpud_cap_error, log_gpud_ipc_error,
@@ -447,8 +447,8 @@ pub(crate) struct DisplayServerRuntime {
     desktop_owner_sid: u64,
     windows_feed: windows_feed::FeedState,
     desktop_dirty: bool,
-    /// One-shot frame pulse armed by the desktop surface (shell scroll).
-    desktop_frame_pulse: bool,
+    /// The frame pulses and the display's timeline they name (RFC-0110, `frame_pulse`).
+    pulses: frame_pulse::Pulses,
 
     /// Once-guard for the transitional shell-as-app-host launch (TASK-0080C
     /// #17): fired on the FIRST session activation (STATE_ACTIVE — after
@@ -800,7 +800,7 @@ impl DisplayServerRuntime {
             desktop_owner_sid: 0,
             windows_feed: windows_feed::FeedState::new(),
             desktop_dirty: false,
-            desktop_frame_pulse: false,
+            pulses: frame_pulse::Pulses::new(),
             shell_app_launched: false,
             windowing_policy: crate::surface_presentation::WindowingPolicy::Desktop,
             #[cfg(nexus_env = "os")]

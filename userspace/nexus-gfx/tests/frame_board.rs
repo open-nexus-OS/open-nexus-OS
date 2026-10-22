@@ -121,7 +121,12 @@ fn a_frozen_frame_is_the_base_every_scene_starts_from() {
     let scene = b.pass(0).expect("the scene below the glass");
     assert_eq!(scene.target, Target::Scratch);
     assert_eq!(b.draw(&scene, 0).map(|d| d.tex), Some(frozen));
-    assert_eq!(b.draw(&slot(&b), 0).map(|d| d.tex), Some(frozen));
+    // In the slot the glass's back hides the plane under it: the plane's first piece, the band
+    // above the glass, samples the frozen frame where it lies.
+    assert_eq!(
+        b.draw(&slot(&b), 0).map(|d| d.tex),
+        Some(Tex::Layout { x: 0, row: 1080, w: 1920, h: 100 })
+    );
 }
 
 #[test]
@@ -195,15 +200,25 @@ fn a_shadow_draws_before_its_layer() {
     );
     let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS);
     let d = draws(&b, &slot(&b));
+    // The shadow as its ring (TASK-0335 P4): the four bands of its quad around the shape — the
+    // knockout leaves nothing inside a square shape — each a part of the whole shadow's quad
+    // with the whole shape's push constants.
     assert_eq!(
         d.iter().map(|d| d.pipe).collect::<Vec<_>>(),
-        [Pipe::Opaque, Pipe::Shadow, Pipe::Straight]
+        [Pipe::Opaque, Pipe::Shadow, Pipe::Shadow, Pipe::Shadow, Pipe::Shadow, Pipe::Straight]
     );
-    let s = d[1].quad;
-    assert_eq!(d[1].tex, Tex::None);
+    let whole =
+        Quad::shadow(200.0, 200.0, 300.0, 200.0, 0.0, 24.0, [0.0, 8.0], [0.0, 0.0, 0.0, 0.4]);
+    let ring = &d[1..5];
+    for s in ring {
+        assert_eq!(s.tex, Tex::None);
+        assert_eq!(s.quad.push[8..14], whole.push[8..14]);
+        assert_eq!(s.quad.push[6], s.quad.x - (whole.x + whole.w * 0.5));
+        assert_eq!(s.quad.push[7], s.quad.y - (whole.y + whole.h * 0.5));
+    }
     assert_eq!(
-        s,
-        Quad::shadow(200.0, 200.0, 300.0, 200.0, 0.0, 24.0, [0.0, 8.0], [0.0, 0.0, 0.0, 0.4])
+        ring.iter().map(|s| s.quad.w * s.quad.h).sum::<f32>(),
+        whole.w * whole.h - 300.0 * 200.0
     );
 }
 
@@ -270,11 +285,16 @@ fn a_glass_to_write_draws_its_scene_below_then_blurs_it_into_its_rows() {
         rows.kind,
         PassKind::One(DrawSpec { pipe: Pipe::BlurV(40), quad: down, tex: half_tex })
     );
-    // The slot: the wallpaper, the window, the glass drawn back from its rows, the panel.
+    // The slot: the wallpaper and the window around the glass (its back hides what lies below
+    // it inside its corners), the glass drawn back from its rows — its cross the opaque program,
+    // its corner squares the rounded one, on the cache's grid (TASK-0335 P4) — and the panel.
     let d = draws(&b, &slot(&b));
-    assert_eq!(d[2].pipe, Pipe::Rounded);
-    assert_eq!(d[2].tex, Tex::Cache { x: 1, row: 1, w: 100, h: 50 });
-    assert_eq!(d.len(), 2 + 1 + 7);
+    let back: Vec<_> = d.iter().filter(|x| matches!(x.tex, Tex::Cache { .. })).collect();
+    assert_eq!(back.iter().filter(|x| x.pipe == Pipe::Opaque).count(), 3);
+    assert_eq!(back.iter().filter(|x| x.pipe == Pipe::Rounded).count(), 4);
+    assert_eq!(back[0].tex, Tex::Cache { x: 6, row: 1, w: 90, h: 50 });
+    assert_eq!(back.iter().map(|x| x.quad.w * x.quad.h).sum::<f32>(), 400.0 * 200.0);
+    assert_eq!(d.len(), 4 + 4 + 7 + 7);
 }
 
 #[test]

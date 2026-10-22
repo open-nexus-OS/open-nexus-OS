@@ -11,10 +11,11 @@
 //! descriptors, streams and vertices (the bundle's tails hold a few dozen draws, a desktop frame
 //! a few hundred). The CPU wrote the textures and the device does not snoop: the base plane (the
 //! wallpaper plane; the retained plane while a capture freeze holds the frame) — first, and
-//! whenever the CPU rewrote it — and the atlas rows of a new content generation are cleaned out
-//! of the caches before a frame reads them. A frame waits for its passes; the
-//! display flips it at the blank. Lines: `gpud: gpu desktop ok (…)` for the first frame,
-//! `gpud: gpu frame us (…)` a window of 32 frames; a refusal is the caller's to say.
+//! whenever the CPU rewrote it — and the atlas rows of a new content generation, or the rows a
+//! scroll shows new, are cleaned out of the caches before a frame reads them. A frame waits for
+//! its passes; the display takes it at its next frame boundary. Lines: `gpud: gpu desktop ok
+//! (…)` for the first frame, `gpud: gpu frame us (…)` a window of 32 frames; a refusal is the
+//! caller's to say.
 
 use nexus_display_proto::layout::{self, PLANE_BYTES, PLANE_ROWS, RING_ROWS, STRIDE_BYTES};
 use nexus_driverkit::gpu::{Access, CacheMode, GpuVa};
@@ -193,10 +194,9 @@ pub(crate) struct Desktop {
     /// drawn at (0: never): a slot is brought up to date by the frames it missed.
     history: History,
     pub(super) drawn: [u64; 3],
-    /// The source rectangle of each layer step last cleaned for the device (the atlas rows the
-    /// CPU wrote): cleaned again when it moves (a scroll shows rows never cleaned) or the
-    /// content generation changed.
-    pub(super) cleaned: [Option<(u32, u32, u32, u32)>; nexus_gfx::frame::MAX_LAYERS],
+    /// The atlas rows each layer step reads that were cleaned for the device in this content
+    /// generation (`CleanedRows`: a scroll cleans the rows it shows new).
+    pub(super) cleaned: super::desktop_pass::CleanedRows,
     /// The base plane cleaned for the device, by its first row.
     base: Option<u32>,
     stats: Stats,
@@ -323,7 +323,7 @@ impl Desktop {
             frame,
             history: History::new(),
             drawn: [0; 3],
-            cleaned: [None; nexus_gfx::frame::MAX_LAYERS],
+            cleaned: super::desktop_pass::CleanedRows::new(),
             base: None,
             stats: Stats::default(),
             shown: false,
@@ -436,8 +436,11 @@ impl Desktop {
         self.drawn[k] = self.history.record(planned.damage);
         let area = lacks.union(planned.damage).on(self.display);
         // The atlas rows a layer reads, cleaned when they are new to the device — a content
-        // generation, or a source rectangle that moved (a scroll): rows the CPU wrote and
-        // never cleaned read stale.
+        // generation, or rows a moved source (a scroll) shows for the first time: rows the CPU
+        // wrote and never cleaned read stale.
+        if planned.upload {
+            self.cleaned.forget();
+        }
         for i in 0..planned.layers {
             if let Some(s) = self.frame.step(i) {
                 let l = s.layer;
@@ -445,13 +448,7 @@ impl Desktop {
                     if l.content_w > 0 { l.content_w } else { l.width },
                     if l.content_h > 0 { l.content_h } else { l.height },
                 );
-                let src = (l.src_x, l.src_row_abs, w, h);
-                if planned.upload || self.cleaned.get(i).copied().flatten() != Some(src) {
-                    clean_rows(target, src);
-                    if let Some(c) = self.cleaned.get_mut(i) {
-                        *c = Some(src);
-                    }
-                }
+                self.cleaned.clean(target, i, (l.src_x, l.src_row_abs, w, h));
             }
         }
         let clean_us = now_ns().saturating_sub(c0) / 1000;
@@ -483,7 +480,7 @@ impl Desktop {
                 To::Half => half,
                 To::Cache => cache,
             };
-            work.note(spec.target, board.work_px(&spec));
+            work.note(spec.target, board.work_by_program(&spec));
             let wait = !pipelined || p + 1 == passes;
             if let Some(two_back) = points[p % 2] {
                 let q0 = now_ns();

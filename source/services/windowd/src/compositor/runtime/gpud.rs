@@ -71,8 +71,12 @@ impl DisplayServerRuntime {
         };
         match send_result {
             Ok(()) => {
+                let now = nsec().unwrap_or(0);
+                // RFC-0110: the landing predicted for it (behind the presents in flight), judged
+                // when its timed ack comes.
+                self.note_present_sent(self.presents.next_seq(), now);
                 if let Some(seq) = self.presents.issue() {
-                    crate::compositor::frame_causes::present_issued(seq, nsec().unwrap_or(0));
+                    crate::compositor::frame_causes::present_issued(seq, now);
                 }
                 true
             }
@@ -158,6 +162,7 @@ impl DisplayServerRuntime {
                 let verdict = self.presents.ack(seq);
                 if matches!(verdict, acks::Verdict::Credited) {
                     crate::compositor::frame_causes::present_acked(seq, nsec().unwrap_or(0));
+                    self.note_present_shown(seq, reply);
                 }
                 match verdict {
                     acks::Verdict::Credited => match status {
@@ -254,13 +259,15 @@ impl DisplayServerRuntime {
     }
 
     /// One display-ring completion (TASK-0324 P7-c): the frame clock. Animations integrate
-    /// real elapsed time to `now_ns`, the wait ring steps, and the animating clients get their
+    /// elapsed time to when the frame they shape is shown (RFC-0110: the display's timeline,
+    /// `now_ns` before gpud named it), the wait ring steps, and the animating clients get their
     /// frame pulse (their scroll coasts tick on it, ADR-0076) — each producing the damage that the loop
     /// presents next, whose completion clocks the frame after. Idle produces nothing and the
     /// loop sleeps on its waitset.
     pub(crate) fn on_frame_completed(&mut self, now_ns: u64) {
         if self.has_active_animations() {
-            self.tick(now_ns);
+            let at = self.transition_time(now_ns);
+            self.tick(at);
         }
         let _ = self.cursor_wait_tick(now_ns);
         self.flush_frame_pulses();

@@ -161,8 +161,10 @@ fn a_rounded_pane_claims_its_rectangle_inside_the_corners_and_cuts_a_shadow_too(
     // The occluder is the pane inset by its radius: (316, 266, 368, 268).
     let wall = &d[..4];
     assert_eq!(disjoint_area(wall), (1920 * 1080 - 368 * 268) as f32);
-    // The window's shadow: its quad (the shape grown by the blur, moved down) in four pieces,
-    // each a part of the whole shadow's quad with the whole shape's push constants.
+    // The window's shadow: its ring (TASK-0335 P4) — the four bands of its quad (the shape
+    // grown by the blur, moved down) around the window's square shape, where the pane's cut
+    // falls inside the shape and leaves them whole — each a part of the whole shadow's quad
+    // with the whole shape's push constants.
     let shadow: Vec<_> = d.iter().filter(|x| x.pipe == Pipe::Shadow).collect();
     assert_eq!(shadow.len(), 4);
     let whole = Quad::shadow(
@@ -182,7 +184,7 @@ fn a_rounded_pane_claims_its_rectangle_inside_the_corners_and_cuts_a_shadow_too(
     }
     assert_eq!(
         shadow.iter().map(|s| s.quad.w * s.quad.h).sum::<f32>(),
-        whole.w * whole.h - 368.0 * 268.0
+        whole.w * whole.h - 800.0 * 600.0
     );
     // The pane itself: its rounded parts, drawn whole.
     assert_eq!(
@@ -266,4 +268,37 @@ fn test_reject_the_opaque_program_for_a_faded_or_unflagged_layer() {
     assert_eq!(pipe_of(&mut f, true, 255), Some(Pipe::Opaque));
     assert_eq!(pipe_of(&mut f, true, 200), Some(Pipe::Straight), "faded: it blends");
     assert_eq!(pipe_of(&mut f, false, 255), Some(Pipe::Straight), "unflagged: it blends");
+}
+
+#[test]
+fn a_scroll_inside_a_glass_window_computes_no_corner_and_no_shadow() {
+    // A glass window (rounded, shadowed, its backdrop cached) and the scroll layer inside it.
+    let mut f = ready(2048);
+    let window = layer(|l| {
+        rect(100, 100, 800, 600)(l);
+        (l.corner_radius, l.backdrop_blur, l.layer_id) = (16, 40, 1);
+        (l.shadow_blur, l.shadow_offset_y, l.shadow_alpha) = (24, 8, 120);
+    });
+    let scroll = layer(|l| {
+        rect(120, 160, 760, 500)(l);
+        (l.src_x, l.layer_id) = (900, 1);
+    });
+    planned(&mut f, &[window.clone(), scroll.clone()]);
+    // The next present scrolls: the same layers, the damage the scroll layer's viewport, named
+    // by the window's own transform (its content, not its backdrop) — the glass is read from
+    // its rows.
+    let viewport = Command::Damage {
+        rect: nexus_gfx::core::types::TileRect { x: 120, y: 160, width: 760, height: 500 },
+        origin: 1,
+    };
+    let p = planned(&mut f, &[window, scroll, viewport]);
+    let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS).with_area((120, 160, 879, 659));
+    assert_eq!(b.pass_count(), 1, "the glass is read from its rows");
+    let [opaque, straight, rounded, shadow, blur] = b.work_by_program(&slot(&b));
+    let viewport = 760 * 500;
+    assert_eq!((rounded, shadow, blur), (0, 0, 0), "no corner, no shadow, no blur is computed");
+    // The glass's back is the only opaque draw there (it hides the wallpaper), the window's
+    // own content and the scroll layer blend over it.
+    assert_eq!(opaque, viewport);
+    assert_eq!(straight, 2 * viewport);
 }

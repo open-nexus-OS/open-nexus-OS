@@ -1,21 +1,23 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Occlusion for the board's scene passes (TASK-0335 P2, TASK-0337): an OPAQUE layer
-//! (`LAYER_OPAQUE`, full opacity — the content pane) hides everything below it inside its
-//! rounded rectangle, so the draws below it are cut to the pieces around it: a rectangle minus
-//! one occluder is at most four bands (above, below, left, right) — bounded and deterministic.
-//! One occluder a draw: the largest opaque rectangle above it that touches it; a draw wholly
-//! under it is not drawn at all. The pieces are exact for one-to-one textures (the atlas);
-//! a glass's reduced cache rows are cut on their scale's grid, the occluder shrunk inward to
-//! it, so a piece's texels start on a texel.
+//! CONTEXT: Occlusion for the board's scene passes (TASK-0335 P2, P4, TASK-0337): an OPAQUE
+//! layer (`LAYER_OPAQUE`, full opacity — the content pane) hides everything below it inside its
+//! rounded rectangle, and so does a glass whose blurred backdrop is drawn back (its cache rows
+//! are opaque and written over what lies below), so the draws below it are cut to the pieces
+//! around it: a rectangle minus one occluder is at most four bands (above, below, left, right)
+//! — bounded and deterministic. One occluder a draw: the largest opaque rectangle above it that
+//! touches it; a draw wholly under it is not drawn at all. The pieces are exact for one-to-one
+//! textures (the atlas); a glass's reduced cache rows are cut on their scale's grid, the
+//! occluder shrunk inward to it, so a piece's texels start on a texel.
 //! OWNERS: @gpu @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: unit tests below; `tests/frame_board.rs` (the pieces a frame draws)
+//! TEST_COVERAGE: unit tests below; `tests/frame_board.rs`, `tests/frame_occlusion.rs` (the
+//!   pieces a frame draws)
 //! INVARIANTS: the pieces of a rectangle are disjoint and their union is the rectangle minus
 //!   the occluder (exactly, or — on a grid — minus a part of the occluder, never more); a
-//!   non-opaque layer occludes nothing.
+//!   translucent layer without a drawn glass back occludes nothing.
 
 use super::layers::FrameLayer;
 
@@ -49,11 +51,22 @@ pub fn area(r: Px) -> u64 {
     u64::from(r.2) * u64::from(r.3)
 }
 
+/// The pixels `a` and `b` share, `None` when they share none.
+pub fn intersection(a: Px, b: Px) -> Option<Px> {
+    if !intersects(a, b) {
+        return None;
+    }
+    let (x0, y0) = (a.0.max(b.0), a.1.max(b.1));
+    let (x1, y1) = ((a.0 + a.2).min(b.0 + b.2), (a.1 + a.3).min(b.1 + b.3));
+    Some((x0, y0, x1 - x0, y1 - y0))
+}
+
 /// The rectangle a layer hides everything under: its rectangle inset by its corner radius
-/// (the corners are cut, nothing hides there) — only for a layer that is opaque inside its
-/// rounded rectangle and drawn at full opacity.
-pub fn opaque_rect(l: &FrameLayer) -> Option<Px> {
-    if !l.opaque || l.opacity < 255 || l.width == 0 || l.height == 0 {
+/// (the corners are cut, nothing hides there) — for a layer drawn at full opacity that is
+/// opaque inside its rounded rectangle, or whose glass back is drawn in the pass (`back`: its
+/// blurred backdrop, opaque, is written over what lies below it).
+pub fn opaque_rect(l: &FrameLayer, back: bool) -> Option<Px> {
+    if !(l.opaque || back) || l.opacity < 255 || l.width == 0 || l.height == 0 {
         return None;
     }
     let r = l.corner_radius.min(l.width / 2).min(l.height / 2);
@@ -136,16 +149,41 @@ mod tests {
     fn test_reject_a_translucent_or_rounded_corner_as_an_occluder() {
         let mut l =
             FrameLayer { dst_x: 10, dst_y: 10, width: 100, height: 80, ..Default::default() };
-        assert_eq!(opaque_rect(&l), None, "a layer without the flag hides nothing");
+        assert_eq!(opaque_rect(&l, false), None, "a layer without the flag hides nothing");
         l.opaque = true;
         l.opacity = 200;
-        assert_eq!(opaque_rect(&l), None, "a faded layer shows what is below");
+        assert_eq!(opaque_rect(&l, false), None, "a faded layer shows what is below");
         l.opacity = 255;
-        assert_eq!(opaque_rect(&l), Some((10, 10, 100, 80)));
+        assert_eq!(opaque_rect(&l, false), Some((10, 10, 100, 80)));
         l.corner_radius = 12;
-        assert_eq!(opaque_rect(&l), Some((22, 22, 76, 56)), "the corners are not claimed");
+        assert_eq!(opaque_rect(&l, false), Some((22, 22, 76, 56)), "the corners are not claimed");
         l.corner_radius = 50;
-        assert_eq!(opaque_rect(&l), None, "a pill hides no full row");
+        assert_eq!(opaque_rect(&l, false), None, "a pill hides no full row");
+    }
+
+    #[test]
+    fn a_drawn_glass_back_hides_what_is_below_and_test_reject_a_glass_without_it() {
+        let mut l = FrameLayer {
+            dst_x: 10,
+            dst_y: 10,
+            width: 100,
+            height: 80,
+            corner_radius: 12,
+            backdrop_blur: 40,
+            opacity: 255,
+            ..Default::default()
+        };
+        assert_eq!(opaque_rect(&l, false), None, "a glass whose back is not drawn hides nothing");
+        assert_eq!(opaque_rect(&l, true), Some((22, 22, 76, 56)));
+        l.opacity = 200;
+        assert_eq!(opaque_rect(&l, true), None, "a faded glass hides nothing");
+    }
+
+    #[test]
+    fn two_rectangles_share_their_overlap_and_nothing_apart() {
+        assert_eq!(intersection((0, 0, 100, 100), (50, 60, 100, 100)), Some((50, 60, 50, 40)));
+        assert_eq!(intersection((0, 0, 100, 100), (100, 0, 10, 10)), None);
+        assert_eq!(intersection((10, 10, 5, 5), (0, 0, 100, 100)), Some((10, 10, 5, 5)));
     }
 
     #[test]

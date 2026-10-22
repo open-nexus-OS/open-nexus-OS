@@ -29,6 +29,12 @@ const STEP_PX: i32 = 72;
 /// The pager's wheel lock after a turn: one flick turns ONE page (spec: 360 ms).
 const PAGE_LOCK_NS: u64 = 360_000_000;
 
+/// The time a frame pulse names for the frame it asks for (RFC-0110): when that frame is shown;
+/// `None` under a plain pulse.
+pub(super) fn frame_time(frame: &[u8]) -> Option<u64> {
+    nexus_display_proto::frame_time::decode_surface_frame_at(frame).map(|at| at.target_ns)
+}
+
 /// A scroll layer's axis.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Axis {
@@ -359,10 +365,12 @@ impl super::DslApp {
         changed
     }
 
-    /// The frame pulse: every moving layer's physics advances by real elapsed time and its
-    /// offset is committed. Returns whether the model changed (`EndReached` loaded more).
-    pub(super) fn momentum_tick(&mut self) -> bool {
-        let now = nsec_now();
+    /// The frame pulse: every moving layer's physics advances to `at` — the time the frame it
+    /// shapes is shown (RFC-0110: the motion on the glass then moves by the time between the
+    /// frames shown, cycle 61's judder) — or by its own clock under a plain pulse, and its offset
+    /// is committed. Never back in time. Returns whether the model changed (`EndReached`).
+    pub(super) fn momentum_tick(&mut self, at: Option<u64>) -> bool {
+        let now = at.unwrap_or_else(nsec_now);
         let mut changed = false;
         for k in 0..MAX_SCROLL_LAYERS {
             let Some(mut layer) = self.scroll_layers[k] else { continue };
@@ -370,7 +378,7 @@ impl super::DslApp {
                 continue;
             }
             let dt = now.saturating_sub(layer.last_ns).min(100_000_000);
-            layer.last_ns = now;
+            layer.last_ns = layer.last_ns.max(now);
             let _ = layer.physics.tick(dt);
             self.scroll_layers[k] = Some(layer);
             changed |= self.step_layer(k);

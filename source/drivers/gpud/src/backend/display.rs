@@ -18,6 +18,16 @@ use nexus_gfx::command::buffer::{Command, CommittedBuffer};
 
 use crate::service_stats::PresentStats;
 
+/// A present whose flip landed (RFC-0101 §8, RFC-0110): its seq and status for the ack, and when
+/// it reached the glass — the frame boundary its flip was taken at, the refresh period, the
+/// cadence the display holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Landed {
+    pub seq: u32,
+    pub status: u8,
+    pub shown: nexus_display_proto::frame_time::Shown,
+}
+
 /// A plane of the ring lent to the GPU (RFC-0101 §8c): the layout row it lies at, its bus
 /// address and length, and the cache block its memory is maintained in (0 when coherent).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,11 +102,17 @@ pub(crate) trait Display {
     }
 
     /// Every pass of the loop: a display with a flip interrupt drains it and returns the present
-    /// whose flip landed — `(seq, status)` for the ack that is the compositor's frame clock (a
-    /// flip latched while gpud drew lands at the next pass, woken or not). `None` when nothing
+    /// whose flip landed — its ack, the compositor's frame clock, and when it reached the glass
+    /// (a flip latched while gpud drew lands at the next pass, woken or not). `None` when nothing
     /// landed.
-    fn vblank_wake(&mut self) -> Option<(u32, u8)> {
+    fn vblank_wake(&mut self) -> Option<Landed> {
         None
+    }
+
+    /// The refresh period an ack names for a present acked at once (RFC-0110): a display without
+    /// a scan clock names the time its present completed and a 60 Hz period.
+    fn period_ns(&self) -> u32 {
+        16_666_667
     }
 
     /// The first frame reached the glass (the chain trace ends): a display with a readback
