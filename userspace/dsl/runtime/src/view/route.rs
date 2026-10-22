@@ -18,7 +18,7 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: `dsl_goldens::scenes`, `dsl_apps_conformance::shell_control_center`
 
-use super::{Damage, RtError, ScrollView, View};
+use super::{Damage, RtError, ScrollLayerView, View};
 use crate::bind;
 use crate::interact::{self, HandlerAction};
 use crate::{DeviceEnv, EffectHost, LocaleSource};
@@ -44,11 +44,11 @@ impl View<'_> {
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
     ) -> Result<Option<Damage>, RtError> {
-        self.pointer_scrolled(tokens, device, locale, host, boxes, trigger, x, y, None)
+        self.pointer_scrolled(tokens, device, locale, host, boxes, trigger, x, y, &[])
     }
 
-    /// [`Self::pointer`] under the paint-time scroll transform (`scroll` =
-    /// viewport rect + offsets, see `interact::hit_scrolled`).
+    /// [`Self::pointer`] over the page's scroll layers (`layers`: each layer's viewport and
+    /// offset, RFC-0109 — see `interact::hit_scrolled`).
     ///
     /// # Errors
     /// Runtime errors from the dispatch.
@@ -63,7 +63,7 @@ impl View<'_> {
         trigger: &str,
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
-        scroll: Option<ScrollView>,
+        layers: &[ScrollLayerView],
     ) -> Result<Option<Damage>, RtError> {
         let Some(trigger_sym) =
             self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)
@@ -72,7 +72,7 @@ impl View<'_> {
         };
         let confine = self.modal_confine();
         let Some(hit) =
-            interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll, confine)
+            interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, layers, confine)
         else {
             // TASK-0074 D3, the backdrop rule: a Tap inside the topmost
             // modal's LAYER that no handler takes is a tap on its backdrop —
@@ -168,7 +168,7 @@ impl View<'_> {
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
     ) -> Option<usize> {
-        self.hover_box_id_scrolled(boxes, trigger, x, y, None)
+        self.hover_box_id_scrolled(boxes, trigger, x, y, &[])
     }
 
     /// Dispatches the FIRST handler bound to `trigger` WITHOUT a hit-test —
@@ -253,7 +253,7 @@ impl View<'_> {
         }
     }
 
-    /// [`Self::hover_box_id`] under the paint-time scroll transform.
+    /// [`Self::hover_box_id`] over the page's scroll layers (RFC-0109).
     #[must_use]
     pub fn hover_box_id_scrolled(
         &self,
@@ -261,12 +261,12 @@ impl View<'_> {
         trigger: &str,
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
-        scroll: Option<ScrollView>,
+        layers: &[ScrollLayerView],
     ) -> Option<usize> {
         let trigger_sym =
             self.runtime.symbols().iter().position(|s| s == trigger).map(|i| i as u32)?;
         let confine = self.modal_confine();
-        interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, scroll, confine)
+        interact::hit_scrolled(&self.handlers, boxes, trigger_sym, x, y, layers, confine)
             .map(|h| h.box_id)
     }
 

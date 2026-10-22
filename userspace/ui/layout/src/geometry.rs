@@ -11,9 +11,44 @@
 //! TEST_COVERAGE: Covered by src/engine_tests.rs + tests/ui_v4_host/
 //! ADR: docs/adr/0030-layout-engine-deterministic-pretext.md
 
+use crate::boxes::PlaceCtx;
 use crate::LayoutBox;
 use alloc::vec::Vec;
-use nexus_layout_types::{Align, FlexItem, FxPx, Justify, LayoutNode, Overflow, Rect};
+use nexus_layout_types::{Align, FlexItem, FxPx, Justify, LayoutNode, Overflow, Rect, ScrollAxis};
+
+/// RFC-0109: whether a container with `overflow` is the scroll ROOT of its content — a scroll
+/// container not itself inside another's content. A root's content is placed at identity and
+/// clipped only by what clips inside it (the children's clip `None`); a nested scroll container
+/// clips like `Overflow::Hidden` (`clip` as computed) and its content stays its outer root's.
+pub(crate) fn scroll_root(
+    overflow: Overflow,
+    node_id: usize,
+    ctx: PlaceCtx,
+    clip: Option<Rect>,
+) -> (PlaceCtx, Option<Rect>) {
+    if matches!(overflow, Overflow::Scroll(_)) && ctx.scroll_root.is_none() {
+        (PlaceCtx { scroll_root: Some(node_id), ..ctx }, None)
+    } else {
+        (ctx, clip)
+    }
+}
+
+/// A container's preferred content size `(width, height)` from its children's `content`. A
+/// scroll viewport's content scrolls, so it must not become its preferred size along the scroll
+/// axis (the content sum squeezed every sibling to its minimum — the CSS `min-height: 0` flex
+/// rule; the viewport takes what flex gives it). The rule follows the SCROLL AXIS, not the
+/// stack's direction: a vertical scroller gives up its height and its width (its content width
+/// must not leak into the parent's flex negotiation — the settings overview grid measured 745px
+/// through its pane and squeezed the fixed 240px sidebar; a column parent stretches it at
+/// placement, a row parent sizes it via `grow`), a horizontal or paged one its width only (a
+/// chip row keeps its row height).
+pub(crate) fn scroll_content_size(overflow: Overflow, content: (FxPx, FxPx)) -> (FxPx, FxPx) {
+    match overflow {
+        Overflow::Scroll(ScrollAxis::Vertical) => (FxPx::ZERO, FxPx::ZERO),
+        Overflow::Scroll(_) => (FxPx::ZERO, content.1),
+        _ => content,
+    }
+}
 
 pub(crate) fn clamp_width(value: FxPx, min: Option<FxPx>, max: Option<FxPx>) -> FxPx {
     let mut out = value.max(FxPx::ZERO);
@@ -135,7 +170,7 @@ pub(crate) fn update_box_geometry(
                 width.saturating_sub(stack.padding.horizontal()),
                 height.saturating_sub(stack.padding.vertical()),
             );
-            layout_box.clip_rect = intersect_clip(Some(own), parent_clip);
+            layout_box.content_clip = intersect_clip(Some(own), parent_clip);
         }
         LayoutNode::Grid(grid, _, _)
             if matches!(grid.overflow, Overflow::Hidden | Overflow::Scroll(_)) =>
@@ -146,7 +181,7 @@ pub(crate) fn update_box_geometry(
                 width.saturating_sub(grid.padding.horizontal()),
                 height.saturating_sub(grid.padding.vertical()),
             );
-            layout_box.clip_rect = intersect_clip(Some(own), parent_clip);
+            layout_box.content_clip = intersect_clip(Some(own), parent_clip);
         }
         _ => {}
     }

@@ -387,6 +387,24 @@ State 2026-10-21 (cycle 55): no park any more; windowd's own work measured — t
 rewrite 120 µs a row (10 s of CPU a session), the atlas copy 37 µs a row. **TASK-0340** (no
 retained-plane rewrite where the GPU composes) built, board cycle 56 next; then zero-copy client
 surfaces (RFC-0101 §7b: the GPU samples the app's buffer — the copy goes), the frame cost.
+State 2026-10-21 (cycle 56): no page scrolled through the compositor — settings (statics beside
+the viewport), chat (band too tall) and the launcher (a desktop surface) re-rastered the viewport
+per scroll step, a hover re-rastered full-width rows; two scroll physics (windowd's band,
+app-host's plain path). **TASK-0341** (RFC-0109, ADR-0076: every `.scroll` a scroll layer with a
+virtual band the compositor moves, every hover a wash layer, the app's one physics, windowd
+composes; the band, its physics and `SCROLL_POS` deleted) built, host- and OS-check-green, QEMU
+lanes and board cycle 57 next; then the collections package (lists and grids emit by the band's
+range), motion as layer properties, zero-copy client surfaces.
+State 2026-10-22 (cycles 57–59): **TASK-0341 Done** — hover and scroll without an app raster
+beyond the band's edge, the store its own atlas region, no refused frame; on the way two old bugs:
+an empty wash refused a surface's motion whole, and every window control named its window by a
+4-bit surface id (now the sender's own window, RFC-0086 amended). Measured for the first time:
+**~3 composed frames a second while anything moves** (cycles 55–59 alike) — a frame waits 631 ms
+(median) from windowd's send to gpud's credit, and gpud serves ~790 blank wakes per flip, 85 %
+outside the blank: an interrupt storm (six display sources left unmasked, only the vsync cleared).
+Next: **the frame chain** — one interrupt a frame, hop markers along the input and frame chains
+(who spends how long), then the reference platforms' levers by measured cost (planes for what
+moves, the program's fast paths, the shadow as a ring, the blur's dual filter).
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

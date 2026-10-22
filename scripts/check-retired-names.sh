@@ -26,6 +26,11 @@ RETIRED=(
   'open_live_devices route_inputd_blocking IngressScratch PolledDeviceFrame HIDRAWD_IDLE_PARK_NS;hidrawd'"'"'s sources (source::HidSource: virtio_source, usb_source) on one waitset, one batch path (batch::Batch);TASK-0253B: one ingress loop over sources, no re-probe timer'
   'text_input_bytes text_input_len MAX_TEXT_INPUT_BYTES push_text_char pop_text_char set_text_input clear_text_input apply_visible_text_input filter_layout_variant_index LIVE_FILTER_VARIANTS;none — typed text reaches apps through imed only (RFC-0075), never the visible state;input-live-protocol v2 (2026-10-08, the keystroke privacy rule): inputd copied every typed character into the state windowd and its observers read'
   'GreeterConfig greeter_config parse_greeter_manifest validate_greeter DEFAULT_GREETER_TOML;the greeter app (userspace/apps/greeter) owns its look;TASK-0251 step 3b (2026-10-09, the 1080p size sweep): the windowd-era greeter appearance config (pixel values at 1280x800) had no reader'
+  'composite_scrollable_glass BandGeometry band_region_slice;windowd composes a surface'"'"'s declared scroll layers (compositor/runtime/surface_layers_encode.rs);RFC-0109 / ADR-0076, TASK-0341: the three-slice band is gone, every .scroll is a scroll layer'
+  'forward_body_scroll advance_app_scrolls has_scroll_momentum apply_scroll_rows push_scroll_pos MAX_SCROLL_IDS SCROLL_STEP_PX;app-host runs the one scroll physics (probe/scroll.rs), windowd routes the wheel only;ADR-0076, TASK-0341: windowd runs no scroll physics'
+  'negotiated_band render_band band_statics_intersect_viewport MAX_BAND_ROWS;app-host scroll layers and their virtual bands (probe/scroll.rs, probe/band.rs);RFC-0109, TASK-0341: no band negotiation, no plain-path re-raster per scroll step'
+  'encode_surface_layers decode_surface_layers SURFACE_LAYERS_MAX_LEN handle_surface_layers;OP_SURFACE_TREE (the regions ride the surface'"'"'s structure);RFC-0109, TASK-0341: OP_SURFACE_LAYERS (15) retired'
+  'HoverWash paint_row_hover paint_row_scrolled;the wash layer the compositor draws (OP_SURFACE_MOTION);RFC-0109, TASK-0341: a hover re-rasters nothing'
 )
 # Dated records describe the tree as it was, so they keep the names it had.
 HISTORY=(tasks/ CHANGELOG.md docs/adr/ docs/rfcs/ docs/board/measurements/ scripts/check-retired-names.sh)

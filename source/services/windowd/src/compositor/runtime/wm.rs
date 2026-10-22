@@ -83,7 +83,7 @@ impl DisplayServerRuntime {
         // Atlas residency: the minimized window released its bands — re-mount
         // (alloc + full re-blit from the client VMO) via the open path.
         if let WindowId::App(i) = id {
-            if !self.open_app_window(i as usize) {
+            if self.open_app_window(i as usize, false).is_none() {
                 let _ = debug_println("windowd: FAIL restore band alloc");
             }
         }
@@ -215,16 +215,6 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// The app slot presenting windowd surface `id` — resolves app-chrome
-    /// `CONTROL_WIN_*` requests (the value byte names the caller's own
-    /// surface). `0` never matches.
-    pub(super) fn app_idx_by_surface(&self, id: u32) -> Option<usize> {
-        if id == 0 {
-            return None;
-        }
-        self.apps.iter().position(|a| a.surface_id == Some(id))
-    }
-
     /// Apply an app-chrome window-mode request (`CONTROL_WIN_MODE`): the
     /// window-kit app menu's Split / Fullscreen / Free-form entries (AUTO =
     /// toggle fullscreen ⇄ freeform, the zoom semantics). Updates the slot's
@@ -335,7 +325,7 @@ impl DisplayServerRuntime {
         let h = h.min(self.mode.height);
         self.apps[idx].win.set_frame(x, y, w, h);
         self.apps[idx].win.surface_dirty = true;
-        self.apps[idx].surface_dirty_rows = None; // resized: full re-blit
+        self.apps[idx].surface_damage = super::surface_layers::DamageRows::FULL; // resized: full re-blit
         let new = self.window_damage_rect(id);
         self.queue_gpu_blit_rect(new);
     }

@@ -105,7 +105,12 @@ FNV mirror in `nexus-abi`) and joins against the feed's sids.
 
 The same sids close the recorded follow-up: the existing `CONTROL_WIN_*`
 arms additionally require `apps[idx].owner_sid == sender_sid` (an app may
-only minimize/close/mode/move its OWN window).
+only minimize/close/mode/move its OWN window). Amended 2026-10-22 (board cycle
+58, TASK-0341): the window is RESOLVED from the sender — the app slot whose
+`owner_sid` is the kernel sender id (`control_gate::own_window`) — and no
+`CONTROL_WIN_*` value names a window; a 4-bit surface id packed into the value
+broke every control once surface ids passed 15. The value carries only the
+verb's argument (a `WIN_MODE_*`, a zone code, the modal flag).
 
 ### Contract / interface (normative)
 
@@ -247,8 +252,9 @@ carry the window's TILE zone — windowd's `zones::CODE_*`: 0 = floating, 1/2 le
 3/4 top/bottom half (arrangements only), 5..=8 the quarters (TL, TR, BL, BR), 9 = Fill. The
 wire layout is unchanged (9 B/entry, append-only bits); a reader that predates them sees zero.
 `surface_windows::window_zone(flags)` decodes; app-host exposes `window_zone_of(app_id)`.
-The window verbs gain `CONTROL_WIN_ZONE = 9` (`value = surface_id << 4 | code`; codes 10..=13
-are Return and the three arrangements) under the same own-window gate as `CONTROL_WIN_MODE`.
+The window verbs gain `CONTROL_WIN_ZONE = 9` (`value = code` — since the 2026-10-22 amendment
+above; it was `surface_id << 4 | code`; codes 10..=13 are Return and the three arrangements) for
+the sender's own window, like `CONTROL_WIN_MODE`.
 
 **2026-10-07 — `OP_SURFACE_TILE_PREVIEW = 29`** (windowd → the DESKTOP surface only, same
 envelope, next free after 28): `[hdr:4][zone]` — the zone a title-bar drag would take if

@@ -51,10 +51,13 @@ pub(super) struct DslApp {
     /// Active shell profile (`PROFILE_*`, pushed by windowd). The device
     /// env every mount/interaction passes to the runtime.
     pub(super) shell_profile: u8,
-    /// The `node_id` of the interactive box under the pointer (windowd
-    /// MOVE events → `hover()`), washed at PAINT time. Presentation-only
-    /// state: hover never re-runs layout (pretext), only a repaint.
+    /// The `node_id` of the interactive box under the pointer (windowd MOVE events →
+    /// `hover()`): its wash is a layer the compositor draws (RFC-0109) — a hover re-runs no
+    /// layout and paints nothing.
     pub(super) hovered: Option<usize>,
+    /// The pointer's last position over the surface (MOVE, DRAG, TAP): where a wheel notch
+    /// goes, and what a scrolled layer hovers under a still pointer.
+    pub(super) pointer: Option<(i32, i32)>,
     /// Whether the pointer sits over an editable (Change-bound) field —
     /// the windowd cursor-hint latch (I-beam), sent only on change.
     pub(super) hover_text: bool,
@@ -63,25 +66,36 @@ pub(super) struct DslApp {
     /// heap page-faulted (the "nothing clickable after mousing around"
     /// crash). One allocation at mount, resized on WM resize.
     pub(super) row_scratch: alloc::vec::Vec<u8>,
-    /// Scroll offsets of the page's `.scroll(...)` viewport (paint-time
-    /// state like `hovered`: scrolling NEVER re-runs layout and NEVER
-    /// allocates — the retained boxes are repainted shifted).
-    pub(super) scroll_x: i32,
-    pub(super) scroll_y: i32,
-    /// The vertical scroll PHYSICS (SSOT `animation::ScrollMomentum`):
-    /// wheel notches extend a target the position eases toward; the loop
-    /// ticks it while `is_animating` — apple-smooth, never a hard jump.
-    pub(super) momentum: animation::ScrollMomentum,
-    /// Last physics tick (ns) for dt integration.
-    pub(super) momentum_last_ns: u64,
-    /// The PAGER physics (`.scroll(paged)` viewports — launcher pager):
-    /// the same `ScrollMomentum`, driving `scroll_x` toward whole-page
-    /// multiples of the viewport width (glide-eased snap). A page has ONE
-    /// scroll region, so this and `momentum` are never active together.
-    pub(super) pager: animation::ScrollMomentum,
-    /// Wheel lock: notches before this instant are swallowed, so one flick
-    /// turns ONE page instead of rushing through several (spec: 360 ms).
-    pub(super) pager_lock_until_ns: u64,
+    /// The page's scroll layers (RFC-0109, `probe/scroll.rs`): every top-level `.scroll(...)`
+    /// container, its offset, its physics and its band.
+    pub(super) scroll_layers:
+        [Option<super::scroll::ScrollLayer>; super::scroll::MAX_SCROLL_LAYERS],
+    /// The top-level scroll containers past the bound: no layer — their content paints in the
+    /// base at identity, clipped to the viewport (where the hit-test finds it too).
+    pub(super) flat_views: alloc::vec::Vec<nexus_scene_raster::ScrollView>,
+    /// Reused per pass: the views the base paints scroll content through (`probe/paint.rs`).
+    pub(super) view_scratch: alloc::vec::Vec<nexus_scene_raster::ScrollView>,
+    /// The surface's rows (base + store) — its VMO and the atlas region windowd keeps.
+    pub(super) store_rows: u32,
+    /// The store's used width the surface was created with (RFC-0109: windowd's store region).
+    pub(super) store_w: u16,
+    /// windowd placed no store at the last create (`NO_STORE`): every scroll layer is flat.
+    pub(super) store_refused: bool,
+    /// The wash patch's place in the store (`probe/band.rs`).
+    pub(super) patch: (u16, u16),
+    /// The wash's opacity — the theme's hover colour's alpha (the patch is opaque).
+    pub(super) wash_opacity: u8,
+    /// The structure changed since the last `OP_SURFACE_TREE` (regions, layers, bands).
+    pub(super) tree_dirty: bool,
+    /// The structure last sent — what windowd checks a motion against (`probe/band.rs`).
+    pub(super) sent_tree: nexus_display_proto::surface_layers::SurfaceTree,
+    /// The motion changed since the last `OP_SURFACE_MOTION` (an offset, the wash).
+    pub(super) motion_dirty: bool,
+    /// The layer set's geometry changed: the store is planned again (and the surface re-created
+    /// when it no longer fits its rows).
+    pub(super) store_replan: bool,
+    /// What a paint pass's rows read beside the picked boxes (`probe/paint.rs`).
+    pub(super) pass_ctx: super::paint::PassCtx,
     /// The DSL animation subsystem (`.animate`/`.transition`/`.effect`):
     /// the `AnimationDriver` physics + per-node paint transforms, ticked on
     /// the compositor frame pulse. Host owns the clock (the DSL stays pure);
@@ -111,9 +125,6 @@ pub(super) struct DslApp {
     /// The transient overlay whose `.dismissAfter` is armed: (its node path, the absolute
     /// monotonic deadline). Re-armed only when a DIFFERENT transient layer appears.
     pub(super) transient_armed: Option<(alloc::vec::Vec<u32>, u64)>,
-    /// EndReached latch: fired once per approach to the content end;
-    /// re-armed whenever layout re-runs (content grew/shrank).
-    pub(super) end_fired: bool,
     /// Reused per-picked-box animation index (parallel to `vis_pick`;
     /// -1 = none) — resolved ONCE per repaint so the painter never scans
     /// the anims slice per box per row (the hover slowdown).
@@ -124,35 +135,10 @@ pub(super) struct DslApp {
     pub(super) vis_pick: alloc::vec::Vec<u32>,
     /// Reused (box index, texts index) pairs for the span's text runs.
     pub(super) vis_text: alloc::vec::Vec<(u32, u32)>,
-    /// WebRender compositor-scroll: this surface renders a TALL packed band
-    /// (fixed header + fixed footer + the whole resident scroll content) ONCE
-    /// and windowd/gpud shift the source row per scroll. When set, wheel is
-    /// owned by the compositor: the app never self-scrolls/re-renders on a
-    /// notch — it only mirrors the pushed `INPUT_KIND_SCROLL_POS` and
-    /// re-renders the band on a content change (LoadMore). `false` = the
-    /// legacy paint-time-`dy` scroll (unchanged).
     /// Damage span of the LAST structural tap (`merge_tap_damage`): `Some` =
     /// the diffed row window (may be empty — pixels identical), `None` =
     /// full repaint. Set by `tap()`, consumed once by the event loop.
     pub(super) tap_render_span: Option<(i32, i32)>,
-    /// Whether the last structural tap may have changed the GLASS-REGION
-    /// set (an overlay opened/closed): a span present must still re-declare
-    /// layers then — `submit_layers` used to run on full presents only.
-    pub(super) layers_dirty: bool,
-    pub(super) banded: bool,
-    /// The band geometry (`header_h, footer_h, content_h`) the CURRENT
-    /// windowd surface was created with — the re-negotiation detector
-    /// compares `band_geometry()` after every model change (a structural
-    /// view swap moves the packed-band slices; mount-fixed slices painted
-    /// chat's composer over the bubbles).
-    pub(super) last_band: Option<(u32, u32, u32)>,
-    /// The tall VMO/band height (rows) allocated at create — render_band
-    /// clamps to it so a LoadMore that grows content never overflows the VMO
-    /// (the compositor band is the same fixed size; `tail(…)` keeps it finite).
-    pub(super) alloc_band_h: u32,
-    /// Reused pick buffer for render_band's unclipped (fixed header/footer)
-    /// region — recycled like `vis_pick`, never allocated per render.
-    pub(super) band_pick: alloc::vec::Vec<u32>,
     /// The keyboard overlay (`level: overlay`): a tap here IS a keystroke, so it
     /// is never traced — no per-tap line carries what was typed (privacy rule).
     pub(super) taps_are_keystrokes: bool,

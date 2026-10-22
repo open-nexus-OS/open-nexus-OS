@@ -33,6 +33,7 @@ fn layer(x: u32, y: u32, w: u32, h: u32) -> Command {
         layer_id: 0,
         content_epoch: 0,
         flags: 0,
+        key: 0,
     }
 }
 
@@ -60,6 +61,7 @@ fn with(cmd: Command, f: impl FnOnce(&mut FrameLayer)) -> Command {
         content_epoch: l.content_epoch,
         flags: (if l.opaque { nexus_gfx::command::buffer::LAYER_OPAQUE } else { 0 })
             | (if l.solid { nexus_gfx::command::buffer::LAYER_SOLID } else { 0 }),
+        key: l.key,
     }
 }
 

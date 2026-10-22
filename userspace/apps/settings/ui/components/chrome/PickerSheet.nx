@@ -8,10 +8,8 @@
 //
 // So: the trigger sits in a row's `trailing` slot, this sheet is a sibling of
 // the window on the PAGE ROOT, and `$state.picker` decides which one is open.
-// (This window renders on the PLAIN surface path — its statics share rows
-// with the scroll viewport, so app-host refuses the 3-slice band — which is
-// also what makes a full-window overlay renderable at all: in a banded
-// window an overlay would only paint into the fixed slices.)
+// An open sheet covers the window's scroll layers (RFC-0109): their content
+// paints under it at their offsets, and they take no wheel until it closes.
 //
 // Backdrop taps close (`ClosePicker`); the panel eats its own taps
 // (`WinNoop`) so reaching into the list does not dismiss it.

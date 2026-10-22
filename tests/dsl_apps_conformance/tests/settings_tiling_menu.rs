@@ -91,7 +91,7 @@ fn every_tile_in_the_window_menu_forwards_its_zone_verb() {
             "Tap",
             FxPx::new(x),
             FxPx::new(y),
-            None,
+            &[],
         )
         .expect("tap runs");
         assert_eq!(

@@ -113,15 +113,28 @@ pub(crate) fn blit_blend_vmo(
     fb_w: usize,
     src_x: u32,
     src_y: u32,
+    src_size: (u32, u32),
     dst_x: u32,
     dst_y: u32,
     w: u32,
     h: u32,
+    opacity: u32,
 ) -> Result<(), GfxError> {
     let mut scratch_row = [0u8; nexus_display_proto::layout::STRIDE_BYTES as usize];
     let mut s = unsafe { surface(fb, fb_len, fb_w) };
-    raster::blit_within_blend(&mut s, src_x, src_y, dst_x, dst_y, w, h, &mut scratch_row)
-        .map_err(|_| GfxError::ResourceExhausted)
+    raster::blit_within_blend(
+        &mut s,
+        src_x,
+        src_y,
+        src_size,
+        dst_x,
+        dst_y,
+        w,
+        h,
+        opacity,
+        &mut scratch_row,
+    )
+    .map_err(|_| GfxError::ResourceExhausted)
 }
 
 /// Composite a premultiplied-alpha BGRA pixel over the destination VMO pixel.

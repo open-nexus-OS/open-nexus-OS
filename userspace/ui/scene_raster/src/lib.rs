@@ -28,8 +28,7 @@ pub use anim::NodeAnim;
 
 mod scrolled;
 pub use scrolled::{
-    paint_row_hover, paint_row_picked, paint_row_picked_animated, paint_row_picked_indexed,
-    paint_row_scrolled, ScrollView,
+    paint_row, paint_row_picked, paint_row_picked_animated, paint_row_picked_indexed, ScrollView,
 };
 
 mod shapes;
@@ -150,7 +149,7 @@ fn gradient_row_color(
 }
 
 /// [`paint_box_row`] at an EXPLICIT geometry + background: the shared shape
-/// dispatch used by the plain path (the box's own rect) and the per-node
+/// dispatch used by the un-animated paint (the box's own rect) and the per-node
 /// ANIMATION path (the transformed rect + faded fill) — every `ShapeKind`
 /// (rect/triangles/circle/path/vector) scales and translates, so icons and
 /// round buttons animate as whole shapes, not just their bounding fill.
@@ -361,26 +360,6 @@ fn paint_shadow_row(
     }
 }
 
-/// Paint every box's contribution to this row, in box (z) order.
-pub fn paint_row(canvas: &mut RowCanvas<'_>, boxes: &[LayoutBox]) {
-    paint_row_hover(canvas, boxes, None);
-}
-
-/// A paint-time hover wash: blended over the box whose `node_id` matches,
-/// following its corner radius. `color.a` carries the wash alpha (the
-/// `nexus_style::InteractionState` convention). Presentation-only — layout
-/// and the box list stay untouched (pretext: hover costs one repaint, never
-/// a re-layout).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HoverWash {
-    pub node_id: usize,
-    pub color: Rgba8,
-    /// Alpha of a bright 2px outline ring around the hovered control
-    /// (0 = none) — the handoff's hover ring ("Slider größer mit einem hellen
-    /// Ring"). Drawn at the node's ANIMATED rect so it tracks the hover-grow.
-    pub ring_alpha: u8,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,24 +412,6 @@ mod tests {
         let mut canvas2 = RowCanvas::new(&mut buf2, 0, 20);
         paint_row(&mut canvas2, &[pane, row]);
         assert_eq!(buf2[3], 128, "root glass replaces (alpha = tint): rgba={:?}", &buf2[..4]);
-    }
-
-    #[test]
-    fn hover_wash_tints_only_the_hovered_box() {
-        // Two side-by-side boxes; the wash lands on node 2 only, inside its
-        // rounded outline (the corner pixel stays untouched).
-        let grey = Rgba8 { r: 100, g: 100, b: 100, a: 255 };
-        let a = boxed(0, 0, 10, 10, 0, grey);
-        let mut b = boxed(10, 0, 10, 10, 4, grey);
-        b.node_id = 2;
-        let wash =
-            HoverWash { node_id: 2, color: Rgba8 { r: 255, g: 255, b: 255, a: 64 }, ring_alpha: 0 };
-        let mut row = [0u8; 20 * 4];
-        let mut canvas = RowCanvas::new(&mut row, 0, 20);
-        paint_row_hover(&mut canvas, &[a, b], Some(wash));
-        assert_eq!(row[5 * 4 + 2], 100, "unhovered box keeps its base color");
-        assert!(row[15 * 4 + 2] > 100, "hovered box is washed brighter");
-        assert_eq!(row[10 * 4 + 2], 0, "wash follows the hovered box's corner radius");
     }
 
     #[test]

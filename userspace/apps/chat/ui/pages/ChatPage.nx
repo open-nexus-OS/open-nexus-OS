@@ -4,11 +4,9 @@
 // Chat: OVERVIEW of open conversations → picking one shows the nicely
 // formatted transcript (sender-aligned bubbles: even seq = "you", accent,
 // right; odd = the peer, surfaceVariant, left — derived from seq PARITY,
-// no string parsing). NOTE (documented trap): `.overlay()` does NOT
-// composite inside a BANDED scroll surface (the packed band slices have
-// no home for an absolute layer spanning header+content) — the overview
-// is a plain BRANCH SWAP instead; the transcript's scroll container
-// re-appears with the thread.
+// no string parsing). The overview is a plain BRANCH SWAP; the
+// transcript's scroll container — a scroll layer the compositor moves
+// (RFC-0109) — re-appears with the thread.
 
 // ONE window path (TASK-0337): window-kit's chrome inside this surface, the
 // transcript in an OPAQUE content pane (the materials rules — no glass on the

@@ -325,7 +325,7 @@ proves = "Block 4 layer 0 (the M/G/S baseline): what a present costs on the cont
 [marker."gpud: dc flips ("]
 phase = "bringup"
 emit_when = { profile = "board-headless" }
-proves = "TASK-0215 5c-3 P5: what a per-frame flip's write left behind, every 64 flips — how many left the controller's config-ready latch set (the plane taken at a later frame boundary: the slot the ring frees at the blank still scanned), how many landed past the blank, the highest line a write landed on (a measurement: the tear's suspect)"
+proves = "TASK-0215 5c-3 P5: what a per-frame flip's write left behind, every 64 flips — how many left the controller's config-ready latch set (the plane taken at a later frame boundary: the slot the ring frees at the blank still scanned), how many landed past the blank, the highest line a write landed on (a measurement: the tear's suspect); and since board cycle 58 the blank wakes gpud served and how many it served after the blank had passed (`wakes= late=`: a flip waiting a whole frame more on gpud's own wake latency)"
 
 [marker."gpud: dc present mix ("]
 phase = "bringup"

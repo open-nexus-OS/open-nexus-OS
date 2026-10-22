@@ -91,7 +91,7 @@ fn press(
         "Tap",
         FxPx::new(x),
         FxPx::new(y),
-        None,
+        &[],
     )
     .expect("tap runs");
 }

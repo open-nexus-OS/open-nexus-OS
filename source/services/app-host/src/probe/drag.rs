@@ -86,13 +86,13 @@ impl super::DslApp {
         dirty: &mut bool,
         dirty_rows: &mut Option<(i32, i32)>,
     ) {
-        use crate::layout_diff::merge_span;
         let repaint = match kind {
             wire::INPUT_KIND_DRAG => {
                 // Noted, not computed: the present loop computes the newest (`drag_flush`).
                 if let Some(drag) = self.drag.as_mut() {
                     drag.pending = Some((x, y));
                 }
+                self.pointer = Some((x, y));
                 return;
             }
             wire::INPUT_KIND_RELEASE => self.drag_end(x, y, dirty, dirty_rows),
@@ -100,19 +100,17 @@ impl super::DslApp {
                 if self.text_hover_clear() {
                     super::boot::send_cursor_hint(client, surface_id, false);
                 }
-                // The un-hover spring needs pulses too.
-                self.hover_clear().map(|span| merge_span(dirty, dirty_rows, span)).is_some()
-                    && self.anim_active()
+                // The wash goes (motion); the un-hover spring needs pulses too.
+                self.hover_clear() && self.anim_active()
             }
             _ => {
                 // Editable-field hover → windowd cursor hint (I-beam), sent only on CHANGE.
                 if let Some(over) = self.text_hover(x, y) {
                     super::boot::send_cursor_hint(client, surface_id, over);
                 }
-                // Frame-aligned hover: paint-only, the union row span of the old+new hovered
-                // boxes (never a re-layout, never a full-frame repaint — the damage contract).
-                self.hover(x, y).map(|span| merge_span(dirty, dirty_rows, span)).is_some()
-                    && self.anim_active()
+                // Frame-aligned hover: the wash layer moves (motion, RFC-0109) — never a
+                // raster; a started grow spring ticks on the frame pulse.
+                self.hover(x, y) && self.anim_active()
             }
         };
         // Started interaction springs or animations tick on the frame pulse.
@@ -151,13 +149,13 @@ impl super::DslApp {
                     return None;
                 }
                 let (sx, sy) = drag.start;
-                let scroll = self.scroll_param();
+                let (views, nv) = self.hit_views();
                 let hit = self.view.hover_box_id_scrolled(
                     &self.layout.boxes,
                     "DragStart",
                     nexus_layout_types::FxPx::new(sx),
                     nexus_layout_types::FxPx::new(sy),
-                    scroll,
+                    &views[..nv],
                 );
                 self.drag = Some(Drag { taken: Some(hit), ..drag });
                 let box_id = hit?;
@@ -241,8 +239,8 @@ impl super::DslApp {
                 let old_boxes = core::mem::take(&mut self.layout.boxes);
                 let old_texts = core::mem::take(&mut self.texts);
                 self.relayout_retained();
-                self.layers_dirty |= glass_roots_changed(&old_boxes, &self.layout.boxes);
-                let (boxes, texts, h) = (&self.layout.boxes, &self.texts, self.h as i32);
+                self.tree_dirty |= glass_roots_changed(&old_boxes, &self.layout.boxes);
+                let (boxes, texts, h) = (&self.layout.boxes, &self.texts, self.layout_bottom());
                 match changed_row_span(&old_boxes, boxes, &old_texts, texts, h) {
                     None => (*dirty, *dirty_rows) = (true, None),
                     Some((y0, y1)) if y1 > y0 => merge_span(dirty, dirty_rows, (y0, y1)),

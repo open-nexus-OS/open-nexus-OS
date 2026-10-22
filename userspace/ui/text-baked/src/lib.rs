@@ -187,15 +187,17 @@ fn kern(f: &Face, left: usize, right: usize) -> i32 {
 /// Blend the slice of the run `text` that intersects surface row `local_y`
 /// into `row` (BGRA, straight alpha). The run's band starts at row `top`
 /// (`i32`: a band may start above the surface when partially scrolled off),
-/// the pen at column `x0`; pixels at or beyond `clip_end_x` (and beyond the
-/// row buffer) are not touched. Glyph coverage is blended `src OVER dst`
-/// scaled by `color`'s alpha — text composites correctly over glass tints.
+/// the pen at column `x0` (`i32`: a run may start left of the row — a scroll
+/// layer's band drawn a run of columns at a time — and is clipped there);
+/// pixels at or beyond `clip_end_x` (and beyond the row buffer) are not
+/// touched. Glyph coverage is blended `src OVER dst` scaled by `color`'s
+/// alpha — text composites correctly over glass tints.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_text_row(
     row: &mut [u8],
     local_y: u32,
     top: i32,
-    x0: u32,
+    x0: i32,
     clip_end_x: u32,
     text: impl Iterator<Item = char>,
     size: FontSize,
@@ -208,7 +210,7 @@ pub fn draw_text_row(
     }
     let row_px = (row.len() / 4) as u32;
     let clip = clip_end_x.min(row_px);
-    let mut pen = x0 as i32;
+    let mut pen = x0;
     let mut prev: Option<(&'static Face, usize)> = None;
     for ch in text {
         let (f, gi) = resolve(primary, ch);

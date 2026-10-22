@@ -343,48 +343,53 @@ Page StashPage {
                         Stack { }
                     }
                     // REAL listing (svc.files.list → vfsd ReadDir, TASK-0291);
-                    // honest loading/error states, never fake rows.
-                    if $state.filesError != 0 {
-                        Text(@t("stash.loadError")).textSize(sm).fg(onGlassMuted)
-                    } else {
-                        if $state.filesLoading == 1 {
-                            Text(@t("stash.loading")).textSize(sm).fg(onGlassMuted)
+                    // honest loading/error states, never fake rows. It scrolls
+                    // on its own (RFC-0109: a scroll layer the compositor moves)
+                    // between the column header and the action bar.
+                    Stack {
+                        if $state.filesError != 0 {
+                            Text(@t("stash.loadError")).textSize(sm).fg(onGlassMuted)
                         } else {
-                            if $state.fileCount == 0 {
-                                // "Keine Objekte gefunden" vs "der Ordner ist
-                                // leer" are DIFFERENT statements, and the
-                                // handoff makes both. `stash.noResults` shipped
-                                // in all five locales and was referenced by no
-                                // line of markup; an active query now picks it.
-                                if $state.searchQuery != "" {
-                                    Text(@t("stash.noResults")).textSize(sm).fg(onGlassMuted)
-                                } else {
-                                    Text(@t("stash.empty")).textSize(sm).fg(onGlassMuted)
-                                }
+                            if $state.filesLoading == 1 {
+                                Text(@t("stash.loading")).textSize(sm).fg(onGlassMuted)
                             } else {
-                                if $state.viewMode == "grid" {
-                                    List($state.files) { f in
-                                        Stack {
-                                            FileTile { id: f.name, name: f.name, kind: f.kind, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
-                                        }
-                                        .key(f.name)
+                                if $state.fileCount == 0 {
+                                    // "Keine Objekte gefunden" vs "der Ordner ist
+                                    // leer" are DIFFERENT statements, and the
+                                    // handoff makes both. `stash.noResults` shipped
+                                    // in all five locales and was referenced by no
+                                    // line of markup; an active query now picks it.
+                                    if $state.searchQuery != "" {
+                                        Text(@t("stash.noResults")).textSize(sm).fg(onGlassMuted)
+                                    } else {
+                                        Text(@t("stash.empty")).textSize(sm).fg(onGlassMuted)
                                     }
-                                    .direction(row)
-                                    .wrap(true)
-                                    .gap(3)
-                                    .paddingX(2)
                                 } else {
-                                    List($state.files) { f in
-                                        Stack {
-                                            FileRow { id: f.name, name: f.name, kind: f.kind, date: f.date, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                    if $state.viewMode == "grid" {
+                                        List($state.files) { f in
+                                            Stack {
+                                                FileTile { id: f.name, name: f.name, kind: f.kind, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                            }
+                                            .key(f.name)
                                         }
-                                        .key(f.name)
+                                        .direction(row)
+                                        .wrap(true)
+                                        .gap(3)
+                                        .paddingX(2)
+                                    } else {
+                                        List($state.files) { f in
+                                            Stack {
+                                                FileRow { id: f.name, name: f.name, kind: f.kind, date: f.date, size: f.sizeText, icon: f.icon, active: $state.selection == f.name }
+                                            }
+                                            .key(f.name)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                    Spacer
+                    .grow(1)
+                    .scroll(vertical)
                     // ── FLOATING ACTION BAR ──────────────────────────
                     // A glass pill at the bottom of the content region. The
                     // item set IS the selection reactivity — no selection =

@@ -24,8 +24,10 @@ mod engine_tests;
 pub mod error;
 mod geometry;
 mod grid;
+#[cfg(test)]
+mod scroll_root_tests;
 mod textfit;
 
-pub use boxes::{compute_scroll_damage, LayoutBox, LayoutResult, ScrollDamage};
+pub use boxes::{LayoutBox, LayoutResult};
 pub use engine::LayoutEngine;
 pub use error::LayoutError;

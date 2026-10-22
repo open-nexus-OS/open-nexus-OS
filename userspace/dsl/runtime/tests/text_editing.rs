@@ -97,7 +97,7 @@ fn with_focus(nth: usize, f: impl FnOnce(&mut Field<'_, '_>)) {
     let mut seen = Vec::new();
     for b in layout.boxes.iter().filter(|b| b.rect.width.0 > 0 && b.rect.height.0 > 0) {
         let (x, y) = (b.rect.x.0 + b.rect.width.0 / 2, b.rect.y.0 + b.rect.height.0 / 2);
-        if let Some(s) = view.focus_text_at(&layout.boxes, FxPx::new(x), FxPx::new(y), None) {
+        if let Some(s) = view.focus_text_at(&layout.boxes, FxPx::new(x), FxPx::new(y), &[]) {
             if !seen.contains(&s.box_id) {
                 seen.push(s.box_id);
                 if seen.len() == nth + 1 {

@@ -17,11 +17,10 @@
 // TWO-LINE items (title + short description — the handoff's default sidebar
 // form; the full descriptions live on the overview cards, the short forms
 // here because `.truncate` has no runtime and an overflowing line cannot
-// ellipsise). Deliberately NO `.scroll(vertical)`: the surface protocol
-// carries ONE compositor scroll region per window and the content pane owns
-// it — a second scroll container here is what handed the band to the
-// sidebar and killed every content tap. Twelve 38px rows need the ⅚-height
-// default frame windowd now serves.
+// ellipsise). The section list scrolls on its own (`.scroll(vertical)`): a
+// scroll layer beside the content pane's (RFC-0109 — every `.scroll` of a
+// page is a layer the compositor moves), so a short window keeps every
+// section reachable while the header and the account footer stay put.
 
 Component NavSidebar {
     Panel {
@@ -48,6 +47,7 @@ Component NavSidebar {
         }
         .gap(0)
         .grow(1)
+        .scroll(vertical)
         Stack { }
             .height(1)
             .bg(divider)

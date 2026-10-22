@@ -93,12 +93,28 @@ impl Writes {
     }
 }
 
+/// A layer's identity in a plan (RFC-0109): its key and its occurrence among the layers of the
+/// same key before it — unique in every set, so unnamed layers (key 0) still match by order.
+pub type Ident = (u32, u16);
+
 /// The retained set, the glass cache and the plan they give.
 pub struct Frame {
     pub layers: RetainedLayers,
     pub glass: GlassCache,
     steps: [LayerStep; MAX_LAYERS],
     count: usize,
+    /// The identity of every step of the last plan.
+    idents: [Ident; MAX_LAYERS],
+    /// The last plan's layers as drawn, kept while this plan overwrites its steps.
+    prev: [FrameLayer; MAX_LAYERS],
+}
+
+/// The identities of `layers`, in order.
+fn identities(layers: &[FrameLayer], out: &mut [Ident; MAX_LAYERS]) {
+    for (i, l) in layers.iter().enumerate().take(MAX_LAYERS) {
+        let n = layers[..i].iter().filter(|b| b.key == l.key).count();
+        out[i] = (l.key, n.min(usize::from(u16::MAX)) as u16);
+    }
 }
 
 impl Frame {
@@ -107,32 +123,10 @@ impl Frame {
         Self {
             layers: RetainedLayers::new(),
             glass: GlassCache::new(glass_rows),
-            steps: [LayerStep {
-                layer: FrameLayer {
-                    src_row_abs: 0,
-                    src_x: 0,
-                    width: 0,
-                    height: 0,
-                    content_w: 0,
-                    content_h: 0,
-                    dst_x: 0,
-                    dst_y: 0,
-                    opacity: 0,
-                    corner_radius: 0,
-                    shadow_blur: 0,
-                    shadow_offset_y: 0,
-                    shadow_alpha: 0,
-                    backdrop_blur: 0,
-                    scroll_band_top_abs: 0,
-                    scroll_band_h: 0,
-                    layer_id: 0,
-                    content_epoch: 0,
-                    opaque: false,
-                    solid: false,
-                },
-                glass: None,
-            }; MAX_LAYERS],
+            steps: [LayerStep { layer: FrameLayer::EMPTY, glass: None }; MAX_LAYERS],
             count: 0,
+            idents: [(0, 0); MAX_LAYERS],
+            prev: [FrameLayer::EMPTY; MAX_LAYERS],
         }
     }
 
@@ -168,13 +162,34 @@ impl Frame {
                     && origin != own_id
                     && self.layers.index_of_id(origin).is_none_or(|i| i < j))
         };
-        let mut below = seed(display.0, display.1, self.glass.wallpaper_epoch);
+        // The last plan by identity (RFC-0109): a layer is compared with — and keeps the glass
+        // rows of — the layer of its key in the last plan, wherever either stands in its list.
+        let n = self.layers.len().min(MAX_LAYERS);
+        let mut drawn = [FrameLayer::EMPTY; MAX_LAYERS];
+        for (i, slot) in drawn.iter_mut().enumerate().take(n) {
+            *slot = self.layers.effective(i).unwrap_or(FrameLayer::EMPTY);
+        }
+        let mut ids = [(0u32, 0u16); MAX_LAYERS];
+        identities(&drawn[..n], &mut ids);
+        let last = self.count;
+        for j in 0..last {
+            self.prev[j] = self.steps[j].layer;
+        }
+        let mut carried = [None; MAX_LAYERS];
+        let mut kept = [false; MAX_LAYERS];
+        for i in 0..n {
+            if let Some(j) = self.idents[..last].iter().position(|id| *id == ids[i]) {
+                carried[i] = Some(j);
+                kept[j] = true;
+            }
+        }
+        self.glass.carry(&carried[..n]);
+        let wallpaper = seed(display.0, display.1, self.glass.wallpaper_epoch);
         let mut writes = Writes::default();
         let mut cursor = 0u32;
         let mut count = 0;
-        for i in 0..self.layers.len() {
-            let Some(layer) = self.layers.effective(i) else { break };
-            let before = self.steps.get(i).filter(|_| i < self.count).map(|s| s.layer);
+        for (i, &layer) in drawn.iter().enumerate().take(n) {
+            let before = carried[i].map(|j| self.prev[j]);
             if before.is_none_or(|b| !same_drawing(&b, &layer)) {
                 damage = damage.union(extent(&layer));
                 if let Some(b) = before {
@@ -215,6 +230,13 @@ impl Frame {
                     })
                 };
                 let touched = band != Area::None;
+                // The backdrop is what lies below the glass within its reach (RFC-0109): a
+                // layer drawn elsewhere — a scroll layer's slice in another window, a hover's
+                // wash across the screen — changes nothing this glass blurs.
+                let below = self.steps[..count]
+                    .iter()
+                    .filter(|s| extent(&s.layer).touches(reach))
+                    .fold(wallpaper, |h, s| fold_layer(h, &s.layer));
                 let key = glass_key(below, &layer);
                 let miss = self.glass.miss(i, key, cursor);
                 let band = if miss == WriteCause::Band { band } else { Area::Full };
@@ -248,11 +270,12 @@ impl Frame {
             };
             self.steps[count] = LayerStep { layer, glass };
             count += 1;
-            below = fold_layer(below, &layer);
         }
-        for gone in self.steps[count.min(self.count)..self.count].iter() {
-            damage = damage.union(extent(&gone.layer));
+        // A layer of the last plan no layer of this one carries is gone: where it was changes.
+        for (gone, _) in self.prev[..last].iter().zip(kept.iter()).filter(|(_, k)| !**k) {
+            damage = damage.union(extent(gone));
         }
+        self.idents[..count].copy_from_slice(&ids[..count]);
         self.count = count;
         self.layers.dirty = false;
         if upload && set_epoch != 0 {

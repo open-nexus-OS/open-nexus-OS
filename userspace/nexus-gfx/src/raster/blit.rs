@@ -57,48 +57,69 @@ pub fn blit_within(
     Ok(())
 }
 
-/// Like [`blit_within`], but alpha-blends the source rows over the destination
-/// (the translucent-glass composite over a blurred backdrop).
+/// Like [`blit_within`], but alpha-blends the source over the destination (a layer's composite:
+/// the translucent glass over its blurred backdrop, a scroll layer's slice, a wash). The source
+/// band `src_size` (`(0, 0)` = the layer's own `w × h`) is spread over the layer by its nearest
+/// texel — a 14×14 patch over a hovered row, a window's band over its live-resized frame — and
+/// `opacity` (`0..=255`) multiplies every source alpha. `scratch_row` needs `≥ band width·4`
+/// bytes.
 #[allow(clippy::too_many_arguments)]
 pub fn blit_within_blend(
     s: &mut Surface,
     src_x: u32,
     src_y: u32,
+    src_size: (u32, u32),
     dst_x: u32,
     dst_y: u32,
     w: u32,
     h: u32,
+    opacity: u32,
     scratch_row: &mut [u8],
 ) -> Result<(), RasterError> {
     let width = s.width();
     let height = s.height();
-    let copy_w = w.min(width.saturating_sub(dst_x)).min(width.saturating_sub(src_x));
-    let copy_h = h.min(height.saturating_sub(dst_y)).min(height.saturating_sub(src_y));
-    if copy_w == 0 || copy_h == 0 {
+    let (sw, sh) = match src_size {
+        (0, _) | (_, 0) => (w, h),
+        size => size,
+    };
+    let sw = sw.min(width.saturating_sub(src_x));
+    let copy_w = w.min(width.saturating_sub(dst_x));
+    let copy_h = h.min(height.saturating_sub(dst_y));
+    let opacity = opacity.min(255);
+    if copy_w == 0 || copy_h == 0 || sw == 0 || sh == 0 || opacity == 0 {
         return Ok(());
     }
-    let row_bytes = copy_w as usize * 4;
+    let row_bytes = sw as usize * 4;
     if scratch_row.len() < row_bytes {
         return Err(RasterError::ScratchTooSmall);
     }
     let stride = s.stride();
     let buf = s.buf_mut();
     for row in 0..copy_h {
-        let sy = src_y.saturating_add(row);
+        // The nearest source row and column of each destination pixel (identity when the band is
+        // the layer's own size).
+        let sy = src_y.saturating_add((u64::from(row) * u64::from(sh) / u64::from(h)) as u32);
+        if sy >= height {
+            continue;
+        }
         let dy = dst_y.saturating_add(row);
         let src_off = sy as usize * stride + src_x as usize * 4;
         let dst_off = dy as usize * stride + dst_x as usize * 4;
-        if src_off + row_bytes > buf.len() || dst_off + row_bytes > buf.len() {
+        if src_off + row_bytes > buf.len() || dst_off + copy_w as usize * 4 > buf.len() {
             continue;
         }
         scratch_row[..row_bytes].copy_from_slice(&buf[src_off..src_off + row_bytes]);
         for col in 0..copy_w as usize {
-            let s4 = [
-                scratch_row[col * 4],
-                scratch_row[col * 4 + 1],
-                scratch_row[col * 4 + 2],
-                scratch_row[col * 4 + 3],
+            let sx = (col as u64 * u64::from(sw) / u64::from(w)) as usize;
+            let mut s4 = [
+                scratch_row[sx * 4],
+                scratch_row[sx * 4 + 1],
+                scratch_row[sx * 4 + 2],
+                scratch_row[sx * 4 + 3],
             ];
+            if opacity < 255 {
+                s4[3] = (u32::from(s4[3]) * opacity / 255) as u8;
+            }
             blend::blend_over(buf, dst_off + col * 4, &s4);
         }
     }

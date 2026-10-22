@@ -56,6 +56,7 @@ impl Desktop {
             layer_id: 0,
             content_epoch: 1,
             flags: 0,
+            key: 0,
         };
         let whole = TileRect { x: 0, y: 0, width: w, height: h };
         let cold = [glass, Command::Damage { rect: whole, origin: 0 }];

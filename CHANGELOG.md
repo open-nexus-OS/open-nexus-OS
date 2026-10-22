@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-21 (a scroll step and a hover cost the app no raster — TASK-0341, RFC-0109, ADR-0076)
+
+- **Every `.scroll(...)` container is a scroll layer the compositor moves.** Its content is
+  painted once into a virtual band (a ring of strips below the surface's base, the visible window
+  plus a margin each side, filled in time slices); a wheel notch, a fling or a page step is a
+  motion frame with the new offset — no app raster, no row copy. Several per page, vertical,
+  horizontal and paged, beside statics, on the desktop surface too; content of any length.
+- **A hover is a wash layer.** The app draws one patch of the theme's hover colour once; a hover
+  is the wash's rectangle and opacity in a motion frame, composed by windowd (materials rule 3).
+- **One scroll physics, the app's.** windowd's full-width three-slice band, its scroll physics and
+  the position push to the app (`INPUT_KIND_SCROLL_POS`) are deleted, with the band negotiation
+  and the paint-time hover wash; windowd routes the wheel and composes the declared layers. The
+  retired names are gated (`scripts/check-retired-names.sh`).
+- **The frame planner keys layers by identity** (RFC-0101 §8 amended): a layer inserted mid-list
+  leaves the others clean, a slice moving elsewhere blurs no glass again; the frame's 64 layers
+  are shared max-min fair between surfaces.
+- **Window controls act on the sender's own window** (RFC-0086 amended): windowd resolves the
+  window from the kernel sender id; a surface id packed into 4 bits of the control's value broke
+  moving, minimizing, closing, zooming and tiling once surface ids passed 15.
+- **The store is placed on its own.** windowd places a surface's base and its store as two atlas
+  regions (the store as wide as its bands), so the desktop's store can grow when the launcher
+  opens with windows on screen; where the GPU composes, a window holds no CPU blur band; with no
+  room for a store the surface is created without it and the app scrolls flat, named.
+- **Layout**: a scroll container's content keeps only its own clips (the viewport clips in the
+  compositor), measures along its scroll axis, and never shrinks along it; `.overflow(hidden)`
+  clips its content while the container's own padding stays its own (`content_clip`); a nested
+  `.scroll` clips. Settings' section list and the file manager's listing scroll.
+
 ### Changed - 2026-10-21 (windowd rewrites no retained plane where the GPU composes — TASK-0340)
 
 - **An app's frame no longer costs windowd 100–200 ms of CPU.** For every content rectangle

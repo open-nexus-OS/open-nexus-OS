@@ -150,7 +150,7 @@ impl Rig {
                 "Tap",
                 FxPx::new(x),
                 FxPx::new(y),
-                None,
+                &[],
             )
             .expect("tap runs");
     }
@@ -164,7 +164,7 @@ impl Rig {
             "DragStart",
             FxPx::new(from.0),
             FxPx::new(from.1),
-            None,
+            &[],
         ) else {
             return;
         };
@@ -321,7 +321,7 @@ fn test_reject_the_film_button_takes_no_input() {
     let center = (film.x.0 + film.width.0 / 2, film.y.0 + film.height.0 / 2);
     let hit = rig
         .view
-        .hover_box_id_scrolled(&boxes, "Tap", FxPx::new(center.0), FxPx::new(center.1), None)
+        .hover_box_id_scrolled(&boxes, "Tap", FxPx::new(center.0), FxPx::new(center.1), &[])
         .and_then(|id| boxes.iter().find(|b| b.node_id == id))
         .expect("the panel absorbs");
     assert!(hit.rect.width.0 > film.width.0 * 4, "the press lands on the panel, not the button");

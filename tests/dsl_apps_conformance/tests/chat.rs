@@ -164,8 +164,9 @@ fn chat_transcript_windows_to_last_64() {
     assert!(resident <= 64, "resident window {resident} exceeds cap 64");
 }
 
-/// The transcript viewport is a real `.scroll` container: the engine stamps
-/// `clip_rect` on its descendants (what the paint-time offset keys on).
+/// The transcript is a scroll layer (RFC-0109): its container's `content_clip` is the viewport,
+/// and every box of its content names the container as its `scroll_root` (what the band and the
+/// compositor's offset key on) — the viewport clips in the compositor, not in the layout.
 #[test]
 fn chat_transcript_is_clipped_scroll_viewport() {
     let nxir = common::compile("chat");
@@ -179,8 +180,13 @@ fn chat_transcript_is_clipped_scroll_viewport() {
     view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("initial effects");
 
     let boxes = common::layout_boxes(&view);
-    let clipped = boxes.iter().filter(|b| b.clip_rect.is_some()).count();
-    assert!(clipped > 0, "no clipped boxes — .scroll(vertical) did not clip");
+    let root = boxes
+        .iter()
+        .find(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
+        .expect("the transcript's .scroll(vertical) container");
+    assert!(root.content_clip.is_some(), "the scroll container names no viewport");
+    let content = boxes.iter().filter(|b| b.scroll_root == Some(root.node_id)).count();
+    assert!(content > 0, "no box is the transcript's content");
 }
 
 /// The scroll viewport's layout contract: chrome outside stays unclipped at
@@ -198,25 +204,19 @@ fn diag_clip_stamping() {
     let mut host = TranscriptHost::seeded(&symbols, 240);
     view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("effects");
     let boxes = common::layout_boxes(&view);
-    let total = boxes.len();
-    let clipped: Vec<_> = boxes.iter().filter(|b| b.clip_rect.is_some()).collect();
-    eprintln!("total={} clipped={}", total, clipped.len());
-    for b in boxes.iter().take(12) {
-        eprintln!(
-            "id={} y={} h={} clip={:?}",
-            b.node_id,
-            b.rect.y.0,
-            b.rect.height.0,
-            b.clip_rect.map(|c| (c.x.0, c.y.0, c.width.0, c.height.0))
-        );
-    }
-    // The container itself + rows outside it must NOT be clipped away later:
-    let uniq: std::collections::BTreeSet<_> = clipped
+    let viewports: std::collections::BTreeSet<_> = boxes
         .iter()
-        .filter_map(|b| b.clip_rect.map(|c| (c.x.0, c.y.0, c.width.0, c.height.0)))
+        .filter(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
+        .filter_map(|b| b.content_clip.map(|c| (c.x.0, c.y.0, c.width.0, c.height.0)))
         .collect();
-    assert_eq!(uniq.len(), 1, "one scroll viewport expected: {uniq:?}");
-    let (_, cy, _, ch) = *uniq.iter().next().unwrap();
+    assert_eq!(viewports.len(), 1, "one scroll viewport expected: {viewports:?}");
+    let (_, cy, _, ch) = *viewports.iter().next().unwrap();
+    let root = boxes
+        .iter()
+        .find(|b| matches!(b.overflow, nexus_layout_types::Overflow::Scroll(_)))
+        .map(|b| b.node_id);
+    let clipped: Vec<_> =
+        boxes.iter().filter(|b| b.scroll_root.is_some() && b.scroll_root == root).collect();
     // Chrome outside the viewport is unclipped and full-size (the toolbar
     // collapsed to 12px/-4px rows before the Scroll measurement fix).
     let toolbar = boxes.iter().find(|b| b.node_id == 2).expect("toolbar box");
@@ -242,7 +242,7 @@ fn end_reached_handler_is_hittable() {
     let mut host = TranscriptHost::seeded(&symbols, 240);
     view.run_initial_effects(&tokens, &device, &locale, &mut host).expect("effects");
     let boxes = common::layout_boxes(&view);
-    let clip = boxes.iter().find_map(|b| b.clip_rect).expect("scroll viewport");
+    let clip = boxes.iter().find_map(|b| b.content_clip).expect("scroll viewport");
     let (cx, cy) = (clip.x.0 + clip.width.0 / 2, clip.y.0 + clip.height.0 / 2);
     let _ = (cx, cy);
     let damage =

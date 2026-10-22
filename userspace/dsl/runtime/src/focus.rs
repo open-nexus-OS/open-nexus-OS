@@ -8,7 +8,7 @@
 //! focused field; the runtime never sees raw key codes.
 
 use crate::emit::Damage;
-use crate::interact::{self, HandlerAction, ScrollView};
+use crate::interact::{self, HandlerAction, ScrollLayerView};
 use crate::store::Value;
 use crate::view::View;
 use crate::{DeviceEnv, EffectHost, LocaleSource, RtError};
@@ -88,7 +88,7 @@ impl View<'_> {
         boxes: &[nexus_layout::LayoutBox],
         x: nexus_layout_types::FxPx,
         y: nexus_layout_types::FxPx,
-        scroll: Option<ScrollView>,
+        layers: &[ScrollLayerView],
     ) -> Option<TextFocusSnapshot> {
         let trigger_sym =
             self.runtime.symbols().iter().position(|s| s == "Change").map(|i| i as u32);
@@ -96,7 +96,7 @@ impl View<'_> {
         // cannot take focus (TASK-0074 focus trap).
         let confine = self.modal_confine();
         let hit = trigger_sym.and_then(|sym| {
-            interact::hit_scrolled(&self.handlers, boxes, sym, x, y, scroll, confine)
+            interact::hit_scrolled(&self.handlers, boxes, sym, x, y, layers, confine)
         });
         match hit {
             Some(hit) => {

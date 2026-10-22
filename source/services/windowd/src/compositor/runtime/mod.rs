@@ -30,7 +30,7 @@ use crate::markers::*;
 use crate::smoke::VisibleBootstrapMode;
 use crate::systemui_shell::{DeviceProfile, SystemUiShell};
 use alloc::vec::Vec;
-use animation::{AnimProp, AnimationDriver, SceneUpdate, ScrollConfig, ScrollMomentum};
+use animation::{AnimProp, AnimationDriver, SceneUpdate};
 use input_live_protocol::{VisibleState, STATUS_MALFORMED, STATUS_OK};
 use nexus_abi::{debug_println, debug_trace, nsec, vmo_write, Handle};
 use nexus_gfx::command::buffer::RgbaColor;
@@ -85,7 +85,7 @@ mod framebuffer;
 pub(crate) mod gpud;
 mod input;
 mod input_hover;
-mod input_scroll;
+mod input_wheel;
 pub(crate) mod intent;
 mod marker_emit;
 mod observer;
@@ -96,6 +96,8 @@ mod scene;
 mod session;
 mod shell;
 mod slots;
+mod surface_layers;
+mod surface_layers_encode;
 pub(crate) mod text_input;
 mod tiling;
 mod transitions;
@@ -157,10 +159,8 @@ pub(crate) struct AppWindowSlot {
     pub(crate) solid: Option<crate::atlas::AtlasSurface>,
     /// Reserved by a launch whose surface does not exist yet (its starting surface is up).
     pub(crate) starting: bool,
-    /// R1 layer seam: the app's material-tagged glass regions.
-    pub(crate) layers: [nexus_display_proto::client_surface::LayerDesc;
-        nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
-    pub(crate) layer_count: usize,
+    /// The surface's declared layers (RFC-0109): regions, scroll layers, washes.
+    pub(crate) layers: surface_layers::SurfaceLayers,
     /// Window intent (`OP_SURFACE_INTENT` tags, sent before create).
     pub(crate) intent_style: u8,
     pub(crate) intent_level: u8,
@@ -189,32 +189,9 @@ pub(crate) struct AppWindowSlot {
     /// contract): answered with ONE `OP_SURFACE_FRAME` after the next
     /// composited frame, then cleared — the client re-requests while animating.
     pub(crate) frame_pulse_pending: bool,
-    /// Compositor-scroll id (0 = non-scrollable, unchanged behavior). Assigned
-    /// `slot_index + 1` at create when the surface declared a scroll band
-    /// (`content_h > 0`); ≤ `MAX_SCROLL_IDS`. windowd is the SINGLE writer of the
-    /// scroll position: a wheel notch moves the body's `src_row` in the next present
-    /// (TASK-0338) instead of the app re-rendering per frame.
-    pub(crate) scroll_id: u32,
-    /// Scroll band geometry from `SURFACE_CREATE` (surface rows): tall
-    /// resident-content height + fixed top/bottom chrome heights the app
-    /// packed into the band. `content_h == 0` ⇒ not scrollable.
-    pub(crate) content_h: u32,
-    pub(crate) header_h: u32,
-    pub(crate) footer_h: u32,
-    /// Current absolute scroll offset (rows), windowd-owned. Clamped to
-    /// `content_h - visible_body_h`; the body layer's `src_row` in each present.
-    pub(crate) scroll_rows: u32,
-    /// Per-slot scroll physics (reused `animation::ScrollMomentum`): a wheel
-    /// notch extends a target the offset eases toward; the frame clock ticks it
-    /// and each step owes a frame (flings without the app in the loop).
-    pub(crate) scroll_momentum: ScrollMomentum,
-    /// Last scroll-physics tick (ns) for dt integration.
-    pub(crate) scroll_last_ns: u64,
-    /// Damage-bounded band blit (ADR-0042, the 120Hz damage contract): union
-    /// of the client's presented damage rows (surface/body coords, end
-    /// exclusive) still to blit; `None` = FULL body re-blit.
-    /// `render_app_surface` copies only these rows out of the client VMO.
-    pub(crate) surface_dirty_rows: Option<(u32, u32)>,
+    /// The rows the client's presents named, still to copy into the atlas (ADR-0042, the
+    /// damage-bounded copy): its base's and its store's (RFC-0109).
+    pub(crate) surface_damage: surface_layers::DamageRows,
     /// Track C3: the window's CURRENT animated whole-layer transform
     /// (open/close/minimize). Identity at rest; the `AnimationDriver` ticks it
     /// on the frame clock and each tick owes ONE frame (no re-render): every
@@ -282,9 +259,7 @@ impl AppWindowSlot {
             drag_offset: None,
             solid: None,
             starting: false,
-            layers: [nexus_display_proto::client_surface::LayerDesc::default();
-                nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
-            layer_count: 0,
+            layers: surface_layers::SurfaceLayers::EMPTY,
             intent_style: nexus_display_proto::client_surface::WIN_STYLE_TITLEBAR,
             intent_level: nexus_display_proto::client_surface::WIN_LEVEL_NORMAL,
             intent_mode: nexus_display_proto::client_surface::WIN_MODE_AUTO,
@@ -297,14 +272,7 @@ impl AppWindowSlot {
             #[cfg(nexus_env = "os")]
             event_channel: None,
             frame_pulse_pending: false,
-            scroll_id: 0,
-            content_h: 0,
-            header_h: 0,
-            footer_h: 0,
-            scroll_rows: 0,
-            scroll_momentum: ScrollMomentum::new(ScrollConfig::default()),
-            scroll_last_ns: 0,
-            surface_dirty_rows: None,
+            surface_damage: surface_layers::DamageRows::FULL,
             transform: WinTransform::IDENTITY,
             pending_wm: None,
             cursor_hint: 0,
@@ -315,15 +283,6 @@ impl AppWindowSlot {
 /// Frame pacing interval (120 Hz). SSOT for both the compositor loop's pacer
 /// timer and the paced damage flush (`flush_pending_damage_paced`).
 pub(crate) const PACER_INTERVAL_NS: u64 = 8_333_333;
-
-/// WebRender compositor-scroll id-table capacity — MUST match gpud's
-/// `backend::MAX_SCROLL_IDS` (ids `1..=MAX_SCROLL_IDS`; 0 = not scrollable).
-/// `MAX_APP_WINDOWS` (4) is ≤ this, so a `slot_index + 1` id always fits.
-pub(crate) const MAX_SCROLL_IDS: usize = 8;
-
-/// Per-notch scroll step (surface rows) — the fixed, predictable amount a wheel
-/// notch adds to the scroll target (mirrors the app-host `STEP_PX`).
-pub(crate) const SCROLL_STEP_PX: i32 = 72;
 
 pub(crate) struct DisplayServerRuntime {
     mode: VisibleBootstrapMode,
@@ -412,10 +371,9 @@ pub(crate) struct DisplayServerRuntime {
     /// Bounded counter for the app-surface present-rejection diagnostic
     /// (P0.2 tap repro): a rejected client present is otherwise silent.
     app_present_reject_markers: u32,
-    /// Damage-limited desktop blit: the union row span (start, end exclusive)
-    /// of the client damage rects since the last `render_desktop_surface`.
-    /// `(u32::MAX, 0)` = empty. A present with no rects = full span.
-    desktop_dirty_rows: (u32, u32),
+    /// Damage-limited desktop copy: the rows the desktop's presents named since the last
+    /// `render_desktop_surface` (its base's and its store's, RFC-0109).
+    desktop_damage: surface_layers::DamageRows,
     /// handoff ID for the initial framebuffer VMO transfer to gpud.
     first_handoff_id: u32,
     first_handoff_frame_written: bool,
@@ -482,6 +440,8 @@ pub(crate) struct DisplayServerRuntime {
     osk_dismissed: bool,
     pending_intent_replies: [Option<(u64, [u8; 12])>; 4],
     desktop_band: Option<crate::atlas::AtlasSurface>,
+    /// The desktop surface's store (RFC-0109): a region of its own, apart from its base.
+    desktop_store: Option<crate::atlas::AtlasSurface>,
     /// RFC-0086: desktop-surface owner sid (taskbar-verb gate) + the window
     /// feed's retained delivery state (see `windows_feed`).
     desktop_owner_sid: u64,
@@ -544,11 +504,9 @@ pub(crate) struct DisplayServerRuntime {
     /// so a flood (hidrawd ~800/s) can't back up the cursor command stream + hit-testing
     /// ("mouse vanished then everything caught up").
     input_stage: crate::input_stage::InputStage,
-    /// The DESKTOP surface's material-tagged glass regions (R1 seam): each
-    /// composites as a frosted layer over the wallpaper in the Desktop arm.
-    desktop_layers: [nexus_display_proto::client_surface::LayerDesc;
-        nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
-    desktop_layer_count: usize,
+    /// The DESKTOP surface's declared layers (RFC-0109): its glass regions over the wallpaper,
+    /// its scroll layers, its washes.
+    desktop_layers: surface_layers::SurfaceLayers,
     /// Hover routing state (RFC-0067 R2): which surface currently receives
     /// frame-aligned pointer MOVEs (`HOVER_ROUTE_*`). On a target change the
     /// previous surface gets an `INPUT_KIND_LEAVE` so its hover wash clears.
@@ -805,7 +763,7 @@ impl DisplayServerRuntime {
             present_retry_count: 0,
             present_retry_exhausted: false,
             app_present_reject_markers: 0,
-            desktop_dirty_rows: (u32::MAX, 0),
+            desktop_damage: surface_layers::DamageRows::NONE,
             first_handoff_id: 0,
             first_handoff_frame_written: false,
             first_handoff_bootstrap_markers_emitted: false,
@@ -838,6 +796,7 @@ impl DisplayServerRuntime {
             osk_dismissed: false,
             pending_intent_replies: [None; 4],
             desktop_band: None,
+            desktop_store: None,
             desktop_owner_sid: 0,
             windows_feed: windows_feed::FeedState::new(),
             desktop_dirty: false,
@@ -863,9 +822,7 @@ impl DisplayServerRuntime {
             press_route: None,
             atlas_alloc: atlas,
             input_stage: crate::input_stage::InputStage::new(),
-            desktop_layers: [nexus_display_proto::client_surface::LayerDesc::default();
-                nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
-            desktop_layer_count: 0,
+            desktop_layers: surface_layers::SurfaceLayers::EMPTY,
             hover_route: HOVER_ROUTE_NONE,
             hover_last: (0, 0),
             hover_app_idx: 0,

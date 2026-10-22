@@ -35,9 +35,9 @@ pub(crate) enum Delivery {
     /// User intent with no recovery path: a tap, a release, a wheel step, a key, a text commit,
     /// a settings push. Ordered, never merged (nothing downstream reconstructs it).
     Intent,
-    /// State the next frame supersedes: the pointer over the window, a drag's position, the
-    /// scroll position, a frame pulse, a presentation snapshot. While the client is behind, the
-    /// newest frame of its kind replaces the older one — never a backlog of stale positions.
+    /// State the next frame supersedes: the pointer over the window, a drag's position, a frame
+    /// pulse, a presentation snapshot. While the client is behind, the newest frame of its kind
+    /// replaces the older one — never a backlog of stale positions.
     Latest,
 }
 
@@ -52,8 +52,8 @@ impl Delivery {
 
     /// The class an input kind belongs to. A tap and a press's release are discrete — nothing
     /// downstream can reconstruct them (a lost release leaves a drag without its end, RFC-0095);
-    /// a wheel step is a delta — merged away it would lose distance. Hover and drag motion and
-    /// the scroll position are where things are NOW: the newest supersedes the older.
+    /// a wheel step is a delta — merged away it would lose distance. Hover and drag motion are
+    /// where things are NOW: the newest supersedes the older.
     pub(crate) const fn for_input(kind: u8) -> Self {
         match kind {
             INPUT_KIND_TAP | INPUT_KIND_RELEASE | INPUT_KIND_WHEEL => Delivery::Intent,
@@ -70,11 +70,9 @@ impl Delivery {
 /// is content-sized), and fullscreen skips the cached-blur band, so the ceiling
 /// does NOT reserve display-sized rows per window.
 pub const MAX_SURFACE_W: u16 = nexus_display_proto::layout::LAYOUT_MAX.0 as u16;
-// Raised for WebRender-style compositor scroll: a scrollable app uploads its
-// FULL resident content as one tall atlas band (bounded by the app's own resident
-// window, e.g. chat's tail(messages,64)), and gpud shifts only src_row per scroll
-// frame. Non-scrollable surfaces (content_h == 0) still stay well under the old 800.
-pub const MAX_SURFACE_H: u16 = 3072;
+/// A surface's visible height. Its ROWS (base + store, RFC-0109) are bounded by
+/// `nexus_display_proto::surface_layers::MAX_SURFACE_ROWS`.
+pub const MAX_SURFACE_H: u16 = nexus_display_proto::layout::LAYOUT_MAX.1 as u16;
 pub const MIN_SURFACE_DIM: u16 = 16;
 
 /// One live client surface.
@@ -83,6 +81,11 @@ pub struct ClientSurface {
     pub id: u32,
     pub width: u16,
     pub height: u16,
+    /// The surface's rows (RFC-0109): `[0, height)` the base layer, `[height, rows)` the
+    /// client's store (its scroll layers' bands, its wash patches).
+    pub rows: u16,
+    /// The store's used width: its rows' columns `[0, store_w)` (`0`: no store).
+    pub store_w: u16,
     /// The app's surface VMO capability slot in windowd's table (moved in
     /// with `SURFACE_CREATE`).
     pub vmo_slot: u32,
@@ -148,6 +151,7 @@ impl ClientSurfaces {
         &mut self,
         width: u16,
         height: u16,
+        (rows, store_w): (u16, u16),
         format: u8,
         vmo_slot: u32,
     ) -> Result<u32, u8> {
@@ -158,6 +162,10 @@ impl ClientSurfaces {
             || height < MIN_SURFACE_DIM
             || width > MAX_SURFACE_W
             || height > MAX_SURFACE_H
+            || rows < height
+            || rows > nexus_display_proto::surface_layers::MAX_SURFACE_ROWS
+            || store_w > width
+            || (rows > height) != (store_w > 0)
         {
             return Err(SURFACE_STATUS_MALFORMED);
         }
@@ -166,13 +174,23 @@ impl ClientSurfaces {
         };
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
-        *slot = Some(ClientSurface { id, width, height, vmo_slot, last_seq: 0 });
+        *slot = Some(ClientSurface { id, width, height, rows, store_w, vmo_slot, last_seq: 0 });
         Ok(id)
+    }
+
+    /// The surface's store could not be placed (RFC-0109): windowd holds it as a surface of its
+    /// base alone — no structure may name the store, no present reaches it.
+    pub fn drop_store(&mut self, surface_id: u32) {
+        if let Some(s) = self.surfaces.iter_mut().flatten().find(|s| s.id == surface_id) {
+            s.rows = s.height;
+            s.store_w = 0;
+        }
     }
 
     /// Validates a present: known surface, strictly increasing seq (exactly
     /// one in flight per surface — the app waits for the ack). Returns the
-    /// surface + damage clamped to its bounds (empty rects dropped).
+    /// surface + damage clamped to its rows — the base's and the store's
+    /// (RFC-0109) — and width (empty rects dropped).
     pub fn present(
         &mut self,
         surface_id: u32,
@@ -188,11 +206,11 @@ impl ClientSurfaces {
         let mut clamped = [DamageRect { x: 0, y: 0, width: 0, height: 0 }; MAX_DAMAGE_RECTS];
         let mut count = 0usize;
         for rect in damage.iter().take(MAX_DAMAGE_RECTS) {
-            if rect.x >= surface.width || rect.y >= surface.height {
+            if rect.x >= surface.width || rect.y >= surface.rows {
                 continue;
             }
             let w = rect.width.min(surface.width - rect.x);
-            let h = rect.height.min(surface.height - rect.y);
+            let h = rect.height.min(surface.rows - rect.y);
             if w == 0 || h == 0 {
                 continue;
             }
@@ -226,25 +244,28 @@ mod tests {
     #[test]
     fn create_validates_format_bounds_and_quota() {
         let mut t = ClientSurfaces::new();
-        assert_eq!(t.create(320, 240, 9, 10), Err(SURFACE_STATUS_MALFORMED));
-        assert_eq!(t.create(8, 240, FORMAT_BGRA8888, 10), Err(SURFACE_STATUS_MALFORMED));
-        assert_eq!(t.create(4096, 240, FORMAT_BGRA8888, 10), Err(SURFACE_STATUS_MALFORMED));
-        let id = t.create(320, 240, FORMAT_BGRA8888, 10).expect("creates");
+        assert_eq!(t.create(320, 240, (240, 0), 9, 10), Err(SURFACE_STATUS_MALFORMED));
+        assert_eq!(t.create(8, 240, (240, 0), FORMAT_BGRA8888, 10), Err(SURFACE_STATUS_MALFORMED));
+        assert_eq!(
+            t.create(4096, 240, (240, 0), FORMAT_BGRA8888, 10),
+            Err(SURFACE_STATUS_MALFORMED)
+        );
+        let id = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("creates");
         assert_eq!(id, 1);
         // Multi-surface: further creates succeed until all slots are full, then
         // QUOTA (not silently replaced). One is already used, so MAX-1 more fit.
         for _ in 0..(MAX_APP_SURFACES - 1) {
-            assert!(t.create(320, 240, FORMAT_BGRA8888, 11).is_ok());
+            assert!(t.create(320, 240, (240, 0), FORMAT_BGRA8888, 11).is_ok());
         }
         assert_eq!(t.count(), MAX_APP_SURFACES);
-        assert_eq!(t.create(320, 240, FORMAT_BGRA8888, 12), Err(SURFACE_STATUS_QUOTA));
+        assert_eq!(t.create(320, 240, (240, 0), FORMAT_BGRA8888, 12), Err(SURFACE_STATUS_QUOTA));
     }
 
     #[test]
     fn multiple_surfaces_coexist_with_independent_seq_and_ids() {
         let mut t = ClientSurfaces::new();
-        let a = t.create(320, 240, FORMAT_BGRA8888, 10).expect("a");
-        let b = t.create(200, 100, FORMAT_BGRA8888, 11).expect("b");
+        let a = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("a");
+        let b = t.create(200, 100, (100, 0), FORMAT_BGRA8888, 11).expect("b");
         assert_ne!(a, b);
         assert_eq!(t.count(), 2);
         // Independent per-surface seq: advancing a does not affect b.
@@ -256,7 +277,7 @@ mod tests {
         assert_eq!(t.destroy(a), Ok(10));
         assert!(t.get_by_id(a).is_none());
         assert!(t.get_by_id(b).is_some());
-        let c = t.create(64, 64, FORMAT_BGRA8888, 12).expect("c");
+        let c = t.create(64, 64, (64, 0), FORMAT_BGRA8888, 12).expect("c");
         assert_ne!(c, a);
         assert_ne!(c, b);
     }
@@ -264,7 +285,7 @@ mod tests {
     #[test]
     fn present_enforces_strict_seq() {
         let mut t = ClientSurfaces::new();
-        let id = t.create(320, 240, FORMAT_BGRA8888, 10).expect("creates");
+        let id = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("creates");
         assert_eq!(t.present(id, 2, &[]).unwrap_err(), SURFACE_STATUS_BAD_SEQ);
         assert!(t.present(id, 1, &[]).is_ok());
         // Replay of the same seq is refused (one in flight, acked in order).
@@ -276,14 +297,14 @@ mod tests {
     fn present_rejects_unknown_surfaces() {
         let mut t = ClientSurfaces::new();
         assert_eq!(t.present(1, 1, &[]).unwrap_err(), SURFACE_STATUS_BAD_SURFACE);
-        let id = t.create(320, 240, FORMAT_BGRA8888, 10).expect("creates");
+        let id = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("creates");
         assert_eq!(t.present(id + 1, 1, &[]).unwrap_err(), SURFACE_STATUS_BAD_SURFACE);
     }
 
     #[test]
     fn damage_is_clamped_to_surface_bounds() {
         let mut t = ClientSurfaces::new();
-        let id = t.create(100, 50, FORMAT_BGRA8888, 10).expect("creates");
+        let id = t.create(100, 50, (50, 0), FORMAT_BGRA8888, 10).expect("creates");
         let (_, rects, count) = t
             .present(
                 id,
@@ -301,10 +322,60 @@ mod tests {
         assert_eq!(rects[1], rect(0, 0, 100, 50));
     }
 
+    /// RFC-0109: a surface's rows hold its base and its store; damage in the store (a band's
+    /// rows) is kept, damage past the rows is not.
+    #[test]
+    fn store_damage_is_kept_and_clamped_to_the_rows() {
+        let mut t = ClientSurfaces::new();
+        let id = t.create(100, 50, (400, 100), FORMAT_BGRA8888, 10).expect("creates");
+        let (_, rects, count) = t
+            .present(id, 1, &[rect(0, 120, 100, 64), rect(0, 390, 100, 64), rect(0, 400, 10, 10)])
+            .expect("presents");
+        assert_eq!(count, 2);
+        assert_eq!(rects[0], rect(0, 120, 100, 64), "a band's rows below the base");
+        assert_eq!(rects[1], rect(0, 390, 100, 10), "clamped to the last row");
+    }
+
+    #[test]
+    fn test_reject_a_surface_whose_rows_are_below_its_height_or_past_the_cap() {
+        let mut t = ClientSurfaces::new();
+        assert_eq!(t.create(100, 50, (49, 0), FORMAT_BGRA8888, 10), Err(SURFACE_STATUS_MALFORMED));
+        let cap = nexus_display_proto::surface_layers::MAX_SURFACE_ROWS;
+        assert_eq!(
+            t.create(100, 50, (cap + 1, 100), FORMAT_BGRA8888, 10),
+            Err(SURFACE_STATUS_MALFORMED)
+        );
+        assert!(t.create(100, 50, (cap, 100), FORMAT_BGRA8888, 10).is_ok());
+    }
+
+    /// RFC-0109: the store lies inside the surface's columns and exists exactly when the surface
+    /// has rows for it — the wire's rule, held again where the surface is kept.
+    #[test]
+    fn test_reject_a_store_wider_than_the_surface_or_without_rows() {
+        let mut t = ClientSurfaces::new();
+        let bad = Err(SURFACE_STATUS_MALFORMED);
+        assert_eq!(t.create(100, 50, (400, 101), FORMAT_BGRA8888, 10), bad, "wider");
+        assert_eq!(t.create(100, 50, (400, 0), FORMAT_BGRA8888, 10), bad, "rows, no store");
+        assert_eq!(t.create(100, 50, (50, 16), FORMAT_BGRA8888, 10), bad, "store, no rows");
+    }
+
+    /// A store windowd could not place: the surface is its base alone — a present into the
+    /// store's rows names nothing.
+    #[test]
+    fn a_dropped_store_leaves_the_base_alone() {
+        let mut t = ClientSurfaces::new();
+        let id = t.create(100, 50, (400, 100), FORMAT_BGRA8888, 10).expect("creates");
+        t.drop_store(id);
+        let s = t.get_by_id(id).copied().expect("kept");
+        assert_eq!((s.rows, s.store_w), (50, 0));
+        let (_, _, count) = t.present(id, 1, &[rect(0, 120, 100, 64)]).expect("presents");
+        assert_eq!(count, 0);
+    }
+
     #[test]
     fn destroy_releases_and_unknown_destroy_errors() {
         let mut t = ClientSurfaces::new();
-        let id = t.create(320, 240, FORMAT_BGRA8888, 42).expect("creates");
+        let id = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 42).expect("creates");
         assert_eq!(t.destroy(id + 1).unwrap_err(), SURFACE_STATUS_BAD_SURFACE);
         assert_eq!(t.destroy(id), Ok(42));
         assert!(t.get().is_none());
@@ -314,9 +385,9 @@ mod tests {
     #[test]
     fn ids_grow_across_lifecycles() {
         let mut t = ClientSurfaces::new();
-        let a = t.create(320, 240, FORMAT_BGRA8888, 10).expect("creates");
+        let a = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 10).expect("creates");
         assert_eq!(t.destroy(a), Ok(10));
-        let b = t.create(320, 240, FORMAT_BGRA8888, 11).expect("creates");
+        let b = t.create(320, 240, (240, 0), FORMAT_BGRA8888, 11).expect("creates");
         assert_ne!(a, b, "ids are not recycled");
     }
 }
@@ -325,7 +396,7 @@ mod tests {
 mod delivery_tests {
     use super::{Delivery, INPUT_KIND_RELEASE, INPUT_KIND_TAP};
     use nexus_display_proto::client_surface::{
-        INPUT_KIND_DRAG, INPUT_KIND_LEAVE, INPUT_KIND_MOVE, INPUT_KIND_SCROLL_POS, INPUT_KIND_WHEEL,
+        INPUT_KIND_DRAG, INPUT_KIND_LEAVE, INPUT_KIND_MOVE, INPUT_KIND_WHEEL,
     };
 
     /// TASK-0306 → ADR-0075: the bug was a POLICY bug, so the policy is what gets pinned. What
@@ -339,13 +410,13 @@ mod delivery_tests {
     }
 
     /// A tap, a release and a wheel step are discrete: kept, in order. The pointer's move and
-    /// leave, a drag's motion and the scroll position are state: the newest wins.
+    /// leave and a drag's motion are state: the newest wins.
     #[test]
     fn the_input_kinds_split_into_intent_and_state() {
         for kind in [INPUT_KIND_TAP, INPUT_KIND_RELEASE, INPUT_KIND_WHEEL] {
             assert_eq!(Delivery::for_input(kind), Delivery::Intent, "kind {kind}");
         }
-        for kind in [INPUT_KIND_MOVE, INPUT_KIND_LEAVE, INPUT_KIND_DRAG, INPUT_KIND_SCROLL_POS] {
+        for kind in [INPUT_KIND_MOVE, INPUT_KIND_LEAVE, INPUT_KIND_DRAG] {
             assert_eq!(Delivery::for_input(kind), Delivery::Latest, "kind {kind}");
         }
     }

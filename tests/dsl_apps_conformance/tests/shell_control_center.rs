@@ -56,7 +56,7 @@ fn every_tap_on_the_open_control_center_reaches_a_handler() {
     let unhandled: Vec<_> = REPORTED_AS_MISSES
         .iter()
         .filter(|&&(x, y)| {
-            view.hover_box_id_scrolled(&boxes, "Tap", FxPx::new(x), FxPx::new(y), None).is_none()
+            view.hover_box_id_scrolled(&boxes, "Tap", FxPx::new(x), FxPx::new(y), &[]).is_none()
         })
         .collect();
     assert!(
@@ -78,7 +78,7 @@ fn every_tap_on_the_open_control_center_reaches_a_handler() {
     for y in (y0..y1).step_by(17) {
         for x in (x0..x1).step_by(19) {
             assert!(
-                view.hover_box_id_scrolled(&boxes, "Tap", FxPx::new(x), FxPx::new(y), None)
+                view.hover_box_id_scrolled(&boxes, "Tap", FxPx::new(x), FxPx::new(y), &[])
                     .is_some(),
                 "({x},{y}) is a dead zone inside the Control Center panel \
                  ({x0},{y0} {}x{})",

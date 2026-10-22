@@ -53,19 +53,12 @@ pub const OP_SURFACE_INTENT: u8 = 13;
 /// separate "query display mode" op).
 pub const OP_SURFACE_RECT: u8 = 14;
 
-/// app → windowd: the surface's **material-tagged layer regions** (the R1 layer
-/// seam, RFC-0067 Revival). The app renders its whole scene into ONE surface and
-/// submits the sub-rects that are glass panels (from the DSL nodes carrying
-/// `.material()`); windowd composites each region via the `nexus-gfx`
-/// `composite_layer_full` SSOT — real cached backdrop blur + SDF rounded +
-/// shadow — over the retained wallpaper, so the shell's panels are true glass
-/// layers, not a flat bitmap. Regions not covered by a glass layer blit opaque.
-/// Payload: `surface_id:u32, count:u8, [LayerDesc; count]`. Empty/absent =
-/// the whole surface composites with the default treatment (pre-R1). The id
-/// routes the regions to their surface (desktop shell vs floating window).
+/// RETIRED (RFC-0109, number reserved forever — never reuse): the standalone
+/// material-region list. A surface's regions ride its structure now
+/// (`crate::surface_layers::OP_SURFACE_TREE`), with its scroll layers and patches.
 pub const OP_SURFACE_LAYERS: u8 = 15;
 
-/// Material kinds for a submitted layer region.
+/// Material kinds of a region (`LayerDesc`, carried by `OP_SURFACE_TREE`).
 pub const MATERIAL_OPAQUE: u8 = 0;
 pub const MATERIAL_GLASS: u8 = 1;
 /// Glass levels — the design-system glass tokens (panel/card/subtle/window),
@@ -77,11 +70,11 @@ pub const GLASS_WINDOW: u8 = 3;
 /// Modal/sheet overlay material (append-only wire id).
 pub const GLASS_OVERLAY: u8 = 4;
 
-/// Max glass layers per surface (bounds the frame; a real shell uses a handful:
-/// topbar, dock, launcher panel, a few cards).
+/// Max material regions per surface (bounds the structure; a real shell uses a
+/// handful: topbar, dock, launcher panel, a few cards).
 pub const MAX_SURFACE_LAYERS: usize = 16;
 
-/// One material-tagged region of a client surface (surface-local pixels).
+/// One material-tagged region of a client surface (base-layer pixels).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LayerDesc {
     pub x: u16,
@@ -96,66 +89,6 @@ pub struct LayerDesc {
     pub radius: u8,
     /// Drop-shadow alpha (0 = no shadow).
     pub shadow_alpha: u8,
-}
-
-const LAYER_DESC_BYTES: usize = 12;
-pub const SURFACE_LAYERS_MAX_LEN: usize = HEADER_LEN + 5 + MAX_SURFACE_LAYERS * LAYER_DESC_BYTES;
-
-/// Encodes the layer list; clamps to [`MAX_SURFACE_LAYERS`]. Returns the length.
-#[must_use]
-pub fn encode_surface_layers(
-    surface_id: u32,
-    layers: &[LayerDesc],
-    out: &mut [u8; SURFACE_LAYERS_MAX_LEN],
-) -> usize {
-    let count = layers.len().min(MAX_SURFACE_LAYERS);
-    out[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_LAYERS));
-    out[4..8].copy_from_slice(&surface_id.to_le_bytes());
-    out[8] = count as u8;
-    let mut pos = 9;
-    for l in &layers[..count] {
-        out[pos..pos + 2].copy_from_slice(&l.x.to_le_bytes());
-        out[pos + 2..pos + 4].copy_from_slice(&l.y.to_le_bytes());
-        out[pos + 4..pos + 6].copy_from_slice(&l.w.to_le_bytes());
-        out[pos + 6..pos + 8].copy_from_slice(&l.h.to_le_bytes());
-        out[pos + 8] = l.material;
-        out[pos + 9] = l.glass_level;
-        out[pos + 10] = l.radius;
-        out[pos + 11] = l.shadow_alpha;
-        pos += LAYER_DESC_BYTES;
-    }
-    pos
-}
-
-/// Decodes the layer list into `out`; returns the count (strictly validated).
-#[must_use]
-pub fn decode_surface_layers(
-    frame: &[u8],
-    out: &mut [LayerDesc; MAX_SURFACE_LAYERS],
-) -> Option<(u32, usize)> {
-    if !has_op(frame, OP_SURFACE_LAYERS) || frame.len() < HEADER_LEN + 5 {
-        return None;
-    }
-    let surface_id = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
-    let count = frame[8] as usize;
-    if count > MAX_SURFACE_LAYERS || frame.len() != HEADER_LEN + 5 + count * LAYER_DESC_BYTES {
-        return None;
-    }
-    let mut pos = 9;
-    for slot in out.iter_mut().take(count) {
-        *slot = LayerDesc {
-            x: u16::from_le_bytes([frame[pos], frame[pos + 1]]),
-            y: u16::from_le_bytes([frame[pos + 2], frame[pos + 3]]),
-            w: u16::from_le_bytes([frame[pos + 4], frame[pos + 5]]),
-            h: u16::from_le_bytes([frame[pos + 6], frame[pos + 7]]),
-            material: frame[pos + 8],
-            glass_level: frame[pos + 9],
-            radius: frame[pos + 10],
-            shadow_alpha: frame[pos + 11],
-        };
-        pos += LAYER_DESC_BYTES;
-    }
-    Some((surface_id, count))
 }
 
 /// RETIRED (RFC-0083 P5, number reserved forever — never reuse): the
@@ -271,10 +204,10 @@ pub const WIN_MODE_FULLSCREEN: u8 = 2;
 /// toggle fullscreen ⇄ freeform (the title-bar zoom semantics).
 pub const WIN_MODE_SPLIT: u8 = 3;
 
-/// The input kinds `OP_SURFACE_INPUT` carries (taps, hover, wheel, scroll position, drag).
+/// The input kinds `OP_SURFACE_INPUT` carries (taps, hover, wheel, drag).
 pub use crate::surface_input::{
     wheel_delta_from_wire, wheel_delta_to_wire, INPUT_KIND_DRAG, INPUT_KIND_LEAVE, INPUT_KIND_MOVE,
-    INPUT_KIND_RELEASE, INPUT_KIND_SCROLL_POS, INPUT_KIND_TAP, INPUT_KIND_WHEEL,
+    INPUT_KIND_RELEASE, INPUT_KIND_TAP, INPUT_KIND_WHEEL,
 };
 
 /// Pixel format tags. v1: BGRA8888 only.
@@ -290,6 +223,10 @@ pub const SURFACE_STATUS_DENIED: u8 = 2;
 pub const SURFACE_STATUS_QUOTA: u8 = 3;
 pub const SURFACE_STATUS_BAD_SURFACE: u8 = 4;
 pub const SURFACE_STATUS_BAD_SEQ: u8 = 5;
+/// A create that placed the surface's BASE but not its store (no atlas room for it, RFC-0109):
+/// the surface exists — the ack's value is its id — and the client paints its scroll layers flat
+/// and declares no band and no patch.
+pub const SURFACE_STATUS_NO_STORE: u8 = 6;
 
 /// One damage rect in surface-local pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -307,81 +244,80 @@ pub struct DamageRect {
 // raced when two app-hosts connected concurrently (shell + counter: the
 // pending intent crossed and BOTH surfaces landed in the desktop role).
 //
-// +6 scroll-band bytes (content_h, header_h, footer_h): WebRender-style
-// compositor scroll. `content_h` = full resident-content band height (0 =
-// non-scrollable, unchanged behavior); `header_h`/`footer_h` = fixed top/bottom
-// chrome rows inside the band that never scroll (chat: Toolbar / composer).
-// The band is allocated at create time so this geometry must ride atomically.
-pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 23;
-/// Legacy create frame (no scroll band) — still decoded for back-compat.
-pub const SURFACE_CREATE_FRAME_LEN_V1: usize = HEADER_LEN + 17;
+// +4 rows and store bytes (RFC-0109): the surface is `width × rows` — rows
+// `[0, height)` the base layer, rows `[height, rows)` the client's store (its
+// scroll layers' bands and its wash patches), of which columns `[0, store_w)`
+// are used. windowd places the base and the store as two atlas regions at
+// create, so both sizes ride atomically.
+pub const SURFACE_CREATE_FRAME_LEN: usize = HEADER_LEN + 21;
+
+/// A surface create: its size, its declared window intent, the client's event-channel nonce and
+/// its store (RFC-0109).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SurfaceCreate {
+    pub width: u16,
+    pub height: u16,
+    pub format: u8,
+    pub style: u8,
+    pub level: u8,
+    pub mode: u8,
+    pub resizable: bool,
+    pub nonce: u64,
+    /// The surface's rows: `height ≤ rows ≤ MAX_SURFACE_ROWS`.
+    pub rows: u16,
+    /// The store's used width (`≤ width`): `0` exactly when there is no store (`rows ==
+    /// height`).
+    pub store_w: u16,
+}
 
 #[must_use]
-#[allow(clippy::too_many_arguments)]
-pub fn encode_surface_create(
-    width: u16,
-    height: u16,
-    format: u8,
-    style: u8,
-    level: u8,
-    mode: u8,
-    resizable: bool,
-    nonce: u64,
-    content_h: u16,
-    header_h: u16,
-    footer_h: u16,
-) -> [u8; SURFACE_CREATE_FRAME_LEN] {
+pub fn encode_surface_create(c: &SurfaceCreate) -> [u8; SURFACE_CREATE_FRAME_LEN] {
     let mut f = [0u8; SURFACE_CREATE_FRAME_LEN];
     f[..HEADER_LEN].copy_from_slice(&header(OP_SURFACE_CREATE));
-    f[4..6].copy_from_slice(&width.to_le_bytes());
-    f[6..8].copy_from_slice(&height.to_le_bytes());
-    f[8] = format;
-    f[9] = style;
-    f[10] = level;
-    f[11] = mode;
-    f[12] = resizable as u8;
-    f[13..21].copy_from_slice(&nonce.to_le_bytes());
-    f[21..23].copy_from_slice(&content_h.to_le_bytes());
-    f[23..25].copy_from_slice(&header_h.to_le_bytes());
-    f[25..27].copy_from_slice(&footer_h.to_le_bytes());
+    f[4..6].copy_from_slice(&c.width.to_le_bytes());
+    f[6..8].copy_from_slice(&c.height.to_le_bytes());
+    f[8] = c.format;
+    f[9] = c.style;
+    f[10] = c.level;
+    f[11] = c.mode;
+    f[12] = c.resizable as u8;
+    f[13..21].copy_from_slice(&c.nonce.to_le_bytes());
+    f[21..23].copy_from_slice(&c.rows.to_le_bytes());
+    f[23..25].copy_from_slice(&c.store_w.to_le_bytes());
     f
 }
 
-/// `(width, height, format, style, level, mode, resizable, nonce, content_h,
-/// header_h, footer_h)`. Accepts both the current frame and the legacy (no
-/// scroll band) frame; a legacy frame yields `content_h = header_h = footer_h = 0`.
+/// Length-exact; a create whose `rows` is below its `height` or past
+/// [`crate::surface_layers::MAX_SURFACE_ROWS`], whose store is wider than the surface, or which
+/// names a store without rows for it (or rows without a store) is malformed.
 #[must_use]
-#[allow(clippy::type_complexity)]
-pub fn decode_surface_create(
-    frame: &[u8],
-) -> Option<(u16, u16, u8, u8, u8, u8, bool, u64, u16, u16, u16)> {
-    if !has_op(frame, OP_SURFACE_CREATE) {
+pub fn decode_surface_create(frame: &[u8]) -> Option<SurfaceCreate> {
+    if !has_op(frame, OP_SURFACE_CREATE) || frame.len() != SURFACE_CREATE_FRAME_LEN {
         return None;
     }
-    let (content_h, header_h, footer_h) = match frame.len() {
-        SURFACE_CREATE_FRAME_LEN => (
-            u16::from_le_bytes([frame[21], frame[22]]),
-            u16::from_le_bytes([frame[23], frame[24]]),
-            u16::from_le_bytes([frame[25], frame[26]]),
-        ),
-        SURFACE_CREATE_FRAME_LEN_V1 => (0, 0, 0),
-        _ => return None,
-    };
-    Some((
-        u16::from_le_bytes([frame[4], frame[5]]),
-        u16::from_le_bytes([frame[6], frame[7]]),
-        frame[8],
-        frame[9],
-        frame[10],
-        frame[11],
-        frame[12] != 0,
-        u64::from_le_bytes([
-            frame[13], frame[14], frame[15], frame[16], frame[17], frame[18], frame[19], frame[20],
-        ]),
-        content_h,
-        header_h,
-        footer_h,
-    ))
+    let u16_at = |at: usize| u16::from_le_bytes([frame[at], frame[at + 1]]);
+    let (width, height, rows, store_w) = (u16_at(4), u16_at(6), u16_at(21), u16_at(23));
+    if rows < height
+        || rows > crate::surface_layers::MAX_SURFACE_ROWS
+        || store_w > width
+        || (rows > height) != (store_w > 0)
+    {
+        return None;
+    }
+    let mut nonce = [0u8; 8];
+    nonce.copy_from_slice(&frame[13..21]);
+    Some(SurfaceCreate {
+        width,
+        height,
+        format: frame[8],
+        style: frame[9],
+        level: frame[10],
+        mode: frame[11],
+        resizable: frame[12] != 0,
+        nonce: u64::from_le_bytes(nonce),
+        rows,
+        store_w,
+    })
 }
 
 // ------------------------------------------------------------ intent + rect
@@ -625,57 +561,59 @@ mod tests {
     fn create_round_trip_and_guards() {
         // The declared intent rides ATOMICALLY on the create frame (a separate
         // pre-create intent op raced across concurrently connecting app-hosts).
-        let f = encode_surface_create(
-            320,
-            240,
-            FORMAT_BGRA8888,
-            WIN_STYLE_PLAIN,
-            WIN_LEVEL_DESKTOP,
-            WIN_MODE_FULLSCREEN,
-            false,
-            0xA1B2_C3D4_E5F6_0718,
-            2304,
-            40,
-            48,
-        );
-        assert_eq!(
-            decode_surface_create(&f),
-            Some((
-                320,
-                240,
-                FORMAT_BGRA8888,
-                WIN_STYLE_PLAIN,
-                WIN_LEVEL_DESKTOP,
-                WIN_MODE_FULLSCREEN,
-                false,
-                0xA1B2_C3D4_E5F6_0718,
-                2304,
-                40,
-                48
-            ))
-        );
-        // A truncated (but not legacy-length) frame is malformed.
+        let c = SurfaceCreate {
+            width: 320,
+            height: 240,
+            format: FORMAT_BGRA8888,
+            style: WIN_STYLE_PLAIN,
+            level: WIN_LEVEL_DESKTOP,
+            mode: WIN_MODE_FULLSCREEN,
+            resizable: false,
+            nonce: 0xA1B2_C3D4_E5F6_0718,
+            rows: 640,
+            store_w: 200,
+        };
+        let f = encode_surface_create(&c);
+        assert_eq!(decode_surface_create(&f), Some(c));
+        // A truncated frame is malformed — there is no shorter legacy form.
         assert_eq!(decode_surface_create(&f[..f.len() - 1]), None);
-        // Legacy (no scroll band) frame decodes with content_h/header_h/footer_h = 0.
-        assert_eq!(
-            decode_surface_create(&f[..SURFACE_CREATE_FRAME_LEN_V1]),
-            Some((
-                320,
-                240,
-                FORMAT_BGRA8888,
-                WIN_STYLE_PLAIN,
-                WIN_LEVEL_DESKTOP,
-                WIN_MODE_FULLSCREEN,
-                false,
-                0xA1B2_C3D4_E5F6_0718,
-                0,
-                0,
-                0
-            ))
-        );
         let mut wrong = f;
         wrong[3] = OP_SURFACE_PRESENT;
         assert_eq!(decode_surface_create(&wrong), None);
+    }
+
+    fn create(rows: u16, store_w: u16) -> [u8; SURFACE_CREATE_FRAME_LEN] {
+        encode_surface_create(&SurfaceCreate {
+            width: 320,
+            height: 240,
+            format: FORMAT_BGRA8888,
+            style: 0,
+            level: 0,
+            mode: 0,
+            resizable: true,
+            nonce: 7,
+            rows,
+            store_w,
+        })
+    }
+
+    #[test]
+    fn test_reject_a_create_with_rows_below_its_height() {
+        assert_eq!(decode_surface_create(&create(239, 0)), None, "rows below the height");
+        assert_eq!(decode_surface_create(&create(240, 0)).map(|c| c.rows), Some(240), "no store");
+        let cap = crate::surface_layers::MAX_SURFACE_ROWS;
+        assert_eq!(decode_surface_create(&create(cap, 16)).map(|c| c.rows), Some(cap));
+        assert_eq!(decode_surface_create(&create(cap + 1, 16)), None, "past the surface cap");
+    }
+
+    /// RFC-0109: the store lies inside the surface's columns, and exists exactly when the
+    /// surface has rows for it.
+    #[test]
+    fn test_reject_a_store_wider_than_the_surface_or_without_rows() {
+        assert_eq!(decode_surface_create(&create(400, 321)), None, "wider than the surface");
+        assert_eq!(decode_surface_create(&create(400, 0)), None, "rows without a store");
+        assert_eq!(decode_surface_create(&create(240, 16)), None, "a store without rows");
+        assert_eq!(decode_surface_create(&create(400, 320)).map(|c| c.store_w), Some(320));
     }
 
     #[test]
@@ -727,47 +665,6 @@ mod tests {
         let mut wrong = f;
         wrong[3] = OP_SURFACE_INTENT;
         assert_eq!(decode_surface_rect(&wrong), None);
-    }
-
-    #[test]
-    fn layers_round_trip_clamps_and_validates() {
-        let layers = [
-            LayerDesc {
-                x: 0,
-                y: 0,
-                w: 1280,
-                h: 48,
-                material: MATERIAL_GLASS,
-                glass_level: GLASS_PANEL,
-                radius: 0,
-                shadow_alpha: 40,
-            },
-            LayerDesc {
-                x: 20,
-                y: 60,
-                w: 200,
-                h: 120,
-                material: MATERIAL_GLASS,
-                glass_level: GLASS_CARD,
-                radius: 12,
-                shadow_alpha: 80,
-            },
-        ];
-        let mut buf = [0u8; SURFACE_LAYERS_MAX_LEN];
-        let len = encode_surface_layers(7, &layers, &mut buf);
-        let mut out = [LayerDesc::default(); MAX_SURFACE_LAYERS];
-        let (sid, n) = decode_surface_layers(&buf[..len], &mut out).expect("decodes");
-        assert_eq!((sid, n), (7, 2));
-        assert_eq!(out[0], layers[0]);
-        assert_eq!(out[1], layers[1]);
-        // Empty list is valid (whole-surface default treatment).
-        let empty = encode_surface_layers(7, &[], &mut buf);
-        assert_eq!(decode_surface_layers(&buf[..empty], &mut out), Some((7, 0)));
-        // Truncated + wrong-op frames rejected.
-        assert_eq!(decode_surface_layers(&buf[..len - 1], &mut out), None);
-        let mut wrong = buf;
-        wrong[3] = OP_SURFACE_PRESENT;
-        assert_eq!(decode_surface_layers(&wrong[..len], &mut out), None);
     }
 
     #[test]

@@ -82,11 +82,11 @@ pub struct Layer {
     /// Transform identity of the layer (`0` = none): every slice of a window shares it; the
     /// window's transform (`Command::LayerTransform`) rides in each present (TASK-0336/0338).
     pub layer_id: u32,
-    /// Scroll band: the FULL resident-content band a backend that uploads the atlas uploads
-    /// ONCE, so a later present that scrolls the body (a new `src_row_abs`) samples rows already
-    /// there (`0` = not scrollable, upload only the visible rows). `scroll_band_top_abs` = the
-    /// band top's absolute atlas row; `scroll_band_h` = its height (rows). The SAMPLE still uses
-    /// `src_row_abs` + `height` — only the UPLOAD region grows.
+    /// The scroll layer's band a slice samples (RFC-0109): a backend that uploads the atlas
+    /// uploads it whole ONCE, so the slice at a later offset (a new `src_row_abs`) samples rows
+    /// already there (`0` = not a slice, upload only the visible rows). `scroll_band_top_abs` =
+    /// the band top's absolute atlas row; `scroll_band_h` = its height (rows). The SAMPLE still
+    /// uses `src_row_abs` + `height` — only the UPLOAD region grows.
     pub scroll_band_top_abs: u32,
     pub scroll_band_h: u32,
     /// Content epoch of the layer's atlas source (`0` = unknown → the backend
@@ -104,6 +104,9 @@ pub struct Layer {
     /// The content is one colour (`LAYER_SOLID`, TASK-0336): a window's starting or closing
     /// surface, a small patch spread over the frame.
     pub solid: bool,
+    /// The layer's identity across presents (RFC-0109; `0` = unnamed): unique within a present,
+    /// the planner's match from one frame to the next.
+    pub key: u32,
 }
 
 impl Layer {
@@ -135,6 +138,7 @@ impl Layer {
             backdrop: None,
             opaque: false,
             solid: false,
+            key: 0,
         }
     }
 }
@@ -185,6 +189,7 @@ mod tests {
                 layer_id: 0,
                 content_epoch: 0,
                 flags: 0,
+                key: 0,
             }
         );
     }

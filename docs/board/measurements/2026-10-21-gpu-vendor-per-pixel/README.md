@@ -307,3 +307,89 @@ layer under its functional glass bar — the scroll moves its rows, one pass ove
 glass inside a window blurs what is behind the window, not the content that scrolls; hover and
 press are state layers whose opacity the compositor changes — no app raster, no copy; then
 zero-copy client surfaces.
+
+## Cycle 57 (2026-10-22) — surface layers: the app scrolls and hovers, the compositor composes (TASK-0341)
+
+Lines: `cycle57-lines.txt`. The session: calculator, chat, settings, file manager, chat (40
+wheel notches), calculator, then the launcher on the desktop — one window at a time.
+
+| | cycle 56 | cycle 57 |
+|---|---|---|
+| `windowd: ux input`: median / max of the window maxima | 842 / 2 780 ms | 857 / 2 136 ms |
+| `gpud: ux frame`: frames over 16.7 ms | 430 of 576 (75 %) | 412 of 480 (86 %) |
+| `gpud: gpu frame us` avg per window: median / max | 30.8 / 54.8 ms | 33.7 / 79.9 ms |
+| windowd's slowest flush per second: median / max | 2.2 / 198 ms | 1.1 / 168 ms |
+| rows copied into the atlas over the session | 102 234 | 77 284 |
+
+**What held:** every page declared its scroll layers (`apphost: scroll layers (n=1 band_rows=452)`
+chat, `(n=2 band_rows=1424)` settings, `(n=1 band_rows=696)` the launcher's list); the desktop
+re-created with its store when the launcher opened (no `FAIL atlas`, no `store refused`); hover in
+settings and the file manager ran as motion frames — seconds of `moved=2..4 … copy_rows=0`; the
+file manager's full presents (`copy_rows=869` = its base and patch) were taps that navigated.
+
+**What broke, and why:** `windowd: surface motion refused (id=17 reason=EmptyWash)` (chat) and
+`(id=20 …)` (the desktop, with the launcher open). The hovered control resolved to a box without
+area, the app sent a wash of zero size, and windowd refuses a motion WHOLE — its scroll offsets
+too. Said once per surface, every later motion of that surface was refused silently: during the
+chat's 40 notches windowd composed 3–5 frames a second, all `content` (the band filling) and no
+`moved` frame — the transcript's band filled while windowd kept the old offset. Fixed in the
+producer: app-host sends no wash for a box without area and checks each motion against the
+structure it last sent (the rule windowd applies) — a wash that would be refused waits, the
+offsets never do; windowd counts every refused structure and motion on its loop line
+(`layers(refused=N)`).
+
+**Not this package's, measured for the next:** the GPU frame is 25–80 ms with glass re-blurred in
+most frames (`glass writes (band=…)` — damage below a glass within its reach, mostly the desktop's
+glass regions); the input's wait (~0.9 s median) is the app's raster of what a tap changes plus
+the row copy (37–48 µs a row) — zero-copy client surfaces and the glass's damage are the levers.
+
+## Cycle 58 (2026-10-22) — the empty-wash fix; window moving broken; the frame rate measured
+
+Lines: `cycle58-lines.txt`. The operator: scrolling slow, typing slow, windows cannot be moved.
+
+| | cycle 57 | cycle 58 |
+|---|---|---|
+| `windowd: ux input`: median / max of the window maxima | 857 / 2 136 ms | 909 / 2 634 ms |
+| `gpud: ux frame`: frames over 16.7 ms | 412 of 480 (86 %) | 323 of 384 (84 %) |
+| `gpud: gpu frame us` avg per window: median / max | 33.7 / 79.9 ms | 39.2 / 81.2 ms |
+| `layers(refused=)` over the session | (not counted) | **0** in 132 seconds |
+
+**Refusals gone:** no motion was refused — the empty wash is fixed.
+
+**Windows cannot be moved — an old bug the session reached:** `WINDOWD: control win (no window
+for id)` after each grab of a window's chrome row. app-host packed its surface id into the 4 bits
+`CONTROL_WIN_*` values left for it (`id << 4 | arg`, `id & 0x0F`): the window being dragged was
+surface 18 (ids are monotonic and never reused; a launch takes two), so the control named surface 2.
+Every window control — move, minimize, close, zoom, tile — fails once ids pass 15. Fixed as the
+wire's own docs always said: windowd applies a `CONTROL_WIN_*` verb to the SENDER's own window,
+resolved from the kernel sender id (`control_gate::own_window`, host-tested with its rejects); the
+value carries only the verb's argument.
+
+**The frame rate, measured for the first time (cycles 55–58 alike):** 32 GPU frames take 9–14
+active seconds — **about 3 composed frames a second** while anything moves (the chat scroll: 2
+presents a second). A GPU frame costs 25–40 ms (`gpud: gpu work (slot_px=3682236 …
+ns_per_px=8)`: 3.7 Mpx a frame, 1.8 screens, at 8 ns a pixel), which alone would allow ~25. windowd
+holds two frames in flight and waits for gpud's acks; gpud acks a frame when its flip lands, and
+writes a flip only when its blank wake finds the scan inside the blank (~45 of 1 125 lines) — but
+gpud blocks on the GPU's fence for most of each frame, so a wake served late defers the flip a
+whole frame more. The suspect, not yet the proof: cycle 59 prints the blank wakes and the late ones
+on `gpud: dc flips (… wakes= late=)` and each frame's issue → ack time on windowd's loop line
+(`acks(n= avg_us= max_us=)`).
+
+## Cycle 59 (2026-10-22) — the window controls by sender; the frame's wait measured
+
+Lines: `cycle59-lines.txt`. The operator: asks for hop markers along the important chains.
+
+- **Fixed and held:** no `control win (no window …)`; a window dragged to the left edge took the
+  left half (`windowd: wm tile (zone=left-half id=app0)`); `layers(refused=0)` in all 127 seconds.
+- **The frame's wait, measured — the ~3 frames a second explained:** from windowd's send to gpud's
+  credit a frame takes **631 ms** (median of the per-second averages; per-second maxima: median
+  963 ms, worst 2 839 ms) — while its GPU work is 18–60 ms. And gpud's blank wakes:
+  `gpud: dc flips (n=384 … wakes=302883 late=257131)` — **~790 wakes per flip, 85 % outside the
+  blank**: an interrupt storm. `INT_MASK_ALL_BUT_VSYNC` is the stock word `0xf212` plus the two
+  cfg bits, which leaves six sources live (bits 5–8, 10, 11), while the ack clears the vsync bit
+  alone — a raised source the ack never clears keeps the level line up, and gpud is woken again
+  the moment it completes the interrupt (the boot's `min_period_us=231`). gpud serves the storm
+  instead of its frames; a flip lands only when a wake happens to fall into the blank.
+- **Next:** one interrupt a frame (every source but the vsync held back, what the ack sees raised
+  cleared), measured by the same two lines; then the hop markers along the input and frame chains.

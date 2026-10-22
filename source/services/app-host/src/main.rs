@@ -69,6 +69,10 @@ mod effect_windows;
 // `allow(dead_code)`.
 #[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
 mod file_filter;
+// A scroll layer's band: what it draws next, how its ring forgets, what a present names
+// (RFC-0109). Same one-cfg shape as `file_filter`: the drawing is in `probe/band.rs`.
+#[cfg(any(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"), test))]
+mod band_math;
 // Where the paint-time hover wash goes. Same one-cfg shape as `file_filter`:
 // `probe/` is RISC-V-only, so a pure decision that belongs to it lives here
 // instead, where host tests can actually reach it.

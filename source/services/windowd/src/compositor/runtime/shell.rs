@@ -48,17 +48,21 @@ impl DisplayServerRuntime {
     /// desynchronize the compositor). Unknown controls are reported, not
     /// silently dropped.
     ///
-    /// RFC-0086 closes the old follow-up: every `CONTROL_WIN_*` verb is now
-    /// gated on the kernel sender id matching the window's captured
-    /// `owner_sid` (execd names app-hosts `app:<id>` via exec_v2). The value
-    /// byte still RESOLVES the caller's surface, but it no longer carries
-    /// authority — a spoofed id fails the gate (`control_gate`, host-tested).
+    /// RFC-0086: every `CONTROL_WIN_*` verb acts on the SENDER's own window — the app window
+    /// whose captured `owner_sid` is the kernel sender id (execd names app-hosts `app:<id>` via
+    /// exec_v2), resolved by `control_gate::own_window` (host-tested). No verb names a window:
+    /// `value` carries only the verb's argument (board cycle 58: a 4-bit surface id in it broke
+    /// every control once surface ids passed 15).
     pub(crate) fn handle_surface_control(&mut self, frame: &[u8], sender_sid: u64) {
         use nexus_display_proto::client_surface as wire;
         let Some((control, value)) = wire::decode_surface_control(frame) else {
             let _ = debug_println("WINDOWD: FAIL control (malformed)");
             return;
         };
+        let own = crate::control_gate::own_window(
+            self.apps.iter().map(|a| a.surface_id.map(|_| a.owner_sid)),
+            sender_sid,
+        );
         match control {
             // RFC-0083 P5: CONTROL_THEME / CONTROL_THEME_ACCENT /
             // CONTROL_SHELL_PROFILE are RETIRED — settings writes go to
@@ -70,83 +74,56 @@ impl DisplayServerRuntime {
                 // wait ring until the fresh window's surface arrives.
                 self.begin_cursor_wait();
             }
-            // App-chrome window controls (window-kit app menu): the value
-            // byte names the caller's own surface id (minimize/close = `id`;
-            // mode = `id << 4 | WIN_MODE_*`), the SID GATE enforces it is
-            // really the caller's. Fail-closed on no match or a foreign sid.
+            // App-chrome window controls (window-kit app menu): the sender's own window;
+            // minimize/close carry no argument, mode carries a `WIN_MODE_*`. Fail-closed when the
+            // sender owns no window.
             wire::CONTROL_WIN_MINIMIZE => {
-                if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
-                    if !self.win_control_allowed(idx, sender_sid) {
-                        return;
-                    }
-                    if self.apps[idx].intent_level == wire::WIN_LEVEL_OVERLAY {
-                        // OSK X (RFC-0075 Phase 8c): dismiss the band — it
-                        // stays hidden until the next field tap re-announces.
-                        self.osk_dismissed = true;
-                        self.update_osk_visibility();
-                    } else {
-                        self.start_minimize_transition(idx);
-                    }
+                let Some(idx) = own else { return Self::no_own_window() };
+                if self.apps[idx].intent_level == wire::WIN_LEVEL_OVERLAY {
+                    // OSK X (RFC-0075 Phase 8c): dismiss the band — it
+                    // stays hidden until the next field tap re-announces.
+                    self.osk_dismissed = true;
+                    self.update_osk_visibility();
                 } else {
-                    let _ = debug_println("WINDOWD: control win (no window for id)");
+                    self.start_minimize_transition(idx);
                 }
             }
             wire::CONTROL_WIN_CLOSE => {
-                if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
-                    if !self.win_control_allowed(idx, sender_sid) {
-                        return;
-                    }
-                    self.start_close_transition(idx);
-                } else {
-                    let _ = debug_println("WINDOWD: control win (no window for id)");
-                }
+                let Some(idx) = own else { return Self::no_own_window() };
+                self.start_close_transition(idx);
             }
             wire::CONTROL_WIN_MODE => {
-                let (sid, mode) = (u32::from(value >> 4), value & 0x0F);
-                if let Some(idx) = self.app_idx_by_surface(sid) {
-                    if !self.win_control_allowed(idx, sender_sid) {
-                        return;
-                    }
-                    self.apply_window_mode(idx, mode);
-                } else {
-                    let _ = debug_println("WINDOWD: control win (no window for id)");
-                }
+                let Some(idx) = own else { return Self::no_own_window() };
+                self.apply_window_mode(idx, value & 0x0F);
             }
-            // TASK-0074 D4: the ONE modal verb — `value = sid << 4 | on`.
-            // Own-window gated; the flag only steers the routing loops
+            // TASK-0074 D4: the ONE modal verb — `value = on` (0 or 1), for the
+            // sender's own window; the flag only steers the routing loops
             // (`modal_gate`), nothing is drawn. The proof rungs ride on the
             // on/off edges (`SELFTEST: ui v10 dialog ok` after a round trip,
             // `… live modal ok` when live presses landed in between).
             wire::CONTROL_WIN_MODAL => {
-                let (sid, on) = (u32::from(value >> 4), value & 1 == 1);
+                let on = value & 1 == 1;
                 // The sender's own window: an app slot, or the DESKTOP surface
                 // (the shell's modal — it has no sibling windows to gate, the
                 // flag records the round trip; `taskbar_gate` is its own-window
-                // law). Fail-closed on no match or a foreign sid.
-                let changed = if let Some(idx) = self.app_idx_by_surface(sid) {
-                    if !self.win_control_allowed(idx, sender_sid) {
-                        return;
-                    }
+                // law). Fail-closed when the sender owns neither.
+                let desktop_own = matches!(
+                    crate::control_gate::taskbar_gate(self.desktop_owner_sid, sender_sid),
+                    crate::control_gate::GateVerdict::Allow
+                );
+                let (changed, surface) = if let Some(idx) = own {
                     let changed = self.apps[idx].app_modal != on;
                     self.apps[idx].app_modal = on;
-                    changed
-                } else if self.desktop_surface_id == Some(sid) {
-                    if !matches!(
-                        crate::control_gate::taskbar_gate(self.desktop_owner_sid, sender_sid),
-                        crate::control_gate::GateVerdict::Allow
-                    ) {
-                        let _ = debug_println("WINDOWD: control win REJECT (desktop modal)");
-                        return;
-                    }
+                    (changed, self.apps[idx].surface_id.unwrap_or(0))
+                } else if let Some(id) = self.desktop_surface_id.filter(|_| desktop_own) {
                     let changed = self.desktop_modal != on;
                     self.desktop_modal = on;
-                    changed
+                    (changed, id)
                 } else {
-                    let _ = debug_println("WINDOWD: control win (no window for id)");
-                    return;
+                    return Self::no_own_window();
                 };
                 if changed {
-                    let _ = debug_println(&crate::markers::win_modal_marker(sid, on));
+                    let _ = debug_println(&crate::markers::win_modal_marker(surface, on));
                     let live = self.state.pointer_route_live || self.state.keyboard_route_live;
                     let (dialog, live_ok) = self.modal_proof.edge(on, live);
                     if dialog {
@@ -157,18 +134,11 @@ impl DisplayServerRuntime {
                     }
                 }
             }
-            // TASK-0066: the ONE tiling verb — `value = sid << 4 | zones::CODE_*`
-            // (a zone, Return or an arrangement); own-window gated.
+            // TASK-0066: the ONE tiling verb — `value = zones::CODE_*` (a zone,
+            // Return or an arrangement) for the sender's own window.
             wire::CONTROL_WIN_ZONE => {
-                let (sid, code) = (u32::from(value >> 4), value & 0x0F);
-                if let Some(idx) = self.app_idx_by_surface(sid) {
-                    if !self.win_control_allowed(idx, sender_sid) {
-                        return;
-                    }
-                    self.apply_zone_code(idx, code);
-                } else {
-                    let _ = debug_println("WINDOWD: control win (no window for id)");
-                }
+                let Some(idx) = own else { return Self::no_own_window() };
+                self.apply_zone_code(idx, value & 0x0F);
             }
             wire::CONTROL_WIN_MOVE => {
                 // The chromeless-window drag handle: the app's own chrome row
@@ -186,19 +156,13 @@ impl DisplayServerRuntime {
                 // the cursor with the button up, and the NEXT click's release
                 // ran the edge snap wherever the pointer happened to be
                 // (top edge = surprise fullscreen).
-                if let Some(idx) = self.app_idx_by_surface(u32::from(value)) {
-                    if !self.win_control_allowed(idx, sender_sid) {
-                        return;
+                let Some(idx) = own else { return Self::no_own_window() };
+                let wid = crate::window_scene::WindowId::App(idx as u8);
+                if !self.windows.is_fullscreen(wid) {
+                    self.raise_window(wid);
+                    if self.state.launcher_click_visible {
+                        self.apps[idx].win.begin_drag(self.state.cursor_x, self.state.cursor_y);
                     }
-                    let wid = crate::window_scene::WindowId::App(idx as u8);
-                    if !self.windows.is_fullscreen(wid) {
-                        self.raise_window(wid);
-                        if self.state.launcher_click_visible {
-                            self.apps[idx].win.begin_drag(self.state.cursor_x, self.state.cursor_y);
-                        }
-                    }
-                } else {
-                    let _ = debug_println("WINDOWD: control win (no window for id)");
                 }
             }
             other => {
@@ -209,22 +173,10 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// RFC-0086 own-window gate for `CONTROL_WIN_*`: the kernel sender id
-    /// must match the window's captured `owner_sid` (`control_gate`,
-    /// host-tested reject tables). Distinct markers per reject reason —
-    /// bounded by verb rate, and a reject is always a bug or an attack.
-    fn win_control_allowed(&self, idx: usize, sender_sid: u64) -> bool {
-        match crate::control_gate::own_window_gate(self.apps[idx].owner_sid, sender_sid) {
-            crate::control_gate::GateVerdict::Allow => true,
-            crate::control_gate::GateVerdict::RejectSidZero => {
-                let _ = debug_println("WINDOWD: control win REJECT (sid 0)");
-                false
-            }
-            crate::control_gate::GateVerdict::RejectForeign => {
-                let _ = debug_println("WINDOWD: control win REJECT (foreign sender)");
-                false
-            }
-        }
+    /// A `CONTROL_WIN_*` verb from a sender owning no window: refused, said — bounded by verb
+    /// rate, and always a bug or an attack (an app's own window resolves from its sender id).
+    fn no_own_window() {
+        let _ = debug_println("WINDOWD: control win REJECT (no window of the sender)");
     }
 
     /// Switch the shell to the product matching a `PROFILE_*` wire tag
@@ -378,7 +330,7 @@ impl DisplayServerRuntime {
         // generation bump below.
         for slot in self.apps.iter_mut() {
             slot.win.surface_dirty = true;
-            slot.surface_dirty_rows = None; // re-theme: full re-blit (chrome too)
+            slot.surface_damage = super::surface_layers::DamageRows::FULL; // re-theme: full re-blit (chrome too)
             slot.win.blur_valid = false;
         }
         self.queue_full_frame_damage();

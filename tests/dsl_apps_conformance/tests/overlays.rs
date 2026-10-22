@@ -181,14 +181,14 @@ impl<'p> T<'p> {
                 "Tap",
                 FxPx::new(x),
                 FxPx::new(y),
-                None,
+                &[],
             )
             .expect("tap runs")
     }
 
     fn hover(&self, (x, y): (i32, i32)) -> Option<usize> {
         let boxes = common::layout_boxes(&self.view);
-        self.view.hover_box_id_scrolled(&boxes, "Tap", FxPx::new(x), FxPx::new(y), None)
+        self.view.hover_box_id_scrolled(&boxes, "Tap", FxPx::new(x), FxPx::new(y), &[])
     }
 
     fn escape(&mut self) -> Option<nexus_dsl_runtime::Damage> {
@@ -202,7 +202,7 @@ impl<'p> T<'p> {
 
     fn focus_at(&mut self, (x, y): (i32, i32)) -> bool {
         let boxes = common::layout_boxes(&self.view);
-        self.view.focus_text_at(&boxes, FxPx::new(x), FxPx::new(y), None).is_some()
+        self.view.focus_text_at(&boxes, FxPx::new(x), FxPx::new(y), &[]).is_some()
     }
 
     /// Center of the n-th text field (a `Change` bind handler), in handler order.

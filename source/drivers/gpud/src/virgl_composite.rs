@@ -220,10 +220,10 @@ impl VirtioGpuBackend {
         }
         if upload {
             if scroll_band_h > 0 {
-                // WebRender scroll: upload the WHOLE resident band ONCE so the
-                // per-id `src_row` override can shift WITHIN uploaded rows. The
-                // band top/height are FIXED (independent of the current scroll
-                // position); the SAMPLE below still uses `src_row_rel` + `height`.
+                // A scroll layer's band (RFC-0109): upload its WHOLE rows once, every column
+                // of them — a ring folds into strips side by side, and the slice a later present
+                // samples (another strip, another offset) must find rows already there. The SAMPLE
+                // below still uses `src_row_rel` + `height`.
                 let band_top_rel = scroll_band_top_abs.saturating_sub(ATLAS_ROW);
                 // Never transfer past the GL atlas texture (rows 0..ATLAS_ROWS).
                 let mut band_h = scroll_band_h;
@@ -239,9 +239,9 @@ impl VirtioGpuBackend {
                 }
                 self.virgl_transfer_to_host(
                     ATLAS_RES,
-                    src_x,
+                    0,
                     band_top_rel,
-                    src_w,
+                    ATLAS_W,
                     band_h,
                     FB_STRIDE,
                 )?;

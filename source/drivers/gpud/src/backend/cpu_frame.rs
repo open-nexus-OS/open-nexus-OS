@@ -214,9 +214,8 @@ impl CpuFrame {
                 );
             }
             // A layer on the CPU: its shadow, its backdrop blurred in place when it is glass, then
-            // its content alpha-blended over (opaque content blends to opaque). `opacity` and the
-            // scroll/transform identities drive the GPU compositor only; the content's own alpha
-            // carries translucency here.
+            // its band spread over it and alpha-blended at its opacity (RFC-0109: a wash's patch,
+            // a faded window). The transform identities drive the GPU compositor only.
             Command::CompositeLayer {
                 src_row_abs,
                 src_x,
@@ -224,11 +223,14 @@ impl CpuFrame {
                 height,
                 dst_x,
                 dst_y,
+                opacity,
                 corner_radius,
                 shadow_blur,
                 shadow_offset_y,
                 shadow_alpha,
                 backdrop_blur,
+                content_w,
+                content_h,
                 ..
             } => {
                 let dst_y = dst_y.saturating_add(display_row);
@@ -269,10 +271,12 @@ impl CpuFrame {
                     w,
                     *src_x,
                     *src_row_abs,
+                    (*content_w, *content_h),
                     *dst_x,
                     dst_y,
                     *width,
                     *height,
+                    *opacity,
                 );
             }
         }

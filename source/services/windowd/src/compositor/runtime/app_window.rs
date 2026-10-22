@@ -23,7 +23,6 @@
 //! blit is proven via QEMU markers (`WINDOWD: surface …`).
 //! ADR: docs/adr/0042-cross-process-surface-transport.md
 
-use super::observer::note_layer_count;
 use super::*;
 use crate::client_surface::Delivery;
 use nexus_display_proto::client_surface as wire;
@@ -48,20 +47,7 @@ impl DisplayServerRuntime {
         vmo_slot: Option<u32>,
         sender_sid: u64,
     ) -> [u8; wire::SURFACE_ACK_FRAME_LEN] {
-        let Some((
-            width,
-            height,
-            format,
-            style,
-            level,
-            mode,
-            resizable,
-            nonce,
-            content_h,
-            header_h,
-            footer_h,
-        )) = wire::decode_surface_create(frame)
-        else {
+        let Some(c) = wire::decode_surface_create(frame) else {
             return wire::encode_surface_ack(
                 wire::OP_SURFACE_CREATE,
                 wire::SURFACE_STATUS_MALFORMED,
@@ -84,6 +70,10 @@ impl DisplayServerRuntime {
         // full-screen band — fully separate from the floating `app_win`, so
         // the shell and an app window coexist (the singleton collision made
         // "counter startet nicht").
+        let (width, height, style, level, mode, resizable) =
+            (c.width, c.height, c.style, c.level, c.mode, c.resizable);
+        #[cfg(nexus_env = "os")]
+        let nonce = c.nonce;
         let presentation = crate::surface_presentation::WindowPresentation::resolve(
             style,
             level,
@@ -92,7 +82,7 @@ impl DisplayServerRuntime {
             self.windowing_policy,
         );
         if presentation.role == crate::window_scene::WindowRole::Desktop {
-            return self.create_desktop_surface(width, height, format, vmo_slot, nonce, sender_sid);
+            return self.create_desktop_surface(&c, vmo_slot, sender_sid);
         }
         // Multi-window (RFC-0065): the create binds to the slot ALREADY holding
         // this client's event channel (a resize re-create must resume in place,
@@ -139,13 +129,9 @@ impl DisplayServerRuntime {
         self.apps[idx].intent_mode = mode;
         self.apps[idx].intent_resizable = resizable;
         self.apps[idx].owner_sid = sender_sid;
-        // WebRender compositor-scroll band geometry (rides atomically on CREATE
-        // so the tall band is alloc'd with the right size). `content_h == 0` ⇒
-        // the surface is NOT scrollable — byte-identical to the pre-scroll path.
-        // A scrollable surface gets a per-slot scroll id (`slot_index + 1`,
-        // bounded by `MAX_SCROLL_IDS`); windowd owns its scroll position.
-        self.reset_surface_state(idx, content_h, header_h, footer_h);
-        match self.client_surfaces.create(width, height, format, vmo_slot) {
+        // A new surface declares its layers anew (RFC-0109): nothing of the last one's survives.
+        self.reset_surface_state(idx);
+        match self.client_surfaces.create(width, height, (c.rows, c.store_w), c.format, vmo_slot) {
             Ok(id) => {
                 self.apps[idx].surface_id = Some(id);
                 #[cfg(nexus_env = "os")]
@@ -184,7 +170,7 @@ impl DisplayServerRuntime {
                         min_y,
                     );
                 }
-                if !self.open_app_window(idx) {
+                let Some(store_placed) = self.open_app_window(idx, true) else {
                     // Atlas exhausted: roll the registration back fail-closed
                     // AND hide the window — the destroy path deliberately
                     // keeps `visible=true` for re-creates, so a failed
@@ -203,7 +189,16 @@ impl DisplayServerRuntime {
                         wire::SURFACE_STATUS_QUOTA,
                         0,
                     );
-                }
+                };
+                // No room for the store (RFC-0109): the window shows its base, the client is
+                // told and paints its scroll layers flat.
+                let status = if store_placed {
+                    wire::SURFACE_STATUS_OK
+                } else {
+                    self.client_surfaces.drop_store(id);
+                    let _ = debug_println("WINDOWD: surface store FAIL atlas: flat scroll layers");
+                    wire::SURFACE_STATUS_NO_STORE
+                };
                 // Track C3: a FRESH floating window fades+scales in (the
                 // decided enter motion); re-creates resume without replay.
                 // The starting surface ran the enter spring already (TASK-0336): the app's
@@ -224,7 +219,7 @@ impl DisplayServerRuntime {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface created id={id} {width}x{height}"
                 ));
-                wire::encode_surface_ack(wire::OP_SURFACE_CREATE, wire::SURFACE_STATUS_OK, id)
+                wire::encode_surface_ack(wire::OP_SURFACE_CREATE, status, id)
             }
             Err(status) => {
                 let _ = nexus_abi_cap_close(vmo_slot);
@@ -327,97 +322,34 @@ impl DisplayServerRuntime {
             );
         };
         match self.client_surfaces.present(surface_id, seq, &rects[..count]) {
-            Ok((_, _, _)) => {
-                // v1: bounded full-body blit on the next render; the damage
-                // list bounds the QUEUED screen region (blit-by-rect is the
-                // recorded optimization — ADR-0042). Routed BY ID: a desktop
-                // present repaints the base layer; a floating present the window.
+            Ok((surface, rects, count)) => {
+                // The copy follows the named rows — the base's and the store's (RFC-0109); the
+                // screen follows where they show: the base's rows at the surface's place, a
+                // band's rows in its scroll layer's viewport. Routed BY ID: a desktop present
+                // repaints the base layer; a floating present its window.
+                let rects = &rects[..count];
                 if self.desktop_surface_id == Some(surface_id) {
                     self.note_desktop_content();
-                    // Damage discipline (the retained-plane perf contract):
-                    // honor the client's damage rects — union rows for the
-                    // band blit, per-rect screen damage for the composite.
-                    // Full-frame work only when the client declared none.
-                    if count == 0 {
-                        self.desktop_dirty_rows = (0, u32::MAX);
-                        self.queue_full_frame_damage();
-                        let (w, h) = (self.mode.width, self.mode.height);
-                        self.invalidate_blur_over(
-                            DamageRect { x: 0, y: 0, width: w, height: h },
-                            None,
-                        );
-                    } else {
-                        for r in &rects[..count] {
-                            let y0 = r.y as u32;
-                            let y1 = y0.saturating_add(r.height as u32);
-                            let (s0, s1) = self.desktop_dirty_rows;
-                            self.desktop_dirty_rows = (s0.min(y0), s1.max(y1));
-                            // The desktop is full-screen at the origin:
-                            // surface-local == display coordinates.
-                            let dr = DamageRect {
-                                x: r.x as u32,
-                                y: r.y as u32,
-                                width: r.width as u32,
-                                height: r.height as u32,
-                            };
-                            self.queue_dirty_rect(dr);
-                            // Windows above the repainted desktop region hold
-                            // a stale backdrop snapshot — re-blur them.
-                            self.invalidate_blur_over(dr, None);
-                        }
-                    }
+                    let screen = (0, 0, self.mode.width, self.mode.height);
+                    let change = self.desktop_layers.activate();
+                    let mut damage = self.desktop_damage;
+                    self.present_damage(&surface, rects, change, None, screen, &mut damage);
+                    self.desktop_damage = damage;
                 } else if let Some(idx) = self.app_index_by_surface(surface_id) {
-                    // Damage-bounded blit (ADR-0042 / the 120Hz contract):
-                    // honor the client's damage rects — union their ROW span
-                    // for the band blit and queue only that screen band. A
-                    // present with no rects, or a scrollable (banded) surface
-                    // (band rows ≠ visible rows), stays a FULL re-blit.
-                    let bounded: Option<(u32, u32)> = if self.apps[idx].scroll_id == 0 && count > 0
-                    {
-                        let mut rows: Option<(u32, u32)> = None;
-                        for r in &rects[..count] {
-                            let y0 = r.y as u32;
-                            let y1 = y0.saturating_add(r.height as u32);
-                            rows = Some(match rows {
-                                Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
-                                None => (y0, y1),
-                            });
-                        }
-                        rows
-                    } else {
-                        None
-                    };
-                    // Merge with a still-pending blit; FULL (None) wins.
-                    self.apps[idx].surface_dirty_rows = if self.apps[idx].win.surface_dirty {
-                        match (self.apps[idx].surface_dirty_rows, bounded) {
-                            (Some((a0, a1)), Some((b0, b1))) => Some((a0.min(b0), a1.max(b1))),
-                            _ => None,
-                        }
-                    } else {
-                        bounded
-                    };
-                    self.apps[idx].win.surface_dirty = true;
                     let rect = self.app_window_rect(idx);
+                    let screen = (rect.x, rect.y, rect.width, rect.height);
+                    let change = self.apps[idx].layers.activate();
+                    let mut damage = if self.apps[idx].win.surface_dirty {
+                        self.apps[idx].surface_damage
+                    } else {
+                        super::surface_layers::DamageRows::NONE
+                    };
+                    self.present_damage(&surface, rects, change, Some(idx), screen, &mut damage);
+                    self.apps[idx].surface_damage = damage;
+                    self.apps[idx].win.surface_dirty = true;
                     // Other glass windows overlapping this one see it through
                     // their backdrop — their cached blur is now stale.
                     self.invalidate_blur_over(rect, Some(idx));
-                    match self.apps[idx].surface_dirty_rows {
-                        // Bounded: damage only the presented body rows on
-                        // screen (body starts under the WM title bar).
-                        Some((y0, y1)) => {
-                            let top = rect.y.saturating_add(y0);
-                            let bottom = (rect.y + rect.height).min(top.saturating_add(y1 - y0));
-                            if bottom > top {
-                                self.queue_dirty_rect(DamageRect {
-                                    x: rect.x,
-                                    y: top,
-                                    width: rect.width,
-                                    height: bottom - top,
-                                });
-                            }
-                        }
-                        None => self.queue_dirty_rect(rect),
-                    }
                 } else {
                     // Stale surface (e.g. the retired greeter's after the
                     // shell replaced the desktop slot): ack, queue nothing —
@@ -479,8 +411,10 @@ impl DisplayServerRuntime {
                     // The desktop surface dropped (shell exit / re-create): free
                     // its band + hide the base layer until a new one connects.
                     self.desktop_surface_id = None;
-                    if let Some(band) = self.desktop_band.take() {
-                        self.atlas_alloc.free(band);
+                    for region in [self.desktop_band.take(), self.desktop_store.take()] {
+                        if let Some(region) = region {
+                            self.atlas_alloc.free(region);
+                        }
                     }
                     self.hide_window(crate::window_scene::WindowId::Desktop);
                     self.queue_full_frame_damage();
@@ -537,33 +471,6 @@ impl DisplayServerRuntime {
             self.apps[idx].intent_resizable,
             self.windowing_policy,
         )
-    }
-
-    /// R1 layer seam: store the app's material-tagged glass regions
-    /// (`OP_SURFACE_LAYERS`, surface-local) and repaint the window so the new
-    /// glass composites. A malformed frame is ignored (the app keeps its prior
-    /// layers). No reply — the next present reflects it.
-    pub(crate) fn handle_surface_layers(&mut self, frame: &[u8]) {
-        let mut out = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
-        let Some((surface_id, n)) = wire::decode_surface_layers(frame, &mut out) else {
-            return;
-        };
-        // BY ID: the desktop shell's glass regions composite over the
-        // wallpaper (Desktop arm); a floating app's over its window band.
-        if self.desktop_surface_id == Some(surface_id) {
-            self.desktop_layers = out;
-            note_layer_count(&mut self.desktop_layer_count, n, "desktop");
-            self.desktop_dirty = true;
-            self.desktop_dirty_rows = (0, u32::MAX);
-            self.queue_full_frame_damage();
-        } else if let Some(idx) = self.app_index_by_surface(surface_id) {
-            self.apps[idx].layers = out;
-            note_layer_count(&mut self.apps[idx].layer_count, n, "app");
-            self.apps[idx].win.surface_dirty = true;
-            self.apps[idx].surface_dirty_rows = None; // layer set changed: full
-            let rect = self.app_window_rect(idx);
-            self.queue_dirty_rect(rect);
-        }
     }
 
     /// Stores the app's dedicated event channel (SEND cap slot moved with an
@@ -689,13 +596,6 @@ impl DisplayServerRuntime {
     #[allow(unused_variables)]
     pub(crate) fn send_app_frame(&mut self, idx: usize, frame: &[u8]) -> bool {
         self.send_app_class(idx, frame, Delivery::Intent)
-    }
-
-    /// Sends app-bound STATE the next frame supersedes (the scroll position): while the app is
-    /// behind, the newest replaces the older — never a backlog of stale positions.
-    #[allow(unused_variables)]
-    pub(crate) fn send_app_state(&mut self, idx: usize, frame: &[u8]) -> bool {
-        self.send_app_class(idx, frame, Delivery::Latest)
     }
 
     #[allow(unused_variables)]

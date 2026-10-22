@@ -71,7 +71,9 @@ impl DisplayServerRuntime {
         };
         match send_result {
             Ok(()) => {
-                let _ = self.presents.issue();
+                if let Some(seq) = self.presents.issue() {
+                    crate::compositor::frame_causes::present_issued(seq, nsec().unwrap_or(0));
+                }
                 true
             }
             Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::NoSpace) => {
@@ -153,7 +155,11 @@ impl DisplayServerRuntime {
                     }
                     return true;
                 }
-                match self.presents.ack(seq) {
+                let verdict = self.presents.ack(seq);
+                if matches!(verdict, acks::Verdict::Credited) {
+                    crate::compositor::frame_causes::present_acked(seq, nsec().unwrap_or(0));
+                }
+                match verdict {
                     acks::Verdict::Credited => match status {
                         GPUD_STATUS_OK => self.note_present_acked_clean(),
                         proto::STATUS_REVEALED => {
@@ -231,8 +237,8 @@ impl DisplayServerRuntime {
     }
 
     /// Keeps the frame clock running while something animates but nothing is queued
-    /// (TASK-0324 P7-c): a frame-pulse client waits for a pulse before it draws, a scroll
-    /// coast advances per frame, a spring may converge without damage — with no present in
+    /// (TASK-0324 P7-c): a frame-pulse client waits for a pulse before it draws (an app's
+    /// scroll coast ticks on it, ADR-0076), a spring may converge without damage — with no present in
     /// flight there would be no completion and the animation would freeze. One owed frame
     /// naming no damage (TASK-0338: the planner redraws only what moved — nothing, if nothing
     /// did) restores the clock; its completion is the next tick.
@@ -240,10 +246,7 @@ impl DisplayServerRuntime {
         if self.has_pending_damage() || self.frames_in_flight() > 0 {
             return;
         }
-        if self.has_active_animations()
-            || self.has_frame_pulse_clients()
-            || self.has_scroll_momentum()
-            || self.cursor_ring_active
+        if self.has_active_animations() || self.has_frame_pulse_clients() || self.cursor_ring_active
         {
             crate::compositor::frame_causes::keepalive();
             self.owe_frame();
@@ -251,15 +254,14 @@ impl DisplayServerRuntime {
     }
 
     /// One display-ring completion (TASK-0324 P7-c): the frame clock. Animations integrate
-    /// real elapsed time to `now_ns`, scroll coasts advance, the wait ring steps, and the
-    /// animating clients get their frame pulse — each producing the damage that the loop
+    /// real elapsed time to `now_ns`, the wait ring steps, and the animating clients get their
+    /// frame pulse (their scroll coasts tick on it, ADR-0076) — each producing the damage that the loop
     /// presents next, whose completion clocks the frame after. Idle produces nothing and the
     /// loop sleeps on its waitset.
     pub(crate) fn on_frame_completed(&mut self, now_ns: u64) {
         if self.has_active_animations() {
             self.tick(now_ns);
         }
-        self.advance_app_scrolls(now_ns);
         let _ = self.cursor_wait_tick(now_ns);
         self.flush_frame_pulses();
     }

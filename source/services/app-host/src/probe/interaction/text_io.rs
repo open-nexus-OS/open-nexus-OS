@@ -20,12 +20,12 @@ impl DslApp {
     ) -> Option<(bool, u8, (u16, u16, u16, u16))> {
         use nexus_display_proto::surface_text;
         let before = self.view.text_focus();
-        let scroll = self.scroll_param();
+        let (views, nv) = self.hit_views();
         let snap = self.view.focus_text_at(
             &self.layout.boxes,
             nexus_layout_types::FxPx::new(x),
             nexus_layout_types::FxPx::new(y),
-            scroll,
+            &views[..nv],
         );
         // Same-field taps STILL announce when focused (RFC-0075 Phase 8c):
         // the tap is the user's explicit "open the keyboard" gesture — it
@@ -43,12 +43,9 @@ impl DslApp {
                     .iter()
                     .find(|b| b.node_id == s.box_id)
                     .map(|b| {
-                        (
-                            clamp(b.rect.x.0),
-                            clamp(b.rect.y.0),
-                            clamp(b.rect.width.0),
-                            clamp(b.rect.height.0),
-                        )
+                        // Where the field shows on the surface (a scroll layer moves it).
+                        let (x, y) = self.on_surface(b);
+                        (clamp(x), clamp(y), clamp(b.rect.width.0), clamp(b.rect.height.0))
                     })
                     .unwrap_or((0, 0, 0, 0));
                 let kind = if s.secure {

@@ -70,15 +70,17 @@ mod app_surface;
 mod assets;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod atlas;
-// Scene-rect → packed-band mapping for glass regions on scrollable windows:
-// pure geometry, host-TESTED, consumed by the OS-only scene encoder.
-#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
-mod band_map;
 mod bitmap_font;
 mod buffer;
 mod cli;
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 mod client_surface;
+// A surface's declared layers and their geometry (RFC-0109): pure, host-TESTED, consumed by the
+// OS-only compositor runtime.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod layer_geometry;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod surface_regions;
 // ADR-0075 (TASK-0339): the compositor never waits on a client — the bounded per-client
 // outbox, pure and host-TESTED, consumed by the OS-only compositor runtime.
 #[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]

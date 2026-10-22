@@ -22,9 +22,21 @@ pub struct LayoutBox {
     pub rect: Rect,
     pub z_index: i16,
     pub visual: VisualStyle,
-    /// Optional scissor rect inherited from nearest Overflow::Hidden ancestor.
-    /// The renderer must clip paint output to this rect (in content coordinates).
+    /// Optional scissor rect: the intersection of the clipping ancestors' content boxes. Inside
+    /// a scroll container's content (RFC-0109) only the clips INSIDE that content count — the
+    /// container's viewport clips the content in the compositor, where the content scrolls, so a
+    /// box far below the viewport is not clipped away at layout. The renderer clips paint output
+    /// to this rect (in layout coordinates) — the box's own paint and its hit area included.
     pub clip_rect: Option<Rect>,
+    /// The clip this box imposes on its CONTENT: for `Overflow::Hidden` / `Scroll`, its padding
+    /// box within `clip_rect`; `None` for a box that clips nothing. A scroll container's
+    /// viewport. Its own background, border and padding are clipped by `clip_rect` alone.
+    pub content_clip: Option<Rect>,
+    /// The scroll container whose content this box is (its `node_id`; RFC-0109): the box is
+    /// drawn into that container's band, at identity, and the compositor moves it by the
+    /// container's offset. `None`: the box is the page's base layer. Only a top-level scroll
+    /// container is a root — one nested in another's content clips like `Overflow::Hidden`.
+    pub scroll_root: Option<usize>,
     /// Scroll offset (dx, dy) for overflow containers. Children are shifted by this
     /// amount relative to the container origin. Non-scrollable boxes have (0, 0).
     pub scroll_offset: (FxPx, FxPx),
@@ -67,12 +79,31 @@ impl Default for LayoutBox {
             z_index: 0,
             visual: VisualStyle::default(),
             clip_rect: None,
+            content_clip: None,
             scroll_offset: (FxPx::ZERO, FxPx::ZERO),
             overflow: Overflow::Visible,
             hit_slop: FxPx::ZERO,
             glass_nested: false,
+            scroll_root: None,
             text_px: None,
         }
+    }
+}
+
+/// What the placement of a subtree inherits from its ancestors (stamped on every box it places):
+/// whether a glass lies above it, and the scroll container whose content it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PlaceCtx {
+    pub(crate) in_glass: bool,
+    pub(crate) scroll_root: Option<usize>,
+}
+
+impl PlaceCtx {
+    /// The context of a container's descendants: nested under a glass when the container is one
+    /// (the container itself is nested only under an ancestor's).
+    pub(crate) fn under(self, material: nexus_layout_types::SurfaceMaterial) -> Self {
+        let glass = matches!(material, nexus_layout_types::SurfaceMaterial::Glass(_));
+        Self { in_glass: self.in_glass || glass, ..self }
     }
 }
 
@@ -80,138 +111,4 @@ impl Default for LayoutBox {
 pub struct LayoutResult {
     pub boxes: Vec<LayoutBox>,
     pub content_height: FxPx,
-}
-
-/// Scroll damage — at most two dirty rects per scroll delta.
-/// Allocation-free (stack-only), bounded size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScrollDamage {
-    /// Up to two damage rects. A `None` entry means no rect at that slot.
-    pub rects: [Option<Rect>; 2],
-}
-
-impl ScrollDamage {
-    pub const EMPTY: Self = Self { rects: [None, None] };
-
-    pub fn is_empty(&self) -> bool {
-        self.rects[0].is_none() && self.rects[1].is_none()
-    }
-}
-
-/// Compute the dirty area when a viewport scrolls from `old_offset` to `new_offset`.
-/// Returns at most two rects: the newly-exposed strip and the newly-hidden strip
-/// (which need invalidation and repaint respectively).
-///
-/// Integer-only, deterministic, order-agnostic.
-pub fn compute_scroll_damage(
-    old_offset: (FxPx, FxPx),
-    new_offset: (FxPx, FxPx),
-    viewport: Rect,
-) -> ScrollDamage {
-    let dx = new_offset.0 - old_offset.0;
-    let dy = new_offset.1 - old_offset.1;
-    if dx.0 == 0 && dy.0 == 0 {
-        return ScrollDamage::EMPTY;
-    }
-    let mut damage = ScrollDamage::EMPTY;
-    let abs_dx = FxPx::new(dx.0.abs());
-    let abs_dy = FxPx::new(dy.0.abs());
-
-    if dx.0 != 0 {
-        // Newly-exposed strip at the leading edge
-        let exposed = if dx.0 > 0 {
-            // Scrolling right: left side shifts out, right side becomes visible
-            Rect::new(
-                viewport.x + viewport.width.saturating_sub(abs_dx),
-                viewport.y,
-                abs_dx.min(viewport.width),
-                viewport.height,
-            )
-        } else {
-            // Scrolling left: right side shifts out, left side becomes visible
-            Rect::new(viewport.x, viewport.y, abs_dx.min(viewport.width), viewport.height)
-        };
-        if exposed.width > FxPx::ZERO && exposed.height > FxPx::ZERO {
-            damage.rects[0] = Some(exposed);
-        }
-    }
-
-    if dy.0 != 0 {
-        let exposed = if dy.0 > 0 {
-            Rect::new(
-                viewport.x,
-                viewport.y + viewport.height.saturating_sub(abs_dy),
-                viewport.width,
-                abs_dy.min(viewport.height),
-            )
-        } else {
-            Rect::new(viewport.x, viewport.y, viewport.width, abs_dy.min(viewport.height))
-        };
-        if exposed.width > FxPx::ZERO && exposed.height > FxPx::ZERO {
-            let slot = if damage.rects[0].is_some() { 1 } else { 0 };
-            damage.rects[slot] = Some(exposed);
-        }
-    }
-
-    damage
-}
-
-impl LayoutResult {
-    /// Reposition all boxes inside the scroll container identified by `container_node_id`
-    /// to reflect a new scroll offset. Returns the scroll damage rects.
-    ///
-    /// This is place-only: no remeasurement, no text reshaping.
-    /// Allocation-free (mutates existing boxes).
-    pub fn reposition_scroll(
-        &mut self,
-        container_node_id: usize,
-        new_offset: (FxPx, FxPx),
-    ) -> ScrollDamage {
-        let mut old_offset = (FxPx::ZERO, FxPx::ZERO);
-        let mut viewport = Rect::zero();
-        let mut container_found = false;
-
-        // Find the container
-        for b in &self.boxes {
-            if b.node_id == container_node_id {
-                old_offset = b.scroll_offset;
-                viewport = b.rect;
-                container_found = true;
-                break;
-            }
-        }
-        if !container_found {
-            return ScrollDamage::EMPTY;
-        }
-
-        let delta_x = new_offset.0 - old_offset.0;
-        let delta_y = new_offset.1 - old_offset.1;
-
-        if delta_x.0 == 0 && delta_y.0 == 0 {
-            return ScrollDamage::EMPTY;
-        }
-
-        let damage = compute_scroll_damage(old_offset, new_offset, viewport);
-
-        // Shift descendant boxes: only those with node_id > container_node_id
-        // AND the same old scroll_offset. In DFS order, descendants always have
-        // higher node_ids than their ancestor.
-        for b in &mut self.boxes {
-            if b.node_id > container_node_id && b.scroll_offset == old_offset {
-                b.scroll_offset = new_offset;
-                b.rect.x += delta_x;
-                b.rect.y += delta_y;
-            }
-        }
-
-        // Update the container's own scroll_offset
-        for b in &mut self.boxes {
-            if b.node_id == container_node_id {
-                b.scroll_offset = new_offset;
-                break;
-            }
-        }
-
-        damage
-    }
 }

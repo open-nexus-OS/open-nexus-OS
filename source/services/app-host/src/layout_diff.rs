@@ -5,7 +5,7 @@
 //! layouts.
 //!
 //! A `Damage::Layout` dispatch used to force a FULL re-render + full present,
-//! which on the plain (non-banded) surface path is the app's whole frame
+//! which was the app's whole frame
 //! CPU-rastered per click — ~1.4s wall on the QEMU TCG boot for a
 //! settings-sized page, long enough that a user's second click toggled the
 //! menu they never saw ("no menu opens"). But most structural taps change a
@@ -151,7 +151,7 @@ fn geometry_only(a: &LayoutBox, b: &LayoutBox) -> bool {
 }
 
 /// Whether the compositor's glass regions moved (a glass ROOT's rect, level,
-/// radius or shadow — what `submit_layers` declares): only then must a
+/// radius or shadow — what the structure's regions declare): only then must a
 /// geometry change re-declare them.
 pub(crate) fn glass_roots_changed(old: &[LayoutBox], new: &[LayoutBox]) -> bool {
     use nexus_layout_types::SurfaceMaterial;

@@ -150,47 +150,43 @@ impl AppEffectHost {
             raw_marker("apphost: dsl svc settings.set FAIL (not a window control)");
             return Err(ERR_SVC_UNAVAILABLE);
         }
-        // App-chrome window controls (the window-kit app menu). The recv
-        // path carries no sender identity, so the value byte names the
-        // caller's own surface: minimize/close = the surface id; mode =
-        // `id << 4 | WIN_MODE_*` (ids and modes are both < 16).
-        // RECORDED FOLLOW-UP (same class as the CONTROL sender-role
-        // check): a client could name a foreign id — presentation-only
-        // blast radius until per-sender identity lands.
-        let sid = (self.surface_id & 0x0F) as u8;
-        if sid == 0 {
+        // App-chrome window controls (the window-kit app menu): windowd acts on the SENDER's
+        // own window, resolved from the kernel sender id (RFC-0086) — the value carries only the
+        // verb's argument, never a surface id (board cycle 58: a 4-bit id broke every control
+        // once surface ids passed 15). No window yet: nothing to control.
+        if self.surface_id == 0 {
             raw_marker("apphost: dsl svc settings.set FAIL (no surface id)");
             return Err(ERR_SVC_UNAVAILABLE);
         }
         let (control, v) = match value {
-            "minimize" => (wire::CONTROL_WIN_MINIMIZE, sid),
-            "close" => (wire::CONTROL_WIN_CLOSE, sid),
+            "minimize" => (wire::CONTROL_WIN_MINIMIZE, 0),
+            "close" => (wire::CONTROL_WIN_CLOSE, 0),
             // Chromeless-window drag handle (window-kit chrome row): windowd
             // begins a pointer drag of this window at the current cursor.
-            "move" => (wire::CONTROL_WIN_MOVE, sid),
+            "move" => (wire::CONTROL_WIN_MOVE, 0),
             // zoom / mode.*: one MODE control; AUTO = toggle fullscreen.
-            "zoom" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_AUTO),
-            "mode.fullscreen" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FULLSCREEN),
-            "mode.freeform" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_FREEFORM),
-            "mode.split" => (wire::CONTROL_WIN_MODE, sid << 4 | wire::WIN_MODE_SPLIT),
+            "zoom" => (wire::CONTROL_WIN_MODE, wire::WIN_MODE_AUTO),
+            "mode.fullscreen" => (wire::CONTROL_WIN_MODE, wire::WIN_MODE_FULLSCREEN),
+            "mode.freeform" => (wire::CONTROL_WIN_MODE, wire::WIN_MODE_FREEFORM),
+            "mode.split" => (wire::CONTROL_WIN_MODE, wire::WIN_MODE_SPLIT),
             // TASK-0074 D4: the app-modal edge — windowd refuses input on the
             // sender's OTHER windows while set (`probe/overlay.rs` mirrors
             // the runtime's modal depth here on the 0↔n edge).
-            "modal.on" => (wire::CONTROL_WIN_MODAL, sid << 4 | 1),
-            "modal.off" => (wire::CONTROL_WIN_MODAL, sid << 4),
+            "modal.on" => (wire::CONTROL_WIN_MODAL, 1),
+            "modal.off" => (wire::CONTROL_WIN_MODAL, 0),
             // TASK-0066 tiling (the kit's window menu + chords): ONE verb, the
-            // zone/arrangement in the low 4 bits (windowd `zones::CODE_*`).
-            "zone.left-half" => (wire::CONTROL_WIN_ZONE, sid << 4 | 1),
-            "zone.right-half" => (wire::CONTROL_WIN_ZONE, sid << 4 | 2),
-            "zone.top-left" => (wire::CONTROL_WIN_ZONE, sid << 4 | 5),
-            "zone.top-right" => (wire::CONTROL_WIN_ZONE, sid << 4 | 6),
-            "zone.bottom-left" => (wire::CONTROL_WIN_ZONE, sid << 4 | 7),
-            "zone.bottom-right" => (wire::CONTROL_WIN_ZONE, sid << 4 | 8),
-            "zone.fill" => (wire::CONTROL_WIN_ZONE, sid << 4 | 9),
-            "zone.return" => (wire::CONTROL_WIN_ZONE, sid << 4 | 10),
-            "zone.left-right" => (wire::CONTROL_WIN_ZONE, sid << 4 | 11),
-            "zone.top-bottom" => (wire::CONTROL_WIN_ZONE, sid << 4 | 12),
-            "zone.quarters" => (wire::CONTROL_WIN_ZONE, sid << 4 | 13),
+            // zone/arrangement code (windowd `zones::CODE_*`).
+            "zone.left-half" => (wire::CONTROL_WIN_ZONE, 1),
+            "zone.right-half" => (wire::CONTROL_WIN_ZONE, 2),
+            "zone.top-left" => (wire::CONTROL_WIN_ZONE, 5),
+            "zone.top-right" => (wire::CONTROL_WIN_ZONE, 6),
+            "zone.bottom-left" => (wire::CONTROL_WIN_ZONE, 7),
+            "zone.bottom-right" => (wire::CONTROL_WIN_ZONE, 8),
+            "zone.fill" => (wire::CONTROL_WIN_ZONE, 9),
+            "zone.return" => (wire::CONTROL_WIN_ZONE, 10),
+            "zone.left-right" => (wire::CONTROL_WIN_ZONE, 11),
+            "zone.top-bottom" => (wire::CONTROL_WIN_ZONE, 12),
+            "zone.quarters" => (wire::CONTROL_WIN_ZONE, 13),
             _ => {
                 raw_marker("apphost: dsl svc settings.set FAIL (window control)");
                 return Err(ERR_SVC_UNAVAILABLE);

@@ -23,6 +23,7 @@ use nexus_display_proto::client_surface as wire;
 use nexus_ipc::{Client as _, KernelClient, Wait};
 
 mod anim;
+mod band;
 mod boot;
 mod clock;
 mod drag;
@@ -238,52 +239,24 @@ pub(super) fn run() -> Result<(), &'static str> {
         let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
         last_region = Some(r);
     }
-    // WebRender scroll band geometry — ONLY for a floating windowed app that
-    // actually scrolls (desktop/fullscreen surfaces keep the plain path; the
-    // desktop uses a separate windowd path that ignores the scroll band).
-    // `negotiated_band_at_mount` says WHY a scrolling page still lands on
-    // the plain path (budget / statics-beside-viewport markers).
-    let band: Option<(u32, u32, u32)> =
-        if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-            app.as_ref().and_then(|d| d.negotiated_band_at_mount())
-        } else {
-            None
-        };
-    let (create_content_h, create_header_h, create_footer_h) =
-        band.map_or((0u16, 0u16, 0u16), |(h, f, c)| {
-            (
-                c.min(u16::MAX as u32) as u16,
-                h.min(u16::MAX as u32) as u16,
-                f.min(u16::MAX as u32) as u16,
-            )
-        });
-    // VMO height: the packed band (header + footer + content) when banded,
-    // else the VISIBLE surface height (create `height` field stays VISIBLE).
-    let vmo_h = band.map_or(surf_h, |(h, f, c)| h + f + c);
-    if let Some(dsl) = app.as_mut() {
-        dsl.banded = band.is_some();
-        dsl.last_band = band;
-        dsl.alloc_band_h = vmo_h;
-    }
-
-    // 3. The app's own surface VMO. Sized TALL for a banded surface so the
-    //    whole resident scroll content lives in it ONCE; visible-sized
-    //    otherwise. Mutable: a WM resize re-creates it at the new size. No
-    //    device reads it (windowd copies it with `vmo_read`): an anonymous object.
-    let mut vmo = boot_env::surface_vmo(surf_w as usize * vmo_h as usize * 4, start_ns)
+    // 3. The app's own surface VMO: its base rows and its STORE (RFC-0109) — the wash patch
+    //    and every scroll layer's band, planned from the page's layers. Mutable: a WM resize (or
+    //    a store that outgrew it) re-creates it. No device reads it (windowd copies it with
+    //    `vmo_read`): an anonymous object.
+    let plan = app.as_mut().map_or(band::StorePlan { rows: surf_h, width: 0 }, |d| d.plan_store());
+    let rows = plan.rows;
+    let mut vmo = boot_env::surface_vmo(surf_w as usize * rows as usize * 4, start_ns)
         .map_err(|_| "apphost: vmo create failed")?;
-
-    let first_render_ok = app
-        .as_mut()
-        .map(|dsl| if dsl.banded { dsl.render_band(vmo) } else { dsl.render(vmo) })
-        .unwrap_or(false);
+    // The first frame: the base, the patch, every band's visible window.
+    let mut first = band::PresentDamage::default();
+    let first_render_ok = app.as_mut().is_some_and(|dsl| {
+        dsl.store_rows = rows;
+        dsl.redraw(vmo, None, &mut first)
+    });
     if !(app.is_some() && first_render_ok) {
-        // FAIL-CLOSED: no program, no window. This used to present a solid
-        // teal 320×240 probe fill instead — the historical bring-up proof —
-        // which by now reads as a real app window titled "App" that the user
-        // never launched. The failure stays LOUD in the log (marker below +
-        // the payload-path FAIL markers above); the surface stays unclaimed
-        // so windowd shows nothing, and the process exits for execd to reap.
+        // FAIL-CLOSED: no program, no window. The failure stays LOUD in the log (marker below +
+        // the payload-path FAIL markers above); the surface stays unclaimed so windowd shows
+        // nothing, and the process exits for execd to reap.
         raw_marker("APPHOST: FAIL dsl mount (no window, fail-closed)");
         return Err("apphost: dsl mount failed");
     }
@@ -291,52 +264,41 @@ pub(super) fn run() -> Result<(), &'static str> {
     boot_env::mark_stage(1, start_ns);
     raw_marker("apphost: vmo filled");
 
-    // 5. SURFACE_CREATE — a CLONE of the VMO cap moves with the message
-    //    (the gpud-attach pattern); the original stays ours for redraws. The
-    //    create `height` field is the VISIBLE frame height; the scroll band
-    //    (content_h/header_h/footer_h) rides atomically so windowd allocs the
-    //    tall atlas band up front (0,0,0 = non-scrollable, unchanged).
+    // 5. SURFACE_CREATE — a CLONE of the VMO cap moves with the message (the gpud-attach
+    //    pattern); the original stays ours for redraws. The create carries the visible size and
+    //    the surface's rows (base + store) — windowd allocates the atlas region up front.
     let clone = cap_clone(vmo).map_err(|_| "apphost: cap clone failed")?;
-    let create = wire::encode_surface_create(
-        surf_w as u16,
-        surf_h as u16,
-        wire::FORMAT_BGRA8888,
-        style,
-        level,
-        mode,
-        resizable,
-        nonce,
-        create_content_h,
-        create_header_h,
-        create_footer_h,
-    );
-    send_wait_cap(&client, &create, clone)?;
-    let mut surface_id =
-        recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect, &mut boot_region)?;
+    send_wait_cap(&client, &boot::create_frame((surf_w, surf_h), &win, resizable, plan), clone)?;
+    let ack = recv_ack(&events, wire::OP_SURFACE_CREATE, &mut pending_rect, &mut boot_region)?;
+    let mut surface_id = ack.value;
     if let Some(dsl) = app.as_mut() {
         dsl.set_surface_id(surface_id);
         dsl.taps_are_keystrokes = level == wire::WIN_LEVEL_OVERLAY;
+        // No store placed (`NO_STORE`): the page again, its scroll layers flat.
+        if dsl.created(ack.store, plan) && !dsl.redraw(vmo, None, &mut first) {
+            return Err("apphost: flat redraw failed");
+        }
     }
     raw_marker("APPHOST: surface created");
     boot_env::mark_stage(2, start_ns);
 
-    // R1 layer seam: the regions BEFORE the first present (TASK-0336) — the first composite is
-    // the whole window, not its parts (windowd clears them at create: after the ack).
-    if let Some(dsl) = app.as_ref() {
-        dsl.submit_layers(&client, surface_id);
+    // 6. The structure BEFORE the first present (windowd clears it at create: after the ack) —
+    //    the first composite is the whole window with its layers — then SURFACE_PRESENT seq=1 of
+    //    every row drawn, strictly one in flight, and the motion (offsets, no wash yet).
+    if let Some(dsl) = app.as_mut() {
+        dsl.send_tree(&client, surface_id);
+        dsl.send_present(&client, surface_id, 1, &first)?;
     }
-    // 6. SURFACE_PRESENT seq=1, full damage — strictly one in flight.
-    let mut damage = [wire::DamageRect { x: 0, y: 0, width: surf_w as u16, height: surf_h as u16 }];
-    let mut buf = [0u8; wire::SURFACE_PRESENT_MAX_LEN];
-    let len = wire::encode_surface_present(surface_id, 1, &damage, &mut buf);
-    send_wait(&client, &buf[..len])?;
     let _ = recv_ack(&events, wire::OP_SURFACE_PRESENT, &mut pending_rect, &mut boot_region)?;
+    if let Some(dsl) = app.as_mut() {
+        dsl.send_motion(&client, surface_id);
+    }
     boot_env::mark_first_frame(start_ns);
     if let Some(dsl) = app.as_ref() {
         // Mount-time `.transition` enter animations were seeded in
         // `anim_sync`: arm the frame pulse so they play from the first
         // frame (value/effect tokens are inert until a state change).
-        if dsl.anim_active() {
+        if dsl.anim_active() || dsl.bands_pending() {
             let req = wire::encode_surface_frame_req(surface_id);
             let _ = client.send(&req, Wait::Blocking);
         }
@@ -372,9 +334,9 @@ pub(super) fn run() -> Result<(), &'static str> {
     let mut present_in_flight = false;
     let mut dirty = false;
     // Damage discipline (5K/120Hz contract): `None` = full repaint
-    // (mount/tap/resize/theme), `Some((y0, y1))` = only that row span is
-    // re-rendered + presented (hover washes). Spans from coalesced events
-    // union; any full request wins.
+    // (mount/resize/theme), `Some((y0, y1))` = only those LAYOUT rows are
+    // redrawn — in the base and in the bands that hold them (RFC-0109).
+    // Spans from coalesced events union; any full request wins.
     let mut dirty_rows: Option<(i32, i32)> = None;
     raw_marker("APPHOST: event loop armed");
     // The app is up: fold the bring-up markers into their verdict line.
@@ -418,37 +380,23 @@ pub(super) fn run() -> Result<(), &'static str> {
                             dirty = true;
                             dirty_rows = None;
                         }
-                        if dirty && !present_in_flight {
-                            // Fall through to the present block via a zero-len
-                            // sentinel is not possible here — render inline.
-                            let ok = match dirty_rows {
-                                Some((y0, y1)) => dsl.render_rows(vmo, y0, y1),
-                                None => dsl.render(vmo),
-                            };
-                            if ok {
-                                seq = seq.wrapping_add(1);
-                                let pd = match dirty_rows {
-                                    Some((y0, y1)) => [wire::DamageRect {
-                                        x: 0,
-                                        y: y0.max(0) as u16,
-                                        width: surf_w as u16,
-                                        height: (y1 - y0).max(0) as u16,
-                                    }],
-                                    None => [wire::DamageRect {
-                                        x: 0,
-                                        y: 0,
-                                        width: surf_w as u16,
-                                        height: surf_h as u16,
-                                    }],
-                                };
-                                let plen =
-                                    wire::encode_surface_present(surface_id, seq, &pd, &mut buf);
-                                if send_wait(&client, &buf[..plen]).is_ok() {
-                                    present_in_flight = true;
-                                }
-                                dirty = false;
-                                dirty_rows = None;
+                        // A grown store waits for the re-create (a pulse wakes the loop's tail).
+                        if dsl.store_replan {
+                            let req = wire::encode_surface_frame_req(surface_id);
+                            let _ = client.send(&req, Wait::Blocking);
+                        } else if dirty && !present_in_flight {
+                            match dsl.present_frame(
+                                &client,
+                                surface_id,
+                                vmo,
+                                &mut seq,
+                                Some(dirty_rows),
+                            ) {
+                                Ok(sent) => present_in_flight |= sent,
+                                Err(m) => raw_marker(m),
                             }
+                            dirty = false;
+                            dirty_rows = None;
                         }
                     }
                     continue;
@@ -513,13 +461,10 @@ pub(super) fn run() -> Result<(), &'static str> {
             // physics AND the DSL animation physics one REAL frame, and
             // re-arm while either is still in motion.
             if let Some(dsl) = app.as_mut() {
-                let (span, end) = dsl.momentum_tick();
-                if let Some(span) = span {
-                    crate::layout_diff::merge_span(&mut dirty, &mut dirty_rows, span);
-                }
-                if end && dsl.fire_end_reached() {
-                    dirty = true;
-                    dirty_rows = None;
+                // The scroll layers' physics: offsets committed as motion, never a raster; an
+                // `EndReached` that loaded more is a model change.
+                if dsl.momentum_tick() {
+                    dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
                 }
                 // Animation tick: damage EXACTLY the animated nodes' union
                 // row span (old ∪ new transformed AABB) — the 120Hz damage
@@ -529,7 +474,7 @@ pub(super) fn run() -> Result<(), &'static str> {
                 if let Some(span) = dsl.anim_tick() {
                     crate::layout_diff::merge_span(&mut dirty, &mut dirty_rows, span);
                 }
-                if dsl.momentum_active() || dsl.anim_active() {
+                if dsl.momentum_active() || dsl.anim_active() || dsl.bands_pending() {
                     let req = wire::encode_surface_frame_req(surface_id);
                     let _ = client.send(&req, Wait::Blocking);
                 }
@@ -548,27 +493,11 @@ pub(super) fn run() -> Result<(), &'static str> {
                     dsl.pointer_frame(&client, surface_id, kind, x, y, &mut dirty, &mut dirty_rows);
                 }
             } else if kind == wire::INPUT_KIND_WHEEL {
-                // Wheel impulse into the scroll physics (see `wheel_event`).
+                // Wheel impulse into the physics of the scroll layer under the pointer: motion,
+                // never a raster (`probe/scroll.rs`). A page trigger is a model change.
                 if let Some(dsl) = app.as_mut() {
-                    let (d, rows) = dsl.wheel_event(&client, surface_id, y, &mut wheel_rx_markers);
-                    if d {
-                        dirty_rows = match (dirty, dirty_rows, rows) {
-                            (_, _, None) | (true, None, _) => None,
-                            (_, Some((a0, a1)), Some(sp)) => Some((a0.min(sp.0), a1.max(sp.1))),
-                            (false, None, Some(sp)) => Some(sp),
-                        };
-                        dirty = true;
-                    }
-                }
-            } else if kind == wire::INPUT_KIND_SCROLL_POS {
-                // Compositor owns the scroll (WebRender path): mirror the
-                // pushed ABSOLUTE offset for hit-test/EndReached WITHOUT a
-                // re-render. Only a LoadMore (content change) re-renders the
-                // tall band — the content change is the sole repaint.
-                if let Some(dsl) = app.as_mut() {
-                    if dsl.scroll_pos(i32::from(y)) {
-                        dirty = true;
-                        dirty_rows = None; // model changed: full band repaint
+                    if dsl.wheel_event(&client, surface_id, y, &mut wheel_rx_markers) {
+                        dsl.merge_tap_damage(&mut dirty, &mut dirty_rows);
                     }
                 }
             } else if kind == wire::INPUT_KIND_TAP {
@@ -656,76 +585,22 @@ pub(super) fn run() -> Result<(), &'static str> {
                 "apphost: event frame skipped m={m0:02x}{m1:02x} op={op} len={len}"
             ));
         }
-        // Band re-negotiation: a dispatch/theme-driven re-emit can change
-        // the page STRUCTURE (chat overview ⇄ thread) and with it the
-        // packed-band geometry the surface was created with. The band
-        // slices are mount-fixed on the windowd side, so the surface must
-        // RE-CREATE — same flow as a WM resize, same size.
-        if !recreate_surface && dirty {
-            if let Some(dsl) = app.as_ref() {
-                let now_band =
-                    if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-                        // Same predicate as surface create — the detector and
-                        // the re-create MUST agree, or a page would re-create
-                        // onto the wrong path (the clamped-band vanish).
-                        dsl.negotiated_band()
-                    } else {
-                        None
-                    };
-                if now_band != dsl.last_band {
-                    recreate_surface = true;
-                }
-            }
+        // A layer set whose bands outgrew the surface's rows (planned at the relayout)
+        // re-creates the surface (same flow as a WM resize, same size).
+        if app.as_mut().is_some_and(|dsl| core::mem::take(&mut dsl.store_replan)) {
+            recreate_surface = true;
         }
-        // SHARED surface re-create (WM resize / band re-negotiation):
-        // recompute the band, new VMO, destroy + re-create + present.
+        // SHARED surface re-create (WM resize / a store that outgrew it): plan the store, new
+        // VMO, destroy + create + the structure + a full present.
         if recreate_surface && app.is_some() {
-            let band2: Option<(u32, u32, u32)> = if let Some(dsl) = app.as_ref() {
-                if level != wire::WIN_LEVEL_DESKTOP && mode != wire::WIN_MODE_FULLSCREEN {
-                    dsl.negotiated_band()
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            let nvmo_h = band2.map_or(surf_h, |(h, f, c)| h + f + c);
-            let (rc_content_h, rc_header_h, rc_footer_h) =
-                band2.map_or((0u16, 0u16, 0u16), |(h, f, c)| {
-                    (
-                        c.min(u16::MAX as u32) as u16,
-                        h.min(u16::MAX as u32) as u16,
-                        f.min(u16::MAX as u32) as u16,
-                    )
-                });
-            if let Ok(nv) = vmo_create(surf_w as usize * nvmo_h as usize * 4) {
+            let flat = band::StorePlan { rows: surf_h, width: 0 };
+            let plan = app.as_mut().map_or(flat, |d| d.plan_for_create());
+            if let Ok(nv) = vmo_create(surf_w as usize * plan.rows as usize * 4) {
                 let _ = send_wait(&client, &wire::encode_surface_destroy(surface_id));
                 let _ = nexus_abi::cap_close(vmo);
                 vmo = nv;
-                if let Some(dsl) = app.as_mut() {
-                    dsl.banded = band2.is_some();
-                    dsl.last_band = band2;
-                    dsl.alloc_band_h = nvmo_h;
-                    if dsl.banded {
-                        let _ = dsl.render_band(vmo);
-                    } else {
-                        let _ = dsl.render(vmo);
-                    }
-                }
                 if let Ok(clone) = cap_clone(vmo) {
-                    let create = wire::encode_surface_create(
-                        surf_w as u16,
-                        surf_h as u16,
-                        wire::FORMAT_BGRA8888,
-                        style,
-                        level,
-                        mode,
-                        resizable,
-                        nonce,
-                        rc_content_h,
-                        rc_header_h,
-                        rc_footer_h,
-                    );
+                    let create = boot::create_frame((surf_w, surf_h), &win, resizable, plan);
                     if send_wait_cap(&client, &create, clone).is_ok() {
                         let mut late_region: Option<boot::RegionPush> = None;
                         let ack = recv_ack(
@@ -738,24 +613,22 @@ pub(super) fn run() -> Result<(), &'static str> {
                             let _ = dsl.apply_region(r.hour_fmt, &r.locale, &r.tz, &r.keymap);
                             last_region = Some(r);
                         }
-                        if let Ok(id) = ack {
-                            surface_id = id;
+                        if let Ok(ack) = ack {
+                            surface_id = ack.value;
                             if let Some(dsl) = app.as_mut() {
-                                dsl.set_surface_id(id);
+                                dsl.set_surface_id(surface_id);
+                                // Everything is drawn again below — flat without a store.
+                                let _ = dsl.created(ack.store, plan);
+                                // The new surface declares its layers anew (windowd cleared
+                                // them at create).
+                                dsl.tree_dirty = true;
+                                dsl.motion_dirty = true;
                             }
-                            damage = [wire::DamageRect {
-                                x: 0,
-                                y: 0,
-                                width: surf_w as u16,
-                                height: surf_h as u16,
-                            }];
-                            // The fresh surface's seq restarts at 0 on the
-                            // windowd side (strict last_seq+1). Reset ours
-                            // so the next present is seq=1 — otherwise it's
-                            // rejected BAD_SEQ and the frame never shows.
+                            // The fresh surface's seq restarts at 0 on the windowd side (strict
+                            // last_seq+1): ours too, or the next present is rejected BAD_SEQ.
                             seq = 0;
                             present_in_flight = false;
-                            (dirty, dirty_rows) = (true, None); // see `submit_layers`
+                            (dirty, dirty_rows) = (true, None); // everything, into the new rows
                             raw_marker("apphost: resized");
                             // Fresh surface id: re-arm parked pulses.
                             if app.as_ref().map(|d| d.anim_active()).unwrap_or(false) {
@@ -777,69 +650,30 @@ pub(super) fn run() -> Result<(), &'static str> {
         if let (false, Some(dsl)) = (present_in_flight, app.as_mut()) {
             dsl.drag_flush(&client, surface_id, &mut dirty, &mut dirty_rows);
         }
-        if dirty && !present_in_flight {
-            let Some(dsl) = app.as_mut() else { continue };
-            // A banded (compositor-scroll) surface only ever repaints on a
-            // CONTENT change (LoadMore/theme/resize) — always the WHOLE tall
-            // band; scroll itself never repaints (windowd shifts src_row).
-            let span = if dsl.banded { None } else { dirty_rows };
-            let ok = if dsl.banded {
-                dsl.render_band(vmo)
-            } else {
-                match span {
-                    Some((y0, y1)) => dsl.render_rows(vmo, y0, y1),
-                    None => dsl.render(vmo),
+        if let (false, Some(dsl)) = (present_in_flight, app.as_mut()) {
+            if dirty || dsl.bands_pending() || dsl.tree_dirty {
+                let change = core::mem::take(&mut dirty).then_some(dirty_rows.take());
+                let full = change == Some(None);
+                match dsl.present_frame(&client, surface_id, vmo, &mut seq, change) {
+                    Ok(sent) => present_in_flight = sent,
+                    Err(m) => raw_marker(m),
                 }
-            };
-            if !ok {
-                raw_marker("apphost: FAIL interactive render");
-                dirty = false;
-                dirty_rows = None;
-                continue;
-            }
-            seq = seq.wrapping_add(1);
-            let present_damage = match span {
-                // Partial (hover): present exactly the re-rendered rows so
-                // windowd blits + composites only that band.
-                Some((y0, y1)) => [wire::DamageRect {
-                    x: 0,
-                    y: y0.max(0) as u16,
-                    width: damage[0].width,
-                    height: (y1 - y0).max(0) as u16,
-                }],
-                // Full present (banded band re-render included): the VISIBLE
-                // window damage — windowd blits the whole tall band on dirty.
-                None => damage,
-            };
-            let plen = wire::encode_surface_present(surface_id, seq, &present_damage, &mut buf);
-            if send_wait(&client, &buf[..plen]).is_err() {
-                raw_marker("apphost: FAIL interactive present");
-                continue;
-            }
-            present_in_flight = true;
-            dirty = false;
-            dirty_rows = None;
-            let layers_dirty = dsl.take_layers_dirty();
-            if core::mem::take(&mut dsl.tap_present_owed) {
-                raw_marker("apphost: tap settled");
-            }
-            if span.is_none() {
+                if core::mem::take(&mut dsl.tap_present_owed) {
+                    raw_marker("apphost: tap settled");
+                }
                 // Once per process: typing presents too (the privacy rule).
-                if crate::proof_line::INTERACTIVE_PRESENT.claim() {
+                if full && crate::proof_line::INTERACTIVE_PRESENT.claim() {
                     raw_marker("APPHOST: interactive frame presented");
                 }
-                // Re-declare glass regions: a re-layout may have moved/
-                // resized them. Paint-only spans keep the layout — skip.
-                dsl.submit_layers(&client, surface_id);
-            } else if layers_dirty {
-                // A damage-BOUNDED structural present can still change the
-                // glass-region set (an overlay opened/closed): re-declare,
-                // or the new panel would composite without its blur — and a
-                // closed one would keep frosting thin air.
-                dsl.submit_layers(&client, surface_id);
+                // `.autofocus(true)` (TASK-0067B): the shown layout names the field to focus.
+                dsl.apply_autofocus(&client, surface_id);
             }
-            // `.autofocus(true)` (TASK-0067B): the shown layout names the field to focus.
-            dsl.apply_autofocus(&client, surface_id);
+        }
+        // The motion — offsets, the wash — in effect at once (after any structure it names).
+        if let Some(dsl) = app.as_mut() {
+            if dsl.motion_dirty {
+                dsl.send_motion(&client, surface_id);
+            }
         }
     }
 }

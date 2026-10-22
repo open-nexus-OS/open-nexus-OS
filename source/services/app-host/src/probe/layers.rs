@@ -1,37 +1,37 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! app-host `DslApp` material-glass layer declaration (`OP_SURFACE_LAYERS`):
-//! split out of `interaction.rs` (module-size ratchet) — the hit-testing
-//! stays there, the compositor-region seam lives here.
+//! app-host `DslApp` material regions — the region list of the surface's structure
+//! (`OP_SURFACE_TREE`, RFC-0109; the R1 seam): split out of `interaction.rs` (module-size
+//! ratchet) — the hit-testing stays there, the compositor-region seam lives here.
 
 use super::*;
 
 impl super::DslApp {
-    /// R1 layer seam: submit the material-tagged glass regions of the current
-    /// layout to windowd (`OP_SURFACE_LAYERS`). Each `LayoutBox` whose
-    /// `.material()` is glass becomes a `LayerDesc` (surface-local rect +
-    /// level + radius + shadow); windowd composites each as a real frosted
-    /// `nexus-gfx` layer over the wallpaper. No glass nodes ⇒ empty list ⇒
-    /// windowd composites the surface with the default treatment (unchanged).
-    ///
-    /// WHEN it is re-sent is the subtle part. The rects are SURFACE-LOCAL, so
-    /// they are stale the moment the surface is re-created at a new size — and
-    /// the only caller besides mount sits behind `span.is_none()`, i.e. it runs
-    /// on a FULL present only. A resize that left a partial damage span behind
-    /// therefore never re-declared anything, and windowd kept compositing the
-    /// pre-resize rects: a maximized file manager painted its 960-wide panes in
-    /// the corner of a 1280-wide window. The resize path now forces a full
-    /// present, and windowd clears the list on create as well
-    /// (`app_surface::clear_app_layers`) so neither side can carry a stale set
-    /// alone.
-    pub(super) fn submit_layers(&self, client: &KernelClient, surface_id: u32) {
+    /// The material-tagged regions of the current layout (the R1 seam): each `LayoutBox` whose
+    /// `.material()` is glass becomes a `LayerDesc` (base-layer rect + level + radius +
+    /// shadow); windowd composites each as a real frosted `nexus-gfx` layer. They ride the
+    /// surface's structure (`band::send_tree`), so a re-created surface declares them anew with
+    /// its first present — and windowd clears them at create, so neither side can carry a stale
+    /// set alone. A box of a band's content is no region: it moves with its layer, its tint is in
+    /// the band. Returns the count written into `out`.
+    pub(super) fn regions(&self, out: &mut [wire::LayerDesc; wire::MAX_SURFACE_LAYERS]) -> usize {
         use nexus_layout_types::{GlassLevel, SurfaceMaterial};
-        let clamp = |v: i32| v.max(0).min(u16::MAX as i32) as u16;
-        let mut layers = [wire::LayerDesc::default(); wire::MAX_SURFACE_LAYERS];
+        // The region inside the base layer (windowd refuses a structure with one outside it).
+        let (sw, sh) = (self.w as i32, self.h as i32);
+        let fit = |b: &nexus_layout::LayoutBox| {
+            let (x0, y0) = (b.rect.x.0.max(0), b.rect.y.0.max(0));
+            let x1 = (b.rect.x.0 + b.rect.width.0).min(sw);
+            let y1 = (b.rect.y.0 + b.rect.height.0).min(sh);
+            (x1 > x0 && y1 > y0).then(|| (x0 as u16, y0 as u16, (x1 - x0) as u16, (y1 - y0) as u16))
+        };
+        let layers = out;
         let mut n = 0;
         let mut dropped = 0usize;
         for b in &self.layout.boxes {
+            if self.in_band(b) {
+                continue;
+            }
             // Only glass ROOTS become compositor regions: nested glass
             // blends into its parent's pixels (`glass_nested`), so a region
             // per inner card would both re-blur what the root already
@@ -65,11 +65,12 @@ impl super::DslApp {
                 if matches!(b.visual.material, SurfaceMaterial::Opaque) || !full {
                     continue;
                 }
+                let Some((x, y, w, h)) = fit(b) else { continue };
                 layers[n] = wire::LayerDesc {
-                    x: clamp(b.rect.x.0),
-                    y: clamp(b.rect.y.0),
-                    w: clamp(b.rect.width.0),
-                    h: clamp(b.rect.height.0),
+                    x,
+                    y,
+                    w,
+                    h,
                     material: wire::MATERIAL_OPAQUE,
                     glass_level: 0,
                     radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
@@ -105,11 +106,12 @@ impl super::DslApp {
                 | SurfaceMaterial::Glass(GlassLevel::WindowBar)
                 | SurfaceMaterial::Opaque => continue,
             };
+            let Some((x, y, w, h)) = fit(b) else { continue };
             layers[n] = wire::LayerDesc {
-                x: clamp(b.rect.x.0),
-                y: clamp(b.rect.y.0),
-                w: clamp(b.rect.width.0),
-                h: clamp(b.rect.height.0),
+                x,
+                y,
+                w,
+                h,
                 material,
                 glass_level,
                 radius: b.visual.corner_radius.top_left.0.clamp(0, 255) as u8,
@@ -117,12 +119,9 @@ impl super::DslApp {
             };
             n += 1;
         }
-        let mut buf = [0u8; wire::SURFACE_LAYERS_MAX_LEN];
-        let len = wire::encode_surface_layers(surface_id, &layers[..n], &mut buf);
-        let _ = client.send(&buf[..len], Wait::NonBlocking);
-        // On a change of the glass-region count only: every full present (a
-        // keystroke's too) re-declares the layers, and a line each time would
-        // put typing rhythm into the log (the privacy rule).
+        // On a change of the region count only: every full present (a keystroke's too)
+        // re-declares the structure, and a line each time would put typing rhythm into the log
+        // (the privacy rule).
         static LAST: core::sync::atomic::AtomicUsize =
             core::sync::atomic::AtomicUsize::new(usize::MAX);
         if LAST.swap(n, core::sync::atomic::Ordering::Relaxed) != n {
@@ -133,5 +132,6 @@ impl super::DslApp {
             // cap is a wire constant, exceeding it must be visible.
             raw_marker(&alloc::format!("apphost: {dropped} glass regions over the layer cap"));
         }
+        n
     }
 }

@@ -14,46 +14,25 @@
 //! TEST_COVERAGE: No tests (behavior covered via windowd QEMU smoke + host integration)
 
 use super::*;
+use crate::layer_geometry::{fair_shares, LayerQuota};
+use crate::surface_regions::SurfaceRegions;
+use crate::window_scene::{WindowId, MAX_APP_WINDOWS};
+
+/// The frame-bound line was said (once per windowd: a heavy frame recurs every frame).
+static LAYER_BOUND_SAID: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 /// Per-window scene snapshot (alloc-free `Copy` data captured before the
 /// encoder block, RFC-0065 multi-window): what the composite loop needs to
 /// draw one app window without re-borrowing the runtime.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct AppSceneSnap {
+    /// The window body: its base layer, glass or solid.
     glass: Option<crate::compositor::shell_window::GlassCompositeParams>,
-    layers: [nexus_display_proto::client_surface::LayerDesc;
-        nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
-    layer_count: usize,
-    /// (atlas_row, atlas_x, win_x, win_y) of the content band.
-    layer_geom: Option<(u32, u32, u32, u32)>,
-    /// WebRender compositor-scroll (0 = non-scrollable, unchanged compose path).
-    scroll_id: u32,
-    /// The app's fixed top/bottom chrome heights + tall content + current scroll
-    /// offset — the 3-slice scrollable-glass params.
-    header_h: u32,
-    footer_h: u32,
-    content_h: u32,
-    scroll_rows: u32,
+    /// The surface's declared layers (RFC-0109): regions, scroll layers' slices, washes.
+    surface: Option<super::surface_layers_encode::LayerSnap>,
     /// The window drawn as one solid surface (TASK-0336, `solid_surface.rs`).
     solid: Option<super::solid_surface::SolidSnap>,
-}
-
-impl Default for AppSceneSnap {
-    fn default() -> Self {
-        Self {
-            glass: None,
-            layers: [nexus_display_proto::client_surface::LayerDesc::default();
-                nexus_display_proto::client_surface::MAX_SURFACE_LAYERS],
-            layer_count: 0,
-            layer_geom: None,
-            scroll_id: 0,
-            header_h: 0,
-            footer_h: 0,
-            content_h: 0,
-            scroll_rows: 0,
-            solid: None,
-        }
-    }
 }
 
 impl DisplayServerRuntime {
@@ -83,11 +62,9 @@ impl DisplayServerRuntime {
         // surface VMO when a present marked its window dirty.
         for idx in 0..self.apps.len() {
             if self.apps[idx].win.visible && self.apps[idx].win.surface_dirty {
+                // The named rows are consumed with the copy; the next present names its own.
                 self.render_app_surface(idx)?;
                 self.apps[idx].win.surface_dirty = false;
-                // The bounded rows are consumed with the blit; the next
-                // present re-seeds them (None = full, see ADR-0042 bounding).
-                self.apps[idx].surface_dirty_rows = None;
             }
         }
         // Desktop surface (Umbau #17): blit the shell app-host's VMO into the
@@ -120,14 +97,13 @@ impl DisplayServerRuntime {
         // Per-window snapshots (alloc-free, Copy) so the encoder block below
         // never re-borrows `self`: glass params, material layer set, live-resize
         // overlay and band geometry for EVERY app window, indexed by slot.
-        let mut app_snaps: [AppSceneSnap; crate::window_scene::MAX_APP_WINDOWS] =
+        let mut app_snaps: [AppSceneSnap; MAX_APP_WINDOWS] =
             core::array::from_fn(|_| AppSceneSnap::default());
         // The visible windows' frames: a damage rectangle inside one came from that window
         // (or something above it), the rest from the desktop under every window — the
         // damage's origin (`Command::Damage`, RFC-0101 §8): a glass blurs its backdrop again
         // only for a change below it, never for its own content.
-        let mut app_frames: [Option<DamageRect>; crate::window_scene::MAX_APP_WINDOWS] =
-            [None; crate::window_scene::MAX_APP_WINDOWS];
+        let mut app_frames: [Option<DamageRect>; MAX_APP_WINDOWS] = [None; MAX_APP_WINDOWS];
         for idx in 0..self.apps.len() {
             if self.apps[idx].win.visible {
                 if let Some(f) = app_frames.get_mut(idx) {
@@ -136,11 +112,21 @@ impl DisplayServerRuntime {
             }
         }
         for idx in 0..self.apps.len() {
-            let wid = crate::window_scene::WindowId::App(idx as u8);
-            let resizing = matches!(self.resize_drag, Some((w, ..)) if w == wid);
+            let wid = WindowId::App(idx as u8);
             let fullscreen = fullscreen_id == Some(wid);
             let win = &self.apps[idx].win;
+            // The surface's base size (RFC-0109): its first rows are the base layer, the rows
+            // below it the client's store (its bands, its patches) — never window body.
+            let client = self.apps[idx]
+                .surface_id
+                .and_then(|id| self.client_surfaces.get_by_id(id))
+                .copied();
+            let base = client.map_or((win.w, win.h), |c| (u32::from(c.width), u32::from(c.height)));
+            // A GPU that composes blurs and caches the glass itself: the window holds no blur
+            // band (`open_app_window`) and declares its glass without one.
+            let gpu_glass = self.gpu_composes && !self.app_presentation(idx).full_screen;
             let glass = win.glass_params().map(|mut p| {
+                p.gpu_glass = gpu_glass;
                 if fullscreen {
                     p.radius = 0;
                     p.shadow_alpha = 0;
@@ -152,29 +138,35 @@ impl DisplayServerRuntime {
                 // baked: an open baked at opacity 0 and multiplied again stayed
                 // invisible.
                 p.layer_id = (idx as u32) + 1;
+                p.key = super::surface_layers_encode::key(
+                    idx as u32 + 1,
+                    super::surface_layers_encode::KIND_BODY,
+                    0,
+                );
                 p.solid = self.solid_materials;
-                if resizing {
-                    if let Some(a) = win.atlas {
-                        p.content_w = a.width.min(win.w);
-                        p.content_h = a.height.min(win.h);
-                        p.w = win.w;
-                        p.h = win.h;
-                    }
+                // A frame other than the surface (a live resize, the frame of a mode switch
+                // before the client re-creates at its size): the base is spread over the frame —
+                // the window body grows — and snaps sharp when the client draws at the new size.
+                if (win.w, win.h) != base {
+                    p.content_w = base.0;
+                    p.content_h = base.1;
+                    p.w = win.w;
+                    p.h = win.h;
                 }
                 p
             });
             app_snaps[idx] = AppSceneSnap {
                 glass,
-                layers: self.apps[idx].layers,
-                layer_count: self.apps[idx].layer_count,
-                layer_geom: win
-                    .atlas
-                    .map(|a| (a.abs_row, a.x, win.x.max(0) as u32, win.y.max(0) as u32)),
-                scroll_id: self.apps[idx].scroll_id,
-                header_h: self.apps[idx].header_h,
-                footer_h: self.apps[idx].footer_h,
-                content_h: self.apps[idx].content_h,
-                scroll_rows: self.apps[idx].scroll_rows,
+                surface: win.atlas.zip(client).map(|(a, c)| {
+                    super::surface_layers_encode::LayerSnap {
+                        layers: self.apps[idx].layers,
+                        regions: SurfaceRegions::of(&c, a, win.store),
+                        origin: (win.x.max(0) as u32, win.y.max(0) as u32),
+                        base,
+                        owner: idx as u32 + 1,
+                        layer_id: idx as u32 + 1,
+                    }
+                }),
                 solid: super::solid_surface::SolidSnap::of(&self.apps[idx], fullscreen),
             };
         }
@@ -185,11 +177,21 @@ impl DisplayServerRuntime {
         let desktop_layer = self.desktop_band.map(|b| {
             (b.abs_row, b.x, b.width.min(self.mode.width), b.height.min(self.mode.height))
         });
-        // R1 seam for the DESKTOP surface: its material-tagged glass regions
-        // (topbar/panels) re-composite as frosted layers over the
-        // wallpaper AFTER the base blend below.
-        let desktop_glass = self.desktop_layers;
-        let desktop_glass_count = self.desktop_layer_count;
+        // R1 seam for the DESKTOP surface: its declared layers (RFC-0109) — glass regions over
+        // the wallpaper after the base blend, the panels' above the windows, its scroll layers
+        // and washes in the pass of the region holding them.
+        let desktop_client =
+            self.desktop_surface_id.and_then(|id| self.client_surfaces.get_by_id(id)).copied();
+        let desktop_surface = self.desktop_band.zip(desktop_client).map(|(b, c)| {
+            super::surface_layers_encode::LayerSnap {
+                layers: self.desktop_layers,
+                regions: SurfaceRegions::of(&c, b, self.desktop_store),
+                origin: (0, 0),
+                base: (b.width.min(self.mode.width), self.mode.height.min(b.height)),
+                owner: super::surface_layers_encode::DESKTOP_OWNER,
+                layer_id: 0,
+            }
+        });
         // Back-to-front window order from the z/focus stack (window_scene SSOT):
         // the composite loop below draws exactly these, in exactly this order.
         let (win_order, win_n) = self.windows.order(self.capture.frozen());
@@ -197,6 +199,9 @@ impl DisplayServerRuntime {
         // the layers, so a moved frame and its transform take effect together — the present is
         // the only way a transform reaches the display.
         let transforms = self.present_transforms();
+        // The frame's layer bound shared out (RFC-0109): the bodies first, then each drawn
+        // surface's declared layers within its max-min fair share.
+        let mut quotas = layer_quotas(&app_snaps, &win_order[..win_n], desktop_surface.as_ref());
         // Dock layer params (bar rect is None while inactive/covered).
         self.scene_cb.clear();
         {
@@ -234,7 +239,7 @@ impl DisplayServerRuntime {
                     .iter()
                     .rev()
                     .find_map(|wid| match wid {
-                        crate::window_scene::WindowId::App(slot) => app_frames
+                        WindowId::App(slot) => app_frames
                             .get(usize::from(*slot))
                             .copied()
                             .flatten()
@@ -275,14 +280,10 @@ impl DisplayServerRuntime {
             //    wins occlusion.
             for &wid in &win_order[..win_n] {
                 match wid {
-                    // App-client window (ADR-0042 R1). R1 layer seam: when the
-                    // app declared material-tagged glass regions
-                    // (`OP_SURFACE_LAYERS`), composite each as its own frosted
-                    // `nexus-gfx` layer instead of one whole-window glass
-                    // frame. No regions ⇒ the single-frame composite (a plain
-                    // windowed app, unchanged).
-                    crate::window_scene::WindowId::App(slot) => {
-                        use nexus_display_proto::client_surface as wire;
+                    // App-client window (ADR-0042 R1): its body, then the layers its surface
+                    // declared (`OP_SURFACE_TREE`, RFC-0109) — material regions, scroll layers'
+                    // slices, washes. Nothing declared ⇒ the body alone.
+                    WindowId::App(slot) => {
                         let sn = &app_snaps[slot as usize];
                         // The window as ONE solid surface (TASK-0336): its starting or closing
                         // surface — a patch spread over the frame, opaque; nothing else of it.
@@ -290,166 +291,23 @@ impl DisplayServerRuntime {
                             s.encode(&mut encoder, slot, (mode.width, mode.height));
                             continue;
                         }
-                        // A scrollable surface owns the whole-window 3-slice
-                        // composite — it takes priority over per-region material
-                        // glass (the body's frosted backdrop covers the viewport).
-                        if sn.scroll_id == 0 && sn.layer_count > 0 {
-                            // WINDOW BODY FIRST (mirrors the Desktop arm's
-                            // base-then-regions order): a windowed app with
-                            // material regions still owns its whole frame —
-                            // without this base composite only the glass
-                            // regions painted and the rest of the window was
-                            // MISSING (settings' window-frame page rendered
-                            // as floating panels over the bare desktop). The
-                            // regions then blur the drawn body = the inner
-                            // frost the design intends.
-                            if let Some(p) = sn.glass {
-                                let _ =
-                                    crate::compositor::shell_window::ShellWindow::composite_glass(
-                                        &mut encoder,
-                                        p,
-                                        mode.width,
-                                        mode.height,
-                                    );
-                            }
-                            if let Some((atlas_row, atlas_x, win_x, win_y)) = sn.layer_geom {
-                                for l in sn.layers.iter().take(sn.layer_count) {
-                                    // TASK-0337: an opaque region (the content pane) is a
-                                    // layer without blur that occludes what lies below it.
-                                    let opaque = l.material == wire::MATERIAL_OPAQUE;
-                                    if !opaque && l.material != wire::MATERIAL_GLASS {
-                                        continue;
-                                    }
-                                    let blur_radius = match l.glass_level {
-                                        _ if opaque => 0,
-                                        wire::GLASS_PANEL => 40,
-                                        wire::GLASS_OVERLAY => 40,
-                                        wire::GLASS_CARD => 20,
-                                        wire::GLASS_SUBTLE => 8,
-                                        _ => 30,
-                                    };
-                                    crate::compositor::shell_window::composite_material_glass(
-                                        &mut encoder,
-                                        crate::compositor::shell_window::MaterialLayerParams {
-                                            src_row_abs: atlas_row + u32::from(l.y),
-                                            src_x: atlas_x + u32::from(l.x),
-                                            width: u32::from(l.w),
-                                            height: u32::from(l.h),
-                                            dst_x: win_x + u32::from(l.x),
-                                            dst_y: win_y + u32::from(l.y),
-                                            corner_radius: u32::from(l.radius),
-                                            shadow_alpha: u32::from(l.shadow_alpha),
-                                            blur_radius,
-                                            layer_id: u32::from(slot) + 1,
-                                            opaque,
-                                        },
-                                        mode.width,
-                                        mode.height,
-                                    );
-                                }
-                            }
-                        } else if sn.scroll_id != 0 {
-                            // Compositor-scroll: a 3-slice packed-band composite —
-                            // the fixed top (app header) and fixed bottom (app
-                            // footer) stay put while the body layer scrolls by its
-                            // `src_row_abs` = `atlas_row + content_offset` in each
-                            // present (TASK-0338: a scroll step is a present).
-                            if let Some(p) = sn.glass {
-                                let top_h = sn.header_h;
-                                let bot_h = sn.footer_h;
-                                let content_offset =
-                                    top_h.saturating_add(bot_h).saturating_add(sn.scroll_rows);
-                                let _ =
-                                    crate::compositor::shell_window::ShellWindow::composite_scrollable_glass(
-                                        &mut encoder,
-                                        p,
-                                        content_offset,
-                                        top_h,
-                                        bot_h,
-                                        sn.content_h,
-                                        mode.width,
-                                        mode.height,
-                                    );
-                                // Material regions used to be SKIPPED here
-                                // ("scroll takes priority") — a banded window
-                                // lost all of its pane glass, so a freeform
-                                // file manager's panes sat flat on the window
-                                // blur instead of frosting the content under
-                                // them. `band_region_slice` translates each
-                                // scene rect into the packed band; the slices
-                                // above have already drawn, so the backdrop
-                                // these blur is the WINDOW content beneath —
-                                // the layered model (panel sees window,
-                                // window sees windows below).
-                                let g = crate::band_map::BandGeometry {
-                                    header_h: sn.header_h,
-                                    footer_h: sn.footer_h,
-                                    content_h: sn.content_h,
-                                    scroll_rows: sn.scroll_rows,
-                                    frame_h: p.h,
-                                };
-                                if let Some((atlas_row, atlas_x, win_x, win_y)) = sn.layer_geom {
-                                    for l in sn.layers.iter().take(sn.layer_count) {
-                                        let opaque = l.material == wire::MATERIAL_OPAQUE;
-                                        if !opaque && l.material != wire::MATERIAL_GLASS {
-                                            continue;
-                                        }
-                                        // A region may STRADDLE the packed
-                                        // band's slice boundaries (a side
-                                        // pane spanning header + content):
-                                        // split it instead of truncating at
-                                        // the first boundary — truncation is
-                                        // how a pane's glass used to just
-                                        // stop at the header line.
-                                        let mut slices = [crate::band_map::BandSlice {
-                                            src_row: 0,
-                                            dst_y: 0,
-                                            h: 0,
-                                        };
-                                            3];
-                                        let n = crate::band_map::band_region_slices(
-                                            u32::from(l.y),
-                                            u32::from(l.h),
-                                            &g,
-                                            &mut slices,
-                                        );
-                                        let blur_radius = match l.glass_level {
-                                            _ if opaque => 0,
-                                            wire::GLASS_PANEL => 40,
-                                            wire::GLASS_OVERLAY => 40,
-                                            wire::GLASS_CARD => 20,
-                                            wire::GLASS_SUBTLE => 8,
-                                            _ => 30,
-                                        };
-                                        for slice in slices.iter().take(n) {
-                                            crate::compositor::shell_window::composite_material_glass(
-                                                &mut encoder,
-                                                crate::compositor::shell_window::MaterialLayerParams {
-                                                    src_row_abs: atlas_row + slice.src_row,
-                                                    src_x: atlas_x + u32::from(l.x),
-                                                    width: u32::from(l.w),
-                                                    height: slice.h,
-                                                    dst_x: win_x + u32::from(l.x),
-                                                    dst_y: win_y + slice.dst_y,
-                                                    corner_radius: u32::from(l.radius),
-                                                    shadow_alpha: u32::from(l.shadow_alpha),
-                                                    blur_radius,
-                                                    layer_id: u32::from(slot) + 1,
-                                                    opaque,
-                                                },
-                                                mode.width,
-                                                mode.height,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        } else if let Some(p) = sn.glass {
+                        // The window body first — its base layer — then what the surface
+                        // declared over it (RFC-0109): the regions blur the drawn body (the inner
+                        // frost), the scroll layers' slices and the washes follow.
+                        if let Some(p) = sn.glass {
                             let _ = crate::compositor::shell_window::ShellWindow::composite_glass(
                                 &mut encoder,
                                 p,
                                 mode.width,
                                 mode.height,
+                            );
+                        }
+                        if let Some(l) = sn.surface {
+                            l.encode(
+                                &mut encoder,
+                                super::surface_layers_encode::Pass::Window,
+                                (mode.width, mode.height),
+                                &mut quotas[usize::from(slot)],
                             );
                         }
                     }
@@ -461,7 +319,7 @@ impl DisplayServerRuntime {
                     // regions, R1). This entry only appears in `win_order` when a
                     // client surface DECLARED `level: desktop` and was routed
                     // here (`app_stack_id`).
-                    crate::window_scene::WindowId::Desktop => {
+                    WindowId::Desktop => {
                         // FULL layer, every pass — deliberately NOT damage-
                         // clipped: the scene command buffer describes the WHOLE
                         // frame (the wallpaper plane persists on the GPU; every
@@ -476,48 +334,25 @@ impl DisplayServerRuntime {
                             let _ = encoder.composite_layer_full(
                                 &Layer {
                                     content_epoch: crate::atlas::atlas_content_epoch(),
+                                    key: super::surface_layers_encode::key(
+                                        super::surface_layers_encode::DESKTOP_OWNER,
+                                        super::surface_layers_encode::KIND_BODY,
+                                        0,
+                                    ),
                                     ..Layer::opaque(row, x, w, h, 0, 0)
                                 },
                                 (mode.width, mode.height),
                             );
-                            // Frosted regions: blur the wallpaper behind each
-                            // declared glass rect, then draw the band content
-                            // (tint + text) over it — the liquid-glass look.
-                            use nexus_display_proto::client_surface as wire;
-                            for l in desktop_glass.iter().take(desktop_glass_count) {
-                                if l.material != wire::MATERIAL_GLASS {
-                                    continue;
-                                }
-                                // Shell chrome contract: PANEL-level glass
-                                // (Control Center / notifications / calendar
-                                // drop-downs) composites ABOVE the windows —
-                                // drawn in pass 2b below, skipped here.
-                                if l.glass_level == wire::GLASS_PANEL {
-                                    continue;
-                                }
-                                let blur_radius = match l.glass_level {
-                                    wire::GLASS_OVERLAY => 40,
-                                    wire::GLASS_CARD => 20,
-                                    wire::GLASS_SUBTLE => 8,
-                                    _ => 30,
-                                };
-                                crate::compositor::shell_window::composite_material_glass(
+                            // Frosted regions: blur the wallpaper behind each declared glass
+                            // rect, then draw the band content (tint + text) over it — the
+                            // liquid-glass look. The shell's PANEL-level glass composites above
+                            // the windows (pass 2b below).
+                            if let Some(l) = desktop_surface {
+                                l.encode(
                                     &mut encoder,
-                                    crate::compositor::shell_window::MaterialLayerParams {
-                                        src_row_abs: row + u32::from(l.y),
-                                        src_x: x + u32::from(l.x),
-                                        width: u32::from(l.w),
-                                        height: u32::from(l.h),
-                                        dst_x: u32::from(l.x),
-                                        dst_y: u32::from(l.y),
-                                        corner_radius: u32::from(l.radius),
-                                        shadow_alpha: u32::from(l.shadow_alpha),
-                                        blur_radius,
-                                        layer_id: 0,
-                                        opaque: false,
-                                    },
-                                    mode.width,
-                                    mode.height,
+                                    super::surface_layers_encode::Pass::DesktopBelow,
+                                    (mode.width, mode.height),
+                                    &mut quotas[MAX_APP_WINDOWS],
                                 );
                             }
                         }
@@ -538,32 +373,21 @@ impl DisplayServerRuntime {
                 let _ = encoder.composite_layer_full(
                     &Layer {
                         content_epoch: crate::atlas::atlas_content_epoch(),
+                        key: super::surface_layers_encode::key(
+                            super::surface_layers_encode::DESKTOP_OWNER,
+                            super::surface_layers_encode::KIND_BAR,
+                            0,
+                        ),
                         ..Layer::opaque(row, x, w, bar_h, 0, 0)
                     },
                     (mode.width, mode.height),
                 );
-                use nexus_display_proto::client_surface as wire;
-                for l in desktop_glass.iter().take(desktop_glass_count) {
-                    if l.material != wire::MATERIAL_GLASS || l.glass_level != wire::GLASS_PANEL {
-                        continue;
-                    }
-                    crate::compositor::shell_window::composite_material_glass(
+                if let Some(l) = desktop_surface {
+                    l.encode(
                         &mut encoder,
-                        crate::compositor::shell_window::MaterialLayerParams {
-                            src_row_abs: row + u32::from(l.y),
-                            src_x: x + u32::from(l.x),
-                            width: u32::from(l.w),
-                            height: u32::from(l.h),
-                            dst_x: u32::from(l.x),
-                            dst_y: u32::from(l.y),
-                            corner_radius: u32::from(l.radius),
-                            shadow_alpha: u32::from(l.shadow_alpha),
-                            blur_radius: 40,
-                            layer_id: 0,
-                            opaque: false,
-                        },
-                        mode.width,
-                        mode.height,
+                        super::surface_layers_encode::Pass::DesktopAbove,
+                        (mode.width, mode.height),
+                        &mut quotas[MAX_APP_WINDOWS],
                     );
                 }
             }
@@ -587,6 +411,38 @@ impl DisplayServerRuntime {
 
             encoder.end_encoding();
         }
+        // A surface past its share lost its own last layers (RFC-0109 failure model): named once,
+        // never a refused present.
+        let dropped: usize = quotas.iter().map(LayerQuota::dropped).sum();
+        if dropped > 0 && !LAYER_BOUND_SAID.swap(true, core::sync::atomic::Ordering::Relaxed) {
+            let _ = debug_println(&alloc::format!(
+                "windowd: layers over the frame bound (dropped={dropped})"
+            ));
+        }
         self.scene_cb.serialize_into(out).map_err(|_| WindowdError::InvalidDamage)
     }
+}
+
+/// Each surface's share of the frame's layers (RFC-0109 failure model): the drawn windows' bodies
+/// and the desktop's base and bar first, then the declared layers max-min fair (`fair_shares`) —
+/// index `slot` a window, [`MAX_APP_WINDOWS`] the desktop.
+fn layer_quotas(
+    snaps: &[AppSceneSnap; MAX_APP_WINDOWS],
+    order: &[WindowId],
+    desktop: Option<&super::surface_layers_encode::LayerSnap>,
+) -> [LayerQuota; MAX_APP_WINDOWS + 1] {
+    let mut demand = [0usize; MAX_APP_WINDOWS + 1];
+    let mut bodies = if desktop.is_some() { 2 } else { 0 };
+    for wid in order {
+        let WindowId::App(slot) = *wid else { continue };
+        let Some(sn) = snaps.get(usize::from(slot)) else { continue };
+        bodies += usize::from(sn.glass.is_some() || sn.solid.is_some());
+        if sn.solid.is_none() {
+            demand[usize::from(slot)] = sn.surface.map_or(0, |l| l.layers.demand());
+        }
+    }
+    demand[MAX_APP_WINDOWS] = desktop.map_or(0, |l| l.layers.demand());
+    let mut share = [0usize; MAX_APP_WINDOWS + 1];
+    fair_shares(nexus_gfx::frame::MAX_LAYERS.saturating_sub(bodies), &demand, &mut share);
+    share.map(LayerQuota::new)
 }

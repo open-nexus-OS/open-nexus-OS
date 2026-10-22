@@ -258,10 +258,7 @@ fn drive_text_focus(frames: usize) {
         .expect("the greeter has a text field");
     let rect = boxes.iter().find(|b| b.node_id == field).expect("field box").rect;
     let (cx, cy) = (rect.x.0 + rect.width.0 / 2, rect.y.0 + rect.height.0 / 2);
-    assert!(
-        view.focus_text_at(&boxes, FxPx::new(cx), FxPx::new(cy), None).is_some(),
-        "focus lands"
-    );
+    assert!(view.focus_text_at(&boxes, FxPx::new(cx), FxPx::new(cy), &[]).is_some(), "focus lands");
     for frame in 0..frames {
         // Each keystroke re-emits (the bound value changed) and revalidates
         // the focus — which must survive the generations that follow.

@@ -67,8 +67,11 @@ Umzug zu selftest (eigenes Paket). `runtime/shell.rs` = Policy-Plumbing
 (Umbenennungs-Kandidat `policy.rs`). Evidence-Leiter nach dem Sweep byte-gleich
 verifiziert (identische `SELFTEST: ui`-Marker, Gate exit=0).
 
-Offen notiert: Wheel-FORWARDING an Client-Surfaces (`OP_SURFACE_INPUT` kind=wheel)
-— das legacy Chat/Search-Scrolling entfiel; App-Scroll ist App-Sache.
+Wheel-FORWARDING an Client-Surfaces (`OP_SURFACE_INPUT` kind=wheel) ✅ 2026-10-21
+(ADR-0076, `compositor/runtime/input_wheel.rs`): windowd routet jede Raste an die Surface unter
+dem Zeiger, sonst nichts; die Scroll-Physik, das Band und `SCROLL_POS` sind gelöscht. App-Scroll
+ist App-Sache: app-host führt die eine Physik pro Scroll-Layer und meldet Offsets als Motion
+(RFC-0109), windowd komponiert sie.
 
 ## Reihenfolge (Stufen, je boot-verifiziert)
 

@@ -203,7 +203,7 @@ fn probe_interactive_cycle_cost() {
             px.copy_from_slice(&[30, 30, 30, 168]);
         }
         let mut canvas = nexus_scene_raster::RowCanvas::new(&mut row, y, w);
-        nexus_scene_raster::paint_row_picked(&mut canvas, boxes, &pick, None, None);
+        nexus_scene_raster::paint_row_picked(&mut canvas, boxes, &pick, &[]);
     }
     let d_paint = t.elapsed();
     println!(

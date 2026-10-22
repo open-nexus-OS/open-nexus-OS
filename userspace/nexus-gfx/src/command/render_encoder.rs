@@ -248,6 +248,7 @@ impl<'a> RenderCommandEncoder<'a> {
             0,
             0,
             0,
+            0,
         )
     }
 
@@ -273,6 +274,7 @@ impl<'a> RenderCommandEncoder<'a> {
         layer_id: u32,
         content_epoch: u32,
         flags: u32,
+        key: u32,
     ) -> Result<(), GfxError> {
         if !self.active {
             return Err(GfxError::CommandRejected);
@@ -297,6 +299,7 @@ impl<'a> RenderCommandEncoder<'a> {
             layer_id,
             content_epoch,
             flags,
+            key,
         })
     }
 
@@ -395,6 +398,7 @@ impl<'a> RenderCommandEncoder<'a> {
             layer.content_epoch,
             (if layer.opaque { crate::command::buffer::LAYER_OPAQUE } else { 0 })
                 | (if layer.solid { crate::command::buffer::LAYER_SOLID } else { 0 }),
+            layer.key,
         )
     }
 

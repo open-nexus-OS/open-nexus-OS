@@ -133,11 +133,12 @@ pub enum Command {
         /// scaling; the client re-renders sharp on settle). Backend: virgl RT.
         content_w: u32,
         content_h: u32,
-        /// Scroll band bounds (`0` = not scrollable). When `scroll_band_h > 0` a backend that
-        /// uploads the atlas uploads the WHOLE band `[scroll_band_top_abs, +scroll_band_h)`
-        /// ONCE, so a later present that scrolls the body (a new `src_row_abs`, TASK-0338)
-        /// samples rows already uploaded — otherwise only the visible `height` rows are there.
-        /// The SAMPLE row stays `src_row_abs` (+ `height`).
+        /// The scroll layer's band a slice samples (RFC-0109; `0` = not a slice). When
+        /// `scroll_band_h > 0` a backend that uploads the atlas uploads the WHOLE band
+        /// `[scroll_band_top_abs, +scroll_band_h)` ONCE, so the slice at a later offset (a new
+        /// `src_row_abs`, motion without a present) samples rows already uploaded — otherwise
+        /// only the visible `height` rows are there. The SAMPLE row stays `src_row_abs`
+        /// (+ `height`).
         scroll_band_top_abs: u32,
         scroll_band_h: u32,
         /// Transform identity (`0` = none) — see `Layer::layer_id`.
@@ -151,6 +152,12 @@ pub enum Command {
         /// layer's rounded rectangle is opaque, so nothing below it shows there (the planner's
         /// occluder); `LAYER_SOLID` — the content is one colour (TASK-0336).
         flags: u32,
+        /// The layer's identity across presents (RFC-0109; `0` = unnamed): the planner matches
+        /// a layer to its last frame's by this key, never by its place in the list — a layer
+        /// that appears or goes leaves every other layer's glass, cleaned rectangle and damage
+        /// history where they were. Unique within a present (windowd: the surface, the kind,
+        /// the index).
+        key: u32,
     },
     /// A screen rectangle the compositor's scene changed since its previous present (RFC-0101
     /// §8, damage per plane): a display that keeps its planes redraws at least this — and every
@@ -519,6 +526,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                 layer_id,
                 content_epoch,
                 flags,
+                key,
             } => {
                 pos = ser_composite_layer(
                     buf,
@@ -543,6 +551,7 @@ fn serialize_commands(commands: &[Command], buf: &mut [u8]) -> Result<usize, Gfx
                         *layer_id,
                         *content_epoch,
                         *flags,
+                        *key,
                     ],
                 )?;
             }
@@ -700,9 +709,9 @@ fn ser_drop_shadow(
     Ok(pos + 37)
 }
 
-/// 19 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
-fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 19]) -> Result<usize, GfxError> {
-    let needed = pos + 1 + 19 * 4;
+/// 20 u32 words after the tag (signed `shadow_offset_y` is bit-cast through u32).
+fn ser_composite_layer(buf: &mut [u8], pos: usize, words: &[u32; 20]) -> Result<usize, GfxError> {
+    let needed = pos + 1 + 20 * 4;
     if buf.len() < needed || needed > MAX_SERIALIZED {
         return Err(GfxError::ResourceExhausted);
     }
@@ -903,10 +912,10 @@ fn deser_drop_shadow(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxErro
 }
 
 fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), GfxError> {
-    if buf.len() < pos + 76 {
+    if buf.len() < pos + 80 {
         return Err(GfxError::InvalidArgument);
     }
-    let mut w = [0u32; 19];
+    let mut w = [0u32; 20];
     for (i, slot) in w.iter_mut().enumerate() {
         let b = pos + i * 4;
         *slot = u32::from_le_bytes([buf[b], buf[b + 1], buf[b + 2], buf[b + 3]]);
@@ -932,8 +941,9 @@ fn deser_composite_layer(buf: &[u8], pos: usize) -> Result<(Command, usize), Gfx
             layer_id: w[16],
             content_epoch: w[17],
             flags: w[18],
+            key: w[19],
         },
-        pos + 76,
+        pos + 80,
     ))
 }
 

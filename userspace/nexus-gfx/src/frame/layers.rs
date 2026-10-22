@@ -10,9 +10,10 @@
 use super::damage::Area;
 use crate::command::buffer::Command;
 
-/// The set's capacity: a real desktop — four windows of three band slices and a title overlay
-/// each, their glass regions, the dock and the top bar.
-pub const MAX_LAYERS: usize = 32;
+/// The set's capacity: a real desktop — four windows, each its body, its regions, its scroll
+/// layers' slices and its washes (RFC-0109), the desktop's base, regions and bar. windowd never
+/// encodes more (it stops at the bound and says so).
+pub const MAX_LAYERS: usize = 64;
 
 /// Transform ids, `1..=MAX_IDS` (`0` = none): a window's slot plus one.
 pub const MAX_IDS: usize = 8;
@@ -38,8 +39,9 @@ pub struct FrameLayer {
     pub shadow_alpha: u32,
     /// The glass's blur radius (`0` = no glass).
     pub backdrop_blur: u32,
-    /// The scroll band resident in the atlas (`0` = not scrollable): a backend that uploads the
-    /// atlas uploads it whole, so a present that scrolls samples rows already there.
+    /// The scroll layer's band a slice samples (RFC-0109; `0` = not a slice): a backend that
+    /// uploads the atlas uploads it whole, so the slice at a later offset samples rows already
+    /// there.
     pub scroll_band_top_abs: u32,
     pub scroll_band_h: u32,
     /// The window transform's id (`0` = none); every slice of a window shares it.
@@ -50,9 +52,37 @@ pub struct FrameLayer {
     pub opaque: bool,
     /// One colour (`LAYER_SOLID`): any part of its band draws any part of it (TASK-0336).
     pub solid: bool,
+    /// The layer's identity across presents (RFC-0109; `0` = unnamed): the plan matches a layer
+    /// to its last frame's by this key and its occurrence among equal keys.
+    pub key: u32,
 }
 
 impl FrameLayer {
+    /// No layer: every field zero (the sets' and plans' fill).
+    pub const EMPTY: Self = Self {
+        src_row_abs: 0,
+        src_x: 0,
+        width: 0,
+        height: 0,
+        content_w: 0,
+        content_h: 0,
+        dst_x: 0,
+        dst_y: 0,
+        opacity: 0,
+        corner_radius: 0,
+        shadow_blur: 0,
+        shadow_offset_y: 0,
+        shadow_alpha: 0,
+        backdrop_blur: 0,
+        scroll_band_top_abs: 0,
+        scroll_band_h: 0,
+        layer_id: 0,
+        content_epoch: 0,
+        opaque: false,
+        solid: false,
+        key: 0,
+    };
+
     /// The layer a `CompositeLayer` command describes; `None` for any other command.
     pub fn from_command(cmd: &Command) -> Option<Self> {
         let Command::CompositeLayer {
@@ -75,6 +105,7 @@ impl FrameLayer {
             layer_id,
             content_epoch,
             flags,
+            key,
         } = *cmd
         else {
             return None;
@@ -100,6 +131,7 @@ impl FrameLayer {
             content_epoch,
             opaque: flags & super::super::command::buffer::LAYER_OPAQUE != 0,
             solid: flags & super::super::command::buffer::LAYER_SOLID != 0,
+            key,
         })
     }
 }
@@ -177,28 +209,7 @@ pub const ORIGIN_ABOVE: u32 = u32::MAX;
 impl RetainedLayers {
     pub const fn new() -> Self {
         Self {
-            layers: [FrameLayer {
-                src_row_abs: 0,
-                src_x: 0,
-                width: 0,
-                height: 0,
-                content_w: 0,
-                content_h: 0,
-                dst_x: 0,
-                dst_y: 0,
-                opacity: 0,
-                corner_radius: 0,
-                shadow_blur: 0,
-                shadow_offset_y: 0,
-                shadow_alpha: 0,
-                backdrop_blur: 0,
-                scroll_band_top_abs: 0,
-                scroll_band_h: 0,
-                layer_id: 0,
-                content_epoch: 0,
-                opaque: false,
-                solid: false,
-            }; MAX_LAYERS],
+            layers: [FrameLayer::EMPTY; MAX_LAYERS],
             count: 0,
             transforms: [None; MAX_IDS],
             dirty: true,

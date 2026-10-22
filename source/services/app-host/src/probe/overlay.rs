@@ -145,7 +145,7 @@ impl super::DslApp {
     fn apply_dismiss_damage(&mut self, damage: Option<Damage>) -> bool {
         if matches!(damage, Some(Damage::Layout)) {
             self.relayout_retained();
-            self.layers_dirty = true;
+            self.tree_dirty = true;
         }
         self.anim_sync();
         matches!(damage, Some(Damage::Paint) | Some(Damage::Layout))

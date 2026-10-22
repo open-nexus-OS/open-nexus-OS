@@ -8,13 +8,15 @@
 //! blur passes on every pointer move and keystroke — windowd's own `BackdropCache` never reaches
 //! a GPU executor (its fields stay in the CPU path's commands).
 //!
-//! MODEL: a glass layer's blurred backdrop is a function of everything composited below it.
-//! Walking the set back to front, a running FNV-1a hash folds each drawn layer's inputs as drawn
-//! (its transform applied, its content generation included); a glass layer's key is that fold and
-//! its own rectangle and radii. The same key at the same packed place: the cached rows are read
-//! (one draw). Otherwise the blur is written into its rows and read from them. Rows pack in walk
-//! order (half-resolution results); a layer that no longer fits blurs live, uncached — the cache
-//! bounds cost, never correctness.
+//! MODEL: a glass layer's blurred backdrop is a function of what is composited below it within
+//! its reach. An FNV-1a hash folds each layer drawn before it whose extent reaches it, as drawn
+//! (its transform applied); a glass layer's key is that fold and its own rectangle and radii
+//! (RFC-0109: a layer moving elsewhere — a scrolled slice in another window — re-keys nothing).
+//! The same key at the same packed place: the cached rows are read (one draw). Otherwise the blur
+//! is written into its rows and read from them. A slot follows its layer's identity from one plan
+//! to the next ([`GlassCache::carry`]), never its place in the list. Rows pack in walk order
+//! (half-resolution results); a layer that no longer fits blurs live, uncached — the cache bounds
+//! cost, never correctness.
 
 use super::layers::{FrameLayer, MAX_LAYERS};
 
@@ -116,6 +118,27 @@ impl GlassCache {
             rows,
             wallpaper_epoch: 0,
             ready: false,
+        }
+    }
+
+    /// The slots follow their layers into a new plan (RFC-0109): slot `i` takes what slot
+    /// `carried[i]` held in the last plan — the same layer's key and rows — and nothing when the
+    /// layer is new. Slots past `carried` are emptied.
+    pub fn carry(&mut self, carried: &[Option<usize>]) {
+        let (keys, ys, valid) = (self.keys, self.ys, self.valid);
+        for i in 0..MAX_LAYERS {
+            match carried.get(i).copied().flatten().filter(|&j| j < MAX_LAYERS) {
+                Some(j) => {
+                    self.keys[i] = keys[j];
+                    self.ys[i] = ys[j];
+                    self.valid[i] = valid[j];
+                }
+                None => {
+                    self.keys[i] = 0;
+                    self.ys[i] = 0;
+                    self.valid[i] = false;
+                }
+            }
         }
     }
 

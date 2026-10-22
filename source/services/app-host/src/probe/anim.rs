@@ -608,7 +608,7 @@ impl super::DslApp {
         // Advance the continuous loops (sawtooth re-fire / breathe re-fire /
         // carousel step) and merge their extra paint damage.
         if let Some((y0, y1)) = self.anim.tick_loops(now, &self.layout.boxes) {
-            let (y0, y1) = (y0.max(0), y1.min(self.h as i32));
+            let (y0, y1) = (y0.max(0), y1.min(self.layout_bottom()));
             if y0 < y1 {
                 span = Some(match span {
                     Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
@@ -619,11 +619,10 @@ impl super::DslApp {
         span
     }
 
-    /// Grow `span` by `node_id`'s CURRENT painted row extent: its layout box
-    /// transformed by the node's active [`NodeAnim`] (scale can overpaint the
-    /// box; translate moves it), ±1 row rounding pad, surface-clamped. A node
-    /// without a layout box (mid-relayout) falls back to the full surface —
-    /// correctness over thrift on the rare path.
+    /// Grow `span` by `node_id`'s CURRENT painted row extent: its layout box transformed by the
+    /// node's active [`NodeAnim`] (scale can overpaint the box; translate moves it), ±1 row
+    /// rounding pad, clamped to the layout (a scroll layer's content runs below the surface). A
+    /// node without a layout box (mid-relayout) falls back to all of it — correctness over thrift.
     fn grow_anim_span(&self, node_id: usize, span: &mut Option<(i32, i32)>) {
         let (y0, y1) = match self.layout.boxes.iter().find(|b| b.node_id == node_id) {
             Some(b) => {
@@ -636,9 +635,9 @@ impl super::DslApp {
                     None => (y - 1, y + h + 1),
                 }
             }
-            None => (0, self.h as i32),
+            None => (0, self.layout_bottom()),
         };
-        let (y0, y1) = (y0.max(0), y1.min(self.h as i32));
+        let (y0, y1) = (y0.max(0), y1.min(self.layout_bottom()));
         if y0 >= y1 {
             return;
         }

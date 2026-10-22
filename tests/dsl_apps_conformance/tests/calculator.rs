@@ -123,7 +123,7 @@ fn every_key_is_a_full_cell_and_tappable_to_its_edges() {
                 "Tap",
                 nexus_layout_types::FxPx::new(x),
                 nexus_layout_types::FxPx::new(y),
-                None,
+                &[],
             )
             .expect("pointer ok");
         assert!(d.is_some(), "a tap 2px inside the key's left edge at ({x},{y}) missed");
@@ -262,7 +262,7 @@ fn tapping_a_digit_key_shows_that_digit() {
             "Tap",
             nexus_layout_types::FxPx::new(x),
             nexus_layout_types::FxPx::new(y),
-            None,
+            &[],
         )
         .expect("pointer ok");
     }

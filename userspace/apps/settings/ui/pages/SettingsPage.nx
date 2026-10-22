@@ -111,10 +111,9 @@ Page SettingsPage {
         // ── overlay layers ───────────────────────────────────────────────
         // Siblings of the window, on the PAGE ROOT — full-window layers
         // belong to the page that owns the z-order. Each is gated so a
-        // closed layer never swallows a tap. (This window renders on the
-        // PLAIN surface path: its side panes share rows with the scroll
-        // viewport, so app-host refuses the 3-slice band — and that is what
-        // makes a full-window overlay renderable here at all.)
+        // closed layer never swallows a tap. An open one COVERS the scroll
+        // layers beneath it (RFC-0109): their content paints under it, at
+        // their offsets, until it closes.
         // The app-chip menu is the kit's (`WinAppWindow`); only the ⋯ menus
         // are this app's — and they mount no backdrop over the kit's layer.
         if $state.menu == "app" {

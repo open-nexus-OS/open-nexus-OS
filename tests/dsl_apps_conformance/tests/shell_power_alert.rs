@@ -79,7 +79,7 @@ fn tap(view: &mut View, device: &FixtureEnv, symbols: &[String], (x, y): (i32, i
         "Tap",
         FxPx::new(x),
         FxPx::new(y),
-        None,
+        &[],
     )
     .expect("tap runs");
 }

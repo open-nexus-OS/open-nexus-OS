@@ -136,7 +136,7 @@ fn the_whole_pipeline_from_tap_to_pixels() {
             "Tap",
             nexus_layout_types::FxPx::new(tx),
             nexus_layout_types::FxPx::new(ty),
-            None,
+            &[],
         )
         .expect("stage 2: pointer path errored");
     assert!(

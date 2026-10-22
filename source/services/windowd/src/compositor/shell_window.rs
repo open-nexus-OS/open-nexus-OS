@@ -15,10 +15,9 @@
 //!
 //! CONTEXT: the reusable **glass window** component for the desktop shell. One
 //! `ShellWindow` owns a movable/closable frame — rounded glass body, cached
-//! blurred backdrop, a title bar with a close "x", drag state, and a scroll
-//! offset — independent of what list lives inside it. The Search window is the
-//! first instance; the Chat window migrates onto it next (W3), so both windows
-//! share ONE appearance (the nicer Search look) and ONE scroll mechanism.
+//! blurred backdrop, a title bar with a close "x" and drag state — independent
+//! of what lives inside it. What scrolls inside a window is the app's: its
+//! surface's scroll layers (RFC-0109, ADR-0076).
 //!
 //! The frame reaches the virgl scanout like every other shell layer —
 //! `try_composite_layer` over a pre-blurred backdrop (retained Plane 1 is
@@ -45,16 +44,6 @@ const SHADOW_HALO_PAD: u32 = 24;
 // chrome inside the app's surface; the hand-rasterizer and the widget raster
 // cache that lived here are gone.)
 
-/// Write one straight-alpha BGRA span (gpud's layer blend does the SRC_ALPHA
-/// compositing over the blurred backdrop). Shared with the dock renderer.
-pub(crate) fn write_tint_span(row: &mut [u8], x0: u32, x1: u32, c: [u8; 4]) {
-    let rp = (row.len() / 4) as u32;
-    for px in x0.min(rp)..x1.min(rp) {
-        let idx = px as usize * 4;
-        row[idx..idx + 4].copy_from_slice(&c);
-    }
-}
-
 // Window hit-testing geometry lives in the host-tested `nexus-widget-window`
 // crate (`frame`) so every `ShellWindow` (chat + search) shares one
 // implementation; re-export so existing `shell_window::{Frame,WindowPress}` call
@@ -65,8 +54,8 @@ pub(crate) use nexus_widget_window::{Frame, ResizeEdge, WindowPress};
 // split); re-exported here so `scene.rs` keeps one import path.
 pub(crate) use crate::compositor::material_glass::{composite_material_glass, MaterialLayerParams};
 
-/// A movable/closable glass window. The content list is supplied by the caller
-/// (rendered into `atlas`); this struct owns the frame, glass, drag and scroll.
+/// A movable/closable glass window. The content is supplied by the caller (copied into
+/// `atlas`, its base, and `store`, RFC-0109); this struct owns the frame, glass and drag.
 pub(crate) struct ShellWindow {
     /// Title shown in the title bar (used by the renderer in W3; kept here so the
     /// component fully describes the window).
@@ -89,20 +78,19 @@ pub(crate) struct ShellWindow {
     pub(crate) drag: Option<(i32, i32)>,
     /// Floating frame remembered while fullscreen, restored on toggle-off.
     pub(crate) fullscreen_restore: Option<(i32, i32, u32, u32)>,
-    /// Scroll offset of the body list (rows, for now; GPU-offset in W2).
-    /// (Wheel routing rides the GPU layer-scroll path today; the CPU offset
-    /// stays as the W2 contract field.)
-    #[allow(dead_code)]
-    pub(crate) scroll: u32,
     /// Set when the atlas surface needs re-rasterizing (filter/scroll/hover).
     pub(crate) surface_dirty: bool,
     /// Cached blurred backdrop validity (blur once per open/move).
     pub(crate) blur_valid: bool,
-    /// Content surface (off-screen atlas) — `Some` only while the window is
-    /// *mounted* (shown). Acquired from the atlas allocator on show, released on
-    /// hide, so a closed window costs zero atlas rows (the pool model).
+    /// The surface's BASE layer in the atlas — `Some` only while the window is *mounted*
+    /// (shown). Acquired from the atlas allocator on show, released on hide, so a closed window
+    /// costs zero atlas rows (the pool model).
     pub(crate) atlas: Option<AtlasSurface>,
-    /// Cached blurred backdrop behind the window — mounted alongside `atlas`.
+    /// The surface's STORE in the atlas (RFC-0109: its bands and patches, the store's used
+    /// width) — its own region, placed beside the base wherever it fits; `None` without one.
+    pub(crate) store: Option<AtlasSurface>,
+    /// Cached blurred backdrop behind the window — mounted alongside `atlas` where the CPU
+    /// executor composes; a GPU blurs and caches the glass itself.
     pub(crate) blur_cache: Option<AtlasSurface>,
 }
 
@@ -132,10 +120,10 @@ impl ShellWindow {
             visible: false,
             drag: None,
             fullscreen_restore: None,
-            scroll: 0,
             surface_dirty: true,
             blur_valid: false,
             atlas: None,
+            store: None,
             blur_cache: None,
         }
     }
@@ -147,21 +135,27 @@ impl ShellWindow {
         self.atlas.is_some()
     }
 
-    /// Attach freshly-allocated atlas surfaces (on show/resize). Forces a
-    /// re-render and invalidates the blur cache so the new rows are painted
+    /// Attach freshly-allocated atlas regions (on show/resize): the base, the store, the blur
+    /// cache. Forces a re-render and invalidates the blur cache so the new rows are painted
     /// before composite.
-    pub(crate) fn mount(&mut self, atlas: AtlasSurface, blur_cache: Option<AtlasSurface>) {
+    pub(crate) fn mount(
+        &mut self,
+        (atlas, store): (AtlasSurface, Option<AtlasSurface>),
+        blur_cache: Option<AtlasSurface>,
+    ) {
         self.atlas = Some(atlas);
+        self.store = store;
         self.blur_cache = blur_cache;
         self.surface_dirty = true;
         self.blur_valid = false;
     }
 
-    /// Detach the atlas surfaces (on hide/resize) so the caller can return
-    /// them to the allocator. Returns `(content, blur_cache)` when mounted.
-    pub(crate) fn unmount(&mut self) -> Option<(AtlasSurface, Option<AtlasSurface>)> {
+    /// Detach the atlas regions (on hide/resize) so the caller can return them to the
+    /// allocator: `[base, store, blur cache]` when mounted.
+    pub(crate) fn unmount(&mut self) -> Option<[Option<AtlasSurface>; 3]> {
         self.blur_valid = false;
-        self.atlas.take().map(|a| (a, self.blur_cache.take()))
+        let base = self.atlas.take()?;
+        Some([Some(base), self.store.take(), self.blur_cache.take()])
     }
 
     /// The pure-geometry frame (host-tested hit-testing / clamp / damage live in
@@ -310,6 +304,8 @@ impl ShellWindow {
             shadow_offset_y: self.shadow_offset_y,
             shadow_alpha: self.shadow_alpha,
             solid: false,
+            gpu_glass: false,
+            key: 0,
         })
     }
 
@@ -353,6 +349,7 @@ impl ShellWindow {
                 }),
                 opaque: p.solid && p.content_w == 0 && p.opacity == 255,
                 solid: false,
+                key: p.key,
                 backdrop: if p.solid {
                     None
                 } else if p.content_w > 0 {
@@ -369,143 +366,24 @@ impl ShellWindow {
                         cache: BackdropCache::None,
                     })
                 } else {
-                    p.blur.map(|blur| LayerBackdrop {
+                    // The CPU executor's cache when the window has one; a GPU that composes
+                    // blurs and caches the glass itself (its plan), so the glass is declared
+                    // without one.
+                    let cache = match p.blur {
+                        Some(blur) => Some(glass_cache(blur)),
+                        None => p.gpu_glass.then_some(BackdropCache::None),
+                    };
+                    cache.map(|cache| LayerBackdrop {
                         blur_radius: DARK_GLASS_BLUR_RADIUS,
                         saturation_percent: DARK_GLASS_SATURATION_PERCENT,
                         restore_halo_pad: 0,
                         retained_src_y_offset: RETAINED_ROW_OFFSET,
-                        cache: glass_cache(blur),
+                        cache,
                     })
                 },
             },
             (mode_w, mode_h),
         );
-        // `built_blur`: the cache was (re)built this present iff a cache exists
-        // and was invalid (no cache → nothing was built).
-        p.blur.map(|b| !b.valid).unwrap_or(false)
-    }
-
-    /// Composite a glass window whose body **scrolls** by a GPU source-row offset
-    /// while a fixed top (WM title + app header) AND a fixed bottom (app footer)
-    /// stay put — the WebRender packed-band mechanism (render once into a TALL
-    /// atlas band, GPU `src_row` offset per scroll, no per-frame re-render). This
-    /// is a THREE-slice composite:
-    ///
-    /// 1. **Body** (the scrolling viewport): the layer covering the region
-    ///    between the fixed top and bottom, sampled at `src_row_abs =
-    ///    atlas_row + content_offset` — where `content_offset = header_h +
-    ///    footer_h + scroll_rows`: a scroll step is a present that moves this row
-    ///    (TASK-0338), the retained layers re-composited on the GPU.
-    /// 2. **Fixed top slice** (`header_h` rows = WM title bar + app header):
-    ///    composited from atlas row 0, opaque, occludes the top of the body.
-    /// 3. **Fixed bottom slice** (`footer_h` rows = app composer): composited from
-    ///    the atlas rows RIGHT AFTER the top slice (`atlas_row + header_h`, where
-    ///    the app packed the footer) to the bottom of the window, opaque.
-    ///
-    /// The three slices TILE the window with no overlap/gap (top / body / bottom).
-    /// Returns true when the blur cache was (re)built this present.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn composite_scrollable_glass(
-        encoder: &mut RenderCommandEncoder<'_>,
-        p: GlassCompositeParams,
-        content_offset: u32,
-        header_h: u32,
-        footer_h: u32,
-        content_h: u32,
-        mode_w: u32,
-        mode_h: u32,
-    ) -> bool {
-        if p.x >= mode_w || p.y >= mode_h {
-            return false;
-        }
-        // 1. Body (viewport): the scrolling content between the fixed slices,
-        //    `content_w/h: 0` (1:1). The frosted backdrop is cached (built once,
-        //    re-read thereafter). No corners / shadow — those belong to the fixed
-        //    top/bottom (a scroll viewport in the middle of a window has straight
-        //    edges). `scroll_band_*`: a backend that uploads the atlas uploads the
-        //    WHOLE band `[atlas_row, +header_h+footer_h+content_h]` ONCE, so the
-        //    present that scrolls samples rows already uploaded. The header/footer
-        //    fixed slices then sample already-uploaded rows.
-        let viewport_h = p.h.saturating_sub(header_h.saturating_add(footer_h));
-        let band_h = header_h.saturating_add(footer_h).saturating_add(content_h);
-        if viewport_h > 0 {
-            let _ = encoder.composite_layer_full(
-                &Layer {
-                    src_row_abs: p.atlas_row + content_offset,
-                    src_x: p.atlas_x,
-                    width: p.w,
-                    height: viewport_h,
-                    content_w: 0,
-                    content_h: 0,
-                    dst_x: p.x,
-                    dst_y: p.y + header_h,
-                    opacity: p.opacity as u32,
-                    corner_radius: 0,
-                    layer_id: p.layer_id,
-                    content_epoch: crate::atlas::atlas_content_epoch(),
-                    scroll_band_top_abs: p.atlas_row,
-                    scroll_band_h: band_h,
-                    shadow: None,
-                    opaque: false,
-                    solid: false,
-                    backdrop: p.blur.map(|blur| LayerBackdrop {
-                        blur_radius: DARK_GLASS_BLUR_RADIUS,
-                        saturation_percent: DARK_GLASS_SATURATION_PERCENT,
-                        restore_halo_pad: 0,
-                        retained_src_y_offset: RETAINED_ROW_OFFSET,
-                        cache: glass_cache(blur),
-                    }),
-                },
-                (mode_w, mode_h),
-            );
-        }
-        // 2.+3. Fixed slices — the top (WM title + app header, atlas rows
-        //    [0, header_h) → window top) and the bottom (app footer, atlas
-        //    rows right after the header block → window bottom). Both get the
-        //    SAME frosted backdrop treatment as the body (live blur; a slice
-        //    is small, no cache needed): they used to draw with no backdrop
-        //    at all, so a translucent header showed the raw, sharp desktop
-        //    while the body under it was frosted — a hard horizontal blur
-        //    seam exactly at the slice line. Still occluding (each slice
-        //    paints its full rect over the blur), still SQUARE (radius 0):
-        //    the WM title bar's TOP corners are rounded at the SURFACE level
-        //    (transparent corner pixels).
-        let mut fixed_slice = |src_row_off: u32, dst_y: u32, h: u32| {
-            if h == 0 {
-                return;
-            }
-            let _ = encoder.composite_layer_full(
-                &Layer {
-                    src_row_abs: p.atlas_row + src_row_off,
-                    src_x: p.atlas_x,
-                    width: p.w,
-                    height: h,
-                    content_w: 0,
-                    content_h: 0,
-                    dst_x: p.x,
-                    dst_y,
-                    opacity: 255,
-                    corner_radius: 0,
-                    layer_id: 0,
-                    content_epoch: crate::atlas::atlas_content_epoch(),
-                    scroll_band_top_abs: 0,
-                    scroll_band_h: 0,
-                    shadow: None,
-                    opaque: false,
-                    solid: false,
-                    backdrop: Some(LayerBackdrop {
-                        blur_radius: DARK_GLASS_BLUR_RADIUS,
-                        saturation_percent: DARK_GLASS_SATURATION_PERCENT,
-                        restore_halo_pad: 0,
-                        retained_src_y_offset: RETAINED_ROW_OFFSET,
-                        cache: BackdropCache::None,
-                    }),
-                },
-                (mode_w, mode_h),
-            );
-        };
-        fixed_slice(0, p.y, header_h);
-        fixed_slice(header_h, p.y + p.h.saturating_sub(footer_h), footer_h);
         // `built_blur`: the cache was (re)built this present iff a cache exists
         // and was invalid (no cache → nothing was built).
         p.blur.map(|b| !b.valid).unwrap_or(false)
@@ -573,4 +451,9 @@ pub(crate) struct GlassCompositeParams {
     /// Solid materials (TASK-0337): the window's page base is opaque — no backdrop is blurred,
     /// and the body occludes what lies below it.
     pub(crate) solid: bool,
+    /// The glass is blurred by a GPU that composes (windowd's GPU context): declared without a
+    /// CPU cache — the window holds no blur band.
+    pub(crate) gpu_glass: bool,
+    /// The body's identity across presents (RFC-0109: the planner's match).
+    pub(crate) key: u32,
 }

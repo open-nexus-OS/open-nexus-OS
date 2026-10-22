@@ -201,6 +201,11 @@ impl SolidSnap {
                 backdrop: None,
                 opaque: true,
                 solid: true,
+                key: super::surface_layers_encode::key(
+                    u32::from(slot) + 1,
+                    super::surface_layers_encode::KIND_SOLID,
+                    0,
+                ),
             },
             mode,
         );

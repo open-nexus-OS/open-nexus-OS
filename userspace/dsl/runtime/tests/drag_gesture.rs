@@ -115,7 +115,7 @@ fn a_drag_reports_to_the_node_that_took_its_start_wherever_it_goes() {
     let mut view = View::mount(&nxir, &tokens, &env((0, 0, 0, 0)), &locale).expect("mounts");
     let boxes = layout(&view);
     let surface = view
-        .hover_box_id_scrolled(&boxes, "DragStart", FxPx::new(40), FxPx::new(30), None)
+        .hover_box_id_scrolled(&boxes, "DragStart", FxPx::new(40), FxPx::new(30), &[])
         .expect("the press lands on the drag node");
     // The start: the press and the pointer as the host fills them.
     let start = env((44, 33, 40, 30));
@@ -141,10 +141,10 @@ fn test_reject_a_press_beside_the_node_and_boxes_or_triggers_without_a_handler()
     let mut view = View::mount(&nxir, &tokens, &env((0, 0, 0, 0)), &locale).expect("mounts");
     let boxes = layout(&view);
     let beside =
-        view.hover_box_id_scrolled(&boxes, "DragStart", FxPx::new(40), FxPx::new(120), None);
+        view.hover_box_id_scrolled(&boxes, "DragStart", FxPx::new(40), FxPx::new(120), &[]);
     assert_eq!(beside, None, "a press beside the drag node starts no drag");
     let surface = view
-        .hover_box_id_scrolled(&boxes, "DragStart", FxPx::new(40), FxPx::new(30), None)
+        .hover_box_id_scrolled(&boxes, "DragStart", FxPx::new(40), FxPx::new(30), &[])
         .expect("drag node");
     let e = env((1, 1, 1, 1));
     let other = boxes.iter().map(|b| b.node_id).find(|id| *id != surface).expect("another box");

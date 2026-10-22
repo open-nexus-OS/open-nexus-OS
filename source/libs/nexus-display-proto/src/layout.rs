@@ -53,9 +53,10 @@ pub const SLOT_C_ROW: u32 = 4 * PLANE_ROWS;
 pub const RING_ROWS: [u32; 3] = [DISPLAY_ROW, SLOT_B_ROW, SLOT_C_ROW];
 /// Rows of the five display planes together — where the surface atlas begins.
 pub const ATLAS_ROW: u32 = 5 * PLANE_ROWS;
-/// Rows of the surface atlas: a desktop band, one resident scroll band, floating windows
-/// with their blur bands, the dock and fullscreen round-trips — eight display heights
-/// (measured: five starved on the fullscreen re-create with four windows open).
+/// Rows of the surface atlas: the desktop surface and the floating windows — each its base and
+/// its store (its scroll layers' bands and its wash patch, RFC-0109) — the windows' blur bands,
+/// the dock and fullscreen round-trips — eight display heights (measured: five starved on the
+/// fullscreen re-create with four windows open).
 pub const ATLAS_ROWS: u32 = 8 * PLANE_ROWS;
 /// Total rows of the shared resource: the four planes plus the atlas.
 pub const RESOURCE_HEIGHT: u32 = ATLAS_ROW + ATLAS_ROWS;

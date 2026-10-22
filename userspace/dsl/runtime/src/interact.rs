@@ -19,8 +19,16 @@ use alloc::vec::Vec;
 use nexus_dsl_ir::ui_ir_capnp::BindValue;
 use nexus_layout_types::{FxPx, LayoutNode};
 
-/// A scrolled viewport for hit-testing: `(viewport (x0,y0,x1,y1), dx, dy)`.
-pub type ScrollView = ((i32, i32, i32, i32), i32, i32);
+/// A scroll layer as the hit-test sees it (RFC-0109): the scroll container's node id (its
+/// content's `LayoutBox::scroll_root`), its viewport on the surface `(x0, y0, x1, y1)` and its
+/// offset — a surface point inside the viewport lands on the content point moved by `(dx, dy)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollLayerView {
+    pub root: usize,
+    pub viewport: (i32, i32, i32, i32),
+    pub dx: i32,
+    pub dy: i32,
+}
 
 /// What a triggered handler does.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,26 +151,18 @@ pub fn hit<'h>(
     x: FxPx,
     y: FxPx,
 ) -> Option<Hit<'h>> {
-    hit_scrolled(handlers, boxes, trigger_sym, x, y, None, None)
+    hit_scrolled(handlers, boxes, trigger_sym, x, y, &[], None)
 }
 
-/// Paint-time scroll transform for hit-testing, mirroring exactly what the
-/// scrolled painter does — input and pixels can never disagree.
+/// The hit-test over the page's layers (RFC-0109), mirroring exactly what the compositor shows
+/// — input and pixels can never disagree.
 ///
-/// A clipped box is tested against its OWN viewport, and the scroll shift
-/// applies only to boxes whose clip lies inside the ACTIVE scroll container
-/// (`scroll` = that container's viewport + dx/dy). Three cases:
-///
-///   * clip == active viewport — direct scroll content: hittable on the
-///     viewport, tested at the shifted point `(x+dx, y+dy)`.
-///   * clip strictly INSIDE the active viewport — a nested clip that rides
-///     the scrolled content: its window itself is shifted on the surface.
-///   * clip elsewhere — a second, static viewport (another `.scroll`
-///     container, a widget-internal clip): hittable inside its own window at
-///     the identity point. This used to `continue` — a page with a scrolling
-///     content pane AND a sidebar rejected every sidebar-or-pane handler
-///     whose tap fell outside the ONE viewport the caller picked, which read
-///     as "the whole content area is dead".
+/// A box of the base is tested at the point. A box of a scroll layer's content
+/// (`LayoutBox::scroll_root`) is hittable only inside that layer's viewport, at the point moved
+/// by the layer's offset (`layers`; a layer without a view is at offset 0 in its container's
+/// own viewport). Either way the box's clip — the clips inside its content — is tested in the
+/// box's own space. Every scroll layer of a page is hittable at once: a sidebar beside a
+/// scrolling pane, two panes, a pager.
 #[must_use]
 ///
 /// `confine` (TASK-0074): the topmost modal's node path — while a modal is
@@ -175,7 +175,7 @@ pub fn hit_scrolled<'h>(
     trigger_sym: u32,
     x: FxPx,
     y: FxPx,
-    scroll: Option<ScrollView>,
+    layers: &[ScrollLayerView],
     confine: Option<&[u32]>,
 ) -> Option<Hit<'h>> {
     let mut best: Option<Hit<'h>> = None;
@@ -188,36 +188,19 @@ pub fn hit_scrolled<'h>(
         let Some(layout_box) = boxes.iter().find(|b| b.node_id == *box_id) else {
             continue;
         };
-        let (mut px, mut py) = (x, y);
-        if let Some(clip) = layout_box.clip_rect {
-            let (cx0, cy0) = (clip.x.0, clip.y.0);
-            let (cx1, cy1) = (cx0 + clip.width.0, cy0 + clip.height.0);
-            // The box's hittable WINDOW in surface space, and whether the
-            // point shifts (scrolls) inside it.
-            let (window, shifted) = match scroll {
-                Some((vc, _, _)) if (cx0, cy0, cx1, cy1) == vc => (vc, true),
-                Some((vc, dx, dy)) if cx0 >= vc.0 && cy0 >= vc.1 && cx1 <= vc.2 && cy1 <= vc.3 => {
-                    // Nested clip riding the scrolled content: its window is
-                    // shifted by the offset, bounded by the viewport.
-                    let w = (
-                        (cx0 - dx).max(vc.0),
-                        (cy0 - dy).max(vc.1),
-                        (cx1 - dx).min(vc.2),
-                        (cy1 - dy).min(vc.3),
-                    );
-                    (w, true)
+        let (px, py) = match layout_box.scroll_root {
+            Some(root) => {
+                let Some(view) = layer_view(root, layers, boxes) else { continue };
+                let (vx0, vy0, vx1, vy1) = view.viewport;
+                if x.0 < vx0 || x.0 >= vx1 || y.0 < vy0 || y.0 >= vy1 {
+                    continue;
                 }
-                _ => ((cx0, cy0, cx1, cy1), false),
-            };
-            if x.0 < window.0 || x.0 >= window.2 || y.0 < window.1 || y.0 >= window.3 {
-                continue;
+                (FxPx::new(x.0 + view.dx), FxPx::new(y.0 + view.dy))
             }
-            if shifted {
-                if let Some((_, dx, dy)) = scroll {
-                    px = FxPx::new(x.0 + dx);
-                    py = FxPx::new(y.0 + dy);
-                }
-            }
+            None => (x, y),
+        };
+        if layout_box.clip_rect.is_some_and(|clip| !contains(clip, FxPx::ZERO, px, py)) {
+            continue;
         }
         let rect = layout_box.rect;
         // The point is reported in the BOX'S space (scroll applied), so a
@@ -243,6 +226,23 @@ pub fn hit_scrolled<'h>(
     best.or(slop_best.map(|(_, hit)| hit))
 }
 
+/// Scroll layer `root`'s view: the caller's when it has one, else its container's own viewport
+/// (the clip it imposes on its content) at offset 0 — a container past the layer bound,
+/// flattened. `None`
+/// when the container is not laid out (a stale root).
+fn layer_view(
+    root: usize,
+    layers: &[ScrollLayerView],
+    boxes: &[nexus_layout::LayoutBox],
+) -> Option<ScrollLayerView> {
+    if let Some(l) = layers.iter().find(|l| l.root == root) {
+        return Some(*l);
+    }
+    let c = boxes.iter().find(|b| b.node_id == root)?.content_clip?;
+    let viewport = (c.x.0, c.y.0, c.x.0 + c.width.0, c.y.0 + c.height.0);
+    Some(ScrollLayerView { root, viewport, dx: 0, dy: 0 })
+}
+
 /// Point-in-rect, optionally grown outward by `slop` on all four sides.
 fn contains(rect: nexus_layout_types::Rect, slop: FxPx, px: FxPx, py: FxPx) -> bool {
     px >= rect.x - slop
@@ -264,7 +264,7 @@ fn edge_distance_sq(rect: nexus_layout_types::Rect, px: FxPx, py: FxPx) -> i64 {
 mod hit_slop_tests {
     use super::*;
     use nexus_layout::LayoutBox;
-    use nexus_layout_types::{Overflow, Rect, VisualStyle};
+    use nexus_layout_types::{Rect, VisualStyle};
 
     const TAP: u32 = 7;
 
@@ -275,12 +275,8 @@ mod hit_slop_tests {
             rect: Rect::new(FxPx::new(x), FxPx::new(y), FxPx::new(w), FxPx::new(h)),
             z_index: 0,
             visual: VisualStyle::default(),
-            clip_rect: None,
-            scroll_offset: (FxPx::ZERO, FxPx::ZERO),
-            overflow: Overflow::Visible,
             hit_slop: FxPx::new(slop),
-            glass_nested: false,
-            text_px: None,
+            ..LayoutBox::default()
         }
     }
 
@@ -304,7 +300,7 @@ mod hit_slop_tests {
         x: i32,
         y: i32,
     ) -> Option<usize> {
-        hit_scrolled(handlers, boxes, TAP, FxPx::new(x), FxPx::new(y), None, None).map(|h| h.box_id)
+        hit_scrolled(handlers, boxes, TAP, FxPx::new(x), FxPx::new(y), &[], None).map(|h| h.box_id)
     }
 
     /// The bug this exists for: a 29x28 status pill in a 36px-tall top bar is
@@ -361,31 +357,27 @@ mod multi_viewport_tests {
 
     const TAP: u32 = 7;
 
-    fn clipped(
+    fn content(
         node_id: usize,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-        clip: (i32, i32, i32, i32),
+        (x, y, w, h): (i32, i32, i32, i32),
+        root: Option<usize>,
+        clip: Option<(i32, i32, i32, i32)>,
     ) -> LayoutBox {
         LayoutBox {
             node_id,
-            id: None,
             rect: Rect::new(FxPx::new(x), FxPx::new(y), FxPx::new(w), FxPx::new(h)),
-            z_index: 0,
             visual: VisualStyle::default(),
-            clip_rect: Some(Rect::new(
-                FxPx::new(clip.0),
-                FxPx::new(clip.1),
-                FxPx::new(clip.2 - clip.0),
-                FxPx::new(clip.3 - clip.1),
-            )),
-            scroll_offset: (FxPx::ZERO, FxPx::ZERO),
+            clip_rect: clip.map(|c| {
+                Rect::new(
+                    FxPx::new(c.0),
+                    FxPx::new(c.1),
+                    FxPx::new(c.2 - c.0),
+                    FxPx::new(c.3 - c.1),
+                )
+            }),
             overflow: Overflow::Visible,
-            hit_slop: FxPx::ZERO,
-            glass_nested: false,
-            text_px: None,
+            scroll_root: root,
+            ..LayoutBox::default()
         }
     }
 
@@ -403,50 +395,84 @@ mod multi_viewport_tests {
         )
     }
 
-    /// The settings-window regression: a static sidebar viewport NEXT TO the
-    /// active (scrolling) content viewport. The old code tested every clipped
-    /// box against the ONE active viewport, so the sidebar's own handlers —
-    /// and, when the sidebar happened to be picked as active, the whole
-    /// content pane — read as dead ("apphost: input tap miss" on every row).
+    /// Settings: a scrolling sidebar BESIDE a scrolling content pane — two scroll layers of one
+    /// page, both hittable at once, each at its own offset (RFC-0109).
     #[test]
-    fn a_second_static_viewport_stays_hittable() {
-        // Sidebar viewport x 0..200, content viewport x 260..960 (active,
-        // scrolled down by 50).
-        let active = ((260, 40, 960, 500), 0, 50);
+    fn every_scroll_layer_of_a_page_is_hittable_at_once() {
+        let layers = [
+            ScrollLayerView { root: 2, viewport: (0, 40, 200, 500), dx: 0, dy: 0 },
+            ScrollLayerView { root: 8, viewport: (260, 40, 960, 500), dx: 0, dy: 50 },
+        ];
         let handlers = [handler(3), handler(9)];
         let boxes = [
-            clipped(3, 10, 100, 180, 40, (0, 40, 200, 500)), // sidebar row
-            clipped(9, 270, 130, 600, 40, (260, 40, 960, 500)), // scrolled row (model y)
+            content(3, (10, 100, 180, 40), Some(2), None), // a sidebar row
+            content(9, (270, 130, 600, 40), Some(8), None), // a content row (layout y)
         ];
-        // Sidebar row: identity hit inside its own viewport.
         let hit = |x: i32, y: i32| {
-            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active), None)
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), &layers, None)
                 .map(|h| h.box_id)
         };
-        assert_eq!(hit(50, 120), Some(3), "static sidebar viewport must hit");
-        // Scrolled row: model y 130..170, on the surface at 80..120.
-        assert_eq!(hit(300, 100), Some(9), "active viewport hits at the shifted point");
-        assert_eq!(hit(300, 140), None, "the row's model position is NOT on the surface");
-        // Outside both viewports: nothing.
-        assert_eq!(hit(220, 120), None);
+        assert_eq!(hit(50, 120), Some(3), "the sidebar's layer at its own offset");
+        // The content row: layout y 130..170, on the surface at 80..120.
+        assert_eq!(hit(300, 100), Some(9), "the pane's layer at the moved point");
+        assert_eq!(hit(300, 140), None, "the row's layout position is not on the surface");
+        assert_eq!(hit(220, 120), None, "between the viewports");
     }
 
-    /// A nested clip riding the scrolled content: its hit window shifts with
-    /// the scroll offset instead of staying at the model position.
+    /// A clip inside a layer's content moves with it: tested in the content's space.
     #[test]
-    fn a_nested_clip_inside_the_active_viewport_scrolls_with_it() {
-        let active = ((260, 40, 960, 500), 0, 50);
+    fn a_clip_inside_the_content_scrolls_with_it() {
+        let layers = [ScrollLayerView { root: 8, viewport: (260, 40, 960, 500), dx: 0, dy: 50 }];
         let handlers = [handler(5)];
-        // The box's nearest clip is a nested hidden container at model y
-        // 200..280, inside the active viewport; on the surface it sits at
-        // 150..230.
-        let boxes = [clipped(5, 270, 210, 600, 40, (260, 200, 960, 280))];
+        let boxes = [content(5, (270, 210, 600, 40), Some(8), Some((260, 200, 960, 280)))];
         let hit = |x: i32, y: i32| {
-            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), Some(active), None)
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), &layers, None)
                 .map(|h| h.box_id)
         };
-        // Box model y 210..250 → surface 160..200.
-        assert_eq!(hit(300, 170), Some(5), "shifted window hits");
-        assert_eq!(hit(300, 220), None, "the model position no longer hits");
+        assert_eq!(hit(300, 170), Some(5), "content y 220: inside the clip and the box");
+        assert_eq!(hit(300, 220), None, "content y 270: the clip, not the box");
+    }
+
+    /// Content laid out below the viewport is not under the pointer there: a box of a layer is
+    /// hit inside its viewport only.
+    #[test]
+    fn test_reject_a_content_hit_outside_its_viewport() {
+        let layers = [ScrollLayerView { root: 8, viewport: (260, 40, 960, 500), dx: 0, dy: 0 }];
+        let handlers = [handler(9)];
+        let boxes = [content(9, (270, 600, 600, 40), Some(8), None)];
+        let hit = |x: i32, y: i32| {
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(x), FxPx::new(y), &layers, None)
+                .map(|h| h.box_id)
+        };
+        assert_eq!(hit(300, 610), None, "below the viewport: covered by the base");
+        // Scrolled by 200: the row is on the surface at 400..440.
+        let layers = [ScrollLayerView { dy: 200, ..layers[0] }];
+        assert_eq!(
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(300), FxPx::new(410), &layers, None)
+                .map(|h| h.box_id),
+            Some(9)
+        );
+    }
+
+    /// A root the caller has no view for sits at offset 0 in its container's own viewport.
+    #[test]
+    fn a_layer_without_a_view_is_at_rest_in_its_container() {
+        let mut container = content(8, (260, 40, 700, 460), None, Some((260, 40, 960, 500)));
+        container.overflow = Overflow::Scroll(nexus_layout_types::ScrollAxis::Vertical);
+        // The viewport is the clip it imposes on its content; nothing clips the container itself.
+        container.content_clip = container.clip_rect.take();
+        let handlers = [handler(9)];
+        let boxes = [container, content(9, (270, 60, 600, 40), Some(8), None)];
+        assert_eq!(
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(300), FxPx::new(70), &[], None)
+                .map(|h| h.box_id),
+            Some(9)
+        );
+        assert_eq!(
+            hit_scrolled(&handlers, &boxes, TAP, FxPx::new(300), FxPx::new(30), &[], None)
+                .map(|h| h.box_id),
+            None,
+            "above the viewport"
+        );
     }
 }

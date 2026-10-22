@@ -336,6 +336,7 @@ mod tests {
             layer_id: 0,
             content_epoch: 0,
             flags: 0,
+            key: 0,
         };
         let mut window = None;
         for _ in 0..FrameStats::WINDOW {

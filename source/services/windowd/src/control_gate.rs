@@ -9,7 +9,9 @@
 //!
 //! Two gates, one shape:
 //!   * `own_window_gate` — an app's `CONTROL_WIN_*` may act on its OWN
-//!     window only (closes the recorded spoofable-value-byte follow-up).
+//!     window only; `own_window` resolves that window FROM the sender (a
+//!     verb names no window: board cycle 58, a 4-bit id in the value broke
+//!     every control once surface ids passed 15).
 //!   * `taskbar_gate` — `OP_SURFACE_TASKBAR` verbs are accepted from the
 //!     DESKTOP-surface owner (the shell) only.
 //! OWNERS: @ui
@@ -38,6 +40,16 @@ pub fn own_window_gate(owner_sid: u64, sender_sid: u64) -> GateVerdict {
     } else {
         GateVerdict::Allow
     }
+}
+
+/// The app window `sender_sid` owns: `owners[i]` is slot `i`'s captured owner while it holds a
+/// surface (`None` otherwise). A `CONTROL_WIN_*` verb acts on that window — resolved from the
+/// sender, never from a payload id.
+#[must_use]
+pub fn own_window(owners: impl IntoIterator<Item = Option<u64>>, sender_sid: u64) -> Option<usize> {
+    owners.into_iter().position(|owner| {
+        owner.is_some_and(|o| own_window_gate(o, sender_sid) == GateVerdict::Allow)
+    })
 }
 
 /// May `sender_sid` send taskbar verbs, given the captured desktop owner?
@@ -93,5 +105,21 @@ mod tests {
     #[test]
     fn taskbar_allows_the_desktop_owner() {
         assert_eq!(taskbar_gate(SHELL, SHELL), GateVerdict::Allow);
+    }
+
+    /// A control acts on the sender's own window, whatever its surface id.
+    #[test]
+    fn a_control_resolves_the_senders_own_window() {
+        let owners = [Some(0x51), None, Some(0x77)];
+        assert_eq!(own_window(owners, 0x77), Some(2));
+        assert_eq!(own_window(owners, 0x51), Some(0));
+    }
+
+    #[test]
+    fn test_reject_a_control_from_a_sender_owning_no_window() {
+        let owners = [Some(0x51), None, Some(0)];
+        assert_eq!(own_window(owners, 0x99), None, "a foreign sender");
+        assert_eq!(own_window(owners, 0), None, "sid 0");
+        assert_eq!(own_window([Some(0), None], 0), None, "an uncaptured owner owns nothing");
     }
 }

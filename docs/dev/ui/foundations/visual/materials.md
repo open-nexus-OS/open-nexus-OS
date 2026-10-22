@@ -62,10 +62,12 @@ opacity), its cards, subtle rows and bar as no region at all (tint in the surfac
 regions as glass; the planner cuts what lies under an opaque layer (`nexus_gfx::frame::occlude`)
 and runs the opaque program on its straight parts. Rule 4 is the planner's: a glass of a window in
 motion keeps its rows (`GlassCache::keep`). Rule 5 is `ui.material = solid` — the theme byte's
-`THEME_SOLID`, `SolidTokens` in app-host, the window body unblurred and opaque in windowd. State
-as a layer property (rule 3's wash) is not built: with the pane opaque and blur kept at rest a
-hover blurs nothing; whether the per-control layer protocol is worth its wire is measured first
-(TASK-0337 P3).
+`THEME_SOLID`, `SolidTokens` in app-host, the window body unblurred and opaque in windowd. Rule 3's
+wash is built for hover (RFC-0109, TASK-0341): the app draws one 16×16 patch of the theme's hover
+colour into its surface's store once, and a hover is a motion frame — the wash's rectangle,
+radius and opacity over the hovered control — that windowd composes as a layer; no app raster,
+no row copy. Press, selection and focus as wash opacity, and motion as layer properties (grow,
+dip), are the follow-on (TASK-0341).
 
 ## Where we use glass (recommended)
 

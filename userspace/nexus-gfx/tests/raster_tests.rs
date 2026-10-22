@@ -98,6 +98,34 @@ fn blit_within_copies_a_region() {
     assert_eq!(px(&buf, 11, 11), [1, 2, 3, 255]);
 }
 
+/// A layer's band spread over it, its opacity applied (RFC-0109: a wash's 14×14 patch over a
+/// hovered row on the CPU executor — never the atlas pixels beside the patch).
+#[test]
+fn a_blended_layer_spreads_its_band_and_applies_its_opacity() {
+    let mut buf = fb();
+    {
+        let mut s = Surface::new(&mut buf, W);
+        // A 2×2 patch of one colour, a different colour right beside it.
+        fill_rect_solid(&mut s, 0, 0, 2, 2, [200, 0, 0, 255]);
+        fill_rect_solid(&mut s, 2, 0, 2, 2, [0, 200, 0, 255]);
+    }
+    let mut scratch = [0u8; (W * 4) as usize];
+    let mut s = Surface::new(&mut buf, W);
+    // The patch spread over a 10×4 rectangle at full opacity: every pixel is the patch's colour.
+    raster::blit_within_blend(&mut s, 0, 0, (2, 2), 10, 10, 10, 4, 255, &mut scratch).unwrap();
+    assert_eq!(px(&buf, 10, 10), [200, 0, 0, 255]);
+    assert_eq!(px(&buf, 19, 13), [200, 0, 0, 255], "the far corner samples the patch too");
+    // At opacity 51 over black: a fifth of the colour.
+    let mut s = Surface::new(&mut buf, W);
+    raster::blit_within_blend(&mut s, 0, 0, (2, 2), 10, 20, 4, 4, 51, &mut scratch).unwrap();
+    let p = px(&buf, 11, 21);
+    assert!(p[0] > 35 && p[0] < 45 && p[1] == 0, "a fifth of the red, got {p:?}");
+    // The band of the layer's own size is the plain composite.
+    let mut s = Surface::new(&mut buf, W);
+    raster::blit_within_blend(&mut s, 2, 0, (0, 0), 0, 26, 2, 2, 255, &mut scratch).unwrap();
+    assert_eq!(px(&buf, 1, 27), [0, 200, 0, 255]);
+}
+
 #[test]
 fn blur_box_runs_allocation_free_and_reports_small_scratch() {
     let mut buf = fb();

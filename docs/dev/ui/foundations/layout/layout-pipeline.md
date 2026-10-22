@@ -68,7 +68,9 @@ The default frame/update pipeline is:
    - Text wrapping and line breaking happen here using prepared text data plus available width buckets.
 4. **Placement**
    - Assign final rects/offsets to already measured nodes.
-   - Scroll offset changes should normally affect placement, not text preparation.
+   - A scroll offset affects neither placement nor paint: a scroll layer's content is placed and
+     painted once at identity, and the compositor moves it (RFC-0109,
+     `docs/dev/ui/foundations/layout/scroll.md`).
 5. **Paint eligibility / scene submission**
    - Decide which nodes produce visible scene primitives and which regions are dirty.
    - Submission remains damage-aware per `docs/dev/ui/foundations/quality/performance-philosophy.md`.
@@ -122,7 +124,7 @@ The default mapping should be:
 | --- | --- | --- |
 | theme color/token only | `paint-only` | no geometry or wrapping changes |
 | opacity/z-order-only overlay update | `paint-only` | placement unchanged |
-| scroll offset | `place-only` | anchor stays stable |
+| scroll offset | none (compositor) | the layer's offset moves; layout and paint untouched (RFC-0109) |
 | sticky header progress / sheet offset | `place-only` | measurement unchanged |
 | width bucket change | `measure+place` | text prep reused where shaping inputs are stable |
 | expand/collapse row | `measure+place` | local subtree preferred |
@@ -140,7 +142,8 @@ Every state/theme/locale/viewport change should map to one of these invalidation
 - **paint-only**
   - color/token/opacity/icon tint changed; geometry and wrapping unchanged
 - **place-only**
-  - scroll offset, alignment offset, overlay position, or other pure rect movement changed
+  - alignment offset, overlay position, or other pure rect movement changed (a scroll offset is
+    not even that: the compositor moves the layer)
 - **measure+place**
   - constraints, available width bucket, visibility mode, expand/collapse, or item content size changed
 - **text-prep+measure+place**
@@ -247,7 +250,6 @@ Placement should not redo expensive measurement work unless it must.
 
 Typical place-only updates:
 
-- scrolling,
 - sticky header offsets,
 - viewport clipping offsets,
 - anchored overlay positioning,

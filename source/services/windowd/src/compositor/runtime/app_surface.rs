@@ -16,28 +16,49 @@
 
 use super::app_window::nexus_abi_cap_close;
 use super::*;
+use crate::surface_regions::SurfaceRegions;
 
 impl DisplayServerRuntime {
-    /// Acquire atlas surfaces + show the window (mirrors `open_dsl_demo`).
-    pub(super) fn open_app_window(&mut self, idx: usize) -> bool {
+    /// Acquire the window's atlas regions + show it: its BASE, its STORE (RFC-0109: a region of
+    /// its own, the store's used width, placed wherever it fits) and — where the CPU executor
+    /// composes — its blur cache. `None`: no room (the window cannot show). `Some(false)`: shown
+    /// without its store, which only a create may accept (`may_drop_store`: the client is told
+    /// and paints its scroll layers flat); a re-mount needs the store the client paints into.
+    pub(super) fn open_app_window(&mut self, idx: usize, may_drop_store: bool) -> Option<bool> {
+        let mut store_placed = true;
         if !self.apps[idx].win.is_mounted() {
             let w = self.apps[idx].win.w;
             let h = self.apps[idx].win.h;
-            // WebRender compositor-scroll: the CONTENT band is physically TALL —
-            // it holds the whole resident content ONCE (WM title + the app's
-            // packed header/footer/content band) so a scroll is a pure gpud
-            // `src_row` shift, no per-frame re-blit. A non-scroll surface
-            // (`scroll_id == 0`) keeps the VISIBLE-sized band (unchanged).
-            let content_rows =
-                if self.apps[idx].scroll_id != 0 { self.app_band_height(idx).max(h) } else { h };
-            let Some(content) = self.atlas_alloc.alloc(w, content_rows) else {
+            let client = self.apps[idx]
+                .surface_id
+                .and_then(|id| self.client_surfaces.get_by_id(id))
+                .copied();
+            // The base: never shorter than the frame it opens in.
+            let base_rows = client.map_or(h, |c| u32::from(c.height)).max(h);
+            let Some(content) = self.atlas_alloc.alloc(w, base_rows) else {
                 let _ = debug_println(&alloc::format!(
                     "WINDOWD: surface open FAIL atlas (need={}x{} rows_remaining={})",
                     w,
-                    content_rows,
+                    base_rows,
                     self.atlas_alloc.rows_remaining()
                 ));
-                return false;
+                return None;
+            };
+            let store = match client.filter(|c| c.rows > c.height) {
+                Some(c) => {
+                    let (sw, sh) = (u32::from(c.store_w), u32::from(c.rows - c.height));
+                    let placed = self.atlas_alloc.alloc(sw, sh);
+                    if placed.is_none() && !may_drop_store {
+                        self.atlas_alloc.free(content);
+                        let _ = debug_println(&alloc::format!(
+                            "WINDOWD: surface open FAIL atlas (store={sw}x{sh})"
+                        ));
+                        return None;
+                    }
+                    store_placed = placed.is_some();
+                    placed
+                }
+                None => None,
             };
             // The allocator recycles freed regions, and `render_app_surface`
             // only ever blits `title_h + band rows` — an allocation taller
@@ -54,12 +75,12 @@ impl DisplayServerRuntime {
             // `base_alpha` on the declared mode), so dropping the band here
             // rendered a fullscreened window as unblurred tracing paper over
             // the raw desktop.
-            let blur = if self.app_presentation(idx).full_screen {
-                None
+            let blur = if self.app_presentation(idx).full_screen || self.gpu_composes {
+                None // a GPU that composes blurs and caches the glass itself
             } else {
                 self.atlas_alloc.alloc(w, h) // best-effort
             };
-            self.apps[idx].win.mount(content, blur);
+            self.apps[idx].win.mount((content, store), blur);
         }
         self.apps[idx].win.visible = true;
         let wid = crate::window_scene::WindowId::App(idx as u8);
@@ -73,35 +94,19 @@ impl DisplayServerRuntime {
             self.show_window(wid);
         }
         self.apps[idx].win.surface_dirty = true;
-        self.apps[idx].surface_dirty_rows = None; // (re)shown: full re-blit
+        self.apps[idx].surface_damage = super::surface_layers::DamageRows::FULL; // (re)shown
         let rect = self.app_window_rect(idx);
         self.queue_dirty_rect(rect);
-        true
+        Some(store_placed)
     }
 
-    /// Reset everything derived from THE SURFACE when a client (re)creates
-    /// one: the WebRender band geometry, the scroll position, and the declared
-    /// glass rects. All of it is surface-local, so none of it may survive the
-    /// surface it describes — a resize is a destroy + create, and the stale
-    /// half is exactly what painted the file manager's panes at their old size
-    /// in the corner of a maximized window (see `clear_app_layers`).
-    pub(super) fn reset_surface_state(
-        &mut self,
-        idx: usize,
-        content_h: u16,
-        header_h: u16,
-        footer_h: u16,
-    ) {
-        self.apps[idx].content_h = u32::from(content_h);
-        self.apps[idx].header_h = u32::from(header_h);
-        self.apps[idx].footer_h = u32::from(footer_h);
-        self.apps[idx].scroll_rows = 0;
-        self.apps[idx].scroll_momentum =
-            animation::ScrollMomentum::new(animation::ScrollConfig::default());
-        self.apps[idx].scroll_last_ns = 0;
-        self.apps[idx].scroll_id =
-            if content_h > 0 && (idx + 1) <= super::MAX_SCROLL_IDS { (idx as u32) + 1 } else { 0 };
-        self.clear_app_layers(idx);
+    /// Reset everything derived from THE SURFACE when a client (re)creates one: its declared
+    /// layers (RFC-0109) — regions, scroll layers, washes. All of it is surface-local, so none
+    /// of it may survive the surface it describes — a resize is a destroy + create, and the stale
+    /// half is exactly what painted the file manager's panes at their old size in the corner of a
+    /// maximized window. Fail-closed: a surface has no layers until it declares some.
+    pub(super) fn reset_surface_state(&mut self, idx: usize) {
+        self.apps[idx].layers.clear();
     }
 
     /// Zero every pixel of a freshly allocated atlas region (best-effort:
@@ -120,24 +125,6 @@ impl DisplayServerRuntime {
             let dst = (surface.abs_row + r) as usize * stride + col_off;
             let _ = vmo_write(handle, dst, &self.band_scratch[..row_bytes]);
         }
-    }
-
-    /// Forget the app's declared material-glass regions.
-    ///
-    /// A surface's glass rects are SURFACE-LOCAL, so they are only meaningful
-    /// for the surface that declared them. A resize re-creates the surface
-    /// (destroy + create at the new size) and the rects must not survive that:
-    /// the file manager kept the 3 pane rects of its 960×526 layout after
-    /// maximizing to 1280×744 and composited them, unchanged, at the window
-    /// origin — a small rectangle in the top-left corner that never resized.
-    /// Nothing revealed it earlier because a SCROLLING surface takes the
-    /// 3-slice composite path, which ignores layers entirely; the maximize
-    /// made the listing fit, which turned scrolling off, which took the branch
-    /// that reads them.
-    ///
-    /// Fail-closed: a surface has no glass until it declares some.
-    pub(super) fn clear_app_layers(&mut self, idx: usize) {
-        self.apps[idx].layer_count = 0;
     }
 
     pub(super) fn close_app_window(&mut self, idx: usize) {
@@ -188,13 +175,8 @@ impl DisplayServerRuntime {
             let _ = nexus_abi_cap_close(ch);
         }
         self.apps[idx].frame_pulse_pending = false;
-        self.apps[idx].surface_dirty_rows = None;
-        self.apps[idx].scroll_id = 0;
-        self.apps[idx].content_h = 0;
-        self.apps[idx].header_h = 0;
-        self.apps[idx].footer_h = 0;
-        self.apps[idx].scroll_rows = 0;
-        self.clear_app_layers(idx);
+        self.apps[idx].surface_damage = super::surface_layers::DamageRows::FULL;
+        self.reset_surface_state(idx);
         // The slot's transform returns to the identity: every present carries every slot's
         // (a free slot's as the identity), so the next tenant never inherits a faded-out state.
         self.apps[idx].transform = WinTransform::IDENTITY;
@@ -238,7 +220,7 @@ impl DisplayServerRuntime {
                 && self.windows.is_visible(wid)
                 && !self.apps[idx].win.is_mounted()
             {
-                let _ = self.open_app_window(idx);
+                let _ = self.open_app_window(idx, false);
             }
         }
     }
@@ -251,113 +233,78 @@ impl DisplayServerRuntime {
     /// then calls this.
     pub(super) fn release_app_surface_band(&mut self, idx: usize) {
         let rect = self.app_window_rect(idx);
-        if let Some((content, blur)) = self.apps[idx].win.unmount() {
-            self.atlas_alloc.free(content);
-            if let Some(blur) = blur {
-                self.atlas_alloc.free(blur);
-            }
+        for region in self.apps[idx].win.unmount().into_iter().flatten().flatten() {
+            self.atlas_alloc.free(region);
         }
         self.queue_dirty_rect(rect);
     }
 
-    /// Blits the app surface out of its VMO into the window's atlas band:
-    /// title bar drawn by windowd (server-side decoration), body rows read
-    /// via `vmo_read` — the ADR-0042 damage-blit. Bounded by the surface
-    /// dims validated at create.
+    /// Copies the rows the app's presents named out of its VMO into the window's atlas region —
+    /// the ADR-0042 damage-blit, its base's rows and its store's (RFC-0109: a band's new rows,
+    /// a patch). Bounded by the surface's rows validated at create.
     pub(super) fn render_app_surface(&mut self, idx: usize) -> Result<(), WindowdError> {
         let Some(handle) = self.framebuffer else {
             return Ok(());
         };
-        let Some(surface) = self.apps[idx].win.atlas else {
+        let Some(base) = self.apps[idx].win.atlas else {
             return Ok(());
         };
+        let store = self.apps[idx].win.store;
         // BY ID: `get()` (first live) is ambiguous once several surfaces coexist.
         let Some(client) =
             self.apps[idx].surface_id.and_then(|id| self.client_surfaces.get_by_id(id)).copied()
         else {
             return Ok(());
         };
+        let damage = core::mem::replace(
+            &mut self.apps[idx].surface_damage,
+            super::surface_layers::DamageRows::NONE,
+        );
+        let regions = SurfaceRegions::of(&client, base, store);
+        self.copy_surface_rows(handle, &client, &regions, &damage)
+    }
+
+    /// The copy itself — one `vmo_read` and one `vmo_write` per row of each named span — shared
+    /// by the windows and the desktop (TASK-0339: timed into `work(copy_rows=`). A base row
+    /// lands in the base's region, a store row's used columns in the store's (RFC-0109).
+    pub(super) fn copy_surface_rows(
+        &mut self,
+        handle: Handle,
+        client: &crate::client_surface::ClientSurface,
+        regions: &SurfaceRegions,
+        damage: &super::surface_layers::DamageRows,
+    ) -> Result<(), WindowdError> {
         let stride = self.mode.stride as usize;
         if self.band_scratch.len() < stride {
             return Err(WindowdError::BufferLengthMismatch);
         }
-        let abs_row = surface.abs_row;
-        let col_off = surface.x as usize * 4;
-        let win_w = self.apps[idx].win.w.min(surface.width);
-        let win_h = self.apps[idx].win.h.min(surface.height);
-        let body_w = (client.width as u32).min(win_w);
-        let body_row_bytes = body_w as usize * 4;
-        let src_stride = client.width as usize * 4;
-        let tk = self.theme();
-        // WebRender compositor-scroll: a scrollable surface blits the WHOLE tall
-        // band ONCE (WM title + the app's packed header/footer/content band), so
-        // a scroll is a pure gpud `src_row` shift with no re-blit. The client's
-        // VMO is physically tall (`band_body_h` rows), independent of the frame's
-        // VISIBLE `client.height`. A non-scroll surface is byte-identical to
-        // before: iterate `win_h`, body bound = `client.height`.
-        let scrollable = self.apps[idx].scroll_id != 0;
-        let band_body_h = self.apps[idx]
-            .header_h
-            .saturating_add(self.apps[idx].footer_h)
-            .saturating_add(self.apps[idx].content_h);
-        let (blit_rows, body_limit) = if scrollable {
-            (band_body_h.min(surface.height), band_body_h)
-        } else {
-            (win_h, client.height as u32)
-        };
-        // Damage-bounded blit (ADR-0042, the 120Hz damage contract): a
-        // non-scroll present WITH damage rects re-copies only those body rows —
-        // the title chrome and untouched body rows keep their band bytes (a
-        // 16-row animation present costs 16 row-copies, not a full window +
-        // chrome re-raster at animation rate).
-        let (ly_start, ly_end) = if scrollable {
-            (0, blit_rows)
-        } else {
-            match self.apps[idx].surface_dirty_rows {
-                Some((y0, y1)) => (y0.min(blit_rows), y1.min(blit_rows)),
-                None => (0, blit_rows),
-            }
-        };
-        // TASK-0339: the rows this present copies into the atlas, timed (`work(copy_rows=`).
+        let src_stride = usize::from(client.width) * 4;
+        let mut spans = [(0u32, 0u32); 4];
+        let n = damage.spans(regions.rows, &mut spans);
         let copy_t0 = nexus_abi::nsec().unwrap_or(0);
-        for ly in ly_start..ly_end {
-            let row_bytes = win_w as usize * 4;
-            let row = &mut self.band_scratch[0..stride];
-            row[..row_bytes].fill(0);
-            {
-                // The surface's rows are the app's from row 0 (TASK-0337: no title bar).
-                let body_y = ly;
-                if body_y < body_limit {
-                    // The damage-blit: one surface row out of the app's VMO.
-                    #[cfg(nexus_env = "os")]
-                    {
-                        let src_off = body_y as usize * src_stride;
-                        if nexus_abi::vmo_read(client.vmo_slot, src_off, &mut row[..body_row_bytes])
-                            .is_err()
-                        {
-                            return Err(WindowdError::BufferLengthMismatch);
-                        }
-                    }
-                } else {
-                    // Below the app surface (max-size frame): glass tint.
-                    // (`GLASS_TINT_ALPHA` relocated from the deleted legacy
-                    // desktop_layer — ~59%, reads as frosted glass.)
-                    const GLASS_TINT_ALPHA: u8 = 150;
-                    crate::compositor::shell_window::write_tint_span(
-                        row,
-                        0,
-                        win_w,
-                        crate::theme::with_alpha(tk.glass_tint, GLASS_TINT_ALPHA),
-                    );
+        let mut copied = 0u64;
+        for &(y0, y1) in &spans[..n] {
+            for ly in y0..y1 {
+                let Some((row, col, width)) = regions.place(ly) else { continue };
+                let row_bytes = width as usize * 4;
+                let buf = &mut self.band_scratch[..row_bytes];
+                #[cfg(nexus_env = "os")]
+                if nexus_abi::vmo_read(client.vmo_slot, ly as usize * src_stride, buf).is_err() {
+                    return Err(WindowdError::BufferLengthMismatch);
                 }
+                #[cfg(not(nexus_env = "os"))]
+                let _ = (src_stride, &buf);
+                let dst = row as usize * stride + col as usize * 4;
+                vmo_write(handle, dst, &self.band_scratch[..row_bytes])
+                    .map_err(|_| WindowdError::BufferLengthMismatch)?;
+                copied += 1;
             }
-            let dst = (abs_row + ly) as usize * stride + col_off;
-            vmo_write(handle, dst, &self.band_scratch[..win_w as usize * 4])
-                .map_err(|_| WindowdError::BufferLengthMismatch)?;
         }
-        crate::atlas::note_atlas_content_write();
+        if copied > 0 {
+            crate::atlas::note_atlas_content_write();
+        }
         crate::compositor::frame_causes::work_copy(
-            u64::from(ly_end.saturating_sub(ly_start)),
+            copied,
             nexus_abi::nsec().unwrap_or(copy_t0).saturating_sub(copy_t0) / 1000,
         );
         Ok(())
@@ -365,16 +312,5 @@ impl DisplayServerRuntime {
 
     pub(super) fn app_window_rect(&self, idx: usize) -> DamageRect {
         self.apps[idx].win.damage_rect(self.mode.width, self.mode.height)
-    }
-
-    /// The full atlas-band height (rows) for a SCROLLABLE app surface: the app's packed
-    /// band (fixed header + fixed footer + the tall resident content,
-    /// `header_h + footer_h + content_h`). This is what the tall content band is alloc'd
-    /// to and what `render_app_surface` blits ONCE. Only meaningful when `scroll_id != 0`.
-    pub(super) fn app_band_height(&self, idx: usize) -> u32 {
-        self.apps[idx]
-            .header_h
-            .saturating_add(self.apps[idx].footer_h)
-            .saturating_add(self.apps[idx].content_h)
     }
 }

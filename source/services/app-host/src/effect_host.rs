@@ -85,8 +85,8 @@ pub(crate) struct AppEffectHost {
     /// engine queryd hosts; keyset paging = the DSL's lazy-loading window.
     query_store: Option<QueryStore>,
     /// This app's windowd surface id (set by main once the CREATE acks; 0 =
-    /// none yet). Rides in `CONTROL_WIN_*` values so windowd resolves the
-    /// caller's window — the recv path carries no sender identity (sid=0).
+    /// none yet). A window control needs one; windowd resolves the window from
+    /// the sender's identity (RFC-0086), never from this id.
     pub(crate) surface_id: u32,
     /// RFC-0086 window feed: the last `OP_SURFACE_WINDOWS` set windowd
     /// pushed, keyed by the owning app-host's kernel service id. Merged into

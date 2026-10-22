@@ -46,6 +46,10 @@ pub use readback::{OP_READBACK, READBACK_FREEZE};
 /// Screen capture on windowd's surface endpoint + the capture-key push (RFC-0095).
 pub mod surface_capture;
 pub mod surface_input;
+/// RFC-0109: the surface's structure and motion (scroll layers, wash layers).
+pub mod surface_layers;
+#[cfg(test)]
+mod surface_layers_tests;
 pub use grant::{
     decode_framebuffer_grant, encode_framebuffer_grant, encode_framebuffer_request,
     parse_display_request, FramebufferGrant, FRAMEBUFFER_GRANT_LEN, OP_FRAMEBUFFER_REQUEST,

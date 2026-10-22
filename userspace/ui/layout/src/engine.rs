@@ -9,12 +9,13 @@
 //! TEST_COVERAGE: engine_tests (8 tests)
 //! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
 
-use crate::boxes::{LayoutBox, LayoutResult};
+use crate::boxes::{LayoutBox, LayoutResult, PlaceCtx};
 use crate::constraints::{child_constraints, row_child_constraints};
 use crate::error::LayoutError;
 use crate::geometry::{
     align_offset, clamp_height, clamp_to_max_height, clamp_width, effective_item, grow_shares,
-    intersect_clip, is_scroll_viewport, justify_offsets, update_box_geometry,
+    intersect_clip, is_scroll_viewport, justify_offsets, scroll_content_size, scroll_root,
+    update_box_geometry,
 };
 use alloc::vec::Vec;
 use nexus_layout_types::{
@@ -107,7 +108,7 @@ impl LayoutEngine {
             constraints,
             0,
             None,
-            false,
+            PlaceCtx::default(),
             (FxPx::ZERO, FxPx::ZERO),
             measure,
             &mut node_count,
@@ -126,7 +127,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
-        in_glass: bool,
+        ctx: PlaceCtx,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -151,7 +152,7 @@ impl LayoutEngine {
                 constraints,
                 depth,
                 parent_clip,
-                in_glass,
+                ctx,
                 scroll_offset,
                 measure,
                 node_count,
@@ -167,7 +168,7 @@ impl LayoutEngine {
                 constraints,
                 depth,
                 parent_clip,
-                in_glass,
+                ctx,
                 scroll_offset,
                 measure,
                 node_count,
@@ -183,9 +184,11 @@ impl LayoutEngine {
                     hit_slop: spacer.item.hit_slop,
                     visual: VisualStyle::default(),
                     clip_rect: parent_clip,
+                    content_clip: None,
                     scroll_offset,
                     overflow: Overflow::Visible,
-                    glass_nested: in_glass,
+                    glass_nested: ctx.in_glass,
+                    scroll_root: ctx.scroll_root,
                     text_px: None,
                 });
                 Ok(NodeSize { width: main, height: FxPx::ZERO })
@@ -198,7 +201,7 @@ impl LayoutEngine {
                 y,
                 constraints,
                 parent_clip,
-                in_glass,
+                ctx,
                 scroll_offset,
                 measure,
                 boxes,
@@ -211,7 +214,7 @@ impl LayoutEngine {
                 y,
                 constraints,
                 parent_clip,
-                in_glass,
+                ctx,
                 scroll_offset,
                 measure,
                 boxes,
@@ -228,7 +231,7 @@ impl LayoutEngine {
         y: FxPx,
         constraints: LayoutConstraints,
         parent_clip: Option<Rect>,
-        in_glass: bool,
+        ctx: PlaceCtx,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         boxes: &mut Vec<LayoutBox>,
@@ -276,9 +279,11 @@ impl LayoutEngine {
             hit_slop: text.item.hit_slop,
             visual: style.clone(),
             clip_rect: parent_clip,
+            content_clip: None,
             scroll_offset,
             overflow: Overflow::Visible,
-            glass_nested: in_glass,
+            glass_nested: ctx.in_glass,
+            scroll_root: ctx.scroll_root,
             // Only when a `.textFit` ancestor actually overrode the authored
             // size — the painter falls back to the scene's own font otherwise.
             text_px: constraints.text_px.map(|_| fitted.font_size),
@@ -295,7 +300,7 @@ impl LayoutEngine {
         y: FxPx,
         constraints: LayoutConstraints,
         parent_clip: Option<Rect>,
-        in_glass: bool,
+        ctx: PlaceCtx,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         boxes: &mut Vec<LayoutBox>,
@@ -325,7 +330,7 @@ impl LayoutEngine {
             y,
             constraints,
             parent_clip,
-            in_glass,
+            ctx,
             scroll_offset,
             measure,
             boxes,
@@ -343,7 +348,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
-        in_glass: bool,
+        ctx: PlaceCtx,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -383,15 +388,18 @@ impl LayoutEngine {
             hit_slop: stack.item.hit_slop,
             visual: style.clone(),
             clip_rect: parent_clip,
+            content_clip: None,
             scroll_offset: container_scroll,
             overflow: stack.overflow,
-            glass_nested: in_glass,
+            glass_nested: ctx.in_glass,
+            scroll_root: ctx.scroll_root,
             text_px: None,
         });
-        // The container's DESCENDANTS are nested under this glass (the
-        // container itself is nested only under an ancestor's).
-        let in_glass =
-            in_glass || matches!(style.material, nexus_layout_types::SurfaceMaterial::Glass(_));
+        let ctx = ctx.under(style.material);
+        // RFC-0109: a top-level scroll container is the scroll ROOT of its content — placed at
+        // identity, clipped only by what clips inside it (the compositor clips it to the
+        // viewport, where it scrolls). One nested in another's content clips like `Hidden`.
+        let (ctx, container_clip) = scroll_root(stack.overflow, node_id, ctx, container_clip);
         let padding = stack.padding;
         let content_x = x + padding.left - container_scroll.0;
         let content_y = y + padding.top - container_scroll.1;
@@ -429,7 +437,7 @@ impl LayoutEngine {
                 child_constraints,
                 depth,
                 container_clip,
-                in_glass,
+                ctx,
                 container_scroll,
                 measure,
                 node_count,
@@ -444,7 +452,7 @@ impl LayoutEngine {
                 child_constraints,
                 depth,
                 container_clip,
-                in_glass,
+                ctx,
                 container_scroll,
                 measure,
                 node_count,
@@ -459,7 +467,7 @@ impl LayoutEngine {
                 content_width,
                 content_height,
             );
-            boxes[container_index].clip_rect = intersect_clip(Some(own), parent_clip);
+            boxes[container_index].content_clip = intersect_clip(Some(own), parent_clip);
         }
         Ok(NodeSize { width, height })
     }
@@ -473,7 +481,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
-        in_glass: bool,
+        ctx: PlaceCtx,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -513,6 +521,13 @@ impl LayoutEngine {
             let shares = grow_shares(free_or_deficit, total_grow, &grows);
             for ((_, _, _, _, base_main), extra) in in_flow.iter().zip(shares.iter()) {
                 allocations.push(*base_main + *extra);
+            }
+        } else if matches!(stack.overflow, Overflow::Scroll(_)) {
+            // Scroll viewport (a horizontal or paged scroller): children KEEP their content
+            // size and overflow the clip — shrinking them would leave nothing to scroll (a
+            // pager's page cells squeezed to fit its viewport).
+            for (_, _, _, _, base_main) in &in_flow {
+                allocations.push(*base_main);
             }
         } else {
             let deficit = (-free_or_deficit) as u32;
@@ -583,7 +598,7 @@ impl LayoutEngine {
                 child_c,
                 depth + 1,
                 parent_clip,
-                in_glass,
+                ctx,
                 scroll_offset,
                 measure,
                 node_count,
@@ -627,7 +642,7 @@ impl LayoutEngine {
                 child_c,
                 depth + 1,
                 parent_clip,
-                in_glass,
+                ctx,
                 scroll_offset,
                 measure,
                 node_count,
@@ -646,7 +661,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
-        in_glass: bool,
+        ctx: PlaceCtx,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -765,7 +780,7 @@ impl LayoutEngine {
                 child_c,
                 depth + 1,
                 parent_clip,
-                in_glass,
+                ctx,
                 scroll_offset,
                 measure,
                 node_count,
@@ -805,7 +820,7 @@ impl LayoutEngine {
                 child_c,
                 depth + 1,
                 parent_clip,
-                in_glass,
+                ctx,
                 scroll_offset,
                 measure,
                 node_count,
@@ -941,34 +956,11 @@ impl LayoutEngine {
         if visible_children > 1 {
             main += stack.gap * (visible_children as i32 - 1);
         }
-        // A clipped container is a SCROLL VIEWPORT: its content scrolls, so
-        // its preferred MAIN size must not be the content sum (that squeezed
-        // every sibling to its minimum — the CSS `min-height: 0` flex rule).
-        // The viewport takes only what flex gives it (`grow`). The same rule
-        // holds for its WIDTH: a vertical scroller's content width must not
-        // leak into the parent's flex negotiation (the settings overview grid
-        // measured 745px through its scroll pane and the row deficit squeezed
-        // the fixed 240px sidebar to 228 — icons under text). A COLUMN parent
-        // stretches a scroll child to its own width at placement
-        // (`place_stack_column`), a ROW parent sizes it via `grow`. Only a
-        // horizontal scroller's HEIGHT still follows content, so a chip row
-        // keeps its row height.
-        if matches!(stack.overflow, Overflow::Scroll(_)) {
-            main = FxPx::ZERO;
-            if !stack.direction.is_horizontal() {
-                cross = FxPx::ZERO;
-            }
-        }
-        let preferred_width = if stack.direction.is_horizontal() {
-            main + stack.padding.horizontal()
-        } else {
-            cross + stack.padding.horizontal()
-        };
-        let preferred_height = if stack.direction.is_horizontal() {
-            cross + stack.padding.vertical()
-        } else {
-            main + stack.padding.vertical()
-        };
+        // A scroll viewport's content does not size it along its scroll axis.
+        let content = if stack.direction.is_horizontal() { (main, cross) } else { (cross, main) };
+        let (content_w, content_h) = scroll_content_size(stack.overflow, content);
+        let preferred_width = content_w + stack.padding.horizontal();
+        let preferred_height = content_h + stack.padding.vertical();
         Ok(NodeSize {
             width: clamp_width(
                 preferred_width,

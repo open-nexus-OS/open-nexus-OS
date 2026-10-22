@@ -122,7 +122,7 @@ fn tap(
         "Tap",
         FxPx::new(x),
         FxPx::new(y),
-        None,
+        &[],
     )
     .expect("tap runs");
 }
@@ -239,7 +239,7 @@ fn a_copy_in_the_open_search_refreshes_the_history_at_once() {
     let boxes = common::layout_boxes(&view);
     let b = boxes.iter().find(|b| b.node_id == field).expect("field box");
     let (x, y) = (b.rect.x.0 + b.rect.width.0 / 2, b.rect.y.0 + b.rect.height.0 / 2);
-    view.focus_text_at(&boxes, FxPx::new(x), FxPx::new(y), None).expect("focused");
+    view.focus_text_at(&boxes, FxPx::new(x), FxPx::new(y), &[]).expect("focused");
     host.history.clear(); // the authority holds nothing that matches the word
     view.insert_text(&BaseTokens, &device, &locale, &mut host, INJECT_COPY_WORD).expect("types");
     let asked = format!("clipboard.list({INJECT_COPY_WORD:?})");

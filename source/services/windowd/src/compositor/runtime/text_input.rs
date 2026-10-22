@@ -157,7 +157,7 @@ impl DisplayServerRuntime {
                     self.apps[idx].win.visible = true;
                     self.windows.show_unfocused(wid);
                     self.apps[idx].win.surface_dirty = true;
-                    self.apps[idx].surface_dirty_rows = None;
+                    self.apps[idx].surface_damage = super::surface_layers::DamageRows::FULL;
                     let rect = self.app_window_rect(idx);
                     self.queue_dirty_rect(rect);
                 }

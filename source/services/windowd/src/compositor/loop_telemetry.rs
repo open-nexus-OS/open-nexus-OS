@@ -67,11 +67,13 @@ impl LoopTelemetry {
             let (rects, queued_px, flushed_px) = super::frame_causes::take_damage();
             let (flush_us, copy_rows, copy_us, base_rows, base_us) =
                 super::frame_causes::take_work();
+            let refused = super::frame_causes::take_refused();
+            let (acks, ack_avg_us, ack_max_us) = super::frame_causes::take_acks();
             // ADR-0075: the clients windowd did not wait on — behind, their deepest outbox,
             // the intent refused because a client was far behind.
             let (behind, queued_max, dropped) = runtime.client_census();
             let _ = debug_println(&alloc::format!(
-                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} copy_rows={copy_rows} copy_us={copy_us} base_rows={base_rows} base_us={base_us})",
+                "windowd: loop hz={} apply={} present={} nack={} fullrq={} reply(ch={} cap={} shared={}) frames(content={} blit={} pointer={} moved={} keepalive={} shape={}) damage(rects={rects} queued_px={queued_px} flushed_px={flushed_px}) clients(behind={behind} queued_max={queued_max} dropped={dropped}) work(flush_us_max={flush_us} copy_rows={copy_rows} copy_us={copy_us} base_rows={base_rows} base_us={base_us}) layers(refused={refused}) acks(n={acks} avg_us={ack_avg_us} max_us={ack_max_us})",
                 self.iters,
                 self.applies,
                 presents,
@@ -92,6 +94,8 @@ impl LoopTelemetry {
             let _ = super::frame_causes::take();
             let _ = super::frame_causes::take_damage();
             let _ = super::frame_causes::take_work();
+            let _ = super::frame_causes::take_refused();
+            let _ = super::frame_causes::take_acks();
         }
         self.rebase(now_ns, runtime);
         self.iters = 0;

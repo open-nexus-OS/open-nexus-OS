@@ -109,19 +109,22 @@ impl DslApp {
             theme_mode,
             shell_profile,
             hovered: None,
+            pointer: None,
             hover_text: false,
             row_scratch: alloc::vec![0u8; w as usize * 4],
-            scroll_x: 0,
-            scroll_y: 0,
-            momentum: animation::ScrollMomentum::new(animation::ScrollConfig::default()),
-            momentum_last_ns: 0,
-            // Pager glide: a slightly softer ease than the wheel default so a
-            // page turn reads as the handoff's ~0.42s glide, not a snap.
-            pager: animation::ScrollMomentum::new(animation::ScrollConfig {
-                rate_per_s: 10.0,
-                fling_friction_per_s: 4.0,
-            }),
-            pager_lock_until_ns: 0,
+            scroll_layers: [None; super::scroll::MAX_SCROLL_LAYERS],
+            flat_views: alloc::vec::Vec::new(),
+            view_scratch: alloc::vec::Vec::new(),
+            store_rows: h,
+            store_w: 0,
+            store_refused: false,
+            patch: (0, h as u16),
+            wash_opacity: 0,
+            tree_dirty: true,
+            sent_tree: nexus_display_proto::surface_layers::SurfaceTree::EMPTY,
+            motion_dirty: true,
+            store_replan: true,
+            pass_ctx: super::paint::PassCtx::EMPTY,
             anim: anim::AnimState::new(),
             catalogs,
             active_catalog: None,
@@ -135,16 +138,10 @@ impl DslApp {
             modal_top_sent: None,
             transient_armed: None,
             drag: None,
-            end_fired: false,
             vis_pick: alloc::vec::Vec::new(),
             vis_anim: alloc::vec::Vec::new(),
             vis_text: alloc::vec::Vec::new(),
             tap_render_span: None,
-            layers_dirty: false,
-            banded: false,
-            last_band: None,
-            alloc_band_h: 0,
-            band_pick: alloc::vec::Vec::new(),
             taps_are_keystrokes: false,
             tap_present_owed: false,
         };
@@ -152,6 +149,9 @@ impl DslApp {
         // transforms for value-tracked nodes, enter transitions for
         // `.transition` nodes (the first present's frame pulse plays them).
         app.anim_sync();
+        // The page's scroll layers (RFC-0109): the store is planned from them before the surface
+        // exists.
+        app.sync_layers();
         Some(app)
     }
 }

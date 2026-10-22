@@ -104,7 +104,7 @@ fn type_into(view: &mut View<'_>, locale: &IdentityLocale<'_>, text: &str) -> (S
         FxPx::new(hit.rect.x.0 + hit.rect.width.0 / 2),
         FxPx::new(hit.rect.y.0 + hit.rect.height.0 / 2),
     );
-    view.focus_text_at(&layout.boxes, x, y, None).expect("the field takes focus");
+    view.focus_text_at(&layout.boxes, x, y, &[]).expect("the field takes focus");
 
     for ch in text.chars() {
         let mut buf = [0u8; 4];

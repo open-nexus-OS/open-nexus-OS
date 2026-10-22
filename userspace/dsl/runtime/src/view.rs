@@ -14,7 +14,7 @@ mod route;
 
 use crate::anim::AnimIntent;
 use crate::emit::{self, Damage, Dep, EmitCtx};
-use crate::interact::{self, HandlerEntry, ScrollView};
+use crate::interact::{self, HandlerEntry, ScrollLayerView};
 use crate::nav::Nav;
 use crate::store::Value;
 use crate::{DeviceEnv, EffectHost, LocaleSource, MountError, RtError, Runtime};

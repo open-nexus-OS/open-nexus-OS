@@ -139,13 +139,14 @@ DSL-Registry). Die BEHOBENEN Punkte sind markiert; der Rest ist die offene Arbei
   reinem Schwarz) bleibt die bewusste RFC-0082-Entscheidung.
 - **`divider` in `light.nxtheme.toml` war opak** (`#d4d4d4`) und damit nur auf
   einer weißen Vollfläche richtig → `rgba(0,0,0,.10)` wie der Handoff.
-- **Hover ist wieder eine Fläche**, nicht nur Bewegung: `probe/paint.rs` gab
-  hart `None` für den `HoverWash`, weil der Wash dem `corner_radius` der
-  HANDLER-Box folgt und die bei `Stack { Pill } on Tap` keinen hat („jeder
-  gehoverte Kreis trug ein weißes Quadrat"). Gelöst über den Anker statt über
-  das Abschalten: `app-host/src/hover_wash.rs` (host-getestet, weil `probe/`
-  nur für RISC-V baut) wählt das Kind, das die Wrapper-Box wirklich ausfüllt.
-  Farbe jetzt `glassHover` statt eines Accent-Tints.
+- **Hover ist wieder eine Fläche**, nicht nur Bewegung: der Wash folgt dem
+  `corner_radius` der Box, die das Control wirklich zeichnet — nicht der
+  HANDLER-Box, die bei `Stack { Pill } on Tap` keinen hat („jeder gehoverte
+  Kreis trug ein weißes Quadrat"). Gelöst über den Anker:
+  `app-host/src/hover_wash.rs` (host-getestet, weil `probe/` nur für RISC-V
+  baut) wählt das Kind, das die Wrapper-Box wirklich ausfüllt. Farbe
+  `glassHover`. Seit RFC-0109 ist der Wash eine Wash-Ebene des Compositors
+  (kein Neuzeichnen der App).
 
 ## Behoben (2026-07-29, Settings-Handoff Phase 0+1)
 

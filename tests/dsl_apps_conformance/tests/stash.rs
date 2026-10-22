@@ -350,7 +350,7 @@ fn tapping_the_open_search_field_claims_text_focus() {
             nexus_layout_types::FxPx::new(strip.y.0 + strip.height.0 / 2),
         );
         assert!(
-            view.focus_text_at(&boxes, tx, ty, None).is_some(),
+            view.focus_text_at(&boxes, tx, ty, &[]).is_some(),
             "a tap three quarters across the strip ({},{}) claims focus; \
              the input covers only x {}..{} of a {}..{} strip",
             tx.0,

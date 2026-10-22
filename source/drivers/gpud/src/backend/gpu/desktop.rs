@@ -55,14 +55,17 @@ pub(crate) const HALF_ROWS: u32 = 600;
 pub(crate) const CACHE_ROWS: u32 = 1024;
 /// The frame's buffer: push constants, PPP blocks and descriptors; the control streams; the
 /// vertices.
-const GENERAL_BYTES: u32 = 128 * 1024;
+/// A pass of `MAX_DRAWS` takes about 290 bytes of general memory a draw (push constants, the PPP
+/// blocks, the descriptor): 640 draws fit with room for the pass before it.
+const GENERAL_BYTES: u32 = 256 * 1024;
 const STREAM_BYTES: u32 = 32 * 1024;
 const VERTEX_BYTES: u32 = 96 * 1024;
 const FRAME_BYTES: u32 = GENERAL_BYTES + STREAM_BYTES + VERTEX_BYTES;
 /// The PDS heap's lines after the targets' pixel event data, to the bundle's PDS arena's end.
 const PDS_END: u32 = 0x2_1000;
-/// The most draws a pass holds (the planner's 32 layers, each up to nine draws, the wallpaper).
-pub(super) const MAX_DRAWS: usize = 320;
+/// The most draws a pass holds: the planner's 64 layers (RFC-0109), each up to nine draws, and
+/// the wallpaper — a plan can never ask for more, so a pass is never refused for its size.
+pub(super) const MAX_DRAWS: usize = 640;
 pub(super) const PASS_TIMEOUT_NS: u64 = 500_000_000;
 /// Frames in a `gpud: gpu frame us` window.
 const WINDOW: u32 = 32;

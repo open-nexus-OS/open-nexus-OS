@@ -6,10 +6,9 @@
 //! (docs/dev/ui/foundations/animation.md, ADR-0031). A [`NodeAnim`] keyed by
 //! `LayoutBox::node_id` carries the animation engine's current interpolated
 //! opacity + translate + uniform scale for one node; the picked painter draws
-//! that node's fill transformed and alpha-scaled instead of at rest. This
-//! mirrors the existing `HoverWash` (per-node paint state) and `ScrollView`
-//! (per-box paint transform) primitives — presentation-only, never a
-//! re-layout, alloc-free.
+//! that node's fill transformed and alpha-scaled instead of at rest. Like the
+//! `ScrollView` (a box placed by its scroll layer's view) it is
+//! presentation-only — never a re-layout, alloc-free.
 //! OWNERS: @ui
 //! STATUS: In progress (TASK-0062/0075 DSL animation binding)
 //!
@@ -58,7 +57,7 @@ pub struct NodeAnim {
 impl NodeAnim {
     /// The identity (no-op) transform for `node_id`.
     #[must_use]
-    pub fn identity(node_id: usize) -> Self {
+    pub const fn identity(node_id: usize) -> Self {
         Self {
             node_id,
             opacity: 255,

@@ -88,10 +88,10 @@ fn a_press_just_below_a_pill_reaches_it() {
     let below = FxPx::new(pill.rect.y.0 + pill.rect.height.0 + pill.hit_slop.0 - 1);
     let far = FxPx::new(pill.rect.y.0 + pill.rect.height.0 + pill.hit_slop.0 + 8);
 
-    let hit_inside = view.hover_box_id_scrolled(&boxes, "Tap", cx, inside, None);
+    let hit_inside = view.hover_box_id_scrolled(&boxes, "Tap", cx, inside, &[]);
     assert_eq!(hit_inside, Some(pill.node_id), "a direct press must hit the pill");
 
-    let hit_below = view.hover_box_id_scrolled(&boxes, "Tap", cx, below, None);
+    let hit_below = view.hover_box_id_scrolled(&boxes, "Tap", cx, below, &[]);
     assert_eq!(
         hit_below,
         Some(pill.node_id),
@@ -99,6 +99,6 @@ fn a_press_just_below_a_pill_reaches_it() {
         pill.hit_slop.0 - 1
     );
 
-    let hit_far = view.hover_box_id_scrolled(&boxes, "Tap", cx, far, None);
+    let hit_far = view.hover_box_id_scrolled(&boxes, "Tap", cx, far, &[]);
     assert_ne!(hit_far, Some(pill.node_id), "slop must stay bounded, not swallow the desktop");
 }

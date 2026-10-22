@@ -21,26 +21,29 @@ pub const CONTROL_SHELL_PROFILE: u8 = 1;
 pub const CONTROL_LAUNCH_PENDING: u8 = 2;
 pub const CONTROL_THEME_ACCENT: u8 = 3;
 /// App-chrome window controls (the app-icon dropdown of a client-chrome
-/// window): windowd applies the action to the SENDING client's window.
+/// window): windowd applies the action to the SENDING client's window — the
+/// window whose owner is the kernel sender id (RFC-0086); no `CONTROL_WIN_*`
+/// value names a window (board cycle 58: a 4-bit surface id in it broke every
+/// control once ids passed 15).
 /// value unused for minimize/close; for mode, value = `WIN_MODE_*`.
 pub const CONTROL_WIN_MINIMIZE: u8 = 4;
 pub const CONTROL_WIN_CLOSE: u8 = 5;
 pub const CONTROL_WIN_MODE: u8 = 6;
 /// Begin a pointer MOVE drag of the sender's window at the CURRENT cursor
-/// (value = surface id) — how a CHROMELESS (`style: plain`) window is dragged:
+/// (value unused) — how a CHROMELESS (`style: plain`) window is dragged:
 /// its own chrome row is the grab strip and sends this on press; windowd
 /// raises + tracks the pointer to release (same clamp/snap path as a WM title
 /// drag). Fire-and-forget; ignored for fullscreen windows.
 pub const CONTROL_WIN_MOVE: u8 = 7;
 /// App-modal gate (TASK-0074 D4, the ONE windowd verb for modal semantics): value =
-/// `surface_id << 4 | on` (0 = off, 1 = on). While a window of a sender is modal, windowd's
+/// `on` (0 = off, 1 = on). While a window of a sender is modal, windowd's
 /// input routing refuses presses, hover and wheel on the sender's OTHER windows (the same
 /// `owner_sid`) — the modal's own window and every other owner's windows are untouched.
 /// Nothing is drawn: the modal overlay itself is app-owned (`.overlay(modal)` in the DSL
 /// runtime). Own-window gated like the other `CONTROL_WIN_*` verbs; reset on close.
 pub const CONTROL_WIN_MODAL: u8 = 8;
-/// Window TILING (TASK-0066, the ONE geometry verb): value = `surface_id << 4 | code`, the
-/// code being windowd's `zones::CODE_*` — a zone (halves, quarters, Fill), Return (the
+/// Window TILING (TASK-0066, the ONE geometry verb): value = `code`, windowd's
+/// `zones::CODE_*` — a zone (halves, quarters, Fill), Return (the
 /// pre-tile frame) or an arrangement (the sender's window plus the next ones in z-order:
 /// Left&Right, Top&Bottom, Quarters). Own-window gated; an unknown code is refused.
 pub const CONTROL_WIN_ZONE: u8 = 9;

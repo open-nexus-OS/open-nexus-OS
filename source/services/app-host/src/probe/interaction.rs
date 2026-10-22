@@ -34,10 +34,12 @@ impl super::DslApp {
         use nexus_dsl_runtime::Damage;
         // The press a drag may grow from (`probe/drag.rs`; windowd's DRAG frames follow).
         self.arm_drag(x, y);
+        self.pointer = Some((x, y));
         let tokens = tokens_for(self.theme_mode);
         let device =
             device_for(self.shell_profile, self.w, &self.locale_tag, &self.keymap, self.theme_mode);
-        let scroll = self.scroll_param();
+        // The page's scroll layers at their offsets: the hit-test sees what the compositor shows.
+        let (views, nv) = self.hit_views();
         // Interaction motion (handoff "Press: instant down, springy release"):
         // the pressed control dips to 92% and pops back elastically. Resolved
         // with the SAME hit-test the dispatch below uses, BEFORE the re-emit
@@ -48,7 +50,7 @@ impl super::DslApp {
             "Tap",
             nexus_layout_types::FxPx::new(x),
             nexus_layout_types::FxPx::new(y),
-            scroll,
+            &views[..nv],
         );
         // Some kinds animate a PART instead of the whole control (the toggle's
         // thumb): the handler carries a structural box-id offset (registry
@@ -80,7 +82,7 @@ impl super::DslApp {
             "Tap",
             nexus_layout_types::FxPx::new(x),
             nexus_layout_types::FxPx::new(y),
-            scroll,
+            &views[..nv],
         ) {
             Ok(d) => d,
             Err(e) => {
@@ -139,9 +141,9 @@ impl super::DslApp {
                 &self.layout.boxes,
                 &old_texts,
                 &self.texts,
-                self.h as i32,
+                self.layout_bottom(),
             );
-            self.layers_dirty = true;
+            self.tree_dirty = true;
         }
         self.tap_present_owed = self.trace_tap(x, y, hit, damage);
         // Part-press (toggle thumb): the flip has re-laid-out, the knob sits
@@ -187,12 +189,6 @@ impl super::DslApp {
         }
     }
 
-    /// Whether the glass-region set may have changed since the last
-    /// `submit_layers` (consumed once).
-    pub(super) fn take_layers_dirty(&mut self) -> bool {
-        core::mem::take(&mut self.layers_dirty)
-    }
-
     /// Reserve `top` surface rows for the shell status bar and re-lay-out.
     ///
     /// The compositor owns the number (`OP_SURFACE_RECT`'s long-reserved `y`):
@@ -212,13 +208,13 @@ impl super::DslApp {
         self.relayout_retained();
     }
 
-    /// Pointer motion (`INPUT_KIND_MOVE`): re-resolve the hovered
-    /// interactive box (same hit-test the Tap routing uses). Returns the
-    /// union ROW SPAN of the old+new hovered boxes when the target
-    /// changed (`None` = no change) — a PAINT-only change: the caller
-    /// re-renders exactly that span; layout and boxes stay retained.
-    pub(super) fn hover(&mut self, x: i32, y: i32) -> Option<(i32, i32)> {
-        let scroll = self.scroll_param();
+    /// Pointer motion (`INPUT_KIND_MOVE`): re-resolve the hovered interactive box (same
+    /// hit-test the Tap routing uses, over the scroll layers at their offsets). A change is
+    /// MOTION — the wash layer moves (RFC-0109) — never a raster. Returns whether the hovered
+    /// control changed.
+    pub(super) fn hover(&mut self, x: i32, y: i32) -> bool {
+        self.pointer = Some((x, y));
+        let (views, nv) = self.hit_views();
         let target = self
             .view
             .hover_box_id_scrolled(
@@ -226,24 +222,30 @@ impl super::DslApp {
                 "Tap",
                 nexus_layout_types::FxPx::new(x),
                 nexus_layout_types::FxPx::new(y),
-                scroll,
+                &views[..nv],
             )
-            // Container catch-alls (overlay backdrop, panel body) are TAP
-            // consumers, never hover targets. The gate here is the WASH's
-            // (short = a control), not the GROW's — `interaction_hover` applies
-            // the stricter `interaction_sized` itself, so a full-width list row
-            // washes without growing. Filtering here with the grow's rule is
-            // what left rows and sidebar entries with no hover at all.
+            // Container catch-alls (overlay backdrop, panel body) are TAP consumers, never hover
+            // targets. The gate here is the WASH's (short = a control), not the GROW's —
+            // `interaction_hover` applies the stricter `interaction_sized` itself, so a
+            // full-width list row washes without growing.
             .filter(|&id| crate::hover_wash::hover_washable(&self.layout.boxes, id));
         if target == self.hovered {
-            return None;
+            return false;
         }
         let old = core::mem::replace(&mut self.hovered, target);
-        // Interaction motion (handoff): grow the newly hovered control with a
-        // soft spring, shrink the old one back — the caller arms the frame
-        // pulse (`anim_active`) so the springs tick on the real cadence.
+        self.motion_dirty = true;
+        // Interaction motion (handoff): grow the newly hovered control with a soft spring,
+        // shrink the old one back — the caller arms the frame pulse (`anim_active`).
         self.interaction_hover(old, target);
-        self.hover_span(old, target)
+        true
+    }
+
+    /// The content moved under a still pointer (a scroll step): what it hovers is resolved
+    /// again — the wash follows the control now under the pointer.
+    pub(super) fn rehover(&mut self) {
+        if let Some((x, y)) = self.pointer {
+            let _ = self.hover(x, y);
+        }
     }
 
     /// Whether the pointer sits over an editable (Change-bound) field —
@@ -251,7 +253,7 @@ impl super::DslApp {
     /// hint then (I-beam over fields, RFC-0075). Same hit-test family as
     /// tap-to-focus, so hint and focusability can never disagree.
     pub(super) fn text_hover(&mut self, x: i32, y: i32) -> Option<bool> {
-        let scroll = self.scroll_param();
+        let (views, nv) = self.hit_views();
         let over = self
             .view
             .hover_box_id_scrolled(
@@ -259,7 +261,7 @@ impl super::DslApp {
                 "Change",
                 nexus_layout_types::FxPx::new(x),
                 nexus_layout_types::FxPx::new(y),
-                scroll,
+                &views[..nv],
             )
             .is_some();
         if over == self.hover_text {
@@ -275,31 +277,16 @@ impl super::DslApp {
         core::mem::replace(&mut self.hover_text, false)
     }
 
-    /// Pointer left the surface (`INPUT_KIND_LEAVE`): clear the wash.
-    /// Returns the cleared box's row span for the partial repaint.
-    pub(super) fn hover_clear(&mut self) -> Option<(i32, i32)> {
+    /// Pointer left the surface (`INPUT_KIND_LEAVE`): the wash goes (motion). Returns whether a
+    /// control was hovered.
+    pub(super) fn hover_clear(&mut self) -> bool {
+        self.pointer = None;
         let old = self.hovered.take();
         self.interaction_hover(old, None);
-        self.hover_span(old, None)
-    }
-
-    /// Union row span (y0, y1 exclusive; surface-clamped) of two hover
-    /// anchors' boxes — the exact rows a hover change repaints.
-    pub(super) fn hover_span(&self, a: Option<usize>, b: Option<usize>) -> Option<(i32, i32)> {
-        let mut span: Option<(i32, i32)> = None;
-        for id in [a, b].into_iter().flatten() {
-            if let Some(bx) = self.layout.boxes.iter().find(|bb| bb.node_id == id) {
-                let y0 = bx.rect.y.0.max(0);
-                let y1 = (bx.rect.y.0 + bx.rect.height.0).min(self.h as i32);
-                if y0 < y1 {
-                    span = Some(match span {
-                        Some((s0, s1)) => (s0.min(y0), s1.max(y1)),
-                        None => (y0, y1),
-                    });
-                }
-            }
+        if old.is_some() {
+            self.motion_dirty = true;
         }
-        span
+        old.is_some()
     }
 
     /// Re-emits the scene under a NEW width class (mobile-first breakpoints:
@@ -330,6 +317,8 @@ impl super::DslApp {
     /// Publish this app's windowd surface id to the effect host — it rides
     /// in `CONTROL_WIN_*` values (window-kit app-menu window actions).
     pub(super) fn set_surface_id(&mut self, id: u32) {
+        // A new surface: windowd holds no structure of it until the next is sent.
+        self.sent_tree = nexus_display_proto::surface_layers::SurfaceTree::EMPTY;
         #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
         {
             self.host.surface_id = id;
@@ -350,64 +339,5 @@ impl super::DslApp {
         // the generation arena and kept `texts` across frames with `clear()`.
         // The shared phase re-arms and re-clamps scroll extents as well.
         self.relayout_retained();
-    }
-
-    /// Wheel impulse (`INPUT_KIND_WHEEL`, moved out of the main event loop —
-    /// structure-gate): scroll physics + EndReached + frame-pulse arming.
-    /// Banded surfaces are compositor-scrolled (windowd shifts the gpud layer
-    /// `src_row` and pushes `INPUT_KIND_SCROLL_POS`), so this is defensive
-    /// there. Returns `(dirty, row_span)` — span `None` with dirty = full.
-    pub(super) fn wheel_event(
-        &mut self,
-        client: &KernelClient,
-        surface_id: u32,
-        y_raw: u16,
-        rx_markers: &mut u32,
-    ) -> (bool, Option<(i32, i32)>) {
-        if *rx_markers < 40 {
-            *rx_markers += 1;
-            let d = wire::wheel_delta_from_wire(y_raw);
-            raw_marker(&alloc::format!("APPHOST: wheel rx n={rx_markers} d={d}"));
-        }
-        if self.banded {
-            return (false, None);
-        }
-        let delta = wire::wheel_delta_from_wire(y_raw);
-        // Paged viewport (`.scroll(paged)`): a notch turns the PAGE — glide
-        // snap + the container's PageNext/PagePrev trigger (store page sync).
-        if matches!(
-            self.scroll_region_axis(),
-            Some((_, _, _, nexus_layout_types::ScrollAxis::Paged))
-        ) {
-            let (span, dir) = self.pager_wheel(delta);
-            let mut dirty = span.is_some();
-            let mut rows = span;
-            if dir != 0 && self.fire_pager_trigger(dir > 0) {
-                dirty = true;
-                rows = None; // model changed (page index): full repaint
-            }
-            if self.momentum_active() {
-                let req = wire::encode_surface_frame_req(surface_id);
-                let _ = client.send(&req, Wait::Blocking);
-            }
-            return (dirty, rows);
-        }
-        let (span, end) = self.scroll_wheel(delta);
-        let mut dirty = false;
-        let mut rows = span;
-        if span.is_some() {
-            dirty = true;
-        }
-        if end && self.fire_end_reached() {
-            dirty = true;
-            rows = None; // model changed: full repaint
-        }
-        // Choreographer contract: while the ease/fling is live, ask the
-        // compositor for ONE frame pulse (physics ticks on the real cadence).
-        if self.momentum_active() {
-            let req = wire::encode_surface_frame_req(surface_id);
-            let _ = client.send(&req, Wait::Blocking);
-        }
-        (dirty, rows)
     }
 }

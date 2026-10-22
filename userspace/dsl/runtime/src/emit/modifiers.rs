@@ -146,10 +146,8 @@ pub(super) fn apply_modifier(
         } // disabled
         39 => mods.hit_slop = registry::spacing(int_arg()), // hitSlop
         22 => {
-            // overflow(visible|hidden) — hidden = clipped container.
-            if token_name(ctx).as_str() == "hidden" {
-                mods.scroll = mods.scroll.or(Some(registry::ScrollAxis::Vertical));
-            }
+            // overflow(visible|hidden) — hidden = a clipping container (never a scroll layer).
+            mods.clip = token_name(ctx).as_str() == "hidden";
         } // overflow
         47 => {
             // scroll(vertical|horizontal|paged): the page's scroll viewport.

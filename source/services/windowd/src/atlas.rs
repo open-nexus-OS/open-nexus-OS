@@ -41,9 +41,10 @@
 pub(crate) const ATLAS_WIDTH: u32 = nexus_display_proto::layout::LAYOUT_MAX.0;
 /// First atlas row (immediately after the four display planes).
 pub(crate) const ATLAS_ROW_OFFSET: u32 = nexus_display_proto::layout::ATLAS_ROW;
-/// Atlas height in rows: eight display heights (a real desktop needs the desktop band, one
-/// resident scroll band, floating windows with their blur bands, the dock and fullscreen
-/// round-trips; five starved on the fullscreen re-create with four windows open).
+/// Atlas height in rows: eight display heights (a real desktop needs the desktop surface and the
+/// floating windows — each its base and its store, the bands of its scroll layers and its wash
+/// patch (RFC-0109) — the windows' blur bands, the dock and fullscreen round-trips; five starved
+/// on the fullscreen re-create with four windows open).
 pub(crate) const ATLAS_ROWS: u32 = nexus_display_proto::layout::ATLAS_ROWS;
 
 /// A cached layer surface: a packed rectangle in the atlas region.

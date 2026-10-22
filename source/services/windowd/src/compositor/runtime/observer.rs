@@ -48,12 +48,3 @@ impl DisplayServerRuntime {
         // path retires with the evidence-contract move.
     }
 }
-
-/// Records a surface's glass-layer count and logs it on a CHANGE only: an app re-declares its
-/// layers on every full present — a keystroke's too — and a line each time would put typing
-/// rhythm into the log (the keystroke privacy rule).
-pub(super) fn note_layer_count(slot: &mut usize, n: usize, kind: &str) {
-    if core::mem::replace(slot, n) != n {
-        let _ = debug_println(&alloc::format!("WINDOWD: {kind} layers={n}"));
-    }
-}

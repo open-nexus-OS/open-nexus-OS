@@ -103,10 +103,10 @@ fn with_view(f: impl FnOnce(&mut View<'_>, &[LayoutBox], usize, usize, usize)) {
 fn a_press_beside_an_autofocus_field_keeps_its_focus() {
     with_view(|view, boxes, search, button, _| {
         let (x, y) = centre(boxes, search);
-        let focused = view.focus_text_at(boxes, x, y, None).expect("focuses");
+        let focused = view.focus_text_at(boxes, x, y, &[]).expect("focuses");
         assert_eq!(focused.box_id, search);
         let (x, y) = centre(boxes, button);
-        let after = view.focus_text_at(boxes, x, y, None);
+        let after = view.focus_text_at(boxes, x, y, &[]);
         assert_eq!(after.map(|s| s.box_id), Some(search), "the button press keeps the keyboard");
         assert_eq!(view.autofocus_box(), None, "nothing to hand back — the focus never left");
     });
@@ -116,14 +116,14 @@ fn a_press_beside_an_autofocus_field_keeps_its_focus() {
 fn a_press_on_another_field_moves_the_focus_and_its_old_rule_applies() {
     with_view(|view, boxes, search, button, other| {
         let (x, y) = centre(boxes, search);
-        let _ = view.focus_text_at(boxes, x, y, None).expect("focuses");
+        let _ = view.focus_text_at(boxes, x, y, &[]).expect("focuses");
         let (x, y) = centre(boxes, other);
-        let moved = view.focus_text_at(boxes, x, y, None).expect("moves");
+        let moved = view.focus_text_at(boxes, x, y, &[]).expect("moves");
         assert_ne!(moved.box_id, search, "another field takes the focus");
         // A field without `.autofocus` keeps the old rule: a press on no field clears it,
         // and the autofocus field asks for the keyboard again.
         let (x, y) = centre(boxes, button);
-        assert_eq!(view.focus_text_at(boxes, x, y, None), None);
+        assert_eq!(view.focus_text_at(boxes, x, y, &[]), None);
         assert_eq!(view.autofocus_box(), Some(search));
     });
 }

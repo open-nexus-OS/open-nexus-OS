@@ -42,6 +42,19 @@ static COPY_ROWS: AtomicU64 = AtomicU64::new(0);
 static COPY_US: AtomicU64 = AtomicU64::new(0);
 static BASE_ROWS: AtomicU64 = AtomicU64::new(0);
 static BASE_US: AtomicU64 = AtomicU64::new(0);
+/// RFC-0109: the surface structures and motions refused — each is said once per surface, the
+/// count of all of them rides the loop line (a refused motion drops its offsets too).
+static LAYERS_REFUSED: AtomicU32 = AtomicU32::new(0);
+/// A present's issue time by its seq (two in flight: a ring of four holds them) and the window's
+/// issue → ack latencies — how long gpud keeps a frame (its work, the flip, the blank it waits
+/// for) before the credit returns.
+const ISSUE_RING: usize = 4;
+#[allow(clippy::declare_interior_mutable_const)]
+const ZERO_NS: AtomicU64 = AtomicU64::new(0);
+static ISSUED_NS: [AtomicU64; ISSUE_RING] = [ZERO_NS; ISSUE_RING];
+static ACK_N: AtomicU32 = AtomicU32::new(0);
+static ACK_SUM_US: AtomicU64 = AtomicU64::new(0);
+static ACK_MAX_US: AtomicU64 = AtomicU64::new(0);
 
 /// One frame left for gpud: `content` rects were recomposited, or a retained region was only
 /// re-blitted (`blit`), or the pointer's region alone (`pointer`), or none of them — owed for
@@ -95,6 +108,41 @@ pub(super) fn work_copy(rows: u64, us: u64) {
 pub(super) fn work_base(rows: u64, us: u64) {
     BASE_ROWS.fetch_add(rows, Ordering::Relaxed);
     BASE_US.fetch_add(us, Ordering::Relaxed);
+}
+
+/// Present `seq` left for gpud at `now_ns`.
+pub(super) fn present_issued(seq: u32, now_ns: u64) {
+    ISSUED_NS[seq as usize % ISSUE_RING].store(now_ns, Ordering::Relaxed);
+}
+
+/// Present `seq`'s credit came back at `now_ns`.
+pub(super) fn present_acked(seq: u32, now_ns: u64) {
+    let issued = ISSUED_NS[seq as usize % ISSUE_RING].load(Ordering::Relaxed);
+    if issued == 0 || now_ns < issued {
+        return;
+    }
+    let us = (now_ns - issued) / 1000;
+    ACK_N.fetch_add(1, Ordering::Relaxed);
+    ACK_SUM_US.fetch_add(us, Ordering::Relaxed);
+    ACK_MAX_US.fetch_max(us, Ordering::Relaxed);
+}
+
+/// The window's acks `(n, avg_us, max_us)`, and a fresh window.
+pub(super) fn take_acks() -> (u32, u64, u64) {
+    let n = ACK_N.swap(0, Ordering::Relaxed);
+    let sum = ACK_SUM_US.swap(0, Ordering::Relaxed);
+    let max = ACK_MAX_US.swap(0, Ordering::Relaxed);
+    (n, sum / u64::from(n.max(1)), max)
+}
+
+/// A client's structure or motion frame was refused.
+pub(super) fn layers_refused() {
+    LAYERS_REFUSED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// The refused structure and motion frames of the window, and a fresh count.
+pub(super) fn take_refused() -> u32 {
+    LAYERS_REFUSED.swap(0, Ordering::Relaxed)
 }
 
 /// The window's work `(flush_max_us, copy_rows, copy_us, base_rows, base_us)`, and a fresh one.

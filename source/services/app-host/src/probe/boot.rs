@@ -348,19 +348,49 @@ pub(super) fn send_wait_cap(
 /// WAITS for the matching ack (skips unrelated frames on the shared
 /// response channel). Bounded by TIME — windowd's bring-up decides when
 /// the ack arrives; the kernel wakes us per frame. Returns the ack value on OK.
+/// The create frame of this app's surface (RFC-0109): its size, its declared intent, its nonce
+/// and the store `plan` takes.
+pub(super) fn create_frame(
+    (w, h): (u32, u32),
+    win: &WindowIntent,
+    resizable: bool,
+    plan: band::StorePlan,
+) -> [u8; wire::SURFACE_CREATE_FRAME_LEN] {
+    wire::encode_surface_create(&wire::SurfaceCreate {
+        width: w as u16,
+        height: h as u16,
+        format: wire::FORMAT_BGRA8888,
+        style: win.style,
+        level: win.level,
+        mode: win.mode,
+        resizable,
+        nonce: win.nonce,
+        rows: plan.rows.min(u32::from(u16::MAX)) as u16,
+        store_w: plan.width,
+    })
+}
+
+/// An ack's value, and — for a create — whether windowd placed the surface's store (RFC-0109:
+/// `NO_STORE` is a create that placed the base alone).
+#[derive(Clone, Copy)]
+pub(super) struct Ack {
+    pub(super) value: u32,
+    pub(super) store: bool,
+}
+
 pub(super) fn recv_ack(
     client: &KernelClient,
     op: u8,
     pending_rect: &mut Option<(u16, u16, u16)>,
     region: &mut Option<RegionPush>,
-) -> Result<u32, &'static str> {
+) -> Result<Ack, &'static str> {
     // 96: an RFC-0083 snapshot (max 70 bytes) may race the ack on this
     // channel — a 64-byte buffer would truncate it into an undecodable frame.
     let mut frame = [0u8; 96];
     while let Ok(len) = client.recv_into(Wait::Blocking, &mut frame) {
         if let Some((status, value)) = wire::decode_surface_ack(&frame[..len], op) {
-            if status == wire::SURFACE_STATUS_OK {
-                return Ok(value);
+            if status == wire::SURFACE_STATUS_OK || status == wire::SURFACE_STATUS_NO_STORE {
+                return Ok(Ack { value, store: status == wire::SURFACE_STATUS_OK });
             }
             let _ = debug_println("apphost: FAIL surface ack status");
             return Err("apphost: ack status");

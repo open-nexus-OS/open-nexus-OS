@@ -12,11 +12,13 @@
 //! TEST_COVERAGE: engine_tests (grid cases incl. the grow rule)
 //! ADR: docs/rfcs/RFC-0057-ui-v3a-layout-engine-pretext-contract.md
 
-use crate::boxes::LayoutBox;
+use crate::boxes::{LayoutBox, PlaceCtx};
 use crate::constraints::child_constraints;
 use crate::engine::{LayoutConstraints, LayoutEngine, NodeSize};
 use crate::error::LayoutError;
-use crate::geometry::{clamp_height, clamp_to_max_height, clamp_width, intersect_clip};
+use crate::geometry::{
+    clamp_height, clamp_to_max_height, clamp_width, intersect_clip, scroll_root,
+};
 use alloc::vec::Vec;
 use nexus_layout_types::{FxPx, LayoutNode, MeasureText, Overflow, Rect, VisualStyle};
 
@@ -32,7 +34,7 @@ impl LayoutEngine {
         constraints: LayoutConstraints,
         depth: usize,
         parent_clip: Option<Rect>,
-        in_glass: bool,
+        ctx: PlaceCtx,
         scroll_offset: (FxPx, FxPx),
         measure: &dyn MeasureText,
         node_count: &mut usize,
@@ -66,14 +68,21 @@ impl LayoutEngine {
             hit_slop: grid.item.hit_slop,
             visual: style.clone(),
             clip_rect: parent_clip,
+            content_clip: None,
             scroll_offset: container_scroll,
             overflow: grid.overflow,
-            glass_nested: in_glass,
+            glass_nested: ctx.in_glass,
+            scroll_root: ctx.scroll_root,
             text_px: None,
         });
         // Descendants nest under this container's glass, if any.
-        let in_glass =
-            in_glass || matches!(style.material, nexus_layout_types::SurfaceMaterial::Glass(_));
+        let ctx = PlaceCtx {
+            in_glass: ctx.in_glass
+                || matches!(style.material, nexus_layout_types::SurfaceMaterial::Glass(_)),
+            ..ctx
+        };
+        // RFC-0109: a top-level scrolling grid is the scroll root of its cells (see `place_stack`).
+        let (ctx, container_clip) = scroll_root(grid.overflow, node_id, ctx, container_clip);
         let padding = grid.padding;
         let n_cols = grid.columns.len().max(1);
         let total_fr: u32 = grid.columns.iter().map(|f| f.0).sum();
@@ -153,7 +162,7 @@ impl LayoutEngine {
                     cell,
                     depth + 1,
                     container_clip,
-                    in_glass,
+                    ctx,
                     container_scroll,
                     measure,
                     node_count,
@@ -172,7 +181,7 @@ impl LayoutEngine {
                 content_width,
                 content_height,
             );
-            boxes[container_index].clip_rect = intersect_clip(Some(own), parent_clip);
+            boxes[container_index].content_clip = intersect_clip(Some(own), parent_clip);
         }
         Ok(NodeSize { width, height })
     }

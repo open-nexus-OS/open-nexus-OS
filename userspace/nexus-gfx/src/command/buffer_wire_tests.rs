@@ -36,6 +36,7 @@ mod scroll_tag_tests {
                     layer_id: 0,
                     content_epoch: 7,
                     flags: 0,
+                    key: 0,
                 },
                 Command::CompositeLayer {
                     src_row_abs: 4000,
@@ -57,6 +58,7 @@ mod scroll_tag_tests {
                     layer_id: 0,
                     content_epoch: 0,
                     flags: 0,
+                    key: 0,
                 },
             ],
         };
@@ -211,6 +213,7 @@ mod scroll_tag_tests {
             layer_id: 1,
             content_epoch: 4,
             flags,
+            key: 0,
         };
         let cb = CommittedBuffer {
             commands: alloc::vec![layer(super::super::buffer::LAYER_OPAQUE), layer(0)],

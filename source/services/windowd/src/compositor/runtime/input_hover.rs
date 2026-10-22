@@ -61,7 +61,7 @@ impl DisplayServerRuntime {
         use nexus_display_proto::client_surface as wire;
         let mut panels = [(0i32, 0i32, 0u32, 0u32); wire::MAX_SURFACE_LAYERS];
         let mut n = 0;
-        for l in self.desktop_layers.iter().take(self.desktop_layer_count) {
+        for l in self.desktop_layers.tree.regions() {
             if l.material == wire::MATERIAL_GLASS && l.glass_level == wire::GLASS_PANEL {
                 panels[n] = (i32::from(l.x), i32::from(l.y), u32::from(l.w), u32::from(l.h));
                 n += 1;

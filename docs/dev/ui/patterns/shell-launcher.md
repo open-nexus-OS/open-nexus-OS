@@ -198,8 +198,8 @@ Known deltas vs the handoff (deliberate): island bars are static and the
 island does not expand on hover (media service pending; a hover-driven size
 change is not an expressible motion token), desktop icon field is a single
 top-left column (column-WRAP pending engine support; today's registry fits),
-the pager has no 1:1 finger drag/swipe (the wire carries no drag kinds — only
-`TAP/MOVE/LEAVE/WHEEL/SCROLL_POS`) and its glide is the ScrollMomentum
+the pager has no 1:1 finger drag/swipe (a scroll layer's physics takes the
+wheel; a drag reaches the DSL's drag triggers only) and its glide is the ScrollMomentum
 approximation of `cubic-bezier(0.22,1,0.36,1)`, page cap 4, and grid
 columns/per-page are per-arm CONSTANTS rather than measured (`ResizeObserver`
 has no DSL equivalent; the QEMU mode is a fixed 1280×800).

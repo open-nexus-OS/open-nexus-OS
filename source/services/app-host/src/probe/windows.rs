@@ -53,6 +53,17 @@ impl super::DslApp {
     /// Dispatches the page's declarative `on <name>` handler — container-scoped, BY NAME: the
     /// event has no pixel to hit-test. `true` when the model changed (the caller repaints).
     pub(super) fn fire_named(&mut self, name: &str) -> bool {
+        self.fire(None, name)
+    }
+
+    /// Dispatches `on <name>` of the box `box_id` — the container the event belongs to (a scroll
+    /// layer's `EndReached`, a pager's `PageNext`: RFC-0109, every layer its own). `true` when the
+    /// model changed.
+    pub(super) fn fire_at(&mut self, box_id: usize, name: &str) -> bool {
+        self.fire(Some(box_id), name)
+    }
+
+    fn fire(&mut self, box_id: Option<usize>, name: &str) -> bool {
         use nexus_dsl_runtime::Damage;
         let tokens = super::tokens_for(self.theme_mode);
         let device = super::device_for(
@@ -63,8 +74,12 @@ impl super::DslApp {
             self.theme_mode,
         );
         let locale = super::app_locale!(self);
-        let damage =
-            self.view.fire_trigger(tokens, &device, &locale, &mut self.host, name).ok().flatten();
+        let damage = match box_id {
+            Some(b) => self.view.fire_on_box(tokens, &device, &locale, &mut self.host, b, name),
+            None => self.view.fire_trigger(tokens, &device, &locale, &mut self.host, name),
+        }
+        .ok()
+        .flatten();
         if !matches!(damage, Some(Damage::Paint) | Some(Damage::Layout)) {
             return false;
         }
@@ -82,9 +97,9 @@ impl super::DslApp {
                 &self.layout.boxes,
                 &old_texts,
                 &self.texts,
-                self.h as i32,
+                self.layout_bottom(),
             );
-            self.layers_dirty = true;
+            self.tree_dirty = true;
         }
         true
     }

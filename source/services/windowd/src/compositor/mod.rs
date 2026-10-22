@@ -124,8 +124,8 @@ pub(crate) const ROW_WRITE_CHUNK: usize = 40;
 pub(crate) const ROW_WRITE_CHUNK: usize = 32;
 // Drain a generous burst of input/IPC per loop iteration so a flood of pointer
 // events (hidrawd can emit ~800/s during a drag) is consumed in one frame and the
-// queue can't grow stale — the wheel deltas among them are coalesced into a single
-// scroll step (`commit_scroll_input`), so a bigger batch costs no extra scrolling.
+// queue can't grow stale — the wheel deltas among them are summed into one forwarded
+// wheel per frame (`stage_input_state`, `forward_wheel`): a bigger batch costs no extra step.
 pub(crate) const IPC_BATCH_LIMIT: usize = 64;
 // Backdrop/glass cache budget contract (blur-cache architecture); sizes are
 // documented dimensions even where the current present path bypasses a cache.
@@ -283,11 +283,11 @@ fn dispatch_client_frame(
             core::mem::forget(cap); // keep the slot alive (no close)
             slot
         });
-        // Ack routing BY NONCE (the create frame carries it): the reply must
-        // reach the CREATING client's own event channel — `send_app_frame`
-        // (the floating channel) sent DESKTOP create-acks into the void and
-        // the shell/greeter app-host hung in its ack wait forever.
-        let nonce = nexus_display_proto::client_surface::decode_surface_create(frame).map(|t| t.7);
+        // Ack routing BY NONCE (the create frame carries it): the reply must reach the CREATING
+        // client's own event channel — the floating channel (`send_app_frame`) sent DESKTOP
+        // create-acks into the void and the shell/greeter app-host hung in its ack wait forever.
+        let nonce =
+            nexus_display_proto::client_surface::decode_surface_create(frame).map(|c| c.nonce);
         let ack = runtime.handle_surface_create(frame, vmo_slot, sender_sid);
         let delivered = match nonce {
             Some(n) => runtime.send_frame_for_nonce(n, &ack),
@@ -332,11 +332,13 @@ fn dispatch_client_frame(
         };
         let op = frame.get(3).copied().unwrap_or(0);
         reply_route::answer(server, moved_cap.take(), &ack, delivered, op);
-    } else if frame.get(3).copied() == Some(nexus_display_proto::client_surface::OP_SURFACE_LAYERS)
+    } else if frame.get(3).copied() == Some(nexus_display_proto::surface_layers::OP_SURFACE_TREE) {
+        // RFC-0109: the surface's structure (data-only), in effect with its next present.
+        runtime.handle_surface_tree(frame, sender_sid);
+    } else if frame.get(3).copied() == Some(nexus_display_proto::surface_layers::OP_SURFACE_MOTION)
     {
-        // R1 layer seam: the app declares its material-tagged glass regions.
-        // Data-only frame (no moved cap, no reply); the next present composites.
-        runtime.handle_surface_layers(frame);
+        // RFC-0109: the surface's motion — scroll offsets, washes. In effect at once.
+        runtime.handle_surface_motion(frame, sender_sid);
     } else if frame.get(3).copied()
         == Some(nexus_display_proto::client_surface::OP_SURFACE_FRAME_REQ)
     {

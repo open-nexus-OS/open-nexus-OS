@@ -79,10 +79,12 @@ pub struct Mods {
     /// Compositing material (`.material(panel|card|subtle|window|opaque)`) — a
     /// glass node becomes a backdrop-blurred layer at the compositor.
     pub material: Option<SurfaceMaterial>,
-    /// `.scroll(vertical|horizontal)`: this container is the page's scroll
-    /// viewport — the layout clips it (`Overflow::Hidden`) and the HOST owns
-    /// a paint-time scroll offset over the retained boxes (never a re-layout).
+    /// `.scroll(vertical|horizontal|paged)`: this container is a scroll layer (RFC-0109) — its
+    /// content is drawn once into a band and the compositor moves it by the offset the host's
+    /// physics commits (never a re-layout, never a re-raster per step). Several per page.
     pub scroll: Option<ScrollAxis>,
+    /// `.overflow(hidden)`: this container clips its content (`Overflow::Hidden`) — no scroll.
+    pub clip: bool,
     /// `.overlay(kind?)`: lift this container OUT OF FLOW as a full-bleed
     /// layer over its parent's content (drop-down panels / dialogs). Anchoring
     /// happens INSIDE the layer with ordinary flex. The kind (TASK-0074) adds
@@ -98,6 +100,19 @@ pub struct Mods {
     pub columns: Option<usize>,
     /// `.rowGap(n)` — the grid's row gap (spacing scale); `None` = `.gap()`.
     pub row_gap: Option<FxPx>,
+}
+
+/// A container's overflow from its modifiers: `.scroll(...)` → a scroll root of its axis,
+/// `.overflow(hidden)` → a clip, otherwise visible.
+fn overflow_of(mods: &Mods) -> Overflow {
+    use nexus_layout_types::ScrollAxis as Axis;
+    match (mods.scroll, mods.clip) {
+        (Some(ScrollAxis::Horizontal), _) => Overflow::Scroll(Axis::Horizontal),
+        (Some(ScrollAxis::Paged), _) => Overflow::Scroll(Axis::Paged),
+        (Some(ScrollAxis::Vertical), _) => Overflow::Scroll(Axis::Vertical),
+        (None, true) => Overflow::Hidden,
+        (None, false) => Overflow::Visible,
+    }
 }
 
 /// Scroll axis of a `.scroll(...)` viewport (`paged` = horizontal with
@@ -145,6 +160,7 @@ impl Default for Mods {
             disabled: false,
             material: None,
             scroll: None,
+            clip: false,
             overlay: None,
             dismiss_after: None,
             autofocus: false,
@@ -303,19 +319,9 @@ fn plain_stack(
             padding: mods.padding,
             align: mods.align.unwrap_or(Align::Stretch),
             justify: mods.justify.unwrap_or(Justify::Start),
-            // `.scroll(...)` clips this container (the scroll viewport); the
-            // engine then stamps `clip_rect` on every descendant box, which is
-            // what the host's paint-time scroll offset keys on.
-            overflow: match mods.scroll {
-                Some(ScrollAxis::Horizontal) => {
-                    Overflow::Scroll(nexus_layout_types::ScrollAxis::Horizontal)
-                }
-                Some(ScrollAxis::Paged) => Overflow::Scroll(nexus_layout_types::ScrollAxis::Paged),
-                Some(ScrollAxis::Vertical) => {
-                    Overflow::Scroll(nexus_layout_types::ScrollAxis::Vertical)
-                }
-                None => Overflow::Visible,
-            },
+            // `.scroll(...)` makes this container a scroll root (RFC-0109); `.overflow(hidden)`
+            // clips it.
+            overflow: overflow_of(mods),
             flex_wrap: mods.wrap,
             min_width: min_w,
             max_width: max_w,
@@ -365,16 +371,7 @@ fn plain_grid(
             gap: mods.gap,
             row_gap,
             padding: mods.padding,
-            overflow: match mods.scroll {
-                Some(ScrollAxis::Horizontal) => {
-                    Overflow::Scroll(nexus_layout_types::ScrollAxis::Horizontal)
-                }
-                Some(ScrollAxis::Paged) => Overflow::Scroll(nexus_layout_types::ScrollAxis::Paged),
-                Some(ScrollAxis::Vertical) => {
-                    Overflow::Scroll(nexus_layout_types::ScrollAxis::Vertical)
-                }
-                None => Overflow::Visible,
-            },
+            overflow: overflow_of(mods),
             min_width: min_w,
             max_width: max_w,
             min_height: min_h,

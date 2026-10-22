@@ -702,7 +702,7 @@ Page P {
 
     // Tap the query field: focused, not secure.
     let (x, y) = center(bind_boxes[0]);
-    let snap = mounted.view.focus_text_at(&result.boxes, x, y, None).expect("focus");
+    let snap = mounted.view.focus_text_at(&result.boxes, x, y, &[]).expect("focus");
     assert!(!snap.secure);
     assert_eq!(mounted.view.text_focus(), Some(snap));
 
@@ -736,7 +736,7 @@ Page P {
         (FxPx::new(rect.x.0 + rect.width.0 / 2), FxPx::new(rect.y.0 + rect.height.0 / 2))
     };
     let (x, y) = center2(bind_boxes[1]);
-    let snap = mounted.view.focus_text_at(&result.boxes, x, y, None).expect("focus secret");
+    let snap = mounted.view.focus_text_at(&result.boxes, x, y, &[]).expect("focus secret");
     assert!(snap.secure, "secure prop reaches the focus snapshot");
     mounted
         .view
@@ -750,7 +750,7 @@ Page P {
     assert!(!texts.iter().any(|t| t.contains("pw")), "scene never shows the secret");
 
     // Tap empty space clears focus; inserts become no-ops.
-    assert!(mounted.view.focus_text_at(&result.boxes, FxPx::new(1), FxPx::new(1), None).is_none());
+    assert!(mounted.view.focus_text_at(&result.boxes, FxPx::new(1), FxPx::new(1), &[]).is_none());
     assert_eq!(mounted.view.text_focus(), None);
     let damage = mounted
         .view

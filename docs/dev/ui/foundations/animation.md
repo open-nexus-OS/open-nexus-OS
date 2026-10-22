@@ -124,11 +124,13 @@ Pointer interactions ride the SAME driver + per-node transform (no extra loop):
 subtree anchored at the control's center; **press** dips to 0.92 and pops
 elastically past identity (280 ms keyframe).
 
-Motion is the WHOLE hover affordance — there is no plate under it. The painter
-still accepts a `HoverWash` (window chrome uses it for the title-bar buttons),
-but the DSL paint path passes `None`: a wash follows the box's `corner_radius`,
-and an icon button's handler box carries none, so every hovered circle wore a
-white SQUARE. One affordance per state.
+The hover's plate is no paint: it is a WASH LAYER the compositor draws
+(RFC-0109, materials rule 3) — the theme's `glassHover` patch spread over the
+control the hover anchors (`app-host/src/hover_wash.rs` picks the child that
+really draws the control, so a pill's wash follows the pill's radius, not its
+square wrapper's), moved with its scroll layer, its opacity the colour's alpha.
+A hover change re-rasters nothing; the grow spring above is the remaining
+raster motion (motion as layer properties is the follow-on).
 
 Kinds that animate a PART instead of the whole control carry
 a structural `press_offset` on their handler (`registry::press_offset`, like

@@ -37,6 +37,8 @@ pub(crate) struct MaterialLayerParams {
     /// An opaque region (TASK-0337: the content pane): no backdrop blur, and the planner draws
     /// nothing below it inside its rounded rectangle (`LAYER_OPAQUE`).
     pub opaque: bool,
+    /// The layer's identity across presents (RFC-0109: the planner's match).
+    pub key: u32,
 }
 
 /// Composite one app-declared glass region through the `nexus-gfx` layer SSOT —
@@ -85,6 +87,7 @@ pub(crate) fn composite_material_glass(
             }),
             opaque: p.opaque,
             solid: false,
+            key: p.key,
         },
         (mode_w, mode_h),
     );

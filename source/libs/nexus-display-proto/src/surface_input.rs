@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: the input kinds of the client-surface protocol (ADR-0042) — what `OP_SURFACE_INPUT`
-//! carries from windowd to an app surface: taps, hover motion, leave, wheel, the compositor's
-//! scroll position and (RFC-0095) the drag gesture. Split out of `client_surface.rs` under the
-//! structure ratchet; `client_surface` re-exports every item, so its paths stay valid.
+//! carries from windowd to an app surface: taps, hover motion, leave, wheel and (RFC-0095) the
+//! drag gesture. Split out of `client_surface.rs` under the structure ratchet; `client_surface`
+//! re-exports every live item, so its paths stay valid.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable (append-only)
@@ -24,10 +24,9 @@ pub const INPUT_KIND_LEAVE: u8 = 2;
 /// `as i16` — see `wheel_delta_from_wire`). The sign is the raw evdev
 /// `REL_WHEEL` convention: +1 = wheel UP (away from the user).
 pub const INPUT_KIND_WHEEL: u8 = 3;
-/// Compositor scroll position push (windowd → app): `y` carries the resolved
-/// ABSOLUTE scroll offset in rows. Sent when windowd owns the scroll (WebRender
-/// path: it shifts the layer `src_row` itself) so the app can keep its hit-test
-/// + EndReached state in sync WITHOUT re-rendering on every notch.
+/// RETIRED (RFC-0109 / ADR-0076, value reserved forever — never reuse): the
+/// compositor's scroll-position push. The app runs the one scroll physics and
+/// knows its offset; windowd composes the offset the app's motion declares.
 pub const INPUT_KIND_SCROLL_POS: u8 = 4;
 /// Pointer motion while the primary button is held (RFC-0095 — the DSL drag gesture): sent
 /// INSTEAD of `MOVE` to the surface that took the press, at the same frame-bounded rate.

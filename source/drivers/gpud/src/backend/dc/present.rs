@@ -313,12 +313,18 @@ impl Display for DcDisplay {
                         u32::from(!nexus_gfx::backend::dc::in_blank(seen.line_after, u32::from(h)));
                     vb.line_after_max = vb.line_after_max.max(seen.line_after);
                     if vb.flips % 64 == 0 {
+                        // `wakes`/`late`: blank wakes served and those served after the blank
+                        // had passed (the flip waits a whole frame more) — the measurement of
+                        // whether the flip waits on gpud's own wake latency.
                         emit(&alloc::format!(
-                            "gpud: dc flips (n={} pending={} crossed={} line_after_max={})",
+                            "gpud: dc flips (n={} pending={} crossed={} line_after_max={} \
+                             wakes={} late={})",
                             vb.flips,
                             vb.pending,
                             vb.crossed,
-                            vb.line_after_max
+                            vb.line_after_max,
+                            vb.n,
+                            vb.late
                         ));
                     }
                     if taken {

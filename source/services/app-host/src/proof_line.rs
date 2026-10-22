@@ -62,6 +62,19 @@ pub(crate) static INTERACTIVE_PRESENT: OnceLine = OnceLine::new();
 /// The resident text-run count of a scroll window (the store-window bound).
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub(crate) static SCROLL_TEXTS: HighWater = HighWater::new();
+/// A page with more scroll containers than the surface carries layers (RFC-0109).
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub(crate) static SCROLL_LAYERS_OVER: OnceLine = OnceLine::new();
+/// The store could not hold a band for every scroll layer: the longest went flat.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub(crate) static STORE_FULL: OnceLine = OnceLine::new();
+/// windowd had no atlas room for the surface's store (`NO_STORE`): its scroll layers are flat.
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub(crate) static STORE_REFUSED: OnceLine = OnceLine::new();
+/// The scroll layers of a mounted page and the rows their bands take (a measurement, at the
+/// largest count seen).
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+pub(crate) static SCROLL_LAYERS: HighWater = HighWater::new();
 
 /// A proof line written straight to the UART — it bypasses the verdict folding the process
 /// arms for every other line, so the service chain stays visible for boot verification.
