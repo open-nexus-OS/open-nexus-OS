@@ -116,6 +116,8 @@ pub(super) fn spawn_errno(err: &task::SpawnError) -> usize {
 pub(super) fn address_space_errno(err: &AddressSpaceError) -> usize {
     match err {
         AddressSpaceError::InvalidHandle | AddressSpaceError::InvalidArgs => errno(EINVAL),
+        AddressSpaceError::BadUserMemory => errno(EFAULT),
+        AddressSpaceError::OutOfFrames => errno(ENOMEM),
         AddressSpaceError::AsidExhausted => errno(ENOSPC),
         AddressSpaceError::InUse => errno(EPERM),
         AddressSpaceError::Unsupported => errno(ENOSYS),

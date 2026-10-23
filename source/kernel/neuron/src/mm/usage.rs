@@ -18,11 +18,14 @@ use super::address_space::{AddressSpace, AddressSpaceManager, AsHandle};
 use crate::accounting::MmStats;
 use crate::va_space::RegionKind;
 
-/// Resident and contiguous-DMA bytes of one address space.
+/// Resident, contiguous-DMA and reserved bytes of one address space.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SpaceUsage {
+    /// Committed bytes: every page of an eager region, the touched pages of a lazy one.
     pub rss: u64,
     pub dma: u64,
+    /// Bytes of lazy regions not yet touched (ADR-0077).
+    pub reserved: u64,
 }
 
 /// What every address space together holds.
@@ -39,6 +42,12 @@ pub fn space_usage(space: &AddressSpace) -> SpaceUsage {
     for region in space.va_space().regions() {
         match region.kind {
             RegionKind::Mmio => {}
+            // A region over a lazy object costs what it touched (ADR-0077).
+            _ if region.lazy => {
+                let committed = super::vmo::committed_in(region.vmo, region.offset, region.len);
+                usage.rss += committed as u64;
+                usage.reserved += region.len.saturating_sub(committed) as u64;
+            }
             RegionKind::Fixed => usage.rss += region.len as u64,
             RegionKind::Vmo => {
                 usage.rss += region.len as u64;
@@ -66,12 +75,13 @@ pub fn snapshot(spaces: &AddressSpaceManager, own: Option<AsHandle>) -> (MmStats
         stats.exhausted = pool.exhausted;
     }
     stats.pt_frames = super::page_table::PageTable::allocation_stats().live as u64;
-    let (vmos, vmo_bytes, dma_bytes) = super::vmo::stats();
-    (stats.vmos, stats.vmo_bytes, stats.dma_bytes) =
-        (vmos as u64, vmo_bytes as u64, dma_bytes as u64);
+    let (vmos, vmo_bytes, dma_bytes, committed) = super::vmo::stats();
+    (stats.vmos, stats.vmo_bytes, stats.dma_bytes, stats.vmo_committed) =
+        (vmos as u64, vmo_bytes as u64, dma_bytes as u64, committed as u64);
     if let Some(space) = own.and_then(|h| spaces.get(h).ok()) {
         let usage = space_usage(space);
-        (stats.own_rss_bytes, stats.own_dma_bytes) = (usage.rss, usage.dma);
+        (stats.own_rss_bytes, stats.own_dma_bytes, stats.own_reserved_bytes) =
+            (usage.rss, usage.dma, usage.reserved);
     }
     let mut summary = SpacesSummary::default();
     for space in spaces.iter() {

@@ -55,9 +55,16 @@ pub(super) fn sys_vm_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
     let space = ctx.address_spaces.get_mut(handle)?;
+    let kind = crate::va_space::RegionKind::Vmo;
+    if crate::mm::vmo::is_lazy(id) {
+        // ADR-0077: recorded now, each page mapped by its first touch.
+        let va = crate::mm::vm_ops::map_lazy(space, len, flags, kind, id, offset)
+            .map_err(Error::from)?;
+        return Ok(va);
+    }
     let runs = vmo_runs_in(id, offset, len)?;
-    let va = crate::mm::vm_ops::map_runs(space, &runs, flags, crate::va_space::RegionKind::Vmo, id)
-        .map_err(Error::from)?;
+    let va =
+        crate::mm::vm_ops::map_runs(space, &runs, flags, kind, id, offset).map_err(Error::from)?;
     Ok(va)
 }
 

@@ -369,6 +369,34 @@ pub fn user_fault_report() -> (u32, u64, u64) {
     )
 }
 
+/// A U-mode page fault (`exc` 12/13/15 at `stval`) on a lazy page is a missing page, not an
+/// error (ADR-0077): commit and map it under the kernel lock and resume the instruction. `true`
+/// = filled (or spurious) — the trap returns to the same `sepc`; `false` = a real fault, the
+/// caller reports and kills as before. No frame for the page is named here, then killed.
+pub(super) fn fill_user_fault(exc: usize, stval: usize) -> bool {
+    use crate::lazy::Access;
+    let access = match exc {
+        12 => Access::Execute,
+        13 => Access::Read,
+        15 => Access::Write,
+        _ => return false,
+    };
+    // U-mode fault → this hart holds no BKL; safe to acquire.
+    let Ok(mut kernel) = KernelGuard::acquire() else { return false };
+    let (_, tasks, _, spaces, ..) = kernel.parts();
+    let pid = tasks.current_pid();
+    let Some(handle) = tasks.current_task().address_space() else { return false };
+    let Ok(space) = spaces.get_mut(handle) else { return false };
+    match crate::mm::populate::fill(space, stval, access) {
+        Ok(()) => true,
+        Err(crate::mm::populate::FillError::Exhausted) => {
+            log_error!(target: "mm", "KINIT: vm commit exhausted (pid={} va=0x{:x})", pid.as_raw(), stval);
+            false
+        }
+        Err(crate::mm::populate::FillError::Violation(_)) => false,
+    }
+}
+
 /// Fail-fast for a U-mode fault: kill the offending task (leaving it alive
 /// would be an infinite fault storm that blocks boot markers), then pick the
 /// next runnable task for the trap epilogue — or, with nothing runnable on

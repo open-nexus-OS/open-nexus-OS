@@ -17,7 +17,7 @@ use crate::accounting::{check_out_len, MM_STATS_BYTES};
 pub(super) fn sys_mm_stats(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let (out_ptr, out_len) = (args.get(0), args.get(1));
     check_out_len(out_len).map_err(|_| AddressSpaceError::InvalidArgs)?;
-    ensure_user_slice(out_ptr, MM_STATS_BYTES)?;
+    ensure_user_range(ctx, out_ptr, MM_STATS_BYTES, UserAccess::Write)?;
     let own = ctx.tasks.current_task().address_space();
     let (mut stats, _) = crate::mm::usage::snapshot(ctx.address_spaces, own);
     // TASK-0333 6a: the kernel objects that die with their last capability, counted so a

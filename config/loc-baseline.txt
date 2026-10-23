@@ -8,12 +8,12 @@
 649	source/drivers/rng/virtio-rng/src/lib.rs
 701	source/init/nexus-init/src/bootstrap/orchestrator.rs
 689	source/init/nexus-init/src/std_server.rs
-1208	source/kernel/neuron/src/core/trap/handler.rs
+1207	source/kernel/neuron/src/core/trap/handler.rs
 695	source/kernel/neuron/src/ipc/mod.rs
 664	source/kernel/neuron/src/mm/address_space.rs
 759	source/kernel/neuron/src/sched/mod.rs
 2261	source/kernel/neuron/src/selftest/mod.rs
-682	source/kernel/neuron/src/syscall/api/exec.rs
+669	source/kernel/neuron/src/syscall/api/exec.rs
 1601	source/kernel/neuron/src/syscall/api/tests.rs
 1191	source/kernel/neuron/src/task/mod.rs
 699	source/libs/nexus-display-proto/src/client_surface.rs

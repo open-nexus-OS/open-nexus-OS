@@ -702,6 +702,8 @@ expected_sequence=(
   # queue has room, or when nobody can drain it — the compositor's never-park signal.
   "KSELFTEST: waitset writable ok"
   "KSELFTEST: ipc eof nonblocking ok"
+  # TASK-0333 6b-1 (ADR-0077): an unmapped user pointer is EFAULT, never a kernel fault.
+  "KSELFTEST: userptr unmapped ok"
   "KSELFTEST: ipc peer closed send ok"
   "KSELFTEST: task exit releases ok ("
   "KSELFTEST: child exit notify ok ("
@@ -1059,6 +1061,8 @@ expected_sequence=(
   "KSELFTEST: console off lock ok ("
   "KSELFTEST: ipc payload hist ("
   "SELFTEST: vm map roundtrip ok"
+  # TASK-0333 6b-1 (ADR-0077): memory committed on first touch, proven from user mode.
+  "SELFTEST: vm commit on touch ok ("
   "SELFTEST: dma buffer ok ("
   "SELFTEST: cap query vmo ok"
   "SELFTEST: ipc routing ok"
@@ -1278,6 +1282,7 @@ case "${PROFILE:-full}" in
       "KSELFTEST: w^x enforced"
       "KSELFTEST: waitset writable ok"
       "KSELFTEST: ipc eof nonblocking ok"
+      "KSELFTEST: userptr unmapped ok"
       "KSELFTEST: ipc peer closed send ok"
       "KSELFTEST: task exit releases ok ("
       "KSELFTEST: child exit notify ok ("

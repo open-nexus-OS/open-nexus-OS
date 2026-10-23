@@ -65,7 +65,7 @@ pub(super) fn sys_vmo_runs(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     if max == 0 || max > MAX_RUNS {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
-    ensure_user_slice(out_ptr, max * RUN_BYTES)?;
+    ensure_user_range(ctx, out_ptr, max * RUN_BYTES, UserAccess::Write)?;
     let mut out = alloc::vec![(0u64, 0u64); max];
     let count = resolve_runs(ctx, vmo_slot, device_slot, offset, len, &mut out)?;
     for (i, (bus, run_len)) in out[..count].iter().enumerate() {

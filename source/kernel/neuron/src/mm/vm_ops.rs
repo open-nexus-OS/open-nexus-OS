@@ -42,20 +42,21 @@ pub fn map_range(
     kind: RegionKind,
     vmo: u32,
 ) -> Result<usize, VmOpError> {
-    map_runs(space, &[(pa, len)], flags, kind, vmo)
+    map_runs(space, &[(pa, len)], flags, kind, vmo, 0)
 }
 
 /// Map physically contiguous runs `(pa, len)` back to back at ONE
 /// kernel-chosen va (TASK-0286 P3a: a page-backed VMO is its runs). The va
 /// is chosen so the first run keeps its 2 MiB phase; later runs of a
 /// largest-first object are superpage-aligned by construction, so every
-/// eligible run promotes. One region records the whole span.
+/// eligible run promotes. One region records the whole span, from the object's byte `offset`.
 pub fn map_runs(
     space: &mut AddressSpace,
     runs: &[(usize, usize)],
     flags: PageFlags,
     kind: RegionKind,
     vmo: u32,
+    offset: usize,
 ) -> Result<usize, VmOpError> {
     let Some(&(pa, _)) = runs.first() else { return Err(VmOpError::Va(VaError::BadInput)) };
     let mut len = 0usize;
@@ -79,19 +80,18 @@ pub fn map_runs(
     };
     // RECORD-THEN-MAP: reserve the bookkeeping slot before touching the page
     // table, so "mapped but unrecorded" cannot exist even across a failure.
-    space.va_space_mut().insert(VaRegion { va, len, pa, flags: flags.bits(), kind, vmo }).map_err(
-        |err| {
-            if err == VaError::TableFull {
-                log_error!(
-                    target: "vm",
-                    "VM-MAP-FAIL reason=table-full regions={} peak={}",
-                    space.va_space().region_count(),
-                    space.va_space().peak_regions()
-                );
-            }
-            VmOpError::Va(err)
-        },
-    )?;
+    let region = VaRegion { va, len, pa, flags: flags.bits(), kind, vmo, offset, lazy: false };
+    space.va_space_mut().insert(region).map_err(|err| {
+        if err == VaError::TableFull {
+            log_error!(
+                target: "vm",
+                "VM-MAP-FAIL reason=table-full regions={} peak={}",
+                space.va_space().region_count(),
+                space.va_space().peak_regions()
+            );
+        }
+        VmOpError::Va(err)
+    })?;
     let mut mapped_end = va;
     let mut at = va;
     let planned = runs.iter().try_for_each(|&(run_pa, run_len)| {
@@ -112,6 +112,29 @@ pub fn map_runs(
         return Err(VmOpError::Map(err));
     }
     fence_asid(space.asid());
+    Ok(va)
+}
+
+/// Maps `len` bytes of the lazy object `vmo` from its byte `offset` at a kernel-chosen va
+/// (ADR-0077): the region is recorded and no PTE is written — each page is committed and mapped
+/// by the first touch (`mm::populate`). 4 KiB pages only: no superpage phase to keep.
+pub fn map_lazy(
+    space: &mut AddressSpace,
+    len: usize,
+    flags: PageFlags,
+    kind: RegionKind,
+    vmo: u32,
+    offset: usize,
+) -> Result<usize, VmOpError> {
+    if len == 0 || len % PAGE_SIZE != 0 || offset % PAGE_SIZE != 0 || vmo == 0 {
+        return Err(VmOpError::Va(VaError::BadInput));
+    }
+    let va = space
+        .va_space()
+        .find_hole(len, PAGE_SIZE, 0)
+        .ok_or(VmOpError::Va(VaError::WindowExhausted))?;
+    let region = VaRegion { va, len, pa: 0, flags: flags.bits(), kind, vmo, offset, lazy: true };
+    space.va_space_mut().insert(region).map_err(VmOpError::Va)?;
     Ok(va)
 }
 

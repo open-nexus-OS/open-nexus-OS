@@ -834,6 +834,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             const SSTATUS_SPP: usize = 1 << 8;
             let from_user = (frame.sstatus & SSTATUS_SPP) == 0;
 
+            // ADR-0077: a lazy page is filled and the instruction resumed, not a kill.
+            if from_user && super::fault::fill_user_fault(exc, stval_now) {
+                return;
+            }
             if from_user {
                 let report_t0 = crate::arch::riscv::read_time();
                 // User page fault - ROBUST logging via direct MMIO (no heap, no fmt)

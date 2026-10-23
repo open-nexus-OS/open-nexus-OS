@@ -39,8 +39,8 @@ pub(super) struct IpcRecvV2Desc {
 
 pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let desc_ptr = args.get(0);
-    // Defensive: require the descriptor itself to be a valid user slice.
-    ensure_user_slice(desc_ptr, core::mem::size_of::<IpcRecvV2Desc>())?;
+    // Defensive: the descriptor itself must be readable user memory (ADR-0077).
+    ensure_user_range(ctx, desc_ptr, core::mem::size_of::<IpcRecvV2Desc>(), UserAccess::Read)?;
     let mut raw = [0u8; core::mem::size_of::<IpcRecvV2Desc>()];
     unsafe {
         core::ptr::copy_nonoverlapping(desc_ptr as *const u8, raw.as_mut_ptr(), raw.len());
@@ -59,17 +59,18 @@ pub(super) fn sys_ipc_recv_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     let sys_flags = read_u32_le(&raw, 48)? as usize;
     let deadline_ns = read_u64_le(&raw, 56)?;
 
-    // Validate pointers up-front (RFC-0004 style provenance).
-    ensure_user_slice(header_out_ptr, 16)?;
+    // Validate pointers up-front (RFC-0004 style provenance): every out-buffer writable user
+    // memory, a lazy page committed before the recv can park (ADR-0077).
+    ensure_user_range(ctx, header_out_ptr, 16, UserAccess::Write)?;
     // EINVAL, not E2BIG: an out-buffer larger than any possible message is a caller bug, not an
     // oversize message (TASK-0054C P3b — E2BIG is the SEND-side answer).
     if payload_out_max > crate::ipc::IPC_PAYLOAD_MAX {
         return Err(AddressSpaceError::InvalidArgs.into());
     }
     if payload_out_max != 0 {
-        ensure_user_slice(payload_out_ptr, payload_out_max)?;
+        ensure_user_range(ctx, payload_out_ptr, payload_out_max, UserAccess::Write)?;
     }
-    ensure_user_slice(sender_service_id_out_ptr, 8)?;
+    ensure_user_range(ctx, sender_service_id_out_ptr, 8, UserAccess::Write)?;
 
     if (sys_flags & !(IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE)) != 0 {
         return Err(AddressSpaceError::InvalidArgs.into());

@@ -40,6 +40,7 @@ mod kernel_layout;
 #[cfg(test)]
 mod page_table_tests;
 mod page_table_verify;
+pub mod populate;
 mod tests;
 pub mod usage;
 pub mod vmo;

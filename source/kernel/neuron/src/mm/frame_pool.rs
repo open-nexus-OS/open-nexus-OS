@@ -143,6 +143,20 @@ fn take_bytes(
     Ok(blocks)
 }
 
+/// Keep the first `keep` frames of the allocated `block` and return the rest to the pool
+/// (`FrameAllocator::trim`); the answer is the pieces that tile the kept part. A refusal is a
+/// kernel bug (the block is not allocated): it is reported, and the block stays whole.
+pub fn trim(block: Block, keep: usize) -> Vec<Block> {
+    let result = match POOL.lock().as_mut() {
+        Some(pool) => pool.trim(block, keep),
+        None => Err(FrameError::NotOwned),
+    };
+    result.unwrap_or_else(|e| {
+        log_error!(target: "mm", "MM: frame trim refused ({:?}) base=0x{:x} order={} keep={}", e, block.base, block.order, keep);
+        alloc::vec![block]
+    })
+}
+
 /// Return every block of a list.
 pub fn free_blocks(blocks: &[Block]) {
     for block in blocks {

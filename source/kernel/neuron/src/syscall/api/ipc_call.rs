@@ -62,21 +62,23 @@ pub(super) fn sys_ipc_call(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     let out_ptr = args.get(4);
     let out_max = args.get(5);
 
-    ensure_user_slice(header_ptr, 16)?;
+    // Every buffer user memory with its access's right, a lazy page committed before the call
+    // can park (ADR-0077).
+    ensure_user_range(ctx, header_ptr, 16, UserAccess::Read)?;
     if payload_len > crate::ipc::IPC_PAYLOAD_MAX {
         return Err(Error::Ipc(ipc::IpcError::TooBig));
     }
     if payload_len != 0 {
-        ensure_user_slice(payload_ptr, payload_len)?;
+        ensure_user_range(ctx, payload_ptr, payload_len, UserAccess::Read)?;
     }
     if out_max != 0 {
-        ensure_user_slice(out_ptr, out_max)?;
+        ensure_user_range(ctx, out_ptr, out_max, UserAccess::Write)?;
     }
 
     // The reply endpoint is the endpoint of the capability being moved. Resolve
     // it BEFORE the send consumes the capability.
     let mut hdr_bytes = [0u8; 16];
-    // SAFETY: `ensure_user_slice` above proved 16 readable bytes at `header_ptr`.
+    // SAFETY: `ensure_user_range` above proved 16 readable bytes at `header_ptr`.
     unsafe {
         core::ptr::copy_nonoverlapping(header_ptr as *const u8, hdr_bytes.as_mut_ptr(), 16);
     }
@@ -136,8 +138,8 @@ fn collect_queued_reply(
             let total = msg.payload.len();
             let n = core::cmp::min(total, out_max);
             if n != 0 {
-                // SAFETY: `out_ptr`/`out_max` were proved a user slice at the
-                // commit point and this task owns that address space.
+                // SAFETY: `ensure_user_range` proved `out_ptr`/`out_max` writable — committed
+                // and mapped — at the commit point, and this task owns that address space.
                 unsafe {
                     core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), out_ptr as *mut u8, n);
                 }

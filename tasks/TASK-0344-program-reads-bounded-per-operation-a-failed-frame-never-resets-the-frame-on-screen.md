@@ -4,7 +4,7 @@ status: Done 2026-10-22 (board cycle 63: no runtime `ERR`, no app crash, `abando
 owner: @runtime @ui
 created: 2026-10-22
 depends-on: [TASK-0077C (the generation arena, ADR-0065)]
-follow-up-tasks: [the latency of a large CPU re-raster — the shell's control center 0.65 s, the theme switch 0.74 s, a tap into a text field 0.46 s (cycle 63); the frame arena's spill itself (memory lane, 6b); the allocator's free lists default-on for every service (TASK-0333 6b)]
+follow-up-tasks: [layer 8's closing (the operator 2026-10-22): the latency of a large CPU re-raster — the shell's control center 0.65 s, the theme switch 0.74 s, a tap into a text field 0.46 s (cycle 63); the frame arena's spill itself (memory lane, 6b); the allocator's free lists default-on for every service (TASK-0333 6b)]
 links:
   - ADR: docs/adr/0065-app-host-frame-phase-allocates-from-a-generation-arena.md (amended: a failed frame is abandoned)
   - Measurement: docs/board/measurements/2026-10-22-program-reads/README.md (cycle 63's decision lines)

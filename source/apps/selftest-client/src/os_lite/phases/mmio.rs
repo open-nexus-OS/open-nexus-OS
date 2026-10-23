@@ -33,6 +33,20 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
     } else {
         emit_line(crate::markers::M_SELFTEST_VM_MAP_ROUNDTRIP_FAIL);
     }
+    // TASK-0333 6b-1 (ADR-0077): memory committed on first touch, proven from user mode.
+    match mmio::commit_on_touch_probe() {
+        Ok(proof) => {
+            emit_bytes(crate::markers::M_SELFTEST_VM_COMMIT_ON_TOUCH_OK.as_bytes());
+            emit_bytes(b"reserved=");
+            emit_u64(proof.reserved);
+            emit_bytes(b" committed=");
+            emit_u64(proof.committed);
+            emit_bytes(b" us_per_fault=");
+            emit_u64(proof.us_per_fault);
+            emit_line(")");
+        }
+        Err(()) => emit_line(crate::markers::M_SELFTEST_VM_COMMIT_ON_TOUCH_FAIL),
+    }
     // TASK-0327B P4 H0b: these two prove a DEVICE capability's contract; a boot that granted
     // the selftest-client no device (the board has no virtio-net) skips them and says so —
     // a `FAIL` would blame the kernel for a plane the tree does not have.

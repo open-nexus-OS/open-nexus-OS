@@ -83,6 +83,9 @@ impl DeviceCapCreateArgsTyped {
 
 /// `vmo_create` arg 2: the object must be one physically contiguous block.
 pub const VMO_CREATE_CONTIGUOUS: usize = 1;
+/// `vmo_create` arg 2: the object's pages are committed on first touch (ADR-0077). Never with
+/// `VMO_CREATE_CONTIGUOUS` (a controller cannot fault), and for no device yet (6b-2).
+pub const VMO_CREATE_LAZY: usize = 2;
 /// `vmo_create` arg 3: the object is for no device.
 pub const VMO_CREATE_NO_DEVICE: usize = usize::MAX;
 
@@ -115,9 +118,11 @@ impl VmoCreateArgsTyped {
         }
         // Deny-by-default on the flag word; and a contiguous object is a DMA
         // master's one base — without its device the kernel cannot know where
-        // the block must lie.
-        if self.flags & !VMO_CREATE_CONTIGUOUS != 0
+        // the block must lie. A lazy object is never contiguous (a controller
+        // cannot fault) and, until the layout split (6b-2), for no device.
+        if self.flags & !(VMO_CREATE_CONTIGUOUS | VMO_CREATE_LAZY) != 0
             || (self.contiguous() && self.device_slot == VMO_CREATE_NO_DEVICE)
+            || (self.lazy() && (self.contiguous() || self.device_slot != VMO_CREATE_NO_DEVICE))
         {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
@@ -126,9 +131,14 @@ impl VmoCreateArgsTyped {
     fn contiguous(&self) -> bool {
         self.flags & VMO_CREATE_CONTIGUOUS != 0
     }
+    fn lazy(&self) -> bool {
+        self.flags & VMO_CREATE_LAZY != 0
+    }
     fn kind(&self) -> crate::mm::vmo::VmoKind {
         if self.contiguous() {
             crate::mm::vmo::VmoKind::Contiguous
+        } else if self.lazy() {
+            crate::mm::vmo::VmoKind::Lazy
         } else {
             crate::mm::vmo::VmoKind::Anon
         }
@@ -179,7 +189,8 @@ pub(super) fn sys_device_cap_create(ctx: &mut Context<'_>, args: &Args) -> SysRe
     }
 
     let mut bytes = [0u8; crate::dma_reach::DEVICE_DESC_BYTES];
-    // SAFETY: `check` proved `desc_ptr .. desc_ptr + DEVICE_DESC_BYTES` a user slice.
+    ensure_user_range(ctx, typed.desc_ptr, bytes.len(), UserAccess::Read)?;
+    // SAFETY: `ensure_user_range` proved `desc_ptr .. desc_ptr + DEVICE_DESC_BYTES` readable.
     unsafe {
         ptr::copy_nonoverlapping(typed.desc_ptr as *const u8, bytes.as_mut_ptr(), bytes.len());
     }
@@ -346,16 +357,24 @@ pub(super) fn sys_vmo_read(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     if span_end > vmo_len {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    ensure_user_slice(typed.user_ptr, typed.len)?;
-    // Object bytes are runs; the user buffer is one range: copy run by run.
+    ensure_user_range(ctx, typed.user_ptr, typed.len, UserAccess::Write)?;
+    // Object bytes are runs (a lazy object's: pages, `None` where never touched — those read as
+    // zeros and stay uncommitted); the user buffer is one range: copy piece by piece.
+    let pieces = crate::mm::vmo::span(id, typed.offset, typed.len, false)
+        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
     let mut dst = typed.user_ptr;
-    for (pa, len) in vmo_runs_in(id, typed.offset, typed.len)? {
+    for (pa, len) in pieces {
+        // SAFETY: `dst..dst+len` lies in the range `ensure_user_range` proved writable; `pa` is
+        // a frame of the object, reached through the direct map.
         unsafe {
-            ptr::copy_nonoverlapping(
-                crate::phys::phys_to_virt(pa) as *const u8,
-                dst as *mut u8,
-                len,
-            );
+            match pa {
+                Some(pa) => ptr::copy_nonoverlapping(
+                    crate::phys::phys_to_virt(pa) as *const u8,
+                    dst as *mut u8,
+                    len,
+                ),
+                None => ptr::write_bytes(dst as *mut u8, 0, len),
+            }
         }
         dst += len;
     }
@@ -385,7 +404,7 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     if span_end > vmo_len {
         return Err(Error::Capability(CapError::PermissionDenied));
     }
-    ensure_user_slice(typed.user_ptr, typed.len)?;
+    ensure_user_range(ctx, typed.user_ptr, typed.len, UserAccess::Read)?;
     #[cfg(feature = "debug_uart")]
     let preview_len = core::cmp::min(typed.len, 16);
     #[cfg(feature = "debug_uart")]
@@ -408,8 +427,14 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
         }
         let _ = u.write_str("\n");
     }
+    // A lazy object's pages are committed as they are written (ADR-0077).
+    let pieces = crate::mm::vmo::span(id, typed.offset, typed.len, true)
+        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
     let mut src = typed.user_ptr;
-    for (pa, len) in vmo_runs_in(id, typed.offset, typed.len)? {
+    for (pa, len) in pieces {
+        let Some(pa) = pa else { return Err(Error::Capability(CapError::PermissionDenied)) };
+        // SAFETY: `src..src+len` lies in the range `ensure_user_range` proved readable; `pa` is
+        // a frame of the object, reached through the direct map.
         unsafe {
             ptr::copy_nonoverlapping(
                 src as *const u8,
@@ -468,6 +493,33 @@ pub(super) fn ensure_user_slice(ptr: usize, len: usize) -> Result<(), Error> {
         }
         Ok(())
     }
+}
+
+/// What a syscall does to user memory: the kernel reads it (`Read`) or writes it (`Write`).
+pub(super) use crate::lazy::Access as UserAccess;
+
+/// The kernel touches user memory only through this check (ADR-0077): the range lies in the
+/// user half and every page of it is mapped with `access`'s right in the caller's own space — a
+/// lazy page committed and mapped first. Anything else is `EFAULT` (no frame left: `ENOMEM`),
+/// never a kernel page fault on a pointer the caller chose.
+pub(super) fn ensure_user_range(
+    ctx: &mut Context<'_>,
+    ptr: usize,
+    len: usize,
+    access: UserAccess,
+) -> Result<(), Error> {
+    ensure_user_slice(ptr, len)?;
+    if len == 0 {
+        return Ok(());
+    }
+    let handle =
+        ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
+    let space = ctx.address_spaces.get_mut(handle)?;
+    crate::mm::populate::fill_range(space, ptr, len, access).map_err(|e| match e {
+        crate::mm::populate::FillError::Exhausted => AddressSpaceError::OutOfFrames,
+        crate::mm::populate::FillError::Violation(_) => AddressSpaceError::BadUserMemory,
+    })?;
+    Ok(())
 }
 
 pub(super) fn sys_as_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {

@@ -21,7 +21,45 @@ fn space() -> VaSpace {
 }
 
 fn vmo(va: usize, len: usize, pa: usize) -> VaRegion {
-    VaRegion { va, len, pa, flags: 0xF, kind: RegionKind::Vmo, vmo: 0 }
+    VaRegion { va, len, pa, flags: 0xF, kind: RegionKind::Vmo, vmo: 0, offset: 0, lazy: false }
+}
+
+/// TASK-0333 6b-1 (ADR-0077): a fault resolves the region that contains its address.
+#[test]
+fn find_names_the_region_that_contains_an_address() {
+    let mut s = space();
+    s.insert(vmo(BASE + 4 * PAGE, 2 * PAGE, 0x8000_0000)).unwrap();
+    s.insert(vmo(BASE, 2 * PAGE, 0x9000_0000)).unwrap();
+    assert_eq!(s.find(BASE).map(|r| r.pa), Some(0x9000_0000));
+    assert_eq!(s.find(BASE + 2 * PAGE - 1).map(|r| r.pa), Some(0x9000_0000));
+    assert_eq!(s.find(BASE + 2 * PAGE), None, "the gap between regions");
+    assert_eq!(s.find(BASE + 5 * PAGE + 7).map(|r| r.pa), Some(0x8000_0000));
+    assert_eq!(s.find(BASE + 6 * PAGE), None, "one past the last region");
+    assert_eq!(s.find(BASE - 1), None, "below the first region");
+}
+
+/// A lazy region is kernel property over an object, merges with nothing and guards no physical
+/// range — it has none.
+#[test]
+fn a_lazy_region_is_recorded_unmergeable_and_guards_no_physical_range() {
+    let mut s = space();
+    s.record_lazy(0x2000_0000, 4 * PAGE, 0x7, 9).unwrap();
+    let r = s.find(0x2000_0000 + PAGE).expect("recorded");
+    assert_eq!((r.kind, r.vmo, r.offset, r.lazy, r.pa), (RegionKind::Fixed, 9, 0, true, 0));
+    assert!(!s.any_backed_by(0, PAGE), "no physical base, no physical guard");
+    // A fixed record right after it with a pa that would look contiguous stays its own region.
+    s.record_fixed(0x2000_0000 + 4 * PAGE, PAGE, 4 * PAGE, 0x7);
+    assert_eq!(s.region_count(), 2);
+    assert_eq!(s.peek_exact(0x2000_0000, 4 * PAGE), Err(VaError::FixedRegion), "not unmappable");
+}
+
+#[test]
+fn test_reject_a_lazy_record_without_an_object_or_over_another_region() {
+    let mut s = space();
+    assert_eq!(s.record_lazy(0x2000_0000, PAGE, 0x7, 0), Err(VaError::BadInput));
+    s.record_lazy(0x2000_0000, 2 * PAGE, 0x7, 3).unwrap();
+    assert_eq!(s.record_lazy(0x2000_0000 + PAGE, PAGE, 0x7, 4), Err(VaError::Occupied));
+    assert_eq!(s.region_count(), 1);
 }
 
 /// TASK-0333 6a (RFC-0100 §1): the objects a space maps, each once, the object-less regions

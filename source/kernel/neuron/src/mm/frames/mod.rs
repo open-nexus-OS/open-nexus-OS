@@ -108,6 +108,8 @@ pub enum FrameError {
     TooManyHoles,
     /// A range whose end or frame count does not fit the machine word.
     TooLarge,
+    /// `trim` asked to keep nothing, or more frames than the block has.
+    BadTrim,
 }
 
 /// Counters for the boot report and the telemetry query (P5).
@@ -297,6 +299,28 @@ impl FrameAllocator {
         Ok(())
     }
 
+    /// Keep the first `keep` frames of the allocated `block` and return the rest. The tail goes
+    /// back as the aligned blocks that tile it; the kept part comes back as the aligned blocks
+    /// that tile it — each one a block `free` accepts later, so the whole merges again once all
+    /// of them are freed. A contiguous object takes one block of the next power of two: without
+    /// this its tail was held and counted nowhere (gpud's layout block, 6 443 of 32 768 frames —
+    /// TASK-0333 6b-1).
+    pub fn trim(&mut self, block: Block, keep: usize) -> Result<Vec<Block>, FrameError> {
+        if keep == 0 || keep > block.frames() {
+            return Err(FrameError::BadTrim);
+        }
+        let mut tail = tile(block, keep, block.frames());
+        if let Some(first) = tail.next() {
+            // The first free proves the block is allocated (an ancestor that is free refuses
+            // it), so every later piece of the same tail is allocated too.
+            self.free(first)?;
+            for piece in tail {
+                self.free(piece)?;
+            }
+        }
+        Ok(tile(block, 0, keep).collect())
+    }
+
     /// Frames free across every bank.
     pub fn free_frames(&self) -> usize {
         self.banks.iter().map(Bank::free_frames).sum()
@@ -320,6 +344,23 @@ impl FrameAllocator {
             exhausted: self.exhausted,
         }
     }
+}
+
+/// The aligned blocks that tile frames `[from, to)` of `block`, in address order: at each step
+/// the largest block that both starts aligned to its own size and still fits before `to`.
+fn tile(block: Block, from: usize, to: usize) -> impl Iterator<Item = Block> {
+    let mut at = from;
+    core::iter::from_fn(move || {
+        if at >= to {
+            return None;
+        }
+        let aligned = if at == 0 { u32::from(block.order) } else { at.trailing_zeros() };
+        let fits = usize::BITS - 1 - (to - at).leading_zeros();
+        let order = aligned.min(fits).min(u32::from(block.order)) as u8;
+        let piece = Block { base: block.base + ((at as u64) << FRAME_SHIFT), order };
+        at += 1usize << order;
+        Some(piece)
+    })
 }
 
 /// `hole` clipped to `[base, end)` and widened to whole frames; `None` when

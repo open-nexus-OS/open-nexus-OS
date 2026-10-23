@@ -524,7 +524,7 @@ fn sys_system_reset(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 /// so a short read can never masquerade as the full record; returns the
 /// bytes written, or 0 for an honest direct-kernel boot (absent/invalid
 /// capture — the kernel never surfaces a corrupt page as measurement).
-fn sys_boot_handoff(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+fn sys_boot_handoff(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let Some(raw) = crate::boot_handoff::raw() else {
         return Ok(0);
     };
@@ -532,7 +532,7 @@ fn sys_boot_handoff(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     if len < crate::boot_handoff::RECORD_LEN {
         return Err(crate::syscall::Error::AddressSpace(crate::mm::AddressSpaceError::InvalidArgs));
     }
-    vmo::ensure_user_slice(ptr, raw.len())?;
+    ensure_user_range(ctx, ptr, raw.len(), UserAccess::Write)?;
     unsafe {
         core::ptr::copy_nonoverlapping(raw.as_ptr(), ptr as *mut u8, raw.len());
     }
@@ -544,15 +544,15 @@ fn sys_boot_handoff(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 /// own locked `emit()` or with another process's line. This is the serialized-console fix
 /// for the byte-level interleave corruption that `sys_debug_putc`'s lock-free path produced.
 /// Args: (ptr, len). Over-long lines are clamped, not rejected.
-fn sys_debug_write(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+fn sys_debug_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     const MAX_DEBUG_WRITE: usize = 1024;
     let ptr = args.get(0);
     let len = core::cmp::min(args.get(1), MAX_DEBUG_WRITE);
     if len == 0 {
         return Ok(0);
     }
-    ensure_user_slice(ptr, len)?;
-    // SAFETY: `ensure_user_slice` validated [ptr, ptr+len) lies in the caller's user range.
+    ensure_user_range(ctx, ptr, len, UserAccess::Read)?;
+    // SAFETY: `ensure_user_range` proved [ptr, ptr+len) mapped readable in the caller's space.
     let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
     let text = core::str::from_utf8(bytes).unwrap_or("");
     let mut uart = crate::uart::KernelUart::lock();

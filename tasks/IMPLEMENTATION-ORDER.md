@@ -449,6 +449,18 @@ large-block list forward (no size raised). Cycle 63: **TASK-0344 Done** — no r
 crash, the chat's heap flat while typing (`carve=0/0`, `heap steady`). Handed on: a large CPU
 re-raster's latency (the control center 0.65 s, the theme switch 0.74 s). Next: the prediction's
 early landings (TASK-0343), the band's clean (TASK-0335).
+**Decision 2026-10-22 (the operator, after `d5712e07`): the UX lane pauses; layer 6 is finished
+first, and the UX lane's rest moves to layer 8's closing** — TASK-0343's prediction (early
+landings), TASK-0335's band clean and the blur's dual filter, the latency of a large CPU re-raster
+(the control center, the theme switch, a tap into a text field). Next: layer 6, step 6b (unified
+memory + M2, RFC-0100 Phase 1), from its P0 measurement.
+State 2026-10-23: 6b cut into 6b-1/6b-2/6b-3 after the tree was mapped (CoW moves to 6c; corrected:
+the "63 % of the atlas untouched" was never measured, gpud has no heap of its own). **6b-1 ✅ board
+cycle 64 (ADR-0077):** memory committed on first touch — a lazy VMO kind, the user fault fills the
+page, every syscall's user memory through one checked range (a bad pointer is `EFAULT`, no longer a
+kernel fault), exec's `.bss` tails and stacks lazy, a contiguous object's buddy tail returned;
++61.3 MiB free and `rss_sum` −33.3 MB on the board, an app-host child 12.0 → 7.0 MB, 5 µs a first
+touch. Next: 6b-2 (the layout block split, the arena reserved for the largest frame).
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

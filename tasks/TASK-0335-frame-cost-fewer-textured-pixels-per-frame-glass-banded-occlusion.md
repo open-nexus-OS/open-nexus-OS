@@ -1,6 +1,6 @@
 ---
 title: TASK-0335 The frame cost — fewer textured pixels per frame (the glass re-blurred in its changed band, occluded surfaces not drawn, the scene under glass drawn once), judged by RFC-0108's frame line
-status: In Progress
+status: In Progress (P4's first cuts board-proven in cycle 62; the rest — the band's clean, the blur's dual filter — parked to layer 8's closing by the operator 2026-10-22)
 owner: @gpu @ui
 created: 2026-10-20
 depends-on: [TASK-0334 (RFC-0108 Phase 0 ✅), TASK-0215 (5d ✅)]

@@ -89,15 +89,15 @@ impl IpcSendV1ArgsTyped {
     }
 
     #[inline]
-    fn check(&self) -> Result<(), Error> {
-        ensure_user_slice(self.header_ptr, 16)?;
+    fn check(&self, ctx: &mut Context<'_>) -> Result<(), Error> {
+        ensure_user_range(ctx, self.header_ptr, 16, UserAccess::Read)?;
         if self.payload_len > crate::ipc::IPC_PAYLOAD_MAX {
             // E2BIG, not EINVAL: "your message is too big" is not "you passed a bad pointer",
             // and userspace could not tell them apart before (TASK-0054C P3b, ADR-0054).
             return Err(Error::Ipc(ipc::IpcError::TooBig));
         }
         if self.payload_len != 0 {
-            ensure_user_slice(self.payload_ptr, self.payload_len)?;
+            ensure_user_range(ctx, self.payload_ptr, self.payload_len, UserAccess::Read)?;
         }
         Ok(())
     }
@@ -127,10 +127,10 @@ impl IpcRecvV1ArgsTyped {
     }
 
     #[inline]
-    fn check(&self) -> Result<(), Error> {
-        ensure_user_slice(self.header_out_ptr, 16)?;
+    fn check(&self, ctx: &mut Context<'_>) -> Result<(), Error> {
+        ensure_user_range(ctx, self.header_out_ptr, 16, UserAccess::Write)?;
         if self.payload_out_max != 0 {
-            ensure_user_slice(self.payload_out_ptr, self.payload_out_max)?;
+            ensure_user_range(ctx, self.payload_out_ptr, self.payload_out_max, UserAccess::Write)?;
         }
         Ok(())
     }
@@ -169,7 +169,7 @@ pub(super) fn sys_recv(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
 
 pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = IpcSendV1ArgsTyped::decode(args)?;
-    typed.check()?;
+    typed.check(ctx)?;
 
     if (typed.sys_flags & !(IPC_SYS_NONBLOCK)) != 0 {
         return Err(AddressSpaceError::InvalidArgs.into());
@@ -384,7 +384,7 @@ pub(super) fn sys_ipc_send_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
 
 pub(super) fn sys_ipc_recv_v1(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let typed = IpcRecvV1ArgsTyped::decode(args)?;
-    typed.check()?;
+    typed.check(ctx)?;
 
     if (typed.sys_flags & !(IPC_SYS_NONBLOCK | IPC_SYS_TRUNCATE | IPC_SYS_EOF)) != 0 {
         return Err(AddressSpaceError::InvalidArgs.into());

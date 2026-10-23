@@ -63,6 +63,12 @@ pub struct VaRegion {
     pub kind: RegionKind,
     /// The VMO the region maps (`mm::vmo` id; 0 = none: MMIO, kernel-placed).
     pub vmo: u32,
+    /// The byte of the VMO mapped at `va` — a fault at `va + d` names the object's byte
+    /// `offset + d` (TASK-0333 6b-1).
+    pub offset: usize,
+    /// The VMO is lazy (ADR-0077): its pages are committed and mapped on first touch, so the
+    /// region has no physical base (`pa` is 0) and a fault inside it may be a missing page.
+    pub lazy: bool,
 }
 
 /// Why an operation was refused. Every variant maps to exactly one errno at
@@ -106,8 +112,16 @@ pub struct VaSpace {
     window_len: usize,
 }
 
-const EMPTY: VaRegion =
-    VaRegion { va: 0, len: 0, pa: 0, flags: 0, kind: RegionKind::Fixed, vmo: 0 };
+const EMPTY: VaRegion = VaRegion {
+    va: 0,
+    len: 0,
+    pa: 0,
+    flags: 0,
+    kind: RegionKind::Fixed,
+    vmo: 0,
+    offset: 0,
+    lazy: false,
+};
 
 impl VaSpace {
     #[must_use]
@@ -249,6 +263,7 @@ impl VaSpace {
         if at > 0 {
             let left = &mut self.regions[at - 1];
             if left.kind == RegionKind::Fixed
+                && !left.lazy
                 && left.flags == flags
                 && left.va + left.len == va
                 && left.pa + left.len == pa
@@ -257,10 +272,55 @@ impl VaSpace {
                 return;
             }
         }
-        let region = VaRegion { va, len, pa, flags, kind: RegionKind::Fixed, vmo: 0 };
+        let region = VaRegion {
+            va,
+            len,
+            pa,
+            flags,
+            kind: RegionKind::Fixed,
+            vmo: 0,
+            offset: 0,
+            lazy: false,
+        };
         if self.insert(region).is_err() {
             self.untracked = self.untracked.saturating_add(1);
         }
+    }
+
+    /// Records kernel-placed memory backed by a lazy object (exec's `.bss` tail, a stack —
+    /// ADR-0077): a `Fixed` region (userspace cannot unmap it) over the object from its start.
+    /// Unlike [`Self::record_fixed`] a refusal is an ERROR: a lazy page the record does not name
+    /// could never be faulted in, so the exec that asked must fail instead.
+    pub fn record_lazy(
+        &mut self,
+        va: usize,
+        len: usize,
+        flags: usize,
+        vmo: u32,
+    ) -> Result<(), VaError> {
+        if vmo == 0 {
+            return Err(VaError::BadInput);
+        }
+        // Kernel-placed: never inside the managed window, like every fixed record.
+        self.admits_fixed(va, len)?;
+        self.insert(VaRegion {
+            va,
+            len,
+            pa: 0,
+            flags,
+            kind: RegionKind::Fixed,
+            vmo,
+            offset: 0,
+            lazy: true,
+        })
+    }
+
+    /// The region that contains `va` — what a page fault resolves (ADR-0077).
+    #[must_use]
+    pub fn find(&self, va: usize) -> Option<VaRegion> {
+        let at = self.regions[..self.len].partition_point(|r| r.va <= va);
+        let region = *self.regions[..self.len].get(at.checked_sub(1)?)?;
+        (va - region.va < region.len).then_some(region)
     }
 
     /// Read-only twin of [`Self::remove_exact`]: validates that exactly
@@ -303,9 +363,10 @@ impl VaSpace {
         let Some(end) = pa.checked_add(len) else {
             return false;
         };
+        // A lazy region has no physical base: its object's id guards it (`any_backed_by_vmo`).
         self.regions[..self.len]
             .iter()
-            .any(|r| r.kind != RegionKind::Fixed && pa < r.pa + r.len && r.pa < end)
+            .any(|r| r.kind != RegionKind::Fixed && !r.lazy && pa < r.pa + r.len && r.pa < end)
     }
 
     /// Does any live region map the VMO `id`? The `vmo_destroy` guard for

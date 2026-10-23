@@ -19,6 +19,13 @@ proves = "RFC-0085 userspace roundtrip: one-call vm_map at a kernel-chosen va, w
 [marker."SELFTEST: vm map roundtrip FAIL"]
 phase = "mmio"
 
+[marker."SELFTEST: vm commit on touch ok ("]
+phase = "mmio"
+proves = "TASK-0333 6b-1 (ADR-0077, RFC-0100 §2): a lazy VMO's mapping reserves the whole object and commits nothing; each first touch from user mode commits exactly one page (the user fault fills it); a vmo_read of an untouched page reads zeros without committing it; a vmo_write commits the page the mapping then shows; us_per_fault is one first touch"
+
+[marker."SELFTEST: vm commit on touch FAIL"]
+phase = "mmio"
+
 [marker."SELFTEST: dma buffer ok ("]
 phase = "mmio"
 proves = "RFC-0098 C4 (TASK-0286 P4b): the device capability carries its coherence (device=coherent on QEMU virt) and the harts' Zicbom block; a DmaBuffer over a real DmaVmo runs cbo.clean/cbo.flush in USER mode (the kernel enabled senvcfg) through ToDevice and Bidirectional round trips with every byte intact; a VMO is refused as a device"

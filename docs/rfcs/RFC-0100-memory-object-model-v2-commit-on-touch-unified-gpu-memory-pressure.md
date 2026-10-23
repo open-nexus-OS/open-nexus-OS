@@ -3,7 +3,7 @@
 - Status: Draft (seeded 2026-10-19 at layer 6's start; filled in 6b)
 - Owners: @kernel-team @runtime @gpu
 - Created: 2026-10-19
-- Last Updated: 2026-10-19
+- Last Updated: 2026-10-23
 - Links:
   - Tasks: `tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (the layer, 6a–6f, execution + proof); `tasks/TASK-0286-…` (M1, Done: frames from the FDT, page-backed VMOs, the `contiguous-DMA` kind, `mm_stats`)
   - Related RFCs: RFC-0098 C4 (physical memory from the FDT; defers the object model here), RFC-0085 (kernel-owned VAs; the explicit `vmo_destroy` rule stays), RFC-0080 (`vmo_share_ro`), RFC-0087 ("exhaustion is an event"), RFC-0101 (the GPU driver: contexts with their own GPU address space, VMOs bound with a cache mode), RFC-0079 (EOF on the last sender's death)
@@ -14,7 +14,7 @@
 ## Status at a Glance
 
 - **Phase 0 (6a: object lifetime — what dies is freed)**: ✅ 2026-10-20 (board cycle 48; ADR-0073: every kernel object, a death as an event)
-- **Phase 1 (6b: commit on touch, CoW, the layout block split, unified GPU memory)**: ⬜
+- **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ⏳ 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2 (the layout block split) and 6b-3 (the allocator frees by default) open
 - **Phase 2 (6c: the file-backed kind, the page cache, shared code)**: ⬜
 - **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals)**: ⬜
 - **Phase 4 (6f: the backing stages — compressor, swap)**: ⬜
@@ -94,17 +94,32 @@ has, with the GPU in the same pool.
   ends its process (`APPHOST: window closed - exiting`, `KINIT: vm reclaim (… by=reap)`,
   `abilitymgr: stop (inst= … live=)`).
 
-## §2 Kinds and commit (6b, to be filled)
+## §2 Kinds and commit (6b-1 filled 2026-10-23, ADR-0077; the layout block 6b-2)
 
 | Kind | Backing | Committed | Returns |
 |---|---|---|---|
-| anonymous | frames, zero-filled | on first touch (the user fault populates) | at death, or purge when purgeable |
-| contiguous-DMA | one run inside the master's reach (M1) | eagerly (a controller cannot fault) | at death |
+| anonymous (eager) | frames, zeroed at create | at create | at death |
+| lazy (`VMO_CREATE_LAZY`, bit 1) | frames, one per 4 KiB page, zeroed before mapped | on first touch: a user fault, the kernel's checked range, `vmo_write`, a device's `vmo_runs` | at death (purge when purgeable, 6e) |
+| contiguous-DMA | one run inside the master's reach (M1); the power-of-two block's tail returned at create | eagerly (a controller cannot fault); never lazy | at death |
 | file (6c) | the page cache of a bundle file | on first touch, shared read-only | dropped under pressure, re-read |
-| reserved range | none | on touch, per page | as anonymous |
 
-Copy-on-write: a private mapping of a file or shared page breaks on the first write (the fault
-copies one page). The user fault stays fatal for a true violation (no mapping, wrong rights).
+- **exec** backs each RW segment's `.bss` beyond the page of its last file byte, and every stack,
+  with a lazy object the task owns (no capability; it dies with the space at reap, §1).
+- **The user page fault** inside a region over a lazy object, with the access's right (a store
+  needs write; a lazy page is never executable): commit the page if it is not yet committed, map
+  it (4 KiB, A/D set), fence this hart's TLB for the address, resume. A valid PTE with the right
+  is a spurious fault (another hart committed it, or a cached miss) — fenced, resumed. Anything
+  else kills as before; no free frame kills with the reason named, never a panic.
+- **The kernel touches user memory only through `user_range(ptr, len, access)`**: every page
+  mapped with the access's right — a lazy page committed and mapped first — or `EFAULT`.
+- **RSS** of a region over a lazy object is its committed pages; MmStats v3 adds committed and
+  reserved bytes.
+- `vmo_read` of an uncommitted page reads zeros without committing it; `vmo_write` commits what it
+  writes; a device's `vmo_runs` commits the range it asks for (its pages are then pinned until the
+  object dies).
+
+Copy-on-write (6c): a private mapping of a file or shared page breaks on the first write (the
+fault copies one page). The user fault stays fatal for a true violation (no mapping, wrong rights).
 
 The layout block (RFC-0101 §8, `nexus-display-proto::layout`): the scan-out planes are one
 contiguous-DMA VMO; the atlas and the GPU's caches are anonymous commit-on-touch VMOs bound into

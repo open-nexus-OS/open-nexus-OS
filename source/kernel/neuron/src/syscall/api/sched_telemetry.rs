@@ -94,7 +94,7 @@ pub(super) fn sched_telemetry_op(
         let (m, all) = crate::mm::usage::snapshot(spaces, None);
         log_info!(
             target: "mm",
-            "KSELFTEST: mm frames (banks={} total={} free={} reserved={} excluded={} allocs={} frees={} exhausted={} pt_frames={} vmos={} vmo_bytes={} dma_bytes={} spaces={} rss_sum={} rss_max={})",
+            "KSELFTEST: mm frames (banks={} total={} free={} reserved={} excluded={} allocs={} frees={} exhausted={} pt_frames={} vmos={} vmo_bytes={} dma_bytes={} spaces={} rss_sum={} rss_max={} committed={} filled={})",
             m.banks,
             m.total,
             m.free,
@@ -109,7 +109,10 @@ pub(super) fn sched_telemetry_op(
             m.dma_bytes,
             all.spaces,
             all.rss_sum,
-            all.rss_max
+            all.rss_max,
+            // ADR-0077: bytes the objects hold in frames, pages committed by a first touch.
+            m.vmo_committed,
+            crate::mm::populate::filled()
         );
         log_top_spaces(spaces, tasks);
         // TASK-0333 6a (RFC-0100 §1): what the reaps and the last capability closes of this
@@ -297,7 +300,7 @@ pub(super) fn sched_telemetry_op(
 fn log_top_spaces(spaces: &AddressSpaceManager, tasks: &TaskTable) {
     let mut below = (u64::MAX, usize::MAX);
     for _ in 0..TOP_SPACES {
-        let mut best: Option<(u64, usize, u64, u64)> = None;
+        let mut best: Option<(u64, usize, u64, u64, u64)> = None;
         for index in 0..tasks.len() {
             let Some(task) = tasks.task(crate::types::Pid::from_raw(index as u32)) else {
                 continue;
@@ -311,18 +314,19 @@ fn log_top_spaces(spaces: &AddressSpaceManager, tasks: &TaskTable) {
             let better = best
                 .is_none_or(|(rss, pid, ..)| usage.rss > rss || (usage.rss == rss && index < pid));
             if after && better {
-                best = Some((usage.rss, index, usage.dma, task.service_id()));
+                best = Some((usage.rss, index, usage.dma, task.service_id(), usage.reserved));
             }
         }
-        let Some((rss, pid, dma, service)) = best else { break };
+        let Some((rss, pid, dma, service, reserved)) = best else { break };
         below = (rss, pid);
         log_info!(
             target: "mm",
-            "KINIT: mm space pid={} sid={:#x} rss={} dma={}",
+            "KINIT: mm space pid={} sid={:#x} rss={} dma={} reserved={}",
             pid,
             service,
             rss,
-            dma
+            dma,
+            reserved
         );
     }
 }

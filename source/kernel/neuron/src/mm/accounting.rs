@@ -17,10 +17,11 @@
 //!   record is refused, never half-written; an exhaustion is always counted and
 //!   logged on the 1st, 2nd, 4th, 8th … occurrence.
 
-/// The record's layout version (bumped on any field change).
-pub const MM_STATS_VERSION: u32 = 2;
+/// The record's layout version (bumped on any field change). v3 (TASK-0333 6b-1, ADR-0077):
+/// committed and reserved bytes — a lazy object spans more than it holds.
+pub const MM_STATS_VERSION: u32 = 3;
 /// 64-bit fields after the 8-byte header.
-pub const MM_STATS_FIELDS: usize = 18;
+pub const MM_STATS_FIELDS: usize = 20;
 /// Bytes of the record: `version: u32`, `fields: u32`, then the fields.
 pub const MM_STATS_BYTES: usize = 8 + MM_STATS_FIELDS * 8;
 
@@ -64,6 +65,12 @@ pub struct MmStats {
     pub waitsets: u64,
     /// Live fences.
     pub fences: u64,
+    /// Bytes the VMOs hold in frames: an eager object's length, a lazy one's committed pages
+    /// (`vmo_bytes` is what they span).
+    pub vmo_committed: u64,
+    /// The caller's reserved bytes: regions over lazy objects not yet touched (its
+    /// `own_rss_bytes` counts only what is committed).
+    pub own_reserved_bytes: u64,
 }
 
 /// A buffer shorter than the record.
@@ -92,6 +99,8 @@ impl MmStats {
             self.timers,
             self.waitsets,
             self.fences,
+            self.vmo_committed,
+            self.own_reserved_bytes,
         ]
     }
 
@@ -133,7 +142,8 @@ mod tests {
             total: 77280,
             free: 1,
             own_dma_bytes: 0x1234,
-            fences: 0x1234,
+            fences: 0x77,
+            own_reserved_bytes: 0x1234,
             ..Default::default()
         };
         let mut out = [0xffu8; MM_STATS_BYTES + 3];

@@ -30,8 +30,24 @@ const SEND_SLOT: usize = 53;
 const NOTIFY_SLOT: usize = 54;
 /// `IPC_SYS_NONBLOCK | IPC_SYS_EOF`.
 const RECV_NONBLOCK_EOF: usize = 1 | 4;
-/// A user-range address the empty-queue path never writes to (the check is a range check).
+/// The receiver's buffers: one lazy page of its own space (ADR-0077 — the kernel touches user
+/// memory only through a checked range, so a recv's buffers must be real, mapped memory).
 const USER_SCRATCH: usize = 0x1000;
+
+/// Give the selftest task `pid` a space with one lazy page at `USER_SCRATCH`.
+fn scratch_space(ctx: &mut Context<'_>, pid: Pid) -> bool {
+    use crate::mm::{vmo, PageFlags, PAGE_SIZE};
+    let Ok(handle) = ctx.address_spaces.create() else { return false };
+    let reach = crate::dma_reach::DmaReach::ALL;
+    let Ok(object) = vmo::create(PAGE_SIZE, vmo::VmoKind::Lazy, &reach) else { return false };
+    let flags = (PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE).bits();
+    let recorded = ctx.address_spaces.get_mut(handle).is_ok_and(|space| {
+        space.va_space_mut().record_lazy(USER_SCRATCH, PAGE_SIZE, flags, object).is_ok()
+    });
+    recorded
+        && ctx.address_spaces.attach(handle, pid).is_ok()
+        && ctx.tasks.task_mut(pid).map(|task| task.address_space = Some(handle)).is_some()
+}
 
 fn frame(ep: u32) -> Message {
     let payload = [0xa5u8; 4];
@@ -69,6 +85,10 @@ fn run_eof_nonblocking(ctx: &mut Context<'_>) {
         log_error!(target: "selftest", "KSELFTEST: ipc eof nonblocking FAIL (caps)");
         return;
     }
+    if !scratch_space(ctx, receiver) {
+        log_error!(target: "selftest", "KSELFTEST: ipc eof nonblocking FAIL (space)");
+        return;
+    }
     // The sender was observed once (the latch), the receiver drained the frame.
     let _ = ctx.router.send(ep, frame(ep));
     let _ = ctx.router.recv(ep);
@@ -92,6 +112,13 @@ fn run_eof_nonblocking(ctx: &mut Context<'_>) {
     sys_ctx.tasks.set_current(receiver);
     let args = Args::new([RECV_SLOT, USER_SCRATCH, USER_SCRATCH, 0, RECV_NONBLOCK_EOF, 0]);
     let verdict = table.dispatch(SYSCALL_IPC_RECV_V1, &mut sys_ctx, &args);
+    // ADR-0077: a pointer in the user range that the receiver's space does not map is refused
+    // as EFAULT before anything is touched — no longer a kernel page fault the caller chose.
+    let unmapped = Args::new([RECV_SLOT, USER_SCRATCH + 0x2000, 0, 0, RECV_NONBLOCK_EOF, 0]);
+    let refused = matches!(
+        table.dispatch(SYSCALL_IPC_RECV_V1, &mut sys_ctx, &unmapped),
+        Err(SysError::AddressSpace(crate::mm::AddressSpaceError::BadUserMemory))
+    );
     sys_ctx.tasks.set_current(Pid::KERNEL);
     match (closed, verdict) {
         (Ok(_), Err(SysError::Ipc(IpcError::PeerClosed))) => {
@@ -103,6 +130,11 @@ fn run_eof_nonblocking(ctx: &mut Context<'_>) {
             closed,
             verdict
         ),
+    }
+    if refused {
+        log_info!(target: "selftest", "KSELFTEST: userptr unmapped ok");
+    } else {
+        log_error!(target: "selftest", "KSELFTEST: userptr unmapped FAIL");
     }
 }
 

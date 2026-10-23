@@ -11,8 +11,6 @@
 //! INVARIANTS: Map kernel segments; stable SATP value encoding; best-effort W^X for user maps
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
-extern crate alloc;
-
 use alloc::{collections::BTreeSet, vec::Vec};
 use core::marker::PhantomData;
 use core::num::NonZeroU32;
@@ -94,6 +92,10 @@ pub enum AddressSpaceError {
     Mapping(MapError),
     /// Arguments supplied by the caller were invalid.
     InvalidArgs,
+    /// User memory a syscall named is not mapped with the access's right (ADR-0077) — `EFAULT`.
+    BadUserMemory,
+    /// A lazy page of user memory had no free frame to commit (ADR-0077) — `ENOMEM`.
+    OutOfFrames,
 }
 
 impl From<MapError> for AddressSpaceError {
@@ -107,9 +109,7 @@ pub struct AddressSpace {
     page_table: PageTable,
     asid: Asid,
     owners: BTreeSet<Pid>,
-    /// RFC-0085: the region table — which VA ranges are taken, by what.
-    /// Same `!Send`/`!Sync`-under-BKL domain as the page table it describes;
-    /// a future BKL split takes them together.
+    /// RFC-0085: the region table — in the page table's `!Send`/`!Sync`-under-BKL domain.
     va: crate::va_space::VaSpace,
     // Pre-SMP contract: address-space objects are mutated from one kernel context only.
     _not_send_sync: PhantomData<*mut ()>,

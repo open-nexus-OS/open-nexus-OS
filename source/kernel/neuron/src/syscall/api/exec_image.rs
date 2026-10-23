@@ -81,6 +81,69 @@ pub(super) fn map_blocks(
     Ok(())
 }
 
+/// One PT_LOAD segment as exec found it: `len` bytes from the page-aligned `va`, the first byte
+/// `page_off` into its page, the file `payload` `(src, filesz)` to lay there, the PTE `flags`.
+pub(super) struct Segment {
+    pub va: usize,
+    pub page_off: usize,
+    pub len: usize,
+    pub payload: (usize, usize),
+    pub flags: PageFlags,
+}
+
+/// Load one segment (ADR-0077): the pages that hold file bytes are pool blocks — zeroed and
+/// filled by the copy plan in phase B, mapped now; a writable segment's pure `.bss` tail beyond
+/// them is a lazy object the child owns, committed page by page on first touch. A read-only
+/// segment is eager whole.
+pub(super) fn load_segment(
+    address_spaces: &mut crate::mm::AddressSpaceManager,
+    as_handle: crate::mm::AsHandle,
+    image: &mut crate::task::ImageAllocs,
+    plan: &mut CopyPlan,
+    seg: Segment,
+) -> SysResult<()> {
+    let (src, filesz) = seg.payload;
+    let file_pages = if filesz == 0 {
+        0
+    } else {
+        align_len(seg.page_off + filesz).ok_or(AddressSpaceError::InvalidArgs)?
+    };
+    let eager = if seg.flags.contains(PageFlags::WRITE) { file_pages } else { seg.len };
+    if eager != 0 {
+        let blocks = alloc_image(eager, image, plan)?;
+        if filesz != 0 {
+            plan_payload(&blocks, seg.page_off, src, filesz, plan)?;
+            plan.fence_i = true;
+        }
+        map_blocks(address_spaces, as_handle, seg.va, &blocks, seg.flags)?;
+    }
+    if eager < seg.len {
+        map_lazy_fixed(address_spaces, as_handle, seg.va + eager, seg.len - eager, seg.flags)?;
+    }
+    Ok(())
+}
+
+/// `len` bytes of kernel-placed memory at `va` (a `.bss` tail, a stack) backed by a new lazy
+/// object the child owns: recorded, no frame taken (ADR-0077). Nothing names the object but the
+/// child's region; it dies with the space at reap (RFC-0100 §1).
+pub(super) fn map_lazy_fixed(
+    address_spaces: &mut crate::mm::AddressSpaceManager,
+    as_handle: crate::mm::AsHandle,
+    va: usize,
+    len: usize,
+    flags: PageFlags,
+) -> SysResult<()> {
+    let reach = crate::dma_reach::DmaReach::ALL;
+    let vmo = crate::mm::vmo::create(len, crate::mm::vmo::VmoKind::Lazy, &reach)
+        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+    let space = address_spaces.get_mut(as_handle)?;
+    if let Err(err) = space.va_space_mut().record_lazy(va, len, flags.bits(), vmo) {
+        let _ = crate::mm::vmo::destroy(vmo);
+        return Err(Error::Va(err));
+    }
+    Ok(())
+}
+
 /// One zeroed page for the bootstrap meta/info records, recorded on `image`.
 pub(super) fn alloc_zeroed_page(image: &mut crate::task::ImageAllocs) -> SysResult<usize> {
     let block = crate::mm::frame_pool::alloc(0)

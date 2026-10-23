@@ -1,6 +1,6 @@
 ---
 title: TASK-0343 Frame pacing — when a frame reaches the glass, the cadence the driver holds, the motion computed for the time a frame is shown; typing's frames without pixels; the underflows timed
-status: In Progress (board cycle 62 2026-10-22 — the operator follows the scroll, typing's frames carry pixels, the underflows timed; open: the prediction lands early — 62–72 % on time while scrolling against the 90 % line)
+status: In Progress (board cycle 62 2026-10-22 — the operator follows the scroll, typing's frames carry pixels, the underflows timed; open: the prediction lands early — 62–72 % on time while scrolling against the 90 % line; parked to layer 8's closing by the operator 2026-10-22)
 owner: @ui @gpu
 created: 2026-10-22
 depends-on: [TASK-0342 (the frame chain: flips through the latch, the hops)]

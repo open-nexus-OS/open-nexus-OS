@@ -470,6 +470,10 @@ pub mod accounting;
 // so its reject matrix runs on host; `mm::reclaim` applies it.
 #[path = "mm/vmo_lifetime.rs"]
 pub mod vmo_lifetime;
+// TASK-0333 6b-1 (RFC-0100 §2, ADR-0077): what a page fault or a kernel access to user memory
+// may commit, and a lazy object's frame table — pure, NOT target-gated (host-proven).
+#[path = "mm/lazy.rs"]
+pub mod lazy;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
 /// One console line at a time across harts — the pure owner logic (TASK-0327B P4 H0d),

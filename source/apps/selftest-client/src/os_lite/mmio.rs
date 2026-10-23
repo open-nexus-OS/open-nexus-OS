@@ -39,6 +39,61 @@ pub(crate) fn vm_map_roundtrip_probe() -> core::result::Result<(), ()> {
     }
 }
 
+/// What memory committed on first touch costs (TASK-0333 6b-1).
+pub(crate) struct CommitProof {
+    /// Bytes the mapping reserved without committing them.
+    pub reserved: u64,
+    /// Bytes the first touches committed.
+    pub committed: u64,
+    /// One first touch: the fault, a zeroed frame, the PTE.
+    pub us_per_fault: u64,
+}
+
+/// ADR-0077 (RFC-0100 §2): a lazy VMO costs nothing until it is touched. Its mapping reserves
+/// the whole object and commits nothing; each first touch commits exactly one page; a
+/// `vmo_read` of an untouched page reads zeros and commits nothing; a `vmo_write` commits the
+/// page the mapping then shows. Measured through this process's own counters, around code that
+/// neither allocates nor deepens its stack (a warm-up sample first).
+pub(crate) fn commit_on_touch_probe() -> core::result::Result<CommitProof, ()> {
+    use nexus_abi::page_flags;
+    const PAGE: usize = 4096;
+    const PAGES: usize = 64;
+    const TOUCHED: usize = 16;
+    const LEN: usize = PAGES * PAGE;
+    let _warm = nexus_abi::mm_stats().map_err(|_| ())?;
+    let vmo = nexus_abi::vmo_create_lazy(LEN).map_err(|_| ())?;
+    let flags = page_flags::VALID | page_flags::READ | page_flags::WRITE | page_flags::USER;
+    let before = nexus_abi::mm_stats().map_err(|_| ())?;
+    let va = nexus_abi::vm_map(vmo, 0, LEN, flags).map_err(|_| ())?;
+    let mapped = nexus_abi::mm_stats().map_err(|_| ())?;
+    let t0 = nexus_abi::nsec().map_err(|_| ())?;
+    for i in 0..TOUCHED {
+        // Every second page, so an untouched one sits between each pair.
+        unsafe { core::ptr::write_volatile((va + 2 * i * PAGE) as *mut u8, i as u8 + 1) };
+    }
+    let t1 = nexus_abi::nsec().map_err(|_| ())?;
+    let touched = nexus_abi::mm_stats().map_err(|_| ())?;
+    let mut zeros = [0xffu8; 8];
+    nexus_abi::vmo_read(vmo, PAGE, &mut zeros).map_err(|_| ())?;
+    let read = nexus_abi::mm_stats().map_err(|_| ())?;
+    nexus_abi::vmo_write(vmo, 3 * PAGE, &[0x7e]).map_err(|_| ())?;
+    let written = unsafe { core::ptr::read_volatile((va + 3 * PAGE) as *const u8) } == 0x7e;
+    let kept = unsafe { core::ptr::read_volatile((va + 2 * PAGE) as *const u8) } == 2;
+    nexus_abi::vm_unmap(va, LEN).map_err(|_| ())?;
+    nexus_abi::vmo_destroy(vmo).map_err(|_| ())?;
+    let reserved = mapped.own_reserved_bytes.saturating_sub(before.own_reserved_bytes);
+    let committed = touched.own_rss_bytes.saturating_sub(mapped.own_rss_bytes);
+    let ok = reserved == LEN as u64
+        && mapped.own_rss_bytes == before.own_rss_bytes
+        && committed == (TOUCHED * PAGE) as u64
+        && read.own_rss_bytes == touched.own_rss_bytes
+        && zeros == [0; 8]
+        && written
+        && kept;
+    let us_per_fault = (t1.saturating_sub(t0)) / TOUCHED as u64 / 1000;
+    ok.then_some(CommitProof { reserved, committed, us_per_fault }).ok_or(())
+}
+
 // RFC-0068 mmio migration (task #103): RETIRED — queries the dead virtio-net MMIO cap (slot 48),
 // which blocks like mmio_map. No longer called by phases/mmio.rs.
 #[allow(dead_code)]

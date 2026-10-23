@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-23 (memory is committed on first touch — TASK-0333 6b-1, ADR-0077, RFC-0100 §2)
+
+- **A page costs memory when it is first touched.** Every program's static heap, the app frame
+  arena and every stack were allocated and zeroed in full at start; they are now reserved and a
+  page takes a frame the first time it is touched (the page fault fills it). On the board an app
+  process drops from 12.0 to 7.0 MB resident and the system has 61 MiB more free after boot.
+- **A bad pointer in a syscall is an error, not a kernel crash.** The kernel touches user memory
+  only after checking that every page is mapped with the access's right (committing a lazy page
+  first); an unmapped or read-only buffer returns `EFAULT`.
+- **A contiguous object keeps exactly its frames.** The rest of the power-of-two block it is cut
+  from goes back to the pool at once (25 MiB of the display's layout block).
+- `vmo_create` takes a lazy flag; the memory record (`mm_stats`, v3) counts committed and reserved
+  bytes; `KSELFTEST: userptr unmapped ok` and `SELFTEST: vm commit on touch ok (…)` on every boot.
+
 ### Fixed - 2026-10-22 (apps stopped answering taps and typing after a while, the chat crashed or ran out of memory — TASK-0344)
 
 - **An app reads its program with a fresh budget per operation.** The DSL runtime read an app's

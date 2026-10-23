@@ -106,6 +106,13 @@ proves = "a sender that found a queue full arms a waitset member with its SEND-o
 phase = "bringup"
 proves = "a NON-BLOCKING, EOF-opted recv returns PeerClosed once the last peer's SEND capability closed — the wait mode never changes the verdict (the closed window's app-host parked forever before this)"
 
+[marker."KSELFTEST: userptr unmapped ok"]
+phase = "bringup"
+proves = "TASK-0333 6b-1 (ADR-0077): a syscall's user pointer inside the user range that the caller's space does not map is refused as EFAULT (BadUserMemory) before the kernel touches it — a bad pointer was a kernel page fault, a panic"
+
+[marker."KSELFTEST: userptr unmapped FAIL"]
+phase = "bringup"
+
 [marker."KSELFTEST: ipc peer closed send ok"]
 phase = "bringup"
 proves = "a send into an endpoint no RECV capability names any more returns PeerClosed instead of parking the sender"

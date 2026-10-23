@@ -235,7 +235,7 @@ pub(super) fn sys_cap_query(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     // - u32 cache_block (device_mmio: the harts' Zicbom block size, 0 = none —
     //   RFC-0098 C4; what a driver of a non-coherent device maintains in)
     const OUT_LEN: usize = 32;
-    ensure_user_slice(out_ptr, OUT_LEN)?;
+    ensure_user_range(ctx, out_ptr, OUT_LEN, UserAccess::Write)?;
 
     // Capability gate: require MAP rights to introspect address-bearing caps.
     let cap = ctx.tasks.current_caps_mut().derive(slot.0, Rights::MAP)?;

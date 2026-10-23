@@ -11,7 +11,7 @@
 //! TEST_COVERAGE: neuron host tests + QEMU marker gates (just test-os / ci-os-smp)
 //! ADR: docs/adr/0016-kernel-libs-architecture.md
 
-use super::exec_image::{alloc_image, alloc_zeroed_page, map_blocks, plan_payload};
+use super::exec_image::{alloc_zeroed_page, load_segment, map_lazy_fixed, Segment};
 use super::*;
 
 // Typed decoders for the Decode→Check→Execute syscall discipline
@@ -48,8 +48,8 @@ impl ExecArgsTyped {
     }
 
     #[inline]
-    fn check(&self) -> Result<(), Error> {
-        ensure_user_slice(self.elf_ptr, self.elf_len)?;
+    fn check(&self, ctx: &mut Context<'_>) -> Result<(), Error> {
+        ensure_user_range(ctx, self.elf_ptr, self.elf_len, UserAccess::Read)?;
         if self.stack_pages == 0 {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
@@ -73,14 +73,14 @@ impl ExecV2ArgsTyped {
     }
 
     #[inline]
-    fn check(&self) -> Result<(), Error> {
-        ensure_user_slice(self.elf_ptr, self.elf_len)?;
+    fn check(&self, ctx: &mut Context<'_>) -> Result<(), Error> {
+        ensure_user_range(ctx, self.elf_ptr, self.elf_len, UserAccess::Read)?;
         if self.name_len != 0 {
             const MAX_NAME_LEN: usize = 64;
             if self.name_len > MAX_NAME_LEN {
                 return Err(AddressSpaceError::InvalidArgs.into());
             }
-            ensure_user_slice(self.name_ptr, self.name_len)?;
+            ensure_user_range(ctx, self.name_ptr, self.name_len, UserAccess::Read)?;
         }
         Ok(())
     }
@@ -139,7 +139,7 @@ pub(crate) fn exec_phase_a(
     plan: &mut CopyPlan,
 ) -> SysResult<usize> {
     let typed = ExecArgsTyped::decode(args)?;
-    typed.check()?;
+    typed.check(ctx)?;
 
     // Capability gate: only tasks holding a SEND right in slot 0 (bootstrap cap) may exec.
     {
@@ -249,14 +249,6 @@ pub(crate) fn exec_phase_a(
         let alloc_len =
             align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
                 .ok_or(AddressSpaceError::InvalidArgs)?;
-        // Staged (phase B): zero every block first (BSS tail guarantee), then
-        // lay the file payload over it, split across the blocks.
-        let blocks = alloc_image(alloc_len, &mut image, plan)?;
-        if p_filesz != 0 {
-            plan_payload(&blocks, page_off, elf.as_ptr() as usize + p_offset, p_filesz, plan)?;
-            plan.fence_i = true;
-        }
-
         let mut flags = PageFlags::VALID | PageFlags::USER;
         if p_flags & PF_R != 0 {
             flags |= PageFlags::READ;
@@ -267,8 +259,11 @@ pub(crate) fn exec_phase_a(
         if p_flags & PF_X != 0 {
             flags |= PageFlags::EXECUTE;
         }
-
-        map_blocks(ctx.address_spaces, as_handle, aligned_vaddr, &blocks, flags)?;
+        // Staged (phase B): the file pages zeroed, the payload laid over them; a writable
+        // segment's pure `.bss` tail lazy (ADR-0077).
+        let payload = (elf.as_ptr() as usize + p_offset, p_filesz);
+        let seg = Segment { va: aligned_vaddr, page_off, len: alloc_len, payload, flags };
+        load_segment(ctx.address_spaces, as_handle, &mut image, plan, seg)?;
     }
 
     // fence.i moved into `run_copy_plan` (the bytes land in phase B).
@@ -298,7 +293,7 @@ pub(crate) fn exec_phase_a(
 
     // Stack + guarded top (shared with exec_v2; records into `image`).
     let (stack_sp, mapped_top) =
-        map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages, plan, &mut image)?;
+        map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages)?;
 
     let entry_pc = VirtAddr::instr_aligned(e_entry).ok_or(AddressSpaceError::InvalidArgs)?;
     let bootstrap_slot = SlotIndex::decode(0);
@@ -338,13 +333,11 @@ fn map_process_stack(
     address_spaces: &mut crate::mm::AddressSpaceManager,
     as_handle: crate::mm::AsHandle,
     stack_pages: usize,
-    plan: &mut CopyPlan,
-    image: &mut crate::task::ImageAllocs,
 ) -> SysResult<(VirtAddr, usize)> {
-    // requested + 9 head pages + boundary page; guard stays unmapped.
+    // requested + 9 head pages + boundary page; guard stays unmapped. Lazy (ADR-0077): a page
+    // costs a frame when the stack first reaches it.
     let total_pages = stack_pages.checked_add(11).ok_or(AddressSpaceError::InvalidArgs)?;
     let stack_bytes = total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-    let blocks = alloc_image(stack_bytes, image, plan)?;
     let stack_len = stack_bytes;
     let user_stack_top: usize = 0x2000_0000;
     // Map through the former faulting address (boundary); guard sits above.
@@ -352,13 +345,12 @@ fn map_process_stack(
         user_stack_top.checked_add(10 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
     let stack_bottom = mapped_top.checked_sub(stack_len).ok_or(AddressSpaceError::InvalidArgs)?;
     let stack_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE;
-    map_blocks(address_spaces, as_handle, stack_bottom, &blocks, stack_flags)?;
+    map_lazy_fixed(address_spaces, as_handle, stack_bottom, stack_len, stack_flags)?;
     log_debug!(
         target: "exec",
-        "STACK-MAP: va=0x{:x}-0x{:x} blocks={} pages={} sp=0x{:x}",
+        "STACK-MAP: va=0x{:x}-0x{:x} lazy pages={} sp=0x{:x}",
         stack_bottom,
         mapped_top.saturating_sub(1),
-        blocks.len(),
         total_pages,
         user_stack_top
     );
@@ -383,7 +375,7 @@ pub(crate) fn exec_v2_phase_a(
     plan: &mut CopyPlan,
 ) -> SysResult<usize> {
     let typed = ExecV2ArgsTyped::decode(args)?;
-    typed.check()?;
+    typed.check(ctx)?;
 
     // Capability gate: only tasks holding a SEND right in slot 0 (bootstrap cap) may exec.
     {
@@ -474,13 +466,6 @@ pub(crate) fn exec_v2_phase_a(
             let alloc_len =
                 align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
                     .ok_or(AddressSpaceError::InvalidArgs)?;
-            // Staged (phase B): zero first (BSS guarantee), then the payload.
-            let blocks = alloc_image(alloc_len, &mut image, plan)?;
-            if p_filesz != 0 {
-                plan_payload(&blocks, page_off, elf.as_ptr() as usize + p_offset, p_filesz, plan)?;
-                plan.fence_i = true;
-            }
-
             let mut flags = PageFlags::VALID | PageFlags::USER;
             if p_flags & PF_R != 0 {
                 flags |= PageFlags::READ;
@@ -491,8 +476,10 @@ pub(crate) fn exec_v2_phase_a(
             if p_flags & PF_X != 0 {
                 flags |= PageFlags::EXECUTE;
             }
-
-            map_blocks(ctx.address_spaces, as_handle, aligned_vaddr, &blocks, flags)?;
+            // Staged (phase B): the file pages zeroed, then the payload; `.bss` lazy (ADR-0077).
+            let payload = (elf.as_ptr() as usize + p_offset, p_filesz);
+            let seg = Segment { va: aligned_vaddr, page_off, len: alloc_len, payload, flags };
+            load_segment(ctx.address_spaces, as_handle, &mut image, plan, seg)?;
 
             let seg_end =
                 aligned_vaddr.checked_add(alloc_len).ok_or(AddressSpaceError::InvalidArgs)?;
@@ -534,7 +521,7 @@ pub(crate) fn exec_v2_phase_a(
 
         // Stack + guarded top (shared helper; records into `image`).
         let (stack_sp, mapped_top) =
-            map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages, plan, &mut image)?;
+            map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages)?;
 
         // Per-service metadata mapping (RO) + bootstrap info page (RO).
         //

@@ -455,3 +455,62 @@ fn virt_boot_shape_takes_the_smallest_sufficient_order_then_the_lowest_address()
     }
     assert_eq!(n + 3, fa.stats().total);
 }
+
+/// A contiguous object keeps exactly its frames (TASK-0333 6b-1): the board's layout block,
+/// 26 325 frames cut from an order-15 block — the 6 443 beyond them are free at once, the kept
+/// pieces tile the prefix contiguously, and once they are freed the block is whole again.
+#[test]
+fn trimming_a_block_returns_its_tail_and_the_whole_merges_back() {
+    let mut fa = from_tree(BOARD, &[]);
+    let before = fa.stats().free;
+    let block = fa.alloc(MAX_ORDER).unwrap();
+    let kept = fa.trim(block, 26_325).unwrap();
+    assert_eq!(kept.iter().map(|b| b.frames()).sum::<usize>(), 26_325);
+    assert_eq!(fa.stats().free, before - 26_325, "the tail is free again");
+    let mut at = block.base;
+    for piece in &kept {
+        assert_eq!(piece.base, at, "the kept pieces are contiguous");
+        assert_eq!(piece.base % piece.size(), 0, "each piece is aligned to its size");
+        at = piece.end();
+    }
+    assert_eq!(at, block.base + 26_325 * FRAME_SIZE);
+    for piece in kept {
+        fa.free(piece).unwrap();
+    }
+    assert_eq!(fa.stats().free, before);
+    assert_eq!(fa.alloc(MAX_ORDER).unwrap(), block, "merged back into the same block");
+}
+
+#[test]
+fn test_reject_trimming_a_free_block_or_keeping_nothing() {
+    let mut fa = from_tree(BOARD, &[]);
+    let block = fa.alloc(4).unwrap();
+    assert_eq!(fa.trim(block, 0), Err(FrameError::BadTrim));
+    assert_eq!(fa.trim(block, 17), Err(FrameError::BadTrim));
+    assert_eq!(fa.trim(block, 16).unwrap(), alloc::vec![block], "keeping all keeps the block");
+    fa.free(block).unwrap();
+    let before = fa.stats().free;
+    assert_eq!(fa.trim(block, 3), Err(FrameError::NotAllocated), "a free block is nobody's");
+    assert_eq!(fa.stats().free, before, "a refused trim changes nothing");
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// Any block, any prefix: the kept pieces hold exactly `keep` frames, the rest is free, and
+    /// freeing the pieces restores the pool.
+    #[test]
+    fn a_trimmed_block_keeps_exactly_its_frames(order in 0u8..=10, seed in 1usize..=4096) {
+        let mut fa = from_tree(VIRT, &[]);
+        let before = fa.stats().free;
+        let block = fa.alloc(order).unwrap();
+        let keep = 1 + (seed - 1) % block.frames();
+        let kept = fa.trim(block, keep).unwrap();
+        prop_assert_eq!(kept.iter().map(|b| b.frames()).sum::<usize>(), keep);
+        prop_assert_eq!(fa.stats().free, before - keep);
+        for piece in kept {
+            fa.free(piece).unwrap();
+        }
+        prop_assert_eq!(fa.stats().free, before);
+    }
+}

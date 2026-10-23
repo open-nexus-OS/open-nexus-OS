@@ -111,6 +111,18 @@ pub fn vmo_create_contiguous(device: Cap, len: usize) -> Result<Handle> {
     vmo_create_kind(len, 1, device as usize)
 }
 
+/// `vmo_create`'s flag word: the object's pages are committed on first touch (ADR-0077).
+pub const VMO_CREATE_LAZY: usize = 2;
+
+/// ADR-0077 (TASK-0333 6b-1): an object whose pages are committed on first touch — no frame at
+/// create; a page takes one zeroed frame the first time a mapping, a `vmo_write` or the kernel
+/// touches it, and a reserved range costs nothing until then. For no device (a device's lazy
+/// object arrives with the layout split, 6b-2).
+#[cfg(nexus_env = "os")]
+pub fn vmo_create_lazy(len: usize) -> Result<Handle> {
+    vmo_create_kind(len, VMO_CREATE_LAZY, VMO_NO_DEVICE)
+}
+
 #[cfg(nexus_env = "os")]
 fn vmo_create_kind(_len: usize, _kind: usize, _device: usize) -> Result<Handle> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
@@ -318,6 +330,11 @@ pub struct MmStats {
     pub waitsets: u64,
     /// Live fences.
     pub fences: u64,
+    /// Bytes the VMOs hold in frames (v3, ADR-0077): an eager object's length, a lazy one's
+    /// committed pages — `vmo_bytes` is what they span.
+    pub vmo_committed: u64,
+    /// The caller's reserved bytes (v3): regions over lazy objects not yet touched.
+    pub own_reserved_bytes: u64,
 }
 
 impl MmStats {
@@ -330,9 +347,9 @@ impl MmStats {
 }
 
 /// The record layout this ABI speaks.
-pub const MM_STATS_VERSION: u32 = 2;
+pub const MM_STATS_VERSION: u32 = 3;
 /// 64-bit fields after the 8-byte header.
-pub const MM_STATS_FIELDS: u32 = 18;
+pub const MM_STATS_FIELDS: u32 = 20;
 const _: () = assert!(core::mem::size_of::<MmStats>() == 8 + MM_STATS_FIELDS as usize * 8);
 
 /// Frame size of the pool (`MmStats::total` / `free` count these).

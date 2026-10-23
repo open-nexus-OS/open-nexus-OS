@@ -26,6 +26,7 @@ use alloc::vec::Vec;
 use super::frame_pool;
 use crate::dma_reach::{DmaReach, MAX_DMA_WINDOWS};
 use crate::frames::{Block, FrameError, FRAME_SIZE, MAX_ORDER};
+use crate::lazy::{CommitError, LazyPages, PAGE};
 
 #[cfg(debug_assertions)]
 type TableLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
@@ -43,10 +44,14 @@ pub const MAX_OBJECTS: usize = 4096;
 pub enum VmoKind {
     /// Pool blocks, largest-first; no physical base is promised.
     Anon,
-    /// One pool block: physically contiguous (one DMA base).
+    /// One physically contiguous run (one DMA base): a block of the next power of two whose
+    /// tail beyond the object goes straight back to the pool.
     Contiguous,
     /// Frames outside the pool (never freed).
     Fixed,
+    /// No frame until a page is first touched (ADR-0077): one zeroed frame per 4 KiB page,
+    /// committed by a user fault, the kernel's checked range, a write, or a device's runs.
+    Lazy,
 }
 
 /// Why a table call was refused.
@@ -60,6 +65,9 @@ pub enum VmoError {
     TableFull,
     /// No live object has this id.
     NoSuchObject,
+    /// Not supported for this object yet: a lazy object for a device (its frames inside the
+    /// device's reach) arrives with the layout split (TASK-0333 6b-2).
+    Unsupported,
 }
 
 /// One object.
@@ -68,6 +76,8 @@ pub struct VmoObject {
     len: usize,
     blocks: Vec<Block>,
     fixed: (usize, usize),
+    /// A lazy object's frames, one entry per page; `None` for every other kind.
+    lazy: Option<LazyPages>,
 }
 
 impl VmoObject {
@@ -76,10 +86,35 @@ impl VmoObject {
         self.len
     }
 
-    /// The physically contiguous runs `(pa, len)` in object order.
+    /// Bytes backed by frames: a lazy object's committed pages, every other kind's length.
+    pub fn committed(&self) -> usize {
+        self.lazy.as_ref().map_or(self.len, |pages| pages.committed() * PAGE)
+    }
+
+    /// Committed bytes of `[offset, offset + len)` — what a region over the object costs.
+    pub fn committed_in(&self, offset: usize, len: usize) -> usize {
+        match &self.lazy {
+            Some(pages) => pages.committed_in(offset / PAGE, len.div_ceil(PAGE)) * PAGE,
+            None => len,
+        }
+    }
+
+    /// The physically contiguous runs `(pa, len)` in object order — adjacent blocks are one run
+    /// (a trimmed contiguous object is several blocks and still one base).
     pub fn runs(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         let fixed = (self.kind == VmoKind::Fixed).then_some(self.fixed);
-        self.blocks.iter().map(|b| (b.base as usize, b.size() as usize)).chain(fixed)
+        let mut i = 0;
+        let blocks = core::iter::from_fn(move || {
+            let first = self.blocks.get(i)?;
+            let (pa, mut len) = (first.base as usize, first.size() as usize);
+            i += 1;
+            while let Some(next) = self.blocks.get(i).filter(|b| b.base as usize == pa + len) {
+                len += next.size() as usize;
+                i += 1;
+            }
+            Some((pa, len))
+        });
+        blocks.chain(fixed)
     }
 
     /// The physical base when the object is ONE run (`Contiguous`, `Fixed`,
@@ -90,8 +125,11 @@ impl VmoObject {
         runs.next().is_none().then_some(pa)
     }
 
-    /// The physical address of byte `offset`.
+    /// The physical address of byte `offset` (of a lazy object: only where committed).
     pub fn translate(&self, offset: usize) -> Option<usize> {
+        if let Some(pages) = &self.lazy {
+            return pages.frame(offset / PAGE).map(|pa| pa as usize + offset % PAGE);
+        }
         let mut at = 0usize;
         for (pa, len) in self.runs() {
             if offset < at + len {
@@ -126,6 +164,10 @@ impl VmoTable {
     fn get(&self, id: VmoId) -> Option<&VmoObject> {
         self.objects.get(id.checked_sub(1)? as usize)?.as_ref()
     }
+
+    fn get_mut(&mut self, id: VmoId) -> Option<&mut VmoObject> {
+        self.objects.get_mut(id.checked_sub(1)? as usize)?.as_mut()
+    }
 }
 
 /// A new object of `len` bytes (page-aligned, non-zero) that `reach` can
@@ -134,6 +176,15 @@ impl VmoTable {
 pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoError> {
     if len == 0 || len % FRAME_SIZE as usize != 0 || kind == VmoKind::Fixed {
         return Err(VmoError::BadLength);
+    }
+    if kind == VmoKind::Lazy {
+        // No frame now: each page takes one when it is first touched (`commit`).
+        if !reach.is_all() {
+            return Err(VmoError::Unsupported);
+        }
+        let pages = Some(LazyPages::new(len / PAGE));
+        let object = VmoObject { kind, len, blocks: Vec::new(), fixed: (0, 0), lazy: pages };
+        return TABLE.lock().insert(object);
     }
     let mut windows = [(0u64, 0u64); MAX_DMA_WINDOWS];
     let mut n = 0;
@@ -159,15 +210,22 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
                 Some(windows) => frame_pool::alloc_within(order, windows),
             };
             match block {
-                Ok(block) => alloc::vec![block],
+                // The block is the next power of two: keep the object's frames, return the
+                // rest at once (TASK-0333 6b-1 — it was held and counted nowhere).
+                Ok(block) => frame_pool::trim(block, pages),
                 Err(FrameError::BadOrder) => return Err(VmoError::BadLength),
                 Err(_) => return Err(VmoError::Exhausted),
             }
         }
-        VmoKind::Fixed => unreachable!(),
+        VmoKind::Fixed | VmoKind::Lazy => unreachable!(),
     };
-    let result =
-        TABLE.lock().insert(VmoObject { kind, len, blocks: blocks.clone(), fixed: (0, 0) });
+    let result = TABLE.lock().insert(VmoObject {
+        kind,
+        len,
+        blocks: blocks.clone(),
+        fixed: (0, 0),
+        lazy: None,
+    });
     if result.is_err() {
         // The table is full: the frames go back before the error leaves.
         frame_pool::free_blocks(&blocks);
@@ -180,7 +238,8 @@ pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
     if len == 0 || len % FRAME_SIZE as usize != 0 || base % FRAME_SIZE as usize != 0 {
         return Err(VmoError::BadLength);
     }
-    let object = VmoObject { kind: VmoKind::Fixed, len, blocks: Vec::new(), fixed: (base, len) };
+    let object =
+        VmoObject { kind: VmoKind::Fixed, len, blocks: Vec::new(), fixed: (base, len), lazy: None };
     TABLE.lock().insert(object)
 }
 
@@ -193,6 +252,11 @@ pub fn destroy(id: VmoId) -> Result<(), VmoError> {
         slot.and_then(Option::take).ok_or(VmoError::NoSuchObject)?
     };
     frame_pool::free_blocks(&object.blocks);
+    if let Some(pages) = &object.lazy {
+        for pa in pages.frames() {
+            frame_pool::free(Block { base: pa, order: 0 });
+        }
+    }
     Ok(())
 }
 
@@ -201,9 +265,95 @@ pub fn with<R>(id: VmoId, f: impl FnOnce(&VmoObject) -> R) -> Option<R> {
     TABLE.lock().get(id).map(f)
 }
 
-/// The object's runs, copied out (syscalls walk them without the lock).
+/// The object's runs, copied out (syscalls walk them without the lock). `None` for a lazy
+/// object too: it has pages, not runs — `span` answers for every kind.
 pub fn runs(id: VmoId) -> Option<Vec<(usize, usize)>> {
-    with(id, |o| o.runs().collect())
+    with(id, |o| o.lazy.is_none().then(|| o.runs().collect())).flatten()
+}
+
+/// Whether the live object `id` commits its pages on first touch (ADR-0077).
+pub fn is_lazy(id: VmoId) -> bool {
+    with(id, |o| o.kind == VmoKind::Lazy).unwrap_or(false)
+}
+
+/// Page `index` of `id`, committed now if it was not: a frame from the pool, zeroed before it
+/// is entered — outside the table lock, which is a leaf and never held across a memset. A page
+/// another hart committed meanwhile wins and the frame taken here goes back. Answers the page's
+/// physical address; an eager object answers its translation.
+pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
+    let existing = with(id, |o| match &o.lazy {
+        Some(pages) if index < pages.pages() => Ok(pages.frame(index).map(|pa| pa as usize)),
+        Some(_) => Err(VmoError::BadLength),
+        None => o.translate(index * PAGE).map(Some).ok_or(VmoError::BadLength),
+    })
+    .ok_or(VmoError::NoSuchObject)??;
+    if let Some(pa) = existing {
+        return Ok(pa);
+    }
+    let block = frame_pool::alloc(0).map_err(|_| VmoError::Exhausted)?;
+    // SAFETY: a frame just taken from the pool, reachable by nobody else until it is entered.
+    unsafe {
+        core::ptr::write_bytes(crate::phys::phys_to_virt(block.base as usize) as *mut u8, 0, PAGE);
+    }
+    let entered = match TABLE.lock().get_mut(id).and_then(|o| o.lazy.as_mut()) {
+        Some(pages) => pages.commit(index, block.base).map_err(Some),
+        None => Err(None),
+    };
+    match entered {
+        Ok(()) => Ok(block.base as usize),
+        Err(Some(CommitError::Committed(pa))) => {
+            frame_pool::free(block);
+            Ok(pa as usize)
+        }
+        Err(Some(CommitError::OutOfRange)) => {
+            frame_pool::free(block);
+            Err(VmoError::BadLength)
+        }
+        Err(None) => {
+            // The object died between the look and the commit.
+            frame_pool::free(block);
+            Err(VmoError::NoSuchObject)
+        }
+    }
+}
+
+/// The bytes `[offset, offset + len)` of `id` as pieces `(pa, len)` in order: the runs of an
+/// eager object, the pages of a lazy one — `None` where a lazy page is not committed. With
+/// `commit_pages` every lazy page of the span is committed first (a write, a device's runs), so
+/// no piece is `None`.
+pub fn span(
+    id: VmoId,
+    offset: usize,
+    len: usize,
+    commit_pages: bool,
+) -> Result<Vec<(Option<usize>, usize)>, VmoError> {
+    let end = offset.checked_add(len).ok_or(VmoError::BadLength)?;
+    let (lazy, object_len) =
+        with(id, |o| (o.lazy.is_some(), o.len)).ok_or(VmoError::NoSuchObject)?;
+    if end > object_len {
+        return Err(VmoError::BadLength);
+    }
+    let mut out = Vec::new();
+    if !lazy {
+        let mut at = 0usize;
+        for (pa, run_len) in runs(id).ok_or(VmoError::NoSuchObject)? {
+            let (lo, hi) = (offset.max(at), end.min(at + run_len));
+            if lo < hi {
+                out.push((Some(pa + (lo - at)), hi - lo));
+            }
+            at += run_len;
+        }
+        return Ok(out);
+    }
+    let mut at = offset;
+    while at < end {
+        let piece = (end - at).min(PAGE - at % PAGE);
+        let base =
+            if commit_pages { Some(commit(id, at / PAGE)?) } else { translate(id, at - at % PAGE) };
+        out.push((base.map(|pa| pa + at % PAGE), piece));
+        at += piece;
+    }
+    Ok(out)
 }
 
 /// The physical address of byte `offset`, or `None` past the end.
@@ -229,12 +379,20 @@ pub fn zero(id: VmoId) {
     }
 }
 
-/// `(live objects, bytes they hold, bytes of the contiguous ones)`.
-pub fn stats() -> (usize, usize, usize) {
+/// `(live objects, bytes they span, bytes of the contiguous ones, bytes committed)` — a lazy
+/// object spans its length and commits its touched pages; every other kind commits its length.
+pub fn stats() -> (usize, usize, usize, usize) {
     let table = TABLE.lock();
     let live = table.objects.iter().flatten();
     let contiguous = live.clone().filter(|o| o.kind == VmoKind::Contiguous).map(VmoObject::len);
-    (live.clone().count(), live.map(VmoObject::len).sum(), contiguous.sum())
+    let committed = live.clone().map(VmoObject::committed).sum();
+    (live.clone().count(), live.map(VmoObject::len).sum(), contiguous.sum(), committed)
+}
+
+/// Committed bytes of `[offset, offset + len)` of `id` (`len` itself for an eager object, 0 for
+/// one that is gone) — what a region over it costs its space.
+pub fn committed_in(id: VmoId, offset: usize, len: usize) -> usize {
+    with(id, |o| o.committed_in(offset, len)).unwrap_or(0)
 }
 
 /// Whether the live object `id` is one physically contiguous (DMA) block.
