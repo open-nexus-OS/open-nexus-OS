@@ -12,7 +12,6 @@
 #   TARGET             – Rust target triple (default: riscv64imac-unknown-none-elf)
 #   TARGET_ROOT        – cargo target directory (default: $ROOT/target)
 #   INIT_LITE_SERVICE_LIST – comma-separated service names to cross-compile
-#   RUSTFLAGS_OS       – RUSTFLAGS for OS target
 #   BUILD_TMPDIR_DEFAULT – fallback for TMPDIR (default: $ROOT/.tmp/build)
 #   BUILD_TMP_MIN_FREE_MB – min free space in TMPDIR before fallback (default: 256)
 #   HYPOTHESIS_LOG     – path for build hypothesis entries (H4)
@@ -62,8 +61,11 @@ INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
 # TASK-0289 A4: the VMM -kernel payload is the first-stage loader; the
 # kernel image travels inside the GPT disk (boot-a slot, NXBD-signed).
 NXBOOT_ELF=$TARGET_ROOT/$TARGET/release/nxboot
-RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
-export RUSTFLAGS="$RUSTFLAGS_OS"
+# The OS target's flags live in ONE place: `.cargo/config.toml`
+# `[target.riscv64imac-unknown-none-elf] rustflags` (nexus_env="os", +zbb, share-generics).
+# RUSTFLAGS from the caller would REPLACE that list (cargo takes the first source it finds),
+# so the build never sees it — the shipped image is built with the flags the lints check.
+unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
 
 NEXUS_SKIP_BUILD=${NEXUS_SKIP_BUILD:-0}
 BUILD_TMPDIR_DEFAULT=${BUILD_TMPDIR_DEFAULT:-"$ROOT/.tmp/build"}
@@ -221,7 +223,7 @@ build_service() {
     require_or_build "$keyed" "service:$svc" -- true
     return 0
   fi
-  require_or_build "$cargo_out" "service:$svc" -- env RUSTFLAGS="$RUSTFLAGS_OS" \
+  require_or_build "$cargo_out" "service:$svc" -- \
     cargo build -p "$svc" --target "$TARGET" --release --no-default-features --features "$features"
   mkdir -p "$(dirname "$keyed")"
   cp -f "$cargo_out" "$keyed"
@@ -416,17 +418,17 @@ EOF_TOML
 # ---------------------------------------------------------------------------
 build_kernel_and_init() {
   # Build init-lite FIRST — the kernel needs EMBED_INIT_ELF to point at it.
-  require_or_build "$INIT_ELF" "init-lite" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release
+  require_or_build "$INIT_ELF" "init-lite" -- cargo build -p init-lite --target "$TARGET" --release
 
   local -a kernel_args=(build -p neuron-boot --target "$TARGET" --release)
   if [[ -n "${NEURON_BOOT_FEATURES:-}" ]]; then
     kernel_args+=(--features "$NEURON_BOOT_FEATURES")
   fi
-  require_or_build "$KERNEL_ELF" "kernel:neuron-boot" -- env EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo "${kernel_args[@]}"
+  require_or_build "$KERNEL_ELF" "kernel:neuron-boot" -- env EMBED_INIT_ELF="$INIT_ELF" cargo "${kernel_args[@]}"
 
   # TASK-0289 A4: first-stage loader (verifies the slot before any OS code
   # runs; its linker script hard-asserts the 256 KiB budget, ADR-0059).
-  require_or_build "$NXBOOT_ELF" "boot:nxboot" -- env RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p nxboot --target "$TARGET" --release
+  require_or_build "$NXBOOT_ELF" "boot:nxboot" -- cargo build -p nxboot --target "$TARGET" --release
   # The flat kernel image is an artifact of THIS build, not of the next QEMU
   # lane: `nx image` (the board's disk included) reads it, and until TASK-0327B
   # P3 only the launcher objcopied it, at a lane's start — so a board image

@@ -113,7 +113,7 @@ MMIO probe: scans virtio-mmio registers at `0x10008000 + N*0x200` for device ID 
 |------|--------|--------|
 | `fixed_sdf.rs` | `circle_sd()` fixed-point (integer only) | 5–10× faster circle SDF |
 | `primitives.rs` | `div255(x) = ((x*257)+32768)>>16` | 3–5× faster alpha blend |
-| `.cargo/config.toml` | `target-feature=+zbb` | 10–20% bitmanip ops |
+| `.cargo/config.toml` | `target-feature=+zbb` | in the shipped image only since 2026-10-23 (TASK-0333 6c-0: the build's `RUSTFLAGS` had replaced the list); the gain is measured on the board, not assumed |
 
 ## Integration chain
 

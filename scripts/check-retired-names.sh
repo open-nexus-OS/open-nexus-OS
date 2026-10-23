@@ -35,6 +35,7 @@ RETIRED=(
   'INT_MASK_ONL2 INT_MASK_ALL INT_MASK_STOCK INT_RAW_CLEAR_ALL vblank_enable vblank_disable;INT_ENABLE_ONL2 / INT_STS_ONL2, flip_irq_arm / flip_irq_disarm (an enable word and a write-1-to-clear status, as the vendor header names them);TASK-0342 (board cycles 59–60): the enable word read as a mask and the clears written to the read-only raw word held the line up'
   'flip_in_blank in_blank;flip_latched (the controller takes the latch at its next frame boundary);TASK-0342: a flip that waited for a wake inside the blank waited behind the GPU'
   'small-object-free-list;none — the size-class and large-block lists are every service'"'"'s (nexus-service-entry);TASK-0333 6b-3: no service heap is a bump that never frees'
+  'RUSTFLAGS_OS os_rustflags;.cargo/config.toml [target.riscv64imac-unknown-none-elf] rustflags (lint recipes append through --config);TASK-0333 6c-0: an OS-target RUSTFLAGS replaced the configured flags — the shipped image never had +zbb'
 )
 # Dated records describe the tree as it was, so they keep the names it had.
 HISTORY=(tasks/ CHANGELOG.md docs/adr/ docs/rfcs/ docs/board/measurements/ scripts/check-retired-names.sh)

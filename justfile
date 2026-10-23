@@ -8,7 +8,13 @@ cargo_target_dir := env_var_or_default("NEXUS_CARGO_TARGET_DIR", justfile_direct
 
 # Common flags (suppress unexpected_cfgs and set nexus_env)
 host_rustflags := "--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"host\""
-os_rustflags   := "--check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\""
+# The OS target's flags live in ONE place: `.cargo/config.toml`
+# `[target.riscv64imac-unknown-none-elf] rustflags`. An OS-target cargo call never sets
+# RUSTFLAGS (it would replace that list, not extend it); a lint recipe APPENDS through
+# `--config` (cargo joins the arrays).
+os_cargo     := "env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo +" + toolchain
+os_lint_warn := "--config 'target.riscv64imac-unknown-none-elf.rustflags=[\"-W\",\"unexpected_cfgs\",\"-W\",\"dead_code\"]'"
+os_lint_deny := "--config 'target.riscv64imac-unknown-none-elf.rustflags=[\"-D\",\"warnings\"" + (if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { ",\"--cap-lints=warn\"" } else { "" }) + "]'"
 
 export CARGO_TARGET_DIR := cargo_target_dir
 
@@ -196,19 +202,19 @@ inputs:
 
 # Build the bootable NEURON binary crate
 build-kernel:
-    cargo +{{toolchain}} build -p neuron-boot --target riscv64imac-unknown-none-elf --release
+    {{os_cargo}} build -p neuron-boot --target riscv64imac-unknown-none-elf --release
 
 # Cross-compile the shared logging shim with the OS sink
 build-nexus-log-os:
-    @env RUSTFLAGS='{{os_rustflags}}' cargo +{{toolchain}} build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release
+    @{{os_cargo}} build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release
 
 # Cross-compile the os-lite init payload
 build-init-lite-os:
-    @env RUSTFLAGS='{{os_rustflags}}' cargo +{{toolchain}} build -p init-lite --target riscv64imac-unknown-none-elf --release
+    @{{os_cargo}} build -p init-lite --target riscv64imac-unknown-none-elf --release
 
 # Build only the kernel library with its own panic handler (no binary)
 build-kernel-lib:
-    cargo +{{toolchain}} build -p neuron --lib --features panic_handler --target riscv64imac-unknown-none-elf
+    {{os_cargo}} build -p neuron --lib --features panic_handler --target riscv64imac-unknown-none-elf
 
 
 qemu *args:
@@ -780,7 +786,7 @@ ci-verify *recipes='check':
 # Kernel clippy (nightly, build-std). Split out of the host `lint` because it
 # needs -Z build-std and the bare-metal target.
 lint-kernel:
-    cargo +{{toolchain}} clippy \
+    {{os_cargo}} clippy \
         -Z build-std=core,alloc -Z build-std-features=panic_immediate_abort \
         --target riscv64imac-unknown-none-elf -p neuron -- -D warnings
 
@@ -855,17 +861,17 @@ diag-os: inputs
     @rustc +{{toolchain}} -V
     @cargo +{{toolchain}} -V
     @echo "==> kernel libs (neuron)"
-    @cargo +{{toolchain}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+    @{{os_cargo}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
     @echo "==> userspace payload (init-lite)"
-    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
+    @{{os_cargo}} check {{os_lint_warn}} -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
     @echo "==> OS services (os-lite feature set; list = config/os-services.txt)"
-    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @{{os_cargo}} check {{os_lint_warn}} $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
     @echo "==> os slice: resolved feature sets beyond os-lite (build-truth SSOT: discover-services.sh)"
-    @env RUSTFLAGS='{{os_rustflags}} -W unexpected_cfgs -W dead_code' cargo +{{toolchain}} check -p gpud --target riscv64imac-unknown-none-elf --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
+    @{{os_cargo}} check {{os_lint_warn}} -p gpud --target riscv64imac-unknown-none-elf --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
 
 # Kernel-only: quickest way to see unused/dead_code in neuron.
 diag-kernel:
-    cargo +{{toolchain}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+    {{os_cargo}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
 
 # -----------------------------------------------------------------------------
 # Warning gate — the hard version of the diag-* surfacers. Any warning
@@ -882,13 +888,13 @@ diag-host-strict: inputs
 
 diag-os-strict: inputs
     @echo "==> diag (os slice, deny warnings)"
-    @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
-    @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
-    @env RUSTFLAGS='{{os_rustflags}} -D warnings {{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "" } }}' cargo +{{toolchain}} check -p gpud --target riscv64imac-unknown-none-elf --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
+    @{{os_cargo}} check {{os_lint_deny}} -p init-lite --target riscv64imac-unknown-none-elf --message-format=short
+    @{{os_cargo}} check {{os_lint_deny}} $(grep -v '^#' config/os-services.txt | sed 's/^/-p /' | tr '\n' ' ') --target riscv64imac-unknown-none-elf --no-default-features --features os-lite --message-format=short
+    @{{os_cargo}} check {{os_lint_deny}} -p gpud --target riscv64imac-unknown-none-elf --no-default-features --features "$(GPU_MODE=virgl scripts/discover-services.sh --cargo-features gpud)" --message-format=short
 
 diag-kernel-strict:
     @echo "==> diag (kernel, deny warnings)"
-    @env RUSTFLAGS='{{ if env_var_or_default("NEXUS_ALLOW_WARN","") == "1" { "--cap-lints=warn" } else { "-D warnings" } }}' cargo +{{toolchain}} check -p neuron --target riscv64imac-unknown-none-elf --message-format=short
+    @{{os_cargo}} check {{os_lint_deny}} -p neuron --target riscv64imac-unknown-none-elf --message-format=short
 
 # -----------------------------------------------------------------------------
 # License & Advisory Check (cargo-deny)

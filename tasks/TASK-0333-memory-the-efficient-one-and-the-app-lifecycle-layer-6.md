@@ -1,6 +1,6 @@
 ---
 title: TASK-0333 Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap
-status: In Progress (6a ✅ 2026-10-20, 6b-1 ✅ 2026-10-23, 6b-2a ✅ 2026-10-23, 6b-2b ✅ 2026-10-23; planned 2026-10-19 with the operator)
+status: In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c in progress 2026-10-23; planned 2026-10-19 with the operator)
 owner: @kernel-team @runtime @ui @gpu
 created: 2026-10-19
 depends-on: [TASK-0286 (M1: frames from the FDT, page-backed VMOs), TASK-0215 (layer 5: the desktop on the GPU)]
@@ -513,6 +513,56 @@ non-zero in the six windows a window opened in, `0/0` in fifteen steady ones. H5
 logs, no netstackd fault. `board-visible` is red on the operator's `typed` alone: letters typed
 into an app do not show (the known keyboard defect, in the UX lane); `typed` and `gpu-desktop`
 (whose text names typing) left unacked.
+
+## 6c — the cut (2026-10-23, with the operator)
+
+**Measured first (the tree, the built ELFs, board cycle 67).** The app-host ELF is 2.0 MB, not
+7 (RFC-0080 took the atlas out): R 1.42 MiB + RX 0.51 MiB shareable per child, one data page
+(17 B of file bytes), 8.4 MB `.bss` already lazy. The exec ABI takes a user pointer + length only
+(syscalls 13/17); the kernel copies every file byte into fresh frames. The images nest: app-host
+`include_bytes!` in execd, execd and every CORE service in init-lite, init-lite in the kernel
+image (`.rodata` 9.7 MB, never freed) — each level resident on its own (init-lite rss 6.4 MB,
+execd 6.8 MB). A volume service is held twice: init keeps its payload VMO mapped for good
+(respawn), the kernel copies it per spawn. The payload VMO's data starts at byte 16 and blkd DMAs
+into it. `PT_LOAD`s are offset ≡ vaddr mod 4096, but a segment's first file page is shared with
+the previous segment's last. `vm_map` refuses EXECUTE; `vmo_share_readonly` exists (RFC-0080).
+Launch time is not the copy (6a's H6, refuted on both lanes): 6c is memory, not speed. The data
+segments are 17–32 B: **CoW is not needed** (a private copy of one page per segment).
+
+**Security finding (before any sharing).** User mode may flush cache lines on the board
+(`enable_user_cache_maintenance`, Zicbom, every task alike), and the glyph atlas is already one
+page set read by every app-host (RFC-0080) — a Flush+Reload probe of which glyphs another app
+draws is plausible (not measured). Shared code widens the same surface. The fix is at the root:
+cache maintenance in user mode only for a task holding a right for it (the DMA drivers); the
+kernel sets `senvcfg` per task at the switch.
+
+**How others do it (read 2026-10-23).** Fuchsia: CORE programs in a bootfs inside the boot image,
+immutable verified VMOs, text mapped from the VMO, data a CoW child, executable only through the
+VMEX right. iOS: code shared through the page cache, every code page checked against its
+signature on page-in, never writable. OpenHarmony: Linux page cache + appspawn, signatures checked
+at load. All share code; they differ in how hard they prove it immutable.
+
+**The steps (each with a board gate):**
+
+| # | Builds | Gate |
+|---|---|---|
+| 6c-0 | (before 6c) the OS build's own flags apply: `.cargo/config.toml`'s target flags were overridden by every recipe's `RUSTFLAGS` (no `+zbb`, no `share-generics` since 2026-06-03) | sizes + board frame times vs cycle 67 |
+| 6c-1 | user cache maintenance only with a right; `vmo_seal` (one way, refused for a device-pinned or writably mapped VMO) and `exec_vmo` (ADR-0079): R/RX mapped from the sealed object's frames, the data page private, `.bss`/stack lazy; a build gate for page-aligned `PT_LOAD` file offsets; volume services copied once into a sealed image, verified **after** the seal, the DMA object closed | `KSELFTEST: exec image shared ok (text= ro= copied=)`, `test_reject_exec_unsealed_vmo`, `test_reject_write_map_sealed`, `test_reject_vmo_write_sealed`, `test_reject_seal_device_pinned`, `test_reject_seal_writable_mapped`, `test_reject_exec_vmo_unaligned_segment`, `test_reject_user_cache_flush_without_right`; board: volume services' copies gone |
+| 6c-2 | the boot image instead of the nesting: nxboot loads a signed bootfs beside the kernel, the kernel hands it to init as one sealed object, CORE services and app-host exec from page-aligned ranges of it; the `include_bytes!` chain and syscalls 13/17 deleted (retired-name gate) — ADR-0060 holds (recovery still needs no volume) | `KSELFTEST: bootfs ok (files= bytes=)`; board: kernel image, init-lite and execd shrink, an app-host child to its private pages |
+
+**6c-0 built 2026-10-23; board cycle 68 (`board--2026-10-23T17-18-42`).** `.cargo/config.toml`
+is the one place the OS target's flags live; `scripts/build.sh` and `tools/os2vm.sh` unset
+`RUSTFLAGS`, the justfile's OS recipes run through `os_cargo` and append lint flags with
+`--config` (`os_lint_warn` / `os_lint_deny`); `RUSTFLAGS_OS` / `os_rustflags` retired (gate).
+Zbb in 40 of 40 shipped ELFs (0 before), the total −0.4 %. The cycle's launch timings cannot
+judge a codegen effect (×2 spread per app across cycles — the decision line is recorded as
+wrong in the measurement folder). One full stall in a scene never tested before (four quadrant
+tiles + the control center modal, the GPU overloaded) — filed by the operator as its own defect,
+**TASK-0345**. Carried: `tokio` 1.51.1 → 1.51.6 in `Cargo.lock` (host-only; an advisory published
+today turned `just check` red).
+
+**Not in 6c:** CoW (measured unneeded), dropping clean code pages under pressure (6e/6f), a
+per-page signature check on fault (the bootfs and the volume are verified whole before use).
 
 ## Definition of Done (per step)
 

@@ -7,7 +7,10 @@ rustflags = [
 ]
 rustdocflags = ["--cfg", "nexus_env=\"host\""]
 
-# RISC-V OS target (userspace + kernel tools use this triple)
+# RISC-V OS target (userspace + kernel tools use this triple) — the ONE place the OS
+# image's flags live. No recipe sets RUSTFLAGS for this target (it would replace this
+# list); a lint recipe appends through `--config` (justfile `os_lint_*`). +zbb: both
+# targets have it (the board's X60 lists zba/zbb/zbs; QEMU runs `-cpu max`).
 [target.riscv64imac-unknown-none-elf]
 rustflags = [
     "--check-cfg=cfg(nexus_env, values(\"host\",\"os\"))",

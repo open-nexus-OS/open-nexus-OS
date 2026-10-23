@@ -143,7 +143,6 @@ fi
 
 TARGET=${TARGET:-riscv64imac-unknown-none-elf}
 BUILD_TARGET_DIR=${OS2VM_TARGET_DIR:-"$ROOT/target-os2vm"}
-RUSTFLAGS_OS=${RUSTFLAGS_OS:---check-cfg=cfg(nexus_env,values(\"host\",\"os\")) --cfg nexus_env=\"os\"}
 RUN_TIMEOUT=${RUN_TIMEOUT:-180s}
 AGENT_RUN_ID=${AGENT_RUN_ID:-os2vm--$(date +%Y-%m-%dT%H-%M-%S)}
 DEBUG_SESSION_ID=${DEBUG_SESSION_ID:-17b977}
@@ -1058,7 +1057,8 @@ set_env_var() {
 }
 
 build_os_once() {
-  export RUSTFLAGS="$RUSTFLAGS_OS"
+  # OS-target flags: .cargo/config.toml only (RUSTFLAGS would replace them).
+  unset RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
   export CARGO_TARGET_DIR="$BUILD_TARGET_DIR"
 
   # Keep this aligned with init-lite expectations (os_payload): include updated + logd + metricsd + statefsd
@@ -1071,7 +1071,7 @@ build_os_once() {
     local svc=${raw//[[:space:]]/}
     [[ -z "$svc" ]] && continue
 
-    (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p "$svc" --target "$TARGET" --release --no-default-features --features os-lite)
+    (cd "$ROOT" && cargo build -p "$svc" --target "$TARGET" --release --no-default-features --features os-lite)
 
     local svc_upper
     svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
@@ -1089,10 +1089,10 @@ build_os_once() {
     fi
   done
 
-  (cd "$ROOT" && RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p init-lite --target "$TARGET" --release)
+  (cd "$ROOT" && cargo build -p init-lite --target "$TARGET" --release)
 
   local INIT_ELF="$BUILD_TARGET_DIR/$TARGET/release/init-lite"
-  (cd "$ROOT" && EMBED_INIT_ELF="$INIT_ELF" RUSTFLAGS="$RUSTFLAGS_OS" cargo build -p neuron-boot --target "$TARGET" --release)
+  (cd "$ROOT" && EMBED_INIT_ELF="$INIT_ELF" cargo build -p neuron-boot --target "$TARGET" --release)
 
   local KERNEL_ELF="$BUILD_TARGET_DIR/$TARGET/release/neuron-boot"
   local KERNEL_BIN="$BUILD_TARGET_DIR/$TARGET/release/neuron-boot.bin"

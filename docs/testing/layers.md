@@ -23,7 +23,7 @@ Full layer-by-layer testing reference, including the end-to-end coverage table a
 - The default build environment is `nexus_env="host"` (set via `.cargo/config.toml`).
 - Favour `cargo test --workspace`, `proptest`, and `cargo miri test` (e.g. `env MIRIFLAGS='--cfg nexus_env="host"' cargo miri test -p samgr`).
 - Golden vectors (IDL definitions, ABI structures) live here and drive service contract expectations.
-- OS-lite shim crates can be cross-built directly when debugging. Use the shared flags (`RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"'`) and target triple:
+- OS-lite shim crates can be cross-built directly when debugging. The OS target's flags come from `.cargo/config.toml` alone (`nexus_env="os"`, `+zbb`, `share-generics`) — never set `RUSTFLAGS` for this target, it replaces that list; extra lint flags go through `--config 'target.riscv64imac-unknown-none-elf.rustflags=[...]'`:
   - `cargo +nightly-2025-01-15 build -p nexus-log --features sink-userspace --target riscv64imac-unknown-none-elf --release`
   - `cargo +nightly-2025-01-15 build -p init-lite --target riscv64imac-unknown-none-elf --release`
   - The `just build-nexus-log-os` / `just build-init-lite-os` targets wrap these commands and keep the flags consistent with CI.
@@ -218,7 +218,7 @@ a missing per-service proof first, not as a reason to add marker-only retries.
 | Requirement surface | Proof type | Canonical command |
 | --- | --- | --- |
 | Fixed 1280x800 ARGB8888 mode, `fbdevd -> windowd` framebuffer registration, framebuffer-capability rejection, and pre-scanout marker rejection | host behavior/reject assertions | `cargo test -p windowd -p fbdevd -- --nocapture` |
-| `selftest-client` visible bootstrap and `init-lite` `fw_cfg` capability path compile for the OS target | OS target compile assertions | `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` and `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' cargo check -p init-lite --target riscv64imac-unknown-none-elf --release` |
+| `selftest-client` visible bootstrap and `init-lite` `fw_cfg` capability path compile for the OS target | OS target compile assertions | `NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` and `cargo check -p init-lite --target riscv64imac-unknown-none-elf --release` |
 | Service-owned visible ladder (`fbdevd: ready`, `fbdevd: map ok`, `fbdevd: ramfb configured`, `fbdevd: flush ok`, `display: bootstrap on`, `display: mode 1280x800 argb8888`, `display: first scanout ok`) with proof-manifest verification | single-VM QEMU visible scanout proof | `just ci-os-visible` (host pixel proof, TASK-0324) |
 
 This closes the bootstrap scanout path. TASK-0057 extends the same
@@ -243,7 +243,7 @@ be derived from that manifest rather than duplicated inside shell scripts.
 | --- | --- | --- |
 | TOML-backed `desktop` SystemUI profile/shell seed and JPEG-sourced deterministic first-frame pixels/checksum | host behavior assertions | `cargo test -p systemui -- --nocapture` |
 | Visible present evidence uses `windowd` DisplayServer composition, not a raw SystemUI source-buffer write; invalid mode/capability/pre-marker paths reject | host behavior/reject assertions | `cargo test -p windowd -- --nocapture` |
-| `selftest-client` visible SystemUI path compiles for the OS target | OS target compile assertion | `RUSTFLAGS='--check-cfg=cfg(nexus_env,values("host","os")) --cfg nexus_env="os"' NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` |
+| `selftest-client` visible SystemUI path compiles for the OS target | OS target compile assertion | `NEXUS_DISPLAY_BOOTSTRAP=1 cargo check -p selftest-client --target riscv64imac-unknown-none-elf --release --no-default-features --features os-lite` |
 | Service-owned visible-present ladder (`windowd: backend=visible`, `windowd: present visible ok`, `systemui: first frame visible`, `SELFTEST: ui visible present ok`) plus `fps: windowd` / `fps: fbdevd` failure-summary traces | single-VM QEMU visible SystemUI proof | `just ci-os-visible` (host pixel proof, TASK-0324) |
 
 This slice still does not prove input, cursor/focus/click, display-service
@@ -262,7 +262,7 @@ SVG cursor, text/icon proof targets, and composition into the framebuffer VMO.
 | DisplayServer-v0 protocol frames and reject paths (`OP_UPDATE_VISIBLE_STATE`, visible-state response, malformed/truncated rejects) | host protocol assertions | `cargo test -p input-live-protocol -- --nocapture` |
 | JPEG-sourced SystemUI seed and SVG cursor/assets visible in service-owned state | host service assertions | `cargo test -p systemui -p windowd -p fbdevd -- --nocapture` |
 | Observer cannot synthesize asset success; summary waits for cursor/wallpaper/text/icon/overlay evidence | host observer assertions | `cargo test -p selftest-client -- --nocapture` |
-| Display services compile as os-lite daemons, including standalone `windowd` | OS target compile assertion | `RUSTFLAGS='--cfg nexus_env="os"' cargo +nightly-2025-01-15 check --target riscv64imac-unknown-none-elf --no-default-features --features os-lite -p windowd -p fbdevd -p inputd` |
+| Display services compile as os-lite daemons, including standalone `windowd` | OS target compile assertion | `cargo +nightly-2025-01-15 check --target riscv64imac-unknown-none-elf --no-default-features --features os-lite -p windowd -p fbdevd -p inputd` |
 | Asset marker ladder ends at v2b success, not wheel success | single-VM QEMU visible proof | `just ci-os-visible` (host pixel proof, TASK-0324) |
 
 The live proof is `just start`: the GTK/QEMU window should show the same

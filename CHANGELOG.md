@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-10-23 (the OS image is built with its own flags — TASK-0333 6c-0)
+
+- **The configured flags reach the shipped image.** `.cargo/config.toml` names the OS target's
+  flags (bit-manipulation instructions, shared generics), but every build and lint recipe set
+  `RUSTFLAGS`, which replaces that list: the image never had them, while a plain kernel build
+  did. The config file is now the one source; recipes add lint flags on top instead of
+  replacing it. Both targets support the instructions (the board's CPU and QEMU's `-cpu max`).
+- **tokio 1.51.6** (host-only crates) for an advisory published today.
+
 ### Fixed - 2026-10-23 (a task could resume at a kernel address)
 
 - **The switch into a task no longer leaves a window for an interrupt.** The kernel set a task's
