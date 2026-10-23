@@ -18,14 +18,16 @@
 //! and drops its lines with Zicbom (`cache_clean` / `cache_flush`), which the
 //! kernel enables for user mode — `cbo.inval` runs as a flush, so user mode can
 //! never discard data. `DmaVmo` is a VMO mapped for DMA to one device (bytes +
-//! runs), the memory `nexus_driverkit::DmaBuffer` moves between the CPU and it.
+//! runs), the memory `nexus_driverkit::DmaBuffer` moves between the CPU and it;
+//! `LazyDmaVmo` one whose pages are committed when first touched or told to the
+//! device (ADR-0078), so it keeps no run list.
 //! This module is the crate's second unsafe island next to the ecall helpers: the
 //! `cbo` instructions and the byte view of a mapping this module made itself.
 //! OWNERS: @runtime @drivers
 //! STATUS: Functional
 //! PUBLIC API: DmaRun, MAX_DMA_RUNS, vmo_runs(), vmo_dma_base(), DmaWindow, DeviceDesc,
 //!   MAX_DMA_WINDOWS, DEVICE_DESC_VERSION, CAP_FLAG_DMA_NONCOHERENT, DmaCoherence,
-//!   device_dma_coherence(), cache_clean(), cache_flush(), DmaVmo
+//!   device_dma_coherence(), cache_clean(), cache_flush(), DmaVmo, LazyDmaVmo
 //! TEST_COVERAGE: `tests` below (descriptor layout, coherence decoding); the kernel's
 //!   `dma_reach` / `dma_runs` host tests (decode and reject matrix);
 //!   `KSELFTEST: vmo reach ok (…)`; `SELFTEST: dma buffer ok (…)` runs the
@@ -383,6 +385,71 @@ impl DmaVmo {
 impl Drop for DmaVmo {
     fn drop(&mut self) {
         let _ = vm_unmap(self.va, self.map_len);
+        let _ = vmo_destroy(self.vmo);
+    }
+}
+
+/// A lazy object for one device, mapped for the CPU (ADR-0078): nothing is committed at create —
+/// a page takes a frame inside the device's reach when the CPU first touches it, a `vmo_write`
+/// writes it, or the device is told it ([`vmo_runs`], a range at a time: naming commits, so the
+/// object keeps no run list). Drop unmaps and destroys it.
+#[cfg(nexus_env = "os")]
+pub struct LazyDmaVmo {
+    vmo: Handle,
+    va: usize,
+    len: usize,
+}
+
+#[cfg(nexus_env = "os")]
+impl LazyDmaVmo {
+    /// `len` bytes (page-rounded) for `device`, mapped read-write; no page committed.
+    pub fn new(device: Cap, len: usize) -> SysResult<Self> {
+        let len = len.checked_next_multiple_of(4096).filter(|l| *l != 0);
+        let len = len.ok_or(AbiError::InvalidArgument)?;
+        let vmo = vmo_create_for_lazy(device, len).map_err(|_| AbiError::OutOfMemory)?;
+        let flags = page_flags::VALID | page_flags::USER | page_flags::READ | page_flags::WRITE;
+        match vm_map(vmo, 0, len, flags) {
+            Ok(va) => Ok(Self { vmo, va, len }),
+            Err(err) => {
+                let _ = vmo_destroy(vmo);
+                Err(err)
+            }
+        }
+    }
+
+    /// The VMO (to hand to another service with `cap_clone`, or to name a range to the device).
+    pub fn handle(&self) -> Handle {
+        self.vmo
+    }
+
+    /// Bytes reserved.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Never true: an empty object is refused at create.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The CPU's view: a page it touches is committed then.
+    pub fn bytes(&self) -> &[u8] {
+        // SAFETY: `va..va + len` is this object's own read-write mapping, alive until drop; a
+        // touch of an uncommitted page is filled by the kernel's fault path (ADR-0077).
+        unsafe { core::slice::from_raw_parts(self.va as *const u8, self.len) }
+    }
+
+    /// The CPU's view, writable.
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as `bytes`, and `&mut self` makes the view exclusive.
+        unsafe { core::slice::from_raw_parts_mut(self.va as *mut u8, self.len) }
+    }
+}
+
+#[cfg(nexus_env = "os")]
+impl Drop for LazyDmaVmo {
+    fn drop(&mut self) {
+        let _ = vm_unmap(self.va, self.len);
         let _ = vmo_destroy(self.vmo);
     }
 }

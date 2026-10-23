@@ -211,6 +211,12 @@ phase = "bringup"
 emit_when = { profile = "board-headless" }
 proves = "TASK-0215 5c-3 P4b: windowd's first frame drawn on the GPU — the layer set windowd presented, planned by the frame planner the QEMU path draws with and lowered for the board (per glass to blur, the scene below it into the scratch and the two blur passes into its cache rows; then the slot's pass: the wallpaper, each glass drawn back, the shadows, the content), drawn in windowd's own context with windowd's library into the ring's free slot, waited and flipped at the blank; the frame's time, passes, draws, glass written, read and left unblurred, the pixels of the slot's pass (P5: what the slot lacked, not the screen) and the clean of the textures the CPU wrote"
 
+# TASK-0333 6b-2b (ADR-0078): the layout split — beside `gpud: gpu desktop ok (`, once.
+[marker."gpud: layout split ok ("]
+phase = "bringup"
+emit_when = { profile = "board-headless" }
+proves = "TASK-0333 6b-2b (ADR-0078, RFC-0100 §2): windowd's first frame drawn on the GPU from two objects over one row numbering — the scan-out ring the controller flips among (`ring=`, one contiguous block, the only display memory committed up front) and the surface object windowd was granted (`surfaces=`: the wallpaper, the retained plane and the atlas, a lazy object made for the GPU, sized from the machine's RAM), bound sparse in windowd's context and entered page by page as the frame sampled it (`entered=`: the bytes the GPU was told, committed by naming)"
+
 # TASK-0215 5c-4: the gate scene — the stock stack's `glass-quarter` (the base plane and a
 # screen-sized glass blurred at quarter size) drawn by windowd's executor before its first frame;
 # `gpud: FAIL gpu gate scene (` is its FAIL form (the cold frame above the stock's 23.3 ms).

@@ -18,7 +18,7 @@
 //! API_STABILITY: Internal v1 (the frame is a windowd↔gpud contract)
 //! TEST_COVERAGE: the tests below (`test_reject_*` for every refusal)
 
-use crate::layout::{LAYOUT_MAX, RESOURCE_BYTES};
+use crate::layout::{LAYOUT_MAX, PLANE_BYTES, RESOURCE_BYTES};
 
 /// windowd → gpud: "grant me the framebuffer and the mode" (`[op]`, 1 byte). gpud answers on its
 /// response endpoint with a [`FramebufferGrant`] frame and, when the status is OK, a clone of
@@ -29,7 +29,9 @@ pub const OP_FRAMEBUFFER_REQUEST: u8 = 14;
 pub const FRAMEBUFFER_GRANT_LEN: usize = 9;
 
 /// What gpud grants: the visible mode it resolved and the byte length of the framebuffer
-/// object it moves along (the whole shared resource of [`crate::layout`]).
+/// object it moves along — the rows of [`crate::layout`] and, past the fixed layout, more atlas
+/// rows where the display sized its surfaces from the machine's RAM (ADR-0078): whole display
+/// planes, never fewer than the layout's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FramebufferGrant {
     pub status: u8,
@@ -57,8 +59,9 @@ pub fn encode_framebuffer_grant(grant: &FramebufferGrant) -> [u8; FRAMEBUFFER_GR
 
 /// Decode a grant. `None` when the frame is short, and — for an OK status — when the grant is
 /// not one windowd can build on: a zero or oversized mode (above [`LAYOUT_MAX`]: the planes are
-/// laid out for the maximum), or an object smaller than the layout's resource. A refusal
-/// (status not OK) decodes as it is, so the caller can name it.
+/// laid out for the maximum), an object smaller than the layout's resource, or one that is not
+/// whole display planes (the atlas ends on a plane). A refusal (status not OK) decodes as it is,
+/// so the caller can name it.
 #[must_use]
 pub fn decode_framebuffer_grant(frame: &[u8]) -> Option<FramebufferGrant> {
     if frame.len() < FRAMEBUFFER_GRANT_LEN {
@@ -75,7 +78,7 @@ pub fn decode_framebuffer_grant(frame: &[u8]) -> Option<FramebufferGrant> {
         if w == 0 || h == 0 || w > LAYOUT_MAX.0 || h > LAYOUT_MAX.1 {
             return None;
         }
-        if (grant.len as usize) < RESOURCE_BYTES {
+        if (grant.len as usize) < RESOURCE_BYTES || grant.len as usize % PLANE_BYTES != 0 {
             return None;
         }
     }
@@ -163,6 +166,25 @@ mod tests {
         let mut g = ok_grant(1280, 800);
         g.len = RESOURCE_BYTES as u32 - 1;
         assert_eq!(decode_framebuffer_grant(&encode_framebuffer_grant(&g)), None);
+    }
+
+    /// The display sizes its surfaces from the machine (ADR-0078): a grant of more whole planes
+    /// than the layout is one windowd builds a larger atlas on.
+    #[test]
+    fn a_grant_of_more_whole_planes_than_the_layout_decodes() {
+        let mut g = ok_grant(1920, 1080);
+        g.len = (64 * PLANE_BYTES) as u32;
+        assert_eq!(decode_framebuffer_grant(&encode_framebuffer_grant(&g)), Some(g));
+    }
+
+    /// The atlas ends on a plane: a length between two planes is not a grant.
+    #[test]
+    fn test_reject_a_grant_of_partial_planes() {
+        let mut g = ok_grant(1920, 1080);
+        for len in [RESOURCE_BYTES + 4096, RESOURCE_BYTES + PLANE_BYTES - 7680] {
+            g.len = len as u32;
+            assert_eq!(decode_framebuffer_grant(&encode_framebuffer_grant(&g)), None, "{len}");
+        }
     }
 
     #[test]

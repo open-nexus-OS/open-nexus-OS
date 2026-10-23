@@ -1,7 +1,7 @@
 <!-- Copyright 2026 Open Nexus OS Contributors -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# 2026-10-23 — the arena reserved, the splash given back, the atlas counted (TASK-0333 6b-2, Block 4 layer 6)
+# 2026-10-23 — the arena reserved, the splash given back, the atlas counted, the layout split (TASK-0333 6b-2, Block 4 layer 6)
 
 ## Question
 
@@ -120,3 +120,67 @@ is made at its start, its PNG VMO destroyed after each save; the wallpaper swap 
   half. 6b-2b's split is sized from this: the three ring slots contiguous (24.9 MB), the rest
   page-backed and committed by what windowd writes.
 - **H4 confirmed.** No new fault, no app crash, the fleet ready, the chat typed.
+
+## 6b-2b — one pool with the GPU (ADR-0078)
+
+The operator's direction (2026-10-23): no fixed GPU memory, a share of the machine like the
+desktop systems with unified memory, the whole RAM usable. The board's layout block becomes the
+scan-out ring (contiguous, 24.9 MB) and the surface object (lazy, made for the GPU, an eighth of
+RAM in display planes — 64 on the board, 530.8 MB reserved — entered into the GPU's tables row
+range by row range as frames sample it); the GPU's ceiling is two thirds of RAM (2.85 GB).
+
+QEMU (2026-10-23, `headless--2026-10-23T11-59-25`, `visible--2026-10-23T12-06-05`):
+`KSELFTEST: vmo lazy device ok (pages=4 named=3 runs=3 deny=3)`; the virtio display keeps the
+fixed layout (`windowd: atlas rows (peak=800 used=534 of=8640)`); the FAIL kinds of the previous
+visible run, nothing new.
+
+Board cycle 66 — decision lines (baseline cycle 65, `board--2026-10-23T10-29-54`: gpud
+`rss=115585024 dma=107843584`, `free=993609` at the census):
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H1 | the display needs only the ring contiguous | `gpud: layout split ok (ring=24883200 …)`; gpud `dma=24899584` (the ring + the cursor) |
+| H2 | the surfaces cost what is drawn | gpud `rss=` ≈ 50 MB at the census (the ring, the wallpaper, the atlas rows drawn by then, its own 7.8 MB); `free=` ≈ +15 000 frames |
+| H3 | the capacity follows the machine | `gpud: gpu memory (ram=4275466240 ceiling=2850310826 surfaces=530841600 scanout=24883200)`; `windowd: atlas rows (… of=63720)`; `held=` ≈ 580 MB of the ceiling |
+| H4 | nothing regresses | the cycle-65 series (maximize, tiling, a screenshot whose freeze commits the retained plane): no GPU fault, no `FAIL dc present`, no `FAIL gpu memory`, frame times as cycle 65 |
+
+### Board cycle 66 — results (`build/logs/board--2026-10-23T12-22-07`, build `dev-163f`)
+
+The operator's series as cycle 65 with more windows open at once (the atlas reached 5 833 rows);
+`[PASS] board-visible: 78 rungs, 8 operator marker(s), no FAIL marker`, the acks set after the
+operator confirmed each point and its act line was found.
+
+| | Cycle 65 | Cycle 66 |
+|---|---|---|
+| gpud `rss=` / `dma=` at the census | 115 585 024 / 107 843 584 | **49 373 184 / 24 899 584** |
+| gpud `reserved=` (lazy, not yet touched) | 147 456 | 514 260 992 (the surfaces not drawn) |
+| `free=` at the census | 993 609 | **1 006 774** (+13 165 frames, +51.4 MiB) |
+| system `committed=` / `rss_sum=` / `dma_bytes=` | 177.7 / 146.6 / 107.9 MB | 121.7 / 88.3 / 25.0 MB |
+| `gpud: gpu memory (…)` | — | `ram=4275462144 ceiling=2850308096 surfaces=530841600 scanout=24883200` |
+| `gpud: layout split ok (…)` | — | `ring=24883200 surfaces=530841600 entered=8294400 held=586657792 ceiling=2850308096` (the first frame: the wallpaper alone) |
+| `windowd: atlas rows (…)` | `of=8640`, peak 3 676 | **`of=63720`**, peak 5 833 |
+| GPU faults | the boot rung's known `context lost` | the same, nothing in the session |
+| a steady frame (5–6 draws, ~0.9 MP) | 10.5–11.8 ms, `clean=` 2.2–3.1 ms | 10.6–11.7 ms, `clean=` 2.5–2.9 ms |
+| the heaviest window | 114 draws, 7.2 passes, 34.1 ms | 189 draws, 7.4 passes, 74.7 ms (`clean=` up to 10 ms) |
+
+### Verdict (6b-2b)
+
+- **H1 confirmed.** The display's memory committed up front is the ring: gpud `dma=24899584`
+  (the ring and the cursor), from 107.8 MB.
+- **H2 confirmed.** gpud holds what is drawn: 49.4 MB resident at the census (the ring, the
+  wallpaper, the atlas rows drawn by then — 16.6 MB of the surfaces — and its own); 13 165 frames
+  more free (the census came later in the boot than cycle 65's, with more drawn: the estimate
+  was ≈ 15 000).
+- **H3 confirmed.** The ceiling is two thirds of the RAM read at boot; the surfaces 64 planes;
+  windowd's atlas 63 720 rows; the GPU held 586.7 MB against 2.85 GB.
+- **H4 — the split regresses nothing it touches; one finding beside it.** No GPU fault, no
+  `FAIL dc present`, no `FAIL gpu memory`; a steady frame costs what it did. The heavier windows
+  carried more windows (189 draws). A band's first entry (its pages named, entered, and faulted
+  into gpud's CPU view for the clean) lands in `clean=` and is not measured apart — 6b-3's P0
+  splits it out. **Finding:** imed stopped draining after a focus change (line 2521: `WINDOWD:
+  FAIL imed relay send` ×33, `inputd: imed send FAIL` ×22, no `apphost: text commit applied`) —
+  typed text reached no field. imed blocks in a clock-less call per focus change (the
+  `ime.personalization` read from settingsd, the store's flush to statefsd); both services lived
+  on. The split touches neither path; the first such stall in fourteen cycles (two transient
+  refusals on 2026-10-22). Routed to layer 8's closing with the input lane's other finding (typed
+  text shown only after a select-all), the operator's call.

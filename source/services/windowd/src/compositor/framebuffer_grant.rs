@@ -16,10 +16,15 @@
 
 use nexus_abi::Handle;
 
+use crate::atlas::rows_of_object as atlas_rows_of;
+
 /// What windowd starts from: the visible mode and, when gpud granted one, the framebuffer.
 pub(crate) struct Grant {
     pub(crate) mode: (u32, u32),
     pub(crate) framebuffer: Option<Handle>,
+    /// The atlas's rows in the granted object: from the layout's atlas row to the object's end
+    /// (ADR-0078: the board sizes its surfaces from the machine's RAM).
+    pub(crate) atlas_rows: u32,
 }
 
 /// Asks gpud for the framebuffer and the mode (once, at start).
@@ -45,7 +50,7 @@ pub(crate) fn request() -> Grant {
                 mode.0,
                 mode.1
             ));
-            Grant { mode, framebuffer: Some(framebuffer) }
+            Grant { mode, framebuffer: Some(framebuffer), atlas_rows: atlas_rows_of(grant.len) }
         }
         (grant, moved) => {
             if let Some(slot) = moved {
@@ -57,15 +62,17 @@ pub(crate) fn request() -> Grant {
     }
 }
 
-/// Host builds have no gpud: the layout maximum, no framebuffer.
+/// Host builds have no gpud: the layout maximum, no framebuffer, the fixed atlas.
 #[cfg(not(nexus_env = "os"))]
 pub(crate) fn request() -> Grant {
-    Grant { mode: nexus_display_proto::LAYOUT_MAX, framebuffer: None }
+    let atlas_rows = atlas_rows_of(nexus_display_proto::layout::RESOURCE_BYTES as u32);
+    Grant { mode: nexus_display_proto::LAYOUT_MAX, framebuffer: None, atlas_rows }
 }
 
 /// No display: named once, the layout maximum as the compositor's space, no framebuffer.
 #[cfg(nexus_env = "os")]
 fn display_none(why: &str) -> Grant {
     let _ = nexus_abi::debug_println(&alloc::format!("windowd: display none ({why})"));
-    Grant { mode: nexus_display_proto::LAYOUT_MAX, framebuffer: None }
+    let atlas_rows = atlas_rows_of(nexus_display_proto::layout::RESOURCE_BYTES as u32);
+    Grant { mode: nexus_display_proto::LAYOUT_MAX, framebuffer: None, atlas_rows }
 }

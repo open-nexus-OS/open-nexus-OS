@@ -24,8 +24,14 @@ pub(crate) mod gpu;
 /// A client's GPU context over IPC (TASK-0215 5c-3 P3, RFC-0101 §7b): the capabilities, the
 /// open for windowd alone, the library's VMO checked and mapped read-only; host-tested gates.
 pub(crate) mod gpu_context;
+/// ADR-0078: the GPU's share of the one pool (the ceiling, the surfaces' reservation, from RAM)
+/// and the surface pages the GPU has been told — pure, host-tested.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod gpu_share;
 pub mod markers;
 pub mod protocol;
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod surface_pages;
 
 /// Virgl 3D command-stream encoders (Phase 2). Compiled for the `virgl`
 /// feature build and for host unit tests; excluded from the 2D-only build so

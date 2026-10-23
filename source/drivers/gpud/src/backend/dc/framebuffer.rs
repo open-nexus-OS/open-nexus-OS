@@ -4,12 +4,14 @@
 //! The scanout memory on the board: blocks made for the display controller — ONE contiguous run
 //! each (it reads a base and a stride, never a list), so they lie inside the controller's reach
 //! and the kernel names their bus address (RFC-0098 C4). Two kinds: the boot splash (one plane
-//! of the mode, rows packed) the controller scans until the reveal, and windowd's framebuffer —
-//! the whole shared layout (`nexus_display_proto::layout`: the planes and the atlas windowd
-//! composes with), whose display plane the controller scans from the reveal on. The controller
-//! does not snoop the caches: what the CPU wrote is cleaned out before the controller reads it
-//! (Zicbom, the block size the controller's capability carries) — the splash, the whole plane
-//! before a switch; and what the GPU drew is dropped before the CPU reads it (a readback).
+//! of the mode, rows packed) the controller scans until the reveal, and the scan-out ring — the
+//! three slots of `nexus_display_proto::layout::RING_ROWS` the GPU draws windowd's frames into
+//! and the controller flips among from the reveal on, addressed by their layout rows. The ring is
+//! the only memory of the display committed up front; the wallpaper, the retained plane and the
+//! atlas are the surface object's (`surfaces.rs`, ADR-0078). The controller does not snoop the
+//! caches: what the CPU wrote is cleaned out before the controller reads it (Zicbom, the block
+//! size the controller's capability carries) — the splash, the whole plane before a switch; and
+//! what the GPU drew is dropped before the CPU reads it (a readback).
 
 use nexus_abi::{DmaCoherence, DmaVmo};
 use nexus_display_proto::layout;
@@ -46,23 +48,43 @@ pub(super) struct Framebuffer {
     /// Where the scanned plane starts in the block, and its row stride.
     plane_start: usize,
     stride: u32,
+    /// The layout row the block's first byte holds: the ring's first slot for the scan-out
+    /// ring, 0 for the splash (a plane of its own).
+    first_row: u32,
 }
 
 impl Framebuffer {
-    /// windowd's framebuffer: the whole layout; the controller scans its display plane.
-    pub(super) fn layout() -> Result<Self, FramebufferError> {
-        let start = layout::row_offset_bytes(layout::DISPLAY_ROW);
-        Self::make(layout::RESOURCE_BYTES, start, layout::STRIDE_BYTES)
+    /// The scan-out ring (ADR-0078): the three slots the controller flips among, one block from
+    /// layout row `RING_ROWS[0]`.
+    pub(super) fn scanout() -> Result<Self, FramebufferError> {
+        let len = layout::RING_ROWS.len() * layout::PLANE_BYTES;
+        Self::make(len, 0, layout::STRIDE_BYTES, layout::RING_ROWS[0])
     }
 
     /// The boot splash: one `width`x`height` plane, rows packed.
     pub(super) fn splash(width: u16, height: u16) -> Result<Self, FramebufferError> {
         let stride = u32::from(width) * layout::BYTES_PER_PIXEL;
-        Self::make(stride as usize * usize::from(height), 0, stride)
+        Self::make(stride as usize * usize::from(height), 0, stride, 0)
+    }
+
+    /// Bytes of the block.
+    pub(super) fn len(&self) -> usize {
+        self.mem.len()
+    }
+
+    /// Where layout row `row` lies in the block (the ring's rows; a row before the block's first
+    /// is its first).
+    fn at(&self, row: u32) -> usize {
+        layout::row_offset_bytes(row.saturating_sub(self.first_row))
     }
 
     /// Made for the controller (zeroed by the kernel).
-    fn make(len: usize, plane_start: usize, stride: u32) -> Result<Self, FramebufferError> {
+    fn make(
+        len: usize,
+        plane_start: usize,
+        stride: u32,
+        first_row: u32,
+    ) -> Result<Self, FramebufferError> {
         let device = topo::DISPLAY_CONTROLLER;
         let coherence =
             nexus_abi::device_dma_coherence(device).map_err(|_| FramebufferError::Make)?;
@@ -73,12 +95,7 @@ impl Framebuffer {
         if mem.runs().len() != 1 {
             return Err(FramebufferError::Runs(mem.runs().len()));
         }
-        Ok(Framebuffer { mem, coherence, plane_start, stride })
-    }
-
-    /// The block's VMO (what the grant clones for windowd).
-    pub(super) fn handle(&self) -> u32 {
-        self.mem.handle()
+        Ok(Framebuffer { mem, coherence, plane_start, stride, first_row })
     }
 
     /// The scanned plane at `width`x`height`: the bus address the controller reads its first
@@ -94,27 +111,17 @@ impl Framebuffer {
 
     /// The plane that starts at layout row `row` (a slot of the ring, RFC-0101 §8).
     pub(super) fn plane_at(&self, row: u32, width: u16, height: u16) -> Plane {
-        Plane {
-            bus_addr: self.mem.runs()[0].bus + layout::row_offset_bytes(row) as u64,
-            stride: self.stride,
-            width,
-            height,
-        }
+        Plane { bus_addr: self.plane_bus(row), stride: self.stride, width, height }
     }
 
     /// The bus address of the plane at layout row `row` (RFC-0101 §8c: the GPU's target).
     pub(super) fn plane_bus(&self, row: u32) -> u64 {
-        self.mem.runs()[0].bus + layout::row_offset_bytes(row) as u64
+        self.mem.runs()[0].bus + self.at(row) as u64
     }
 
-    /// The block's bus address: the layout's first byte, as the GPU adopts it (5c-3 P4b).
+    /// The block's bus address: its first slot, as the GPU adopts the ring (5c-3 P4b).
     pub(super) fn bus(&self) -> u64 {
         self.mem.runs()[0].bus
-    }
-
-    /// The whole block as the CPU sees it: the cache maintenance around a GPU frame.
-    pub(super) fn bytes(&self) -> &[u8] {
-        self.mem.bytes()
     }
 
     /// The plane at layout row `row` written back and dropped from the caches: before the GPU
@@ -123,16 +130,21 @@ impl Framebuffer {
         let DmaCoherence::Maintained { block } = self.coherence else {
             return;
         };
-        let start = layout::row_offset_bytes(row);
-        if let Some(plane) = self.mem.bytes().get(start..start + layout::PLANE_BYTES) {
+        if let Some(plane) = self.plane_bytes(row) {
             nexus_abi::cache_flush(plane, block);
         }
+    }
+
+    /// The bytes of one plane at layout row `row`: the frame a freeze keeps.
+    pub(super) fn plane_bytes(&self, row: u32) -> Option<&[u8]> {
+        let start = self.at(row);
+        self.mem.bytes().get(start..start + layout::PLANE_BYTES)
     }
 
     /// The bytes of one plane at layout row `row`, for the cache maintenance and the readback
     /// around a GPU job.
     pub(super) fn plane_bytes_mut(&mut self, row: u32) -> Option<&mut [u8]> {
-        let start = layout::row_offset_bytes(row);
+        let start = self.at(row);
         self.mem.bytes_mut().get_mut(start..start + layout::PLANE_BYTES)
     }
 
@@ -149,7 +161,7 @@ impl Framebuffer {
         let DmaCoherence::Maintained { block } = self.coherence else {
             return;
         };
-        let Some(bytes) = self.mem.bytes().get(layout::row_offset_bytes(row)..) else {
+        let Some(bytes) = self.mem.bytes().get(self.at(row)..) else {
             return;
         };
         for span in damage_spans(plane, damage.x, damage.y, damage.width, damage.height) {
@@ -164,39 +176,31 @@ impl Framebuffer {
         &mut self.mem.bytes_mut()[self.plane_start..]
     }
 
-    /// `OP_READBACK` (RFC-0095): `req` of the `w`x`h` display plane into the caller's VMO, rows
-    /// tight; with `READBACK_FREEZE` the display plane also becomes the retained plane (the base
-    /// layer). Only the layout block has a retained plane — the splash refuses.
+    /// `OP_READBACK` (RFC-0095): `req` of the `w`x`h` plane on screen (the ring's slot at layout
+    /// row `front_row`) into the caller's VMO, rows tight. Only the scan-out ring holds a frame
+    /// to read — the splash refuses; a freeze's copy into the retained plane is the surface
+    /// object's (`Surfaces::freeze`).
     pub(super) fn readback(
-        &mut self,
+        &self,
         dest: u32,
         req: &nexus_display_proto::readback::Readback,
         w: u32,
         h: u32,
         front_row: u32,
     ) -> u8 {
-        use crate::readback::{copy_plane, copy_rect_out, with_destination};
+        use crate::readback::{copy_rect_out, with_destination};
         use nexus_display_proto::{STATUS_DEVICE_ERROR, STATUS_MALFORMED, STATUS_OK};
-        let display = layout::row_offset_bytes(front_row);
-        if self.plane_start != layout::row_offset_bytes(layout::DISPLAY_ROW) {
+        if self.first_row != layout::RING_ROWS[0] {
             return STATUS_DEVICE_ERROR;
         }
         let stride = self.stride as usize;
-        let copied = {
-            let Some(plane) = self.mem.bytes().get(display..) else {
-                return STATUS_DEVICE_ERROR;
-            };
-            with_destination(dest, req.bytes(), |dst| copy_rect_out(plane, stride, w, h, req, dst))
+        let Some(plane) = self.plane_bytes(front_row) else {
+            return STATUS_DEVICE_ERROR;
         };
+        let copied =
+            with_destination(dest, req.bytes(), |dst| copy_rect_out(plane, stride, w, h, req, dst));
         if !matches!(copied, Some(Ok(()))) {
             return STATUS_MALFORMED;
-        }
-        if req.flags & nexus_display_proto::readback::READBACK_FREEZE != 0 {
-            let retained = layout::row_offset_bytes(layout::RETAINED_ROW);
-            let bytes = self.mem.bytes_mut();
-            if copy_plane(bytes, display, retained, stride, w as usize * 4, h as usize).is_err() {
-                return STATUS_DEVICE_ERROR;
-            }
         }
         STATUS_OK
     }

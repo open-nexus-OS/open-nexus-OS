@@ -13,7 +13,8 @@
 //! STATUS: Functional (TASK-0333 6b-1)
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: unit tests below — the verdict table (every right, a valid PTE, an eager
-//!   region's hole, no region) and the frame table (a page committed once, counts, bounds)
+//!   region's hole, no region), the frame table (a page committed once, counts, bounds), and
+//!   what a device is told of a lazy range (the naming bound, the runs merged — 6b-2b, ADR-0078)
 //! INVARIANTS: a page is committed only inside a region that grants the access; a lazy page is
 //!   never executable; a page has at most one frame; a frame number fits the table's word.
 
@@ -107,6 +108,32 @@ pub fn classify(region: Option<RegionView>, pte: Option<Rights>, access: Access)
 #[must_use]
 pub fn page_index(region_va: usize, offset: usize, va: usize) -> usize {
     (offset + (va & !(PAGE - 1)) - region_va) / PAGE
+}
+
+/// Pages of a lazy object one `vmo_runs` may name (ADR-0078): naming commits — a device cannot
+/// fault — and the commits run under the kernel lock, so one call commits a bounded number.
+pub const MAX_NAMED_PAGES: usize = 64;
+
+/// Whether `[offset, offset + len)` of a lazy object may be named to a device in one call: not
+/// empty, and spanning at most [`MAX_NAMED_PAGES`] pages.
+#[must_use]
+pub fn nameable(offset: usize, len: usize) -> bool {
+    let Some(end) = offset.checked_add(len) else { return false };
+    len != 0 && end.div_ceil(PAGE) - offset / PAGE <= MAX_NAMED_PAGES
+}
+
+/// Pieces `(pa, len)` in range order merged where one ends at the next's start: what a device is
+/// told of a lazy range — as few runs as its frames allow.
+#[must_use]
+pub fn merge_runs(pieces: impl IntoIterator<Item = (usize, usize)>) -> Vec<(usize, usize)> {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for (pa, len) in pieces {
+        match runs.last_mut() {
+            Some(last) if last.0.checked_add(last.1) == Some(pa) => last.1 += len,
+            _ => runs.push((pa, len)),
+        }
+    }
+    runs
 }
 
 /// A page's frame number in the table: `NONE` = not committed.
@@ -284,5 +311,32 @@ mod tests {
         assert_eq!(pages.commit(0, 0x8000_0010), Err(CommitError::OutOfRange), "unaligned");
         assert_eq!(pages.commit(0, 1 << 46), Err(CommitError::OutOfRange), "beyond 16 TiB");
         assert_eq!(pages.committed(), 0);
+    }
+
+    /// A device is told a lazy range as few runs as its frames allow: pages whose frames meet are
+    /// one run, a gap starts the next — a partial first and last page included.
+    #[test]
+    fn named_pages_merge_into_runs_where_their_frames_meet() {
+        let pieces = [
+            (0x8000_0f00, PAGE - 0xf00),
+            (0x8000_1000, PAGE),
+            (0x9000_0000, PAGE),
+            (0x9000_1000, 0x10),
+        ];
+        assert_eq!(merge_runs(pieces), [(0x8000_0f00, PAGE + 0x100), (0x9000_0000, PAGE + 0x10)]);
+        assert!(merge_runs([]).is_empty());
+        assert_eq!(merge_runs([(0x8000_0000, PAGE)]), [(0x8000_0000, PAGE)]);
+    }
+
+    /// Naming commits under the kernel lock: one call names at most `MAX_NAMED_PAGES` pages,
+    /// counted as the pages the range spans, and never an empty or overflowing range.
+    #[test]
+    fn test_reject_naming_more_pages_at_once_than_the_bound() {
+        assert!(nameable(0, MAX_NAMED_PAGES * PAGE));
+        assert!(nameable(5 * PAGE + 17, 100), "an inner byte range spans one page");
+        assert!(!nameable(0, MAX_NAMED_PAGES * PAGE + 1));
+        assert!(!nameable(PAGE - 1, (MAX_NAMED_PAGES - 1) * PAGE + 2), "65 pages spanned");
+        assert!(!nameable(PAGE, 0));
+        assert!(!nameable(usize::MAX - 1, 2));
     }
 }

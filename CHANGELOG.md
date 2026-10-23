@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-23 (GPU memory comes from the one pool, its share a fraction of RAM — TASK-0333 6b-2b, ADR-0078)
+
+- **No memory is set aside for the GPU.** The board's display kept a 107.8 MB block for its whole
+  life; now only the three planes the display scans are made up front (24.9 MB). The wallpaper,
+  the retained plane and the window surfaces are one object made for the GPU whose pages are
+  committed when they are drawn or first read by the GPU.
+- **The GPU's share follows the machine.** gpud reads the RAM at boot: the GPU may hold up to two
+  thirds of it, and the window surfaces may reserve an eighth — 64 display planes on the 4 GiB
+  board instead of a fixed 13, so far more windows fit, at no cost until they are drawn.
+- **A device is told only committed pages.** A lazy object can be made for a device (its pages
+  come from inside the device's reach), and naming a range of it to the device commits that range
+  first, at most 64 pages a call (`KSELFTEST: vmo lazy device ok (…)` on every boot).
+- windowd's atlas grows to the object it is granted; the grant refuses a length that is not whole
+  display planes.
+
 ### Changed - 2026-10-23 (the app arena holds the largest frame, the board's splash comes back — TASK-0333 6b-2a)
 
 - **An app's frame arena fits its largest frame.** The arena is reserved at 4 MiB (halves of

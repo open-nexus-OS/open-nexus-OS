@@ -83,8 +83,9 @@ impl DeviceCapCreateArgsTyped {
 
 /// `vmo_create` arg 2: the object must be one physically contiguous block.
 pub const VMO_CREATE_CONTIGUOUS: usize = 1;
-/// `vmo_create` arg 2: the object's pages are committed on first touch (ADR-0077). Never with
-/// `VMO_CREATE_CONTIGUOUS` (a controller cannot fault), and for no device yet (6b-2).
+/// `vmo_create` arg 2: the object's pages are committed on first touch (ADR-0077) — for a device,
+/// from inside its reach, and a range named to it (`vmo_runs`) is committed first (ADR-0078).
+/// Never with `VMO_CREATE_CONTIGUOUS` (a controller reading one base cannot fault).
 pub const VMO_CREATE_LAZY: usize = 2;
 /// `vmo_create` arg 3: the object is for no device.
 pub const VMO_CREATE_NO_DEVICE: usize = usize::MAX;
@@ -119,10 +120,10 @@ impl VmoCreateArgsTyped {
         // Deny-by-default on the flag word; and a contiguous object is a DMA
         // master's one base — without its device the kernel cannot know where
         // the block must lie. A lazy object is never contiguous (a controller
-        // cannot fault) and, until the layout split (6b-2), for no device.
+        // cannot fault); for a device it commits inside the device's reach.
         if self.flags & !(VMO_CREATE_CONTIGUOUS | VMO_CREATE_LAZY) != 0
             || (self.contiguous() && self.device_slot == VMO_CREATE_NO_DEVICE)
-            || (self.lazy() && (self.contiguous() || self.device_slot != VMO_CREATE_NO_DEVICE))
+            || (self.lazy() && self.contiguous())
         {
             return Err(AddressSpaceError::InvalidArgs.into());
         }

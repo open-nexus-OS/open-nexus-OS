@@ -87,6 +87,8 @@ ladder_headless=(
   # child's death is one frame into the endpoint its parent bound — on four harts too.
   "KSELFTEST: task exit releases ok ("
   "KSELFTEST: child exit notify ok ("
+  # TASK-0333 6b-2b (ADR-0078): a lazy object made for a device commits what it is told, in reach.
+  "KSELFTEST: vmo lazy device ok ("
   "KSELFTEST: spawn ok pid="
   "init: ready"
   "blkd: backend ok (kind="
@@ -171,6 +173,9 @@ ladder_headless=(
   # the board's display has no other drawing path (5d deleted the CPU composite: a present the
   # GPU does not draw is `gpud: FAIL dc present (`, never tolerated).
   "gpud: gpu desktop ok ("
+  # TASK-0333 6b-2b (ADR-0078): that frame drawn from the split layout — the ring its own
+  # contiguous object, the surfaces a lazy object entered page by page as the GPU sampled it.
+  "gpud: layout split ok ("
   # TASK-0215 5c-4, 5d: the stock stack's gate scene (the wallpaper and a screen-sized glass at
   # quarter size) and a hover frame over the cached glass, drawn by windowd's executor — a
   # measurement until it meets the stock's 23.3 ms and 8.3 ms (`gpud: gpu gate scene ok (`; its

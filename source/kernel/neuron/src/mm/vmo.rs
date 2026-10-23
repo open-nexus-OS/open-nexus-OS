@@ -6,8 +6,10 @@
 //! largest blocks that fit (greedy, so a 2 MiB-aligned run stays a superpage
 //! when mapped), `Contiguous` takes ONE block — for a DMA master that needs one
 //! base (a virtqueue). An object made for a device comes from inside that
-//! device's DMA reach (`devices`, TASK-0246 P1); its physical runs leave the
-//! kernel only through `vmo_runs`, in the asking device's bus addresses. `Fixed`
+//! device's DMA reach (`devices`, TASK-0246 P1) — a lazy one commits each page
+//! there (ADR-0078); its physical runs leave the kernel only through
+//! `vmo_runs`, in the asking device's bus addresses, and naming a lazy range
+//! commits it (`named_runs`: a device cannot fault). `Fixed`
 //! wraps frames that never came from the pool (the tree, a kernel data page)
 //! and are never returned. Capabilities carry the id (`Vmo { id, len }`,
 //! `VmoRo { id, len }`); this table is the ONE owner of the frames behind them
@@ -65,9 +67,33 @@ pub enum VmoError {
     TableFull,
     /// No live object has this id.
     NoSuchObject,
-    /// Not supported for this object yet: a lazy object for a device (its frames inside the
-    /// device's reach) arrives with the layout split (TASK-0333 6b-2).
-    Unsupported,
+}
+
+/// The CPU ranges a lazy object made for a device takes its frames from (ADR-0078): its
+/// device's reach, kept with the object because its pages are committed long after the create.
+#[derive(Clone, Copy)]
+struct Within {
+    ranges: [(u64, u64); MAX_DMA_WINDOWS],
+    n: usize,
+}
+
+impl Within {
+    /// `reach` as ranges, or `None` when it reaches every frame.
+    fn of(reach: &DmaReach) -> Option<Self> {
+        if reach.is_all() {
+            return None;
+        }
+        let mut within = Self { ranges: [(0, 0); MAX_DMA_WINDOWS], n: 0 };
+        for range in reach.cpu_ranges().take(MAX_DMA_WINDOWS) {
+            within.ranges[within.n] = range;
+            within.n += 1;
+        }
+        Some(within)
+    }
+
+    fn ranges(&self) -> &[(u64, u64)] {
+        &self.ranges[..self.n]
+    }
 }
 
 /// One object.
@@ -78,6 +104,8 @@ pub struct VmoObject {
     fixed: (usize, usize),
     /// A lazy object's frames, one entry per page; `None` for every other kind.
     lazy: Option<LazyPages>,
+    /// Where a lazy object made for a device commits its pages; `None`: anywhere.
+    within: Option<Within>,
 }
 
 impl VmoObject {
@@ -178,12 +206,12 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         return Err(VmoError::BadLength);
     }
     if kind == VmoKind::Lazy {
-        // No frame now: each page takes one when it is first touched (`commit`).
-        if !reach.is_all() {
-            return Err(VmoError::Unsupported);
-        }
+        // No frame now: each page takes one when it is first touched (`commit`) — from inside
+        // the device's reach when the object is made for one (ADR-0078).
         let pages = Some(LazyPages::new(len / PAGE));
-        let object = VmoObject { kind, len, blocks: Vec::new(), fixed: (0, 0), lazy: pages };
+        let within = Within::of(reach);
+        let object =
+            VmoObject { kind, len, blocks: Vec::new(), fixed: (0, 0), lazy: pages, within };
         return TABLE.lock().insert(object);
     }
     let mut windows = [(0u64, 0u64); MAX_DMA_WINDOWS];
@@ -225,6 +253,7 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         blocks: blocks.clone(),
         fixed: (0, 0),
         lazy: None,
+        within: None,
     });
     if result.is_err() {
         // The table is full: the frames go back before the error leaves.
@@ -238,8 +267,14 @@ pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
     if len == 0 || len % FRAME_SIZE as usize != 0 || base % FRAME_SIZE as usize != 0 {
         return Err(VmoError::BadLength);
     }
-    let object =
-        VmoObject { kind: VmoKind::Fixed, len, blocks: Vec::new(), fixed: (base, len), lazy: None };
+    let object = VmoObject {
+        kind: VmoKind::Fixed,
+        len,
+        blocks: Vec::new(),
+        fixed: (base, len),
+        lazy: None,
+        within: None,
+    };
     TABLE.lock().insert(object)
 }
 
@@ -281,16 +316,22 @@ pub fn is_lazy(id: VmoId) -> bool {
 /// another hart committed meanwhile wins and the frame taken here goes back. Answers the page's
 /// physical address; an eager object answers its translation.
 pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
-    let existing = with(id, |o| match &o.lazy {
-        Some(pages) if index < pages.pages() => Ok(pages.frame(index).map(|pa| pa as usize)),
+    let (existing, within) = with(id, |o| match &o.lazy {
+        Some(pages) if index < pages.pages() => {
+            Ok((pages.frame(index).map(|pa| pa as usize), o.within))
+        }
         Some(_) => Err(VmoError::BadLength),
-        None => o.translate(index * PAGE).map(Some).ok_or(VmoError::BadLength),
+        None => o.translate(index * PAGE).map(|pa| (Some(pa), None)).ok_or(VmoError::BadLength),
     })
     .ok_or(VmoError::NoSuchObject)??;
     if let Some(pa) = existing {
         return Ok(pa);
     }
-    let block = frame_pool::alloc(0).map_err(|_| VmoError::Exhausted)?;
+    let block = match within {
+        None => frame_pool::alloc(0),
+        Some(within) => frame_pool::alloc_within(0, within.ranges()),
+    }
+    .map_err(|_| VmoError::Exhausted)?;
     // SAFETY: a frame just taken from the pool, reachable by nobody else until it is entered.
     unsafe {
         core::ptr::write_bytes(crate::phys::phys_to_virt(block.base as usize) as *mut u8, 0, PAGE);
@@ -354,6 +395,17 @@ pub fn span(
         at += piece;
     }
     Ok(out)
+}
+
+/// `[offset, offset + len)` of a lazy object as a device is told it (RFC-0100 §2, ADR-0078):
+/// every page committed first — a device cannot fault — then the pieces merged into runs, in
+/// range order. At most `MAX_NAMED_PAGES` pages at once: the commits run under the kernel lock.
+pub fn named_runs(id: VmoId, offset: usize, len: usize) -> Result<Vec<(usize, usize)>, VmoError> {
+    if !crate::lazy::nameable(offset, len) {
+        return Err(VmoError::BadLength);
+    }
+    let pieces = span(id, offset, len, true)?;
+    Ok(crate::lazy::merge_runs(pieces.into_iter().filter_map(|(pa, len)| Some((pa?, len)))))
 }
 
 /// The physical address of byte `offset`, or `None` past the end.

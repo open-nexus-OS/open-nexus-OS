@@ -116,11 +116,18 @@ pub const VMO_CREATE_LAZY: usize = 2;
 
 /// ADR-0077 (TASK-0333 6b-1): an object whose pages are committed on first touch — no frame at
 /// create; a page takes one zeroed frame the first time a mapping, a `vmo_write` or the kernel
-/// touches it, and a reserved range costs nothing until then. For no device (a device's lazy
-/// object arrives with the layout split, 6b-2).
+/// touches it, and a reserved range costs nothing until then. For no device.
 #[cfg(nexus_env = "os")]
 pub fn vmo_create_lazy(len: usize) -> Result<Handle> {
     vmo_create_kind(len, VMO_CREATE_LAZY, VMO_NO_DEVICE)
+}
+
+/// ADR-0078 (TASK-0333 6b-2b): a lazy object FOR the device behind `device` — each page committed
+/// inside that device's DMA reach when first touched, or when the device is told it: a device
+/// cannot fault, so [`vmo_runs`] commits the range it names first (at most 64 pages a call).
+#[cfg(nexus_env = "os")]
+pub fn vmo_create_for_lazy(device: Cap, len: usize) -> Result<Handle> {
+    vmo_create_kind(len, VMO_CREATE_LAZY, device as usize)
 }
 
 #[cfg(nexus_env = "os")]

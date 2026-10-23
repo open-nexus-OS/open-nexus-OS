@@ -38,13 +38,16 @@ pub(crate) trait GpuService {
     }
 }
 
-/// What the display lends a frame drawn on the GPU: the shared layout (its bus address, its CPU
-/// view, the cache block that cleans it), the ring slot to draw, the display's size, the plane
-/// the scene starts from (the wallpaper plane; the retained plane while a capture freeze holds
-/// the frame) and whether the CPU wrote it since the last frame.
+/// What the display lends a frame drawn on the GPU (ADR-0078: two objects over the layout's one
+/// row numbering): the scan-out ring's bus address (its first slot, layout row `RING_ROWS[0]`);
+/// the surface object — its handle for the GPU's sparse binding, its CPU view by layout row and
+/// the cache block that cleans it for the GPU; the ring slot to draw, the display's size, the
+/// plane the scene starts from (the wallpaper plane; the retained plane while a capture freeze
+/// holds the frame) and whether the CPU wrote it since the last frame.
 #[cfg(all(feature = "os-lite", target_os = "none"))]
 pub(crate) struct FrameTarget<'a> {
-    pub layout_bus: u64,
+    pub ring_bus: u64,
+    pub surfaces: u32,
     pub layout: &'a [u8],
     pub block: usize,
     pub slot_row: u32,

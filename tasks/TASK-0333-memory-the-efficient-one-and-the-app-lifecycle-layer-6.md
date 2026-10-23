@@ -1,6 +1,6 @@
 ---
 title: TASK-0333 Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap
-status: In Progress (6a ✅ 2026-10-20, 6b-1 ✅ 2026-10-23, 6b-2a ✅ 2026-10-23; planned 2026-10-19 with the operator)
+status: In Progress (6a ✅ 2026-10-20, 6b-1 ✅ 2026-10-23, 6b-2a ✅ 2026-10-23, 6b-2b ✅ 2026-10-23; planned 2026-10-19 with the operator)
 owner: @kernel-team @runtime @ui @gpu
 created: 2026-10-19
 depends-on: [TASK-0286 (M1: frames from the FDT, page-backed VMOs), TASK-0215 (layer 5: the desktop on the GPU)]
@@ -384,6 +384,78 @@ reached 3 676 of 8 640 rows (`used=` at most 2 907): a lazy atlas ≈ 28.2 MB co
 6b-3: one object replaced by a larger one (+5 345 280 B, count unchanged) across the session with
 the clipboard restore, a tile, light mode and the screenshot, flat afterwards — owner unnamed until
 6b-3's per-service lines.
+
+**6b-2b — one pool with the GPU (ADR-0078; the operator 2026-10-23: no fixed GPU memory, a share
+of the machine like the desktop systems with unified memory, the whole RAM usable).** The board's
+layout block becomes two objects over one row numbering: the scan-out ring (contiguous, inside the
+display controller's reach) and the surfaces — wallpaper, retained plane, atlas — one lazy object
+made for the GPU, bound sparse into windowd's GPU context and entered page by page when a frame
+first samples it. The GPU's ceiling and the surfaces' reservation are fractions of the RAM read at
+boot.
+
+**6b-2b — three lenses.**
+- **Scope** — kernel: `mm/vmo.rs` (a lazy object made for a device takes its frames from the
+  device's reach), `syscall/api/vmo.rs` (the flag rule), `syscall/api/vmo_runs.rs` (naming a lazy
+  range commits it), `selftest/vmo_runs.rs`; `nexus-abi` (`vmo_create_for_lazy`, a lazy `DmaVmo`);
+  `nexus-display-proto` (the grant: whole planes); gpud: `budget.rs` (the ceiling and the
+  reservation from RAM, pure), `backend/gpu/surface.rs` (the sparse binding, the pages a rectangle
+  touches — pure parts host-tested), `bos.rs` + `device_v2.rs` (a buffer over the lazy object,
+  bind without entering, enter a range), `desktop*.rs` (the ring and the surfaces bound apart),
+  `backend/dc/*` (the ring its own object; the surface object, its size from the budget),
+  `framebuffer_grant.rs` (the grant's length); windowd: `atlas.rs` + the grant (the atlas's rows
+  from the granted length). **Out:** QEMU's per-band attach (6f), purge and decommit (6e), GPU memory
+  charged to its client (6e, M4), app surfaces of their own (layer 8, G5), a two-level lazy table,
+  the GPU page-table pool sized from the ceiling.
+- **Invariant** — a device is never told a page that is not committed, and a lazy object's frames
+  lie inside its device's reach (`KSELFTEST: vmo lazy device ok (…)`; `test_reject_naming_past_the_object`);
+  no draw samples an unentered GPU page — the pages entered come from the descriptor the GPU reads
+  (`every_texel_a_descriptor_reads_lies_in_an_entered_page`); the scan-out ring stays one
+  contiguous block; a GPU buffer past the ceiling is refused (`test_reject_a_buffer_past_the_ceiling`);
+  windowd builds only on a grant of whole planes, at least the layout
+  (`test_reject_a_grant_of_partial_planes`).
+- **Contract** — ADR-0078; RFC-0100 §2 ("One pool with the GPU"); the grant's length (no new wire).
+
+**6b-2b P0 (from cycle 65, `docs/board/measurements/2026-10-23-layout-split/`):** gpud
+`rss=115585024 dma=107843584` — the layout block 107 827 200 B eager + the cursor; the atlas drawn
+to row 3 676 of 8 640 in a full series; gpud's own GPU buffers (scratch 8.3 MB, half 4.6 MB, glass
+cache 7.9 MB) are page-backed and counted in no space's RSS; the GPU's page-table pool had 957 of
+1 024 pages free before the desktop opened. Decision lines for the cycle after the build:
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H1 | the display needs only the ring contiguous | `gpud: layout split ok (ring=24883200 …)`; gpud `dma=24899584` at the census (the ring + the cursor; from 107 843 584) |
+| H2 | the surfaces cost what is drawn | gpud `rss=` ≈ 50 MB at the census (the ring 24.9, the wallpaper 8.3, the atlas rows drawn by then ≈ 10, its own 7.8; from 115.6 MB) — the retained plane uncommitted until a freeze; `free=` ≈ +15 000 frames |
+| H3 | the capacity follows the machine | `gpud: gpu memory (ram=4275466240 ceiling=2850310826 surfaces=530841600 scanout=24883200)`; `windowd: atlas rows (… of=63720)`; `gpud: layout split ok (… held= ceiling=2850310826)` with `held` ≈ 580 MB |
+| H4 | nothing regresses | the series as cycle 65 (the chat maximized, tiled, a screenshot — the freeze commits the retained plane), no GPU fault, no `FAIL dc present`, no `FAIL gpu memory`, the frame times of cycle 65 |
+
+**6b-2b built 2026-10-23; QEMU `headless` + `visible` green.** Kernel: a lazy object for a device
+commits inside its reach, `vmo_runs` commits what it names (at most 64 pages a call: the commits
+run under the kernel lock) — `KSELFTEST: vmo lazy device ok (pages=4 named=3 runs=3 deny=3)`;
+`lazy::{nameable, merge_runs}` host-tested (151 kernel tests). gpud: `gpu_share` (the ceiling two
+thirds of RAM, the surfaces an eighth in planes, the ledger) and `surface_pages` (the rows' pages,
+the entered bitmap) host-tested; the board's display makes the ring (`Framebuffer::scanout`) and
+the surface object (`dc/surfaces.rs`, `LazyDmaVmo`), grants the surfaces with their length; the
+GPU adopts the ring by bus and the surfaces as a lazy buffer bound sparse (`device_sparse.rs`,
+`desktop_surface.rs`), entering the base plane's and each band's rows before a frame's first pass;
+the layout's GPU window moved to its own GiB (the private buffers keep their addresses).
+`nexus-gfx`: every layout texture a frame draws is a piece of the base or a layer's band
+(`frame_board.rs`). windowd: the atlas grows to the granted object's end
+(`AtlasAllocator::grow`, `rows_of_object`). The grant refuses partial planes. QEMU keeps the fixed
+layout (`of=8640`); the split runs on the board's display only.
+
+**6b-2b ✅ board cycle 66 (2026-10-23, `board--2026-10-23T12-22-07`,
+`docs/board/measurements/2026-10-23-layout-split/`):** `[PASS] board-visible` (78 rungs, 8 operator
+markers). gpud `rss=49373184 dma=24899584` at the census (from 115.6 / 107.8 MB), +13 165 frames
+free, system committed −56 MB; `gpud: gpu memory (ram=4275462144 ceiling=2850308096
+surfaces=530841600 scanout=24883200)`; windowd `of=63720`, the atlas reached 5 833 rows with more
+windows open; no GPU fault in the session; a steady frame as cycle 65's. Carried to 6b-3's P0: a
+band's first entry (named, entered, faulted into gpud's CPU view for the clean) measured apart
+from `clean=`. **Finding routed to layer 8 (the operator's call):** imed stopped draining after a
+focus change — it blocks in a clock-less call per focus change (the `ime.personalization` read,
+the store's flush) and refuses windowd's and inputd's sends from then on, so typed text reached no
+field; settingsd and statefsd lived on; not on the split's path, the first such stall in fourteen
+cycles. The cure is event-driven (the setting a watch, the flush asynchronous), and the board gate
+does not read `WINDOWD:`/`inputd:` FAIL lines.
 
 ## Definition of Done (per step)
 

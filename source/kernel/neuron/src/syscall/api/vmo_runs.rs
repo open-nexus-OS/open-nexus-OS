@@ -8,7 +8,9 @@
 //! the clip-then-translate of `crate::dma_runs` (pure, host-tested) to the object's
 //! runs and the device's reach (`mm::devices`), and copies the answer out. A driver
 //! uses it for a queue's one base (a contiguous object answers with one run) and for
-//! a scatter-gather list (an anonymous object answers with its blocks).
+//! a scatter-gather list (an anonymous object answers with its blocks). A lazy object
+//! commits the range it is asked for first — a device cannot fault (ADR-0078) — at
+//! most `lazy::MAX_NAMED_PAGES` pages a call.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -54,6 +56,17 @@ pub(crate) fn resolve_runs(
     let reach = device
         .and_then(crate::mm::devices::reach)
         .ok_or(Error::Capability(CapError::PermissionDenied))?;
+    if crate::mm::vmo::is_lazy(id) {
+        // A device cannot fault: the range is committed before it is named (ADR-0078), at most
+        // `MAX_NAMED_PAGES` pages a call, and answered as an object of its own from byte 0.
+        let runs = crate::mm::vmo::named_runs(id, offset, len).map_err(|e| match e {
+            crate::mm::vmo::VmoError::Exhausted => {
+                Error::AddressSpace(AddressSpaceError::OutOfFrames)
+            }
+            _ => AddressSpaceError::InvalidArgs.into(),
+        })?;
+        return dma_runs::device_runs(runs, len, 0, len, &reach, out).map_err(runs_error);
+    }
     let runs = crate::mm::vmo::runs(id).ok_or(Error::Capability(CapError::PermissionDenied))?;
     dma_runs::device_runs(runs, object_len, offset, len, &reach, out).map_err(runs_error)
 }

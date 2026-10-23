@@ -73,7 +73,8 @@ use vm_map::*;
 pub(crate) use vm_map::{vm_unmap_clear, vm_unmap_finish};
 use vmo::*;
 pub(crate) use vmo::{
-    vmo_create_finish, vmo_create_reserve, VMO_CREATE_CONTIGUOUS, VMO_CREATE_NO_DEVICE,
+    vmo_create_finish, vmo_create_reserve, VMO_CREATE_CONTIGUOUS, VMO_CREATE_LAZY,
+    VMO_CREATE_NO_DEVICE,
 };
 
 pub(crate) use sched_task::selftest_sched_op;

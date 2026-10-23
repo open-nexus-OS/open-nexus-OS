@@ -41,11 +41,21 @@
 pub(crate) const ATLAS_WIDTH: u32 = nexus_display_proto::layout::LAYOUT_MAX.0;
 /// First atlas row (immediately after the four display planes).
 pub(crate) const ATLAS_ROW_OFFSET: u32 = nexus_display_proto::layout::ATLAS_ROW;
-/// Atlas height in rows: eight display heights (a real desktop needs the desktop surface and the
-/// floating windows — each its base and its store, the bands of its scroll layers and its wash
-/// patch (RFC-0109) — the windows' blur bands, the dock and fullscreen round-trips; five starved
-/// on the fullscreen re-create with four windows open).
+/// The fixed layout's atlas height in rows: eight display heights (a real desktop needs the
+/// desktop surface and the floating windows — each its base and its store, the bands of its
+/// scroll layers and its wash patch (RFC-0109) — the windows' blur bands, the dock and fullscreen
+/// round-trips; five starved on the fullscreen re-create with four windows open). The atlas
+/// starts at this size and grows to the granted object's end (`AtlasAllocator::grow`, ADR-0078:
+/// the board sizes its surfaces from the machine's RAM).
 pub(crate) const ATLAS_ROWS: u32 = nexus_display_proto::layout::ATLAS_ROWS;
+
+/// The atlas's rows in a granted object of `len` bytes: from the atlas's first row to the
+/// object's end — never fewer than the fixed layout's (the grant's decoder refuses less).
+pub(crate) fn rows_of_object(len: u32) -> u32 {
+    (len / nexus_display_proto::layout::STRIDE_BYTES)
+        .saturating_sub(ATLAS_ROW_OFFSET)
+        .max(ATLAS_ROWS)
+}
 
 /// A cached layer surface: a packed rectangle in the atlas region.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,13 +102,32 @@ pub(crate) struct AtlasAllocator {
     /// The deepest atlas row any surface ever reached (exclusive, from the atlas's first row) —
     /// what a lazy atlas would have committed (TASK-0333 6b-2 P0).
     peak_end: u32,
+    /// The atlas's rows: the fixed layout's, or the granted object's (`grow`).
+    rows: u32,
 }
 
 impl AtlasAllocator {
     pub(crate) fn new() -> Self {
         let mut free = [FreeRect { x: 0, y: 0, w: 0, h: 0 }; MAX_FREE_RECTS];
         free[0] = FreeRect { x: 0, y: ATLAS_ROW_OFFSET, w: ATLAS_WIDTH, h: ATLAS_ROWS };
-        Self { free, free_len: 1, peak_end: 0 }
+        Self { free, free_len: 1, peak_end: 0, rows: ATLAS_ROWS }
+    }
+
+    /// The atlas's rows.
+    pub(crate) fn capacity(&self) -> u32 {
+        self.rows
+    }
+
+    /// Grows the atlas to `rows` — the granted surface object's end (ADR-0078): the new rows are
+    /// free and full width, after every surface already placed, so nothing moves. Never shrinks.
+    pub(crate) fn grow(&mut self, rows: u32) {
+        if rows <= self.rows || self.free_len >= MAX_FREE_RECTS {
+            return;
+        }
+        let y = ATLAS_ROW_OFFSET + self.rows;
+        self.push_rect(FreeRect { x: 0, y, w: ATLAS_WIDTH, h: rows - self.rows });
+        self.rows = rows;
+        self.coalesce();
     }
 
     /// The deepest atlas row ever allocated, from the atlas's first row: a high-water mark that
@@ -109,7 +138,7 @@ impl AtlasAllocator {
 
     /// Rows in use now, in full-width row-equivalents (a row partly in use counts whole).
     pub(crate) fn used_rows(&self) -> u32 {
-        ATLAS_ROWS.saturating_sub(self.total_free_rows())
+        self.rows.saturating_sub(self.total_free_rows())
     }
 
     /// Reserve a FULL-WIDTH band `height` rows tall (`x = 0`). For surfaces whose
@@ -121,7 +150,7 @@ impl AtlasAllocator {
     /// Reserve a 2D-packed `width × height` sub-region (`x` may be > 0). Best-fit +
     /// guillotine split. Returns `None` if no free rect fits.
     pub(crate) fn alloc(&mut self, width: u32, height: u32) -> Option<AtlasSurface> {
-        if width == 0 || height == 0 || width > ATLAS_WIDTH || height > ATLAS_ROWS {
+        if width == 0 || height == 0 || width > ATLAS_WIDTH || height > self.rows {
             return None;
         }
         // Best-area-fit: the free rect that fits with the least leftover area, so
@@ -277,6 +306,45 @@ mod tests {
         assert_eq!((third.x, third.abs_row), (720, ATLAS_ROW_OFFSET));
         // Only 374 rows of full-width capacity were consumed (one band), not 3×374.
         assert_eq!(a.rows_remaining(), ATLAS_ROWS - 374);
+    }
+
+    /// ADR-0078: the atlas grows to the granted object's end — the surfaces placed before keep
+    /// their rows, a band the fixed layout could not hold now fits after them, and a smaller
+    /// grant never shrinks it.
+    #[test]
+    fn the_atlas_grows_to_the_granted_rows_and_nothing_moves() {
+        let mut a = AtlasAllocator::new();
+        let first = a.alloc_band(300).unwrap();
+        assert_eq!(a.alloc_band(2 * ATLAS_ROWS), None, "the fixed layout's atlas is too small");
+        a.grow(4 * ATLAS_ROWS);
+        assert_eq!(a.capacity(), 4 * ATLAS_ROWS);
+        let big = a.alloc_band(2 * ATLAS_ROWS).unwrap();
+        assert_eq!((first.abs_row, big.abs_row), (ATLAS_ROW_OFFSET, ATLAS_ROW_OFFSET + 300));
+        assert_eq!(a.rows_remaining(), 4 * ATLAS_ROWS - 300 - 2 * ATLAS_ROWS);
+        assert_eq!(a.used_rows(), 300 + 2 * ATLAS_ROWS);
+        a.grow(ATLAS_ROWS);
+        assert_eq!(a.capacity(), 4 * ATLAS_ROWS, "a grant never shrinks the atlas");
+    }
+
+    /// ADR-0078: the atlas ends where the granted object ends — the fixed layout's eight planes,
+    /// or 59 of the board's 64-plane surface object — and never short of the fixed layout's.
+    #[test]
+    fn the_atlas_ends_where_the_granted_object_ends() {
+        use nexus_display_proto::layout::{PLANE_BYTES, PLANE_ROWS, RESOURCE_BYTES};
+        assert_eq!(rows_of_object(RESOURCE_BYTES as u32), ATLAS_ROWS);
+        assert_eq!(rows_of_object((64 * PLANE_BYTES) as u32), 59 * PLANE_ROWS);
+        assert_eq!(rows_of_object(0), ATLAS_ROWS);
+        assert_eq!(rows_of_object(PLANE_BYTES as u32), ATLAS_ROWS);
+    }
+
+    /// A band taller than the grown atlas is refused, as one past the fixed atlas was.
+    #[test]
+    fn test_reject_a_band_past_the_grown_atlas() {
+        let mut a = AtlasAllocator::new();
+        a.grow(2 * ATLAS_ROWS);
+        assert_eq!(a.alloc_band(2 * ATLAS_ROWS + 1), None);
+        assert!(a.alloc_band(2 * ATLAS_ROWS).is_some());
+        assert_eq!(a.alloc_band(1), None, "full");
     }
 
     /// TASK-0333 6b-2 P0: the deepest row ever reached is a high-water mark — what a lazy atlas

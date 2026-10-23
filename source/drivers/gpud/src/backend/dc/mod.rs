@@ -33,6 +33,7 @@ mod glue;
 mod gpu_canvas;
 mod gpu_frame;
 mod present;
+mod surfaces;
 use super::flip_ring as ring;
 
 use nexus_gfx::backend::dc::frame_stats::FrameStats;
@@ -42,6 +43,7 @@ use nexus_service_topology::slots::gpud as topo;
 use self::controller::Controller;
 use self::encoder::Encoder;
 use self::framebuffer::Framebuffer;
+use self::surfaces::Surfaces;
 use super::cursor_shapes::CursorShapes;
 use super::splash_hold::SplashHold;
 
@@ -142,11 +144,13 @@ struct Live {
     /// flip taken after it ([`Live::release_splash`]): one plane of the mode, 7.9 MiB at 1080p
     /// (TASK-0333 6b-2). `None` once given back.
     splash: Option<Framebuffer>,
-    /// windowd's framebuffer, granted at its first request. Made at bring-up, right after the
-    /// splash: the controller needs ONE run of the whole layout (107.8 MB at 1080p), found most
-    /// surely before the fleet takes memory. `None` after a named failure — the splash stays,
-    /// the grant is refused by name.
-    framebuffer: Option<Framebuffer>,
+    /// The scan-out ring (ADR-0078): the three slots the GPU draws into and the controller flips
+    /// among — ONE run of 24.9 MB at 1080p, made at bring-up right after the splash, where it is
+    /// found most surely. `None` after a named failure — the splash stays, the grant is refused.
+    scanout: Option<Framebuffer>,
+    /// The surface object windowd is granted (the wallpaper, the retained plane, the atlas):
+    /// lazy, made for the GPU, sized from the machine's RAM — `None` after a named failure.
+    surfaces: Option<Surfaces>,
     /// The pointer's layer (TASK-0251 P2a step 3c), made at windowd's first cursor upload.
     cursor: Option<cursor::CursorLayer>,
 }
@@ -286,20 +290,47 @@ impl Live {
                 return None;
             }
         }
-        let framebuffer = match Framebuffer::layout() {
+        let scanout = match Framebuffer::scanout() {
             Ok(fb) => Some(fb),
             Err(e) => {
                 emit(&alloc::format!("gpud: FAIL dc framebuffer ({e})"));
                 None
             }
         };
+        let surfaces = Self::make_surfaces(scanout.as_ref().map_or(0, Framebuffer::len));
         Some(Live {
             controller,
             _encoder: encoder,
             splash: Some(splash),
-            framebuffer,
+            scanout,
+            surfaces,
             cursor: None,
         })
+    }
+
+    /// The surface object at the machine's share (ADR-0078): an eighth of the RAM the kernel
+    /// took, in display planes, at least the fixed layout — named with the GPU's ceiling.
+    fn make_surfaces(scanout: usize) -> Option<Surfaces> {
+        use crate::gpu_share::{GpuShare, MAX_SURFACE_PLANES};
+        use nexus_display_proto::layout::{PLANE_BYTES, RESOURCE_BYTES, RING_ROWS};
+        let ram = nexus_abi::mm_stats().map_or(0, |s| s.total.saturating_mul(4096));
+        let fixed = (RESOURCE_BYTES / PLANE_BYTES) as u32;
+        let bounds = (fixed, RING_ROWS.len() as u32, MAX_SURFACE_PLANES);
+        let share = GpuShare::of_ram(ram, PLANE_BYTES as u64, bounds);
+        match Surfaces::make(share.surface_planes) {
+            Ok(s) => {
+                emit(&alloc::format!(
+                    "gpud: gpu memory (ram={ram} ceiling={} surfaces={} scanout={scanout})",
+                    share.ceiling,
+                    s.len()
+                ));
+                Some(s)
+            }
+            Err(e) => {
+                emit(&alloc::format!("gpud: FAIL dc surfaces ({e})"));
+                None
+            }
+        }
     }
 
     /// The splash's memory back to the pool once the controller took a ring flip after the
@@ -310,7 +341,7 @@ impl Live {
             return;
         }
         if let Some(splash) = self.splash.take() {
-            let bytes = splash.bytes().len();
+            let bytes = splash.len();
             drop(splash);
             emit(&alloc::format!("gpud: splash released (bytes={bytes})"));
         }

@@ -34,7 +34,7 @@ pub(crate) fn grant(display: &mut dyn Display) -> u8 {
 /// for an OK status the decided mode and a clone of the framebuffer moved along; otherwise — or
 /// when the clone cannot travel — a refusal without a mode, which windowd names.
 pub(crate) fn answer(server: &KernelServer, display: &mut dyn Display, status: u8) {
-    let len = nexus_display_proto::layout::RESOURCE_BYTES as u32;
+    let len = u32::try_from(display.framebuffer_len()).unwrap_or(0);
     let (w, h) = display.mode();
     let mode_w = u16::try_from(w).unwrap_or(0);
     let mode_h = u16::try_from(h).unwrap_or(0);

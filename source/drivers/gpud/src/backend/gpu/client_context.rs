@@ -73,7 +73,7 @@ const fn priority(p: u8) -> Priority {
 
 impl BoardGpu {
     pub(crate) fn new(dev: Device) -> Self {
-        Self { dev, held: None, desktop: None, stray: [None; 5], desktop_off: false }
+        Self { dev, held: None, desktop: None, stray: [None; 6], desktop_off: false }
     }
 
     /// Tears an opened context down: the context by the firmware's cleanup (quarantined, its
@@ -250,7 +250,7 @@ impl FrameGpu for BoardGpu {
             let rows = (target.layout.len() / nexus_display_proto::layout::STRIDE_BYTES as usize)
                 .try_into()
                 .unwrap_or(0);
-            let layout = (target.layout_bus, rows);
+            let layout = (target.ring_bus, target.surfaces, rows);
             match Desktop::open(&mut self.dev, who, layout, target.display, &mut self.stray) {
                 Ok(d) => self.desktop = Some(alloc::boxed::Box::new(d)),
                 Err(why) => {

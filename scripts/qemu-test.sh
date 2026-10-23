@@ -695,6 +695,8 @@ expected_sequence=(
   "KSELFTEST: vm map reject ok"
   "KSELFTEST: vmo runs ok ("
   "KSELFTEST: vmo reach ok ("
+  # TASK-0333 6b-2b (ADR-0078): a lazy object made for a device commits what it is told, in reach.
+  "KSELFTEST: vmo lazy device ok ("
   "KSELFTEST: w^x enforced"
   # TASK-0333 6a (RFC-0100 §1, ADR-0073): an object dies with its last capability, a death
   # is an event — four kernel selftests, before the fence ones they run beside. TASK-0339
@@ -1279,6 +1281,7 @@ case "${PROFILE:-full}" in
       "KSELFTEST: vm map reject ok"
       "KSELFTEST: vmo runs ok ("
       "KSELFTEST: vmo reach ok ("
+      "KSELFTEST: vmo lazy device ok ("
       "KSELFTEST: w^x enforced"
       "KSELFTEST: waitset writable ok"
       "KSELFTEST: ipc eof nonblocking ok"

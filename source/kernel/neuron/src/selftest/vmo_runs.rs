@@ -9,9 +9,11 @@
 //! whose one translated window is the top of the first memory bank gets its objects
 //! from inside that window and their runs in its bus addresses; an object made for
 //! another device (the window just below) has no bus address for it, and a contiguous
-//! object for no device is refused. The rules themselves are host-tested (`crate::dma_runs`,
-//! `crate::dma_reach`, `crate::frames`). Split out of `selftest/mod.rs` (structure
-//! gate); runs inside `run_address_space_selftests`.
+//! object for no device is refused. `KSELFTEST: vmo lazy device ok (…)` proves a lazy object
+//! made for that device (ADR-0078): no frame at create, naming a range commits exactly its
+//! pages, inside the window, once, and the bound on one naming holds. The rules themselves are
+//! host-tested (`crate::dma_runs`, `crate::dma_reach`, `crate::frames`, `crate::lazy`). Split out
+//! of `selftest/mod.rs` (structure gate); runs inside `run_address_space_selftests`.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! TEST_COVERAGE: QEMU marker ladder (required in every profile)
@@ -151,16 +153,20 @@ const WINDOW: u64 = 64 << 20;
 /// multimedia and network buses.
 const BUS: u64 = 0x40_0000_0000;
 
-/// Allocation inside a device's reach and the answer in its bus addresses.
-pub(super) fn run_vmo_reach_selftests(table: &SyscallTable, sys_ctx: &mut api::Context<'_>) {
+/// The CPU base of the top `WINDOW` bytes of the first memory bank, when it holds two windows.
+fn top_window() -> Option<u64> {
     let bank = crate::boot_fdt::bytes()
         .and_then(|b| nexus_fdt::Fdt::new(b).ok())
-        .and_then(|fdt| fdt.memory_banks().next());
-    let Some(bank) = bank.filter(|b| b.size >= 2 * WINDOW) else {
+        .and_then(|fdt| fdt.memory_banks().next())?;
+    (bank.size >= 2 * WINDOW).then(|| bank.base + bank.size - WINDOW)
+}
+
+/// Allocation inside a device's reach and the answer in its bus addresses.
+pub(super) fn run_vmo_reach_selftests(table: &SyscallTable, sys_ctx: &mut api::Context<'_>) {
+    let Some(cpu) = top_window() else {
         log_error!(target: "selftest", "KSELFTEST: vmo reach FAIL no memory bank of 2x{} bytes", WINDOW);
         return;
     };
-    let cpu = bank.base + bank.size - WINDOW;
     let reach = DmaReach::new(&[DmaWindow { bus: BUS, cpu, size: WINDOW }]).expect("reach");
     let inside = |pa: usize, len: usize| cpu <= pa as u64 && pa as u64 + len as u64 <= cpu + WINDOW;
     let bus_of = |pa: usize| BUS + (pa as u64 - cpu);
@@ -244,6 +250,103 @@ pub(super) fn run_vmo_reach_selftests(table: &SyscallTable, sys_ctx: &mut api::C
             deny_contig,
             foreign_outside,
             deny_reach,
+            retired
+        );
+    }
+    run_vmo_lazy_device_selftests(table, sys_ctx);
+}
+
+/// A lazy object made for a device (ADR-0078): no frame at create; naming a range to the device
+/// commits exactly the pages it spans, inside the device's reach, once; one naming commits at
+/// most `MAX_NAMED_PAGES` pages; a lazy object is never contiguous. Runs after the reach's.
+fn run_vmo_lazy_device_selftests(table: &SyscallTable, sys_ctx: &mut api::Context<'_>) {
+    use crate::lazy::MAX_NAMED_PAGES;
+    let Some(cpu) = top_window() else {
+        log_error!(target: "selftest", "KSELFTEST: vmo lazy device FAIL no memory bank of 2x{} bytes", WINDOW);
+        return;
+    };
+    let reach = DmaReach::new(&[DmaWindow { bus: BUS, cpu, size: WINDOW }]).expect("reach");
+    // The page holding `pa` lies in the window.
+    let inside = |pa: usize| {
+        let page = (pa & !(PAGE_SIZE - 1)) as u64;
+        cpu <= page && page + PAGE_SIZE as u64 <= cpu + WINDOW
+    };
+    let bus_of = |pa: usize| BUS + (pa as u64 - cpu);
+    let (dev_slot, dev) = synthetic_device(sys_ctx, 4, reach);
+    let mut out = [(0u64, 0u64); 8];
+    let pages = 4;
+    let len = pages * PAGE_SIZE;
+    let lazy = create(table, sys_ctx, len, api::VMO_CREATE_LAZY, dev_slot)
+        .expect("vmo_create (lazy) for a device");
+    let id = vmo_id(sys_ctx, lazy);
+    let committed = |id: u32, len: usize| crate::mm::vmo::committed_in(id, 0, len) / PAGE_SIZE;
+    let none_at_create = committed(id, len) == 0;
+
+    // 1. An inner byte range names its one page: committed in the window, answered translated.
+    let inner = api::resolve_runs(sys_ctx, lazy, dev_slot, PAGE_SIZE + 17, 100, &mut out);
+    let page = crate::mm::vmo::translate(id, PAGE_SIZE + 17);
+    let one = inner == Ok(1)
+        && committed(id, len) == 1
+        && page.is_some_and(|pa| inside(pa) && bus_of(pa) == out[0].0);
+    // 2. Named again: the same frame, nothing more committed.
+    let again = api::resolve_runs(sys_ctx, lazy, dev_slot, PAGE_SIZE, PAGE_SIZE, &mut out);
+    let once = again == Ok(1) && committed(id, len) == 1 && page.map(bus_of) == Some(out[0].0 + 17);
+    // 3. The whole object: every page committed inside the window, the runs cover it.
+    let whole = api::resolve_runs(sys_ctx, lazy, dev_slot, 0, len, &mut out);
+    let runs = whole.unwrap_or(0);
+    let all = whole.is_ok()
+        && committed(id, len) == pages
+        && out[..runs].iter().map(|r| r.1 as usize).sum::<usize>() == len
+        && (0..pages).all(|p| crate::mm::vmo::translate(id, p * PAGE_SIZE).is_some_and(inside));
+
+    // 4. Refused, committing nothing: a range past the end; more pages than one naming may
+    //    commit; a lazy object asked to be contiguous.
+    let deny_end = denied(api::resolve_runs(
+        sys_ctx,
+        lazy,
+        dev_slot,
+        len - PAGE_SIZE,
+        2 * PAGE_SIZE,
+        &mut out,
+    ));
+    let big_len = (MAX_NAMED_PAGES + 1) * PAGE_SIZE;
+    let big = create(table, sys_ctx, big_len, api::VMO_CREATE_LAZY, dev_slot)
+        .expect("vmo_create (lazy, large) for a device");
+    let big_id = vmo_id(sys_ctx, big);
+    let deny_bound = denied(api::resolve_runs(sys_ctx, big, dev_slot, 0, big_len, &mut out))
+        && committed(big_id, big_len) == 0;
+    let both = api::VMO_CREATE_LAZY | api::VMO_CREATE_CONTIGUOUS;
+    let deny_contig = matches!(
+        create(table, sys_ctx, PAGE_SIZE, both, dev_slot),
+        Err(SysError::AddressSpace(AddressSpaceError::InvalidArgs))
+    );
+
+    for slot in [lazy, big] {
+        destroy(table, sys_ctx, slot);
+    }
+    let retired = drop_synthetic_device(sys_ctx, dev_slot, dev);
+    let named = [one, once, all].iter().filter(|n| **n).count();
+    let deny = [deny_end, deny_bound, deny_contig].iter().filter(|d| **d).count();
+    if none_at_create && named == 3 && deny == 3 && retired {
+        log_info!(
+            target: "selftest",
+            "KSELFTEST: vmo lazy device ok (pages={} named={} runs={} deny={})",
+            pages,
+            named,
+            runs,
+            deny
+        );
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: vmo lazy device FAIL none_at_create={} one={} once={} all={} deny_end={} deny_bound={} deny_contig={} retired={}",
+            none_at_create,
+            one,
+            once,
+            all,
+            deny_end,
+            deny_bound,
+            deny_contig,
             retired
         );
     }

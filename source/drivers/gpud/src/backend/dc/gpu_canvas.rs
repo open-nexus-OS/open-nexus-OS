@@ -18,7 +18,7 @@ impl DcDisplay {
     pub(super) fn canvas_begin(&mut self) -> Option<GpuCanvas> {
         let slot = self.ring.begin().ok()?;
         let row = ring::ROWS[slot];
-        let Some(fb) = self.live.as_ref().and_then(|l| l.framebuffer.as_ref()) else {
+        let Some(fb) = self.live.as_ref().and_then(|l| l.scanout.as_ref()) else {
             self.ring.discard();
             return None;
         };
@@ -35,7 +35,7 @@ impl DcDisplay {
     }
 
     pub(super) fn canvas_bytes(&mut self, row: u32) -> Option<&mut [u8]> {
-        self.live.as_mut()?.framebuffer.as_mut()?.plane_bytes_mut(row)
+        self.live.as_mut()?.scanout.as_mut()?.plane_bytes_mut(row)
     }
 
     pub(super) fn canvas_show(&mut self, row: u32) -> Result<(), GfxError> {
@@ -60,7 +60,7 @@ impl DcDisplay {
             return Err(GfxError::DeviceNotFound);
         };
         if self.flip_irq.is_none() {
-            if let Some(fb) = live.framebuffer.as_ref() {
+            if let Some(fb) = live.scanout.as_ref() {
                 live.controller.flip_latched(&fb.plane_at(row, w, h));
             }
             return self.ring.shown_now().map_err(|_| GfxError::ResourceExhausted);

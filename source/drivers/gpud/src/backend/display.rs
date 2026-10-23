@@ -66,6 +66,12 @@ pub(crate) trait Display {
     /// object for gpud's life. `None` names the refusal on the console.
     fn framebuffer(&mut self) -> Option<u32>;
 
+    /// Bytes of the granted framebuffer: the fixed layout, or more atlas rows where the display
+    /// sized its surfaces from the machine's RAM (ADR-0078) — whole display planes.
+    fn framebuffer_len(&self) -> usize {
+        nexus_display_proto::layout::RESOURCE_BYTES
+    }
+
     /// `OP_SET_FRAMEBUFFER_VMO`: windowd's first frame is in the granted framebuffer. A refusal
     /// is the status the attach ack carries.
     fn attach(&mut self) -> Result<(), u8>;

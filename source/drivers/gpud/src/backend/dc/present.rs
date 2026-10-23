@@ -1,9 +1,10 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! The board's display as the request loop's display (TASK-0251 P2a step 2): windowd's
-//! framebuffer is ONE contiguous block for the controller (the whole shared layout, made at
-//! bring-up, granted at windowd's first request); a present is drawn by the GPU in windowd's
+//! The board's display as the request loop's display (TASK-0251 P2a step 2): the scan-out ring
+//! is ONE contiguous block for the controller, and windowd is granted the surface object (the
+//! wallpaper, the retained plane, the atlas — lazy, made for the GPU, ADR-0078), both made at
+//! bring-up; a present is drawn by the GPU in windowd's
 //! context into the ring's free slot (TASK-0215 5c-3 P4b, `gpu_frame.rs`) — or refused by name:
 //! nothing composes on the CPU here (TASK-0215 5d deleted the CPU executor from this display;
 //! the controller does not snoop the caches, and what the GPU wrote needs no clean). The splash
@@ -20,7 +21,7 @@ use nexus_gfx::backend::types::Rect;
 use nexus_gfx::command::buffer::{Command, CommittedBuffer};
 
 use super::cursor::CursorLayer;
-use super::framebuffer::Framebuffer;
+use super::surfaces::Surfaces;
 use super::{emit, ring, DcDisplay};
 
 use crate::backend::display::Display;
@@ -63,7 +64,7 @@ impl DcDisplay {
         let Some(live) = self.live.as_mut() else {
             return false;
         };
-        let Some(fb) = live.framebuffer.as_ref() else {
+        let Some(fb) = live.scanout.as_ref() else {
             return false;
         };
         let plane = fb.plane_at(row, plane_size.0, plane_size.1);
@@ -104,16 +105,27 @@ impl Display for DcDisplay {
         (self.mode.0.into(), self.mode.1.into())
     }
 
+    /// windowd is granted the surface object (ADR-0078) — the ring is the GPU's and the
+    /// controller's alone; a display without either is refused by name.
     fn framebuffer(&mut self) -> Option<u32> {
         let Some(live) = self.live.as_ref() else {
             emit("gpud: dc framebuffer refused (the display is down)");
             return None;
         };
-        let handle = live.framebuffer.as_ref().map(Framebuffer::handle);
-        if handle.is_none() {
+        if live.scanout.is_none() {
             emit("gpud: dc framebuffer refused (no block for the controller)");
+            return None;
+        }
+        let handle = live.surfaces.as_ref().map(Surfaces::handle);
+        if handle.is_none() {
+            emit("gpud: dc framebuffer refused (no surface object for the GPU)");
         }
         handle
+    }
+
+    fn framebuffer_len(&self) -> usize {
+        let surfaces = self.live.as_ref().and_then(|live| live.surfaces.as_ref());
+        surfaces.map_or(nexus_display_proto::layout::RESOURCE_BYTES, Surfaces::len)
     }
 
     /// The first frame is composed into the framebuffer; the splash keeps the glass until the
@@ -122,7 +134,7 @@ impl Display for DcDisplay {
         let Some(live) = self.live.as_ref() else {
             return Err(STATUS_DEVICE_ERROR);
         };
-        if live.framebuffer.is_none() {
+        if live.scanout.is_none() || live.surfaces.is_none() {
             let _ = debug_println("gpud: FAIL attach before a grant");
             return Err(STATUS_MALFORMED);
         }
@@ -149,7 +161,7 @@ impl Display for DcDisplay {
         let Ok(slot) = self.ring.begin() else {
             return Err(self.refuse("no free plane: a frame beyond the compositor's budget"));
         };
-        if self.live.as_ref().and_then(|live| live.framebuffer.as_ref()).is_none() {
+        if self.live.as_ref().and_then(|live| live.scanout.as_ref()).is_none() {
             self.ring.discard();
             return Err(GfxError::DeviceNotFound);
         }
@@ -233,7 +245,7 @@ impl Display for DcDisplay {
             // No landing to wait on: a latch that reads clear here was taken, and the splash
             // goes back.
             live.release_splash();
-            if let Some(fb) = live.framebuffer.as_ref() {
+            if let Some(fb) = live.scanout.as_ref() {
                 live.controller.flip_latched(&fb.plane_at(row, w, h));
             }
             return self.ring.shown_now().map_err(|_| GfxError::ResourceExhausted);
@@ -401,17 +413,25 @@ impl Display for DcDisplay {
 
     /// RFC-0095: a readback copies the frame on screen; the CPU reads a plane the GPU drew
     /// after dropping its stale lines (the controller never writes the block). A freeze copies
-    /// the frame into the retained plane, the base the GPU's scene starts from until the thaw.
+    /// the frame into the surface object's retained plane, the base the GPU's scene starts from
+    /// until the thaw.
     fn readback(&mut self, dest: u32, req: &nexus_display_proto::readback::Readback) -> u8 {
         use nexus_display_proto::readback::READBACK_FREEZE;
         let (w, h) = (u32::from(self.mode.0), u32::from(self.mode.1));
         let front = self.ring.scanned_row().unwrap_or(nexus_display_proto::layout::DISPLAY_ROW);
         self.front_for_cpu();
-        let Some(fb) = self.live.as_mut().and_then(|live| live.framebuffer.as_mut()) else {
-            return nexus_display_proto::STATUS_DEVICE_ERROR;
+        let Some(live) = self.live.as_mut() else {
+            return STATUS_DEVICE_ERROR;
+        };
+        let (Some(fb), Some(surfaces)) = (live.scanout.as_ref(), live.surfaces.as_mut()) else {
+            return STATUS_DEVICE_ERROR;
         };
         let status = fb.readback(dest, req, w, h, front);
         if status == STATUS_OK && req.flags & READBACK_FREEZE != 0 {
+            let frozen = fb.plane_bytes(front).is_some_and(|plane| surfaces.freeze(plane, w, h));
+            if !frozen {
+                return STATUS_DEVICE_ERROR;
+            }
             self.frozen = true;
             self.base_dirty = true;
         }

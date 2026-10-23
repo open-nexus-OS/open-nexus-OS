@@ -225,10 +225,18 @@ impl DisplayServerRuntime {
         }
     }
 
-    /// The atlas's deepest row ever reached and its rows in use (TASK-0333 6b-2 P0: what a
-    /// lazy atlas would hold committed).
-    pub(crate) fn atlas_rows(&self) -> (u32, u32) {
-        (self.atlas_alloc.peak_rows(), self.atlas_alloc.used_rows())
+    /// The atlas's deepest row ever reached, its rows in use and its rows (TASK-0333 6b-2 P0:
+    /// what a lazy atlas holds committed, ADR-0078).
+    pub(crate) fn atlas_rows(&self) -> (u32, u32, u32) {
+        let a = &self.atlas_alloc;
+        (a.peak_rows(), a.used_rows(), a.capacity())
+    }
+
+    /// What the grant gives the runtime, once at start: whether the GPU composes (TASK-0340)
+    /// and the atlas's rows in the granted object (ADR-0078) — the atlas grows to them.
+    pub(crate) fn take_grant(&mut self, gpu_composes: bool, atlas_rows: u32) {
+        self.set_gpu_composes(gpu_composes);
+        self.atlas_alloc.grow(atlas_rows);
     }
 
     /// Free the app window's atlas band(s) WITHOUT touching window state

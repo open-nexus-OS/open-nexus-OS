@@ -39,17 +39,35 @@ use super::job::Queue;
 use super::memory::HeapObj;
 use super::recovery;
 use super::render::Render;
+use crate::gpu_share::Ledger;
 
 /// The device: the G1 state plus G2's bookkeeping.
 pub(crate) struct Device {
     pub(crate) gpu: Box<Gpu>,
-    bos: Bos,
-    contexts: Contexts,
+    pub(super) bos: Bos,
+    pub(super) contexts: Contexts,
+    /// What the GPU holds against its ceiling — two thirds of the machine's RAM (ADR-0078).
+    pub(super) ledger: Ledger,
 }
 
 impl Device {
     pub(crate) fn new(gpu: Box<Gpu>) -> Self {
-        Self { gpu, bos: Bos::new(), contexts: Contexts::new() }
+        let ram = nexus_abi::mm_stats().map_or(0, |s| s.total.saturating_mul(PAGE));
+        let ledger = Ledger::new(crate::gpu_share::ceiling_of(ram));
+        Self { gpu, bos: Bos::new(), contexts: Contexts::new(), ledger }
+    }
+
+    /// `bytes` more held by the GPU, or refused by name past its ceiling.
+    pub(super) fn hold(&mut self, bytes: usize) -> Result<(), DeviceError> {
+        self.ledger.hold(bytes as u64).map_err(|e| {
+            let _ = nexus_abi::debug_println(&alloc::format!(
+                "gpud: FAIL gpu memory past the ceiling (want={} held={} ceiling={})",
+                e.want,
+                e.held,
+                e.ceiling
+            ));
+            DeviceError::Exhausted
+        })
     }
 
     /// The open driver's flags for `bo`; they apply when it is bound, so a bound buffer's are
@@ -80,14 +98,19 @@ impl Device {
         if len == 0 || len % PAGE as usize != 0 || bus % PAGE != 0 {
             return Err(DeviceError::Vm(VmError::Unaligned));
         }
-        self.bos.insert(Bo {
+        self.hold(len)?;
+        let made = self.bos.insert(Bo {
             client,
             len,
             backing: Backing::Plane { bus },
             bindings: 0,
             device_cached: false,
             pm_fw_protect: false,
-        })
+        });
+        if made.is_err() {
+            self.ledger.give_back(len as u64);
+        }
+        made
     }
 
     /// The render pass's kernel-side objects for `client`'s context (§8d): the render context,
@@ -199,7 +222,7 @@ impl Device {
         deadline_ns: u64,
         mut done: impl FnMut(&Gpu, &Contexts) -> bool,
     ) -> bool {
-        let Self { gpu, bos, contexts } = self;
+        let Self { gpu, bos, contexts, .. } = self;
         gpu.wait_until(deadline_ns, |g| {
             recovery::serve(g, contexts, bos);
             done(g, contexts)
@@ -320,27 +343,37 @@ impl GfxDevice for Device {
             return Err(DeviceError::Vm(VmError::Unaligned));
         }
         let len = bytes.div_ceil(PAGE as usize) * PAGE as usize;
+        if matches!(mode, CacheMode::Uncached) {
+            return Err(DeviceError::CacheModeUnsupported(mode));
+        }
+        self.hold(len)?;
         let backing = match mode {
-            CacheMode::CpuCached => Backing::Vmo(
-                DmaVmo::anonymous(DEVICE_MMIO_SLOT, len).map_err(|_| DeviceError::Exhausted)?,
-            ),
-            CacheMode::GpuPrivate => {
-                Backing::Gpu(GpuVmo::new(DEVICE_MMIO_SLOT, len).ok_or(DeviceError::Exhausted)?)
-            }
-            CacheMode::Uncached => return Err(DeviceError::CacheModeUnsupported(mode)),
+            CacheMode::CpuCached => DmaVmo::anonymous(DEVICE_MMIO_SLOT, len).ok().map(Backing::Vmo),
+            CacheMode::GpuPrivate => GpuVmo::new(DEVICE_MMIO_SLOT, len).map(Backing::Gpu),
+            // Refused above, before anything was held.
+            CacheMode::Uncached => None,
         };
-        self.bos.insert(Bo {
-            client,
-            len,
-            backing,
-            bindings: 0,
-            device_cached: false,
-            pm_fw_protect: false,
-        })
+        let made = backing.ok_or(DeviceError::Exhausted).and_then(|backing| {
+            self.bos.insert(Bo {
+                client,
+                len,
+                backing,
+                bindings: 0,
+                device_cached: false,
+                pm_fw_protect: false,
+            })
+        });
+        if made.is_err() {
+            self.ledger.give_back(len as u64);
+        }
+        made
     }
 
     fn destroy_bo(&mut self, client: ClientId, bo: BoId) -> Result<(), DeviceError> {
-        self.bos.remove(client, bo)
+        let len = self.bos.get(client, bo)?.len;
+        self.bos.remove(client, bo)?;
+        self.ledger.give_back(len as u64);
+        Ok(())
     }
 
     fn vm_bind(&mut self, client: ClientId, ctx: ContextId, m: Mapping) -> Result<(), DeviceError> {

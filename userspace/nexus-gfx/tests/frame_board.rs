@@ -464,3 +464,74 @@ fn a_glass_over_another_written_glass_keeps_its_own_chain() {
     assert_eq!(b.pass(0).unwrap().kind, PassKind::Scene { upto: 0 });
     assert_eq!(b.pass(3).unwrap().kind, PassKind::Scene { upto: 1 });
 }
+
+/// ADR-0078 (TASK-0333 6b-2b): gpud enters the surface object's pages a frame samples before its
+/// first pass, from two kinds of rectangle — the plane the scene starts from (the display's size
+/// at its row) and each layer's band (`src_x`, `src_row_abs`, the content's size or the layer's)
+/// — so every layout texture of every pass must be a piece of one of them: the wallpaper's
+/// pieces, a rounded layer's parts, a band spread over a larger layer, a solid layer, a glass's
+/// scene and its back, a shadowed layer — over the wallpaper and over a frozen base.
+#[test]
+fn every_layout_texture_is_a_piece_of_the_base_or_of_a_layers_band() {
+    type Rect = (u32, u32, u32, u32);
+    let cmds = [
+        layer(|l| {
+            rect(100, 50, 400, 300)(l);
+            l.src_x = 64;
+        }),
+        layer(|l| {
+            rect(600, 100, 500, 300)(l);
+            (l.src_row_abs, l.corner_radius) = (ATLAS + 400, 16);
+        }),
+        layer(|l| {
+            rect(200, 500, 600, 400)(l);
+            (l.src_row_abs, l.content_w, l.content_h, l.corner_radius) =
+                (ATLAS + 800, 500, 300, 12);
+        }),
+        layer(|l| {
+            rect(1200, 600, 300, 200)(l);
+            (l.src_row_abs, l.solid, l.corner_radius) = (ATLAS + 1200, true, 20);
+        }),
+        layer(|l| {
+            rect(900, 200, 400, 300)(l);
+            (l.src_row_abs, l.shadow_blur, l.shadow_alpha) = (ATLAS + 1500, 24, 120);
+        }),
+        layer(|l| {
+            rect(300, 300, 800, 400)(l);
+            (l.src_row_abs, l.backdrop_blur, l.corner_radius) = (ATLAS + 1900, 20, 12);
+        }),
+    ];
+    // Each layer's band, as gpud enters it.
+    let bands: [Rect; 6] = [
+        (64, ATLAS, 400, 300),
+        (0, ATLAS + 400, 500, 300),
+        (0, ATLAS + 800, 500, 300),
+        (0, ATLAS + 1200, 300, 200),
+        (0, ATLAS + 1500, 400, 300),
+        (0, ATLAS + 1900, 800, 400),
+    ];
+    let within = |(x, row, w, h): Rect, (bx, brow, bw, bh): Rect| {
+        x >= bx && x + w <= bx + bw && row >= brow && row + h <= brow + bh
+    };
+    for base_row in [0, 1080] {
+        let mut f = ready(2048);
+        let p = planned(&mut f, &cmds);
+        let b = Board::new(&f, p, DISPLAY, LAYOUT_ROWS, HALF_ROWS).with_base(base_row);
+        let base = (0, base_row, DISPLAY.0, DISPLAY.1);
+        let mut textures = 0;
+        for i in 0..b.pass_count() {
+            let pass = b.pass(i).expect("a pass");
+            for d in draws(&b, &pass) {
+                if let Tex::Layout { x, row, w, h } = d.tex {
+                    let t = (x, row, w, h);
+                    assert!(
+                        within(t, base) || bands.iter().any(|&band| within(t, band)),
+                        "{t:?} of pass {i} over the base at row {base_row}"
+                    );
+                    textures += 1;
+                }
+            }
+        }
+        assert!(textures > cmds.len(), "the base and every layer drawn ({textures})");
+    }
+}

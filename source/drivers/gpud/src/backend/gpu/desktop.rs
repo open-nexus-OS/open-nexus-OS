@@ -18,18 +18,17 @@
 //! caller's to say.
 
 use nexus_display_proto::layout::{self, PLANE_BYTES, PLANE_ROWS, RING_ROWS, STRIDE_BYTES};
-use nexus_driverkit::gpu::{Access, CacheMode, GpuVa};
+use nexus_driverkit::gpu::{Access, CacheMode};
 use nexus_gfx::backend::gpu::pipelines::Placed;
 use nexus_gfx::backend::gpu::quads::{Arena, Rings};
 use nexus_gfx::backend::gpu::scene::Scene;
 use nexus_gfx::backend::gpu::CoreId;
-use nexus_gfx::backend::v2::{
-    BoId, ClientId, ContextId, DeviceError, GfxDevice, Mapping, RenderStreams,
-};
+use nexus_gfx::backend::v2::{BoId, ClientId, ContextId, DeviceError, GfxDevice, RenderStreams};
 use nexus_gfx::command::buffer::Command;
 use nexus_gfx::frame::{Area, Board, CacheStep, Frame, History, Pipe, Target as To, BLUR_RADII};
 
 use super::desktop_pass::{clean_rows, run_pass};
+use super::desktop_surface::{bind, buffer};
 use super::device_v2::Device;
 use super::emit_fmt;
 use super::render_template::{
@@ -37,16 +36,17 @@ use super::render_template::{
 };
 use crate::gpu_context::FrameTarget;
 
-/// Where the context takes what the frames touch: one GiB of GPU addresses (one directory of
-/// the context's page tables), clear of the render bundle's heaps. The layout at its base — its
-/// planes and atlas read-only, the ring's three slots read-write, one range each, so no page is
-/// mapped twice —, then the scratches, the cache and the frame's own buffer, each on a 2 MiB
-/// boundary (a page table each such span).
-pub(super) const LAYOUT_VA: u64 = 0x20_0000_0000;
-pub(super) const SCRATCH_VA: u64 = LAYOUT_VA + 0x0800_0000;
-pub(super) const HALF_VA: u64 = LAYOUT_VA + 0x0A00_0000;
-pub(super) const CACHE_VA: u64 = LAYOUT_VA + 0x0C00_0000;
-pub(super) const FRAME_VA: u64 = LAYOUT_VA + 0x0E00_0000;
+/// Where the context takes what the frames touch, clear of the render bundle's heaps: the
+/// layout in a GiB of its own (ADR-0078: the surface object grows with the machine, up to 128
+/// planes) — its planes and atlas read-only from the surface object, the ring's three slots
+/// read-write from the ring's, one range each, so no page is mapped twice —, and below it the
+/// scratches, the cache and the frame's own buffer, each on a 2 MiB boundary.
+pub(super) const LAYOUT_VA: u64 = 0x40_0000_0000;
+const PRIVATE_VA: u64 = 0x20_0000_0000;
+pub(super) const SCRATCH_VA: u64 = PRIVATE_VA + 0x0800_0000;
+pub(super) const HALF_VA: u64 = PRIVATE_VA + 0x0A00_0000;
+pub(super) const CACHE_VA: u64 = PRIVATE_VA + 0x0C00_0000;
+pub(super) const FRAME_VA: u64 = PRIVATE_VA + 0x0E00_0000;
 const WIDTH: u32 = STRIDE_BYTES / 4;
 const STRIDE: u64 = STRIDE_BYTES as u64;
 /// The half-resolution scratch's rows: the tallest glass's half and the vertical taps' halo.
@@ -163,8 +163,9 @@ struct Stats {
     work: super::desktop_work::Work,
 }
 
-/// The buffers a desktop takes: the layout adopted, the scratches, the cache, the frame's own.
-pub(crate) type Taken = [Option<BoId>; 5];
+/// The buffers a desktop takes: the ring and the surfaces adopted, the scratches, the cache, the
+/// frame's own.
+pub(crate) type Taken = [Option<BoId>; 6];
 
 /// `taken`'s buffers given back, once the context that bound them is gone (a buffer still bound
 /// is refused, never freed).
@@ -199,6 +200,8 @@ pub(crate) struct Desktop {
     pub(super) cleaned: super::desktop_pass::CleanedRows,
     /// The base plane cleaned for the device, by its first row.
     base: Option<u32>,
+    /// The surface object, bound sparse: the pages entered (ADR-0078).
+    surface: super::desktop_surface::SurfaceBinding,
     stats: Stats,
     shown: bool,
     /// The gate scene drawn (once, before the compositor's first frame).
@@ -212,41 +215,15 @@ pub(crate) struct Desktop {
     open_us: u64,
 }
 
-/// `len` bytes of `bo` from `offset` bound at `va`; a refusal names `what` and the device's word.
-fn bind(
-    dev: &mut Device,
-    (client, ctx): (ClientId, ContextId),
-    (bo, offset, len): (BoId, u64, u64),
-    (va, access): (u64, Access),
-    what: &'static str,
-) -> Result<(), Refusal> {
-    dev.vm_bind(client, ctx, Mapping { bo, offset, len, va: GpuVa(va), access })
-        .map_err(|e| Refusal(what, Some(e)))
-}
-
-/// A buffer of `bytes` in `mode`, recorded in `taken` as soon as it exists, bound read-write at
-/// `va`.
-fn buffer(
-    dev: &mut Device,
-    who: (ClientId, ContextId),
-    (bytes, mode): (u64, CacheMode),
-    va: u64,
-    (taken, what): (&mut Option<BoId>, &'static str),
-) -> Result<(), Refusal> {
-    let bo = dev.create_bo(who.0, bytes as usize, mode).map_err(|e| Refusal(what, Some(e)))?;
-    *taken = Some(bo);
-    bind(dev, who, (bo, 0, bytes), (va, Access::ReadWrite), what)
-}
-
 impl Desktop {
-    /// What windowd's context takes for its frames, once: the layout at `layout_bus` of
-    /// `layout_rows` rows, the scratches, the cache, the frame's buffer, the targets, the
-    /// pipelines. Every buffer is recorded in `taken` as it is made: on a refusal the caller
-    /// gives them back once the context is gone; an open desktop holds them itself.
+    /// What windowd's context takes for its frames, once: the ring at `ring_bus`, the surface
+    /// object `surfaces` of `layout_rows` rows (ADR-0078), the scratches, the cache, the frame's
+    /// buffer, the targets, the pipelines. Every buffer is recorded in `taken` as it is made: on a
+    /// refusal the caller gives them back once the context is gone; an open desktop holds them.
     pub(crate) fn open(
         dev: &mut Device,
         (client, ctx): (ClientId, ContextId),
-        (layout_bus, layout_rows): (u64, u32),
+        (ring_bus, surfaces, layout_rows): (u64, u32, u32),
         display: (u32, u32),
         taken: &mut Taken,
     ) -> Result<Self, Refusal> {
@@ -259,26 +236,22 @@ impl Desktop {
             .map_err(|_| "the render bundle")?;
         let streams = render_streams(&scene).ok_or("the render bundle's streams")?;
         let captured = Captured::read(dev, client, ctx)?;
-        // The layout in three ranges at its own offsets: the wallpaper and retained planes, the
-        // ring's slots (the targets), the atlas.
-        let layout_len = u64::from(layout_rows) * STRIDE;
+        // The layout in three ranges at its rows' offsets (ADR-0078): the ring's slots (the
+        // targets) from the ring's own object, the wallpaper and retained planes and the atlas
+        // from the surface object, bound sparse — entered as frames sample them.
         let ring_at = layout::row_offset_bytes(RING_ROWS[0]) as u64;
-        let ring_end = ring_at + 3 * PLANE_BYTES as u64;
-        if layout_len <= ring_end {
-            return Err("a layout without its atlas".into());
-        }
-        let layout = dev
-            .adopt_plane(client, layout_bus, layout_len as usize)
-            .map_err(|e| Refusal("the layout", Some(e)))?;
-        taken[0] = Some(layout);
-        let read = |at: u64| (LAYOUT_VA + at, Access::ReadOnly);
-        bind(dev, who, (layout, 0, ring_at), read(0), "the planes' binding")?;
-        let ring = (layout, ring_at, ring_end - ring_at);
-        bind(dev, who, ring, (LAYOUT_VA + ring_at, Access::ReadWrite), "the ring's binding")?;
-        let atlas = (layout, ring_end, layout_len - ring_end);
-        bind(dev, who, atlas, read(ring_end), "the atlas's binding")?;
+        let ring_len = (RING_ROWS.len() * PLANE_BYTES) as u64;
+        let ring = dev
+            .adopt_plane(client, ring_bus, ring_len as usize)
+            .map_err(|e| Refusal("the ring", Some(e)))?;
+        taken[0] = Some(ring);
+        let at = (LAYOUT_VA + ring_at, Access::ReadWrite);
+        bind(dev, who, (ring, 0, ring_len), at, "the ring's binding")?;
+        let objects = (surfaces, layout_rows);
+        let surface =
+            super::desktop_surface::SurfaceBinding::open(dev, who, objects, &mut taken[1])?;
         let plane = |rows: u32| (u64::from(rows) * STRIDE, CacheMode::GpuPrivate);
-        let [_, scratch, half, cache, frame_bo] = &mut *taken;
+        let [_, _, scratch, half, cache, frame_bo] = &mut *taken;
         buffer(dev, who, plane(PLANE_ROWS), SCRATCH_VA, (scratch, "the scratch"))?;
         buffer(dev, who, plane(HALF_ROWS), HALF_VA, (half, "the half scratch"))?;
         buffer(dev, who, plane(CACHE_ROWS), CACHE_VA, (cache, "the glass cache"))?;
@@ -325,6 +298,7 @@ impl Desktop {
             drawn: [0; 3],
             cleaned: super::desktop_pass::CleanedRows::new(),
             base: None,
+            surface,
             stats: Stats::default(),
             shown: false,
             gated: false,
@@ -379,6 +353,8 @@ impl Desktop {
         // every glass's backdrop over the old one is stale, every slot too.
         let mut lacks = Area::None;
         if self.base != Some(target.base_row) || base_dirty {
+            // The GPU is told the plane's pages before a pass reads them (ADR-0078).
+            self.surface.enter(dev, (self.client, self.ctx), (target.base_row, PLANE_ROWS))?;
             clean_rows(target, (0, target.base_row, WIDTH, PLANE_ROWS));
             self.frame.glass.wallpaper_epoch = self.frame.glass.wallpaper_epoch.wrapping_add(1);
             self.base = Some(target.base_row);
@@ -448,6 +424,8 @@ impl Desktop {
                     if l.content_w > 0 { l.content_w } else { l.width },
                     if l.content_h > 0 { l.content_h } else { l.height },
                 );
+                // Its band's pages told the GPU first (the rows a piece of it can sample).
+                self.surface.enter(dev, (self.client, self.ctx), (l.src_row_abs, h))?;
                 self.cleaned.clean(target, i, (l.src_x, l.src_row_abs, w, h));
             }
         }
@@ -540,6 +518,14 @@ impl Desktop {
                     glass.reads,
                     glass.off,
                     self.open_us
+                ));
+                emit_fmt(format_args!(
+                    "gpud: layout split ok (ring={} surfaces={} entered={} held={} ceiling={})",
+                    RING_ROWS.len() * PLANE_BYTES,
+                    self.surface.bytes(),
+                    self.surface.entered_pages() * 4096,
+                    dev.ledger.held(),
+                    dev.ledger.ceiling()
                 ));
             }
             if s.frames == WINDOW {

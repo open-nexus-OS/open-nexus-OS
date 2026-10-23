@@ -225,7 +225,7 @@ impl DcDisplay {
     fn latch(&mut self, slot: usize) {
         let (w, h) = self.mode;
         let Some(live) = self.live.as_ref() else { return };
-        let Some(fb) = live.framebuffer.as_ref() else { return };
+        let Some(fb) = live.scanout.as_ref() else { return };
         live.controller.flip_latched(&fb.plane_at(ring::ROWS[slot], w, h));
         live.controller.flip_irq_arm();
         self.latched_ns = nsec().unwrap_or(0);

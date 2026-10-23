@@ -463,8 +463,17 @@ kernel fault), exec's `.bss` tails and stacks lazy, a contiguous object's buddy 
 touch. **6b-2a ✅ board cycle 65:** app-host's arena reserved at 4 MiB for the largest frame (the
 chat, maximized included, no spill; the spill is red on the board again), the board's splash given
 back after the reveal (gpud −8.3 MB), the atlas's rows counted (3 676 of 8 640 reached in the
-operator's series). Next: 6b-2b (the layout block split: the ring slots contiguous, the rest
-page-backed, ≈ 28 MB of the atlas committed instead of 66.4 MB), then 6b-3.
+operator's series). **6b-2b ✅ board cycle 66 (ADR-0078, the operator's direction: no fixed GPU
+memory, a share of the machine):** the layout block split — the ring the one contiguous object
+(24.9 MB), the wallpaper, retained plane and atlas one lazy object made for the GPU, bound sparse
+and entered as frames sample it; the GPU's ceiling two thirds of RAM, the surfaces an eighth (64
+planes on the board, the atlas 59 from 8); gpud 115.6 → 49.4 MB resident, DMA 107.8 → 24.9 MB.
+Next: 6b-3 (the allocator frees by default, a band's first entry measured apart).
+**Added to layer 8's closing (cycle 66, the operator's call):** imed stops draining after a
+focus change — a clock-less settingsd/statefsd call per focus change; windowd's and inputd's sends
+are refused from then on and typed text reaches no field (the setting a watch, the flush
+asynchronous; the board gate reads no `WINDOWD:`/`inputd:` FAIL) — and typed text shown only after
+a select-all (the field's damage).
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

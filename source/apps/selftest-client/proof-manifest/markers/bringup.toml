@@ -158,6 +158,10 @@ proves = "RFC-0098 C4 (TASK-0286 P4a, device-scoped by TASK-0246 P1): vmo_runs �
 phase = "bringup"
 proves = "RFC-0098 C4 (TASK-0246 P1): a device's DMA reach is kernel truth — objects made for a device whose one translated window is the top of the first memory bank come from inside it (anonymous and contiguous), vmo_runs answers them in the device's bus addresses (whole, at an inner offset, the contiguous base), an object made for another device (the window just below) has no bus address for it, a contiguous object for no device is refused (deny=2), and the synthetic device records are retired before init"
 
+[marker."KSELFTEST: vmo lazy device ok ("]
+phase = "bringup"
+proves = "TASK-0333 6b-2b (ADR-0078, RFC-0100 §2): a lazy object made for a device whose one window is the top of the first memory bank holds no frame at create; vmo_runs commits exactly the pages a range spans before it names them, inside the window and in the device's bus addresses, once (named again: the same frame, nothing more); the whole object named covers it; a range past the end, more pages than one naming may commit (MAX_NAMED_PAGES) and a lazy contiguous object are refused committing nothing (deny=3)"
+
 [marker."KSELFTEST: w^x enforced"]
 phase = "bringup"
 proves = "kernel selftest: WRITE+EXECUTE leaf refused (promoted to a gate by RFC-0085 P3)"

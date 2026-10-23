@@ -31,6 +31,9 @@ pub(super) enum Backing {
     Gpu(GpuVmo),
     /// A plane of the ring: the display's memory at a bus address, maintained by the display.
     Plane { bus: u64 },
+    /// The display's surface object (ADR-0078): a lazy object made for the GPU, its pages named
+    /// — and so committed — a chunk at a time as frames first sample them. The display owns it.
+    Lazy { handle: u32 },
 }
 
 pub(super) struct Bo {
@@ -89,6 +92,13 @@ impl Bo {
             }
             Backing::Gpu(g) => g.walk(DEVICE_MMIO_SLOT, offset as usize, len as usize, page),
             Backing::Plane { bus } => (0..len / PAGE).all(|i| page(bus + offset + i * PAGE)),
+            Backing::Lazy { handle } => super::gpu_vmo::walk_object(
+                (*handle, self.len),
+                DEVICE_MMIO_SLOT,
+                (offset as usize, len as usize),
+                super::gpu_vmo::LAZY_CHUNK,
+                page,
+            ),
         }
     }
 
@@ -96,14 +106,14 @@ impl Bo {
     pub(super) fn bytes_mut(&mut self, offset: usize, len: usize) -> Option<&mut [u8]> {
         match &mut self.backing {
             Backing::Vmo(v) => v.bytes_mut().get_mut(offset..offset.checked_add(len)?),
-            Backing::Gpu(_) | Backing::Plane { .. } => None,
+            Backing::Gpu(_) | Backing::Plane { .. } | Backing::Lazy { .. } => None,
         }
     }
 
     pub(super) fn bytes(&self, offset: usize, len: usize) -> Option<&[u8]> {
         match &self.backing {
             Backing::Vmo(v) => v.bytes().get(offset..offset.checked_add(len)?),
-            Backing::Gpu(_) | Backing::Plane { .. } => None,
+            Backing::Gpu(_) | Backing::Plane { .. } | Backing::Lazy { .. } => None,
         }
     }
 }

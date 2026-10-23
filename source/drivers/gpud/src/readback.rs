@@ -77,6 +77,27 @@ pub(crate) fn copy_plane(
     Ok(())
 }
 
+/// The freeze across two objects (the board's display, ADR-0078): `rows` rows of `row_bytes` of
+/// `src` (the ring's slot on screen) into `dst` (the surface object's retained plane), both
+/// `stride` bytes a row.
+pub(crate) fn copy_rows(
+    src: &[u8],
+    dst: &mut [u8],
+    stride: usize,
+    row_bytes: usize,
+    rows: usize,
+) -> Result<(), CopyError> {
+    let span = rows.saturating_sub(1) * stride + row_bytes;
+    if rows == 0 || row_bytes > stride || span > src.len() || span > dst.len() {
+        return Err(CopyError::OutOfBounds);
+    }
+    for row in 0..rows {
+        let at = row * stride;
+        dst[at..at + row_bytes].copy_from_slice(&src[at..at + row_bytes]);
+    }
+    Ok(())
+}
+
 /// `OP_READBACK` in the request loop: the destination VMO rides the request and is the caller's
 /// memory — used for this one copy, then its slot is closed (a moved capability has no Drop).
 #[cfg(all(feature = "os-lite", target_os = "none"))]
@@ -216,5 +237,24 @@ mod tests {
             copy_plane(&mut buf, 0, stride * 4, stride, stride + 4, 1),
             Err(CopyError::OutOfBounds)
         );
+    }
+
+    /// The board's freeze: the frame on screen (the ring's slot) into the retained plane of
+    /// another object, row by row; a copy past either object is refused before a byte moves.
+    #[test]
+    fn the_freeze_copies_a_slot_into_another_objects_retained_plane() {
+        let stride = 8 * 4;
+        let src: alloc::vec::Vec<u8> = (0..stride * 4).map(|i| (i % 251) as u8).collect();
+        let mut dst = alloc::vec![0u8; stride * 4];
+        copy_rows(&src, &mut dst, stride, 6 * 4, 4).expect("freezes");
+        for row in 0..4 {
+            let at = row * stride;
+            assert_eq!(&dst[at..at + 24], &src[at..at + 24]);
+            assert!(dst[at + 24..at + stride].iter().all(|&b| b == 0), "past the frame's width");
+        }
+        let mut short = alloc::vec![0u8; stride * 3];
+        assert_eq!(copy_rows(&src, &mut short, stride, stride, 4), Err(CopyError::OutOfBounds));
+        assert!(short.iter().all(|&b| b == 0), "nothing moved");
+        assert_eq!(copy_rows(&src, &mut dst, stride, stride + 4, 1), Err(CopyError::OutOfBounds));
     }
 }

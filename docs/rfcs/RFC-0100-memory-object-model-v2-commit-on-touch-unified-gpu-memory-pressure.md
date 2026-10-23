@@ -14,7 +14,7 @@
 ## Status at a Glance
 
 - **Phase 0 (6a: object lifetime — what dies is freed)**: ✅ 2026-10-20 (board cycle 48; ADR-0073: every kernel object, a death as an event)
-- **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ⏳ 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2 (the layout block split) and 6b-3 (the allocator frees by default) open
+- **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ⏳ 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2a ✅ 2026-10-23 (board cycle 65: the app arena reserved, the splash given back, the atlas counted); 6b-2b ✅ 2026-10-23 (board cycle 66, ADR-0078: one pool with the GPU — the ring contiguous, the surfaces lazy and entered as sampled, the GPU's ceiling two thirds of RAM); 6b-3 (the allocator frees by default) open
 - **Phase 2 (6c: the file-backed kind, the page cache, shared code)**: ⬜
 - **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals)**: ⬜
 - **Phase 4 (6f: the backing stages — compressor, swap)**: ⬜
@@ -121,10 +121,26 @@ has, with the GPU in the same pool.
 Copy-on-write (6c): a private mapping of a file or shared page breaks on the first write (the
 fault copies one page). The user fault stays fatal for a true violation (no mapping, wrong rights).
 
-The layout block (RFC-0101 §8, `nexus-display-proto::layout`): the scan-out planes are one
-contiguous-DMA VMO; the atlas and the GPU's caches are anonymous commit-on-touch VMOs bound into
-the client's GPU context — `vm_bind` commits what it binds (the GPU MMU has no populate path; a
-fault there is a context reset), a purge touches only unbound pages. The row formulas do not change.
+**One pool with the GPU (6b-2b, ADR-0078).** No memory is set aside for the GPU. The layout
+block (RFC-0101 §8, `nexus-display-proto::layout`) splits in two objects over one row numbering:
+the scan-out ring (the three slots a display controller reads by base and stride) is one
+contiguous-DMA object inside the controller's reach; the wallpaper, the retained plane and the
+surface atlas are one **lazy object made for the GPU** — its frames from inside the GPU's reach,
+its ring rows a hole never touched. The GPU's MMU has no populate path (a fault there is a context
+reset), so a page is committed when the GPU is *told* it: the lazy object is bound into the
+client's GPU context as one sparse range with nothing entered, and before a pass gpud enters the
+pages of every rectangle the frame samples — computed from the descriptor the GPU reads — through
+`vmo_runs`, which commits what it names. A page named to a device is pinned until the object dies;
+a purge (§4) never takes one. windowd's `vmo_write`s and the GPU's entries name the same frames.
+
+The share is a fraction of the machine, read at boot from `mm_stats` (the RAM the kernel took from
+the device tree), never a constant: the GPU's **ceiling is two thirds of RAM** (a GPU buffer past
+it is refused by name) and the surfaces' **reservation an eighth of RAM** in whole display planes,
+at least the fixed layout, at most what the ceiling leaves — on the 4 GiB board 2.65 GiB and 64
+planes (the atlas 59, before 8). The framebuffer grant's length carries the surface object's size;
+windowd's atlas ends where the object ends. The row formulas do not change. The virtio display
+keeps one eager object of the fixed layout until a per-band attach (6f): its attach lists, and so
+names, every page.
 
 ## §3 Accounting and pressure (6e, to be filled)
 
@@ -156,6 +172,7 @@ through blkd → `memd`'s kill, by band, journaled. Clean pages are never writte
 
 ## Open questions (decided by measurement)
 
-- QEMU's virtio backing-entry bound for a per-band attach of the atlas (6b P0).
+- QEMU's virtio backing-entry bound for a per-band attach of the atlas (moved to 6f, `lowmem`:
+  6b-2b keeps the virtio display's one eager object).
 - The PTE A/D bits on the board's core (clean/dirty per page in hardware or software) — 6b P0.
 - The compressor's ratio and cost per page on RV64 (R11, 6f P0).

@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! A frame of windowd's drawn on the GPU into the ring's slot (TASK-0215 5c-3 P4b, RFC-0101 §8,
-//! §8d). The GPU takes a present the frame plan covers (`RetainedLayers::covers`: the layer set,
+//! §8d) from the surface object (the wallpaper, the retained plane, the atlas — ADR-0078: the
+//! ring and the surfaces are two objects over one row numbering, the target names both). The
+//! GPU takes a present the frame plan covers (`RetainedLayers::covers`: the layer set,
 //! the damage blits from the retained plane, the pointer — here the controller's layer); a
 //! present with any other command, and a frame the GPU did not draw, is refused by name
 //! (`present.rs`, TASK-0215 5d — no CPU composite stands in). The device does not snoop the
@@ -33,16 +35,18 @@ impl DcDisplay {
         let display = (u32::from(self.mode.0), u32::from(self.mode.1));
         let base_row = if self.frozen { layout::RETAINED_ROW } else { layout::WALLPAPER_ROW };
         let row = ring::ROWS[slot];
-        let Some(fb) = self.live.as_ref().and_then(|l| l.framebuffer.as_ref()) else {
+        let Some(live) = self.live.as_ref() else { return false };
+        let (Some(fb), Some(surfaces)) = (live.scanout.as_ref(), live.surfaces.as_ref()) else {
             return false;
         };
         if self.slot_cpu[slot] {
             fb.flush_plane(row);
         }
         let target = FrameTarget {
-            layout_bus: fb.bus(),
-            layout: fb.bytes(),
-            block: fb.cache_block(),
+            ring_bus: fb.bus(),
+            surfaces: surfaces.handle(),
+            layout: surfaces.bytes(),
+            block: surfaces.cache_block(),
             slot_row: row,
             display,
             base_row,
@@ -66,7 +70,7 @@ impl DcDisplay {
         if !self.slot_gpu[slot] {
             return;
         }
-        if let Some(fb) = self.live.as_ref().and_then(|l| l.framebuffer.as_ref()) {
+        if let Some(fb) = self.live.as_ref().and_then(|l| l.scanout.as_ref()) {
             fb.flush_plane(ring::ROWS[slot]);
         }
     }

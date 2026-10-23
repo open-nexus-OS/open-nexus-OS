@@ -403,7 +403,7 @@ pub fn service_main_loop() -> Result<(), &'static str> {
     let (visible_w, visible_h) = grant.mode;
     let mut runtime = match DisplayServerRuntime::new_with_mode(visible_w, visible_h) {
         Ok(mut rt) => {
-            rt.set_gpu_composes(gpu_composes);
+            rt.take_grant(gpu_composes, grant.atlas_rows);
             let _ = nexus_service_entry::ready(&ready_marker(visible_w, visible_h));
             rt
         }

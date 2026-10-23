@@ -16,6 +16,9 @@ const RUNS: usize = 16;
 const CHUNK_MIN: usize = RUNS * PAGE;
 /// The first chunk a walk asks for; halved while the kernel answers that it needs more runs.
 const CHUNK_MAX: usize = 2 << 20;
+/// The first chunk of a lazy object's walk: the kernel commits what it names, at most 64 pages
+/// a call (ADR-0078).
+pub(super) const LAZY_CHUNK: usize = 64 * PAGE;
 
 pub(super) struct GpuVmo {
     handle: Handle,
@@ -45,34 +48,48 @@ impl GpuVmo {
         device: Cap,
         offset: usize,
         len: usize,
-        mut page: impl FnMut(u64) -> bool,
+        page: impl FnMut(u64) -> bool,
     ) -> bool {
-        let Some(end) = offset.checked_add(len) else { return false };
-        if offset % PAGE != 0 || len % PAGE != 0 || end > self.len {
-            return false;
-        }
-        let (mut at, mut chunk) = (offset, CHUNK_MAX);
-        while at < end {
-            let take = chunk.min(end - at);
-            let mut runs = [DmaRun::default(); RUNS];
-            match nexus_abi::vmo_runs(self.handle, device, at, take, &mut runs) {
-                Ok(n) => {
-                    for run in &runs[..n] {
-                        for i in 0..run.len / PAGE as u64 {
-                            if !page(run.bus + i * PAGE as u64) {
-                                return false;
-                            }
+        walk_object((self.handle, self.len), device, (offset, len), CHUNK_MAX, page)
+    }
+}
+
+/// Calls `page` with the bus address of every page of `offset..offset + len` of the object
+/// `(handle, object_len)`, as `device` addresses it, in order — a chunk of at most `chunk_max`
+/// bytes a query, halved while the kernel answers that it needs more runs. A lazy object's
+/// pages are committed as they are named (ADR-0078).
+pub(super) fn walk_object(
+    (handle, object_len): (Handle, usize),
+    device: Cap,
+    (offset, len): (usize, usize),
+    chunk_max: usize,
+    mut page: impl FnMut(u64) -> bool,
+) -> bool {
+    let Some(end) = offset.checked_add(len) else { return false };
+    if offset % PAGE != 0 || len % PAGE != 0 || end > object_len {
+        return false;
+    }
+    let (mut at, mut chunk) = (offset, chunk_max.max(CHUNK_MIN));
+    while at < end {
+        let take = chunk.min(end - at);
+        let mut runs = [DmaRun::default(); RUNS];
+        match nexus_abi::vmo_runs(handle, device, at, take, &mut runs) {
+            Ok(n) => {
+                for run in &runs[..n] {
+                    for i in 0..run.len / PAGE as u64 {
+                        if !page(run.bus + i * PAGE as u64) {
+                            return false;
                         }
                     }
-                    at += take;
                 }
-                // More runs than one query holds: a smaller chunk.
-                Err(_) if chunk > CHUNK_MIN => chunk /= 2,
-                Err(_) => return false,
+                at += take;
             }
+            // More runs than one query holds: a smaller chunk.
+            Err(_) if chunk > CHUNK_MIN => chunk /= 2,
+            Err(_) => return false,
         }
-        true
     }
+    true
 }
 
 impl Drop for GpuVmo {

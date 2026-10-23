@@ -123,13 +123,12 @@ impl LoopTelemetry {
                     period_ns / 1000
                 ));
             }
-            // TASK-0333 6b-2 P0: the atlas rows a lazy atlas would hold — on a new high only.
-            let (peak, used) = runtime.atlas_rows();
+            // TASK-0333 6b-2 P0: the atlas rows a lazy atlas holds — on a new high only.
+            let (peak, used, of) = runtime.atlas_rows();
             if peak > self.atlas_peak {
                 self.atlas_peak = peak;
                 let _ = debug_println(&alloc::format!(
-                    "windowd: atlas rows (peak={peak} used={used} of={})",
-                    crate::atlas::ATLAS_ROWS
+                    "windowd: atlas rows (peak={peak} used={used} of={of})"
                 ));
             }
         } else {
