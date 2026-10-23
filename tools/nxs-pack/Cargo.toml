@@ -15,5 +15,8 @@ sha2 = "0.10"
 tar = { version = "0.4", default-features = false }
 toml = "0.8"
 
+[dev-dependencies]
+tempfile = "3"
+
 [build-dependencies]
 capnpc = "0.24"
