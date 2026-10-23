@@ -460,7 +460,11 @@ cycle 64 (ADR-0077):** memory committed on first touch — a lazy VMO kind, the 
 page, every syscall's user memory through one checked range (a bad pointer is `EFAULT`, no longer a
 kernel fault), exec's `.bss` tails and stacks lazy, a contiguous object's buddy tail returned;
 +61.3 MiB free and `rss_sum` −33.3 MB on the board, an app-host child 12.0 → 7.0 MB, 5 µs a first
-touch. Next: 6b-2 (the layout block split, the arena reserved for the largest frame).
+touch. **6b-2a ✅ board cycle 65:** app-host's arena reserved at 4 MiB for the largest frame (the
+chat, maximized included, no spill; the spill is red on the board again), the board's splash given
+back after the reveal (gpud −8.3 MB), the atlas's rows counted (3 676 of 8 640 reached in the
+operator's series). Next: 6b-2b (the layout block split: the ring slots contiguous, the rest
+page-backed, ≈ 28 MB of the atlas committed instead of 66.4 MB), then 6b-3.
 
 **Recut 2026-10-12 (from the measured numbers, not the old edges):** the base contracts come
 first as one host-only layer, so that each later package can be built from its contract by

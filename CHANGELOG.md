@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-23 (the app arena holds the largest frame, the board's splash comes back — TASK-0333 6b-2a)
+
+- **An app's frame arena fits its largest frame.** The arena is reserved at 4 MiB (halves of
+  1 MiB) and costs only the pages a frame touches; the chat's frame (500 KB of layout) no longer
+  spills onto the heap, and a spill is a failure on the board again instead of a tolerated line.
+  The recorded frame costs are checked against the arena's half when the tests build.
+- **The board gives the boot splash's memory back.** The 8.3 MB plane the display scanned before
+  the desktop is freed at the first display flip after the reveal (`gpud: splash released (…)`).
+- **windowd counts the atlas rows it uses** (`windowd: atlas rows (peak= used= of=)`): the
+  number the next step sizes a lazily committed atlas from.
+
 ### Changed - 2026-10-23 (memory is committed on first touch — TASK-0333 6b-1, ADR-0077, RFC-0100 §2)
 
 - **A page costs memory when it is first touched.** Every program's static heap, the app frame

@@ -225,6 +225,12 @@ impl DisplayServerRuntime {
         }
     }
 
+    /// The atlas's deepest row ever reached and its rows in use (TASK-0333 6b-2 P0: what a
+    /// lazy atlas would hold committed).
+    pub(crate) fn atlas_rows(&self) -> (u32, u32) {
+        (self.atlas_alloc.peak_rows(), self.atlas_alloc.used_rows())
+    }
+
     /// Free the app window's atlas band(s) WITHOUT touching window state
     /// (visibility, fullscreen, position). Used by the resize/fullscreen
     /// re-create (protocol SURFACE_DESTROY): the band must be reclaimed before

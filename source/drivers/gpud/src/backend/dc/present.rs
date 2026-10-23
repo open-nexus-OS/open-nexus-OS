@@ -224,12 +224,15 @@ impl Display for DcDisplay {
             }
             return Ok(());
         }
-        let Some(live) = self.live.as_ref() else {
+        let Some(live) = self.live.as_mut() else {
             return Err(GfxError::DeviceNotFound);
         };
         if self.flip_irq.is_none() {
             // No interrupt (named at the bind): the flip is latched now — the controller takes
             // it at its next frame boundary, never half-drawn — and the present is acked now.
+            // No landing to wait on: a latch that reads clear here was taken, and the splash
+            // goes back.
+            live.release_splash();
             if let Some(fb) = live.framebuffer.as_ref() {
                 live.controller.flip_latched(&fb.plane_at(row, w, h));
             }

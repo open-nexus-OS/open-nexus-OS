@@ -6,8 +6,9 @@
 //! bounded large-block list TASK-0333 6a planned, pulled forward by TASK-0344.
 //!
 //! WHY: a block above the largest class went to the bump and never came back.
-//! The app-host's frame arena spills the chat's layout (the boxes of 60+
-//! messages need more than its half), so every re-layout carved ~155 KB of
+//! The app-host's frame arena spilled the chat's layout (the boxes of 60+
+//! messages needed more than its 256 KiB half, until TASK-0333 6b-2 reserved
+//! the arena for the largest frame), so every re-layout carved ~155 KB of
 //! large blocks and lost them when the layout was dropped — the 4 MiB heap was
 //! full after ~20 keystrokes in the chat and the app died (`alloc-fail`, board
 //! 2026-10-22).

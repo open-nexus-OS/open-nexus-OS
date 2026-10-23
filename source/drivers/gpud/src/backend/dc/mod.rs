@@ -138,10 +138,10 @@ pub(crate) struct DcDisplay {
 struct Live {
     controller: Controller,
     _encoder: Encoder,
-    /// The boot splash the controller scans until the reveal. Kept for gpud's life: the
-    /// controller reads it until the switch latches at a frame boundary, and nothing needs the
-    /// memory back.
-    _splash: Framebuffer,
+    /// The boot splash the controller scans until the reveal — given back at the first ring
+    /// flip taken after it ([`Live::release_splash`]): one plane of the mode, 7.9 MiB at 1080p
+    /// (TASK-0333 6b-2). `None` once given back.
+    splash: Option<Framebuffer>,
     /// windowd's framebuffer, granted at its first request. Made at bring-up, right after the
     /// splash: the controller needs ONE run of the whole layout (107.8 MB at 1080p), found most
     /// surely before the fleet takes memory. `None` after a named failure — the splash stays,
@@ -293,7 +293,27 @@ impl Live {
                 None
             }
         };
-        Some(Live { controller, _encoder: encoder, _splash: splash, framebuffer, cursor: None })
+        Some(Live {
+            controller,
+            _encoder: encoder,
+            splash: Some(splash),
+            framebuffer,
+            cursor: None,
+        })
+    }
+
+    /// The splash's memory back to the pool once the controller took a ring flip after the
+    /// reveal — the latch reads clear, a frame boundary passed since the switch, nothing scans
+    /// the splash any more. A no-op while a latch is pending and once given back.
+    fn release_splash(&mut self) {
+        if self.splash.is_none() || self.controller.latch_pending() {
+            return;
+        }
+        if let Some(splash) = self.splash.take() {
+            let bytes = splash.bytes().len();
+            drop(splash);
+            emit(&alloc::format!("gpud: splash released (bytes={bytes})"));
+        }
     }
 }
 

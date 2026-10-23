@@ -1,6 +1,6 @@
 ---
 title: TASK-0333 Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap
-status: In Progress (6a ✅ 2026-10-20, 6b-1 ✅ 2026-10-23; planned 2026-10-19 with the operator)
+status: In Progress (6a ✅ 2026-10-20, 6b-1 ✅ 2026-10-23, 6b-2a ✅ 2026-10-23; planned 2026-10-19 with the operator)
 owner: @kernel-team @runtime @ui @gpu
 created: 2026-10-19
 depends-on: [TASK-0286 (M1: frames from the FDT, page-backed VMOs), TASK-0215 (layer 5: the desktop on the GPU)]
@@ -332,6 +332,58 @@ untouched heaps and stacks), `rss_sum` −33.3 MB, an app-host child 12.0 → 7.
 reserved), windowd 6.0 → 4.4 MB; 5 µs a first touch; no `KPGF` on four harts, no app crash, no
 `alloc-fail`. H1–H6 confirmed. Observed: `settingsd: event send FAIL … QueueFull` ×6 in the boot's
 registration burst on the board too (6a's QEMU note; the subscriber resyncs).
+
+**6b-2 — cut in two (2026-10-23).** **6b-2a** takes what needs no new wire and no new kernel path:
+app-host's arena reserved for the largest frame (the spill leaves the allow-list), the board's
+splash given back after the reveal, and the atlas's rows counted — 6b-2b's P0. **6b-2b** is the
+layout block split itself (the ring slots contiguous; wallpaper, retained and atlas page-backed
+and lazy; `vm_bind` per band; QEMU's per-band attach), sized from 6b-2a's count.
+
+**6b-2a — three lenses.**
+- **Scope** — `nexus-service-entry` (`FRAME_ARENA_BYTES` 1 → 4 MiB, `FRAME_ARENA_HALF`),
+  `config/fail-marker-allow-board.txt` (the spill entry gone), `tests/dsl_apps_conformance`
+  (the budgets held against the half when the file builds; the maximized window measured), gpud
+  `backend/dc` (the splash an `Option`, given back at the first ring flip taken after the reveal),
+  windowd `atlas.rs` + `loop_telemetry.rs` (`windowd: atlas rows (peak= used= of=)` on each new
+  high), `scripts/check-image-budgets.sh` (comments). **Out:** the layout split (6b-2b), purging a
+  reset generation (6e), a smaller app heap.
+- **Invariant** — no recorded frame outgrows a half (a const assertion; on the board a spill is
+  red again); the splash is given back only after the scan left it — a ring flip whose latch
+  read clear after the reveal, never before the switch took, never after a refused one (it keeps
+  the glass); the block is unmapped before it is destroyed, by its only holder.
+- **Contract** — ADR-0065 (amended: the arena's size), ADR-0077 (`.bss` committed on touch),
+  RFC-0093 §5 (the splash until the reveal).
+
+**6b-2a built 2026-10-23; QEMU `headless` + `visible` green.** Host: the chat's frame is 293 848 B
+of scene and 500 552 B of layout at 1440×814, 960×620 and maximized 1920×1024 alike (it lays out
+its whole first page) — under half of the 1 MiB half. Lanes: `apphost: frame arena (…
+of=4194304 spill=0)`; the greeter's app-host 7 000 064 B committed as before, 3 MiB more
+reserved (5 029 888 → 8 175 616 B); `windowd: atlas rows (peak=800 used=534 of=8640)` at 1280×800
+— 9 % of the atlas ever reached. The splash path runs on the board's display only (QEMU's 2D
+splash resource is freed at attach since task #124).
+
+**6b-2a board cycle 65 — decision lines** (baseline cycle 64, `board--2026-10-23T09-48-24`: gpud
+`rss=123879424 dma=116137984` — the layout block 107 827 200 B + the splash 8 294 400 B + the
+cursor; `free=991583` at the boot's census, which follows the reveal and the first flip):
+
+| # | Hypothesis | Decision line |
+|---|---|---|
+| H1 | the arena holds the largest frame | no `SELFTEST: frame arena spill FAIL` over the chat series, maximize included; the chat's `peak=` under 2 × 1 MiB |
+| H2 | the splash comes back | `gpud: splash released (bytes=8294400)` once, after `gpud: dc reveal flip ok`; gpud `dma=` 8 294 400 lower, `free=` ≈ 2 025 frames higher at the census |
+| H3 | the atlas is mostly never touched | `windowd: atlas rows (peak=…)` over the series: 6b-2b's committed atlas ≈ peak × 7 680 B against 66.4 MB eager |
+| H4 | nothing regresses | no `KPGF`, no app crash, the fleet `ready`, the chat types |
+
+**6b-2a ✅ board cycle 65 (2026-10-23, `board--2026-10-23T10-29-54`,
+`docs/board/measurements/2026-10-23-layout-split/`):** `[PASS] board-visible` (76 rungs, 8 operator
+markers, no FAIL marker). H1: no spill over the series, the chat maximized twice — its frame
+789 164 B of the 4 MiB arena (cycle 64: 524 288 of 1 MiB, `spill=1`); the gate shown red on cycle
+64's capture (`gate-red-cycle64.txt`). H2: `gpud: splash released (bytes=8294400)` after the first
+ring flip — gpud −8 294 400 B resident and DMA, +2 026 frames free at the census. H3: the atlas
+reached 3 676 of 8 640 rows (`used=` at most 2 907): a lazy atlas ≈ 28.2 MB committed against
+66.4 MB — 6b-2b's sizing. H4: the ladder's two deliberate faults only, no app crash. Observed for
+6b-3: one object replaced by a larger one (+5 345 280 B, count unchanged) across the session with
+the clipboard restore, a tile, light mode and the screenshot, flat afterwards — owner unnamed until
+6b-3's per-service lines.
 
 ## Definition of Done (per step)
 

@@ -60,8 +60,9 @@ declare -A NOT_A_SERVICE=(
 # 24 MB ceiling of 2026-07-31 budgeted a 16 MiB bump heap raised 4->8->16 MiB
 # because every structural DSL interaction rebuilt a frame onto memory that
 # never freed — each raise bought a few dozen more clicks. ADR-0065 ended
-# that: frame output lives in a 1 MiB generation arena (recycled wholesale,
-# two generations), durable state frees by size class, and a real boot shows
+# that: frame output lives in a generation arena (recycled wholesale, two
+# generations; 4 MiB reserved since TASK-0333 6b-2, committed only where a
+# frame touches it), durable state frees by size class, and a real boot shows
 # the base heap flat (`apphost: heap steady`). The 50/75/90% watermark lines
 # are gone with the ceiling they warned of. What this budget guards now is
 # the ~2 MB text half plus the arena; a heap raise trips it, which is the
@@ -80,7 +81,8 @@ printf '%-14s %10s %10s %6s\n' "--------------" "----------" "----------" "-----
 
 check_one() {
     local name=$1 elf=$2 budget=$3
-    # dec = text + data + bss — what the spawn-time arena allocation backs.
+    # dec = text + data + bss — the image's span: text and data are copied at spawn, .bss is
+    # reserved and committed page by page on first touch (ADR-0077).
     local dec
     dec=$(size "$elf" | awk 'NR==2 {print $4}')
     if [[ -z "$dec" ]]; then

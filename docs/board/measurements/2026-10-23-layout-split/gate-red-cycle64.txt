@@ -1,0 +1,7 @@
+# The board gate shown red once (TASK-0333 6b-2a): cycle 64's capture (the old 1 MiB arena, the chat
+# spilling) judged with the spill entry gone from config/fail-marker-allow-board.txt, 2026-10-23.
+# $ just board-test board-visible --log=build/logs/board--2026-10-23T09-48-24/uart.log
+[board-test] judging build/logs/board--2026-10-23T09-48-24/uart.log as profile board-visible
+      6 SELFTEST: frame arena spill FAIL (a frame outgrew its generation)
+[FAIL] board-visible: FAIL markers in the trace (not allow-listed in config/fail-marker-allow.txt or config/fail-marker-allow-board.txt)
+error: recipe `board-test` failed on line 60 with exit code 1

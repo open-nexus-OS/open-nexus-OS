@@ -63,15 +63,6 @@ SELFTEST: walltime rtc FAIL
 # same-hart bench, before this line goes.
 KSELFTEST: ipc call budget FAIL
 #
-# app-host's frame arena: the CHAT's first frame (its first QuerySpec page, 60 rows) needs
-# 270 KB of scene and 419 KB of layout — more than the static arena's 256 KiB halves — on
-# every display, 1280x800 as much as 1920x1080 (measured 2026-10-09 on the host,
-# tests/dsl_apps_conformance/tests/frame_arena_budget.rs; on the board every boot that opened
-# the chat spilled, none other did). Not a size sweep item and no interim bump: the arena's end
-# form is the memory lane's (M2 demand paging + M5 purgeable — tasks/TASK-0290 "Input from
-# Block 1"), the frame's cost the DSL/layout lane's (tasks/TASK-0251 finding 8, pretext).
-SELFTEST: frame arena spill FAIL
-#
 # TASK-0215 5c-4 + 5d: the gate scene — windowd's executor draws the stock stack's
 # `glass-quarter` picture at windowd's first frame against the stock's 23.3 ms, and a hover
 # frame (a pointer-sized change over the cached glass) against its 8.3 ms. Red since cycle 38

@@ -60,6 +60,11 @@ the arena is a generously reserved range committed only where a frame touches it
 (purgeable VMOs) a reset generation's pages are purgeable under pressure; with **M4** the
 process's limit bounds it.
 
+**M2's half delivered 2026-10-23 (TASK-0333 6b-2a):** the arena is 4 MiB reserved, committed only
+where a frame touches it (ADR-0077; ADR-0065 amended), sized for the chat's frame at every window
+size; `SELFTEST: frame arena spill FAIL` left `config/fail-marker-allow-board.txt`. The purgeable
+generation (M5) stays here, for 6e.
+
 **Second witness, 2026-10-13 (board `board--2026-10-13T08-28-06`, Block 4 layer 2 / S2a):** the
 operator maximized a window and typing was barely possible afterwards (the cycle before, with
 the console still on the lock, nothing worked after it). The input path is healthy throughout

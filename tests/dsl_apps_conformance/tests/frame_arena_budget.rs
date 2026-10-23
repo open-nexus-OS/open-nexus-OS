@@ -9,10 +9,11 @@
 //! allocates there is spent until the half resets, frees included — so the count is the sum of
 //! allocations, never a net.
 //!
-//! The recorded costs are a budget: growth past them is a red test, not a board surprise. The
-//! chat's frame exceeds the OS arena's static 256 KiB halves on every display — tolerated on the
-//! board until the memory lane's demand-paged arena (TASK-0290 "Input from Block 1"); the cost
-//! itself is the DSL/layout lane's (pretext completion, TASK-0251 finding 8).
+//! The recorded costs are a budget: growth past them is a red test, not a board surprise. Every
+//! budget fits one half of the OS arena (`nexus_service_entry::FRAME_ARENA_HALF`) — the arena is
+//! reserved and committed on touch (ADR-0077, TASK-0333 6b-2), so it is sized for the largest
+//! frame, the chat's, and a frame that spills on the board is a FAIL, never tolerated. The
+//! chat's cost itself is the DSL/layout lane's (pretext completion, TASK-0251 finding 8).
 //!
 //! One test function, phases measured sequentially (the counters are process-global).
 
@@ -263,19 +264,35 @@ const BUDGET: [(&str, usize, usize); 4] = [
     ("desktop-shell", 64_000, 103_000),
 ];
 
+/// The arena holds every recorded frame — checked when this file builds, so the one test
+/// function stays alone with the process-global counters: a budget past one half would be a
+/// spill on the board that this file's own numbers predicted.
+const _: () = {
+    let mut i = 0;
+    while i < BUDGET.len() {
+        let (_, emit, layout) = BUDGET[i];
+        let half = nexus_service_entry::FRAME_ARENA_HALF;
+        assert!(emit <= half && layout <= half, "a recorded frame outgrew the arena's half");
+        i += 1;
+    }
+};
+
 #[test]
 fn a_frame_stays_within_its_recorded_cost_on_every_display() {
-    // (app, the window windowd gives it: 1920×1080 board, 1280×800 lanes)
+    // (app, the window windowd gives it: 1920×1080 board, 1280×800 lanes, and maximized on the
+    // board — the display less the desktop taskbar, the largest frame an app window draws)
     let windows = [
-        ("chat", (1440, 814), (960, 620)),
-        ("settings", (1440, 814), (960, 620)),
-        ("stash", (1440, 814), (960, 620)),
-        ("desktop-shell", (1920, 1080), (1280, 800)),
+        ("chat", (1440, 814), (960, 620), Some((1920, 1024))),
+        ("settings", (1440, 814), (960, 620), Some((1920, 1024))),
+        ("stash", (1440, 814), (960, 620), Some((1920, 1024))),
+        ("desktop-shell", (1920, 1080), (1280, 800), None),
     ];
-    for (app, board, lane) in windows {
+    for (app, board, lane, maximized) in windows {
         let (_, max_emit, max_layout) =
             BUDGET.iter().copied().find(|(name, _, _)| *name == app).expect("a budget");
-        for (label, (w, h)) in [("1920x1080", board), ("1280x800", lane)] {
+        let sizes =
+            [("1920x1080", Some(board)), ("1280x800", Some(lane)), ("maximized", maximized)];
+        for (label, (w, h)) in sizes.into_iter().filter_map(|(l, s)| s.map(|s| (l, s))) {
             let symbols0 =
                 common::program_symbols(Box::leak(common::compile(app).into_boxed_slice()));
             let mut host: Box<dyn EffectHost> = if app == "chat" {

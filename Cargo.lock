@@ -889,6 +889,7 @@ dependencies = [
  "nexus-layout-types",
  "nexus-query",
  "nexus-scene-raster",
+ "nexus-service-entry",
  "nexus-text-baked",
  "nexus-theme-tokens",
  "nexus-widget-icon",

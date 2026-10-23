@@ -207,3 +207,16 @@ rest split off, freed neighbours merged, a double free refused, a block with no 
 counted (`apphost: frame arena (… large= lost=)`). The spill itself, and the arena's size, stay the
 memory lane's (6b); a spilling session's heap is flat after its first two layouts
 (`a_spilling_session_stops_growing_after_two_layouts`).
+
+**Amendment 2026-10-23 (TASK-0333 6b-2a) — the arena is reserved for the largest frame.** Since
+ADR-0077 a static array in `.bss` is reserved at exec and committed page by page on first touch,
+so the arena's size is no longer what every app process pays: it is 4 MiB
+(`nexus_service_entry::FRAME_ARENA_BYTES`, halves of 1 MiB — `FRAME_ARENA_HALF`), sized for the
+largest frame measured — the chat's, 293 848 B of scene and 500 552 B of layout at every window
+size, maximized included (it lays out its whole first page, whatever the window shows). The
+recorded per-app budgets are held against the half when the test file builds
+(`tests/dsl_apps_conformance/tests/frame_arena_budget.rs`, a const assertion), so a budget raised
+past the half fails before a board does. A spill is no longer tolerated on the board
+(`SELFTEST: frame arena spill FAIL` left `config/fail-marker-allow-board.txt`). The greeter's
+app-host stays at the same committed bytes on the lanes (7 000 064 B), its reservation 3 MiB
+larger. Purging a reset generation's pages under pressure stays 6e's (M5).

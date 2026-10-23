@@ -35,6 +35,15 @@ mod large;
 mod cursor_tripwire;
 mod debug_write;
 
+/// The frame arena's bytes (ADR-0065) in a service that enables `frame-arena`: both regions,
+/// both halves. It sits in `.bss`, which exec reserves and the first touch commits (ADR-0077),
+/// so it is sized for the LARGEST frame rather than a usual one — a frame that does not fit
+/// spills onto the base heap (`SELFTEST: frame arena spill FAIL`, TASK-0333 6b-2).
+pub const FRAME_ARENA_BYTES: usize = 4 * 1024 * 1024;
+
+/// What one frame phase (emit, layout) may hold before it spills: one half of one region.
+pub const FRAME_ARENA_HALF: usize = FRAME_ARENA_BYTES / generation::Region::COUNT / 2;
+
 /// Declares the `_start` entry point for OS builds, delegating to `bootstrap`.
 ///
 /// Services should expose an `fn os_entry() -> Result<(), E>` and invoke this macro:
@@ -177,13 +186,13 @@ pub mod os {
     /// are unchanged to the byte. Only a service that rebuilds and discards a
     /// frame on every interaction needs it, and today that is the app-host.
     ///
-    /// Sized from the measurement in TASK-0077C — one layout call allocates
-    /// 226 560 B against 119 824 B retained — with room for the text runs
-    /// beside it. Two halves, so one generation is 512 KiB. The budget probe
-    /// prints the real peak; this is a ceiling to tighten against, not a guess
-    /// to live with.
+    /// [`crate::FRAME_ARENA_BYTES`]: reserved, committed page by page as frames
+    /// touch it (ADR-0077). The 1 MiB of TASK-0077C (256 KiB halves) held every
+    /// frame but the chat's (469 544 B of layout, 296 368 B of scene); the
+    /// recorded costs are held against [`crate::FRAME_ARENA_HALF`] on the host
+    /// (`tests/dsl_apps_conformance/tests/frame_arena_budget.rs`).
     #[cfg(feature = "frame-arena")]
-    const ARENA_SIZE: usize = 1024 * 1024;
+    const ARENA_SIZE: usize = crate::FRAME_ARENA_BYTES;
     #[cfg(not(feature = "frame-arena"))]
     const ARENA_SIZE: usize = 0;
     static mut ARENA: [u8; ARENA_SIZE] = [0; ARENA_SIZE];

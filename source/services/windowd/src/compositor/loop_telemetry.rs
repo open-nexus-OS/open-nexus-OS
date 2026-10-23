@@ -32,6 +32,8 @@ pub(super) struct LoopTelemetry {
     fullrq_base: u32,
     /// RFC-0110: the judged landings (on time, late, early) at the window's start.
     pace_base: [u32; 3],
+    /// TASK-0333 6b-2 P0: the atlas high-water last reported.
+    atlas_peak: u32,
 }
 
 impl LoopTelemetry {
@@ -44,6 +46,7 @@ impl LoopTelemetry {
             nack_base: 0,
             fullrq_base: 0,
             pace_base: [0; 3],
+            atlas_peak: 0,
         }
     }
 
@@ -118,6 +121,15 @@ impl LoopTelemetry {
                     "windowd: frame pace (on_time={on_time} late={late} early={early} \
                      cadence={cadence} period_us={})",
                     period_ns / 1000
+                ));
+            }
+            // TASK-0333 6b-2 P0: the atlas rows a lazy atlas would hold — on a new high only.
+            let (peak, used) = runtime.atlas_rows();
+            if peak > self.atlas_peak {
+                self.atlas_peak = peak;
+                let _ = debug_println(&alloc::format!(
+                    "windowd: atlas rows (peak={peak} used={used} of={})",
+                    crate::atlas::ATLAS_ROWS
                 ));
             }
         } else {

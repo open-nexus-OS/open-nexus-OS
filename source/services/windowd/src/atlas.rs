@@ -89,13 +89,27 @@ const MAX_FREE_RECTS: usize = 48;
 pub(crate) struct AtlasAllocator {
     free: [FreeRect; MAX_FREE_RECTS],
     free_len: usize,
+    /// The deepest atlas row any surface ever reached (exclusive, from the atlas's first row) —
+    /// what a lazy atlas would have committed (TASK-0333 6b-2 P0).
+    peak_end: u32,
 }
 
 impl AtlasAllocator {
     pub(crate) fn new() -> Self {
         let mut free = [FreeRect { x: 0, y: 0, w: 0, h: 0 }; MAX_FREE_RECTS];
         free[0] = FreeRect { x: 0, y: ATLAS_ROW_OFFSET, w: ATLAS_WIDTH, h: ATLAS_ROWS };
-        Self { free, free_len: 1 }
+        Self { free, free_len: 1, peak_end: 0 }
+    }
+
+    /// The deepest atlas row ever allocated, from the atlas's first row: a high-water mark that
+    /// a free never lowers.
+    pub(crate) fn peak_rows(&self) -> u32 {
+        self.peak_end
+    }
+
+    /// Rows in use now, in full-width row-equivalents (a row partly in use counts whole).
+    pub(crate) fn used_rows(&self) -> u32 {
+        ATLAS_ROWS.saturating_sub(self.total_free_rows())
     }
 
     /// Reserve a FULL-WIDTH band `height` rows tall (`x = 0`). For surfaces whose
@@ -135,6 +149,7 @@ impl AtlasAllocator {
         if r.h > height {
             self.push_rect(FreeRect { x: r.x, y: r.y + height, w: r.w, h: r.h - height });
         }
+        self.peak_end = self.peak_end.max(r.y + height - ATLAS_ROW_OFFSET);
         Some(AtlasSurface { x: r.x, abs_row: r.y, width, height })
     }
 
@@ -169,7 +184,6 @@ impl AtlasAllocator {
 
     /// Total free area expressed in full-width row-equivalents (telemetry / leak
     /// checks): `Σ(w·h) / ATLAS_WIDTH`.
-    #[cfg_attr(not(test), allow(dead_code))] // leak-check telemetry, exercised by host unit tests
     pub(crate) fn total_free_rows(&self) -> u32 {
         let mut area = 0u64;
         for i in 0..self.free_len {
@@ -263,6 +277,22 @@ mod tests {
         assert_eq!((third.x, third.abs_row), (720, ATLAS_ROW_OFFSET));
         // Only 374 rows of full-width capacity were consumed (one band), not 3×374.
         assert_eq!(a.rows_remaining(), ATLAS_ROWS - 374);
+    }
+
+    /// TASK-0333 6b-2 P0: the deepest row ever reached is a high-water mark — what a lazy atlas
+    /// would hold committed — and a free lowers the rows in use, never the mark.
+    #[test]
+    fn the_deepest_row_reached_is_a_high_water_mark() {
+        let mut a = AtlasAllocator::new();
+        assert_eq!((a.peak_rows(), a.used_rows()), (0, 0));
+        let band = a.alloc_band(300).unwrap();
+        let side = a.alloc(360, 200).unwrap();
+        assert_eq!(a.peak_rows(), 500, "the second surface sits below the first band");
+        assert_eq!(a.used_rows(), 300 + (360 * 200u32).div_ceil(ATLAS_WIDTH));
+        a.free(side);
+        a.free(band);
+        assert_eq!(a.used_rows(), 0, "everything back");
+        assert_eq!(a.peak_rows(), 500, "the mark stays where the atlas once reached");
     }
 
     #[test]

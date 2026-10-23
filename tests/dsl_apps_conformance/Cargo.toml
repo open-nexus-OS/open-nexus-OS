@@ -28,3 +28,6 @@ nexus-theme-tokens = { path = "../../userspace/ui/theme-tokens" }
 nexus-text-baked = { path = "../../userspace/ui/text-baked", features = ["layout"] }
 nexus-widget-icon = { path = "../../userspace/ui/widgets/icon" }
 nexus-query = { path = "../../source/libs/nexus-query" }
+# The frame arena's half (ADR-0065): the recorded frame costs are held against the OS arena's
+# real size, not a copy of it (`tests/frame_arena_budget.rs`).
+nexus-service-entry = { path = "../../source/libs/nexus-service-entry" }

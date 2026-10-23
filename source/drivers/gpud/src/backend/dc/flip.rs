@@ -260,6 +260,10 @@ impl DcDisplay {
             return None;
         }
         let landed = self.ring.landed()?;
+        // A ring flip taken: the scan has left the splash (the first one after the reveal).
+        if let Some(live) = self.live.as_mut() {
+            live.release_splash();
+        }
         let at_ns = self.pace.taken_at(self.latched_ns, self.boundary_now());
         self.pace.note_shown(at_ns);
         match landed.next {
