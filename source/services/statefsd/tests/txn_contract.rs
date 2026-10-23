@@ -171,8 +171,8 @@ fn test_compaction_tick_threshold_stats_and_readback_verify() {
     assert_eq!(stats.generation, 1);
     assert_eq!(stats.entries, 1);
     // The tick verified the cycle via bounded device readback — NOT via a
-    // reopen (a reopen per cycle materializes a second engine state, which
-    // the os-lite bump allocator never frees): the engine reports the new
+    // reopen (a reopen per cycle materializes a second engine state: a second
+    // copy of the store in a fixed-size heap): the engine reports the new
     // generation and intact state without a re-replay.
     assert_eq!(engine.generation(), 1);
     assert_eq!(engine.get(KEY_A).expect("a"), [49u8; 64]);

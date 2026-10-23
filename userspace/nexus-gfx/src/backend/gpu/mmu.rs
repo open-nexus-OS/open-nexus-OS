@@ -153,7 +153,7 @@ struct Pt {
 /// A space's slot tables (`MAX_PDS` / `MAX_PTS` entries) on the heap — a fixed array of 64
 /// tables was 6.5 KiB of a service's stack frame wherever the space was held (gpud's 32 KiB
 /// stack overflowed on the QEMU lane, 2026-10-13) — kept from one space to the next: a device
-/// whose heap never frees makes and destroys contexts over the same storage
+/// makes and destroys contexts over the same storage, allocated once
 /// ([`PageTables::destroy`] hands it back).
 #[derive(Clone, Debug)]
 pub struct TableStorage {

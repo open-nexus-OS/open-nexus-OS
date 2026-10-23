@@ -60,6 +60,9 @@ pub(super) struct SurfaceBinding {
     entered: Entered,
     /// The ring's pages: the ring object's, counted entered here.
     hole: u64,
+    /// Time spent entering pages since the frame last took it (ns) — a band's first entry,
+    /// apart from the clean (TASK-0333 6b-3).
+    spent_ns: u64,
 }
 
 impl SurfaceBinding {
@@ -101,7 +104,12 @@ impl SurfaceBinding {
         if !entered.enter_missing(hole.0, hole.1, |_, _| true) {
             return Err("the ring's rows".into());
         }
-        Ok(Self { rows, entered, hole: hole.1 - hole.0 })
+        Ok(Self { rows, entered, hole: hole.1 - hole.0, spent_ns: 0 })
+    }
+
+    /// The time spent entering pages since the last take (µs), and none from here on.
+    pub(super) fn take_spent_us(&mut self) -> u64 {
+        core::mem::take(&mut self.spent_ns) / 1000
     }
 
     /// Enters the pages rows `[row, row + h)` span (clipped to the object) that are not entered
@@ -120,6 +128,7 @@ impl SurfaceBinding {
         if self.entered.all(first, last) {
             return Ok(());
         }
+        let t0 = nexus_abi::nsec().unwrap_or(0);
         let mut refused = None;
         let entered = self.entered.enter_missing(first, last, |a, b| {
             let va = GpuVa(LAYOUT_VA + a * PAGE);
@@ -131,6 +140,7 @@ impl SurfaceBinding {
                 }
             }
         });
+        self.spent_ns += nexus_abi::nsec().unwrap_or(t0).saturating_sub(t0);
         if entered {
             Ok(())
         } else {

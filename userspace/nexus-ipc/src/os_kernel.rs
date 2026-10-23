@@ -124,9 +124,9 @@ impl KernelClient {
     /// Receives a response into a caller-provided buffer, returning the frame length.
     ///
     /// Allocation-free counterpart to [`Client::recv`] (which returns a freshly
-    /// allocated `Vec<u8>` per call). Preferred in hot loops on services backed by
-    /// a non-freeing bump allocator — e.g. windowd draining gpud present-acks every
-    /// frame — where a per-call `Vec` would monotonically consume the heap.
+    /// allocated `Vec<u8>` per call). Preferred in hot loops — e.g. windowd draining
+    /// gpud present-acks every frame — where a per-call `Vec` is an allocation per
+    /// message.
     pub fn recv_into(&self, wait: Wait, out: &mut [u8]) -> Result<usize> {
         self.recv_into_flags(wait, out, false)
     }
@@ -188,7 +188,7 @@ pub struct KernelServer {
 ///
 /// A server answers the PREVIOUS request together with the wait for the next
 /// one, so the answer has to outlive the iteration that produced it. One buffer
-/// for the service's lifetime, because the os-lite heap never frees. Nothing
+/// for the service's lifetime, so parking a reply allocates nothing. Nothing
 /// parked means the last requester moved no capability — P2-c's rule, carried
 /// through the merge rather than re-stated at every call site.
 pub struct PendingReply {
@@ -342,7 +342,7 @@ impl KernelServer {
     ///
     /// The allocation-free counterpart of the deleted `recv_with_header_meta`: samgrd echoes
     /// that PID (`OP_SENDER_PID`) and execd serves on it, and both were paying a `Vec` per
-    /// request on a heap that never frees to get it (TASK-0054C P5b).
+    /// request on a heap that never freed to get it (TASK-0054C P5b).
     pub fn recv_request_with_header_into(
         &self,
         wait: Wait,
@@ -366,8 +366,8 @@ impl KernelServer {
     /// Receives a request into a caller-provided buffer and returns:
     /// `(frame_len, sender_service_id, reply_cap_if_cap_move)`.
     ///
-    /// This is the preferred API for os-lite services that use a bump allocator: it avoids
-    /// per-message heap allocations (which would otherwise monotonically consume heap).
+    /// This is the preferred API for os-lite services: it avoids per-message heap
+    /// allocations, so a client cannot make the service allocate.
     pub fn recv_request_with_meta_into(
         &self,
         wait: Wait,

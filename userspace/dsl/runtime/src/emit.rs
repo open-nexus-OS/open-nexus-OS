@@ -176,7 +176,7 @@ pub(crate) fn emit_view<'p>(
             // Built ONLY when this reference actually binds a slot. The
             // snapshot deep-clones `locals` (Values carry Str/List), and this
             // arm runs for every component reference in every emit — paying
-            // that on a hot path in a service whose allocator never frees,
+            // that on the app-host's hot emit path,
             // for the overwhelming majority of references that bind nothing,
             // would be a per-frame allocation regression.
             let args = component_ref.get_slots().map_err(|_| RtError::Malformed)?;
@@ -403,8 +403,8 @@ fn emit_widget<'p>(
     }
 
     // Inherently-animated KIT WIDGET: emit a CONTINUOUS loop intent for this
-    // node (paint-time transform loop — the app-host heap never frees, so
-    // per-frame re-emit is out). The intent VALUE carries the loop sub-kind
+    // node (paint-time transform loop — a per-frame re-emit allocates every
+    // frame, so it is out). The intent VALUE carries the loop sub-kind
     // (`crate::anim::LOOP_*`); the animated part is a stable pre-order child
     // offset of the builder's fixed structure, so the host targets child
     // boxes without any rebuild.

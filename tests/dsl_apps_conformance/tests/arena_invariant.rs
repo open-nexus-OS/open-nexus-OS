@@ -50,7 +50,7 @@ static OPEN: AtomicBool = AtomicBool::new(false);
 /// Generations opened so far — the proof counts them.
 static GENERATIONS: AtomicUsize = AtomicUsize::new(0);
 /// Bytes handed out by the SYSTEM heap — i.e. outside every scope. On the OS
-/// this is exactly what the never-freeing base heap would keep.
+/// this is what the base heap serves (and, before its free lists, kept).
 static SYSTEM_BYTES: AtomicUsize = AtomicUsize::new(0);
 /// Frames abandoned — emissions that failed half-way.
 static ABANDONED: AtomicUsize = AtomicUsize::new(0);

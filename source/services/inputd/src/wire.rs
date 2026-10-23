@@ -97,10 +97,10 @@ pub fn decode_wire_batch(
 
 /// [`decode_wire_batch`] with a RECYCLED events buffer: the caller passes the
 /// `Vec` recovered from the previous batch (`HidBatch::into_events`) and its
-/// capacity is reused. The OS-lite live loop decodes every pointer batch on a
-/// NON-FREEING bump heap — a fresh per-batch `Vec` leaked ~256B per mouse
-/// batch and exhausted inputd's heap in under a minute of active input
-/// (`alloc-fail svc=inputd` → dead input chain).
+/// capacity is reused: the OS-lite live loop decodes every pointer batch, and
+/// none allocates (when the heap never freed, a fresh per-batch `Vec` leaked
+/// ~256B per mouse batch and exhausted inputd's heap in under a minute of
+/// active input: `alloc-fail svc=inputd` → dead input chain).
 pub fn decode_wire_batch_reusing(
     batch: &WireHidBatch,
     pointer_transform: PointerTransform,

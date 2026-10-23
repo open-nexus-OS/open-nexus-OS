@@ -124,8 +124,8 @@ fn write_req_header(buf: &mut [u8], op: u8, nonce: u32) {
     buf[4..8].copy_from_slice(&nonce.to_le_bytes());
 }
 
-/// No-alloc READ request encoder (bump-allocator services MUST use the
-/// `_into` family — per-request `Vec`s never free on the OS heap).
+/// No-alloc READ request encoder (OS services MUST use the `_into` family —
+/// no `Vec` per request on a service's request path).
 pub fn encode_read_into(buf: &mut [u8], nonce: u32, part: u8, lba: u64, count: u16) -> usize {
     write_req_header(buf, OP_READ, nonce);
     buf[8] = part;

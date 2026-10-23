@@ -147,6 +147,9 @@ struct Stats {
     us: u64,
     max_us: u64,
     clean_us: u64,
+    /// TASK-0333 6b-3: the surfaces' pages entered for the GPU (a band's first frame), apart
+    /// from the clean — the sum and the most one frame spent (µs).
+    enter_us: [u64; 2],
     passes: u64,
     draws: u64,
     glass: [u64; 3],
@@ -429,7 +432,8 @@ impl Desktop {
                 self.cleaned.clean(target, i, (l.src_x, l.src_row_abs, w, h));
             }
         }
-        let clean_us = now_ns().saturating_sub(c0) / 1000;
+        let enter_us = self.surface.take_spent_us();
+        let clean_us = (now_ns().saturating_sub(c0) / 1000).saturating_sub(enter_us);
         let (display, layout_rows, who) = (self.display, self.layout_rows, (self.client, self.ctx));
         let (scratch, half, cache) = (self.scratch, self.half, self.cache);
         let Self { frame, rings, pipes, captured, streams, .. } = self;
@@ -499,6 +503,7 @@ impl Desktop {
             s.ux.note(us);
             s.work.add(work);
             s.clean_us += clean_us;
+            s.enter_us = [s.enter_us[0] + enter_us, s.enter_us[1].max(enter_us)];
             s.passes += passes as u64;
             s.draws += draws as u64;
             s.area_px += area_px;
@@ -531,10 +536,12 @@ impl Desktop {
             if s.frames == WINDOW {
                 let n = u64::from(WINDOW);
                 emit_fmt(format_args!(
-                    "gpud: gpu frame us (n={n} avg={} max={} clean={} passes={}.{} draws={} area_px={} glass_w={} glass_r={} glass_off={} glass_idx={:#x} split=plan {}/emit {}/submit {}/wait {}/retire {})",
+                    "gpud: gpu frame us (n={n} avg={} max={} clean={} enter={}/{} passes={}.{} draws={} area_px={} glass_w={} glass_r={} glass_off={} glass_idx={:#x} split=plan {}/emit {}/submit {}/wait {}/retire {})",
                     s.us / n,
                     s.max_us,
                     s.clean_us / n,
+                    s.enter_us[0] / n,
+                    s.enter_us[1],
                     s.passes / n,
                     (s.passes % n) * 10 / n,
                     s.draws / n,

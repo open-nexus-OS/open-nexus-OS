@@ -48,7 +48,7 @@ pub enum LogLevel {
     Trace,
 }
 
-/// Fixed-size byte storage to avoid per-record heap allocations (bump allocator friendly).
+/// Fixed-size byte storage: a record carries its bytes inline and allocates nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InlineBytes<const N: usize> {
     len: u16,
@@ -119,13 +119,14 @@ pub enum JournalError {
 }
 
 /// Bounded RAM journal: fixed caps; overflow drops oldest.
+///
+/// The bounds are on what the journal HOLDS, never on what it has taken over its life: a
+/// record is inline bytes in a slot allocated once, so appending allocates nothing, and a
+/// journal that rotates keeps logging for as long as the service lives (TASK-0333 6b-3 — the
+/// lifetime budget it carried for the bump heap switched logging off for good after 256 KiB).
 pub struct Journal {
     cap_records: u32,
     cap_bytes: u32,
-    alloc_cap_bytes: u32,
-    // Lifetime allocated bytes budget (for bump allocators). NOTE: dropping records does not
-    // reclaim heap in bump allocators, so this is intentionally monotonic.
-    total_allocated_bytes: u32,
     next_id: u64,
     total_records: u64,
     dropped_records: u64,
@@ -136,22 +137,15 @@ pub struct Journal {
 impl Journal {
     /// Creates a new journal with fixed capacities.
     pub fn new(cap_records: u32, cap_bytes: u32) -> Self {
-        Self::new_with_alloc_cap(cap_records, cap_bytes, u32::MAX)
-    }
-
-    /// Creates a journal with an explicit allocation cap (for bump allocators).
-    pub fn new_with_alloc_cap(cap_records: u32, cap_bytes: u32, alloc_cap_bytes: u32) -> Self {
         let cap_records = cap_records.max(1);
         Self {
             cap_records,
             cap_bytes: cap_bytes.max(1),
-            alloc_cap_bytes: alloc_cap_bytes.max(1),
-            total_allocated_bytes: 0,
             next_id: 1,
             total_records: 0,
             dropped_records: 0,
             used_bytes: 0,
-            // Pre-allocate to avoid growth patterns that leak heap under bump allocators.
+            // Every slot at once: an append never grows the deque.
             records: VecDeque::with_capacity(cap_records as usize),
         }
     }
@@ -175,11 +169,6 @@ impl Journal {
         if size > self.cap_bytes {
             return Err(JournalError::TooLarge);
         }
-        // Allocation cap is a lifetime budget (bump allocator friendly): if this is exceeded,
-        // the journal rejects new records rather than exhausting the process heap.
-        if self.total_allocated_bytes.saturating_add(size) > self.alloc_cap_bytes {
-            return Err(JournalError::TooLarge);
-        }
 
         // Ensure capacity for the new record.
         while (self.records.len() as u32) >= self.cap_records
@@ -199,12 +188,6 @@ impl Journal {
         {
             return Err(JournalError::TooLarge);
         }
-        // Allocation cap is a secondary guardrail (primarily for constrained allocators).
-        // Enforce it on *current* usage, not lifetime allocated bytes, so drop-oldest rotation
-        // doesn't permanently disable logging under steady-state workloads.
-        if self.used_bytes.saturating_add(size) > self.alloc_cap_bytes {
-            return Err(JournalError::TooLarge);
-        }
 
         let record_id = RecordId(self.next_id);
         self.next_id = self.next_id.saturating_add(1);
@@ -222,7 +205,6 @@ impl Journal {
         };
         self.records.push_back(rec);
         self.used_bytes = self.used_bytes.saturating_add(size);
-        self.total_allocated_bytes = self.total_allocated_bytes.saturating_add(size);
 
         Ok(AppendOutcome { record_id, dropped_records: self.dropped_records })
     }
@@ -250,7 +232,7 @@ impl Journal {
 
     /// Iterates records with timestamp >= `since_nsec`, in insertion order.
     ///
-    /// This is allocation-free and is preferred for OS-lite query encoding under bump allocators.
+    /// Allocation-free (no `Vec` per query), so OS-lite query encoding uses it.
     pub fn iter_since(&self, since_nsec: TimestampNsec) -> impl Iterator<Item = &LogRecord> {
         self.records.iter().filter(move |rec| rec.timestamp_nsec.0 >= since_nsec.0)
     }

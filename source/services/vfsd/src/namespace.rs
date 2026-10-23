@@ -11,7 +11,7 @@
 //! larger moves as the CALLER'S VMO, forwarded on to packagefsd and from there
 //! to bundlemgrd, which is the only hop that may write bytes or a success
 //! header. vfsd used to hold whole entries — one `Vec` per resolve and another
-//! per open handle, on a bump heap that never frees — and that is why 22 of the
+//! per open handle, on a bump heap that never freed — and that is why 22 of the
 //! system volume's 115 entries could not be read at all.
 //!
 //! OWNERS: @runtime
@@ -67,8 +67,8 @@ impl Namespace {
     /// Asks packagefsd for one entry's METADATA. The reply is 11 bytes and
     /// carries no file content: entry bytes riding this frame is what made 22
     /// of the volume's 115 entries unreadable and fatal to packagefsd
-    /// (TASK-0033, RFC-0097). `scratch` is the loop's reusable buffer — this
-    /// service runs on a heap that never frees.
+    /// (TASK-0033, RFC-0097). `scratch` is the loop's reusable buffer — a
+    /// resolve allocates no reply buffer of its own.
     fn packagefs_resolve(&self, path: &str, scratch: &mut [u8]) -> Result<Entry> {
         let rel = self.packagefs_rel(path)?;
         let mut frame = Vec::with_capacity(1 + rel.len());

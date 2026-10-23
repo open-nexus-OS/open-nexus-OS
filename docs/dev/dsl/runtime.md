@@ -150,10 +150,10 @@ app's life ran dry after 28 menu toggles and answered every later read
 **And durable state frees.** What the arena cannot hold — store values, the
 dispatch queue, anything that outlives a frame — still churned on a heap that
 never freed: 432 B per layout on a real boot, a ceiling of ~39 000 interactions.
-So the app-host's base heap frees by size class (`small-object-free-list`,
-ADR-0065): eight classes from 16 to 2048 bytes, LIFO reuse, O(1), no coalescing
-— a session's working set is bounded by its peak per class, and the heap is
-back on the 4 MiB floor the 8 and 16 MiB raises had left. Blocks above the
+So the app-host's base heap frees by size class (ADR-0065; every service's since
+TASK-0333 6b-3, a double free refused): eight classes from 16 to 2048 bytes, LIFO
+reuse, O(1), no coalescing — a session's working set is bounded by its peak per
+class, and the heap is back on the 4 MiB floor the 8 and 16 MiB raises had left. Blocks above the
 largest class return to a bounded large list (first fit, neighbours merged —
 TASK-0344): a frame that spills out of its arena half reuses its blocks instead
 of losing them on every re-layout.

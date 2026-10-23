@@ -97,7 +97,7 @@ fn emit(line: &str) {
 }
 
 // A line formatted on the stack (`diag::fmt_line`): what a client can cause again and again is
-// never formatted into gpud's heap, which never frees.
+// never formatted into gpud's heap, so no client can make gpud allocate.
 use crate::diag::fmt_line as emit_fmt;
 
 /// Whether init granted gpud a GPU window beside the board's display plane — the board's GPU

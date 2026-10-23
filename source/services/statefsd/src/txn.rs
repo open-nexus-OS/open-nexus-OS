@@ -131,8 +131,8 @@ pub enum CompactionTick {
 /// device readback of the superblock + fresh snapshot checked byte-for-byte
 /// against what the cycle serialized — before the caller may emit. A full
 /// `engine.reopen()` here would prove the same thing but materializes a
-/// second engine state every cycle; under the os-lite bump allocator (never
-/// frees) that exhausted statefsd's heap after a handful of ambient cycles
+/// second engine state every cycle; when the os-lite heap never freed, that
+/// exhausted statefsd's heap after a handful of ambient cycles
 /// (QEMU: alloc-fail at gen=7, 384 KiB heap).
 pub fn compaction_tick<B: BlockDevice>(engine: &mut JournalEngine<B>) -> CompactionTick {
     if engine.open_txns() != 0 {

@@ -13,8 +13,8 @@
 //! verified `payload.elf` and the header LAST), poll the header, map the
 //! VMO read-only at a kernel-chosen address, and `exec_v2` the mapped
 //! slice — a mapped VMO is a valid ELF source, no kernel change. The
-//! mapping is kept for the process lifetime (the VMO arena never frees; a
-//! respawn re-execs the same bytes, ADR-0057). P4 runs this pass from the
+//! mapping is kept for the process lifetime (a respawn re-execs the same
+//! bytes, ADR-0057). P4 runs this pass from the
 //! CORE-plane stage (`core_plane.rs`), BEFORE any per-pid endpoint mint. Failure is honest absence:
 //! `init: volume spawn FAIL svc=<n> reason=<r>` and the service is simply
 //! not there (its consumers are best-effort by design — the pilot is

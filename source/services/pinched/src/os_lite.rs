@@ -72,7 +72,7 @@ impl ReadyNotifier {
 
 /// Static job buffer: the workpool workers and the server loop share it via
 /// atomics (disjoint chunks per worker — no locks, no per-request allocation;
-/// the service bump allocator never frees).
+/// its size is fixed at build time).
 static JOB_BUF: [AtomicU32; MAX_JOB_ELEMS] = [const { AtomicU32::new(0) }; MAX_JOB_ELEMS];
 
 /// Whether the workpool came up; false = inline fallback (workers = 0).
@@ -105,7 +105,7 @@ extern "C" fn job_map_mix(start: usize, end: usize, _ctx: *mut u8) {
 /// Each row rasterizes into a stack buffer and lands as u32le pixels in the
 /// shared atomic buffer (disjoint per-row ranges — no worker overlap). The
 /// per-worker scratch is ONE bounded allocation per job (batch path; the
-/// bump allocator never frees, so nothing here allocates per row).
+/// row loop is hot, so nothing here allocates per row).
 extern "C" fn job_svg_rows(start: usize, end: usize, _ctx: *mut u8) {
     let step = &SVG_STEP[start % 4];
     step.store(1, Ordering::Release);
@@ -161,8 +161,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> PinchedResult<()> {
     // consecutive errors marks our own endpoint defect.
     let mut breaker = nexus_ipc::resilience::CircuitBreaker::new(64, 3);
 
-    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
-    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    // ONE request buffer for the service lifetime: a receive allocates nothing, however many
+    // requests arrive (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     loop {
         match server.recv_request_with_meta_into(Wait::Blocking, &mut recv_frame) {

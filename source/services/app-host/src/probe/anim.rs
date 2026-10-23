@@ -35,7 +35,7 @@ use nexus_scene_raster::NodeAnim;
 
 /// Max concurrent DSL node transforms (mirrors the engine's active-animation
 /// cap). Bounds the driver, the value-diff table, and the paint transform
-/// table so none grows on the non-freeing bump heap. Sized for the modifier
+/// table so none grows on the heap. Sized for the modifier
 /// anims + widget loops (a Spinner carousel alone holds 12 spoke entries) +
 /// the INTERACTION motions (hover-grow/press-bounce can touch several nodes
 /// while sweeping the pointer).
@@ -60,7 +60,7 @@ const BREATHE_MID: f32 = 0.55;
 /// Sweep loop spring (`LOOP_SWEEP`: shimmer band / indeterminate pip): an
 /// overdamped ~1s glide across the track; the sawtooth RESETS to 0 on
 /// convergence and re-fires. Springs only — a `keyframe_to` per cycle would
-/// alloc a waypoint Vec on the non-freeing bump heap forever.
+/// alloc a waypoint Vec every cycle, for as long as the widget lives.
 const SWEEP_SPRING: SpringConfig =
     SpringConfig { stiffness: 16.0, damping: 9.0, mass: 1.0, initial_velocity: 0.0 };
 /// Carousel step interval (`LOOP_CAROUSEL`): ~80ms per spoke — one revolution

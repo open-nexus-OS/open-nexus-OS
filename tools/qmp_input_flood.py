@@ -4,7 +4,7 @@
 TASK-0054C P2-g. Every other lane drives input politely: a few moves, a click,
 a key. Nothing drove it HARD, and that is the gap a real user found by dragging
 the mouse in the greeter: inputd allocated a `Vec` per HID batch on a heap that
-never frees, exhausted 384 KiB in under twenty seconds, died, and took the whole
+never freed, exhausted 384 KiB in under twenty seconds, died, and took the whole
 input chain with it (`hidrawd: tx hz=0` while events kept arriving) — so the
 login could never be clicked and the boot sat on the greeter forever.
 

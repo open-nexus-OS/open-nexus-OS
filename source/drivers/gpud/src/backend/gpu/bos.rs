@@ -6,7 +6,7 @@
 //! (`GpuPrivate`, no region) — or a plane of the ring adopted by its bus address (the display's
 //! memory). A buffer belongs to its client, is bound in ranges (`Mapping`) in any number of its
 //! client's contexts, and is destroyed by its client once nothing binds it. The table is
-//! allocated once (gpud's heap never frees); a destroyed buffer's slot serves the next.
+//! allocated once, at its bound; a destroyed buffer's slot serves the next.
 
 use alloc::vec::Vec;
 
@@ -21,8 +21,8 @@ use super::gpu_vmo::GpuVmo;
 /// Buffers the device holds at once.
 pub(super) const MAX_BOS: usize = 64;
 
-// A buffer is a slot of the table, allocated once: boxing the DMA VMO's run list would take
-// gpud's heap per buffer, and that heap never frees.
+// A buffer is a slot of the table, allocated once: boxing the DMA VMO's run list would make
+// gpud allocate for every buffer a client creates.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum Backing {
     /// The device's own pages, CPU-mapped (`CpuCached`).
@@ -125,8 +125,8 @@ pub(super) struct Bos {
 
 impl Bos {
     pub(super) fn new() -> Self {
-        // The table's whole bound at once: gpud's heap never frees, and a table grown by
-        // doubling leaves every smaller copy behind.
+        // The table's whole bound at once: one allocation, where a table grown by doubling
+        // would copy itself and free the smaller copy at every step.
         Self { table: Vec::with_capacity(MAX_BOS) }
     }
 

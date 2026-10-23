@@ -4,7 +4,7 @@
 //! CONTEXT: the PNG encoder of screenshots (TASK-0068: a capture is saved as PNG to the
 //! user's Pictures/Screenshots). A BGRA8 frame goes in, an RGB8 PNG (color type 2; alpha is
 //! dropped, screenshots are opaque) comes out, streamed through a [`Sink`]. Built for a
-//! service whose heap never frees (a bump allocator): [`Encoder::new`] allocates every
+//! service whose heap is small and fixed at build time: [`Encoder::new`] allocates every
 //! scratch buffer ONCE, sized from the widest frame it will see, and [`Encoder::encode`]
 //! allocates nothing; the same encoder serves every later frame of that width or narrower.
 //!

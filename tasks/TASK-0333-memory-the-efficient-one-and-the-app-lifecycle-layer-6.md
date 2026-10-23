@@ -457,6 +457,63 @@ field; settingsd and statefsd lived on; not on the split's path, the first such 
 cycles. The cure is event-driven (the setting a watch, the flush asynchronous), and the board gate
 does not read `WINDOWD:`/`inputd:` FAIL lines.
 
+**6b-3 — every service's heap frees (cut 2026-10-23).** The free lists for every service (the
+opt-in feature retired), the small classes' double free refused, gpud on them and the "never
+frees" comments made true; logd's journal loses the lifetime budget it kept for the bump (after
+256 KiB appended over its life it refused every record — its records live in slots allocated
+once, so the budget guarded nothing); `vm_unmap` re-checks the object (6a's gap); the evidence: the kernel
+names a space that reached a new high at each reap (`KINIT: mm grew (…)`), gpud's frame line a
+band's first entry apart from the clean (`enter=`, 6b-2b's carry). **Moved to 6d:** the windowd
+restart rung — a compositor restart (the grant again, a new GPU context, gpud giving back the
+dead one's buffers) is the lifecycle's: a death is an event.
+
+**6b-3 — three lenses.**
+- **Scope** — `nexus-service-entry` (`freelist.rs`: the bitmap over the base heap and the
+  refusal; `lib.rs`, `os/global_alloc.rs`, `os/frame_arena.rs`: no feature gate; `Cargo.toml`), the
+  three opted-in services' manifests, app-host's probe (`refused=`), `scripts/check-retired-names.sh`
+  (`small-object-free-list` retired); kernel `mm/vm_ops.rs` + `syscall/api/vm_map.rs` (the unmap
+  answers its object, the rule runs), `selftest/lifetime.rs`, `mm/growth.rs` (pure) +
+  `mm/usage.rs::report_growth` + the reap's call; gpud `desktop_surface.rs` + `desktop.rs`
+  (`enter=`); logd `journal.rs` + `os_lite.rs` (the lifetime budget goes); the comment sweep. **Out:** the windowd restart (6d), purgeable memory and limits
+  (6e), a general-purpose allocator (the lists stay bounded and deterministic), coalescing classes.
+- **Invariant** — a block is on a list at most once: a second free is refused without a byte
+  written (`test_reject_a_double_free_of_a_class_block`, the large list's `test_reject_a_double_free`);
+  a block not the base heap's never enters a list (`test_reject_freeing_a_block_that_is_not_the_heaps`);
+  an object nobody names dies at its last unmap (`KSELFTEST: vm unmap reclaim ok (bytes=)`); the
+  growth line reads committed bytes only, names a new high once (`growth.rs` tests,
+  `test_reject_naming_a_reused_pid_or_one_past_the_table`); a rotating journal keeps logging past
+  any lifetime total (`journal_keeps_logging_long_past_its_lifetime_total`).
+- **Contract** — ADR-0065 (amended: the lists every service's), RFC-0100 §1 (the unmap is the
+  rule's third caller).
+
+**6b-3 P0 (QEMU `visible--2026-10-23T13-07-58`, the lists still opt-in):** `KSELFTEST: vm unmap
+reclaim ok (bytes=8192)` with `KINIT: vm reclaim (… by=unmap …)`; the growth lines name the boot's
+warm-up (gpud's 108 MB framebuffer at the attach, the greeter's app-host, `updated`, the selftest
+client) and, over the rss loop's ten reaps, no service — QEMU's lane churns too little to tell the
+lists apart; the board's series is where it shows. The board's baseline is cycle 66's: free frames
+fall by 9–20 at each app's close (cycle 65 the same).
+
+**6b-3 QEMU finds (2026-10-23).** (1) The double-free bitmap measured from the heap's first byte,
+the blocks are cut on the absolute 16-byte grid: 14 services refused every free as foreign and the
+lanes stayed green — the base is now rounded to the grid, and a refusal is the FAIL-shaped
+`SELFTEST: alloc free refused FAIL (…)`. (2) `visible--2026-10-23T15-00-28`: netstackd died with
+`INST @ sepc=` a kernel text address — `context_switch_to_task` wrote `sepc` with supervisor
+interrupts on, a timer trap in the window up to `sret` overwrote it (a kernel race older than 6b-3,
+never seen in 848 archived logs). The switch now masks SIE first and writes the frame's `sstatus`
+with SIE clear; `sret` enables it from SPIE. Both lanes green after it
+(`headless--2026-10-23T15-56-15`, `visible--2026-10-23T16-00-54`).
+
+**6b-3 board cycle 67 (`board--2026-10-23T16-12-49`, build dev-295a).** H1 ✅ no `alloc-fail`, no
+refused free; the census within a few pages of cycle 66 (init-lite +17 pages, selftest-client
+−84). H2 ✅ after the desktop only gpud is named (+39.8 MB with three apps open, given back at their
+closes: free +2 962, +911 frames); no system service grows; the rss loop's reaps fall by 2 and 5
+frames, then flat (cycle 66: 3 and 12). H3 ✅ `vm unmap reclaim ok (bytes=8192)`. H4 ✅ `enter=`
+non-zero in the six windows a window opened in, `0/0` in fifteen steady ones. H5 ✅ the series
+(tiling by drag and chord, screenshot, clipboard, modal), no FAIL kind absent from earlier board
+logs, no netstackd fault. `board-visible` is red on the operator's `typed` alone: letters typed
+into an app do not show (the known keyboard defect, in the UX lane); `typed` and `gpu-desktop`
+(whose text names typing) left unacked.
+
 ## Definition of Done (per step)
 
 1. The measurement folder answers the step's question with archived numbers from both lanes.

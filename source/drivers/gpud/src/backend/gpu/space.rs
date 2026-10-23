@@ -7,7 +7,7 @@
 //! invalid, as the open kernel driver leaves it), so contexts switch spaces in the firmware.
 //! Made per context; destroyed once the firmware let go of every common context on it: the
 //! tables' pages back to the pool, the memory context unmapped and freed, one waited flush —
-//! the slot storage kept for the next space (gpud's heap never frees).
+//! the slot storage kept for the next space (none made per space).
 
 use nexus_gfx::backend::gpu::fwif::FwMemContext;
 use nexus_gfx::backend::gpu::mmu::{PageTables, TableStorage};

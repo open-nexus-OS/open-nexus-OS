@@ -6,7 +6,7 @@
 #
 # Every other lane drives input politely — a few pointer moves, a click, a key —
 # and that politeness hid a defect a user found in seconds: inputd allocated one
-# `Vec` per HID batch on an os-lite heap that never frees, so ~400 batches a
+# `Vec` per HID batch on an os-lite heap that never freed then, so ~400 batches a
 # second walked its 384 KiB heap to `alloc_error` in under twenty seconds. A dead
 # inputd stops consuming, hidrawd's sends back up (`tx hz=0` while events keep
 # arriving), and input is gone fleet-wide — which is why the reported boot sat on

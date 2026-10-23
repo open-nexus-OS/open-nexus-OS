@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed - 2026-10-23 (a task could resume at a kernel address)
+
+- **The switch into a task no longer leaves a window for an interrupt.** The kernel set a task's
+  return address with interrupts on; an interrupt in the few instructions before the return
+  replaced it, and the task jumped into kernel code and was killed (seen once in QEMU, netstackd).
+  Interrupts are now masked through the switch and come back with the task's own state.
+
+### Changed - 2026-10-23 (every service's heap frees — TASK-0333 6b-3)
+
+- **No service heap is a bump that never frees any more.** The size-class free lists and the
+  large-block list, until now an opt-in of three services, are every service's: a freed block
+  comes back for the next request of its size, so a service's memory follows its working set
+  instead of growing with every request over a session. The opt-in feature is retired.
+- **A double free is refused.** A block already on a list is not linked a second time (that
+  would hand it to two owners later); the refusal is counted and named once per service.
+- **logd keeps logging.** Its journal kept a lifetime budget for the bump heap and, once 256 KiB
+  of records had passed through it, refused every new one; it is bounded by what it holds now.
+- **An object freed while mapped comes back at its unmap.** A VMO whose last capability closed
+  while a space still mapped it is freed when that mapping goes, not kept for the life of the
+  system (`KSELFTEST: vm unmap reclaim ok (…)` on every boot).
+- **The kernel names who grew.** At each reap, a process whose committed memory reached a new
+  high by 256 KiB is named (`KINIT: mm grew (…)`); gpud's frame line shows what entering a new
+  window's pages for the GPU cost (`enter=`).
+
 ### Changed - 2026-10-23 (GPU memory comes from the one pool, its share a fraction of RAM — TASK-0333 6b-2b, ADR-0078)
 
 - **No memory is set aside for the GPU.** The board's display kept a 107.8 MB block for its whole

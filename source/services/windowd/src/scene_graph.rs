@@ -13,7 +13,7 @@
 //! being collapsed); making this live + retiring the hand-composite is P4.
 //!
 //! PRODUCTION INVARIANTS (enforced by tests in this module):
-//! - **Zero per-frame heap allocation**: the OS bump allocator never frees,
+//! - **Zero per-frame heap allocation**: frame time and memory stay flat,
 //!   so the frame loop only uses persistent, capacity-retaining buffers
 //!   (`compute_dirty_set_into`, `render_order_into`, internal dirty list and
 //!   text-tile scratch). Allocation happens at mount/insert time only.
@@ -297,9 +297,9 @@ const NIL: SceneNodeId = SceneNodeId(0);
 ///
 /// Children are stored as **intrusive sibling links** (`first_child` /
 /// `last_child` / `next_sibling`, sentinel = id 0) instead of a per-node
-/// `Vec`: under the OS bump allocator (which never frees) a `Vec` per node
-/// both leaks on growth and costs one heap allocation per node. The links
-/// preserve insertion order (= back-to-front z-order) with O(1) append.
+/// `Vec`: a `Vec` per node costs one heap allocation per node, and another
+/// (plus a copy) each time it grows. The links preserve insertion order
+/// (= back-to-front z-order) with O(1) append.
 #[derive(Debug, Clone)]
 pub struct SceneNode {
     pub id: SceneNodeId,
@@ -384,8 +384,8 @@ pub struct SceneGraph {
     next_id: u64,
     /// Nodes currently marked dirty (deduped via `SceneNode::in_dirty_list`).
     /// Persistent across frames: `Vec::clear` keeps capacity, so steady-state
-    /// frames mark/compute/clean without any heap allocation — mandatory under
-    /// the OS bump allocator, which never frees.
+    /// frames mark/compute/clean without any heap allocation — the module's
+    /// zero per-frame allocation invariant.
     dirty_list: Vec<SceneNodeId>,
     /// Scratch for bitmap-text tile emission in `generate_commands_into`
     /// (reused every frame for the same reason).
@@ -759,7 +759,7 @@ impl SceneGraph {
 
     /// Test/diagnostic convenience — allocating variant of
     /// `compute_dirty_set_into`. Production frame paths must use the `_into`
-    /// form with a persistent buffer (bump allocator: per-frame allocs leak).
+    /// form with a persistent buffer (the zero per-frame allocation invariant).
     pub fn compute_dirty_set(&mut self) -> Vec<SceneNodeId> {
         let mut out = Vec::new();
         self.compute_dirty_set_into(&mut out);

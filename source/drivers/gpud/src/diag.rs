@@ -10,8 +10,8 @@
 //! hazard from a uart log alone was therefore impossible.
 //!
 //! These helpers are for one-shot failure paths only — never a per-frame
-//! path. gpud runs on a bump allocator that never frees, and `debug_putc` is
-//! one syscall per byte.
+//! path: `debug_putc` is one syscall per byte. A line is formatted on the
+//! stack, never on gpud's heap.
 //!
 //! OWNERS: @ui
 //! STATUS: Functional (TASK-0309)
@@ -26,7 +26,7 @@ use nexus_abi::debug_putc;
 const LINE_MAX: usize = 256;
 
 /// A line on the stack: what a client can cause again and again is never formatted into gpud's
-/// heap, which never frees.
+/// heap, so no client can make gpud allocate.
 struct Line {
     buf: [u8; LINE_MAX],
     len: usize,

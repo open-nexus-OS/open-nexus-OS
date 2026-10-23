@@ -474,6 +474,9 @@ pub mod vmo_lifetime;
 // may commit, and a lazy object's frame table — pure, NOT target-gated (host-proven).
 #[path = "mm/lazy.rs"]
 pub mod lazy;
+// TASK-0333 6b-3: who grew — a space's new high by a step, named at a reap (pure, host-proven).
+#[path = "mm/growth.rs"]
+pub mod growth;
 // RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
 // its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
 /// One console line at a time across harts — the pure owner logic (TASK-0327B P4 H0d),

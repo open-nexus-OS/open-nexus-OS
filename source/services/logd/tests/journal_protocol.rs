@@ -43,19 +43,17 @@ fn journal_drop_oldest_by_records() {
 }
 
 #[test]
-fn journal_alloc_cap_is_lifetime_budget() {
-    // In OS-lite, services often use a bump allocator: dropping records does not reclaim heap.
-    // The alloc cap therefore acts as a lifetime budget and must reject deterministically once
-    // exceeded, rather than exhausting the service heap.
-    let mut j = Journal::new_with_alloc_cap(2, 200, 220);
-    j.append(1, TimestampNsec(1), LogLevel::Info, b"s", b"m", b"").unwrap();
-    j.append(1, TimestampNsec(2), LogLevel::Info, b"s", b"m", b"").unwrap();
-    j.append(1, TimestampNsec(3), LogLevel::Info, b"s", b"m", b"").unwrap();
-    // Next append should exceed the lifetime budget and be rejected.
-    assert_eq!(
-        j.append(1, TimestampNsec(4), LogLevel::Info, b"s", b"m", b""),
-        Err(JournalError::TooLarge)
-    );
+fn journal_keeps_logging_long_past_its_lifetime_total() {
+    // TASK-0333 6b-3: bounded by what the journal HOLDS, not by what it took over its life
+    // (a lifetime budget for the bump heap switched logging off for good after 256 KiB).
+    let mut j = Journal::new(2, 200);
+    j.append(1, TimestampNsec(0), LogLevel::Info, b"s", b"m", b"").unwrap();
+    let records = 2 * 256 * 1024 / u64::from(j.stats().used_bytes) + 1;
+    for t in 1..records {
+        j.append(1, TimestampNsec(t), LogLevel::Info, b"s", b"m", b"").unwrap();
+    }
+    let s = j.stats();
+    assert_eq!((s.total_records, s.dropped_records, s.used_records), (records, records - 2, 2));
 }
 
 #[test]

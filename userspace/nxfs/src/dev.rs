@@ -70,8 +70,8 @@ impl<D: BlockDevice> Dev<D> {
 
     /// Fills `buf` from block `lb` onward — ALLOCATION-FREE (the caller
     /// owns the buffer). The streaming read/CoW paths use this; a
-    /// per-window `Vec` would be fatal on the never-freeing service bump
-    /// heaps (a 19 MB container = 290 windows = 19 MB of leaked arena).
+    /// per-window `Vec` would be a large allocation per window on a service
+    /// heap of fixed size (a 19 MB container = 290 windows).
     pub(crate) fn read_into(&self, lb: u64, buf: &mut [u8]) -> Result<()> {
         let mut block = [0u8; LOGICAL_BLOCK_SIZE];
         let mut done = 0usize;

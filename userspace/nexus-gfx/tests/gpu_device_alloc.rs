@@ -1,11 +1,11 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! What the device runs allocates nothing it does not keep (TASK-0215, before 5c-3): gpud's heap
-//! never frees, so a context's library is checked without decoding its programs into memory — the
-//! groups are counted as they are decoded — and the table keeps only each pipeline's placement
-//! and setup; a pass's command streams and its state-load data are made in place. (The emitter's
-//! own proof is `gpu_quads_model::a_pass_is_emitted_without_allocating`.)
+//! What the device runs allocates nothing it does not keep (TASK-0215, before 5c-3), so a client
+//! cannot churn gpud's heap: a context's library is checked without decoding its programs into
+//! memory — the groups are counted as they are decoded — and the table keeps only each pipeline's
+//! placement and setup; a pass's command streams and its state-load data are made in place. (The
+//! emitter's own proof is `gpu_quads_model::a_pass_is_emitted_without_allocating`.)
 
 use std::alloc::{GlobalAlloc, Layout as AllocLayout, System};
 use std::cell::Cell;

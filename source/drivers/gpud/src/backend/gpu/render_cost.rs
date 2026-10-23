@@ -287,7 +287,7 @@ pub(super) fn run_draws<'p>(
     let t_end = now_ns();
     dev.serve_firmware();
     let irqs = dev.gpu.irqs - irqs_before;
-    // What the pass took of gpud's heap, which never frees: nothing, when the pass went through.
+    // How far the pass moved gpud's heap cursor: not at all, when the pass went through.
     let grown = nexus_service_entry::os::heap_cursor().1.saturating_sub(heap_before);
     rig.pass_heap.set(rig.pass_heap.get().max(grown));
     if !done {
@@ -585,7 +585,7 @@ pub(crate) fn rung(dev: &mut Device, display: &mut dyn Display, rc: &mut RungCon
         Err(e) => fail(&e),
     }
     display.gpu_canvas_discard(canvas.row);
-    // gpud's heap never frees: what the GPU rungs left of it, and the most a pass took.
+    // gpud's heap after the GPU rungs: how far its bump cursor got, and the most a pass took.
     let (start, now, end) = nexus_service_entry::os::heap_cursor();
     emit(&alloc::format!(
         "gpud: gpu heap (used={} of={} pass_bytes={})",

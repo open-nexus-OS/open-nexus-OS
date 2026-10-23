@@ -184,7 +184,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     }
     let mut logged_capmove = false;
     let mut logged_capmove_req = false;
-    // ONE request buffer for the service lifetime (bump heap never frees)
+    // ONE request buffer for the service lifetime (a receive allocates nothing),
     // sized to the declared contract above — the allocating recv helper
     // would silently cap every request at 512 bytes.
     let mut recv_buf = alloc::vec![0u8; MAX_REQUEST_FRAME];

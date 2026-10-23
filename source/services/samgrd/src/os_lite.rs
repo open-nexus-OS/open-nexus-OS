@@ -110,8 +110,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let mut logged_capmove = false;
     let mut logged_register = false;
     let mut logged_any = false;
-    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
-    // allocating recv is a countdown (TASK-0054C P2-g/P5b). Transport-capped, never truncates.
+    // ONE request buffer for the service lifetime: a receive allocates nothing, however many
+    // requests arrive (TASK-0054C P2-g/P5b). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     // TASK-0054C P5b-2: the answer to the PREVIOUS request rides out with the wait for the next
     // one. A served request used to cost three kernel entries — `send_on_cap`, `cap_close`, then

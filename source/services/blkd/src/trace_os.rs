@@ -12,7 +12,7 @@
 //! trace lags the console by at most one period, also while no client asks for anything. The
 //! slot must already be this boot's record in the `trace` partition (name AND type) at the place
 //! the ring rule gives its number; the partition has no selector, so no client can name it.
-//! Nothing is allocated per tick (the bump heap never frees): one chunk buffer, reused.
+//! Nothing is allocated per tick, so the keeper's memory stays flat: one chunk buffer, reused.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal

@@ -336,9 +336,9 @@ pub(crate) struct DisplayServerRuntime {
     pipeline_timer: PipelineTimer,
     /// Persistent per-frame command buffer. Reused (cleared, not dropped) every
     /// frame so the GPU-first present path records its ~15 commands without any
-    /// heap allocation. windowd runs on a non-freeing bump allocator, so a fresh
-    /// `CommandBuffer::new()` per frame would leak its `Vec<Command>` regrowth
-    /// (~1.4KB/frame) and exhaust the 1MB heap after ~700 animation
+    /// heap allocation. When windowd's heap never freed, a fresh
+    /// `CommandBuffer::new()` per frame leaked its `Vec<Command>` regrowth
+    /// (~1.4KB/frame) and exhausted the 1MB heap after ~700 animation
     /// frames — the cause of the `alloc-fail svc=windowd` crash mid-animation.
     scene_cb: CommandBuffer,
     /// SystemUI shell with retained scene graph — the single rendering authority

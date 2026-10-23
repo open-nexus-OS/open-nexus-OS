@@ -66,7 +66,77 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     run_peer_closed_send(ctx);
     run_exit_releases(ctx);
     run_child_exit_notify(ctx);
+    run_unmap_reclaim(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
+}
+
+/// The unmap is the lifetime rule's third caller (RFC-0100 §1, TASK-0333 6b-3): an object whose
+/// last capability closed while its owner's space mapped it outlives the close and dies at the
+/// unmap — counted by the reclaim, gone from the table.
+fn run_unmap_reclaim(ctx: &mut Context<'_>) {
+    use crate::mm::{reclaim, vmo, PageFlags, PAGE_SIZE};
+    use crate::syscall::{SYSCALL_VMO_CREATE, SYSCALL_VM_MAP, SYSCALL_VM_UNMAP};
+    ctx.tasks.set_current(Pid::KERNEL);
+    let owner = ctx.tasks.selftest_create_dummy_task(Pid::KERNEL, ctx.scheduler);
+    if !scratch_space(ctx, owner) {
+        log_error!(target: "selftest", "KSELFTEST: vm unmap reclaim FAIL (space)");
+        return;
+    }
+    let mut table = SyscallTable::new();
+    api::install_handlers(&mut table);
+    let timer = ctx.hal.timer();
+    let mut sys_ctx = api::Context::new(
+        ctx.scheduler,
+        ctx.tasks,
+        ctx.router,
+        ctx.address_spaces,
+        timer,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
+    );
+    sys_ctx.tasks.set_current(owner);
+    let len = 2 * PAGE_SIZE;
+    let flags = (PageFlags::VALID | PageFlags::USER | PageFlags::READ | PageFlags::WRITE).bits();
+    let create = Args::new([usize::MAX, len, 0, api::VMO_CREATE_NO_DEVICE, 0, 0]);
+    let slot = table.dispatch(SYSCALL_VMO_CREATE, &mut sys_ctx, &create);
+    let id = slot.as_ref().ok().and_then(|&slot| {
+        match sys_ctx.tasks.current_caps_mut().get(slot).ok()?.kind {
+            CapabilityKind::Vmo { id, .. } => Some(id),
+            _ => None,
+        }
+    });
+    let va = slot.and_then(|slot| {
+        let mapped =
+            table.dispatch(SYSCALL_VM_MAP, &mut sys_ctx, &Args::new([slot, 0, len, flags, 0, 0]));
+        let close = Args::new([slot, 0, 0, 0, 0, 0]);
+        mapped.and_then(|va| table.dispatch(SYSCALL_CAP_CLOSE, &mut sys_ctx, &close).map(|_| va))
+    });
+    let (Some(id), Ok(va)) = (id, va) else {
+        sys_ctx.tasks.set_current(Pid::KERNEL);
+        log_error!(target: "selftest", "KSELFTEST: vm unmap reclaim FAIL (create, map or close)");
+        return;
+    };
+    let alive = vmo::with(id, |_| ()).is_some();
+    let (before, bytes_before) = reclaim::stats();
+    let unmapped =
+        table.dispatch(SYSCALL_VM_UNMAP, &mut sys_ctx, &Args::new([va, len, 0, 0, 0, 0]));
+    let gone = vmo::with(id, |_| ()).is_none();
+    let (after, bytes_after) = reclaim::stats();
+    sys_ctx.tasks.set_current(Pid::KERNEL);
+    if alive && unmapped.is_ok() && gone && after == before + 1 && bytes_after - bytes_before == len
+    {
+        log_info!(target: "selftest", "KSELFTEST: vm unmap reclaim ok (bytes={})", len);
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: vm unmap reclaim FAIL (alive_after_close={} unmap={:?} gone={} reclaimed={})",
+            alive,
+            unmapped,
+            gone,
+            after - before
+        );
+    }
 }
 
 /// A receiver (the endpoint's owner) whose one sender wrote once and then closed its SEND

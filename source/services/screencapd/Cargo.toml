@@ -16,8 +16,6 @@ os-lite = [
     "dep:nexus-service-entry",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
-    # The paths and frames a save builds are small and per request: recycle them.
-    "nexus-service-entry/small-object-free-list",
 ]
 
 [package.metadata.nexus-service]

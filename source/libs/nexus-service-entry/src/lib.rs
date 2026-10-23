@@ -22,14 +22,12 @@
 // (`windowd/src/interaction.rs`). Never a blanket allow.
 #[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
 mod generation;
-// The durable-state half of ADR-0065 exists only where a service opted in;
-// a service without the feature never compiles it (cfg-gate, never allow).
-#[cfg(any(test, feature = "small-object-free-list"))]
-#[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
+// The durable-state half of ADR-0065 — every service's since TASK-0333 6b-3 (no
+// heap is a bump that never frees): the size classes and the large blocks.
+// Compiled where the OS allocator consumes it and in the tests (cfg-gate, never allow).
+#[cfg(any(test, all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
 mod freelist;
-// Its large-block half (TASK-0344), under the same opt-in.
-#[cfg(any(test, feature = "small-object-free-list"))]
-#[cfg_attr(not(any(test, nexus_env = "os")), allow(dead_code))]
+#[cfg(any(test, all(nexus_env = "os", target_arch = "riscv64", target_os = "none")))]
 mod large;
 
 mod cursor_tripwire;
@@ -206,15 +204,16 @@ pub mod os {
         /// service opts in AND opens a scope; `place()` then answers
         /// `BaseHeap` and nothing changes.
         gens: [crate::generation::Generations; crate::generation::Region::COUNT],
-        /// Size-class free lists for DURABLE state (ADR-0065, TASK-0077C P3).
-        /// Opt-in per service; a service without the feature has no field.
-        #[cfg(feature = "small-object-free-list")]
-        lists: crate::freelist::FreeLists,
+        /// Size-class free lists for DURABLE state (ADR-0065, TASK-0077C P3) —
+        /// every service's (TASK-0333 6b-3), a double free refused.
+        lists: crate::freelist::FreeLists<ON_LIST_WORDS>,
         /// Freed blocks above the largest class (TASK-0344) — a frame's spill
         /// among them, which otherwise never came back.
-        #[cfg(feature = "small-object-free-list")]
         large: crate::large::LargeList,
     }
+
+    /// The free lists' bitmap over the base heap: one bit per class block slot.
+    const ON_LIST_WORDS: usize = HEAP_SIZE / crate::freelist::BLOCK_ALIGN / 64;
 
     impl Bump {
         const fn empty() -> Self {
@@ -223,9 +222,7 @@ pub mod os {
                 end: 0,
                 current: 0,
                 gens: [crate::generation::Generations::empty(); crate::generation::Region::COUNT],
-                #[cfg(feature = "small-object-free-list")]
                 lists: crate::freelist::FreeLists::empty(),
-                #[cfg(feature = "small-object-free-list")]
                 large: crate::large::LargeList::empty(),
             }
         }
@@ -235,6 +232,7 @@ pub mod os {
                 self.start = base;
                 self.end = base + size;
                 self.current = base;
+                self.lists.init(base);
                 // Split the region evenly between the phases.
                 #[allow(static_mut_refs)]
                 unsafe {
@@ -259,7 +257,6 @@ pub mod os {
         /// block can serve ANY later request of its class (`crate::freelist`);
         /// a large one is carved on the large list's granule, so its free names
         /// exactly the bytes it was handed (`crate::large`).
-        #[cfg(feature = "small-object-free-list")]
         fn class_layout(layout: Layout) -> (Option<usize>, Layout) {
             match crate::freelist::class_for(layout.size(), layout.align()) {
                 Some(class) => (
@@ -282,14 +279,8 @@ pub mod os {
             }
         }
 
-        #[cfg(not(feature = "small-object-free-list"))]
-        fn class_layout(layout: Layout) -> (Option<usize>, Layout) {
-            (None, layout)
-        }
-
         /// A block a free list can hand back for this (class-rounded) layout,
         /// if one is parked: its class's, or the large list's.
-        #[cfg(feature = "small-object-free-list")]
         fn reuse(&mut self, class: Option<usize>, layout: Layout) -> Option<*mut u8> {
             let addr = match class {
                 // SAFETY: only `dealloc` pushes, only with blocks this
@@ -301,11 +292,6 @@ pub mod os {
                 None => None,
             };
             addr.map(|a| a as *mut u8)
-        }
-
-        #[cfg(not(feature = "small-object-free-list"))]
-        fn reuse(&mut self, _class: Option<usize>, _layout: Layout) -> Option<*mut u8> {
-            None
         }
 
         /// The arena's answer for this layout, or `None` when the base heap

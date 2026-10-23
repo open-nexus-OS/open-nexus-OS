@@ -15,7 +15,7 @@
 //! their memory back, its bindings dropped, its space given back. When the firmware will not
 //! let go of an object, nothing of the context is freed: the slot keeps it in quarantine (the
 //! firmware or the GPU may still reach any of its memory). The slots are allocated once, each
-//! slot's table storage on its first use and kept (gpud's heap never frees).
+//! slot's table storage on its first use and kept for the next context (none made per context).
 
 use alloc::vec::Vec;
 

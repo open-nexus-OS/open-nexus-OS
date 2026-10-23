@@ -42,7 +42,7 @@ pub(crate) const PKGFS_OPCODE_READ_VMO: u8 = 6;
 pub(crate) const PKGFS_OPCODE_READ: u8 = 7;
 
 /// Reply scratch for the packagefsd hop (metadata, listing pages, inline
-/// reads). ONE buffer for the service lifetime — the os-lite heap never frees.
+/// reads). ONE buffer for the service lifetime — a hop allocates nothing.
 /// It no longer has to hold file payloads: bulk moves through a VMO.
 const PKGFS_REPLY_BUF: usize = nexus_abi::IPC_PAYLOAD_MAX;
 
@@ -102,7 +102,7 @@ pub(crate) struct Entry {
 }
 
 /// An open `pkg:/` file. It holds the PATH, not the content — vfsd used to keep
-/// a `Vec` the size of the file per open handle, on a heap that never frees.
+/// a `Vec` the size of the file per open handle, on a heap that never freed.
 pub(crate) struct FileHandle {
     owner_service_id: u64,
     path: String,
@@ -182,11 +182,11 @@ fn run_loop(server: KernelServer, namespace: Namespace) -> Result<()> {
     let mut splice_bytes: u64 = 0;
     let mut splice_fallbacks: u64 = 0;
     // TASK-0179: ONE reusable 64 KiB splice window for the lifetime of the
-    // service. The bump heap never frees, so a per-request window buffer
-    // would leak the size of every file ever spliced.
+    // service: a splice allocates no window of its own (when the heap never
+    // freed, a per-request window leaked the size of every file ever spliced).
     let mut splice_window = alloc::vec![0u8; 64 * 1024];
-    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
-    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    // ONE request buffer for the service lifetime: a receive allocates nothing, however many
+    // requests arrive (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     // ONE reply scratch for every packagefsd hop, for the same reason.
     let mut pkg_scratch = alloc::vec![0u8; PKGFS_REPLY_BUF];

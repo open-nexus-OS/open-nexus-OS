@@ -230,9 +230,9 @@ impl DataStore {
     /// One bounded window of file bytes into a CALLER-OWNED buffer
     /// (TASK-0179). Allocation-free by contract: the nxfs engine walks only
     /// the touched extents and copies straight into `buf`. A per-window
-    /// `Vec` here would leak the whole file into the never-freeing service
-    /// bump heap (a 19 MB container = 290 windows) — that exact shape
-    /// killed vfsd once; do not reintroduce it.
+    /// `Vec` here would be one large allocation per window (a 19 MB
+    /// container = 290 windows) — when the heap never freed, that exact
+    /// shape killed vfsd once; do not reintroduce it.
     pub fn read_window(
         &self,
         path: &str,

@@ -187,7 +187,7 @@ pub fn decode_push_hid_batch(frame: &[u8]) -> Option<WireHidBatch> {
 /// [`decode_push_hid_batch`] with a RECYCLED events buffer: the caller hands
 /// in the `Vec` recovered from the previous batch (`WireHidBatch.events`
 /// after use) and its capacity is reused. The live input loop decodes every
-/// pointer push on a NON-FREEING bump allocator — the plain decode's fresh
+/// pointer push; when its heap never freed, the plain decode's fresh
 /// per-frame `Vec` (~54 B per mouse batch at up to 250 push/s) exhausted
 /// inputd's 384 KB heap within ~30 s of active input (`alloc-fail
 /// svc=inputd` → the whole input chain died). On a malformed frame the
@@ -495,10 +495,10 @@ mod reuse_tests {
 
     #[test]
     fn decode_reusing_recycles_capacity_and_returns_scratch_on_reject() {
-        // The live input loop runs on a non-freeing bump allocator: the
-        // per-frame Vec of the plain decode exhausted inputd's heap under
-        // sustained mouse input. The reusing decode must (a) reuse the passed
-        // buffer's capacity and (b) hand it back on a malformed frame.
+        // When the live input loop's heap never freed, the plain decode's
+        // per-frame Vec exhausted inputd's heap under sustained mouse input.
+        // The reusing decode must (a) reuse the passed buffer's capacity and
+        // (b) hand it back on a malformed frame.
         let batch = WireHidBatch {
             device_kind: HID_KIND_MOUSE,
             device_id: 7,

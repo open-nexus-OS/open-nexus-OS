@@ -31,7 +31,7 @@ const TXN_KEY_B: &str = "/state/app/selftest/txn/b";
 const TXN_VAL_A: &[u8] = b"txn-alpha-v1";
 const TXN_VAL_B: &[u8] = b"txn-beta-v1";
 
-/// Churn keys (static: the os-lite bump allocator never frees `format!`).
+/// Churn keys (static: the churn loop formats no key on the heap).
 const COMPACT_KEYS: [&str; 6] = [
     "/state/app/selftest/compact/k0",
     "/state/app/selftest/compact/k1",

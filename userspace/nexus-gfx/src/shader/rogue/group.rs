@@ -55,8 +55,8 @@ impl Instr {
 pub const MAX_INSTRS: usize = 6;
 
 /// A group's instructions with their phases, in encoding order (last phase first), held in place:
-/// decoding a group never allocates (a device validates a client's programs on a heap that never
-/// frees).
+/// decoding a group never allocates (a device validates a client's programs, and what a client
+/// sends must not make it allocate).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Instrs {
     /// Unused slots stay [`Instrs::FILL`], so equal instructions compare equal.

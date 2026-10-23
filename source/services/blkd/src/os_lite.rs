@@ -49,7 +49,7 @@ struct Served {
     /// TASK-0321 P4b: one armed VMO per sender `(sid, slot)` — bounded
     /// table; a re-arm replaces (closes) the previous one.
     armed: [Option<(u64, u32)>; ARMED_MAX],
-    /// One device run's bounce buffer (heap once; the bump heap never frees).
+    /// One device run's bounce buffer (heap once, reused by every run).
     run: alloc::vec::Vec<u8>,
 }
 
@@ -167,8 +167,8 @@ fn emit_gpt_ok(count: usize) {
     }
 }
 
-/// Serves one decoded request into `out` (ZERO allocation — the bump heap
-/// never frees; per-request `Vec`s killed this service in bring-up).
+/// Serves one decoded request into `out` (ZERO allocation — a request costs
+/// no heap; per-request `Vec`s killed this service in bring-up).
 /// Returns the reply length.
 fn serve(served: &mut Served, gates: &Gates, sender: u64, frame: &[u8], out: &mut [u8]) -> usize {
     let Some((nonce, req)) = blockproto::decode_request(frame) else {

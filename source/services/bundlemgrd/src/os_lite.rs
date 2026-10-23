@@ -160,7 +160,7 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // TASK-0324 P7-d: the VMOs senders armed for their next VMO op.
     let mut armed = nexus_ipc::armed_vmo::ArmedVmos::new();
     nexus_abi::service_verdict_flush("bundlemgrd");
-    // ONE request buffer: the os-lite heap never frees (TASK-0054C P2-g), transport-capped.
+    // ONE request buffer: a receive allocates nothing (TASK-0054C P2-g), transport-capped.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
     loop {
@@ -543,7 +543,7 @@ pub(crate) fn emit_line(message: &str) {
 
 /// Denial marker WITH the denied sender id (DoD: loud with values — a bare
 /// "sender denied" cannot be diagnosed). Bounded (8) so a hostile flood cannot
-/// leak the non-freeing bump heap through the `format!`.
+/// force a `format!` and a UART line per request.
 pub(crate) fn emit_sender_denied(sender_service_id: u64) {
     static DENIED_LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
     if DENIED_LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {

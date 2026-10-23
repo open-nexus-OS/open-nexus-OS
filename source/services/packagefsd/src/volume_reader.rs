@@ -34,8 +34,8 @@ use storage::pkgimg_bundles::parse_index;
 use crate::os_lite::{debug_print, emit_mounted, BundleRegistry, Entry, INDEX_VMO_BYTES};
 
 /// The on-demand file reader: bundlemgrd client + ONE reusable VMO sized
-/// for the largest entry on the volume (the VMO arena never frees, so a
-/// per-request VMO would leak).
+/// for the largest entry on the volume (made once: a request creates no
+/// VMO of its own).
 pub(crate) struct VolumeReader {
     bundle_send: u32,
     /// The CAP_MOVE reply inbox: every VMO op answers here (TASK-0324 P7-d).
@@ -81,8 +81,8 @@ impl VolumeReader {
 
     /// Reads one entry into `out` through packagefsd's OWN small VMO, for the
     /// inline tier only. Bulk never lands here: this VMO holds
-    /// `INLINE_IO_MAX` bytes and the service runs on a heap that never frees,
-    /// so `out` is the loop's reusable buffer, not a fresh `Vec`.
+    /// `INLINE_IO_MAX` bytes, and `out` is the loop's reusable buffer, not a
+    /// fresh `Vec`: a read allocates nothing.
     pub(crate) fn read_inline(
         &self,
         bundle: &str,

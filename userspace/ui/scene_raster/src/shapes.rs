@@ -8,8 +8,8 @@
 //! axis-aligned edges on whole pixels stay exactly as hard as before), polygons from four
 //! sub-scanlines with the exact horizontal overlap of every span, line symbols from the distance
 //! to the nearest segment of their polylines (round caps and joins, painted once). No buffers:
-//! every fill works on the one row it is given, from fixed stack arrays — the painter runs on
-//! services with a non-freeing heap.
+//! every fill works on the one row it is given, from fixed stack arrays — the painter runs per
+//! row of every repaint, so it allocates nothing.
 
 use super::RowCanvas;
 use nexus_layout_types::{PathPoint, PathShape, Rgba8};

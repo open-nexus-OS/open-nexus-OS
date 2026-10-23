@@ -49,9 +49,9 @@ impl DisplayServerRuntime {
     ///
     /// Zero per-frame heap allocation: `scene_cb` is cleared (capacity retained)
     /// rather than freshly allocated, and serialization borrows it instead of
-    /// consuming it into a `CommittedBuffer`. This is mandatory under windowd's
-    /// non-freeing bump allocator — a per-frame `CommandBuffer::new()` would leak
-    /// its `Vec<Command>` and crash the service mid-animation.
+    /// consuming it into a `CommittedBuffer`. When windowd's heap never freed,
+    /// a per-frame `CommandBuffer::new()` leaked its `Vec<Command>` and crashed
+    /// the service mid-animation; the frame path still allocates nothing.
     pub(super) fn build_scene_cb_into(
         &mut self,
         rects: &[DamageRect],

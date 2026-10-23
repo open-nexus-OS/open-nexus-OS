@@ -87,6 +87,9 @@ ladder_headless=(
   # child's death is one frame into the endpoint its parent bound — on four harts too.
   "KSELFTEST: task exit releases ok ("
   "KSELFTEST: child exit notify ok ("
+  # TASK-0333 6b-3 (RFC-0100 §1): an object whose last capability closed while mapped dies at its
+  # last unmap.
+  "KSELFTEST: vm unmap reclaim ok ("
   # TASK-0333 6b-2b (ADR-0078): a lazy object made for a device commits what it is told, in reach.
   "KSELFTEST: vmo lazy device ok ("
   "KSELFTEST: spawn ok pid="

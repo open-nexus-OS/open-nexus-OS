@@ -55,13 +55,13 @@ nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-fe
 # TASK-0324 P4f-3: capability slots have one home.
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 thiserror = { version = "2", optional = true }
-# heap-768k (TASK-0034): the v2 engine's per-stage allocations ride a
-# never-freeing bump — the headless ladder now runs EIGHT stages in one
-# service life (trust/tamper/downgrade/delta-base denies, the delta
-# reconstruction, the happy stage and the rollback cycle's re-stages) and
-# 384KiB alloc-failed on the last one. The honest long-run fix is
-# per-stage buffer reuse (the vfsd P8 pattern); the watermark markers
-# keep the remaining ceiling visible.
+# heap-768k (TASK-0034): the v2 engine's per-stage allocations rode a bump
+# that never freed (until TASK-0333 6b-3) — the headless ladder now runs
+# EIGHT stages in one service life (trust/tamper/downgrade/delta-base
+# denies, the delta reconstruction, the happy stage and the rollback
+# cycle's re-stages) and 384KiB alloc-failed on the last one. The honest
+# long-run fix is per-stage buffer reuse (the vfsd P8 pattern); an
+# `alloc-fail svc=updated` line names the ceiling if a stage reaches it.
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-768k"] }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-log = { path = "../../libs/nexus-log", default-features = false, features = ["sink-logd"], optional = true }

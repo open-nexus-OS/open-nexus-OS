@@ -13,7 +13,7 @@
 //! the device never grows a list (a pass that outgrows one renders in parts). The messages are
 //! served where the device waits, between the firmware's busy answers to a cleanup, and on the
 //! GPU's interrupt in the service loop. Each event is one line, formatted on the stack — a
-//! client that faults again and again takes nothing of gpud's heap, which never frees; a reset
+//! client that faults again and again takes nothing of gpud's heap; a reset
 //! that blames no context of the device, or a list no context holds, is a FAIL line.
 
 use nexus_gfx::backend::gpu::fwif::{self, Blame, ContextReset, KccbCmd, Reconstruction};

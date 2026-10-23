@@ -33,8 +33,8 @@ impl<S: Sink + ?Sized> Sink for &mut S {
     }
 }
 
-/// Collects the PNG in memory (host tools, goldens). Growing reallocates: on a heap that
-/// never frees, reserve the expected size first or write to a fixed destination instead.
+/// Collects the PNG in memory (host tools, goldens). Growing reallocates: on a bounded service
+/// heap, reserve the expected size first or write to a fixed destination instead.
 impl Sink for Vec<u8> {
     type Error = TryReserveError;
 

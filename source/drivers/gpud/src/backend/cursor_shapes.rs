@@ -44,7 +44,7 @@ impl CursorShapes {
     }
 
     /// Fill shape slot `id`; arms nothing (a select activates a slot). A re-upload reuses the
-    /// slot's allocation: the service's heap never frees.
+    /// slot's allocation, which grows only for a larger shape.
     pub(crate) fn cache(
         &mut self,
         id: u8,

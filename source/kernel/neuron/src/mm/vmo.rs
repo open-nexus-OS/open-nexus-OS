@@ -119,9 +119,12 @@ impl VmoObject {
         self.lazy.as_ref().map_or(self.len, |pages| pages.committed() * PAGE)
     }
 
-    /// Committed bytes of `[offset, offset + len)` — what a region over the object costs.
+    /// Committed bytes of `[offset, offset + len)` — what a region over the object costs. A
+    /// region over the whole object reads the running count (no page walk: the growth report
+    /// measures every space at each reap, gpud's surfaces alone 130 000 pages).
     pub fn committed_in(&self, offset: usize, len: usize) -> usize {
         match &self.lazy {
+            Some(pages) if offset == 0 && len >= self.len => pages.committed() * PAGE,
             Some(pages) => pages.committed_in(offset / PAGE, len.div_ceil(PAGE)) * PAGE,
             None => len,
         }

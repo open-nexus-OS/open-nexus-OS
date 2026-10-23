@@ -311,8 +311,8 @@ pub enum Region {
 }
 
 /// Where a pass's bytes go as they are made: the device writes each block into its bound buffer
-/// (and cleans it), a host test records them. Emitting allocates nothing — gpud's heap never
-/// frees, and a frame emits passes for gpud's whole life.
+/// (and cleans it), a host test records them. Emitting allocates nothing — a frame emits passes
+/// for gpud's whole life.
 pub trait Sink {
     /// Writes `bytes` at `offset` of `region`; false when it cannot.
     fn write(&mut self, region: Region, offset: u32, bytes: &[u8]) -> bool;

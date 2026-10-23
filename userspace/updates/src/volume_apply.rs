@@ -109,7 +109,7 @@ pub struct VolumeAssembler<D: VolumeDev, A: VolumeDev, E: VolumeEvents> {
     cur: Option<Current>,
     /// The ACTIVE volume's index, read + parsed ONCE per set (a locator
     /// only — every reused byte is re-hashed). Per-bundle re-reads leaked
-    /// a parsed index each on the OS bump heap (never frees) and killed
+    /// a parsed index each on the OS bump heap (it never freed) and killed
     /// `updated` at the 13th reuse.
     active_index: Option<VolumeIndex>,
     /// One scratch buffer for every streaming loop (allocated once).

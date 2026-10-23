@@ -5,11 +5,11 @@
 
 //! CONTEXT: vfsd's VMO-splice data plane (RFC-0072 Phase 3; split from
 //! `os_lite.rs` under the structure ratchet). The `/data` provider STREAMS
-//! in fixed windows straight into the caller's VMO — this service runs on
-//! a bump heap that never frees, so a per-request window buffer would leak
-//! the size of every file ever spliced (that exact shape killed the
-//! service on a 19 MB OTA container). Payload lands FIRST and the header
-//! LAST: the magic is the release fence a polling client waits on.
+//! in fixed windows straight into the caller's VMO — ONE window for the
+//! service lifetime, no buffer per request (when the heap never freed, a
+//! per-request window leaked the size of every file ever spliced; that shape
+//! killed the service on a 19 MB OTA container). Payload lands FIRST and
+//! the header LAST: the magic is the release fence a polling client waits on.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal

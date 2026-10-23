@@ -36,7 +36,8 @@ ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] 
 # boots (journal replay + ~40 compaction generations + evidence-spill txn
 # churn on the never-freeing bump; alloc-fail killed the store mid-proof).
 # Honest fix for the per-request Vec churn is buffer reuse (follow-up in
-# the 0049C ledger); the watermark markers keep the ceiling visible.
+# the 0049C ledger); an `alloc-fail svc=statefsd` line names the ceiling
+# if it is reached.
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-1m"] }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }

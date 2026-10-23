@@ -69,7 +69,7 @@ impl RemoteBlockDevice {
     }
 
     /// One request/reply round trip into the caller's buffer (ZERO allocation —
-    /// bump-allocator services never free). No clock (TASK-0324 P7-d): queue space, then the
+    /// it runs once per block request). No clock (TASK-0324 P7-d): queue space, then the
     /// answer on the reply inbox, or blkd's death (EOF — it holds the moved cap).
     /// Shared-inbox correlation is the caller's via the nonce inside `frame`; a foreign
     /// frame (another op's late reply) is dropped and the wait resumes.

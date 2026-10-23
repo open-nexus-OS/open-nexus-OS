@@ -125,6 +125,10 @@ proves = "a task's exit frees the timer, waitset, fence and endpoint it owned an
 phase = "bringup"
 proves = "a child's exit writes one OP_CHILD_EXITED frame (pid, code, reason) into the endpoint its parent bound with child_exit_bind"
 
+[marker."KSELFTEST: vm unmap reclaim ok ("]
+phase = "bringup"
+proves = "TASK-0333 6b-3 (RFC-0100 §1): the unmap is the lifetime rule's third caller — an object created, mapped by its owner's space and whose last capability was closed while mapped outlives the close, and the vm_unmap of that region frees it: gone from the table, counted by the reclaim with its bytes"
+
 # TASK-0324 P5-a (ADR-0062): the boot-stage fence a child receives may WAIT but never SIGNAL.
 [marker."KSELFTEST: fence transfer ok"]
 phase = "bringup"
@@ -577,7 +581,7 @@ proves = "TASK-0026: the journal opened with v2 semantics active (committed-only
 
 [marker."statefsd: compaction done (gen="]
 phase = "bringup"
-proves = "TASK-0026: one bounded compaction cycle completed AND the device readback verified clean (superblock + checkpoint + snapshot byte-compare against the cycle's serialized state; bounded memory — no reopen, the bump allocator never frees; also audited to logd for the selftest cross-check)"
+proves = "TASK-0026: one bounded compaction cycle completed AND the device readback verified clean (superblock + checkpoint + snapshot byte-compare against the cycle's serialized state; bounded memory — no reopen; also audited to logd for the selftest cross-check)"
 
 [marker."statefsd: compaction verify failed"]
 phase = "bringup"

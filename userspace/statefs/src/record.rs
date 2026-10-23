@@ -4,9 +4,9 @@
 //! CONTEXT: StateFS record serialization (v1 framing, shared by journal
 //!   appends, txn records, and compaction snapshots). Split out of
 //!   journal_v2.rs so the append-in-place encoder exists exactly once:
-//!   os-lite services run on a bump allocator that never frees, so hot
-//!   paths must encode into persistent, capacity-reused buffers instead
-//!   of allocating a fresh `Vec` per record.
+//!   hot paths encode into persistent, capacity-reused buffers instead
+//!   of allocating a fresh `Vec` per record, so an append costs no
+//!   allocation.
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable (crate-internal framing helper)

@@ -152,7 +152,7 @@ pub(crate) fn eval(ctx: &mut EvalCtx<'_>, expr: ir::expr::Reader<'_>) -> Result<
             match lop.get_op().map_err(|_| RtError::Malformed)? {
                 // tail(list, n): keep the last n elements (drop the head).
                 // Store-window: bounds resident list growth on the app's
-                // non-freeing bump heap so a paged transcript stays O(window).
+                // heap of fixed size so a paged transcript stays O(window).
                 ir::ListOpKind::Tail => {
                     let base = eval(ctx, lop.get_base().map_err(|_| RtError::Malformed)?)?;
                     let n = match eval(ctx, lop.get_arg().map_err(|_| RtError::Malformed)?)? {

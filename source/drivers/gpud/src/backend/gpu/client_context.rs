@@ -9,7 +9,7 @@
 //! render rungs' is — the context at the priority asked, the render bundle bound with its target
 //! left unbound (windowd names every pass's target), the render objects set up, the client's
 //! library placed (`library.rs`): `gpud: gpu library ok (client=windowd …)`. Every line is
-//! formatted on the stack: an open costs gpud's heap, which never frees, the library's table
+//! formatted on the stack: of gpud's heap, an open costs the library's table
 //! alone (`heap_bytes=`). Once the context is open, the display draws windowd's frames in it
 //! (5c-3 P4b, [`FrameGpu`]): the desktop (`desktop.rs`) is made at the first frame; a refusal is
 //! said once (`gpud: FAIL gpu desktop (`) and the display composes on the CPU from then on —
@@ -46,8 +46,8 @@ pub(crate) struct BoardGpu {
     held: Option<Opened>,
     /// The desktop drawn in it, made at its first frame — on the heap: the executor holds the
     /// frame planner, the pipelines and the rings (some ten kilobytes), and this service sits on
-    /// the loop's stack (a replaced context leaves its executor to the heap that never frees:
-    /// one per windowd restart).
+    /// the loop's stack (a replaced context frees its executor: the heap's free lists take it
+    /// back, ADR-0065).
     desktop: Option<alloc::boxed::Box<Desktop>>,
     /// The buffers a refused desktop took, given back with the context.
     stray: Taken,

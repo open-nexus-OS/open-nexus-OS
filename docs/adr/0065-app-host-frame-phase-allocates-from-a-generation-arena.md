@@ -220,3 +220,19 @@ past the half fails before a board does. A spill is no longer tolerated on the b
 (`SELFTEST: frame arena spill FAIL` left `config/fail-marker-allow-board.txt`). The greeter's
 app-host stays at the same committed bytes on the lanes (7 000 064 B), its reservation 3 MiB
 larger. Purging a reset generation's pages under pressure stays 6e's (M5).
+
+**Amendment 2026-10-23 (TASK-0333 6b-3) — every service's heap frees.** The size-class lists and
+the large-block list are no longer an opt-in (`small-object-free-list` is retired): every OS
+service parks a freed block of up to 2 KiB on its class and a larger one on the bounded large
+list, and a request reuses them before the bump carves. A block on a list is marked in a bitmap
+over the base heap (one bit per 16 bytes on the absolute grid the bump carves on — a heap is a
+byte array and may start off it — sized from the heap at build time, committed only where
+touched): a second free of it is refused without a byte written — its link would close the list
+on itself and hand the block to two owners — counted, and named once per service as a FAIL the
+lanes' gate reads (`SELFTEST: alloc free refused FAIL (svc= why=twice|foreign size=)`); a block
+that is not the base heap's never enters a list. The rule's proofs are host tests
+(`test_reject_a_double_free_of_a_class_block`, `test_reject_freeing_a_block_that_is_not_the_heaps`,
+`a_heap_that_starts_off_the_grid_parks_its_blocks`, the large list's `test_reject_a_double_free`). The bump itself still never moves back: what returns, returns
+through the lists. The allocation-free designs across the services stay — no per-request or
+per-frame allocation keeps a service's cost and memory deterministic — only the reason "the heap
+never frees" is gone.

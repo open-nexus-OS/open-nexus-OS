@@ -38,7 +38,7 @@ pub fn service_main_loop() -> Result<()> {
     let _ = nexus_service_entry::ready("clipboardd: ready");
     nexus_abi::service_verdict_flush("clipboardd");
 
-    // ONE request buffer for the service lifetime: the os-lite heap never frees.
+    // ONE request buffer for the service lifetime: a receive allocates nothing.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     let mut out = alloc::vec![0u8; wire::REPLY_MAX_BYTES];
     let mut pending = nexus_ipc::PendingReply::new();

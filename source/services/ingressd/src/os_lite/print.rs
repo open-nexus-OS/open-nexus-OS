@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Allocation-free marker lines for the gateway loop — a bounded
-//! stack buffer written in ONE `debug_write` record (no per-line `format!`
-//! on the never-freeing bump allocator; `debug_println` folds for armed
+//! stack buffer written in ONE `debug_write` record (no per-line `format!`:
+//! the loop allocates nothing for a line; `debug_println` folds for armed
 //! services, `debug_write` is the raw witness path).
 //! OWNERS: @runtime
 //! STATUS: Experimental

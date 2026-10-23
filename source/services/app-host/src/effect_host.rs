@@ -482,8 +482,8 @@ impl EffectHost for AppEffectHost {
             // Past the end: ECHO the cursor (never ""). An empty `next` is
             // ambiguous with the mount cursor, so returning it here would make
             // the next LoadMore re-page from seq 1 — re-materializing the whole
-            // transcript and, on the non-freeing heap, eventually OOM'ing. A
-            // stable non-empty cursor keeps over-scroll an empty no-op.
+            // transcript on every over-scroll (when the heap never freed, until
+            // OOM). A stable non-empty cursor keeps over-scroll an empty no-op.
             return Ok(QueryPage { rows: Value::List(Vec::new()), next: call.token.clone() });
         }
         const LINES: [&str; 6] = [

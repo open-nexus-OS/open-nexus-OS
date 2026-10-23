@@ -13,7 +13,7 @@
 //! fragment `[FENCE_PR (geometry ≥ g), FRAG_PR, UPDATE f1, FRAG, UPDATE f2]`, one kick per
 //! queue. A context's render objects go in the open kernel driver's order (5c-3 P2b): the two
 //! common contexts, the two render-target data, the free lists — each by the firmware's
-//! cleanup — then their memory; nothing is taken from gpud's heap, which never frees. The lists
+//! cleanup — then their memory; nothing is taken from gpud's heap. The lists
 //! carry ids unique on the device, so the firmware's request to rebuild one after its hardware
 //! recovery names one list of one context (5c-3 P2c): rebuilt as made, the data on it in the
 //! recovery's state.

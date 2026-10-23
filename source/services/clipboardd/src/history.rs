@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: the clipboard history — a bounded, newest-first list of text items
-//! in fixed storage (no heap: the os-lite allocator never frees, and sixteen
+//! in fixed storage (no heap: a copy allocates nothing, and sixteen
 //! items of 248 bytes are a few KiB). Every item carries a monotonic `seq`
 //! (newest = largest; restore re-stamps), the writer's kernel sid and its
 //! origin device (0 = this device — the field a later sync consumer fills).

@@ -271,10 +271,10 @@ fn service_requests(
     // RFC-0093 §5: `STATUS_REVEALED` is acked exactly once per boot (see `reply::present_status`).
     let mut reveal_acked = false;
     // Persistent present buffer: reused (reload_from) for every frame so gpud
-    // does NOT allocate a fresh Vec<Command> per present. gpud runs on a
-    // non-freeing bump allocator; a per-frame deserialize Vec would leak and
-    // exhaust the 384KB heap after a few hundred animation frames (`alloc-fail
-    // svc=gpud`), which is exactly what crashed the GPU pipeline mid-animation.
+    // does NOT allocate a fresh Vec<Command> per present. When the heap never
+    // freed, a per-frame deserialize Vec leaked and exhausted the 384KB heap
+    // after a few hundred animation frames (`alloc-fail svc=gpud`), which is
+    // exactly what crashed the GPU pipeline mid-animation.
     let mut scene_cb = CommittedBuffer::with_capacity(32);
     // Present-time telemetry (frame budget for 120Hz = 8333us), alloc-free, one line per window:
     // where the glass/compositor frame cost goes and the present RATE.

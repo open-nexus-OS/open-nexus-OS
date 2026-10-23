@@ -97,7 +97,7 @@ fi
 # --- rule 5: the copying `pkg:/` path stays deleted -------------------------
 # vfsd used to hold whole entries twice over: `packagefs_resolve` returned a
 # `Vec` of the file and `FileHandle` kept another per open handle, both on a
-# bump heap that never frees. That is the shape that made 22 of the system
+# bump heap that never freed then. That is the shape that made 22 of the system
 # volume's 115 entries unreadable and fatal to packagefsd. The splice handler
 # must forward the caller's VMO, never ask the namespace to open bytes for it.
 if grep -qE 'namespace\.open\(' source/services/vfsd/src/splice_os.rs; then

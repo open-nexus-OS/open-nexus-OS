@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: gpud no-alloc UART stat emitters (present stats window, present
-//! deadline NACK marker, handoff timing) — split out of `service.rs`. gpud
-//! runs on a non-freeing bump allocator, so every line here is formatted into
-//! a stack buffer (no `format!`/heap on the present hot path).
+//! deadline NACK marker, handoff timing) — split out of `service.rs`. Every
+//! line here is formatted into a stack buffer: no `format!`/heap on the
+//! present hot path.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable

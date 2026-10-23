@@ -60,6 +60,26 @@ pub fn space_usage(space: &AddressSpace) -> SpaceUsage {
     usage
 }
 
+/// Each followed process's committed high-water (`crate::growth`).
+static MARKS: spin::Mutex<crate::growth::Marks> = spin::Mutex::new(crate::growth::Marks::new());
+
+/// At a reap (TASK-0333 6b-3): every live space measured against the high-water last reported
+/// for its process; one that reached a new high by a step is named — `KINIT: mm grew (pid= sid=
+/// rss= by=)`. The first sight of a process sets its mark silently.
+pub fn report_growth(tasks: &crate::task::TaskTable, spaces: &AddressSpaceManager) {
+    let mut marks = MARKS.lock();
+    for index in 0..tasks.len() {
+        let Some(task) = tasks.task(crate::types::Pid::from_raw(index as u32)) else { continue };
+        let Some(space) = task.address_space().and_then(|h| spaces.get(h).ok()) else {
+            continue;
+        };
+        let (rss, sid) = (space_usage(space).rss, task.service_id());
+        if let Some(by) = marks.note(index as u32, sid, rss) {
+            log_info!(target: "mm", "KINIT: mm grew (pid={} sid={:#x} rss={} by={})", index, sid, rss, by);
+        }
+    }
+}
+
 /// The record for a caller whose space is `own` (none: the kernel's view), and
 /// the summary over every space.
 pub fn snapshot(spaces: &AddressSpaceManager, own: Option<AsHandle>) -> (MmStats, SpacesSummary) {

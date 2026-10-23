@@ -30,10 +30,10 @@ fn record_scene(cb: &mut CommandBuffer) {
 }
 
 /// Regression guard for the `alloc-fail svc=windowd` animation crash: windowd
-/// reuses ONE CommandBuffer per frame (clear + record + serialize_into) because
-/// its bump allocator never frees. After warmup, recording another frame must
-/// not reallocate the command vector — otherwise every animation frame would
-/// leak and exhaust the heap.
+/// reuses ONE CommandBuffer per frame (clear + record + serialize_into), so a
+/// frame allocates nothing. After warmup, recording another frame must not
+/// reallocate the command vector — when the heap never freed, every animation
+/// frame leaked until the heap was exhausted.
 #[test]
 fn command_buffer_reuse_does_not_reallocate() {
     let mut cb = CommandBuffer::new();
@@ -57,9 +57,9 @@ fn command_buffer_reuse_does_not_reallocate() {
 }
 
 /// Regression guard for the `alloc-fail svc=gpud` crash: gpud reuses ONE
-/// CommittedBuffer per present (`reload_from`) instead of `deserialize_from`,
-/// because it too runs on a non-freeing bump allocator. Re-parsing a frame must
-/// reuse the command vector, not allocate a fresh one each time.
+/// CommittedBuffer per present (`reload_from`) instead of `deserialize_from`, so
+/// a present allocates nothing (when its heap never freed, each one leaked).
+/// Re-parsing a frame must reuse the command vector, not allocate a fresh one each time.
 #[test]
 fn committed_buffer_reload_does_not_reallocate() {
     // Produce a representative serialized present frame.

@@ -88,8 +88,8 @@ const Z_NORMALIZE_LIMIT: i16 = i16::MAX - 8;
 /// it: draw order and hit order come from the same sorted data.
 ///
 /// Alloc-free by design: the per-frame queries return fixed
-/// `[WindowId; MAX_WINDOWS]` arrays + a count, because windowd runs on a
-/// non-freeing bump allocator where a per-frame `Vec` is a slow leak.
+/// `[WindowId; MAX_WINDOWS]` arrays + a count, because windowd's frame
+/// path allocates nothing.
 pub struct WindowStack {
     entries: [WindowState; MAX_WINDOWS],
     len: usize,

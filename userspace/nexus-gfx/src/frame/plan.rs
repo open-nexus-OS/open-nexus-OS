@@ -5,7 +5,7 @@
 //! drawn, a glass layer's cache step decided against the destination below it — and whether the
 //! atlas's content must be uploaded first. Executors draw the plan's steps in order: per layer
 //! its glass, its shadow, its content. Nothing is allocated: the plan is the frame's own storage,
-//! reused frame after frame (gpud's heap never frees).
+//! reused frame after frame (a frame costs gpud's heap nothing).
 
 use super::damage::Area;
 use super::glass::{fold_layer, glass_key, glass_rows, seed, CacheStep, GlassCache, WriteCause};

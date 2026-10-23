@@ -41,7 +41,7 @@ impl GpuVmo {
     }
 
     /// Calls `page` with the bus address of every page of `offset..offset + len`, in order —
-    /// walked, nothing collected (gpud's heap never frees); `false` when the kernel refused a
+    /// walked, nothing collected (a walk allocates nothing); `false` when the kernel refused a
     /// query or `page` stopped the walk.
     pub(super) fn walk(
         &self,

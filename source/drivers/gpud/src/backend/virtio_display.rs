@@ -178,8 +178,8 @@ impl Display for VirtioGpuBackend {
         let _ = self.cursor_tex_refresh();
         // HW overlay armed (mmio path): refresh the cursor resource so the host-composited
         // pointer shows the new shape. Never reached on the virgl GL scanout (the overlay is not
-        // armed there by design). The sprite is taken for the upload and put back (the heap never
-        // frees; no clone).
+        // armed there by design). The sprite is taken for the upload and put back (no clone, so
+        // a shape change allocates nothing).
         if self.hw_cursor_active() {
             let sprite = core::mem::take(&mut self.cpu.cursor);
             let (w, h, (hot_x, hot_y)) =

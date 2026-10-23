@@ -101,8 +101,18 @@ pub(super) fn sys_vm_unmap(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
     let space = ctx.address_spaces.get_mut(handle)?;
-    crate::mm::vm_ops::unmap_range(space, args.get(0), args.get(1)).map_err(Error::from)?;
+    let vmo =
+        crate::mm::vm_ops::unmap_range(space, args.get(0), args.get(1)).map_err(Error::from)?;
+    reclaim_unmapped(ctx, vmo);
     Ok(0)
+}
+
+/// RFC-0100 §1 (TASK-0333 6b-3): the unmap is the lifetime rule's third caller — an object whose
+/// last capability closed while a space mapped it dies at its last unmap.
+fn reclaim_unmapped(ctx: &Context<'_>, vmo: u32) {
+    if vmo != 0 {
+        crate::mm::reclaim::orphans(ctx.tasks, ctx.address_spaces, &[vmo], "unmap");
+    }
 }
 
 /// Phase A of the phased vm_unmap (BKL held): validate + clear PTEs; the
@@ -121,7 +131,8 @@ pub(crate) fn vm_unmap_finish(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     let handle =
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
     let space = ctx.address_spaces.get_mut(handle)?;
-    crate::mm::vm_ops::forget_range(space, args.get(0), args.get(1));
+    let vmo = crate::mm::vm_ops::forget_range(space, args.get(0), args.get(1));
+    reclaim_unmapped(ctx, vmo);
     Ok(0)
 }
 

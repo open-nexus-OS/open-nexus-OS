@@ -7,8 +7,9 @@
 //! baseline/`). The decision is one rule, proven on the host: an object nobody names and nobody
 //! maps is freed. Three callers apply it: the reap (the objects the zombie named at its exit and
 //! the ones its address space mapped, once the space is gone), the explicit `cap_close` of a
-//! VMO capability, and nothing else — `sys_vmo_destroy` keeps RFC-0085's sole-owner rule as the
-//! owner's fast path.
+//! VMO capability, and the unmap of a region over it (TASK-0333 6b-3: an object whose last
+//! capability closed while it was mapped dies at its last unmap) — `sys_vmo_destroy` keeps
+//! RFC-0085's sole-owner rule as the owner's fast path.
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal

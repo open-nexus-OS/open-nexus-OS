@@ -188,20 +188,22 @@ pub fn clear_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<()
 
 /// Phase C: after the shootdown completed, free the tables phase A retired
 /// and forget the region. Idempotent-ish by construction: phase A peeked the
-/// same arguments.
-pub fn forget_range(space: &mut AddressSpace, va: usize, len: usize) {
+/// same arguments. Answers the object the region mapped (0: none) — its life
+/// is the caller's to re-check (RFC-0100 §1: an object nobody names dies at
+/// its last unmap).
+pub fn forget_range(space: &mut AddressSpace, va: usize, len: usize) -> u32 {
     space.page_table_mut().free_retired((va, len));
-    let _ = space.va_space_mut().remove_exact(va, len);
+    space.va_space_mut().remove_exact(va, len).map_or(0, |region| region.vmo)
 }
 
 /// Unmaps the exact region `(va, len)` previously returned by [`map_range`]:
 /// clear, ONE shootdown, forget. In-kernel callers only (selftest) — the
-/// vm_unmap SYSCALL phases the shootdown outside the BKL instead.
-pub fn unmap_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<(), VmOpError> {
+/// vm_unmap SYSCALL phases the shootdown outside the BKL instead. Answers the
+/// object the region mapped, as [`forget_range`].
+pub fn unmap_range(space: &mut AddressSpace, va: usize, len: usize) -> Result<u32, VmOpError> {
     clear_range(space, va, len)?;
     crate::smp::tlb::shootdown_all();
-    forget_range(space, va, len);
-    Ok(())
+    Ok(forget_range(space, va, len))
 }
 
 /// Does ANY live address space still map part of `[pa, pa+len)` through a

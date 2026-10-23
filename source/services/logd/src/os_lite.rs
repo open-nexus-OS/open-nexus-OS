@@ -68,9 +68,6 @@ pub fn touch_schemas() {}
 
 const JOURNAL_CAP_RECORDS: u32 = 128;
 const JOURNAL_CAP_BYTES: u32 = 16 * 1024;
-// Bump allocator budget for logd heap allocations. Must cover bring-up + selftests without
-// exhausting the service heap (see `alloc-fail svc=logd` diagnostics).
-const JOURNAL_ALLOC_CAP_BYTES: u32 = 256 * 1024;
 
 /// Main logd bring-up service loop (os-lite).
 use crate::route_os::declared_server;
@@ -85,11 +82,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     let _ = nexus_service_entry::ready("logd: ready");
     nexus_abi::service_verdict_flush("logd");
 
-    let mut journal = Journal::new_with_alloc_cap(
-        JOURNAL_CAP_RECORDS,
-        JOURNAL_CAP_BYTES,
-        JOURNAL_ALLOC_CAP_BYTES,
-    );
+    let mut journal = Journal::new(JOURNAL_CAP_RECORDS, JOURNAL_CAP_BYTES);
     // If the kernel time source is unavailable (or too coarse), fall back to a deterministic, strictly
     // monotonic counter. This enables bounded pagination in tests without relying on wall-clock.
     let mut fallback_ts: u64 = 0;

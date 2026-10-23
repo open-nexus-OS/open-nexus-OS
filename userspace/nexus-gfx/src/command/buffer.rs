@@ -233,8 +233,8 @@ impl CommandBuffer {
 
     /// Clear all recorded commands while retaining the backing allocation.
     ///
-    /// This is the key to reusing one `CommandBuffer` across frames under a
-    /// non-freeing (bump) allocator: `Vec::clear` keeps capacity, so a buffer
+    /// This is the key to reusing one `CommandBuffer` across frames with no
+    /// allocation per frame: `Vec::clear` keeps capacity, so a buffer
     /// that has reached steady-state size records subsequent frames without any
     /// new heap allocation. Resets the render extent so a fresh render pass must
     /// be opened before recording again.
@@ -321,7 +321,7 @@ impl CommittedBuffer {
     /// Construct an empty buffer with pre-allocated command capacity.
     ///
     /// Pair with [`reload_from`] to parse a frame each iteration without
-    /// reallocating — essential for consumers on a non-freeing bump allocator
+    /// reallocating — essential for consumers whose frame path allocates nothing
     /// (e.g. gpud deserializing one present frame per vsync).
     ///
     /// [`reload_from`]: CommittedBuffer::reload_from
@@ -345,8 +345,8 @@ impl CommittedBuffer {
     /// Allocation-free counterpart to [`deserialize_from`] once warmed up: the
     /// command `Vec` is cleared and refilled rather than freshly allocated, so a
     /// consumer that holds one `CommittedBuffer` and calls `reload_from` per
-    /// frame performs zero heap allocation in steady state. This is what keeps
-    /// gpud from exhausting its bump heap while presenting animation frames.
+    /// frame performs zero heap allocation in steady state — what gpud relies
+    /// on while presenting animation frames.
     ///
     /// [`deserialize_from`]: CommittedBuffer::deserialize_from
     pub fn reload_from(&mut self, buf: &[u8]) -> Result<usize, GfxError> {

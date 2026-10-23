@@ -8,7 +8,7 @@
 //! Build-time rasterization of the boot-splash logo. The Open Nexus wordmark SVG
 //! is rasterized ONCE here (host, std) into a BGRA8888 bitmap embedded in gpud, so
 //! the boot loading screen composites it with zero runtime SVG cost and no pressure
-//! on gpud's non-freeing bump heap. gpud has no SVG rasterizer of its own.
+//! on gpud's heap. gpud has no SVG rasterizer of its own.
 
 fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");

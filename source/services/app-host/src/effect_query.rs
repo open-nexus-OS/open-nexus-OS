@@ -27,9 +27,9 @@ pub(crate) struct QueryStore {
 // requested page is materialized), so this is just the upper bound of the
 // transcript. The store-window builtin `tail(list, 96)` in chat.store.nx keeps
 // the resident `messages` list (and the derived emit/layout/paint/concat cost)
-// bounded, so paging this far no longer grows unbounded. The ceiling now is the
-// non-freeing bump heap's tolerance for the per-page whole-scene re-emit churn
-// (see chat.store.nx); 300 pages cleanly, unbounded needs emit-virtualization.
+// bounded, so paging this far no longer grows unbounded. The ceiling, measured
+// while the heap never freed, was its tolerance for the per-page whole-scene
+// re-emit churn (see chat.store.nx); 300 pages cleanly, unbounded needs emit-virtualization.
 pub(crate) const SEED_MESSAGES: i64 = 300;
 
 impl QueryStore {

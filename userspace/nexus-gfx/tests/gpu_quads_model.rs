@@ -453,8 +453,8 @@ impl Sink for Tally {
 
 #[test]
 fn a_pass_is_emitted_without_allocating() {
-    // gpud's heap never frees and a frame emits passes for its whole life: three quads with the
-    // pipeline's setup, every block made in place and handed to the sink, not one allocation.
+    // gpud emits passes every frame for its whole life, so a pass allocates nothing: three quads
+    // with the pipeline's setup, every block made in place and handed to the sink.
     let b = blobs();
     let t = template(&b);
     let p = weighted(Some(0x2a00));

@@ -110,8 +110,8 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> SessiondResult<()> {
     // its push channel with `OP_WATCH`; we keep it, acknowledge, push the current snapshot
     // at once and again on every transition. A push that fails (peer gone) drops the watcher.
     let mut watchers: Vec<u32> = Vec::new();
-    // ONE request buffer for the service lifetime: the os-lite heap never frees, so an
-    // allocating recv is a countdown (TASK-0054C P2-g). Transport-capped, never truncates.
+    // ONE request buffer for the service lifetime: a receive allocates nothing, however many
+    // requests arrive (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
     let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
     loop {

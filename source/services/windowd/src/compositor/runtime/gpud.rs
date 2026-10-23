@@ -212,8 +212,8 @@ impl DisplayServerRuntime {
         }
         let mut any = false;
         // Stack-buffer drain: recv_into avoids the per-call Vec<u8> that
-        // Client::recv allocates — windowd's bump allocator never frees, so a
-        // per-frame reply Vec would slowly exhaust the heap.
+        // Client::recv allocates — the drain runs every frame, and the frame
+        // path allocates nothing.
         let mut reply_buf = [0u8; 32];
         loop {
             let recv_result = {

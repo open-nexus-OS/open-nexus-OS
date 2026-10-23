@@ -361,7 +361,7 @@ impl DisplayServerRuntime {
                 }
                 // A surface's FIRST present proves the chain is live — once per
                 // surface: later presents follow keystrokes too (the keystroke
-                // privacy rule) and hover rates (the non-freeing bump heap).
+                // privacy rule) and hover rates (a `format!` and a line each).
                 if seq == 1 {
                     let _ = debug_println(&alloc::format!(
                         "WINDOWD: surface presented id={surface_id} seq={seq} t_us={}",

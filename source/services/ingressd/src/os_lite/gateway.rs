@@ -7,8 +7,8 @@
 //! from `OP_PEER_ADDR` → CIDR allow-list → token bucket, each refusal a
 //! labelled marker + counter), the loopback backend dial, and the bounded
 //! relay that pumps bytes both ways within a per-turn budget. One relay
-//! table (≤ 16 links) is allocated per open exposure and lives for the
-//! boot (bump allocator).
+//! table (≤ 16 links) is allocated per open exposure and freed when it
+//! closes.
 //! OWNERS: @runtime @security
 //! STATUS: Experimental
 //! TEST_COVERAGE: QEMU (`ingressd: port open|deny`, `SELFTEST: ingress allow|cidr deny|rate ok`)

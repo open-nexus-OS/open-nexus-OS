@@ -367,9 +367,9 @@ impl LiveRouteRuntime {
             Ok(batch) => batch,
             Err(reject) => {
                 self.chain.record_wire_reject(reject);
-                // Alloc-free: a `format!` here leaks a String on the non-freeing
-                // bump heap on every reject — under an input flood that exhausts
-                // inputd's heap. `label()` is a `&'static str`; print it directly.
+                // Alloc-free: a `format!` here would build a String on every
+                // reject, at whatever rate an input flood sends them. `label()`
+                // is a `&'static str`; print it directly.
                 let _ = debug_println(reject.label());
                 return reject.status();
             }

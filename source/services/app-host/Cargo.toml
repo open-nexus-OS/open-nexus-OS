@@ -33,7 +33,6 @@ os-lite = [
     "nexus-service-entry/heap-4m",
     "nexus-service-entry/frame-arena",
     "nexus-service-entry/frame-arena-poison",
-    "nexus-service-entry/small-object-free-list",
     "dep:nexus-abi",
     "dep:nexus-ipc",
     "nexus-ipc/os-lite",

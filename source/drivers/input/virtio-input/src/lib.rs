@@ -505,8 +505,8 @@ impl MappedVirtioInputDevice {
     /// Drain the used-ring into a caller-provided buffer, returning whether any
     /// non-SYN events were produced. Allocation-free counterpart to [`poll_batch`]:
     /// the buffer is cleared and refilled, so a caller that reuses one `Vec` across
-    /// polls allocates nothing in steady state — required on the non-freeing bump
-    /// heap where a per-poll `Vec` would monotonically exhaust the heap (hidrawd OOM).
+    /// polls allocates nothing in steady state — the poll path's rule (when the
+    /// heap never freed, a per-poll `Vec` exhausted it: the hidrawd OOM).
     pub fn poll_batch_into(
         &mut self,
         out: &mut Vec<RawInputEvent>,

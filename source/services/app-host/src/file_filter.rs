@@ -24,8 +24,8 @@
 ///   (a German user searching "Ü" gets an exact match, not a wrong one).
 /// - `show_hidden`: admit dot-files.
 ///
-/// Allocation-free: the app-host runs on a bump allocator that never frees, and
-/// this is called once per entry per listing.
+/// Allocation-free: this is called once per entry per listing, so a large
+/// directory costs no heap work.
 #[must_use]
 pub(crate) fn name_visible(name: &str, query: &str, show_hidden: bool) -> bool {
     if !show_hidden && name.starts_with('.') {

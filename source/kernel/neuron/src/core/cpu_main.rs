@@ -436,6 +436,12 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
 /// Pure assembly context switch - loads TrapFrame and executes sret.
 /// This function never returns - it jumps to the task's saved PC.
 /// CRITICAL: #[inline(always)] ensures the asm! block is inlined directly into the caller.
+///
+/// No trap may land between `csrw sepc` and `sret`: the scheduler loop runs with supervisor
+/// interrupts ON, and a trap taken in that window writes ITS pc into `sepc` — the task then
+/// returns to a kernel address in U-mode (QEMU 2026-10-23: netstackd, `INST @ sepc=` this very
+/// asm, pid 0x31, killed with EFAULT). So the first instruction masks SIE, and the frame's
+/// `sstatus` is written with SIE still clear; `sret` enables the task's interrupts from SPIE.
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 #[inline(always)]
 unsafe fn context_switch_to_task(frame: &crate::trap::TrapFrame) -> ! {
@@ -446,10 +452,13 @@ unsafe fn context_switch_to_task(frame: &crate::trap::TrapFrame) -> ! {
     // Direct jump to assembly - no logs, no temporaries, no cleanup code possible
     unsafe {
         core::arch::asm!(
-        // Set up CSRs first (sepc, sstatus)
+        // Mask supervisor interrupts until the sret (SIE is bit 1).
+        "csrci sstatus, 2",
+        // Set up CSRs (sepc, sstatus — SIE kept clear; sret takes it from SPIE)
         "ld t0, {off_sepc}(t3)",
         "csrw sepc, t0",
         "ld t1, {off_sstatus}(t3)",
+        "andi t1, t1, -3",
         "csrw sstatus, t1",
 
         // Load GPRs from frame (skip x0)

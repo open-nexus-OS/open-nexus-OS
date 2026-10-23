@@ -27,8 +27,8 @@ pub enum AnimKind {
     /// runtime for an inherently-animated KIT WIDGET (`Skeleton` shimmer,
     /// indeterminate `ProgressBar` pip, `Spinner` spoke rotation) that runs
     /// until the node leaves the tree. The host runs it as a paint-time
-    /// transform loop (no per-frame re-emit — the app-host bump heap never
-    /// frees), keyed by the intent VALUE's sub-kind (`LOOP_*`): the widgets'
+    /// transform loop (no per-frame re-emit, which would allocate every
+    /// frame), keyed by the intent VALUE's sub-kind (`LOOP_*`): the widgets'
     /// fixed builder structure makes the animated part a stable pre-order
     /// child offset, so the loop targets child boxes without any rebuild.
     Loop,

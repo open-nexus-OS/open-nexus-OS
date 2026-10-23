@@ -6,8 +6,8 @@
 //! numbers belong to the frame arena, not to scrolling.
 //!
 //! The app-host rebuilds a frame on every structural interaction and throws it
-//! away: 226 560 B per layout call, 0 B of live drift over 100 dispatches. On a
-//! never-freeing bump that leaks in full, which is a ceiling of 50-85
+//! away: 226 560 B per layout call, 0 B of live drift over 100 dispatches. When
+//! the heap never freed, that leaked in full: a ceiling of 50-85
 //! interactions. `relayout_retained` now runs inside a generation; this is how
 //! a boot log says whether that worked.
 //!
@@ -29,9 +29,9 @@ impl super::DslApp {
     /// whole task exists to produce. A marker that said "steady" on every
     /// sample would be the fake-green this tree deletes on sight.
     ///
-    /// A SPILL is the interesting failure: the arena was too small, the
-    /// remainder went to the never-freeing base heap, and the leak is back.
-    /// The lane asserts `spill=0`.
+    /// A SPILL is the interesting failure: the arena was too small, and the
+    /// remainder went to the base heap, which grows by it instead of staying
+    /// flat. The lane asserts `spill=0`.
     #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
     pub(super) fn report_frame_arena(&mut self) {
         use core::sync::atomic::{AtomicUsize, Ordering};
@@ -53,10 +53,10 @@ impl super::DslApp {
         let (start, current, _) = nexus_service_entry::os::heap_cursor();
         let base = current.saturating_sub(start);
         let (peak, spilled, size) = nexus_service_entry::os::arena_stats();
-        let free = nexus_service_entry::os::free_list_stats();
+        let (free, refused) = nexus_service_entry::os::free_list_stats();
         // Which KIND of growth moved the base heap since the last sample:
-        // class blocks (a class's working set grew) or large/over-aligned
-        // requests (never on a list). A flat heap shows 0/0.
+        // class blocks (a class's lists were empty) or large/over-aligned
+        // requests (no parked large block fit). A flat heap shows 0/0.
         let (class_total, large_total) = nexus_service_entry::os::carve_stats();
         let gen = nexus_service_entry::os::generation_count();
         let abandoned = nexus_service_entry::os::abandoned_frames();
@@ -69,14 +69,14 @@ impl super::DslApp {
             &mut m,
             format_args!(
                 "apphost: frame arena (layouts={n} gen={gen} base={base} peak={peak} of={size} \
-                 spill={} free={free} large={large_blocks}/{large_bytes} lost={lost} \
-                 carve={class_delta}/{large_delta} abandoned={abandoned})",
+                 spill={} free={free} refused={refused} large={large_blocks}/{large_bytes} \
+                 lost={lost} carve={class_delta}/{large_delta} abandoned={abandoned})",
                 usize::from(spilled)
             ),
         );
         raw_marker(&m);
         // A spill means a frame outgrew its generation and the remainder went
-        // to the never-freeing base heap — the leak this arena exists to end,
+        // to the base heap — the per-frame heap growth this arena exists to end,
         // back. Said as a FAIL, in the shape the lane's no-fake-green gate
         // greps for, so the run is red without a script knowing this marker.
         if spilled {

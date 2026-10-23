@@ -224,8 +224,8 @@ impl<B: BlockDevice> JournalEngine<B> {
         // Serialize the snapshot: checkpoint boundary, then live Puts in
         // deterministic (BTreeMap) key order — plain v1 records. The buffer
         // is the engine's persistent scratch: its capacity survives across
-        // cycles, keeping per-cycle heap growth bounded under the os-lite
-        // bump allocator (which never frees). It also stays valid after the
+        // cycles, so a cycle does not allocate (and regrow, copy by copy) a
+        // store-sized buffer of its own. It also stays valid after the
         // flip so `verify_last_compaction` can check the device readback
         // against exactly what this cycle intended to write.
         let mut snapshot = core::mem::take(&mut self.compact_scratch);
@@ -247,7 +247,7 @@ impl<B: BlockDevice> JournalEngine<B> {
         }
 
         // Phase 1: snapshot into the inactive region (old journal intact).
-        // One-block scratch, persistent for the same bump-allocator reason
+        // One-block scratch, persistent for the same reason
         // as the snapshot buffer (an error `?` below drops it — the next
         // cycle re-allocates once; the happy path always restores it).
         let mut buf = core::mem::take(&mut self.block_scratch);
@@ -301,10 +301,10 @@ impl<B: BlockDevice> JournalEngine<B> {
     ///
     /// Byte-equality with the serialization of the live map, plus replay
     /// determinism, proves exactly what a full `reopen()` would prove —
-    /// WITHOUT materializing a second engine state. That matters under the
-    /// os-lite bump allocator (never frees): a reopen-per-cycle duplicates
-    /// the whole store every compaction and exhausts the service heap
-    /// (observed in QEMU at gen=7 with a 384 KiB heap).
+    /// WITHOUT materializing a second engine state. That matters in a service
+    /// heap of fixed size: a reopen holds a second copy of the whole store (when
+    /// the heap never freed, a reopen per cycle exhausted it — observed in QEMU
+    /// at gen=7 with a 384 KiB heap).
     pub fn verify_last_compaction(&mut self, stats: &CompactionStats) -> bool {
         let block_size = self.device.block_size();
         if block_size < SUPERBLOCK_LEN

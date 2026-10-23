@@ -61,10 +61,10 @@ pub(super) struct DslApp {
     /// Whether the pointer sits over an editable (Change-bound) field —
     /// the windowd cursor-hint latch (I-beam), sent only on change.
     pub(super) hover_text: bool,
-    /// Reused render row buffer (width×4). The bump allocator NEVER
-    /// frees: a per-render `vec!` leaked ~5KB per hover repaint until the
-    /// heap page-faulted (the "nothing clickable after mousing around"
-    /// crash). One allocation at mount, resized on WM resize.
+    /// Reused render row buffer (width×4): no allocation per render (when the
+    /// heap never freed, a per-render `vec!` leaked ~5KB per hover repaint until
+    /// it page-faulted: the "nothing clickable after mousing around" crash).
+    /// One allocation at mount, resized on WM resize.
     pub(super) row_scratch: alloc::vec::Vec<u8>,
     /// The page's scroll layers (RFC-0109, `probe/scroll.rs`): every top-level `.scroll(...)`
     /// container, its offset, its physics and its band.

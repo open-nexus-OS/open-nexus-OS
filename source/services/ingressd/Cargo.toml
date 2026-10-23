@@ -38,7 +38,7 @@ path = "src/main.rs"
 
 [dependencies]
 # heap-1m: one open exposure's relay table is 16 links × 2 × 4 KiB windows
-# (RFC-0092 bounds) — allocated once per open, never freed (bump allocator).
+# (RFC-0092 bounds) — allocated once per open, freed on close.
 nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-1m"] }
 nexus-abi = { path = "../../libs/nexus-abi", optional = true }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }

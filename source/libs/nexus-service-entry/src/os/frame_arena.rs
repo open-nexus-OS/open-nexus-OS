@@ -113,34 +113,21 @@ pub fn arena_stats() -> (usize, bool, usize) {
 }
 
 /// Blocks parked on the durable-state free lists — reclaimable memory the
-/// probe reports beside the arena's numbers. `0` where the feature is off.
-pub fn free_list_stats() -> usize {
-    #[cfg(feature = "small-object-free-list")]
-    {
-        ALLOCATOR.ensure_init();
-        ALLOCATOR.inner.lock().lists.free_blocks()
-    }
-    #[cfg(not(feature = "small-object-free-list"))]
-    {
-        0
-    }
+/// probe reports beside the arena's numbers — and the frees they refused (a
+/// double free, or a block not the heap's; TASK-0333 6b-3).
+pub fn free_list_stats() -> (usize, usize) {
+    ALLOCATOR.ensure_init();
+    let bump = ALLOCATOR.inner.lock();
+    (bump.lists.free_blocks(), bump.lists.refused())
 }
 
 /// The large list (TASK-0344): `(blocks, bytes)` free on it, and the frees it
-/// lost (no slot) or refused (a double free). `(0, 0, 0)` where the feature is
-/// off.
+/// lost (no slot) or refused (a double free).
 pub fn large_list_stats() -> (usize, usize, usize) {
-    #[cfg(feature = "small-object-free-list")]
-    {
-        ALLOCATOR.ensure_init();
-        let bump = ALLOCATOR.inner.lock();
-        let (blocks, bytes) = bump.large.free();
-        (blocks, bytes, bump.large.lost())
-    }
-    #[cfg(not(feature = "small-object-free-list"))]
-    {
-        (0, 0, 0)
-    }
+    ALLOCATOR.ensure_init();
+    let bump = ALLOCATOR.inner.lock();
+    let (blocks, bytes) = bump.large.free();
+    (blocks, bytes, bump.large.lost())
 }
 
 /// Generations opened since boot, across both regions — the clock the carve

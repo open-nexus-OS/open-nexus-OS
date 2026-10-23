@@ -7,8 +7,8 @@
 //! CONTEXT: bootctld's fixed-buffer marker renderers (split from
 //! `os_lite.rs` under the structure ratchet). Every line here is a PROOF
 //! surface consumed by the QEMU ladder, so the numbers are rendered into
-//! stack buffers — the service runs on a bump heap that never frees, and a
-//! per-marker `format!` would leak for the lifetime of the process.
+//! stack buffers — a marker allocates nothing, so it is emitted whatever
+//! state the heap is in.
 //! OWNERS: @reliability
 //! STATUS: Functional
 //! API_STABILITY: Internal (marker literals are the contract surface)

@@ -100,10 +100,12 @@ if [ -n "$hits" ]; then
 fi
 
 # --- rule 3: an os-lite server loop allocates nothing per request ---------------
-# The bump allocator never frees, so a `Vec` per request is a countdown, not a
-# cost: inputd took ~400 HID batches a second under a pointer drag and walked its
-# 384 KiB heap to `alloc_error` in under twenty seconds — and a dead inputd takes
-# the whole input chain with it (hidrawd `tx hz=0`, no click reaches the greeter).
+# Born when the bump allocator never freed and a `Vec` per request was a
+# countdown: inputd took ~400 HID batches a second under a pointer drag and walked
+# its 384 KiB heap to `alloc_error` in under twenty seconds — and a dead inputd
+# takes the whole input chain with it (hidrawd `tx hz=0`, no click reaches the
+# greeter). The heap frees since TASK-0333 6b-3; the rule stays: a hoisted buffer
+# makes a request cost the receive alone, no allocation and no free per message.
 # The receive inside a service loop must be the `_into` form with a buffer hoisted
 # out of the loop. See TASK-0054C P2-g.
 # Matched by SHAPE, not by a list of names: the first cut of this rule spelled out
@@ -116,7 +118,7 @@ hits=$(grep -rnE '(server|client)\.recv[a-z_]*\(' \
            --include='os_lite.rs' --include='os_stub.rs' --include='local_ipc.rs' \
            2>/dev/null | grep -v '_into' | grep -v '^\s*//' || true)
 if [ -n "$hits" ]; then
-  echo "[FAIL] ipc-bounds: an os-lite loop uses the ALLOCATING receive (bump heap never frees):" >&2
+  echo "[FAIL] ipc-bounds: an os-lite loop uses the ALLOCATING receive (one allocation per request):" >&2
   echo "$hits" >&2
   echo "       hoist one buffer out of the loop and use the _into form." >&2
   fail=1

@@ -127,11 +127,11 @@ unsafe impl GlobalAlloc for GlobalAllocator {
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         ALLOCATOR.ensure_init();
         let mut bump = ALLOCATOR.inner.lock();
-        // The open generation answers first — but it must be ZEROED here.
-        // The base heap below can skip that because a never-freeing bump
-        // only ever hands out untouched `.bss`, which is already zero; the
-        // arena REUSES memory, so without this it would hand back the
-        // frame from two frames ago.
+        // The open generation answers first — and it must be ZEROED here:
+        // the arena REUSES memory, so without this it would hand back the
+        // frame from two frames ago. Below, a reused list block and a fresh
+        // carve are zeroed the same way (the lists reuse memory too, and a
+        // fresh page is no longer the only thing the base heap hands out).
         if let Some(ptr) = bump.arena_alloc(layout) {
             ptr::write_bytes(ptr, 0, layout.size());
             return ptr;
@@ -200,22 +200,25 @@ unsafe impl GlobalAlloc for GlobalAllocator {
         // arena block is reclaimed by its generation's reset — it must
         // NOT be parked on a list, or the list would hand out memory the
         // next reset overwrites — and a durable block goes back to its
-        // size class or to the large list, if this service opted in.
+        // size class or to the large list, in every service (TASK-0333 6b-3).
         if layout.size() == 0 || Bump::in_arena(ptr as usize) {
             return;
         }
-        #[cfg(feature = "small-object-free-list")]
         if let Some(class) = crate::freelist::class_for(layout.size(), layout.align()) {
             ALLOCATOR.ensure_init();
             // SAFETY: `ptr` was carved by `alloc` for exactly this class
             // (same `class_for`, same rounding), and the caller is done
-            // with it — the `GlobalAlloc` contract.
-            unsafe {
+            // with it — the `GlobalAlloc` contract; a block already on a list
+            // is refused without a byte written.
+            let parked = unsafe {
                 ALLOCATOR.inner.lock().lists.push(
                     class,
                     ptr as usize,
                     cfg!(feature = "frame-arena-poison"),
-                );
+                )
+            };
+            if let Err(why) = parked {
+                note_refused_free(layout, why);
             }
         } else if let Some(size) = crate::large::large_size(layout.size(), layout.align()) {
             ALLOCATOR.ensure_init();
@@ -232,9 +235,29 @@ unsafe impl GlobalAlloc for GlobalAllocator {
             // list and shown by the probe; nothing else to do in a `dealloc`.
             let _ = ALLOCATOR.inner.lock().large.park(ptr as usize, size);
         }
-        #[cfg(not(feature = "small-object-free-list"))]
-        let _ = (ptr, layout);
     }
+}
+
+/// A free the class lists refused is a bug — the service's (a double free) or the allocator's (a
+/// block it carved that the lists do not know): named once per service, counted by the lists
+/// after that. Said as a FAIL in the shape the lanes' no-fake-green gate greps for, so a run with
+/// one is red without a script knowing this line (QEMU 6b-3: fourteen services refused every
+/// free, the lanes green, because the line was not one).
+fn note_refused_free(layout: Layout, why: crate::freelist::Refused) {
+    static SAID: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+    if SAID.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    use crate::debug_write::{debug_write_bytes, debug_write_hex};
+    debug_write_bytes(b"SELFTEST: alloc free refused FAIL (svc=");
+    crate::debug_write::debug_write_str(super::service_name());
+    let why: &[u8] = match why {
+        crate::freelist::Refused::Twice => b" why=twice size=0x",
+        crate::freelist::Refused::Foreign => b" why=foreign size=0x",
+    };
+    debug_write_bytes(why);
+    debug_write_hex(layout.size());
+    debug_write_bytes(b")\n");
 }
 
 #[global_allocator]

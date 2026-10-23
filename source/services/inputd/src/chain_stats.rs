@@ -147,10 +147,10 @@ impl InputdChainTelemetry {
             .checked_div(elapsed)
             .unwrap_or(0);
         // #region agent log — periodic inputd counter dump. MUST stay behind
-        // this const gate: the `format!` allocates a ~600-byte String that the
-        // non-freeing bump allocator never reclaims, so an ungated periodic dump
-        // steadily exhausts inputd's heap (the resize-flood OOM crash). Off by
-        // default; Phase 3 promotes these to metricsd counters (alloc-free).
+        // this const gate: the `format!` builds a ~600-byte String every period,
+        // trace on or off (ungated, when the heap never freed, it exhausted
+        // inputd's heap: the resize-flood OOM crash). Off by default; Phase 3
+        // promotes these to metricsd counters (alloc-free).
         const INPUTD_FPS_TRACE: bool = false;
         if INPUTD_FPS_TRACE {
             let _ = debug_trace(&format!(

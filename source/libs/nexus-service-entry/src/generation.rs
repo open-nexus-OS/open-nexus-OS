@@ -8,8 +8,9 @@
 //! `GlobalAlloc` glue in `lib.rs` owns the memory and the lock; it asks this
 //! type where the next byte goes.
 //!
-//! WHY GENERATIONS AT ALL: the service bump never frees, which is right for a
-//! service that allocates a bounded working set once. The app-host is not that
+//! WHY GENERATIONS AT ALL: the service bump never freed (the free lists came
+//! later — TASK-0077C P3, every service's since TASK-0333 6b-3), which is right
+//! for a service that allocates a bounded working set once. The app-host is not that
 //! service — it rebuilds a frame on every structural interaction and throws it
 //! away. Measured against the real desktop-shell: 226 560 B per layout call,
 //! ~100 KiB per structural emit, and **0 B of live drift over 100 dispatches**.

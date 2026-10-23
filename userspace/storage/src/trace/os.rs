@@ -6,7 +6,7 @@
 //! took and handed over in `/chosen/nexus,trace` — text first, header last. It never takes a
 //! slot over: the slot's header must already be this boot's record (magic, CRC, the handed-over
 //! sequence number, the slot the ring rule gives that number), and the loader's region and flags
-//! stay as the loader left them. Appending allocates nothing (the OS services' heaps never free):
+//! stay as the loader left them. Appending allocates nothing (it is a periodic path):
 //! whole sectors go straight from the caller's text, a partial last sector through one sector
 //! kept here. A region that fills, or text the kernel ring dropped before it got here, sets
 //! `OS_OVERFLOW`; bytes that do not fit are not written.

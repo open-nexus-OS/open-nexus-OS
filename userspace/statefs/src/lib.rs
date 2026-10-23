@@ -193,8 +193,8 @@ pub struct JournalEngine<B: BlockDevice> {
     /// Compaction thresholds and per-cycle work bounds
     compaction: CompactionConfig,
     /// Persistent snapshot serialization buffer (capacity reused across
-    /// compaction cycles — the os-lite bump allocator never frees, so
-    /// per-cycle buffers must not be reallocated; see compact.rs)
+    /// compaction cycles — a cycle allocates no store-sized buffer of its
+    /// own; see compact.rs)
     pub(crate) compact_scratch: Vec<u8>,
     /// Persistent one-block scratch: append RMW, compaction writes, and
     /// the readback verify all reuse it (never a fresh Vec per append)
@@ -447,9 +447,9 @@ impl<B: BlockDevice> JournalEngine<B> {
 
         // Read-modify-write for blocks that span the write. The one-block
         // buffer is the engine's persistent scratch — appends are the
-        // hottest path, and the os-lite bump allocator never frees, so a
-        // fresh Vec per append leaks the heap dry (an error `?` below
-        // drops it; the next append re-allocates once).
+        // hottest path, so none allocates: no fresh Vec per append
+        // (an error `?` below drops the buffer; the next append
+        // re-allocates it once).
         let mut buf = core::mem::take(&mut self.block_scratch);
         buf.clear();
         buf.resize(block_size, 0);

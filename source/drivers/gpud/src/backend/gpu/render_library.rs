@@ -22,8 +22,8 @@ const LIBRARY: &[u8] = include_bytes!("../../../../../../resources/gpu/pipelines
 #[inline(never)]
 pub(crate) fn rung(dev: &mut Device, rc: &RungContext) {
     let (client, ctx) = (rc.client, rc.ctx);
-    // What the table keeps of gpud's heap, which never frees: each pipeline's placement and
-    // setup, no program decoded into memory.
+    // What the table takes of gpud's heap (its bump cursor's advance): each pipeline's
+    // placement and setup, no program decoded into memory.
     let heap_before = nexus_service_entry::os::heap_cursor().1;
     let taken = dev.take_library(client, ctx, LIBRARY);
     let table_bytes = nexus_service_entry::os::heap_cursor().1.saturating_sub(heap_before);

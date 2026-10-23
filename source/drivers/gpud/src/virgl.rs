@@ -19,8 +19,8 @@
 //! STATUS: Experimental — encoders + golden tests; GPU bring-up is iterative.
 //! API_STABILITY: Unstable
 //! `Submit3d` is HEAP-FREE (inline `[u32; 1024]`, `as_bytes() -> &[u8]` view) so a
-//! draw can be built per-frame without leaking on gpud's non-freeing bump
-//! allocator. See ADR-0032 / docs/architecture/gpud-command-ring-and-present-pipeline.md.
+//! draw can be built per-frame without an allocation on gpud's present
+//! path. See ADR-0032 / docs/architecture/gpud-command-ring-and-present-pipeline.md.
 //! TESTS: the `#[cfg(test)]` byte-format goldens in this file (`cargo test -p gpud`).
 
 // ── Command opcodes (VIRGL_CCMD_*) ──────────────────────────────────
@@ -93,8 +93,8 @@ pub const fn cmd0(cmd: u32, object_type: u32, len: u32) -> u32 {
 /// Maximum dwords in a single `SUBMIT_3D` stream. A control-queue command tops
 /// out at 4096 bytes (`submit_two`), i.e. 1024 dwords, so an inline array of this
 /// size is the exact ceiling — and keeps `Submit3d` **heap-free**, which matters:
-/// gpud runs on a non-freeing bump allocator, so a per-draw `Vec` (≈16/present)
-/// leaked until OOM at the pipelined ~120 Hz rate ([[os-service-bump-allocator-no-free]]).
+/// a per-draw `Vec` (≈16/present) is allocator work at the pipelined ~120 Hz rate
+/// (when the heap never freed, it leaked until OOM: [[os-service-bump-allocator-no-free]]).
 const SUBMIT3D_CAP: usize = 1024;
 
 /// Accumulates a `SUBMIT_3D` command stream as little-endian `u32` dwords in an

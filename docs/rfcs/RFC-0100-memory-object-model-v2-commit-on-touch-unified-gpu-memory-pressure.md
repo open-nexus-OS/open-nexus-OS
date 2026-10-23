@@ -74,7 +74,9 @@ has, with the GPU in the same pool.
 
 - A VMO is a kernel object with a reference count = the capabilities that name it. The last
   capability's close destroys it when no address space maps it; a mapped VMO outlives its
-  capabilities until the mapping is gone (the mapping holds a reference).
+  capabilities until the mapping is gone (the mapping holds a reference) — and dies at that
+  last unmap: `vm_unmap` applies the same rule to the object its region mapped (6b-3,
+  `KSELFTEST: vm unmap reclaim ok (bytes=)`).
 - A task's exit closes every capability in its table; its address space is destroyed at reap.
   The explicit `vmo_destroy` keeps RFC-0085's rule (sole owner, no mapping) — it is a fast path
   for the owner, not the only path to death.
