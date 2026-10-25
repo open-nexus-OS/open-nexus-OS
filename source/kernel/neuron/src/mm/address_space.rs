@@ -18,15 +18,13 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::types::{Asid, Pid};
 
+use super::asid::AsidAllocator;
+#[cfg(test)]
+use super::asid::MAX_ASIDS;
 use super::kernel_layout::map_kernel_segments;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use super::page_table::PAGE_SIZE;
 use super::page_table::{MapError, PageFlags, PageTable};
-
-/// Maximum ASIDs made available by the allocator.
-const MAX_ASIDS: usize = 256;
-const WORD_BITS: usize = core::mem::size_of::<u64>() * 8;
-const BITMAP_WORDS: usize = MAX_ASIDS.div_ceil(WORD_BITS);
 
 static ADDRESS_SPACES_CREATED: AtomicUsize = AtomicUsize::new(0);
 static ADDRESS_SPACES_DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -111,6 +109,10 @@ pub struct AddressSpace {
     owners: BTreeSet<Pid>,
     /// RFC-0085: the region table — in the page table's `!Send`/`!Sync`-under-BKL domain.
     va: crate::va_space::VaSpace,
+    /// ADR-0079: user mode in this space may run `cbo.clean`/`cbo.flush` — granted at the
+    /// first such instruction of a process holding a non-coherent device's capability, kept
+    /// for the space's life; every activation sets the hart's `senvcfg` from it.
+    cache_maintenance: bool,
     // Pre-SMP contract: address-space objects are mutated from one kernel context only.
     _not_send_sync: PhantomData<*mut ()>,
 }
@@ -128,8 +130,20 @@ impl AddressSpace {
                 super::USER_VM_WINDOW_BASE,
                 super::USER_VM_WINDOW_LEN,
             ),
+            cache_maintenance: false,
             _not_send_sync: PhantomData,
         })
+    }
+
+    /// Whether user mode in this space may maintain cache lines (ADR-0079).
+    pub fn cache_maintenance(&self) -> bool {
+        self.cache_maintenance
+    }
+
+    /// Grant this space user-mode cache maintenance for its life (ADR-0079; the caller
+    /// checked the right — a non-coherent device's capability).
+    pub fn grant_cache_maintenance(&mut self) {
+        self.cache_maintenance = true;
     }
 
     /// Returns the hardware ASID backing this address space.
@@ -264,6 +278,9 @@ impl AddressSpaceManager {
             // CRITICAL: Separate function to ensure all logs/temporaries drop BEFORE AS switch
             do_preflight_checks_and_switch(space.satp_value());
         }
+        // ADR-0079: user mode runs with cache maintenance exactly when this space holds it.
+        #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+        crate::hal::platform::apply_user_cache_maintenance(space.cache_maintenance);
         #[cfg(all(target_arch = "riscv64", target_os = "none", feature = "selftest_no_satp"))]
         {
             // Skip SATP switch for bring-up; emit post-switch marker directly
@@ -416,78 +433,6 @@ fn update_peak(counter: &AtomicUsize, value: usize) {
             Ok(_) => break,
             Err(observed) => current = observed,
         }
-    }
-}
-
-struct AsidAllocator {
-    bitmap: [u64; BITMAP_WORDS],
-    next: usize,
-    /// SMP A2c/A5 quarantine: freed ASIDs stay parked (allocation bit kept
-    /// set) until a global TLB epoch flush releases them — another hart may
-    /// still hold stale TLB entries tagged with a freed ASID. Until the A5
-    /// shootdown lands, quarantined ASIDs leak boundedly (MAX_ASIDS = 256,
-    /// a boot cycles well under 50).
-    quarantined: [u64; BITMAP_WORDS],
-}
-
-impl AsidAllocator {
-    const fn new() -> Self {
-        let mut bitmap = [0u64; BITMAP_WORDS];
-        // Reserve ASID 0 for the kernel/global mappings.
-        bitmap[0] |= 1;
-        Self { bitmap, next: 1, quarantined: [0u64; BITMAP_WORDS] }
-    }
-
-    fn allocate(&mut self) -> Option<Asid> {
-        if let Some(asid) = self.try_allocate() {
-            return Some(asid);
-        }
-        // Pool exhausted: recycle the quarantine behind a GLOBAL epoch
-        // shootdown (A5) — every online hart flushes and acks before a
-        // recycled ASID can be reused anywhere.
-        crate::smp::tlb::shootdown_all();
-        self.release_quarantined();
-        self.try_allocate()
-    }
-
-    fn try_allocate(&mut self) -> Option<Asid> {
-        for _ in 0..MAX_ASIDS {
-            let index = self.next % MAX_ASIDS;
-            let word = index / WORD_BITS;
-            let bit = index % WORD_BITS;
-            if self.bitmap[word] & (1 << bit) == 0 {
-                self.bitmap[word] |= 1 << bit;
-                self.next = (index + 1) % MAX_ASIDS;
-                return Some(Asid::from_raw(index as u16));
-            }
-            self.next = (index + 1) % MAX_ASIDS;
-        }
-        None
-    }
-
-    fn free(&mut self, asid: Asid) {
-        let index = asid.as_raw() as usize;
-        if index < MAX_ASIDS {
-            let word = index / WORD_BITS;
-            let bit = index % WORD_BITS;
-            // Park instead of clearing: reuse only after a TLB flush covering
-            // all harts that may hold stale entries (see `release_quarantined`;
-            // recycled on exhaustion in `allocate`, replaced by the A5 epoch
-            // shootdown).
-            self.quarantined[word] |= 1 << bit;
-        }
-    }
-
-    /// Releases all quarantined ASIDs for reuse. Only call after a TLB
-    /// invalidation covering every hart that may hold stale entries (interim:
-    /// local full flush + boot-hart-only user execution; A5: global epoch).
-    fn release_quarantined(&mut self) {
-        for word in 0..BITMAP_WORDS {
-            self.bitmap[word] &= !self.quarantined[word];
-            self.quarantined[word] = 0;
-        }
-        // Keep ASID 0 permanently reserved for the kernel.
-        self.bitmap[0] |= 1;
     }
 }
 

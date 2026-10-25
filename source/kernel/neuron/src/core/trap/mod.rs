@@ -139,9 +139,11 @@ impl TrapFrame {
 // NOTE: `uart_dbg_block!`/`ecall_log` above must stay ABOVE these `mod` items
 // (macro_rules textual scope descends into the submodules).
 pub mod budgets;
+mod cache_right;
 mod errno;
 mod fault;
 mod handler;
+mod illegal;
 mod phased;
 mod runtime;
 

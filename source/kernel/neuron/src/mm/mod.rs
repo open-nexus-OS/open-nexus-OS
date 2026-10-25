@@ -17,6 +17,7 @@
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
 pub mod address_space;
+mod asid;
 pub mod page_table;
 pub mod reclaim;
 pub mod vm_ops;

@@ -68,6 +68,20 @@ phase = "exec"
 [marker."SELFTEST: exit reason FAIL"]
 phase = "exec"
 
+# TASK-0333 6c-1a (ADR-0079): user-mode cache maintenance is the right of a non-coherent
+# device's capability. `demo.cache` prints its marker, then runs `cbo.clean` on a mapped line
+# with no device capability: the kernel refuses it (`KINIT: cache maintenance refused`) and
+# kills the child — reason=fault, cause IllegalInstruction — instead of panicking.
+[marker."child: cache start"]
+phase = "exec"
+
+[marker."SELFTEST: cache maintenance refused ok"]
+phase = "exec"
+proves = "a process without a non-coherent device's capability cannot run a cache-block maintenance instruction: the kernel refuses it and kills the process with reason=fault (IllegalInstruction) — the Flush+Reload primitive is gone for apps, and a user illegal instruction no longer panics the kernel"
+
+[marker."SELFTEST: cache maintenance refused FAIL"]
+phase = "exec"
+
 [marker."execd: child exited"]
 phase = "exec"
 

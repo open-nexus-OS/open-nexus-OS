@@ -50,3 +50,11 @@ The same series (four quadrant tiles, the control center opened and dismissed, t
 on the board: the pointer follows the mouse at once throughout, no `windowd: loop` window with
 `moved=0` while `travel` > 0, the compositor never below the frame pace's floor; a host test for
 the gate found in (1).
+
+## Seen since
+
+- Board cycle 69 (`board--2026-10-25T12-17-03`, build dev-c51e5c0d, 6c-1a): four quadrant tiles
+  again (`wm tile` top-left/top-right/bottom-left/bottom-right) and three modals — **no stall**
+  (the longest `moved=0` run two windows, recovered), gpud's frame average median 31 ms. Whether
+  the control center was opened while all four were tiled is not known from the trace; the
+  question stays open.

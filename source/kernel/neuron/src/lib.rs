@@ -491,6 +491,10 @@ mod ipc_stats;
 // riscv/none-only), so the window rule and the units run on host. Fed by `trap::budgets`.
 #[path = "core/trap/lock_stats.rs"]
 mod lock_stats;
+// TASK-0333 6c-1a (ADR-0079): the pure cache-maintenance rule — NOT target-gated, so the
+// decode and the decision run on host. Fed by `trap::cache_right`.
+#[path = "core/trap/cbo_rule.rs"]
+mod cbo_rule;
 // TASK-0330 S2b: the serial line's cursor in the console ring — NOT target-gated, so its order
 // and lap rule run on host. Owned by `hal::console_queue` on the target.
 mod console_tx;

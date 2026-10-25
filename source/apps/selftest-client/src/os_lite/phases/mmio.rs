@@ -55,7 +55,8 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_CAP_QUERY_VMO_SKIPPED_NO_DEVICE_GRANTED);
         return Ok(());
     }
-    // TASK-0286 P4b: DMA ownership + user-mode Zicbom through a real DmaBuffer.
+    // TASK-0286 P4b: DMA ownership through a real DmaBuffer with the device's own coherence
+    // (user-mode Zicbom only under a non-coherent device's right, ADR-0079).
     match mmio::dma_buffer_probe() {
         Ok(proof) => {
             emit_bytes(crate::markers::M_SELFTEST_DMA_BUFFER_OK.as_bytes());

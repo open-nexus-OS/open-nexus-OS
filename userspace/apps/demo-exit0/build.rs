@@ -13,6 +13,10 @@
 
 use std::{cell::Cell, env, fs, path::PathBuf};
 
+#[path = "build/rv_encode.rs"]
+mod rv_encode;
+use rv_encode::*;
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/lib.rs");
@@ -38,6 +42,15 @@ fn main() {
     let fault = build_elf(&build_fault_text(b"child: fault start\n\0"));
     let out_path = out_dir.join("demo-fault.elf");
     fs::write(&out_path, fault).expect("write demo-fault");
+
+    // TASK-0333 6c-1a / ADR-0079: the cache-maintenance probe — prints its marker, then runs
+    // `cbo.clean` on a mapped, readable line. It holds no device capability, so the kernel
+    // refuses the instruction and kills it with ExitReason::Fault (IllegalInstruction); were
+    // it ever allowed, the line exists, the child falls through to exit 7 and the selftest
+    // fails loudly — a fault from an unmapped address can never pass for a refusal.
+    let cache = build_elf(&build_cache_text(b"child: cache start\n\0"));
+    let out_path = out_dir.join("demo-cache.elf");
+    fs::write(&out_path, cache).expect("write demo-cache");
 
     // TASK-0333 6a: the VMO holder — prints its marker, creates a VMO, maps it, writes one
     // byte into it and exits WITHOUT destroying it: what a task leaves behind at exit is what
@@ -268,6 +281,14 @@ fn build_fault_text(msg: &[u8]) -> Vec<u8> {
     text
 }
 
+/// `build_text`, with the "done:" tail's first slot (offset 0x20) replaced by `cbo.clean 0(s0)`
+/// — s0 points at the message's NUL there, a mapped readable line of this text (ADR-0079).
+fn build_cache_text(msg: &[u8]) -> Vec<u8> {
+    let mut text = build_text(7, msg);
+    text[0x20..0x24].copy_from_slice(&encode_cbo_clean(8).to_le_bytes());
+    text
+}
+
 /// SEND half of the payload's private reply endpoint, granted by execd
 /// (`slots::app_child::MINIDUMP_REPLY_SEND`). Moved with the PUT.
 const MINIDUMP_REPLY_SEND_SLOT: i32 = 9;
@@ -445,79 +466,6 @@ fn build_minidump_text() -> Vec<u8> {
     }
     text.extend_from_slice(&data);
     text
-}
-
-fn push(out: &mut Vec<u8>, instr: u32) {
-    out.extend_from_slice(&instr.to_le_bytes());
-}
-
-fn encode_auipc(rd: u8, imm20: i32) -> u32 {
-    ((imm20 as u32) << 12) | ((rd as u32) << 7) | 0x17
-}
-
-fn encode_addi(rd: u8, rs1: u8, imm: i32) -> u32 {
-    encode_i_type(0x13, rd, rs1, imm, 0)
-}
-
-/// `lui rd, imm20` (U-type, opcode 0x37): the upper twenty bits of a constant.
-fn encode_lui(rd: u8, imm20: i32) -> u32 {
-    (((imm20 as u32) & 0xf_ffff) << 12) | ((rd as u32) << 7) | 0x37
-}
-
-/// `sb rs2, imm(rs1)` (S-type, opcode 0x23, funct3 0): one byte stored.
-fn encode_sb(rs2: u8, rs1: u8, imm: i32) -> u32 {
-    let imm = imm as u32;
-    (((imm >> 5) & 0x7f) << 25)
-        | ((rs2 as u32) << 20)
-        | ((rs1 as u32) << 15)
-        | ((imm & 0x1f) << 7)
-        | 0x23
-}
-
-fn encode_lbu(rd: u8, rs1: u8, imm: i32) -> u32 {
-    encode_i_type(0x03, rd, rs1, imm, 0b100)
-}
-
-fn encode_i_type(opcode: u32, rd: u8, rs1: u8, imm: i32, funct3: u32) -> u32 {
-    let imm_masked = (imm as u32) & 0xfff;
-    (imm_masked << 20) | ((rs1 as u32) << 15) | (funct3 << 12) | ((rd as u32) << 7) | opcode
-}
-
-fn encode_beq(rs1: u8, rs2: u8, offset: i32) -> u32 {
-    encode_branch(0b000, rs1, rs2, offset)
-}
-
-fn encode_branch(funct3: u32, rs1: u8, rs2: u8, offset: i32) -> u32 {
-    let imm = offset as u32;
-    let bit12 = ((imm >> 12) & 0x1) << 31;
-    let bit11 = ((imm >> 11) & 0x1) << 7;
-    let bits10_5 = ((imm >> 5) & 0x3f) << 25;
-    let bits4_1 = ((imm >> 1) & 0xf) << 8;
-    bit12
-        | bits10_5
-        | ((rs2 as u32) << 20)
-        | ((rs1 as u32) << 15)
-        | (funct3 << 12)
-        | bits4_1
-        | bit11
-        | 0x63
-}
-
-fn encode_jal(rd: u8, offset: i32) -> u32 {
-    let imm = offset as u32;
-    let bit20 = ((imm >> 20) & 0x1) << 31;
-    let bits10_1 = ((imm >> 1) & 0x3ff) << 21;
-    let bit11 = ((imm >> 11) & 0x1) << 20;
-    let bits19_12 = ((imm >> 12) & 0xff) << 12;
-    bit20 | bits19_12 | bit11 | bits10_1 | ((rd as u32) << 7) | 0x6f
-}
-
-fn encode_blt(rs1: u8, rs2: u8, offset: i32) -> u32 {
-    encode_branch(0b100, rs1, rs2, offset)
-}
-
-fn encode_bne(rs1: u8, rs2: u8, offset: i32) -> u32 {
-    encode_branch(0b001, rs1, rs2, offset)
 }
 
 /// `nexus_abi::MsgHeader`: src u32 | dst u32 | ty u16 | flags u16 | len u32.

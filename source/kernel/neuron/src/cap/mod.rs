@@ -212,6 +212,15 @@ impl CapTable {
         Ok(())
     }
 
+    /// Whether a capability of a device that does not snoop the CPU caches is in the table —
+    /// the right to user-mode cache maintenance (ADR-0079).
+    pub fn holds_noncoherent_device(&self) -> bool {
+        self.slots
+            .iter()
+            .flatten()
+            .any(|cap| matches!(cap.kind, CapabilityKind::DeviceMmio { dma_noncoherent: true, .. }))
+    }
+
     /// Allocates the first free slot and inserts `cap`, returning the slot index.
     pub fn allocate(&mut self, cap: Capability) -> Result<usize, CapError> {
         for (index, entry) in self.slots.iter_mut().enumerate() {

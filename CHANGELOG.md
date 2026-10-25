@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-24 (cache maintenance is a driver's right; a bad instruction ends the app, not the system — TASK-0333 6c-1a, ADR-0079)
+
+- **Only drivers of devices that do not snoop the caches may flush cache lines.** Every program
+  could, on every core: a program could flush a line of memory it shares with another and time
+  its reload, learning what the other touches. The kernel now grants it per program, at the
+  first use, to one holding such a device's capability; future drivers get it with their
+  device, nothing to configure.
+- **An unknown instruction in a program ends that program.** It used to stop the whole system.
+
 ### Fixed - 2026-10-23 (the OS image is built with its own flags — TASK-0333 6c-0)
 
 - **The configured flags reach the shipped image.** `.cargo/config.toml` names the OS target's

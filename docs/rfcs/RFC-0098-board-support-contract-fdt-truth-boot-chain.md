@@ -246,10 +246,13 @@ walking from the device node up to the root (`nexus_fdt::Node::dma_coherent`: th
 capability (`device_cap_create` arg 4 bit 0; any other bit is refused), exactly like the
 interrupt line; `cap_query` reports it (`flags` bit 0) together with the harts' cache-block
 size (`cache_block`, the tree's `riscv,cbom-block-size` when the ISA lists `zicbom`, else 0) —
-the query grows from 24 to 32 bytes. The kernel enables Zicbom for user mode on every hart whose
-tree lists it: `senvcfg.CBCFE = 1` and `senvcfg.CBIE = 01`, so `cbo.inval` executes as a flush —
-a driver can write back and drop its own lines but never discard data (user mode gets no
-data-destroying primitive). Maintenance is the driver's, through one type: `DmaBuffer`
+the query grows from 24 to 32 bytes. User-mode Zicbom is the right of a **non-coherent** device's
+capability, per process (ADR-0079, amended 2026-10-23 — it was every task's on every hart, a
+Flush+Reload primitive against any page two tasks share): harts boot with it off; a process
+holding such a capability is granted it at its first `cbo` (the trap retries with
+`senvcfg.CBCFE = 1` and `senvcfg.CBIE = 01`, so `cbo.inval` executes as a flush — a driver can
+write back and drop its own lines but never discard data); every address-space switch sets the
+bits from the space; any other process's `cbo` kills that process. Maintenance is the driver's, through one type: `DmaBuffer`
 (`nexus-driverkit`) owns a mapped DMA object (`nexus_abi::DmaVmo`) and moves between CPU-owned
 and device-owned by value — `for_device(dir)` cleans (to the device) or flushes (from or both
 ways), `for_cpu()` flushes what the device may have written; the CPU cannot touch the bytes

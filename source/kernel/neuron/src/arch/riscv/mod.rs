@@ -77,8 +77,24 @@ pub fn read_time() -> u64 {
     }
 }
 
+/// Reads `senvcfg` (0x10a) — the user-mode environment of this hart.
+#[inline]
+pub fn read_senvcfg() -> u64 {
+    #[cfg(target_arch = "riscv64")]
+    {
+        let value: u64;
+        // SAFETY: a CSR read with no side effect.
+        unsafe { core::arch::asm!("csrr {0}, 0x10a", out(reg) value, options(nomem, nostack)) };
+        value
+    }
+    #[cfg(not(target_arch = "riscv64"))]
+    {
+        0
+    }
+}
+
 /// Sets `senvcfg` (0x10a, by number like `stimecmp`) to `(old & !clear) | set` —
-/// the user-mode environment of this hart (RFC-0098 C4: Zicbom for drivers).
+/// the user-mode environment of this hart (ADR-0079: Zicbom per process).
 #[inline]
 pub fn update_senvcfg(clear: u64, set: u64) {
     #[cfg(target_arch = "riscv64")]

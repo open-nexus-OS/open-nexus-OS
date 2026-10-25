@@ -24,6 +24,10 @@ pub const DEMO_MINIDUMP_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/d
 /// the deterministic `ExitReason::Fault` proof child (TASK-0049 / ADR-0056).
 pub const DEMO_FAULT_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-fault.elf"));
 
+/// Prebuilt ELF payload that runs `cbo.clean` without a device capability — the kernel refuses
+/// it as an illegal instruction (TASK-0333 6c-1a, ADR-0079).
+pub const DEMO_CACHE_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/demo-cache.elf"));
+
 /// Prebuilt ELF payload that creates a VMO, maps and touches it and exits holding it —
 /// the memory a task leaves behind at exit (TASK-0333 6a, RFC-0100 §1).
 pub const DEMO_VMO_HOLDER_ELF: &[u8] =

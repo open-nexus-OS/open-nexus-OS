@@ -230,14 +230,34 @@ const SENVCFG_CBIE_MASK: u64 = 0b11 << 4;
 const SENVCFG_CBIE_FLUSH: u64 = 0b01 << 4;
 const SENVCFG_CBCFE: u64 = 1 << 6;
 
-/// Let user mode maintain its own cache lines on this hart when the tree lists
-/// Zicbom (RFC-0098 C4): `cbo.clean`/`cbo.flush` allowed, and `cbo.inval`
-/// executes as a flush — a driver writes back and drops lines, it can never
-/// discard data. Called once per hart, next to its trap vector.
-pub fn enable_user_cache_maintenance() {
-    if cbom_block() != 0 {
-        riscv::update_senvcfg(SENVCFG_CBIE_MASK, SENVCFG_CBIE_FLUSH | SENVCFG_CBCFE);
+/// The bits a process with the right runs under: `cbo.clean`/`cbo.flush` allowed and
+/// `cbo.inval` executed as a flush — a driver writes back and drops lines, it can never
+/// discard data.
+const SENVCFG_USER_CBO: u64 = SENVCFG_CBIE_FLUSH | SENVCFG_CBCFE;
+const SENVCFG_USER_CBO_MASK: u64 = SENVCFG_CBIE_MASK | SENVCFG_CBCFE;
+
+/// Whether user mode can be granted cache maintenance at all: the tree lists Zicbom.
+pub fn user_cache_maintenance_supported() -> bool {
+    cbom_block() != 0
+}
+
+/// Set this hart's user-mode cache maintenance (ADR-0079: the right of a non-coherent
+/// device's capability, per process). Called with `false` once per hart next to its trap
+/// vector, then at every address-space switch with that space's right; `senvcfg` is written
+/// only when its bits differ, so a switch between two processes alike costs one CSR read.
+pub fn apply_user_cache_maintenance(on: bool) {
+    if cbom_block() == 0 {
+        return;
     }
+    let want = if on { SENVCFG_USER_CBO } else { 0 };
+    if riscv::read_senvcfg() & SENVCFG_USER_CBO_MASK != want {
+        riscv::update_senvcfg(SENVCFG_USER_CBO_MASK, want);
+    }
+}
+
+/// Whether this hart runs user mode with cache maintenance on.
+pub fn user_cache_maintenance_on() -> bool {
+    cbom_block() != 0 && riscv::read_senvcfg() & SENVCFG_USER_CBO_MASK == SENVCFG_USER_CBO
 }
 
 /// Whether the timer is armed through `stimecmp` (Sstc) rather than SBI.

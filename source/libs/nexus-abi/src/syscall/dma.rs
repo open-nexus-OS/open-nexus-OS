@@ -15,9 +15,10 @@
 //! (virtio queues, command pools). `cap_query` names no VMO base.
 //! Coherence travels with the device (P4b): its capability says whether it snoops
 //! the CPU caches (`DmaCoherence`); for one that does not, the driver writes back
-//! and drops its lines with Zicbom (`cache_clean` / `cache_flush`), which the
-//! kernel enables for user mode — `cbo.inval` runs as a flush, so user mode can
-//! never discard data. `DmaVmo` is a VMO mapped for DMA to one device (bytes +
+//! and drops its lines with Zicbom (`cache_clean` / `cache_flush`) — the right of
+//! that non-coherent device's capability, granted per process by the kernel at the
+//! first instruction (ADR-0079; without it the instruction kills the process).
+//! `cbo.inval` runs as a flush, so user mode can never discard data. `DmaVmo` is a VMO mapped for DMA to one device (bytes +
 //! runs), the memory `nexus_driverkit::DmaBuffer` moves between the CPU and it;
 //! `LazyDmaVmo` one whose pages are committed when first touched or told to the
 //! device (ADR-0078), so it keeps no run list.

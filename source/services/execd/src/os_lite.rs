@@ -127,6 +127,9 @@ const IMG_FAULT: u8 = 5;
 /// TASK-0333 6a: the VMO holder — creates, maps and touches a VMO and exits holding it; the
 /// selftest's loop spawns it ten times and reads what the kernel took back.
 const IMG_VMO_HOLDER: u8 = 6;
+/// TASK-0333 6c-1a (ADR-0079): runs `cbo.clean` without a device capability — the kernel
+/// refuses it and kills the child with `ExitReason::Fault` (IllegalInstruction).
+const IMG_CACHE: u8 = 7;
 /// TASK-0080D R1: the app-host runtime (ADR-0042 transport probe). The ELF is
 /// embedded by `build.rs` when `scripts/build.sh` provides it; empty ⇒
 /// UNSUPPORTED (fail-closed, never a fake payload).
@@ -344,6 +347,7 @@ impl State {
             IMG_EXIT42 => "demo.minidump",
             IMG_FAULT => "demo.fault",
             IMG_VMO_HOLDER => "demo.vmo-holder",
+            IMG_CACHE => "demo.cache",
             _ => "unknown",
         }
     }
@@ -922,6 +926,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         IMG_EXIT42 => DEMO_MINIDUMP_ELF,
         IMG_FAULT => demo_exit0::DEMO_FAULT_ELF,
         IMG_VMO_HOLDER => demo_exit0::DEMO_VMO_HOLDER_ELF,
+        IMG_CACHE => demo_exit0::DEMO_CACHE_ELF,
         IMG_APPHOST if !apphost_payload::APPHOST_ELF.is_empty() => apphost_payload::APPHOST_ELF,
         _ => return rsp(op, STATUS_UNSUPPORTED, 0).to_vec(),
     };

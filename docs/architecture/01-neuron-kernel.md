@@ -272,8 +272,12 @@ increment:
   (`KSELFTEST: vmo runs ok (runs=… deny=4)`).
 - **Coherence.** A device that does not snoop the caches is marked `dma-noncoherent` on its node
   or bus; init mints that into the device capability, `cap_query` reports it with the harts'
-  Zicbom block size, and the kernel enables `cbo.clean`/`cbo.flush` for user mode per hart
-  (`senvcfg.CBCFE`, `CBIE = 01`: `cbo.inval` runs as a flush). Drivers maintain their buffers
+  Zicbom block size. User-mode `cbo.clean`/`cbo.flush` is that capability's right (ADR-0079):
+  every hart boots with it off, a process holding a non-coherent device's capability is granted
+  it at its first `cbo` (the trap retries it with `senvcfg.CBCFE`, `CBIE = 01` — `cbo.inval`
+  runs as a flush), every address-space switch sets the bits from the space, and any other
+  process's `cbo` — like any user illegal instruction — kills that process, never the kernel
+  (`SELFTEST: cache maintenance refused ok`). Drivers maintain their buffers
   through `nexus_driverkit::DmaBuffer` over `nexus_abi::DmaVmo`
   (`SELFTEST: dma buffer ok (device=… block=… runs=…)`).
 - **Accounting.** Read from the owners, never counted twice: `mm/usage.rs` collects the pool, the

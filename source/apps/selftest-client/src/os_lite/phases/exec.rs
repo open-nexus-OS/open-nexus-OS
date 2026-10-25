@@ -129,6 +129,19 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_EXIT_REASON_FAIL);
     }
 
+    // TASK-0333 6c-1a (ADR-0079): user-mode cache maintenance is a non-coherent device's right.
+    // The demo.cache payload holds no device capability and runs `cbo.clean` on a mapped line:
+    // the kernel must refuse it — reason=fault (tag 2) with cause IllegalInstruction (2), never
+    // a kernel panic. Allowed, it would fall through to exit 7 and fail here.
+    const ILLEGAL_INSTRUCTION: u8 = 2;
+    let cache_pid = services::execd::execd_spawn_image(&execd_client, "selftest-client", 7)?;
+    match services::execd::wait_for_pid_with_reason(&execd_client, cache_pid) {
+        Some((_code, 2, ILLEGAL_INSTRUCTION)) => {
+            emit_line(crate::markers::M_SELFTEST_CACHE_MAINTENANCE_REFUSED_OK)
+        }
+        _ => emit_line(crate::markers::M_SELFTEST_CACHE_MAINTENANCE_REFUSED_FAIL),
+    }
+
     // TASK-0018: Minidump v1 proof. Spawn a deterministic non-zero exit (42), then
     // verify execd appended crash metadata and wrote a bounded minidump path.
     // The statefs route lands in the child's slots 7/8 via EXECD before resume

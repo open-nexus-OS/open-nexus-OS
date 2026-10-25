@@ -143,12 +143,12 @@ pub(crate) struct DmaBufferProof {
     pub runs: usize,
 }
 
-/// RFC-0098 C4 (TASK-0286 P4b): a `DmaBuffer` over a real `DmaVmo` with the Zicbom
-/// instructions forced on — QEMU's virtio devices are coherent, so the device's own
-/// coherence would skip them; forcing them proves that user mode may execute
-/// `cbo.clean`/`cbo.flush` (the kernel's `senvcfg`) and that every byte survives the
-/// ToDevice and Bidirectional round trips. The device capability is the net window
-/// init grants this harness; a VMO must be refused as a device.
+/// RFC-0098 C4 (TASK-0286 P4b): a `DmaBuffer` over a real `DmaVmo` with the device's own
+/// coherence, and every byte surviving the ToDevice and Bidirectional round trips. The device
+/// capability is the net window init grants this harness; a VMO must be refused as a device.
+/// User-mode Zicbom is the right of a NON-coherent device's capability (ADR-0079): on QEMU's
+/// coherent virtio window the buffer maintains nothing (forcing it would be refused); on a board
+/// whose window does not snoop, the buffer's `cbo`s run under that right.
 pub(crate) fn dma_buffer_probe() -> core::result::Result<DmaBufferProof, ()> {
     use nexus_abi::{DmaCoherence, DmaVmo};
     use nexus_driverkit::{Direction, DmaBuffer, Zicbom};
@@ -156,18 +156,17 @@ pub(crate) fn dma_buffer_probe() -> core::result::Result<DmaBufferProof, ()> {
     const LEN: usize = 3 * 4096 + 100;
     let mut query = nexus_abi::CapQuery::default();
     nexus_abi::cap_query(DEVICE, &mut query).map_err(|_| ())?;
-    let coherent =
-        nexus_abi::device_dma_coherence(DEVICE).map_err(|_| ())? == DmaCoherence::Coherent;
-    let block = query.cache_block as usize;
-    if block == 0 {
-        return Err(()); // no Zicbom on the harts: nothing to prove the instructions with
+    let coherence = nexus_abi::device_dma_coherence(DEVICE).map_err(|_| ())?;
+    if coherence == DmaCoherence::Unmaintainable {
+        return Err(()); // a non-coherent device on harts without Zicbom
     }
+    let coherent = coherence == DmaCoherence::Coherent;
+    let block = query.cache_block as usize;
     let vmo = DmaVmo::anonymous(DEVICE, LEN).map_err(|_| ())?;
     let refused = nexus_abi::device_dma_coherence(vmo.handle()).is_err();
     let runs = vmo.runs().len();
     let covered: u64 = vmo.runs().iter().map(|r| r.len).sum();
-    let mut buf =
-        DmaBuffer::new(vmo, DmaCoherence::Maintained { block }, Zicbom).map_err(|_| ())?;
+    let mut buf = DmaBuffer::new(vmo, coherence, Zicbom).map_err(|_| ())?;
     for (i, byte) in buf.bytes_mut().iter_mut().enumerate() {
         *byte = (i % 251) as u8;
     }

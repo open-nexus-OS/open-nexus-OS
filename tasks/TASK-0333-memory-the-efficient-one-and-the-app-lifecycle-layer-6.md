@@ -561,6 +561,33 @@ tiles + the control center modal, the GPU overloaded) — filed by the operator 
 **TASK-0345**. Carried: `tokio` 1.51.1 → 1.51.6 in `Cargo.lock` (host-only; an advisory published
 today turned `just check` red).
 
+**6c-1 cut in two (2026-10-24, the operator: evaluate who else needs it).** **6c-1a** — the
+cache right alone (ADR-0079), its own board cycle; **6c-1b** — sealed images and `exec_vmo`.
+Who needs user `cbo`, measured: one call site (`nexus_abi::cache_clean`/`cache_flush`), reached
+by sdhci (blkd), xhcid, gpud and the selftest's DMA probe — each from its own device
+capability's coherence. Future drivers of non-coherent devices (Ethernet, audio, camera, codec,
+NPU, crypto) get the right with the capability init hands them, nothing per driver; coherent
+devices' drivers do not; non-drivers never get the instruction — layer 8's zero-copy import
+gets a kernel call over objects the caller may write (ADR-0079, built with its first user).
+Found on the way: **a user-mode illegal instruction panicked the kernel** (`panic!("ILLEGAL")`)
+— any app with an unknown opcode took the system down; it now kills the process
+(`[USER-ILL]`, `reason=fault`).
+
+**6c-1a built 2026-10-24.** Kernel: harts boot with user Zicbom off
+(`platform::apply_user_cache_maintenance`), `AddressSpace::cache_maintenance` set at the first
+`cbo` of a process holding `DeviceMmio { dma_noncoherent: true }` (`trap/cache_right.rs`, the
+pure rule `cbo_rule.rs` host-tested: `test_reject_user_cache_flush_without_right`,
+`test_reject_cbo_zero_and_other_misc_mem`, `test_reject_cbo_without_zicbom_or_on_a_hart_already_on`),
+every `activate` writes `senvcfg` from the space. Userspace: `demo.cache` (execd image 7) →
+`SELFTEST: cache maintenance refused ok` (REQUIRED, both lists); the DMA probe follows the
+device's coherence. RFC-0098 C4 amended; measurement folder
+`docs/board/measurements/2026-10-24-cache-maintenance-right/` (H1–H4 for cycle 69).
+
+**6c-1a ✅ board cycle 69 (`board--2026-10-25T12-17-03`).** Exactly blkd, xhcid and gpud
+granted, once each; everything they drive works; the refusal proven on QEMU and the board;
+ladder 79/79, no new FAIL kind; ADR-0079 Accepted. `board-visible` red on `typed` alone (the
+keyboard defect) and `tile` unacked (no chord tried). NEXT 6c-1b — sealed images + `exec_vmo`.
+
 **Not in 6c:** CoW (measured unneeded), dropping clean code pages under pressure (6e/6f), a
 per-page signature check on fault (the bootfs and the volume are verified whole before use).
 
