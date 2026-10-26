@@ -27,7 +27,11 @@ fn pack_and_read(app: &str) -> (String, Vec<String>, Vec<String>) {
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let payload = tmp.path().join("placeholder.elf");
-    std::fs::write(&payload, b"\x7fELF placeholder payload").expect("write payload");
+    std::fs::write(
+        &payload,
+        &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+    )
+    .expect("write payload");
     let out = tmp.path().join(format!("{app}.nxb"));
 
     let status = Command::new(env!("CARGO_BIN_EXE_nxb-pack"))
@@ -98,7 +102,11 @@ caps = ["nexus.permission.FILES"]
     )
     .expect("write manifest");
     let payload = tmp.path().join("placeholder.elf");
-    std::fs::write(&payload, b"\x7fELF placeholder payload").expect("write payload");
+    std::fs::write(
+        &payload,
+        &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+    )
+    .expect("write payload");
     let out = tmp.path().join("rogue.nxb");
 
     let status = Command::new(env!("CARGO_BIN_EXE_nxb-pack"))
@@ -127,7 +135,11 @@ fn test_reject_screencap_cap_outside_shell_and_settings() {
         )
         .expect("write manifest");
         let payload = tmp.path().join("placeholder.elf");
-        std::fs::write(&payload, b"\x7fELF placeholder payload").expect("write payload");
+        std::fs::write(
+            &payload,
+            &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+        )
+        .expect("write payload");
         let out = tmp.path().join("rogue.nxb");
         let status = Command::new(env!("CARGO_BIN_EXE_nxb-pack"))
             .arg("--toml")

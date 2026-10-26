@@ -42,7 +42,7 @@ pub(super) fn phased_syscall(
     let nr = frame.x[17];
     let args =
         Args::new([frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]]);
-    if nr == crate::syscall::SYSCALL_EXEC || nr == crate::syscall::SYSCALL_EXEC_V2 {
+    if nr == crate::syscall::SYSCALL_EXEC_VMO {
         // Phase A (BKL): full exec minus the byte moves (staged into `plan`).
         let mut plan = api::CopyPlan::new();
         let (pid, result) = {
@@ -63,11 +63,7 @@ pub(super) fn phased_syscall(
                 *task.frame_mut() = *frame;
             }
             record(frame);
-            let result = if nr == crate::syscall::SYSCALL_EXEC {
-                api::exec_phase_a(&mut ctx, &args, &mut plan)
-            } else {
-                api::exec_v2_phase_a(&mut ctx, &args, &mut plan)
-            };
+            let result = api::exec_vmo_phase_a(&mut ctx, &args, &mut plan);
             (pid, result)
         };
         let value = match result {

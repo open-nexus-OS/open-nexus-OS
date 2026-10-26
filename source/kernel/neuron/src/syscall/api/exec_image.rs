@@ -1,11 +1,12 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: the frame side of `exec` (TASK-0286 P3a): a process image is
-//! pool blocks, largest first — allocated and recorded on the task's
-//! `ImageAllocs`, zeroed and filled by the staged copy plan (phase B, BKL
-//! dropped), mapped back to back into the child. Split out of `exec.rs`
-//! (module-size ratchet).
+//! CONTEXT: the frame side of `exec` (TASK-0286 P3a): the pages a process OWNS — a writable
+//! segment's file pages (ADR-0080: the read-only and executable ones are the sealed image's own
+//! frames, mapped by `vm_ops::map_runs_at`), the meta/info pages — are pool blocks, largest
+//! first, allocated and recorded on the task's `ImageAllocs`, zeroed and filled by the staged
+//! copy plan (phase B, BKL dropped), mapped back to back into the child; `.bss` and the stack
+//! are lazy objects. Split out of `exec.rs` (module-size ratchet).
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -77,48 +78,6 @@ pub(super) fn map_blocks(
             address_spaces.map_page_tracked(as_handle, cursor, pa, flags)?;
             cursor = cursor.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         }
-    }
-    Ok(())
-}
-
-/// One PT_LOAD segment as exec found it: `len` bytes from the page-aligned `va`, the first byte
-/// `page_off` into its page, the file `payload` `(src, filesz)` to lay there, the PTE `flags`.
-pub(super) struct Segment {
-    pub va: usize,
-    pub page_off: usize,
-    pub len: usize,
-    pub payload: (usize, usize),
-    pub flags: PageFlags,
-}
-
-/// Load one segment (ADR-0077): the pages that hold file bytes are pool blocks — zeroed and
-/// filled by the copy plan in phase B, mapped now; a writable segment's pure `.bss` tail beyond
-/// them is a lazy object the child owns, committed page by page on first touch. A read-only
-/// segment is eager whole.
-pub(super) fn load_segment(
-    address_spaces: &mut crate::mm::AddressSpaceManager,
-    as_handle: crate::mm::AsHandle,
-    image: &mut crate::task::ImageAllocs,
-    plan: &mut CopyPlan,
-    seg: Segment,
-) -> SysResult<()> {
-    let (src, filesz) = seg.payload;
-    let file_pages = if filesz == 0 {
-        0
-    } else {
-        align_len(seg.page_off + filesz).ok_or(AddressSpaceError::InvalidArgs)?
-    };
-    let eager = if seg.flags.contains(PageFlags::WRITE) { file_pages } else { seg.len };
-    if eager != 0 {
-        let blocks = alloc_image(eager, image, plan)?;
-        if filesz != 0 {
-            plan_payload(&blocks, seg.page_off, src, filesz, plan)?;
-            plan.fence_i = true;
-        }
-        map_blocks(address_spaces, as_handle, seg.va, &blocks, seg.flags)?;
-    }
-    if eager < seg.len {
-        map_lazy_fixed(address_spaces, as_handle, seg.va + eager, seg.len - eager, seg.flags)?;
     }
     Ok(())
 }

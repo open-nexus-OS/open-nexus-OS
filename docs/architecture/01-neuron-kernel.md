@@ -140,11 +140,15 @@ The authoritative list (including numeric IDs) lives in `source/kernel/neuron/sr
 - **10 `as_map`**: Map a VMO into a *target* address space identified by handle. Enforces W^X at the syscall boundary.
 - **11 `exit`**: Terminate the current task.
 - **12 `wait`**: Wait for a child task exit.
-- **13 `exec`**: Execute an ELF payload (loader path).
+- **13** — retired (ADR-0080): the pointer-and-length exec loader; never reused.
+- **63 `exec_vmo`**: make a process from a SEALED image object (ADR-0080) — the one loader: its
+  read-only and executable segments mapped from the object's own frames (shared by every
+  process of the image), its data copied, `.bss` and stack lazy.
+- **64 `vmo_seal`**: seal a VMO, one way — no writer for the rest of its life.
 - **14 `ipc_send_v1`**: Kernel IPC v1 send (payload copy-in) (see RFC‑0005).
 - **15 `task_qos`**: Scheduler QoS hint for the calling task.
 - **16 `debug_putc`** / **44 `debug_write`**: Byte / bounded-buffer UART output.
-- **17 `exec_v2`**: ELF exec with the v2 bootstrap-info page contract.
+- **17** — retired (ADR-0080): exec v2 (name ptr/len); `exec_vmo` carries the name.
 - **18 `ipc_recv_v1`**: Kernel IPC v1 recv (payload copy-out) (see RFC‑0005).
 - **19 `ipc_endpoint_create`** / **21 `…_close`** / **22 `…_create_v2`** /
   **23 `…_create_for`**: Kernel IPC endpoint lifecycle (see RFC‑0005).

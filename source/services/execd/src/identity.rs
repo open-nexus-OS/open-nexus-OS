@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: the RFC-0086 app-host service-name derivation — `app:<bundle_id>`,
-//! the kernel-attributed identity every app-host child carries via `exec_v2`.
+//! the kernel-attributed identity every app-host child carries via `exec_vmo`.
 //! Pure and host-tested (`os_lite.rs` is RISC-V-only); execd is the ONLY
 //! naming authority, and the `app:` prefix keeps bundle ids out of the boot
 //! service namespace by construction.

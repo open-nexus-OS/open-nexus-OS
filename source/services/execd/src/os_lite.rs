@@ -25,13 +25,14 @@ use crate::crash_fields::{
     append_field, append_field_i32, append_field_u32, append_field_u64, push_i32_dec, push_u32_dec,
 };
 use nexus_abi::{
-    debug_putc, exec, nsec, service_id_from_name, wait_nohang_with_reason, wait_with_reason,
-    yield_, ExitReason, Pid,
+    debug_putc, nsec, service_id_from_name, wait_nohang_with_reason, wait_with_reason, yield_,
+    ExitReason, Pid,
 };
 use nexus_ipc::{KernelServer, Server as _, Wait};
 use nexus_metrics::{DeterministicIdSource, SpanId};
 use nexus_service_topology::slots::execd as topo;
 
+mod images;
 mod reaper;
 mod recv_wake_probe;
 use reaper::{Death, Reaper};
@@ -41,8 +42,6 @@ use crash::{
     deterministic_build_id, normalize_dump_path, validate_dump_path, write_dump_to_statefs,
     MinidumpFrame,
 };
-use demo_exit0::{DEMO_EXIT0_ELF, DEMO_MINIDUMP_ELF};
-use exec_payloads::HELLO_ELF;
 use nexus_log;
 
 /// Result alias surfaced by the lite execd backend.
@@ -323,11 +322,19 @@ struct State {
     policy_nonce: u32,
     /// RFC-0080: cap slot of the SHARED atlas VMO (`atlas_vmo` module); RO-cloned per spawn.
     atlas_vmo: Option<u32>,
+    /// ADR-0080: the sealed image of each embedded ELF, made at its first spawn and kept
+    /// (`images.rs`) — every process of an image maps the same frames.
+    images: [Option<u32>; images::IMAGE_IDS],
 }
 
 impl State {
     fn new() -> Self {
-        Self { children: Vec::new(), policy_nonce: 1, atlas_vmo: None }
+        Self {
+            children: Vec::new(),
+            policy_nonce: 1,
+            atlas_vmo: None,
+            images: [None; images::IMAGE_IDS],
+        }
     }
 
     fn track_child(&mut self, pid: u32, image_id: u8) {
@@ -920,15 +927,9 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         return rsp(op, STATUS_DENIED, 0).to_vec();
     }
 
-    let elf = match image_id {
-        IMG_HELLO => HELLO_ELF,
-        IMG_EXIT0 => DEMO_EXIT0_ELF,
-        IMG_EXIT42 => DEMO_MINIDUMP_ELF,
-        IMG_FAULT => demo_exit0::DEMO_FAULT_ELF,
-        IMG_VMO_HOLDER => demo_exit0::DEMO_VMO_HOLDER_ELF,
-        IMG_CACHE => demo_exit0::DEMO_CACHE_ELF,
-        IMG_APPHOST if !apphost_payload::APPHOST_ELF.is_empty() => apphost_payload::APPHOST_ELF,
-        _ => return rsp(op, STATUS_UNSUPPORTED, 0).to_vec(),
+    // ADR-0080: every process of an image runs from execd's ONE sealed object of it.
+    let Some(image) = state.sealed_image(image_id) else {
+        return rsp(op, STATUS_UNSUPPORTED, 0).to_vec();
     };
     // GET_PAYLOAD (TASK-0080D): kick the payload fetch BEFORE the ELF load so
     // bundlemgrd fills the VMO while we spawn; its answer is waited for right before
@@ -944,7 +945,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     let mut ids = DeterministicIdSource::new(sender_service_id);
     let trace_id = ids.next_trace_id();
     metrics_span_start_best_effort(span_id, trace_id, "execd.exec", b"svc=execd\n");
-    // RFC-0086 identity keystone: app-hosts spawn via exec_v2 with a
+    // RFC-0086 identity keystone: app-hosts spawn via exec_vmo with a
     // kernel-attributed service name `app:<bundle_id>` — execd (the spawner)
     // is the ONLY naming authority, and the `app:` prefix makes impersonating
     // a boot service impossible by construction. Every later ipc_recv_v2
@@ -954,10 +955,10 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     // (sid 0 = no window authority — fail-closed, never fail-open).
     let spawned = match (image_id, app_id) {
         (IMG_APPHOST, Some(app)) => match crate::identity::app_service_name(app) {
-            Some(name) => nexus_abi::exec_v2(elf, stack_pages, 0, name.as_str()),
-            None => exec(elf, stack_pages, 0),
+            Some(name) => nexus_abi::exec_vmo(image, stack_pages, 0, name.as_str()),
+            None => nexus_abi::exec_vmo(image, stack_pages, 0, ""),
         },
-        _ => exec(elf, stack_pages, 0),
+        _ => nexus_abi::exec_vmo(image, stack_pages, 0, ""),
     };
     match spawned {
         Ok(pid) => {

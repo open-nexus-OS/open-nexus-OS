@@ -176,14 +176,14 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                         line.text("core service log probe: bundlemgrd");
                     });
                 }
-                // TASK-0321 (RFC-0089 §12.3): system-volume ops. GET_BUNDLE_ELF
-                // carries the destination VMO as its single moved cap (the
-                // GET_PAYLOAD pattern); QUERY/STATUS answer on the reply path.
+                // TASK-0321 (RFC-0089 §12.3): system-volume ops. GET_BUNDLE_IMAGE fills,
+                // seals and hashes the sender's ARMED object (ADR-0080; the moved cap is
+                // the reply cap); QUERY/STATUS answer on the reply path.
                 let vop = nexus_abi::bundlemgrd::decode_request_op(frame);
                 if matches!(
                     vop,
                     Some(nexus_abi::bundlemgrd::OP_QUERY_BUNDLE)
-                        | Some(nexus_abi::bundlemgrd::OP_GET_BUNDLE_ELF)
+                        | Some(nexus_abi::bundlemgrd::OP_GET_BUNDLE_IMAGE)
                         | Some(nexus_abi::bundlemgrd::OP_VOLUME_STATUS)
                         | Some(nexus_abi::bundlemgrd::OP_GET_INDEX)
                         | Some(nexus_abi::bundlemgrd::OP_GET_FILE_VMO)

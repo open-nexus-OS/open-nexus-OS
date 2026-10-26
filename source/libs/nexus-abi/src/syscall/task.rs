@@ -365,59 +365,30 @@ pub fn spawn_last_error() -> SysResult<SpawnFailReason> {
     }
 }
 
-/// Loads and spawns a process from an ELF blob using the kernel exec loader.
+/// Makes a process from a SEALED image (ADR-0080, syscall 63) — the one loader. `image` is a
+/// `Vmo`/`VmoRo` capability of an object sealed with [`crate::vmo_seal`] (or made by
+/// [`crate::sealed_image`]); the kernel maps the image's read-only and executable segments
+/// from the object's own frames — shared by every process of that image — copies its data
+/// segment and gives the process a lazy `.bss` and stack. The task starts Suspended; the
+/// caller grants its capabilities and resumes it. `service_name` (≤ 64 bytes, may be empty)
+/// becomes the kernel-attributed identity (RFC-0004).
 #[cfg(nexus_env = "os")]
-pub fn exec(elf: &[u8], stack_pages: usize, global_pointer: u64) -> SysResult<Pid> {
-    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-    {
-        const SYSCALL_EXEC: usize = 13;
-        if stack_pages == 0 || elf.is_empty() {
-            return Err(AbiError::InvalidArgument);
-        }
-        let raw = unsafe {
-            ecall4(
-                SYSCALL_EXEC,
-                elf.as_ptr() as usize,
-                elf.len(),
-                stack_pages,
-                global_pointer as usize,
-            )
-        };
-        decode_syscall(raw).map(|pid| pid as Pid)
-    }
-    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
-    {
-        let _ = (elf, stack_pages, global_pointer);
-        Err(AbiError::Unsupported)
-    }
-}
-
-/// Loads and spawns a process from an ELF blob using the kernel exec loader (v2).
-///
-/// v2 additionally provides a per-service name string that the kernel copies into a read-only
-/// mapping in the child address space (RFC-0004 provenance floor).
-#[cfg(nexus_env = "os")]
-pub fn exec_v2(
-    elf: &[u8],
+pub fn exec_vmo(
+    image: Handle,
     stack_pages: usize,
     global_pointer: u64,
     service_name: &str,
 ) -> SysResult<Pid> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
-        const SYSCALL_EXEC_V2: usize = 17;
-        if stack_pages == 0 || elf.is_empty() {
-            return Err(AbiError::InvalidArgument);
-        }
-        // Keep the ABI bounded (kernel enforces too).
-        if service_name.len() > 64 {
+        const SYSCALL_EXEC_VMO: usize = 63;
+        if stack_pages == 0 || service_name.len() > 64 {
             return Err(AbiError::InvalidArgument);
         }
         let raw = unsafe {
-            ecall6(
-                SYSCALL_EXEC_V2,
-                elf.as_ptr() as usize,
-                elf.len(),
+            ecall5(
+                SYSCALL_EXEC_VMO,
+                image as usize,
                 stack_pages,
                 global_pointer as usize,
                 service_name.as_ptr() as usize,
@@ -428,7 +399,7 @@ pub fn exec_v2(
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
-        let _ = (elf, stack_pages, global_pointer, service_name);
+        let _ = (image, stack_pages, global_pointer, service_name);
         Err(AbiError::Unsupported)
     }
 }

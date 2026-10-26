@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-26 (a program runs from a sealed image, its code shared — TASK-0333 6c-1b, ADR-0080)
+
+- **Programs of the same image share their code.** Every process used to get a private copy
+  of its whole program; now its code and constant data are the image's own memory, mapped into
+  every process of it, and only its data is copied. The second window of an app costs its
+  data page, stack and heap, not another copy of the program.
+- **An image is sealed before it runs.** A sealed object can never be written again — not by
+  a program, not through a device. The system volume's services are read into a scratch object
+  the block device may write, copied into the image, sealed, and only then checked against
+  their digest: the bytes that verified are the bytes that run.
+- **One way to start a program.** The old loaders (syscalls 13 and 17) are gone; every service
+  and app starts from a sealed image, and every program's segments are built on the page grid.
+- **The kernel refuses to register a syscall it could never dispatch.** The dispatch window
+  held 64 numbers; the seal is number 64 and was dropped without a word, so the first service
+  start failed with "invalid syscall". The window is 128 wide and a number outside it stops the
+  boot instead of passing silently.
+
 ### Changed - 2026-10-24 (cache maintenance is a driver's right; a bad instruction ends the app, not the system — TASK-0333 6c-1a, ADR-0079)
 
 - **Only drivers of devices that do not snoop the caches may flush cache lines.** Every program

@@ -35,6 +35,10 @@ pub(super) fn sys_vm_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
         CapabilityKind::VmoRo { id, len } => (id, len, true),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
+    if !read_only && flags.contains(PageFlags::WRITE) && crate::mm::vmo::is_sealed(id) {
+        // ADR-0080: a sealed object has no writer.
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     let span_end = offset.checked_add(len).ok_or(AddressSpaceError::InvalidArgs)?;
     if span_end > cap_len {
         log_error!(

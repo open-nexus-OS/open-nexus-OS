@@ -1,6 +1,5 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
-#![allow(unsafe_code)]
 
 //! CONTEXT: The second spawn pass (TASK-0321 P2, RFC-0089 §12.3, ADR-0060):
 //! services listed in `scripts/system-volume-services.txt` are NOT in the
@@ -9,12 +8,12 @@
 //! `wire_services` (so the usual per-service wiring, routes and the wave-2
 //! resume treat them exactly like embedded services). Per service: ask
 //! bundlemgrd for the bundle (`QUERY_BUNDLE` → size + launch params), hand
-//! it a fresh VMO (`GET_BUNDLE_ELF`, CAP_MOVE; bundlemgrd writes the
-//! verified `payload.elf` and the header LAST), poll the header, map the
-//! VMO read-only at a kernel-chosen address, and `exec_v2` the mapped
-//! slice — a mapped VMO is a valid ELF source, no kernel change. The
-//! mapping is kept for the process lifetime (a respawn re-execs the same
-//! bytes, ADR-0057). P4 runs this pass from the
+//! it a fresh object (`GET_BUNDLE_IMAGE`, armed by CAP_MOVE; bundlemgrd fills
+//! it from byte 0, SEALS it and hashes the sealed bytes against the index
+//! digest — ADR-0080), then `exec_vmo` the sealed image: its text and rodata
+//! are the object's own frames, nothing is mapped into init. The capability
+//! is kept for the process lifetime (a respawn execs the same object,
+//! ADR-0057). P4 runs this pass from the
 //! CORE-plane stage (`core_plane.rs`), BEFORE any per-pid endpoint mint. Failure is honest absence:
 //! `init: volume spawn FAIL svc=<n> reason=<r>` and the service is simply
 //! not there (its consumers are best-effort by design — the pilot is
@@ -33,21 +32,18 @@ use crate::bootstrap::helpers::{debug_write_bytes, debug_write_str};
 use crate::bootstrap::CtrlChannel;
 use crate::os_payload::InitError;
 use nexus_abi::bundlemgrd as wire;
-use nexus_abi::page_flags;
-use nexus_abi::payload_vmo as hdr;
 
 const PAGE: usize = 4096;
 
-/// A service spawned from the volume. Its read-only ELF mapping stays
-/// alive for the process lifetime: the respawn arm (ADR-0057, P4) re-execs
-/// exactly these verified bytes with the same launch parameters — never a
-/// second block-plane round trip, never a re-verify of what the mapping
-/// already proves.
+/// A service spawned from the volume. Its sealed image stays init's for the process lifetime:
+/// the respawn arm (ADR-0057, P4) execs exactly this verified object with the same launch
+/// parameters — never a second block-plane round trip, never a re-verify of what the seal
+/// already guards (ADR-0080).
 pub(crate) struct VolumeSpawned {
     pub(crate) name: &'static str,
     pub(crate) pid: u32,
-    /// The mapped `payload.elf` (bundlemgrd-verified, header-last).
-    pub(crate) elf: &'static [u8],
+    /// init's capability slot of the sealed image (bundlemgrd-filled and -verified).
+    pub(crate) image: u32,
     pub(crate) stack_pages: u32,
     pub(crate) global_pointer: u64,
 }
@@ -62,7 +58,6 @@ enum Fail {
     Send,
     Header,
     Digest,
-    Map,
     Exec,
 }
 
@@ -76,7 +71,6 @@ impl Fail {
             Self::Send => "send",
             Self::Header => "header",
             Self::Digest => "digest",
-            Self::Map => "map",
             Self::Exec => "exec",
         }
     }
@@ -130,16 +124,6 @@ fn emit_fail(name: &str, fail: Fail) {
     debug_write_bytes(b"\n");
 }
 
-/// SAFETY: `va..va+len` is a live read-only mapping returned by `vm_map` on
-/// a VMO init created and never unmaps or destroys (the mapping outlives
-/// the spawned process by design — respawn re-execs the same bytes);
-/// bundlemgrd wrote the bytes BEFORE the header became visible and nothing
-/// writes them afterwards (the VMO cap was moved to bundlemgrd and closed
-/// there). Hence a `'static` shared view is sound.
-fn ro_slice(va: usize, len: usize) -> &'static [u8] {
-    unsafe { core::slice::from_raw_parts(va as *const u8, len) }
-}
-
 fn spawn_one(
     name: &'static str,
     bnd_req: u32,
@@ -168,31 +152,40 @@ fn spawn_one(
     let ver_len = version.len().min(32);
     version_buf[..ver_len].copy_from_slice(&version[..ver_len]);
 
-    // 2. A fresh VMO sized for header + ELF, ARMED at bundlemgrd, then GET_BUNDLE_ELF with a
-    //    reply cap: bundlemgrd streams, hashes, writes the header LAST and answers — the
-    //    answer IS the completion (TASK-0324 P7-d; no header poll).
-    let total = (hdr::DATA_OFFSET + size as usize).div_ceil(PAGE) * PAGE;
+    // 2. A fresh object sized for the ELF, ARMED at bundlemgrd, then GET_BUNDLE_IMAGE with a
+    //    reply cap: bundlemgrd fills it from byte 0 through a bounce the block device writes,
+    //    SEALS it and hashes the sealed bytes against the index digest (ADR-0080) — the answer
+    //    IS the completion (TASK-0324 P7-d).
+    let total = (size as usize).div_ceil(PAGE) * PAGE;
     let vmo = nexus_abi::vmo_create(total).map_err(|_| Fail::Vmo)?;
-    arm_vmo(bnd_req, vmo).ok_or(Fail::Send)?;
-    let n = wire::encode_get_bundle_elf(name.as_bytes(), &mut req).ok_or(Fail::Send)?;
-    let rn =
-        request(bnd_req, ask, &req[..n], wire::OP_GET_BUNDLE_ELF, &mut rsp).ok_or(Fail::Send)?;
+    let served = (|| -> Result<(), Fail> {
+        arm_vmo(bnd_req, vmo).ok_or(Fail::Send)?;
+        let n = wire::encode_get_bundle_image(name.as_bytes(), &mut req).ok_or(Fail::Send)?;
+        let rn = request(bnd_req, ask, &req[..n], wire::OP_GET_BUNDLE_IMAGE, &mut rsp)
+            .ok_or(Fail::Send)?;
+        // 3. The answer: complete AND hashed to the index digest (bundlemgrd's contract). A
+        //    wrong image is sealed too — it can never run; it is closed here.
+        let (status, len) = wire::decode_payload_done_rsp(&rsp[..rn], wire::OP_GET_BUNDLE_IMAGE)
+            .ok_or(Fail::Header)?;
+        match status {
+            s if s == nexus_abi::status::CODE_OK && len == size => Ok(()),
+            s if s == nexus_abi::status::VfsError::Integrity.code() => Err(Fail::Digest),
+            _ => Err(Fail::Header),
+        }
+    })();
+    if let Err(fail) = served {
+        let _ = nexus_abi::cap_close(vmo);
+        return Err(fail);
+    }
 
-    // 3. The answer: complete AND hashed to the index digest (bundlemgrd's contract).
-    let (status, len) =
-        wire::decode_payload_done_rsp(&rsp[..rn], wire::OP_GET_BUNDLE_ELF).ok_or(Fail::Header)?;
-    let len = match status {
-        s if s == nexus_abi::status::CODE_OK && len == size => len as usize,
-        s if s == nexus_abi::status::VfsError::Integrity.code() => return Err(Fail::Digest),
-        _ => return Err(Fail::Header),
+    // 4. exec from the sealed image; the capability stays init's for every respawn.
+    let pid = match nexus_abi::exec_vmo(vmo, stack_pages as usize, global_pointer, name) {
+        Ok(pid) => pid,
+        Err(_) => {
+            let _ = nexus_abi::cap_close(vmo);
+            return Err(Fail::Exec);
+        }
     };
-
-    // 4. Map read-only (kernel-chosen VA) and exec the mapped slice.
-    let va = nexus_abi::vm_map(vmo, 0, total, page_flags::USER | page_flags::READ)
-        .map_err(|_| Fail::Map)?;
-    let elf = &ro_slice(va, total)[hdr::DATA_OFFSET..hdr::DATA_OFFSET + len];
-    let pid = nexus_abi::exec_v2(elf, stack_pages as usize, global_pointer, name)
-        .map_err(|_| Fail::Exec)?;
 
     // `init: spawn from volume svc=<n> bundle=<n>@<v> sha=<8>` — a proof
     // witness (ladder); folds in interactive boots (RFC-0068).
@@ -209,7 +202,7 @@ fn spawn_one(
         debug_write_hex_bytes(&sha8_buf[..sha_len]);
         debug_write_bytes(b"\n");
     }
-    Ok(VolumeSpawned { name, pid, elf, stack_pages, global_pointer })
+    Ok(VolumeSpawned { name, pid, image: vmo, stack_pages, global_pointer })
 }
 
 /// Spawns every volume service (SSOT `service_source::volume_services`),

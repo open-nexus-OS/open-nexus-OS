@@ -1,80 +1,54 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: Kernel-side ELF exec loaders split out of the former single-file
-//! api.rs: sys_exec and sys_exec_v2 (PT_LOAD mapping with W^X + USER, stack/
-//! meta/bootstrap-info pages, service identity + born-at-class QoS), plus
-//! their typed decoders.
+//! CONTEXT: the kernel's ONE loader (ADR-0080, TASK-0333 6c-1b): `exec_vmo` makes a process from
+//! a SEALED image object. Its read-only and executable segments are mapped from the image's own
+//! frames — the same frames in every process that runs it — a writable segment's file pages are
+//! copied into frames the process owns (staged into the `CopyPlan`, run in phase B with the
+//! kernel lock dropped), its `.bss` and the stack are lazy objects (ADR-0077). The
+//! pointer-and-length loaders (syscalls 13 and 17) are deleted and their numbers retired.
+//! `load_image` is the mapping half, shared with the kernel's boot proof
+//! (`selftest/exec_image.rs`); `exec_vmo_phase_a` adds the task half (stack, meta/info pages,
+//! identity, QoS).
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: neuron host tests + QEMU marker gates (just test-os / ci-os-smp)
-//! ADR: docs/adr/0016-kernel-libs-architecture.md
+//! TEST_COVERAGE: `KSELFTEST: exec image shared ok` / `exec image reject ok` on every QEMU boot;
+//!   every service and app of the ladder; `api/tests.rs` (the capability gate, on host)
+//! ADR: docs/adr/0080-a-process-runs-from-a-sealed-image-text-mapped-from-its-frames-data-copied-no-other-exec-path.md
 
-use super::exec_image::{alloc_zeroed_page, load_segment, map_lazy_fixed, Segment};
+use super::exec_image::{alloc_image, alloc_zeroed_page, map_blocks, map_lazy_fixed, plan_payload};
 use super::*;
 
-// Typed decoders for the Decode→Check→Execute syscall discipline
-
+/// `(vmo_slot, stack_pages, global_pointer, name_ptr, name_len)` — the Decode→Check→Execute
+/// discipline.
 #[derive(Copy, Clone)]
-pub(super) struct ExecArgsTyped {
-    elf_ptr: usize,
-    elf_len: usize,
-    stack_pages: usize,
-    global_pointer: usize,
-}
-
-#[derive(Copy, Clone)]
-pub(super) struct ExecV2ArgsTyped {
-    elf_ptr: usize,
-    elf_len: usize,
+pub(super) struct ExecVmoArgsTyped {
+    vmo_slot: usize,
     stack_pages: usize,
     global_pointer: usize,
     name_ptr: usize,
     name_len: usize,
 }
 
-impl ExecArgsTyped {
+impl ExecVmoArgsTyped {
     #[inline]
     fn decode(args: &Args) -> Result<Self, Error> {
-        let elf_ptr = args.get(0);
-        let elf_len = args.get(1);
-        let stack_pages = args.get(2);
-        let global_pointer = args.get(3);
-        if elf_len == 0 || stack_pages == 0 {
+        let typed = Self {
+            vmo_slot: args.get(0),
+            stack_pages: args.get(1),
+            global_pointer: args.get(2),
+            name_ptr: args.get(3),
+            name_len: args.get(4),
+        };
+        if typed.stack_pages == 0 {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
-        Ok(Self { elf_ptr, elf_len, stack_pages, global_pointer })
+        Ok(typed)
     }
 
     #[inline]
     fn check(&self, ctx: &mut Context<'_>) -> Result<(), Error> {
-        ensure_user_range(ctx, self.elf_ptr, self.elf_len, UserAccess::Read)?;
-        if self.stack_pages == 0 {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        Ok(())
-    }
-}
-
-impl ExecV2ArgsTyped {
-    #[inline]
-    fn decode(args: &Args) -> Result<Self, Error> {
-        let elf_ptr = args.get(0);
-        let elf_len = args.get(1);
-        let stack_pages = args.get(2);
-        let global_pointer = args.get(3);
-        let name_ptr = args.get(4);
-        let name_len = args.get(5);
-        if elf_len == 0 || stack_pages == 0 {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        Ok(Self { elf_ptr, elf_len, stack_pages, global_pointer, name_ptr, name_len })
-    }
-
-    #[inline]
-    fn check(&self, ctx: &mut Context<'_>) -> Result<(), Error> {
-        ensure_user_range(ctx, self.elf_ptr, self.elf_len, UserAccess::Read)?;
         if self.name_len != 0 {
             const MAX_NAME_LEN: usize = 64;
             if self.name_len > MAX_NAME_LEN {
@@ -102,7 +76,7 @@ pub(crate) struct CopyOp {
 pub(crate) struct CopyPlan {
     pub ops: [CopyOp; MAX_COPY_OPS],
     pub len: usize,
-    /// Executable bytes were written: issue `fence.i` after the run.
+    /// Executable pages were entered: issue `fence.i` after the run.
     pub fence_i: bool,
 }
 
@@ -113,8 +87,7 @@ impl CopyPlan {
 
     pub(super) fn push(&mut self, op: CopyOp) -> Result<(), Error> {
         if self.len >= MAX_COPY_OPS {
-            // More segments than the bounded plan: fail closed (no ELF we
-            // ship comes near 24 PT_LOADs + stacks).
+            // More pieces than the bounded plan: fail closed (a data segment is one page).
             return Err(AddressSpaceError::InvalidArgs.into());
         }
         self.ops[self.len] = op;
@@ -123,222 +96,189 @@ impl CopyPlan {
     }
 }
 
-/// Kernel-side exec loader: parses ELF64/RISC-V, maps PT_LOAD with W^X + USER, sets stack, spawns task.
-pub(super) fn sys_exec(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    // Unphased fallback (kept for table completeness; the trap handler routes
-    // nr=13 through the phased path).
-    let mut plan = CopyPlan::new();
-    let ret = exec_phase_a(ctx, args, &mut plan)?;
-    run_copy_plan(&plan);
-    Ok(ret)
+/// Segments an image may carry (lld emits three; the bound keeps the file-page overlap check a
+/// scan of a small array).
+const MAX_SEGMENTS: usize = 16;
+
+const PT_LOAD: u32 = 1;
+const PF_R: u32 = 4;
+const PF_W: u32 = 2;
+const PF_X: u32 = 1;
+
+/// What `load_image` put into the space.
+pub(crate) struct LoadedImage {
+    /// `e_entry`.
+    pub entry: usize,
+    /// The first writable segment's address — the global pointer's base when the caller
+    /// names none (`__global_pointer$ = RW + 0x800`, the RISC-V convention).
+    pub first_rw_vaddr: Option<usize>,
+    /// The end of the highest segment: the stack, meta and info pages lie above it.
+    pub max_end_va: usize,
+    /// The frames the process owns (its data pages), returned at its teardown.
+    pub image: crate::task::ImageAllocs,
+    /// Pages mapped from the image's own frames (text, rodata) — shared with every process of
+    /// the image.
+    pub shared_pages: usize,
+    /// Pages copied (a writable segment's file pages).
+    pub copied_pages: usize,
 }
 
-pub(crate) fn exec_phase_a(
-    ctx: &mut Context<'_>,
-    args: &Args,
+/// Map the sealed image `vmo` into `as_handle` (ADR-0080): every `PT_LOAD` must begin on a
+/// page-aligned file offset at a page-aligned address and share no file page with another;
+/// a read-only or executable segment is mapped from the object's frames, a writable one has
+/// its file pages copied (planned into `plan`) and its `.bss` tail lazy. On an error nothing
+/// of the image stays allocated (the caller destroys the space).
+pub(crate) fn load_image(
+    spaces: &mut crate::mm::AddressSpaceManager,
+    as_handle: crate::mm::AsHandle,
+    vmo: u32,
     plan: &mut CopyPlan,
-) -> SysResult<usize> {
-    let typed = ExecArgsTyped::decode(args)?;
-    typed.check(ctx)?;
-
-    // Capability gate: only tasks holding a SEND right in slot 0 (bootstrap cap) may exec.
-    {
-        let _ = ctx
-            .tasks
-            .current_caps_mut()
-            .derive(0, Rights::SEND)
-            .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+) -> SysResult<LoadedImage> {
+    let invalid = || Error::from(AddressSpaceError::InvalidArgs);
+    let object_len = crate::mm::vmo::with(vmo, |o| o.len()).ok_or_else(invalid)?;
+    let page0 = crate::mm::vmo::translate(vmo, 0).ok_or_else(invalid)?;
+    // SAFETY: the first frame of a live object no writer can reach (sealed), through the direct
+    // map; the object is at least one page (every object is page-sized).
+    let elf: &[u8] =
+        unsafe { slice::from_raw_parts(crate::phys::phys_to_virt(page0) as *const u8, PAGE_SIZE) };
+    if object_len < PAGE_SIZE || &elf[0..4] != b"\x7FELF" || elf[4] != 2 || elf[5] != 1 {
+        return Err(invalid()); // not an ELF64/LE
     }
-
-    // SAFETY: user slice validated by check; still best-effort.
-    let elf = unsafe { slice::from_raw_parts(typed.elf_ptr as *const u8, typed.elf_len) };
-    if elf.len() < 64 || &elf[0..4] != b"\x7FELF" {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-    if elf[4] != 2 || elf[5] != 1 {
-        return Err(AddressSpaceError::InvalidArgs.into()); // not ELF64/LE
-    }
-
     let e_entry = read_u64_le(elf, 24)? as usize;
     let e_phoff = read_u64_le(elf, 32)? as usize;
     let e_phentsize = read_u16_le(elf, 54)? as usize;
     let e_phnum = read_u16_le(elf, 56)? as usize;
-    if e_phoff >= elf.len() {
-        return Err(AddressSpaceError::InvalidArgs.into());
+    // The program headers lie inside the first page (every linker we ship puts them at 0x40).
+    let table_end = e_phnum
+        .checked_mul(e_phentsize)
+        .and_then(|n| n.checked_add(e_phoff))
+        .ok_or_else(invalid)?;
+    if e_phentsize < 56 || table_end > PAGE_SIZE || e_phnum > MAX_SEGMENTS {
+        return Err(invalid());
     }
-    // RFC-0068: process-exec is a perpetual runtime event, not a bounded boot phase → DEBUG (off by
-    // default; recall with `NEXUS_LOG=exec=debug`), so it never clutters the quiet boot overview.
-    log_debug!(
-        target: "exec",
-        "EXEC-ELF hdr entry=0x{:x} phoff=0x{:x} phentsz={} phnum={}",
-        e_entry, e_phoff, e_phentsize, e_phnum
-    );
-
-    const PT_LOAD: u32 = 1;
-    const PF_R: u32 = 4;
-    const PF_W: u32 = 2;
-    const PF_X: u32 = 1;
-
-    let as_handle = ctx.address_spaces.create()?;
-
-    // Every arena range this exec allocates for the child (segments + stack)
-    // is recorded here and attached to the spawned task, so teardown returns
-    // it to the pool instead of leaking one process image per launch.
-    let mut image = crate::task::ImageAllocs::new();
-
-    // Map PT_LOAD segments
-    //
-    // We also capture the first RW PT_LOAD vaddr so we can derive a sensible
-    // RISC-V `gp` when userspace does not provide one. Most RISC-V linkers
-    // define `__global_pointer$` as `RW_SEGMENT_VADDR + 0x800`.
-    let mut first_rw_vaddr: Option<usize> = None;
-    for i in 0..e_phnum {
-        let off = e_phoff.checked_add(i * e_phentsize).ok_or(AddressSpaceError::InvalidArgs)?;
-        if off + 56 > elf.len() {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        let p_type = read_u32_le(elf, off)?;
-        if p_type != PT_LOAD {
-            continue;
-        }
-        let p_flags = read_u32_le(elf, off + 4)?;
-        let p_offset = read_u64_le(elf, off + 8)? as usize;
-        let p_vaddr = read_u64_le(elf, off + 16)? as usize;
-        let p_filesz = read_u64_le(elf, off + 32)? as usize;
-        let p_memsz = read_u64_le(elf, off + 40)? as usize;
-        {
-            // RFC-0068: process-exec is a runtime event → DEBUG (off by default; NEXUS_LOG=exec=debug).
-            let first4 = if p_offset + 4 <= elf.len() {
-                u32::from_le_bytes([
-                    elf[p_offset],
-                    elf[p_offset + 1],
-                    elf[p_offset + 2],
-                    elf[p_offset + 3],
-                ])
+    let mut loaded = LoadedImage {
+        entry: e_entry,
+        first_rw_vaddr: None,
+        max_end_va: 0,
+        image: crate::task::ImageAllocs::new(),
+        shared_pages: 0,
+        copied_pages: 0,
+    };
+    // File page ranges taken so far: a file page in two segments would be mapped at two
+    // addresses with two permissions.
+    let mut file_ranges = [(0usize, 0usize); MAX_SEGMENTS];
+    let mut n_ranges = 0usize;
+    let result = (|| -> SysResult<()> {
+        for i in 0..e_phnum {
+            let off = e_phoff + i * e_phentsize;
+            if read_u32_le(elf, off)? != PT_LOAD {
+                continue;
+            }
+            let p_flags = read_u32_le(elf, off + 4)?;
+            let p_offset = read_u64_le(elf, off + 8)? as usize;
+            let p_vaddr = read_u64_le(elf, off + 16)? as usize;
+            let p_filesz = read_u64_le(elf, off + 32)? as usize;
+            let p_memsz = read_u64_le(elf, off + 40)? as usize;
+            if p_memsz == 0 {
+                continue;
+            }
+            if p_filesz > p_memsz || p_offset % PAGE_SIZE != 0 || p_vaddr % PAGE_SIZE != 0 {
+                return Err(invalid());
+            }
+            if p_offset.checked_add(p_filesz).ok_or_else(invalid)? > object_len {
+                return Err(invalid());
+            }
+            let writable = p_flags & PF_W != 0;
+            if writable && p_flags & PF_X != 0 {
+                return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
+            }
+            let file_pages =
+                if p_filesz == 0 { 0 } else { align_len(p_filesz).ok_or_else(invalid)? };
+            let total = align_len(p_memsz).ok_or_else(invalid)?;
+            if file_pages != 0 {
+                let end = p_offset + file_pages;
+                if file_ranges[..n_ranges].iter().any(|&(lo, hi)| p_offset < hi && lo < end) {
+                    return Err(invalid());
+                }
+                file_ranges[n_ranges] = (p_offset, end);
+                n_ranges += 1;
+            }
+            let mut flags = PageFlags::VALID | PageFlags::USER;
+            if p_flags & PF_R != 0 {
+                flags |= PageFlags::READ;
+            }
+            if writable {
+                flags |= PageFlags::WRITE;
+            }
+            if p_flags & PF_X != 0 {
+                flags |= PageFlags::EXECUTE;
+            }
+            if !writable {
+                // A read-only segment IS its file pages — the image's own frames. A zero tail
+                // would be a lazy page, which is never executable (ADR-0077); no linker we
+                // ship emits one.
+                if file_pages == 0 || total != file_pages {
+                    return Err(invalid());
+                }
+                let runs = vmo_runs_in(vmo, p_offset, file_pages)?;
+                let space = spaces.get_mut(as_handle)?;
+                crate::mm::vm_ops::map_runs_at(space, p_vaddr, &runs, flags, vmo, p_offset)
+                    .map_err(Error::from)?;
+                loaded.shared_pages += file_pages / PAGE_SIZE;
+                if flags.contains(PageFlags::EXECUTE) {
+                    plan.fence_i = true;
+                }
             } else {
-                0
-            };
-            log_debug!(
-                target: "exec",
-                "EXEC-ELF phdr load off=0x{:x} vaddr=0x{:x} filesz=0x{:x} memsz=0x{:x} first4=0x{:08x}",
-                p_offset, p_vaddr, p_filesz, p_memsz, first4
-            );
+                if file_pages != 0 {
+                    let blocks = alloc_image(file_pages, &mut loaded.image, plan)?;
+                    let pieces = crate::mm::vmo::span(vmo, p_offset, p_filesz, false)
+                        .map_err(|_| invalid())?;
+                    let mut dst_off = 0usize;
+                    for (pa, len) in pieces {
+                        let pa = pa.ok_or_else(invalid)?;
+                        plan_payload(&blocks, dst_off, crate::phys::phys_to_virt(pa), len, plan)?;
+                        dst_off += len;
+                    }
+                    map_blocks(spaces, as_handle, p_vaddr, &blocks, flags)?;
+                    loaded.copied_pages += file_pages / PAGE_SIZE;
+                }
+                if total > file_pages {
+                    map_lazy_fixed(
+                        spaces,
+                        as_handle,
+                        p_vaddr + file_pages,
+                        total - file_pages,
+                        flags,
+                    )?;
+                }
+                if loaded.first_rw_vaddr.is_none() {
+                    loaded.first_rw_vaddr = Some(p_vaddr);
+                }
+            }
+            let seg_end = p_vaddr.checked_add(total).ok_or_else(invalid)?;
+            loaded.max_end_va = loaded.max_end_va.max(seg_end);
         }
-
-        if p_memsz == 0 {
-            continue;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => Ok(loaded),
+        Err(err) => {
+            // The frames this image took go back now; the space is the caller's to destroy.
+            let _ = super::task_image::release_image(&loaded.image);
+            Err(err)
         }
-        if p_filesz > p_memsz {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        let end = p_offset.checked_add(p_filesz).ok_or(AddressSpaceError::InvalidArgs)?;
-        if end > elf.len() {
-            return Err(AddressSpaceError::InvalidArgs.into());
-        }
-        if (p_flags & PF_W != 0) && (p_flags & PF_X != 0) {
-            return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
-        }
-
-        // Capture the first RW load segment base for gp derivation (if needed).
-        if first_rw_vaddr.is_none() && (p_flags & PF_W != 0) {
-            first_rw_vaddr = Some(p_vaddr);
-        }
-
-        let page_off = p_vaddr & (PAGE_SIZE - 1);
-        let aligned_vaddr = p_vaddr - page_off;
-        let alloc_len =
-            align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
-                .ok_or(AddressSpaceError::InvalidArgs)?;
-        let mut flags = PageFlags::VALID | PageFlags::USER;
-        if p_flags & PF_R != 0 {
-            flags |= PageFlags::READ;
-        }
-        if p_flags & PF_W != 0 {
-            flags |= PageFlags::WRITE;
-        }
-        if p_flags & PF_X != 0 {
-            flags |= PageFlags::EXECUTE;
-        }
-        // Staged (phase B): the file pages zeroed, the payload laid over them; a writable
-        // segment's pure `.bss` tail lazy (ADR-0077).
-        let payload = (elf.as_ptr() as usize + p_offset, p_filesz);
-        let seg = Segment { va: aligned_vaddr, page_off, len: alloc_len, payload, flags };
-        load_segment(ctx.address_spaces, as_handle, &mut image, plan, seg)?;
     }
-
-    // fence.i moved into `run_copy_plan` (the bytes land in phase B).
-
-    // Choose a global pointer for the new task.
-    //
-    // - Prefer the userspace-provided value (init-lite service table extracts it from ELFs).
-    // - Otherwise, derive it from the first RW PT_LOAD segment (common RISC-V convention).
-    // - As a last resort, fall back to entry + 0x800 to avoid gp=0 crashes in tiny images.
-    const RISCV_GP_BIAS: usize = 0x800;
-    let derived_gp = first_rw_vaddr
-        .and_then(|vaddr| vaddr.checked_add(RISCV_GP_BIAS))
-        .or_else(|| e_entry.checked_add(RISCV_GP_BIAS))
-        .unwrap_or(0);
-    let gp = if typed.global_pointer != 0 { typed.global_pointer } else { derived_gp };
-    {
-        let src = if typed.global_pointer != 0 {
-            "arg"
-        } else if first_rw_vaddr.is_some() {
-            "rw+0x800"
-        } else {
-            "entry+0x800"
-        };
-        // RFC-0068: process-exec is a runtime event → DEBUG (off by default; NEXUS_LOG=exec=debug).
-        log_debug!(target: "exec", "EXEC-ELF gp=0x{:x} src={}", gp, src);
-    }
-
-    // Stack + guarded top (shared with exec_v2; records into `image`).
-    let (stack_sp, mapped_top) =
-        map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages)?;
-
-    let entry_pc = VirtAddr::instr_aligned(e_entry).ok_or(AddressSpaceError::InvalidArgs)?;
-    let bootstrap_slot = SlotIndex::decode(0);
-
-    let parent = ctx.tasks.current_pid();
-    let pid = ctx.tasks.spawn(
-        parent,
-        entry_pc,
-        Some(stack_sp),
-        Some(as_handle),
-        gp,
-        bootstrap_slot,
-        ctx.scheduler,
-        ctx.router,
-        ctx.address_spaces,
-    )?;
-
-    // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
-    if let Some(t) = ctx.tasks.task_mut(pid) {
-        t.set_user_guard_info(task::UserGuardInfo {
-            stack_guard_va: mapped_top,
-            info_guard_va: None,
-        });
-    }
-    // Hand the arena ranges to the task so teardown returns them to the pool.
-    ctx.tasks.set_image_allocs(pid, image);
-    Ok(pid.as_index())
 }
 
-/// Allocates, records and maps a task's guard-paged user stack (identical
-/// policy for `sys_exec` and `exec_v2`): the stack sits below 0x2000_0000
-/// with head + boundary pages mapped and a guard page left unmapped above.
-/// The arena range is pushed into `image` so teardown returns it to the pool.
-/// Returns `(stack_sp, mapped_top)` — SP one page below the boundary,
-/// 16-byte aligned; `mapped_top` anchors the caller's meta/info pages.
+/// The process's stack: `stack_pages` + 9 head pages + a boundary page, lazy (ADR-0077: a page
+/// costs a frame when the stack first reaches it); the guard above stays unmapped.
 fn map_process_stack(
     address_spaces: &mut crate::mm::AddressSpaceManager,
     as_handle: crate::mm::AsHandle,
     stack_pages: usize,
 ) -> SysResult<(VirtAddr, usize)> {
-    // requested + 9 head pages + boundary page; guard stays unmapped. Lazy (ADR-0077): a page
-    // costs a frame when the stack first reaches it.
     let total_pages = stack_pages.checked_add(11).ok_or(AddressSpaceError::InvalidArgs)?;
-    let stack_bytes = total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-    let stack_len = stack_bytes;
+    let stack_len = total_pages.checked_mul(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
     let user_stack_top: usize = 0x2000_0000;
     // Map through the former faulting address (boundary); guard sits above.
     let mapped_top =
@@ -360,21 +300,24 @@ fn map_process_stack(
     Ok((stack_sp, mapped_top))
 }
 
-/// Kernel-side exec loader v2: like [`sys_exec`] but also copies the provided service name bytes
-/// into a per-service read-only mapping in the child address space (RFC-0004 provenance).
-pub(super) fn sys_exec_v2(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+/// `SYSCALL_EXEC_VMO` (63): the unphased fallback (the trap handler routes the live syscall
+/// through the phased path: `exec_vmo_phase_a`, then `run_copy_plan` with the BKL dropped).
+pub(super) fn sys_exec_vmo(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let mut plan = CopyPlan::new();
-    let ret = exec_v2_phase_a(ctx, args, &mut plan)?;
+    let ret = exec_vmo_phase_a(ctx, args, &mut plan)?;
     run_copy_plan(&plan);
     Ok(ret)
 }
 
-pub(crate) fn exec_v2_phase_a(
+/// Phase A of `exec_vmo` (BKL held): the capability gate, the image mapped, the stack, the
+/// per-service meta page (the name) and the bootstrap info page, the task spawned Suspended
+/// with its kernel-derived identity and born-at-class QoS. The byte moves are staged in `plan`.
+pub(crate) fn exec_vmo_phase_a(
     ctx: &mut Context<'_>,
     args: &Args,
     plan: &mut CopyPlan,
 ) -> SysResult<usize> {
-    let typed = ExecV2ArgsTyped::decode(args)?;
+    let typed = ExecVmoArgsTyped::decode(args)?;
     typed.check(ctx)?;
 
     // Capability gate: only tasks holding a SEND right in slot 0 (bootstrap cap) may exec.
@@ -385,159 +328,49 @@ pub(crate) fn exec_v2_phase_a(
             .derive(0, Rights::SEND)
             .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
     }
-
-    // SAFETY: user slice validated by check; still best-effort.
-    let elf = unsafe { slice::from_raw_parts(typed.elf_ptr as *const u8, typed.elf_len) };
-    if elf.len() < 64 || &elf[0..4] != b"\x7FELF" {
-        return Err(AddressSpaceError::InvalidArgs.into());
+    let cap = ctx.tasks.current_caps_mut().derive(typed.vmo_slot, Rights::MAP)?;
+    let vmo = match cap.kind {
+        CapabilityKind::Vmo { id, .. } | CapabilityKind::VmoRo { id, .. } => id,
+        _ => return Err(Error::Capability(CapError::PermissionDenied)),
+    };
+    if !crate::mm::vmo::is_sealed(vmo) {
+        // ADR-0080: only a sealed object — one no writer can reach — becomes a process.
+        log_error!(target: "exec", "EXEC-REFUSED reason=unsealed vmo={}", vmo);
+        return Err(Error::Capability(CapError::PermissionDenied));
     }
-    if elf[4] != 2 || elf[5] != 1 {
-        return Err(AddressSpaceError::InvalidArgs.into()); // not ELF64/LE
-    }
-
-    let e_entry = read_u64_le(elf, 24)? as usize;
-    let e_phoff = read_u64_le(elf, 32)? as usize;
-    let e_phentsize = read_u16_le(elf, 54)? as usize;
-    let e_phnum = read_u16_le(elf, 56)? as usize;
-    if e_phoff >= elf.len() {
-        return Err(AddressSpaceError::InvalidArgs.into());
-    }
-
-    const PT_LOAD: u32 = 1;
-    const PF_R: u32 = 4;
-    const PF_W: u32 = 2;
-    const PF_X: u32 = 1;
 
     let as_handle = ctx.address_spaces.create()?;
-    // Arena ranges allocated for the child (segments + stack + meta/info):
-    // recorded so success attaches them to the task and failure returns them
-    // to the pool (the closure below can early-return on any map error).
+    // The frames the child owns (its data pages, meta/info): recorded so success attaches them
+    // to the task and failure returns them to the pool.
     let mut image = crate::task::ImageAllocs::new();
     let exec_result = (|| -> SysResult<usize> {
-        let mut first_rw_vaddr: Option<usize> = None;
-        let mut max_end_va: usize = 0;
+        let loaded = load_image(ctx.address_spaces, as_handle, vmo, plan)?;
+        let (entry, first_rw_vaddr, max_end_va) =
+            (loaded.entry, loaded.first_rw_vaddr, loaded.max_end_va);
+        let (shared_pages, copied_pages) = (loaded.shared_pages, loaded.copied_pages);
+        image = loaded.image;
 
-        // Track mapped PT_LOAD ranges to assert that any existing page-aligned gaps stay unmapped.
-        // This is best-effort: we do NOT reject valid ELFs that have no gaps, but we do ensure we
-        // never accidentally "inflate" a mapping into a gap.
-        #[derive(Clone, Copy)]
-        struct LoadRange {
-            start: usize,
-            end: usize, // page-aligned end
-            writable: bool,
-        }
-        let mut load_ranges: alloc::vec::Vec<LoadRange> = alloc::vec::Vec::new();
-
-        for i in 0..e_phnum {
-            let off = e_phoff.checked_add(i * e_phentsize).ok_or(AddressSpaceError::InvalidArgs)?;
-            if off + 56 > elf.len() {
-                return Err(AddressSpaceError::InvalidArgs.into());
-            }
-            let p_type = read_u32_le(elf, off)?;
-            if p_type != PT_LOAD {
-                continue;
-            }
-            let p_flags = read_u32_le(elf, off + 4)?;
-            let p_offset = read_u64_le(elf, off + 8)? as usize;
-            let p_vaddr = read_u64_le(elf, off + 16)? as usize;
-            let p_filesz = read_u64_le(elf, off + 32)? as usize;
-            let p_memsz = read_u64_le(elf, off + 40)? as usize;
-
-            if p_memsz == 0 {
-                continue;
-            }
-            if p_filesz > p_memsz {
-                return Err(AddressSpaceError::InvalidArgs.into());
-            }
-            let end = p_offset.checked_add(p_filesz).ok_or(AddressSpaceError::InvalidArgs)?;
-            if end > elf.len() {
-                return Err(AddressSpaceError::InvalidArgs.into());
-            }
-            if (p_flags & PF_W != 0) && (p_flags & PF_X != 0) {
-                return Err(AddressSpaceError::from(MapError::PermissionDenied).into());
-            }
-
-            if first_rw_vaddr.is_none() && (p_flags & PF_W != 0) {
-                first_rw_vaddr = Some(p_vaddr);
-            }
-
-            let page_off = p_vaddr & (PAGE_SIZE - 1);
-            let aligned_vaddr = p_vaddr - page_off;
-            let alloc_len =
-                align_len(p_memsz.checked_add(page_off).ok_or(AddressSpaceError::InvalidArgs)?)
-                    .ok_or(AddressSpaceError::InvalidArgs)?;
-            let mut flags = PageFlags::VALID | PageFlags::USER;
-            if p_flags & PF_R != 0 {
-                flags |= PageFlags::READ;
-            }
-            if p_flags & PF_W != 0 {
-                flags |= PageFlags::WRITE;
-            }
-            if p_flags & PF_X != 0 {
-                flags |= PageFlags::EXECUTE;
-            }
-            // Staged (phase B): the file pages zeroed, then the payload; `.bss` lazy (ADR-0077).
-            let payload = (elf.as_ptr() as usize + p_offset, p_filesz);
-            let seg = Segment { va: aligned_vaddr, page_off, len: alloc_len, payload, flags };
-            load_segment(ctx.address_spaces, as_handle, &mut image, plan, seg)?;
-
-            let seg_end =
-                aligned_vaddr.checked_add(alloc_len).ok_or(AddressSpaceError::InvalidArgs)?;
-            max_end_va = core::cmp::max(max_end_va, seg_end);
-
-            load_ranges.push(LoadRange {
-                start: aligned_vaddr,
-                end: seg_end,
-                writable: (p_flags & PF_W) != 0,
-            });
-        }
-
-        // Assert best-effort guard gaps between PT_LOAD mappings (if a gap exists).
-        if let Ok(space) = ctx.address_spaces.get(as_handle) {
-            load_ranges.sort_by_key(|r| r.start);
-            for (idx, r) in load_ranges.iter().enumerate() {
-                if !r.writable {
-                    continue;
-                }
-                let next_start = load_ranges.get(idx + 1).map(|n| n.start).unwrap_or(usize::MAX);
-                if next_start >= r.end.saturating_add(PAGE_SIZE)
-                    && r.end < USER_VADDR_LIMIT
-                    && space.page_table().lookup(r.end).is_some()
-                {
-                    panic!("exec_v2: PT_LOAD gap page unexpectedly mapped at 0x{:x}", r.end);
-                }
-            }
-        }
-
-        // fence.i moved into `run_copy_plan` (the bytes land in phase B).
-
-        // Choose a global pointer for the new task (same policy as sys_exec).
+        // The global pointer: the caller's, else the RISC-V convention from the first writable
+        // segment, else from the entry.
         const RISCV_GP_BIAS: usize = 0x800;
         let derived_gp = first_rw_vaddr
             .and_then(|vaddr| vaddr.checked_add(RISCV_GP_BIAS))
-            .or_else(|| e_entry.checked_add(RISCV_GP_BIAS))
+            .or_else(|| entry.checked_add(RISCV_GP_BIAS))
             .unwrap_or(0);
         let gp = if typed.global_pointer != 0 { typed.global_pointer } else { derived_gp };
 
-        // Stack + guarded top (shared helper; records into `image`).
+        // Stack + guarded top (records into the space).
         let (stack_sp, mapped_top) =
             map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages)?;
 
-        // Per-service metadata mapping (RO) + bootstrap info page (RO).
-        //
-        // We intentionally place these at stable addresses just above the mapped stack-top boundary:
-        // - mapped_top is `user_stack_top + 10*PAGE_SIZE` (see stack policy)
-        // - meta page: mapped_top + 1 page
-        // - info page: mapped_top + 2 pages
-        //
-        // This keeps the contract simple for early userland while remaining provenance-safe.
+        // Per-service metadata page (RO) + bootstrap info page (RO) at stable addresses just
+        // above the mapped stack top: meta = top + 1 page, info = top + 2 pages.
         let meta_va = mapped_top.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         let info_va =
             mapped_top.checked_add(2 * PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
         if info_va + PAGE_SIZE >= USER_VADDR_LIMIT {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
-        // Also ensure we don't overlap PT_LOAD segments (defensive).
         if max_end_va != 0 && (meta_va < max_end_va || info_va < max_end_va) {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
@@ -545,27 +378,25 @@ pub(crate) fn exec_v2_phase_a(
         let meta_pa = alloc_zeroed_page(&mut image)?;
         let mut service_id: u64 = 0;
         if typed.name_len != 0 {
-            // SAFETY: checked in ExecV2ArgsTyped::check.
+            // SAFETY: checked in ExecVmoArgsTyped::check.
             let name_bytes =
                 unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) };
-            // Kernel-verified service identity token: FNV-1a 64 of the name bytes (deterministic).
+            // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
             service_id = 0xcbf29ce484222325u64;
             for &b in name_bytes {
                 service_id ^= b as u64;
                 service_id = service_id.wrapping_mul(0x100000001b3u64);
             }
+            // SAFETY: a fresh zeroed frame the image owns, through the direct map; the name is
+            // at most 64 bytes, far below the page.
             unsafe {
                 let meta = crate::phys::phys_to_virt(meta_pa);
                 ptr::copy_nonoverlapping(name_bytes.as_ptr(), meta as *mut u8, name_bytes.len());
-                if name_bytes.len() < PAGE_SIZE {
-                    ptr::write((meta + name_bytes.len()) as *mut u8, 0);
-                }
             }
         }
-        let meta_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ;
-        ctx.address_spaces.map_page_tracked(as_handle, meta_va, meta_pa, meta_flags)?;
+        let ro = PageFlags::VALID | PageFlags::USER | PageFlags::READ;
+        ctx.address_spaces.map_page_tracked(as_handle, meta_va, meta_pa, ro)?;
 
-        // Bootstrap info page describing the metadata mapping (RO).
         let info_pa = alloc_zeroed_page(&mut image)?;
         {
             let info = crate::BootstrapInfo {
@@ -576,6 +407,7 @@ pub(crate) fn exec_v2_phase_a(
                 reserved2: 0,
                 service_id,
             };
+            // SAFETY: a fresh zeroed frame the image owns; the record is far below a page.
             unsafe {
                 ptr::copy_nonoverlapping(
                     &info as *const _ as *const u8,
@@ -584,40 +416,9 @@ pub(crate) fn exec_v2_phase_a(
                 );
             }
         }
-        let info_flags = PageFlags::VALID | PageFlags::USER | PageFlags::READ;
-        ctx.address_spaces.map_page_tracked(as_handle, info_va, info_pa, info_flags)?;
+        ctx.address_spaces.map_page_tracked(as_handle, info_va, info_pa, ro)?;
 
-        // Guard page above the bootstrap info page must remain unmapped.
-        if let Ok(space) = ctx.address_spaces.get(as_handle) {
-            let guard_va = info_va.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
-            if guard_va < USER_VADDR_LIMIT && space.page_table().lookup(guard_va).is_some() {
-                panic!("exec_v2: info guard page mapped at 0x{:x}", guard_va);
-            }
-        }
-
-        // Proof marker: log the mapping entry (leaf flags must not include WRITE).
-        if let Ok(space) = ctx.address_spaces.get(as_handle) {
-            if let Some(entry) = space.page_table().lookup(meta_va) {
-                use core::fmt::Write as _;
-                let writable = (entry & PageFlags::WRITE.bits()) != 0;
-                if writable {
-                    panic!("exec meta mapping writable");
-                }
-                // Per-spawn loader detail: off by default (raw write bypasses the diag facade, so
-                // honour the same DEBUG/topic gate; `NEXUS_LOG=exec=debug` re-enables). The WRITE
-                // safety check above is unconditional — only the trace is gated.
-                if crate::log::would_log(crate::log::Level::Debug, "exec") {
-                    let mut u = crate::uart::raw_writer();
-                    let _ = writeln!(
-                        u,
-                        "[DEBUG exec] EXEC-META: va=0x{:x} pa=0x{:x} entry=0x{:016x} name_len=0x{:x} info_va=0x{:x}",
-                        meta_va, meta_pa, entry, typed.name_len, info_va
-                    );
-                }
-            }
-        }
-
-        let entry_pc = VirtAddr::instr_aligned(e_entry).ok_or(AddressSpaceError::InvalidArgs)?;
+        let entry_pc = VirtAddr::instr_aligned(entry).ok_or(AddressSpaceError::InvalidArgs)?;
         let bootstrap_slot = SlotIndex::decode(0);
         let guard_va = info_va.checked_add(PAGE_SIZE).ok_or(AddressSpaceError::InvalidArgs)?;
 
@@ -634,35 +435,35 @@ pub(crate) fn exec_v2_phase_a(
             ctx.address_spaces,
         )?;
 
-        // Bind identity to the spawned task (kernel-derived): used for IPC sender attribution.
         if let Some(t) = ctx.tasks.task_mut(pid) {
+            // Identity bound to the spawned task (kernel-derived): IPC sender attribution.
             t.set_service_id(service_id);
-            // Born-at-class QoS (production soft-real-time boot): the display/input critical path is
-            // created Interactive, background Idle, so the first frame is never starved. See
-            // `initial_qos_for`. Escalation is safe here — the kernel sets it at creation, no privilege.
+            // Born-at-class QoS: the display/input path Interactive, background Idle.
             t.set_qos(initial_qos_for(service_id));
-            // RFC-0004 Phase 1 diagnostics: store user guard metadata for trap attribution.
             t.set_user_guard_info(task::UserGuardInfo {
                 stack_guard_va: mapped_top,
                 info_guard_va: Some(guard_va),
             });
         }
-
-        // Future-facing: once IPC copy-out exists (RFC-0005), we will deliver a BootstrapMsg with
-        // `flags::HAS_INFO_PAGE` and `argv_ptr=info_va`. For now, the info/meta pages are at stable
-        // addresses and can be read directly by early services.
-
-        // Success: hand the arena ranges to the task (teardown returns them).
-        // `take` leaves the outer record empty, so the error path below can't
-        // double-free.
+        // The record of the exec (ADR-0080): the pages this process shares with every other of
+        // its image, the pages it copied, and how many live spaces map the image now.
+        log_info!(
+            target: "mm",
+            "KINIT: exec image (pid={} vmo={} shared_pages={} copied_pages={} mappers={})",
+            pid.as_raw(),
+            vmo,
+            shared_pages,
+            copied_pages,
+            crate::mm::vm_ops::spaces_mapping_vmo(ctx.address_spaces, vmo)
+        );
+        // Success: the frames are the task's (teardown returns them). `take` leaves the outer
+        // record empty, so the error path below cannot double-free.
         ctx.tasks.set_image_allocs(pid, image.take());
         Ok(pid.as_index())
     })();
 
     if exec_result.is_err() {
         let _ = ctx.address_spaces.destroy(as_handle);
-        // The child never spawned: return its (still-recorded) arena ranges to
-        // the pool instead of leaking them.
         let _ = super::task_image::release_image(&image);
     }
     exec_result

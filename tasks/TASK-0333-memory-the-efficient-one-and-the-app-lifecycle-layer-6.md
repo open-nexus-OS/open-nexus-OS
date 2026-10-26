@@ -588,6 +588,92 @@ granted, once each; everything they drive works; the refusal proven on QEMU and 
 ladder 79/79, no new FAIL kind; ADR-0079 Accepted. `board-visible` red on `typed` alone (the
 keyboard defect) and `tile` unacked (no chord tried). NEXT 6c-1b — sealed images + `exec_vmo`.
 
+**6c-1b — a process runs from a sealed image (cut 2026-10-26, ADR-0080).** Measured first: the
+exec ABI is pointer + length (13/17) with a copy of every file byte per process; `-z
+separate-loadable-segments` puts every `PT_LOAD` on its own file page at +0.1–4 % size (app-host
+2 022 120 → 2 028 544, metricsd 79 760 → 82 944, windowd 3 826 760 → 3 830 776; phdrs at 0x40, six
+entries, inside page 0); the data segments are 8–32 B; the hand-made probe ELFs (demo-exit0,
+hello, recv-wake) put their text at file offset 0x100 under VA 0x1000 — not mappable shared; a
+volume service is read by blkd straight into the object init later maps and execs, hashed in
+between (the device keeps the runs). **Three lenses.** *Scope:* kernel — `vmo_seal` (64),
+`exec_vmo` (63) as the ONE loader (R/RX mapped from the sealed object's frames as `Fixed`
+regions naming the object, RW file pages copied, `.bss`/stack lazy), 13/17 deleted, a sealed
+object refuses `vmo_write`/writable `vm_map`/`vmo_runs`, a seal is refused for a writably
+mapped, device-named, lazy or fixed object; ABI `vmo_seal`/`exec_vmo`/`sealed_image(bytes)`;
+`.cargo/config.toml` `-C link-arg=-zseparate-loadable-segments`; one host crate
+`tools/exec-image` (the layout rule + the tiny-ELF builder) used by nxb-pack, init-lite's and
+execd's build scripts and the probe builders; bundlemgrd `OP_GET_BUNDLE_IMAGE` (bounce → image
+→ seal → hash); init keeps the sealed capability (no mapping) for respawn, seals its embedded
+images once; execd seals app-host and the probes once. **Out:** CoW, purging, the boot image
+(6c-2), per-page signatures. *Invariant:* a page is executable only when mapped by `exec_vmo`
+from a sealed object; a sealed object has no writer (`test_reject_exec_unsealed_vmo`,
+`test_reject_exec_unaligned_segment`, `test_reject_exec_shared_file_page`,
+`test_reject_vmo_write_sealed`, `test_reject_write_map_sealed`, `test_reject_runs_sealed`,
+`test_reject_seal_writable_mapped`, `test_reject_seal_device_named`, `test_reject_seal_lazy`;
+the kernel's boot proof `KSELFTEST: exec image shared ok (text= ro= copied=)` + `KSELFTEST: exec
+image reject ok (…)`); identity stays the kernel's `service_id` from the name `exec_vmo`
+receives. *Contract:* ADR-0080; RFC-0100 §2 (the sealed kind replaces the "file (6c)" row — the
+page cache of a bundle is its sealed image, held by the spawner) and §4 (the seal); ADR-0060
+unchanged (init spawns, bundlemgrd verifies). Measurement folder
+`docs/board/measurements/2026-10-26-sealed-images/` (H1–H4 for cycle 70).
+
+**6c-1b built 2026-10-26.** Kernel: `VmoObject { sealed, device_named }`, `vmo::seal` (refused for
+lazy/fixed/device-named; the api layer refuses a writably mapped object through
+`vm_ops::any_space_maps_vmo_writable`), `vmo_runs` marks the object device-named and refuses a
+sealed one, `vmo_write`/writable `vm_map` refuse a sealed one; `exec.rs` rewritten around
+`load_image` (R/RX → `vm_ops::map_runs_at` as `Fixed` regions naming the object; RW file pages
+copied from the object's `span` pieces; `.bss`/stack lazy) + `exec_vmo_phase_a` (the task half)
++ `KINIT: exec image (pid= vmo= shared_pages= copied_pages= mappers=)`; syscalls 13/17 deleted,
+63/64 added, phased/handler lists updated; `selftest/exec_image.rs` → `KSELFTEST: exec image
+shared ok (text=1 ro=1 copied=1)` and `KSELFTEST: exec image reject ok (unaligned shared-page lazy
+device-named writable-mapped unsealed)` (REQUIRED, both lists); host: `exec_vmo` refuses an
+unsealed/non-VMO capability before any space. ABI: `exec_vmo`, `vmo_seal`, `sealed_image(bytes)`,
+`exec_image_once` (one-shot probes). Build: `.cargo/config.toml` `-zseparate-loadable-segments`;
+`tools/exec-image` (the rule host-tested + `tiny` builder + `rv` encoders) checks every image in
+init-lite's and execd's build scripts and in nxb-pack (ELF payloads); the probe ELFs (demo-exit0,
+hello — now generated —, recv-wake) sit on the page grid. Userspace: execd seals each embedded
+image once (`State::images`), app-hosts share it; init seals the CORE images once
+(`spawn::SealedImage`, kept for respawn), volume services via `OP_GET_BUNDLE_IMAGE` (bundlemgrd:
+bounce → copy → seal → hash, `bundle served (… copy_ms= …)`), `VolumeSpawned { image }` (no
+mapping, no `unsafe`); supervision's probes `exec_image_once`. Retired-names gate: the old
+syscall and op names. Docs: ADR-0080, RFC-0100 §2 (the sealed row) + §4, 01-neuron-kernel,
+CHANGELOG, measurement folder (cycle 70 lines).
+
+**6c-1b first QEMU run (headless, 2026-10-26) — red twice, both in the kernel.** (1) The syscall
+dispatch window was 64 wide (`MAX_SYSCALL`); number 64 (the seal) was dropped by `register`
+without a word and init's first `vmo_seal` came back `invalid-syscall` → init panic. Window now
+128, `register` asserts the window (fail-closed both ways); the host test
+`the_seal_and_the_exec_dispatch_through_the_table` names it, though the kernel's syscall tests
+compile only for the target (`mod syscall` is `cfg(target_os = "none")`) — the QEMU rung is the
+proof. (2) `KSELFTEST: exec image shared FAIL (… freed=false)`: the second space's tear-down
+reclaimed the image as an orphan (nobody named it, no space mapped it) before the selftest's own
+`destroy` — correct kernel behaviour, wrong proof. The proof now reads: after the first space
+goes, the image is still sealed with one mapper; after the second, it is gone (`kept`,
+`reclaimed`).
+
+**6c-1b QEMU green 2026-10-26** (`headless--2026-10-26T09-54-18`, `visible--2026-10-26T09-57-45`):
+both ladders complete, both new rungs green, every exec'd service `KINIT: exec image (…
+copied_pages=1 …)`, every volume service `bundle served (… copy_ms=0|1 …)` with its hash as
+before, no `EXEC-REFUSED` but the selftest's own, the one tolerated FAIL kind as in every earlier
+run (`init: FAIL declared slot route send slot`). At the kernel's frame census (same ladder point
+as `visible--2026-10-24T18-24-17`): free frames 35 638 → 37 159 (+1 521 = +5.9 MiB), rss_sum
+146 489 344 → 139 837 440 — the volume services' second copy, gone (H2's size). Two lessons for
+the decision lines: (1) `rss=` counts a `Fixed` region in full, so a space's rss does not fall
+when its text is shared — the frame pool does; cycle 70 reads H1/H2 from `free=`, not from an
+app-host's `rss=`. (2) `mappers=` climbs 2 → 3 → 4 across pinched's three deliberate crashes:
+the respawns run from the ONE sealed image (good), but init never reaps a dead child (no
+`wait_child` in nexus-init), so each dead pinched keeps its space — a 6d item (the reaper for
+init's children), not a 6c regression (cycle 69 had the same zombies, uncounted).
+
+**6c-1b ✅ board cycle 70 (`board--2026-10-26T10-32-12`, dev-2deb812c).** H1–H4 green, results in
+the measurement folder: the app-host image's `mappers=` followed the operator's apps 1 → 6 → 3 → 6
+(execd's reaper brings it down), 18 volume services served with `copy_ms=0` (two: 3, 11) and hashed
+after the seal, `KSELFTEST: exec image shared ok` / `reject ok` on the board, frame census `free=`
+995 646 → 1 011 396 (+61.5 MiB; 16.6 MiB of it the shared text, Σ `shared_pages` = 4 256), FAIL
+kinds the same three as cycle 69, boot milestone 11 at 2 000 ms (1 869), ladder 79 rungs, acks
+desktop/pointer/tile/modal/clipboard/gpu-desktop. ADR-0080 Accepted. Carried on: init reaps no dead
+child (6d); `WINDOWD: FAIL imed relay send` 8× (UX lane, typed defect). NEXT 6c-2 — the boot image.
+
 **Not in 6c:** CoW (measured unneeded), dropping clean code pages under pressure (6e/6f), a
 per-page signature check on fault (the bootfs and the volume are verified whole before use).
 

@@ -9,7 +9,7 @@
 //!
 //! WHY THIS FILE EXISTS: the same idea was declared twice — `NXVR` for the VFS
 //! splice read (`OP_READ_VMO`, RFC-0072 Phase 3) and `NXPL` for bundlemgrd's
-//! payload ops (`GET_PAYLOAD` / `GET_BUNDLE_ELF` / `GET_INDEX` /
+//! payload ops (`GET_PAYLOAD` / `GET_INDEX` /
 //! `GET_FILE_VMO`). Both were 16 bytes with the magic at `[0..4]` and the
 //! length at `[8..12]`; they differed only in the magic and in what a status
 //! number meant. `NXPL`'s private `u8` space is the reason this is not merely

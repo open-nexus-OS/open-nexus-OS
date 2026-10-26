@@ -15,7 +15,7 @@
 
 - **Phase 0 (6a: object lifetime — what dies is freed)**: ✅ 2026-10-20 (board cycle 48; ADR-0073: every kernel object, a death as an event)
 - **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ✅ 2026-10-23 — 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2a ✅ 2026-10-23 (board cycle 65: the app arena reserved, the splash given back, the atlas counted); 6b-2b ✅ 2026-10-23 (board cycle 66, ADR-0078: one pool with the GPU — the ring contiguous, the surfaces lazy and entered as sampled, the GPU's ceiling two thirds of RAM); 6b-3 ✅ 2026-10-23 (board cycle 67: every service's heap frees, a double free refused, an object freed while mapped dies at its unmap)
-- **Phase 2 (6c: the file-backed kind, the page cache, shared code)**: ⏳ in progress 2026-10-23
+- **Phase 2 (6c: sealed images, shared code)**: ⏳ 6c-0 ✅ 2026-10-23 (the OS build's own flags), 6c-1a ✅ 2026-10-25 (board cycle 69, ADR-0079: cache maintenance a non-coherent device's right), 6c-1b built 2026-10-26 (ADR-0080: `vmo_seal` + `exec_vmo` the one loader, text and rodata mapped from the sealed image's frames, the volume's images sealed before they are verified — board cycle 70 pending), 6c-2 (the boot image) open
 - **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals)**: ⬜
 - **Phase 4 (6f: the backing stages — compressor, swap)**: ⬜
 
@@ -103,7 +103,7 @@ has, with the GPU in the same pool.
 | anonymous (eager) | frames, zeroed at create | at create | at death |
 | lazy (`VMO_CREATE_LAZY`, bit 1) | frames, one per 4 KiB page, zeroed before mapped | on first touch: a user fault, the kernel's checked range, `vmo_write`, a device's `vmo_runs` | at death (purge when purgeable, 6e) |
 | contiguous-DMA | one run inside the master's reach (M1); the power-of-two block's tail returned at create | eagerly (a controller cannot fault); never lazy | at death |
-| file (6c) | the page cache of a bundle file | on first touch, shared read-only | dropped under pressure, re-read |
+| sealed (6c-1b, ADR-0080) | an anonymous object sealed by `vmo_seal` — a bundle's `payload.elf` filled by bundlemgrd and hashed after the seal, an embedded image copied once from the binary; the page cache of an image, held by its spawner | at create (the image's bytes); mapped by `exec_vmo` into every process of the image — text and rodata the object's own frames, data copied | at death (the spawner's capability and the last process's reap); dropping clean pages under pressure is 6e/6f |
 
 - **exec** backs each RW segment's `.bss` beyond the page of its last file byte, and every stack,
   with a lazy object the task owns (no capability; it dies with the space at reap, §1).
@@ -120,8 +120,15 @@ has, with the GPU in the same pool.
   writes; a device's `vmo_runs` commits the range it asks for (its pages are then pinned until the
   object dies).
 
-Copy-on-write (6c): a private mapping of a file or shared page breaks on the first write (the
-fault copies one page). The user fault stays fatal for a true violation (no mapping, wrong rights).
+**A process is a sealed image (6c-1b, ADR-0080).** `exec_vmo` is the one loader: it takes a
+sealed object whose `PT_LOAD`s each begin on their own page-aligned file page (the linker's
+`-z separate-loadable-segments`; the kernel refuses anything else), maps every read-only or
+executable segment from the object's frames — only this path maps a page executable, and only
+from a sealed object — copies a writable segment's file pages into frames the process owns and
+backs its `.bss` and stack with lazy objects. The region naming the object keeps it alive while
+the process runs (§1). Copy-on-write is not built: the data segments measured 8–32 bytes, one
+copied page beats a fault. The user fault stays fatal for a true violation (no mapping, wrong
+rights).
 
 **One pool with the GPU (6b-2b, ADR-0078).** No memory is set aside for the GPU. The layout
 block (RFC-0101 §8, `nexus-display-proto::layout`) splits in two objects over one row numbering:
@@ -156,8 +163,11 @@ change (the `irq_bind` pattern); `memd` alone waits on it and fans out `OP_MEMOR
 ## §4 Purgeable VMOs and seals (6e, to be filled)
 
 A purgeable VMO's clean pages may be dropped by the kernel at warn or above; the owner learns it
-on the next access (a status, never a fault that kills). Seals (TASK-0290): a sealed read-only
-VMO refuses a write mapping deterministically.
+on the next access (a status, never a fault that kills). **Seals (6c-1b, ADR-0080, built):**
+`vmo_seal` is one-way, by a holder of the writable capability; refused while any space maps the
+object writably, for a lazy or fixed object, and for one a device was ever told the runs of
+(`vmo_runs`). Sealed, the object refuses `vmo_write`, a writable `vm_map` and `vmo_runs` for
+the rest of its life — deterministically, by the object, whoever holds a capability.
 
 ## §5 Backing stages (6f, to be filled)
 

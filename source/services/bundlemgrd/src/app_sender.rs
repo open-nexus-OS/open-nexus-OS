@@ -3,7 +3,7 @@
 
 //! CONTEXT: RFC-0086 app-host sender recognition — is this kernel
 //! `sender_service_id` one of OUR installed apps' hosts? execd names every
-//! app-host `app:<bundle_id>` via `exec_v2`, so the answer is derived from
+//! app-host `app:<bundle_id>` via `exec_vmo`, so the answer is derived from
 //! the SAME registry the reply would list: no separate allowlist to drift.
 //!
 //! This replaces the old `sender_service_id == 0` acceptance (which let any

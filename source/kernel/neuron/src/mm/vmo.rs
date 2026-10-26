@@ -106,6 +106,12 @@ pub struct VmoObject {
     lazy: Option<LazyPages>,
     /// Where a lazy object made for a device commits its pages; `None`: anywhere.
     within: Option<Within>,
+    /// ADR-0080: sealed — no writer for the rest of its life (`vmo_write`, a writable map and
+    /// `vmo_runs` are refused); the only kind of object `exec_vmo` maps a process from.
+    sealed: bool,
+    /// A device was told this object's runs (`vmo_runs`): it may write them at any time, so the
+    /// object can never be sealed.
+    device_named: bool,
 }
 
 impl VmoObject {
@@ -213,8 +219,16 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         // the device's reach when the object is made for one (ADR-0078).
         let pages = Some(LazyPages::new(len / PAGE));
         let within = Within::of(reach);
-        let object =
-            VmoObject { kind, len, blocks: Vec::new(), fixed: (0, 0), lazy: pages, within };
+        let object = VmoObject {
+            kind,
+            len,
+            blocks: Vec::new(),
+            fixed: (0, 0),
+            lazy: pages,
+            within,
+            sealed: false,
+            device_named: false,
+        };
         return TABLE.lock().insert(object);
     }
     let mut windows = [(0u64, 0u64); MAX_DMA_WINDOWS];
@@ -257,6 +271,8 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         fixed: (0, 0),
         lazy: None,
         within: None,
+        sealed: false,
+        device_named: false,
     });
     if result.is_err() {
         // The table is full: the frames go back before the error leaves.
@@ -277,8 +293,48 @@ pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         fixed: (base, len),
         lazy: None,
         within: None,
+        sealed: false,
+        device_named: false,
     };
     TABLE.lock().insert(object)
+}
+
+/// Why a seal was refused (ADR-0080).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SealError {
+    /// No live object has this id.
+    NoSuchObject,
+    /// A lazy or fixed object: its pages are not all the object's own, committed frames.
+    Kind,
+    /// A device was told its runs and may write them at any time.
+    DeviceNamed,
+}
+
+/// Seal `id` (ADR-0080): the object has no writer for the rest of its life. Idempotent. The
+/// caller has proven no address space maps it writably (`vm_ops::any_space_maps_vmo_writable`).
+pub fn seal(id: VmoId) -> Result<(), SealError> {
+    let mut table = TABLE.lock();
+    let object = table.get_mut(id).ok_or(SealError::NoSuchObject)?;
+    if object.lazy.is_some() || object.kind == VmoKind::Fixed {
+        return Err(SealError::Kind);
+    }
+    if object.device_named {
+        return Err(SealError::DeviceNamed);
+    }
+    object.sealed = true;
+    Ok(())
+}
+
+/// Whether the live object `id` is sealed (ADR-0080).
+pub fn is_sealed(id: VmoId) -> bool {
+    with(id, |o| o.sealed).unwrap_or(false)
+}
+
+/// Record that a device was told `id`'s runs (`vmo_runs`): never sealable from now on.
+pub fn mark_device_named(id: VmoId) {
+    if let Some(object) = TABLE.lock().get_mut(id) {
+        object.device_named = true;
+    }
 }
 
 /// Destroy: the frames go back to the pool (a `Fixed` object frees nothing)

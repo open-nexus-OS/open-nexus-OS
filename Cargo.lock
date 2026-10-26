@@ -822,6 +822,9 @@ dependencies = [
 [[package]]
 name = "demo-exit0"
 version = "0.1.0"
+dependencies = [
+ "exec-image",
+]
 
 [[package]]
 name = "der"
@@ -1060,10 +1063,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "exec-image"
+version = "0.1.0"
+
+[[package]]
 name = "exec-payloads"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "exec-image",
  "nexus-abi",
  "nexus-idl-runtime",
 ]
@@ -1075,6 +1083,7 @@ dependencies = [
  "capnp",
  "crash",
  "demo-exit0",
+ "exec-image",
  "exec-payloads",
  "nexus-abi",
  "nexus-display-proto",
@@ -1635,6 +1644,7 @@ dependencies = [
 name = "init-lite"
 version = "0.1.0"
 dependencies = [
+ "exec-image",
  "nexus-abi",
  "nexus-init",
  "nexus-log",
@@ -3115,6 +3125,7 @@ name = "nxb-pack"
 version = "0.1.0"
 dependencies = [
  "capnp",
+ "exec-image",
  "exec-payloads",
  "hex",
  "nexus-idl-runtime",

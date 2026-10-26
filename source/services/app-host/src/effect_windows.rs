@@ -20,7 +20,7 @@ use nexus_dsl_runtime::Value;
 
 impl AppEffectHost {
     /// The kernel service id execd stamps on an app-host child
-    /// (RFC-0086: `app:<bundle_id>` via `exec_v2`). The userspace FNV mirror
+    /// (RFC-0086: `app:<bundle_id>` via `exec_vmo`). The userspace FNV mirror
     /// is the join key between the compositor's sid-only feed and the
     /// registry's bundle ids — no wire carries both.
     pub(crate) fn app_service_id(app_id: &str) -> u64 {

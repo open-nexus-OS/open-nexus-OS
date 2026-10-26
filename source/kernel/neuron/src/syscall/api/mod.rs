@@ -49,16 +49,19 @@ mod task_image;
 mod vm_map;
 mod vmo;
 mod vmo_runs;
+mod vmo_seal;
 pub(crate) use vmo_runs::resolve_runs;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_devcap;
+#[cfg(test)]
+mod tests_exec;
 
 use caps::*;
 use exec::*;
-pub(crate) use exec::{exec_phase_a, exec_v2_phase_a, CopyPlan};
+pub(crate) use exec::{exec_vmo_phase_a, load_image, CopyPlan, LoadedImage};
 pub(crate) use exec_copy::run_copy_plan;
 use ipc_msg::*;
 use ipc_recv_v2::*;
@@ -67,7 +70,7 @@ pub(crate) use sync_objects::wake_after_recv;
 use sync_objects::*;
 pub(crate) use task_image::{
     exit_current_and_release, exit_current_faulted, exit_current_killed, exit_current_killed_in,
-    ExitTables, OP_CHILD_EXITED,
+    release_image, ExitTables, OP_CHILD_EXITED,
 };
 use vm_map::*;
 pub(crate) use vm_map::{vm_unmap_clear, vm_unmap_finish};
@@ -76,19 +79,20 @@ pub(crate) use vmo::{
     vmo_create_finish, vmo_create_reserve, VMO_CREATE_CONTIGUOUS, VMO_CREATE_LAZY,
     VMO_CREATE_NO_DEVICE,
 };
+use vmo_seal::*;
 
 pub(crate) use sched_task::selftest_sched_op;
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_AS_SELF,
     SYSCALL_BOOT_MODE, SYSCALL_CAP_QUERY, SYSCALL_CAP_TRANSFER, SYSCALL_CAP_TRANSFER_TO,
-    SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC,
-    SYSCALL_EXEC_V2, SYSCALL_EXIT, SYSCALL_IPC_CALL_V1, SYSCALL_IPC_ENDPOINT_CREATE,
-    SYSCALL_IPC_RECV_V1, SYSCALL_IPC_REPLY_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MMIO_MAP_AUTO,
-    SYSCALL_NSEC, SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND, SYSCALL_SPAWN,
-    SYSCALL_SPAWN_LAST_ERROR, SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL,
-    SYSCALL_TIMER_CREATE, SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_VM_MAP,
-    SYSCALL_VM_UNMAP, SYSCALL_WAIT, SYSCALL_YIELD,
+    SYSCALL_DEBUG_PUTC, SYSCALL_DEBUG_WRITE, SYSCALL_DEVICE_CAP_CREATE, SYSCALL_EXEC_VMO,
+    SYSCALL_EXIT, SYSCALL_IPC_CALL_V1, SYSCALL_IPC_ENDPOINT_CREATE, SYSCALL_IPC_RECV_V1,
+    SYSCALL_IPC_REPLY_RECV_V1, SYSCALL_IPC_SEND_V1, SYSCALL_MMIO_MAP_AUTO, SYSCALL_NSEC,
+    SYSCALL_RECV, SYSCALL_SCHED, SYSCALL_SEND, SYSCALL_SPAWN, SYSCALL_SPAWN_LAST_ERROR,
+    SYSCALL_TASK_QOS, SYSCALL_TASK_RESUME, SYSCALL_TIMER_CANCEL, SYSCALL_TIMER_CREATE,
+    SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_VM_MAP, SYSCALL_VM_UNMAP,
+    SYSCALL_WAIT, SYSCALL_YIELD,
 };
 
 /// Execution context shared across syscalls.
@@ -366,11 +370,11 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_EXIT, sys_exit);
     table.register(SYSCALL_WAIT, sys_wait);
     table.register(crate::syscall::SYSCALL_WAIT_NOHANG, sys_wait_nohang);
-    table.register(SYSCALL_EXEC, sys_exec);
+    table.register(SYSCALL_EXEC_VMO, sys_exec_vmo);
+    table.register(crate::syscall::SYSCALL_VMO_SEAL, sys_vmo_seal);
     table.register(SYSCALL_IPC_SEND_V1, sys_ipc_send_v1);
     table.register(SYSCALL_IPC_CALL_V1, ipc_call::sys_ipc_call);
     table.register(SYSCALL_IPC_REPLY_RECV_V1, ipc_call::sys_ipc_reply_recv);
-    table.register(SYSCALL_EXEC_V2, sys_exec_v2);
     table.register(SYSCALL_IPC_RECV_V1, sys_ipc_recv_v1);
     table.register(SYSCALL_IPC_ENDPOINT_CREATE, sys_ipc_endpoint_create);
     table.register(crate::syscall::SYSCALL_CAP_CLOSE, sys_cap_close);

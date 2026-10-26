@@ -319,26 +319,6 @@ pub(super) fn sys_vmo_destroy(ctx: &mut Context<'_>, args: &Args) -> SysResult<u
     Ok(0)
 }
 
-/// `SYSCALL_VMO_SHARE_RO` (51, RFC-0080): derives a READ-ONLY alias
-/// (`VmoRo`) of the `Vmo` in `slot` — same physical base/len — into a fresh
-/// caller slot, returned as the result. Holders of the alias can only map it
-/// read-only (`sys_map` strips WRITE|EXECUTE) and cannot `vmo_write` it. The
-/// owner keeps the writable `Vmo` (to fill it); it grants clones of the alias.
-pub(super) fn sys_vmo_share_ro(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let slot = args.get(0);
-    let cap = ctx.tasks.current_caps_mut().get(slot)?;
-    // Only a real (writable) VMO can be downgraded; require MAP authority.
-    let CapabilityKind::Vmo { id, len } = cap.kind else {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    };
-    if !cap.rights.contains(Rights::MAP) {
-        return Err(Error::Capability(CapError::PermissionDenied));
-    }
-    let ro = Capability { kind: CapabilityKind::VmoRo { id, len }, rights: Rights::MAP };
-    let new_slot = ctx.tasks.current_caps_mut().allocate(ro)?;
-    Ok(new_slot)
-}
-
 /// `SYSCALL_VMO_READ` (47): bounded copy OUT of a VMO into a caller buffer —
 /// the exact mirror of `sys_vmo_write`. Requires the same `Rights::MAP`
 /// derivation on the VMO capability; offsets/lengths are checked against the
@@ -390,6 +370,10 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
         CapabilityKind::Vmo { id, len } => (id, len),
         _ => return Err(Error::Capability(CapError::PermissionDenied)),
     };
+    if crate::mm::vmo::is_sealed(id) {
+        // ADR-0080: a sealed object has no writer.
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     #[cfg(feature = "debug_uart")]
     {
         use core::fmt::Write as _;

@@ -479,3 +479,68 @@ pub fn vmo_share_readonly(slot: Handle) -> SysResult<Handle> {
         Err(AbiError::Unsupported)
     }
 }
+
+/// ADR-0080: seals the VMO in `slot` (syscall 64) — one way; the object then has no writer for
+/// the rest of its life (`vmo_write`, a writable `vm_map` and `vmo_runs` are refused) and is
+/// what [`crate::exec_vmo`] makes a process from. Refused while any space maps it writably,
+/// for a lazy object, and for one a device was told the runs of.
+#[cfg(nexus_env = "os")]
+pub fn vmo_seal(slot: Handle) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_VMO_SEAL: usize = 64;
+        let raw = unsafe { ecall1(SYSCALL_VMO_SEAL, slot as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = slot;
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// A sealed image from `bytes` (ADR-0080): a fresh anonymous object of the page-rounded length,
+/// the bytes written in bounded chunks, sealed. The handle is what [`crate::exec_vmo`] takes —
+/// keep it for every later spawn of the same image (the frames are shared by all of them); it
+/// dies with its last capability.
+#[cfg(nexus_env = "os")]
+pub fn sealed_image(bytes: &[u8]) -> SysResult<Handle> {
+    const CHUNK: usize = 64 * 1024;
+    const PAGE: usize = 4096;
+    if bytes.is_empty() {
+        return Err(AbiError::InvalidArgument);
+    }
+    let len = bytes.len().div_ceil(PAGE) * PAGE;
+    let vmo = vmo_create(len).map_err(|_| AbiError::Unsupported)?;
+    let mut off = 0usize;
+    while off < bytes.len() {
+        let end = core::cmp::min(off + CHUNK, bytes.len());
+        if vmo_write(vmo, off, &bytes[off..end]).is_err() {
+            let _ = crate::cap_close(vmo);
+            return Err(AbiError::Unsupported);
+        }
+        off = end;
+    }
+    if let Err(err) = vmo_seal(vmo) {
+        let _ = crate::cap_close(vmo);
+        return Err(err);
+    }
+    Ok(vmo)
+}
+
+/// One process from `bytes`, for a probe spawned once (ADR-0080): the image sealed, the
+/// process made Suspended, the caller's capability to the image closed (the object lives on
+/// mapped in the child and dies with it). A service that spawns the same image again keeps
+/// [`sealed_image`]'s handle instead.
+#[cfg(nexus_env = "os")]
+pub fn exec_image_once(
+    bytes: &[u8],
+    stack_pages: usize,
+    global_pointer: u64,
+    service_name: &str,
+) -> SysResult<super::types::Pid> {
+    let image = sealed_image(bytes)?;
+    let spawned = super::task::exec_vmo(image, stack_pages, global_pointer, service_name);
+    let _ = crate::cap_close(image);
+    spawned
+}

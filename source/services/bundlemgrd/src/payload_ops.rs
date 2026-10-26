@@ -6,8 +6,8 @@
 //! contract (plus, TASK-0324 P7-d, a reply AFTER the header write on the
 //! sender's moved reply cap; the VMO is armed first with `OP_ARM_VMO`) shared by GET_PAYLOAD (TASK-0080D: an app's ui-program bytes
 //! from the build-time table) and the TASK-0321 system-volume ops
-//! (QUERY_BUNDLE / GET_BUNDLE_ELF / VOLUME_STATUS: a service's verified
-//! `payload.elf` out of `volume.rs`). Split from `os_lite.rs` under the
+//! (QUERY_BUNDLE / GET_BUNDLE_IMAGE / VOLUME_STATUS: a service's verified
+//! `payload.elf` out of `volume.rs` as a SEALED image, ADR-0080). Split from `os_lite.rs` under the
 //! structure ratchet; the main loop only routes frames here.
 //! OWNERS: @runtime @security
 //! STATUS: Experimental
@@ -98,14 +98,14 @@ pub(crate) fn handle_volume_op(
     use nexus_abi::bundlemgrd as wire;
     use nexus_abi::status as code;
     let op = wire::decode_request_op(frame).unwrap_or(0);
-    if matches!(op, wire::OP_GET_BUNDLE_ELF | wire::OP_GET_INDEX | wire::OP_GET_FILE_VMO) {
+    if matches!(op, wire::OP_GET_BUNDLE_IMAGE | wire::OP_GET_INDEX | wire::OP_GET_FILE_VMO) {
         // TASK-0324 P7-d: the destination is the VMO this SENDER armed (`OP_ARM_VMO`); the
         // moved cap is the reply cap, answered AFTER the header write.
         let vmo_slot = armed.take(sender_service_id);
         // ELFs go only to the spawner; the index + file reads (TASK-0321
         // P5) also to packagefsd and the boot-safe allowlist.
         let allowed = is_init_sender(sender_service_id)
-            || (op != wire::OP_GET_BUNDLE_ELF && is_allowed_sender(sender_service_id));
+            || (op != wire::OP_GET_BUNDLE_IMAGE && is_allowed_sender(sender_service_id));
         let (status, len) = if !allowed {
             emit_sender_denied(sender_service_id);
             if let Some(slot) = vmo_slot {
@@ -114,7 +114,7 @@ pub(crate) fn handle_volume_op(
             (code::VfsError::Access.code(), 0)
         } else {
             match op {
-                wire::OP_GET_BUNDLE_ELF => handle_get_bundle_elf(volume, frame, vmo_slot),
+                wire::OP_GET_BUNDLE_IMAGE => handle_get_bundle_image(volume, frame, vmo_slot),
                 wire::OP_GET_INDEX => handle_get_index(volume, vmo_slot),
                 _ => handle_get_file_vmo(volume, frame, vmo_slot),
             }
@@ -197,47 +197,47 @@ fn handle_volume_status(volume: &mut crate::volume::VolumeState, out: &mut [u8; 
     }
 }
 
-/// Serves one GET_BUNDLE_ELF: verifies the volume (once), streams the
-/// bundle's `payload.elf` into the moved VMO while hashing it against the
-/// index entry digest, then writes the payload header LAST. A digest
-/// mismatch leaves an `Integrity` header — the spawner never
-/// sees an `OK` header over bytes that did not verify.
-fn handle_get_bundle_elf(
+/// Serves one GET_BUNDLE_IMAGE (ADR-0080): verifies the volume (once), fills the spawner's
+/// armed object with the bundle's `payload.elf` from byte 0 through a bounce the block device
+/// writes, SEALS it and hashes the sealed bytes against the index digest. No header — the reply
+/// is the completion; `Integrity` names a mismatch (the spawner closes the sealed, wrong image;
+/// nothing can ever run it).
+fn handle_get_bundle_image(
     volume: &mut crate::volume::VolumeState,
     frame: &[u8],
     vmo_slot: Option<u32>,
 ) -> (u16, u32) {
     use nexus_abi::bundlemgrd as wire;
-    use nexus_abi::{payload_vmo as vmo_hdr, status as code};
+    use nexus_abi::status as code;
     let Some(vmo) = vmo_slot else {
-        emit_line("bundlemgrd: FAIL get_bundle_elf (no vmo cap)");
+        emit_line("bundlemgrd: FAIL get_bundle_image (no vmo cap)");
         return (code::VfsError::Invalid.code(), 0);
     };
-    let (status, len, read_ms, hash_ms) = (|| -> (u16, u32, u32, u32) {
-        let Some(name) = wire::decode_get_bundle_elf(frame) else {
-            return (code::VfsError::Invalid.code(), 0, 0, 0);
+    let (status, len, read_ms, copy_ms, hash_ms) = (|| -> (u16, u32, u32, u32, u32) {
+        let Some(name) = wire::decode_get_bundle_image(frame) else {
+            return (code::VfsError::Invalid.code(), 0, 0, 0, 0);
         };
         let vol = match volume.ensure() {
             Ok(v) => v,
-            Err(_) => return (code::VfsError::Io.code(), 0, 0, 0),
+            Err(_) => return (code::VfsError::Io.code(), 0, 0, 0, 0),
         };
         let Some((_row, entry)) = vol.lookup(name) else {
-            return (code::VfsError::NotFound.code(), 0, 0, 0);
+            return (code::VfsError::NotFound.code(), 0, 0, 0, 0);
         };
-        match vol.stream_entry_into_vmo(entry, vmo, vmo_hdr::DATA_OFFSET) {
-            Ok((len, read_ms, hash_ms)) => (code::CODE_OK, len, read_ms, hash_ms),
-            Err(crate::volume::VolumeFail::Digest) => (code::VfsError::Integrity.code(), 0, 0, 0),
-            Err(crate::volume::VolumeFail::Bounds) => (code::VfsError::TooBig.code(), 0, 0, 0),
-            Err(_) => (code::VfsError::Io.code(), 0, 0, 0),
+        match vol.image_entry_into_vmo(entry, vmo) {
+            Ok((len, read_ms, copy_ms, hash_ms)) => (code::CODE_OK, len, read_ms, copy_ms, hash_ms),
+            Err(crate::volume::VolumeFail::Digest) => {
+                (code::VfsError::Integrity.code(), 0, 0, 0, 0)
+            }
+            Err(crate::volume::VolumeFail::Bounds) => (code::VfsError::TooBig.code(), 0, 0, 0, 0),
+            Err(_) => (code::VfsError::Io.code(), 0, 0, 0, 0),
         }
     })();
-    let hdr = vmo_hdr::encode_header(status, len);
-    let _ = nexus_abi::vmo_write(vmo, 0, &hdr);
     let _ = nexus_abi::cap_close(vmo);
     if status == code::CODE_OK {
-        emit_bundle_served(frame, read_ms, hash_ms);
+        emit_bundle_served(frame, read_ms, copy_ms, hash_ms);
     } else {
-        emit_line("bundlemgrd: FAIL get_bundle_elf (status)");
+        emit_line("bundlemgrd: FAIL get_bundle_image (status)");
     }
     (status, len)
 }
@@ -311,13 +311,13 @@ fn handle_get_file_vmo(
     (status, len)
 }
 
-/// `bundlemgrd: bundle served (name=<n> read_ms=<r> hash_ms=<h>)` — bounded
-/// (name ≤ 48 bytes); the two costs locate a slow spawn pass (device path
-/// vs digest) without a profiler.
-fn emit_bundle_served(frame: &[u8], read_ms: u32, hash_ms: u32) {
+/// `bundlemgrd: bundle served (name=<n> read_ms=<r> copy_ms=<c> hash_ms=<h>)` — bounded
+/// (name ≤ 48 bytes); the three costs locate a slow spawn pass (device path, the bounce copy,
+/// the digest) without a profiler.
+fn emit_bundle_served(frame: &[u8], read_ms: u32, copy_ms: u32, hash_ms: u32) {
     use nexus_abi::bundlemgrd as wire;
-    let Some(name) = wire::decode_get_bundle_elf(frame) else { return };
-    let mut line = [0u8; 96];
+    let Some(name) = wire::decode_get_bundle_image(frame) else { return };
+    let mut line = [0u8; 160];
     let prefix = b"bundlemgrd: bundle served (name=";
     line[..prefix.len()].copy_from_slice(prefix);
     let mut n = prefix.len();
@@ -325,7 +325,9 @@ fn emit_bundle_served(frame: &[u8], read_ms: u32, hash_ms: u32) {
         line[n] = if b.is_ascii_graphic() { b } else { b'_' };
         n += 1;
     }
-    for (label, value) in [(&b" read_ms="[..], read_ms), (&b" hash_ms="[..], hash_ms)] {
+    for (label, value) in
+        [(&b" read_ms="[..], read_ms), (&b" copy_ms="[..], copy_ms), (&b" hash_ms="[..], hash_ms)]
+    {
         line[n..n + label.len()].copy_from_slice(label);
         n += label.len();
         n = put_dec(&mut line, n, value);

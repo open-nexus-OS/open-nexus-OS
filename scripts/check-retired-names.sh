@@ -35,6 +35,7 @@ RETIRED=(
   'INT_MASK_ONL2 INT_MASK_ALL INT_MASK_STOCK INT_RAW_CLEAR_ALL vblank_enable vblank_disable;INT_ENABLE_ONL2 / INT_STS_ONL2, flip_irq_arm / flip_irq_disarm (an enable word and a write-1-to-clear status, as the vendor header names them);TASK-0342 (board cycles 59–60): the enable word read as a mask and the clears written to the read-only raw word held the line up'
   'flip_in_blank in_blank;flip_latched (the controller takes the latch at its next frame boundary);TASK-0342: a flip that waited for a wake inside the blank waited behind the GPU'
   'small-object-free-list;none — the size-class and large-block lists are every service'"'"'s (nexus-service-entry);TASK-0333 6b-3: no service heap is a bump that never frees'
+  'SYSCALL_EXEC_V2 sys_exec_v2 exec_v2_phase_a exec_phase_a ExecArgsTyped ExecV2ArgsTyped OP_GET_BUNDLE_ELF encode_get_bundle_elf decode_get_bundle_elf handle_get_bundle_elf load_segment;exec_vmo / vmo_seal / sealed_image (nexus-abi), OP_GET_BUNDLE_IMAGE (nexus-wire), exec::load_image (the kernel'"'"'s one loader);ADR-0080, TASK-0333 6c-1b: a process runs from a sealed image — syscalls 13 and 17 (pointer + length, a copy per process) are retired'
   'RUSTFLAGS_OS os_rustflags;.cargo/config.toml [target.riscv64imac-unknown-none-elf] rustflags (lint recipes append through --config);TASK-0333 6c-0: an OS-target RUSTFLAGS replaced the configured flags — the shipped image never had +zbb'
 )
 # Dated records describe the tree as it was, so they keep the names it had.

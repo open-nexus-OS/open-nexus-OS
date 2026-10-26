@@ -13,9 +13,8 @@
 
 use std::{cell::Cell, env, fs, path::PathBuf};
 
-#[path = "build/rv_encode.rs"]
-mod rv_encode;
-use rv_encode::*;
+use exec_image::rv::*;
+use exec_image::tiny::{build_elf, print_and_exit, DONE_OFFSET};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -23,11 +22,11 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
 
-    let exit0 = build_elf(&build_text(0, b"child: exit0 start\n\0"));
+    let exit0 = build_elf(&print_and_exit(0, b"child: exit0 start\n\0"));
     let out_path = out_dir.join("demo-exit0.elf");
     fs::write(&out_path, exit0).expect("write demo-exit0");
 
-    let exit42 = build_elf(&build_text(42, b"child: exit42 start\n\0"));
+    let exit42 = build_elf(&print_and_exit(42, b"child: exit42 start\n\0"));
     let out_path = out_dir.join("demo-exit42.elf");
     fs::write(&out_path, exit42).expect("write demo-exit42");
 
@@ -154,138 +153,22 @@ fn build_vmo_holder_text(msg: &[u8]) -> Vec<u8> {
     text
 }
 
-fn build_elf(text: &[u8]) -> Vec<u8> {
-    const ENTRY: u64 = 0x1000;
-    const TEXT_OFFSET: usize = 0x100;
-
-    let mut header = Vec::with_capacity(64);
-    header.extend_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    header.extend_from_slice(&2u16.to_le_bytes());
-    header.extend_from_slice(&243u16.to_le_bytes());
-    header.extend_from_slice(&1u32.to_le_bytes());
-    header.extend_from_slice(&ENTRY.to_le_bytes());
-    header.extend_from_slice(&(64u64).to_le_bytes());
-    header.extend_from_slice(&0u64.to_le_bytes());
-    header.extend_from_slice(&0u32.to_le_bytes());
-    header.extend_from_slice(&64u16.to_le_bytes());
-    header.extend_from_slice(&56u16.to_le_bytes());
-    header.extend_from_slice(&1u16.to_le_bytes());
-    header.extend_from_slice(&0u16.to_le_bytes());
-    header.extend_from_slice(&0u16.to_le_bytes());
-    header.extend_from_slice(&0u16.to_le_bytes());
-    assert_eq!(header.len(), 64);
-
-    let filesz = text.len() as u64;
-    let mut ph = Vec::with_capacity(56);
-    ph.extend_from_slice(&1u32.to_le_bytes());
-    ph.extend_from_slice(&(0x5u32).to_le_bytes());
-    ph.extend_from_slice(&(TEXT_OFFSET as u64).to_le_bytes());
-    ph.extend_from_slice(&ENTRY.to_le_bytes());
-    ph.extend_from_slice(&ENTRY.to_le_bytes());
-    ph.extend_from_slice(&filesz.to_le_bytes());
-    ph.extend_from_slice(&filesz.to_le_bytes());
-    ph.extend_from_slice(&0x1000u64.to_le_bytes());
-    assert_eq!(ph.len(), 56);
-
-    let mut elf = Vec::new();
-    elf.extend_from_slice(&header);
-    elf.extend_from_slice(&ph);
-    if elf.len() < TEXT_OFFSET {
-        elf.resize(TEXT_OFFSET, 0);
-    }
-    elf.extend_from_slice(text);
-    // Kernel exec loader bring-up hardening:
-    // pad the ELF blob to a 4-byte boundary so kernel-side parsing that reads u32 chunks
-    // never needs to touch an unmapped trailing byte.
-    while (elf.len() & 0x3) != 0 {
-        elf.push(0);
-    }
-    elf
-}
-
-fn build_text(exit_code: i32, msg: &[u8]) -> Vec<u8> {
-    // This payload runs in U-mode, so it must NOT touch the UART MMIO directly.
-    // Instead, print via the kernel debug_putc syscall and then exit(0).
-    //
-    // Syscalls:
-    //   - a7=16: debug_putc(a0=byte)
-    //   - a7=11: exit(a0=status)
-    const SYSCALL_DEBUG_PUTC: i32 = 16;
-    const SYSCALL_EXIT: i32 = 11;
-
-    // Layout: code first, then message bytes. We use AUIPC to get PC-relative address.
-    // Code size is 12 instructions = 48 bytes, so the message starts at 0x30.
-    const MSG_OFFSET: i32 = 0x30;
-    const LABEL_LOOP: i32 = 0x08;
-    const LABEL_DONE: i32 = 0x20;
-
-    let mut text = Vec::new();
-    let mut pc = 0i32;
-
-    // s0 (x8) holds the message pointer across syscalls.
-    push(&mut text, encode_auipc(8, 0));
-    pc += 4;
-
-    push(&mut text, encode_addi(8, 8, MSG_OFFSET));
-    pc += 4;
-
-    // loop:
-    //   a0 = *(u8*)s0
-    //   if a0==0 goto done
-    //   a7 = debug_putc; ecall
-    //   s0++; goto loop
-    push(&mut text, encode_lbu(10, 8, 0));
-    pc += 4;
-
-    push(&mut text, encode_beq(10, 0, LABEL_DONE - pc));
-    pc += 4;
-
-    push(&mut text, encode_addi(17, 0, SYSCALL_DEBUG_PUTC));
-    pc += 4;
-
-    push(&mut text, 0x00000073); // ecall
-    pc += 4;
-
-    push(&mut text, encode_addi(8, 8, 1));
-    pc += 4;
-
-    push(&mut text, encode_jal(0, LABEL_LOOP - pc));
-    pc += 4;
-
-    // done: exit(exit_code)
-    push(&mut text, encode_addi(10, 0, exit_code)); // a0=status
-    pc += 4;
-    push(&mut text, encode_addi(17, 0, SYSCALL_EXIT));
-    pc += 4;
-    push(&mut text, 0x00000073); // ecall
-    pc += 4;
-    push(&mut text, 0x0000006f); // jal x0, 0 (should never return)
-    pc += 4;
-
-    assert_eq!(pc, MSG_OFFSET, "message offset mismatch");
-
-    text.extend_from_slice(msg);
-    text
-}
-
-/// `build_text`, with the "done:" tail's first slot (offset 0x20 =
-/// LABEL_DONE, `addi a0, x0, <code>`) replaced by `lbu a0, 0(x0)` — a load
-/// from the never-mapped null page, so the kernel kills the child with
-/// `ExitReason::Fault` right after it printed its marker (TASK-0049 /
-/// ADR-0056). If the load ever stops faulting, the child falls through to
-/// the original exit with reason=voluntary and the selftest's tag assert
-/// fails loudly instead of hanging.
+/// `print_and_exit`, with the "done:" tail's first slot (`DONE_OFFSET`, `addi a0, x0,
+/// <code>`) replaced by `lbu a0, 0(x0)` — a load from the never-mapped null page, so the kernel
+/// kills the child with `ExitReason::Fault` right after it printed its marker (TASK-0049 /
+/// ADR-0056). If the load ever stops faulting, the child falls through to the original exit
+/// with reason=voluntary and the selftest's tag assert fails loudly instead of hanging.
 fn build_fault_text(msg: &[u8]) -> Vec<u8> {
-    let mut text = build_text(7, msg);
-    text[0x20..0x24].copy_from_slice(&encode_lbu(10, 0, 0).to_le_bytes());
+    let mut text = print_and_exit(7, msg);
+    text[DONE_OFFSET..DONE_OFFSET + 4].copy_from_slice(&encode_lbu(10, 0, 0).to_le_bytes());
     text
 }
 
-/// `build_text`, with the "done:" tail's first slot (offset 0x20) replaced by `cbo.clean 0(s0)`
-/// — s0 points at the message's NUL there, a mapped readable line of this text (ADR-0079).
+/// `print_and_exit`, with the "done:" tail's first slot replaced by `cbo.clean 0(s0)` — s0
+/// points at the message's NUL there, a mapped readable line of this text (ADR-0079).
 fn build_cache_text(msg: &[u8]) -> Vec<u8> {
-    let mut text = build_text(7, msg);
-    text[0x20..0x24].copy_from_slice(&encode_cbo_clean(8).to_le_bytes());
+    let mut text = print_and_exit(7, msg);
+    text[DONE_OFFSET..DONE_OFFSET + 4].copy_from_slice(&encode_cbo_clean(8).to_le_bytes());
     text
 }
 

@@ -50,7 +50,7 @@ impl DisplayServerRuntime {
     ///
     /// RFC-0086: every `CONTROL_WIN_*` verb acts on the SENDER's own window — the app window
     /// whose captured `owner_sid` is the kernel sender id (execd names app-hosts `app:<id>` via
-    /// exec_v2), resolved by `control_gate::own_window` (host-tested). No verb names a window:
+    /// exec_vmo), resolved by `control_gate::own_window` (host-tested). No verb names a window:
     /// `value` carries only the verb's argument (board cycle 58: a 4-bit surface id in it broke
     /// every control once surface ids passed 15).
     pub(crate) fn handle_surface_control(&mut self, frame: &[u8], sender_sid: u64) {

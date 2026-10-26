@@ -57,6 +57,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let payload_bytes =
         if let Some(path) = input_path { fs::read(path)? } else { HELLO_ELF.to_vec() };
+    // ADR-0080: a native payload is an image the kernel maps from its sealed frames — refuse
+    // one off the page grid here, not on the board (a ui-program payload is not an ELF).
+    if payload_bytes.starts_with(b"\x7FELF") {
+        exec_image::layout::check(&payload_bytes)?;
+    }
 
     pack_bundle(&output_dir, &manifest_bytes, &payload_bytes)?;
 

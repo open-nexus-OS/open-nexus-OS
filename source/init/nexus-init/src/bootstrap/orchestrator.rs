@@ -94,6 +94,7 @@ where
     // happens, not the `init` emitter; separate from `init_caps` wiring. `init: ready` stays raw
     // (harness stop marker).
     let mut init_misc = nexus_event::SpanTally::new();
+    let mut sealed_images = alloc::vec::Vec::new();
     for (_idx, image) in images.iter().enumerate() {
         if probes_enabled() {
             debug_write_bytes(b"!svc-loop\n");
@@ -118,7 +119,7 @@ where
             }
             debug_write_byte(b'\n');
         }
-        match crate::bootstrap::spawn::spawn_service_with_probe(image, probes_enabled()) {
+        match crate::bootstrap::spawn::spawn_sealed(image, &mut sealed_images, probes_enabled()) {
             Ok(pid) => {
                 // Private control endpoints (REQ/RSP) at the child's slots 1/2 —
                 // shared with the volume spawn pass (TASK-0321).
@@ -191,9 +192,7 @@ where
     // distribution — see `resume::PLANE` for why nothing runs earlier.
 
     // Second pass: create request endpoints owned by the target service PID and distribute caps.
-    fn find_pid(ctrls: &[CtrlChannel], name: &str) -> Option<u32> {
-        ctrls.iter().find(|c| c.svc_name == name).map(|c| c.pid)
-    }
+    use crate::bootstrap::spawn::find_pid;
     let selftest_pid = find_pid(&ctrl_channels, "selftest-client").ok_or(InitError::MissingElf)?;
     let policyd_pid = find_pid(&ctrl_channels, "policyd").ok_or(InitError::MissingElf)?;
     let bundlemgrd_pid = find_pid(&ctrl_channels, "bundlemgrd").ok_or(InitError::MissingElf)?;
@@ -679,7 +678,7 @@ where
         eps.server_pair(crate::service_topology::ServiceId::Statefsd).map(|(req, _)| req);
     Ok(BootstrapState {
         respawn: crate::bootstrap::respawn::RespawnContext::new(
-            images,
+            sealed_images,
             volume_spawned,
             selftest_pid,
             pinch_rsp,

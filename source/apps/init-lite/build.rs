@@ -134,6 +134,10 @@ fn generate_service_table(out: &std::path::Path) -> Result<(), DynError> {
         let elf_bytes = std::fs::read(&dest).map_err(|err| {
             format!("failed to read copied service ELF {}: {err}", dest.display())
         })?;
+        // ADR-0080: the kernel maps this image from its sealed frames — every PT_LOAD on its
+        // own file page, on the page grid — and refuses one that is not; refuse it here first.
+        exec_image::layout::check(&elf_bytes)
+            .map_err(|err| format!("service {name} ({}): {err}", dest.display()))?;
         let global_pointer = {
             let file = object::File::parse(&*elf_bytes)
                 .map_err(|err| format!("parse service ELF {}: {err}", dest.display()))?;

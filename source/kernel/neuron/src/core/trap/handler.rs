@@ -556,8 +556,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         if matches!(
             frame.x[17],
             crate::syscall::SYSCALL_VMO_CREATE
-                | crate::syscall::SYSCALL_EXEC
-                | crate::syscall::SYSCALL_EXEC_V2
+                | crate::syscall::SYSCALL_EXEC_VMO
                 | crate::syscall::SYSCALL_VM_UNMAP
         ) {
             kernel = super::phased::phased_syscall(frame, kernel);
@@ -660,8 +659,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
         if !matches!(
             frame.x[17],
             crate::syscall::SYSCALL_VMO_CREATE
-                | crate::syscall::SYSCALL_EXEC
-                | crate::syscall::SYSCALL_EXEC_V2
+                | crate::syscall::SYSCALL_EXEC_VMO
                 | crate::syscall::SYSCALL_VM_UNMAP
         ) {
             handle_ecall(frame, table, &mut ctx);

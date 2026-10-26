@@ -13,3 +13,4 @@ nexus-init = { path = "../../init/nexus-init", features = ["os-payload"], defaul
 
 [build-dependencies]
 object = "0.36"
+exec-image = { path = "../../../tools/exec-image" }

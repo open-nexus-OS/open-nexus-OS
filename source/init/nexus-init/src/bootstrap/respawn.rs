@@ -22,7 +22,7 @@
 
 use crate::bootstrap::helpers::debug_write_bytes;
 use crate::bootstrap::CtrlChannel;
-use crate::os_payload::{ServiceImage, ENDPOINT_FACTORY_CAP_SLOT};
+use crate::os_payload::ENDPOINT_FACTORY_CAP_SLOT;
 use crate::route_table::{CapSlot, RouteTable};
 use crate::service_supervision::{supervision_for, DEFAULT_BACKOFF};
 use crate::service_topology::ServiceId;
@@ -31,11 +31,11 @@ use nexus_abi::{ExitReason, Rights};
 
 /// Boot-held state the respawn path derives from (never mints beyond it).
 pub struct RespawnContext {
-    /// The `'static` boot service images (ELF bytes live forever).
-    pub images: &'static [ServiceImage],
-    /// TASK-0321 P4: services spawned from the system volume — their
-    /// read-only ELF mappings (kept for the process lifetime) + launch
-    /// params; a respawn re-execs the mapped bytes.
+    /// ADR-0080: the embedded service images, sealed once at boot — a respawn execs the same
+    /// object (its frames shared with the instance that died, had it lived).
+    pub sealed: alloc::vec::Vec<crate::bootstrap::spawn::SealedImage>,
+    /// TASK-0321 P4: services spawned from the system volume — their sealed images (init keeps
+    /// the capability) + launch params; a respawn execs the same object.
     pub volume: alloc::vec::Vec<crate::bootstrap::volume_spawn::VolumeSpawned>,
     /// The pilot client's pid (selftest-client) for SEND re-distribution.
     pub selftest_pid: u32,
@@ -70,7 +70,7 @@ pub(crate) struct Respawner {
 impl RespawnContext {
     /// Bundles the boot-held respawn inputs (orchestrator hand-off).
     pub(crate) fn new(
-        images: &'static [ServiceImage],
+        sealed: alloc::vec::Vec<crate::bootstrap::spawn::SealedImage>,
         volume: alloc::vec::Vec<crate::bootstrap::volume_spawn::VolumeSpawned>,
         selftest_pid: u32,
         pinch_rsp_parent_slot: Option<u32>,
@@ -78,19 +78,19 @@ impl RespawnContext {
         ask: nexus_ipc::SlotPair,
         stage_fence: u32,
     ) -> Self {
-        Self { images, volume, selftest_pid, pinch_rsp_parent_slot, statefs_send, ask, stage_fence }
+        Self { sealed, volume, selftest_pid, pinch_rsp_parent_slot, statefs_send, ask, stage_fence }
     }
 
-    /// The bytes + launch params to re-exec `name` from: the embedded table
-    /// or the volume mapping (ServiceSource, ADR-0060) — never both.
-    fn image_for(&self, name: &str) -> Option<(&'static [u8], usize, u64, &'static str)> {
-        if let Some(img) = self.images.iter().find(|img| img.name == name) {
-            return Some((img.elf, img.stack_pages.max(1) as usize, img.global_pointer, img.name));
+    /// The sealed image + launch params to re-exec `name` from: the embedded table or the
+    /// volume (ServiceSource, ADR-0060) — never both.
+    fn image_for(&self, name: &str) -> Option<(u32, usize, u64, &'static str)> {
+        if let Some(img) = self.sealed.iter().find(|img| img.name == name) {
+            return Some((img.image, img.stack_pages, img.global_pointer, img.name));
         }
         self.volume
             .iter()
             .find(|v| v.name == name)
-            .map(|v| (v.elf, v.stack_pages.max(1) as usize, v.global_pointer, v.name))
+            .map(|v| (v.image, v.stack_pages.max(1) as usize, v.global_pointer, v.name))
     }
 }
 
@@ -181,11 +181,11 @@ fn respawn_pinched(
     channels: &mut [CtrlChannel],
     route_table: &mut RouteTable,
 ) -> Option<u32> {
-    let (elf, stack_pages, global_pointer, name) = ctx.image_for("pinched")?;
+    let (image, stack_pages, global_pointer, name) = ctx.image_for("pinched")?;
     let rsp_parent = ctx.pinch_rsp_parent_slot?;
     let chan = channels.iter_mut().find(|c| c.svc_name == "pinched")?;
 
-    let pid = nexus_abi::exec_v2(elf, stack_pages, global_pointer, name).ok()?;
+    let pid = nexus_abi::exec_vmo(image, stack_pages, global_pointer, name).ok()?;
 
     // Ctrl plane: same init-owned endpoints, re-pinned to the fleet control slots.
     let ctrl_send = nexus_abi::cap_transfer_to_slot(

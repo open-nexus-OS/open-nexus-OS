@@ -70,7 +70,11 @@ fn ui_program_manifests_pack_payload_nxir_and_round_trip_the_kind() {
 #[test]
 fn default_manifests_stay_elf_backward_compatible() {
     let dir = temp_dir("elfdefault");
-    run_pack(&dir, &manifest_toml(None), b"\x7fELF fake");
+    run_pack(
+        &dir,
+        &manifest_toml(None),
+        &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+    );
     assert!(dir.join("out/payload.elf").exists(), "native bundles keep payload.elf");
     assert!(!dir.join("out/payload.nxir").exists());
     assert_eq!(read_payload_kind(&dir), nexus_idl_runtime::manifest_capnp::PayloadKind::Elf);
@@ -102,7 +106,11 @@ fn exports_round_trip_and_foreign_namespace_rejected() {
         "exports = [\n    { ability = \"chat.Send\", permission = \"app.chat.SEND\" },\n    { ability = \"chat.Receive\", permission = \"app.chat.RECEIVE\" },\n]\n",
     );
     let dir = temp_dir("exports");
-    run_pack(&dir, &toml, b"\x7fELF fake");
+    run_pack(
+        &dir,
+        &toml,
+        &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+    );
     let bytes = std::fs::read(dir.join("out/manifest.nxb")).expect("manifest.nxb");
     let reader =
         capnp::serialize::read_message(bytes.as_slice(), Default::default()).expect("read");
@@ -154,7 +162,11 @@ fn bundle_type_gates_system_role_permissions() {
         "caps = [\"nexus.permission.WINDOW\", \"nexus.permission.SESSION\"]\nbundle_type = \"greeter\"",
     );
     let dir = temp_dir("ceiling-greeter");
-    run_pack(&dir, &greeter, b"\x7fELF fake");
+    run_pack(
+        &dir,
+        &greeter,
+        &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+    );
     let _ = std::fs::remove_dir_all(&dir);
 
     // A shell MAY hold LAUNCH + ENUMERATE.
@@ -164,7 +176,11 @@ fn bundle_type_gates_system_role_permissions() {
         "caps = [\"nexus.permission.WINDOW\", \"nexus.permission.LAUNCH\", \"nexus.permission.ENUMERATE\"]\nbundle_type = \"shell\"",
     );
     let dir = temp_dir("ceiling-shell");
-    run_pack(&dir, &shell, b"\x7fELF fake");
+    run_pack(
+        &dir,
+        &shell,
+        &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+    );
     let _ = std::fs::remove_dir_all(&dir);
 
     // A settings app MAY hold SETTINGS (and is still user-launchable).
@@ -174,7 +190,11 @@ fn bundle_type_gates_system_role_permissions() {
         "caps = [\"nexus.permission.WINDOW\", \"nexus.permission.SETTINGS\"]\nbundle_type = \"settings\"",
     );
     let dir = temp_dir("ceiling-settings");
-    run_pack(&dir, &settings, b"\x7fELF fake");
+    run_pack(
+        &dir,
+        &settings,
+        &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+    );
     let _ = std::fs::remove_dir_all(&dir);
 
     // RFC-0083: the SHELL may hold SETTINGS too — the control center writes
@@ -186,6 +206,10 @@ fn bundle_type_gates_system_role_permissions() {
         "caps = [\"nexus.permission.WINDOW\", \"nexus.permission.SETTINGS\"]\nbundle_type = \"shell\"",
     );
     let dir = temp_dir("ceiling-shell-settings");
-    run_pack(&dir, &shell_settings, b"\x7fELF fake");
+    run_pack(
+        &dir,
+        &shell_settings,
+        &exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"x\0")),
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

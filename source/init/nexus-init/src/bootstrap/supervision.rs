@@ -71,7 +71,7 @@ impl SupervisionSweep {
         // Same suspended-spawn discipline as every exec child (#102): the
         // kernel starts it Suspended; resume AFTER any grants (the probe
         // needs none — it prints nothing and exits 0).
-        let probe_pid = match nexus_abi::exec(demo_exit0::DEMO_EXIT0_ELF, 4, 0) {
+        let probe_pid = match nexus_abi::exec_image_once(demo_exit0::DEMO_EXIT0_ELF, 4, 0, "") {
             Ok(pid) => {
                 if nexus_abi::task_resume(pid).is_err() {
                     debug_write_bytes(b"init: FAIL supervision probe resume\n");
@@ -215,7 +215,7 @@ fn now_ns() -> u64 {
 
 /// Spawns one `demo.fault` probe child (suspended-spawn + resume, #102).
 fn spawn_fault_probe() -> Option<u32> {
-    match nexus_abi::exec(demo_exit0::DEMO_FAULT_ELF, 4, 0) {
+    match nexus_abi::exec_image_once(demo_exit0::DEMO_FAULT_ELF, 4, 0, "") {
         Ok(pid) => {
             if nexus_abi::task_resume(pid).is_err() {
                 debug_write_bytes(b"init: FAIL fault-probe resume\n");

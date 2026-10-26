@@ -56,7 +56,11 @@ pub(crate) fn resolve_runs(
     let reach = device
         .and_then(crate::mm::devices::reach)
         .ok_or(Error::Capability(CapError::PermissionDenied))?;
-    if crate::mm::vmo::is_lazy(id) {
+    if crate::mm::vmo::is_sealed(id) {
+        // ADR-0080: a sealed object has no writer — a device told its runs could write them.
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    let count = if crate::mm::vmo::is_lazy(id) {
         // A device cannot fault: the range is committed before it is named (ADR-0078), at most
         // `MAX_NAMED_PAGES` pages a call, and answered as an object of its own from byte 0.
         let runs = crate::mm::vmo::named_runs(id, offset, len).map_err(|e| match e {
@@ -65,10 +69,14 @@ pub(crate) fn resolve_runs(
             }
             _ => AddressSpaceError::InvalidArgs.into(),
         })?;
-        return dma_runs::device_runs(runs, len, 0, len, &reach, out).map_err(runs_error);
-    }
-    let runs = crate::mm::vmo::runs(id).ok_or(Error::Capability(CapError::PermissionDenied))?;
-    dma_runs::device_runs(runs, object_len, offset, len, &reach, out).map_err(runs_error)
+        dma_runs::device_runs(runs, len, 0, len, &reach, out).map_err(runs_error)?
+    } else {
+        let runs = crate::mm::vmo::runs(id).ok_or(Error::Capability(CapError::PermissionDenied))?;
+        dma_runs::device_runs(runs, object_len, offset, len, &reach, out).map_err(runs_error)?
+    };
+    // The device has the runs from here on: the object can never be sealed (ADR-0080).
+    crate::mm::vmo::mark_device_named(id);
+    Ok(count)
 }
 
 /// `SYSCALL_VMO_RUNS` (60). Args: (vmo_slot, device_slot, offset, len, out_ptr, max).

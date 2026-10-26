@@ -18,4 +18,8 @@ rustflags = [
     "-C", "relocation-model=static",
     "-C", "target-feature=+zbb",
     "-Z", "share-generics=y",
+    # ADR-0080: every PT_LOAD on its own file page, so a process's text and rodata can be
+    # mapped from its sealed image's frames (shared) and its data copied — the kernel refuses an
+    # image whose segments share a file page or sit off the page grid.
+    "-C", "link-arg=-zseparate-loadable-segments",
 ]

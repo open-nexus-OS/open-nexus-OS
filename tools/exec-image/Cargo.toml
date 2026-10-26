@@ -1,0 +1,9 @@
+[package]
+name = "exec-image"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Open Nexus OS Contributors"]
+description = "The layout rule of an executable image the kernel maps from its sealed frames (ADR-0080), and the tiny-ELF builder that satisfies it — host-only (build scripts, nxb-pack)."
+
+[dependencies]

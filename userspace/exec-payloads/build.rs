@@ -25,6 +25,11 @@ fn main() -> Result<(), io::Error> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").map_err(io::Error::other)?);
     fs::write(out_dir.join("hello.manifest.nxb"), build_manifest("demo.hello", "0.0.1"))?;
     fs::write(out_dir.join("exit0.manifest.nxb"), build_manifest("demo.exit0", "1.0.0"))?;
+    // The hello probe (ADR-0080: on the page grid like every image the kernel maps from its
+    // sealed frames): prints its marker, exits 0.
+    let hello =
+        exec_image::tiny::build_elf(&exec_image::tiny::print_and_exit(0, b"child: hello-elf\n\0"));
+    fs::write(out_dir.join("hello.elf"), hello)?;
 
     Ok(())
 }

@@ -40,7 +40,9 @@ pub(super) fn run_recv_wake_probe() {
             return;
         }
     }
-    let pid = match exec(recvwake_payload::RECVWAKE_ELF, 16, 0) {
+    // ADR-0080: a one-shot probe — its image sealed, the process made, execd's capability closed
+    // (the object lives on in the child).
+    let pid = match nexus_abi::exec_image_once(recvwake_payload::RECVWAKE_ELF, 16, 0, "") {
         Ok(pid) => pid as u32,
         Err(_) => {
             emit_line("execd: FAIL recv-wake probe (spawn)");

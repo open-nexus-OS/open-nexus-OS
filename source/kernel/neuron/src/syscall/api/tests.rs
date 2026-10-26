@@ -54,45 +54,6 @@ fn cap_table_vmo_ref_count_sees_aliases() {
 }
 
 #[test]
-fn exec_v2_reclaims_address_space_on_load_validation_failure() {
-    let mut scheduler = Scheduler::new();
-    let mut tasks = TaskTable::new();
-    let mut router = ipc::Router::new(1);
-    let endpoint = router.create_endpoint(1, None).unwrap();
-    tasks
-        .bootstrap_mut()
-        .caps_mut()
-        .set(0, Capability { kind: CapabilityKind::Endpoint(endpoint), rights: Rights::SEND })
-        .unwrap();
-    let mut as_manager = AddressSpaceManager::new();
-    let timer = MockTimer::default();
-    let mut ctx = Context::new(&mut scheduler, &mut tasks, &mut router, &mut as_manager, &timer);
-    let before = ctx.address_spaces.stats();
-    let mut elf = [0u8; 120];
-    elf[0..4].copy_from_slice(b"\x7FELF");
-    elf[4] = 2; // ELF64
-    elf[5] = 1; // little endian
-    elf[24..32].copy_from_slice(&0x1000usize.to_le_bytes());
-    elf[32..40].copy_from_slice(&64usize.to_le_bytes());
-    elf[54..56].copy_from_slice(&56u16.to_le_bytes());
-    elf[56..58].copy_from_slice(&1u16.to_le_bytes());
-    elf[64..68].copy_from_slice(&1u32.to_le_bytes()); // PT_LOAD
-    elf[68..72].copy_from_slice(&4u32.to_le_bytes()); // PF_R
-    elf[72..80].copy_from_slice(&112usize.to_le_bytes());
-    elf[80..88].copy_from_slice(&0x4000usize.to_le_bytes());
-    elf[96..104].copy_from_slice(&8usize.to_le_bytes()); // filesz
-    elf[104..112].copy_from_slice(&4usize.to_le_bytes()); // memsz < filesz
-
-    let err = sys_exec_v2(&mut ctx, &Args::new([elf.as_ptr() as usize, elf.len(), 1, 0, 0, 0]))
-        .unwrap_err();
-
-    assert_eq!(err, Error::AddressSpace(AddressSpaceError::InvalidArgs));
-    let after = ctx.address_spaces.stats();
-    assert_eq!(after.live, before.live);
-    assert!(after.destroyed >= before.destroyed + 1);
-}
-
-#[test]
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn send_recv_roundtrip() {
     let mut scheduler = Scheduler::new();

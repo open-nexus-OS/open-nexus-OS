@@ -354,6 +354,63 @@ impl Volume {
         let ms = |a: u64, b: u64| (b.saturating_sub(a) / 1_000_000) as u32;
         Ok((total as u32, ms(t0, t1), ms(t1, t2)))
     }
+
+    /// ADR-0080 (TASK-0333 6c-1b): `entry`'s bytes as a SEALED image in `image` — read from
+    /// the volume into a bounce object the block device may write, copied into `image` from
+    /// byte 0, `image` sealed, then hashed OUT OF THE SEALED OBJECT against the index digest:
+    /// the bytes that verified are the bytes that run, with no writer between the two. The
+    /// bounce is closed on every path (it dies with blkd's last reference). `(len, read_ms,
+    /// copy_ms, hash_ms)`; a mismatch is `Digest` — the spawner closes its sealed, wrong image.
+    pub(crate) fn image_entry_into_vmo(
+        &self,
+        entry: &VolumeEntry,
+        image: u32,
+    ) -> Result<(u32, u32, u32, u32), VolumeFail> {
+        const PAGE: usize = 4096;
+        let start = self.index.superblock.data_offset as u64 + entry.data_offset;
+        let total = entry.data_len as usize;
+        let part_byte_off = VOLUME_START_SECTOR * blockproto::SECTOR_SIZE as u64 + start;
+        let bounce =
+            nexus_abi::vmo_create(total.div_ceil(PAGE) * PAGE).map_err(|_| VolumeFail::Io)?;
+        let t0 = nexus_abi::nsec().unwrap_or(0);
+        let mut outcome = self.dev.arm_vmo(bounce).map_err(|_| VolumeFail::Io);
+        if outcome.is_ok() {
+            let bulk = self.dev.read_into_vmo(part_byte_off, total as u64, 0);
+            let released = self.dev.release_vmo();
+            outcome = bulk.and(released).map_err(|_| VolumeFail::Io);
+        }
+        let t1 = nexus_abi::nsec().unwrap_or(0);
+        // The copy, in bounded chunks: a device still holding the bounce's runs can touch
+        // nothing the image is made of.
+        let mut buf = [0u8; CHUNK];
+        let mut done = 0usize;
+        while outcome.is_ok() && done < total {
+            let want = core::cmp::min(total - done, CHUNK);
+            outcome = nexus_abi::vmo_read(bounce, done, &mut buf[..want])
+                .and_then(|()| nexus_abi::vmo_write(image, done, &buf[..want]))
+                .map_err(|_| VolumeFail::Bounds);
+            done += want;
+        }
+        let _ = nexus_abi::cap_close(bounce);
+        outcome?;
+        let t2 = nexus_abi::nsec().unwrap_or(0);
+        nexus_abi::vmo_seal(image).map_err(|_| VolumeFail::Io)?;
+        let mut hasher = Sha256::new();
+        let mut done = 0usize;
+        while done < total {
+            let want = core::cmp::min(total - done, CHUNK);
+            nexus_abi::vmo_read(image, done, &mut buf[..want]).map_err(|_| VolumeFail::Bounds)?;
+            hasher.update(&buf[..want]);
+            done += want;
+        }
+        let digest: [u8; 32] = hasher.finalize().into();
+        let t3 = nexus_abi::nsec().unwrap_or(0);
+        if digest != entry.sha256 {
+            return Err(VolumeFail::Digest);
+        }
+        let ms = |a: u64, b: u64| (b.saturating_sub(a) / 1_000_000) as u32;
+        Ok((total as u32, ms(t0, t1), ms(t1, t2), ms(t2, t3)))
+    }
 }
 
 fn emit_verified(v: &Volume) {

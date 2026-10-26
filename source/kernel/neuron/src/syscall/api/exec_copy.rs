@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Phase-B executor for the staged exec copy plan (`exec::CopyPlan`):
-//! the byte moves that run with the BKL DROPPED after `exec_phase_a` /
-//! `exec_v2_phase_a` validated and staged them. On the OS target the moves
+//! the byte moves — a writable segment's file pages and the zeroing of the frames the process
+//! owns (ADR-0080) — that run with the BKL DROPPED after `exec_vmo_phase_a` validated and
+//! staged them. On the OS target the moves
 //! are chunked and service the TLB-shootdown mailbox between chunks
 //! (`smp::tlb::{zero,copy}_bytes_polled`) — SIE is off in trap context, so a
 //! shootdown IPI cannot interrupt a long memset/copy otherwise.

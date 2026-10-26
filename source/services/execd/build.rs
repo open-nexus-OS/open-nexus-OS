@@ -5,6 +5,16 @@
 // for build-time codegen; the restriction lints target runtime code only.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+/// ADR-0080: execd seals this image and the kernel maps every process of it from the sealed
+/// frames — every PT_LOAD on its own file page, on the page grid; refuse it here before the
+/// kernel would.
+fn check_image(path: &str) {
+    let bytes = std::fs::read(path).unwrap_or_else(|err| panic!("read {path}: {err}"));
+    if let Err(err) = exec_image::layout::check(&bytes) {
+        panic!("{path} is not a sealable image: {err}");
+    }
+}
+
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(nexus_env, values(\"os\",\"host\"))");
 
@@ -19,6 +29,7 @@ fn main() {
     match std::env::var("EXECD_APPHOST_ELF") {
         Ok(path) if !path.trim().is_empty() => {
             println!("cargo:rerun-if-changed={path}");
+            check_image(&path);
             std::fs::write(
                 &dest,
                 format!(
@@ -46,6 +57,7 @@ fn main() {
     match std::env::var("EXECD_RECVWAKE_ELF") {
         Ok(path) if !path.trim().is_empty() => {
             println!("cargo:rerun-if-changed={path}");
+            check_image(&path);
             std::fs::write(
                 &dest,
                 format!(

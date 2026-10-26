@@ -215,6 +215,82 @@ pub fn any_space_maps_vmo(manager: &AddressSpaceManager, id: u32) -> bool {
     manager.spaces.iter().flatten().any(|space| space.va_space().any_backed_by_vmo(id))
 }
 
+/// Does ANY live address space map the VMO `id` writably? The seal's guard (ADR-0080).
+#[must_use]
+pub fn any_space_maps_vmo_writable(manager: &AddressSpaceManager, id: u32) -> bool {
+    let write = PageFlags::WRITE.bits();
+    manager
+        .spaces
+        .iter()
+        .flatten()
+        .any(|space| space.va_space().any_backed_by_vmo_writable(id, write))
+}
+
+/// How many live address spaces map the VMO `id` — an image's `mappers` (ADR-0080).
+#[must_use]
+pub fn spaces_mapping_vmo(manager: &AddressSpaceManager, id: u32) -> usize {
+    manager.spaces.iter().flatten().filter(|space| space.va_space().any_backed_by_vmo(id)).count()
+}
+
+/// Map physically contiguous runs `(pa, len)` back to back at the CALLER-chosen `va` — an exec
+/// segment's link address (ADR-0080): the frames of a sealed image, recorded as one `Fixed`
+/// region naming the object from its byte `offset`, so the object outlives its capabilities
+/// while the process runs and dies at the reap (RFC-0100 §1). The va must lie outside the
+/// managed window and over no tracked region. RECORD-THEN-MAP as `map_runs`.
+pub fn map_runs_at(
+    space: &mut AddressSpace,
+    va: usize,
+    runs: &[(usize, usize)],
+    flags: PageFlags,
+    vmo: u32,
+    offset: usize,
+) -> Result<(), VmOpError> {
+    let Some(&(pa, _)) = runs.first() else { return Err(VmOpError::Va(VaError::BadInput)) };
+    if vmo == 0 || va % PAGE_SIZE != 0 {
+        return Err(VmOpError::Va(VaError::BadInput));
+    }
+    let mut len = 0usize;
+    for &(run_pa, run_len) in runs {
+        if run_len == 0 || run_len % PAGE_SIZE != 0 || run_pa % PAGE_SIZE != 0 {
+            return Err(VmOpError::Va(VaError::BadInput));
+        }
+        len = len.checked_add(run_len).ok_or(VmOpError::Va(VaError::BadInput))?;
+    }
+    space.va_space().admits_fixed(va, len).map_err(VmOpError::Va)?;
+    let region = VaRegion {
+        va,
+        len,
+        pa,
+        flags: flags.bits(),
+        kind: RegionKind::Fixed,
+        vmo,
+        offset,
+        lazy: false,
+    };
+    space.va_space_mut().insert(region).map_err(VmOpError::Va)?;
+    let mut mapped_end = va;
+    let mut at = va;
+    let planned = runs.iter().try_for_each(|&(run_pa, run_len)| {
+        let r = execute_plan(space, at, run_pa, run_len, flags, &mut mapped_end);
+        at += run_len;
+        r
+    });
+    if let Err(err) = planned {
+        rollback(space, va, mapped_end);
+        let _ = space.va_space_mut().remove_exact(va, len);
+        log_error!(
+            target: "vm",
+            "VM-MAP-FAIL reason=pte-fixed va=0x{:x} mapped_to=0x{:x} err={:?}",
+            va,
+            mapped_end,
+            err
+        );
+        return Err(VmOpError::Map(err));
+    }
+    fence_asid(space.asid());
+    Ok(())
+}
+
 /// Leaf span (4 KiB or 2 MiB) mapped at `va`, or `None`. The selftest oracle
 /// for superpage promotion: proves the 2 MiB leaf EXISTS instead of assuming
 /// the plan produced one. Read-only sibling of the `page_table` walkers.

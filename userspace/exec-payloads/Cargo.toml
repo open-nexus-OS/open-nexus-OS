@@ -11,4 +11,5 @@ nexus-abi = { path = "../../source/libs/nexus-abi" }
 
 [build-dependencies]
 capnp = "0.24"
+exec-image = { path = "../../tools/exec-image" }
 nexus-idl-runtime = { path = "../nexus-idl-runtime" }

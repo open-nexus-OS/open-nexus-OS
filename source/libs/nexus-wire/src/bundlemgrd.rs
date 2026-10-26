@@ -158,7 +158,8 @@ pub fn decode_payload_done_rsp(frame: &[u8], op: u8) -> Option<(u16, u32)> {
 // TASK-0321 P2 (RFC-0089 §12.3, ADR-0060): the verified SYSTEM VOLUME.
 // bundlemgrd verifies the NXSV + index of the system slot paired with the
 // measured boot slot and serves bundle ELFs out of it to init (the sole
-// spawner) over the same header-last VMO discipline as GET_PAYLOAD.
+// spawner) as SEALED images (ADR-0080): the spawner's armed object filled
+// from byte 0, sealed, then hashed — the reply is the completion.
 // ---------------------------------------------------------------------------
 
 /// QUERY_BUNDLE request `[B, N, ver, OP_QUERY_BUNDLE, name_len:u8, name…]`
@@ -167,11 +168,12 @@ pub fn decode_payload_done_rsp(frame: &[u8], op: u8) -> Option<(u16, u32)> {
 /// `payload.elf` size, the launch params from the bundle table, the first
 /// 8 bytes of its window digest and its version string.
 pub const OP_QUERY_BUNDLE: u8 = 7;
-/// GET_BUNDLE_ELF request `[B, N, ver, OP_GET_BUNDLE_ELF, name_len:u8,
-/// name…]` with the destination VMO capability MOVED alongside; bundlemgrd
-/// writes the bundle's `payload.elf` bytes at [`crate::payload_vmo::DATA_OFFSET`] after
-/// verifying their index digest, then the payload header LAST.
-pub const OP_GET_BUNDLE_ELF: u8 = 8;
+/// GET_BUNDLE_IMAGE request `[B, N, ver, OP_GET_BUNDLE_IMAGE, name_len:u8, name…]` against
+/// the sender's ARMED object (ADR-0080): bundlemgrd copies the bundle's `payload.elf` into it
+/// from byte 0 (through a bounce the block device writes), SEALS it, hashes the sealed bytes
+/// against the index digest and replies `[…|0x80, status, len]` — no header, the reply is the
+/// completion; `Integrity` names a mismatch.
+pub const OP_GET_BUNDLE_IMAGE: u8 = 8;
 /// VOLUME_STATUS request `[B, N, ver, OP_VOLUME_STATUS]` → reply
 /// `[…|0x80, status, slot:u8, verified:u8, bundles:u16le, build8_len:u8, build8[..8]]`.
 pub const OP_VOLUME_STATUS: u8 = 9;
@@ -211,8 +213,8 @@ crate::frames! {
         sha8: bytes8(min = 0, max = 8),
         version: bytes8(min = 0, max = 32),
     }
-    /// GET_BUNDLE_ELF request (VMO moved alongside).
-    request encode_get_bundle_elf / decode_get_bundle_elf (op = OP_GET_BUNDLE_ELF) {
+    /// GET_BUNDLE_IMAGE request (against the sender's armed object).
+    request encode_get_bundle_image / decode_get_bundle_image (op = OP_GET_BUNDLE_IMAGE) {
         name: bytes8(min = 1, max = 48),
     }
     /// VOLUME_STATUS request.
@@ -251,9 +253,9 @@ mod tests {
         assert_eq!(sha8, &[0xd0; 8]);
         assert_eq!(version, b"1.0.0");
         let mut req = [0u8; 64];
-        let n = encode_get_bundle_elf(b"metricsd", &mut req).expect("encode req");
-        assert_eq!(decode_request_op(&req[..n]), Some(OP_GET_BUNDLE_ELF));
-        assert_eq!(decode_get_bundle_elf(&req[..n]), Some(&b"metricsd"[..]));
+        let n = encode_get_bundle_image(b"metricsd", &mut req).expect("encode req");
+        assert_eq!(decode_request_op(&req[..n]), Some(OP_GET_BUNDLE_IMAGE));
+        assert_eq!(decode_get_bundle_image(&req[..n]), Some(&b"metricsd"[..]));
         let n = encode_volume_status_rsp(STATUS_OK, b'a', 1, 3, b"dev-6569", &mut buf).expect("st");
         assert_eq!(
             decode_volume_status_rsp(&buf[..n]),

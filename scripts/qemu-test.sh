@@ -712,6 +712,10 @@ expected_sequence=(
   # TASK-0333 6b-3 (RFC-0100 §1): an object whose last capability closed while mapped dies at
   # its last unmap — the lifetime rule's third caller.
   "KSELFTEST: vm unmap reclaim ok ("
+  # ADR-0080 (TASK-0333 6c-1b): a process runs from a sealed image — text and rodata shared,
+  # data copied; the refusal matrix of the loader and the seal.
+  "KSELFTEST: exec image shared ok ("
+  "KSELFTEST: exec image reject ok ("
   "KSELFTEST: fence transfer ok"
   "KSELFTEST: spawn reasons ok"
   "KSELFTEST: resource sentinel ok"
@@ -1295,6 +1299,8 @@ case "${PROFILE:-full}" in
       "KSELFTEST: task exit releases ok ("
       "KSELFTEST: child exit notify ok ("
       "KSELFTEST: vm unmap reclaim ok ("
+      "KSELFTEST: exec image shared ok ("
+      "KSELFTEST: exec image reject ok ("
       "KSELFTEST: fence transfer ok"
       "KSELFTEST: spawn reasons ok"
       "KSELFTEST: resource sentinel ok"

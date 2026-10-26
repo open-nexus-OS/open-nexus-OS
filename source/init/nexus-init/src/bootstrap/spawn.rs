@@ -65,23 +65,60 @@ pub(crate) fn attach_ctrl_channel(
     ))
 }
 
+/// An embedded service image sealed once (ADR-0080): the object every spawn and respawn of
+/// the service maps its text and rodata from. init keeps the capability for the boot.
+pub(crate) struct SealedImage {
+    pub(crate) name: &'static str,
+    /// init's capability slot of the sealed object.
+    pub(crate) image: u32,
+    pub(crate) stack_pages: usize,
+    pub(crate) global_pointer: u64,
+}
+
+/// Seal `image`'s embedded bytes into an object (ADR-0080).
+pub(crate) fn seal_service_image(image: &ServiceImage) -> Result<SealedImage, InitError> {
+    if image.elf.is_empty() {
+        return Err(InitError::MissingElf);
+    }
+    let sealed = nexus_abi::sealed_image(image.elf).map_err(InitError::Abi)?;
+    Ok(SealedImage {
+        name: image.name,
+        image: sealed,
+        stack_pages: image.stack_pages.max(1) as usize,
+        global_pointer: image.global_pointer,
+    })
+}
+
+/// Seal `image` once, remember it in `sealed` for every respawn, spawn it (ADR-0080).
+pub(crate) fn spawn_sealed(
+    image: &ServiceImage,
+    sealed: &mut alloc::vec::Vec<SealedImage>,
+    probes_enabled: bool,
+) -> Result<u32, InitError> {
+    let sealed_image = seal_service_image(image)?;
+    let spawned = spawn_service_with_probe(&sealed_image, probes_enabled);
+    sealed.push(sealed_image);
+    spawned
+}
+
+/// The pid of the service `name` among the attached control channels.
+pub(crate) fn find_pid(ctrls: &[CtrlChannel], name: &str) -> Option<u32> {
+    ctrls.iter().find(|c| c.svc_name == name).map(|c| c.pid)
+}
+
 /// Spawn with debug probe output (when probes are enabled).
 pub(crate) fn spawn_service_with_probe(
-    image: &ServiceImage,
+    image: &SealedImage,
     probes_enabled: bool,
 ) -> Result<u32, InitError> {
     use crate::os_payload::{debug_write_byte, debug_write_bytes, debug_write_str};
 
-    if image.elf.is_empty() {
-        return Err(InitError::MissingElf);
-    }
-    let stack_pages = image.stack_pages.max(1) as usize;
     if probes_enabled {
         debug_write_bytes(b"!exec call name=");
         debug_write_str(image.name);
         debug_write_byte(b'\n');
     }
-    let pid = nexus_abi::exec_v2(image.elf, stack_pages, image.global_pointer, image.name)
+    let pid = nexus_abi::exec_vmo(image.image, image.stack_pages, image.global_pointer, image.name)
         .map_err(InitError::Abi)?;
     if probes_enabled {
         debug_write_bytes(b"!exec ret\n");

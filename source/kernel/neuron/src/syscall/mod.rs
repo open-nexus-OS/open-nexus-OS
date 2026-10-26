@@ -17,8 +17,10 @@ use core::fmt;
 
 use crate::{cap, ipc, mm, task};
 
-/// Maximum number of syscalls supported by this increment.
-const MAX_SYSCALL: usize = 64;
+/// The syscall window: numbers 0..MAX_SYSCALL dispatch, every other number is `InvalidSyscall`.
+/// Registering outside the window is a boot-time failure, never a silent drop (ADR-0080: the
+/// seal, number 64, fell out of a 64-wide window and init died of `invalid-syscall`).
+const MAX_SYSCALL: usize = 128;
 
 /// Result type used by syscall handlers.
 pub type SyscallResult<T> = Result<T, Error>;
@@ -61,7 +63,7 @@ pub const SYSCALL_AS_CREATE: usize = 9;
 pub const SYSCALL_AS_MAP: usize = 10;
 pub const SYSCALL_EXIT: usize = 11;
 pub const SYSCALL_WAIT: usize = 12;
-pub const SYSCALL_EXEC: usize = 13;
+// 13: the pointer-and-length exec loader — RETIRED by ADR-0080 (`exec_vmo`, 63); never reused.
 /// IPC v1 (payload copy-in): see RFC-0005.
 pub const SYSCALL_IPC_SEND_V1: usize = 14;
 /// Task QoS ABI (get/set self + privileged set-for-target).
@@ -71,8 +73,7 @@ pub const SYSCALL_SCHED: usize = 48;
 /// C (Phase C): returns the caller's own address-space handle (raw) so a
 /// task can spawn threads into its OWN address space.
 pub const SYSCALL_AS_SELF: usize = 49;
-/// Exec loader v2: adds explicit service metadata (name ptr/len) for RFC-0004 provenance.
-pub const SYSCALL_EXEC_V2: usize = 17;
+// 17: exec loader v2 (name ptr/len) — RETIRED by ADR-0080 (`exec_vmo`, 63); never reused.
 /// Debug UART putc for userspace (best-effort, no permissions required).
 pub const SYSCALL_DEBUG_PUTC: usize = 16;
 /// Debug UART slice write: emits a whole byte slice atomically under the UART lock so a
@@ -217,6 +218,11 @@ pub const SYSCALL_VMO_READ: usize = 47;
 /// Binds the caller's child-death endpoint (TASK-0333 6a): each child's exit writes one
 /// `OP_CHILD_EXITED` frame into it. Args: (endpoint_slot; `usize::MAX` clears).
 pub const SYSCALL_CHILD_EXIT_BIND: usize = 62;
+/// ADR-0080: makes a process from a SEALED image object — the one loader. Args: (vmo_slot,
+/// stack_pages, global_pointer, name_ptr, name_len) → pid.
+pub const SYSCALL_EXEC_VMO: usize = 63;
+/// ADR-0080: seals the VMO in a slot — no writer for the rest of its life. Args: (vmo_slot).
+pub const SYSCALL_VMO_SEAL: usize = 64;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).
@@ -333,14 +339,14 @@ impl SyscallTable {
 
     /// Registers a handler.
     pub fn register(&mut self, number: usize, handler: Handler) {
-        if number < MAX_SYSCALL {
-            // Fail-closed at boot: a duplicate syscall number silently
-            // replacing an earlier handler is exactly how the SCHED/AS_SELF
-            // vs VMO_DESTROY/VMO_READ collision (46/47) shipped — the later
-            // registration hijacked vmo_read and every VMO poll read nothing.
-            assert!(self.handlers[number].is_none(), "syscall number registered twice");
-            self.handlers[number] = Some(handler);
-        }
+        // Fail-closed at boot, both ways: a number outside the window would never dispatch
+        // (every caller would see `invalid-syscall`), and a duplicate number silently
+        // replacing an earlier handler is exactly how the SCHED/AS_SELF vs
+        // VMO_DESTROY/VMO_READ collision (46/47) shipped — the later registration hijacked
+        // vmo_read and every VMO poll read nothing.
+        assert!(number < MAX_SYSCALL, "syscall number outside the dispatch window");
+        assert!(self.handlers[number].is_none(), "syscall number registered twice");
+        self.handlers[number] = Some(handler);
     }
 
     /// Executes the handler referenced by `number`.

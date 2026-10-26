@@ -8,6 +8,7 @@ description = "Packs ELF payloads into minimal Nexus bundle directories"
 
 [dependencies]
 exec-payloads = { path = "../../userspace/exec-payloads" }
+exec-image = { path = "../exec-image" }
 capnp = "0.24"
 hex = "0.4"
 nexus-idl-runtime = { path = "../../userspace/nexus-idl-runtime" }
