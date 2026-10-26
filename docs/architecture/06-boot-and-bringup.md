@@ -71,19 +71,32 @@ At a high level the stack looks like:
      to the block owner alone; `blkd` appends it to the same slot's OS region,
      paced by a kernel timer (`blkd: trace os ok (slot=<n> seq=<m>)`), and the
      lane checks that text against the UART byte for byte.
-   - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: jump
-     slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
+   - The slot image is one container (ADR-0081): the flat kernel and the
+     bootfs — init, every core service, the app-host and the recv-wake probe,
+     packed by `nx image payload` from `scripts/build.sh`'s manifest — under
+     the NXBD's one digest. The loader places the kernel at the window's base
+     and the bootfs at the first 2 MiB boundary past the kernel's memory
+     footprint, and hands the range over in `/chosen/nexus,bootfs-start` and
+     `-len` (`nxboot: bootfs (at= len=)`).
+   - Markers: `nxboot: bsb ok …` → `nxboot: verify ok …` → `nxboot: bootfs (…)`
+     → `nxboot: jump slot=<s>`; any failure is a stable `nxboot: verify FAIL (…)` /
      `nxboot: PANIC (…)` + SBI reset — never a silent boot of unverified
-     bytes. Direct-kernel dev boots stay available (`NEXUS_DIRECT_KERNEL=1`)
-     and are honestly labeled `neuron: boot handoff absent (direct kernel)`.
+     bytes. There is no boot without the loader: a kernel started on its own
+     has no bootfs and stops at its boot gate.
 1. **Kernel boot wrapper** (`neuron-boot`)
    - Provides `_start`, clears `.bss`, installs trap vector, jumps into kernel `kmain`.
 2. **Kernel** (`source/kernel/neuron`)
    - Brings up HAL, memory map, trap handling, syscalls, scheduler, IPC routing, and selftests.
    - Captures the nxboot handoff page pre-SATP and reports
      `KSELFTEST: boot handoff ok (measured)` (qemu-soft-root measurement).
+   - Adopts the bootfs from `/chosen` — the range excluded from the frame pool,
+     every file a fixed object born sealed (`KSELFTEST: bootfs ok (files= bytes=)`) —
+     and spawns init from its first file through the one loader every process
+     goes through (ADR-0080, ADR-0081); nothing is copied at boot.
 3. **Userspace init** (`source/init/nexus-init`, os-lite backend)
-   - Orchestrates starting services and emits ordered `init: …` markers.
+   - Reads the bootfs table from its fixed slot, spawns the core services from
+     their file objects and hands the app-host's and the probe's objects to
+     execd; orchestrates starting services and emits ordered `init: …` markers.
 4. **Service daemons** (`source/services/*d`)
    - Register with the service manager, expose IDL, emit `*: ready` markers.
 5. **Selftest client / smoke checks**

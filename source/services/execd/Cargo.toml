@@ -65,6 +65,3 @@ nexus-text-baked = { path = "../../../userspace/ui/text-baked", optional = true,
 [[bin]]
 name = "execd"
 path = "src/main.rs"
-
-[build-dependencies]
-exec-image = { path = "../../../tools/exec-image" }

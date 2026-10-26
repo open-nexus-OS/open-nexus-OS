@@ -77,14 +77,10 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
     let os_seed = read_seed(&args.sign_os)?;
     let publisher_seed = read_seed(&args.sign_publisher)?;
 
-    // os-B: the running kernel + a 512-byte build-id trailer — genuinely
-    // different image bytes with a genuinely different digest.
-    let kernel = std::fs::read(&args.kernel).map_err(|err| {
-        NxError::new(
-            ExitClass::MissingDependency,
-            format!("fixtures: read {}: {err}", args.kernel.display()),
-        )
-    })?;
+    // os-B: the running payload with a 512-byte build-id trailer on its kernel item —
+    // genuinely different image bytes with a genuinely different digest, still the container
+    // the loader places (ADR-0081).
+    let kernel = crate::commands::image::read_kernel(&args.kernel)?;
     // The crown proof asserts a DIFFERENT build id in the uart, and the
     // loader prints only the first 8 chars — so os-B must differ inside
     // that window. Swap the `dev-` prefix for `otaB` (deterministic, still
@@ -93,12 +89,11 @@ pub(crate) fn handle_fixtures(args: ImageFixturesArgs) -> ExecResult {
     let build_b = format!("otaB{}", truncate_id(suffix, 26));
     // TASK-0034: the delta fixtures bind to the RUNNING image's bytes.
     let kernel_for_delta = kernel.clone();
-    let mut kernel_b = kernel;
     let mut trailer = [0u8; 512];
     trailer[..7].copy_from_slice(b"NXBUILD");
     let id_bytes = build_b.as_bytes();
     trailer[16..16 + id_bytes.len()].copy_from_slice(id_bytes);
-    kernel_b.extend_from_slice(&trailer);
+    let kernel_b = crate::commands::image_payload::with_kernel_trailer(&kernel, &trailer)?;
 
     let base = fixture_payload();
     let specs = [

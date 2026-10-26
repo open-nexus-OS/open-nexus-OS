@@ -98,6 +98,7 @@ impl Cli {
                 ImageAction::Backstop(a) => a.json,
                 ImageAction::FlashPlan(a) => a.json,
                 ImageAction::Trace(a) => a.json,
+                ImageAction::Payload(a) => a.json,
             },
             Commands::Update(args) => match &args.action {
                 UpdateAction::Check(a) => a.json,

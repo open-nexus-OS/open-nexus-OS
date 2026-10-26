@@ -674,6 +674,65 @@ kinds the same three as cycle 69, boot milestone 11 at 2 000 ms (1 869), ladder 
 desktop/pointer/tile/modal/clipboard/gpu-desktop. ADR-0080 Accepted. Carried on: init reaps no dead
 child (6d); `WINDOWD: FAIL imed relay send` 8× (UX lane, typed defect). NEXT 6c-2 — the boot image.
 
+**6c-2 — the boot image is one container (cut 2026-10-26, ADR-0081).** Measured first (cycle 70's
+build): the kernel ELF 10.2 MB of which 9.7 MB is init-lite's ELF, init-lite 9.7 MB of which ≈ 8 MB
+are the core ELFs, execd 6.8 MB of which ≈ 2.5 MB are app-host + the probe; every core program's
+bytes three to four times in memory and copied twice at boot. *Architect:* the slot image becomes
+`[header NXBI0001][flat kernel][bootfs NXFS0001]` under the unchanged NXBD digest (RFC-0089 §7
+amended by ADR-0081); one bounded codec (`nexus-bootfs`) shared by the packer (`nx image payload`),
+the loader, the kernel and init; the loader places the bootfs at the first 2 MiB boundary past the
+kernel's footprint (the stack now inside the kernel's memsz) and hands the range over in
+`/chosen/nexus,bootfs-start/-len`; the kernel excludes the range, adopts each file as a fixed
+object born sealed (`vmo::adopt_sealed`; `vmo_seal` keeps refusing Fixed) and spawns init = file 0
+through `spawn_sealed`, the same path as `exec_vmo`; init reads the table from slot 4, the files
+from slot 32+i, and hands `app-host`/`recv-wake-probe` to execd's declared slots 31/32
+(`nexus-service-topology::bootfs::HAND_OFFS`). *Security:* the trust is one digest — a flipped
+bootfs byte behind a valid NXBD is `Reason::Digest` (loader flow test); a header that is not a
+container, a size the descriptor does not cover and a container the window cannot place are three
+typed refusals (`payload-header|payload-size|payload-window`); the kernel refuses a bootfs outside
+a memory bank, overlapping its image or the tree, or with a bad table at its boot gate. *Pragmatist:*
+init-lite's bespoke `link.ld` (origin 0x10400000) deleted — it links like every service; the
+`NEXUS_DIRECT_KERNEL` boot retired (no loader, no bootfs); execd keeps its tiny probe ELFs;
+`os2vm` boots the loader like the launcher. Not done: A/B at bootfs granularity, the volume.
+
+**6c-2 built 2026-10-26.** Kernel: `core/bootfs.rs` (capture from `/chosen` before the frame
+pool, placement check, adoption, `KSELFTEST: bootfs ok (files= bytes=)`), `init_caps` injects the
+TOC at slot 4 and file i at 32+i, `load_init_elf` + `selftest/init_image.rs` deleted (selftest/mod.rs
+2192 → 1782 LOC), `EMBED_INIT_ELF` gone from the build. Loader: `flow::placement`, the container
+read in disk order with the digest streamed over header ‖ kernel ‖ bootfs, `nxboot: bootfs (at=
+len=)`, 22 flow tests incl. three new `test_reject_*`. init: `bootstrap/bootfs.rs` (table page
+mapped once, every file slot verified by kind and length), `ServiceImage` from the table,
+`hand_off_to_execd`; init-lite 9 704 576 → 267 256 B. execd: `images::handed_over`, embedding
+gone; 6 841 360 → 4 793 360 B. Build: `scripts/build.sh` writes `build/bootfs-manifest.json` and
+packs `boot-payload.bin`; the launcher, `board-image.sh` and `os2vm` take the payload; the
+harness requires `nxboot: bootfs (` and `KSELFTEST: bootfs ok (` (bringup.toml: the two
+`segment copied`/`shared page` markers retired with the copier). Retired-name gate row added.
+
+**6c-2 QEMU 2026-10-26.** headless red once — the new rung was listed after the exec selftests but
+the kernel prints it before the banner (moved to the ladder's head); then headless, visible and
+`ota-tamper` green (`headless--2026-10-26T16-16-36`, `visible--2026-10-26T16-19-47`,
+`ota-tamper--2026-10-26T16-23-15`: a flipped byte behind a valid NXBD is `verify FAIL (slot=b
+digest)` with the container). `ota-fallback` red: the fixtures' os-B was "the running image + a
+512-byte build-id trailer" — bytes past the container, `verify FAIL (slot=b payload-size)`. Fixed
+at the root: every disk assembler reads the slot image through one `read_kernel` that checks it
+is a container whose length the header covers (`image_payload::container`); os-B is the container
+re-composed with the trailer on the kernel item (`with_kernel_trailer`: inside the footprint, in
+memory the kernel zeroes, the bootfs untouched); the CLI tests write container fixtures
+(`tests/common/payload_fixture.rs`) instead of bare bytes. Numbers: frame census `free=` 38 238 →
+43 399 (+5 161 frames), `allocs=` 3 929 → 1 516, milestone 11 990 → 952 ms, execd's image
+1 670 → 1 170 shared pages (the rest is the baked atlas, RFC-0080 — follow-up: a bootfs file).
+
+**6c-2 ✅ board cycle 71 (`board--2026-10-26T17-05-01`, dev-64f3fda1).** H1–H4 in the measurement
+folder: `nxboot: bootfs (at=0xe00000 …)`, `KSELFTEST: bootfs ok (files=18 …)`, init through the one
+loader (65 shared pages, 1 copied), kernel image 0x1239c00 → 0x8f7c00, `excluded=` −117, `allocs=`
+8 130 → 6 909, no `segment copied`, milestone 11 2 000 → 1 743 ms, app-host's image the handed-over
+bootfs object (`vmo=18`, mappers 1 → 6), FAIL kinds the same six (imed relay send 14× — UX lane),
+ladder 79 rungs, acks desktop/pointer/tile/modal/clipboard/gpu-desktop, operator "alle funktional".
+The census `free=` (+1 455) was taken with three more spaces open (+23 MB rss) — QEMU's +5 161 at
+the same point is H1's number. ADR-0081 Accepted. **6c complete.** Follow-ups: the baked atlas as
+a bootfs file (execd's 1 170 shared pages); init reaps no dead child (6d); `WINDOWD: FAIL imed
+relay send` (UX lane). NEXT 6d.
+
 **Not in 6c:** CoW (measured unneeded), dropping clean code pages under pressure (6e/6f), a
 per-page signature check on fault (the bootfs and the volume are verified whole before use).
 

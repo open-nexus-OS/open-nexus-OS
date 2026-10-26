@@ -20,4 +20,4 @@ zst = ["std", "dep:zstd"]
 crash = { path = "..", default-features = false }
 serde = { version = "1.0.228", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.145", default-features = false, features = ["alloc"] }
-zstd = { version = "0.13", optional = true }
+zstd = { version = "0.14", optional = true }

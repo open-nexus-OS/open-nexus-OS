@@ -139,13 +139,15 @@ fn align_up(v: usize, align: usize) -> Option<usize> {
 }
 
 /// Copy the tree, write `/chosen/nexus,*` (the slot, the measured record, the boot disk, the
-/// boot trace's slot and the QEMU lane knobs), return the copy's address for `a1`.
+/// boot trace's slot, the bootfs's place and the QEMU lane knobs), return the copy's address
+/// for `a1`.
 pub fn prepare_dtb(
     t: &Tree,
     slot: char,
     record: &[u8],
     boot_disk: &str,
     trace: Option<&str>,
+    bootfs: (u64, u64),
 ) -> usize {
     let src = arch::phys_slice(t.phys, t.len);
     // Page-aligned: the kernel hands this very copy to init as read-only pages.
@@ -166,6 +168,9 @@ pub fn prepare_dtb(
     if let Some(trace) = trace {
         ok &= w.set_nexus_str(storage::trace::CHOSEN_KEY, trace).is_ok();
     }
+    // ADR-0081: the bootfs's physical place — the kernel reads both before its frame pool exists.
+    ok &= w.set_nexus_u64("bootfs-start", bootfs.0).is_ok();
+    ok &= w.set_nexus_u64("bootfs-len", bootfs.1).is_ok();
     // QEMU lane knobs: absent on the board (no fw_cfg node), absent when
     // fw_cfg has no such file.
     if let Some(fw) = fw_cfg_base(t) {

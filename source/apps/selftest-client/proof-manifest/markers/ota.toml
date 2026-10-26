@@ -268,7 +268,7 @@ proves = "the loader's measured-boot record travelled nxboot -> handoff page -> 
 
 [marker."SELFTEST: measured boot log absent (direct kernel)"]
 phase = "ota"
-proves = "DIAGNOSTIC: honest absence — no loader ran (NEXUS_DIRECT_KERNEL dev boot); never emitted on the nxboot path"
+proves = "DIAGNOSTIC: honest absence — the kernel found no handoff record in /chosen; never emitted on the nxboot path, and since ADR-0081 there is no other boot (a kernel without the loader has no bootfs and stops at its boot gate)"
 
 [marker."measured-dbg: rs="]
 phase = "ota"

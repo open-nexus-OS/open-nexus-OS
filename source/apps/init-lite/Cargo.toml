@@ -10,7 +10,3 @@ nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-service-entry = { path = "../../libs/nexus-service-entry" }
 nexus-log = { path = "../../libs/nexus-log", features = ["sink-userspace"] }
 nexus-init = { path = "../../init/nexus-init", features = ["os-payload"], default-features = false }
-
-[build-dependencies]
-object = "0.36"
-exec-image = { path = "../../../tools/exec-image" }

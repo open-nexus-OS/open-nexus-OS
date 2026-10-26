@@ -14,13 +14,20 @@ use std::path::{Path, PathBuf};
 const INPUT_SERVICES: [&str; 3] = ["hidrawd", "touchd", "inputd"];
 
 #[test]
-fn input_services_are_default_init_lite_candidates() {
+fn input_services_are_default_bootfs_candidates() {
+    // ADR-0081: the boot set is discovered from cargo metadata (`scripts/discover-services.sh`)
+    // and packed into the bootfs — init-lite's build names no service and generates no table.
     let build_rs = read_repo_file("source/apps/init-lite/build.rs");
-
     for service in INPUT_SERVICES {
         assert!(
-            build_rs.contains(&format!("\"{service}\"")),
-            "init-lite default candidates must include input service `{service}`"
+            !build_rs.contains(&format!("\"{service}\"")),
+            "init-lite's build must not name `{service}` (the bootfs manifest is the SSOT)"
+        );
+        let cargo_toml = read_repo_file(format!("source/services/{service}/Cargo.toml"));
+        assert!(
+            cargo_toml.contains("[package.metadata.nexus-service]")
+                && !cargo_toml.contains("kind = \"payload\""),
+            "`source/services/{service}/Cargo.toml` must declare itself a boot service"
         );
     }
 }

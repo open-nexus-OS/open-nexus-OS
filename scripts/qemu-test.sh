@@ -462,13 +462,6 @@ export QEMU_SESSION_MODE="${QEMU_SESSION_MODE:-proof}"
 # `scripts/discover-services.sh`; do not duplicate a static list here.
 INIT_LITE_SERVICE_LIST="$(scripts/discover-services.sh --list | paste -sd, -)"
 export INIT_LITE_SERVICE_LIST
-for svc in HIDRAWD TOUCHD INPUTD FBDEVD; do
-  stack_var="INIT_LITE_SERVICE_${svc}_STACK_PAGES"
-  if [[ -z "${!stack_var:-}" ]]; then
-    # Input service entries perform bounded init-only proof work; keep their stacks small.
-    export "$stack_var=1"
-  fi
-done
 # #region agent log (H1: qemu-test effective config in make path)
 agent_debug_log "$RUN_ID" "H1" "scripts/qemu-test.sh:effective-config" "effective flags/env before qemu run" \
   "{\"run_timeout\":\"$RUN_TIMEOUT\",\"run_until_marker\":\"$RUN_UNTIL_MARKER\",\"run_phase\":\"${RUN_PHASE:-}\",\"require_smp\":\"${REQUIRE_SMP:-0}\",\"smp\":\"${SMP:-}\",\"makelevel\":\"${MAKELEVEL:-}\",\"mode\":\"${MODE:-}\",\"qemu_session_mode\":\"${QEMU_SESSION_MODE:-proof}\",\"qemu_marker_level\":\"${QEMU_MARKER_LEVEL:-proof}\",\"guest_selftest_mode\":\"${NEXUS_SELFTEST_MODE:-}\",\"guest_selftest_profile\":\"${NEXUS_SELFTEST_PROFILE:-}\",\"qemu_icount_args\":\"${QEMU_ICOUNT_ARGS:-}\",\"service_list\":\"${INIT_LITE_SERVICE_LIST:-}\",\"cargo_target_dir\":\"${CARGO_TARGET_DIR:-}\",\"hypothesis_log\":\"$HYPOTHESIS_LOG\",\"log_dir\":\"$LOG_DIR\"}"
@@ -687,6 +680,9 @@ USB_INPUT_MARKERS=(
 )
 
 expected_sequence=(
+  # ADR-0081 (TASK-0333 6c-2): the kernel adopted the bootfs the loader placed — every core
+  # program a sealed object, init spawned from file 0 — before the banner, before any process.
+  "KSELFTEST: bootfs ok ("
   "neuron vers."
   "KSELFTEST: vmo zero ok"
   "KSELFTEST: as map ok"
@@ -1142,6 +1138,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: ota flip staged ok"
       "nxboot: tries 2->1 (slot=b trial)"
       "nxboot: verify ok (slot=b build=otaB"
+      "nxboot: bootfs ("
       "nxboot: jump slot=b"
       "bundlemgrd: system volume verified (slot=b build=otaB"
       "init: spawn from volume svc=metricsd bundle=metricsd@1.0.0"
@@ -1184,6 +1181,7 @@ case "${PROFILE:-full}" in
       "bootctld: switch scheduled (to=b)"
       "SELFTEST: ota bundle-set staged ok"
       "nxboot: verify ok (slot=b build=otaB"
+      "nxboot: bootfs ("
       "nxboot: jump slot=b"
       "bundlemgrd: system volume verified (slot=b build=otaB"
       "init: spawn from volume svc=metricsd bundle=metricsd@1.0.1"
@@ -1216,6 +1214,7 @@ case "${PROFILE:-full}" in
       "bootctld: switch scheduled (to=b)"
       "SELFTEST: ota bundle delta staged ok"
       "nxboot: verify ok (slot=b build=otaB"
+      "nxboot: bootfs ("
       "bundlemgrd: system volume verified (slot=b build=otaB"
       "init: spawn from volume svc=metricsd bundle=metricsd@1.0.1"
       "bootctld: commit ok (slot=b)"
@@ -1263,6 +1262,7 @@ case "${PROFILE:-full}" in
       "nxboot: tries 1->0 (slot=b trial)"
       "nxboot: fallback (slot=b exhausted) -> slot=a"
       "nxboot: verify ok (slot=a build=dev-"
+      "nxboot: bootfs ("
       "nxboot: jump slot=a"
       "bootctld: rollback observed (trial exhausted)"
       "SELFTEST: ota fallback ok"
@@ -1282,6 +1282,7 @@ case "${PROFILE:-full}" in
     # headless service chain on one hart, so the `tlb shootdown skipped
     # (smp=1)` line below is its explicit "no secondary hart" proof.
     expected_sequence=(
+      "KSELFTEST: bootfs ok ("
       "neuron vers."
       "KSELFTEST: vmo zero ok"
       "KSELFTEST: as map ok"
@@ -1588,6 +1589,7 @@ case "${PROFILE:-full}" in
       "$nxboot_fail_reason"
       "nxboot: fallback -> slot=a"
       "nxboot: verify ok (slot=a build=dev-"
+      "nxboot: bootfs ("
       "nxboot: jump slot=a"
       "KSELFTEST: boot handoff ok (measured)"
       "${expected_sequence[@]}"
@@ -1597,6 +1599,7 @@ case "${PROFILE:-full}" in
     expected_sequence=(
       "nxboot: bsb ok (slot=a"
       "nxboot: verify ok (slot=a build=dev-"
+      "nxboot: bootfs ("
       "nxboot: jump slot=a"
       "KSELFTEST: boot handoff ok (measured)"
       "${expected_sequence[@]}"
@@ -3129,15 +3132,16 @@ if [[ "$(count_lines "init: boot disk ok (")" -lt 1 ]]; then
   echo "[error] boot-disk proof missing: init: boot disk ok (" >&2
   exit 1
 fi
-# nxboot owns /chosen: when the loader is in the chain it must have written and
-# read back the tree copy the kernel then parsed (direct-kernel boots skip it).
-if [[ "${NEXUS_DIRECT_KERNEL:-0}" != "1" ]] && [[ "$(count_lines "nxboot: fdt ok (")" -lt 1 ]]; then
+# nxboot owns /chosen: the loader is always in the chain (ADR-0081: the kernel runs from
+# the container it placed), so it must have written and read back the tree copy the
+# kernel then parsed.
+if [[ "$(count_lines "nxboot: fdt ok (")" -lt 1 ]]; then
   echo "[error] nxboot /chosen proof missing: nxboot: fdt ok (" >&2
   exit 1
 fi
 # TASK-0260B (RFC-0098 C8): the loader's first line names the platform and the
 # tree that reached a1 — the rung a board boot is read from first.
-if [[ "${NEXUS_DIRECT_KERNEL:-0}" != "1" ]] && [[ "$(count_lines "nxboot: platform=")" -lt 1 ]]; then
+if [[ "$(count_lines "nxboot: platform=")" -lt 1 ]]; then
   echo "[error] nxboot platform proof missing: nxboot: platform=" >&2
   exit 1
 fi
@@ -3181,11 +3185,8 @@ fi
 # same text a board without a serial adapter is read by. The run's boots are
 # the trace's boots from the run's first `nxboot: trace ... seq=N` on (a kept
 # disk, NEXUS_KEEP_BLK=1, also holds the boots of earlier launches).
-# TRACE_CONTRACT=0 disables (profiles whose disk is not this image); a direct
-# kernel boot has no loader to keep one.
-if [[ "${TRACE_CONTRACT:-1}" == "1" && "${NEXUS_DIRECT_KERNEL:-0}" == "1" ]]; then
-  echo "[SKIP] trace contract: direct kernel boot (NEXUS_DIRECT_KERNEL=1, no loader in the chain)"
-elif [[ "${TRACE_CONTRACT:-1}" == "1" ]]; then
+# TRACE_CONTRACT=0 disables (profiles whose disk is not this image).
+if [[ "${TRACE_CONTRACT:-1}" == "1" ]]; then
   trace_bin="$ROOT/target/release/nx"
   trace_img="${QEMU_BLK_IMG:-$ROOT/build/nexus.img}"
   trace_out="$LOG_DIR/trace-loader.txt"

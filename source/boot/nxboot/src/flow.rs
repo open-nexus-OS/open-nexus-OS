@@ -31,8 +31,13 @@ pub const IMAGE_START_SECTOR: u64 = 8;
 /// fixes itself up there. A descriptor demanding a fixed address is refused.
 pub const EXPECTED_LOAD_ADDR: u64 = bootfmt::nxbd::LOAD_ADDR_RELOCATABLE;
 
+/// Where the bootfs goes (ADR-0081): the first boundary of this alignment past the kernel's
+/// memory footprint, inside the window — the kernel's own image never reaches it, and the
+/// frames between stay the pool's.
+pub const BOOTFS_ALIGN: usize = 2 * 1024 * 1024;
+
 /// Stable verify-FAIL reason vocabulary (RFC-0089 §7):
-/// `nxbd | sig | digest | rollback <n> < min <m> | io`.
+/// `nxbd | sig | digest | rollback <n> < min <m> | io | payload`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reason {
     /// Malformed/zeroed descriptor, impossible bounds or wrong load_addr — with the check
@@ -47,6 +52,52 @@ pub enum Reason {
     Rollback { have: u32, min: u32 },
     /// Block reads failed.
     Io,
+    /// The image is not a container this loader can place (ADR-0081) — checked after the
+    /// descriptor and before the multi-MB read, under the descriptor's signature (a forged
+    /// header never gets this far: the header sector is the first bytes of the digest).
+    Payload(PayloadWhy),
+}
+
+/// Which check refused the container's header sector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PayloadWhy {
+    /// `nexus-bootfs` refused the header (magic, reserved bytes, item layout).
+    Header(nexus_bootfs::Error),
+    /// The header's items do not add up to the descriptor's `image_size`.
+    Size,
+    /// The bootfs, placed past the kernel's footprint, would leave the window.
+    Window,
+}
+
+/// Where the two items of a container go inside the window (ADR-0081).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Placement {
+    /// The kernel's bytes: `dest[..kernel_len]`.
+    pub kernel_len: usize,
+    /// The kernel item's sectors (its bytes padded to the sector): `dest[..kernel_padded]`.
+    pub kernel_padded: usize,
+    /// The bootfs's first byte inside the window.
+    pub bootfs_at: usize,
+    /// The bootfs's length (whole pages).
+    pub bootfs_len: usize,
+}
+
+/// Computes the placement of `header`'s items in a window of `window` bytes: the kernel at the
+/// window's base, the bootfs at the first `BOOTFS_ALIGN` boundary past the kernel's footprint.
+pub fn placement(header: &nexus_bootfs::payload::Header, window: usize) -> Option<Placement> {
+    let kernel_len = usize::try_from(header.kernel_len).ok()?;
+    let kernel_padded =
+        usize::try_from(header.bootfs_offset.checked_sub(header.kernel_offset)?).ok()?;
+    let footprint = usize::try_from(header.kernel_footprint).ok()?;
+    let bootfs_len = usize::try_from(header.bootfs_len).ok()?;
+    let bootfs_at = footprint.checked_add(BOOTFS_ALIGN - 1)? & !(BOOTFS_ALIGN - 1);
+    let end = bootfs_at.checked_add(bootfs_len)?;
+    (kernel_padded <= bootfs_at && end <= window).then_some(Placement {
+        kernel_len,
+        kernel_padded,
+        bootfs_at,
+        bootfs_len,
+    })
 }
 
 /// Which check refused a slot's descriptor sector.
@@ -88,12 +139,15 @@ pub enum Event {
     VerifyFallback { to: Slot },
 }
 
-/// Result of a successful run: the verified image sits in `dest[..image_len]`.
+/// Result of a successful run: the verified kernel sits in `dest[..kernel_len]`, the verified
+/// bootfs at `dest[bootfs_at..bootfs_at + bootfs_len]` (ADR-0081).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Loaded {
     pub slot: Slot,
     pub desc: Nxbd,
-    pub image_len: usize,
+    pub kernel_len: usize,
+    /// The bootfs's offset inside `dest` and its length.
+    pub bootfs: (usize, usize),
     /// Whether this boot consumed a trial try (feeds the handoff record).
     pub tries_decremented: bool,
     /// `seq` of the BSB state this boot runs under (post-actuation).
@@ -156,12 +210,13 @@ pub fn run<D: BlockDevice>(
 
     // Verify chain: the selected slot first, then the other one (§7 step 3).
     match load_slot(dev, &parts, p.boot, cur.rollback_min_index, dest) {
-        Ok(desc) => {
+        Ok((desc, place)) => {
             emit(Event::VerifyOk { slot: p.boot, desc });
             Ok(Loaded {
                 slot: p.boot,
                 desc,
-                image_len: desc.image_size as usize,
+                kernel_len: place.kernel_len,
+                bootfs: (place.bootfs_at, place.bootfs_len),
                 tries_decremented,
                 bsb_seq: effective.seq,
             })
@@ -171,12 +226,13 @@ pub fn run<D: BlockDevice>(
             let other = p.boot.other();
             emit(Event::VerifyFallback { to: other });
             match load_slot(dev, &parts, other, cur.rollback_min_index, dest) {
-                Ok(desc) => {
+                Ok((desc, place)) => {
                     emit(Event::VerifyOk { slot: other, desc });
                     Ok(Loaded {
                         slot: other,
                         desc,
-                        image_len: desc.image_size as usize,
+                        kernel_len: place.kernel_len,
+                        bootfs: (place.bootfs_at, place.bootfs_len),
                         tries_decremented,
                         bsb_seq: effective.seq,
                     })
@@ -212,15 +268,16 @@ fn slot_partition(parts: &[Partition], slot: Slot) -> Option<Partition> {
 }
 
 /// Verifies and loads one slot: NXBD signature (baked anchor) → bounds →
-/// rollback floor → image read into `dest` → streamed sha256. Cheap checks
-/// run before the multi-MB read.
+/// rollback floor → the container's header sector and the placement of its two items
+/// (ADR-0081) → the kernel read to the window's base and the bootfs to its place → the
+/// streamed sha256 over the three, in disk order. Cheap checks run before the multi-MB read.
 fn load_slot<D: BlockDevice>(
     dev: &mut D,
     parts: &[Partition],
     slot: Slot,
     floor: u32,
     dest: &mut [u8],
-) -> Result<Nxbd, Reason> {
+) -> Result<(Nxbd, Placement), Reason> {
     let part = slot_partition(parts, slot).ok_or(Reason::Io)?;
     let mut sector0 = [0u8; SECTOR];
     dev.read_blocks(part.first_lba, &mut sector0).map_err(|_| Reason::Io)?;
@@ -241,10 +298,7 @@ fn load_slot<D: BlockDevice>(
     let budget_sectors = (part.last_lba - part.first_lba + 1).saturating_sub(IMAGE_START_SECTOR);
     let image_len = desc.image_size as usize;
     let padded_len = image_len.div_ceil(SECTOR) * SECTOR;
-    if desc.image_size == 0
-        || padded_len as u64 > budget_sectors * SECTOR as u64
-        || padded_len > dest.len()
-    {
+    if desc.image_size == 0 || padded_len as u64 > budget_sectors * SECTOR as u64 {
         return Err(Reason::Nxbd { why: NxbdWhy::Bounds, head, stable: true });
     }
     if desc.load_addr != EXPECTED_LOAD_ADDR {
@@ -254,20 +308,32 @@ fn load_slot<D: BlockDevice>(
         return Err(Reason::Rollback { have: desc.rollback_index, min: floor });
     }
 
-    dev.read_blocks(part.first_lba + IMAGE_START_SECTOR, &mut dest[..padded_len])
-        .map_err(|_| Reason::Io)?;
-    let digest = sha256(&dest[..image_len]);
+    // ADR-0081: the image is one container — its first sector names the kernel item and the
+    // bootfs item; the descriptor's digest covers the sector and both items as they lie on disk.
+    let image_lba = part.first_lba + IMAGE_START_SECTOR;
+    let mut header = [0u8; SECTOR];
+    dev.read_blocks(image_lba, &mut header).map_err(|_| Reason::Io)?;
+    let container = nexus_bootfs::payload::decode(&header)
+        .map_err(|e| Reason::Payload(PayloadWhy::Header(e)))?;
+    if container.total_len() != Some(desc.image_size) {
+        return Err(Reason::Payload(PayloadWhy::Size));
+    }
+    let place = placement(&container, dest.len()).ok_or(Reason::Payload(PayloadWhy::Window))?;
+
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(header);
+    let kernel_lba = image_lba + container.kernel_offset / SECTOR as u64;
+    dev.read_blocks(kernel_lba, &mut dest[..place.kernel_padded]).map_err(|_| Reason::Io)?;
+    hasher.update(&dest[..place.kernel_padded]);
+    let bootfs_lba = image_lba + container.bootfs_offset / SECTOR as u64;
+    let bootfs = &mut dest[place.bootfs_at..place.bootfs_at + place.bootfs_len];
+    dev.read_blocks(bootfs_lba, bootfs).map_err(|_| Reason::Io)?;
+    hasher.update(&*bootfs);
+    let mut digest = [0u8; 32];
+    digest.copy_from_slice(&hasher.finalize());
     if digest != desc.image_sha256 {
         return Err(Reason::Digest);
     }
-    Ok(desc)
-}
-
-fn sha256(bytes: &[u8]) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&hasher.finalize());
-    out
+    Ok((desc, place))
 }

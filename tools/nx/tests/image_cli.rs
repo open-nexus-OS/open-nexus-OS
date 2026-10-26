@@ -20,6 +20,9 @@ use sha2::{Digest, Sha256};
 const OS_SEED_HEX: &str = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
 const PUB_SEED_HEX: &str = "0707070707070707070707070707070707070707070707070707070707070707";
 
+#[path = "common/payload_fixture.rs"]
+mod payload_fixture;
+
 fn run_nx(args: &[&str], cwd: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_nx"))
         .args(args)
@@ -31,9 +34,8 @@ fn run_nx(args: &[&str], cwd: &Path) -> Output {
 fn setup(dir: &Path) {
     std::fs::write(dir.join("os.seed"), OS_SEED_HEX).expect("os seed");
     std::fs::write(dir.join("pub.seed"), PUB_SEED_HEX).expect("pub seed");
-    // Deterministic fake boot image (not executed; hashed + packaged).
-    let kernel: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
-    std::fs::write(dir.join("kernel.bin"), kernel).expect("kernel");
+    // Deterministic fake boot payload (not executed; hashed + packaged).
+    std::fs::write(dir.join("kernel.bin"), payload_fixture::payload(300_000, 0)).expect("kernel");
 }
 
 /// Streams the file (384 MiB disk images — never slurped: the suite runs
@@ -130,8 +132,8 @@ fn patch_refreshes_boot_a_and_preserves_everything_else() {
     assert!(build(dir.path(), "p.img", "dev-P1").status.success());
     let before = std::fs::read(dir.path().join("p.img")).expect("read");
 
-    let kernel2: Vec<u8> = (0..200_000u32).map(|i| (i % 241) as u8).collect();
-    std::fs::write(dir.path().join("kernel2.bin"), kernel2).expect("kernel2");
+    std::fs::write(dir.path().join("kernel2.bin"), payload_fixture::payload(200_000, 1))
+        .expect("kernel2");
     let patch = run_nx(
         &[
             "image",
@@ -174,8 +176,8 @@ fn build_rejects_kernel_over_slot_budget() {
     let dir = tempfile::tempdir().expect("tempdir");
     setup(dir.path());
     // 57 MiB > 56 MiB slot budget.
-    let big = vec![0x5Au8; 57 * 1024 * 1024];
-    std::fs::write(dir.path().join("kernel.bin"), big).expect("big kernel");
+    std::fs::write(dir.path().join("kernel.bin"), payload_fixture::payload(57 * 1024 * 1024, 0))
+        .expect("big kernel");
     let out = build(dir.path(), "big.img", "dev-BIG");
     assert!(!out.status.success(), "over-budget kernel must fail the build");
 }
@@ -332,9 +334,8 @@ fn backstop_arms_the_alternate_bsb_block_and_keeps_the_floor() {
 fn ota_delta_emission_is_deterministic_and_small() {
     let dir = tempfile::tempdir().expect("tempdir");
     setup(dir.path());
-    let mut kernel2 = std::fs::read(dir.path().join("kernel.bin")).expect("kernel");
-    kernel2.extend_from_slice(&[0xA5u8; 4096]);
-    std::fs::write(dir.path().join("kernel2.bin"), kernel2).expect("kernel2");
+    std::fs::write(dir.path().join("kernel2.bin"), payload_fixture::payload(304_096, 0))
+        .expect("kernel2");
     let emit = |out: &str| {
         run_nx(
             &[

@@ -190,25 +190,22 @@ use abi_compat::{AbiError, IpcError, Rights};
 
 pub(crate) const MAX_LOG_STR_LEN: usize = 512;
 
-extern "C" {
-    pub(crate) static __rodata_start: u8;
-    pub(crate) static __rodata_end: u8;
-    pub(crate) static __data_start: u8;
-    pub(crate) static __data_end: u8;
-    pub(crate) static __small_data_guard: u8;
-    pub(crate) static __image_end: u8;
-}
-
-/// Prepackaged service image embedded into the init payload.
+/// A core service's image (ADR-0081): a file of the bootfs, a sealed object the kernel made at
+/// boot and injected into init's slot — every spawn and respawn of the service execs it.
 pub struct ServiceImage {
-    /// Logical service name used for logging.
+    /// The service's name, as the bootfs table spells it.
     pub name: &'static str,
-    /// Raw ELF bytes for the service.
-    pub elf: &'static [u8],
+    /// init's capability slot of the sealed image object.
+    pub image: u32,
     /// Number of stack pages to allocate for the service.
     pub stack_pages: u64,
     /// RISC-V global pointer used when spawning the task.
     pub global_pointer: u64,
+}
+
+/// The core services of the bootfs the kernel handed init (ADR-0081), in boot order.
+pub fn bootfs_images() -> Result<&'static [ServiceImage]> {
+    crate::bootstrap::bootfs::service_images()
 }
 
 /// Errors produced while materialising service images.

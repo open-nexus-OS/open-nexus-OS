@@ -3,9 +3,11 @@
 
 //! CONTEXT: What the kernel hands its direct userspace child — init — in fixed capability slots
 //! at spawn, besides the bootstrap endpoint: the endpoint factory (RFC-0005 Phase 2), the device
-//! tree read-only (RFC-0098 C3) and the console ring read-only (RFC-0107 Phase 2). Split out of
+//! tree read-only (RFC-0098 C3), the console ring read-only (RFC-0107 Phase 2) and the bootfs
+//! (ADR-0081: its table page read-only, every file a sealed object). Split out of
 //! `task/mod.rs` by the structure ratchet. The slot numbers are `nexus-abi`'s contract
-//! (`INIT_ENDPOINT_FACTORY_SLOT`, `INIT_DEVICE_TREE_SLOT`, `INIT_CONSOLE_RING_SLOT`).
+//! (`INIT_ENDPOINT_FACTORY_SLOT`, `INIT_DEVICE_TREE_SLOT`, `INIT_CONSOLE_RING_SLOT`,
+//! `INIT_BOOTFS_TOC_SLOT`, `INIT_BOOTFS_FILES_SLOT`).
 //! OWNERS: @kernel-team @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal (the slots are the ABI's)
@@ -24,6 +26,10 @@ const DEVICE_TREE_CHILD_SLOT: usize = 2;
 /// init receives the console ring, read-only, here (`hal::console_ring::init_alias`), and pins
 /// it to the block owner alone.
 const CONSOLE_RING_CHILD_SLOT: usize = 3;
+/// init receives the bootfs table page, read-only, here (`bootfs::toc_alias`, ADR-0081).
+const BOOTFS_TOC_CHILD_SLOT: usize = 4;
+/// init receives bootfs file `i`, a sealed read-only object, at this slot plus `i`.
+const BOOTFS_FILES_CHILD_SLOT: usize = 32;
 
 /// Fills init's fixed slots from the bootstrap task's table and the kernel's aliases. A missing
 /// piece leaves its slot empty: init says so, loudly, never with a guess.
@@ -40,5 +46,13 @@ pub(super) fn inject(parent_caps: &CapTable, child_caps: &mut CapTable) {
     }
     if let Some(ring) = crate::hal::console_ring::init_alias() {
         let _ = child_caps.set(CONSOLE_RING_CHILD_SLOT, ring);
+    }
+    // ADR-0081: the bootfs table, read-only, and one sealed object per file — init execs the
+    // core services from them and hands the launcher its images.
+    if let Some(toc) = crate::bootfs::toc_alias() {
+        let _ = child_caps.set(BOOTFS_TOC_CHILD_SLOT, toc);
+    }
+    for (index, file) in crate::bootfs::file_aliases() {
+        let _ = child_caps.set(BOOTFS_FILES_CHILD_SLOT + index, file);
     }
 }

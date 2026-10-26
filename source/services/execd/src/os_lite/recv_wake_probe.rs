@@ -25,10 +25,11 @@ use nexus_ipc::timer::{NotifyTimer, Waitset};
 /// `SELFTEST: exec child blocking recv wake ok` on success, a
 /// `execd: FAIL recv-wake probe (…)` naming the failing hop otherwise.
 pub(super) fn run_recv_wake_probe() {
-    if recvwake_payload::RECVWAKE_ELF.is_empty() {
-        emit_line("execd: recv-wake probe skipped (no elf)");
+    // ADR-0081: the probe's image is a bootfs file init handed over at execd's spawn.
+    let Some(image) = super::images::handed_over(topo::RECVWAKE_IMAGE) else {
+        emit_line("execd: recv-wake probe skipped (no image)");
         return;
-    }
+    };
     // The probe slots are pinned BEFORE execd runs (TASK-0324 P7-d: init's cap-distribution
     // pass precedes every resume) — one presence check, fail-closed.
     match nexus_abi::cap_clone(PROBE_REPLY_RECV_SLOT) {
@@ -40,9 +41,9 @@ pub(super) fn run_recv_wake_probe() {
             return;
         }
     }
-    // ADR-0080: a one-shot probe — its image sealed, the process made, execd's capability closed
-    // (the object lives on in the child).
-    let pid = match nexus_abi::exec_image_once(recvwake_payload::RECVWAKE_ELF, 16, 0, "") {
+    // ADR-0080: the process made from the sealed object; execd keeps the capability (the
+    // launcher's image table is init's hand-off, not execd's to close).
+    let pid = match nexus_abi::exec_vmo(image, 16, 0, "") {
         Ok(pid) => pid as u32,
         Err(_) => {
             emit_line("execd: FAIL recv-wake probe (spawn)");

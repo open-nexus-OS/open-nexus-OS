@@ -13,15 +13,17 @@ mod os_entry {
 
     declare_entry!(init_main);
 
-    mod services {
-        include!(concat!(env!("OUT_DIR"), "/services.rs"));
-    }
-
     type Result<T> = core::result::Result<T, os_payload::InitError>;
 
     fn init_main() -> Result<()> {
         let notifier = ReadyNotifier::new(|| ());
-        match os_payload::service_main_loop_images(services::SERVICE_IMAGES, notifier) {
+        // ADR-0081: the core services are files of the bootfs the kernel handed over — no
+        // program is embedded here.
+        let images = match os_payload::bootfs_images() {
+            Ok(images) => images,
+            Err(err) => os_payload::fatal_err(err),
+        };
+        match os_payload::service_main_loop_images(images, notifier) {
             Ok(()) => unreachable!(),
             Err(err) => os_payload::fatal_err(err),
         }

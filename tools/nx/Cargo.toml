@@ -25,6 +25,10 @@ bootctld = { path = "../../source/services/bootctld" }
 nxra = { path = "../../userspace/nxra" }
 ed25519-dalek = "2"
 bootfmt = { path = "../../userspace/bootfmt" }
+# ADR-0081: the boot payload container + the bootfs table (`nx image payload`).
+nexus-bootfs = { path = "../../source/libs/nexus-bootfs", features = ["alloc"] }
+# ADR-0080: every bootfs program is checked against the kernel's image rule at pack time.
+exec-image = { path = "../exec-image" }
 updates = { path = "../../userspace/updates" }
 nxdelta = { path = "../../userspace/nxdelta" }
 nxfs = { path = "../../userspace/nxfs" }

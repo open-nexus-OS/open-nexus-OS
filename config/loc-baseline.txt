@@ -12,8 +12,8 @@
 695	source/kernel/neuron/src/ipc/mod.rs
 609	source/kernel/neuron/src/mm/address_space.rs
 759	source/kernel/neuron/src/sched/mod.rs
-2192	source/kernel/neuron/src/selftest/mod.rs
-669	source/kernel/neuron/src/syscall/api/exec.rs
+1782	source/kernel/neuron/src/selftest/mod.rs
+491	source/kernel/neuron/src/syscall/api/exec.rs
 1562	source/kernel/neuron/src/syscall/api/tests.rs
 1191	source/kernel/neuron/src/task/mod.rs
 699	source/libs/nexus-display-proto/src/client_surface.rs
@@ -28,7 +28,7 @@
 1878	source/services/bundlemgrd/src/std_server.rs
 602	source/services/dsoftbusd/src/os/gateway/local_ipc.rs
 1106	source/services/dsoftbusd/src/os/session/cross_vm.rs
-1255	source/services/execd/src/os_lite.rs
+1245	source/services/execd/src/os_lite.rs
 716	source/services/execd/src/std_server.rs
 810	source/services/inputd/src/os_lite.rs
 1049	source/services/inputd/tests/contract.rs

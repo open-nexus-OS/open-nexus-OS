@@ -96,8 +96,8 @@ RFC-0012 remains the historical v1 contract. This RFC supersedes it in part:
 ## Context
 
 The A/B boot-state *machine* is real, persisted and QEMU-proven (bootctld, ADR-0055,
-TASK-0050). The A/B *payload* is not: the system ships as ONE flat boot image
-(`neuron-boot.bin`, services embedded in init, loaded via the VMM kernel option), the
+TASK-0050). The A/B *payload* was not (the state this RFC started from): the system shipped
+as ONE flat kernel image with the services embedded in init, loaded via the VMM kernel option, the
 device “slot switch” republishes a synthetic `build.prop` string, and `updated` verifies
 a `.nxs` in RAM and discards the bytes. Two structural holes make honest OTA impossible
 today:
@@ -160,7 +160,9 @@ loader (§12).
 ### 1. Terminology
 
 - **Slot**: `a` or `b`; a boot-image partition pair member.
-- **Boot image**: the flat kernel+init(+embedded services) binary a slot carries.
+- **Boot image**: the container a slot carries — one header sector, the flat kernel and the
+  bootfs (init, the core services, the app-host) under the NXBD's one digest (ADR-0081; before
+  it, the flat kernel with init and the services embedded).
 - **Component**: one typed payload inside an `.nxs` v2 container.
 - **NXBD**: 512-byte signed boot descriptor at slot-partition LBA 0.
 - **BSB**: boot selection block — the loader-readable projection of boot state.
@@ -403,8 +405,10 @@ Markers (normative): `nxboot: bsb ok (slot=<s> seq=<n>)`,
 Stable FAIL reasons: `nxbd | sig | digest | rollback <n> < min <m> | io`.
 
 The kernel probes the handoff page: present ⇒ `KSELFTEST: boot handoff ok (measured)`
-and exposure to bootctld via bootinfo; absent (direct-kernel dev boot) ⇒ honest
-`neuron: boot handoff absent (direct kernel)`.
+and exposure to bootctld via bootinfo; absent ⇒ honest `neuron: boot handoff absent
+(direct kernel)`. Since ADR-0081 the loader is in every chain (the kernel runs from the
+container it placed: `nxboot: bootfs (at= len=)` precedes the jump), so the absent branch is
+a diagnostic of a broken chain, not a supported boot.
 
 ### 8. `updated` v2 service contract (normative)
 
@@ -619,11 +623,12 @@ delta-base` (the last shared with kind 3).
 
 #### 12.8 Migration and budgets
 
-Services leave the embedded init image one at a time (`scripts/system-volume-services.txt` is
-the SSOT, mirrored by a nexus-init host test); `scripts/check-image-budgets.sh` carries a
-`system-a` row and an `init-lite(embedded) / system-a(volume)` split so bytes move visibly.
-The boot image floor is kernel + init + CORE (§12.3) + execd's embedded app-host; app
-payloads and the packagefs image move into the volume last (TASK-0321 P5).
+Services leave the boot image one at a time (`scripts/system-volume-services.txt` is the SSOT,
+mirrored by a nexus-init host test); `scripts/check-image-budgets.sh` carries a `system-a`
+row and a boot-image / `system-a(volume)` split so bytes move visibly. The boot image floor
+is kernel + the bootfs (ADR-0081: init, CORE per §12.3, the app-host and the recv-wake probe
+as files beside the kernel, no program embedding another); app payloads and the packagefs
+image move into the volume last (TASK-0321 P5).
 
 ### 13. Record v3 (bootctld-internal; ownership per ADR-0055)
 

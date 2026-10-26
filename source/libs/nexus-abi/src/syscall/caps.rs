@@ -26,6 +26,16 @@ pub const INIT_DEVICE_TREE_SLOT: u32 = 2;
 /// injects a `VmoRo` of its ring pages (neuron `CONSOLE_RING_CHILD_SLOT`); init pins it to the
 /// block owner alone, which keeps it in the boot trace.
 pub const INIT_CONSOLE_RING_SLOT: u32 = 3;
+/// Capability slot of init-lite's read-only bootfs table (ADR-0081): the first page of the
+/// bootfs the loader placed beside the kernel — the table of contents (`nexus-bootfs`,
+/// `NXFS0001`) naming every file, its stack pages and its global pointer. init maps it once
+/// and spawns every core service from the file objects below.
+pub const INIT_BOOTFS_TOC_SLOT: u32 = 4;
+/// First capability slot of init-lite's bootfs files (ADR-0081): file `i` of the table sits at
+/// `INIT_BOOTFS_FILES_SLOT + i`, a sealed read-only object over the file's own frames — the
+/// kernel made it at boot, no writer ever existed. File 0 is init itself; the others init
+/// execs (`exec_vmo`) or hands to the launcher (`nexus_service_topology::bootfs`).
+pub const INIT_BOOTFS_FILES_SLOT: u32 = 32;
 /// Binds an external interrupt source (PLIC) to an endpoint the caller owns, so
 /// the kernel routes that device IRQ to `endpoint_cap` and wakes a blocked
 /// receiver — the reactive alternative to polling the device. The driver then

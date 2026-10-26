@@ -94,6 +94,10 @@ pub fn high_boot_init(boot_satp: usize) {
     log_debug!(target: "boot", "A: before heap init");
     crate::init_heap();
     log_debug!(target: "boot", "B: after heap init");
+    // ADR-0081: where the loader put the bootfs — read from the tree before the pool is built,
+    // so its pages are excluded like the image's and the tree's.
+    // SAFETY: the boot hart, before any other hart exists.
+    unsafe { crate::bootfs::capture_early() };
     // The frame pool (RFC-0098 C4, TASK-0286): every bank the tree names minus
     // what is reserved or still owned elsewhere; the first page table takes
     // its frames from here, so it exists before the kernel address space.

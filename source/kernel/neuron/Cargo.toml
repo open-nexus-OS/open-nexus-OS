@@ -48,6 +48,9 @@ nexus-event = { path = "../../libs/nexus-event" }
 nexus-fdt = { path = "../../libs/nexus-fdt" }
 # RFC-0107 Phase 2: the console ring's one layout, shared with its reader; no_std, zero deps.
 nexus-console-ring = { path = "../../libs/nexus-console-ring" }
+# ADR-0081: the bootfs table's one codec, shared with the packer, the loader and init; no_std,
+# zero deps, alloc-free in the kernel.
+nexus-bootfs = { path = "../../libs/nexus-bootfs" }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }

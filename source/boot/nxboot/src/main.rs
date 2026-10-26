@@ -47,7 +47,7 @@ mod boot {
 
     use bootfmt::bsb::Slot;
     use bootfmt::FmtError;
-    use nxboot::flow::{self, Event, FlowError, NxbdWhy, Reason};
+    use nxboot::flow::{self, Event, FlowError, NxbdWhy, PayloadWhy, Reason};
     use storage::trace::{LoaderTrace, OsTrace, TraceError};
 
     use crate::arch;
@@ -81,6 +81,11 @@ mod boot {
             Reason::Digest => String::from("digest"),
             Reason::Rollback { have, min } => format!("rollback {have} < min {min}"),
             Reason::Io => String::from("io"),
+            Reason::Payload(why) => match why {
+                PayloadWhy::Header(e) => format!("payload-header ({e})"),
+                PayloadWhy::Size => String::from("payload-size"),
+                PayloadWhy::Window => String::from("payload-window"),
+            },
         }
     }
 
@@ -315,12 +320,20 @@ mod boot {
                 // RFC-0098 C5: the record of the disk the volume was just read from.
                 // RFC-0107: the trace's slot, for the OS writer.
                 let handoff_trace = trace.handoff();
+                // ADR-0081: where the bootfs lies — the kernel excludes it from its frame pool
+                // and adopts every file of it as a sealed object.
+                let bootfs = (base + loaded.bootfs.0, loaded.bootfs.1);
+                arch::uart_puts(&format!(
+                    "nxboot: bootfs (at=0x{:x} len={})\n",
+                    bootfs.0, bootfs.1
+                ));
                 let dtb = crate::platform::prepare_dtb(
                     &tree,
                     slot_ch(loaded.slot),
                     &record,
                     boot_disk,
                     handoff_trace.as_deref(),
+                    (bootfs.0 as u64, bootfs.1 as u64),
                 );
                 // RFC-0098 C6: the image is position-independent; it runs where
                 // this loader put it and fixes itself up there.

@@ -61,7 +61,7 @@ mod tests_exec;
 
 use caps::*;
 use exec::*;
-pub(crate) use exec::{exec_vmo_phase_a, load_image, CopyPlan, LoadedImage};
+pub(crate) use exec::{exec_vmo_phase_a, load_image, spawn_sealed, CopyPlan, LoadedImage};
 pub(crate) use exec_copy::run_copy_plan;
 use ipc_msg::*;
 use ipc_recv_v2::*;

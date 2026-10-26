@@ -47,9 +47,13 @@ pub fn init_from_tree() -> Result<Stats, InitError> {
     let image = Range { base: image_pa as u64, size: (image_end_va - image_va) as u64 };
     let tree =
         crate::boot_fdt::range().map(|(s, e)| Range { base: s as u64, size: (e - s) as u64 });
-    let mut excluded = [Range { base: 0, size: 0 }; 2];
+    // ADR-0081: the bootfs the loader placed past the kernel — its pages are the files'
+    // frames for the whole boot, never the pool's.
+    let bootfs =
+        crate::bootfs::range().map(|(s, e)| Range { base: s as u64, size: (e - s) as u64 });
+    let mut excluded = [Range { base: 0, size: 0 }; 3];
     let mut n = 0;
-    for range in [Some(image), tree].into_iter().flatten() {
+    for range in [Some(image), tree, bootfs].into_iter().flatten() {
         excluded[n] = range;
         n += 1;
     }

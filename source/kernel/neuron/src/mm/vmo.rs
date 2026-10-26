@@ -299,6 +299,27 @@ pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
     TABLE.lock().insert(object)
 }
 
+/// An object over frames the pool does not own, SEALED from birth (ADR-0081): the bootfs the
+/// loader placed and verified beside the kernel — no writer ever existed, so every file of it
+/// is an image a process may run from. The kernel's own call; `seal` keeps refusing a fixed
+/// object, because a fixed object made of a device window or the tree has a writer outside.
+pub fn adopt_sealed(base: usize, len: usize) -> Result<VmoId, VmoError> {
+    if len == 0 || len % FRAME_SIZE as usize != 0 || base % FRAME_SIZE as usize != 0 {
+        return Err(VmoError::BadLength);
+    }
+    let object = VmoObject {
+        kind: VmoKind::Fixed,
+        len,
+        blocks: Vec::new(),
+        fixed: (base, len),
+        lazy: None,
+        within: None,
+        sealed: true,
+        device_named: false,
+    };
+    TABLE.lock().insert(object)
+}
+
 /// Why a seal was refused (ADR-0080).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SealError {

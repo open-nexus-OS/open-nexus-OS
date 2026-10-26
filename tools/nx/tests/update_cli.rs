@@ -22,6 +22,9 @@ const PUB_SEED_HEX: &str = "0707070707070707070707070707070707070707070707070707
 /// Deliberately NOT in the device anchor (the deny lane's whole point).
 const UNTRUSTED_SEED_HEX: &str = "0909090909090909090909090909090909090909090909090909090909090909";
 
+#[path = "common/payload_fixture.rs"]
+mod payload_fixture;
+
 fn run_nx(args: &[&str], cwd: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_nx"))
         .args(args)
@@ -40,8 +43,7 @@ fn setup(dir: &Path) {
     std::fs::write(dir.join("os.seed"), OS_SEED_HEX).expect("os seed");
     std::fs::write(dir.join("pub.seed"), PUB_SEED_HEX).expect("pub seed");
     std::fs::write(dir.join("bad.seed"), UNTRUSTED_SEED_HEX).expect("bad seed");
-    let kernel: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
-    std::fs::write(dir.join("kernel.bin"), kernel).expect("kernel");
+    std::fs::write(dir.join("kernel.bin"), payload_fixture::payload(300_000, 0)).expect("kernel");
     let build = run_nx(
         &[
             "image",

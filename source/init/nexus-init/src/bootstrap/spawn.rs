@@ -65,8 +65,8 @@ pub(crate) fn attach_ctrl_channel(
     ))
 }
 
-/// An embedded service image sealed once (ADR-0080): the object every spawn and respawn of
-/// the service maps its text and rodata from. init keeps the capability for the boot.
+/// A core service's sealed image (ADR-0080/0081): the bootfs object every spawn and respawn of
+/// the service maps its text and rodata from. The kernel made it; init keeps the capability.
 pub(crate) struct SealedImage {
     pub(crate) name: &'static str,
     /// init's capability slot of the sealed object.
@@ -75,30 +75,33 @@ pub(crate) struct SealedImage {
     pub(crate) global_pointer: u64,
 }
 
-/// Seal `image`'s embedded bytes into an object (ADR-0080).
-pub(crate) fn seal_service_image(image: &ServiceImage) -> Result<SealedImage, InitError> {
-    if image.elf.is_empty() {
-        return Err(InitError::MissingElf);
+impl SealedImage {
+    /// The launch record of a bootfs image — already sealed, nothing to make.
+    pub(crate) fn of(image: &ServiceImage) -> Self {
+        Self {
+            name: image.name,
+            image: image.image,
+            stack_pages: image.stack_pages.max(1) as usize,
+            global_pointer: image.global_pointer,
+        }
     }
-    let sealed = nexus_abi::sealed_image(image.elf).map_err(InitError::Abi)?;
-    Ok(SealedImage {
-        name: image.name,
-        image: sealed,
-        stack_pages: image.stack_pages.max(1) as usize,
-        global_pointer: image.global_pointer,
-    })
 }
 
-/// Seal `image` once, remember it in `sealed` for every respawn, spawn it (ADR-0080).
-pub(crate) fn spawn_sealed(
+/// Spawn `image` at boot, remembering its launch record in `sealed` for every respawn.
+/// ADR-0081: the launcher's images — bootfs files init never spawns — go into execd's declared
+/// slots here, while it is still suspended (a respawn never comes through this path).
+pub(crate) fn spawn_image(
     image: &ServiceImage,
     sealed: &mut alloc::vec::Vec<SealedImage>,
     probes_enabled: bool,
 ) -> Result<u32, InitError> {
-    let sealed_image = seal_service_image(image)?;
-    let spawned = spawn_service_with_probe(&sealed_image, probes_enabled);
+    let sealed_image = SealedImage::of(image);
+    let pid = spawn_service_with_probe(&sealed_image, probes_enabled)?;
     sealed.push(sealed_image);
-    spawned
+    if image.name == "execd" {
+        crate::bootstrap::bootfs::hand_off_to_execd(pid)?;
+    }
+    Ok(pid)
 }
 
 /// The pid of the service `name` among the attached control channels.

@@ -16,9 +16,8 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use crate::bootstrap::policyd::policyd_cap_allowed;
 use crate::os_payload::log_topics;
 use crate::os_payload::{
-    self, InitError, Result, __data_end, __data_start, __rodata_end, __rodata_start,
-    INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_OP_OK, INIT_HEALTH_VERSION,
-    MAX_LOG_STR_LEN, PROBE_ENABLED,
+    self, InitError, Result, INIT_HEALTH_MAGIC0, INIT_HEALTH_MAGIC1, INIT_HEALTH_OP_OK,
+    INIT_HEALTH_VERSION, MAX_LOG_STR_LEN, PROBE_ENABLED,
 };
 use nexus_abi::{self, AbiError, IpcError, Rights};
 
@@ -204,30 +203,11 @@ fn trace_guard_str(event: &str, ptr: usize, len: usize, truncated: bool) {
     debug_write_byte(b'\n');
 }
 
-fn section_range(start: &u8, end: &u8) -> core::ops::Range<usize> {
-    let base = start as *const u8 as usize;
-    let end = end as *const u8 as usize;
-    base..end
-}
-
-fn section_contains(range: &core::ops::Range<usize>, ptr: usize, len: usize) -> bool {
-    if range.is_empty() {
-        return false;
-    }
-    let end = match ptr.checked_add(len) {
-        Some(end) => end,
-        None => return false,
-    };
-    ptr >= range.start && end <= range.end
-}
-
-fn is_user_str_valid(ptr: usize, len: usize) -> bool {
-    if len == 0 || len > MAX_LOG_STR_LEN {
-        return false;
-    }
-    let ro_range = unsafe { section_range(&__rodata_start, &__rodata_end) };
-    let data_range = unsafe { section_range(&__data_start, &__data_end) };
-    section_contains(&ro_range, ptr, len) || section_contains(&data_range, ptr, len)
+/// A service name init may print: non-empty and bounded. The names come from the bootfs table
+/// the kernel mapped (ADR-0081), ASCII-checked by its parser — no section check is needed, and
+/// init links like every other service (no bespoke linker script to name sections by).
+fn is_user_str_valid(_ptr: usize, len: usize) -> bool {
+    len != 0 && len <= MAX_LOG_STR_LEN
 }
 
 pub(crate) struct ServiceNameGuard<'a> {

@@ -23,6 +23,9 @@ use storage::gpt::parse_gpt;
 use storage::trace::{self, Header, LoaderTrace, LOADER_REGION, OS_COMPLETE, SECTOR, SLOT_BYTES};
 use storage::{BlockDevice, BlockError};
 
+#[path = "common/payload_fixture.rs"]
+mod payload_fixture;
+
 const OS_SEED_HEX: &str = "0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c";
 
 fn run_nx(args: &[&str], cwd: &Path) -> Output {
@@ -36,8 +39,7 @@ fn run_nx(args: &[&str], cwd: &Path) -> Output {
 /// A QEMU disk image from the layout, as the harness builds it.
 fn build(dir: &Path) {
     std::fs::write(dir.join("os.seed"), OS_SEED_HEX).expect("os seed");
-    let kernel: Vec<u8> = (0..200_000u32).map(|i| (i % 241) as u8).collect();
-    std::fs::write(dir.join("kernel.bin"), kernel).expect("kernel");
+    std::fs::write(dir.join("kernel.bin"), payload_fixture::payload(200_000, 1)).expect("kernel");
     let out = run_nx(
         &[
             "image",

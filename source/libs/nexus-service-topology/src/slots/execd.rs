@@ -63,3 +63,8 @@ pub const SCREENCAPD: SlotPair = SlotPair::new(28, REPLY.recv);
 /// dead child, the reaper's wake (RFC-0081 made execd the reaper of record; this makes the
 /// reap reactive).
 pub const CHILD_EXIT: SlotPair = SlotPair::new(30, 29);
+/// The app-host image (ADR-0081): the sealed read-only object of the bootfs file `app-host`,
+/// handed over by init at execd's spawn — every app process maps its text from these frames.
+pub const APPHOST_IMAGE: u32 = 31;
+/// The recv-wake probe's image (ADR-0081): the bootfs file `recv-wake-probe`, the same way.
+pub const RECVWAKE_IMAGE: u32 = 32;

@@ -199,6 +199,19 @@ mod specs_ui;
 /// Boot stages: the monotone fence ladder every service is declared against.
 pub mod stage;
 
+/// The bootfs (ADR-0081): which of its files are not init's to spawn.
+pub mod bootfs {
+    /// File 0 of every bootfs: the program the kernel spawns — init itself.
+    pub const INIT_FILE: &str = "init-lite";
+    /// Files init hands to the launcher instead of spawning: `(file name, execd's slot)`. The
+    /// kernel made each a sealed object; init transfers its capability (MAP) at execd's spawn,
+    /// before execd ever runs, so the launcher's image table is complete by construction.
+    pub const HAND_OFFS: &[(&str, u32)] = &[
+        ("app-host", super::slots::execd::APPHOST_IMAGE),
+        ("recv-wake-probe", super::slots::execd::RECVWAKE_IMAGE),
+    ];
+}
+
 pub use ids::ServiceId;
 pub use routes::{Route, RouteKind, REQUIRED_ROUTES};
 pub use specs::{exposes_server, spec_for, ServiceSpec, SERVICE_SPECS};

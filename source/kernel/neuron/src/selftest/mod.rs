@@ -55,16 +55,9 @@ use riscv::register::sstatus;
 pub mod assert;
 mod exec_image;
 mod fence;
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-mod init_image;
 mod ipc_budgets;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod lifetime;
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-use init_image::{
-    align_down, align_up, alloc_init_page, copy_segment_bytes, log_symbol_words, read_u16,
-    read_u32, read_u64,
-};
 mod smp_sched;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vm_alloc;
@@ -74,10 +67,6 @@ use smp_sched::run_steal_selftests;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 core::arch::global_asm!(include_str!("stack_run.S"));
-
-// Embed init ELF binary when EMBED_INIT_ELF is provided
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-static INIT_ELF: &[u8] = include_bytes!(env!("EMBED_INIT_ELF"));
 
 #[allow(unused_macros)]
 macro_rules! verbose {
@@ -599,8 +588,8 @@ pub fn entry(ctx: &mut Context<'_>) {
     // trap path, the user round trip and the lifecycle work on this hardware.
     crate::hal::boot_led::milestone(7);
 
-    // Spawn embedded init process
-    #[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
+    // ADR-0081: init — file 0 of the bootfs — through the one loader.
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     spawn_init_process(ctx);
 }
 
@@ -1670,12 +1659,14 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     }
 }
 
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
+/// init is file 0 of the bootfs (ADR-0081), spawned through the one loader every process goes
+/// through (`api::spawn_sealed`, ADR-0080): its text and rodata mapped from the sealed file's
+/// own frames, its data copied, its name the file's name. The bootstrap task (PID 0) is its
+/// parent, so the kernel's fixed slots (`task::init_caps`) are injected at spawn.
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 fn spawn_init_process(ctx: &mut Context<'_>) {
     log_info!(target: "selftest", "KSELFTEST: spawn init begin");
 
-    let mut table = SyscallTable::new();
-    api::install_handlers(&mut table);
     let timer = ctx.hal.timer();
     let mut sys_ctx = api::Context::new(
         ctx.scheduler,
@@ -1687,61 +1678,41 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         &mut ctx.waitsets,
         &mut ctx.fences,
     );
-
-    let load_result = load_init_elf(&mut sys_ctx);
-    let (entry_pc, stack_top, global_pointer, as_handle) = match load_result {
-        Ok(result) => result,
-        Err(err) => {
-            log_info!(target: "selftest", "KSELFTEST: init load failed: {}", err);
-            panic!("boot gate: init load failed");
-        }
+    let Some(init) = crate::bootfs::init_file() else {
+        log_error!(target: "selftest", "KSELFTEST: init spawn FAIL (no file 0 in the bootfs)");
+        panic!("boot gate: no init in the bootfs");
     };
-
-    log_info!(
-        target: "selftest",
-        "KSELFTEST: init loaded entry=0x{:x} sp=0x{:x} gp=0x{:x}",
-        entry_pc,
-        stack_top,
-        global_pointer
-    );
+    // Boot LED milestone 8: init's image is about to be mapped.
+    crate::hal::boot_led::milestone(8);
     // Ensure init-lite is a direct child of the bootstrap task (PID 0) so that early
     // capability/lifecycle gates (RFC-0005 hardening) can reliably treat init-lite as
     // the temporary authority during bring-up.
     sys_ctx.tasks.set_current(Pid::KERNEL);
-    let spawn_args =
-        Args::new([entry_pc, stack_top, as_handle.to_raw() as usize, 0, global_pointer, 0]);
-    let init_pid = match table.dispatch(SYSCALL_SPAWN, &mut sys_ctx, &spawn_args) {
+    let mut plan = api::CopyPlan::new();
+    let init_pid_typed = match api::spawn_sealed(
+        &mut sys_ctx,
+        init.vmo,
+        init.stack_pages,
+        init.global_pointer,
+        b"init-lite",
+        &mut plan,
+    ) {
         Ok(pid) => pid,
         Err(err) => {
-            log_info!(target: "selftest", "KSELFTEST: spawn failed: {:?}", err);
+            log_error!(target: "selftest", "KSELFTEST: init spawn FAIL ({:?})", err);
             panic!("boot gate: init spawn failed");
         }
     };
+    // The data pages' bytes move now (phase B of every exec); the task is still Suspended.
+    api::run_copy_plan(&plan);
+    // Boot LED milestone 9: every segment of init is in its address space.
+    crate::hal::boot_led::milestone(9);
 
-    log_info!(target: "selftest", "KSELFTEST: spawn ok pid={}", init_pid);
+    log_info!(target: "selftest", "KSELFTEST: spawn ok pid={}", init_pid_typed.as_raw());
     // Boot LED milestone 10: init exists as a task.
     crate::hal::boot_led::milestone(10);
-
-    // RFC-0005 Phase-2 hardening: EndpointFactory is now injected by the kernel when PID 0 spawns
-    // the init-lite userspace task. (See `TaskTable::spawn_inner`.)
-
-    // Bind a stable identity token to init-lite.
-    // NOTE: init-lite is currently started via `SYSCALL_SPAWN` (not `exec_v2`), so we must set
-    // the service_id explicitly for channel-bound policy checks.
-    let init_lite_id: u64 = {
-        let mut h: u64 = 0xcbf29ce484222325u64;
-        for &b in b"init-lite" {
-            h ^= b as u64;
-            h = h.wrapping_mul(0x100000001b3u64);
-        }
-        h
-    };
     // Init-lite must run immediately (it's the OS entry point, not a service).
-    let init_pid_typed = Pid::from_raw(init_pid as u32);
-    if let Some(t) = sys_ctx.tasks.task_mut(init_pid_typed) {
-        t.set_service_id(init_lite_id);
-        // (init-lite QoS stays Normal until boot P1 raises the display path to Interactive.)
-    }
+    // (init-lite QoS stays Normal until boot P1 raises the display path to Interactive.)
     let _ = sys_ctx.tasks.resume_task(init_pid_typed, sys_ctx.scheduler);
 
     if let Some(task) = sys_ctx.tasks.task(init_pid_typed) {
@@ -1770,387 +1741,6 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
 
     log_info!(target: "selftest", "KSELFTEST: init spawned successfully");
     log_info!(target: "selftest", "KSELFTEST: returning to idle loop for scheduling");
-}
-
-#[cfg(all(embed_init, target_arch = "riscv64", target_os = "none"))]
-fn load_init_elf(
-    sys_ctx: &mut api::Context<'_>,
-) -> Result<(usize, usize, usize, crate::mm::AsHandle), &'static str> {
-    use crate::mm::PageFlags;
-
-    let bytes = INIT_ELF;
-
-    // Parse ELF header
-    if bytes.len() < 64 {
-        return Err("elf too short");
-    }
-    if &bytes[0..4] != b"\x7FELF" {
-        return Err("bad elf magic");
-    }
-    if bytes[4] != 2 {
-        return Err("not elf64");
-    }
-    if bytes[5] != 1 {
-        return Err("not little endian");
-    }
-
-    let e_entry = read_u64(&bytes[24..32]) as usize;
-    let e_phoff = read_u64(&bytes[32..40]) as usize;
-    let e_phentsize = read_u16(&bytes[54..56]) as usize;
-    let e_phnum = read_u16(&bytes[56..58]) as usize;
-
-    if e_phoff >= bytes.len() {
-        return Err("bad phoff");
-    }
-
-    // Create address space for init
-    let as_handle = match sys_ctx.address_spaces.create() {
-        Ok(h) => h,
-        Err(_) => return Err("as create failed"),
-    };
-
-    // Boot LED milestone 8: init's address space exists; its segments are copied next.
-    crate::hal::boot_led::milestone(8);
-    // Load PT_LOAD segments
-    const PT_LOAD: u32 = 1;
-    const PF_R: u32 = 4;
-    const PF_W: u32 = 2;
-    const PF_X: u32 = 1;
-    const SHT_SYMTAB: u32 = 2;
-    const SHT_STRTAB: u32 = 3;
-
-    let mut first_rw_page: Option<usize> = None;
-    for i in 0..e_phnum {
-        let off = e_phoff + i * e_phentsize;
-        if off + 56 > bytes.len() {
-            continue;
-        }
-
-        let p_type = read_u32(&bytes[off..off + 4]);
-        if p_type != PT_LOAD {
-            continue;
-        }
-
-        let p_flags = read_u32(&bytes[off + 4..off + 8]);
-        let p_offset = read_u64(&bytes[off + 8..off + 16]) as usize;
-        let p_vaddr = read_u64(&bytes[off + 16..off + 24]) as usize;
-        let p_filesz = read_u64(&bytes[off + 32..off + 40]) as usize;
-        let p_memsz = read_u64(&bytes[off + 40..off + 48]) as usize;
-
-        log_info!(
-            target: "selftest",
-            "KSELFTEST: PT_LOAD segment vaddr=0x{:x} memsz=0x{:x} flags=0x{:x}",
-            p_vaddr,
-            p_memsz,
-            p_flags
-        );
-
-        // Build page flags
-        let mut flags = PageFlags::VALID | PageFlags::USER;
-        if p_flags & PF_R != 0 {
-            flags |= PageFlags::READ;
-        }
-        if p_flags & PF_W != 0 {
-            flags |= PageFlags::WRITE;
-            if first_rw_page.is_none() {
-                first_rw_page = Some(align_down(p_vaddr, PAGE_SIZE));
-            }
-        }
-        if p_flags & PF_X != 0 {
-            flags |= PageFlags::EXECUTE;
-        }
-
-        log_info!(
-            target: "selftest",
-            "KSELFTEST: map flags bits=0x{:x}",
-            flags.bits()
-        );
-
-        // Map segment pages
-        let seg_start = align_down(p_vaddr, PAGE_SIZE);
-        let seg_end = align_up(p_vaddr + p_memsz, PAGE_SIZE);
-        let mut va = seg_start;
-        // TASK-0260B P3: the board's kernel died in this loop with no trap and no line — the
-        // frames it copies into, named, so a rescued console shows which access it was.
-        let (mut pages, mut first_pa, mut last_pa) = (0usize, 0usize, 0usize);
-
-        while va < seg_end {
-            let existing_entry = {
-                let space = match sys_ctx.address_spaces.get(as_handle) {
-                    Ok(s) => s,
-                    Err(_) => return Err("as get failed"),
-                };
-                space.page_table().lookup(va)
-            };
-
-            if let Some(entry) = existing_entry {
-                let mut extra = PageFlags::ACCESSED;
-                if flags.contains(PageFlags::WRITE) && entry & PageFlags::WRITE.bits() == 0 {
-                    extra |= PageFlags::WRITE | PageFlags::DIRTY;
-                }
-                let _ = sys_ctx.address_spaces.set_leaf_flags(as_handle, va, extra);
-                log_info!(
-                    target: "selftest",
-                    "KSELFTEST: shared page va=0x{:x} entry=0x{:x} pa=0x{:x}",
-                    va,
-                    entry,
-                    (entry >> 10) << 12
-                );
-
-                copy_segment_bytes(
-                    bytes,
-                    p_offset,
-                    p_vaddr,
-                    p_filesz,
-                    va,
-                    crate::phys::phys_to_virt((entry >> 10) << 12) as *mut u8,
-                );
-                log_info!(target: "selftest", "KSELFTEST: shared page copied va=0x{:x}", va);
-
-                va += PAGE_SIZE;
-                continue;
-            }
-
-            let pa = alloc_init_page().ok_or("oom")?;
-            if pages == 0 {
-                first_pa = pa;
-            }
-            last_pa = pa;
-            pages += 1;
-
-            unsafe {
-                core::ptr::write_bytes(crate::phys::phys_to_virt(pa) as *mut u8, 0, PAGE_SIZE);
-            }
-
-            // Copy file content if in range
-            let dst = crate::phys::phys_to_virt(pa) as *mut u8;
-            copy_segment_bytes(bytes, p_offset, p_vaddr, p_filesz, va, dst);
-
-            // Map page
-            if let Err(e) = sys_ctx.address_spaces.map_page(as_handle, va, pa, flags) {
-                log_info!(target: "selftest", "KSELFTEST: map_page failed va=0x{:x} pa=0x{:x} flags={:?} err={:?}", va, pa, flags, e);
-                return Err("map failed");
-            }
-            va += PAGE_SIZE;
-        }
-        log_info!(
-            target: "selftest",
-            "KSELFTEST: segment copied (pages={} first_pa=0x{:x} last_pa=0x{:x})",
-            pages,
-            first_pa,
-            last_pa
-        );
-    }
-    // Boot LED milestone 9: every segment of init is in its address space.
-    crate::hal::boot_led::milestone(9);
-
-    // Allocate stack (place high in user address space) and ensure the SP page is mapped.
-    const STACK_PAGES: usize = 16;
-    const USER_STACK_TOP: usize = 0x20000000;
-    let total_pages = STACK_PAGES + 11; // requested + head + boundary (guard sits above)
-    let mapped_top = USER_STACK_TOP + 10 * PAGE_SIZE; // boundary mapped, guard above
-    let stack_base = mapped_top - total_pages * PAGE_SIZE;
-
-    for i in 0..total_pages {
-        let va = stack_base + i * PAGE_SIZE;
-        let pa = alloc_init_page().ok_or("stack oom")?;
-        unsafe {
-            core::ptr::write_bytes(crate::phys::phys_to_virt(pa) as *mut u8, 0, PAGE_SIZE);
-        }
-
-        let flags = PageFlags::VALID | PageFlags::READ | PageFlags::WRITE | PageFlags::USER;
-        if let Err(_) = sys_ctx.address_spaces.map_page(as_handle, va, pa, flags) {
-            return Err("stack map failed");
-        }
-    }
-
-    let e_shoff = read_u64(&bytes[40..48]) as usize;
-    let e_shentsize = read_u16(&bytes[58..60]) as usize;
-    let e_shnum = read_u16(&bytes[60..62]) as usize;
-    let e_shstrndx = read_u16(&bytes[62..64]) as usize;
-
-    let mut symtab_offset = 0usize;
-    let mut symtab_size = 0usize;
-    let mut symtab_entry_size = 0usize;
-    let mut strtab_offset = 0usize;
-    let mut strtab_size = 0usize;
-    let mut shstrtab_offset = 0usize;
-    let mut shstrtab_size = 0usize;
-
-    // Resolve section header string table (used to locate `.sdata` in stripped ELFs).
-    if e_shstrndx < e_shnum {
-        let shstr_base = e_shoff + e_shstrndx * e_shentsize;
-        if shstr_base + e_shentsize <= bytes.len() {
-            shstrtab_offset = read_u64(&bytes[shstr_base + 24..shstr_base + 32]) as usize;
-            shstrtab_size = read_u64(&bytes[shstr_base + 32..shstr_base + 40]) as usize;
-        }
-    }
-
-    for index in 0..e_shnum {
-        let base = e_shoff + index * e_shentsize;
-        if base + e_shentsize > bytes.len() {
-            break;
-        }
-        let sh_type = read_u32(&bytes[base + 4..base + 8]);
-        if sh_type == SHT_SYMTAB {
-            symtab_offset = read_u64(&bytes[base + 24..base + 32]) as usize;
-            symtab_size = read_u64(&bytes[base + 32..base + 40]) as usize;
-            symtab_entry_size = read_u64(&bytes[base + 56..base + 64]) as usize;
-
-            let str_index = read_u32(&bytes[base + 40..base + 44]) as usize;
-            if str_index < e_shnum {
-                let str_base = e_shoff + str_index * e_shentsize;
-                if str_base + e_shentsize <= bytes.len() {
-                    let str_type = read_u32(&bytes[str_base + 4..str_base + 8]);
-                    if str_type == SHT_STRTAB {
-                        strtab_offset = read_u64(&bytes[str_base + 24..str_base + 32]) as usize;
-                        strtab_size = read_u64(&bytes[str_base + 32..str_base + 40]) as usize;
-                    }
-                }
-            }
-            break;
-        }
-    }
-
-    const DEBUG_PUTC_SYMBOL: &[u8] = b"_ZN9nexus_abi10debug_putc17hab19954914ca9c3eE";
-    const DEBUG_WRITE_SYMBOL: &[u8] = b"_ZN9nexus_abi11debug_write17h28b91feb604c588cE";
-
-    let mut global_pointer = None;
-    let mut debug_putc_addr = None;
-    let mut debug_write_addr = None;
-    // Best-effort symbol resolution: stripped ELFs may not contain `.symtab`.
-    if symtab_offset != 0
-        && symtab_size != 0
-        && symtab_entry_size != 0
-        && strtab_offset != 0
-        && strtab_size != 0
-    {
-        if symtab_offset + symtab_size <= bytes.len() && strtab_offset + strtab_size <= bytes.len()
-        {
-            let entry_count = symtab_size / symtab_entry_size;
-            for i in 0..entry_count {
-                let entry_off = symtab_offset + i * symtab_entry_size;
-                if entry_off + symtab_entry_size > bytes.len() {
-                    break;
-                }
-                let name_offset = read_u32(&bytes[entry_off..entry_off + 4]) as usize;
-                if name_offset >= strtab_size {
-                    continue;
-                }
-                let mut end = 0usize;
-                let name_slice = &bytes[strtab_offset + name_offset..strtab_offset + strtab_size];
-                while end < name_slice.len() && name_slice[end] != 0 {
-                    end += 1;
-                }
-                let value = read_u64(&bytes[entry_off + 8..entry_off + 16]) as usize;
-                if name_slice[..end] == b"__global_pointer$"[..] {
-                    global_pointer = Some(value);
-                } else if name_slice[..end] == DEBUG_PUTC_SYMBOL[..] {
-                    debug_putc_addr = Some(value);
-                } else if name_slice[..end] == DEBUG_WRITE_SYMBOL[..] {
-                    debug_write_addr = Some(value);
-                }
-            }
-        }
-    }
-
-    if let Ok(space) = sys_ctx.address_spaces.get(as_handle) {
-        use core::fmt::Write as _;
-        let text_page = align_down(e_entry, PAGE_SIZE);
-        if let Some(entry) = space.page_table().lookup(text_page) {
-            // Diagnostic detail (page-table entry), not a pass/fail check → DEBUG, off by default,
-            // recallable via `NEXUS_LOG=selftest=debug`; stays out of the `kself N/N` count.
-            if crate::log::would_log(crate::log::Level::Debug, "selftest") {
-                let mut uart = crate::uart::raw_writer();
-                let _ = writeln!(
-                    uart,
-                    "[DEBUG selftest] KSELFTEST: text page entry=0x{:016x} va=0x{:016x}",
-                    entry, text_page
-                );
-            }
-        } else {
-            let mut uart = crate::uart::raw_writer();
-            let _ = writeln!(
-                uart,
-                "[ERROR selftest] KSELFTEST: missing text mapping va=0x{:016x}",
-                text_page
-            );
-        }
-        if let Some(data_page) = first_rw_page {
-            if let Some(entry) = space.page_table().lookup(data_page) {
-                if crate::log::would_log(crate::log::Level::Debug, "selftest") {
-                    let mut uart = crate::uart::raw_writer();
-                    let _ = writeln!(
-                        uart,
-                        "[DEBUG selftest] KSELFTEST: data page entry=0x{:016x} va=0x{:016x}",
-                        entry, data_page
-                    );
-                }
-            } else {
-                let mut uart = crate::uart::raw_writer();
-                let _ = writeln!(
-                    uart,
-                    "[ERROR selftest] KSELFTEST: missing data mapping va=0x{:016x}",
-                    data_page
-                );
-            }
-        }
-
-        if let Some(addr) = debug_putc_addr {
-            log_symbol_words(space, addr, "KSELFTEST: dbg-putc");
-        }
-        if let Some(addr) = debug_write_addr {
-            log_symbol_words(space, addr, "KSELFTEST: dbg-write");
-        }
-    }
-
-    if global_pointer.is_none() && shstrtab_offset != 0 && shstrtab_size != 0 {
-        // Fallback for stripped ELFs: derive `gp` from `.sdata` base per RISC-V psABI:
-        // `gp = __sdata_begin + 0x800`.
-        if shstrtab_offset + shstrtab_size <= bytes.len() {
-            let shstr = &bytes[shstrtab_offset..shstrtab_offset + shstrtab_size];
-            let mut sdata_addr: Option<usize> = None;
-            let mut data_addr: Option<usize> = None;
-            for index in 0..e_shnum {
-                let base = e_shoff + index * e_shentsize;
-                if base + e_shentsize > bytes.len() {
-                    break;
-                }
-                let name_off = read_u32(&bytes[base..base + 4]) as usize;
-                if name_off >= shstr.len() {
-                    continue;
-                }
-                let mut end = name_off;
-                while end < shstr.len() && shstr[end] != 0 {
-                    end += 1;
-                }
-                let name = &shstr[name_off..end];
-                let addr = read_u64(&bytes[base + 16..base + 24]) as usize;
-                if name == b".sdata" {
-                    sdata_addr = Some(addr);
-                } else if name == b".data" {
-                    data_addr = Some(addr);
-                }
-            }
-            let base = sdata_addr.or(data_addr);
-            if let Some(base) = base {
-                let gp = base.saturating_add(0x800);
-                log_info!(target: "selftest", "KSELFTEST: derived gp=0x{:x} from .sdata/.data", gp);
-                global_pointer = Some(gp);
-            }
-        }
-    }
-
-    let gp = global_pointer.unwrap_or_else(|| {
-        // Stripped tiny ELFs may have neither a symtab `__global_pointer$` nor named data
-        // sections. Match the normal exec policy: derive a conservative RISC-V gp from the first
-        // writable PT_LOAD, falling back to entry+0x800 only for payloads without writable data.
-        first_rw_page.unwrap_or(e_entry).saturating_add(0x800)
-    });
-    // Seed SP two pages below the mapped top, 16-byte aligned (stay clear of the boundary).
-    let stack_sp = (mapped_top - 2 * PAGE_SIZE) & !0xf;
-
-    Ok((e_entry, stack_sp, gp, as_handle))
 }
 
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]

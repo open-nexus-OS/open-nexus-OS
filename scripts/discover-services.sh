@@ -14,7 +14,6 @@
 # Output modes:
 #   --list                     service names, one per line
 #   --build-args               "-p svc1 -p svc2 ..." for cargo build
-#   --env-vars                 "INIT_LITE_SERVICE_SVC1_ELF=... INIT_LITE_SERVICE_SVC1_STACK_PAGES=..."
 #   --dep-gate-list            "svc1 svc2 ..." for dep-gate check
 #   --cargo-features <svc>     resolved feature list, comma-joined (e.g. os-lite,virgl)
 #   --feature-key <svc>        the same list as an artifact-path key (e.g. os-lite+virgl)
@@ -135,16 +134,6 @@ case "$MODE" in
         echo "$BOOT_SERVICES" | while read name stack features kind; do printf " -p %s" "$name"; done
         echo
         ;;
-    --env-vars)
-        echo "$BOOT_SERVICES" | while read name stack features kind; do
-            upper=$(echo "$name" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-            printf "INIT_LITE_SERVICE_%s_ELF=%s " "$upper" "$(elf_path_for "$name" "$features")"
-            if [ "$stack" -gt 0 ]; then
-                printf "INIT_LITE_SERVICE_%s_STACK_PAGES=%s " "$upper" "$stack"
-            fi
-        done
-        echo
-        ;;
     --dep-gate-list)
         echo "$BOOT_SERVICES" | while read name stack features kind; do printf "%s " "$name"; done
         echo
@@ -162,7 +151,7 @@ case "$MODE" in
         row=$(svc_row); elf_path_for "$(echo "$row" | awk '{print $1}')" "$(echo "$row" | awk '{print $3}')"; echo
         ;;
     *)
-        echo "usage: $0 [--list|--build-args|--env-vars|--dep-gate-list|--cargo-features <svc>|--feature-key <svc>|--stack-pages <svc>|--elf-path <svc>]" >&2
+        echo "usage: $0 [--list|--build-args|--dep-gate-list|--cargo-features <svc>|--feature-key <svc>|--stack-pages <svc>|--elf-path <svc>]" >&2
         exit 1
         ;;
 esac

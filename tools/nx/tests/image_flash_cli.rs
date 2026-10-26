@@ -19,6 +19,9 @@ use std::process::{Command, Output};
 use sha2::{Digest, Sha256};
 use storage::gpt::crc32_ieee;
 
+#[path = "common/payload_fixture.rs"]
+mod payload_fixture;
+
 const OS_SEED_HEX: &str = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
 /// The fixture board's disk: 1 GiB (sparse); its boot0 1 MiB.
 const BOARD_SECTORS: u64 = 2 * 1024 * 1024;
@@ -38,8 +41,7 @@ fn run_nx(args: &[&str], cwd: &Path) -> Output {
 
 fn setup(dir: &Path) {
     std::fs::write(dir.join("os.seed"), OS_SEED_HEX).expect("os seed");
-    let kernel: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
-    std::fs::write(dir.join("kernel.bin"), kernel).expect("kernel");
+    std::fs::write(dir.join("kernel.bin"), payload_fixture::payload(300_000, 0)).expect("kernel");
     std::fs::create_dir_all(dir.join("board/head")).expect("head dir");
     let mut header = vec![0u8; 80];
     header[..4].copy_from_slice(&0xB007_14F0u32.to_le_bytes());

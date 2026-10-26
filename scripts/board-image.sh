@@ -28,7 +28,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BOARD="bpi-f3"
 OUT="$ROOT/build/board/$BOARD"
 TARGET_ROOT="${CARGO_TARGET_DIR:-$ROOT/target}"
-KERNEL="$TARGET_ROOT/riscv64imac-unknown-none-elf/release/neuron-boot.bin"
+# ADR-0081: the slot image is the boot payload (kernel + bootfs) build.sh packed.
+PAYLOAD="$TARGET_ROOT/riscv64imac-unknown-none-elf/release/boot-payload.bin"
 BUNDLES="$ROOT/build/system-bundles"
 SIGN="$ROOT/keys/dev-os-image.ed25519.seed"
 PUBLISHER="$ROOT/keys/dev-publisher.ed25519.seed"
@@ -46,7 +47,7 @@ err() { printf '\033[1;31m[board-image][error]\033[0m %s\n' "$*" >&2; }
 
 "$ROOT/scripts/fetch-board-inputs.sh" --check >/dev/null 2>&1 || {
   err "vendor boot pieces missing or not matching their pins — run: just board-inputs"; exit 1; }
-[ -f "$KERNEL" ] || { err "no kernel at $KERNEL — run: just build-os-workspace"; exit 1; }
+[ -f "$PAYLOAD" ] || { err "no boot payload at $PAYLOAD — run: just build-os-workspace"; exit 1; }
 [ -d "$BUNDLES" ] || { err "no system bundles at $BUNDLES — run: just build-os-workspace"; exit 1; }
 # A whole volume or none (cycle 52a, 2026-10-21): a QEMU lane stopped while it rebuilt
 # build/system-bundles left them half-written, this script packed them, and init on the board
@@ -76,17 +77,17 @@ done
   err "building nx failed"; exit 2; }
 NX="$TARGET_ROOT/release/nx"
 mkdir -p "$OUT"
-build_id="dev-$(sha256sum "$KERNEL" | cut -c1-8)"
+build_id="dev-$(sha256sum "$PAYLOAD" | cut -c1-8)"
 
 log "data seed (the launcher's fixture set)"
-"$NX" image fixtures --kernel "$KERNEL" --data-out "$OUT/data-seed.img" \
+"$NX" image fixtures --kernel "$PAYLOAD" --data-out "$OUT/data-seed.img" \
   --sign-os "$SIGN" --sign-publisher "$PUBLISHER" --build-id "$build_id" >/dev/null || {
   err "nx image fixtures failed"; exit 2; }
 
 # TASK-0260B: the loader the SPL loads from `uboot` — nxboot from the same OS build as the kernel.
 "$ROOT/scripts/build-fit.sh" "$BOARD" "$OUT/nexus.itb" || { err "building the FIT failed"; exit 2; }
 log "disk for $BOARD (build $build_id, FIT $OUT/nexus.itb)"
-"$NX" image build --target "$BOARD" --kernel "$KERNEL" --out "$OUT/nexus.img" \
+"$NX" image build --target "$BOARD" --kernel "$PAYLOAD" --out "$OUT/nexus.img" \
   --sign "$SIGN" --build-id "$build_id" --rollback-index 1 \
   --data "$OUT/data-seed.img" --system-bundles "$BUNDLES" --fit "$OUT/nexus.itb" >/dev/null || {
   err "nx image build failed"; exit 2; }

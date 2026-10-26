@@ -94,10 +94,15 @@ SECTIONS
    * NOTE: the boot hart's U-mode trap frames + full syscall dispatch run on
    * this stack, and the last .bss symbols (incl. the heap allocator struct)
    * sit directly below __stack_bottom — an overflow silently zeroes them
-   * (symptom: ALLOC-FAIL with heap used=0/free=0). Keep generous headroom. */
-  . = ALIGN(16);
-  __stack_bottom = .;
-  . += 0x10000; /* 64 KiB */
-  __stack_top = .;
+   * (symptom: ALLOC-FAIL with heap used=0/free=0). Keep generous headroom.
+   * ADR-0081: an output section inside the data PHDR, so the segment's memsz
+   * covers it — the image packer reads the kernel's memory footprint from the
+   * program headers and the loader places the bootfs past it. */
+  .stack (NOLOAD) : {
+    . = ALIGN(16);
+    __stack_bottom = .;
+    . += 0x10000; /* 64 KiB */
+    __stack_top = .;
+  } : data
   __image_end = .;
 }

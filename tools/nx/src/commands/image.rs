@@ -50,6 +50,7 @@ pub(crate) fn handle_image(args: ImageArgs) -> ExecResult {
         ImageAction::Backstop(a) => crate::commands::image_backstop::handle_backstop(a),
         ImageAction::FlashPlan(a) => crate::commands::image_flash::handle_flash_plan(a),
         ImageAction::Trace(a) => crate::commands::image_trace::handle_trace(a),
+        ImageAction::Payload(a) => crate::commands::image_payload::handle_payload(a),
     }
 }
 
@@ -166,6 +167,9 @@ pub(crate) fn read_kernel(path: &Path) -> Result<Vec<u8>, NxError> {
     if bytes.is_empty() {
         return Err(NxError::new(ExitClass::ValidationReject, "image: kernel image is empty"));
     }
+    // ADR-0081: the slot image is the boot payload container — checked here, once, for every
+    // disk assembler (build, patch, fixtures, backstop).
+    crate::commands::image_payload::container(&bytes)?;
     Ok(bytes)
 }
 

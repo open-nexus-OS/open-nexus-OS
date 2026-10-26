@@ -71,7 +71,8 @@ fi
 # --- Paths ---
 TARGET_ROOT=${CARGO_TARGET_DIR:-"$ROOT/target"}
 KERNEL_ELF=$TARGET_ROOT/$TARGET/release/neuron-boot
-KERNEL_BIN=$TARGET_ROOT/$TARGET/release/neuron-boot.bin
+# ADR-0081: the signed slot image is the boot payload (kernel + bootfs), packed by build.sh.
+BOOT_PAYLOAD=$TARGET_ROOT/$TARGET/release/boot-payload.bin
 INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
 NXBOOT_ELF=$TARGET_ROOT/$TARGET/release/nxboot
 NXBOOT_BIN=$TARGET_ROOT/$TARGET/release/nxboot.bin
@@ -149,7 +150,7 @@ debug_log() {
     "$RUN_ID" "$hypothesis_id" "$location" "$message" "$data" "$ts" >>"$HYPOTHESIS_LOG" 2>/dev/null || true
 }
 
-# --- objcopy ELF to flat binary (kernel + nxboot share the helper) ---
+# --- objcopy ELF to flat binary (the loader) ---
 objcopy_flat() {
   local src=$1 dst=$2
   if [[ -f "$dst" && ! "$dst" -ot "$src" ]]; then
@@ -173,8 +174,17 @@ objcopy_flat() {
   "$objcopy" -O binary "$src" "$dst"
 }
 
-prepare_kernel_bin() {
-  objcopy_flat "$KERNEL_ELF" "$KERNEL_BIN"
+# ADR-0081: the payload is the OS build's artifact (`scripts/build.sh` packs it); a lane never
+# assembles one of its own — a stale or missing payload is the build's fault, said so here.
+prepare_boot_payload() {
+  if [[ ! -f "$BOOT_PAYLOAD" ]]; then
+    echo "[error] no boot payload at $BOOT_PAYLOAD — run the OS build (scripts/build.sh)" >&2
+    exit 1
+  fi
+  if [[ "$BOOT_PAYLOAD" -ot "$KERNEL_ELF" || "$BOOT_PAYLOAD" -ot "$INIT_ELF" ]]; then
+    echo "[error] boot payload older than the kernel or init at $BOOT_PAYLOAD — rebuild" >&2
+    exit 1
+  fi
 }
 
 # TASK-0289 A4: the -kernel payload is the first-stage loader; the kernel
@@ -204,7 +214,7 @@ prepare_blk_image() {
   (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
     cargo build --release -p nx >/dev/null)
   local build_id
-  build_id="dev-$(sha256sum "$KERNEL_BIN" | cut -c1-8)"
+  build_id="dev-$(sha256sum "$BOOT_PAYLOAD" | cut -c1-8)"
   local sign_key="$ROOT/keys/dev-os-image.ed25519.seed"
   local publisher_key="$ROOT/keys/dev-publisher.ed25519.seed"
   if [[ "$NEXUS_KEEP_BLK" == "1" && -f "$QEMU_BLK_IMG" ]]; then
@@ -217,7 +227,7 @@ prepare_blk_image() {
       sysvol=(--system-bundles "$ROOT/build/system-bundles")
     fi
     "$nx_bin" image patch --image "$QEMU_BLK_IMG" --part boot-a \
-      --kernel "$KERNEL_BIN" --sign "$sign_key" --build-id "$build_id" \
+      --kernel "$BOOT_PAYLOAD" --sign "$sign_key" --build-id "$build_id" \
       --rollback-index 1 "${sysvol[@]}" >/dev/null
   else
     # TASK-0179: factory data partition ships the OTA fixture set under
@@ -230,7 +240,7 @@ prepare_blk_image() {
       bundleset=(--system-bundles "$ROOT/build/system-bundles-next"
         --reuse-from "$ROOT/build/system-bundles")
     fi
-    "$nx_bin" image fixtures --kernel "$KERNEL_BIN" --data-out "$ROOT/build/data-seed.img" \
+    "$nx_bin" image fixtures --kernel "$BOOT_PAYLOAD" --data-out "$ROOT/build/data-seed.img" \
       --sign-os "$sign_key" --sign-publisher "$publisher_key" \
       --build-id "$build_id" "${bundleset[@]}" >/dev/null
     rm -f "$QEMU_BLK_IMG"
@@ -247,7 +257,7 @@ prepare_blk_image() {
     if [[ -n "$QEMU_BLK_IMG_BYTES" ]]; then
       disk=(--disk-bytes "$QEMU_BLK_IMG_BYTES")
     fi
-    "$nx_bin" image build --kernel "$KERNEL_BIN" --out "$QEMU_BLK_IMG" \
+    "$nx_bin" image build --kernel "$BOOT_PAYLOAD" --out "$QEMU_BLK_IMG" \
       --sign "$sign_key" --build-id "$build_id" --rollback-index 1 \
       --data "$ROOT/build/data-seed.img" "${sysvol[@]}" "${disk[@]}" >/dev/null
     # TASK-0289-B: arm a loader-backstop trial (boot-b image nxboot MUST
@@ -255,7 +265,7 @@ prepare_blk_image() {
     # lane's precondition, a kept disk would carry stale runtime state.
     if [[ -n "${NEXUS_OTA_BACKSTOP:-}" ]]; then
       "$nx_bin" image backstop --image "$QEMU_BLK_IMG" \
-        --kind "$NEXUS_OTA_BACKSTOP" --kernel "$KERNEL_BIN" \
+        --kind "$NEXUS_OTA_BACKSTOP" --kernel "$BOOT_PAYLOAD" \
         --sign "$sign_key" --build-id "otaTRIAL" >/dev/null
     fi
   fi
@@ -309,13 +319,9 @@ build_qemu_args() {
   # machine memory is a lane knob, not a kernel constant (256M and 1G are proven).
   args+=(-machine "virt,aclint=${QEMU_ACLINT:-on}" -cpu max -m "${QEMU_MEM:-320M}" -smp "${SMP:-4}" -bios default)
   # TASK-0289 A4 boot flip: the loader verifies and chains into the slot
-  # image from the GPT disk (ADR-0059). Direct-kernel boots remain possible
-  # via NEXUS_DIRECT_KERNEL=1 (honest `boot handoff absent` marker).
-  if [[ "${NEXUS_DIRECT_KERNEL:-0}" == "1" ]]; then
-    args+=(-kernel "$KERNEL_BIN")
-  else
-    args+=(-kernel "$NXBOOT_BIN")
-  fi
+  # image from the GPT disk (ADR-0059). ADR-0081: there is no other boot — the
+  # kernel runs from the container the loader placed (its bootfs holds init).
+  args+=(-kernel "$NXBOOT_BIN")
 
   # Display mode
   if [[ "$NEXUS_DISPLAY_BOOTSTRAP" == "1" ]]; then
@@ -659,7 +665,7 @@ monitor_uart_stream() {
 }
 
 # --- Main ---
-prepare_kernel_bin
+prepare_boot_payload
 prepare_nxboot_bin
 prepare_blk_image
 rm -f "$QEMU_LOG" "$UART_LOG"

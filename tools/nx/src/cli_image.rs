@@ -46,6 +46,25 @@ pub(crate) enum ImageAction {
     FlashPlan(ImageFlashPlanArgs),
     /// The boot trace of a disk (RFC-0107): each kept boot's console text.
     Trace(ImageTraceArgs),
+    /// The boot payload a slot carries (ADR-0081): the flat kernel and the bootfs of every
+    /// program the manifest names, behind one header — the bytes `--kernel` takes everywhere.
+    Payload(ImagePayloadArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct ImagePayloadArgs {
+    /// The kernel ELF (the static PIE `neuron-boot`); its `PT_LOAD`s become the kernel item.
+    #[arg(long)]
+    pub(crate) kernel_elf: PathBuf,
+    /// JSON: `{"files":[{"name":"init-lite","path":"…","stack_pages":16}, …]}` — the bootfs's
+    /// programs in order; `init-lite` first (the kernel spawns the first file).
+    #[arg(long)]
+    pub(crate) manifest: PathBuf,
+    /// Where the payload goes.
+    #[arg(short, long)]
+    pub(crate) out: PathBuf,
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -93,7 +112,8 @@ pub(crate) struct ImageFlashPlanArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct ImageBuildArgs {
-    /// Flat boot image (neuron-boot.bin).
+    /// The boot payload (ADR-0081: the flat kernel and the bootfs in one container, from
+    /// `nx image payload`) — the slot image under the NXBD digest.
     #[arg(long)]
     pub(crate) kernel: PathBuf,
     /// Output disk image.

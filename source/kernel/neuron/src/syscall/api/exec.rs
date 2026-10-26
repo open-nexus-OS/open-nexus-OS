@@ -338,12 +338,37 @@ pub(crate) fn exec_vmo_phase_a(
         log_error!(target: "exec", "EXEC-REFUSED reason=unsealed vmo={}", vmo);
         return Err(Error::Capability(CapError::PermissionDenied));
     }
+    // SAFETY: checked in ExecVmoArgsTyped::check (the range is readable user memory).
+    let name: &[u8] = if typed.name_len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) }
+    };
+    spawn_sealed(ctx, vmo, typed.stack_pages, typed.global_pointer, name, plan)
+        .map(|pid| pid.as_index())
+}
 
+/// A process from the sealed object `vmo` (ADR-0080): the image mapped, the stack, the
+/// per-service meta page (the name) and the bootstrap info page, the task spawned Suspended as
+/// the current task's child with its kernel-derived identity and born-at-class QoS. The byte
+/// moves are staged in `plan`. The one path every process takes: `exec_vmo` after its
+/// capability gate, and the kernel's own spawn of init from the bootfs (ADR-0081).
+pub(crate) fn spawn_sealed(
+    ctx: &mut Context<'_>,
+    vmo: u32,
+    stack_pages: usize,
+    global_pointer: usize,
+    name_bytes: &[u8],
+    plan: &mut CopyPlan,
+) -> SysResult<task::Pid> {
+    if stack_pages == 0 || name_bytes.len() > 64 {
+        return Err(AddressSpaceError::InvalidArgs.into());
+    }
     let as_handle = ctx.address_spaces.create()?;
     // The frames the child owns (its data pages, meta/info): recorded so success attaches them
     // to the task and failure returns them to the pool.
     let mut image = crate::task::ImageAllocs::new();
-    let exec_result = (|| -> SysResult<usize> {
+    let exec_result = (|| -> SysResult<task::Pid> {
         let loaded = load_image(ctx.address_spaces, as_handle, vmo, plan)?;
         let (entry, first_rw_vaddr, max_end_va) =
             (loaded.entry, loaded.first_rw_vaddr, loaded.max_end_va);
@@ -357,11 +382,10 @@ pub(crate) fn exec_vmo_phase_a(
             .and_then(|vaddr| vaddr.checked_add(RISCV_GP_BIAS))
             .or_else(|| entry.checked_add(RISCV_GP_BIAS))
             .unwrap_or(0);
-        let gp = if typed.global_pointer != 0 { typed.global_pointer } else { derived_gp };
+        let gp = if global_pointer != 0 { global_pointer } else { derived_gp };
 
         // Stack + guarded top (records into the space).
-        let (stack_sp, mapped_top) =
-            map_process_stack(ctx.address_spaces, as_handle, typed.stack_pages)?;
+        let (stack_sp, mapped_top) = map_process_stack(ctx.address_spaces, as_handle, stack_pages)?;
 
         // Per-service metadata page (RO) + bootstrap info page (RO) at stable addresses just
         // above the mapped stack top: meta = top + 1 page, info = top + 2 pages.
@@ -377,10 +401,7 @@ pub(crate) fn exec_vmo_phase_a(
 
         let meta_pa = alloc_zeroed_page(&mut image)?;
         let mut service_id: u64 = 0;
-        if typed.name_len != 0 {
-            // SAFETY: checked in ExecVmoArgsTyped::check.
-            let name_bytes =
-                unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) };
+        if !name_bytes.is_empty() {
             // Kernel-verified service identity token: FNV-1a 64 of the name bytes.
             service_id = 0xcbf29ce484222325u64;
             for &b in name_bytes {
@@ -403,7 +424,7 @@ pub(crate) fn exec_vmo_phase_a(
                 version: 2,
                 reserved: 0,
                 meta_name_ptr: meta_va as u64,
-                meta_name_len: typed.name_len as u32,
+                meta_name_len: name_bytes.len() as u32,
                 reserved2: 0,
                 service_id,
             };
@@ -459,7 +480,7 @@ pub(crate) fn exec_vmo_phase_a(
         // Success: the frames are the task's (teardown returns them). `take` leaves the outer
         // record empty, so the error path below cannot double-free.
         ctx.tasks.set_image_allocs(pid, image.take());
-        Ok(pid.as_index())
+        Ok(pid)
     })();
 
     if exec_result.is_err() {

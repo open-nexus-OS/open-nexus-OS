@@ -119,7 +119,7 @@ where
             }
             debug_write_byte(b'\n');
         }
-        match crate::bootstrap::spawn::spawn_sealed(image, &mut sealed_images, probes_enabled()) {
+        match crate::bootstrap::spawn::spawn_image(image, &mut sealed_images, probes_enabled()) {
             Ok(pid) => {
                 // Private control endpoints (REQ/RSP) at the child's slots 1/2 —
                 // shared with the volume spawn pass (TASK-0321).

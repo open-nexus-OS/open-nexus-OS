@@ -1,0 +1,18 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-bootfs"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The boot payload container (NXBI: kernel item + bootfs item) and the bootfs table of contents (NXFS) — the one bounded codec shared by the packer, nxboot, the kernel and init (ADR-0081)"
+
+[features]
+default = []
+# Composing on the host (the packer, the loader's tests): the payload and the bootfs builders.
+alloc = []
+
+[dependencies]
+
+[dev-dependencies]

@@ -21,6 +21,8 @@ nexus-console-ring = { path = "../../libs/nexus-console-ring" }
 sha2 = { version = "0.10", default-features = false }
 # RFC-0098 C2: nxboot owns /chosen/nexus,* — the tree reader/writer (TASK-0244 P3).
 nexus-fdt = { path = "../../libs/nexus-fdt" }
+# ADR-0081: the boot image is one container (kernel + bootfs) — its header's one codec.
+nexus-bootfs = { path = "../../libs/nexus-bootfs" }
 # TASK-0246B: the SDHCI core the OS runs too, in PIO (the loader's reader), over the HAL bus;
 # the PCI planner init runs (QEMU's SD host sits behind the ECAM host, unassigned until planned).
 storage-sdhci = { path = "../../drivers/storage/sdhci" }
@@ -38,6 +40,8 @@ sbi-rt = { version = "0.0.2", default-features = false }
 # assemble fixture disks with the same shared authorities nx image uses.
 bootfmt = { path = "../../../userspace/bootfmt", features = ["std", "sign"] }
 storage = { path = "../../../userspace/storage", features = ["std"] }
+# The fixture containers are composed with the packer's own codec.
+nexus-bootfs = { path = "../../libs/nexus-bootfs", features = ["alloc"] }
 # The behavioural SDHCI controller + eMMC the reader is proven against (the core's own machine).
 storage-sdhci-model = { path = "../../drivers/storage/sdhci/model" }
 

@@ -21,6 +21,9 @@ use std::process::{Command, Output};
 use sha2::{Digest, Sha256};
 use storage::gpt::crc32_ieee;
 
+#[path = "common/payload_fixture.rs"]
+mod payload_fixture;
+
 const OS_SEED_HEX: &str = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
 /// The fixture board's disk: 1 GiB (sparse).
 const BOARD_SECTORS: u64 = 2 * 1024 * 1024;
@@ -66,8 +69,7 @@ fn profile(sectors: u64, extra: &str) -> String {
 
 fn setup(dir: &Path) {
     std::fs::write(dir.join("os.seed"), OS_SEED_HEX).expect("os seed");
-    let kernel: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
-    std::fs::write(dir.join("kernel.bin"), kernel).expect("kernel");
+    std::fs::write(dir.join("kernel.bin"), payload_fixture::payload(300_000, 0)).expect("kernel");
     std::fs::create_dir_all(dir.join("board/head")).expect("head dir");
     std::fs::write(dir.join("board/head/header.bin"), boot_header()).expect("header");
     std::fs::write(dir.join("board/head/spl.bin"), vec![0xF5u8; 60_000]).expect("spl");

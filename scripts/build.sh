@@ -56,7 +56,13 @@ fi
 export CARGO_TARGET_DIR="$TARGET_ROOT"
 
 KERNEL_ELF=$TARGET_ROOT/$TARGET/release/neuron-boot
-KERNEL_BIN=$TARGET_ROOT/$TARGET/release/neuron-boot.bin
+# ADR-0081: the boot image is ONE container — the flat kernel and the bootfs (init, every
+# core service, app-host, the recv-wake probe) under one digest and one signature. `nx image
+# payload` packs it from the kernel ELF and this manifest; every disk assembler takes it.
+BOOT_PAYLOAD=$TARGET_ROOT/$TARGET/release/boot-payload.bin
+BOOTFS_MANIFEST=$ROOT/build/bootfs-manifest.json
+# The bootfs files after init, in boot order: "name:path:stack_pages".
+BOOTFS_FILES=()
 INIT_ELF=$TARGET_ROOT/$TARGET/release/init-lite
 # TASK-0289 A4: the VMM -kernel payload is the first-stage loader; the
 # kernel image travels inside the GPT disk (boot-a slot, NXBD-signed).
@@ -237,17 +243,17 @@ declare -a SERVICES=()
 
 prepare_service_payloads() {
   # TASK-0080D R1: the app-host runtime ELF is NOT a boot service (no
-  # nexus-service metadata; init never spawns it). Build it FIRST and hand the
-  # ELF to execd's build via EXECD_APPHOST_ELF — execd embeds it as the
-  # IMG_APPHOST payload for on-demand spawns.
+  # nexus-service metadata; init never spawns it). ADR-0081: it is a file of the
+  # bootfs — init hands its sealed object to execd at spawn (IMG_APPHOST).
   build_service app-host
-  set_env_var "EXECD_APPHOST_ELF" "$(service_elf_path app-host)"
+  local apphost_elf
+  apphost_elf="$(service_elf_path app-host)"
 
   # P0.2 recv-wake regression gate: the probe child execd spawns once after
-  # `ready` (blocking-recv sender-wake proof, #102 family). Same embedding
-  # pattern as app-host: built first, handed to execd via EXECD_RECVWAKE_ELF.
+  # `ready` (blocking-recv sender-wake proof, #102 family). A bootfs file too.
   build_service recv-wake-probe
-  set_env_var "EXECD_RECVWAKE_ELF" "$(service_elf_path recv-wake-probe)"
+  local recvwake_elf
+  recvwake_elf="$(service_elf_path recv-wake-probe)"
 
   if [[ -z "${INIT_LITE_SERVICE_LIST:-}" ]]; then
     INIT_LITE_SERVICE_LIST="$(scripts/discover-services.sh --list | paste -sd, -)"
@@ -281,23 +287,36 @@ prepare_service_payloads() {
     IFS=',' read -r -a SERVICES <<<"$INIT_LITE_SERVICE_LIST"
   fi
 
-  if [[ "${#SERVICES[@]}" -eq 0 ]]; then
-    return
-  fi
-
   for raw in "${SERVICES[@]}"; do
     local svc=${raw//[[:space:]]/}
     [[ -z "$svc" ]] && continue
-    local svc_upper
-    svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
     build_service "$svc"
-    set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$(service_elf_path "$svc")"
     # stack_pages is manifest data (discover-services.sh); 0 = the 8-page default.
     local stack_pages
     stack_pages=$(service_stack_pages "$svc")
     [[ "$stack_pages" -gt 0 ]] || stack_pages=8
-    set_env_var "INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES" "$stack_pages"
+    BOOTFS_FILES+=("$svc:$(service_elf_path "$svc"):$stack_pages")
   done
+  # The launcher's images come last: execd execs them with its own stack sizes.
+  BOOTFS_FILES+=("app-host:$apphost_elf:8")
+  BOOTFS_FILES+=("recv-wake-probe:$recvwake_elf:16")
+}
+
+# ---------------------------------------------------------------------------
+# write_bootfs_manifest — ADR-0081: the packer's input. File 0 is init; then
+# the core services in boot order, then the launcher's images.
+# ---------------------------------------------------------------------------
+write_bootfs_manifest() {
+  mkdir -p "$(dirname "$BOOTFS_MANIFEST")"
+  local entry name path stack
+  {
+    printf '{"files":[{"name":"init-lite","path":"%s","stack_pages":16}' "$INIT_ELF"
+    for entry in "${BOOTFS_FILES[@]}"; do
+      IFS=':' read -r name path stack <<<"$entry"
+      printf ',{"name":"%s","path":"%s","stack_pages":%s}' "$name" "$path" "$stack"
+    done
+    printf ']}\n'
+  } >"$BOOTFS_MANIFEST"
 }
 
 # ---------------------------------------------------------------------------
@@ -414,50 +433,43 @@ EOF_TOML
 }
 
 # ---------------------------------------------------------------------------
-# build_kernel_and_init — build kernel + init-lite (with embedded service ELFs)
+# build_kernel_and_init — build init-lite, the kernel, the loader, then pack
+# the boot payload (ADR-0081): no program embeds another.
 # ---------------------------------------------------------------------------
 build_kernel_and_init() {
-  # Build init-lite FIRST — the kernel needs EMBED_INIT_ELF to point at it.
   require_or_build "$INIT_ELF" "init-lite" -- cargo build -p init-lite --target "$TARGET" --release
 
   local -a kernel_args=(build -p neuron-boot --target "$TARGET" --release)
   if [[ -n "${NEURON_BOOT_FEATURES:-}" ]]; then
     kernel_args+=(--features "$NEURON_BOOT_FEATURES")
   fi
-  require_or_build "$KERNEL_ELF" "kernel:neuron-boot" -- env EMBED_INIT_ELF="$INIT_ELF" cargo "${kernel_args[@]}"
+  require_or_build "$KERNEL_ELF" "kernel:neuron-boot" -- cargo "${kernel_args[@]}"
 
   # TASK-0289 A4: first-stage loader (verifies the slot before any OS code
   # runs; its linker script hard-asserts the 256 KiB budget, ADR-0059).
   require_or_build "$NXBOOT_ELF" "boot:nxboot" -- cargo build -p nxboot --target "$TARGET" --release
-  # The flat kernel image is an artifact of THIS build, not of the next QEMU
-  # lane: `nx image` (the board's disk included) reads it, and until TASK-0327B
-  # P3 only the launcher objcopied it, at a lane's start — so a board image
-  # built right after the OS build carried the previous lane's kernel.
-  flatten_kernel
+  # The boot payload is an artifact of THIS build, not of the next QEMU lane:
+  # `nx image` (the board's disk included) reads it.
+  pack_boot_payload
 }
 
-# ELF → flat binary with the toolchain's llvm-objcopy (the launcher keeps the
-# same step as a freshness guard: it is a no-op once this ran).
-flatten_kernel() {
-  if [[ "$NEXUS_SKIP_BUILD" == "1" && -f "$KERNEL_BIN" ]]; then
+# The boot payload (ADR-0081): the kernel flattened from its ELF and the bootfs
+# packed from the manifest, in one container — by the host `nx`, which also
+# refuses any file whose segments the kernel could not map from a sealed image.
+pack_boot_payload() {
+  if [[ "$NEXUS_SKIP_BUILD" == "1" && -f "$BOOT_PAYLOAD" ]]; then
     return 0
   fi
-  local objcopy="" candidate
-  for candidate in \
-    "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/llvm-objcopy \
-    "$HOME"/.rustup/toolchains/*/bin/llvm-objcopy
-  do
-    if [[ -x "$candidate" ]]; then objcopy="$candidate"; break; fi
-  done
-  if [[ -z "$objcopy" ]]; then
-    echo "[error] build.sh: llvm-objcopy not found (rustup component add llvm-tools-preview)" >&2
-    exit 1
-  fi
-  "$objcopy" -O binary "$KERNEL_ELF" "$KERNEL_BIN"
+  write_bootfs_manifest
+  # HOST build: the OS RUSTFLAGS (nexus_env=os) must not leak in.
+  (cd "$ROOT" && env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
+    cargo build --release -p nx >/dev/null)
+  "$TARGET_ROOT/release/nx" image payload --kernel-elf "$KERNEL_ELF" \
+    --manifest "$BOOTFS_MANIFEST" --out "$BOOT_PAYLOAD" >&2
 }
 
 # ---------------------------------------------------------------------------
-# build_all — full build pipeline (services → init-lite → kernel with EMBED_INIT_ELF)
+# build_all — full build pipeline (services → init-lite → kernel → loader → payload)
 # ---------------------------------------------------------------------------
 build_all() {
   prepare_build_tmpdir
@@ -480,18 +492,20 @@ build_all() {
     echo "[error] build.sh: nxboot ELF not produced: $NXBOOT_ELF" >&2
     exit 1
   fi
-  local ksize isize
+  if [[ ! -f "$BOOT_PAYLOAD" ]]; then
+    echo "[error] build.sh: boot payload not produced: $BOOT_PAYLOAD" >&2
+    exit 1
+  fi
+  local ksize psize
   ksize=$(wc -c <"$KERNEL_ELF" 2>/dev/null || echo 0)
-  isize=$(wc -c <"$INIT_ELF" 2>/dev/null || echo 0)
-  if [[ "$ksize" -lt 200000 ]]; then
-    echo "[error] build.sh: kernel is too small (${ksize} bytes) — is EMBED_INIT_ELF set?" >&2
+  psize=$(wc -c <"$BOOT_PAYLOAD" 2>/dev/null || echo 0)
+  # The payload carries the kernel AND every core program: smaller than the kernel ELF alone
+  # means the bootfs is missing.
+  if [[ "$psize" -le "$ksize" ]]; then
+    echo "[error] build.sh: boot payload too small (${psize} bytes, kernel ELF ${ksize}) — no bootfs packed?" >&2
     exit 1
   fi
-  if [[ "$isize" -lt 100000 ]]; then
-    echo "[error] build.sh: init-lite is too small (${isize} bytes) — are services embedded?" >&2
-    exit 1
-  fi
-  echo "[info] Build complete (kernel=${ksize}B, init=${isize}B)" >&2
+  echo "[info] Build complete (kernel=${ksize}B, payload=${psize}B)" >&2
 }
 
 # If executed directly, run the full build.

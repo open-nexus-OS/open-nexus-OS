@@ -36,13 +36,19 @@ source/init/nexus-init/src/
 
 ## Boot waves and the system volume (RFC-0089 §12, ADR-0060, TASK-0321)
 
-Since Phase B most non-core services are not embedded in init's image: they
-ship as `.nxb` bundles on the verified system volume (`system-a/b`, SSOT
+Since Phase B most non-core services are not in the boot image: they ship as
+`.nxb` bundles on the verified system volume (`system-a/b`, SSOT
 `scripts/system-volume-services.txt`) and init spawns them from an ELF that
-bundlemgrd verified against the volume index. That fixes the boot shape:
+bundlemgrd verified against the volume index. The core services are files of
+the bootfs beside the kernel (ADR-0081): init reads the bootfs table from its
+fixed slot (`bootstrap/bootfs.rs`) and finds each file's sealed object in the
+slot after it; nothing is embedded in init and nothing is copied. That fixes
+the boot shape:
 
-1. **Embedded spawn** — every service still in init's table is `exec_v2`'d
-   suspended (`init: start/up <svc>`), then `init: ready`.
+1. **Bootfs spawn** — every service in the bootfs table is `exec_vmo`'d from
+   its sealed object, suspended (`init: start/up <svc>`); execd receives the
+   app-host's and the recv-wake probe's objects in its declared slots at its
+   spawn; then `init: ready`.
 2. **Wave 0 — the CORE plane** (`core_plane.rs`): policyd, socd, blkd and
    bundlemgrd get their server pairs + control channels and are the ONLY
    services resumed, in three steps (TASK-0246 P4b/P4c): policyd first and

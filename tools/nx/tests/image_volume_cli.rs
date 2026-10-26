@@ -88,8 +88,11 @@ fn verify_rejects_tampered_and_unpaired_system_volume() {
     flip(0xFF); // restore
 
     // Unpaired: refresh boot-a with a different image → NXSV pairing breaks.
-    let other: Vec<u8> = (0..300_000u32).map(|i| (i % 241) as u8).collect();
-    std::fs::write(dir.path().join("other.bin"), other).expect("other kernel");
+    std::fs::write(
+        dir.path().join("other.bin"),
+        volume_fixture::payload_fixture::payload(300_000, 1),
+    )
+    .expect("other kernel");
     let patch = run_nx(
         &[
             "image",

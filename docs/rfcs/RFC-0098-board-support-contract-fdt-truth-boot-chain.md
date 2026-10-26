@@ -367,9 +367,10 @@ init resolves the record, asks policyd for the kind's class (`device.mmio.blk`,
 `device.mmio.mmc` — both granted to `blkd` alone), gives a PCI function bus mastering after
 its grant, and makes the grant while only policyd runs, so the owner starts with its disk in
 place and waits for nothing. `blkd` reads the same record from its read-only tree, refuses a
-grant whose window is not the recorded disk's, and runs the backend the kind needs. A
-direct-kernel dev boot (no loader, no record) grants the lowest virtio disk and says so
-(`record=none`). The SDHCI backend's glue runs first in the P5 lane.
+grant whose window is not the recorded disk's, and runs the backend the kind needs. Without
+a record (`record=none`) the lowest virtio disk is granted and said so — since ADR-0081 a
+diagnostic only, as the loader is in every chain. The SDHCI backend's glue runs first in the
+P5 lane.
 
 **Implemented 2026-09-25 (TASK-0246 P4c): the node before the controller.** socd (RFC-0106)
 runs in the core plane before the disk is granted, on declared slots only — its server pair,

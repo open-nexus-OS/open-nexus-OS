@@ -19,6 +19,9 @@ use std::process::{Command, Output};
 
 use sha2::{Digest, Sha256};
 
+#[path = "payload_fixture.rs"]
+pub mod payload_fixture;
+
 pub const OS_SEED_HEX: &str = "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b";
 pub const PUB_SEED_HEX: &str = "0707070707070707070707070707070707070707070707070707070707070707";
 
@@ -33,8 +36,7 @@ pub fn run_nx(args: &[&str], cwd: &Path) -> Output {
 pub fn setup(dir: &Path) {
     std::fs::write(dir.join("os.seed"), OS_SEED_HEX).expect("os seed");
     std::fs::write(dir.join("pub.seed"), PUB_SEED_HEX).expect("pub seed");
-    let kernel: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
-    std::fs::write(dir.join("kernel.bin"), kernel).expect("kernel");
+    std::fs::write(dir.join("kernel.bin"), payload_fixture::payload(300_000, 0)).expect("kernel");
 }
 
 /// Streams the file (384 MiB disk images — never slurped in a test).

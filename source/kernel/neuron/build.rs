@@ -11,7 +11,7 @@
 //! API_STABILITY: Stable
 //! TEST_COVERAGE: No tests
 //! PUBLIC API: cargo build-script outputs (env/cfg, generated trap_symbols.rs)
-//! DEPENDS_ON: env vars NEURON_SYMBOLS_MAP, NEURON_LINKER_SCRIPT, EMBED_INIT_ELF
+//! DEPENDS_ON: env vars NEURON_SYMBOLS_MAP, NEURON_LINKER_SCRIPT
 //! INVARIANTS: No-op in debug; best-effort generation only
 //! ADR: docs/adr/0001-runtime-roles-and-boundaries.md
 
@@ -67,14 +67,4 @@ fn main() {
     // rebuild the kernel when it changes so `NEXUS_LOG_EXPAND=syscalls` takes effect.
     println!("cargo:rerun-if-env-changed=NEXUS_LOG_EXPAND");
     emit_symbol_table();
-
-    // Propagate optional embedded init ELF path into the kernel build so it can be included.
-    println!("cargo:rerun-if-env-changed=EMBED_INIT_ELF");
-    println!("cargo::rustc-check-cfg=cfg(embed_init)");
-    if let Ok(path) = std::env::var("EMBED_INIT_ELF") {
-        println!("cargo:rustc-cfg=embed_init");
-        println!("cargo:rustc-env=EMBED_INIT_ELF={path}");
-        // Rebuild if the embedded ELF changes
-        println!("cargo:rerun-if-changed={path}");
-    }
 }

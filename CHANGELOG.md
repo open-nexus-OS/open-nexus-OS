@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-26 (the boot image is one container: kernel + bootfs — TASK-0333 6c-2, ADR-0081)
+
+- **No program embeds another.** The kernel's image used to hold init, init's image every core
+  service, and the service launcher's image the app runtime — every core program's bytes in
+  memory three to four times, and copied again at boot. The signed slot image is now a container
+  of the kernel and a bootfs: init, every core service, the app runtime and the probe as files
+  on the page grid, packed by the host tool from the build's manifest.
+- **One digest covers the kernel and every program that starts before the volume is verified.**
+  The loader checks the whole container under the unchanged descriptor and signature, places
+  the bootfs past the kernel's memory footprint and tells the kernel where. A tampered bootfs
+  byte is a tampered image.
+- **The kernel adopts the bootfs and never writes it.** Its range leaves the frame pool; every
+  file becomes a sealed object no writer can reach; init starts from the first file through the
+  one loader every process goes through, and finds every other file as a capability in a fixed
+  slot. The kernel's private copier of init is gone.
+- **There is no boot without the loader.** The loader-less development boot is retired; a
+  kernel started on its own has no bootfs and stops at its boot gate instead of guessing.
+
 ### Changed - 2026-10-26 (a program runs from a sealed image, its code shared — TASK-0333 6c-1b, ADR-0080)
 
 - **Programs of the same image share their code.** Every process used to get a private copy

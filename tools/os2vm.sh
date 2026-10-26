@@ -1066,6 +1066,12 @@ build_os_once() {
   local services="logd,metricsd,updated,timed,keystored,rngd,policyd,samgrd,bundlemgrd,packagefsd,vfsd,execd,statefsd,netstackd,dsoftbusd,selftest-client"
   export INIT_LITE_SERVICE_LIST="$services"
 
+  # ADR-0081: the bootfs manifest — init first, then the services in boot order. The
+  # packer (`nx image payload`) turns it and the kernel ELF into the one slot image.
+  local manifest="$BUILD_TARGET_DIR/bootfs-manifest.json"
+  mkdir -p "$BUILD_TARGET_DIR"
+  printf '{"files":[{"name":"init-lite","path":"%s","stack_pages":16}' \
+    "$BUILD_TARGET_DIR/$TARGET/release/init-lite" >"$manifest"
   IFS=',' read -r -a svcs <<<"$services"
   for raw in "${svcs[@]}"; do
     local svc=${raw//[[:space:]]/}
@@ -1073,38 +1079,38 @@ build_os_once() {
 
     (cd "$ROOT" && cargo build -p "$svc" --target "$TARGET" --release --no-default-features --features os-lite)
 
-    local svc_upper
-    svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-    set_env_var "INIT_LITE_SERVICE_${svc_upper}_ELF" "$BUILD_TARGET_DIR/$TARGET/release/$svc"
-    local stack_var="INIT_LITE_SERVICE_${svc_upper}_STACK_PAGES"
-    if [[ -z "${!stack_var:-}" ]]; then
-      case "$svc" in
-        hidrawd|touchd|inputd)
-          set_env_var "$stack_var" "1"
-          ;;
-        *)
-          set_env_var "$stack_var" "8"
-          ;;
-      esac
-    fi
+    local stack_pages
+    case "$svc" in
+      hidrawd|touchd|inputd) stack_pages=1 ;;
+      *) stack_pages=8 ;;
+    esac
+    printf ',{"name":"%s","path":"%s","stack_pages":%s}' \
+      "$svc" "$BUILD_TARGET_DIR/$TARGET/release/$svc" "$stack_pages" >>"$manifest"
   done
+  printf ']}\n' >>"$manifest"
 
   (cd "$ROOT" && cargo build -p init-lite --target "$TARGET" --release)
-
-  local INIT_ELF="$BUILD_TARGET_DIR/$TARGET/release/init-lite"
-  (cd "$ROOT" && EMBED_INIT_ELF="$INIT_ELF" cargo build -p neuron-boot --target "$TARGET" --release)
+  (cd "$ROOT" && cargo build -p neuron-boot --target "$TARGET" --release)
+  # The loader: the only way into the kernel (it places the bootfs and tells the kernel where).
+  (cd "$ROOT" && cargo build -p nxboot --target "$TARGET" --release)
 
   local KERNEL_ELF="$BUILD_TARGET_DIR/$TARGET/release/neuron-boot"
-  local KERNEL_BIN="$BUILD_TARGET_DIR/$TARGET/release/neuron-boot.bin"
-  if [[ ! -f "$KERNEL_BIN" || "$KERNEL_BIN" -ot "$KERNEL_ELF" ]]; then
+  local NXBOOT_ELF="$BUILD_TARGET_DIR/$TARGET/release/nxboot"
+  local NXBOOT_BIN="$BUILD_TARGET_DIR/$TARGET/release/nxboot.bin"
+  if [[ ! -f "$NXBOOT_BIN" || "$NXBOOT_BIN" -ot "$NXBOOT_ELF" ]]; then
     local OBJCOPY
     OBJCOPY=$(find ~/.rustup/toolchains -name llvm-objcopy -type f 2>/dev/null | head -1)
     if [[ -z "$OBJCOPY" ]]; then
       echo "[error] llvm-objcopy not found. Install llvm-tools: rustup component add llvm-tools-preview" >&2
       exit 1
     fi
-    "$OBJCOPY" -O binary "$KERNEL_ELF" "$KERNEL_BIN"
+    "$OBJCOPY" -O binary "$NXBOOT_ELF" "$NXBOOT_BIN"
   fi
+
+  # The HOST nx packs the payload and builds each node's disk (RUSTFLAGS already unset above).
+  (cd "$ROOT" && cargo build --release -p nx >/dev/null)
+  "$BUILD_TARGET_DIR/release/nx" image payload --kernel-elf "$KERNEL_ELF" \
+    --manifest "$manifest" --out "$BUILD_TARGET_DIR/$TARGET/release/boot-payload.bin" >&2
 }
 
 launch_qemu() {
@@ -1115,12 +1121,16 @@ launch_qemu() {
   local qemu_name
   qemu_name=$(qemu_name_for_node "$name")
 
-  local KERNEL_BIN="$BUILD_TARGET_DIR/$TARGET/release/neuron-boot.bin"
+  # ADR-0081: each node boots the loader, which verifies the signed slot image (the boot
+  # payload: kernel + bootfs) on its own GPT disk — as the single-VM launcher boots.
+  local NXBOOT_BIN="$BUILD_TARGET_DIR/$TARGET/release/nxboot.bin"
+  local payload="$BUILD_TARGET_DIR/$TARGET/release/boot-payload.bin"
   local blk_img="$LOG_DIR/blk-${name}.img"
   # Always recreate to avoid stale lock contention between runs.
   rm -f "$blk_img"
-  # 64MiB is enough for StateFS + bring-up markers.
-  qemu-img create -f raw "$blk_img" 64M >/dev/null
+  "$BUILD_TARGET_DIR/release/nx" image build --kernel "$payload" --out "$blk_img" \
+    --sign "$ROOT/keys/dev-os-image.ed25519.seed" \
+    --build-id "dev-$(sha256sum "$payload" | cut -c1-8)" --rollback-index 1 >/dev/null
 
   local netdev
   if [[ "$name" == "A" ]]; then
@@ -1139,7 +1149,7 @@ launch_qemu() {
     -icount 1,sleep=on
     -global virtio-mmio.force-legacy=off
     -bios default
-    -kernel "$KERNEL_BIN"
+    -kernel "$NXBOOT_BIN"
     -drive "file=${blk_img},if=none,format=raw,id=drv0"
     -device "virtio-blk-device,drive=drv0"
     -device virtio-rng-device
@@ -1181,7 +1191,9 @@ verify_required_artifacts() {
     "$BUILD_TARGET_DIR/$TARGET/release/selftest-client"
     "$BUILD_TARGET_DIR/$TARGET/release/init-lite"
     "$BUILD_TARGET_DIR/$TARGET/release/neuron-boot"
-    "$BUILD_TARGET_DIR/$TARGET/release/neuron-boot.bin"
+    "$BUILD_TARGET_DIR/$TARGET/release/nxboot.bin"
+    "$BUILD_TARGET_DIR/$TARGET/release/boot-payload.bin"
+    "$BUILD_TARGET_DIR/release/nx"
   )
   local missing=0
   for path in "${required[@]}"; do

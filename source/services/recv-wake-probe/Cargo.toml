@@ -5,8 +5,8 @@
 # metadata keeps it out of the boot table; init never spawns it). execd spawns it ONCE after
 # `ready` as the #102-family regression gate: an exec'd child parked in a
 # BLOCKING ipc recv must be woken by a plain sender (`SELFTEST: exec child
-# blocking recv wake ok`). build.sh builds it and hands the ELF to execd's
-# build via `EXECD_RECVWAKE_ELF` (the app-host embedding pattern).
+# blocking recv wake ok`). build.sh builds it and packs it into the bootfs
+# (ADR-0081); init hands execd its sealed object at spawn, as the app-host's.
 
 
 [package]

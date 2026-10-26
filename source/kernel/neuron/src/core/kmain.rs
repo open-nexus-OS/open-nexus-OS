@@ -115,6 +115,9 @@ impl KernelState {
         // mapped read-only by `map_kernel_segments`; print what was read (or why not).
         crate::boot_fdt::report();
         crate::boot_image::report();
+        // ADR-0081: the bootfs becomes objects — one sealed object per file — before any task
+        // exists; `KSELFTEST: bootfs ok` is the rung, a bad bootfs is a boot gate.
+        crate::bootfs::adopt();
         if let Some(s) = crate::mm::frame_pool::stats() {
             let pt = crate::mm::page_table::PageTable::allocation_stats();
             let (vmos, vmo_bytes, _, _) = crate::mm::vmo::stats();
