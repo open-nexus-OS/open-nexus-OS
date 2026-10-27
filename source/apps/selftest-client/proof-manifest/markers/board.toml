@@ -372,6 +372,10 @@ proves = "a person at the monitor confirmed THIS boot's desktop drawn by the GPU
 phase = "end"
 proves = "a person at the monitor hid the focused app (Super+Ctrl+M), waited past the grace while the shell stayed smooth, and brought it back where it was — on THIS boot, with the act lines `windowd: minimize id=app`, `execd: freeze (pid=`, `abilitymgr: suspend (inst=`, `execd: thaw (pid=` in the trace (TASK-0333 6d-2, ADR-0083)"
 
+[marker."board-visual: restore"]
+phase = "end"
+proves = "a person at the monitor opened settings, went to another section, closed the window (Super+Ctrl+W or the close button) and opened settings again — it came back on that section, on THIS boot, with the act lines `apphost: persist saved (` and `SELFTEST: app restore ok (` in the trace (TASK-0333 6e-1, ADR-0086)"
+
 [marker."board-visual: typed"]
 phase = "end"
 proves = "a person confirmed that a USB keyboard and mouse move THIS boot's desktop (Block 2 gate)"

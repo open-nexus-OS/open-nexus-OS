@@ -3,7 +3,7 @@
 
 # RFC-0112: A service's death is a re-resolve for its clients — the compositor's restart brings the desktop back with every app's band as a ghost until its next present
 
-- Status: Draft (seeded 2026-10-27 from TASK-0333 6d-4's assessment; nothing built)
+- Status: Draft (seeded 2026-10-27 from TASK-0333 6d-4's assessment; nothing built; scheduled as TASK-0333 6g, after 6f — the operator's decision 2026-10-27)
 - Owners: @runtime @reliability @ui
 - Created: 2026-10-27
 - Last Updated: 2026-10-27

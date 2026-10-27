@@ -339,6 +339,10 @@ pub(super) fn sys_vmo_read(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     ensure_user_range(ctx, typed.user_ptr, typed.len, UserAccess::Write)?;
+    if crate::mm::vmo::purge::is_unlocked(id) {
+        // RFC-0100 §4: an object unlocked for purging is untouchable until its lock.
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     // Object bytes are runs (a lazy object's: pages, `None` where never touched — those read as
     // zeros and stay uncommitted); the user buffer is one range: copy piece by piece.
     let pieces = crate::mm::vmo::span(id, typed.offset, typed.len, false)
@@ -372,6 +376,10 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     };
     if crate::mm::vmo::is_sealed(id) {
         // ADR-0080: a sealed object has no writer.
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
+    if crate::mm::vmo::purge::is_unlocked(id) {
+        // RFC-0100 §4: an object unlocked for purging is untouchable until its lock.
         return Err(Error::Capability(CapError::PermissionDenied));
     }
     #[cfg(feature = "debug_uart")]

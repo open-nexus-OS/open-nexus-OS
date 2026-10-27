@@ -201,6 +201,10 @@ impl crate::bootstrap::declared_routes::LegEndpoints for CoreEndpoints {
     fn request_ep(&self, _: ServiceId, to: ServiceId) -> Option<u32> {
         self.server_pair(to).map(|(req, _)| req)
     }
+    /// The core plane holds two pairs; every other leg is the bulk wiring's, not a failure.
+    fn names_every_target(&self) -> bool {
+        false
+    }
 }
 
 /// A CORE service's pre-minted server pair → its deterministic slots 3/4

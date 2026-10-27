@@ -151,6 +151,10 @@ impl BoardGpu {
 }
 
 impl GpuService for BoardGpu {
+    fn held_by(&self, client: u64) -> u64 {
+        self.dev.held_by(ClientId(client))
+    }
+
     fn capabilities(&self) -> GpuCapabilities {
         let caps = self.dev.capabilities();
         GpuCapabilities {

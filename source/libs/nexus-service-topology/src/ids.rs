@@ -92,15 +92,18 @@ pub enum ServiceId {
     /// Screen-capture facade (RFC-0095 / TASK-0068): freezes the screen through windowd,
     /// crops, encodes PNG and saves it through vfsd; the shell's screenshot UI calls it.
     Screencapd = 34,
+    /// The one memory authority (RFC-0100 §3 / ADR-0086 / TASK-0333 6e-2): hears the kernel's
+    /// pressure sink, learns the bands from the lifecycle authority, orders a kill through it.
+    Memd = 35,
 }
 
 impl ServiceId {
     /// Number of entries needed to index a per-service array by `id as usize`
-    /// (discriminants are `1..=34`, so the array spans `0..=34`; index 0 is unused).
-    pub const COUNT: usize = 35;
+    /// (discriminants are `1..=35`, so the array spans `0..=35`; index 0 is unused).
+    pub const COUNT: usize = 36;
 
     /// Every service identifier, for iterating a per-service routing array.
-    pub const ALL: [ServiceId; 34] = [
+    pub const ALL: [ServiceId; 35] = [
         Self::Vfsd,
         Self::Packagefsd,
         Self::Policyd,
@@ -135,6 +138,7 @@ impl ServiceId {
         Self::Xhcid,
         Self::Clipboardd,
         Self::Screencapd,
+        Self::Memd,
     ];
 
     /// Look up a service by its canonical name. Returns None for unknown names.
@@ -174,6 +178,7 @@ impl ServiceId {
             b"xhcid" => Self::Xhcid,
             b"clipboardd" => Self::Clipboardd,
             b"screencapd" => Self::Screencapd,
+            b"memd" => Self::Memd,
             _ => return None,
         })
     }
@@ -215,6 +220,7 @@ impl ServiceId {
             Self::Xhcid => "xhcid",
             Self::Clipboardd => "clipboardd",
             Self::Screencapd => "screencapd",
+            Self::Memd => "memd",
         }
     }
 }

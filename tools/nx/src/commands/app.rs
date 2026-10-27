@@ -55,9 +55,12 @@ pub(crate) fn app_properties(manifest_toml: &str) -> Result<String, NxError> {
     // publishes them to the one permission authority (policyd) from the verified volume.
     let permissions = manifest_string_array(manifest_toml, "caps")?.join(",");
     let background = manifest_string_array(manifest_toml, "background")?.join(",");
+    // RFC-0100 §6 (TASK-0333 6e-1): `restorable = true` rides the sidecar too — bundlemgrd derives
+    // the app's `nexus.permission.STATE` grant from it (its own record in statefsd).
+    let restorable = manifest_field(manifest_toml, "restorable").is_some_and(|v| v == "true");
     Ok(format!(
         "label={label}\nicon={icon}\nbundle_type={bundle_type}\npayload_kind=ui-program\n\
-         permissions={permissions}\nbackground={background}\n"
+         permissions={permissions}\nbackground={background}\nrestorable={restorable}\n"
     ))
 }
 
@@ -146,14 +149,14 @@ mod tests {
         assert_eq!(
             app_properties(text).unwrap(),
             "label=Calculator\nicon=calculator|#3d4757|#1a202c\nbundle_type=app\npayload_kind=ui-program\n\
-             permissions=\nbackground=\n"
+             permissions=\nbackground=\nrestorable=false\n"
         );
         assert!(app_properties("bundle_type = \"app\"\n").is_err());
         // RFC-0111 §6: the caps and the background modes ride the sidecar, comma-joined.
-        let text = "name = \"notes\"\ncaps = [\"nexus.permission.WINDOW\", \"nexus.permission.NOTIFY\"]\nbackground = [\"audio\"]\n";
+        let text = "name = \"notes\"\ncaps = [\"nexus.permission.WINDOW\", \"nexus.permission.NOTIFY\"]\nbackground = [\"audio\"]\nrestorable = true\n";
         let props = app_properties(text).unwrap();
         assert!(props.ends_with(
-            "permissions=nexus.permission.WINDOW,nexus.permission.NOTIFY\nbackground=audio\n"
+            "permissions=nexus.permission.WINDOW,nexus.permission.NOTIFY\nbackground=audio\nrestorable=true\n"
         ));
         assert!(app_properties("name = \"x\"\ncaps = [1]\n").is_err());
         assert!(app_properties("name = \"x\"\ncaps = \"nexus.permission.WINDOW\"\n").is_err());

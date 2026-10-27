@@ -155,6 +155,7 @@ impl DisplayServerRuntime {
             }
             ZoneRequest::Arrange(kind) => self.arrange(idx, kind),
             ZoneRequest::Minimize => self.minimize_window(WindowId::App(idx as u8)),
+            ZoneRequest::Close => self.start_close_transition(idx),
         }
     }
 
@@ -203,6 +204,11 @@ impl DisplayServerRuntime {
             // screen, bring the first hidden one back from the taskbar — the keyboard's toggle.
             return self.minimize_chord(focused);
         }
+        if code == zones::CODE_CLOSE {
+            // Not a tile either (TASK-0333 6e-1): close the focused app window — the same exit
+            // the window's own close button takes; the app saves its durable state on the way.
+            return self.close_chord(focused);
+        }
         if !self.tile_chords {
             self.say_deny(TileDeny::ChordsOff);
             return;
@@ -221,6 +227,7 @@ impl DisplayServerRuntime {
             ZoneRequest::Return => "return",
             ZoneRequest::Arrange(a) => a.name(),
             ZoneRequest::Minimize => "minimize",
+            ZoneRequest::Close => "close",
         });
         let _ = debug_println(&crate::markers::wm_chord_marker(
             zone,
@@ -247,6 +254,18 @@ impl DisplayServerRuntime {
         let _ = debug_println(&crate::markers::wm_chord_marker("restore", Self::window_name(id)));
         let (cx, cy) = self.taskbar_anchor();
         self.start_restore_transition(id, cx, cy);
+    }
+
+    /// The close chord (TASK-0333 6e-1): the focused app window leaves through the close
+    /// transition — exactly the path its own close button takes (`CONTROL_WIN_CLOSE`).
+    fn close_chord(&mut self, focused: Option<usize>) {
+        let Some(idx) = focused.filter(|i| self.apps[*i].surface_id.is_some()) else {
+            self.say_deny(TileDeny::NoFocus);
+            return;
+        };
+        let id = WindowId::App(idx as u8);
+        let _ = debug_println(&crate::markers::wm_chord_marker("close", Self::window_name(id)));
+        self.start_close_transition(idx);
     }
 
     /// The work area changed (shell mode, display mode): every tiled window takes its zone's

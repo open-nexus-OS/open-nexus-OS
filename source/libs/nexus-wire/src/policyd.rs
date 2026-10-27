@@ -58,6 +58,11 @@ pub const MAX_APP_GRANTS: usize = 16;
 /// holding it is not frozen for being hidden. ONE name for the publisher (bundlemgrd), the
 /// authority (policyd) and the lifecycle authority (abilitymgr) — deny-by-default without it.
 pub const PERMISSION_BACKGROUND: &str = "nexus.permission.BACKGROUND";
+/// The grant a `restorable = true` manifest becomes (RFC-0100 §6, ADR-0086): the app's own
+/// state record in statefsd (`/state/app/@self/…`, the sender's kernel identity names the
+/// owner) — its `@persist` fields come back after a kill. Derived by the publisher
+/// (bundlemgrd), routed by the launcher (execd) as `svc.state`, never named in `caps`.
+pub const PERMISSION_STATE: &str = "nexus.permission.STATE";
 
 /// Status: allowed.
 pub const STATUS_ALLOW: u8 = 0;

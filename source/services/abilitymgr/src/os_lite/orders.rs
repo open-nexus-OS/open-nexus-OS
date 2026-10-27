@@ -9,6 +9,10 @@
 //! execd leg). Markers are the proof: `abilitymgr: suspend (inst=` after execd froze the
 //! process, `abilitymgr: thaw (inst=` after it ran again, and ONE
 //! `SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)` on the first full cycle of a boot.
+//! TASK-0333 6e-2 (RFC-0100 §3, ADR-0086): the same glue feeds the memory authority — every
+//! band change goes to memd on the declared leg (NONBLOCK, a refused push stays due) and
+//! memd's kill order (`OP_MEM_KILL`, from its kernel sender id alone) is judged by the pure
+//! `mem_kill` policy and carried to execd as `OP_KILL`: `abilitymgr: kill (inst= reason=memory)`.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -20,7 +24,10 @@ use nexus_ipc::{Client as _, KernelClient, Wait};
 use nexus_service_topology::slots::abilitymgr as topo;
 
 use super::{emit_inst_line, emit_line};
+use crate::bands::BandFeed;
 use crate::lifecycle::{AbilityState, Broker};
+use crate::mem_kill::{encode_mem_kill_reply, handle_mem_kill, MemKillOutcome};
+use crate::protocol::{STATUS_DENIED, STATUS_FAILED, STATUS_MALFORMED, STATUS_OK, STATUS_UNKNOWN};
 use crate::seen::{handle_seen, Order, SeenOutcome};
 
 /// The loop's clock and its proof state.
@@ -35,6 +42,14 @@ pub(super) struct Lifecycle {
     froze: bool,
     /// The SELFTEST line was emitted (once per boot).
     proven: bool,
+    /// The memory authority's kernel identity: the one sender whose kill orders count.
+    memd_sid: u64,
+    /// The declared leg to memd (bound at the first push; `None` until init pinned it).
+    memd: Option<KernelClient>,
+    /// What memd last heard of every process.
+    bands: BandFeed,
+    /// A denied kill order was named this boot (the rest are counted silently).
+    kill_denied_said: bool,
 }
 
 impl Lifecycle {
@@ -53,6 +68,75 @@ impl Lifecycle {
             windowd_sid: nexus_abi::service_id_from_name(b"windowd"),
             froze: false,
             proven: false,
+            memd_sid: nexus_abi::service_id_from_name(b"memd"),
+            memd: None,
+            bands: BandFeed::new(),
+            kill_denied_said: false,
+        }
+    }
+
+    /// Pushes every band that differs from what memd last heard (TASK-0333 6e-2): NONBLOCK on
+    /// the declared leg, committed only when the send was taken — memd not yet up or a full
+    /// queue leaves the band due for the next pass. Cheap: at most 32 instances.
+    pub(super) fn publish_bands(&mut self, broker: &Broker) {
+        let due = self.bands.changes(broker);
+        if due.is_empty() {
+            return;
+        }
+        if self.memd.is_none() {
+            self.memd = KernelClient::new_with_slots(topo::MEMD.send, topo::MEMD.recv).ok();
+        }
+        let Some(client) = self.memd.as_ref() else { return };
+        for (pid, band) in due {
+            let frame = nexus_wire::memd::encode_band(pid, band);
+            if client.send(&frame, Wait::NonBlocking).is_ok() {
+                self.bands.commit(pid, band);
+            }
+        }
+    }
+
+    /// One `OP_MEM_KILL` frame from `sender_service_id` (TASK-0333 6e-2): refused unless it is
+    /// the memory authority's; judged by the pure policy (never the foreground); the order
+    /// carried to execd at once. Returns the reply frame.
+    pub(super) fn on_mem_kill(
+        &mut self,
+        broker: &Broker,
+        frame: &[u8],
+        sender_service_id: u64,
+    ) -> [u8; 9] {
+        if !crate::mem_kill::mem_kill_frame_allowed(frame, sender_service_id, self.memd_sid) {
+            if !self.kill_denied_said {
+                self.kill_denied_said = true;
+                emit_line("abilitymgr: kill denied (sender)");
+            }
+            return encode_mem_kill_reply(STATUS_DENIED, 0);
+        }
+        match handle_mem_kill(broker, frame) {
+            MemKillOutcome::Malformed => {
+                emit_line("abilitymgr: kill malformed");
+                encode_mem_kill_reply(STATUS_MALFORMED, 0)
+            }
+            MemKillOutcome::Unknown { pid } => {
+                emit_inst_line(b"abilitymgr: kill unknown (pid=", pid);
+                encode_mem_kill_reply(STATUS_UNKNOWN, pid)
+            }
+            MemKillOutcome::Foreground { instance_id, pid } => {
+                emit_inst_line(b"abilitymgr: kill denied (foreground; inst=", instance_id);
+                encode_mem_kill_reply(STATUS_DENIED, pid)
+            }
+            MemKillOutcome::Victim { instance_id, pid, .. } => {
+                if order_execd(OP_KILL, pid) {
+                    nexus_abi::debug_ts_prefix();
+                    super::emit_prefix(b"abilitymgr: kill (inst=");
+                    super::emit_u32(instance_id);
+                    super::emit_prefix(b" reason=memory)");
+                    super::emit_newline();
+                    encode_mem_kill_reply(STATUS_OK, pid)
+                } else {
+                    emit_inst_line(b"abilitymgr: FAIL kill (inst=", instance_id);
+                    encode_mem_kill_reply(STATUS_FAILED, pid)
+                }
+            }
         }
     }
 
@@ -139,6 +223,8 @@ impl Lifecycle {
 /// execd's order ops (RFC-0111 §5): `[E,X,1,op, pid:u32le]` → `[E,X,1,op|0x80,status,pid]`.
 const OP_FREEZE: u8 = 4;
 const OP_THAW: u8 = 5;
+/// An ORDERED kill (no crash report): the memory authority's victim (ADR-0086).
+const OP_KILL: u8 = 6;
 
 /// The kernel service id execd gives an app's process (`app:<bundle_id>`, execd's `identity`):
 /// the key the compositor reports a window by.

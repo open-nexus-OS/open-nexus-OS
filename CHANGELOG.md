@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-27 (the kernel says how tight memory is, one authority listens, a restorable app comes back where it was — TASK-0333 6e-0…6e-4, ADR-0085, ADR-0086)
+
+- **GPU memory has a client.** Every byte the GPU driver holds, it holds for someone: the
+  framebuffer it lends the compositor, a client's context buffers on the board. The driver keeps
+  the figure per client and tells the memory authority each change as one absolute number, taken
+  from the driver's kernel identity alone, so the authority's picture of a process includes what
+  the GPU holds for it.
+
+- **A cache's owner can hand its pages to the kernel.** A lazy object nobody maps and no device
+  was told of can be unlocked (syscall 68); unlocked, it refuses every access, and when the level
+  reaches warn the kernel frees its frames before it tells anyone. Locking it again answers
+  whether the pages were purged, so the owner rebuilds instead of trusting stale memory. A bound,
+  eager or mapped object is refused.
+- **The level reaches everyone who can act on it.** memd tells gpud and the compositor, without
+  waiting on either; the compositor tells every live app window on its own event channel, and
+  app-host raises it into the program as the host event `MemoryPressure` (normal, warn, critical,
+  emergency). A program that declares no case does no work.
+
+- **The kernel states the pressure, once per change.** Free frames per bank against watermarks
+  derived from the boot-time free total (warn / critical / emergency, with hysteresis on the way
+  up); one frame into one bound endpoint per level change, so a listener is woken, never polled.
+  The memory statistics gained the committed, reserved and purgeable figures per space.
+- **memd is the one memory authority.** A new platform service binds the kernel's sink, learns
+  from the lifecycle authority what each app process is to the user (foreground, visible,
+  declared background, hidden, frozen) as a diff after every change, and at critical pressure
+  asks the lifecycle authority to end the lowest-ranked process — never the foreground, never a
+  service, one at a time, proven by the victim's death, never by the order. The order is taken
+  from memd's kernel sender id alone and refused for an app the user is looking at.
+- **A restorable app comes back where it was.** `restorable = true` in the manifest derives one
+  grant and one route to the state store; the app's `@persist` fields are written when the
+  compositor says the window is hidden and when it closes (never per change, never on a clock),
+  and read once at mount before the root effects. Super+Ctrl+W closes the focused app window.
+- **The proof harness drills the kill on QEMU lanes only**: a simulated level over the real
+  bands, so the victim, the order, the kill and the reap are the live path; never on a board.
+
 ### Changed - 2026-10-27 (one permission authority: policyd holds every app grant — TASK-0333 6d-3, ADR-0084)
 
 - **An app's permissions have one home.** abilitymgr and execd each compiled every manifest's

@@ -52,6 +52,8 @@ pub enum ZoneRequest {
     Arrange(Arrangement),
     /// Minimize the window (TASK-0333 6d: the keyboard's hide; the taskbar brings it back).
     Minimize,
+    /// Close the window (TASK-0333 6e-1: the keyboard's close).
+    Close,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +102,9 @@ pub const CODE_ARRANGE_LEFT_RIGHT: u8 = 11;
 pub const CODE_ARRANGE_TOP_BOTTOM: u8 = 12;
 pub const CODE_ARRANGE_QUARTERS: u8 = 13;
 pub const CODE_MINIMIZE: u8 = 14;
+/// Close the focused window (TASK-0333 6e-1: the keyboard's close; the app saves its `@persist`
+/// snapshot on the way out and exits).
+pub const CODE_CLOSE: u8 = 15;
 
 impl Zone {
     /// The feed/verb code of this zone (`CODE_*`).
@@ -155,6 +160,7 @@ pub const fn request_from_code(code: u8) -> Option<ZoneRequest> {
         CODE_ARRANGE_TOP_BOTTOM => ZoneRequest::Arrange(Arrangement::TopBottom),
         CODE_ARRANGE_QUARTERS => ZoneRequest::Arrange(Arrangement::Quarters),
         CODE_MINIMIZE => ZoneRequest::Minimize,
+        CODE_CLOSE => ZoneRequest::Close,
         _ => return None,
     })
 }
@@ -365,8 +371,9 @@ mod tests {
             Some(ZoneRequest::Arrange(Arrangement::Quarters))
         );
         assert_eq!(request_from_code(CODE_MINIMIZE), Some(ZoneRequest::Minimize));
+        assert_eq!(request_from_code(CODE_CLOSE), Some(ZoneRequest::Close));
         assert_eq!(request_from_code(0), None);
-        assert_eq!(request_from_code(15), None);
+        assert_eq!(request_from_code(16), None);
         assert_eq!(Arrangement::Quarters.zones().len(), 4);
     }
 

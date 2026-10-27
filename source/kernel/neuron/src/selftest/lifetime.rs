@@ -69,6 +69,9 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     run_unmap_reclaim(ctx);
     // TASK-0333 6d (ADR-0082): the process orders and their refusals, in the same session.
     super::process_ctl::run_process_ctl_selftests(ctx);
+    // TASK-0333 6e-0 (ADR-0085): the memory pressure sink — bind, the level, the refusal.
+    super::pressure::run_pressure_selftests(ctx);
+    super::pressure::run_purge_selftest(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
 }
 

@@ -383,18 +383,24 @@ pub(super) fn fill_user_fault(exc: usize, stval: usize) -> bool {
     };
     // U-mode fault → this hart holds no BKL; safe to acquire.
     let Ok(mut kernel) = KernelGuard::acquire() else { return false };
-    let (_, tasks, _, spaces, ..) = kernel.parts();
+    let (scheduler, tasks, router, spaces, ..) = kernel.parts();
     let pid = tasks.current_pid();
     let Some(handle) = tasks.current_task().address_space() else { return false };
     let Ok(space) = spaces.get_mut(handle) else { return false };
-    match crate::mm::populate::fill(space, stval, access) {
+    let filled = match crate::mm::populate::fill(space, stval, access) {
         Ok(()) => true,
         Err(crate::mm::populate::FillError::Exhausted) => {
             log_error!(target: "mm", "KINIT: vm commit exhausted (pid={} va=0x{:x})", pid.as_raw(), stval);
             false
         }
         Err(crate::mm::populate::FillError::Violation(_)) => false,
+    };
+    // ADR-0085: the page this fill committed may have crossed a watermark — the sink hears it
+    // on this trap, with the trap's exclusive borrows.
+    if crate::mm::pressure_endpoint::pending() {
+        crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
     }
+    filled
 }
 
 /// Fail-fast for a U-mode fault: kill the offending task (leaving it alive

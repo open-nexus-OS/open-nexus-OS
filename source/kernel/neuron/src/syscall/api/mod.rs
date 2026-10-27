@@ -376,6 +376,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_WAIT_NOHANG, sys_wait_nohang);
     table.register(SYSCALL_EXEC_VMO, sys_exec_vmo);
     table.register(crate::syscall::SYSCALL_VMO_SEAL, sys_vmo_seal);
+    table.register(crate::syscall::SYSCALL_VMO_PURGEABLE, sys_vmo_purgeable);
     table.register(SYSCALL_IPC_SEND_V1, sys_ipc_send_v1);
     table.register(SYSCALL_IPC_CALL_V1, ipc_call::sys_ipc_call);
     table.register(SYSCALL_IPC_REPLY_RECV_V1, ipc_call::sys_ipc_reply_recv);
@@ -399,6 +400,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_IRQ_BIND, sys_irq_bind);
     table.register(crate::syscall::SYSCALL_IRQ_COMPLETE, sys_irq_complete);
     table.register(crate::syscall::SYSCALL_CHILD_EXIT_BIND, sys_child_exit_bind);
+    table.register(crate::syscall::SYSCALL_MEM_PRESSURE_BIND, sys_mem_pressure_bind);
     table.register(crate::syscall::SYSCALL_WAITSET_CREATE, sys_waitset_create);
     table.register(crate::syscall::SYSCALL_WAITSET_ADD, sys_waitset_add);
     table.register(crate::syscall::SYSCALL_WAITSET_WAIT, sys_waitset_wait);

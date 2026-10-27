@@ -11,6 +11,7 @@ pub mod debug;
 pub mod dma;
 pub mod ipc;
 pub mod memory;
+pub mod pressure;
 pub mod task;
 pub mod time;
 pub mod types;

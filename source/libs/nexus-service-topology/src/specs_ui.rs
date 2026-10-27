@@ -87,11 +87,12 @@ pub(crate) const GPUD: ServiceSpec = ServiceSpec {
     // notification deliberately reuses the control-reply endpoint (never the server endpoint,
     // which would swallow windowd's present commands).
     reply_inbox: true,
-    routes_to: &[Route {
-        to: ServiceId::Socd,
-        kind: RouteKind::ReplyInbox,
-        slots: slots::gpud::SOCD,
-    }],
+    routes_to: &[
+        Route { to: ServiceId::Socd, kind: RouteKind::ReplyInbox, slots: slots::gpud::SOCD },
+        // TASK-0333 6e-4 (RFC-0100 §3): what the GPU holds for a client, told to the memory
+        // authority — a push, never answered.
+        Route { to: ServiceId::Memd, kind: RouteKind::ReplyInbox, slots: slots::gpud::MEMD },
+    ],
     announce: true,
     server_slots: slots::gpud::SERVER,
     reply_slots: slots::gpud::REPLY,

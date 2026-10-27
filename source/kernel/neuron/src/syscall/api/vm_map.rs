@@ -39,6 +39,10 @@ pub(super) fn sys_vm_map(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize>
         // ADR-0080: a sealed object has no writer.
         return Err(Error::Capability(CapError::PermissionDenied));
     }
+    if crate::mm::vmo::purge::is_unlocked(id) {
+        // RFC-0100 §4: an object unlocked for purging is untouchable until its lock.
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     let span_end = offset.checked_add(len).ok_or(AddressSpaceError::InvalidArgs)?;
     if span_end > cap_len {
         log_error!(

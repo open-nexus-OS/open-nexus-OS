@@ -473,15 +473,16 @@ pub mod accounting;
 // so its reject matrix runs on host; `mm::reclaim` applies it.
 #[path = "mm/vmo_lifetime.rs"]
 pub mod vmo_lifetime;
-// TASK-0333 6b-1 (RFC-0100 §2, ADR-0077): what a page fault or a kernel access to user memory
-// may commit, and a lazy object's frame table — pure, NOT target-gated (host-proven).
+// TASK-0333 6b-1 (ADR-0077): what a fault may commit, a lazy object's frames (pure, host-proven).
 #[path = "mm/lazy.rs"]
 pub mod lazy;
 // TASK-0333 6b-3: who grew — a space's new high by a step, named at a reap (pure, host-proven).
 #[path = "mm/growth.rs"]
 pub mod growth;
-// RFC-0079: the pure last-sender-EOF decision predicate — NOT target-gated so
-// its fail-safe reject-matrix truth table runs on host. Fed by the recv path.
+// TASK-0333 6e-0 (ADR-0085): the watermarks, the level, the pressure frame (pure, host-proven).
+#[path = "mm/pressure.rs"]
+pub mod pressure;
+// RFC-0079 (`ipc_eof` below): the pure last-sender-EOF predicate, host-tested; fed by the recv path.
 /// One console line at a time across harts — the pure owner logic (TASK-0327B P4 H0d),
 /// host-tested; bound to the funnel in `hal::console_line`.
 pub mod console_line;

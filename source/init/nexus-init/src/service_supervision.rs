@@ -119,6 +119,10 @@ pub const SUPERVISION: &[(ServiceId, Criticality, RestartPolicy)] = &[
     // TASK-0068: the screen-capture facade — a restart loses at most a capture in progress
     // (windowd ends an abandoned freeze by itself); the frame VMO is lent again at start.
     (ServiceId::Screencapd, Criticality::Standard, RestartPolicy::OnFailure),
+    // TASK-0333 6e-2 (ADR-0086): the one memory authority — a restart re-binds the kernel's
+    // pressure sink (the old binding died with its endpoint) and relearns the bands from the
+    // lifecycle authority's next pushes; nothing it held is truth, the kernel and abilitymgr are.
+    (ServiceId::Memd, Criticality::Standard, RestartPolicy::OnFailure),
 ];
 
 /// Supervision entry for a service, if it is a supervised boot service.

@@ -31,6 +31,9 @@ pub const CAP_READ: &str = "app.grants.read";
 /// for being hidden (RFC-0111 §4); it comes from a non-empty `background = [...]` in the
 /// manifest, never from `caps`.
 pub const BACKGROUND: &str = wire::PERMISSION_BACKGROUND;
+/// The grant of 6e-1: the app's `@persist` snapshot survives a kill; it comes from
+/// `restorable = true` in the manifest, never from `caps`.
+pub const STATE: &str = wire::PERMISSION_STATE;
 /// Most apps the table holds (the verified volume carries well under this).
 pub const MAX_APPS: usize = 32;
 
@@ -42,8 +45,9 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     "nexus.permission.WINDOW",
     // Post notifications via notifd (RFC-0065 notifications).
     "nexus.permission.NOTIFY",
-    // Persist/read app state via statefsd.
-    "nexus.permission.STATE",
+    // The app's own durable record in statefsd (`svc.state`): `restorable = true` in the
+    // manifest (TASK-0333 6e-1, ADR-0086) — never named in `caps`.
+    STATE,
     // Execute QuerySpec v1 queries via queryd (docs/dev/dsl/db-queries.md).
     "nexus.permission.QUERY",
     // System-role permissions (TASK-0080C): the privilege ceiling (nxb-pack) only lets the

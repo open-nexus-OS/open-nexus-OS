@@ -92,6 +92,16 @@ ladder_headless=(
   "KSELFTEST: vm unmap reclaim ok ("
   # TASK-0333 6d (ADR-0082): the process orders and their refusals, on four harts too.
   "KSELFTEST: process ctl ok ("
+  # TASK-0333 6e-0 (ADR-0085): the memory pressure sink — bind, the level, the refusal, the
+  # clear — and the booted pool's watermarks in order (two banks on the board).
+  "KSELFTEST: mem pressure notify ok ("
+  "KSELFTEST: vmo purge ok ("
+  "KSELFTEST: mem watermarks ok ("
+  # TASK-0333 6e-2 (ADR-0086): the one memory authority is up, heard the kernel's first pressure
+  # frame at its bind (two banks on the board) and tells the harness the sink is its own.
+  "memd: ready"
+  "memd: pressure (level="
+  "SELFTEST: memd bound ok ("
   # TASK-0333 6d-1 (ADR-0082): execd's probe child frozen while parked in its receive (a call to
   # it refused, no hart ran it), thawed (the ping delivered), then killed on order (EOF, reaped
   # as killed — no crash report).
@@ -229,6 +239,10 @@ ladder_headless=(
 ladder_visible=(
   "${ladder_headless[@]}"
   "gpud: framebuffer granted ("
+  # TASK-0333 6e-4: the framebuffer lent to the compositor (and its context's buffers) charged
+  # to it and taken by the memory authority.
+  "gpud: gpu memory charged (client="
+  "memd: gpu charge (client="
   "windowd: display mode from gpud ("
   "gpud: dc reveal flip ok ("
   "windowd: desktop revealed"
@@ -246,6 +260,10 @@ ladder_visible=(
   # view — the interrupt served for a second, the first flip written inside the blank.
   "gpud: dc vblank ok ("
   "gpud: dc flip ok ("
+  # TASK-0333 6e-2 (ADR-0086): the first app the operator opens reaches the memory authority
+  # as a band — the lifecycle authority's push on the declared leg. (The kill drill never runs
+  # on a board: it would end an app the operator is using; the QEMU lanes prove the chain.)
+  "memd: band (pid="
 )
 acks_headless=()
 # TASK-0074: every visual task ships an operator rung — the shell's first modal (power button
@@ -254,7 +272,10 @@ acks_headless=()
 # grace, brings it back — the app returns where it was, the shell smooth; the act lines are
 # `windowd: minimize id=app` → `execd: freeze (pid=` → `abilitymgr: suspend (inst=` →
 # `execd: thaw (pid=` (an ack without them is not given).
-acks_visible=("desktop" "typed" "pointer" "modal" "tile" "clipboard" "screenshot" "gpu-desktop" "lifecycle")
+# TASK-0333 6e-1 (ADR-0086): the operator opens settings, goes to another section, closes the
+# window (Super+Ctrl+W) and opens settings again — it comes back on that section; the act lines
+# are `apphost: persist saved (` → `SELFTEST: app restore ok (` (an ack without them is not given).
+acks_visible=("desktop" "typed" "pointer" "modal" "tile" "clipboard" "screenshot" "gpu-desktop" "lifecycle" "restore")
 
 case "$PROFILE" in
   board-headless) ladder=("${ladder_headless[@]}"); acks=("${acks_headless[@]}") ;;

@@ -62,9 +62,6 @@ use crate::systemui_shell::{HOVER_LAYER_ID, SIDEBAR_LAYER_ID};
 // Interactive geometry lives in `interaction` — the single source of truth shared
 // by the live renderer and the hit-tester (hit area == rendered rect).
 use crate::interaction::SIDEBAR_WIDTH;
-// Bounded scratch contract for the (currently gpud-sampled) glass overlay strip.
-#[allow(dead_code)]
-const GLASS_OVERLAY_MAX_BYTES: usize = SIDEBAR_WIDTH as usize * 4;
 const ANIMATION_UPDATE_CAP: usize = 8;
 
 // Topical submodules holding `impl DisplayServerRuntime` blocks split out of this
@@ -92,6 +89,7 @@ mod marker_emit;
 mod observer;
 mod present;
 mod presentation;
+mod pressure;
 mod region;
 mod scene;
 mod session;

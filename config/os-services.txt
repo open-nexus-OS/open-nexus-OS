@@ -24,3 +24,4 @@ gpud
 windowd
 clipboardd
 screencapd
+memd

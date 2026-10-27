@@ -59,6 +59,11 @@ pub fn init_from_tree() -> Result<Stats, InitError> {
     }
     let pool = FrameAllocator::init_from_fdt(&fdt, &excluded[..n]).map_err(InitError::Frames)?;
     let stats = pool.stats();
+    // ADR-0085: the watermarks are fractions of what each bank has free at this moment.
+    super::pressure_endpoint::init(
+        pool.banks().iter().map(|bank| bank.free_frames() as u64),
+        stats.free as u64,
+    );
     *POOL.lock() = Some(pool);
     Ok(stats)
 }
@@ -81,15 +86,19 @@ fn locked(
     order: u8,
     f: impl FnOnce(&mut FrameAllocator) -> Result<Block, FrameError>,
 ) -> Result<Block, FrameError> {
-    let (result, count) = match POOL.lock().as_mut() {
+    let (result, count, free) = match POOL.lock().as_mut() {
         Some(pool) => {
             let result = f(pool);
             let count = if result.is_err() { pool.stats().exhausted } else { 0 };
-            (result, count)
+            (result, count, Some(pool.free_frames()))
         }
         // No pool yet: every ask is refused, and says so.
-        None => (Err(FrameError::Exhausted { order, free: 0 }), 1),
+        None => (Err(FrameError::Exhausted { order, free: 0 }), 1, None),
     };
+    // ADR-0085: the level is read with the pool lock dropped (the tracker has its own).
+    if let Some(free) = free {
+        super::pressure_endpoint::observe(free as u64);
+    }
     if let Err(FrameError::Exhausted { order, free }) = result {
         if crate::accounting::log_exhaustion(count) {
             log_error!(target: "mm",
@@ -103,10 +112,13 @@ fn locked(
 /// Return a block. A refusal (foreign, misaligned, double) is a kernel bug
 /// and is reported as one.
 pub fn free(block: Block) {
-    let result = match POOL.lock().as_mut() {
-        Some(pool) => pool.free(block),
-        None => Err(FrameError::NotOwned),
+    let (result, free) = match POOL.lock().as_mut() {
+        Some(pool) => (pool.free(block), Some(pool.free_frames())),
+        None => (Err(FrameError::NotOwned), None),
     };
+    if let Some(free) = free {
+        super::pressure_endpoint::observe(free as u64);
+    }
     if let Err(e) = result {
         log_error!(target: "mm", "MM: frame free refused ({:?}) base=0x{:x} order={}", e, block.base, block.order);
     }
@@ -151,10 +163,13 @@ fn take_bytes(
 /// (`FrameAllocator::trim`); the answer is the pieces that tile the kept part. A refusal is a
 /// kernel bug (the block is not allocated): it is reported, and the block stays whole.
 pub fn trim(block: Block, keep: usize) -> Vec<Block> {
-    let result = match POOL.lock().as_mut() {
-        Some(pool) => pool.trim(block, keep),
-        None => Err(FrameError::NotOwned),
+    let (result, free) = match POOL.lock().as_mut() {
+        Some(pool) => (pool.trim(block, keep), Some(pool.free_frames())),
+        None => (Err(FrameError::NotOwned), None),
     };
+    if let Some(free) = free {
+        super::pressure_endpoint::observe(free as u64);
+    }
     result.unwrap_or_else(|e| {
         log_error!(target: "mm", "MM: frame trim refused ({:?}) base=0x{:x} order={} keep={}", e, block.base, block.order, keep);
         alloc::vec![block]

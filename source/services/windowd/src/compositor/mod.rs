@@ -57,6 +57,8 @@ mod gpu_context;
 #[cfg(nexus_env = "os")]
 mod loop_telemetry;
 pub(crate) mod material_glass;
+#[cfg(nexus_env = "os")]
+mod pushes;
 mod reply_route;
 mod runtime;
 mod scene;
@@ -214,18 +216,9 @@ fn dispatch_client_frame(
     mut moved_cap: Option<nexus_ipc::ReplyCap>,
     sender_sid: u64,
 ) {
-    // RFC-0075: imed pushes arrive on the same server endpoint but speak the
-    // `'I','E'` protocol — discriminate by MAGIC before the op switch (the
-    // `'I','N'` op space below would misread them). Fire-and-forget: no reply.
-    if frame.len() >= 4 && frame[0] == b'I' && frame[1] == b'E' {
-        runtime.handle_imed_push(frame, sender_sid);
-        return;
-    }
-    // RFC-0083: settingsd watch events (`'S','T'` OP_EVENT) — the watch caps
-    // are clones of OUR OWN server send half, so a settings change wakes an
-    // idle compositor as ordinary inbound IPC. Fire-and-forget: no reply.
-    if frame.len() >= 4 && frame[0] == b'S' && frame[1] == b'T' {
-        runtime.handle_settings_event(frame);
+    // Pushes of their own protocol (imed, settingsd, the memory authority) are told apart by
+    // MAGIC before the `'I','N'` op switch below would misread them — `pushes.rs`. No reply.
+    if pushes::dispatch_push(runtime, frame, sender_sid) {
         return;
     }
     if frame_has_op(frame, OP_GET_DISPLAY_SPACE) {

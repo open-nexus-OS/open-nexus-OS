@@ -326,6 +326,9 @@ pub(crate) fn cpu_main(cpu: CpuId) -> ! {
                 // timer-cap delivery move per-hart in A6/A7).
                 crate::trap::process_expired_timers(timer, hart_timers, router, tasks, scheduler);
                 crate::irq::dispatch_external(router, tasks, scheduler);
+                if crate::mm::pressure_endpoint::pending() {
+                    crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
+                }
                 let now = timer.now();
                 let len = tasks.len();
                 for pid_usize in 0..len {

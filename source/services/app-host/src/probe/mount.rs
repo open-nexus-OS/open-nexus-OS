@@ -66,6 +66,25 @@ impl DslApp {
         if let Some(snapshot) = store_snapshot {
             view.runtime.store_restore(snapshot);
         }
+        // TASK-0333 6e-1 (RFC-0100 §6): a restorable app's `@persist` fields come back from its
+        // own record BEFORE the initial effects — the user is where they left off, and a field a
+        // service fills still refreshes over the stale copy. Only a program with a persisted
+        // field asks; only an app with the state route gets an answer.
+        if store_snapshot.is_none() && view.runtime.has_persist_fields() {
+            let t0 = super::nsec_now();
+            if let Some(bytes) = super::persist::load() {
+                let fields = view.runtime.persist_restore(&bytes);
+                if fields > 0 {
+                    raw_marker(&alloc::format!(
+                        "SELFTEST: app restore ok (fields={fields} bytes={} warm_us={})",
+                        bytes.len(),
+                        super::nsec_now().saturating_sub(t0) / 1000
+                    ));
+                } else {
+                    raw_marker("apphost: persist restore FAIL (no field matched)");
+                }
+            }
+        }
         // Declarative initial load (principles.md §5): an `@effect` event
         // dispatched by NOTHING is a ROOT — it runs once at mount. Fire the
         // roots BEFORE the first layout so the frame reflects service-loaded

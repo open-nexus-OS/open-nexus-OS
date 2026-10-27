@@ -106,6 +106,26 @@ re-run. Consequences for app authors:
 - Duplicate or reordered snapshots are free: every apply compares before
   acting; the snapshot generation is a dedupe token, not a protocol you see.
 
+## Host-raised events
+
+Some events are raised into the program by the host itself, not by a widget:
+the program declares the event and its cases like any other; a program without
+the case does no work (no dispatch, no relayout).
+
+| Event | Cases | Raised when |
+|---|---|---|
+| `ProfileEvent` | `Changed(tag)` | the shell profile switched (above) |
+| `KeymapEvent` | `Changed` | the keymap switched |
+| `ImeStripEvent` | (the strip's cases) | the composition strip changed (RFC-0075, ime-ui) |
+| `MemoryPressure` | `Normal`, `Warn`, `Critical`, `Emergency` | the memory authority's level reached the window (TASK-0333 6e-3, RFC-0100 §3) |
+
+`MemoryPressure` carries no payload. The level comes from the kernel through memd and the
+compositor on the window's own event channel; at `Warn` a program drops what it can rebuild
+(a decoded image, a long list's off-screen rows), at `Critical` everything but what the user
+sees — the authority may end a hidden process next. The host names each arrival
+(`apphost: mem pressure (level= handled=)`); `handled=1` means the program declared the case and
+its dispatch changed the view.
+
 ## Memory over a session: the frame arena (ADR-0065)
 
 An app-host rebuilds a frame on every structural interaction and throws it away —

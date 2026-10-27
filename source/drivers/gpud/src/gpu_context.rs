@@ -31,6 +31,11 @@ pub(crate) trait GpuService {
     fn open(&mut self, client: u64, priority: u8, library: &[u8]) -> ContextOpened;
     /// The device's interrupt fired: its messages served (the board's firmware).
     fn on_wake(&mut self) {}
+    /// Bytes the device holds in `client`'s GPU context (TASK-0333 6e-4: charged to the
+    /// client); nothing where the display draws the frames itself.
+    fn held_by(&self, _client: u64) -> u64 {
+        0
+    }
     /// The GPU that draws windowd's frames, once windowd's context is open (the board's,
     /// TASK-0215 5c-3 P4b); `None` while the display composes them itself.
     fn frames(&mut self) -> Option<&mut dyn FrameGpu> {

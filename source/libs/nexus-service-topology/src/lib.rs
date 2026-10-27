@@ -132,6 +132,12 @@ pub enum NamedSlot {
     ChildExitRecv,
     /// Child-death endpoint: the SEND half bound with `child_exit_bind`.
     ChildExitSend,
+    /// Memory-pressure endpoint (TASK-0333 6e, ADR-0085): the RECV half, a waitset member
+    /// beside memd's server endpoint — the kernel writes one `OP_MEMORY_PRESSURE` frame per
+    /// level change here. One sink for the whole system, held by the one memory authority.
+    MemPressureRecv,
+    /// Memory-pressure endpoint: the SEND half bound with `mem_pressure_bind`.
+    MemPressureSend,
     /// Device-watchdog endpoint (TASK-0054C P2-b): the RECV half, a waitset member beside the
     /// device's IRQ endpoint. A device that never answers ends the wait through this timer —
     /// never through a receive deadline. Its own endpoint: one endpoint per timer.

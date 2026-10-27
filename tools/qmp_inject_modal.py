@@ -430,6 +430,60 @@ class ModalPhase:
         self.chord(["ctrl", "meta_l", "m"])
         if self.wait_marker("SELFTEST: ability lifecycle ok", timeout_s):
             self.log("lifecycle phase complete (Super+Ctrl+M → frozen → Super+Ctrl+M → thawed)")
+            self.run_restore(timeout_s)
+
+    def run_restore(self, timeout_s: float) -> None:
+        """TASK-0333 6e-1 (ADR-0086): the settings window is back and focused. Super+Ctrl+W
+        closes it — app-host writes its `@persist` record on the way out (`apphost: persist
+        saved (… reason=close)`) and exits; the launcher opens settings again and the new
+        process restores the record before its first frame: `SELFTEST: app restore ok`."""
+        self.wait_settled(20.0)
+        time.sleep(1.0)
+        since = self.uart_size()
+        self.chord(["ctrl", "meta_l", "w"])
+        if not self.wait_marker_after("windowd: wm chord (zone=close", since, timeout_s):
+            return
+        if not self.wait_marker_after("apphost: persist saved (", since, 30.0):
+            return
+        if not self.wait_marker_after("WINDOWD: app window closed", since, 30.0):
+            return
+        time.sleep(1.5)
+        # The launcher sheet does not close when an app launches: it stayed open under the
+        # settings window through the tiling and lifecycle phases, so the tile is clickable at
+        # once — and a taskbar click now would CLOSE it (run 2026-10-27T14-25-51: the tile tap
+        # missed). Click the tile; only if no launch follows, open the sheet and click again.
+        since = self.uart_size()
+        self.go_click(TILE_LAUNCH_SETTINGS)
+        if not self.wait_marker_after("abilitymgr: launch (app=settings", since, 10.0):
+            self.go_click(TILE_LAUNCHER_BUTTON)
+            since = self.uart_size()
+            self.go_click(TILE_LAUNCH_SETTINGS)
+            if not self.wait_marker_after("abilitymgr: launch (app=settings", since, 10.0):
+                return
+        if self.wait_marker_after("SELFTEST: app restore ok", since, 120.0):
+            self.log("restore phase complete (Super+Ctrl+W → persisted → relaunch → restored)")
+            self.run_pressure_drill(timeout_s)
+
+    def run_pressure_drill(self, timeout_s: float) -> None:
+        """TASK-0333 6e-2/6e-3 (ADR-0086): the restored settings window is focused. The
+        harness already ran the drill at `warn` right after the lifecycle phase, while the
+        thawed window was on screen (the fan-out: memd → gpud, memd → windowd → the window's
+        app-host, `SELFTEST: mem pressure fanout ok`). Super+Ctrl+M hides settings once more;
+        after the grace abilitymgr freezes it and the memory authority hears its band
+        `suspended`; the harness runs the drill at `critical`: memd picks the frozen app,
+        orders abilitymgr, which orders execd; the reap comes back as the band `gone`:
+        `SELFTEST: mem pressure kill ok (band=suspended reason=drill)`."""
+        self.wait_settled(20.0)
+        time.sleep(1.0)
+        since = self.uart_size()
+        self.chord(["ctrl", "meta_l", "m"])
+        if not self.wait_marker_after("windowd: minimize id=app", since, timeout_s):
+            return
+        if not self.wait_marker_after("abilitymgr: suspend (inst=", since, 30.0):
+            return
+        # The harness polls memd once a second; the kill chain is a few round trips.
+        if self.wait_marker_after("SELFTEST: mem pressure kill ok (", since, 30.0):
+            self.log("pressure drill complete (hidden → frozen → drill → killed → reaped)")
 
 
     # -- clipboard (TASK-0067B / RFC-0094) ----------------------------------------

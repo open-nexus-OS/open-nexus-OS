@@ -59,3 +59,27 @@ pub(super) fn sys_vmo_seal(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     seal_vmo(ctx, id)?;
     Ok(0)
 }
+
+/// `SYSCALL_VMO_PURGEABLE` (68, RFC-0100 §4). Args: (vmo_slot, unlock). A holder of the
+/// writable `Vmo` with MAP unlocks (1) the object for purging — refused for an eager or fixed
+/// object, one a device was told the runs of, or one any space maps — or locks it (0) and learns
+/// whether a purge took the content since the unlock (1) or not (0).
+pub(super) fn sys_vmo_purgeable(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    use crate::mm::vmo::purge::{self, PurgeError};
+    let cap = ctx.tasks.current_caps_mut().derive(args.get(0), Rights::MAP)?;
+    let CapabilityKind::Vmo { id, .. } = cap.kind else {
+        return Err(Error::Capability(CapError::PermissionDenied));
+    };
+    let purge_error = |err: PurgeError| match err {
+        PurgeError::NoSuchObject => Error::Capability(CapError::PermissionDenied),
+        PurgeError::Refused(_) => AddressSpaceError::InvalidArgs.into(),
+    };
+    match args.get(1) {
+        0 => purge::lock(id).map(usize::from).map_err(purge_error),
+        1 => {
+            let mapped = crate::mm::vm_ops::any_space_maps_vmo(ctx.address_spaces, id);
+            purge::unlock(id, mapped).map(|()| 0).map_err(purge_error)
+        }
+        _ => Err(AddressSpaceError::InvalidArgs.into()),
+    }
+}

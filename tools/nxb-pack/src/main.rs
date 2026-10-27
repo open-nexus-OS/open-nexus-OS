@@ -10,6 +10,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 mod background;
+mod restorable;
 
 use exec_payloads::{HELLO_ELF, HELLO_MANIFEST_NXB};
 use sha2::{Digest, Sha256};
@@ -309,6 +310,8 @@ fn compile_toml_to_manifest_nxb(input: &str) -> Result<Vec<u8>, Box<dyn std::err
     let capabilities = opt_str_array(table, "caps")?;
     // RFC-0111 §6: `background = [...]` is bounded here, at the earliest point (`background.rs`).
     background::validate(&opt_str_array(table, "background")?, &capabilities)?;
+    // RFC-0100 §6: `restorable = true` is a boolean and never a cap name (`restorable.rs`).
+    let _restorable = restorable::validate(table.get("restorable"), &capabilities)?;
 
     // Publisher/signature are hex strings in TOML input; tool allows zero placeholders.
     let publisher_hex = opt_str(table, "publisher").unwrap_or("00000000000000000000000000000000");

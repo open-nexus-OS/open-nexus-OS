@@ -127,6 +127,26 @@ pub(super) fn sys_child_exit_bind(ctx: &mut Context<'_>, args: &Args) -> SysResu
     Ok(0)
 }
 
+/// `SYSCALL_MEM_PRESSURE_BIND` (67, ADR-0085, TASK-0333 6e-0): binds an endpoint the caller
+/// holds a SEND capability to as the kernel's one memory pressure sink — a level change writes
+/// one `OP_MEMORY_PRESSURE` frame into it, the shape of a child's death and an interrupt's. The
+/// first binder holds the sink until its endpoint dies; another process is refused. Args:
+/// (endpoint_slot); slot `usize::MAX` clears the caller's own binding.
+pub(super) fn sys_mem_pressure_bind(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+    let endpoint_slot = args.get(0);
+    let pid = ctx.tasks.current_pid();
+    let denied = || Error::Capability(CapError::PermissionDenied);
+    if endpoint_slot == usize::MAX {
+        return crate::mm::pressure_endpoint::unbind(pid).map(|()| 0).map_err(|_| denied());
+    }
+    let cap = ctx.tasks.current_caps_mut().get(endpoint_slot)?;
+    let endpoint = match cap.kind {
+        CapabilityKind::Endpoint(id) if cap.rights.contains(Rights::SEND) => id,
+        _ => return Err(denied()),
+    };
+    crate::mm::pressure_endpoint::bind(endpoint, pid).map(|()| 0).map_err(|_| denied())
+}
+
 /// Acknowledges a delivered IRQ so the PLIC re-arms it. The driver calls this
 /// after it has drained the device (cleared the interrupt condition). Args:
 /// (irq_source_id).

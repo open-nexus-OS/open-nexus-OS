@@ -23,6 +23,17 @@ proves = "gpud decided the visible mode at probe and names the candidate it took
 phase = "bringup"
 proves = "gpud made the shared framebuffer for its device and granted it to windowd with the mode"
 
+# TASK-0333 6e-4 (RFC-0100 §3): GPU memory is charged to its client — the framebuffer gpud lent
+# the compositor (and, on the board, the compositor's context buffers) are told to the memory
+# authority as one absolute figure per client; memd takes it from gpud's sender id alone.
+[marker."gpud: gpu memory charged (client="]
+phase = "bringup"
+proves = "gpud charged a client with the GPU memory it holds for it (bytes=) and told memd (told=1 when the push was taken)"
+
+[marker."memd: gpu charge (client="]
+phase = "bringup"
+proves = "the memory authority took gpud's charge for the named client (total= every client's together)"
+
 [marker."windowd: display mode from gpud ("]
 phase = "bringup"
 proves = "windowd built its compositor at the mode gpud granted, on the framebuffer gpud owns"
@@ -351,6 +362,60 @@ proves = "a tile followed by a Return on one boot: the frame bookkeeping (pre-ti
 [marker."SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)"]
 phase = "end"
 proves = "TASK-0333 6d / ADR-0083: the compositor stated hidden, the authority froze the app's process through its parent after the grace, the compositor stated focused, the authority thawed it — the lifecycle contract end to end on one boot"
+
+# --- TASK-0333 6e-1 (RFC-0100 §6, ADR-0086): the restorable app's `@persist` round trip.
+[marker."apphost: persist saved ("]
+phase = "end"
+proves = "a restorable app wrote its `@persist` snapshot to its own statefs record (`/state/app/@self/persist` over the svc.state route) when the compositor said hidden or when its window closed — the line names the fields, the bytes and the reason"
+
+[marker."SELFTEST: app restore ok ("]
+phase = "end"
+proves = "a relaunched restorable app read its record back before its first frame and the runtime restored at least one `@persist` field — the record survived the process (TASK-0333 6e-1, ADR-0086)"
+
+# TASK-0333 6e-2 (ADR-0086, RFC-0100 §3): the lifecycle authority pushed an app process's band
+# to the memory authority (the compositor's sighting became what the process is to the user);
+# the harness's pressure drill at `critical` found the frozen app, memd ordered the kill through
+# abilitymgr, abilitymgr ordered the parent (execd `OP_KILL`), and the reap came back as the band
+# `gone` — the kill's proof. A simulated level over the real bands: the victim, the order, the
+# kill and the reap are the live path; the real level's kill (`reason=oom`) is the lowmem lane's.
+[marker."memd: band (pid="]
+phase = "end"
+
+[marker."SELFTEST: mem pressure drill ("]
+phase = "end"
+proves = "the harness ran the drill — level=warn once a thawed app is on screen (the fan-out reaches a running window), level=critical once an app is frozen again (the kill) — and names memd's answer (status 0 = a victim was ordered killed, 3 = no victim at that level)"
+
+# TASK-0333 6e-3 (RFC-0100 §3, ADR-0086): the drill's `warn` is told onward — memd to gpud and
+# windowd on the declared legs (both took it), windowd to every app window on its event channel,
+# app-host naming it and raising the host event `MemoryPressure` into the program.
+[marker."SELFTEST: mem pressure fanout ok ("]
+phase = "end"
+proves = "memd told the level to both consumers (gpud, windowd); sent= counts the legs that took the push"
+
+[marker."gpud: mem pressure (level="]
+phase = "end"
+proves = "the GPU driver heard the memory authority's level (taken from memd's kernel sender id alone)"
+
+[marker."windowd: mem pressure (level="]
+phase = "end"
+proves = "the compositor heard the level and told every live app window (windows= counts them)"
+
+[marker."apphost: mem pressure (level="]
+phase = "end"
+proves = "an app window heard the level through the compositor; handled= says whether its program declared the MemoryPressure event"
+
+[marker."memd: kill (pid="]
+phase = "end"
+
+[marker."abilitymgr: kill (inst="]
+phase = "end"
+
+[marker."execd: kill (pid="]
+phase = "end"
+
+[marker."SELFTEST: mem pressure kill ok ("]
+phase = "end"
+proves = "the victim memd chose is dead: its band came back `gone` after the ordered kill (band= names the band it was in, reason= drill or oom)"
 
 # --- TASK-0067 / 0067B (RFC-0094, ADR-0070): the clipboard authority and its two surfaces.
 # `clipboardd: ready` and the harness's writes fire on every boot; the focus truth once windowd

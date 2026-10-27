@@ -18,10 +18,12 @@
 //!   logged on the 1st, 2nd, 4th, 8th … occurrence.
 
 /// The record's layout version (bumped on any field change). v3 (TASK-0333 6b-1, ADR-0077):
-/// committed and reserved bytes — a lazy object spans more than it holds.
-pub const MM_STATS_VERSION: u32 = 3;
+/// committed and reserved bytes — a lazy object spans more than it holds. v4 (TASK-0333 6e,
+/// ADR-0085): the caller's shared and purgeable bytes, the pressure level and its watermarks,
+/// the pages purged since boot.
+pub const MM_STATS_VERSION: u32 = 4;
 /// 64-bit fields after the 8-byte header.
-pub const MM_STATS_FIELDS: usize = 20;
+pub const MM_STATS_FIELDS: usize = 27;
 /// Bytes of the record: `version: u32`, `fields: u32`, then the fields.
 pub const MM_STATS_BYTES: usize = 8 + MM_STATS_FIELDS * 8;
 
@@ -71,6 +73,22 @@ pub struct MmStats {
     /// The caller's reserved bytes: regions over lazy objects not yet touched (its
     /// `own_rss_bytes` counts only what is committed).
     pub own_reserved_bytes: u64,
+    /// The part of the caller's resident bytes over objects another space maps too (v4): a
+    /// shared image's text, a shared atlas. Private = `own_rss_bytes - own_shared_bytes`.
+    pub own_shared_bytes: u64,
+    /// The caller's resident bytes over purgeable objects (v4, RFC-0100 §4): what the kernel may
+    /// drop at `warn` and above.
+    pub own_purgeable_bytes: u64,
+    /// The pressure level now (v4, `pressure::Level` as its wire byte).
+    pub pressure_level: u64,
+    /// Free frames at or below which the level is `warn` (v4).
+    pub watermark_warn: u64,
+    /// … `critical`.
+    pub watermark_critical: u64,
+    /// … `emergency`.
+    pub watermark_emergency: u64,
+    /// Purgeable pages dropped since boot (v4).
+    pub purged_pages: u64,
 }
 
 /// A buffer shorter than the record.
@@ -101,6 +119,13 @@ impl MmStats {
             self.fences,
             self.vmo_committed,
             self.own_reserved_bytes,
+            self.own_shared_bytes,
+            self.own_purgeable_bytes,
+            self.pressure_level,
+            self.watermark_warn,
+            self.watermark_critical,
+            self.watermark_emergency,
+            self.purged_pages,
         ]
     }
 
@@ -144,6 +169,7 @@ mod tests {
             own_dma_bytes: 0x1234,
             fences: 0x77,
             own_reserved_bytes: 0x1234,
+            purged_pages: 0x4321,
             ..Default::default()
         };
         let mut out = [0xffu8; MM_STATS_BYTES + 3];
@@ -152,7 +178,8 @@ mod tests {
         assert_eq!(u32::from_le_bytes(out[4..8].try_into().unwrap()), MM_STATS_FIELDS as u32);
         let field = |i: usize| u64::from_le_bytes(out[8 + i * 8..16 + i * 8].try_into().unwrap());
         assert_eq!((field(0), field(1), field(2)), (2, 77280, 1));
-        assert_eq!(field(MM_STATS_FIELDS - 1), 0x1234);
+        assert_eq!(field(19), 0x1234, "v3's last field keeps its place");
+        assert_eq!(field(MM_STATS_FIELDS - 1), 0x4321);
         assert_eq!(out[MM_STATS_BYTES..], [0xff; 3], "nothing past the record");
     }
 

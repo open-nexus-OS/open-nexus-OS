@@ -667,6 +667,30 @@ USB_INPUT_MARKERS=(
   "abilitymgr: suspend (inst="
   "execd: thaw (pid="
   "SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)"
+  # TASK-0333 6e-1 / ADR-0086: the hidden window wrote its `@persist` record (the grace); then
+  # Super+Ctrl+W closes it (the record again, on the way out), the launcher opens settings once
+  # more and the new process restores the record before its first frame.
+  "apphost: persist saved ("
+  "windowd: wm chord (zone=close"
+  "SELFTEST: app restore ok ("
+  # TASK-0333 6e-2 / ADR-0086: the lifecycle authority pushed the app's bands to the memory
+  # authority; Super+Ctrl+M hides the restored window once more, the grace freezes it, and the
+  # harness runs the pressure drill at `critical` — memd picks the frozen app, orders abilitymgr,
+  # abilitymgr orders execd, the reap comes back as the band `gone`: the kill is proven.
+  "memd: band (pid="
+  "SELFTEST: mem pressure drill ("
+  # 6e-3 (RFC-0100 §3): the drill's `warn` — run while the thawed app is on screen — is told
+  # onward: memd to gpud and windowd (both took it), windowd to every app window, app-host
+  # naming it (and raising the host event `MemoryPressure` into the program). The drill's
+  # `critical` follows once the app is frozen again (the kill, below).
+  "SELFTEST: mem pressure fanout ok ("
+  "gpud: mem pressure (level=warn"
+  "windowd: mem pressure (level=warn"
+  "apphost: mem pressure (level=warn"
+  "memd: kill (pid="
+  "abilitymgr: kill (inst="
+  "execd: kill (pid="
+  "SELFTEST: mem pressure kill ok ("
   # TASK-0067B: then it opens the top-bar search, picks Clipboard, types a word no prefill
   # item contains, selects it (Ctrl+A), copies it (Ctrl+C), pastes it back (Ctrl+V) and
   # presses the first card — which exists only because the copy re-read the history at once.
@@ -722,6 +746,12 @@ expected_sequence=(
   # with Frozen, and a frozen killable child is killed into a zombie. (The kernel runs this
   # before the exec-image suite: KSELFTEST markers are order-checked.)
   "KSELFTEST: process ctl ok ("
+  # ADR-0085 (TASK-0333 6e-0): the memory pressure sink — a bind hears the level of the moment,
+  # an injected warn the next frame, a second binder is refused, the holder's clear frees it.
+  "KSELFTEST: mem pressure notify ok ("
+  # RFC-0100 §4 (TASK-0333 6e-3): a lazy object its owner unlocked loses its pages when `warn` is
+  # delivered and says so at the lock; a device-bound, an eager and a mapped object are refused.
+  "KSELFTEST: vmo purge ok ("
   # ADR-0080 (TASK-0333 6c-1b): a process runs from a sealed image — text and rodata shared,
   # data copied; the refusal matrix of the loader and the seal.
   "KSELFTEST: exec image shared ok ("
@@ -787,6 +817,11 @@ expected_sequence=(
   # services report `*: ready` after `init: ready`.
   "keystored: ready"
   "rngd: ready"
+  # TASK-0333 6e-2 / ADR-0086: the one memory authority is up, heard the kernel's first pressure
+  # frame at its bind, and tells the harness the sink is its own.
+  "memd: ready"
+  "memd: pressure (level="
+  "SELFTEST: memd bound ok ("
   "socd: ready ("
   "SELFTEST: soc glue not needed ok"
   "policyd: ready"
@@ -1094,6 +1129,8 @@ expected_sequence=(
   "KSELFTEST: ipc call budget ok (rt="
   "KSELFTEST: ipc stats ("
   "KSELFTEST: mm frames ("
+  # TASK-0333 6e-0 (ADR-0085): the pool's watermarks in order and below the total, the level now.
+  "KSELFTEST: mem watermarks ok ("
   # TASK-0333 6a: the objects freed at reaps and last capability closes (RFC-0100 §1).
   "KSELFTEST: vm reclaim ("
   # TASK-0330 S2a: the console's serial time is off the kernel lock.
@@ -1333,6 +1370,8 @@ case "${PROFILE:-full}" in
       "KSELFTEST: child exit notify ok ("
       "KSELFTEST: vm unmap reclaim ok ("
       "KSELFTEST: process ctl ok ("
+      "KSELFTEST: mem pressure notify ok ("
+      "KSELFTEST: vmo purge ok ("
       "KSELFTEST: exec image shared ok ("
       "KSELFTEST: exec image reject ok ("
       "KSELFTEST: fence transfer ok"
@@ -1396,6 +1435,11 @@ case "${PROFILE:-full}" in
       "SELFTEST: exec child eof on exit ok"
       "keystored: ready"
       "rngd: ready"
+      # TASK-0333 6e-2 / ADR-0086: the one memory authority is up, heard the kernel's first
+      # pressure frame at its bind, and tells the harness the sink is its own.
+      "memd: ready"
+      "memd: pressure (level="
+      "SELFTEST: memd bound ok ("
       "socd: ready ("
       "SELFTEST: soc glue not needed ok"
       "policyd: ready"
@@ -2688,6 +2732,18 @@ if profile_has_display; then
     if ! grep -aFq "$m" "$UART_LOG"; then
       echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
       echo "[error] display-mode chain broken (RFC-0098 C7): gpud decides, windowd builds on the grant, inputd asks windowd" >&2
+      exit 1
+    fi
+  done
+  # TASK-0333 6e-4 (RFC-0100 §3): the framebuffer gpud lent the compositor is GPU memory charged
+  # to its client — told to the one memory authority, which names it. Both sides, or the charge
+  # was never made or never taken.
+  for m in \
+    "gpud: gpu memory charged (client=windowd" \
+    "memd: gpu charge (client=windowd"; do
+    if ! grep -aFq "$m" "$UART_LOG"; then
+      echo "[error] first_failed_phase=bringup missing_marker='$m'" >&2
+      echo "[error] GPU memory not charged to its client (RFC-0100 §3, 6e-4): gpud charges, memd takes it from gpud alone" >&2
       exit 1
     fi
   done

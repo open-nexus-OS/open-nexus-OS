@@ -98,13 +98,28 @@ impl DisplayServerRuntime {
             feed.seen_owed = true;
             return;
         };
-        for d in &due[..n] {
+        let mut taken = [false; crate::window_scene::MAX_APP_WINDOWS];
+        for (k, d) in due[..n].iter().enumerate() {
             let frame = crate::seen::encode_seen(d.owner_sid, d.seen);
             if client.send(&frame, nexus_ipc::Wait::NonBlocking).is_ok() {
                 feed.seen.commit(*d);
+                taken[k] = true;
             } else {
                 feed.seen_owed = true;
             }
+        }
+        // TASK-0333 6e-1 (ADR-0086): the window itself hears the same sighting — on `hidden` the
+        // app writes its `@persist` snapshot while the grace runs. The authority's send decides
+        // what is due; the app's copy rides the taken ones (a closed window has no channel).
+        for d in due[..n].iter().zip(taken).filter_map(|(d, t)| t.then_some(d)) {
+            let seen = match d.seen {
+                crate::seen::Seen::Focused => nexus_display_proto::surface_seen::SEEN_FOCUSED,
+                crate::seen::Seen::Visible => nexus_display_proto::surface_seen::SEEN_VISIBLE,
+                crate::seen::Seen::Hidden => nexus_display_proto::surface_seen::SEEN_HIDDEN,
+                crate::seen::Seen::Gone => continue,
+            };
+            let frame = nexus_display_proto::surface_seen::encode_surface_seen(seen);
+            let _ = self.send_app_frame(d.slot, &frame);
         }
     }
 

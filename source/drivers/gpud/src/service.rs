@@ -279,6 +279,10 @@ fn service_requests(
     // Present-time telemetry (frame budget for 120Hz = 8333us), alloc-free, one line per window:
     // where the glass/compositor frame cost goes and the present RATE.
     let mut stats = PresentStats::default();
+    // TASK-0333 6e-4 (RFC-0100 §3): what gpud holds FOR each client — the framebuffer it lends,
+    // the client's context buffers — charged to the client and told to the memory authority.
+    let mut charges = crate::charges::Charges::new();
+    let teller = crate::charges::Teller::bind();
     // Present-chain hop trace (graphical-output bisection): emit the per-frame
     // hops once a frame gets all the way through, but keep re-tracing every frame
     // while the chain is broken so a headless run shows exactly HOW FAR we get.
@@ -315,6 +319,12 @@ fn service_requests(
         match server.recv_request_with_meta_into(wait, &mut recv_frame) {
             Ok((frame_len, sender, mut moved_cap)) => {
                 let frame = &recv_frame[..frame_len];
+                // TASK-0333 6e-3: the memory authority's level rides the server endpoint as a
+                // `'M','D'` push (no gpud op byte is `'M'`) — named, never answered.
+                if crate::pressure::on_frame(frame, sender) {
+                    drop(moved_cap);
+                    continue;
+                }
                 let op = match frame.first().copied() {
                     Some(op) => op,
                     None => {
@@ -346,7 +356,18 @@ fn service_requests(
                         }
                     }
                     nexus_display_proto::OP_FRAMEBUFFER_REQUEST => {
-                        (crate::framebuffer_grant::grant(display), None)
+                        let status = crate::framebuffer_grant::grant(display);
+                        if status == STATUS_OK {
+                            // 6e-4: the object gpud lends is charged to the client it is
+                            // granted to — its whole span (a lazy object may all be drawn).
+                            teller.charge(
+                                &mut charges,
+                                sender,
+                                crate::charges::Part::Lent,
+                                display.framebuffer_len() as u64,
+                            );
+                        }
+                        (status, None)
                     }
                     OP_PRESENT_DAMAGE => {
                         // Phase 6c: carries a serialized CommittedBuffer with batched
@@ -485,6 +506,13 @@ fn service_requests(
                             moved_cap.take(),
                             service,
                         );
+                        // 6e-4: the client's context buffers, as the device holds them now
+                        // (an open took them, a replaced context gave the old ones back).
+                        let held = match gpu.as_deref() {
+                            Some(g) => g.held_by(sender),
+                            None => display.gpu_service().map_or(0, |s| s.held_by(sender)),
+                        };
+                        teller.charge(&mut charges, sender, crate::charges::Part::Context, held);
                         continue;
                     }
                     _ => (handle_frame(display, frame), None),

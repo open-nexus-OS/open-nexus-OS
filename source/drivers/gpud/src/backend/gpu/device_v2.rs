@@ -57,6 +57,11 @@ impl Device {
         Self { gpu, bos: Bos::new(), contexts: Contexts::new(), ledger }
     }
 
+    /// Bytes the device holds in `client`'s buffers (TASK-0333 6e-4: charged to the client).
+    pub(super) fn held_by(&self, client: ClientId) -> u64 {
+        self.bos.held_by(client)
+    }
+
     /// `bytes` more held by the GPU, or refused by name past its ceiling.
     pub(super) fn hold(&mut self, bytes: usize) -> Result<(), DeviceError> {
         self.ledger.hold(bytes as u64).map_err(|e| {

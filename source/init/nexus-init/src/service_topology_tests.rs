@@ -31,10 +31,17 @@ fn spec_lookup_is_declarative() {
     assert!(!exposes_server(b"definitely-not-a-service"));
     let targets: alloc::vec::Vec<ServiceId> =
         spec_for(b"abilitymgr").unwrap().routes_to.iter().map(|r| r.to).collect();
-    // RFC-0111 §6: the launch authority asks policyd for the app's grants.
+    // RFC-0111 §6: the launch authority asks policyd for the app's grants; RFC-0100 §3: it
+    // pushes every app process's band to the one memory authority.
     assert_eq!(
         targets,
-        [ServiceId::Bundlemgrd, ServiceId::Execd, ServiceId::Sessiond, ServiceId::Policyd]
+        [
+            ServiceId::Bundlemgrd,
+            ServiceId::Execd,
+            ServiceId::Sessiond,
+            ServiceId::Policyd,
+            ServiceId::Memd
+        ]
     );
 }
 

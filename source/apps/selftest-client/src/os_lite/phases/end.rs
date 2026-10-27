@@ -52,6 +52,10 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
         Some(false) => emit_line(crate::markers::M_SELFTEST_UI_V7_SCREENCAP_FAIL),
         None => {}
     }
+    // TASK-0333 6e-2 (ADR-0086): the one memory authority holds the kernel's pressure sink —
+    // asked here, after every service is up; the kill drill is armed for the idle loop below.
+    crate::os_lite::memd::bound_probe();
+    let mut mem_drill = crate::os_lite::memd::Drill::new();
     let auto_exit_after_proof = display_bootstrap::enabled()
         && crate::os_lite::boot_cfg::runtime_mode_with_retry().unwrap_or(RuntimeMode::Proof)
             == RuntimeMode::Proof;
@@ -165,6 +169,7 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
     let mut last_interactive_poll_tick = 0u32;
     loop {
         idle_ticks = idle_ticks.wrapping_add(1);
+        mem_drill.tick(nsec().unwrap_or(0));
         let should_poll_visible_state = !proof_completed
             || matches!(
                 interactive_mode,

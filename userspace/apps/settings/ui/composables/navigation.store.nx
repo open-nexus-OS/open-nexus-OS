@@ -25,10 +25,14 @@
 // (OsSettingsWindow.dc.html: `nav: 'connections', mode: 'browse'`): the app
 // opens on the FIRST SECTION, not on the overview — the overview is a mode
 // the user enters via the app chip, the sidebar header or the ⋯ menu.
+// `@persist` (TASK-0333 6e-1, RFC-0100 §6): the three fields are the app's durable small
+// state — written to its own statefs record when the window is hidden or closes, restored
+// before the first frame of the next launch (the manifest says `restorable = true`). A kill
+// under memory pressure brings the user back to the section they were in.
 Store NavStore {
-    mode: Str = "browse",
-    section: Str = "connections",
-    subPage: Str = "",
+    mode: Str = "browse" @persist,
+    section: Str = "connections" @persist,
+    subPage: Str = "" @persist,
 }
 
 Event NavEvent {

@@ -95,6 +95,9 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     loop {
         lifecycle.pump(&mut broker);
         for _ in 0..IPC_BATCH_LIMIT {
+            // TASK-0333 6e-2 (ADR-0086): whatever the last pass changed, memd hears before the
+            // next request is taken — the bands are a diff, so a quiet pass costs nothing.
+            lifecycle.publish_bands(&broker);
             match server.recv_request_with_header_into(wait, &mut recv_frame) {
                 Ok((_hdr, frame_len, sender_service_id, reply)) => {
                     let frame = &recv_frame[..frame_len];
@@ -103,6 +106,17 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                         // The compositor's sighting (one-way, never answered): the policy decides,
                         // the order goes to execd — the lifecycle contract of ADR-0083.
                         lifecycle.on_seen(&mut broker, frame, sender_service_id);
+                        continue;
+                    }
+                    if frame.get(3) == Some(&crate::protocol::OP_MEM_KILL) {
+                        // The memory authority's order (ADR-0086): judged against the lifecycle
+                        // truth (never the foreground), carried to the parent, answered.
+                        let rsp = lifecycle.on_mem_kill(&broker, frame, sender_service_id);
+                        if let Some(reply) = reply {
+                            let _ = reply.reply_and_close(&rsp);
+                        } else {
+                            let _ = server.send(&rsp, Wait::Blocking);
+                        }
                         continue;
                     }
                     // TASK-0065B session gate: OP_LAUNCH is refused until sessiond

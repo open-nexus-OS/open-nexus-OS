@@ -38,6 +38,9 @@ type TableLock<T> = spin::Mutex<T>;
 /// A live object's id: never 0, the table index plus one.
 pub type VmoId = u32;
 
+/// Purgeable objects (RFC-0100 §4): the unlock, the lock, the purge at `warn`.
+pub mod purge;
+
 /// Objects the table holds at most (a slot is 40 bytes plus its block list).
 pub const MAX_OBJECTS: usize = 4096;
 
@@ -112,6 +115,11 @@ pub struct VmoObject {
     /// A device was told this object's runs (`vmo_runs`): it may write them at any time, so the
     /// object can never be sealed.
     device_named: bool,
+    /// RFC-0100 §4: unlocked — the owner said the content may go; a purge drops the pages, and
+    /// the object is untouchable (no map, write, read, runs) until its lock.
+    purgeable: bool,
+    /// A purge took the content since the unlock; the owner learns it at the lock.
+    purged: bool,
 }
 
 impl VmoObject {
@@ -228,6 +236,8 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
             within,
             sealed: false,
             device_named: false,
+            purgeable: false,
+            purged: false,
         };
         return TABLE.lock().insert(object);
     }
@@ -273,6 +283,8 @@ pub fn create(len: usize, kind: VmoKind, reach: &DmaReach) -> Result<VmoId, VmoE
         within: None,
         sealed: false,
         device_named: false,
+        purgeable: false,
+        purged: false,
     });
     if result.is_err() {
         // The table is full: the frames go back before the error leaves.
@@ -295,6 +307,8 @@ pub fn adopt_fixed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         within: None,
         sealed: false,
         device_named: false,
+        purgeable: false,
+        purged: false,
     };
     TABLE.lock().insert(object)
 }
@@ -316,6 +330,8 @@ pub fn adopt_sealed(base: usize, len: usize) -> Result<VmoId, VmoError> {
         within: None,
         sealed: true,
         device_named: false,
+        purgeable: false,
+        purged: false,
     };
     TABLE.lock().insert(object)
 }

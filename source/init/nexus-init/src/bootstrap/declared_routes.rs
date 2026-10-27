@@ -31,6 +31,11 @@ pub(crate) trait LegEndpoints {
     fn server_pair(&self, id: ServiceId) -> Option<(u32, u32)>;
     /// The request endpoint `from` sends on over a `ReplyInbox` route to `to`.
     fn request_ep(&self, from: ServiceId, to: ServiceId) -> Option<u32>;
+    /// Whether this table names every target a declared leg may have — a leg it cannot pin is
+    /// then a FAIL by name, not a deferral (the core plane's few are the exception).
+    fn names_every_target(&self) -> bool {
+        true
+    }
 }
 
 impl LegEndpoints for Endpoints {
@@ -117,9 +122,24 @@ pub(crate) fn wire_declared_legs(
             // Replies arrive on this service's CAP_MOVE inbox; the request endpoint comes from
             // the one table of minted endpoints (TASK-0324 P4f-4/P4f-5).
             RouteKind::ReplyInbox => {
-                let (Some(reply_recv), Some(t_req)) =
-                    (reply_recv_opt, eps.request_ep(spec.id, route.to))
-                else {
+                let Some(reply_recv) = reply_recv_opt else { continue };
+                let Some(t_req) = eps.request_ep(spec.id, route.to) else {
+                    // Not harmless: the kernel's next CAP_MOVE into this service lands in its
+                    // lowest free slot — the declared one left empty here (TASK-0333 6e-3,
+                    // run 2026-10-27T16-32-13: memd's leg to gpud held the harness's reply
+                    // capability). Said by name, so a missing pair is seen at once.
+                    if eps.names_every_target() {
+                        crate::bootstrap::diag::emit_marker_atomic(
+                            &[
+                                b"init: FAIL declared leg ",
+                                name.as_bytes(),
+                                b"->",
+                                route.to.name().as_bytes(),
+                                b" (no target endpoint)",
+                            ],
+                            None,
+                        );
+                    }
                     continue;
                 };
                 if let Some(s) = declared_slots::pin_route_send(pid, spec.id, route.to, t_req) {
@@ -168,13 +188,16 @@ pub(crate) fn pin_declared_waits(pid: u32, svc: ServiceId) {
     }
     // (RECV, SEND, what, queue depth). A push channel (TASK-0253B: xhcid's HID class pushes a
     // frame per drain) is deeper than a timer's one pending fire.
-    const PAIRS: [(NamedSlot, NamedSlot, &[u8], usize); 4] = [
+    const PAIRS: [(NamedSlot, NamedSlot, &[u8], usize); 5] = [
         (NamedSlot::TimerNotifyRecv, NamedSlot::TimerNotifySend, b"timer-notify", 8),
         (NamedSlot::DeviceWatchdogRecv, NamedSlot::DeviceWatchdogSend, b"device-watchdog", 8),
         (NamedSlot::UsbHidRecv, NamedSlot::UsbHidSend, b"usb-hid", 32),
         // TASK-0333 6a: a frame per dead child; execd's sweep reaps every zombie on one wake,
         // so a dropped frame under a burst delays nothing past the next death.
         (NamedSlot::ChildExitRecv, NamedSlot::ChildExitSend, b"child-exit", 16),
+        // TASK-0333 6e (ADR-0085): one frame per pressure level change, with hysteresis in the
+        // kernel — a queue of eight holds a whole storm.
+        (NamedSlot::MemPressureRecv, NamedSlot::MemPressureSend, b"mem-pressure", 8),
     ];
     for (recv_name, send_name, what, depth) in PAIRS {
         if extra_slot(svc, recv_name).is_none() {

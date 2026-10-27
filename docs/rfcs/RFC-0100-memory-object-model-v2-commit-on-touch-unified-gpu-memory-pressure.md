@@ -16,7 +16,7 @@
 - **Phase 0 (6a: object lifetime — what dies is freed)**: ✅ 2026-10-20 (board cycle 48; ADR-0073: every kernel object, a death as an event)
 - **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ✅ 2026-10-23 — 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2a ✅ 2026-10-23 (board cycle 65: the app arena reserved, the splash given back, the atlas counted); 6b-2b ✅ 2026-10-23 (board cycle 66, ADR-0078: one pool with the GPU — the ring contiguous, the surfaces lazy and entered as sampled, the GPU's ceiling two thirds of RAM); 6b-3 ✅ 2026-10-23 (board cycle 67: every service's heap frees, a double free refused, an object freed while mapped dies at its unmap)
 - **Phase 2 (6c: sealed images, shared code)**: ⏳ 6c-0 ✅ 2026-10-23 (the OS build's own flags), 6c-1a ✅ 2026-10-25 (board cycle 69, ADR-0079: cache maintenance a non-coherent device's right), 6c-1b ✅ 2026-10-26 (board cycle 70, ADR-0080: `vmo_seal` + `exec_vmo` the one loader, text and rodata mapped from the sealed image's frames, the volume's images sealed before they are verified), 6c-2 ✅ 2026-10-26 (board cycle 71, ADR-0081: the boot image one container — kernel + bootfs under one digest, every core program a sealed object the kernel adopts, no program embeds another; the loader in every chain). **Phase 2 complete**
-- **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals)**: ⬜
+- **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals, the restorable contract)**: ✅ 2026-10-27 (both QEMU lanes + board cycle 73; ADR-0085/0086 Accepted) — 6e-0 built 2026-10-27 (ADR-0085: `mm_stats` v4 with shared bytes, the level and its watermarks; the watermarks from each bank's boot-time free; `mem_pressure_bind` (67) — one sink, one frame per level change, the level at the bind; headless proof `KSELFTEST: mem pressure notify ok`, `mem watermarks ok`); 6e-1 built 2026-10-27 (ADR-0086, §6: `restorable = true` → `nexus.permission.STATE` → `svc.state`; the record `/state/app/@self/persist` by kernel identity; written on the compositor's `hidden` sighting and at close, restored before the initial effects; settings' navigation the first; board proof pending in the 6e cycle); 6e-2 built 2026-10-27 (ADR-0086, §3: memd the one authority — the bands from the lifecycle authority, the kill through it, proven by the death; both lanes); 6e-3 lane-proven 2026-10-27 (§4: purgeable VMOs — syscall 68 unlock/lock, the purge at warn before the frame leaves; the level told onward memd → gpud, memd → windowd → every app window → the host event `MemoryPressure`; `KSELFTEST: vmo purge ok` on both lanes, the whole fan-out chain at warn and critical on the visible lane); 6e-4 lane-proven 2026-10-27 (§3: GPU memory charged to its client, gpud → memd `OP_GPU_CHARGE`; the lent framebuffer object charged on both lanes, the context part is the board's — cycle 73 pending)
 - **Phase 4 (6f: the backing stages — compressor, swap)**: ⬜
 
 "Complete" means the contract below is defined and every phase's proof gates are green (the
@@ -151,19 +151,101 @@ windowd's atlas ends where the object ends. The row formulas do not change. The 
 keeps one eager object of the fixed layout until a per-band attach (6f): its attach lists, and so
 names, every page.
 
-## §3 Accounting and pressure (6e, to be filled)
+## §3 Accounting and pressure (6e-0 filled 2026-10-27, ADR-0085)
 
-Per process: private, shared (counted once per object, attributed by first mapper), committed,
-reserved, purgeable, GPU-bound (charged to the context's client). Pressure levels normal / warn /
-critical / emergency from watermarks that are fractions of the boot-time free total per bank
-(warn 25 %, critical 10 %, emergency 5 % free, floored at a page count) — the same code prints
-different absolutes on QEMU 320M and the 4 GiB board. The kernel notifies an endpoint on a level
-change (the `irq_bind` pattern); `memd` alone waits on it and fans out `OP_MEMORY_PRESSURE`.
+**The record (`mm_stats` v4, syscall 61).** Per caller: `own_rss_bytes` (committed: every page of
+an eager region, the touched pages of a lazy one), `own_shared_bytes` (the part of those over
+objects another space maps too — a shared image's text, the atlas; private = rss − shared),
+`own_dma_bytes`, `own_reserved_bytes` (lazy, untouched), `own_purgeable_bytes` (§4). The pool:
+`total`, `free`, the three watermarks, `pressure_level`, `purged_pages`. GPU memory is charged
+to its client by gpud's ledger, not by the kernel: the kernel sees gpud's pages. `KINIT: mm space
+pid= sid= rss= dma= reserved= shared=` names the top spaces at the late fence.
 
-## §4 Purgeable VMOs and seals (6e, to be filled)
+**GPU memory charged to its client (6e-4 filled 2026-10-27).** Every byte gpud holds, it holds
+FOR a client: the framebuffer object it made and lent the compositor (its whole span — the
+scan-out planes and the atlas' reservation, ADR-0078), and on the board the buffers of the
+client's GPU context. gpud keeps the figure per client (by kernel service id, two parts, eight
+clients; a ninth refused by name) and tells the one memory authority each change as
+`nexus_wire::memd::OP_GPU_CHARGE {client, bytes}` — an absolute figure that replaces the last,
+zero frees the row; NONBLOCK, the next change tells the truth (`gpud: gpu memory charged (client=
+bytes= told=)`). memd takes it from gpud's sender id alone (`test_reject_gpu_charge_from_anyone_
+but_gpud`) into its own copy of the table (`memd: gpu charge (client= bytes= total=)`): the
+authority's picture of a process now includes what the GPU holds for it. The join to a process's
+pid comes when a client is an app (app surfaces of their own, layer 8); until then the one client
+is the compositor. Proof on every display lane and the board: both lines for `client=windowd`.
+
+**The levels.** Four: normal / warn / critical / emergency. The watermarks are set when the pool
+is built: each bank's free frames contribute 25 % / 10 % / 5 % to three pool-wide thresholds,
+floored at 1024 / 512 / 256 frames. `free ≤ watermark` enters a level at once; leaving it needs
+free frames above the watermark by an eighth (hysteresis). The level is the pool's, not a bank's
+(the buddies fill banks in tree order). Proof: `KSELFTEST: mem watermarks ok (total= free= warn=
+crit= emerg= level=)` — ordered and below the total, on QEMU and the board alike.
+
+**The event.** `SYSCALL_MEM_PRESSURE_BIND` (67): a SEND capability to an endpoint binds it as the
+one sink; every level change writes one frame `OP_MEMORY_PRESSURE` (0x71): `[op, level, free:
+u64, total: u64]` (18 bytes) and wakes the waiter; the bind delivers the level of the moment. The
+first binder holds the sink until its endpoint dies; another process is refused (`EPERM`). The
+pool observes with its lock dropped; delivery is at the syscall epilogue, the fault's fill, the
+timer tick and the idle loop. Proof: `KSELFTEST: mem pressure notify ok (level= then=warn
+reject=denied …)`. `memd` (ADR-0086) binds it and fans out `OP_MEMORY_PRESSURE` to gpud, windowd
+and, through app-host, to apps as a DSL event (6e-3). The pressure a real pool run low produces is
+the `lowmem` lane's (6f); the path it takes is proven here.
+
+**The authority (6e-2 filled 2026-10-27, ADR-0086).** `memd` is the one listener: it binds the
+sink to its declared endpoint pair at start (the kernel's first frame, `memd: pressure (level=
+free= total=)`, is the live proof on every lane) and waits on that endpoint and its server
+endpoint. It learns what each app process is to the user from the lifecycle authority as a DIFF
+of BANDS (`nexus_wire::memd::OP_BAND`: foreground 0 > visible 1 > declared 2 > hidden 3 >
+suspended 4, `gone` at the death report), taken from abilitymgr's kernel sender id alone. At
+`critical` the kill floor is `hidden`, at `emergency` `visible`; the victim is the highest band
+at or above the floor, the longest there first; one kill in flight. The order is
+`OP_MEM_KILL {pid}` to abilitymgr (from memd's sender id alone; a foreground or starting instance
+is refused), which orders the parent (execd `OP_KILL`); the kill is proven when the victim's
+`gone` band comes back — `SELFTEST: mem pressure kill ok (band= reason=oom|drill)` — and a
+kernel-sourced kill then reads the level again (one frame per level change). The proof harness
+drives the chain on a QEMU lane with `OP_DRILL {level}` (its sender id alone, never on a board):
+a simulated level over the real bands. `STATUS` answers the sink, the level and the bands:
+`SELFTEST: memd bound ok (level= bands=)` on every lane.
+
+## §4 Purgeable VMOs and seals (6e-3 filled 2026-10-27; seals built)
 
 A purgeable VMO's clean pages may be dropped by the kernel at warn or above; the owner learns it
-on the next access (a status, never a fault that kills). **Seals (6c-1b, ADR-0080, built):**
+on the next access (a status, never a fault that kills). A page bound into a GPU context or told
+to a device (`vmo_runs`) is never purged (ADR-0085).
+
+**The purge, as built (6e-3).** An object is purgeable only while its owner says it is not
+using it: syscall 68 `vmo_purgeable (slot, unlock)` by a holder of the MAP right. `unlock = 1`
+hands the object to the kernel — refused (`InvalidArgs`) for an eager object (its frames are
+its contents, nothing to rebuild), for one a device was ever told the runs of or that is bound
+into a GPU context (device-named — the hardware may still write it), and for one any address
+space maps (a mapped page cannot vanish under a running program; unmap first). Unlocked, the
+object refuses `vm_map`, `vmo_write`, `vmo_read` and `vmo_runs` — the owner cannot touch what
+it gave away. `unlock = 0` locks it again and answers **1 if the pages were purged** (the object
+is now empty, lazily recommitted on the next touch: the owner rebuilds) or 0 (still intact).
+The kernel purges every unlocked object — frees its frames to the pool, uncommits every page —
+when the level it is about to tell reaches `warn`, before the frame leaves (`MM: pressure purge
+level= pages=`); no authority need ask, no word crosses a boundary first. `MmStats`
+`own_purgeable_bytes` is the committed bytes of the unlocked objects the caller's capabilities
+name; `purged_pages` counts what the purge ever took. Host: `test_reject_purge_of_bound_vmo`,
+`test_reject_purge_of_mapped_vmo`, `test_reject_purge_of_eager_vmo`; kernel selftest
+`KSELFTEST: vmo purge ok (pages=4 purged=4 relocked=purged reject=bound,eager,mapped)` on every
+lane. The first users (atlas bands, glass cache, blur cache) follow the ledger that says what each
+costs whom (6e-4 and after); the drop of a host-GPU-resident texture is not a purge of pool
+frames and is gpud's own matter.
+
+**The level told onward (6e-3, ADR-0086).** memd pushes every level — the kernel's and a drill's
+— as `OP_LEVEL {level, source, free, total}` on two declared legs, NONBLOCK: to gpud (named:
+`gpud: mem pressure (level= source=)`; what it drops is 6e-4's with the ledger) and to windowd,
+which tells every live app window `OP_SURFACE_PRESSURE {level}` on its event channel (`windowd:
+mem pressure (level= source= windows=)`); app-host raises it into the program as the host event
+`MemoryPressure` with the cases `Normal`/`Warn`/`Critical`/`Emergency` (`apphost: mem pressure
+(level= handled=)`) — a program without the event does no work. Each consumer takes the push
+from memd's kernel sender id alone. Proof: the harness's drill runs `warn` once a thawed app is on
+screen (a frozen window cannot hear the level) and `critical` once an app is frozen again;
+`SELFTEST: mem pressure fanout ok (level=warn sent=2)` says both legs took it, `apphost: mem
+pressure (level=warn handled=)` that the window did.
+
+**Seals (6c-1b, ADR-0080, built):**
 `vmo_seal` is one-way, by a holder of the writable capability; refused while any space maps the
 object writably, for a lazy or fixed object, and for one a device was ever told the runs of
 (`vmo_runs`). Sealed, the object refuses `vmo_write`, a writable `vm_map` and `vmo_runs` for
@@ -175,9 +257,35 @@ Under pressure, in this order: purgeable pages dropped → clean file pages drop
 dirty pages compressed into the kernel's pool → compressed pages written to the `swap` partition
 through blkd → `memd`'s kill, by band, journaled. Clean pages are never written to swap.
 
+## §6 The restorable contract (6e-1 filled 2026-10-27, ADR-0086)
+
+**The word.** `restorable = true` in the manifest (a boolean; nxb-pack refuses the derived grant
+in `caps`). `nx app compile --meta` writes `restorable=` into the sidecar; bundlemgrd derives the
+one grant `nexus.permission.STATE` at publish (ADR-0084's authority); execd provisions the SDK
+route `svc.state` → statefsd into the child's fixed slot 25 for that grant. The route is the
+capability: an app without it has no slot.
+
+**The record.** `/state/app/@self/persist` — statefsd rewrites `@self` to the sender's kernel
+identity (`sender_service_id`, the `app:<bundle>` sid) before any rule runs; the owner's own
+record needs no policy ask, another owner's record is foreign (the generic `statefs.*` grant,
+which no app holds). Durable SMALL: the snapshot is bounded at 2048 bytes (`apphost: persist FAIL
+(snapshot … over …)` when exceeded); documents are the query service's (`db-queries.md`).
+
+**When.** The compositor pushes its sighting to the window itself (`OP_SURFACE_SEEN` 35: focused
+/ visible / hidden — the sighting it states to the lifecycle authority, ADR-0083). On `hidden`
+app-host writes the runtime's `@persist` snapshot (`NXPS` v1, name-keyed) inside the grace,
+before a freeze or a kill; at the window's close once more, then it exits. Never per change,
+never on a clock (privacy: no keystroke timing in the journal, counts in the trace). On the next
+launch a program with a persisted field asks once at mount, before the initial effects; the
+runtime restores per entry, tolerant of a changed program. Proof (usb-visible lane): `apphost:
+persist saved (fields= bytes= reason=hidden|close)` → `SELFTEST: app restore ok (fields= bytes=
+warm_us=)`; the keyboard's close is Super+Ctrl+W (`windowd: wm chord (zone=close …)`).
+
 ## Invariants (security)
 
 - Identity = `sender_service_id`; a pressure subscription names its service by kernel identity.
+- An app's record is owned by the sender's kernel identity (`@self`); a key naming another owner is
+  foreign and needs the generic grant (`test_reject_app_key_of_another_owner`).
 - A purge never touches a GPU-bound or DMA-bound page.
 - Bounded input: every size on the wire is checked against the kinds' limits before allocation.
 - `test_reject_*` per phase (TASK-0333).

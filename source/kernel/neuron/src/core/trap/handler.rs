@@ -106,6 +106,11 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
         }
     }
 
+    // ADR-0085: a level the syscall's allocations or frees crossed is delivered now, with the
+    // syscall's own exclusive borrows — never from inside the pool.
+    if crate::mm::pressure_endpoint::pending() {
+        crate::mm::pressure_endpoint::dispatch(ctx.router, ctx.tasks, ctx.scheduler);
+    }
     uart_dbg_block!({
         let mut u = crate::uart::raw_writer();
         let _ = u.write_str("HECALL dispatch done maybe=");
@@ -340,6 +345,11 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                     // drains and delivers it here within one period. No-op when
                     // nothing is pending (claim() returns None).
                     crate::irq::dispatch_external(router, tasks, scheduler);
+                    // ADR-0085: a memory level crossed by a reap or a fault since the last
+                    // syscall epilogue is delivered within one tick.
+                    if crate::mm::pressure_endpoint::pending() {
+                        crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
+                    }
                     // Reactive IPC deadlines: wake any task whose timed recv/send
                     // (set_wakeup-armed) has elapsed — windowd's pacer, gpud's spin
                     // re-present. Makes the timer IRQ the single wake source for ALL

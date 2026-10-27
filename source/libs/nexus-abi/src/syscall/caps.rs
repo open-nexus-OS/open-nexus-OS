@@ -95,6 +95,27 @@ pub fn child_exit_bind(endpoint_cap: Option<Cap>) -> SysResult<()> {
     }
 }
 
+/// Binds `endpoint_cap` (a SEND capability the caller holds) as the kernel's ONE memory
+/// pressure sink (ADR-0085, syscall 67): every level change writes one
+/// [`OP_MEMORY_PRESSURE`](crate::syscall::memory::OP_MEMORY_PRESSURE) frame into it, the bind
+/// itself the level of the moment. The first binder holds the sink until its endpoint dies;
+/// another process's bind is refused (`PermissionDenied`). `None` clears the caller's binding.
+#[cfg(nexus_env = "os")]
+pub fn mem_pressure_bind(endpoint_cap: Option<Cap>) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_MEM_PRESSURE_BIND: usize = 67;
+        let slot = endpoint_cap.map_or(usize::MAX, |cap| cap as usize);
+        let raw = unsafe { ecall1(SYSCALL_MEM_PRESSURE_BIND, slot) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = endpoint_cap;
+        Err(AbiError::Unsupported)
+    }
+}
+
 /// Transfers a capability from the current task to `dst_task` with intersected `rights`.
 #[cfg(nexus_env = "os")]
 pub fn cap_transfer(dst_task: Pid, cap: Cap, rights: Rights) -> SysResult<Cap> {

@@ -185,3 +185,11 @@ grant `nexus.permission.BACKGROUND`: the app is not frozen for being hidden (ADR
 manifest may not name that grant in `caps` directly (pack-time error). A permission the
 authority does not recognize rejects the whole app at publish, by name
 (`policyd: app grants reject (app= cap=)`), and the app does not launch.
+
+`restorable = true` (RFC-0100 §6, ADR-0086) is the manifest's third word of this kind: a boolean
+that becomes the one grant `nexus.permission.STATE` — the app's own record in statefsd
+(`/state/app/@self/…`, the owner is the sender's kernel identity) over the SDK route `svc.state`.
+app-host writes the program's `@persist` fields there when the compositor says the window is
+hidden and when it closes, and restores them before the first frame of the next launch, so a kill
+under memory pressure brings the user back where they were. Naming the grant in `caps` is a
+pack-time error, as for `BACKGROUND`.

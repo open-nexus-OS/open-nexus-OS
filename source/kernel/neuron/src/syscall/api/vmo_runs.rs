@@ -60,6 +60,11 @@ pub(crate) fn resolve_runs(
         // ADR-0080: a sealed object has no writer — a device told its runs could write them.
         return Err(Error::Capability(CapError::PermissionDenied));
     }
+    if crate::mm::vmo::purge::is_unlocked(id) {
+        // RFC-0100 §4: an object unlocked for purging is nobody's to name until its lock — a
+        // device told its runs would read frames a purge takes back.
+        return Err(Error::Capability(CapError::PermissionDenied));
+    }
     let count = if crate::mm::vmo::is_lazy(id) {
         // A device cannot fault: the range is committed before it is named (ADR-0078), at most
         // `MAX_NAMED_PAGES` pages a call, and answered as an object of its own from byte 0.

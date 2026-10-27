@@ -207,8 +207,12 @@ gets this for free — stale results never overwrite newer ones.
 ## Session vs durable vs queryable
 
 1. **Session state** (default): in-memory store state per app instance.
-2. **Durable small**: store fields marked `@persist` — typed snapshots written on
-   suspend via the state substrate, restored on mount.
+2. **Durable small**: store fields marked `@persist` — one name-keyed snapshot (`NXPS` v1,
+   `runtime/src/persist.rs`) the host writes to the app's own statefs record when the
+   compositor says the window is hidden and when it closes, and restores at mount before the
+   initial effects (TASK-0333 6e-1, ADR-0086). The app says `restorable = true` in its
+   manifest; without it the fields are session state. Bounded at 2048 bytes — navigation, a
+   draft, a toggle; never a document. Settings' `NavStore` is the first.
 3. **Durable large/queryable**: only through the query service contract
    (see `db-queries.md`) — apps never open storage directly.
 

@@ -39,6 +39,7 @@ pub(super) fn forget_dead(
     let _ = hart_timers.forget_endpoint(id);
     let _ = crate::irq::forget_endpoint(id);
     tasks.forget_exit_notify(id);
+    crate::mm::pressure_endpoint::forget_endpoint(id);
 }
 
 /// Destroys `id` — the census found nothing naming it — and forgets it everywhere; `by`

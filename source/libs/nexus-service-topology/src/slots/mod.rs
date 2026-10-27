@@ -39,6 +39,9 @@ pub mod abilitymgr {
     /// The one permission authority (RFC-0111 §6, ADR-0084): an app's grants are asked at
     /// launch, never read from a manifest or a build-time table.
     pub const POLICYD: SlotPair = SlotPair::new(13, REPLY.recv);
+    /// The one memory authority (RFC-0100 §3, ADR-0086): every app process's band is pushed
+    /// here as it changes — one-way, NONBLOCK; memd never answers a band.
+    pub const MEMD: SlotPair = SlotPair::new(14, REPLY.recv);
 }
 
 /// The capability table of a SPAWNED APP CHILD (TASK-0324 P4e).
@@ -193,6 +196,9 @@ pub mod gpud {
     /// the display's vertical blank keeps the control-reply endpoint, and the two must not
     /// share one (a drain of blanks would swallow the GPU's wakes).
     pub const GPU_IRQ: u32 = 0x2a;
+    /// The GPU memory charged to its client, told to the memory authority (TASK-0333 6e-4,
+    /// RFC-0100 §3): a one-way push (`nexus_wire::memd::OP_GPU_CHARGE`), never answered.
+    pub const MEMD: SlotPair = SlotPair::new(0x2b, REPLY.recv);
 }
 
 /// hidrawd (TASK-0324 P4d; its sources, TASK-0253B). Its loop waits on two endpoints and
@@ -475,6 +481,10 @@ pub mod screencapd {
     /// The screenshot file: create, arm the PNG's VMO, write it.
     pub const VFSD: SlotPair = SlotPair::new(8, REPLY.recv);
 }
+
+/// memd — the one memory authority (RFC-0100 §3, ADR-0086, TASK-0333 6e-2; its table is
+/// `slots/memd.rs`).
+pub mod memd;
 
 /// sessiond (TASK-0324 P4f-1a). A pure server.
 pub mod sessiond {

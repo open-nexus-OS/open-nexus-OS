@@ -12,6 +12,9 @@
 extern crate alloc;
 
 pub mod backend;
+/// TASK-0333 6e-4: GPU memory charged to its client, told to the memory authority.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod charges;
 /// Numeric UART diagnostics for one-shot failure paths (TASK-0309). Empty on
 /// every build except the real OS one — its own `#![cfg]` gates the contents.
 pub mod diag;
@@ -29,6 +32,9 @@ pub(crate) mod gpu_context;
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod gpu_share;
 pub mod markers;
+/// TASK-0333 6e-3: the memory authority's level, taken from memd alone and named.
+#[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
+pub(crate) mod pressure;
 pub mod protocol;
 #[cfg(any(test, all(feature = "os-lite", target_os = "none")))]
 pub(crate) mod surface_pages;

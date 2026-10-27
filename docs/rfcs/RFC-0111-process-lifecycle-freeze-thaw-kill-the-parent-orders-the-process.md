@@ -27,8 +27,9 @@
 - **Phase 3 (one permission authority; the declared background)**: ✅ 6d-3 — QEMU lanes and board
   cycle 72b green 2026-10-27 (7/7 apps published, six launches on the ask; the allow side of
   `background` has no consumer yet: contract + host proof only)
-- **Phase 4 (the compositor's restart: ghosts until the next present)**: 🔲 6d-4 — assessed, not
-  built; seeded as RFC-0112 (a service's death is a re-resolve for its clients)
+- **Phase 4 (the compositor's restart: ghosts until the next present)**: 🔲 6d-4 → **6g, after
+  6f** (the operator, 2026-10-27) — assessed, not built; seeded as RFC-0112 (a service's death is
+  a re-resolve for its clients); it serves no package of 6e/6f
 
 Definition: “Complete” means the contract is defined and the proof gates are green on every
 QEMU lane and on the board. It does not mean the policy constants never move.
@@ -322,7 +323,7 @@ cd /home/jenning/open-nexus-OS && just ci-os-usb-visible            # 6d-2: the 
   `SELFTEST: app grants ok (app=calculator n=1 background=0)`, `SELFTEST: app grants put deny ok`
   (headless + visible lanes 2026-10-27); the board rides every launch on the ask = cycle 72 (open).
 - [ ] **Phase 4**: the compositor's restart rung — proof: `windowd: restarted (ghosts=`. Assessed
-  2026-10-27, not built: a fleet re-route protocol — seeded as RFC-0112.
+  2026-10-27, not built: a fleet re-route protocol — seeded as RFC-0112, scheduled as 6g after 6f.
 - [x] Task linked with stop conditions + proof commands (TASK-0333 6d).
 - [x] QEMU markers appear in `scripts/qemu-test.sh` and the board ladder.
 - [x] Security-relevant negative tests exist (the kernel's refusal matrix; `test_reject_*` of

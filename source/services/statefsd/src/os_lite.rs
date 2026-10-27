@@ -327,6 +327,7 @@ fn handle_frame(
 
     match request {
         Request::Put { key, value } => {
+            let key = &*resolve_key(sender_service_id, key);
             if value.len() > MAX_INLINE_VALUE_BYTES {
                 return proto::encode_status_response_with_nonce(
                     proto::OP_PUT,
@@ -401,6 +402,7 @@ fn handle_frame(
             }
         }
         Request::Get { key } => {
+            let key = &*resolve_key(sender_service_id, key);
             if !policy_allows(sender_service_id, proto::OP_GET, key) {
                 emit_access_denied(key, sender_service_id);
                 return proto::encode_get_response_with_nonce(
@@ -441,6 +443,7 @@ fn handle_frame(
             }
         }
         Request::Delete { key } => {
+            let key = &*resolve_key(sender_service_id, key);
             if !policy_allows(sender_service_id, proto::OP_DEL, key) {
                 emit_access_denied(key, sender_service_id);
                 return proto::encode_status_response_with_nonce(
@@ -543,7 +546,21 @@ fn handle_frame(
 }
 
 fn policy_allows(sender_service_id: u64, op: u8, path: &str) -> bool {
+    // TASK-0333 6e-1 (ADR-0086): an app's own record is its own by kernel identity — the route
+    // (`svc.state`) was the capability; another owner's record needs the generic grant.
+    if matches!(crate::app_key::resolve(path, sender_service_id), crate::app_key::AppKey::Own(_)) {
+        return true;
+    }
     policyd_allows(policy_subject(sender_service_id, op, path), required_cap(op, path).as_bytes())
+}
+
+/// The key a request names, with the app key class resolved for the sender (`@self` rewritten
+/// to the sender's identity; every other key unchanged).
+fn resolve_key(sender_service_id: u64, key: &str) -> alloc::string::String {
+    match crate::app_key::resolve(key, sender_service_id) {
+        crate::app_key::AppKey::Own(own) => own,
+        _ => alloc::string::String::from(key),
+    }
 }
 
 /// The canonical policy subject of a request (bring-up aliases folded).

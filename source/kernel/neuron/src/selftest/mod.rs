@@ -28,8 +28,6 @@ use core::ffi::c_void;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
-use crate::task::Pid;
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
 use crate::{
     cap::{Capability, CapabilityKind, Rights},
     hal::{platform::Machine, Timer},
@@ -42,7 +40,7 @@ use crate::{
         SYSCALL_TIMER_SET, SYSCALL_VMO_CREATE, SYSCALL_VMO_WRITE, SYSCALL_WAIT,
         SYSCALL_WAITSET_ADD, SYSCALL_WAITSET_CREATE, SYSCALL_WAITSET_WAIT, SYSCALL_YIELD,
     },
-    task::TaskTable,
+    task::{Pid, TaskTable},
     types::CpuId,
 };
 #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -58,6 +56,8 @@ mod fence;
 mod ipc_budgets;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod lifetime;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod pressure;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod process_ctl;
 mod smp_sched;

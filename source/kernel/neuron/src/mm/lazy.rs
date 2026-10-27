@@ -207,6 +207,17 @@ impl LazyPages {
     pub fn frames(&self) -> impl Iterator<Item = u64> + '_ {
         self.frames.iter().filter(|&&p| p != NONE).map(|&p| u64::from(p) * PAGE as u64)
     }
+
+    /// A purge (RFC-0100 §4): every committed frame, in page order, for the caller to return to
+    /// the pool; every page is uncommitted again — zero on its next touch.
+    pub fn purge(&mut self) -> Vec<u64> {
+        let frames: Vec<u64> = self.frames().collect();
+        for entry in self.frames.iter_mut() {
+            *entry = NONE;
+        }
+        self.committed = 0;
+        frames
+    }
 }
 
 #[cfg(test)]
@@ -338,5 +349,21 @@ mod tests {
         assert!(!nameable(PAGE - 1, (MAX_NAMED_PAGES - 1) * PAGE + 2), "65 pages spanned");
         assert!(!nameable(PAGE, 0));
         assert!(!nameable(usize::MAX - 1, 2));
+    }
+
+    /// A purge hands back exactly the committed frames and leaves every page uncommitted; a
+    /// second purge hands back nothing; a page committed again counts again.
+    #[test]
+    fn a_purge_returns_the_committed_frames_and_uncommits_every_page() {
+        let mut pages = LazyPages::new(4);
+        pages.commit(1, 0x8000_1000).unwrap();
+        pages.commit(3, 0x8000_3000).unwrap();
+        assert_eq!(pages.purge(), [0x8000_1000, 0x8000_3000]);
+        assert_eq!(pages.committed(), 0);
+        assert_eq!(pages.frame(1), None);
+        assert!(pages.purge().is_empty());
+        pages.commit(1, 0x8000_5000).unwrap();
+        assert_eq!(pages.committed(), 1);
+        assert_eq!(pages.frame(1), Some(0x8000_5000));
     }
 }

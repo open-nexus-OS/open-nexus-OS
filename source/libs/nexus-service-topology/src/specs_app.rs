@@ -43,6 +43,8 @@ pub(crate) const ABILITYMGR: ServiceSpec = ServiceSpec {
             kind: RouteKind::ReplyInbox,
             slots: slots::abilitymgr::POLICYD,
         },
+        // RFC-0100 §3 (ADR-0086): every app process's band goes to the one memory authority.
+        Route { to: ServiceId::Memd, kind: RouteKind::ReplyInbox, slots: slots::abilitymgr::MEMD },
     ],
     announce: true,
     server_slots: slots::abilitymgr::SERVER,
@@ -203,6 +205,34 @@ pub(crate) const CLIPBOARDD: ServiceSpec = ServiceSpec {
 // the harness call it; it calls windowd (the capture verb) and vfsd (the PNG file). Platform
 // stage — it gates no barrier, and the first capture comes from a user after login.
 /// The declaration of `screencapd`.
+/// The declaration of `memd` — the one memory authority (RFC-0100 §3, ADR-0086, TASK-0333
+/// 6e-2). It hears the kernel's pressure sink (the declared pair, minted by init like a
+/// child-death endpoint), learns the bands the lifecycle authority pushes and orders a kill
+/// through that authority alone; it spawns nothing and touches no process itself.
+pub(crate) const MEMD: ServiceSpec = ServiceSpec {
+    id: ServiceId::Memd,
+    stage: Stage::Platform,
+    exposes_server: true,
+    reply_inbox: true,
+    routes_to: &[
+        Route {
+            to: ServiceId::Abilitymgr,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::memd::ABILITYMGR,
+        },
+        // 6e-3: the level told onward — gpud drops what it can, windowd tells every app window.
+        Route { to: ServiceId::Gpud, kind: RouteKind::ReplyInbox, slots: slots::memd::GPUD },
+        Route { to: ServiceId::Windowd, kind: RouteKind::ReplyInbox, slots: slots::memd::WINDOWD },
+    ],
+    announce: false,
+    server_slots: slots::memd::SERVER,
+    reply_slots: slots::memd::REPLY,
+    extra_slots: &[
+        NamedSlotBinding { name: NamedSlot::MemPressureRecv, slot: slots::memd::PRESSURE.recv },
+        NamedSlotBinding { name: NamedSlot::MemPressureSend, slot: slots::memd::PRESSURE.send },
+    ],
+};
+
 pub(crate) const SCREENCAPD: ServiceSpec = ServiceSpec {
     id: ServiceId::Screencapd,
     stage: Stage::Platform,

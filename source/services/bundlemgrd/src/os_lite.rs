@@ -572,7 +572,6 @@ mod tests {
         v
     }
 
-    #[test]
     fn fixture_apps() -> alloc::vec::Vec<AppInfo> {
         use alloc::string::ToString;
         let app = |id: &str, ty: &str| AppInfo {
@@ -582,6 +581,7 @@ mod tests {
             icon: "".to_string(),
             permissions: alloc::vec::Vec::new(),
             background: alloc::vec::Vec::new(),
+            restorable: false,
         };
         alloc::vec![app("chat", "app"), app("greeter", "greeter"), app("settings", "settings")]
     }

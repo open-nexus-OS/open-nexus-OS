@@ -26,6 +26,13 @@ pub(super) fn sys_mm_stats(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     stats.timers = ctx.hart_timers.len() as u64;
     stats.waitsets = ctx.waitsets.len() as u64;
     stats.fences = ctx.fences.len() as u64;
+    // RFC-0100 §4: what a purge may take from this caller now, and what purges took since boot.
+    let pid = ctx.tasks.current_pid();
+    if let Some(caps) = ctx.tasks.caps_of(pid) {
+        stats.own_purgeable_bytes =
+            crate::mm::vmo::purge::unlocked_bytes_named(|id| caps.vmo_ref_count(id) > 0);
+    }
+    stats.purged_pages = crate::mm::vmo::purge::purged_pages();
     let mut record = [0u8; MM_STATS_BYTES];
     let written = stats.encode(&mut record).map_err(|_| AddressSpaceError::InvalidArgs)?;
     // SAFETY: `out_ptr..out_ptr + MM_STATS_BYTES` was checked to be a user slice.

@@ -1,0 +1,38 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "memd"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The one memory authority (RFC-0100 §3, ADR-0086, TASK-0333 6e): hears the kernel's pressure sink, learns the bands from the lifecycle authority, orders a kill through it"
+
+[features]
+default = []
+os-lite = [
+    "dep:nexus-ipc",
+    "dep:nexus-service-entry",
+    "nexus-ipc/os-lite",
+    "nexus-ipc/kernel-ipc",
+]
+
+[package.metadata.nexus-service]
+kind = "service"
+stack_pages = 0
+features = ["os-lite"]
+
+[dependencies]
+# The pressure levels and the frame decoder are the ABI's (host and OS alike).
+nexus-abi = { path = "../../libs/nexus-abi" }
+nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+nexus-service-topology = { path = "../../libs/nexus-service-topology" }
+nexus-wire = { path = "../../libs/nexus-wire" }
+
+[[bin]]
+name = "memd"
+path = "src/main.rs"
+test = false
+bench = false
+doctest = false

@@ -36,7 +36,9 @@ mod locale;
 mod mount;
 mod overlay;
 mod paint;
+mod persist;
 mod presentation;
+mod pressure;
 mod scroll;
 mod state;
 mod windows; // RFC-0086 feed intake // RFC-0095: hover, leave and the drag gesture
@@ -47,50 +49,9 @@ pub(crate) use locale::app_locale;
 use paint::collect_texts;
 use state::DslApp;
 
-/// Fixed child capability slots — execd transfers these AFTER spawn
-/// (`cap_transfer_to_slot`): SEND on windowd's server endpoint into 5,
-/// RECV on windowd's shared response endpoint into 6 (the inputd slot
-/// convention). The child may run before the transfer lands, so every
-/// first use retries bounded (the #123 empty-slot lesson).
-const WINDOWD_SEND_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.send;
-const WINDOWD_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::WINDOWD.recv;
-/// The app's DEDICATED event channel (ADR-0042): windowd delivers input
-/// events AND surface acks here — the shared response endpoint (slot 6)
-/// raced with inputd's ack drain, so a tap sent there could be consumed
-/// by any receiver. Slot 6 stays as the fallback for older wiring
-/// (marked).
-const EVENTS_RECV_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_RECV;
-/// The app's timer-notify pair (TASK-0324 P7-d, minted by execd): the clock's one-shot
-/// timer fires a frame on RECV, a waitset member next to the event channel.
-/// The app's declared timer-notify pair (TASK-0324 P7-d): its clock's one-shot rides here.
-const TIMER: nexus_service_topology::SlotPair = nexus_service_topology::slots::app_child::TIMER;
-
-// The embedded fallback payload is DELETED (separation of concerns):
-// program bytes belong to bundlemgrd (the registry) ONLY. A missing/broken
-// payload VMO is a LOUD failure in the log (FAIL markers below) and shows
-// NO window at all — never a silently different program, and no longer the
-// teal probe fill either (a fail-open ghost window titled "App").
-
-/// Fixed child slot holding the payload VMO (execd's
-/// `CHILD_PAYLOAD_SLOT`); bundlemgrd fills it and writes the 16-byte
-/// header LAST (`nexus_abi::payload_vmo::encode_header`).
-const PAYLOAD_VMO_SLOT: u32 = nexus_service_topology::slots::app_child::PAYLOAD_VMO;
-/// SEND-side clone of OUR OWN event channel (execd grants it alongside the
-/// RECV side): the app-host attaches it to windowd ITSELF, tagged with a
-/// self-minted nonce that SURFACE_CREATE repeats — windowd binds
-/// channel↔surface by nonce (deterministic under concurrent connects).
-const EVENTS_SEND_CLONE_SLOT: u32 = nexus_service_topology::slots::app_child::EVENTS_SEND;
-/// Header-poll budget: the fetch is kicked BEFORE our ELF even loads, so
-/// the header normally beats us; the budget only bounds failure. 3s→8s
-/// (RFC-0075 Phase 8d): the CJK-atlas-grown image lengthened early-boot
-/// loads enough that the grant lagged 3s on busy boots (same class as
-/// the content-rect budget below).
-const PAYLOAD_BUDGET_NS: u64 = 8_000_000_000;
-/// Upper payload bound accepted from the header (matches execd's VMO
-/// budget; anything larger is a malformed header by contract). Raised with
-/// execd's `PAYLOAD_VMO_BYTES` 256K→512K — settings' NXLC container hit 93%
-/// of the old bound.
-const PAYLOAD_MAX_LEN: usize = 512 * 1024;
+// The child's fixed slots and payload budgets (`probe/slots.rs`, re-sourced from the topology).
+mod slots;
+use slots::*;
 
 mod boot_env;
 use boot_env::{map_atlas_base, nsec_now, payload_addr};
@@ -409,6 +370,9 @@ pub(super) fn run() -> Result<(), &'static str> {
                     // exit cleanly so the kernel frees the process (the
                     // app-side half of the reaper, #29). Spinning on the dead
                     // channel would burn the core forever instead.
+                    // TASK-0333 6e-1: the durable fields go to the app's own record first — the
+                    // state route outlives the window (statefsd, not the compositor, answers).
+                    persist::save_app(app.as_ref(), persist::Reason::Close);
                     raw_marker("APPHOST: window closed - exiting");
                     return Ok(());
                 }
@@ -568,6 +532,16 @@ pub(super) fn run() -> Result<(), &'static str> {
             // Composition-strip push (RFC-0075 Phase 3, ime-ui only —
             // apps without the event ignore it).
             if app.as_mut().is_some_and(|d| d.apply_ime_state(&event_frame[..len])) {
+                dirty = true;
+                dirty_rows = None;
+            }
+        } else if persist::absorb_seen(&event_frame[..len], app.as_ref()) {
+            // TASK-0333 6e-1 (ADR-0086): the compositor's sighting of THIS window — hidden wrote
+            // the `@persist` fields to the app's own record (persist.rs). Nothing to repaint.
+        } else if let Some(handled) = pressure::absorb(&event_frame[..len], app.as_mut()) {
+            // TASK-0333 6e-3 (RFC-0100 §3): the memory authority's level, raised into the program
+            // as the host event `MemoryPressure` (pressure.rs); a handled one changed the view.
+            if handled {
                 dirty = true;
                 dirty_rows = None;
             }

@@ -115,6 +115,22 @@ pub(super) fn sched_telemetry_op(
             crate::mm::populate::filled()
         );
         log_top_spaces(spaces, tasks);
+        // TASK-0333 6e-0 (ADR-0085, RFC-0100 §3): the watermarks of the booted pool — fractions
+        // of each bank's boot-time free frames, floored, in order and below the total — and the
+        // level the free frames mean now. The same code prints different absolutes per machine.
+        match crate::mm::pressure_endpoint::state() {
+            Some((level, marks)) if marks.well_formed() && marks.warn < m.total => log_info!(
+                target: "mm",
+                "KSELFTEST: mem watermarks ok (total={} free={} warn={} crit={} emerg={} level={})",
+                m.total,
+                m.free,
+                marks.warn,
+                marks.critical,
+                marks.emergency,
+                level.name()
+            ),
+            state => log_error!(target: "mm", "KSELFTEST: mem watermarks FAIL ({:?})", state),
+        }
         // TASK-0333 6a (RFC-0100 §1): what the reaps and the last capability closes of this
         // boot gave back — objects nobody named or mapped any more, and their bytes.
         let (reclaimed, reclaimed_bytes) = crate::mm::reclaim::stats();
@@ -298,9 +314,11 @@ pub(super) fn sched_telemetry_op(
 /// each, named by the pid and service id of the task that owns them — the summary line says
 /// how much is resident, not whose it is (TASK-0330 S0, the memory lane's baseline).
 fn log_top_spaces(spaces: &AddressSpaceManager, tasks: &TaskTable) {
+    // ADR-0085: who maps what, once for every line below.
+    let mappers = crate::mm::usage::Mappers::census(spaces);
     let mut below = (u64::MAX, usize::MAX);
     for _ in 0..TOP_SPACES {
-        let mut best: Option<(u64, usize, u64, u64, u64)> = None;
+        let mut best: Option<(u64, usize, u64, u64, u64, u64)> = None;
         for index in 0..tasks.len() {
             let Some(task) = tasks.task(crate::types::Pid::from_raw(index as u32)) else {
                 continue;
@@ -314,19 +332,22 @@ fn log_top_spaces(spaces: &AddressSpaceManager, tasks: &TaskTable) {
             let better = best
                 .is_none_or(|(rss, pid, ..)| usage.rss > rss || (usage.rss == rss && index < pid));
             if after && better {
-                best = Some((usage.rss, index, usage.dma, task.service_id(), usage.reserved));
+                let shared = crate::mm::usage::shared_bytes(space, &mappers);
+                best =
+                    Some((usage.rss, index, usage.dma, task.service_id(), usage.reserved, shared));
             }
         }
-        let Some((rss, pid, dma, service, reserved)) = best else { break };
+        let Some((rss, pid, dma, service, reserved, shared)) = best else { break };
         below = (rss, pid);
         log_info!(
             target: "mm",
-            "KINIT: mm space pid={} sid={:#x} rss={} dma={} reserved={}",
+            "KINIT: mm space pid={} sid={:#x} rss={} dma={} reserved={} shared={}",
             pid,
             service,
             rss,
             dma,
-            reserved
+            reserved,
+            shared
         );
     }
 }

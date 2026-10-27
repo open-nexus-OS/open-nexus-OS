@@ -36,6 +36,53 @@ pub struct SpacesSummary {
     pub rss_max: u64,
 }
 
+/// How many spaces map each object (TASK-0333 6e, ADR-0085): `(vmo id, mappers)`, read once
+/// per snapshot from every region table — an object with two or more is shared.
+pub struct Mappers(alloc::vec::Vec<(u32, u32)>);
+
+impl Mappers {
+    /// Count over every space.
+    pub fn census(spaces: &AddressSpaceManager) -> Self {
+        let mut counts: alloc::vec::Vec<(u32, u32)> = alloc::vec::Vec::new();
+        for space in spaces.iter() {
+            // One space mapping an object twice is still one mapper.
+            let mut seen: alloc::vec::Vec<u32> = alloc::vec::Vec::new();
+            for region in space.va_space().regions() {
+                if region.vmo == 0 || seen.contains(&region.vmo) {
+                    continue;
+                }
+                seen.push(region.vmo);
+                match counts.iter_mut().find(|(id, _)| *id == region.vmo) {
+                    Some((_, n)) => *n += 1,
+                    None => counts.push((region.vmo, 1)),
+                }
+            }
+        }
+        Mappers(counts)
+    }
+
+    /// Whether another space maps `vmo` too.
+    pub fn is_shared(&self, vmo: u32) -> bool {
+        self.0.iter().any(|(id, n)| *id == vmo && *n >= 2)
+    }
+}
+
+/// The resident bytes of `space` over objects another space maps too.
+pub fn shared_bytes(space: &AddressSpace, mappers: &Mappers) -> u64 {
+    let mut shared = 0u64;
+    for region in space.va_space().regions() {
+        if region.kind == RegionKind::Mmio || region.vmo == 0 || !mappers.is_shared(region.vmo) {
+            continue;
+        }
+        shared += if region.lazy {
+            super::vmo::committed_in(region.vmo, region.offset, region.len) as u64
+        } else {
+            region.len as u64
+        };
+    }
+    shared
+}
+
 /// One space's resident bytes, from its region table.
 pub fn space_usage(space: &AddressSpace) -> SpaceUsage {
     let mut usage = SpaceUsage::default();
@@ -102,6 +149,13 @@ pub fn snapshot(spaces: &AddressSpaceManager, own: Option<AsHandle>) -> (MmStats
         let usage = space_usage(space);
         (stats.own_rss_bytes, stats.own_dma_bytes, stats.own_reserved_bytes) =
             (usage.rss, usage.dma, usage.reserved);
+        stats.own_shared_bytes = shared_bytes(space, &Mappers::census(spaces));
+    }
+    // ADR-0085: the level and its watermarks, from the one tracker over the pool.
+    if let Some((level, marks)) = super::pressure_endpoint::state() {
+        stats.pressure_level = level as u64;
+        (stats.watermark_warn, stats.watermark_critical, stats.watermark_emergency) =
+            (marks.warn, marks.critical, marks.emergency);
     }
     let mut summary = SpacesSummary::default();
     for space in spaces.iter() {

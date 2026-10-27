@@ -183,6 +183,11 @@ impl Broker {
         Ok(())
     }
 
+    /// Every live instance (the band feed reads them all, TASK-0333 6e-2).
+    pub fn instances(&self) -> impl Iterator<Item = &AbilityInstance> {
+        self.instances.values()
+    }
+
     /// The instance whose process is `pid`, if any.
     pub fn instance_by_pid(&self, pid: u32) -> Option<&AbilityInstance> {
         self.instances.values().find(|i| i.pid == Some(pid))

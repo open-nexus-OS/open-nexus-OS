@@ -134,6 +134,16 @@ pub const SERVICE_ROUTES: &[ServiceRoute] = &[
     // IS the capability — SCREENCAP is ceiling-gated to the `shell` and `settings` bundle types
     // at pack time (nxb-pack), so no app can read the screen.
     ServiceRoute {
+        svc: "state",
+        // TASK-0333 6e-1 (RFC-0100 §6, ADR-0086): the app's own durable record — statefsd keeps
+        // the `@persist` snapshot under `/state/app/@self/…`, the sender's kernel identity names
+        // the owner. The grant comes from `restorable = true` in the manifest (bundlemgrd
+        // derives it), never from `caps`.
+        route: "statefsd",
+        permission: "nexus.permission.STATE",
+        child_slot: 25,
+    },
+    ServiceRoute {
         svc: "screencap",
         route: "screencapd",
         permission: "nexus.permission.SCREENCAP",

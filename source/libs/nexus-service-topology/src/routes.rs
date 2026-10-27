@@ -127,6 +127,14 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::SelftestClient, ServiceId::Blkd),
     (ServiceId::SelftestClient, ServiceId::Clipboardd), // the gate's deny side + the prefill
     (ServiceId::SelftestClient, ServiceId::Screencapd), // the non-black probe through the readback
+    (ServiceId::SelftestClient, ServiceId::Memd), // the sink's state; the drill on a QEMU lane
+    // RFC-0100 §3 (ADR-0086, TASK-0333 6e-2): the one memory authority — the lifecycle
+    // authority pushes every app process's band to it, it orders a kill through that authority.
+    (ServiceId::Abilitymgr, ServiceId::Memd),
+    (ServiceId::Memd, ServiceId::Abilitymgr),
+    (ServiceId::Memd, ServiceId::Gpud), // 6e-3: the level told to the GPU driver's caches
+    (ServiceId::Memd, ServiceId::Windowd), // 6e-3: the level told to every app window
+    (ServiceId::Gpud, ServiceId::Memd), // 6e-4: GPU memory charged to its client, told to memd
     // RFC-0092 (TASK-0052 P3): the ingress gateway asks policyd for the
     // declared subject's `net.expose` and drives netstackd (listen/accept/
     // connect/relay); the selftest registers its exposure intents.

@@ -21,12 +21,16 @@ use alloc::vec::Vec;
 
 use crate::volume::AppInfo;
 
-/// The grant names one app publishes: its `caps`, and `nexus.permission.BACKGROUND` once when
-/// the manifest declares any background mode (the modes themselves are the runtime's later).
+/// The grant names one app publishes: its `caps`, `nexus.permission.BACKGROUND` once when the
+/// manifest declares any background mode (the modes themselves are the runtime's later), and
+/// `nexus.permission.STATE` once when it is `restorable` (RFC-0100 §6: its own record in statefsd).
 pub(crate) fn grant_set(app: &AppInfo) -> Vec<&str> {
     let mut grants: Vec<&str> = app.permissions.iter().map(String::as_str).collect();
     if !app.background.is_empty() && !grants.contains(&nexus_abi::policyd::PERMISSION_BACKGROUND) {
         grants.push(nexus_abi::policyd::PERMISSION_BACKGROUND);
+    }
+    if app.restorable && !grants.contains(&nexus_abi::policyd::PERMISSION_STATE) {
+        grants.push(nexus_abi::policyd::PERMISSION_STATE);
     }
     grants
 }
@@ -133,5 +137,9 @@ mod tests {
         // Declared twice over (a manifest that also lists the grant) stays one grant.
         app.permissions.push("nexus.permission.BACKGROUND".to_string());
         assert_eq!(grant_set(&app).len(), 3);
+        // `restorable = true` is the STATE grant, once (RFC-0100 §6).
+        app.restorable = true;
+        assert_eq!(grant_set(&app).last().copied(), Some("nexus.permission.STATE"));
+        assert_eq!(grant_set(&app).len(), 4);
     }
 }

@@ -185,4 +185,14 @@ impl Bos {
     pub(super) fn live(&self) -> usize {
         self.table.iter().flatten().count()
     }
+
+    /// Bytes `client`'s buffers span together (TASK-0333 6e-4: charged to the client).
+    pub(super) fn held_by(&self, client: ClientId) -> u64 {
+        self.table
+            .iter()
+            .flatten()
+            .filter(|b| b.client == client)
+            .map(|b| b.len as u64)
+            .fold(0, u64::saturating_add)
+    }
 }

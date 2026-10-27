@@ -29,6 +29,29 @@ phase = "end"
 [marker."KSELFTEST: mm frames ("]
 phase = "end"
 
+# TASK-0333 6e-0 (ADR-0085, RFC-0100 §3): the watermarks of the booted pool — fractions of each
+# bank's boot-time free frames (25/10/5 %), summed and floored — are in order (warn > crit >
+# emerg > 0) and below the total, and the level the free frames mean now is named. The same
+# code prints different absolutes on QEMU and the board; the verdict is the ordering.
+[marker."KSELFTEST: mem watermarks ok ("]
+phase = "end"
+
+# TASK-0333 6e-3 (RFC-0100 §4): a lazy object its owner unlocked for purging loses its pages
+# when `warn` is delivered (the sink's own dispatch) and says so at the lock; the unlock of a
+# device-bound, an eager and a mapped object is refused; a locked object keeps its pages.
+[marker."KSELFTEST: vmo purge ok ("]
+phase = "end"
+
+# TASK-0333 6e-2 (ADR-0086, RFC-0100 §3): the one memory authority answers the harness that the
+# kernel's pressure endpoint is bound to it (the sink of ADR-0085 has its listener) and names
+# the level of the moment and the app processes it knows. On every lane, at the end phase.
+[marker."SELFTEST: memd bound ok ("]
+phase = "end"
+
+[marker."SELFTEST: memd bound FAIL"]
+phase = "end"
+proves = "memd did not answer, or answered that the kernel refused its bind — the pressure sink has no listener"
+
 # TASK-0333 6a (RFC-0100 §1): the objects freed because nobody named or mapped them any more —
 # at a reap (what the zombie named at its exit, what its space mapped) and at the last
 # `cap_close` of a VMO — and their bytes. A measurement at the same fence; the verdict is the

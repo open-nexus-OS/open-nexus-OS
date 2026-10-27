@@ -87,6 +87,10 @@ clipboardd = ["ipc.core"]
 # TASK-0068 (RFC-0095): the screen-capture facade calls windowd (the capture verb, accepted
 # from its kernel sid alone) and vfsd (the PNG in the Pictures folder); routing is `ipc.core`.
 screencapd = ["ipc.core"]
+# TASK-0333 6e-2 (RFC-0100 §3, ADR-0086): the one memory authority hears the kernel's pressure
+# sink and the lifecycle authority's band pushes (taken from its kernel sid alone); its only
+# call is the kill order to abilitymgr, which orders the parent. It spawns and kills nothing.
+memd = ["ipc.core"]
 # TASK-0072 Phase 8: settingsd persists the typed prefs registry via statefsd
 # (state:/prefs) — needs ipc.core to route + statefs read/write to load at boot
 # and store on change.

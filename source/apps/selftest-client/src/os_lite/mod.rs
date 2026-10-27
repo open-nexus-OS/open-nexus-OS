@@ -30,6 +30,7 @@ mod ime_ranking;
 mod imed;
 mod imed_osk;
 mod ipc;
+mod memd;
 mod mmio;
 mod net;
 mod observer;

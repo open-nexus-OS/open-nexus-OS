@@ -116,6 +116,12 @@ fn super_ctrl_chords_become_zone_codes_and_never_keys() {
     assert_eq!(rig.inputd.take_wm_chord(), 9, "F = fill");
     assert_eq!(rig.chord(LCTRL | LGUI, DOWN), 0);
     assert_eq!(rig.inputd.take_wm_chord(), 10, "return");
+    // TASK-0333 6d/6e-1: the letter chords — the board's cycle 73 saw the arrows work and the
+    // letters not; the table must park both alike.
+    assert_eq!(rig.chord(LCTRL | LGUI, 0x10), 0, "M is no keyboard dispatch");
+    assert_eq!(rig.inputd.take_wm_chord(), 14, "M = minimize");
+    assert_eq!(rig.chord(LCTRL | LGUI, 0x1a), 0, "W is no keyboard dispatch");
+    assert_eq!(rig.inputd.take_wm_chord(), 15, "W = close");
 }
 
 /// Without Super the same keys are ordinary input: no chord parked, the key dispatches (or is

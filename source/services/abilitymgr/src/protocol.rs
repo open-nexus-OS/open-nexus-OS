@@ -72,6 +72,16 @@ pub const OP_INSTANCE_EXITED: u8 = 5;
 /// Response: none.
 pub const OP_SEEN: u8 = 6;
 
+/// The memory authority's kill order (TASK-0333 6e-2, RFC-0100 §3, ADR-0086): memd decided
+/// WHO goes when the kernel's level says somebody must; this service checks the instance is
+/// not the foreground, ORDERS the parent (execd `OP_KILL`) and answers whether the order was
+/// carried out. Taken from memd's kernel sender id alone; a frame from anyone else is denied.
+/// The death itself comes back as the reaper's `OP_INSTANCE_EXITED`, and the instance's band
+/// goes to memd as `gone` — that is the kill's proof, not this reply.
+/// Request:  `[A,M,ver,OP_MEM_KILL, pid:u32le]`
+/// Response: `[A,M,ver,OP_MEM_KILL|0x80, status, pid:u32le]`
+pub const OP_MEM_KILL: u8 = 7;
+
 // --- Status codes ---
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;
@@ -87,6 +97,8 @@ pub const STATUS_FULL: u8 = 4;
 /// Launch denied: the app's manifest declares a capability the platform does not
 /// recognize (fail-closed permission check). RFC-0065 launch authority.
 pub const STATUS_DENIED: u8 = 5;
+/// The order was accepted but the parent did not carry it out (execd refused or is gone).
+pub const STATUS_FAILED: u8 = 6;
 
 /// Minimum frame length: `MAGIC0 + MAGIC1 + VERSION + OP`.
 pub const MIN_FRAME_LEN: usize = 4;

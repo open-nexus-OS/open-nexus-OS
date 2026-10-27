@@ -73,6 +73,7 @@ mod tests {
         );
         assert!(is_volume_service("clipboardd"), "the clipboard authority ships on the volume");
         assert!(is_volume_service("screencapd"), "the capture facade ships on the volume");
+        assert!(is_volume_service("memd"), "the memory authority ships on the volume");
     }
 
     #[test]

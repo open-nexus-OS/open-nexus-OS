@@ -148,6 +148,10 @@ proves = "the loader refuses a segment off the page grid and two segments on one
 phase = "bringup"
 proves = "task_resume, task_suspend and task_kill of a task that is not the caller's child are refused (ESRCH) and task_kill of a child not made killable at exec is refused (EPERM); a suspended child is Suspended and frozen, its receive endpoint marked, the frame that fits its queue is taken and the one that would park the sender is refused with Frozen; a frozen killable child is killed into a zombie"
 
+[marker."KSELFTEST: mem pressure notify ok ("]
+phase = "bringup"
+proves = "TASK-0333 6e-0 (ADR-0085, RFC-0100 §3): a task that binds its endpoint with mem_pressure_bind hears the level of the moment as one OP_MEMORY_PRESSURE frame with the pool's free and total frames, an injected warn as the next frame, a second process's bind is refused with EPERM while the first holds the sink, and the holder's clear frees it"
+
 [marker."KSELFTEST: task freeze ok ("]
 phase = "bringup"
 proves = "a child frozen while parked in a blocking receive was never dispatched by any hart until its parent's thaw (ran=0); the kernel's one-per-boot proof line at the first thaw of a frozen task"
@@ -559,6 +563,15 @@ phase = "bringup"
 proves = "TASK-0251 P2: the tree names no display controller (QEMU virt: the GPU's window is the plane)"
 
 [marker."socd: ready ("]
+phase = "bringup"
+
+# TASK-0333 6e-2 (ADR-0086): the one memory authority is up, and the kernel's first pressure
+# frame (written at the bind: the level of the moment, free and total frames) was heard —
+# the sink of ADR-0085 has its listener on every lane.
+[marker."memd: ready"]
+phase = "bringup"
+
+[marker."memd: pressure (level="]
 phase = "bringup"
 proves = "socd mapped the tree and every provider window the tree lists, or found none"
 

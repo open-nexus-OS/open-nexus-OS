@@ -31,3 +31,4 @@ imed
 pinched
 clipboardd
 screencapd
+memd

@@ -229,6 +229,15 @@ pub const SYSCALL_TASK_SUSPEND: usize = 65;
 /// ADR-0082 (RFC-0111): kills a CHILD process the parent marked `killable` at `exec_vmo`
 /// (`ExitReason::Killed`, code -9); the threads go with it. Args: (pid).
 pub const SYSCALL_TASK_KILL: usize = 66;
+/// ADR-0085 (RFC-0100 §3, TASK-0333 6e): binds the caller's endpoint as the kernel's ONE memory
+/// pressure sink — every level change writes one `OP_MEMORY_PRESSURE` frame into it, the bind
+/// itself the level of the moment. Refused while another process holds the sink. Args:
+/// (endpoint_slot; `usize::MAX` clears).
+pub const SYSCALL_MEM_PRESSURE_BIND: usize = 67;
+/// RFC-0100 §4 (TASK-0333 6e-3): unlocks (arg 1 = 1) a lazy VMO for purging — the kernel may
+/// drop its pages at `warn`, and the object is untouchable until its lock — or locks it (arg 1
+/// = 0) and answers 1 when a purge took the content since the unlock. Args: (vmo_slot, unlock).
+pub const SYSCALL_VMO_PURGEABLE: usize = 68;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

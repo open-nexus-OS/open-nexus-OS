@@ -56,6 +56,8 @@ pub use grant::{
     decode_framebuffer_grant, encode_framebuffer_grant, encode_framebuffer_request,
     parse_display_request, FramebufferGrant, FRAMEBUFFER_GRANT_LEN, OP_FRAMEBUFFER_REQUEST,
 };
+pub mod surface_pressure;
+pub mod surface_seen;
 pub mod surface_settings;
 pub mod surface_text;
 pub mod surface_windows;

@@ -342,7 +342,32 @@ pub struct MmStats {
     pub vmo_committed: u64,
     /// The caller's reserved bytes (v3): regions over lazy objects not yet touched.
     pub own_reserved_bytes: u64,
+    /// The part of the caller's resident bytes over objects another space maps too (v4,
+    /// ADR-0085): a shared image's text, a shared atlas. Private = `own_rss_bytes` minus this.
+    pub own_shared_bytes: u64,
+    /// The caller's resident bytes over purgeable objects (v4, RFC-0100 §4).
+    pub own_purgeable_bytes: u64,
+    /// The pressure level now (v4): `MEM_PRESSURE_NORMAL` … `MEM_PRESSURE_EMERGENCY`.
+    pub pressure_level: u64,
+    /// Free frames at or below which the level is `warn` (v4).
+    pub watermark_warn: u64,
+    /// … `critical`.
+    pub watermark_critical: u64,
+    /// … `emergency`.
+    pub watermark_emergency: u64,
+    /// Purgeable pages dropped since boot (v4).
+    pub purged_pages: u64,
 }
+
+// The pressure levels, the kernel's frame and its decoder, and the purgeable lock/unlock live
+// in `syscall/pressure.rs` (split by the structure gate); re-exported here so
+// `nexus_abi::syscall::memory::…` and the crate-root glob keep resolving unchanged.
+pub use super::pressure::{
+    decode_memory_pressure, mem_pressure_name, MEM_PRESSURE_CRITICAL, MEM_PRESSURE_EMERGENCY,
+    MEM_PRESSURE_NORMAL, MEM_PRESSURE_WARN, OP_MEMORY_PRESSURE,
+};
+#[cfg(nexus_env = "os")]
+pub use super::pressure::{vmo_lock_purgeable, vmo_unlock_purgeable};
 
 impl MmStats {
     /// The kernel objects a task's exit must give back, as one number (`endpoints + timers +
@@ -353,10 +378,11 @@ impl MmStats {
     }
 }
 
-/// The record layout this ABI speaks.
-pub const MM_STATS_VERSION: u32 = 3;
+/// The record layout this ABI speaks (v4: shared/purgeable bytes, the pressure level and its
+/// watermarks, the purged pages — ADR-0085).
+pub const MM_STATS_VERSION: u32 = 4;
 /// 64-bit fields after the 8-byte header.
-pub const MM_STATS_FIELDS: u32 = 20;
+pub const MM_STATS_FIELDS: u32 = 27;
 const _: () = assert!(core::mem::size_of::<MmStats>() == 8 + MM_STATS_FIELDS as usize * 8);
 
 /// Frame size of the pool (`MmStats::total` / `free` count these).

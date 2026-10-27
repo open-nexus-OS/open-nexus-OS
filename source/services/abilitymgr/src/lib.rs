@@ -7,7 +7,7 @@
 //! API_STABILITY: Unstable (v6b bring-up)
 //! TEST_COVERAGE: Host unit tests (lifecycle state machine + wire dispatch) + QEMU `abilitymgr: ready` marker
 //!
-//! PUBLIC API: `lifecycle::Broker`, `wire::dispatch`, `seen::handle_seen` (the lifecycle policy), `service_main_loop()` (OS), `execute()` (CLI)
+//! PUBLIC API: `lifecycle::Broker`, `wire::dispatch`, `seen::handle_seen` (the lifecycle policy), `bands::BandFeed` (what each process is to the user, for memd), `mem_kill::handle_mem_kill` (memd's order), `service_main_loop()` (OS), `execute()` (CLI)
 //! DEPENDS_ON: nexus_ipc, nexus_abi (OS only)
 //! INVARIANTS:
 //!   - Deterministic, bounded lifecycle ordering (Created→Started→Foreground/Background→Suspend/Resume→Stop).
@@ -25,10 +25,12 @@
 
 extern crate alloc;
 
+pub mod bands;
 pub mod caps;
 pub mod handoff;
 pub mod lifecycle;
 pub mod mediation;
+pub mod mem_kill;
 pub mod protocol;
 pub mod seen;
 pub mod wire;

@@ -14,11 +14,13 @@
     no_std
 )]
 
-#[cfg(all(feature = "os-lite", nexus_env = "os"))]
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
 extern crate alloc;
 
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod abi_seam_os;
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os")))]
+mod app_key;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]
 mod emit_os;
 #[cfg(all(feature = "os-lite", nexus_env = "os"))]

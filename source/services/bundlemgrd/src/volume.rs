@@ -104,6 +104,10 @@ pub(crate) struct AppInfo {
     /// The manifest's `background = [...]` modes; non-empty becomes the one grant
     /// `nexus.permission.BACKGROUND` at publish (deny-by-default: absent = frozen when hidden).
     pub(crate) background: alloc::vec::Vec<alloc::string::String>,
+    /// The manifest's `restorable = true` (RFC-0100 §6, ADR-0086): becomes the one grant
+    /// `nexus.permission.STATE` at publish — the app's own record in statefsd (deny-by-default:
+    /// absent = no `svc.state` route, nothing of the app survives a kill).
+    pub(crate) restorable: bool,
 }
 
 /// Largest `meta/app.properties` the registry reads (bounded input): label, icon, type, up to
@@ -111,7 +115,7 @@ pub(crate) struct AppInfo {
 const APP_PROPERTIES_MAX: usize = 2048;
 
 /// Parses `key=value` lines (`label`, `icon`, `bundle_type`, the comma-separated
-/// `permissions` and `background`) — the sidecar `nx app compile --meta` writes. Missing keys
+/// `permissions` and `background`, `restorable`) — the sidecar `nx app compile --meta` writes. Missing keys
 /// fall back to the id / empty / `app` / none; unknown keys are ignored (forward-compatible).
 pub(crate) fn parse_app_properties(id: &str, text: &[u8]) -> AppInfo {
     use alloc::string::{String, ToString};
@@ -120,6 +124,7 @@ pub(crate) fn parse_app_properties(id: &str, text: &[u8]) -> AppInfo {
     let mut bundle_type = "app".to_string();
     let mut permissions = alloc::vec::Vec::new();
     let mut background = alloc::vec::Vec::new();
+    let mut restorable = false;
     let list = |v: &str| -> alloc::vec::Vec<String> {
         v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(ToString::to_string).collect()
     };
@@ -133,6 +138,7 @@ pub(crate) fn parse_app_properties(id: &str, text: &[u8]) -> AppInfo {
             "bundle_type" => bundle_type = v.trim().to_string(),
             "permissions" => permissions = list(v),
             "background" => background = list(v),
+            "restorable" => restorable = v.trim() == "true",
             _ => {}
         }
     }
@@ -143,6 +149,7 @@ pub(crate) fn parse_app_properties(id: &str, text: &[u8]) -> AppInfo {
         icon,
         permissions,
         background,
+        restorable,
     }
 }
 
@@ -504,7 +511,8 @@ mod tests {
         let a = parse_app_properties(
             "calculator",
             b"label=Calculator\nicon=calculator|#3d4757|#1a202c\nbundle_type=app\nunknown=x\n\
-              permissions=nexus.permission.WINDOW, nexus.permission.CLIPBOARD,\nbackground=audio\n",
+              permissions=nexus.permission.WINDOW, nexus.permission.CLIPBOARD,\nbackground=audio\n\
+              restorable=true\n",
         );
         assert_eq!(a.id, "calculator");
         assert_eq!(a.label, "Calculator");
@@ -512,12 +520,13 @@ mod tests {
         assert_eq!(a.bundle_type, "app");
         assert_eq!(a.permissions, ["nexus.permission.WINDOW", "nexus.permission.CLIPBOARD"]);
         assert_eq!(a.background, ["audio"]);
+        assert!(a.restorable);
         // Missing keys: label = id, icon empty, type app, no permissions. Garbage lines ignored.
         let b = parse_app_properties("stash", b"\xff\xfe\nnot a pair\npermissions=\n");
         assert_eq!(
             (b.label.as_str(), b.icon.as_str(), b.bundle_type.as_str()),
             ("stash", "", "app")
         );
-        assert!(b.permissions.is_empty() && b.background.is_empty());
+        assert!(b.permissions.is_empty() && b.background.is_empty() && !b.restorable);
     }
 }

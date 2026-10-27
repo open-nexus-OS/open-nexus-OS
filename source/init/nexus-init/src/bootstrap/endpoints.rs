@@ -169,6 +169,9 @@ pub(crate) struct FacadePairs {
     pub clipboardd: Option<(u32, u32)>,
     /// The screen-capture facade (TASK-0068).
     pub screencapd: Option<(u32, u32)>,
+    /// The one memory authority (TASK-0333 6e-2, ADR-0086): the lifecycle authority's band
+    /// pushes and the harness's status/drill legs clone this pair.
+    pub memd: Option<(u32, u32)>,
 }
 
 /// Pre-mints every facade's pair (one body per facade would grow the orchestrator).
@@ -176,7 +179,11 @@ pub(crate) fn mint_facade_pairs(
     ctrl_channels: &[crate::bootstrap::CtrlChannel],
 ) -> crate::os_payload::Result<FacadePairs> {
     let pair = |name| mint_server_pair(ctrl_channels, name).map(|(req, rsp)| req.zip(rsp));
-    Ok(FacadePairs { clipboardd: pair("clipboardd")?, screencapd: pair("screencapd")? })
+    Ok(FacadePairs {
+        clipboardd: pair("clipboardd")?,
+        screencapd: pair("screencapd")?,
+        memd: pair("memd")?,
+    })
 }
 
 impl Endpoints {
@@ -207,7 +214,12 @@ impl Endpoints {
             // (When absent, the generic arm falls back to provisioning a fresh —
             // unused — pair; every current image profile includes logd.)
             ServiceId::Logd => self.log_req.zip(self.log_rsp),
-            // Drivers (gpud/windowd/inputd) are priority-wired before this table is read.
+            // Drivers (windowd/inputd) are priority-wired before this table is read; gpud's
+            // pair is here too (TASK-0333 6e-3): the memory authority, spawned before the
+            // display driver, holds a declared leg to it — without the pair the leg stayed
+            // unpinned, and the first CAP_MOVE reply into memd landed in that very slot (run
+            // 2026-10-27T16-32-13: the level "told to gpud" went into the harness's inbox).
+            ServiceId::Gpud => Some((self.gpud_req, self.gpud_rsp)),
             ServiceId::Bundlemgrd => Some((self.bnd_req, self.bnd_rsp)),
             ServiceId::Updated => Some((self.upd_req, self.upd_rsp)),
             ServiceId::Keystored => Some((self.key_req, self.key_rsp)),
@@ -235,6 +247,8 @@ impl Endpoints {
             // The app-plane facades: windowd, execd and the harness hold legs.
             ServiceId::Clipboardd => self.facades.clipboardd,
             ServiceId::Screencapd => self.facades.screencapd,
+            // The one memory authority (TASK-0333 6e-2): abilitymgr and the harness hold legs.
+            ServiceId::Memd => self.facades.memd,
             _ => None,
         }
     }

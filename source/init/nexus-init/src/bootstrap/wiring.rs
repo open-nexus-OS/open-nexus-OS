@@ -92,9 +92,16 @@ pub(crate) fn wire_services(
             }
             "gpud" => {
                 // TASK-0324 P4c: pinned to the declared slots — gpud hardcodes the same
-                // pair on its side, and windowd's whole present path depends on it.
-                let pinned =
-                    declared_slots::pin_server_pair(pid, ServiceId::Gpud, gpud_req, gpud_rsp);
+                // pair on its side, and windowd's whole present path depends on it. Since the
+                // pair is in the minted table (TASK-0333 6e-3: memd's leg needs it there), the
+                // bulk distribution may have pinned it already — then only the legs are left.
+                let already =
+                    chan.send(ServiceId::Gpud).is_some() && chan.recv(ServiceId::Gpud).is_some();
+                let pinned = if already {
+                    None
+                } else {
+                    declared_slots::pin_server_pair(pid, ServiceId::Gpud, gpud_req, gpud_rsp)
+                };
                 if let Some(slots) = pinned {
                     let (recv, send) = (slots.recv, slots.send);
                     chan.set_send(ServiceId::Gpud, send);
