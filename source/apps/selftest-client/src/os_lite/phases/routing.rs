@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! CONTEXT: Phase 2 of 12 — routing (policyd routing, bundlemgrd routing,
-//!   updated routing, updated log probe, bundlemgrd v1 list/image/malformed).
+//!   updated routing, updated log probe, bundlemgrd v1 list/image/malformed, the app-grants
+//!   authority read back and a forged publish refused — RFC-0111 §6).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -78,6 +79,24 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
         emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_MALFORMED_OK);
     } else {
         emit_line(crate::markers::M_SELFTEST_BUNDLEMGRD_V1_MALFORMED_FAIL);
+    }
+    // RFC-0111 §6 (ADR-0084): the one permission authority. bundlemgrd published every
+    // installed app's manifest grants before it answered the volume status above, so the
+    // calculator's set is readable now — its one grant, and no background (deny-by-default).
+    // Then the negative half, live: this harness may read grants but never publish them.
+    match services::policyd::policyd_app_grants(&policyd, "calculator") {
+        Ok((0, n, background)) if n >= 1 && !background => {
+            emit_bytes(crate::markers::M_SELFTEST_APP_GRANTS_OK_APP.as_bytes());
+            emit_bytes(b"calculator n=");
+            crate::markers::emit_u64(n as u64);
+            emit_bytes(b" background=0)\n");
+        }
+        _ => emit_line(crate::markers::M_SELFTEST_APP_GRANTS_FAIL),
+    }
+    if services::policyd::policyd_app_grants_put_denied(&policyd).is_ok() {
+        emit_line(crate::markers::M_SELFTEST_APP_GRANTS_PUT_DENY_OK);
+    } else {
+        emit_line(crate::markers::M_SELFTEST_APP_GRANTS_PUT_DENY_FAIL);
     }
 
     // `policyd`/`bundlemgrd`/`updated` are dropped at end-of-phase. Downstream

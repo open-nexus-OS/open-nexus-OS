@@ -99,6 +99,19 @@ pub(super) fn sys_ipc_call(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
         }
     };
 
+    // ADR-0082: a call to a frozen receiver would wait for an answer only a thaw can bring —
+    // refused at once (`Frozen`), like a send that would park on it.
+    {
+        let caps = ctx.tasks.current_caps_mut();
+        if let Ok(cap) = caps.get(send_slot) {
+            if let CapabilityKind::Endpoint(id) = cap.kind {
+                if ctx.router.endpoint_frozen(id) {
+                    return Err(Error::Ipc(ipc::IpcError::Frozen));
+                }
+            }
+        }
+    }
+
     // Phase 1 — re-entrant. The v1 send owns validation, CAP_MOVE, the payload
     // tier, the byte budgets and the receiver wake; duplicating any of that here
     // is how the two paths would drift. A full queue blocks in `IpcSend` and

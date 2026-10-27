@@ -6,10 +6,15 @@
 //! nonce-correlated requests/responses (RFC-0019), v3 switches
 //! requester/target to stable u64 service ids.
 
-/// First magic byte (`'P'`) — private: only touched via the codecs.
-const MAGIC0: u8 = b'P';
+/// First magic byte (`'P'`) — crate-private: only touched via the codecs.
+pub(crate) const MAGIC0: u8 = b'P';
 /// Second magic byte (`'O'`).
-const MAGIC1: u8 = b'O';
+pub(crate) const MAGIC1: u8 = b'O';
+
+pub use crate::policyd_app_grants::{
+    decode_app_grants_get, decode_app_grants_put, decode_app_grants_rsp, encode_app_grants_get,
+    encode_app_grants_put, encode_app_grants_rsp, GrantList,
+};
 
 /// Policyd protocol version 1 (legacy bring-up, no correlation).
 pub const VERSION_V1: u8 = 1;
@@ -35,6 +40,24 @@ pub const OP_SET_ABI_MODE: u8 = 7;
 pub const OP_ABI_EVAL: u8 = 8;
 /// RFC-0091 §5: the learn collector's counters for a mode-switch authority.
 pub const OP_ABI_LEARN_STATS: u8 = 9;
+/// RFC-0111 §6 (ADR-0084): the bundle manager publishes one installed app's manifest grants
+/// (`nexus.permission.*`) to the one permission authority. Sender must hold
+/// `app.grants.publish`; an unknown permission rejects the whole app (`STATUS_DENY`).
+pub const OP_APP_GRANTS_PUT: u8 = 10;
+/// RFC-0111 §6: the lifecycle authority / the service launcher ask an app's grants. Sender
+/// must hold `app.grants.read`; an app never published answers `STATUS_DENY` (fail-closed).
+pub const OP_APP_GRANTS_GET: u8 = 11;
+
+/// Longest bundle id an app-grants frame carries (= the requester bound).
+pub const MAX_APP_ID_BYTES: usize = 48;
+/// Longest permission name (`nexus.permission.*` / `app.<bundle>.<CAP>`).
+pub const MAX_GRANT_BYTES: usize = 48;
+/// Most grants one app may hold — the manifest's `caps` plus `nexus.permission.BACKGROUND`.
+pub const MAX_APP_GRANTS: usize = 16;
+/// The grant a non-empty `background = [...]` in the manifest becomes (RFC-0111 §4/§6): an app
+/// holding it is not frozen for being hidden. ONE name for the publisher (bundlemgrd), the
+/// authority (policyd) and the lifecycle authority (abilitymgr) — deny-by-default without it.
+pub const PERMISSION_BACKGROUND: &str = "nexus.permission.BACKGROUND";
 
 /// Status: allowed.
 pub const STATUS_ALLOW: u8 = 0;

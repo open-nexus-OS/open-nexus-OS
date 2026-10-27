@@ -67,6 +67,8 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     run_exit_releases(ctx);
     run_child_exit_notify(ctx);
     run_unmap_reclaim(ctx);
+    // TASK-0333 6d (ADR-0082): the process orders and their refusals, in the same session.
+    super::process_ctl::run_process_ctl_selftests(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
 }
 
@@ -395,6 +397,7 @@ fn run_exit_releases(ctx: &mut Context<'_>) {
             hart_timers: ctx.hart_timers,
             waitsets: ctx.waitsets,
             fences: ctx.fences,
+            address_spaces: ctx.address_spaces,
         },
         0,
         ExitReason::Voluntary,
@@ -465,6 +468,7 @@ fn run_child_exit_notify(ctx: &mut Context<'_>) {
             hart_timers: sys_ctx.hart_timers,
             waitsets: sys_ctx.waitsets,
             fences: sys_ctx.fences,
+            address_spaces: sys_ctx.address_spaces,
         },
         7,
         ExitReason::Voluntary,

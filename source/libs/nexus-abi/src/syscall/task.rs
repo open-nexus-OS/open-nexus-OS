@@ -333,14 +333,55 @@ pub mod thread {
     }
 }
 
-/// Resumes a suspended task (enqueues into scheduler). Only callable by the parent.
-/// Returns `Ok(())` on success, `Err(InvalidArgument)` if the task is not suspended.
+/// Resumes a suspended CHILD process — the one a spawn left Suspended, or one the caller froze
+/// with [`task_suspend`] — and every thread of it (ADR-0082). The kernel checks parentage:
+/// `Err(NoSuchPid)` for a task that is not the caller's live child, or not suspended.
 #[cfg(nexus_env = "os")]
 pub fn task_resume(pid: Pid) -> SysResult<()> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_TASK_RESUME: usize = 32;
         let raw = unsafe { ecall1(SYSCALL_TASK_RESUME, pid as usize) };
+        decode_syscall(raw).map(|_| ())
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = pid;
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Freezes a CHILD process (ADR-0082, RFC-0111): the child and every thread of it stop at
+/// their next kernel entry and receive no CPU until [`task_resume`]. A sender that would
+/// park on one of its endpoints gets [`crate::IpcError::Frozen`] instead. Returns how many
+/// tasks parked at once (a running one parks at its hart's next trap entry). Idempotent;
+/// `Err(NoSuchPid)` for a task that is not the caller's live child.
+#[cfg(nexus_env = "os")]
+pub fn task_suspend(pid: Pid) -> SysResult<usize> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TASK_SUSPEND: usize = 65;
+        let raw = unsafe { ecall1(SYSCALL_TASK_SUSPEND, pid as usize) };
+        decode_syscall(raw)
+    }
+    #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
+    {
+        let _ = pid;
+        Err(AbiError::Unsupported)
+    }
+}
+
+/// Kills a CHILD process the caller spawned `killable` (ADR-0082, RFC-0111): the child and
+/// every thread of it exit with [`ExitReason::Killed`]; the caller hears through its
+/// child-death endpoint and reaps the zombie with `wait`. `Err(CapabilityDenied)` for a child
+/// spawned without the killable flag, `Err(NoSuchPid)` for a task that is not the caller's
+/// live child. The kill never waits for the child.
+#[cfg(nexus_env = "os")]
+pub fn task_kill(pid: Pid) -> SysResult<()> {
+    #[cfg(all(target_arch = "riscv64", target_os = "none"))]
+    {
+        const SYSCALL_TASK_KILL: usize = 66;
+        let raw = unsafe { ecall1(SYSCALL_TASK_KILL, pid as usize) };
         decode_syscall(raw).map(|_| ())
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
@@ -371,35 +412,40 @@ pub fn spawn_last_error() -> SysResult<SpawnFailReason> {
 /// from the object's own frames — shared by every process of that image — copies its data
 /// segment and gives the process a lazy `.bss` and stack. The task starts Suspended; the
 /// caller grants its capabilities and resumes it. `service_name` (≤ 64 bytes, may be empty)
-/// becomes the kernel-attributed identity (RFC-0004).
+/// becomes the kernel-attributed identity (RFC-0004). `killable` (ADR-0082) is the parent's
+/// one-time decision whether it may ever [`task_kill`] this process and whether the kernel's
+/// last resort may take it: an app yes, a service no.
 #[cfg(nexus_env = "os")]
 pub fn exec_vmo(
     image: Handle,
     stack_pages: usize,
     global_pointer: u64,
     service_name: &str,
+    killable: bool,
 ) -> SysResult<Pid> {
     #[cfg(all(target_arch = "riscv64", target_os = "none"))]
     {
         const SYSCALL_EXEC_VMO: usize = 63;
+        const EXEC_FLAG_KILLABLE: usize = 1 << 0;
         if stack_pages == 0 || service_name.len() > 64 {
             return Err(AbiError::InvalidArgument);
         }
         let raw = unsafe {
-            ecall5(
+            ecall6(
                 SYSCALL_EXEC_VMO,
                 image as usize,
                 stack_pages,
                 global_pointer as usize,
                 service_name.as_ptr() as usize,
                 service_name.len(),
+                if killable { EXEC_FLAG_KILLABLE } else { 0 },
             )
         };
         decode_syscall(raw).map(|pid| pid as Pid)
     }
     #[cfg(not(all(target_arch = "riscv64", target_os = "none")))]
     {
-        let _ = (image, stack_pages, global_pointer, service_name);
+        let _ = (image, stack_pages, global_pointer, service_name, killable);
         Err(AbiError::Unsupported)
     }
 }

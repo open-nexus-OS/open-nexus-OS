@@ -223,6 +223,12 @@ pub const SYSCALL_CHILD_EXIT_BIND: usize = 62;
 pub const SYSCALL_EXEC_VMO: usize = 63;
 /// ADR-0080: seals the VMO in a slot — no writer for the rest of its life. Args: (vmo_slot).
 pub const SYSCALL_VMO_SEAL: usize = 64;
+/// ADR-0082 (RFC-0111): freezes a CHILD process — the child and every thread of it; a task
+/// running on another hart parks at its next trap entry. Args: (pid) → tasks frozen.
+pub const SYSCALL_TASK_SUSPEND: usize = 65;
+/// ADR-0082 (RFC-0111): kills a CHILD process the parent marked `killable` at `exec_vmo`
+/// (`ExitReason::Killed`, code -9); the threads go with it. Args: (pid).
+pub const SYSCALL_TASK_KILL: usize = 66;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

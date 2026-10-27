@@ -225,6 +225,11 @@ impl<'a> Reader<'a> {
     pub fn finish_exact(&self) -> Option<()> {
         (self.pos == self.buf.len()).then_some(())
     }
+
+    /// Bytes not yet consumed (a list tail's length).
+    pub fn remaining(&self) -> usize {
+        self.buf.len().saturating_sub(self.pos)
+    }
 }
 
 /// Writes the 4-byte frame header `[magic0, magic1, version, op]` — the

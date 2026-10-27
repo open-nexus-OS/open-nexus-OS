@@ -357,6 +357,7 @@ pub(super) fn sys_exit(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
             hart_timers: ctx.hart_timers,
             waitsets: ctx.waitsets,
             fences: ctx.fences,
+            address_spaces: ctx.address_spaces,
         },
         status,
         task::ExitReason::Voluntary,
@@ -493,16 +494,5 @@ pub(super) fn sys_wait_nohang(ctx: &mut Context<'_>, _args: &Args) -> SysResult<
             Ok(0)
         }
         Err(err) => Err(Error::from(err)),
-    }
-}
-
-pub(super) fn sys_task_resume(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
-    let pid_raw = args.get(0) as u32;
-    let pid = task::Pid::from_raw(pid_raw);
-    match ctx.tasks.resume_task(pid, ctx.scheduler) {
-        task::ResumeOutcome::Resumed => Ok(0),
-        task::ResumeOutcome::TaskNotFound => Err(Error::InvalidTarget),
-        task::ResumeOutcome::NotSuspended => Err(Error::InvalidTarget),
-        task::ResumeOutcome::EnqueueRejected => Err(Error::RunQueueFull),
     }
 }

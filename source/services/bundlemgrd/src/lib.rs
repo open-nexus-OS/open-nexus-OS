@@ -38,6 +38,9 @@ mod os_lite;
 mod payload_ops;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod volume;
+// RFC-0111 §6 (ADR-0084): the installed apps' manifest grants, published to policyd once.
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod grants_publish;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 pub use os_lite::*;
 

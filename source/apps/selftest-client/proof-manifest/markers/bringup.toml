@@ -143,6 +143,19 @@ proves = "two spaces loaded from ONE sealed image map the SAME frames for its re
 phase = "bringup"
 proves = "the loader refuses a segment off the page grid and two segments on one file page; a seal is refused for a lazy object, a device-named object and a writably mapped object (allowed once unmapped); exec_vmo of an unsealed object is refused before any space exists and, sealed, reaches the loader"
 
+# ADR-0082 (TASK-0333 6d): a process is its address space; its parent orders it as a whole.
+[marker."KSELFTEST: process ctl ok ("]
+phase = "bringup"
+proves = "task_resume, task_suspend and task_kill of a task that is not the caller's child are refused (ESRCH) and task_kill of a child not made killable at exec is refused (EPERM); a suspended child is Suspended and frozen, its receive endpoint marked, the frame that fits its queue is taken and the one that would park the sender is refused with Frozen; a frozen killable child is killed into a zombie"
+
+[marker."KSELFTEST: task freeze ok ("]
+phase = "bringup"
+proves = "a child frozen while parked in a blocking receive was never dispatched by any hart until its parent's thaw (ran=0); the kernel's one-per-boot proof line at the first thaw of a frozen task"
+
+[marker."KSELFTEST: process exit takes threads ok ("]
+phase = "bringup"
+proves = "a process leader's exit killed every thread of its address space and the reap freed the space (space=freed) — before, orphaned worker threads kept a crashed service's space mapped through every respawn"
+
 # TASK-0324 P5-a (ADR-0062): the boot-stage fence a child receives may WAIT but never SIGNAL.
 [marker."KSELFTEST: fence transfer ok"]
 phase = "bringup"

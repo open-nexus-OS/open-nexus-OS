@@ -24,11 +24,11 @@
 739	source/services/app-host/src/effect_host.rs
 707	source/services/app-host/src/probe/anim.rs
 678	source/services/app-host/src/probe/mod.rs
-673	source/services/bundlemgrd/src/os_lite.rs
+666	source/services/bundlemgrd/src/os_lite.rs
 1878	source/services/bundlemgrd/src/std_server.rs
 602	source/services/dsoftbusd/src/os/gateway/local_ipc.rs
 1106	source/services/dsoftbusd/src/os/session/cross_vm.rs
-1245	source/services/execd/src/os_lite.rs
+1233	source/services/execd/src/os_lite.rs
 716	source/services/execd/src/std_server.rs
 810	source/services/inputd/src/os_lite.rs
 1049	source/services/inputd/tests/contract.rs
@@ -39,7 +39,7 @@
 731	source/services/metricsd/src/lib.rs
 744	source/services/packagefsd/src/std_server.rs
 675	source/services/policyd/src/lite_protocol.rs
-1082	source/services/policyd/src/os_lite.rs
+1014	source/services/policyd/src/os_lite.rs
 1086	source/services/policyd/src/std_server.rs
 702	source/services/updated/src/os_lite.rs
 980	source/services/vfsd/src/std_server.rs

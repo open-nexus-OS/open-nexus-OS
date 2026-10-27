@@ -6,7 +6,7 @@
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 9 tests
+//! TEST_COVERAGE: 12 tests (the seen/freeze policy is `seen.rs`)
 //!
 //! Pure ability-lifecycle state machine + recents — the broker core.
 //!
@@ -71,9 +71,6 @@ pub enum LifecycleError {
     InvalidTransition { from: AbilityState, to: AbilityState },
     /// The instance table is at `MAX_INSTANCES`.
     TooManyInstances,
-    /// The app's manifest declares a capability the platform does not recognize;
-    /// the launch is denied (fail-closed). RFC-0065 launch authority.
-    UnsupportedCapability,
 }
 
 /// A launched ability instance.
@@ -93,6 +90,9 @@ pub struct AbilityInstance {
     /// The process behind the instance once execd spawned it (TASK-0333 6a): the key the
     /// reaper's death report names. `None` before the spawn or for a window-only launch.
     pub pid: Option<u32>,
+    /// When the compositor last reported the window hidden while the instance was live in the
+    /// background (TASK-0333 6d): the freeze grace counts from here. `None` while seen.
+    pub hidden_since: Option<u64>,
 }
 
 /// Maximum concurrently-tracked instances (bounded resource).
@@ -122,7 +122,7 @@ pub fn valid_transition(from: AbilityState, to: AbilityState) -> bool {
 /// spawn processes itself (that is execd, called by the OS service loop in P3).
 #[derive(Debug, Default)]
 pub struct Broker {
-    instances: BTreeMap<u32, AbilityInstance>,
+    pub(crate) instances: BTreeMap<u32, AbilityInstance>,
     next_id: u32,
     /// Instance ids in most-recently-used order (front = most recent).
     recents: Vec<u32>,
@@ -141,12 +141,11 @@ impl Broker {
         self.launch_with_caps(app_id, launch_ability, &[])
     }
 
-    /// Launches a new instance in `Created`, enforcing the app's manifest-declared
-    /// capabilities: every `required_cap` must be a known platform permission or
-    /// the launch is DENIED (`UnsupportedCapability`, fail-closed). This is the
-    /// RFC-0065 launch authority — an ability never runs while requesting a
-    /// permission the system does not recognize. The validated set is recorded on
-    /// the instance as `granted_caps` (the spawn requests exactly these).
+    /// Launches a new instance in `Created` holding `granted_caps` — the permission
+    /// authority's answer for the app (RFC-0111 §6: policyd validated the names at publish;
+    /// the caller refused the launch if there was no answer). The set is recorded on the
+    /// instance as `granted_caps`: the spawn provisions exactly these, and
+    /// `nexus.permission.BACKGROUND` among them exempts the app from the hidden freeze.
     ///
     /// The caller drives `Started` next (and, in the OS path, the execd spawn +
     /// windowd surface bind around it).
@@ -154,14 +153,10 @@ impl Broker {
         &mut self,
         app_id: &str,
         launch_ability: &str,
-        required_caps: &[&str],
+        granted_caps: &[&str],
     ) -> Result<u32, LifecycleError> {
         if self.instances.len() >= MAX_INSTANCES {
             return Err(LifecycleError::TooManyInstances);
-        }
-        // Fail-closed permission check against the known set.
-        if crate::caps::first_unknown(required_caps).is_some() {
-            return Err(LifecycleError::UnsupportedCapability);
         }
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
@@ -172,8 +167,9 @@ impl Broker {
                 app_id: String::from(app_id),
                 launch_ability: String::from(launch_ability),
                 state: AbilityState::Created,
-                granted_caps: required_caps.iter().map(|c| String::from(*c)).collect(),
+                granted_caps: granted_caps.iter().map(|c| String::from(*c)).collect(),
                 pid: None,
+                hidden_since: None,
             },
         );
         self.touch_recent(id);

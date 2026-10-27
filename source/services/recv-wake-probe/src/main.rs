@@ -83,22 +83,24 @@ mod probe {
             return Err(e);
         }
 
-        // 2. THE TEST — TWO full park/wake cycles. Cycle 1 alone passed while
+        // 2. THE TEST — THREE full park/wake cycles. Cycle 1 alone passed while
         //    the real app still hung on its SECOND park (counter repro
         //    2026-07-07: tap 1 processed, tap 2 delivered but the child never
         //    ran again, not blocked, no failed wake — the wake-then-lost
         //    class). A regression gate that only proves the first wake is
-        //    half a gate.
+        //    half a gate. The THIRD park is where execd freezes this process
+        //    (ADR-0082): the ping sent meanwhile waits in the queue, and the
+        //    reply after the thaw is the proof the thaw ran it again.
         let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 16];
-        for cycle in 0..2u32 {
+        for cycle in 0..3u32 {
             match ipc_recv_v1(PING_RECV_SLOT, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0) {
                 Ok(_) => {}
                 Err(_) => {
-                    raw_marker(if cycle == 0 {
-                        "RECVWAKE: FAIL blocking recv errored (cycle 1)"
-                    } else {
-                        "RECVWAKE: FAIL blocking recv errored (cycle 2)"
+                    raw_marker(match cycle {
+                        0 => "RECVWAKE: FAIL blocking recv errored (cycle 1)",
+                        1 => "RECVWAKE: FAIL blocking recv errored (cycle 2)",
+                        _ => "RECVWAKE: FAIL blocking recv errored (cycle 3)",
                     });
                     return Err("recv failed");
                 }
@@ -109,12 +111,17 @@ mod probe {
                 raw_marker("RECVWAKE: FAIL woke send");
                 return Err(e);
             }
-            raw_marker(if cycle == 0 {
-                "RECVWAKE: woke from blocking recv"
-            } else {
-                "RECVWAKE: woke twice (park/wake cycle repeats)"
+            raw_marker(match cycle {
+                0 => "RECVWAKE: woke from blocking recv",
+                1 => "RECVWAKE: woke twice (park/wake cycle repeats)",
+                _ => "RECVWAKE: woke after thaw (frozen ping delivered)",
             });
         }
-        Ok(())
+        // 3. THE END IS AN ORDER (ADR-0082): park in a receive nobody will ever
+        //    serve; execd's `task_kill` ends this process. A return here would be a
+        //    voluntary exit and the kill proof would have nothing to kill.
+        let _ = ipc_recv_v1(PING_RECV_SLOT, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0);
+        raw_marker("RECVWAKE: FAIL survived the kill");
+        Err("survived the kill")
     }
 }

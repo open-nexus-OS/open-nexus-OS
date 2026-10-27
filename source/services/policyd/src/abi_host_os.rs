@@ -15,7 +15,7 @@
 //! RFC: docs/rfcs/RFC-0091-policy-profile-v2-schema-wire-argument-matchers.md
 
 use crate::abi_learn::{AbiMode, EvalHost, LearnState, ModeTable, LEARN_SCOPE};
-use crate::os_lite::append_logd_deterministic;
+use crate::audit_os::append_logd_deterministic;
 
 static ABI_MODES: ModeTable = ModeTable::new();
 static ABI_LEARN: LearnState = LearnState::new();

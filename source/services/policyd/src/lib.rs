@@ -37,6 +37,11 @@ mod abi_learn_roundtrip_tests;
 pub mod abi_mode;
 #[cfg(any(test, feature = "os-lite"))]
 pub mod abi_profile;
+/// The one permission authority for apps (RFC-0111 §6, ADR-0084): pure + host-tested.
+#[cfg(any(test, feature = "os-lite"))]
+pub mod app_grants;
+#[cfg(all(nexus_env = "os", feature = "os-lite"))]
+mod app_grants_os;
 #[cfg(test)]
 #[path = "../../../../userspace/policy/src/learn_gen.rs"]
 #[allow(dead_code)]

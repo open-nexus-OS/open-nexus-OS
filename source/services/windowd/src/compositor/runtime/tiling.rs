@@ -154,6 +154,7 @@ impl DisplayServerRuntime {
                 }
             }
             ZoneRequest::Arrange(kind) => self.arrange(idx, kind),
+            ZoneRequest::Minimize => self.minimize_window(WindowId::App(idx as u8)),
         }
     }
 
@@ -190,18 +191,23 @@ impl DisplayServerRuntime {
     /// A keyboard chord (inputd's one-shot fact): the FOCUSED app window takes the zone —
     /// `ui.tile.chords` gates it, the desktop never tiles.
     pub(super) fn apply_chord(&mut self, code: u8) {
-        if !self.tile_chords {
-            self.say_deny(TileDeny::ChordsOff);
-            return;
-        }
         // The focused APP window, else the topmost on-screen one (a surface
         // re-create after a tile can park focus on the desktop for a frame).
         let app_of = |id: Option<WindowId>| match id {
             Some(WindowId::App(i)) => Some(usize::from(i)),
             _ => None,
         };
-        let Some(idx) = app_of(self.windows.focused()).or_else(|| app_of(self.windows.top()))
-        else {
+        let focused = app_of(self.windows.focused()).or_else(|| app_of(self.windows.top()));
+        if code == zones::CODE_MINIMIZE {
+            // Not a tile (TASK-0333 6d): hide the focused app window; with no app window on
+            // screen, bring the first hidden one back from the taskbar — the keyboard's toggle.
+            return self.minimize_chord(focused);
+        }
+        if !self.tile_chords {
+            self.say_deny(TileDeny::ChordsOff);
+            return;
+        }
+        let Some(idx) = focused else {
             self.say_deny(TileDeny::NoFocus);
             return;
         };
@@ -214,12 +220,33 @@ impl DisplayServerRuntime {
             ZoneRequest::Tile(z) => z.name(),
             ZoneRequest::Return => "return",
             ZoneRequest::Arrange(a) => a.name(),
+            ZoneRequest::Minimize => "minimize",
         });
         let _ = debug_println(&crate::markers::wm_chord_marker(
             zone,
             Self::window_name(WindowId::App(i)),
         ));
         self.apply_zone_code(idx, code);
+    }
+
+    /// Super+Ctrl+M: the focused app window is minimized; when none is on screen, the first
+    /// minimized app window is restored (the taskbar's fly-in); nothing hidden = `no-focus`.
+    fn minimize_chord(&mut self, focused: Option<usize>) {
+        if let Some(idx) = focused.filter(|i| self.apps[*i].surface_id.is_some()) {
+            let id = WindowId::App(idx as u8);
+            let _ =
+                debug_println(&crate::markers::wm_chord_marker("minimize", Self::window_name(id)));
+            self.minimize_window(id);
+            return;
+        }
+        let (hidden, n) = self.windows.minimized_list();
+        let Some(id) = hidden[..n].iter().copied().find(|id| matches!(id, WindowId::App(_))) else {
+            self.say_deny(TileDeny::NoFocus);
+            return;
+        };
+        let _ = debug_println(&crate::markers::wm_chord_marker("restore", Self::window_name(id)));
+        let (cx, cy) = self.taskbar_anchor();
+        self.start_restore_transition(id, cx, cy);
     }
 
     /// The work area changed (shell mode, display mode): every tiled window takes its zone's

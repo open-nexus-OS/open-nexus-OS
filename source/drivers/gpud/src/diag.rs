@@ -110,6 +110,7 @@ pub(crate) fn abi_error_name(err: nexus_abi::AbiError) -> &'static [u8] {
         E::NoSuchPid => b"no-such-pid",
         E::InvalidArgument => b"invalid-argument",
         E::TimedOut => b"timed-out",
+        E::Frozen => b"frozen-receiver",
         E::WouldBlock => b"would-block",
         E::AlreadyExists => b"already-mapped",
         E::BadAddress => b"bad-address",

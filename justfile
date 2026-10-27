@@ -367,6 +367,9 @@ ci-os-usb:
 # last run reached its final marker at ~605 s of 660 s before the copy steps were added.
 # TASK-0068 adds the capture phase (Print → drag → shutter, ~60 s): a green run ends at ~640 s,
 # and one 2026-10-09 run spent a minute at half host speed — 900 s keeps the old margin.
+# TASK-0333 6d-2 adds the lifecycle phase after tiling (Super+Ctrl+M, a 5 s grace until the freeze,
+# Super+Ctrl+M again, ~10 s). Run THIS recipe for the lane: a plain `just test-os usb-visible` is
+# cut by the profile's shorter default budget two seconds after the app goes hidden.
 ci-os-usb-visible:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-900s} just test-os usb-visible
 # TASK-0324 P0: display truth — the real GL compositor (virgl, egl-headless +

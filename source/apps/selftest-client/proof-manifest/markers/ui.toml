@@ -348,6 +348,10 @@ proves = "a refused tile, by its named reason (not-resizable, no-window, edges-o
 phase = "end"
 proves = "a tile followed by a Return on one boot: the frame bookkeeping (pre-tile frame, zone, feed bits) round-tripped"
 
+[marker."SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)"]
+phase = "end"
+proves = "TASK-0333 6d / ADR-0083: the compositor stated hidden, the authority froze the app's process through its parent after the grace, the compositor stated focused, the authority thawed it — the lifecycle contract end to end on one boot"
+
 # --- TASK-0067 / 0067B (RFC-0094, ADR-0070): the clipboard authority and its two surfaces.
 # `clipboardd: ready` and the harness's writes fire on every boot; the focus truth once windowd
 # names an owner; the copy-back when the shell's search (or the keyboard) uses the history —

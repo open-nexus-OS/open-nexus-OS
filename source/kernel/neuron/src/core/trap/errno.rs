@@ -34,6 +34,9 @@ pub(super) const EBUSY: usize = 16; // RFC-0085: vmo_destroy with live vm_map re
                                     // this it was EINVAL, indistinguishable from a bad pointer —
                                     // the ADR-0054 failure class, at the IPC size bound.
 pub(super) const E2BIG: usize = 7;
+// ADR-0082: a send that would park on a frozen receiver, or a call to one — the wait could
+// end only by a thaw the parked sender may itself be holding up (the deadlock class).
+pub(super) const EDEADLK: usize = 35;
 
 #[allow(dead_code)]
 pub(super) fn encode_error(err: SysError) -> usize {
@@ -95,6 +98,7 @@ pub(super) fn ipc_errno(err: &crate::ipc::IpcError) -> usize {
         crate::ipc::IpcError::NoSpace => errno(ENOSPC),
         crate::ipc::IpcError::TooBig => errno(E2BIG),
         crate::ipc::IpcError::PeerClosed => errno(EPIPE),
+        crate::ipc::IpcError::Frozen => errno(EDEADLK),
     }
 }
 

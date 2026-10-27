@@ -29,6 +29,7 @@ pub mod imed;
 pub mod payload_vmo;
 pub mod policy;
 pub mod policyd;
+mod policyd_app_grants;
 pub mod routing;
 pub mod screencapd;
 pub mod sessiond;

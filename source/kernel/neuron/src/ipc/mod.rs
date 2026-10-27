@@ -57,6 +57,9 @@ pub enum IpcError {
     /// (the last SEND cap closed). The endpoint is still alive; there will just
     /// never be another message unless a new sender attaches.
     PeerClosed,
+    /// ADR-0082: the receiver is frozen and the send would park until a thaw (full queue, or a
+    /// call that waits for its answer). `EDEADLK`.
+    Frozen,
 }
 
 pub use crate::ipc_payload::{Payload, IPC_PAYLOAD_MAX};
@@ -204,10 +207,9 @@ impl Router {
             match res {
                 Ok(()) => log_debug!(target: "ipc", "send ok"),
                 Err((IpcError::PeerClosed, _)) => log_debug!(target: "ipc", "send peerclosed"),
+                Err((IpcError::Frozen, _)) => log_debug!(target: "ipc", "send frozen"),
                 Err((IpcError::QueueFull, _)) => log_debug!(target: "ipc", "send queue full"),
-                Err((IpcError::NoSuchEndpoint, _)) => {
-                    log_debug!(target: "ipc", "send no such endpoint")
-                }
+                Err((IpcError::NoSuchEndpoint, _)) => log_debug!(target: "ipc", "send no endpoint"),
                 Err((IpcError::QueueEmpty, _)) => {
                     log_debug!(target: "ipc", "send queue empty (unexpected)")
                 }
@@ -263,9 +265,7 @@ impl Router {
             match &res {
                 Ok(_) => log_debug!(target: "ipc", "recv ok"),
                 Err(IpcError::QueueEmpty) => log_debug!(target: "ipc", "recv empty"),
-                Err(IpcError::NoSuchEndpoint) => {
-                    log_debug!(target: "ipc", "recv no such endpoint")
-                }
+                Err(IpcError::NoSuchEndpoint) => log_debug!(target: "ipc", "recv no endpoint"),
                 Err(IpcError::QueueFull) => {
                     log_debug!(target: "ipc", "recv queue full (unexpected)")
                 }
@@ -281,6 +281,7 @@ impl Router {
                 Err(IpcError::PeerClosed) => {
                     log_debug!(target: "ipc", "recv peerclosed (unexpected)")
                 }
+                Err(IpcError::Frozen) => log_debug!(target: "ipc", "recv frozen (unexpected)"),
             }
         }
         res

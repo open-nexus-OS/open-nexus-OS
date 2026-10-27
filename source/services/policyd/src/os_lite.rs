@@ -124,10 +124,18 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
     const SERVER_BATCH: usize = 32;
     const NB: u32 = nexus_abi::IPC_SYS_NONBLOCK | nexus_abi::IPC_SYS_TRUNCATE;
     let mut counters = crate::audit_os::DenyCounters::new();
+    // The published app grants (RFC-0111 §6) — one table for the life of the authority.
+    let mut grants = crate::app_grants::AppGrants::new();
     loop {
         match recv_with_meta(ctl_route_recv_slot, &mut ctl_route_buf, NB) {
             Ok((hdr, sender_service_id, n)) => {
-                let rsp = handle_frame(&ctl_route_buf[..n], sender_service_id, true, &mut counters);
+                let rsp = handle_frame(
+                    &ctl_route_buf[..n],
+                    sender_service_id,
+                    true,
+                    &mut counters,
+                    &mut grants,
+                );
                 let _ = send_reply_nonblock(ctl_route_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
@@ -136,7 +144,13 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
 
         match recv_with_meta(ctl_exec_recv_slot, &mut ctl_exec_buf, NB) {
             Ok((hdr, sender_service_id, n)) => {
-                let rsp = handle_frame(&ctl_exec_buf[..n], sender_service_id, true, &mut counters);
+                let rsp = handle_frame(
+                    &ctl_exec_buf[..n],
+                    sender_service_id,
+                    true,
+                    &mut counters,
+                    &mut grants,
+                );
                 let _ = send_reply_nonblock(ctl_exec_send_slot, &hdr, &rsp.buf[..rsp.len]);
             }
             Err(nexus_abi::IpcError::QueueEmpty) => {}
@@ -154,6 +168,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> LiteResult<()> {
                         sender_service_id,
                         sender_service_id == init_lite_id || sender_service_id == init_alt_id,
                         &mut counters,
+                        &mut grants,
                     );
                     let _ = send_reply_nonblock(server_send_slot, &hdr, &rsp.buf[..rsp.len]);
                     if waitset.is_none() {
@@ -206,20 +221,14 @@ struct FrameOut {
     len: usize,
 }
 
+/// The frame shapes are documented once, in `lite_protocol::handle_frame_with`.
 fn handle_frame(
     frame: &[u8],
     sender_service_id: u64,
     privileged_proxy: bool,
     counters: &mut crate::audit_os::DenyCounters,
+    grants: &mut crate::app_grants::AppGrants,
 ) -> FrameOut {
-    // v1 CHECK request: [P, O, ver=1, OP_CHECK, name_len:u8, name...]
-    // v1 ROUTE request: [P, O, ver=1, OP_ROUTE, req_len:u8, req..., tgt_len:u8, tgt...]
-    // v1 EXEC request:  [P, O, ver=1, OP_EXEC, req_len:u8, req..., image_id:u8]
-    // v1 response:      [P, O, ver=1, op|0x80, status:u8, _reserved:u8]
-    //
-    // v2 ROUTE request: [P, O, ver=2, OP_ROUTE, nonce:u32le, req_len:u8, req..., tgt_len:u8, tgt...]
-    // v2 EXEC request:  [P, O, ver=2, OP_EXEC,  nonce:u32le, req_len:u8, req..., image_id:u8]
-    // v2 response:      [P, O, ver=2, op|0x80, nonce:u32le, status:u8, _reserved:u8]
     if frame.len() < 6 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return rsp_v1(OP_CHECK, STATUS_MALFORMED);
     }
@@ -228,6 +237,14 @@ fn handle_frame(
     if ver == VERSION && op == OP_LOG_PROBE {
         let ok = append_probe_to_logd_deterministic();
         return rsp_v1(op, if ok { STATUS_ALLOW } else { STATUS_UNSUPPORTED });
+    }
+    // RFC-0111 §6 (ADR-0084): the app-grants authority — its own state, its own markers.
+    let mut out = FrameOut { buf: [0u8; MAX_FRAME_BYTES], len: 0 };
+    if let Some(len) =
+        crate::app_grants_os::handle(&POLICY, grants, frame, sender_service_id, &mut out.buf)
+    {
+        out.len = len;
+        return out;
     }
     // Delegate the policy decision to the side-effect-free, host-testable handler.
     let out = crate::lite_protocol::handle_frame_with(
@@ -251,11 +268,8 @@ fn handle_frame(
     };
     let observability_only =
         ver == nexus_abi::policyd::VERSION_V2 && op == nexus_abi::policyd::OP_ABI_LEARN_STATS;
-    // Hot-path allows are not audited: the per-put delegated cap check and
-    // the per-put argument evaluation would exhaust the per-boot audit cap
-    // (`AUDIT_EMIT_LIMIT`) before the interesting phases and flood logd
-    // (TASK-0043 P0 finding: 25 → 128 audits per boot once v2 replies were
-    // read at the right offset). Every DENY is audited; the mode switch too.
+    // Hot-path allows (delegated cap checks, per-put argument evaluation) are not audited: they
+    // would exhaust `AUDIT_EMIT_LIMIT` before the interesting phases (TASK-0043 P0). Every DENY is.
     let hot_path_allow = ver == nexus_abi::policyd::VERSION_V2
         && matches!(op, OP_CHECK_CAP_DELEGATED | nexus_abi::policyd::OP_ABI_EVAL);
     if out.len > status_at && !observability_only {
@@ -964,7 +978,7 @@ mod tests {
 }
 
 fn append_probe_to_logd_deterministic() -> bool {
-    append_logd_deterministic(b"policyd", b"core service log probe: policyd")
+    crate::audit_os::append_logd_deterministic(b"policyd", b"core service log probe: policyd")
 }
 
 /// Stub transport runner retained for cross-module linkage.
@@ -975,19 +989,14 @@ pub fn run_with_transport_ready<T>(_: &mut T, notifier: ReadyNotifier) -> LiteRe
 }
 
 pub(crate) fn emit_line(message: &str) {
-    // Verdict folding: pre-`ready` markers tally into `policyd N/N`; post-`ready` runtime lines fold
-    // into recall-only detail (`NEXUS_LOG_EXPAND=policyd`). Failures & proof boots print live & raw.
-    // One atomic `debug_write` (via `debug_println`, which also owns the verdict
-    // folding): the per-byte `debug_putc` fallback tears mid-line against the
-    // kernel's locked log records and DROPS the tail — a torn ready marker is a
-    // red ladder gate.
+    // One atomic `debug_println` (it owns the verdict folding: pre-`ready` lines tally into
+    // `policyd N/N`, failures print raw); a per-byte fallback would tear a ready marker.
     let _ = nexus_abi::debug_println(message);
 }
 
-/// RFC-0068 P4: boot-time MMIO policy DECISIONS (allow/deny per device cap). These fire post-`ready`
-/// as each driver requests its region, so they bypass the per-process verdict and print raw. Fold
-/// them away in interactive boots — recall the full decision log with `NEXUS_LOG_EXPAND=policyd`.
-/// Proof boots always print raw (qemu-test.sh greps `policyd: mmio net/rng/blk `).
+/// RFC-0068 P4: boot-time MMIO policy DECISIONS fire post-`ready` per driver, so they bypass the
+/// per-process verdict; folded in interactive boots (`NEXUS_LOG_EXPAND=policyd` recalls them), raw
+/// in proof boots (qemu-test.sh greps `policyd: mmio net/rng/blk `).
 fn emit_decision(message: &str) {
     if nexus_abi::boot_should_fold_verdicts() && !expanded_policyd() {
         return;
@@ -1002,81 +1011,4 @@ fn expanded_policyd() -> bool {
         Some(list) => list.split(',').any(|g| g.trim() == "policyd"),
         None => false,
     }
-}
-
-pub(crate) fn push_bytes(buf: &mut [u8], len: &mut usize, bytes: &[u8]) -> bool {
-    let available = buf.len().saturating_sub(*len);
-    if bytes.len() > available {
-        return false;
-    }
-    buf[*len..*len + bytes.len()].copy_from_slice(bytes);
-    *len += bytes.len();
-    true
-}
-
-pub(crate) fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
-    if buf.len().saturating_sub(*len) < 16 {
-        return;
-    }
-    for shift in (0..16).rev() {
-        let nibble = ((value >> (shift * 4)) & 0xF) as u8;
-        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
-        buf[*len] = ch;
-        *len += 1;
-    }
-}
-
-pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
-    // policyd's logd leg as declared (TASK-0324 P4f-2). No reply inbox: the append moves no
-    // reply cap (TASK-0054C P2-c).
-    const LOGD_SEND_SLOT: u32 = nexus_service_topology::slots::policyd::LOGD.send;
-
-    const MAGIC0: u8 = b'L';
-    const MAGIC1: u8 = b'O';
-    const VERSION: u8 = 2;
-    const OP_APPEND: u8 = 1;
-    const LEVEL_INFO: u8 = 2;
-    const STATUS_OK: u8 = 0;
-    static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
-
-    if scope.len() > 64 || msg.len() > 256 {
-        return false;
-    }
-
-    let mut frame = [0u8; 512];
-    let mut len = 0usize;
-    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if frame.len() < 4 + 8 + 1 + 1 + 2 + 2 + scope.len().saturating_add(msg.len()) {
-        return false;
-    }
-    frame[len..len + 4].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
-    len += 4;
-    frame[len..len + 8].copy_from_slice(&nonce.to_le_bytes());
-    len += 8;
-    frame[len] = LEVEL_INFO;
-    len += 1;
-    frame[len] = scope.len() as u8;
-    len += 1;
-    frame[len..len + 2].copy_from_slice(&(msg.len() as u16).to_le_bytes());
-    len += 2;
-    frame[len..len + 2].copy_from_slice(&0u16.to_le_bytes()); // fields_len
-    len += 2;
-    frame[len..len + scope.len()].copy_from_slice(scope);
-    len += scope.len();
-    frame[len..len + msg.len()].copy_from_slice(msg);
-    len += msg.len();
-
-    // TASK-0049C named this the edge of a cross-service wait TRIANGLE (statefsd blocks on a
-    // policyd check, this audit blocked on logd's ack, logd's evidence spill blocks on
-    // statefsd) and answered it by moving a reply cap and never reading the ack — which put
-    // an unread frame on policyd's REPLY inbox and made the NEXT audit drain eight frames
-    // blind. TASK-0054C P2-c cuts the edge at its source instead: no reply cap moves with an
-    // audit record, so logd produces no ack, there is nothing to drain, and the triangle has
-    // no third side. The wait for QUEUE SPACE stays — it is backpressure, not a reply wait,
-    // and logd never blocks while owing an ack (its spill runs between requests, and every
-    // remaining cap-moving sender reads its own answer), so this send always makes progress.
-    // A deferred append is counted, never hidden (`policyd: audit emit deferred`).
-    let _ = nonce;
-    let _ = STATUS_OK;
-    nexus_ipc::exchange::send_request(LOGD_SEND_SLOT, &frame[..len]).is_ok()
 }

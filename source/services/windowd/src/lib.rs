@@ -40,6 +40,10 @@ mod control_gate;
 pub mod input_stage;
 /// TASK-0074 D4: the app-modal routing gate (pure, host-tested from `tests/`).
 pub mod modal_gate;
+/// What the compositor states about each app window to the lifecycle authority (6d) — pure,
+/// host-tested, built from `window_feed`'s slot facts.
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
+mod seen;
 /// TASK-0067: which pointer positions belong to the shell above every window (pure).
 pub mod shell_band;
 /// Declarative window-presentation SSOT (intent ⟂ policy → compositing props) —

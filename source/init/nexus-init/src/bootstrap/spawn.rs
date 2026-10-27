@@ -121,8 +121,15 @@ pub(crate) fn spawn_service_with_probe(
         debug_write_str(image.name);
         debug_write_byte(b'\n');
     }
-    let pid = nexus_abi::exec_vmo(image.image, image.stack_pages, image.global_pointer, image.name)
-        .map_err(InitError::Abi)?;
+    // ADR-0082: a service is never killable — init supervises, it does not kill.
+    let pid = nexus_abi::exec_vmo(
+        image.image,
+        image.stack_pages,
+        image.global_pointer,
+        image.name,
+        false,
+    )
+    .map_err(InitError::Abi)?;
     if probes_enabled {
         debug_write_bytes(b"!exec ret\n");
     }

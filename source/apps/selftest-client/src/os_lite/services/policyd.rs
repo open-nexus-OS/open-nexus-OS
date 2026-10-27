@@ -3,7 +3,8 @@
 
 //! CONTEXT: policyd IPC client + selftest probes — identity-bound allow/deny,
 //!   MMIO-policy deny, ABI-filter profile distribution, requester-spoof deny,
-//!   and the malformed-frame reject path.
+//!   the malformed-frame reject path, and the app-grants authority (RFC-0111 §6:
+//!   a published app's grants read back; a publish from this harness refused).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -247,5 +248,83 @@ pub(crate) fn policyd_abi_learn_stats(
                 return Ok((mode, admitted, emitted, dropped));
             }
         }
+    }
+}
+
+/// RFC-0111 §6 (ADR-0084): one v2 ask to policyd on `client`'s slots, the answer picked by
+/// `accept` (a nonce match) — a waited send, then waited receives; no clock.
+fn policyd_ask_v2<T>(
+    client: &KernelClient,
+    frame: &[u8],
+    mut accept: impl FnMut(&[u8]) -> Option<T>,
+) -> core::result::Result<T, ()> {
+    let (send_slot, recv_slot) = client.slots();
+    let hdr = MsgHeader::new(0, 0, 0, 0, frame.len() as u32);
+    if nexus_abi::ipc_send_v1(send_slot, &hdr, frame, 0, 0).is_err() {
+        return Err(());
+    }
+    let mut rh = MsgHeader::new(0, 0, 0, 0, 0);
+    let mut buf = [0u8; 1024];
+    loop {
+        match nexus_abi::ipc_recv_v1(recv_slot, &mut rh, &mut buf, nexus_abi::IPC_SYS_TRUNCATE, 0) {
+            Ok(n) => {
+                let n = core::cmp::min(n as usize, buf.len());
+                if let Some(v) = accept(&buf[..n]) {
+                    return Ok(v);
+                }
+            }
+            Err(_) => return Err(()),
+        }
+    }
+}
+
+/// The grants policyd holds for `app` (`app.grants.read` is this harness's by policy):
+/// `(status, count, holds_background)` — `STATUS_ALLOW` with the published set, `STATUS_DENY`
+/// for an app never published.
+pub(crate) fn policyd_app_grants(
+    policyd: &KernelClient,
+    app: &str,
+) -> core::result::Result<(u8, usize, bool), ()> {
+    use nexus_abi::policyd as wire;
+    const NONCE: u32 = 0x5e1f_0a11;
+    let mut req = [0u8; 64];
+    let len = wire::encode_app_grants_get(NONCE, app.as_bytes(), &mut req).ok_or(())?;
+    policyd_ask_v2(policyd, &req[..len], |rsp| {
+        let (nonce, status, list) = wire::decode_app_grants_rsp(rsp)?;
+        (nonce == NONCE).then(|| {
+            let n = list.len();
+            let background = list.into_iter().any(|g| g == wire::PERMISSION_BACKGROUND.as_bytes());
+            (status, n, background)
+        })
+    })
+}
+
+/// `test_reject_app_grants_from_a_stranger`, live: this harness holds no `app.grants.publish`,
+/// so a publish naming a new app is DENIED — and the app stays unknown (a read says DENY).
+pub(crate) fn policyd_app_grants_put_denied(
+    policyd: &KernelClient,
+) -> core::result::Result<(), ()> {
+    use nexus_abi::policyd as wire;
+    const NONCE: u32 = 0x5e1f_0a12;
+    const APP: &[u8] = b"selftest-forged";
+    let mut req = [0u8; 128];
+    let len = wire::encode_app_grants_put(
+        NONCE,
+        APP,
+        &[b"nexus.permission.WINDOW", wire::PERMISSION_BACKGROUND.as_bytes()],
+        &mut req,
+    )
+    .ok_or(())?;
+    let status = policyd_ask_v2(policyd, &req[..len], |rsp| {
+        let (op, nonce, status) = wire::decode_rsp_v2(rsp)?;
+        (op == wire::OP_APP_GRANTS_PUT && nonce == NONCE).then_some(status)
+    })?;
+    if status != wire::STATUS_DENY {
+        return Err(());
+    }
+    // Nothing was stored: the forged app reads back as unknown.
+    match policyd_app_grants(policyd, "selftest-forged")? {
+        (wire::STATUS_DENY, 0, false) => Ok(()),
+        _ => Err(()),
     }
 }

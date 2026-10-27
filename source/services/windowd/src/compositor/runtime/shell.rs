@@ -221,14 +221,7 @@ impl DisplayServerRuntime {
         #[cfg(nexus_env = "os")]
         {
             use nexus_ipc::Client as _;
-            // The declared abilitymgr pair (TASK-0324 P4a; it answers on its own endpoint) —
-            // no route ask, no retry loop (P7-b).
-            if self.abilitymgr_client.is_none() {
-                let leg = nexus_service_topology::slots::windowd::ABILITYMGR;
-                self.abilitymgr_client =
-                    nexus_ipc::KernelClient::new_with_slots(leg.send, leg.recv).ok();
-            }
-            let Some(client) = self.abilitymgr_client.as_ref() else {
+            let Some(client) = self.abilitymgr() else {
                 let _ = debug_println("windowd: FAIL launch route (abilitymgr)");
                 return;
             };

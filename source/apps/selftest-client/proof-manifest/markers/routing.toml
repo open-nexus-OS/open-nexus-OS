@@ -154,6 +154,26 @@ proves = "the registry truth: VOLUME_STATUS reports a verified system volume wit
 [marker."SELFTEST: bundlemgrd v1 malformed ok"]
 phase = "routing"
 
+# RFC-0111 §6 (ADR-0084): the one permission authority. bundlemgrd published the installed apps'
+# manifest grants to policyd (from the verified volume's sidecars) BEFORE answering the volume
+# status; the harness reads the calculator's set back (`app.grants.read`), and the line carries
+# the count and whether the background grant is held (deny-by-default: 0 until a manifest
+# declares `background = [...]`).
+# The publisher's own line, once per boot after its late-grant policyd leg is live: `n=` is
+# `published/installed` — a rejected manifest leaves a hole here and a `bundlemgrd: FAIL app
+# grants (app= …)` beside it (the board ladder's rung for 6d-3).
+[marker."bundlemgrd: app grants published (n="]
+phase = "routing"
+proves = "every installed app's manifest grants were published to the one permission authority from the verified volume before the first volume request was answered (RFC-0111 §6, ADR-0084)"
+
+[marker."SELFTEST: app grants ok (app="]
+phase = "routing"
+proves = "the permission authority holds the calculator's published manifest grants (RFC-0111 §6): abilitymgr's launch and execd's route provisioning read this same set"
+
+[marker."SELFTEST: app grants put deny ok"]
+phase = "routing"
+proves = "negative: a publish from a sender without `app.grants.publish` is refused and stores nothing (test_reject_app_grants_from_a_stranger, live)"
+
 [marker."dbg: phase routing skipped"]
 phase = "routing"
 
@@ -167,6 +187,12 @@ phase = "routing"
 phase = "routing"
 
 [marker."SELFTEST: bundlemgrd v1 malformed FAIL"]
+phase = "routing"
+
+[marker."SELFTEST: app grants FAIL"]
+phase = "routing"
+
+[marker."SELFTEST: app grants put deny FAIL"]
 phase = "routing"
 
 [marker."SELFTEST: updated probe FAIL"]

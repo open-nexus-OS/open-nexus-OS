@@ -9,7 +9,7 @@
 
 use windowd::zones::{
     release_zone_at, request_from_code, return_frame_under_pointer, zone_frame, Arrangement, Zone,
-    ZoneRequest, CODE_ARRANGE_LEFT_RIGHT, CODE_FILL, CODE_RETURN,
+    ZoneRequest, CODE_ARRANGE_LEFT_RIGHT, CODE_FILL, CODE_MINIMIZE, CODE_RETURN,
 };
 
 const MODES: [(u32, u32, i32); 3] = [(1280, 800, 36), (1920, 1080, 36), (1280, 744, 36)];
@@ -74,13 +74,15 @@ fn release_return_and_codes_hold_at_the_board_mode() {
 }
 
 /// Unknown codes are refused (fail-closed) and every zone code fits the four feed bits.
+/// Code 14 is the minimize chord (TASK-0333 6d-2, ADR-0083), not a zone.
 #[test]
 fn test_reject_unknown_zone_codes() {
-    for code in [0u8, 14, 15] {
+    for code in [0u8, 15, 16, 255] {
         assert_eq!(request_from_code(code), None, "code {code}");
     }
-    for code in 1..=13u8 {
+    for code in 1..=14u8 {
         assert!(request_from_code(code).is_some(), "code {code} is defined");
     }
+    assert_eq!(request_from_code(CODE_MINIMIZE), Some(ZoneRequest::Minimize));
     assert!(Zone::Fill.code() <= 0b1111);
 }

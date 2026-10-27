@@ -50,6 +50,8 @@ pub enum ZoneRequest {
     Return,
     /// Tile the sender's window and the next windows in z-order together.
     Arrange(Arrangement),
+    /// Minimize the window (TASK-0333 6d: the keyboard's hide; the taskbar brings it back).
+    Minimize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +99,7 @@ pub const CODE_RETURN: u8 = 10;
 pub const CODE_ARRANGE_LEFT_RIGHT: u8 = 11;
 pub const CODE_ARRANGE_TOP_BOTTOM: u8 = 12;
 pub const CODE_ARRANGE_QUARTERS: u8 = 13;
+pub const CODE_MINIMIZE: u8 = 14;
 
 impl Zone {
     /// The feed/verb code of this zone (`CODE_*`).
@@ -151,6 +154,7 @@ pub const fn request_from_code(code: u8) -> Option<ZoneRequest> {
         CODE_ARRANGE_LEFT_RIGHT => ZoneRequest::Arrange(Arrangement::LeftRight),
         CODE_ARRANGE_TOP_BOTTOM => ZoneRequest::Arrange(Arrangement::TopBottom),
         CODE_ARRANGE_QUARTERS => ZoneRequest::Arrange(Arrangement::Quarters),
+        CODE_MINIMIZE => ZoneRequest::Minimize,
         _ => return None,
     })
 }
@@ -360,8 +364,8 @@ mod tests {
             request_from_code(CODE_ARRANGE_QUARTERS),
             Some(ZoneRequest::Arrange(Arrangement::Quarters))
         );
+        assert_eq!(request_from_code(CODE_MINIMIZE), Some(ZoneRequest::Minimize));
         assert_eq!(request_from_code(0), None);
-        assert_eq!(request_from_code(14), None);
         assert_eq!(request_from_code(15), None);
         assert_eq!(Arrangement::Quarters.zones().len(), 4);
     }

@@ -47,6 +47,7 @@ pub(crate) fn bundlemgrd_v1_list(client: &KernelClient) -> core::result::Result<
                                 nexus_abi::IpcError::NoSpace => emit_bytes(b"nospace"),
                                 nexus_abi::IpcError::TooBig => emit_bytes(b"toobig"),
                                 nexus_abi::IpcError::PeerClosed => emit_bytes(b"peer-closed"),
+                                nexus_abi::IpcError::Frozen => emit_bytes(b"frozen"),
                                 nexus_abi::IpcError::Unsupported => emit_bytes(b"unsupported"),
                             }
                         }

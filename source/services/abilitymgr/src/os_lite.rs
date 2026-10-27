@@ -1,18 +1,19 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: OS-lite backend for abilitymgr — the broker service loop, live
-//! registry probe, and manifest-caps startup self-check (RFC-0065).
+//! CONTEXT: OS-lite backend for abilitymgr — the broker service loop and the live registry
+//! probe. The grants a launch records come from the one permission authority, policyd
+//! (`grants.rs`, RFC-0111 §6): no manifest and no build-time table is read here.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: No tests (OS service loop; broker/wire/caps logic host-tested in their modules)
+//! TEST_COVERAGE: No tests (OS service loop; broker/wire/seen logic host-tested in their modules)
 //!
 //! OS-lite backend for abilitymgr — the ability-lifecycle broker service loop.
 //!
 //! Routes its endpoint, receives request frames, drives the pure [`Broker`] via
-//! [`wire::dispatch`], and emits deterministic `abilitymgr: …` markers. The live
-//! resolve-via-bundlemgrd + spawn-via-execd + windowd surface bind is wired in P3.
+//! [`wire::dispatch`], and emits deterministic `abilitymgr: …` markers. The lifecycle
+//! clock and the orders to execd (TASK-0333 6d) live in `orders.rs`.
 
 use nexus_abi::{debug_putc, yield_};
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
@@ -20,6 +21,9 @@ use nexus_service_topology::slots::abilitymgr as topo;
 
 use crate::lifecycle::{AbilityState, Broker};
 use crate::wire::{dispatch, Event};
+
+mod grants;
+mod orders;
 
 /// Result type for abilitymgr OS operations.
 pub type AbilitymgrResult<T> = Result<T, AbilitymgrError>;
@@ -66,15 +70,12 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     // installed app list. Best-effort: any failure just logs and is non-fatal.
     probe_registry();
 
-    // RFC-0065 launch authority: validate each installed app's manifest-declared
-    // capabilities against the known permission set at startup, so a bad manifest
-    // is caught here (a clear marker) rather than silently at launch.
-    validate_manifest_caps();
-
     let server = route_abilitymgr_blocking().ok_or(AbilitymgrError::Ipc("route failed"))?;
 
     // The broker owns lifecycle state for the life of the service.
     let mut broker = Broker::new();
+    // RFC-0111 §6: the permission authority, asked per launch over the declared policyd leg.
+    let mut grants = grants::PolicydGrants::new();
 
     nexus_abi::service_verdict_flush("abilitymgr");
     // TASK-0288 sweep: transient errors continue; only a consecutive-error
@@ -83,84 +84,115 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
     // ONE request buffer for the service lifetime: a receive allocates nothing, however many
     // requests arrive (TASK-0054C P2-g). Transport-capped, never truncates.
     let mut recv_frame = alloc::vec![0u8; nexus_abi::IPC_PAYLOAD_MAX];
-    let mut pending = nexus_ipc::PendingReply::new(); // answer + next request in ONE trap (P5c)
-                                                      // The reaper of record's kernel identity: the one sender whose death reports count.
+    // The reaper of record's kernel identity: the one sender whose death reports count.
     let execd_sid = nexus_abi::service_id_from_name(b"execd");
+    // TASK-0333 6d: the freeze clock. ONE waitset over the server endpoint and the one-shot
+    // timer; a parked reply is answered on its own (not merged into the next receive, P5c): a
+    // merged reply makes the receive a BLOCKING one, and a frozen app's grace would then wait
+    // for the next request instead of the timer.
+    let mut lifecycle = orders::Lifecycle::bind();
+    let wait = if lifecycle.waitset.is_some() { Wait::NonBlocking } else { Wait::Blocking };
     loop {
-        match server.serve_next(&mut pending, Wait::Blocking, &mut recv_frame) {
-            Ok((_hdr, frame_len, sender_service_id, reply)) => {
-                let frame = &recv_frame[..frame_len];
-                breaker.on_success();
-                // TASK-0065B session gate: OP_LAUNCH is refused until sessiond
-                // reports an ACTIVE session. Fail-closed (sessiond unreachable
-                // = deny): windowd's greeter gate is UX, THIS is the
-                // authority-side enforcement (host-tested in `handoff`).
-                let out = if is_launch_request(frame)
-                    && !launch_target_is_pre_session(frame)
-                    && !session_gate_active()
-                {
-                    emit_line("abilitymgr: launch denied (session)");
-                    crate::wire::Dispatched { response: launch_denied_response(), event: None }
-                } else if !crate::wire::exited_frame_allowed(frame, sender_service_id, execd_sid) {
-                    // TASK-0333 6a: a death is the reaper's to report — the kernel sender id
-                    // decides, never the frame (a forged death would free a live instance).
-                    emit_line("abilitymgr: exited denied (sender)");
-                    crate::wire::Dispatched {
-                        response: crate::wire::denied_response(crate::protocol::OP_INSTANCE_EXITED),
-                        event: None,
+        lifecycle.pump(&mut broker);
+        for _ in 0..IPC_BATCH_LIMIT {
+            match server.recv_request_with_header_into(wait, &mut recv_frame) {
+                Ok((_hdr, frame_len, sender_service_id, reply)) => {
+                    let frame = &recv_frame[..frame_len];
+                    breaker.on_success();
+                    if frame.get(3) == Some(&crate::protocol::OP_SEEN) {
+                        // The compositor's sighting (one-way, never answered): the policy decides,
+                        // the order goes to execd — the lifecycle contract of ADR-0083.
+                        lifecycle.on_seen(&mut broker, frame, sender_service_id);
+                        continue;
                     }
-                } else {
-                    dispatch(&mut broker, frame)
-                };
-                if let Some(event) = out.event {
-                    emit_event(&event);
-                    // RFC-0065 launch chain, spawn hop (TASK-0080D): the
-                    // broker approved the launch — abilitymgr (the ONLY
-                    // spawner of apps, policy `proc.spawn`) now asks execd
-                    // for the process. Failures are markers, never silent.
-                    // The pid it answers binds the instance to the process
-                    // whose death the reaper will report (TASK-0333 6a).
-                    if let crate::wire::Event::Launched { app_id, instance_id } = &event {
-                        if let Some(pid) = spawn_app(app_id) {
-                            let _ = broker.bind_pid(*instance_id, pid);
+                    // TASK-0065B session gate: OP_LAUNCH is refused until sessiond
+                    // reports an ACTIVE session. Fail-closed (sessiond unreachable
+                    // = deny): windowd's greeter gate is UX, THIS is the
+                    // authority-side enforcement (host-tested in `handoff`).
+                    let out = if is_launch_request(frame)
+                        && !launch_target_is_pre_session(frame)
+                        && !session_gate_active()
+                    {
+                        emit_line("abilitymgr: launch denied (session)");
+                        crate::wire::Dispatched { response: launch_denied_response(), event: None }
+                    } else if !crate::wire::exited_frame_allowed(
+                        frame,
+                        sender_service_id,
+                        execd_sid,
+                    ) {
+                        // TASK-0333 6a: a death is the reaper's to report — the kernel sender id
+                        // decides, never the frame (a forged death would free a live instance).
+                        emit_line("abilitymgr: exited denied (sender)");
+                        crate::wire::Dispatched {
+                            response: crate::wire::denied_response(
+                                crate::protocol::OP_INSTANCE_EXITED,
+                            ),
+                            event: None,
+                        }
+                    } else {
+                        dispatch(&mut broker, frame, &mut grants)
+                    };
+                    if let Some(event) = out.event {
+                        emit_event(&event);
+                        // RFC-0065 launch chain, spawn hop (TASK-0080D): the
+                        // broker approved the launch — abilitymgr (the ONLY
+                        // spawner of apps, policy `proc.spawn`) now asks execd
+                        // for the process. Failures are markers, never silent.
+                        // The pid it answers binds the instance to the process
+                        // whose death the reaper will report (TASK-0333 6a).
+                        if let crate::wire::Event::Launched { app_id, instance_id } = &event {
+                            if let Some(pid) = spawn_app(app_id) {
+                                let _ = broker.bind_pid(*instance_id, pid);
+                            }
                         }
                     }
+                    // A one-way event (`OP_INSTANCE_EXITED`) has no answer.
+                    if out.response.is_empty() {
+                        continue;
+                    }
+                    if let Some(reply) = reply {
+                        let _ = reply.reply_and_close(&out.response);
+                    } else {
+                        let _ = server.send(&out.response, Wait::Blocking);
+                    }
                 }
-                // A one-way event (`OP_INSTANCE_EXITED`) has no answer.
-                if out.response.is_empty() {
-                    continue;
-                }
-                if let Some(reply) = reply {
-                    pending.park(reply, &out.response);
-                } else {
-                    let _ = server.send(&out.response, Wait::Blocking);
-                }
-            }
-            Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                let _ = yield_();
-            }
-            Err(nexus_ipc::IpcError::Disconnected) => {
-                emit_line("abilitymgr: recv disconnected");
-                return Err(AbilitymgrError::Ipc("disconnected"));
-            }
-            Err(_) => {
-                let (should_log, verdict) = breaker.on_error();
-                if should_log {
-                    emit_line("abilitymgr: recv error (transient)");
-                }
-                match verdict {
-                    nexus_ipc::resilience::BreakerVerdict::Continue => {
+                Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
+                    if lifecycle.waitset.is_none() {
                         let _ = yield_();
                     }
-                    nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
-                        emit_line("abilitymgr: endpoint defect (consecutive error limit)");
-                        return Err(AbilitymgrError::Ipc("recv"));
+                    break;
+                }
+                Err(nexus_ipc::IpcError::Disconnected) => {
+                    emit_line("abilitymgr: recv disconnected");
+                    return Err(AbilitymgrError::Ipc("disconnected"));
+                }
+                Err(_) => {
+                    let (should_log, verdict) = breaker.on_error();
+                    if should_log {
+                        emit_line("abilitymgr: recv error (transient)");
+                    }
+                    match verdict {
+                        nexus_ipc::resilience::BreakerVerdict::Continue => {
+                            let _ = yield_();
+                        }
+                        nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
+                            emit_line("abilitymgr: endpoint defect (consecutive error limit)");
+                            return Err(AbilitymgrError::Ipc("recv"));
+                        }
                     }
                 }
             }
         }
+        // WAIT — no clock. A timer frame means a grace ran out (the kernel disarmed the shot).
+        if let Some(ws) = lifecycle.waitset.as_ref() {
+            let _ = ws.wait();
+            lifecycle.drain_timer();
+        }
     }
 }
+
+/// Requests served per pass before the loop returns to its other waitset member (the clock).
+const IPC_BATCH_LIMIT: usize = 32;
 
 /// Best-effort: query the registry (`bundlemgrd` `OP_LIST_APPS`) for the installed
 /// app list and report the count — the live half of the launch resolve path.
@@ -356,6 +388,15 @@ fn emit_event(event: &Event) {
             emit_prefix(b")");
             emit_newline();
         }
+        // RFC-0111 §6: the authority holds nothing for the app — never published, rejected at
+        // publish (`policyd: app grants reject`), or unreachable (`abilitymgr: FAIL grants ask`).
+        Event::LaunchDenied { app_id } => {
+            nexus_abi::debug_ts_prefix();
+            emit_prefix(b"abilitymgr: launch denied (grants app=");
+            emit_str(app_id);
+            emit_prefix(b")");
+            emit_newline();
+        }
         Event::Transitioned { instance_id, to } => match to {
             AbilityState::Foreground => emit_inst_line(b"abilitymgr: fg (inst=", *instance_id),
             AbilityState::Background => emit_inst_line(b"abilitymgr: bg (inst=", *instance_id),
@@ -403,37 +444,6 @@ fn emit_line(message: &str) {
     nexus_abi::debug_ts_prefix();
     emit_str(message);
     emit_newline();
-}
-
-/// RFC-0065 launch authority self-check: validate each installed app's
-/// manifest-declared capabilities (build-time table from `bundles/<app>/
-/// manifest.toml`) against the known permission set. Emits one marker per app —
-/// `abilitymgr: caps ok app=<id> (n=<count>)` when every permission is
-/// recognized, or `abilitymgr: caps reject app=<id> cap=<perm>` naming the first
-/// unrecognized permission. Makes a bad manifest a boot-visible failure instead
-/// of a silent launch denial later.
-fn validate_manifest_caps() {
-    for (app, caps) in crate::caps::APP_MANIFEST_CAPS.iter().copied() {
-        match crate::caps::first_unknown(caps) {
-            None => {
-                nexus_abi::debug_ts_prefix();
-                emit_prefix(b"abilitymgr: caps ok app=");
-                emit_str(app);
-                emit_prefix(b" (n=");
-                emit_u32(caps.len() as u32);
-                emit_prefix(b")");
-                emit_newline();
-            }
-            Some(bad) => {
-                nexus_abi::debug_ts_prefix();
-                emit_prefix(b"abilitymgr: caps reject app=");
-                emit_str(app);
-                emit_prefix(b" cap=");
-                emit_str(bad);
-                emit_newline();
-            }
-        }
-    }
 }
 
 fn emit_str(s: &str) {

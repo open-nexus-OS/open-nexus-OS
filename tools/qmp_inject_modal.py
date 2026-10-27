@@ -407,8 +407,29 @@ class ModalPhase:
         self.wait_settled(20.0)
         time.sleep(1.0)
         self.chord(["ctrl", "meta_l", "down"])
-        if self.wait_marker("SELFTEST: ui v7 tile ok", timeout_s):
-            self.log("tiling phase complete (launcher → settings → Super+Ctrl+← → Super+Ctrl+↓)")
+        if not self.wait_marker("SELFTEST: ui v7 tile ok", timeout_s):
+            return
+        self.log("tiling phase complete (launcher → settings → Super+Ctrl+← → Super+Ctrl+↓)")
+        self.run_lifecycle(timeout_s)
+
+    def run_lifecycle(self, timeout_s: float) -> None:
+        """TASK-0333 6d (ADR-0083): Super+Ctrl+M hides the settings window — windowd states
+        `hidden` to abilitymgr, which freezes the app's process through execd once the grace
+        (5 s) has run out; Super+Ctrl+M on the bare desktop brings the window back — windowd
+        states `focused`, abilitymgr thaws it: `SELFTEST: ability lifecycle ok`."""
+        self.wait_settled(20.0)
+        time.sleep(1.0)
+        self.chord(["ctrl", "meta_l", "m"])
+        if not self.wait_marker("windowd: minimize id=app", timeout_s):
+            return
+        # The grace is the authority's constant, not the lane's clock: the marker decides, the
+        # bound (grace + the execd round trip, with margin) only ends a dead run.
+        if not self.wait_marker("abilitymgr: suspend (inst=", 30.0):
+            return
+        time.sleep(1.0)
+        self.chord(["ctrl", "meta_l", "m"])
+        if self.wait_marker("SELFTEST: ability lifecycle ok", timeout_s):
+            self.log("lifecycle phase complete (Super+Ctrl+M → frozen → Super+Ctrl+M → thawed)")
 
 
     # -- clipboard (TASK-0067B / RFC-0094) ----------------------------------------

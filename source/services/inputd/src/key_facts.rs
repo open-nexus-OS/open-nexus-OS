@@ -58,7 +58,8 @@ pub(crate) fn is_modifier(usage: KeyboardUsage) -> bool {
 
 /// The fixed tiling chord table (TASK-0066, v1): Super+Ctrl + ←/→ = halves, ↑ = Fill,
 /// ↓ = Return, F = Fill, R = Return; + Shift ←/→ = top quarters; + Alt ←/→ = bottom
-/// quarters. Codes are windowd's `zones::CODE_*`. `None` = not a chord.
+/// quarters; M = minimize the focused window / restore a hidden one (TASK-0333 6d). Codes are
+/// windowd's `zones::CODE_*`. `None` = not a chord.
 pub(crate) fn wm_chord_for(usage: KeyboardUsage, mods: &ModifierState) -> Option<u8> {
     if !(mods.gui && mods.control) {
         return None;
@@ -75,6 +76,7 @@ pub(crate) fn wm_chord_for(usage: KeyboardUsage, mods: &ModifierState) -> Option
         KeyboardUsage::RIGHT_ARROW => Some(right),
         KeyboardUsage::UP_ARROW | KeyboardUsage::F => Some(9),
         KeyboardUsage::DOWN_ARROW | KeyboardUsage::R => Some(10),
+        KeyboardUsage::M => Some(14),
         _ => None,
     }
 }

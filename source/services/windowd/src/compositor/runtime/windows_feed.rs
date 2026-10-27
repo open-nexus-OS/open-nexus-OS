@@ -10,7 +10,11 @@
 //! the compositor and never permanently misses state.
 //!
 //! The pure "which windows" decision lives in `crate::window_feed`
-//! (host-tested); this file is the wire + delivery glue.
+//! (host-tested); this file is the wire + delivery glue. The same slot facts
+//! are what the compositor STATES to the lifecycle authority (TASK-0333 6d,
+//! ADR-0083): one `OP_SEEN` per changed window to abilitymgr (`crate::seen`,
+//! pure), NONBLOCK, retried on the frame loop — the compositor never waits on
+//! the authority and never decides lifecycle itself.
 //! OWNERS: @ui
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -28,17 +32,28 @@ pub(super) struct FeedState {
     last: [u8; feed::SURFACE_WINDOWS_FRAME_MAX],
     len: usize,
     pub(super) owed: bool,
+    /// The sightings the lifecycle authority took (6d); a sighting not yet taken is owed.
+    seen: crate::seen::SeenTable,
+    seen_owed: bool,
 }
 
 impl FeedState {
     pub(super) const fn new() -> Self {
-        Self { last: [0u8; feed::SURFACE_WINDOWS_FRAME_MAX], len: 0, owed: false }
+        Self {
+            last: [0u8; feed::SURFACE_WINDOWS_FRAME_MAX],
+            len: 0,
+            owed: false,
+            seen: crate::seen::SeenTable { taken: [None; crate::window_scene::MAX_APP_WINDOWS] },
+            seen_owed: false,
+        }
     }
 }
 
+type Slots = [crate::window_feed::SlotInfo; crate::window_scene::MAX_APP_WINDOWS];
+
 impl DisplayServerRuntime {
-    /// The current window set as a wire frame (`None` = encode refused).
-    fn window_feed_frame(&self) -> Option<([u8; feed::SURFACE_WINDOWS_FRAME_MAX], usize)> {
+    /// Every app slot reduced to the facts the feed and the sightings are built from.
+    fn slot_infos(&self) -> Slots {
         let mut slots =
             [crate::window_feed::SlotInfo::default(); crate::window_scene::MAX_APP_WINDOWS];
         for (i, slot) in self.apps.iter().enumerate() {
@@ -53,9 +68,56 @@ impl DisplayServerRuntime {
                 zone: slot.zone.code(),
             };
         }
+        slots
+    }
+
+    /// The current window set as a wire frame (`None` = encode refused).
+    fn window_feed_frame(slots: &Slots) -> Option<([u8; feed::SURFACE_WINDOWS_FRAME_MAX], usize)> {
         let mut entries = [feed::WindowEntry::default(); feed::WINDOWS_MAX];
-        let n = crate::window_feed::build_window_set(&slots, &mut entries);
+        let n = crate::window_feed::build_window_set(slots, &mut entries);
         feed::encode_surface_windows(&entries[..n])
+    }
+
+    /// The compositor's sightings for the lifecycle authority (TASK-0333 6d, ADR-0083): one
+    /// `OP_SEEN` per app window whose sighting changed, NONBLOCK on the declared abilitymgr
+    /// leg. A send the queue refuses stays owed and goes with the next pass; the compositor
+    /// never parks on the authority.
+    #[cfg(nexus_env = "os")]
+    fn publish_seen(&mut self, slots: &Slots) {
+        use nexus_ipc::Client as _;
+        let mut due = [crate::seen::Due { slot: 0, owner_sid: 0, seen: crate::seen::Seen::Gone };
+            crate::window_scene::MAX_APP_WINDOWS];
+        let n = self.windows_feed.seen.due(slots, &mut due);
+        self.windows_feed.seen_owed = false;
+        if n == 0 {
+            return;
+        }
+        let _ = self.abilitymgr(); // bound once
+        let feed = &mut self.windows_feed;
+        let Some(client) = self.abilitymgr_client.as_ref() else {
+            feed.seen_owed = true;
+            return;
+        };
+        for d in &due[..n] {
+            let frame = crate::seen::encode_seen(d.owner_sid, d.seen);
+            if client.send(&frame, nexus_ipc::Wait::NonBlocking).is_ok() {
+                feed.seen.commit(*d);
+            } else {
+                feed.seen_owed = true;
+            }
+        }
+    }
+
+    /// The declared abilitymgr leg (TASK-0324 P4a; it answers on its own endpoint) — bound
+    /// once, no route ask, no retry loop (P7-b). Shared by the launch request and the sightings.
+    #[cfg(nexus_env = "os")]
+    pub(super) fn abilitymgr(&mut self) -> Option<&nexus_ipc::KernelClient> {
+        if self.abilitymgr_client.is_none() {
+            let leg = nexus_service_topology::slots::windowd::ABILITYMGR;
+            self.abilitymgr_client =
+                nexus_ipc::KernelClient::new_with_slots(leg.send, leg.recv).ok();
+        }
+        self.abilitymgr_client.as_ref()
     }
 
     /// The window set changed (open / close / minimize / restore / focus) —
@@ -65,7 +127,9 @@ impl DisplayServerRuntime {
     pub(crate) fn push_window_set(&mut self) {
         #[cfg(nexus_env = "os")]
         {
-            let Some((frame, n)) = self.window_feed_frame() else { return };
+            let slots = self.slot_infos();
+            self.publish_seen(&slots);
+            let Some((frame, n)) = Self::window_feed_frame(&slots) else { return };
             if self.windows_feed.len == n && self.windows_feed.last[..n] == frame[..n] {
                 // Same state as last SENT: nothing owed, nothing to send.
                 if !self.windows_feed.owed {
@@ -98,7 +162,7 @@ impl DisplayServerRuntime {
     /// Frame-loop retry for an owed push (the channel was full or not bound
     /// yet). Cheap: returns immediately unless something is actually owed.
     pub(crate) fn pump_window_feed(&mut self) {
-        if self.windows_feed.owed {
+        if self.windows_feed.owed || self.windows_feed.seen_owed {
             self.push_window_set();
         }
     }

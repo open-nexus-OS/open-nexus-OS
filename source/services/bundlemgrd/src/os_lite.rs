@@ -79,13 +79,9 @@ const OP_SET_ACTIVE_SLOT: u8 = nexus_abi::bundlemgrd::OP_SET_ACTIVE_SLOT;
 const OP_LIST_APPS: u8 = nexus_abi::bundlemgrd::OP_LIST_APPS;
 const OP_LOG_PROBE: u8 = 0x7f;
 
-// Installed apps the registry serves to the launcher / Apps menu (RFC-0065)
-// and the ui-program payloads (GET_PAYLOAD, TASK-0080D) come from the
-// VERIFIED SYSTEM VOLUME (TASK-0321 P5): every app bundle carries a
-// `meta/app.properties` sidecar (label/icon/bundle_type) and its
-// `payload.elf`; `crate::volume` reads the registry at attach. Nothing is
-// baked into this binary any more — an app shows up iff its bundle is on
-// the volume the measured boot image is paired with.
+// The app registry (LIST_APPS, RFC-0065) and the ui-program payloads (GET_PAYLOAD) come from the
+// VERIFIED SYSTEM VOLUME (TASK-0321 P5): `meta/app.properties` + `payload.elf` per bundle, read by
+// `crate::volume` at attach. Nothing is baked into this binary.
 use crate::volume::AppInfo;
 
 /// User-launchable bundle types — the ones that appear in the launcher grid.
@@ -102,12 +98,8 @@ fn is_launchable(bundle_type: &str) -> bool {
 /// launcher-tile glyph (theme icon-set symbol name; empty = tile fallback).
 fn build_list_apps_response(apps: &[AppInfo]) -> alloc::vec::Vec<u8> {
     use alloc::vec::Vec;
-    // The app LIST is the USER-LAUNCHABLE surface. Two orthogonal axes:
-    // launchability (does it show in the grid?) and privilege (which caps may
-    // it hold?). `app` and `settings` are user-launchable (Settings is opened
-    // by the user — it just carries the extra SETTINGS privilege); `shell`/
-    // `greeter` are system roles (never in the grid), and service/library/
-    // driver/framework are non-UI. Filter here, at the enumerate boundary.
+    // The app LIST is the USER-LAUNCHABLE surface: launchability (in the grid?) is orthogonal to
+    // privilege (which caps?). Filter here, at the enumerate boundary (`is_launchable`).
     let launchable = apps.iter().filter(|a| is_launchable(&a.bundle_type));
     let count = launchable.clone().count();
     let mut out = Vec::new();
@@ -157,6 +149,9 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
     // TASK-0321: the system volume attaches + verifies lazily on the first
     // volume op (the block plane is only live after init's MMIO grant).
     let mut volume = crate::volume::VolumeState::new();
+    // RFC-0111 §6: the grants of every installed app, owed to the permission authority once the
+    // volume is verified and the policyd leg is live — settled before any answer goes out.
+    let mut grants = crate::grants_publish::Publisher::new();
     // TASK-0324 P7-d: the VMOs senders armed for their next VMO op.
     let mut armed = nexus_ipc::armed_vmo::ArmedVmos::new();
     nexus_abi::service_verdict_flush("bundlemgrd");
@@ -180,14 +175,30 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                 // seals and hashes the sender's ARMED object (ADR-0080; the moved cap is
                 // the reply cap); QUERY/STATUS answer on the reply path.
                 let vop = nexus_abi::bundlemgrd::decode_request_op(frame);
-                if matches!(
+                let is_volume_op = matches!(
                     vop,
                     Some(nexus_abi::bundlemgrd::OP_QUERY_BUNDLE)
                         | Some(nexus_abi::bundlemgrd::OP_GET_BUNDLE_IMAGE)
                         | Some(nexus_abi::bundlemgrd::OP_VOLUME_STATUS)
                         | Some(nexus_abi::bundlemgrd::OP_GET_INDEX)
                         | Some(nexus_abi::bundlemgrd::OP_GET_FILE_VMO)
-                ) {
+                        | Some(nexus_abi::bundlemgrd::OP_GET_PAYLOAD)
+                        | Some(nexus_abi::bundlemgrd::OP_LIST_APPS)
+                );
+                if is_volume_op {
+                    // Every volume op attaches the volume (once, sticky) — and the grants debt
+                    // is settled HERE, before the answer: a reader that has our answer can ask
+                    // policyd and find the app published (RFC-0111 §6).
+                    let _ = volume.ensure();
+                    grants.settle(&volume);
+                }
+                if is_volume_op
+                    && !matches!(
+                        vop,
+                        Some(nexus_abi::bundlemgrd::OP_GET_PAYLOAD)
+                            | Some(nexus_abi::bundlemgrd::OP_LIST_APPS)
+                    )
+                {
                     crate::payload_ops::handle_volume_op(
                         &mut volume,
                         &mut armed,
@@ -231,19 +242,10 @@ pub fn service_main_loop(notifier: ReadyNotifier, _artifacts: ArtifactStore) -> 
                     );
                     continue;
                 }
-                // App-host children may read the apps LISTING (public
-                // registry data). RFC-0086 delivered the per-app-identity
-                // follow-up: execd names hosts `app:<bundle_id>`, so the gate
-                // resolves that name against THIS registry instead of taking
-                // "sender id 0" (any unnamed task). Other ops keep the
-                // named-sender gate (GET_PAYLOAD + mutations = core-only).
-                let is_list_apps = nexus_abi::bundlemgrd::decode_request_op(frame)
-                    == Some(nexus_abi::bundlemgrd::OP_LIST_APPS);
-                if is_list_apps {
-                    // The registry lives on the volume: attach (once) before
-                    // answering so the first launcher open sees the real set.
-                    let _ = volume.ensure();
-                }
+                // App-host children may read the apps LISTING (public registry data): execd
+                // names hosts `app:<bundle_id>` (RFC-0086) and the gate resolves that name against
+                // THIS registry. Other ops keep the named-sender gate (GET_PAYLOAD + mutations).
+                let is_list_apps = vop == Some(nexus_abi::bundlemgrd::OP_LIST_APPS);
                 let apps: &[AppInfo] = volume.apps();
                 let is_app_list = is_list_apps
                     && crate::app_sender::is_registered_app_host(
@@ -301,19 +303,8 @@ fn route_status(target: &str) -> Option<u8> {
 }
 
 fn handle_frame(frame: &[u8]) -> [u8; 8] {
-    // LIST request: [B, N, ver, OP_LIST]
-    // LIST response: [B, N, ver, OP_LIST|0x80, status:u8, count:u16le, _reserved:u8]
-    //
-    // ROUTE_STATUS request: [B, N, ver, OP_ROUTE_STATUS, name_len:u8, name...]
-    // ROUTE_STATUS response:
-    //   [B, N, ver, OP_ROUTE_STATUS|0x80, status:u8, route_status:u8, _reserved:u8, _reserved:u8]
-    //
-    // FETCH_IMAGE request: [B, N, ver, OP_FETCH_IMAGE]
-    // FETCH_IMAGE response: [B, N, ver, OP_FETCH_IMAGE|0x80, status:u8, len:u32le, bytes...]
-    //
-    // SET_ACTIVE_SLOT request: [B, N, ver, OP_SET_ACTIVE_SLOT, slot:u8]
-    // SET_ACTIVE_SLOT response:
-    //   [B, N, ver, OP_SET_ACTIVE_SLOT|0x80, status:u8, slot:u8, _reserved:u8, _reserved:u8]
+    // Frames per `nexus_wire::bundlemgrd` (the SSOT): LIST / ROUTE_STATUS / FETCH_IMAGE /
+    // SET_ACTIVE_SLOT, request `[B,N,ver,op,...]`, response `[B,N,ver,op|0x80,status,...]`.
     if frame.len() < 4 || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return rsp(OP_LIST, STATUS_MALFORMED, 0);
     }
@@ -589,6 +580,8 @@ mod tests {
             label: id.to_string(),
             bundle_type: ty.to_string(),
             icon: "".to_string(),
+            permissions: alloc::vec::Vec::new(),
+            background: alloc::vec::Vec::new(),
         };
         alloc::vec![app("chat", "app"), app("greeter", "greeter"), app("settings", "settings")]
     }

@@ -19,6 +19,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Abilitymgr, ServiceId::Bundlemgrd), // resolve installed apps
     (ServiceId::Abilitymgr, ServiceId::Execd),      // spawn app processes
     (ServiceId::Abilitymgr, ServiceId::Sessiond),   // launch gate: session must be active
+    (ServiceId::Abilitymgr, ServiceId::Policyd),    // the app's grants (RFC-0111 §6, ADR-0084)
     // App-child service routing (TASK-0080C): execd resolves these BY NAME on
     // behalf of the app-hosts it spawns — one SEND clone per declared manifest
     // cap into the child's fixed SDK slot (`nexus-sdk-routes`).
@@ -95,6 +96,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Updated, ServiceId::Logd),       // structured logs
     (ServiceId::Bundlemgrd, ServiceId::Logd),    // structured logs (a late grant)
     (ServiceId::Bundlemgrd, ServiceId::Metricsd), // counters (declared, TASK-0324 P7-b)
+    (ServiceId::Bundlemgrd, ServiceId::Policyd), // publish the apps' grants (RFC-0111 §6)
     (ServiceId::Updated, ServiceId::Bootctld),   // slot mutations delegate (PR-2)
     (ServiceId::Updated, ServiceId::Vfsd),       // staging-source splice reads (TASK-0179)
     (ServiceId::Updated, ServiceId::Policyd),    // updates.manage gate on mutating ops (TASK-0140)

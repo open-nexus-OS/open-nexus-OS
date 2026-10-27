@@ -658,6 +658,15 @@ USB_INPUT_MARKERS=(
   "windowd: wm tile (zone=left-half"
   "windowd: wm return (id="
   "SELFTEST: ui v7 tile ok"
+  # TASK-0333 6d / ADR-0083: then Super+Ctrl+M hides the settings window — windowd states
+  # `hidden`, abilitymgr freezes the app's process through execd once the grace has run out —
+  # and Super+Ctrl+M on the bare desktop brings it back: `focused`, thawed. The compositor
+  # states, the authority decides, the parent orders.
+  "windowd: minimize id=app"
+  "execd: freeze (pid="
+  "abilitymgr: suspend (inst="
+  "execd: thaw (pid="
+  "SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)"
   # TASK-0067B: then it opens the top-bar search, picks Clipboard, types a word no prefill
   # item contains, selects it (Ctrl+A), copies it (Ctrl+C), pastes it back (Ctrl+V) and
   # presses the first card — which exists only because the copy re-read the history at once.
@@ -708,6 +717,11 @@ expected_sequence=(
   # TASK-0333 6b-3 (RFC-0100 §1): an object whose last capability closed while mapped dies at
   # its last unmap — the lifetime rule's third caller.
   "KSELFTEST: vm unmap reclaim ok ("
+  # ADR-0082 (TASK-0333 6d): the process orders — a non-child's resume/suspend/kill and an
+  # unkillable child's kill are refused; a frozen child parks, its full queue refuses the sender
+  # with Frozen, and a frozen killable child is killed into a zombie. (The kernel runs this
+  # before the exec-image suite: KSELFTEST markers are order-checked.)
+  "KSELFTEST: process ctl ok ("
   # ADR-0080 (TASK-0333 6c-1b): a process runs from a sealed image — text and rodata shared,
   # data copied; the refusal matrix of the loader and the seal.
   "KSELFTEST: exec image shared ok ("
@@ -825,6 +839,16 @@ expected_sequence=(
   "SELFTEST: clipboard gate ok"
   "SELFTEST: ime ranking ok"
   "SELFTEST: ime ranking persist ok"
+  # execd's recv-wake probe runs at execd's start, long before the exec-elf chain below.
+  "SELFTEST: exec child blocking recv wake ok"
+  # ADR-0082 (TASK-0333 6d-1): the probe child is frozen while parked in its receive — a call
+  # to it is refused with Frozen, a ping that fits its queue waits, no reply comes; the thaw
+  # (the kernel's proof line: no hart ran the frozen task) delivers the ping, the reply comes;
+  # then the child is killed on order — its endpoint EOFs and the reap reads `Killed` without
+  # a crash report (`SELFTEST: task kill ok`, in the exec-elf chain).
+  "KSELFTEST: task freeze ok ("
+  "SELFTEST: exec child freeze thaw ok"
+  "SELFTEST: exec child eof on exit ok"
   "SELFTEST: settings watch ok"
   "SELFTEST: i18n switch ok"
   "SELFTEST: walltime rtc ok"
@@ -871,6 +895,11 @@ expected_sequence=(
   "SELFTEST: bundlemgrd v1 list ok"
   "SELFTEST: bundlemgrd volume ok"
   "SELFTEST: bundlemgrd v1 malformed ok"
+  # RFC-0111 §6 (ADR-0084): the one permission authority — bundlemgrd published the installed
+  # apps' manifest grants to policyd before answering; the harness reads the calculator's set
+  # back, and a publish from the harness (no `app.grants.publish`) is refused.
+  "SELFTEST: app grants ok (app="
+  "SELFTEST: app grants put deny ok"
   # TASK-0315: blkd owns the ONE GPT disk and serves partition-scoped
   # block IO; clients attach over IPC and the deny-by-default partition
   # gate is proven every boot. TASK-0246 P4a: the driver's completion
@@ -987,6 +1016,10 @@ expected_sequence=(
   "init: crash-loop blocked svc=fault-probe reason="
   "SELFTEST: crash-loop cap ok"
   "pinched: selftest crash requested"
+  # ADR-0082 (TASK-0333 6d-0): a process is its address space — the compute broker's crash takes
+  # its worker threads with it, and the reap frees the space (it stayed held before: orphaned
+  # threads kept `mappers=3` through every respawn).
+  "KSELFTEST: process exit takes threads ok ("
   "init: service exit name=pinched reason=error"
   "init: supervision persist restarts=0x"
   "init: service restarted name=pinched"
@@ -1004,8 +1037,7 @@ expected_sequence=(
   "SELFTEST: exit reason ok"
   "child: cache start"
   "SELFTEST: cache maintenance refused ok"
-  "SELFTEST: exec child blocking recv wake ok"
-  "SELFTEST: exec child eof on exit ok"
+  "SELFTEST: task kill ok"
   "child: minidump start"
   "execd: crash report pid="
   "execd: minidump written"
@@ -1300,6 +1332,7 @@ case "${PROFILE:-full}" in
       "KSELFTEST: task exit releases ok ("
       "KSELFTEST: child exit notify ok ("
       "KSELFTEST: vm unmap reclaim ok ("
+      "KSELFTEST: process ctl ok ("
       "KSELFTEST: exec image shared ok ("
       "KSELFTEST: exec image reject ok ("
       "KSELFTEST: fence transfer ok"
@@ -1356,6 +1389,11 @@ case "${PROFILE:-full}" in
       "init: up inputd"
       "init: start imed"
       "init: up imed"
+      # execd's recv-wake probe (ADR-0082, 6d-1) runs at execd's start — before the exec-elf chain.
+      "SELFTEST: exec child blocking recv wake ok"
+      "KSELFTEST: task freeze ok ("
+      "SELFTEST: exec child freeze thaw ok"
+      "SELFTEST: exec child eof on exit ok"
       "keystored: ready"
       "rngd: ready"
       "socd: ready ("
@@ -1405,6 +1443,8 @@ case "${PROFILE:-full}" in
       "SELFTEST: bundlemgrd v1 list ok"
       "SELFTEST: bundlemgrd volume ok"
       "SELFTEST: bundlemgrd v1 malformed ok"
+      "SELFTEST: app grants ok (app="
+      "SELFTEST: app grants put deny ok"
       "${BLK_BACKEND_MARKERS[@]}"
       "blkd: gpt ok (parts=7)"
       "blkd: irq endpoint bound"
@@ -1452,6 +1492,7 @@ case "${PROFILE:-full}" in
       "init: crash-loop blocked svc=fault-probe reason="
       "SELFTEST: crash-loop cap ok"
       "pinched: selftest crash requested"
+      "KSELFTEST: process exit takes threads ok ("
       "init: service exit name=pinched reason=error"
       "init: supervision persist restarts=0x"
       "init: service restarted name=pinched"
@@ -1483,8 +1524,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: exit reason ok"
       "child: cache start"
       "SELFTEST: cache maintenance refused ok"
-      "SELFTEST: exec child blocking recv wake ok"
-      "SELFTEST: exec child eof on exit ok"
+      "SELFTEST: task kill ok"
       "child: minidump start"
       "execd: crash report pid="
       "execd: minidump written"

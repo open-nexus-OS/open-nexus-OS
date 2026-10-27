@@ -33,6 +33,12 @@ pub mod abilitymgr {
     pub const BUNDLEMGRD: SlotPair = SlotPair::new(9, REPLY.recv);
     /// Launch gate: a session must be active.
     pub const SESSIOND: SlotPair = SlotPair::new(10, REPLY.recv);
+    /// The freeze clock (TASK-0333 6d, RFC-0111 §4): a one-shot kernel timer armed at the
+    /// moment the first hidden app's grace runs out — the loop's second waitset member.
+    pub const TIMER: SlotPair = SlotPair::new(12, 11);
+    /// The one permission authority (RFC-0111 §6, ADR-0084): an app's grants are asked at
+    /// launch, never read from a manifest or a build-time table.
+    pub const POLICYD: SlotPair = SlotPair::new(13, REPLY.recv);
 }
 
 /// The capability table of a SPAWNED APP CHILD (TASK-0324 P4e).
@@ -113,6 +119,10 @@ pub mod bundlemgrd {
     /// its own synchronous query to bundlemgrd and no timeout on the ask, that is a deadlock.
     /// A route is declared and pinned, never asked for while serving.
     pub const METRICSD: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE + 3, REPLY.recv);
+    /// The one permission authority (RFC-0111 §6, ADR-0084): the verified volume's app grants
+    /// are published here once the leg is pinned (a late grant: the volume is attached while
+    /// init still wires, so the publish is owed until the first request served after that).
+    pub const POLICYD: SlotPair = SlotPair::new(crate::LATE_GRANT_BASE + 4, REPLY.recv);
 }
 
 /// dsoftbusd (TASK-0324 P4f-4). Its netstackd route used to occupy 3/4 — the fleet's server

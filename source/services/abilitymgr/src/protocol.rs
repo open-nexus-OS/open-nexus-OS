@@ -61,6 +61,17 @@ pub const OP_RESOLVE_EXPORT: u8 = 4;
 /// Response: none.
 pub const OP_INSTANCE_EXITED: u8 = 5;
 
+/// What the compositor sees of an app's window (TASK-0333 6d, RFC-0111 §4, ADR-0083): the
+/// compositor STATES what is seen, this service DECIDES the lifecycle state and ORDERS the
+/// launcher (execd) to freeze, thaw or kill. A one-way EVENT like the death report — windowd
+/// never waits on this service — taken from windowd's kernel sender id alone; a frame from
+/// anyone else is denied. The app is named by the kernel service id of its process
+/// (`app:<bundle_id>`), the identity the compositor captured at the surface's creation.
+/// Request:  `[A,M,ver,OP_SEEN, owner_sid:u64le, seen:u8]`
+///           (seen: 0 focused, 1 visible, 2 hidden, 3 gone — `seen::Seen`)
+/// Response: none.
+pub const OP_SEEN: u8 = 6;
+
 // --- Status codes ---
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;

@@ -52,6 +52,11 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
         });
     }
     record(frame);
+    // ADR-0082: an order another hart left for this task (kill, freeze) runs before its
+    // syscall does — the frozen task re-executes the ecall on the thaw.
+    if super::pending::run_pending_in(frame, ctx) {
+        return;
+    }
     let args =
         Args::new([frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]]);
     // NOTE: keep trap-side UART logging minimal; use trap_ring/trap_symbols for post-mortem triage.
@@ -201,56 +206,6 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
     }
 }
 
-/// Preempts the running user task on a timer tick: re-enqueue it, pick the next
-/// runnable task (round-robin within its QoS class), and load that task's saved
-/// frame so the trap epilogue resumes it. Resolves cooperative-scheduler starvation
-/// — without this, a service that stays runnable via `poll + yield` (e.g. the GPU
-/// compositor's reactive pacing under the heavy virgl bring-up) can monopolise the
-/// CPU and freeze lower-traffic services such as the input chain.
-///
-/// No-op (resumes the interrupted task) when it is the only runnable task.
-///
-/// # Safety contract (caller-enforced)
-/// Must be called only from the supervisor timer trap with a **user-mode** interrupted
-/// context (`sstatus.SPP == 0`) on the boot hart. That guarantees `tasks`/`scheduler`/
-/// `spaces` are not concurrently borrowed by S-mode kernel code, so the `&mut`s are the
-/// unique live borrows. The function itself contains no `unsafe`.
-#[cfg(all(target_arch = "riscv64", target_os = "none"))]
-fn preempt_current_user_task(
-    frame: &mut TrapFrame,
-    tasks: &mut task::TaskTable,
-    scheduler: &mut Scheduler,
-    spaces: &mut AddressSpaceManager,
-) {
-    let old_pid = tasks.current_pid();
-    // Re-enqueue the running task at the back of its class, then pick the next. If
-    // round-robin hands back the same task, nothing else is runnable — resume it
-    // with its registers untouched (cheap fast path for a single busy task).
-    scheduler.yield_current();
-    let Some(next) = scheduler.schedule_next() else {
-        return;
-    };
-    if next == old_pid {
-        return;
-    }
-    // Commit the switch, mirroring the syscall path: persist the interrupted task's
-    // live registers, retarget the task table, swap the address space, then load the
-    // next task's saved frame for the trap epilogue to restore.
-    if let Some(task) = tasks.task_mut(old_pid) {
-        *task.frame_mut() = *frame;
-    }
-    tasks.set_current(next);
-    #[cfg(not(feature = "selftest_no_satp"))]
-    if let Some(handle) = tasks.task(next).and_then(|t| t.address_space()) {
-        // On activation failure the next task cannot be resumed safely; the page-fault
-        // path reaps it when it runs. Loading its frame below is still correct.
-        let _ = spaces.activate(handle);
-    }
-    if let Some(task) = tasks.task(next) {
-        *frame = *task.frame();
-    }
-}
-
 // ——— Rust trap handler called from assembly ———
 
 #[no_mangle]
@@ -299,9 +254,13 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 && frame.sstatus & SSTATUS_SPP == 0
             {
                 if let Ok(mut kernel) = KernelGuard::acquire() {
+                    // ADR-0082: the IPI may carry an order for the interrupted task.
+                    if super::pending::run_pending_guarded(frame, &mut kernel) {
+                        return;
+                    }
                     let (scheduler, tasks, _router, spaces, _timer, _ht, _ws, _fences) =
                         kernel.parts();
-                    preempt_current_user_task(frame, tasks, scheduler, spaces);
+                    super::pending::preempt_current_user_task(frame, tasks, scheduler, spaces);
                 }
             }
             return;
@@ -367,6 +326,10 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                 if let Ok(mut kernel) = KernelGuard::acquire() {
                     // BKL held for the whole delivery+preempt sequence (A2a);
                     // released on scope exit, before the asm epilogue runs.
+                    // ADR-0082: an order left for the interrupted task runs first.
+                    if super::pending::run_pending_guarded(frame, &mut kernel) {
+                        return;
+                    }
                     let (scheduler, tasks, router, spaces, timer, hart_timers, _waitsets, _fences) =
                         kernel.parts();
                     // Reactive: deliver fired timer caps + re-arm the next deadline.
@@ -393,7 +356,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                         .unwrap_or(1);
                     let cpu = crate::smp::cpu_current_id();
                     if crate::smp::preempt_tick_and_rotate(cpu, slice_ticks) {
-                        preempt_current_user_task(frame, tasks, scheduler, spaces);
+                        super::pending::preempt_current_user_task(frame, tasks, scheduler, spaces);
                     }
                     return;
                 }
@@ -616,7 +579,12 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
                                 tasks,
                                 router,
                                 scheduler,
-                                api::ExitTables { hart_timers, waitsets, fences },
+                                api::ExitTables {
+                                    hart_timers,
+                                    waitsets,
+                                    fences,
+                                    address_spaces: spaces,
+                                },
                                 0xF1,
                             );
                             return;

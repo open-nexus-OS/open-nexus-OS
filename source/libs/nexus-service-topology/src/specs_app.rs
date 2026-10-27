@@ -37,11 +37,21 @@ pub(crate) const ABILITYMGR: ServiceSpec = ServiceSpec {
             kind: RouteKind::ReplyInbox,
             slots: slots::abilitymgr::SESSIOND,
         },
+        // RFC-0111 §6 (ADR-0084): the app's grants come from the one permission authority.
+        Route {
+            to: ServiceId::Policyd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::abilitymgr::POLICYD,
+        },
     ],
     announce: true,
     server_slots: slots::abilitymgr::SERVER,
     reply_slots: slots::abilitymgr::REPLY,
-    extra_slots: &[],
+    extra_slots: &[
+        // The freeze clock (TASK-0333 6d): minted by init like every timer-notify pair.
+        NamedSlotBinding { name: NamedSlot::TimerNotifyRecv, slot: slots::abilitymgr::TIMER.recv },
+        NamedSlotBinding { name: NamedSlot::TimerNotifySend, slot: slots::abilitymgr::TIMER.send },
+    ],
 };
 
 /// The declaration of `execd`.
@@ -269,6 +279,12 @@ pub(crate) const BUNDLEMGRD: ServiceSpec = ServiceSpec {
             to: ServiceId::Metricsd,
             kind: RouteKind::ReplyInbox,
             slots: slots::bundlemgrd::METRICSD,
+        },
+        // RFC-0111 §6 (ADR-0084): the verified volume's app grants go to the one authority.
+        Route {
+            to: ServiceId::Policyd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::bundlemgrd::POLICYD,
         },
     ],
     announce: true,

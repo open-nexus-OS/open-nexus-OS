@@ -10,7 +10,14 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: QEMU (`SELFTEST: exec child blocking recv wake ok`, `SELFTEST: exec child
-//!   eof on exit ok`; every `execd: FAIL recv-wake probe (…)` names its hop).
+//!   freeze thaw ok`, `SELFTEST: exec child eof on exit ok`, `SELFTEST: task kill ok`; every
+//!   `execd: FAIL recv-wake probe (…)` names its hop).
+//!
+//! TASK-0333 6d (ADR-0082): the same child then proves the process orders on a RUNNING
+//! process — frozen while parked in its receive (a call to it refused with `Frozen`, a ping
+//! that fits its queue waits, no reply), thawed (the ping delivered, the reply comes; the
+//! kernel's `KSELFTEST: task freeze ok` says no hart ran it meanwhile), and killed on order
+//! (its endpoint EOFs, the reap reads `Killed` and no crash report is written).
 
 use super::*;
 use nexus_ipc::timer::{NotifyTimer, Waitset};
@@ -43,7 +50,7 @@ pub(super) fn run_recv_wake_probe() {
     }
     // ADR-0080: the process made from the sealed object; execd keeps the capability (the
     // launcher's image table is init's hand-off, not execd's to close).
-    let pid = match nexus_abi::exec_vmo(image, 16, 0, "") {
+    let pid = match nexus_abi::exec_vmo(image, 16, 0, "", true) {
         Ok(pid) => pid as u32,
         Err(_) => {
             emit_line("execd: FAIL recv-wake probe (spawn)");
@@ -170,12 +177,105 @@ pub(super) fn run_recv_wake_probe() {
     emit_line("execd: recv-wake probe ok");
     let _ = nexus_abi::debug_println("SELFTEST: exec child blocking recv wake ok");
 
-    // 3. DEATH WAKES (TASK-0324 P7-b): the child returns from `run` and exits, dropping the
-    //    reply SEND cap it was granted. execd owns the reply endpoint and holds its own SEND
-    //    base — an owner is never its own peer — so the waitset reads ready on the kernel's
-    //    EOF latch the moment the child's cap table is reaped and the EOF-opted receive says
-    //    `PeerClosed`, with no timeout deciding anything. (The timer only bounds a FAILED
-    //    proof: a kernel that does not wake would otherwise park execd forever.)
+    // 3. FREEZE (ADR-0082): the child is parked in its third receive. Frozen, it must not run:
+    //    a call to it is refused at once (`Frozen` — never a park on a receiver nobody here can
+    //    thaw), a ping that fits its queue is taken and WAITS, and the park window passes
+    //    without a reply. The thaw delivers the ping; the reply is the proof the child ran
+    //    again, and the kernel's own line says no hart ran it in between.
+    match probe_wait(&waitset, &mut timer, 30_000_000, &mut buf, false) {
+        ProbeWake::Timer => {}
+        _ => {
+            emit_line("execd: FAIL recv-wake probe (park before freeze)");
+            return;
+        }
+    }
+    if nexus_abi::task_suspend(pid as nexus_abi::Pid).is_err() {
+        emit_line("execd: FAIL recv-wake probe (suspend)");
+        return;
+    }
+    let ping = [0xB1u8];
+    let ping_hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, ping.len() as u32);
+    // A call carries its reply inbox (a moved SEND cap — the kernel refuses a call without
+    // one as malformed BEFORE it looks at the receiver). The probe's own reply SEND is the
+    // inbox; refused, the clone is still ours and goes back.
+    let Ok(reply_clone) = nexus_abi::cap_clone(PROBE_REPLY_SEND_SLOT) else {
+        emit_line("execd: FAIL recv-wake probe (call reply clone)");
+        return;
+    };
+    let call_hdr = nexus_abi::MsgHeader::new(
+        reply_clone,
+        0,
+        0,
+        nexus_abi::ipc_hdr::CAP_MOVE,
+        ping.len() as u32,
+    );
+    let mut out = [0u8; 8];
+    match nexus_abi::ipc_call(PROBE_PING_SEND_SLOT, &call_hdr, &ping, &mut out) {
+        Err(nexus_abi::IpcError::Frozen) => {
+            let _ = nexus_abi::cap_close(reply_clone);
+        }
+        Err(_) => {
+            let _ = nexus_abi::cap_close(reply_clone);
+            emit_line("execd: FAIL recv-wake probe (call to frozen child not refused)");
+            return;
+        }
+        Ok(_) => {
+            emit_line("execd: FAIL recv-wake probe (frozen child answered a call)");
+            return;
+        }
+    }
+    if nexus_abi::ipc_send_v1(PROBE_PING_SEND_SLOT, &ping_hdr, &ping, 0, 0).is_err() {
+        emit_line("execd: FAIL recv-wake probe (ping send to frozen child)");
+        return;
+    }
+    match probe_wait(&waitset, &mut timer, 30_000_000, &mut buf, false) {
+        ProbeWake::Timer => {}
+        ProbeWake::Frame(_) => {
+            emit_line("execd: FAIL recv-wake probe (frozen child replied)");
+            return;
+        }
+        ProbeWake::Eof | ProbeWake::Error => {
+            emit_line("execd: FAIL recv-wake probe (frozen recv error)");
+            return;
+        }
+    }
+    if nexus_abi::task_resume(pid as nexus_abi::Pid).is_err() {
+        emit_line("execd: FAIL recv-wake probe (thaw)");
+        return;
+    }
+    match probe_wait(&waitset, &mut timer, 2_000_000_000, &mut buf, false) {
+        ProbeWake::Frame(n) if n >= 1 && buf[0] == PROBE_MSG_WOKE => {
+            emit_line("execd: recv-wake probe freeze thaw ok");
+            let _ = nexus_abi::debug_println("SELFTEST: exec child freeze thaw ok");
+        }
+        ProbeWake::Frame(_) => {
+            emit_line("execd: FAIL recv-wake probe (protocol woke after thaw)");
+            return;
+        }
+        ProbeWake::Timer => {
+            emit_line("execd: FAIL recv-wake probe (thawed child never woke)");
+            return;
+        }
+        ProbeWake::Eof | ProbeWake::Error => {
+            emit_line("execd: FAIL recv-wake probe (thaw recv error)");
+            return;
+        }
+    }
+
+    // 4. THE ORDERED KILL (ADR-0082) and DEATH WAKES (TASK-0324 P7-b): the child parks in a
+    //    fourth receive it will never be woken from; execd kills it on order — recorded first,
+    //    so the reap reads the kernel's `Killed` as the carried-out order, not a crash. The
+    //    kill drops the reply SEND cap the child was granted. execd owns the reply endpoint and
+    //    holds its own SEND base — an owner is never its own peer — so the waitset reads ready
+    //    on the kernel's EOF latch the moment the child's cap table is reaped and the EOF-opted
+    //    receive says `PeerClosed`, with no timeout deciding anything. (The timer only bounds a
+    //    FAILED proof: a kernel that does not wake would otherwise park execd forever.)
+    let _ = crate::orders::note_ordered_kill(pid);
+    if nexus_abi::task_kill(pid as nexus_abi::Pid).is_err() {
+        crate::orders::forget_ordered_kill(pid);
+        emit_line("execd: FAIL recv-wake probe (kill)");
+        return;
+    }
     match probe_wait(&waitset, &mut timer, 2_000_000_000, &mut buf, true) {
         ProbeWake::Eof => {
             emit_line("execd: recv-wake probe eof on exit ok");

@@ -368,6 +368,10 @@ proves = "a person at the monitor confirmed the desktop of THIS boot (scripts/bo
 phase = "end"
 proves = "a person at the monitor confirmed THIS boot's desktop drawn by the GPU in windowd's context — the windows with their rounded corners, their glass blurred, the shadows, typing and scrolling — as the desktop the CPU drew, and faster (TASK-0215 5c-4)"
 
+[marker."board-visual: lifecycle"]
+phase = "end"
+proves = "a person at the monitor hid the focused app (Super+Ctrl+M), waited past the grace while the shell stayed smooth, and brought it back where it was — on THIS boot, with the act lines `windowd: minimize id=app`, `execd: freeze (pid=`, `abilitymgr: suspend (inst=`, `execd: thaw (pid=` in the trace (TASK-0333 6d-2, ADR-0083)"
+
 [marker."board-visual: typed"]
 phase = "end"
 proves = "a person confirmed that a USB keyboard and mouse move THIS boot's desktop (Block 2 gate)"

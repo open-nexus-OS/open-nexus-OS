@@ -49,6 +49,20 @@ impl Router {
         self.endpoints.get(id as usize).and_then(|ep| ep.owner)
     }
 
+    /// ADR-0082: marks (or unmarks) `id` as an endpoint whose receiver is frozen — a send that
+    /// finds its queue full is refused with `Frozen` instead of parking.
+    pub fn set_endpoint_frozen(&mut self, id: EndpointId, frozen: bool) {
+        if let Some(ep) = self.endpoints.get_mut(id as usize) {
+            ep.frozen = frozen;
+        }
+    }
+
+    /// ADR-0082: whether a receiver of `id` is frozen (an `ipc_call` to it is refused).
+    #[must_use]
+    pub fn endpoint_frozen(&self, id: EndpointId) -> bool {
+        self.endpoints.get(id as usize).is_some_and(|ep| ep.frozen)
+    }
+
     /// RFC-0079: latches endpoint `id` as having had a sender (called when the
     /// recv-block scan observes a live SEND cap, complementing the send path).
     pub fn mark_endpoint_had_sender(&mut self, id: EndpointId) {

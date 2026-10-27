@@ -42,9 +42,9 @@ pub use crate::window_state::{WindowRole, WindowState};
 
 /// Concurrent floating app windows (one atlas content band + one blur band
 /// each — the cap is an ATLAS budget as much as a UX choice).
-// (Consumed by the os-lite compositor runtime; host tests exercise the stack
-// logic without the runtime cap.)
-#[cfg(all(feature = "os-lite", nexus_env = "os", target_os = "none"))]
+// (Consumed by the os-lite compositor runtime and the sightings table (`seen`);
+// host tests exercise the stack logic without the runtime cap.)
+#[cfg(any(test, all(feature = "os-lite", nexus_env = "os", target_os = "none")))]
 pub const MAX_APP_WINDOWS: usize = 4;
 
 /// Whether a floating window should be composited this frame: `visible` and the
@@ -221,8 +221,8 @@ impl WindowStack {
         self.index_of(id).map(|i| self.entries[i].minimized).unwrap_or(false)
     }
 
-    /// Minimized windows in registration order (RFC-0086: the SHELL renders them).
-    #[cfg(test)]
+    /// Minimized windows in registration order (RFC-0086: the SHELL renders them; the
+    /// minimize chord restores the first, TASK-0333 6d).
     pub fn minimized_list(&self) -> ([WindowId; MAX_WINDOWS], usize) {
         let mut out = [WindowId::App(0); MAX_WINDOWS];
         let mut n = 0;

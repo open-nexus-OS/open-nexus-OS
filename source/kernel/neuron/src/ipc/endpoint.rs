@@ -43,6 +43,9 @@ pub(super) struct Endpoint {
     /// can ever drain the queue, so a sender must not park on it. Cleared only by a revive
     /// (the slot's next tenant starts fresh).
     pub(super) receiver_gone: bool,
+    /// ADR-0082: a receiver of this endpoint is frozen. A send that finds the queue full
+    /// returns `Frozen` instead of parking; what fits the queue waits for the thaw.
+    pub(super) frozen: bool,
 }
 
 impl Endpoint {
@@ -67,6 +70,7 @@ impl Endpoint {
             had_sender: false,
             eof_pending: false,
             receiver_gone: false,
+            frozen: false,
         }
     }
 
@@ -76,6 +80,9 @@ impl Endpoint {
         }
         if self.receiver_gone {
             return Err((IpcError::PeerClosed, msg));
+        }
+        if self.frozen && self.queue.len() >= self.depth {
+            return Err((IpcError::Frozen, msg));
         }
         if self.queue.len() >= self.depth {
             return Err((IpcError::QueueFull, msg));

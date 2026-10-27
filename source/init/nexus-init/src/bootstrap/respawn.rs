@@ -185,7 +185,7 @@ fn respawn_pinched(
     let rsp_parent = ctx.pinch_rsp_parent_slot?;
     let chan = channels.iter_mut().find(|c| c.svc_name == "pinched")?;
 
-    let pid = nexus_abi::exec_vmo(image, stack_pages, global_pointer, name).ok()?;
+    let pid = nexus_abi::exec_vmo(image, stack_pages, global_pointer, name, false).ok()?;
 
     // Ctrl plane: same init-owned endpoints, re-pinned to the fleet control slots.
     let ctrl_send = nexus_abi::cap_transfer_to_slot(

@@ -64,6 +64,20 @@ pub struct ExitTables<'a> {
     pub hart_timers: &'a mut crate::timer::HartTimers,
     pub waitsets: &'a mut crate::waitset::WaitsetTable,
     pub fences: &'a mut crate::fence::FenceTable,
+    /// ADR-0082: a thread of a dead process is released by its own exit (nobody waits for it).
+    pub address_spaces: &'a mut crate::mm::AddressSpaceManager,
+}
+
+impl ExitTables<'_> {
+    /// The same tables for a nested funnel (a leader's exit killing its threads).
+    pub fn reborrow(&mut self) -> ExitTables<'_> {
+        ExitTables {
+            hart_timers: &mut *self.hart_timers,
+            waitsets: &mut *self.waitsets,
+            fences: &mut *self.fences,
+            address_spaces: &mut *self.address_spaces,
+        }
+    }
 }
 
 /// The op byte of the frame a child's death writes into its parent's bound endpoint
@@ -89,6 +103,23 @@ pub fn exit_current_and_release(
     reason: crate::task::ExitReason,
 ) {
     let exiting = tasks.current_pid();
+    exit_task_and_release(tasks, router, scheduler, tables, exiting, status, reason);
+}
+
+/// The funnel for a named task: the current one on its own exit, or one no hart is running
+/// on a kill (ADR-0082 — a task running elsewhere is killed by its own hart at its next trap
+/// entry, through this same function). A process leader's exit takes its threads; a thread
+/// whose leader is gone is released here, since nobody will ever wait for it.
+pub fn exit_task_and_release(
+    tasks: &mut TaskTable,
+    router: &mut crate::ipc::Router,
+    scheduler: &mut Scheduler,
+    mut tables: ExitTables<'_>,
+    exiting: Pid,
+    status: i32,
+    reason: crate::task::ExitReason,
+) {
+    let is_thread = tasks.task(exiting).is_some_and(|t| t.is_thread());
     // Every endpoint the table named, judged after the drop with one census each: the
     // receivers' EOF, the senders' `PeerClosed`, the reclaim.
     let mut named = alloc::vec::Vec::new();
@@ -109,7 +140,7 @@ pub fn exit_current_and_release(
     let waitsets = tables.waitsets.free_owned_by(exiting.as_raw());
     let fence_waiters = tables.fences.free_owned_by(exiting.as_raw());
     woken.extend(fence_waiters);
-    let allocs = tasks.exit_current(status, reason);
+    let allocs = tasks.exit_task(exiting, status, reason);
     let mut endpoints = 0usize;
     for endpoint in named {
         endpoints += usize::from(super::eof_scan::judge_dropped(
@@ -140,6 +171,24 @@ pub fn exit_current_and_release(
     tasks.wake_parent_waiter(exiting, scheduler);
     notify_parent(tasks, router, scheduler, exiting, status, reason);
     let _ = release_image(&allocs);
+    // ADR-0082: a process is its address space. The leader's death takes every thread of it
+    // (parked ones here, running ones at their hart's next trap entry); a thread whose
+    // leader is gone has no one to `wait` for it and is released now.
+    if !is_thread {
+        let taken =
+            super::process_kill::kill_members(tasks, router, scheduler, tables.reborrow(), exiting);
+        if taken != 0 {
+            tasks.note_threads_taken(exiting, taken);
+            log_info!(
+                target: "task",
+                "KINIT: process exit (pid={} threads={})",
+                exiting.as_raw(),
+                taken
+            );
+        }
+    } else if !tasks.leader_alive_for(exiting) {
+        tasks.release_reaped(exiting, tables.address_spaces);
+    }
 }
 
 /// The death as an event: one `OP_CHILD_EXITED` frame into the endpoint the parent bound
@@ -202,7 +251,12 @@ pub fn exit_current_killed_in(ctx: &mut super::Context<'_>) {
         ctx.tasks,
         ctx.router,
         ctx.scheduler,
-        ExitTables { hart_timers: ctx.hart_timers, waitsets: ctx.waitsets, fences: ctx.fences },
+        ExitTables {
+            hart_timers: ctx.hart_timers,
+            waitsets: ctx.waitsets,
+            fences: ctx.fences,
+            address_spaces: ctx.address_spaces,
+        },
     );
 }
 

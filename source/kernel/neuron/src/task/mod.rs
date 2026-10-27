@@ -89,10 +89,15 @@ mod init_caps;
 pub use affinity::{clamp_home_to_affinity, validate_affinity_mask};
 pub use exit_reason::ExitReason;
 
+/// ADR-0082: the process model — freeze, thaw, the orders a hart executes at its trap entry.
+pub mod process;
 #[cfg(target_os = "none")]
 mod stack_pool;
 /// Waking a blocked task (TASK-0054C P4c-2: the runqueue half is measured here).
 mod wake;
+pub use process::Pending;
+/// The reap: the parent's `wait` and the release of a thread whose process is gone.
+mod reap;
 #[cfg(target_os = "none")]
 use stack_pool::allocate_guarded_stack;
 
@@ -302,6 +307,20 @@ pub struct Task {
     /// The endpoint this task bound for its children's deaths (TASK-0333 6a, like a timer's
     /// notify endpoint): every child's exit funnel writes one `OP_CHILD_EXITED` frame into it.
     exit_notify: Option<crate::ipc::EndpointId>,
+    /// TASK-0333 6d (ADR-0082): spawned INTO its parent's own address space — a thread of the
+    /// process whose leader created the space; it dies and freezes with the process.
+    is_thread: bool,
+    /// ADR-0082: the parent may `task_kill` it and the kernel's last resort may take it. Set by
+    /// the parent at `exec_vmo`, never by the task about itself.
+    killable: bool,
+    /// ADR-0082: frozen by its parent (`task_suspend`) — `Suspended` until the thaw, a wake only
+    /// clears its block. `frozen_at` is the proof line's clock.
+    frozen: bool,
+    frozen_at: u64,
+    /// ADR-0082: an order for a task running on another hart, executed at its next trap entry.
+    pending: Option<process::Pending>,
+    /// ADR-0082: how many threads this leader's exit took (the reap's proof line).
+    threads_taken: u8,
 }
 
 /// Minimal guard metadata used by the trap handler to attribute user page faults.
@@ -357,7 +376,38 @@ impl Task {
             image_allocs: ImageAllocs::new(),
             orphan_vmos: Vec::new(),
             exit_notify: None,
+            is_thread: false,
+            killable: false,
+            frozen: false,
+            frozen_at: 0,
+            pending: None,
+            threads_taken: 0,
         }
+    }
+
+    /// ADR-0082: a thread of its process (spawned into the parent's own address space).
+    pub fn is_thread(&self) -> bool {
+        self.is_thread
+    }
+
+    /// ADR-0082: whether the parent may kill this task (and the last resort take it).
+    pub fn killable(&self) -> bool {
+        self.killable
+    }
+
+    /// ADR-0082: set once by the parent at `exec_vmo`.
+    pub fn set_killable(&mut self, killable: bool) {
+        self.killable = killable;
+    }
+
+    /// ADR-0082: frozen by its parent, waiting for the thaw.
+    pub fn is_frozen(&self) -> bool {
+        self.frozen
+    }
+
+    /// ADR-0082: the order left for this task by another hart, if any.
+    pub fn pending(&self) -> Option<process::Pending> {
+        self.pending
     }
 
     /// Returns the saved trap frame.
@@ -553,6 +603,10 @@ impl TaskTable {
 
     /// Changes the task currently running on THIS hart.
     pub fn set_current(&mut self, pid: Pid) {
+        // ADR-0082: a frozen task is never dispatched — counted, the freeze proof's invariant.
+        if self.tasks.get(pid.as_index()).is_some_and(|t| t.frozen) {
+            process::note_frozen_ran(pid);
+        }
         self.current[Self::current_cpu_index()] = pid;
     }
 
@@ -603,6 +657,12 @@ impl TaskTable {
             image_allocs: ImageAllocs::new(),
             orphan_vmos: Vec::new(),
             exit_notify: None,
+            is_thread: false,
+            killable: false,
+            frozen: false,
+            frozen_at: 0,
+            pending: None,
+            threads_taken: 0,
         };
         // B: the round-robin placement must respect the inherited mask.
         let clamped = clamp_home_to_affinity(
@@ -730,6 +790,7 @@ impl TaskTable {
         ensure_entry_in_kernel_text(entry_pc, address_space)?;
 
         let parent_domain = parent_task.trap_domain();
+        let parent_address_space = parent_task.address_space;
 
         let slot = bootstrap_slot.0;
         let bootstrap_cap = parent_task.caps.get(slot)?;
@@ -829,6 +890,13 @@ impl TaskTable {
             image_allocs: ImageAllocs::new(),
             orphan_vmos: Vec::new(),
             exit_notify: None,
+            // ADR-0082: spawned into the parent's own space = a thread of the parent's process.
+            is_thread: address_space.is_some() && address_space == parent_address_space,
+            killable: false,
+            frozen: false,
+            frozen_at: 0,
+            pending: None,
+            threads_taken: 0,
         };
         if let Some(block) = stack_block {
             task.image_allocs.push(block);
@@ -872,37 +940,6 @@ impl TaskTable {
         }
 
         Ok(pid)
-    }
-
-    /// Transitions a suspended task to Running and enqueues it.
-    /// Idempotent: if already Running, returns NotSuspended.
-    pub fn resume_task(&mut self, pid: Pid, scheduler: &mut Scheduler) -> ResumeOutcome {
-        let idx = pid.as_index();
-        let Some(task) = self.tasks.get_mut(idx) else {
-            return ResumeOutcome::TaskNotFound;
-        };
-        if task.state != TaskState::Suspended {
-            return ResumeOutcome::NotSuspended;
-        }
-        task.state = TaskState::Running;
-        // A4/B: keep resume consistent with home CPU, affinity and online set.
-        let home_cpu = clamp_home_to_affinity(
-            task.affinity_mask,
-            task.home_cpu,
-            crate::smp::cpu_online_mask(),
-        );
-        match scheduler.enqueue_on_cpu(home_cpu, pid, task.qos) {
-            crate::sched::EnqueueOutcome::Enqueued => {
-                if home_cpu != crate::smp::cpu_current_id() {
-                    let _ = crate::smp::request_resched(home_cpu);
-                }
-                ResumeOutcome::Resumed
-            }
-            crate::sched::EnqueueOutcome::Rejected(_) => {
-                task.state = TaskState::Suspended;
-                ResumeOutcome::EnqueueRejected
-            }
-        }
     }
 
     /// Duplicates a capability from `parent` into `child` with a rights subset.
@@ -967,16 +1004,19 @@ impl TaskTable {
         }
     }
 
-    /// Exits the current task (→ Zombie) and RETURNS its process-image ranges:
-    /// the zombie keeps only its exit code, so its image memory is the
-    /// caller's to hand back to the arena (see `syscall::api::task_image`).
+    /// Exits `pid` (→ Zombie) and RETURNS its process-image ranges: the zombie keeps only its
+    /// exit code, so its image memory is the caller's to hand back to the arena (see
+    /// `syscall::api::task_image`). The current task on a voluntary exit; a task no hart runs
+    /// on a kill (ADR-0082).
     #[must_use = "a dropped image record leaks the task's arena memory"]
-    pub fn exit_current(&mut self, status: i32, reason: ExitReason) -> ImageAllocs {
-        let pid = self.current_pid().as_index();
-        let Some(task) = self.tasks.get_mut(pid) else {
+    pub fn exit_task(&mut self, pid: Pid, status: i32, reason: ExitReason) -> ImageAllocs {
+        let Some(task) = self.tasks.get_mut(pid.as_index()) else {
             return ImageAllocs::new();
         };
         task.state = TaskState::Zombie;
+        task.frozen = false;
+        task.pending = None;
+        task.clear_blocked();
         task.exit_code = Some((status, reason));
         // What the table named is remembered for the reap (RFC-0100 §1): the caps go now, the
         // objects nobody else names or maps go with the address space.
@@ -1019,166 +1059,6 @@ impl TaskTable {
         if let Some(task) = self.task_mut(pid) {
             task.home_cpu = cpu;
         }
-    }
-
-    /// Wakes the current task's parent if it is blocked in `wait` for this child.
-    /// The endpoint `child`'s parent bound for its children's deaths (TASK-0333 6a).
-    pub fn parent_exit_notify(&self, child: Pid) -> Option<crate::ipc::EndpointId> {
-        let parent = self.task(child)?.parent()?;
-        self.task(parent)?.exit_notify()
-    }
-
-    /// Clears every binding of `endpoint` as a child-death notifier — it died.
-    pub fn forget_exit_notify(&mut self, endpoint: crate::ipc::EndpointId) {
-        for task in self.tasks.iter_mut() {
-            if task.exit_notify == Some(endpoint) {
-                task.exit_notify = None;
-            }
-        }
-    }
-
-    pub fn wake_parent_waiter(&mut self, child: Pid, scheduler: &mut Scheduler) {
-        let Some(child_task) = self.task(child) else {
-            return;
-        };
-        let Some(parent) = child_task.parent() else {
-            return;
-        };
-        let Some(parent_task) = self.task(parent) else {
-            return;
-        };
-        if !parent_task.is_blocked() {
-            return;
-        }
-        if let Some(BlockReason::WaitChild { target }) = parent_task.block_reason() {
-            if target.is_none() || target == Some(child) {
-                match self.wake(parent, scheduler) {
-                    WakeOutcome::Woken
-                    | WakeOutcome::WokenNoopSelftest
-                    | WakeOutcome::TaskNotBlocked
-                    | WakeOutcome::TaskNotFound
-                    | WakeOutcome::EnqueueRejected => {}
-                }
-            }
-        }
-    }
-
-    /// Attempts to reap a zombie child belonging to the current task.
-    pub fn reap_child(
-        &mut self,
-        target: Option<Pid>,
-        address_spaces: &mut AddressSpaceManager,
-    ) -> Result<(Pid, i32, ExitReason), WaitError> {
-        let parent_pid = self.current_pid();
-        let parent_index = parent_pid.as_index();
-        if parent_index >= self.tasks.len() {
-            return Err(WaitError::NoChildren);
-        }
-
-        let children_snapshot = {
-            let parent_task = self.tasks.get(parent_index).ok_or(WaitError::NoChildren)?;
-            if parent_task.children.is_empty() {
-                return Err(WaitError::NoChildren);
-            }
-            parent_task.children.clone()
-        };
-
-        let selected_pid = if let Some(pid) = target {
-            if pid == parent_pid {
-                return Err(WaitError::InvalidTarget);
-            }
-            if !children_snapshot.iter().any(|candidate| *candidate == pid) {
-                return Err(WaitError::NoSuchPid);
-            }
-            pid
-        } else {
-            let mut found = None;
-            for child_pid in &children_snapshot {
-                if let Some(child_task) = self.tasks.get(child_pid.as_index()) {
-                    if child_task.state == TaskState::Zombie && child_task.exit_code.is_some() {
-                        found = Some(*child_pid);
-                        break;
-                    }
-                }
-            }
-            match found {
-                Some(pid) => pid,
-                None => return Err(WaitError::WouldBlock),
-            }
-        };
-
-        let child_index = selected_pid.as_index();
-        if child_index >= self.tasks.len() {
-            return Err(WaitError::NoSuchPid);
-        }
-
-        let (status, reason) = {
-            let child_task = self.tasks.get(child_index).ok_or(WaitError::NoSuchPid)?;
-            if child_task.parent != Some(parent_pid) {
-                return Err(WaitError::NoSuchPid);
-            }
-            if child_task.state != TaskState::Zombie {
-                return Err(WaitError::WouldBlock);
-            }
-            child_task.exit_code.ok_or(WaitError::WouldBlock)?
-        };
-
-        if let Some(parent_task) = self.tasks.get_mut(parent_index) {
-            parent_task.children.retain(|pid| *pid != selected_pid);
-        }
-
-        // TASK-0333 6a (RFC-0100 §1): the objects the child named at its exit and the ones its
-        // space maps — freed below once the space is gone, unless another table names them or
-        // another space (a sibling thread's, a sharer's) still maps them.
-        let mut orphans = Vec::new();
-        if let Some(child_task) = self.tasks.get_mut(child_index) {
-            child_task.exit_code = None;
-            child_task.parent = None;
-            child_task.caps = CapTable::default();
-            child_task.bootstrap_slot = None;
-            child_task.frame = TrapFrame::default();
-            child_task.children.clear();
-            orphans = core::mem::take(&mut child_task.orphan_vmos);
-            if let Some(handle) = child_task.address_space.take() {
-                if let Ok(space) = address_spaces.get(handle) {
-                    space.va_space().vmo_ids(&mut orphans);
-                }
-                if let Err(err) = address_spaces.detach(handle, selected_pid) {
-                    log_error!(
-                        target: "task",
-                        "TASK: detach failed pid={} err={:?}",
-                        selected_pid.as_raw(),
-                        err
-                    );
-                }
-                // TASK-0304: destroy the address space ONLY when this task was
-                // its last owner. A reaped THREAD shares its AS with a
-                // still-living parent (and parked sibling worker threads);
-                // `detach` released this task's reference, but the shared AS
-                // must survive until its final owner is reaped. `destroy` then
-                // (correctly) refuses with `InUse` — a co-owner is still alive,
-                // NOT an error, so we accept it silently and reclaim the AS when
-                // that last owner is reaped. (Active teardown of parked daemon
-                // threads when their owning service itself exits is the deferred
-                // hard part — see TASK-0304.)
-                match address_spaces.destroy(handle) {
-                    Ok(()) | Err(AddressSpaceError::InUse) => {}
-                    Err(err) => {
-                        log_error!(
-                            target: "task",
-                            "TASK: destroy as failed pid={} err={:?}",
-                            selected_pid.as_raw(),
-                            err
-                        );
-                    }
-                }
-            }
-        }
-
-        crate::mm::reclaim::orphans(self, address_spaces, &orphans, "reap");
-        crate::mm::usage::report_growth(self, address_spaces);
-
-        Ok((selected_pid, status, reason))
     }
 }
 

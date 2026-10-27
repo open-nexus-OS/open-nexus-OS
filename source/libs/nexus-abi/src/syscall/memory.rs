@@ -540,7 +540,8 @@ pub fn exec_image_once(
     service_name: &str,
 ) -> SysResult<super::types::Pid> {
     let image = sealed_image(bytes)?;
-    let spawned = super::task::exec_vmo(image, stack_pages, global_pointer, service_name);
+    // A probe is its spawner's to wait for, never to kill (ADR-0082: not killable).
+    let spawned = super::task::exec_vmo(image, stack_pages, global_pointer, service_name, false);
     let _ = crate::cap_close(image);
     spawned
 }

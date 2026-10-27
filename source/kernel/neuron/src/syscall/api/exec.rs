@@ -29,7 +29,13 @@ pub(super) struct ExecVmoArgsTyped {
     global_pointer: usize,
     name_ptr: usize,
     name_len: usize,
+    /// ADR-0082: `EXEC_FLAG_KILLABLE` — the parent may `task_kill` this process.
+    flags: usize,
 }
+
+/// ADR-0082: the process may be killed by its parent (and by the kernel's last resort).
+pub const EXEC_FLAG_KILLABLE: usize = 1 << 0;
+const EXEC_FLAGS_KNOWN: usize = EXEC_FLAG_KILLABLE;
 
 impl ExecVmoArgsTyped {
     #[inline]
@@ -40,8 +46,9 @@ impl ExecVmoArgsTyped {
             global_pointer: args.get(2),
             name_ptr: args.get(3),
             name_len: args.get(4),
+            flags: args.get(5),
         };
-        if typed.stack_pages == 0 {
+        if typed.stack_pages == 0 || typed.flags & !EXEC_FLAGS_KNOWN != 0 {
             return Err(AddressSpaceError::InvalidArgs.into());
         }
         Ok(typed)
@@ -344,8 +351,12 @@ pub(crate) fn exec_vmo_phase_a(
     } else {
         unsafe { slice::from_raw_parts(typed.name_ptr as *const u8, typed.name_len) }
     };
-    spawn_sealed(ctx, vmo, typed.stack_pages, typed.global_pointer, name, plan)
-        .map(|pid| pid.as_index())
+    let pid = spawn_sealed(ctx, vmo, typed.stack_pages, typed.global_pointer, name, plan)?;
+    // ADR-0082: the parent decides at the spawn whether it may ever kill this process.
+    if let Some(task) = ctx.tasks.task_mut(pid) {
+        task.set_killable(typed.flags & EXEC_FLAG_KILLABLE != 0);
+    }
+    Ok(pid.as_index())
 }
 
 /// A process from the sealed object `vmo` (ADR-0080): the image mapped, the stack, the

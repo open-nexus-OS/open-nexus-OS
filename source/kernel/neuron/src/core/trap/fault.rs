@@ -442,7 +442,12 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
                 tasks,
                 router,
                 scheduler,
-                crate::syscall::api::ExitTables { hart_timers, waitsets, fences },
+                crate::syscall::api::ExitTables {
+                    hart_timers,
+                    waitsets,
+                    fences,
+                    address_spaces: spaces,
+                },
                 frame.scause as u8,
             );
             crate::smp::tlb::note_activity(
@@ -472,7 +477,12 @@ pub(super) fn kill_faulting_user_task(frame: &mut TrapFrame) {
                                 tasks,
                                 router,
                                 scheduler,
-                                crate::syscall::api::ExitTables { hart_timers, waitsets, fences },
+                                crate::syscall::api::ExitTables {
+                                    hart_timers,
+                                    waitsets,
+                                    fences,
+                                    address_spaces: spaces,
+                                },
                             );
                             scheduler.purge(doomed);
                             scheduler.finish_current();

@@ -58,12 +58,13 @@ mod fence;
 mod ipc_budgets;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod lifetime;
+#[cfg(all(target_arch = "riscv64", target_os = "none"))]
+mod process_ctl;
 mod smp_sched;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vm_alloc;
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 mod vmo_runs;
-use smp_sched::run_steal_selftests;
 
 #[cfg(all(target_arch = "riscv64", target_os = "none"))]
 core::arch::global_asm!(include_str!("stack_run.S"));
@@ -1597,8 +1598,7 @@ fn run_smp_selftests(ctx: &mut Context<'_>) {
     }
 
     run_runtime_budget_selftests(target);
-
-    run_steal_selftests(ctx, CpuId::BOOT, target);
+    smp_sched::run_steal_selftests(ctx, CpuId::BOOT, target);
 
     // A5: TLB shootdown — counterfactual first (a poll with no pending epoch
     // must not flush/ack), then the real epoch round-trip with acked

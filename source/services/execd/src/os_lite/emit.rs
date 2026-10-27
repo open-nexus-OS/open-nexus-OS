@@ -43,6 +43,22 @@ pub(super) fn emit_crash_marker(pid: u32, code: i32, name: &str) {
     let _ = debug_putc(b'\n');
 }
 
+/// The console name of an IPC error (the crash-log sink's failure line).
+pub(super) fn ipc_error_label(err: nexus_abi::IpcError) -> &'static str {
+    match err {
+        nexus_abi::IpcError::PermissionDenied => "PermissionDenied",
+        nexus_abi::IpcError::NoSuchEndpoint => "NoSuchEndpoint",
+        nexus_abi::IpcError::QueueFull => "QueueFull",
+        nexus_abi::IpcError::QueueEmpty => "QueueEmpty",
+        nexus_abi::IpcError::NoSpace => "NoSpace",
+        nexus_abi::IpcError::TooBig => "TooBig",
+        nexus_abi::IpcError::TimedOut => "TimedOut",
+        nexus_abi::IpcError::PeerClosed => "PeerClosed",
+        nexus_abi::IpcError::Frozen => "Frozen",
+        nexus_abi::IpcError::Unsupported => "Unsupported",
+    }
+}
+
 pub(super) fn emit_line_no_nl(message: &str) {
     for byte in message.as_bytes().iter().copied() {
         let _ = debug_putc(byte);

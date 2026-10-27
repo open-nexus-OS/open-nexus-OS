@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-27 (one permission authority: policyd holds every app grant — TASK-0333 6d-3, ADR-0084)
+
+- **An app's permissions have one home.** abilitymgr and execd each compiled every manifest's
+  `caps` into their own binary; a grant was whatever a build had seen. Now the bundle manager
+  publishes each installed app's manifest grants to policyd once per boot, from the verified
+  system volume, and the launch authority and the service launcher ask policyd at every launch
+  and spawn. Both build-time tables and the boot-time `caps ok` self-check are gone.
+- **Who publishes and who reads is policy.** `app.grants.publish` and `app.grants.read` in the
+  policy table, checked against the kernel sender id; a publish from anyone else is refused and
+  stores nothing (proven live every boot).
+- **A bad manifest rejects the app, by name, once.** An unrecognized permission refuses the
+  whole publish and removes any earlier entry; an app the authority holds nothing for does not
+  launch, and the refusal is a marker — never a launch with a smaller set.
+- **`background = [...]` in the manifest** (bounded at pack time) becomes the one grant
+  `nexus.permission.BACKGROUND`: such an app is never frozen for being hidden. No shipped app
+  declares it; its refusal is proven on the host, its live set read back on the headless lane.
+
+### Changed - 2026-10-27 (a hidden app is frozen after a grace and thawed when seen again — TASK-0333 6d-0…6d-2, ADR-0082, ADR-0083)
+
+- **A process is its address space, and its parent orders it whole.** `task_suspend`,
+  `task_resume` and `task_kill` of a child (parentage checked in the kernel; `killable` set by
+  the spawner at exec, never by the task); a leader's exit takes its threads and the reap frees
+  the space; a frozen task is never dispatched; a send that would park on a frozen receiver is
+  refused (`Frozen`) while what fits the queue is delivered on the thaw.
+- **The compositor states, the lifecycle authority decides, the parent orders.** windowd tells
+  abilitymgr what is seen per app window; abilitymgr runs one grace clock (5 s hidden →
+  frozen; seen again → thawed; window gone → thawed so it can exit); execd issues the kernel
+  orders. Super+Ctrl+M hides the focused app window and brings the first hidden one back.
+
 ### Changed - 2026-10-26 (the boot image is one container: kernel + bootfs — TASK-0333 6c-2, ADR-0081)
 
 - **No program embeds another.** The kernel's image used to hold init, init's image every core

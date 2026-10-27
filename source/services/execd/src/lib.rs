@@ -34,6 +34,9 @@ pub mod crash_store;
 // `cargo test -p execd` reaches it (the `hover_wash` one-cfg pattern).
 #[cfg(any(all(nexus_env = "os", feature = "os-lite"), test))]
 mod identity;
+// ADR-0082: the kills execd ordered (told apart from crashes at the reap) — pure, host-tested.
+#[cfg(any(all(nexus_env = "os", feature = "os-lite"), test))]
+mod orders;
 #[cfg(all(nexus_env = "os", feature = "os-lite"))]
 mod os_lite;
 // Declarative per-image sched recipe (split out of os_lite — ratchet).

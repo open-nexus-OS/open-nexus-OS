@@ -248,6 +248,7 @@ pub(crate) fn emit_ipc_error(err: nexus_ipc::IpcError) {
             nexus_abi::IpcError::NoSpace => "statefsd: ipc no-space",
             nexus_abi::IpcError::TooBig => "statefsd: ipc too-big",
             nexus_abi::IpcError::PeerClosed => "statefsd: ipc peer-closed",
+            nexus_abi::IpcError::Frozen => "statefsd: ipc frozen-receiver",
             nexus_abi::IpcError::Unsupported => "statefsd: ipc unsupported",
         },
         nexus_ipc::IpcError::Unsupported => "statefsd: ipc unsupported",

@@ -34,9 +34,8 @@ pub struct ResolvedExport {
     pub permission: &'static str,
 }
 
-/// Resolves `ability` for a consumer holding `consumer_caps`
-/// (its manifest-declared capability list — the CALLER binds identity, the
-/// OS loop passes `caps::required_caps(<verified sender app>)`).
+/// Resolves `ability` for a consumer holding `consumer_caps` (the permission authority's
+/// grants for it, RFC-0111 §6 — the CALLER binds identity and asks policyd).
 ///
 /// Fail-closed on both sides:
 /// - nobody exports the ability ⇒ [`MediationError::UnknownAbility`];

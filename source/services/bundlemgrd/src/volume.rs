@@ -98,19 +98,31 @@ pub(crate) struct AppInfo {
     pub(crate) label: alloc::string::String,
     pub(crate) bundle_type: alloc::string::String,
     pub(crate) icon: alloc::string::String,
+    /// The manifest's `caps` (RFC-0111 §6): what this registry publishes to the one permission
+    /// authority (policyd) — the lifecycle authority and the service launcher ask it, never us.
+    pub(crate) permissions: alloc::vec::Vec<alloc::string::String>,
+    /// The manifest's `background = [...]` modes; non-empty becomes the one grant
+    /// `nexus.permission.BACKGROUND` at publish (deny-by-default: absent = frozen when hidden).
+    pub(crate) background: alloc::vec::Vec<alloc::string::String>,
 }
 
-/// Largest `meta/app.properties` the registry reads (bounded input).
-const APP_PROPERTIES_MAX: usize = 1024;
+/// Largest `meta/app.properties` the registry reads (bounded input): label, icon, type, up to
+/// 16 permissions of 48 bytes and the background modes fit twice over.
+const APP_PROPERTIES_MAX: usize = 2048;
 
-/// Parses `key=value` lines (`label`, `icon`, `bundle_type`) — the sidecar
-/// `nx app compile --meta` writes. Missing keys fall back to the id / empty
-/// / `app`; unknown keys are ignored (forward-compatible).
+/// Parses `key=value` lines (`label`, `icon`, `bundle_type`, the comma-separated
+/// `permissions` and `background`) — the sidecar `nx app compile --meta` writes. Missing keys
+/// fall back to the id / empty / `app` / none; unknown keys are ignored (forward-compatible).
 pub(crate) fn parse_app_properties(id: &str, text: &[u8]) -> AppInfo {
     use alloc::string::{String, ToString};
     let mut label: Option<String> = None;
     let mut icon = String::new();
     let mut bundle_type = "app".to_string();
+    let mut permissions = alloc::vec::Vec::new();
+    let mut background = alloc::vec::Vec::new();
+    let list = |v: &str| -> alloc::vec::Vec<String> {
+        v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(ToString::to_string).collect()
+    };
     for line in text.split(|&b| b == b'\n') {
         let Ok(line) = core::str::from_utf8(line) else { continue };
         let line = line.trim();
@@ -119,6 +131,8 @@ pub(crate) fn parse_app_properties(id: &str, text: &[u8]) -> AppInfo {
             "label" => label = Some(v.trim().to_string()),
             "icon" => icon = v.trim().to_string(),
             "bundle_type" => bundle_type = v.trim().to_string(),
+            "permissions" => permissions = list(v),
+            "background" => background = list(v),
             _ => {}
         }
     }
@@ -127,6 +141,8 @@ pub(crate) fn parse_app_properties(id: &str, text: &[u8]) -> AppInfo {
         label: label.unwrap_or_else(|| id.to_string()),
         bundle_type,
         icon,
+        permissions,
+        background,
     }
 }
 
@@ -487,17 +503,21 @@ mod tests {
     fn app_properties_parse_and_defaults() {
         let a = parse_app_properties(
             "calculator",
-            b"label=Calculator\nicon=calculator|#3d4757|#1a202c\nbundle_type=app\nunknown=x\n",
+            b"label=Calculator\nicon=calculator|#3d4757|#1a202c\nbundle_type=app\nunknown=x\n\
+              permissions=nexus.permission.WINDOW, nexus.permission.CLIPBOARD,\nbackground=audio\n",
         );
         assert_eq!(a.id, "calculator");
         assert_eq!(a.label, "Calculator");
         assert_eq!(a.icon, "calculator|#3d4757|#1a202c");
         assert_eq!(a.bundle_type, "app");
-        // Missing keys: label = id, icon empty, type app. Garbage lines ignored.
-        let b = parse_app_properties("stash", b"\xff\xfe\nnot a pair\n");
+        assert_eq!(a.permissions, ["nexus.permission.WINDOW", "nexus.permission.CLIPBOARD"]);
+        assert_eq!(a.background, ["audio"]);
+        // Missing keys: label = id, icon empty, type app, no permissions. Garbage lines ignored.
+        let b = parse_app_properties("stash", b"\xff\xfe\nnot a pair\npermissions=\n");
         assert_eq!(
             (b.label.as_str(), b.icon.as_str(), b.bundle_type.as_str()),
             ("stash", "", "app")
         );
+        assert!(b.permissions.is_empty() && b.background.is_empty());
     }
 }

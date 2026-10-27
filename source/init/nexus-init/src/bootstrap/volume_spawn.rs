@@ -179,7 +179,7 @@ fn spawn_one(
     }
 
     // 4. exec from the sealed image; the capability stays init's for every respawn.
-    let pid = match nexus_abi::exec_vmo(vmo, stack_pages as usize, global_pointer, name) {
+    let pid = match nexus_abi::exec_vmo(vmo, stack_pages as usize, global_pointer, name, false) {
         Ok(pid) => pid,
         Err(_) => {
             let _ = nexus_abi::cap_close(vmo);

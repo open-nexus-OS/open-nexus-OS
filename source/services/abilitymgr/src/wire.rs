@@ -25,6 +25,9 @@ use crate::protocol::*;
 pub enum Event {
     /// A new instance was launched.
     Launched { app_id: String, instance_id: u32 },
+    /// A launch refused because the permission authority holds no grants for the app
+    /// (never published, rejected at publish, or unreachable) — RFC-0111 §6, fail-closed.
+    LaunchDenied { app_id: String },
     /// An instance changed lifecycle state.
     Transitioned { instance_id: u32, to: AbilityState },
     /// An instance's process died (TASK-0333 6a): execd reaped it; the instance is gone.
@@ -39,6 +42,26 @@ pub fn exited_frame_allowed(frame: &[u8], sender_service_id: u64, execd_sender_i
     frame.get(3) != Some(&OP_INSTANCE_EXITED) || sender_service_id == execd_sender_id
 }
 
+/// RFC-0111 §6 (ADR-0084): where an app's grants come from — the one permission authority
+/// (policyd) on the OS, a fixed table in tests. `None` means the authority does not know the
+/// app or could not be asked: a launch is DENIED and a mediation resolves nothing (fail-closed).
+/// This service never reads a manifest or a build-time table.
+pub trait GrantSource {
+    fn grants_of(&mut self, app_id: &str) -> Option<Vec<String>>;
+}
+
+/// A fixed `(app, grants)` table — tests and the host build.
+pub struct StaticGrants<'a>(pub &'a [(&'a str, &'a [&'a str])]);
+
+impl GrantSource for StaticGrants<'_> {
+    fn grants_of(&mut self, app_id: &str) -> Option<Vec<String>> {
+        self.0
+            .iter()
+            .find(|(app, _)| *app == app_id)
+            .map(|(_, grants)| grants.iter().map(|g| String::from(*g)).collect())
+    }
+}
+
 /// The result of dispatching one request frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dispatched {
@@ -48,10 +71,11 @@ pub struct Dispatched {
     pub event: Option<Event>,
 }
 
-/// Decodes and applies a single request frame against `broker`.
+/// Decodes and applies a single request frame against `broker`; `grants` answers what an app
+/// may hold (RFC-0111 §6) for a launch and for a mediated export.
 ///
 /// Never panics: malformed frames produce a `STATUS_MALFORMED` response.
-pub fn dispatch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
+pub fn dispatch(broker: &mut Broker, frame: &[u8], grants: &mut dyn GrantSource) -> Dispatched {
     if frame.len() < MIN_FRAME_LEN || frame[0] != MAGIC0 || frame[1] != MAGIC1 {
         return Dispatched { response: resp_status(0, STATUS_MALFORMED), event: None };
     }
@@ -59,10 +83,10 @@ pub fn dispatch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
         return Dispatched { response: resp_status(frame[3], STATUS_MALFORMED), event: None };
     }
     match frame[3] {
-        OP_LAUNCH => dispatch_launch(broker, frame),
+        OP_LAUNCH => dispatch_launch(broker, frame, grants),
         OP_TRANSITION => dispatch_transition(broker, frame),
         OP_RECENTS => dispatch_recents(broker, frame),
-        OP_RESOLVE_EXPORT => dispatch_resolve_export(frame),
+        OP_RESOLVE_EXPORT => dispatch_resolve_export(frame, grants),
         OP_INSTANCE_EXITED => dispatch_exited(broker, frame),
         other => Dispatched { response: resp_status(other, STATUS_MALFORMED), event: None },
     }
@@ -105,7 +129,7 @@ pub fn encode_instance_exited(pid: u32, code: i32, reason: u8) -> Vec<u8> {
     out
 }
 
-fn dispatch_launch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
+fn dispatch_launch(broker: &mut Broker, frame: &[u8], grants: &mut dyn GrantSource) -> Dispatched {
     // [A,M,ver,OP, app_len:u8, app..., abil_len:u8, abil...]
     let Some((app, rest)) = take_lp_str(&frame[4..]) else {
         return Dispatched { response: resp_status(OP_LAUNCH, STATUS_MALFORMED), event: None };
@@ -113,10 +137,16 @@ fn dispatch_launch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
     let Some((abil, _)) = take_lp_str(rest) else {
         return Dispatched { response: resp_status(OP_LAUNCH, STATUS_MALFORMED), event: None };
     };
-    // RFC-0065 launch authority: resolve the app's manifest-declared capabilities
-    // and enforce them — a bundle requesting an unknown permission is denied.
-    let required_caps = crate::caps::required_caps(&app);
-    match broker.launch_with_caps(&app, &abil, required_caps) {
+    // RFC-0111 §6: the grants are the permission authority's answer — an app it holds nothing
+    // for (never published, a rejected manifest, or no answer) does not launch.
+    let Some(granted) = grants.grants_of(&app) else {
+        return Dispatched {
+            response: resp_status(OP_LAUNCH, STATUS_DENIED),
+            event: Some(Event::LaunchDenied { app_id: app }),
+        };
+    };
+    let granted: Vec<&str> = granted.iter().map(String::as_str).collect();
+    match broker.launch_with_caps(&app, &abil, &granted) {
         Ok(id) => {
             let state = broker.state(id).unwrap_or(AbilityState::Created);
             Dispatched {
@@ -126,9 +156,6 @@ fn dispatch_launch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
         }
         Err(LifecycleError::TooManyInstances) => {
             Dispatched { response: resp_status(OP_LAUNCH, STATUS_FULL), event: None }
-        }
-        Err(LifecycleError::UnsupportedCapability) => {
-            Dispatched { response: resp_status(OP_LAUNCH, STATUS_DENIED), event: None }
         }
         Err(_) => Dispatched { response: resp_status(OP_LAUNCH, STATUS_MALFORMED), event: None },
     }
@@ -158,11 +185,6 @@ fn dispatch_transition(broker: &mut Broker, frame: &[u8]) -> Dispatched {
         Err(LifecycleError::TooManyInstances) => {
             Dispatched { response: resp_status(OP_TRANSITION, STATUS_FULL), event: None }
         }
-        // Not reachable from `transition` (only `launch` gates caps), but keep the
-        // match exhaustive so adding a lifecycle error is a compile error here.
-        Err(LifecycleError::UnsupportedCapability) => {
-            Dispatched { response: resp_status(OP_TRANSITION, STATUS_DENIED), event: None }
-        }
     }
 }
 
@@ -184,8 +206,8 @@ fn header(op: u8, status: u8) -> Vec<u8> {
 
 /// `OP_RESOLVE_EXPORT`: consumer app + ability → exporter app id.
 /// Grant checks live in `crate::mediation` (fail-closed both sides); the
-/// consumer's caps come from ITS manifest (`caps::required_caps`).
-fn dispatch_resolve_export(frame: &[u8]) -> Dispatched {
+/// consumer's grants are the permission authority's answer (RFC-0111 §6) — none, no resolve.
+fn dispatch_resolve_export(frame: &[u8], grants: &mut dyn GrantSource) -> Dispatched {
     let Some((consumer, rest)) = take_lp_str(&frame[4..]) else {
         return Dispatched {
             response: resp_status(OP_RESOLVE_EXPORT, STATUS_MALFORMED),
@@ -204,8 +226,9 @@ fn dispatch_resolve_export(frame: &[u8]) -> Dispatched {
             event: None,
         };
     }
-    let consumer_caps = crate::caps::required_caps(&consumer);
-    match crate::mediation::resolve_export(consumer_caps, &ability) {
+    let consumer_grants = grants.grants_of(&consumer).unwrap_or_default();
+    let consumer_caps: Vec<&str> = consumer_grants.iter().map(String::as_str).collect();
+    match crate::mediation::resolve_export(&consumer_caps, &ability) {
         Ok(resolved) => {
             let mut response = Vec::with_capacity(6 + resolved.exporter.len());
             response.extend_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_RESOLVE_EXPORT | 0x80]);
@@ -272,6 +295,37 @@ pub fn encode_transition(instance_id: u32, to: AbilityState) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The grants the tests' authority publishes: every app of the matrix holds WINDOW, like
+    /// the real manifests; `ghost` is never published (RFC-0111 §6: no grants, no launch).
+    pub(super) const TEST_GRANTS: &[(&str, &[&str])] = &[
+        ("search", &["nexus.permission.WINDOW"]),
+        ("notes", &["nexus.permission.WINDOW"]),
+        ("chat", &["nexus.permission.WINDOW", "nexus.permission.CLIPBOARD"]),
+    ];
+
+    /// `super::dispatch` against the tests' authority.
+    pub(super) fn dispatch(broker: &mut Broker, frame: &[u8]) -> Dispatched {
+        super::dispatch(broker, frame, &mut StaticGrants(TEST_GRANTS))
+    }
+
+    #[test]
+    fn test_reject_launch_without_published_grants() {
+        // An app the authority holds nothing for — never installed, or its manifest was
+        // rejected at publish — is DENIED, and the denial is an event (a marker on the OS).
+        let mut broker = Broker::new();
+        let d = dispatch(&mut broker, &encode_launch("ghost", "ghost.main"));
+        assert_eq!(resp_op_status(&d.response), (OP_LAUNCH | OP_RESPONSE, STATUS_DENIED));
+        assert_eq!(d.event, Some(Event::LaunchDenied { app_id: "ghost".into() }));
+        assert_eq!(broker.len(), 0, "nothing was created");
+        // The authority's answer IS the granted set recorded on the instance.
+        let d = dispatch(&mut broker, &encode_launch("chat", "chat.main"));
+        let id = u32::from_le_bytes([d.response[5], d.response[6], d.response[7], d.response[8]]);
+        assert_eq!(
+            broker.instance(id).map(|i| i.granted_caps.as_slice()),
+            Some(&["nexus.permission.WINDOW".into(), "nexus.permission.CLIPBOARD".into()][..])
+        );
+    }
 
     fn resp_op_status(frame: &[u8]) -> (u8, u8) {
         (frame[3], frame[4])
@@ -398,7 +452,27 @@ mod resolve_export_tests {
 
     fn dispatch_frame(frame: &[u8]) -> Vec<u8> {
         let mut broker = Broker::new();
-        dispatch(&mut broker, frame).response
+        super::tests::dispatch(&mut broker, frame).response
+    }
+
+    #[test]
+    fn a_consumer_the_authority_grants_the_export_to_resolves_it() {
+        let mut broker = Broker::new();
+        let mut grants = StaticGrants(&[("search", &["app.chat.SEND"])]);
+        let rsp = super::dispatch(
+            &mut broker,
+            &encode_resolve_export("search", "chat.Send"),
+            &mut grants,
+        )
+        .response;
+        assert_eq!(rsp[4], STATUS_OK);
+        assert_eq!(&rsp[6..], b"chat");
+        // An unknown consumer (nothing published) resolves nothing: fail-closed.
+        let mut none = StaticGrants(&[]);
+        let rsp =
+            super::dispatch(&mut broker, &encode_resolve_export("ghost", "chat.Send"), &mut none)
+                .response;
+        assert_eq!(rsp[4], STATUS_DENIED);
     }
 
     #[test]

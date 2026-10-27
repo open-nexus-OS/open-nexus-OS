@@ -16,8 +16,7 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::os_lite::{
-    append_logd_deterministic, emit_line, push_bytes, write_hex_u64, OP_CHECK, OP_CHECK_CAP,
-    OP_CHECK_CAP_DELEGATED, OP_EXEC, OP_ROUTE,
+    emit_line, OP_CHECK, OP_CHECK_CAP, OP_CHECK_CAP_DELEGATED, OP_EXEC, OP_ROUTE,
 };
 
 const AUDIT_SCOPE: &str = "policyd.audit";
@@ -141,4 +140,75 @@ impl DenyCounters {
             _ => {}
         }
     }
+}
+
+// The logd append transport the audit record (and the ABI learn record) ride on — moved here
+// from `os_lite.rs` with the structure ratchet.
+pub(crate) fn push_bytes(buf: &mut [u8], len: &mut usize, bytes: &[u8]) -> bool {
+    let available = buf.len().saturating_sub(*len);
+    if bytes.len() > available {
+        return false;
+    }
+    buf[*len..*len + bytes.len()].copy_from_slice(bytes);
+    *len += bytes.len();
+    true
+}
+
+pub(crate) fn write_hex_u64(buf: &mut [u8], len: &mut usize, value: u64) {
+    if buf.len().saturating_sub(*len) < 16 {
+        return;
+    }
+    for shift in (0..16).rev() {
+        let nibble = ((value >> (shift * 4)) & 0xF) as u8;
+        let ch = if nibble < 10 { b'0' + nibble } else { b'a' + (nibble - 10) };
+        buf[*len] = ch;
+        *len += 1;
+    }
+}
+
+pub(crate) fn append_logd_deterministic(scope: &[u8], msg: &[u8]) -> bool {
+    // policyd's logd leg as declared (TASK-0324 P4f-2). No reply inbox: the append moves no
+    // reply cap (TASK-0054C P2-c).
+    const LOGD_SEND_SLOT: u32 = nexus_service_topology::slots::policyd::LOGD.send;
+
+    const MAGIC0: u8 = b'L';
+    const MAGIC1: u8 = b'O';
+    const VERSION: u8 = 2;
+    const OP_APPEND: u8 = 1;
+    const LEVEL_INFO: u8 = 2;
+    const STATUS_OK: u8 = 0;
+    static NONCE: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+
+    if scope.len() > 64 || msg.len() > 256 {
+        return false;
+    }
+
+    let mut frame = [0u8; 512];
+    let mut len = 0usize;
+    let nonce = NONCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if frame.len() < 4 + 8 + 1 + 1 + 2 + 2 + scope.len().saturating_add(msg.len()) {
+        return false;
+    }
+    frame[len..len + 4].copy_from_slice(&[MAGIC0, MAGIC1, VERSION, OP_APPEND]);
+    len += 4;
+    frame[len..len + 8].copy_from_slice(&nonce.to_le_bytes());
+    len += 8;
+    frame[len] = LEVEL_INFO;
+    len += 1;
+    frame[len] = scope.len() as u8;
+    len += 1;
+    frame[len..len + 2].copy_from_slice(&(msg.len() as u16).to_le_bytes());
+    len += 2;
+    frame[len..len + 2].copy_from_slice(&0u16.to_le_bytes()); // fields_len
+    len += 2;
+    frame[len..len + scope.len()].copy_from_slice(scope);
+    len += scope.len();
+    frame[len..len + msg.len()].copy_from_slice(msg);
+    len += msg.len();
+
+    // TASK-0054C P2-c: no reply cap moves with an audit record, so logd owes no ack (no TASK-0049C
+    // wait triangle). The wait for QUEUE SPACE stays: backpressure. A deferred append is counted.
+    let _ = nonce;
+    let _ = STATUS_OK;
+    nexus_ipc::exchange::send_request(LOGD_SEND_SLOT, &frame[..len]).is_ok()
 }

@@ -90,6 +90,20 @@ ladder_headless=(
   # TASK-0333 6b-3 (RFC-0100 §1): an object whose last capability closed while mapped dies at its
   # last unmap.
   "KSELFTEST: vm unmap reclaim ok ("
+  # TASK-0333 6d (ADR-0082): the process orders and their refusals, on four harts too.
+  "KSELFTEST: process ctl ok ("
+  # TASK-0333 6d-1 (ADR-0082): execd's probe child frozen while parked in its receive (a call to
+  # it refused, no hart ran it), thawed (the ping delivered), then killed on order (EOF, reaped
+  # as killed — no crash report).
+  "KSELFTEST: task freeze ok ("
+  "SELFTEST: exec child freeze thaw ok"
+  "SELFTEST: task kill ok"
+  # TASK-0333 6d-3 (ADR-0084): every installed app's manifest grants published to the one
+  # permission authority from the verified volume; the harness reads one set back and a publish
+  # from a stranger is refused.
+  "bundlemgrd: app grants published (n="
+  "SELFTEST: app grants ok (app="
+  "SELFTEST: app grants put deny ok"
   # TASK-0333 6b-2b (ADR-0078): a lazy object made for a device commits what it is told, in reach.
   "KSELFTEST: vmo lazy device ok ("
   "KSELFTEST: spawn ok pid="
@@ -236,7 +250,11 @@ ladder_visible=(
 acks_headless=()
 # TASK-0074: every visual task ships an operator rung — the shell's first modal (power button
 # → alert → ESC/Cancel → Confirm → system toast) is `modal`.
-acks_visible=("desktop" "typed" "pointer" "modal" "tile" "clipboard" "screenshot" "gpu-desktop")
+# TASK-0333 6d-2 (ADR-0083): the operator hides the focused app (Super+Ctrl+M), waits past the
+# grace, brings it back — the app returns where it was, the shell smooth; the act lines are
+# `windowd: minimize id=app` → `execd: freeze (pid=` → `abilitymgr: suspend (inst=` →
+# `execd: thaw (pid=` (an ack without them is not given).
+acks_visible=("desktop" "typed" "pointer" "modal" "tile" "clipboard" "screenshot" "gpu-desktop" "lifecycle")
 
 case "$PROFILE" in
   board-headless) ladder=("${ladder_headless[@]}"); acks=("${acks_headless[@]}") ;;

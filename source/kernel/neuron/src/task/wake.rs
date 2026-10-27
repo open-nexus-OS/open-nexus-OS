@@ -48,6 +48,13 @@ impl TaskTable {
             log_wake_anomaly(pid, "not-blocked");
             return WakeOutcome::TaskNotBlocked;
         }
+        // ADR-0082: a frozen task's wake only ends its block — the thaw enqueues it.
+        if task.frozen {
+            if let Some(task) = self.task_mut(pid) {
+                task.clear_blocked();
+            }
+            return WakeOutcome::Woken;
+        }
         // Selftest dummy tasks intentionally carry a zero frame and no AS.
         // Waking them should validate unblock bookkeeping, but must not
         // make them runnable for the real scheduler path.

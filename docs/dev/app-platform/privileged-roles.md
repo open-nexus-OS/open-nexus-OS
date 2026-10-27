@@ -117,6 +117,8 @@ sandboxed + user-consented.
 
 - `docs/dev/app-platform/` — this dir (app anatomy, roles, packaging).
 - `tools/nexus-idl/schemas/manifest.capnp` — `BundleType` (the ceiling enum).
-- `source/services/abilitymgr/src/caps.rs` — `KNOWN_PERMISSIONS` (grows here).
+- `source/services/policyd/src/app_grants.rs` — `KNOWN_PERMISSIONS` (grows here): the one
+  permission authority (RFC-0111 §6, ADR-0084); bundlemgrd publishes each installed app's
+  manifest grants to it from the verified volume, abilitymgr and execd ask it at launch.
 - TASK-0083 document-picker · TASK-0084 scoped-URI grants · TASK-0106 camera ·
   TASK-0113 browser · TASK-0118 accessibility · TASK-0131 installer.

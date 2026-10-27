@@ -31,7 +31,11 @@ fn spec_lookup_is_declarative() {
     assert!(!exposes_server(b"definitely-not-a-service"));
     let targets: alloc::vec::Vec<ServiceId> =
         spec_for(b"abilitymgr").unwrap().routes_to.iter().map(|r| r.to).collect();
-    assert_eq!(targets, [ServiceId::Bundlemgrd, ServiceId::Execd, ServiceId::Sessiond]);
+    // RFC-0111 §6: the launch authority asks policyd for the app's grants.
+    assert_eq!(
+        targets,
+        [ServiceId::Bundlemgrd, ServiceId::Execd, ServiceId::Sessiond, ServiceId::Policyd]
+    );
 }
 
 #[test]

@@ -49,6 +49,9 @@ fn try_send(channel: u32, frame: &[u8]) -> Attempt {
         Ok(_) => Attempt::Sent,
         // A full queue (the kernel says when it has room) — or the receiver's byte budget.
         Err(nexus_abi::IpcError::QueueFull) => Attempt::Full,
+        // A FROZEN receiver's queue is full (ADR-0082): the frame waits in the outbox like
+        // any full queue; the thaw drains the client and the writable signal brings it.
+        Err(nexus_abi::IpcError::Frozen) => Attempt::Full,
         Err(nexus_abi::IpcError::NoSpace) => Attempt::Budget,
         // No receiver, no endpoint, or a channel windowd no longer holds: it never drains.
         Err(_) => Attempt::Dead,

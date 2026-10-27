@@ -26,6 +26,7 @@ pub(crate) fn abi_error_label(err: AbiError) -> &'static str {
         AbiError::NoSpace => "no-space",
         AbiError::NotFound => "not-found",
         AbiError::Busy => "busy",
+        AbiError::Frozen => "frozen",
         AbiError::Unknown => "unknown-errno",
         AbiError::Unsupported => "unsupported",
     }

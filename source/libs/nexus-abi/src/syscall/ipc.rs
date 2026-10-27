@@ -30,6 +30,7 @@ fn decode_ipc_send(value: usize) -> Result<usize> {
             7 => Err(IpcError::TooBig),           // E2BIG (payload > IPC_PAYLOAD_MAX)
             11 => Err(IpcError::QueueFull),       // EAGAIN
             28 => Err(IpcError::NoSpace),         // ENOSPC
+            35 => Err(IpcError::Frozen),          // EDEADLK (ADR-0082: frozen receiver)
             110 => Err(IpcError::TimedOut),       // ETIMEDOUT
             _ => Err(IpcError::Unsupported),
         }

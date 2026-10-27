@@ -23,6 +23,14 @@ phase = "exec"
 [marker."SELFTEST: exec child blocking recv wake ok"]
 phase = "exec"
 
+# TASK-0333 6d-1 (ADR-0082, RFC-0111 §3): the probe child is frozen while parked in its receive
+# (`task_suspend` by its parent): a call to it is refused with `Frozen`, a ping that fits its
+# queue waits and no reply comes; the thaw delivers the ping and the reply arrives. The kernel's
+# own line `KSELFTEST: task freeze ok (pid= resumed= frozen_ns= ran=0)` says no hart ran it.
+[marker."SELFTEST: exec child freeze thaw ok"]
+phase = "exec"
+proves = "a frozen child is never dispatched and never answers: a call to it is refused (Frozen) instead of parking the caller, a queued ping is delivered only on the thaw (RFC-0111 §3, ADR-0082)"
+
 # TASK-0324 P7-b — death wakes (RFC-0079 on task exit): the probe child exits holding the
 # moved reply SEND cap; execd's blocking EOF-opted recv on its own reply endpoint returns
 # PeerClosed at once — the kernel reaps the child's caps through the same last-peer scan a
@@ -33,6 +41,12 @@ proves = "a client blocked with EOF on its own reply endpoint is woken by the pe
 
 [marker."execd: recv-wake probe eof on exit ok"]
 phase = "exec"
+
+# TASK-0333 6d-1: the probe child is killed on its parent's order (`task_kill`): its endpoint
+# EOFs at once and the reap reads reason=killed — no crash report, no minidump.
+[marker."SELFTEST: task kill ok"]
+phase = "exec"
+proves = "a parent's kill order ends the whole child process: the peer sees EOF and the reap reads reason=killed, not a fault (RFC-0111 §3, ADR-0082)"
 
 # TASK-0049 reanimation (2026-08-19): the exec/exit0/crash/minidump chain
 # retired in af0c7a8d ("children LOAD but no longer execute") is restored —

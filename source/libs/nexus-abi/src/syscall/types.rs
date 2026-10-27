@@ -92,6 +92,9 @@ pub enum AbiError {
     /// The resource still has live users (EBUSY) — RFC-0085: `vmo_destroy`
     /// while an address space still maps the range.
     Busy,
+    /// ADR-0082: the receiver is frozen (EDEADLK) — a send that would park on it, or a call
+    /// to it, is refused at once. The non-IPC wrappers never see it.
+    Frozen,
     /// Kernel returned an error code this ABI build does not know. NEVER
     /// treated as success (fail closed) — a Phase C workpool hang traced back
     /// to -ETIMEDOUT being decoded as Ok.
@@ -247,6 +250,7 @@ impl AbiError {
             14 => Some(Self::BadAddress),    // EFAULT (ADR-0054: VA out of range)
             2 => Some(Self::NotFound),       // ENOENT (RFC-0085: unmap miss)
             16 => Some(Self::Busy),          // EBUSY (RFC-0085: destroy w/ live maps)
+            35 => Some(Self::Frozen),        // EDEADLK (ADR-0082: frozen receiver)
             // Fail closed: an unknown NEGATIVE code is an error, never a
             // success value (Phase C: -ETIMEDOUT used to decode as Ok and
             // turned every fence/waitset timeout into a silent pseudo-Ok).

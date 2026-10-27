@@ -166,8 +166,22 @@ the packed `.nxb` layout is unchanged.
 `exports = [{ ability = "chat.Send", permission = "app.chat.SEND" }, …]` —
 an app exposes abilities under its OWN permission namespace
 (`app.<bundle>.<CAP>`; a foreign namespace fails at PACK time). Consumers
-declare the permission in `caps`; abilitymgr accepts an `app.*` cap iff some
-installed app actually exports it (fail-closed, `caps::is_exported_permission`).
+declare the permission in `caps`; the permission authority (policyd, RFC-0111 §6 / ADR-0084)
+accepts an `app.<bundle>.<CAP>` grant by shape at publish, and the mediation resolves it only
+if some installed app actually exports the ability (fail-closed, `caps::find_export`).
 Exports survive the digest rewrite. The mediated-then-direct channel
 (resolve → grant check both sides → launch if needed → endpoint mint →
 direct IPC) rides on `caps::exports_of` with the broker work.
+
+## Manifest: `caps` and `background` are grants of ONE authority (RFC-0111 §6, ADR-0084)
+
+`nx app compile --meta` writes the manifest's `caps` and `background` into the bundle's
+`meta/app.properties` sidecar (`permissions=…`, `background=…`, comma-joined); on the device
+bundlemgrd reads them from the VERIFIED system volume and publishes every installed app's set
+to policyd once per boot. abilitymgr (launch) and execd (the child's SDK service routes) ask
+policyd and never read a manifest — there is no build-time copy of the manifests in any
+service any more. `background = ["audio", …]` (≤ 8 modes of 1..=32 `[a-z0-9-]`) becomes the one
+grant `nexus.permission.BACKGROUND`: the app is not frozen for being hidden (ADR-0083); a
+manifest may not name that grant in `caps` directly (pack-time error). A permission the
+authority does not recognize rejects the whole app at publish, by name
+(`policyd: app grants reject (app= cap=)`), and the app does not launch.

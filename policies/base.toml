@@ -1,6 +1,8 @@
 [allow]
 samgrd = ["ipc.core", "time.read"]
-bundlemgrd = ["fs.read", "fs.verify", "ipc.core"]
+# RFC-0111 §6 (ADR-0084): `app.grants.publish` — the bundle manager publishes the verified
+# volume's per-app manifest grants to policyd, the one permission authority.
+bundlemgrd = ["fs.read", "fs.verify", "ipc.core", "app.grants.publish"]
 keystored = ["crypto.sign", "crypto.verify", "ipc.core", "rng.entropy", "device.keygen", "policy.delegate", "statefs.keystore"]
 statefsd = ["ipc.core", "policy.delegate"]
 # TASK-0051B: `crash.attach.stack` = conservative default attachment level
@@ -8,7 +10,8 @@ statefsd = ["ipc.core", "policy.delegate"]
 # is intentionally NOT granted — the deny is the redaction proof.
 # `statefs.crash` = the /state/crash/ prefix capability (artifact writer +
 # retention GC) — NOT the generic `statefs.write`.
-execd = ["proc.spawn", "ipc.core", "fs.read", "crash.attach.stack", "statefs.crash"]
+# RFC-0111 §6: `app.grants.read` — the launcher wires a spawned app's routes from its grants.
+execd = ["proc.spawn", "ipc.core", "fs.read", "crash.attach.stack", "statefs.crash", "app.grants.read"]
 "packagefsd" = ["ipc.core", "fs.read"]
 "vfsd" = ["ipc.core"]
 # TASK-0049B PR-B3c: init persists supervision restart counters at
@@ -71,7 +74,8 @@ socd = ["device.mmio.syscon", "ipc.core", "policy.delegate"]
 # are policy-denied → "unreachable" (the bug this fixes).
 # TASK-0065B: `session.query` = talk to sessiond (windowd relays the greeter
 # login; abilitymgr gates app launches on session state).
-"abilitymgr" = ["ipc.core", "bundle.query", "proc.spawn", "session.query"]
+# RFC-0111 §6: `app.grants.read` — the launch authority asks an app's grants at launch.
+"abilitymgr" = ["ipc.core", "bundle.query", "proc.spawn", "session.query", "app.grants.read"]
 # TASK-0072 P10: `settings.query` = talk to settingsd (GET/SET ui.theme.mode);
 # routing itself is gated on `ipc.core`, this documents the intended target.
 "windowd" = ["ipc.core", "bundle.query", "session.query", "settings.query"]
@@ -98,7 +102,7 @@ pinched = ["ipc.core"]
 # `statefs.crash` (TASK-0051B): the demo.minidump child's PUT maps to this
 # subject (canonical_policy_subject_for_statefs) and the artifact probe GETs
 # `/state/crash/` — the prefix now has its own capability.
-"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "soc.glue.display", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage", "policy.abi_mode", "net.expose"]
+"selftest-client" = ["ipc.core", "proc.spawn", "rng.entropy", "soc.glue.display", "crypto.derive.statefs", "device.keygen", "device.pubkey.read", "device.key.reload", "device.mmio.net", "device.mmio.input", "statefs.read", "statefs.write", "statefs.crash", "statefs.boot", "statefs.admin", "boot.target", "boot.reset", "updates.manage", "policy.abi_mode", "net.expose", "app.grants.read"]
 "demo.testsvc" = []
 
 # RFC-0091 profile v2 (schema SSOT: userspace/policy/src/schema.rs; both

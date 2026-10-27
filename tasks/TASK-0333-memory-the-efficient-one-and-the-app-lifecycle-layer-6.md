@@ -1,6 +1,6 @@
 ---
 title: TASK-0333 Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap
-status: In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c in progress 2026-10-23; planned 2026-10-19 with the operator)
+status: In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c ✅ 2026-10-26 (ADR-0081, 989b1474); 6d ✅ 2026-10-27 — 6d-0…6d-3 (board cycle 72b), 6d-4 assessed → RFC-0112; planned 2026-10-19 with the operator)
 owner: @kernel-team @runtime @ui @gpu
 created: 2026-10-19
 depends-on: [TASK-0286 (M1: frames from the FDT, page-backed VMOs), TASK-0215 (layer 5: the desktop on the GPU)]
@@ -735,6 +735,81 @@ relay send` (UX lane). NEXT 6d.
 
 **Not in 6c:** CoW (measured unneeded), dropping clean code pages under pressure (6e/6f), a
 per-page signature check on fault (the bootfs and the volume are verified whole before use).
+
+## 6d — the cut (2026-10-26, with the operator)
+
+**Measured first (board cycle 71 `board--2026-10-26T17-05-01`, the tree).** init *does* reap:
+`SupervisionSweep::sweep` drains `wait_nohang_with_reason` every responder round (8 per round), and
+every pinched death is announced and respawned (3×). The 6c-1b note "init reaps no dead child" was
+wrong. What outlives a dead pinched is its **threads**: the two workpool workers (pids 74/75,
+`sid=0x0`, rss 700 416 — the same space as pid 42) share pinched's address space; when the main
+task exits, `exit_current` clears its `children`, so the workers are orphaned (no parent, no
+reaper), park on their fence for good and each keep a reference on the space — `destroy` answers
+`InUse`, the space survives, and the image object's `mappers=` climbs 1 → 2 → 3 → 4 over the three
+respawns (`vmo=108`). The kernel names the gap itself (`task/mod.rs`, TASK-0304: "active teardown
+of parked daemon threads when their owning service exits" deferred). Only pinched and the
+selftest soak probe spawn threads today.
+
+The kernel has no kill and no suspend of a running task: `TaskState::Suspended` means "spawned,
+not yet enqueued", `resume_task` is one way, `exit_current_and_release` (ADR-0073's funnel) acts
+on the current task only — a cross-task kill or freeze must reach a target that may be running on
+another hart. **Security finding:** `sys_task_resume` resumes *any* pid; the ABI doc promises a
+parent check that does not exist.
+
+abilitymgr has the states (Created/Started/Foreground/Background/Suspended/Stopped) and the
+transition table, but nobody sends `OP_TRANSITION`: cycle 71 shows only `launch` / `spawn ok` /
+`caps ok` / `stop`. `exited()` removes the instance; `transition(Stopped)` only sets a state;
+recents list Stopped instances. windowd: `focus id= z=` 31×, `minimize` 7×, no visibility or
+occlusion line; focus reaches imed and the taskbar feed only; an app's death closes its window
+(`close_app_window`, no ghost); ADR-0075's outbox is in (`Ack`/`Intent`/`Latest`, counts only,
+a stalled client unnamed). Permissions: an app's permissions are abilitymgr's build-time table
+(`APP_MANIFEST_CAPS` against `KNOWN_PERMISSIONS`); the manifest has no `background` field;
+policyd checks *service* caps (`[allow] svc`, `OP_CHECK_CAP`) — the plan's "through policyd"
+names an authority that does not hold app permissions today.
+
+**Security view.** Suspend/kill of a *child only* (parent check in the kernel) — a service that
+could freeze arbitrary pids freezes the shell; the same check lands on `task_resume`. `killable`
+is a kernel-held bit set by the parent at `exec_vmo`, never a hint the task gives about itself:
+the emergency kill (6e) must never take a service. A frozen app receives nothing: windowd's sends
+are bounded (ADR-0075); every other service's reply path into an app is measured in 6d-2 before
+the freeze is switched on. Input on a frozen app is one wake request, nothing is queued.
+
+**The steps (each with a board gate):**
+
+| # | Builds | Gate |
+|---|---|---|
+| 6d-0 | process death takes its threads (TASK-0304's deferred part): at exit the kernel kills every task sharing the exiting task's space that it spawned — a `Killed` mark + dequeue, a hart running the target exits it at its next trap entry — so the space is destroyed at the reap; `task_resume` checks parentage | `KSELFTEST: process exit takes threads ok (threads= space=freed)`, `test_reject_resume_foreign_task`; board: pinched's respawns leave `mappers=1`, two fewer spaces in the census |
+| 6d-1 | process control of a child (RFC-0111 seed, ADR-0082): `task_suspend(pid)` / `task_resume(pid)` / `task_kill(pid)` for a child, the whole process (its threads included); a running target parks or exits at its next trap entry (one deferred mechanism for freeze and kill, bounded by the timer); a blocked target stays blocked and is never woken into a run while frozen; `killable` set by execd at `exec_vmo` for apps, refused for the rest | `KSELFTEST: task freeze ok (pid= resumed=)`, `test_reject_suspend_non_child`, `test_reject_kill_non_child`, `test_reject_kill_unkillable` |
+| 6d-2 | the app lifecycle contract (ADR-0083), as built: windowd STATES what is seen per app window (`OP_SEEN` 6: focused / visible / hidden / gone, keyed by the window's kernel service id, NONBLOCK + owed, never parks); abilitymgr DECIDES on one clock (Background while visible or hidden; hidden starts a 5 s grace on a one-shot kernel timer in the loop's waitset; grace out = Suspended; seen again = thawed into the state it is seen in; gone = thawed so it can exit); execd, the parent, ORDERS the kernel (`OP_FREEZE` 4 / `OP_THAW` 5 / `OP_KILL` 6, sender = abilitymgr by kernel id, pid = a live child); Super+Ctrl+M (`CODE_MINIMIZE` 14) hides the focused app / restores the first hidden one. A frozen app's full queue is `Frozen` to windowd's bounded sends (ADR-0082) — no "frozen band" state in the compositor | `windowd: minimize id=app` → `execd: freeze (pid=` → `abilitymgr: suspend (inst=` → `execd: thaw (pid=` → `SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)` (visible lane, the injector's chord twice; the first run reached `abilitymgr: bg` and was cut by a 530 s harness budget — rerun on `just ci-os-usb-visible`, 900 s); `SELFTEST: exec child freeze thaw ok` (the probe's call to the frozen child refused — the probe now carries a reply cap, the kernel refuses a call without one as malformed first); host: `cargo test -p abilitymgr seen`, `-p windowd seen`, `-p execd orders`; board: a hidden app frozen behind the focused one |
+| 6d-3 | **one permission authority = policyd (ADR-0084)** — supersedes this row's first draft ("the authority stays abilitymgr's table"; two build-time copies of the manifests were two authorities that drift the day one is rebuilt alone): `OP_APP_GRANTS_PUT` 10 / `GET` 11 on the policyd wire, `app.grants.publish` (bundlemgrd) / `app.grants.read` (abilitymgr, execd, the harness) in `base.toml`, by kernel sender id; `nx app compile` writes `permissions=` / `background=` into the sidecar, bundlemgrd publishes every installed app once per boot from the VERIFIED volume before answering the first volume request after its (late-grant) policyd leg is live; an unknown name rejects the app whole and removes its earlier entry; abilitymgr asks per launch (`wire::GrantSource`, no answer = DENIED + marker) and records the answer as the instance's grants; execd asks per spawn and provisions exactly the routable grants (no answer = no routes + marker); `background = [...]` (nxb-pack: ≤ 8 modes of 1..=32 `[a-z0-9-]`, never named in `caps` directly) → `nexus.permission.BACKGROUND` → never frozen for being hidden; both `APP_MANIFEST_CAPS` tables, both build-script readers, `KNOWN_PERMISSIONS` and the `caps ok` boot self-check deleted. The allow side has no consumer (no shipped app declares `background`): contract + host proof only, not claimed board-proven | host: `test_reject_app_grants_from_a_stranger`, `test_reject_app_grants_read_without_cap`, `test_reject_unknown_permission_rejects_the_app`, `test_reject_launch_without_published_grants`, `test_reject_background_undeclared`, `every_sdk_route_permission_is_known` (now policyd's); lanes: `policyd: app grants (app= n=)` per app, `SELFTEST: app grants ok (app=calculator n= background=0)`, `SELFTEST: app grants put deny ok` (headless + visible); board: every launch rides the ask |
+| 6d-4 | the windowd restart rung (from 6b-3): windowd dies → the shell comes back with every app's band as a ghost until its next present. **Assessed 2026-10-27, not built in this run** — what it takes (and why it is more than a respawn arm): init's respawn is the pinched pilot (`respawnable()` = pinched; the request endpoint dies with its owner and is re-minted + re-distributed to ONE client); windowd's request endpoint is held by every window client (shell, apps via execd's grant, imed, inputd, screencapd, abilitymgr's sightings, execd), so the respawn must re-pin a fresh SEND into every declared windowd slot of the fleet AND execd must re-grant the app-host children; every push channel windowd minted (event channels, the shell's window feed) dies with it, so each client needs an EOF-driven reconnect (re-route, re-create surface, re-present); gpud's scanout and the retained frame must survive the compositor's death or the screen goes black for the restart's duration. That is a fleet re-route protocol (an RFC seed: "a service's death is a re-resolve for its clients", on ADR-0057's STALE path) plus app-host/shell reconnect work — not honest in the same run as 6d-3. Follow-up: RFC-0112 seeded (Draft, four phases: measure the kill → init re-pins the fleet → clients reconnect on EOF → gpud keeps the frame, ghosts), build on 6d-3's clean tree | `windowd: restarted (ghosts=)`; board: kill windowd, the desktop returns — **open** |
+
+**Status 2026-10-27 (one session, uncommitted):** 6d-0 … 6d-3 built; `just check` green after the
+ratchet splits (`nexus-wire/src/policyd_app_grants.rs`, policyd's logd append helpers into
+`audit_os.rs`, `nxb-pack/src/background.rs`); headless lane `headless--2026-10-27T10-48-36` green
+(the grants rung, `exec child freeze thaw ok`, `task kill ok`); visible lane: the chain
+`windowd: minimize id=app0` → `execd: freeze (pid=104)` → `abilitymgr: suspend (inst=3)` →
+`execd: thaw (pid=104)` ran on `usb-visible--2026-10-27T10-51-48` — the rung was missed once
+because its literal carried `→` (the UART path drops non-ASCII bytes; the marker is ASCII now,
+`fg->hidden->frozen->fg`, rerun below). Found on the way: the ladder listed the probe's
+`KSELFTEST: task freeze ok` after the exec-elf chain (it fires at execd's start); the proof
+manifest lacked `SELFTEST: exec child freeze thaw ok` / `SELFTEST: task kill ok` (evidence
+`unknown_marker`). 6d-4 assessed, seeded as RFC-0112, not built. Board cycle 72 (`board--2026-10-27T11-18-29`): the 6d rungs all present, but no typing (rung
+`inputd: live keyboard route on` missing) and the desktop shell died of a **stack overflow** after
+the operator's no-blur toggle + screenshot attempt (`[USER-PF] STORE … sp=0x1ffee1a0`, 16-page stack,
+`abilitymgr: stop (inst=2 app=desktop-shell pid=94 code=-22)`, then 11× `FAIL desktop input send`
+— not a 6d code path, the shell's binary unchanged; open follow-up). Cycle 72b
+(`board--2026-10-27T11-31-07`, same image): **ladder 86/86**, three apps frozen and thawed
+(`execd: freeze (pid=86/87/98)` → `thaw`), `SELFTEST: ability lifecycle ok`, 7/7 grants published,
+six launches on the ask, the shell lived through no-blur + two screenshots; acks desktop, typed,
+pointer, modal, clipboard, screenshot, gpu-desktop, lifecycle (tile: four quadrant tiles, no chord
+line — not acked). README: `docs/board/measurements/2026-10-27-lifecycle-one-authority/`.
+**6d-0 … 6d-3 ✅ 2026-10-27 (board cycle 72b); 6d-4 → RFC-0112.**
+
+**Not in 6d:** memd and the pressure bands (6e), `restorable` / `@persist` (6e), the kernel's
+emergency last resort (6e, on 6d-1's `killable`), purgeable memory (6f). App permissions through
+policyd WERE built here (6d-3, ADR-0084) — the first draft parked them; the two build-time copies
+made the case.
 
 ## Definition of Done (per step)
 

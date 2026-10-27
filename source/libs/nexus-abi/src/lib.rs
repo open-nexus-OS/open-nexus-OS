@@ -66,6 +66,10 @@ pub enum IpcError {
     /// RFC-0079: an EOF-opted recv whose endpoint had a sender and now has none
     /// (errno EPIPE). Surfaced by `nexus-ipc` as `IpcError::Disconnected`.
     PeerClosed,
+    /// ADR-0082: the receiver is frozen by its parent — a send that found its queue full, or
+    /// a call that would wait for its answer, is refused instead of parking (errno `EDEADLK`).
+    /// What fits the queue is delivered on the thaw; the sender decides what to drop.
+    Frozen,
     /// The payload exceeds [`IPC_PAYLOAD_MAX`] (errno `E2BIG`). Distinct from
     /// [`IpcError::NoSpace`], which means the RECEIVER's queue budget is full:
     /// this one can never succeed by retrying, and the fix is the VMO bulk path.

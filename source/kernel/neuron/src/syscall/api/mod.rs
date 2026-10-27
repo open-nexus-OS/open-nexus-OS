@@ -42,6 +42,10 @@ mod ipc_msg;
 mod ipc_reclaim;
 mod ipc_recv_v2;
 mod mm_stats;
+/// ADR-0082: resume / suspend / kill of a child process (the parentage check).
+mod process_ctl;
+/// ADR-0082: killing a task that is not the current one; a leader's exit taking its threads.
+mod process_kill;
 mod sched_task;
 mod sched_telemetry;
 mod sync_objects;
@@ -70,7 +74,7 @@ pub(crate) use sync_objects::wake_after_recv;
 use sync_objects::*;
 pub(crate) use task_image::{
     exit_current_and_release, exit_current_faulted, exit_current_killed, exit_current_killed_in,
-    release_image, ExitTables, OP_CHILD_EXITED,
+    exit_task_and_release, release_image, ExitTables, OP_CHILD_EXITED,
 };
 use vm_map::*;
 pub(crate) use vm_map::{vm_unmap_clear, vm_unmap_finish};
@@ -386,7 +390,9 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_TASK_QOS, sys_task_qos);
     table.register(SYSCALL_SCHED, sys_sched);
     table.register(SYSCALL_AS_SELF, sys_as_self);
-    table.register(SYSCALL_TASK_RESUME, sys_task_resume);
+    table.register(SYSCALL_TASK_RESUME, process_ctl::sys_task_resume);
+    table.register(crate::syscall::SYSCALL_TASK_SUSPEND, process_ctl::sys_task_suspend);
+    table.register(crate::syscall::SYSCALL_TASK_KILL, process_ctl::sys_task_kill);
     table.register(SYSCALL_TIMER_CREATE, sys_timer_create);
     table.register(SYSCALL_TIMER_SET, sys_timer_set);
     table.register(SYSCALL_TIMER_CANCEL, sys_timer_cancel);

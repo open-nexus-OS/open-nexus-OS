@@ -532,6 +532,7 @@ pub(crate) fn ipc_error_label(err: IpcError) -> &'static str {
         IpcError::NoSpace => "no-space",
         IpcError::TooBig => "too-big",
         IpcError::PeerClosed => "peer-closed",
+        IpcError::Frozen => "frozen",
         IpcError::Unsupported => "unsupported",
     }
 }
