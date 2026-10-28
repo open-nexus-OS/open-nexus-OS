@@ -1674,9 +1674,9 @@ fn spawn_init_process(ctx: &mut Context<'_>) {
         ctx.router,
         ctx.address_spaces,
         timer,
-        &mut ctx.hart_timers,
-        &mut ctx.waitsets,
-        &mut ctx.fences,
+        ctx.hart_timers,
+        ctx.waitsets,
+        ctx.fences,
     );
     let Some(init) = crate::bootfs::init_file() else {
         log_error!(target: "selftest", "KSELFTEST: init spawn FAIL (no file 0 in the bootfs)");

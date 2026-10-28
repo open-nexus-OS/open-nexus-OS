@@ -72,6 +72,32 @@ impl TaskTable {
                 .is_some_and(|t| t.parent == Some(parent) && t.state != TaskState::Zombie)
     }
 
+    /// Whether every live task of `leader`'s process is frozen and off every hart — parked, so a
+    /// squeeze may take its pages (ADR-0087). A freeze still on its way to another hart
+    /// (`Pending::Freeze`) is not parked yet.
+    pub fn process_parked(&self, leader: Pid, scheduler: &Scheduler) -> bool {
+        let mut members = self.members_of(leader);
+        members.push(leader);
+        members.iter().all(|&pid| {
+            self.task(pid).is_some_and(|t| {
+                t.frozen
+                    && t.state == TaskState::Suspended
+                    && t.pending.is_none()
+                    && scheduler.running_on(pid).is_none()
+            })
+        })
+    }
+
+    /// Whether a live task outside the process of `space` holds a capability naming the VMO
+    /// `id` — its memory is then not that process's alone (ADR-0087).
+    pub fn vmo_named_outside(&self, space: crate::mm::AsHandle, id: u32) -> bool {
+        self.tasks.iter().any(|t| {
+            t.state != TaskState::Zombie
+                && t.address_space != Some(space)
+                && t.caps.vmo_ref_count(id) > 0
+        })
+    }
+
     /// Every live task sharing `leader`'s address space other than `leader` itself — the
     /// threads of its process (and, for a thread, its leader and siblings).
     pub fn members_of(&self, leader: Pid) -> Vec<Pid> {

@@ -1,11 +1,15 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! CONTEXT: the authority's state machine (RFC-0100 §3, ADR-0086): the level the kernel last
-//! said, the bands the lifecycle authority pushed, the kill in flight. A level at or past
-//! `critical` picks ONE victim ([`crate::bands::Table::victim`]) and orders it through the
-//! carrier; the kill is PROVEN only when the victim's `gone` band arrives (the parent reaped
-//! it, the lifecycle authority reported it) — the marker says so then, not at the order. A
+//! CONTEXT: the authority's state machine (RFC-0100 §3/§5, ADR-0086/0087): the level the kernel
+//! last said, the bands the lifecycle authority pushed, the kill in flight. At `critical` a
+//! frozen app is SQUEEZED before anyone is killed (6f-1): the squeeze candidate
+//! ([`crate::bands::Table::squeeze_candidate`]) is ordered through the carrier and answered
+//! with the parent's totals at once; one decision per level judged — the OS loop reads a
+//! kernel-sourced level again after a squeeze. With no candidate left, or at `emergency`, a
+//! level at or past `critical` picks ONE victim ([`crate::bands::Table::victim`]) and orders it;
+//! the kill is PROVEN only when the victim's `gone` band arrives (the parent reaped it, the
+//! lifecycle authority reported it) — the marker says so then, not at the order. A
 //! kernel-sourced kill asks for the level again once proven (`again`), so a pool still at
 //! `critical` takes the next victim without a new frame (the kernel sends one per level
 //! CHANGE). Pure; the OS loop owns the clock, the sink and the route.
@@ -14,10 +18,12 @@
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: tests/contract.rs
 
-use nexus_abi::syscall::memory::{MEM_PRESSURE_EMERGENCY, MEM_PRESSURE_NORMAL};
+use nexus_abi::syscall::memory::{
+    MEM_PRESSURE_CRITICAL, MEM_PRESSURE_EMERGENCY, MEM_PRESSURE_NORMAL,
+};
 
 use crate::bands::{Applied, Table};
-use crate::order::KillOrder;
+use crate::order::{Orders, Squeezed};
 
 /// Where a level came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +65,9 @@ pub enum Decision {
     NoVictim,
     /// A victim was chosen and the order carried (`ordered`: the authority took it).
     Kill { pid: u32, band: u8, ordered: bool },
+    /// A frozen app was squeezed before any kill (ADR-0087): the parent's totals, `None` when
+    /// the order was refused (the app is not asked again until its band changes).
+    Squeeze { pid: u32, band: u8, squeezed: Option<Squeezed> },
 }
 
 /// What a band push did.
@@ -81,6 +90,7 @@ pub struct Authority {
     sink: bool,
     resumed: u16,
     kills: u16,
+    squeezes: u16,
     pending: Option<Pending>,
 }
 
@@ -96,6 +106,7 @@ impl Authority {
             sink,
             resumed: 0,
             kills: 0,
+            squeezes: 0,
             pending: None,
         }
     }
@@ -130,6 +141,12 @@ impl Authority {
         self.kills
     }
 
+    /// Squeezes carried out.
+    #[must_use]
+    pub fn squeezes(&self) -> u16 {
+        self.squeezes
+    }
+
     /// The kill in flight, if any.
     #[must_use]
     pub fn pending(&self) -> Option<Pending> {
@@ -159,7 +176,7 @@ impl Authority {
         level: u8,
         free: u64,
         total: u64,
-        orders: &mut dyn KillOrder,
+        orders: &mut dyn Orders,
     ) -> Decision {
         self.level = level;
         self.free = free;
@@ -167,14 +184,25 @@ impl Authority {
         self.judge(level, Source::Kernel, orders)
     }
 
-    /// A level from `source`: at or past `critical`, one victim is ordered killed unless a kill
+    /// A level from `source`: at `critical` a frozen app not yet squeezed is squeezed first
+    /// (ADR-0087); otherwise, at or past `critical`, one victim is ordered killed unless a kill
     /// is already in flight (the pool is re-read when that one is proven).
-    pub fn judge(&mut self, level: u8, source: Source, orders: &mut dyn KillOrder) -> Decision {
+    pub fn judge(&mut self, level: u8, source: Source, orders: &mut dyn Orders) -> Decision {
         if level > MEM_PRESSURE_EMERGENCY || crate::bands::kill_floor(level).is_none() {
             return Decision::None;
         }
         if self.pending.is_some() {
             return Decision::None;
+        }
+        if level == MEM_PRESSURE_CRITICAL {
+            if let Some(candidate) = self.table.squeeze_candidate() {
+                self.table.mark_squeezed(candidate.pid);
+                let squeezed = orders.squeeze(candidate.pid);
+                if squeezed.is_some() {
+                    self.squeezes = self.squeezes.saturating_add(1);
+                }
+                return Decision::Squeeze { pid: candidate.pid, band: candidate.band, squeezed };
+            }
         }
         let Some(victim) = self.table.victim(level) else {
             return Decision::NoVictim;

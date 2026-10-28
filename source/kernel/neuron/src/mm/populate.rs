@@ -27,6 +27,9 @@ pub enum FillError {
     Violation(Violation),
     /// The pool had no frame for the page.
     Exhausted,
+    /// The page was squeezed and its record did not decode (ADR-0087): never mapped — the fault
+    /// kills, the range is `EFAULT`.
+    Damaged,
 }
 
 /// Pages filled since boot (a fault or a kernel range that committed and mapped a page).
@@ -70,6 +73,7 @@ pub fn fill(space: &mut AddressSpace, va: usize, access: Access) -> Result<(), F
             let index = page_index(region.va, region.offset, page);
             let pa = super::vmo::commit(region.vmo, index).map_err(|e| match e {
                 super::vmo::VmoError::Exhausted => FillError::Exhausted,
+                super::vmo::VmoError::Damaged => FillError::Damaged,
                 _ => FillError::Violation(Violation::NoRegion),
             })?;
             let flags = PageFlags::from_bits_truncate(region.flags) | user;

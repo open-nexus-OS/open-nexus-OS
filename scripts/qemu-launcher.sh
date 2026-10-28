@@ -651,7 +651,17 @@ monitor_uart_stream() {
             ladder_done_at=$now
           fi
         else
-          # Timeout or EOF: keep the fragment, do NOT publish it.
+          local read_rc=$?
+          # EOF (status <= 128; a `-t` timeout is > 128): QEMU is gone and this run is over —
+          # leave WITHOUT the pkill below. A monitor whose QEMU was ended by RUN_TIMEOUT used to
+          # sit out the rest of its grace window on EOF and then `pkill` every emulator on the
+          # host — the NEXT lane's included (usb-visible--2026-10-28T12-22-05 died 358 s in,
+          # exactly when the timed-out 12-12-02 run's 840 s grace ran out).
+          if (( read_rc <= 128 )); then
+            [[ -n "$pending$line" ]] && echo "$pending$line"
+            return 0
+          fi
+          # Timeout: keep the fragment, do NOT publish it.
           pending="$pending$line"
         fi
       done

@@ -394,6 +394,8 @@ pub(super) fn fill_user_fault(exc: usize, stval: usize) -> bool {
             false
         }
         Err(crate::mm::populate::FillError::Violation(_)) => false,
+        // ADR-0087: `MM: FAIL inflate (…)` named it; the page is never mapped with wrong bytes.
+        Err(crate::mm::populate::FillError::Damaged) => false,
     };
     // ADR-0085: the page this fill committed may have crossed a watermark — the sink hears it
     // on this trap, with the trap's exclusive borrows.

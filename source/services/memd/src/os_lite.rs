@@ -10,12 +10,16 @@
 //! proof: `memd: pressure (level= free= total=)` for every kernel frame (the first at the
 //! bind), `memd: band (pid= band=)` per push, `memd: kill (pid= band= reason=)` at the order
 //! and ONE `SELFTEST: mem pressure kill ok (band= reason=)` when the victim's death came back
-//! as its `gone` band.
+//! as its `gone` band. At `critical` a frozen app is squeezed before any kill (TASK-0333 6f-1,
+//! ADR-0087): `memd: squeeze (pid= band= pages= …)` with the parent's totals and
+//! `SELFTEST: mem squeeze ok (pages= net= ratio=% reason=)` when pages were recorded and frames
+//! came back net; a kernel-sourced level is read again after it (`settle`).
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: QEMU-proven (`memd: ready`, `memd: pressure (` on every lane; the drill's
-//!   kill chain on the usb-visible lane); the policy is host-tested in tests/contract.rs
+//!   squeeze and kill chains on the usb-visible lane); the policy is host-tested in
+//!   tests/contract.rs
 
 extern crate alloc;
 
@@ -27,7 +31,9 @@ use nexus_wire::memd::{band_name, source_name, SOURCE_DRILL, SOURCE_KERNEL};
 use crate::answer::{Memd, Outcome, Peers};
 use crate::authority::{Authority, BandEvent, Decision, Pending};
 use crate::bands::Applied;
-use crate::order::{encode_mem_kill, mem_kill_carried_out, KillOrder};
+use crate::order::{
+    encode_mem_kill, encode_mem_squeeze, mem_kill_carried_out, mem_squeeze_reply, Orders, Squeezed,
+};
 
 pub type Result<T> = core::result::Result<T, &'static str>;
 
@@ -40,11 +46,12 @@ fn emit(line: &str) {
     let _ = nexus_abi::debug_println(line);
 }
 
-/// The kill order on the declared leg: `OP_MEM_KILL` to abilitymgr, answered on the inbox (a
-/// waited exchange: the answer or the authority's death — no clock).
+/// The orders on the declared leg: `OP_MEM_KILL` and `OP_MEM_SQUEEZE` to abilitymgr, answered on
+/// the inbox (a waited exchange: the answer or the authority's death — no clock). A squeeze's
+/// answer comes once the parent's batches ended (one app: the measured squeeze time).
 struct AbilitymgrOrders;
 
-impl KillOrder for AbilitymgrOrders {
+impl Orders for AbilitymgrOrders {
     fn kill(&mut self, pid: u32) -> bool {
         let mut rsp = [0u8; 16];
         let req = encode_mem_kill(pid);
@@ -52,6 +59,14 @@ impl KillOrder for AbilitymgrOrders {
             Ok(n) => mem_kill_carried_out(&rsp[..n.min(rsp.len())], pid),
             Err(_) => false,
         }
+    }
+
+    fn squeeze(&mut self, pid: u32) -> Option<Squeezed> {
+        let mut rsp = [0u8; 48];
+        let req = encode_mem_squeeze(pid);
+        let n = nexus_ipc::exchange::call_into(topo::ABILITYMGR.send, topo::REPLY, &req, &mut rsp)
+            .ok()?;
+        mem_squeeze_reply(&rsp[..n.min(rsp.len())], pid)
     }
 }
 
@@ -79,7 +94,7 @@ impl Sink {
     }
 
     /// Drains every pending frame; each is judged at once and told onward.
-    fn drain(&self, authority: &mut Authority, orders: &mut dyn KillOrder, fanout: &Fanout) {
+    fn drain(&self, authority: &mut Authority, orders: &mut dyn Orders, fanout: &Fanout) {
         let Some(frames) = self.frames.as_ref() else { return };
         let mut buf = [0u8; 32];
         while let Ok(n) = frames.recv_into(Wait::NonBlocking, &mut buf) {
@@ -94,6 +109,7 @@ impl Sink {
             ));
             let decision = authority.on_pressure(level, free, total, orders);
             say_decision(level, "oom", decision);
+            settle(authority, orders, decision);
             let told = fanout.tell(level, SOURCE_KERNEL, free, total);
             say_told(level, SOURCE_KERNEL, told);
         }
@@ -151,6 +167,45 @@ fn say_decision(level: u8, reason: &str, decision: Decision) {
             "memd: kill FAIL (pid={pid} band={} reason={reason}; the authority refused)",
             band_name(band)
         )),
+        Decision::Squeeze { pid, band, squeezed: Some(s) } => {
+            emit(&alloc::format!(
+                "memd: squeeze (pid={pid} band={} pages={} zero={} kept={} taken={} stored={} reason={reason})",
+                band_name(band),
+                s.pages,
+                s.zero,
+                s.kept,
+                s.taken,
+                s.stored
+            ));
+            // The proof: pages recorded and frames given back net (ADR-0087).
+            if s.pages > 0 && s.net_frames() > 0 {
+                emit(&alloc::format!(
+                    "SELFTEST: mem squeeze ok (pages={} net={} ratio={}% reason={reason})",
+                    s.pages,
+                    s.net_frames(),
+                    s.ratio_percent()
+                ));
+            }
+        }
+        Decision::Squeeze { pid, band, squeezed: None } => emit(&alloc::format!(
+            "memd: squeeze FAIL (pid={pid} band={} reason={reason}; the authority refused)",
+            band_name(band)
+        )),
+    }
+}
+
+/// After a kernel-sourced squeeze the pool is read again at once (ADR-0087): a level still at
+/// `critical` takes the next step — the next frozen app, then the first kill — without waiting
+/// for a frame the kernel sends only on a level CHANGE. Bounded: each squeeze marks a process.
+fn settle(authority: &mut Authority, orders: &mut dyn Orders, mut decision: Decision) {
+    for _ in 0..crate::bands::MAX_PROCESSES {
+        if !matches!(decision, Decision::Squeeze { .. }) {
+            return;
+        }
+        let Ok(stats) = nexus_abi::mm_stats() else { return };
+        let level = stats.pressure_level.min(u64::from(u8::MAX)) as u8;
+        decision = authority.on_pressure(level, stats.free, stats.total, orders);
+        say_decision(level, "oom", decision);
     }
 }
 
@@ -183,11 +238,12 @@ fn say_band(event: BandEvent) -> bool {
 }
 
 /// The pool's level now, judged (after a kernel-sourced kill was proven).
-fn judge_again(authority: &mut Authority, orders: &mut dyn KillOrder) {
+fn judge_again(authority: &mut Authority, orders: &mut dyn Orders) {
     let Ok(stats) = nexus_abi::mm_stats() else { return };
     let level = stats.pressure_level.min(u64::from(u8::MAX)) as u8;
     let decision = authority.on_pressure(level, stats.free, stats.total, orders);
     say_decision(level, "oom", decision);
+    settle(authority, orders, decision);
 }
 
 pub fn service_main_loop() -> Result<()> {

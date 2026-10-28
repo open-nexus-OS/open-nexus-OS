@@ -6,7 +6,9 @@
 //! band is unchanged (the age is "how long in THIS band", so the longest-hidden goes first).
 //! The victim at a level: the highest band number at or above the level's kill floor, and
 //! among those the oldest — never below the floor, so the foreground is never a victim and at
-//! `critical` nothing on screen is.
+//! `critical` nothing on screen is. Before any kill at `critical` (TASK-0333 6f-1, ADR-0087) the
+//! squeeze candidate: the process longest in the suspended band that was not squeezed since it
+//! entered its band — a band change makes it a candidate again.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal
@@ -27,6 +29,9 @@ pub struct Entry {
     pub band: u8,
     /// The table's sequence number when the process entered this band (smaller = longer there).
     pub since: u64,
+    /// Squeezed since it entered this band (ADR-0087): not a squeeze candidate again until its
+    /// band changes.
+    pub squeezed: bool,
 }
 
 /// What applying one band push did.
@@ -105,11 +110,12 @@ impl Table {
                 let from = e.band;
                 e.band = band;
                 e.since = self.seq;
+                e.squeezed = false;
                 Applied::Moved { from }
             }
             None => match self.entries.iter().position(Option::is_none) {
                 Some(i) => {
-                    self.entries[i] = Some(Entry { pid, band, since: self.seq });
+                    self.entries[i] = Some(Entry { pid, band, since: self.seq, squeezed: false });
                     Applied::Entered
                 }
                 None => Applied::Full,
@@ -145,6 +151,25 @@ impl Table {
     #[must_use]
     pub fn suspended(&self) -> usize {
         self.count_in(BAND_SUSPENDED)
+    }
+
+    /// The process a squeeze takes before any kill at `critical` (ADR-0087): the one longest in
+    /// the suspended band that was not squeezed since it entered it. `None` when there is none.
+    #[must_use]
+    pub fn squeeze_candidate(&self) -> Option<Entry> {
+        self.entries
+            .iter()
+            .flatten()
+            .filter(|e| e.band == BAND_SUSPENDED && !e.squeezed)
+            .copied()
+            .min_by_key(|e| e.since)
+    }
+
+    /// Mark `pid` squeezed (asked once per stay in its band, whatever the answer).
+    pub fn mark_squeezed(&mut self, pid: u32) {
+        if let Some(e) = self.entries.iter_mut().flatten().find(|e| e.pid == pid) {
+            e.squeezed = true;
+        }
     }
 
     /// The process a kill at `level` takes: the highest band at or above the level's floor, the

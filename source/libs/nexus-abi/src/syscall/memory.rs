@@ -357,6 +357,14 @@ pub struct MmStats {
     pub watermark_emergency: u64,
     /// Purgeable pages dropped since boot (v4).
     pub purged_pages: u64,
+    /// Pages held compressed now, as records in their objects' stores (v5, ADR-0087).
+    pub squeezed_pages: u64,
+    /// Bytes the records occupy (whole 64-byte slots, v5).
+    pub store_bytes: u64,
+    /// Frames the stores hold (v5).
+    pub store_frames: u64,
+    /// Squeezed pages brought back since boot (v5).
+    pub inflated_pages: u64,
 }
 
 // The pressure levels, the kernel's frame and its decoder, and the purgeable lock/unlock live
@@ -379,10 +387,11 @@ impl MmStats {
 }
 
 /// The record layout this ABI speaks (v4: shared/purgeable bytes, the pressure level and its
-/// watermarks, the purged pages — ADR-0085).
-pub const MM_STATS_VERSION: u32 = 4;
+/// watermarks, the purged pages — ADR-0085; v5: the pages held compressed, their stores' bytes
+/// and frames, the pages brought back — ADR-0087).
+pub const MM_STATS_VERSION: u32 = 5;
 /// 64-bit fields after the 8-byte header.
-pub const MM_STATS_FIELDS: u32 = 27;
+pub const MM_STATS_FIELDS: u32 = 31;
 const _: () = assert!(core::mem::size_of::<MmStats>() == 8 + MM_STATS_FIELDS as usize * 8);
 
 /// Frame size of the pool (`MmStats::total` / `free` count these).

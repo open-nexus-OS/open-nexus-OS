@@ -33,6 +33,12 @@ pub(super) fn sys_mm_stats(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
             crate::mm::vmo::purge::unlocked_bytes_named(|id| caps.vmo_ref_count(id) > 0);
     }
     stats.purged_pages = crate::mm::vmo::purge::purged_pages();
+    // RFC-0100 §5 (ADR-0087): what the stores hold now, and what came back since boot.
+    let (squeezed, store_bytes, store_frames) = crate::mm::vmo::squeeze::stats();
+    stats.squeezed_pages = squeezed;
+    stats.store_bytes = store_bytes;
+    stats.store_frames = store_frames;
+    stats.inflated_pages = crate::mm::vmo::squeeze::inflated();
     let mut record = [0u8; MM_STATS_BYTES];
     let written = stats.encode(&mut record).map_err(|_| AddressSpaceError::InvalidArgs)?;
     // SAFETY: `out_ptr..out_ptr + MM_STATS_BYTES` was checked to be a user slice.

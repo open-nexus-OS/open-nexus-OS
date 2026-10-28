@@ -43,6 +43,7 @@ mod page_table_tests;
 mod page_table_verify;
 pub mod populate;
 pub mod pressure_endpoint;
+pub mod squeeze;
 mod tests;
 pub mod usage;
 pub mod vmo;

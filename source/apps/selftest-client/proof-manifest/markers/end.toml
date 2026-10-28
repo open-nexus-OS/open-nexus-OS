@@ -50,6 +50,16 @@ phase = "end"
 [marker."KSELFTEST: mem compress ok ("]
 phase = "end"
 
+# TASK-0333 6f-1 (ADR-0087, RFC-0100 §5): the squeeze against the real syscall table and the
+# fault's own fill — a stranger's order refused (ESRCH), a running child's refused (EBUSY), the
+# frozen child's text pages recorded, its zero page dropped, its noise page kept, an object
+# another space maps and one a device was told of untouched, the PTEs of the taken pages gone;
+# every page back byte-exact through the fill, the stores empty again, a second squeeze's
+# records gone with the object.
+[marker."KSELFTEST: task squeeze ok ("]
+phase = "end"
+proves = "a parked child's private lazy pages are squeezed on its parent's order alone and every one comes back byte-exact on touch; shared and device-bound memory is never taken (ADR-0087)"
+
 # TASK-0333 6e-2 (ADR-0086, RFC-0100 §3): the one memory authority answers the harness that the
 # kernel's pressure endpoint is bound to it (the sink of ADR-0085 has its listener) and names
 # the level of the moment and the app processes it knows. On every lane, at the end phase.

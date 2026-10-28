@@ -15,6 +15,11 @@ pub const VERSION: u8 = 1;
 
 /// Exec image request opcode.
 pub const OP_EXEC_IMAGE: u8 = 1;
+/// The squeeze order (TASK-0333 6f-1, ADR-0087): the lifecycle authority orders the parent to
+/// squeeze a frozen child — the batches of `task_squeeze` until the walk ends, the totals
+/// answered. Taken from the lifecycle authority's kernel sender id alone, for a live child alone
+/// (the freeze/thaw/kill orders 4–6 are the same gate, hand-written in execd and abilitymgr).
+pub const OP_SQUEEZE: u8 = 7;
 
 /// Status: operation succeeded.
 pub const STATUS_OK: u8 = 0;
@@ -66,6 +71,23 @@ crate::frames! {
         status: u8,
         pid: u32le,
     }
+    /// Squeeze order: `[E,X,ver,OP_SQUEEZE,pid:u32le]`.
+    request fixed encode_squeeze / decode_squeeze (op = OP_SQUEEZE) {
+        pid: u32le,
+    }
+    /// Squeeze reply: `[E,X,ver,OP_SQUEEZE|0x80,status:u8,pid:u32le,squeezed:u32le,zero:u32le,
+    /// kept:u32le,taken:u32le,stored:u32le]` — the pages recorded, the zero pages dropped, the
+    /// pages kept, the frames the stores took, the record bytes written (the batches' sum).
+    #[allow(clippy::too_many_arguments)]
+    reply fixed encode_squeeze_rsp / decode_squeeze_rsp (op = OP_SQUEEZE) {
+        status: u8,
+        pid: u32le,
+        squeezed: u32le,
+        zero: u32le,
+        kept: u32le,
+        taken: u32le,
+        stored: u32le,
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +116,27 @@ mod tests {
         let (status, pid) = decode_exec_image_rsp(&frame).unwrap();
         assert_eq!(status, STATUS_OK);
         assert_eq!(pid, 0x1122_3344);
+    }
+
+    #[test]
+    fn squeeze_order_and_reply_golden() {
+        let order = encode_squeeze(0x0102_0304);
+        assert_eq!(order, [b'E', b'X', 1, OP_SQUEEZE, 4, 3, 2, 1]);
+        assert_eq!(decode_squeeze(&order), Some(0x0102_0304));
+        let rsp = encode_squeeze_rsp(STATUS_OK, 41, 400, 12, 3, 52, 812_000);
+        assert_eq!(&rsp[..5], &[b'E', b'X', 1, OP_SQUEEZE | 0x80, STATUS_OK]);
+        assert_eq!(rsp.len(), 9 + 5 * 4);
+        assert_eq!(decode_squeeze_rsp(&rsp), Some((STATUS_OK, 41, 400, 12, 3, 52, 812_000)));
+        assert_eq!(decode_squeeze(&encode_exec_image_rsp(STATUS_OK, 1)), None, "another op");
+    }
+
+    #[test]
+    fn test_reject_truncated_or_mutated_squeeze_frames() {
+        crate::codec::testing::assert_reject_matrix(&encode_squeeze(7), 4, &|f| {
+            decode_squeeze(f).is_some()
+        });
+        let rsp = encode_squeeze_rsp(STATUS_OK, 7, 1, 2, 3, 4, 5);
+        crate::codec::testing::assert_reject_matrix(&rsp, 4, &|f| decode_squeeze_rsp(f).is_some());
     }
 
     #[test]

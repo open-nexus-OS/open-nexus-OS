@@ -416,7 +416,10 @@ class ModalPhase:
         """TASK-0333 6d (ADR-0083): Super+Ctrl+M hides the settings window — windowd states
         `hidden` to abilitymgr, which freezes the app's process through execd once the grace
         (5 s) has run out; Super+Ctrl+M on the bare desktop brings the window back — windowd
-        states `focused`, abilitymgr thaws it: `SELFTEST: ability lifecycle ok`."""
+        states `focused`, abilitymgr thaws it: `SELFTEST: ability lifecycle ok`. TASK-0333 6f-1
+        (ADR-0087): while it is frozen the harness runs the drill at `critical` — memd squeezes
+        the frozen app through abilitymgr and execd (`SELFTEST: mem squeeze ok`) — and only
+        then is it brought back: the thaw takes every page back on touch."""
         self.wait_settled(20.0)
         time.sleep(1.0)
         self.chord(["ctrl", "meta_l", "m"])
@@ -426,6 +429,11 @@ class ModalPhase:
         # bound (grace + the execd round trip, with margin) only ends a dead run.
         if not self.wait_marker("abilitymgr: suspend (inst=", 30.0):
             return
+        # The squeeze is the guest's (the harness polls memd once a second, the squeeze is a few
+        # batches); the thaw waits for its proof so the squeezed pages are what comes back. A
+        # miss is logged and the run goes on — the ladder names the missing rung.
+        if not self.wait_marker("SELFTEST: mem squeeze ok (", 30.0):
+            self.log("no squeeze proof before the thaw (the ladder will say which rung)")
         time.sleep(1.0)
         self.chord(["ctrl", "meta_l", "m"])
         if self.wait_marker("SELFTEST: ability lifecycle ok", timeout_s):
@@ -470,8 +478,9 @@ class ModalPhase:
         thawed window was on screen (the fan-out: memd → gpud, memd → windowd → the window's
         app-host, `SELFTEST: mem pressure fanout ok`). Super+Ctrl+M hides settings once more;
         after the grace abilitymgr freezes it and the memory authority hears its band
-        `suspended`; the harness runs the drill at `critical`: memd picks the frozen app,
-        orders abilitymgr, which orders execd; the reap comes back as the band `gone`:
+        `suspended`; the harness runs the drill at `critical`: memd squeezes the frozen app
+        first (6f-1), then, at the next drill, picks it as the victim, orders abilitymgr, which
+        orders execd; the reap comes back as the band `gone`:
         `SELFTEST: mem pressure kill ok (band=suspended reason=drill)`."""
         self.wait_settled(20.0)
         time.sleep(1.0)
@@ -481,7 +490,7 @@ class ModalPhase:
             return
         if not self.wait_marker_after("abilitymgr: suspend (inst=", since, 30.0):
             return
-        # The harness polls memd once a second; the kill chain is a few round trips.
+        # The harness polls memd once a second: a squeeze, then the kill — a few round trips.
         if self.wait_marker_after("SELFTEST: mem pressure kill ok (", since, 30.0):
             self.log("pressure drill complete (hidden → frozen → drill → killed → reaped)")
 

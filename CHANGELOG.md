@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-28 (a frozen app is squeezed before it is killed — TASK-0333 6f-1, ADR-0087, RFC-0100 §5)
+
+- **A step between dropping caches and ending an app.** At `critical` the memory authority now
+  asks for a frozen app's private memory to be squeezed before it asks for any kill: the
+  lifecycle authority orders the app's parent, the parent orders the kernel in bounded batches
+  (`task_squeeze`, syscall 69 — the parent alone, a fully parked child alone). Pages of zeroes
+  are dropped, the rest recorded compressed with the object they belong to; an app the user
+  comes back to finds every page where it was, one inflate per first touch.
+- **No path can read a squeezed page as zeroes.** A lazy object's page word is absent, a frame
+  or a tagged record; every path that commits or reads a page — the fault, the kernel's checked
+  range, `vmo_read`/`vmo_write`, a device's runs — brings a record back first, and a record that
+  does not decode to exactly one page fails the access instead of mapping wrong bytes.
+- **Only the child's own memory, and never a stale translation.** An object is taken only when
+  the frozen child alone maps and names it — the shared image, a surface another process maps
+  and a device's buffer stay untouched; a batch clears the PTEs it changed and runs one TLB
+  shootdown before any frame goes back to the pool. `mm_stats` v5 counts what the stores hold
+  and what came back.
+
 ### Changed - 2026-10-28 (what a page costs to compress on RV64 — TASK-0333 6f-0, RFC-0100 §5)
 
 - **One page codec for the backing stages.** `nexus-compress` is the LZ4 block format the

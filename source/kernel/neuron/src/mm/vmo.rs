@@ -21,14 +21,15 @@
 //!   paths are proven by the VMO selftests and every service image
 //! INVARIANTS: an id names at most one live object; frames of a destroyed
 //!   object are back in the pool before the id is reusable; a `Fixed` object
-//!   never frees; the table lock is a leaf (never held across a memset).
+//!   never frees; the table lock is a leaf (never held across a memset or a codec call — a
+//!   squeezed page's record is copied in and out under it, ADR-0087).
 
 use alloc::vec::Vec;
 
 use super::frame_pool;
 use crate::dma_reach::{DmaReach, MAX_DMA_WINDOWS};
 use crate::frames::{Block, FrameError, FRAME_SIZE, MAX_ORDER};
-use crate::lazy::{CommitError, LazyPages, PAGE};
+use crate::lazy::{CommitError, LazyPages, PageState, PAGE};
 
 #[cfg(debug_assertions)]
 type TableLock<T> = crate::sync::dbg_mutex::DbgMutex<T>;
@@ -38,8 +39,13 @@ type TableLock<T> = spin::Mutex<T>;
 /// A live object's id: never 0, the table index plus one.
 pub type VmoId = u32;
 
+/// Objects between a create's phases (RFC-0100 §1): the lifetime rule leaves them alone.
+mod creating;
+pub use creating::{is_creating, set_creating};
 /// Purgeable objects (RFC-0100 §4): the unlock, the lock, the purge at `warn`.
 pub mod purge;
+/// Squeezed pages (RFC-0100 §5, ADR-0087): a page recorded, a page brought back.
+pub mod squeeze;
 
 /// Objects the table holds at most (a slot is 40 bytes plus its block list).
 pub const MAX_OBJECTS: usize = 4096;
@@ -70,6 +76,9 @@ pub enum VmoError {
     TableFull,
     /// No live object has this id.
     NoSuchObject,
+    /// A squeezed page's record did not decode to one page (ADR-0087): the access fails, the
+    /// record stays.
+    Damaged,
 }
 
 /// The CPU ranges a lazy object made for a device takes its frames from (ADR-0078): its
@@ -384,7 +393,8 @@ pub fn destroy(id: VmoId) -> Result<(), VmoError> {
     };
     frame_pool::free_blocks(&object.blocks);
     if let Some(pages) = &object.lazy {
-        for pa in pages.frames() {
+        // The committed pages' frames and the store's (ADR-0087: the records die with it).
+        for pa in pages.frames().chain(pages.store_frames()) {
             frame_pool::free(Block { base: pa, order: 0 });
         }
     }
@@ -408,21 +418,39 @@ pub fn is_lazy(id: VmoId) -> bool {
 }
 
 /// Page `index` of `id`, committed now if it was not: a frame from the pool, zeroed before it
-/// is entered — outside the table lock, which is a leaf and never held across a memset. A page
-/// another hart committed meanwhile wins and the frame taken here goes back. Answers the page's
-/// physical address; an eager object answers its translation.
+/// is entered — outside the table lock, which is a leaf and never held across a memset. A
+/// squeezed page is brought back instead (ADR-0087, `squeeze::inflate`). A page whose word moved
+/// on between the look and the act is looked at once more (under the kernel lock nothing moves
+/// it). Answers the page's physical address; an eager object answers its translation.
 pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
-    let (existing, within) = with(id, |o| match &o.lazy {
-        Some(pages) if index < pages.pages() => {
-            Ok((pages.frame(index).map(|pa| pa as usize), o.within))
+    for _ in 0..2 {
+        let (state, within) = with(id, |o| match &o.lazy {
+            Some(pages) => pages.state(index).map(|s| (s, o.within)).ok_or(VmoError::BadLength),
+            None => o
+                .translate(index * PAGE)
+                .map(|pa| (PageState::Frame(pa as u64), None))
+                .ok_or(VmoError::BadLength),
+        })
+        .ok_or(VmoError::NoSuchObject)??;
+        let done = match state {
+            PageState::Frame(pa) => Some(pa as usize),
+            PageState::Record(_) => squeeze::inflate(id, index, within)?,
+            PageState::Absent => commit_zeroed(id, index, within)?,
+        };
+        if let Some(pa) = done {
+            return Ok(pa);
         }
-        Some(_) => Err(VmoError::BadLength),
-        None => o.translate(index * PAGE).map(|pa| (Some(pa), None)).ok_or(VmoError::BadLength),
-    })
-    .ok_or(VmoError::NoSuchObject)??;
-    if let Some(pa) = existing {
-        return Ok(pa);
     }
+    // A page that moved on twice under the kernel lock: the table is not what it says.
+    Err(VmoError::Damaged)
+}
+
+/// Commit absent page `index` to a zeroed frame; `None` when it turned out to be a record.
+fn commit_zeroed(
+    id: VmoId,
+    index: usize,
+    within: Option<Within>,
+) -> Result<Option<usize>, VmoError> {
     let block = match within {
         None => frame_pool::alloc(0),
         Some(within) => frame_pool::alloc_within(0, within.ranges()),
@@ -436,28 +464,37 @@ pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
         Some(pages) => pages.commit(index, block.base).map_err(Some),
         None => Err(None),
     };
+    if entered.is_err() {
+        frame_pool::free(block);
+    }
     match entered {
-        Ok(()) => Ok(block.base as usize),
-        Err(Some(CommitError::Committed(pa))) => {
-            frame_pool::free(block);
-            Ok(pa as usize)
-        }
-        Err(Some(CommitError::OutOfRange)) => {
-            frame_pool::free(block);
-            Err(VmoError::BadLength)
-        }
-        Err(None) => {
-            // The object died between the look and the commit.
-            frame_pool::free(block);
-            Err(VmoError::NoSuchObject)
-        }
+        Ok(()) => Ok(Some(block.base as usize)),
+        Err(Some(CommitError::Committed(pa))) => Ok(Some(pa as usize)),
+        // Squeezed between the look and the commit: the caller looks again and inflates it.
+        Err(Some(CommitError::Squeezed)) => Ok(None),
+        Err(Some(CommitError::OutOfRange)) => Err(VmoError::BadLength),
+        // The object died between the look and the commit.
+        Err(None) => Err(VmoError::NoSuchObject),
+    }
+}
+
+/// Lazy page `index` of `id` for a read: its frame, `None` when absent (zero) — a squeezed page
+/// is content, never zero: it is brought back first (ADR-0087).
+fn resident(id: VmoId, index: usize) -> Result<Option<usize>, VmoError> {
+    match with(id, |o| o.lazy.as_ref().and_then(|p| p.state(index)))
+        .ok_or(VmoError::NoSuchObject)?
+    {
+        Some(PageState::Frame(pa)) => Ok(Some(pa as usize)),
+        Some(PageState::Absent) => Ok(None),
+        Some(PageState::Record(_)) => commit(id, index).map(Some),
+        None => Err(VmoError::BadLength),
     }
 }
 
 /// The bytes `[offset, offset + len)` of `id` as pieces `(pa, len)` in order: the runs of an
-/// eager object, the pages of a lazy one — `None` where a lazy page is not committed. With
+/// eager object, the pages of a lazy one — `None` where a lazy page is absent. With
 /// `commit_pages` every lazy page of the span is committed first (a write, a device's runs), so
-/// no piece is `None`.
+/// no piece is `None`; a squeezed page is brought back either way.
 pub fn span(
     id: VmoId,
     offset: usize,
@@ -486,7 +523,7 @@ pub fn span(
     while at < end {
         let piece = (end - at).min(PAGE - at % PAGE);
         let base =
-            if commit_pages { Some(commit(id, at / PAGE)?) } else { translate(id, at - at % PAGE) };
+            if commit_pages { Some(commit(id, at / PAGE)?) } else { resident(id, at / PAGE)? };
         out.push((base.map(|pa| pa + at % PAGE), piece));
         at += piece;
     }
@@ -551,30 +588,4 @@ pub fn is_contiguous(id: VmoId) -> bool {
 /// Whether the live object `id` is over frames the pool does not own (`destroy` frees nothing).
 pub fn is_fixed(id: VmoId) -> bool {
     with(id, |o| o.kind == VmoKind::Fixed).unwrap_or(false)
-}
-
-/// Objects between a create's phases (TASK-0333 6a, RFC-0100 §1): reserved and being zeroed
-/// with the kernel lock dropped, named by no capability yet and mapped nowhere — exactly what
-/// the lifetime rule would free. `set_creating` marks them from the reserve to the finish, and
-/// `reclaim` leaves a marked object alone. One slot per hart at most is in that window.
-const CREATING_SLOTS: usize = crate::smp::MAX_CPUS * 2;
-static CREATING: TableLock<[VmoId; CREATING_SLOTS]> = TableLock::new([0; CREATING_SLOTS]);
-
-/// Mark (`on`) or clear the in-creation state of `id`.
-pub fn set_creating(id: VmoId, on: bool) {
-    let mut set = CREATING.lock();
-    if on {
-        if let Some(slot) = set.iter_mut().find(|s| **s == 0) {
-            *slot = id;
-        }
-    } else {
-        for slot in set.iter_mut().filter(|s| **s == id) {
-            *slot = 0;
-        }
-    }
-}
-
-/// Whether `id` is between a create's phases.
-pub fn is_creating(id: VmoId) -> bool {
-    id != 0 && CREATING.lock().contains(&id)
 }

@@ -52,7 +52,7 @@ pub(super) fn run_process_ctl_selftests(ctx: &mut Context<'_>) {
         return;
     };
     let cap = Capability { kind: CapabilityKind::Endpoint(ep), rights: Rights::RECV };
-    if !ctx.tasks.caps_of_mut(child).is_some_and(|caps| caps.set(RECV_SLOT, cap).is_ok()) {
+    if ctx.tasks.caps_of_mut(child).is_none_or(|caps| caps.set(RECV_SLOT, cap).is_err()) {
         log_error!(target: "selftest", "KSELFTEST: process ctl FAIL (caps)");
         return;
     }

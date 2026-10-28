@@ -97,6 +97,9 @@ pub const STATUS_NO_VICTIM: u8 = 3;
 /// Reply status: the authority's kill order was not carried out (the lifecycle authority refused
 /// or is gone).
 pub const STATUS_FAILED: u8 = 4;
+/// Reply status: the drill's level squeezed the named process instead of killing one
+/// (TASK-0333 6f-1, ADR-0087) — at `critical` a suspended app is squeezed before any kill.
+pub const STATUS_SQUEEZED: u8 = 5;
 
 /// A buffer that holds any request of this protocol (the level push is the longest).
 pub const REQUEST_MAX_BYTES: usize = 4 + 1 + 1 + 8 + 8;

@@ -896,7 +896,7 @@ syscall and the page-in protocol seeded as RFC/ADR in 6f-1/6f-2.
 | Step | What, as built | Proof |
 |---|---|---|
 | 6f-0 | **the page compressor, measured where it will run (RFC-0100 §5)**: `nexus-compress` — the LZ4 block format (token, literal run, 16-bit offset, match ≥ 4; last sequence literals only), 2048-head hash table owned by the caller (4 KiB, cleared per call: a page's blob never depends on history), LZ4's skip in incompressible stretches, 8-byte match extension, a doubling copy in the decoder for overlapping matches (a run of one byte included); `compress` refuses an input beyond 16-bit positions and answers `OutputFull` when the blob would not fit (a page-sized output: "keep the page as it is"); `decompress` checks every length and offset — truncated, zero offset, offset beyond the output, output over the page, a blob ending after a match — and has no length header: the caller compares the returned length with the page. Kernel: `selftest/pressure.rs::run_compress_selftest` samples the kernel image at one stride (1024 candidates, zero pages counted and skipped, up to 64 content pages), copies each page once (the live stack is in the range), compresses, inflates, compares, and reports ratio, `smaller=`, and the cost per page both ways on the hart's clock | host: 13 tests — round trips over zeros, text, noise, overlapping repeats, long runs, every length 0…300 and the 64 KiB maximum, determinism, `test_reject_input_too_long`, `test_reject_output_full_on_an_incompressible_page`, `test_reject_truncated_blob`, `test_reject_offset_beyond_output` (+ zero offset), `test_reject_output_over_the_page` (match and literal run), `test_reject_blob_ending_after_a_match`, `test_reject_literal_run_over_the_blob`; every lane + board: `KSELFTEST: mem compress ok (pages= zero= ratio=% smaller= us_per_page= inflate_us_per_page= sample=image)`; the numbers in `docs/board/measurements/2026-10-28-backing-stages/README.md` |
-| 6f-1 | **the squeeze** (planned): the kernel's compressed pool over the anonymous dirty pages of a frozen child, on the parent's order (memd → abilitymgr → execd → `task_squeeze`, at critical before any kill), the PTE unmapped, the user fault inflating into a fresh frame; `MmStats` fields; an RFC seed for the syscall, an ADR for the order | `KSELFTEST: task squeeze ok (`, `SELFTEST: mem squeeze ok (` |
+| 6f-1 | **the squeeze — a frozen app's private memory recorded, every page back on touch (RFC-0100 §5, ADR-0087)**: syscall 69 `task_squeeze(pid, from_va, out, len)` — the parent alone (`ESRCH`), every task of the child parked (`EBUSY`), one bounded batch a call (≤ 16 committed pages examined, ≤ 4096 page words scanned), the next address answered (`0`: done) and a `SqueezeBatch` v1 record written through the caller's own page table; the objects of the child's alone (`vmo_lifetime::squeeze_allowed`: lazy, not sealed, never told to a device, not unlocked, mapped by one region of the child's space and nowhere else, named by no capability outside the process); per page zeroes dropped / a block ≤ 3 582 B recorded / the rest kept; a lazy page's word absent / frame / tagged record (`lazy_pages.rs`), the records in a store per object (`lazy_store.rs`: 64 B slots, one occupancy and one start word per store page, first-fit, an emptied store page back at once, the object's death or purge all of them); `vmo::commit` inflates (the fault, the checked range, `vmo_read`/`vmo_write`, a device's runs — the codec outside the table lock, a record that does not decode to one page fails the access); one shootdown per batch before any frame goes back; `mm_stats` v5 (`squeezed_pages`, `store_bytes`, `store_frames`, `inflated_pages`). The order: memd at `critical` squeezes the longest-suspended app not squeezed since its band changed before any kill (`emergency` kills at once) → abilitymgr `OP_MEM_SQUEEZE` (8, a suspended instance alone) → execd `OP_SQUEEZE` (7, `nexus_wire::execd`) → the batches → the totals back up; a kernel-sourced squeeze reads the level again (`settle`) | host: the store (9 tests incl. 4 `test_reject_*`), the page table (11 incl. 4), the rule (5 `test_reject_squeeze_*`), the ABI record (2), the wire frames (2), abilitymgr's relay (4), memd's policy (5 new, 2 re-cut); every lane + board: `KSELFTEST: task squeeze ok (pages=4 zero=1 kept=1 … reject=stranger,running,shared,device)`, `SELFTEST: exec child squeeze ok (`; usb-visible: `execd: squeeze (`, `abilitymgr: squeeze (`, `memd: squeeze (`, `SELFTEST: mem squeeze ok (` |
 | 6f-2 | **the swap stage** (planned): the `swap` partition appended to the layout at a measured size; memd the pager — blobs moved into memd's object, written through blkd, a fault on a swapped page parks the thread and asks memd for the page-in on the pressure endpoint | `lowmem`: `SELFTEST: swap out ok (pages=)` |
 | 6f-3 | **memd's journal + the `lowmem` lane** (planned): memd's route to statefsd, the kill ledger per kill (pid, band, reason, level, free), the `lowmem` profile (`QEMU_MEM=128M`) with a real warn/critical and `reason=oom` | `lowmem`: `SELFTEST: memd journal ok` |
 
@@ -944,6 +944,58 @@ never waking it — one occurrence, the same package. The lane's one-hart emulat
 today (`KINIT: milestone 11` 975–998 ms against 952–959 ms; the 6f-0 selftest is ≈ 6 ms of it),
 which is what turned these latent orders into misses. The 6f-0 rung itself is green in every
 run (six visible, four headless): `KSELFTEST: mem compress ok` with the same numbers each time.
+
+**Corrected 2026-10-28 (6f-1): point 2 was wrong.** Every one of these usb-visible runs was started
+with a plain `just test-os usb-visible`, which inherits the virgl default budget of 240 s; QEMU was
+SIGTERMed by it (`qemu.stderr`: `terminating on signal 15 … (timeout)`) — `09-43-47` 15 s after the
+tile phase (before the Super+Ctrl+M was even sent), `09-28-07` during the 5 s grace after the
+minimize, `08-56-08` 0.8 s after the lifecycle phase. The lane's recipe is `just ci-os-usb-visible`
+(900 s, the justfile says why); 6e's green runs used it. None of these runs shows a lost chord or a
+missing freeze on QEMU: the board's keyboard defect (cycles 73/74, the operator's finding) is real
+and stays the keyboard package's, but QEMU does not reproduce it so far. Point 1 (the injector's
+race with the OSK probes) stands — its FAIL markers are the guest's, not the budget's.
+
+**Status 2026-10-28 (6f-1, lanes):** built and lane-proven — host green (the kernel's 191 tests,
+the workspace's), `check`/`diag`/`dep-gate`/`test-host` and the kernel's clippy green; headless
+(`headless--2026-10-28T12-07-42`) and usb-visible (`usb-visible--2026-10-28T12-38-24`, through
+`just ci-os-usb-visible`) green end to end. The kernel selftest: `KSELFTEST: task squeeze ok
+(pages=4 zero=1 kept=1 store=1 stored=386 inflated=4 reject=stranger,running,shared,device)` on
+both. The probe child: `SELFTEST: exec child squeeze ok (pages=11 zero=1 kept=2 taken=2 stored=1060
+batches=1 us=1283)`, its pattern whole after the thaw. The drill on the settings app at its first
+freeze: `execd: squeeze (pid=110 pages=450 zero=0 kept=0 taken=117 stored=463155 batches=29
+us=76868)` → `SELFTEST: mem squeeze ok (pages=450 net=333 ratio=25% reason=drill)` — 1.8 MB of
+heap and stack into 468 KB, 1.3 MB back to the pool, then the thaw (`ability lifecycle ok`, the
+queued `critical` and the next `warn` heard by the thawed window), the restore, a second freeze
+squeezed (448 pages) and then killed (`mem pressure kill ok`), the clipboard and the capture
+phases after it. Boot cost of the selftest on TCG: `KINIT: milestone 11` 962 → 967 ms. **6f-1 ✅
+2026-10-28 (board cycle 75, `board--2026-10-28T13-00-46`, dev-6c04a43c):** the ladder 98/98 with
+`KSELFTEST: task squeeze ok (…)` (the same counts as on the lanes) and `SELFTEST: exec child
+squeeze ok (pages=11 zero=1 kept=2 taken=2 stored=1060 batches=1 us=632)` — 45 µs a page on the
+board's core, `bkl budget ok (max_hold=0ms)`; the FAIL kinds of SELFTEST/KSELFTEST unchanged from
+cycle 74; nine acks with their act lines (restore not done this boot: settings was frozen and
+thawed, not closed and reopened). The keyboard was alive this cycle (the chords arrived; the old
+`imed send FAIL` of typing is back with it — the keyboard package's). Boot: milestone 11 2042 ms
+against cycle 74's first boot 1814 ms — 114 ms of it before the kernel (the loader), the selftest
+window 611 → 726 ms; the new selftest's share is not isolated (5 ms on QEMU) and is measured first
+in 6f-2. Next: one commit, then 6f-2.
+
+**Found by the 6f-1 lanes (2026-10-28):**
+
+1. *The record write of `task_squeeze` faulted the kernel in its own selftest* (`KPGF … stval=0x1003`,
+the first headless run): the syscall wrote its record through the caller's user address, which
+needs the caller's address space active — the boot selftest drives the syscall with the kernel's.
+Fixed at the root: the record goes through the caller's own page table and the direct map
+(`write_record`), so the write is the same wherever the syscall is driven from.
+2. *The usb-visible lane must run through its recipe* — see the correction above: `just
+ci-os-usb-visible` (900 s); a plain `just test-os usb-visible` is cut at 240 s.
+3. *A lane cut by its budget killed the NEXT lane's emulator.* `usb-visible--2026-10-28T12-22-05`
+died at 358 s (`signal 15 from pid … ()`, no "(timeout)"): the 12-12-02 run's UART monitor had
+outlived its QEMU (the launcher's grace loop read `read -t`'s EOF as a timeout) and, when its 840 s
+grace ran out, `pkill`ed every emulator on the host. Fixed in `scripts/qemu-launcher.sh`: the loop
+returns on EOF, without the kill.
+4. *The kernel's clippy gate (`just lint-kernel`, run by CI) was red on the unchanged HEAD* — five
+findings in 6d/6e selftest lines (`nonminimal_bool`, `needless_borrow`); fixed in passing (no line
+counts changed), the gate green again.
 
 **Not in 6f-0:** any consumer of the codec (the pool, the pager), the `swap` partition, the
 `lowmem` profile, memd's journal; a sample of an app's heap (the image's machine code is the

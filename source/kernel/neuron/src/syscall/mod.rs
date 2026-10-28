@@ -238,6 +238,10 @@ pub const SYSCALL_MEM_PRESSURE_BIND: usize = 67;
 /// drop its pages at `warn`, and the object is untouchable until its lock — or locks it (arg 1
 /// = 0) and answers 1 when a purge took the content since the unlock. Args: (vmo_slot, unlock).
 pub const SYSCALL_VMO_PURGEABLE: usize = 68;
+/// ADR-0087 (RFC-0100 §5, TASK-0333 6f-1): squeezes one bounded batch of a parked CHILD's private
+/// lazy pages — zeroes dropped, the rest recorded compressed, a touch brings them back. Args:
+/// (pid, from_va, out_ptr, out_len) → the next va (`0`: done); the batch record at `out_ptr`.
+pub const SYSCALL_TASK_SQUEEZE: usize = 69;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).

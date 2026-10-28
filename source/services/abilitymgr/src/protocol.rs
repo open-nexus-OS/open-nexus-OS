@@ -82,6 +82,16 @@ pub const OP_SEEN: u8 = 6;
 /// Response: `[A,M,ver,OP_MEM_KILL|0x80, status, pid:u32le]`
 pub const OP_MEM_KILL: u8 = 7;
 
+/// The memory authority's squeeze order (TASK-0333 6f-1, RFC-0100 §5, ADR-0087): at `critical`
+/// memd asks for a frozen app's private memory to be squeezed before it asks for any kill; this
+/// service checks the instance is suspended, ORDERS the parent (execd `OP_SQUEEZE`) and answers
+/// the parent's totals. Taken from memd's kernel sender id alone; a frame from anyone else is
+/// denied.
+/// Request:  `[A,M,ver,OP_MEM_SQUEEZE, pid:u32le]`
+/// Response: `[A,M,ver,OP_MEM_SQUEEZE|0x80, status, pid:u32le, pages:u32le, zero:u32le,
+///            kept:u32le, taken:u32le, stored:u32le]`
+pub const OP_MEM_SQUEEZE: u8 = 8;
+
 // --- Status codes ---
 /// Operation succeeded.
 pub const STATUS_OK: u8 = 0;

@@ -99,6 +99,9 @@ ladder_headless=(
   # TASK-0333 6f-0 (RFC-0100 §5): the page compressor's ratio and cost per page on the board's
   # core — the numbers the pool and the swap stage are cut by.
   "KSELFTEST: mem compress ok ("
+  # TASK-0333 6f-1 (ADR-0087): the squeeze on the board's harts — the refusals, the three page
+  # outcomes, the shootdown before the frames go back, every page back byte-exact.
+  "KSELFTEST: task squeeze ok ("
   "KSELFTEST: mem watermarks ok ("
   # TASK-0333 6e-2 (ADR-0086): the one memory authority is up, heard the kernel's first pressure
   # frame at its bind (two banks on the board) and tells the harness the sink is its own.
@@ -110,6 +113,9 @@ ladder_headless=(
   # as killed — no crash report).
   "KSELFTEST: task freeze ok ("
   "SELFTEST: exec child freeze thaw ok"
+  # TASK-0333 6f-1 (ADR-0087): the probe child squeezed while frozen, its pattern whole after the
+  # thaw — a real process on the board's core.
+  "SELFTEST: exec child squeeze ok ("
   "SELFTEST: task kill ok"
   # TASK-0333 6d-3 (ADR-0084): every installed app's manifest grants published to the one
   # permission authority from the verified volume; the harness reads one set back and a publish

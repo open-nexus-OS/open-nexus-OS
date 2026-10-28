@@ -26,6 +26,12 @@ use crate::pressure::{self, Level};
 use crate::syscall::{api, Args, Error as SysError, SyscallTable, SYSCALL_MEM_PRESSURE_BIND};
 use crate::task::Pid;
 
+// TASK-0333 6f-1 (ADR-0087): the squeeze — the next backing stage, in its own file beside this
+// one (the selftest root sits at its module-size ratchet).
+#[path = "squeeze.rs"]
+mod squeeze;
+pub(super) use squeeze::run_squeeze_selftest;
+
 /// Bootstrap cap slot above the process-ctl selftest's (55).
 const SINK_SLOT: usize = 56;
 
@@ -50,7 +56,7 @@ pub(super) fn run_pressure_selftests(ctx: &mut Context<'_>) {
         };
         let cap =
             Capability { kind: CapabilityKind::Endpoint(ep), rights: Rights::RECV | Rights::SEND };
-        if !ctx.tasks.caps_of_mut(pid).is_some_and(|caps| caps.set(SINK_SLOT, cap).is_ok()) {
+        if ctx.tasks.caps_of_mut(pid).is_none_or(|caps| caps.set(SINK_SLOT, cap).is_err()) {
             log_error!(target: "selftest", "KSELFTEST: mem pressure notify FAIL (caps)");
             return;
         }

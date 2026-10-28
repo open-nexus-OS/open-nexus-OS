@@ -15,7 +15,7 @@ use nexus_wire::memd as wire;
 
 use crate::authority::{Authority, BandEvent, Decision, Source};
 use crate::gpu::GpuCharges;
-use crate::order::KillOrder;
+use crate::order::Orders;
 
 /// What one request did — the marker's input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,13 +79,13 @@ impl Memd {
     }
 
     /// Answers `frame` from `sender` into `out`; returns the reply's length (0: no reply) and
-    /// what happened. `orders` carries a drill's kill order.
+    /// what happened. `orders` carries a drill's squeeze or kill order.
     pub fn answer(
         &mut self,
         frame: &[u8],
         sender: u64,
         out: &mut [u8],
-        orders: &mut dyn KillOrder,
+        orders: &mut dyn Orders,
     ) -> (usize, Outcome) {
         let Some(&op) = frame.get(3) else {
             return (0, Outcome::Malformed);
@@ -149,6 +149,12 @@ impl Memd {
                 let (status, pid, band) = match decision {
                     Decision::Kill { pid, band, ordered: true } => (wire::STATUS_OK, pid, band),
                     Decision::Kill { pid, band, ordered: false } => {
+                        (wire::STATUS_FAILED, pid, band)
+                    }
+                    Decision::Squeeze { pid, band, squeezed: Some(_) } => {
+                        (wire::STATUS_SQUEEZED, pid, band)
+                    }
+                    Decision::Squeeze { pid, band, squeezed: None } => {
                         (wire::STATUS_FAILED, pid, band)
                     }
                     Decision::NoVictim | Decision::None => (wire::STATUS_NO_VICTIM, 0, 0),

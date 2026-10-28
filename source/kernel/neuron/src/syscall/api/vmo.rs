@@ -510,7 +510,9 @@ pub(super) fn ensure_user_range(
     let space = ctx.address_spaces.get_mut(handle)?;
     crate::mm::populate::fill_range(space, ptr, len, access).map_err(|e| match e {
         crate::mm::populate::FillError::Exhausted => AddressSpaceError::OutOfFrames,
-        crate::mm::populate::FillError::Violation(_) => AddressSpaceError::BadUserMemory,
+        crate::mm::populate::FillError::Violation(_) | crate::mm::populate::FillError::Damaged => {
+            AddressSpaceError::BadUserMemory
+        }
     })?;
     Ok(())
 }

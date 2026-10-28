@@ -9,11 +9,17 @@
 //!     running again (the lifecycle phase proved the thaw; the app is on screen), the harness
 //!     runs the pressure DRILL at `warn` — memd tells gpud and windowd, windowd tells the
 //!     running window, app-host raises `MemoryPressure` (`SELFTEST: mem pressure fanout ok`);
+//!   - the SQUEEZE (6f-1, ADR-0087): at the FIRST freeze, before any thaw, the drill at
+//!     `critical` — memd squeezes the frozen app through the lifecycle authority and the parent
+//!     and says `SELFTEST: mem squeeze ok (pages= net= ratio=% reason=drill)`; the thaw that
+//!     follows brings the pages back on touch (the lifecycle phase's `ability lifecycle ok`, the
+//!     fan-out's `apphost: mem pressure` from the thawed window);
 //!   - the KILL (6e-2): once an app is frozen once more (the restore phase hid it), the drill
-//!     at `critical` — a simulated level over the real bands; memd picks the frozen app, orders
-//!     the lifecycle authority, which orders the parent; the reap comes back as the band `gone`
-//!     and memd says `SELFTEST: mem pressure kill ok (band=suspended reason=drill)`. The real
-//!     level's kill (`reason=oom`) is the `lowmem` lane's (6f).
+//!     at `critical` — a simulated level over the real bands; memd squeezes the frozen app first
+//!     (one drill), then picks it as the victim (the next), orders the lifecycle authority,
+//!     which orders the parent; the reap comes back as the band `gone` and memd says
+//!     `SELFTEST: mem pressure kill ok (band=suspended reason=drill)`. The real level's kill
+//!     (`reason=oom`) is the `lowmem` lane's (6f-3).
 //! The drill never runs on a board: it ends an app the operator may be using. It cannot run
 //! on a lane without apps either — its arming conditions (a frozen app ran again; an app is
 //! frozen now) are the visible lane's choreography, which no headless lane produces. Polled
@@ -85,17 +91,23 @@ pub(crate) fn bound_probe() {
 
 const POLL_INTERVAL_NS: u64 = 1_000_000_000;
 
-/// The drill's two levels, each with its own arming condition. `warn` (6e-3) proves the fan-out
-/// and needs a RUNNING app window at the end of it (the level reaches app-host only while the
-/// process runs), so it fires as soon as a frozen app has run again — the lifecycle phase's
-/// thaw, the app focused. `critical` (6e-2) proves the kill and needs a FROZEN app, so it fires
-/// once an app is frozen again (the restore phase hides it once more).
+/// The drill's steps, each with its own arming condition. The squeeze (6f-1) needs a FROZEN app
+/// that has not run again yet — the first freeze — so the thaw that follows proves the way back.
+/// `warn` (6e-3) proves the fan-out and needs a RUNNING app window at the end of it (the level
+/// reaches app-host only while the process runs), so it fires as soon as a frozen app has run
+/// again — the lifecycle phase's thaw, the app focused. `critical` (6e-2) proves the kill and
+/// needs a FROZEN app, so it fires once an app is frozen again (the restore phase hides it once
+/// more) — and again, once a second, while memd answers it with a squeeze instead of the kill.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
+    Squeeze,
     Warn,
     Critical,
     Done,
 }
+
+/// Critical drills at the last step at most: a squeeze, then the kill (one spare).
+const CRITICAL_TRIES: u8 = 3;
 
 /// The drill's arming state, ticked from the end phase's idle loop.
 pub(crate) struct Drill {
@@ -103,12 +115,13 @@ pub(crate) struct Drill {
     lane: bool,
     next_poll_ns: u64,
     step: Step,
+    critical_tries: u8,
 }
 
 impl Drill {
     pub(crate) fn new() -> Self {
         let lane = boot_cfg::machine() == Machine::QemuVirt;
-        Self { lane, next_poll_ns: 0, step: Step::Warn }
+        Self { lane, next_poll_ns: 0, step: Step::Squeeze, critical_tries: 0 }
     }
 
     /// Once a second: `warn` when a frozen app has run again at least once (it is on screen
@@ -123,12 +136,17 @@ impl Drill {
         }
         self.next_poll_ns = now_ns.saturating_add(POLL_INTERVAL_NS);
         let Some(s) = status() else { return };
+        // A first freeze the poll never saw (the thaw came first): the squeeze step is passed —
+        // the ladder names the missing rung, the rest of the drill still runs.
+        if self.step == Step::Squeeze && s.resumed >= 1 {
+            self.step = Step::Warn;
+        }
         let (level, name) = match self.step {
+            Step::Squeeze if s.suspended >= 1 => (MEM_PRESSURE_CRITICAL, "critical"),
             Step::Warn if s.resumed >= 1 => (MEM_PRESSURE_WARN, "warn"),
             Step::Critical if s.suspended >= 1 => (MEM_PRESSURE_CRITICAL, "critical"),
             _ => return,
         };
-        self.step = if self.step == Step::Warn { Step::Critical } else { Step::Done };
         let mut line = Line::new();
         line.put(M_SELFTEST_MEM_PRESSURE_DRILL.as_bytes());
         line.put(b"level=");
@@ -136,6 +154,20 @@ impl Drill {
         let mut rsp = [0u8; wire::REPLY_MAX_BYTES];
         let answer = call(&wire::encode_drill(level), &mut rsp)
             .map(|n| wire::decode_drill_reply(wire::OP_DRILL, &rsp[..n]));
+        let squeezed = matches!(answer, Some(Some((wire::STATUS_SQUEEZED, _, _))));
+        self.step = match self.step {
+            Step::Squeeze => Step::Warn,
+            Step::Warn => Step::Critical,
+            Step::Critical => {
+                self.critical_tries += 1;
+                if squeezed && self.critical_tries < CRITICAL_TRIES {
+                    Step::Critical
+                } else {
+                    Step::Done
+                }
+            }
+            Step::Done => Step::Done,
+        };
         match answer {
             None => line.put(b" status=unanswered pid=0 band=?)\n"),
             Some(None) => line.put(b" status=malformed pid=0 band=?)\n"),

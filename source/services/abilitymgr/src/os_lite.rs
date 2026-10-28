@@ -108,6 +108,17 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                         lifecycle.on_seen(&mut broker, frame, sender_service_id);
                         continue;
                     }
+                    if frame.get(3) == Some(&crate::protocol::OP_MEM_SQUEEZE) {
+                        // The memory authority's squeeze order (ADR-0087): a suspended instance
+                        // alone, carried to the parent, the parent's totals answered.
+                        let rsp = lifecycle.on_mem_squeeze(&broker, frame, sender_service_id);
+                        if let Some(reply) = reply {
+                            let _ = reply.reply_and_close(&rsp);
+                        } else {
+                            let _ = server.send(&rsp, Wait::Blocking);
+                        }
+                        continue;
+                    }
                     if frame.get(3) == Some(&crate::protocol::OP_MEM_KILL) {
                         // The memory authority's order (ADR-0086): judged against the lifecycle
                         // truth (never the foreground), carried to the parent, answered.

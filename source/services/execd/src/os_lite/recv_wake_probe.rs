@@ -10,14 +10,17 @@
 //! STATUS: Functional
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: QEMU (`SELFTEST: exec child blocking recv wake ok`, `SELFTEST: exec child
-//!   freeze thaw ok`, `SELFTEST: exec child eof on exit ok`, `SELFTEST: task kill ok`; every
-//!   `execd: FAIL recv-wake probe (…)` names its hop).
+//!   freeze thaw ok`, `SELFTEST: exec child squeeze ok`, `SELFTEST: exec child eof on exit ok`,
+//!   `SELFTEST: task kill ok`; every `execd: FAIL recv-wake probe (…)` names its hop).
 //!
 //! TASK-0333 6d (ADR-0082): the same child then proves the process orders on a RUNNING
 //! process — frozen while parked in its receive (a call to it refused with `Frozen`, a ping
 //! that fits its queue waits, no reply), thawed (the ping delivered, the reply comes; the
 //! kernel's `KSELFTEST: task freeze ok` says no hart ran it meanwhile), and killed on order
-//! (its endpoint EOFs, the reap reads `Killed` and no crash report is written).
+//! (its endpoint EOFs, the reap reads `Killed` and no crash report is written). TASK-0333 6f-1
+//! (ADR-0087): while frozen it is squeezed (`task_squeeze` batches until the walk ends); the
+//! thaw brings its pages back on touch and the child checks the pattern it wrote before it
+//! answers — `SELFTEST: exec child squeeze ok (…)`.
 
 use super::*;
 use nexus_ipc::timer::{NotifyTimer, Waitset};
@@ -239,6 +242,12 @@ pub(super) fn run_recv_wake_probe() {
             return;
         }
     }
+    // 3b. THE SQUEEZE (TASK-0333 6f-1, ADR-0087): the frozen child's private pages — the pattern
+    //     it wrote into its heap, its stack — squeezed by its parent, one bounded batch a call.
+    //     The thaw below brings each page back on its first touch (the kernel's copy of the ping
+    //     into the child's stack, then the child's own reads), and the child checks its memory
+    //     before it answers: `PROBE_MSG_SQUEEZED_WRONG` instead of `woke` if one byte differs.
+    let squeeze = super::lifecycle::squeeze_child(pid);
     if nexus_abi::task_resume(pid as nexus_abi::Pid).is_err() {
         emit_line("execd: FAIL recv-wake probe (thaw)");
         return;
@@ -247,6 +256,11 @@ pub(super) fn run_recv_wake_probe() {
         ProbeWake::Frame(n) if n >= 1 && buf[0] == PROBE_MSG_WOKE => {
             emit_line("execd: recv-wake probe freeze thaw ok");
             let _ = nexus_abi::debug_println("SELFTEST: exec child freeze thaw ok");
+            prove_squeeze(squeeze);
+        }
+        ProbeWake::Frame(n) if n >= 1 && buf[0] == PROBE_MSG_SQUEEZED_WRONG => {
+            emit_line("execd: FAIL recv-wake probe (squeezed memory came back wrong)");
+            return;
         }
         ProbeWake::Frame(_) => {
             emit_line("execd: FAIL recv-wake probe (protocol woke after thaw)");
@@ -287,6 +301,52 @@ pub(super) fn run_recv_wake_probe() {
     }
     timer.close();
     waitset.close();
+}
+
+/// The child's answer after the thaw when its memory did not come back as it wrote it (pinned
+/// in recv-wake-probe/src/main.rs).
+const PROBE_MSG_SQUEEZED_WRONG: u8 = 0xA3;
+
+/// What the child's pattern must have given the squeeze at least (the child writes 8 pages of
+/// text, 2 of zeroes, 2 of noise — misaligned on the heap, so a region's edge pages mix).
+const SQUEEZE_MIN_PAGES: u64 = 6;
+
+/// The squeeze's proof, once the thawed child answered that its memory is intact:
+/// `SELFTEST: exec child squeeze ok (pages= zero= kept= taken= stored= batches= us=)` when the
+/// kernel took the pages the pattern holds, the FAIL line naming what is missing otherwise.
+fn prove_squeeze(squeeze: Result<super::lifecycle::Squeeze, ()>) {
+    match squeeze {
+        Ok(s)
+            if s.total.squeezed >= SQUEEZE_MIN_PAGES
+                && s.total.zero >= 1
+                && s.total.kept >= 1
+                && s.total.taken >= 1 =>
+        {
+            let t = s.total;
+            emit_line("execd: recv-wake probe squeeze ok");
+            let _ = nexus_abi::debug_println(&alloc::format!(
+                "SELFTEST: exec child squeeze ok (pages={} zero={} kept={} taken={} stored={} batches={} us={})",
+                t.squeezed,
+                t.zero,
+                t.kept,
+                t.taken,
+                t.stored,
+                s.batches,
+                s.us
+            ));
+        }
+        Ok(s) => {
+            let t = s.total;
+            let _ = nexus_abi::debug_println(&alloc::format!(
+                "execd: FAIL recv-wake probe (squeeze took pages={} zero={} kept={} taken={})",
+                t.squeezed,
+                t.zero,
+                t.kept,
+                t.taken
+            ));
+        }
+        Err(()) => emit_line("execd: FAIL recv-wake probe (squeeze refused)"),
+    }
 }
 
 /// What ended one bounded probe step.

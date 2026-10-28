@@ -9,6 +9,10 @@
 //! showed exec'd children parking in blocking recv forever while messages
 //! sat in their queue — this probe reproduces (or proves fixed) that class
 //! deterministically at every boot, headless, with no user interaction.
+//! TASK-0333 6f-1 (ADR-0087): before its third park the child writes a pattern
+//! into its heap — text, zeroes, noise — and execd squeezes it while it is
+//! frozen; after the thaw the child checks every byte and answers `woke` only
+//! when the pattern came back whole (`squeezed wrong` otherwise).
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Unstable
@@ -33,6 +37,9 @@ fn main() {
 }
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+extern crate alloc;
+
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 mod probe {
     use nexus_abi::{ipc_recv_v1, ipc_send_v1, MsgHeader, IPC_SYS_TRUNCATE};
 
@@ -51,6 +58,45 @@ mod probe {
     /// armed → child is about to park; woke → the blocking recv returned.
     const MSG_ARMED: u8 = 0xA1;
     const MSG_WOKE: u8 = 0xA2;
+    /// After the thaw: the pattern did not come back as written (TASK-0333 6f-1).
+    const MSG_SQUEEZED_WRONG: u8 = 0xA3;
+
+    /// The pattern the squeeze must give back (ADR-0087): pages of text (they compress), of
+    /// zeroes written once (dropped, not recorded), of noise (kept as they are).
+    const PAGE: usize = 4096;
+    const TEXT_PAGES: usize = 8;
+    const ZERO_PAGES: usize = 2;
+    const NOISE_PAGES: usize = 2;
+    const PATTERN_BYTES: usize = (TEXT_PAGES + ZERO_PAGES + NOISE_PAGES) * PAGE;
+
+    /// The byte at `at` of the pattern.
+    fn expected(at: usize) -> u8 {
+        const PHRASE: &[u8] = b"a frozen child is squeezed and every page comes back as it was. ";
+        let page = at / PAGE;
+        if page < TEXT_PAGES {
+            PHRASE[(at + page * 7) % PHRASE.len()]
+        } else if page < TEXT_PAGES + ZERO_PAGES {
+            0
+        } else {
+            // A hash per byte: no four bytes repeat, the page does not compress.
+            let mut x = (at as u64) | (1 << 40);
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 56) as u8
+        }
+    }
+
+    /// The pattern, in the heap (lazy `.bss`): the zero pages written once so they are committed.
+    fn write_pattern() -> alloc::vec::Vec<u8> {
+        let mut memory = alloc::vec![0u8; PATTERN_BYTES];
+        let zeroes = TEXT_PAGES * PAGE..(TEXT_PAGES + ZERO_PAGES) * PAGE;
+        for (at, byte) in memory.iter_mut().enumerate() {
+            *byte = if zeroes.contains(&at) { 0x5A } else { expected(at) };
+        }
+        memory[zeroes].fill(0);
+        memory
+    }
 
     /// Probe markers must NOT fold: `nexus-service-entry` arms verdict
     /// folding for every process it bootstraps, so `debug_println` swallows
@@ -93,6 +139,7 @@ mod probe {
         //    reply after the thaw is the proof the thaw ran it again.
         let mut hdr = MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 16];
+        let memory = write_pattern();
         for cycle in 0..3u32 {
             match ipc_recv_v1(PING_RECV_SLOT, &mut hdr, &mut buf, IPC_SYS_TRUNCATE, 0) {
                 Ok(_) => {}
@@ -106,8 +153,15 @@ mod probe {
                 }
             }
             // Round-trip proof per cycle: the reply is measured evidence the
-            // child actually RAN again after the wake.
-            if let Err(e) = send_byte(REPLY_SEND_SLOT, MSG_WOKE) {
+            // child actually RAN again after the wake. After the third (the thaw),
+            // it also says whether the squeezed pattern came back whole.
+            let intact =
+                cycle < 2 || memory.iter().enumerate().all(|(at, &byte)| byte == expected(at));
+            if !intact {
+                raw_marker("RECVWAKE: FAIL the squeezed pattern came back wrong");
+            }
+            let answer = if intact { MSG_WOKE } else { MSG_SQUEEZED_WRONG };
+            if let Err(e) = send_byte(REPLY_SEND_SLOT, answer) {
                 raw_marker("RECVWAKE: FAIL woke send");
                 return Err(e);
             }

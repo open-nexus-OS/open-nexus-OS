@@ -5,12 +5,17 @@
 //! `answer` the service loop runs — the band table and the victim rule (never the foreground,
 //! at `critical` nothing on screen, the lowest band first and the longest there first), the
 //! sender gates (`test_reject_*`), the status reply, the drill and the kill proof that arrives
-//! only with the victim's `gone` band.
+//! only with the victim's `gone` band. TASK-0333 6f-1 (ADR-0087): at `critical` every frozen app
+//! is squeezed once before the first kill, a band change makes it a candidate again, and
+//! `emergency` kills at once.
 
 use memd::answer::{Memd, Outcome, Peers};
 use memd::authority::{BandEvent, Decision, Pending, Source};
 use memd::bands::{kill_floor, Applied, Table};
-use memd::order::{encode_mem_kill, mem_kill_carried_out, Recording};
+use memd::order::{
+    encode_mem_kill, encode_mem_squeeze, mem_kill_carried_out, mem_squeeze_reply, Recording,
+    Squeezed,
+};
 use nexus_abi::syscall::memory::{
     MEM_PRESSURE_CRITICAL, MEM_PRESSURE_EMERGENCY, MEM_PRESSURE_NORMAL, MEM_PRESSURE_WARN,
 };
@@ -87,6 +92,12 @@ fn the_lowest_band_goes_first_and_the_longest_in_it() {
     // Suspended before hidden; of the two suspended, 14 (frozen first) before 15.
     assert_eq!(t.victim(MEM_PRESSURE_CRITICAL).map(|e| (e.pid, e.band)), Some((14, 4)));
     let mut orders = Recording::accepting();
+    // ADR-0087: at critical both frozen apps are squeezed first, the older first …
+    assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut orders), (wire::STATUS_SQUEEZED, 14, 4));
+    assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut orders), (wire::STATUS_SQUEEZED, 15, 4));
+    assert_eq!(orders.squeeze_orders(), &[14, 15]);
+    assert!(orders.orders().is_empty(), "no kill while a frozen app was not squeezed");
+    // … then the kill takes the older frozen one.
     assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut orders), (wire::STATUS_OK, 14, 4));
     assert_eq!(orders.orders(), &[14]);
     // The kill is in flight: a second level orders nothing until the victim is gone.
@@ -122,8 +133,21 @@ fn a_kernel_level_judges_at_once_and_asks_again_when_proven() {
     let a = m.authority();
     assert_eq!(a.on_pressure(MEM_PRESSURE_WARN, 9_000, 77_261, &mut orders), Decision::None);
     assert_eq!(a.level(), (MEM_PRESSURE_WARN, 9_000, 77_261));
+    // ADR-0087: the frozen apps are squeezed first, one per judgement (the loop reads the level
+    // again after each) …
+    let answer = orders.squeezed;
     assert_eq!(
         a.on_pressure(MEM_PRESSURE_CRITICAL, 4_338, 77_261, &mut orders),
+        Decision::Squeeze { pid: 14, band: 4, squeezed: answer }
+    );
+    assert_eq!(
+        a.on_pressure(MEM_PRESSURE_CRITICAL, 4_400, 77_261, &mut orders),
+        Decision::Squeeze { pid: 15, band: 4, squeezed: answer }
+    );
+    assert_eq!((a.squeezes(), a.kills()), (2, 0));
+    // … then the first kill.
+    assert_eq!(
+        a.on_pressure(MEM_PRESSURE_CRITICAL, 4_450, 77_261, &mut orders),
         Decision::Kill { pid: 14, band: 4, ordered: true }
     );
     assert_eq!(a.kills(), 1);
@@ -290,4 +314,81 @@ fn the_kill_order_is_the_lifecycle_authoritys_frame() {
     refused[4] = 2;
     assert!(!mem_kill_carried_out(&refused, 0x0102_0304));
     assert!(!mem_kill_carried_out(&ok[..8], 0x0102_0304), "short");
+}
+
+/// TASK-0333 6f-1 (ADR-0087): a frozen app is squeezed once per stay in its band — a thaw and a
+/// new freeze make it a candidate again — and `emergency` kills at once, never squeezing.
+#[test]
+fn a_frozen_app_is_squeezed_once_per_freeze_and_emergency_kills_at_once() {
+    let mut m = Memd::new(PEERS, true);
+    push(&mut m, 20, wire::BAND_SUSPENDED);
+    let mut orders = Recording::accepting();
+    assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut orders), (wire::STATUS_SQUEEZED, 20, 4));
+    push(&mut m, 20, wire::BAND_FOREGROUND);
+    push(&mut m, 20, wire::BAND_SUSPENDED);
+    assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut orders), (wire::STATUS_SQUEEZED, 20, 4));
+    assert_eq!(orders.squeeze_orders(), &[20, 20]);
+    assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut orders), (wire::STATUS_OK, 20, 4));
+    let mut low = Memd::new(PEERS, true);
+    push(&mut low, 21, wire::BAND_SUSPENDED);
+    let mut orders = Recording::accepting();
+    assert_eq!(drill(&mut low, MEM_PRESSURE_EMERGENCY, &mut orders), (wire::STATUS_OK, 21, 4));
+    assert!(orders.squeeze_orders().is_empty(), "emergency never squeezes");
+}
+
+/// A hidden app in its grace still runs: never squeezed (the kernel would refuse it too); the
+/// hidden band is killed only when no frozen app is left to squeeze.
+#[test]
+fn test_reject_squeeze_of_an_app_that_is_not_frozen() {
+    let mut m = Memd::new(PEERS, true);
+    push(&mut m, 40, wire::BAND_HIDDEN);
+    push(&mut m, 41, wire::BAND_VISIBLE);
+    let mut orders = Recording::accepting();
+    assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut orders), (wire::STATUS_OK, 40, 3));
+    assert!(orders.squeeze_orders().is_empty());
+}
+
+/// A refused squeeze is said (`STATUS_FAILED`), is no squeeze, and the app is not asked again
+/// in this freeze: the next level kills it.
+#[test]
+fn a_refused_squeeze_is_not_asked_again_until_the_band_changes() {
+    let mut m = Memd::new(PEERS, true);
+    push(&mut m, 30, wire::BAND_SUSPENDED);
+    let mut refusing = Recording::refusing();
+    assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut refusing), (wire::STATUS_FAILED, 30, 4));
+    assert_eq!((m.authority().squeezes(), m.authority().pending()), (0, None));
+    let mut orders = Recording::accepting();
+    assert_eq!(drill(&mut m, MEM_PRESSURE_CRITICAL, &mut orders), (wire::STATUS_OK, 30, 4));
+    assert!(orders.squeeze_orders().is_empty());
+}
+
+#[test]
+fn the_squeeze_order_is_the_lifecycle_authoritys_frame() {
+    assert_eq!(encode_mem_squeeze(0x0102_0304), [b'A', b'M', 1, 8, 0x04, 0x03, 0x02, 0x01]);
+    let ok = squeeze_reply(0, 0x0102_0304);
+    let s = mem_squeeze_reply(&ok, 0x0102_0304).expect("carried out");
+    assert_eq!(s, Squeezed { pages: 400, zero: 12, kept: 3, taken: 52, stored: 812_000 });
+    assert_eq!(s.net_frames(), 400 + 12 - 52);
+    assert_eq!(s.ratio_percent(), 812_000 * 100 / (400 * 4096));
+}
+
+#[test]
+fn test_reject_a_squeeze_reply_of_another_pid_or_a_refusal() {
+    let ok = squeeze_reply(0, 7);
+    assert!(mem_squeeze_reply(&ok, 8).is_none(), "another pid's answer");
+    assert!(mem_squeeze_reply(&squeeze_reply(5, 7), 7).is_none(), "refused");
+    assert!(mem_squeeze_reply(&ok[..28], 7).is_none(), "short");
+    let kill = [b'A', b'M', 1, 0x87, 0, 7, 0, 0, 0];
+    assert!(mem_squeeze_reply(&kill, 7).is_none(), "the kill's answer");
+}
+
+/// The lifecycle authority's squeeze reply (`mem_squeeze.rs`): 400 pages, 12 zero, 3 kept, 52
+/// frames taken, 812 000 bytes stored.
+fn squeeze_reply(status: u8, pid: u32) -> [u8; 29] {
+    let mut out = [0u8; 29];
+    out[..5].copy_from_slice(&[b'A', b'M', 1, 0x88, status]);
+    for (i, value) in [pid, 400, 12, 3, 52, 812_000].iter().enumerate() {
+        out[5 + i * 4..9 + i * 4].copy_from_slice(&value.to_le_bytes());
+    }
+    out
 }

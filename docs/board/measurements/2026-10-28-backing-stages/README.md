@@ -92,6 +92,13 @@ selftest phase, and the control run on HEAD shows the same misses: the lane's re
 H5 on QEMU: the FAIL kinds of every run are the 6e set (QueueFull, the declared slot route, the
 blank forms) in equal or lower counts.
 
+**Corrected 2026-10-28 (6f-1):** the reading of the `08-56-08`, `09-28-07`, `09-35-54` and
+`09-43-47` rows was wrong. All six runs were cut by the 240 s budget a plain `just test-os
+usb-visible` inherits (`qemu.stderr`: `terminating on signal 15 … (timeout)`) — the "lost" chord
+was never processed before QEMU was stopped, the "missing" freeze was inside the grace when it
+was. The lane runs as `just ci-os-usb-visible` (900 s). The `cjk jp` rows stand (the guest's own
+FAIL lines; the injector fix holds).
+
 ### Board cycle 74 (`board--2026-10-28T10-02-54`, dev-832104b9, vs cycle 73 `board--2026-10-27T20-36-32`)
 
 | | cycle 73 | cycle 74 (6f-0) |
@@ -128,3 +135,112 @@ chords worked. The loss is between hidrawd's wire batch and inputd's keyboard ro
 boot's pointer path is healthy (`inputd: hid rx hz=264`, taps routed). Together with the lane's
 finding (letter chords lost on QEMU while windowd re-creates a surface, the hidden app not frozen
 once) this is the first thing the keyboard package measures: the wire batch at inputd's receive.
+
+---
+
+## 6f-1 — the squeeze (the pool, ADR-0087)
+
+### Question
+
+Does the pool hold what 6f-0's numbers promised, on a real process, without a stale translation
+and without holding the kernel lock for a whole process? What a squeeze can reach was read from
+cycle 74's census before anything was built: an app-host holds 7.0–8.8 MB resident, 6.68 MB of
+it the shared image (clean, never compressed); its private 0.3–2.2 MB is the lazy `.bss` (the
+heap's bump arena, 8 MiB reserved) and its stack — exactly what the squeeze takes.
+
+### Instrument
+
+- kernel: `KSELFTEST: task squeeze ok (pages= zero= kept= store= stored= inflated= reject=)` —
+  a synthetic parent and child against the real syscall table: 4 pages of text, 1 of zeroes, 1
+  of noise in the child's own object, one object another space maps, one a device was told of;
+  the refusals (a stranger's order, a running child's), the batches until `0`, the PTEs, every
+  page back through `populate::fill` (the user fault's path) byte-exact, the stores empty again,
+  a second squeeze's records gone with the object.
+- service launcher: `SELFTEST: exec child squeeze ok (pages= zero= kept= taken= stored= batches=
+  us=)` — the recv-wake probe child writes 8 pages of text, 2 of zeroes and 2 of noise into its
+  heap before its third park; execd freezes it, squeezes it (`us=` the parent's clock over all
+  batches), thaws it; the child checks every byte and answers `woke` only when the pattern came
+  back whole.
+- the drill (usb-visible lane): `execd: squeeze (pid= pages= zero= kept= taken= stored= batches=
+  us=)`, `abilitymgr: squeeze (inst= pages=)`, `memd: squeeze (pid= band= …)`, `SELFTEST: mem
+  squeeze ok (pages= net= ratio=% reason=drill)` — a real app-host frozen by the lifecycle phase,
+  squeezed before the injector thaws it.
+
+### Hypotheses (decided before the lanes and the board cycle)
+
+- **H6 — the mechanism holds on every hart it runs on.** `KSELFTEST: task squeeze ok (pages=4
+  zero=1 kept=1 … reject=stranger,running,shared,device)` on headless, usb-visible and the board.
+  Any FAIL: the pool is wrong.
+- **H7 — a real process gets every byte back.** `SELFTEST: exec child squeeze ok` with pages ≥ 6,
+  zero ≥ 1, kept ≥ 1 on all three; no `RECVWAKE: FAIL the squeezed pattern came back wrong`.
+- **H8 — the batch bound is right.** The probe's squeeze cost per examined page on the board
+  (`us` over pages + zero + kept) stays ≤ 100 µs (2× 6f-0's 49 µs compress); above it the
+  16-page batch is not ≈ 0.8 ms and is re-cut. No `bkl budget FAIL` on the board.
+- **H9 — an app's heap compresses better than machine code.** The drill's `ratio=` on the
+  usb-visible lane is below 6f-0's 47 % ceiling and `net=` > 0; ≥ 47 %: the pool's value for
+  apps is re-judged before 6f-2. The thawed app works: `SELFTEST: ability lifecycle ok` and the
+  warn fan-out reaching it (`apphost: mem pressure (level=warn`).
+- **H10 — what the wait costs.** `execd: squeeze (… us=)` of the app on QEMU (TCG) names how long
+  memd and abilitymgr wait; the board's only squeeze is the probe child's (the drill never runs
+  on a board).
+
+### Results
+
+#### QEMU headless (`headless--2026-10-28T12-07-42`) and usb-visible (`usb-visible--2026-10-28T12-38-24`)
+
+| | headless | usb-visible |
+|---|---|---|
+| `KSELFTEST: task squeeze ok` | pages=4 zero=1 kept=1 store=1 stored=386 inflated=4 | identical |
+| `SELFTEST: exec child squeeze ok` | pages=11 zero=1 kept=2 taken=2 stored=1060 batches=1 us=1285 | … us=1283 |
+| `KINIT: milestone 11` | 967 ms (6f-0: 962) | 990 ms |
+| the drill's first squeeze (settings, pid 110) | — | pages=450 zero=0 kept=0 taken=117 stored=463155 batches=29 us=76868 |
+| `SELFTEST: mem squeeze ok` | — | pages=450 net=333 ratio=25% (and pages=448 net=330 ratio=25% at the second freeze) |
+
+- **H6 ✅ (QEMU):** the line with the designed counts on both lanes; no `MM: FAIL inflate`.
+- **H7 ✅ (QEMU):** the child answered `woke` after the thaw (its pattern whole) on both lanes.
+- **H8 (QEMU part):** 14 examined pages in one batch, 1.28 ms on TCG; the board decides.
+- **H9 ✅:** an app-host's heap and stack: 25 % (`ratio=`), well under 6f-0's 47 % ceiling on
+  machine code; 1.8 MB became 468 KB of records, 333 frames (1.3 MB) went back net. The thawed
+  window ran on: `SELFTEST: ability lifecycle ok`, the queued `critical` and the next `warn` heard
+  (`apphost: mem pressure (level=…`), the restore phase, the second freeze's squeeze, the kill.
+- **H10 (QEMU):** one app's squeeze is 77 ms on the TCG hart in 29 batches (≈ 2.7 ms a batch,
+  ≈ 171 µs a page) — what memd and abilitymgr waited.
+- **The lane's verdict needs its recipe:** `just ci-os-usb-visible` (900 s). The two earlier runs of
+  the day were a 240 s plain `test-os` run and a run whose emulator a leftover monitor of the
+  previous run killed (see the ledger's "Found by the 6f-1 lanes"); neither says anything about
+  the guest.
+
+#### Board cycle 75 (`board--2026-10-28T13-00-46`, dev-6c04a43c, one cold boot; vs cycle 74 `board--2026-10-28T10-02-54`)
+
+| | cycle 75 | cycle 74 |
+|---|---|---|
+| `KSELFTEST: task squeeze ok` | pages=4 zero=1 kept=1 store=1 stored=386 inflated=4 reject=stranger,running,shared,device | — |
+| `SELFTEST: exec child squeeze ok` | pages=11 zero=1 kept=2 taken=2 stored=1060 batches=1 us=632 | — |
+| `KSELFTEST: mem compress ok` | ratio=46% us_per_page=48 inflate_us_per_page=14 | ratio=47% 49 / 16 |
+| `KSELFTEST: bkl budget ok` | max_wait=2603us max_hold=0ms | (ok) |
+| ladder (board-visible) | 98/98 | 90/96 (the keyboard route missing) |
+| first boot: milestone 1 / window 6→7 / milestone 11 | 1077 / 726 / 2042 ms | 963 / 611 / 1814 ms |
+
+- **H6 ✅:** the designed counts on the board's harts, the same as on both lanes.
+- **H7 ✅:** the probe child answered `woke` after the thaw — its pattern came back whole on the
+  board's core.
+- **H8 ✅:** 632 µs for the batch that examined 14 pages — 45 µs a page including the syscall, the
+  stores' frames and the shootdown, under the 100 µs criterion; `bkl budget ok` (no FAIL).
+- **H9, H10:** QEMU only — the drill never runs on a board, and the board's pool stays far above
+  `critical`.
+- **Boot time, as measured and not yet attributed:** milestone 11 at 2042 ms against cycle 74's
+  first boot at 1814 ms. Half of it lies before the kernel's first milestone (the loader: 963 →
+  1077 ms — no 6f-1 code runs there); the selftest window grew 611 → 726 ms, 35 ms above the
+  highest of the seven board runs before it (499–691 ms, 2026-10-25 … 2026-10-28). The new selftest's own share is
+  not isolated by the trace (no per-line times); on QEMU it costs 5 ms. 6f-2 puts its duration into
+  its own marker so the next cycle measures it.
+- **The keyboard was alive this cycle** (`inputd: live keyboard route on`, 25 reports with key
+  batches, the Super+Ctrl chords for close, halves, minimize and restore all arrived) — after cycle
+  74's dead keyboard; the typing path's old `inputd: imed send FAIL` / `WINDOWD: FAIL imed relay
+  send` lines are back with it (red since cycle 64, the keyboard package's).
+- **Acks:** desktop, typed, pointer, modal, tile, clipboard, screenshot, gpu-desktop, lifecycle —
+  each with its act lines in this boot's trace (lifecycle: `windowd: minimize id=app2` → `execd:
+  freeze (pid=112)` → `abilitymgr: suspend (inst=5)` → `windowd: restore id=app2` → `execd: thaw
+  (pid=112)`). **restore not acked:** settings was frozen and thawed but not closed and reopened
+  this boot (no `apphost: persist saved (… reason=close)`, no `SELFTEST: app restore ok`) — the act
+  stays open for the next cycle.

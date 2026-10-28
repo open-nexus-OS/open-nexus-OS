@@ -3,7 +3,7 @@
 - Status: Draft (seeded 2026-10-19 at layer 6's start; filled in 6b)
 - Owners: @kernel-team @runtime @gpu
 - Created: 2026-10-19
-- Last Updated: 2026-10-23
+- Last Updated: 2026-10-28
 - Links:
   - Tasks: `tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (the layer, 6a–6f, execution + proof); `tasks/TASK-0286-…` (M1, Done: frames from the FDT, page-backed VMOs, the `contiguous-DMA` kind, `mm_stats`)
   - Related RFCs: RFC-0098 C4 (physical memory from the FDT; defers the object model here), RFC-0085 (kernel-owned VAs; the explicit `vmo_destroy` rule stays), RFC-0080 (`vmo_share_ro`), RFC-0087 ("exhaustion is an event"), RFC-0101 (the GPU driver: contexts with their own GPU address space, VMOs bound with a cache mode), RFC-0079 (EOF on the last sender's death)
@@ -17,7 +17,7 @@
 - **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ✅ 2026-10-23 — 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2a ✅ 2026-10-23 (board cycle 65: the app arena reserved, the splash given back, the atlas counted); 6b-2b ✅ 2026-10-23 (board cycle 66, ADR-0078: one pool with the GPU — the ring contiguous, the surfaces lazy and entered as sampled, the GPU's ceiling two thirds of RAM); 6b-3 ✅ 2026-10-23 (board cycle 67: every service's heap frees, a double free refused, an object freed while mapped dies at its unmap)
 - **Phase 2 (6c: sealed images, shared code)**: ⏳ 6c-0 ✅ 2026-10-23 (the OS build's own flags), 6c-1a ✅ 2026-10-25 (board cycle 69, ADR-0079: cache maintenance a non-coherent device's right), 6c-1b ✅ 2026-10-26 (board cycle 70, ADR-0080: `vmo_seal` + `exec_vmo` the one loader, text and rodata mapped from the sealed image's frames, the volume's images sealed before they are verified), 6c-2 ✅ 2026-10-26 (board cycle 71, ADR-0081: the boot image one container — kernel + bootfs under one digest, every core program a sealed object the kernel adopts, no program embeds another; the loader in every chain). **Phase 2 complete**
 - **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals, the restorable contract)**: ✅ 2026-10-27 (both QEMU lanes + board cycle 73; ADR-0085/0086 Accepted) — 6e-0 built 2026-10-27 (ADR-0085: `mm_stats` v4 with shared bytes, the level and its watermarks; the watermarks from each bank's boot-time free; `mem_pressure_bind` (67) — one sink, one frame per level change, the level at the bind; headless proof `KSELFTEST: mem pressure notify ok`, `mem watermarks ok`); 6e-1 built 2026-10-27 (ADR-0086, §6: `restorable = true` → `nexus.permission.STATE` → `svc.state`; the record `/state/app/@self/persist` by kernel identity; written on the compositor's `hidden` sighting and at close, restored before the initial effects; settings' navigation the first; board proof pending in the 6e cycle); 6e-2 built 2026-10-27 (ADR-0086, §3: memd the one authority — the bands from the lifecycle authority, the kill through it, proven by the death; both lanes); 6e-3 lane-proven 2026-10-27 (§4: purgeable VMOs — syscall 68 unlock/lock, the purge at warn before the frame leaves; the level told onward memd → gpud, memd → windowd → every app window → the host event `MemoryPressure`; `KSELFTEST: vmo purge ok` on both lanes, the whole fan-out chain at warn and critical on the visible lane); 6e-4 lane-proven 2026-10-27 (§3: GPU memory charged to its client, gpud → memd `OP_GPU_CHARGE`; the lent framebuffer object charged on both lanes, the context part is the board's — cycle 73 pending)
-- **Phase 4 (6f: the backing stages — compressor, swap)**: ⏳ 6f-0 ✅ 2026-10-28 (board cycle 74; §5: the one codec `nexus-compress` — LZ4 block, bounded decoder, allocation-free; measured in the kernel on every lane and on the board: 47 % on the image's machine code, 49 µs to compress and 16 µs to inflate a page on the board's core — R11 answered: a frozen process is squeezed whole, a fault inflates synchronously); 6f-1 the pool, 6f-2 the swap stage, 6f-3 memd's journal + the `lowmem` lane ⬜
+- **Phase 4 (6f: the backing stages — compressor, swap)**: ⏳ 6f-0 ✅ 2026-10-28 (board cycle 74; §5: the one codec `nexus-compress` — LZ4 block, bounded decoder, allocation-free; measured in the kernel on every lane and on the board: 47 % on the image's machine code, 49 µs to compress and 16 µs to inflate a page on the board's core — R11 answered: a frozen process is squeezed whole, a fault inflates synchronously); 6f-1 ✅ 2026-10-28 (board cycle 75; §5 "The pool", ADR-0087 Accepted: `task_squeeze` (69), the store per object, every commit path inflates, memd squeezes before it kills — an app-host's heap and stack 1.8 MB → 468 KB on the usb-visible lane, the probe child's squeeze 45 µs a page on the board's core); 6f-2 the swap stage, 6f-3 memd's journal + the `lowmem` lane ⬜
 
 "Complete" means the contract below is defined and every phase's proof gates are green (the
 `KSELFTEST`/`SELFTEST` lines named in TASK-0333 on `headless`, `visible` and `board-visible`).
@@ -251,7 +251,7 @@ object writably, for a lazy or fixed object, and for one a device was ever told 
 (`vmo_runs`). Sealed, the object refuses `vmo_write`, a writable `vm_map` and `vmo_runs` for
 the rest of its life — deterministically, by the object, whoever holds a capability.
 
-## §5 Backing stages (6f-0 filled 2026-10-28: the codec and its cost; the pool and the swap stage filled as 6f-1/6f-2 are built)
+## §5 Backing stages (6f-0 filled 2026-10-28: the codec and its cost; 6f-1 filled 2026-10-28: the pool, ADR-0087; the swap stage filled as 6f-2 is built)
 
 Under pressure, in this order: purgeable pages dropped → clean file pages dropped → anonymous
 dirty pages compressed into the kernel's pool → compressed pages written to the `swap` partition
@@ -283,12 +283,57 @@ frozen process is squeezed whole on memd's order (compress cost per page), wheth
 squeezed page inflates synchronously (inflate cost per page), and what the pool gains per page
 (the ratio).
 
-**The pool (6f-1), the swap stage (6f-2), memd's journal and the `lowmem` lane (6f-3):** filled
-as built — the squeeze is the parent's order on a frozen child (the lifecycle authority through
-execd, memd asking at critical before any kill), the kernel compresses the child's anonymous
-dirty pages into pool frames and unmaps them, a fault inflates into a fresh frame; the swap stage
-moves blobs to the `swap` partition through blkd with memd as the pager and a page-in protocol
-on the pressure endpoint; the journal is memd's kill ledger in statefs.
+**The pool (6f-1, ADR-0087).** What a squeeze reaches, from the census of board cycle 74: an
+app-host holds 7.0–8.8 MB resident, 6.68 MB of it the shared image (clean, never compressed);
+the private 0.3–2.2 MB is its lazy `.bss` (the heap's bump arena) and its stack. The contract:
+
+- *The order.* `SYSCALL_TASK_SQUEEZE` (69): `(pid, from_va, out_ptr, out_len)` → the next
+  address to pass, `0` when the walk reached the end. Only the child's parent (`ESRCH`), only
+  when every task of the child's process is frozen and off every hart (`EBUSY`), `from_va`
+  page-aligned and the record buffer the caller's (`EINVAL`/`EFAULT`). Each call writes the
+  batch record `SqueezeBatch` v1 (`version`, `fields`, then `squeezed`, `zero`, `kept`, `taken`
+  — store frames taken — and `stored` — record bytes — as `u64`). One call is one batch: at most
+  16 committed pages examined and 4096 page entries scanned, so the kernel lock is held for
+  ≈ 0.8 ms on the board, never for a whole process.
+- *What is taken.* An object of the child's alone (`vmo_lifetime::squeeze_allowed`): lazy, not
+  sealed, never told to a device, not unlocked for purging, mapped by exactly one region of the
+  child's space and by no other space, named by no capability outside the child's process —
+  refused as `Kind`, `Sealed`, `DeviceBound`, `Unlocked`, `Shared`, `Named`. Per page: zeroes
+  are uncommitted (`zero`; the next touch commits a zeroed frame), a block of at most 3 582 bytes
+  (a record of at most 7/8 of a page) is recorded (`squeezed`), anything else stays mapped
+  (`kept`).
+- *Where it lives.* With the object: a store of 64-byte slots, one occupancy word per store
+  page; a record is a 2-byte length and the block, at most 56 slots, spanning at most two store
+  pages, placed first-fit from the lowest store page with room (a thaw's holes are reused); a
+  store page whose last record went returns its frame at once, the object's death or purge all
+  of them. The object's page word is absent / a frame / a record (tagged; a frame number fits 31
+  bits). Store frames are taken before the object table's lock and returned after it.
+- *The way back.* Every path that commits a lazy page — the user fault, the kernel's checked
+  range, `vmo_write`/`vmo_read`, a device's runs — inflates a squeezed one: a fresh frame inside
+  the object's reach, the record copied out under the table lock, decoded outside it, the length
+  checked to be one page (anything else fails the access as damaged and keeps the record), the
+  word switched, the record released (`inflated_pages`).
+- *The TLB.* A batch clears the PTEs of the pages it changed, runs one shootdown with the kernel
+  lock held, and only then returns their frames to the pool.
+- *The authority.* memd at `critical`, before any kill: the process longest in the suspended
+  band not squeezed since its last band change (a band change makes it a candidate again);
+  `emergency` kills at once. `OP_MEM_SQUEEZE {pid}` to abilitymgr (memd's sender id alone; the
+  instance must be suspended) → `OP_SQUEEZE {pid}` to execd (abilitymgr's sender id alone; a
+  live child) → the batches → the totals back up (`execd: squeeze (…)`, `abilitymgr: squeeze
+  (…)`, `memd: squeeze (…)`). A kernel-sourced squeeze reads the level again when it returns.
+- *The record.* `mm_stats` v5 appends `squeezed_pages`, `store_frames`, `store_bytes`,
+  `inflated_pages`.
+- *Proof.* `KSELFTEST: task squeeze ok (…)` on every lane and the board (the refusals, the
+  three outcomes, the PTEs, every page back byte-exact, the store empty again);
+  `SELFTEST: exec child squeeze ok (…)` on every lane and the board (the launcher's probe child:
+  frozen, squeezed, thawed — it checks its own memory before it answers); `SELFTEST: mem squeeze
+  ok (…)` on the usb-visible lane (memd's drill at the first freeze, the app thawed after it).
+- *Not in 6f-1:* compacting a store, the shared image's clean pages, a record kept after its page
+  came back, squeezing a service.
+
+**The swap stage (6f-2), memd's journal and the `lowmem` lane (6f-3):** filled as built — the
+swap stage moves records to the `swap` partition through blkd with memd as the pager and a
+page-in protocol on the pressure endpoint; the journal is memd's kill ledger in statefs.
 
 ## §6 The restorable contract (6e-1 filled 2026-10-27, ADR-0086)
 

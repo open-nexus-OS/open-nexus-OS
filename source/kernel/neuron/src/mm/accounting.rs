@@ -20,10 +20,11 @@
 /// The record's layout version (bumped on any field change). v3 (TASK-0333 6b-1, ADR-0077):
 /// committed and reserved bytes — a lazy object spans more than it holds. v4 (TASK-0333 6e,
 /// ADR-0085): the caller's shared and purgeable bytes, the pressure level and its watermarks,
-/// the pages purged since boot.
-pub const MM_STATS_VERSION: u32 = 4;
+/// the pages purged since boot. v5 (TASK-0333 6f-1, ADR-0087): the pages held compressed, the
+/// bytes and frames their stores hold, the pages brought back since boot.
+pub const MM_STATS_VERSION: u32 = 5;
 /// 64-bit fields after the 8-byte header.
-pub const MM_STATS_FIELDS: usize = 27;
+pub const MM_STATS_FIELDS: usize = 31;
 /// Bytes of the record: `version: u32`, `fields: u32`, then the fields.
 pub const MM_STATS_BYTES: usize = 8 + MM_STATS_FIELDS * 8;
 
@@ -89,6 +90,14 @@ pub struct MmStats {
     pub watermark_emergency: u64,
     /// Purgeable pages dropped since boot (v4).
     pub purged_pages: u64,
+    /// Pages held compressed now, as records in their objects' stores (v5, ADR-0087).
+    pub squeezed_pages: u64,
+    /// Bytes the records occupy (whole 64-byte slots, v5).
+    pub store_bytes: u64,
+    /// Frames the stores hold (v5).
+    pub store_frames: u64,
+    /// Squeezed pages brought back since boot (v5).
+    pub inflated_pages: u64,
 }
 
 /// A buffer shorter than the record.
@@ -126,6 +135,10 @@ impl MmStats {
             self.watermark_critical,
             self.watermark_emergency,
             self.purged_pages,
+            self.squeezed_pages,
+            self.store_bytes,
+            self.store_frames,
+            self.inflated_pages,
         ]
     }
 
@@ -170,6 +183,7 @@ mod tests {
             fences: 0x77,
             own_reserved_bytes: 0x1234,
             purged_pages: 0x4321,
+            inflated_pages: 0x5678,
             ..Default::default()
         };
         let mut out = [0xffu8; MM_STATS_BYTES + 3];
@@ -179,7 +193,8 @@ mod tests {
         let field = |i: usize| u64::from_le_bytes(out[8 + i * 8..16 + i * 8].try_into().unwrap());
         assert_eq!((field(0), field(1), field(2)), (2, 77280, 1));
         assert_eq!(field(19), 0x1234, "v3's last field keeps its place");
-        assert_eq!(field(MM_STATS_FIELDS - 1), 0x4321);
+        assert_eq!(field(26), 0x4321, "v4's last field keeps its place");
+        assert_eq!(field(MM_STATS_FIELDS - 1), 0x5678);
         assert_eq!(out[MM_STATS_BYTES..], [0xff; 3], "nothing past the record");
     }
 

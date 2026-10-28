@@ -642,7 +642,7 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
     }
     let op = frame[3];
     if let Some(out) = lifecycle::handle_order(state, sender_service_id, op, frame) {
-        return out.to_vec(); // TASK-0333 6d: freeze / thaw / kill, the authority's orders
+        return out; // TASK-0333 6d/6f-1: freeze / thaw / kill / squeeze, the authority's orders
     }
     if op == OP_WAIT_PID {
         // Wait v1: [E,X,ver,OP_WAIT_PID, pid:u32le]

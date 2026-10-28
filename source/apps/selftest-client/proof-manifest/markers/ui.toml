@@ -404,6 +404,22 @@ proves = "the compositor heard the level and told every live app window (windows
 phase = "end"
 proves = "an app window heard the level through the compositor; handled= says whether its program declared the MemoryPressure event"
 
+# TASK-0333 6f-1 (ADR-0087): at the first freeze, before the thaw, the drill at `critical` — memd
+# squeezes the frozen app before any kill: the order to abilitymgr (a suspended instance alone),
+# abilitymgr's to execd, execd's batches; the totals travel back up, the thaw brings the pages back.
+[marker."memd: squeeze (pid="]
+phase = "end"
+
+[marker."abilitymgr: squeeze (inst="]
+phase = "end"
+
+[marker."execd: squeeze (pid="]
+phase = "end"
+
+[marker."SELFTEST: mem squeeze ok ("]
+phase = "end"
+proves = "the memory authority squeezed a frozen app through the lifecycle authority and its parent: pages recorded and frames given back net (pages= net= ratio=% reason= drill or oom)"
+
 [marker."memd: kill (pid="]
 phase = "end"
 

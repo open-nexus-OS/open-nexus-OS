@@ -394,6 +394,7 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(SYSCALL_TASK_RESUME, process_ctl::sys_task_resume);
     table.register(crate::syscall::SYSCALL_TASK_SUSPEND, process_ctl::sys_task_suspend);
     table.register(crate::syscall::SYSCALL_TASK_KILL, process_ctl::sys_task_kill);
+    table.register(crate::syscall::SYSCALL_TASK_SQUEEZE, process_ctl::sys_task_squeeze);
     table.register(SYSCALL_TIMER_CREATE, sys_timer_create);
     table.register(SYSCALL_TIMER_SET, sys_timer_set);
     table.register(SYSCALL_TIMER_CANCEL, sys_timer_cancel);

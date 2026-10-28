@@ -31,6 +31,14 @@ phase = "exec"
 phase = "exec"
 proves = "a frozen child is never dispatched and never answers: a call to it is refused (Frozen) instead of parking the caller, a queued ping is delivered only on the thaw (RFC-0111 §3, ADR-0082)"
 
+# TASK-0333 6f-1 (ADR-0087, RFC-0100 §5): while frozen, the probe child is squeezed by its parent
+# (`task_squeeze` batches until the walk ends): the pattern it wrote into its heap — text, zeroes,
+# noise — and its stack. After the thaw it checks every byte and answers `woke` only when the
+# pattern came back whole; execd names the totals.
+[marker."SELFTEST: exec child squeeze ok ("]
+phase = "exec"
+proves = "a real process frozen, squeezed and thawed finds every byte of its memory as it wrote it: the pages came back through the fault and the kernel's checked range (ADR-0087)"
+
 # TASK-0324 P7-b — death wakes (RFC-0079 on task exit): the probe child exits holding the
 # moved reply SEND cap; execd's blocking EOF-opted recv on its own reply endpoint returns
 # PeerClosed at once — the kernel reaps the child's caps through the same last-peer scan a

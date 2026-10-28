@@ -665,6 +665,14 @@ USB_INPUT_MARKERS=(
   "windowd: minimize id=app"
   "execd: freeze (pid="
   "abilitymgr: suspend (inst="
+  # TASK-0333 6f-1 / ADR-0087: while it is frozen the harness runs the drill at `critical` — memd
+  # squeezes the frozen app before any kill: abilitymgr orders execd, execd runs the batches, the
+  # totals come back up; only then does the injector bring the window back (the pages return on
+  # touch).
+  "execd: squeeze (pid="
+  "abilitymgr: squeeze (inst="
+  "memd: squeeze (pid="
+  "SELFTEST: mem squeeze ok ("
   "execd: thaw (pid="
   "SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)"
   # TASK-0333 6e-1 / ADR-0086: the hidden window wrote its `@persist` record (the grace); then
@@ -755,6 +763,9 @@ expected_sequence=(
   # RFC-0100 §5 (TASK-0333 6f-0): the page compressor measured on this hart — a sample of the
   # image's pages round-trips; the ratio and the cost per page are in the marker.
   "KSELFTEST: mem compress ok ("
+  # ADR-0087 (TASK-0333 6f-1): the squeeze — the parent's order alone, a parked child alone, its
+  # private pages recorded and every one back byte-exact through the fault's fill.
+  "KSELFTEST: task squeeze ok ("
   # ADR-0080 (TASK-0333 6c-1b): a process runs from a sealed image — text and rodata shared,
   # data copied; the refusal matrix of the loader and the seal.
   "KSELFTEST: exec image shared ok ("
@@ -886,6 +897,9 @@ expected_sequence=(
   # a crash report (`SELFTEST: task kill ok`, in the exec-elf chain).
   "KSELFTEST: task freeze ok ("
   "SELFTEST: exec child freeze thaw ok"
+  # ADR-0087 (TASK-0333 6f-1): while frozen the probe child is squeezed by its parent; after the
+  # thaw it finds every byte of the pattern it wrote.
+  "SELFTEST: exec child squeeze ok ("
   "SELFTEST: exec child eof on exit ok"
   "SELFTEST: settings watch ok"
   "SELFTEST: i18n switch ok"
@@ -1376,6 +1390,7 @@ case "${PROFILE:-full}" in
       "KSELFTEST: mem pressure notify ok ("
       "KSELFTEST: vmo purge ok ("
       "KSELFTEST: mem compress ok ("
+      "KSELFTEST: task squeeze ok ("
       "KSELFTEST: exec image shared ok ("
       "KSELFTEST: exec image reject ok ("
       "KSELFTEST: fence transfer ok"
@@ -1436,6 +1451,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: exec child blocking recv wake ok"
       "KSELFTEST: task freeze ok ("
       "SELFTEST: exec child freeze thaw ok"
+      "SELFTEST: exec child squeeze ok ("
       "SELFTEST: exec child eof on exit ok"
       "keystored: ready"
       "rngd: ready"

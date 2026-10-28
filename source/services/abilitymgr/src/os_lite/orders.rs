@@ -27,6 +27,10 @@ use super::{emit_inst_line, emit_line};
 use crate::bands::BandFeed;
 use crate::lifecycle::{AbilityState, Broker};
 use crate::mem_kill::{encode_mem_kill_reply, handle_mem_kill, MemKillOutcome};
+use crate::mem_squeeze::{
+    encode_mem_squeeze_reply, handle_mem_squeeze, mem_squeeze_frame_allowed, MemSqueezeOutcome,
+    Squeezed, MEM_SQUEEZE_REPLY_LEN,
+};
 use crate::protocol::{STATUS_DENIED, STATUS_FAILED, STATUS_MALFORMED, STATUS_OK, STATUS_UNKNOWN};
 use crate::seen::{handle_seen, Order, SeenOutcome};
 
@@ -50,6 +54,8 @@ pub(super) struct Lifecycle {
     bands: BandFeed,
     /// A denied kill order was named this boot (the rest are counted silently).
     kill_denied_said: bool,
+    /// A denied squeeze order was named this boot.
+    squeeze_denied_said: bool,
 }
 
 impl Lifecycle {
@@ -72,6 +78,7 @@ impl Lifecycle {
             memd: None,
             bands: BandFeed::new(),
             kill_denied_said: false,
+            squeeze_denied_said: false,
         }
     }
 
@@ -137,6 +144,56 @@ impl Lifecycle {
                     encode_mem_kill_reply(STATUS_FAILED, pid)
                 }
             }
+        }
+    }
+
+    /// One `OP_MEM_SQUEEZE` frame from `sender_service_id` (TASK-0333 6f-1, ADR-0087): refused
+    /// unless it is the memory authority's; judged by the pure policy (a suspended instance
+    /// alone); the order carried to execd and its totals answered — a waited exchange: the
+    /// squeeze of one app holds this loop for its duration (never the compositor's path).
+    pub(super) fn on_mem_squeeze(
+        &mut self,
+        broker: &Broker,
+        frame: &[u8],
+        sender_service_id: u64,
+    ) -> [u8; MEM_SQUEEZE_REPLY_LEN] {
+        let refused = |status, pid| encode_mem_squeeze_reply(status, pid, Squeezed::default());
+        if !mem_squeeze_frame_allowed(frame, sender_service_id, self.memd_sid) {
+            if !self.squeeze_denied_said {
+                self.squeeze_denied_said = true;
+                emit_line("abilitymgr: squeeze denied (sender)");
+            }
+            return refused(STATUS_DENIED, 0);
+        }
+        match handle_mem_squeeze(broker, frame) {
+            MemSqueezeOutcome::Malformed => {
+                emit_line("abilitymgr: squeeze malformed");
+                refused(STATUS_MALFORMED, 0)
+            }
+            MemSqueezeOutcome::Unknown { pid } => {
+                emit_inst_line(b"abilitymgr: squeeze unknown (pid=", pid);
+                refused(STATUS_UNKNOWN, pid)
+            }
+            MemSqueezeOutcome::NotFrozen { instance_id, pid, .. } => {
+                emit_inst_line(b"abilitymgr: squeeze denied (not frozen; inst=", instance_id);
+                refused(STATUS_DENIED, pid)
+            }
+            MemSqueezeOutcome::Frozen { instance_id, pid } => match order_execd_squeeze(pid) {
+                Some(squeezed) => {
+                    nexus_abi::debug_ts_prefix();
+                    super::emit_prefix(b"abilitymgr: squeeze (inst=");
+                    super::emit_u32(instance_id);
+                    super::emit_prefix(b" pages=");
+                    super::emit_u32(squeezed.pages);
+                    super::emit_prefix(b" reason=memory)");
+                    super::emit_newline();
+                    encode_mem_squeeze_reply(STATUS_OK, pid, squeezed)
+                }
+                None => {
+                    emit_inst_line(b"abilitymgr: FAIL squeeze (inst=", instance_id);
+                    refused(STATUS_FAILED, pid)
+                }
+            },
         }
     }
 
@@ -225,6 +282,31 @@ const OP_FREEZE: u8 = 4;
 const OP_THAW: u8 = 5;
 /// An ORDERED kill (no crash report): the memory authority's victim (ADR-0086).
 const OP_KILL: u8 = 6;
+
+/// The squeeze order to execd (`nexus_wire::execd::OP_SQUEEZE`, ADR-0087) on the declared leg,
+/// answered with the parent's totals; `None` when execd refused or is gone. Waited like every
+/// order (no clock): execd answers once the kernel's walk over the child ended.
+fn order_execd_squeeze(pid: u32) -> Option<Squeezed> {
+    use nexus_wire::execd::{decode_squeeze_rsp, encode_squeeze, STATUS_OK as EXECD_OK};
+    let client = KernelClient::new_with_slots(topo::EXECD.send, topo::EXECD.recv).ok()?;
+    client.send(&encode_squeeze(pid), Wait::Blocking).ok()?;
+    let mut rsp = [0u8; 48];
+    loop {
+        let n = client.recv_into(Wait::Blocking, &mut rsp).ok()?;
+        if let Some((status, of, pages, zero, kept, taken, stored)) =
+            decode_squeeze_rsp(&rsp[..n.min(rsp.len())])
+        {
+            return (status == EXECD_OK && of == pid).then_some(Squeezed {
+                pages,
+                zero,
+                kept,
+                taken,
+                stored,
+            });
+        }
+        // An unrelated frame on the shared channel — keep waiting.
+    }
+}
 
 /// The kernel service id execd gives an app's process (`app:<bundle_id>`, execd's `identity`):
 /// the key the compositor reports a window by.

@@ -180,7 +180,11 @@ Created ─resume─▶ Started ─first present─▶ Foreground ◀─focus/vi
   the sender is the lifecycle authority (`sender_service_id` = abilitymgr's), checks `pid` is
   a LIVE child, executes the order, records an ordered kill before issuing it (the reap reads
   `Killed` as carried out, not a crash), answers with the kernel's result (`orders::
-  order_allowed`, `test_reject_order_from_a_stranger_or_for_a_stranger`).
+  order_allowed`, `test_reject_order_from_a_stranger_or_for_a_stranger`). A fourth order of the
+  same gate came with TASK-0333 6f-1 (ADR-0087, RFC-0100 §5): `OP_SQUEEZE` (7, `nexus_wire::
+  execd`) — the batches of `task_squeeze` (69) over a frozen child until the kernel's walk
+  ends, answered with the totals; abilitymgr carries it for the memory authority
+  (`OP_MEM_SQUEEZE`) for a suspended instance alone.
 - execd → abilitymgr: `OP_INSTANCE_EXITED(pid, code, reason)` (exists, ADR-0073).
 - The policy (`abilitymgr/src/seen.rs`, pure): `Focused` → `Foreground`; `Visible` →
   `Background`; `Hidden` → `Background` with the grace clock running from the FIRST hidden
