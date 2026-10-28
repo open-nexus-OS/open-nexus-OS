@@ -1,0 +1,13 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "nexus-compress"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The page compressor of the memory backing stages (RFC-0100 §5): an LZ4-block codec, no_std, allocation-free, with a bounded decompressor — the one codec the kernel's compressed pool and memd's swap pager share"
+
+[dependencies]
+
+[dev-dependencies]

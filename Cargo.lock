@@ -2068,6 +2068,7 @@ dependencies = [
  "cc",
  "linked_list_allocator",
  "nexus-bootfs",
+ "nexus-compress",
  "nexus-console-ring",
  "nexus-event",
  "nexus-fdt",
@@ -2108,6 +2109,10 @@ dependencies = [
 
 [[package]]
 name = "nexus-bootfs"
+version = "0.1.0"
+
+[[package]]
+name = "nexus-compress"
 version = "0.1.0"
 
 [[package]]

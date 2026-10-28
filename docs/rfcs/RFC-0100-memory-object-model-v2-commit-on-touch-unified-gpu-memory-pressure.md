@@ -17,7 +17,7 @@
 - **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ✅ 2026-10-23 — 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2a ✅ 2026-10-23 (board cycle 65: the app arena reserved, the splash given back, the atlas counted); 6b-2b ✅ 2026-10-23 (board cycle 66, ADR-0078: one pool with the GPU — the ring contiguous, the surfaces lazy and entered as sampled, the GPU's ceiling two thirds of RAM); 6b-3 ✅ 2026-10-23 (board cycle 67: every service's heap frees, a double free refused, an object freed while mapped dies at its unmap)
 - **Phase 2 (6c: sealed images, shared code)**: ⏳ 6c-0 ✅ 2026-10-23 (the OS build's own flags), 6c-1a ✅ 2026-10-25 (board cycle 69, ADR-0079: cache maintenance a non-coherent device's right), 6c-1b ✅ 2026-10-26 (board cycle 70, ADR-0080: `vmo_seal` + `exec_vmo` the one loader, text and rodata mapped from the sealed image's frames, the volume's images sealed before they are verified), 6c-2 ✅ 2026-10-26 (board cycle 71, ADR-0081: the boot image one container — kernel + bootfs under one digest, every core program a sealed object the kernel adopts, no program embeds another; the loader in every chain). **Phase 2 complete**
 - **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals, the restorable contract)**: ✅ 2026-10-27 (both QEMU lanes + board cycle 73; ADR-0085/0086 Accepted) — 6e-0 built 2026-10-27 (ADR-0085: `mm_stats` v4 with shared bytes, the level and its watermarks; the watermarks from each bank's boot-time free; `mem_pressure_bind` (67) — one sink, one frame per level change, the level at the bind; headless proof `KSELFTEST: mem pressure notify ok`, `mem watermarks ok`); 6e-1 built 2026-10-27 (ADR-0086, §6: `restorable = true` → `nexus.permission.STATE` → `svc.state`; the record `/state/app/@self/persist` by kernel identity; written on the compositor's `hidden` sighting and at close, restored before the initial effects; settings' navigation the first; board proof pending in the 6e cycle); 6e-2 built 2026-10-27 (ADR-0086, §3: memd the one authority — the bands from the lifecycle authority, the kill through it, proven by the death; both lanes); 6e-3 lane-proven 2026-10-27 (§4: purgeable VMOs — syscall 68 unlock/lock, the purge at warn before the frame leaves; the level told onward memd → gpud, memd → windowd → every app window → the host event `MemoryPressure`; `KSELFTEST: vmo purge ok` on both lanes, the whole fan-out chain at warn and critical on the visible lane); 6e-4 lane-proven 2026-10-27 (§3: GPU memory charged to its client, gpud → memd `OP_GPU_CHARGE`; the lent framebuffer object charged on both lanes, the context part is the board's — cycle 73 pending)
-- **Phase 4 (6f: the backing stages — compressor, swap)**: ⬜
+- **Phase 4 (6f: the backing stages — compressor, swap)**: ⏳ 6f-0 ✅ 2026-10-28 (board cycle 74; §5: the one codec `nexus-compress` — LZ4 block, bounded decoder, allocation-free; measured in the kernel on every lane and on the board: 47 % on the image's machine code, 49 µs to compress and 16 µs to inflate a page on the board's core — R11 answered: a frozen process is squeezed whole, a fault inflates synchronously); 6f-1 the pool, 6f-2 the swap stage, 6f-3 memd's journal + the `lowmem` lane ⬜
 
 "Complete" means the contract below is defined and every phase's proof gates are green (the
 `KSELFTEST`/`SELFTEST` lines named in TASK-0333 on `headless`, `visible` and `board-visible`).
@@ -251,11 +251,44 @@ object writably, for a lazy or fixed object, and for one a device was ever told 
 (`vmo_runs`). Sealed, the object refuses `vmo_write`, a writable `vm_map` and `vmo_runs` for
 the rest of its life — deterministically, by the object, whoever holds a capability.
 
-## §5 Backing stages (6f, to be filled)
+## §5 Backing stages (6f-0 filled 2026-10-28: the codec and its cost; the pool and the swap stage filled as 6f-1/6f-2 are built)
 
 Under pressure, in this order: purgeable pages dropped → clean file pages dropped → anonymous
 dirty pages compressed into the kernel's pool → compressed pages written to the `swap` partition
 through blkd → `memd`'s kill, by band, journaled. Clean pages are never written to swap.
+
+**The codec (6f-0, built).** One block format on both sides of the stage boundary — the kernel's
+pool and memd's swap pager — so a blob the kernel made is what memd writes and what the kernel
+reads back after a page-in: the LZ4 block format (a token per sequence — a literal run, a 16-bit
+backwards offset, a match of at least four bytes; the last sequence literals only), in
+`source/libs/nexus-compress`: `no_std`, zero dependencies, `forbid(unsafe_code)`,
+allocation-free (the encoder's one hash table, 4 KiB, is the caller's — the kernel keeps one per
+hart, a service one per thread; cleared per call, so a page's blob never depends on what was
+compressed before it). The decoder checks every length and offset against the blob and the page
+it was given: a blob read back from the partition or handed over by a service is untrusted
+bytes, a malformed one a typed error, never a read past the blob or a write past the page
+(`test_reject_truncated_blob`, `test_reject_offset_beyond_output`,
+`test_reject_output_over_the_page`, `test_reject_blob_ending_after_a_match`,
+`test_reject_literal_run_over_the_blob`). The format has no length header: the caller records
+the blob's length and the page's, and a blob that decodes to fewer bytes than a page is refused
+by the caller. A page whose blob is not smaller than the page is kept as it is (`OutputFull`); a
+zero page is a fact a pool records, not a blob.
+
+**Measured (R11, 6f-0).** `KSELFTEST: mem compress ok (pages= zero= ratio=% smaller= us_per_page=
+inflate_us_per_page= sample=image)` on every lane and on the board, in the boot's selftest phase:
+the kernel image's content pages (machine code — the hardest content the codec meets; an app's
+heap compresses better), zero pages counted and skipped. The numbers and their reading are in
+`docs/board/measurements/2026-10-28-backing-stages/README.md`; what they decide: whether a
+frozen process is squeezed whole on memd's order (compress cost per page), whether a fault on a
+squeezed page inflates synchronously (inflate cost per page), and what the pool gains per page
+(the ratio).
+
+**The pool (6f-1), the swap stage (6f-2), memd's journal and the `lowmem` lane (6f-3):** filled
+as built — the squeeze is the parent's order on a frozen child (the lifecycle authority through
+execd, memd asking at critical before any kill), the kernel compresses the child's anonymous
+dirty pages into pool frames and unmaps them, a fault inflates into a fresh frame; the swap stage
+moves blobs to the `swap` partition through blkd with memd as the pager and a page-in protocol
+on the pressure endpoint; the journal is memd's kill ledger in statefs.
 
 ## §6 The restorable contract (6e-1 filled 2026-10-27, ADR-0086)
 
@@ -295,4 +328,8 @@ warm_us=)`; the keyboard's close is Super+Ctrl+W (`windowd: wm chord (zone=close
 - QEMU's virtio backing-entry bound for a per-band attach of the atlas (moved to 6f, `lowmem`:
   6b-2b keeps the virtio display's one eager object).
 - The PTE A/D bits on the board's core (clean/dirty per page in hardware or software) — 6b P0.
-- The compressor's ratio and cost per page on RV64 (R11, 6f P0).
+- ~~The compressor's ratio and cost per page on RV64 (R11, 6f P0).~~ Answered 2026-10-28 (board
+  cycle 74): 47 % on the kernel image's machine code (the ceiling for the pool's gain), 49 µs to
+  compress and 16 µs to inflate a page on the board's core (QEMU TCG: 159 / 56 µs) — the pool
+  squeezes a frozen process whole, the fault handler inflates synchronously
+  (`docs/board/measurements/2026-10-28-backing-stages/README.md`).

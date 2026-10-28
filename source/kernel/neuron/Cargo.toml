@@ -51,6 +51,9 @@ nexus-console-ring = { path = "../../libs/nexus-console-ring" }
 # ADR-0081: the bootfs table's one codec, shared with the packer, the loader and init; no_std,
 # zero deps, alloc-free in the kernel.
 nexus-bootfs = { path = "../../libs/nexus-bootfs" }
+# RFC-0100 §5: the page compressor of the backing stages (the compressed pool, memd's swap
+# pager), one block format on both sides; no_std, zero deps, allocation-free.
+nexus-compress = { path = "../../libs/nexus-compress" }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }

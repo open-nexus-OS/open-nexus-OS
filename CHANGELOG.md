@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-28 (what a page costs to compress on RV64 — TASK-0333 6f-0, RFC-0100 §5)
+
+- **One page codec for the backing stages.** `nexus-compress` is the LZ4 block format the
+  kernel's compressed pool and memd's swap pager will share: `no_std`, zero dependencies, no
+  unsafe code, allocation-free (the encoder's one 4 KiB table is the caller's), and a decoder
+  that checks every length and offset — a blob read back from a partition or handed over by a
+  service is untrusted bytes; a malformed one is a typed error, never a read past the blob or a
+  write past the page.
+- **Measured before anything is built on it.** The kernel compresses and inflates a stride sample
+  of its own image's content pages in the boot's selftest phase and reports the ratio, the pages
+  that came out smaller than a page and the cost per page both ways (`KSELFTEST: mem compress ok
+  (`), on every lane and on the board; the pool and the swap stage are cut by those numbers.
+
 ### Changed - 2026-10-27 (the kernel says how tight memory is, one authority listens, a restorable app comes back where it was — TASK-0333 6e-0…6e-4, ADR-0085, ADR-0086)
 
 - **GPU memory has a client.** Every byte the GPU driver holds, it holds for someone: the

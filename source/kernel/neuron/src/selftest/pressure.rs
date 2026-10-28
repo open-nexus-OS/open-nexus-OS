@@ -9,12 +9,15 @@
 //! level change needs a pool run low — the `lowmem` lane of 6f; the delivery path it would take
 //! is the one proven here. The purge (RFC-0100 §4, 6e-3) rides the same delivery: a lazy object
 //! its owner unlocked loses its pages when `warn` is delivered and says so at the lock; a locked
-//! object, a device-bound one, an eager one and a mapped one are never touched.
+//! object, a device-bound one, an eager one and a mapped one are never touched. The backing
+//! stages' codec (RFC-0100 §5, 6f-0) is measured here where it will run: a sample of the
+//! image's pages round-trips through the page compressor, the ratio and the cost per page on
+//! this hart are the numbers 6f-1 and 6f-2 are cut by.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: `KSELFTEST: mem pressure notify ok (…)`, `KSELFTEST: vmo purge ok (…)`, every
-//!   QEMU lane and the board ladder
+//! TEST_COVERAGE: `KSELFTEST: mem pressure notify ok (…)`, `KSELFTEST: vmo purge ok (…)`,
+//!   `KSELFTEST: mem compress ok (…)`, every QEMU lane and the board ladder
 
 use super::Context;
 use crate::cap::{CapError, Capability, CapabilityKind, Rights};
@@ -189,6 +192,89 @@ pub(super) fn run_purge_selftest(ctx: &mut Context<'_>) {
             empty,
             relocked,
             bound_kept
+        );
+    }
+}
+
+/// RFC-0100 §5 (TASK-0333 6f-0): the page compressor measured on the hart it will run on. The
+/// sample is the kernel image's pages at one stride — text, rodata, data, the stack — each
+/// copied once (the live stack changes under the test), compressed, decompressed and compared.
+/// Zeroed pages are counted and skipped: a pool keeps a zero page as a fact, not a blob, and
+/// they would flatter the ratio. The marker carries the ratio of the pages with content, how
+/// many came out smaller than a page (the ones a pool would keep) and the cost per page both
+/// ways.
+pub(super) fn run_compress_selftest(ctx: &mut Context<'_>) {
+    use crate::hal::Timer;
+    use crate::mm::PAGE_SIZE;
+    // 256 candidates across the whole image (≈ 30 with content: the text, rodata, data — the
+    // rest is zeroed bss, heap and stack); 32 pages bound the boot's cost on a slow emulator.
+    const PAGES: usize = 32;
+    const CANDIDATES: usize = 256;
+    let (start, end) = crate::boot_image::range();
+    let span = end.saturating_sub(start) / PAGE_SIZE;
+    if span < CANDIDATES {
+        log_error!(target: "selftest", "KSELFTEST: mem compress FAIL (image pages={})", span);
+        return;
+    }
+    let stride = span / CANDIDATES;
+    let mut table = alloc::boxed::Box::new(nexus_compress::Table::new());
+    let mut page = alloc::vec![0u8; PAGE_SIZE];
+    let mut blob = alloc::vec![0u8; nexus_compress::max_compressed_len(PAGE_SIZE)];
+    let mut back = alloc::vec![0u8; PAGE_SIZE];
+    let timer = ctx.hal.timer();
+    let (mut pages, mut zero, mut bytes, mut smaller, mut mismatched) = (0usize, 0, 0usize, 0, 0);
+    let (mut compress_ns, mut inflate_ns) = (0u64, 0u64);
+    for i in 0..CANDIDATES {
+        if pages == PAGES {
+            break;
+        }
+        let at = start + i * stride * PAGE_SIZE;
+        // SAFETY: `[at, at + PAGE_SIZE)` lies inside the image range the linker defined
+        // (`i * stride < span`), mapped readable for the kernel's lifetime; the bytes are
+        // copied once and only the copy is used.
+        let src = unsafe { core::slice::from_raw_parts(at as *const u8, PAGE_SIZE) };
+        page.copy_from_slice(src);
+        if page.iter().all(|&b| b == 0) {
+            zero += 1;
+            continue;
+        }
+        pages += 1;
+        let t0 = timer.now();
+        let n = match nexus_compress::compress(&page, &mut blob, &mut table) {
+            Ok(n) => n,
+            Err(e) => {
+                log_error!(target: "selftest", "KSELFTEST: mem compress FAIL (page={} {:?})", i, e);
+                return;
+            }
+        };
+        let t1 = timer.now();
+        let m = nexus_compress::decompress(&blob[..n], &mut back);
+        let t2 = timer.now();
+        compress_ns += t1.saturating_sub(t0);
+        inflate_ns += t2.saturating_sub(t1);
+        bytes += n;
+        smaller += usize::from(n < PAGE_SIZE);
+        mismatched += usize::from(m != Ok(PAGE_SIZE) || back != page);
+    }
+    let per_page_us = |ns: u64| (ns / pages.max(1) as u64 + 500) / 1000;
+    if mismatched == 0 && pages > 0 {
+        log_info!(
+            target: "selftest",
+            "KSELFTEST: mem compress ok (pages={} zero={} ratio={}% smaller={} us_per_page={} inflate_us_per_page={} sample=image)",
+            pages,
+            zero,
+            bytes * 100 / (pages * PAGE_SIZE),
+            smaller,
+            per_page_us(compress_ns),
+            per_page_us(inflate_ns)
+        );
+    } else {
+        log_error!(
+            target: "selftest",
+            "KSELFTEST: mem compress FAIL (pages={} zero={} mismatched={})",
+            pages,
+            zero,
+            mismatched
         );
     }
 }

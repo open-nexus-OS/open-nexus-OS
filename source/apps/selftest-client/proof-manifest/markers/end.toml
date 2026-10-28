@@ -42,6 +42,14 @@ phase = "end"
 [marker."KSELFTEST: vmo purge ok ("]
 phase = "end"
 
+# TASK-0333 6f-0 (RFC-0100 §5): the page compressor of the backing stages measured on the hart
+# it will run on — a stride sample of the kernel image's pages round-trips through the LZ4-block
+# codec; the marker carries the ratio, the pages that came out smaller than a page and the cost
+# per page both ways. The absolutes differ between QEMU (TCG) and the board; the verdict is the
+# round trip.
+[marker."KSELFTEST: mem compress ok ("]
+phase = "end"
+
 # TASK-0333 6e-2 (ADR-0086, RFC-0100 §3): the one memory authority answers the harness that the
 # kernel's pressure endpoint is bound to it (the sink of ADR-0085 has its listener) and names
 # the level of the moment and the app processes it knows. On every lane, at the end phase.

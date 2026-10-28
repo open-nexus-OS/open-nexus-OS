@@ -752,6 +752,9 @@ expected_sequence=(
   # RFC-0100 §4 (TASK-0333 6e-3): a lazy object its owner unlocked loses its pages when `warn` is
   # delivered and says so at the lock; a device-bound, an eager and a mapped object are refused.
   "KSELFTEST: vmo purge ok ("
+  # RFC-0100 §5 (TASK-0333 6f-0): the page compressor measured on this hart — a sample of the
+  # image's pages round-trips; the ratio and the cost per page are in the marker.
+  "KSELFTEST: mem compress ok ("
   # ADR-0080 (TASK-0333 6c-1b): a process runs from a sealed image — text and rodata shared,
   # data copied; the refusal matrix of the loader and the seal.
   "KSELFTEST: exec image shared ok ("
@@ -1372,6 +1375,7 @@ case "${PROFILE:-full}" in
       "KSELFTEST: process ctl ok ("
       "KSELFTEST: mem pressure notify ok ("
       "KSELFTEST: vmo purge ok ("
+      "KSELFTEST: mem compress ok ("
       "KSELFTEST: exec image shared ok ("
       "KSELFTEST: exec image reject ok ("
       "KSELFTEST: fence transfer ok"

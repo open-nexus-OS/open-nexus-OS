@@ -876,6 +876,80 @@ compositor's ghost for a killed window (6g), a process the lifecycle authority n
 (window-only launches, services) — invisible to memd by design (the kernel's emergency last
 resort stays the kernel's).
 
+## 6f — the cut (2026-10-28)
+
+The operator's decision (2026-10-27): 6e closes, 6f next, the board's keyboard path after 6f, 6g
+(RFC-0112) after that. The RFC's open question R11 — the compressor's ratio and cost per page on
+RV64 — is measured before anything is built on it: 6f-0 is the codec and its measurement alone.
+
+Three lenses: **Scope** — in: one new leaf crate `source/libs/nexus-compress` (`no_std`, zero
+deps, `forbid(unsafe_code)`), a kernel selftest + its rung on every ladder, later `mm`'s pool,
+the squeeze order, memd as the pager, the `swap` partition, memd's journal, the `lowmem` profile;
+out: compressing clean file pages (dropped, never written), policy in the kernel (memd orders,
+the kernel executes), swapping uncompressed pages, the keyboard (after 6f). **Invariant** — the
+decoder is bounded: every length and offset is checked against the blob and the page, a
+malformed blob is a typed error, never a read past the blob or a write past the page
+(`test_reject_*` in the crate); a squeeze is the parent's order and only on a frozen child.
+**Contract** — RFC-0100 §5 (filled per step), ADR-0077's fault path extended (6f-1), the new
+syscall and the page-in protocol seeded as RFC/ADR in 6f-1/6f-2.
+
+| Step | What, as built | Proof |
+|---|---|---|
+| 6f-0 | **the page compressor, measured where it will run (RFC-0100 §5)**: `nexus-compress` — the LZ4 block format (token, literal run, 16-bit offset, match ≥ 4; last sequence literals only), 2048-head hash table owned by the caller (4 KiB, cleared per call: a page's blob never depends on history), LZ4's skip in incompressible stretches, 8-byte match extension, a doubling copy in the decoder for overlapping matches (a run of one byte included); `compress` refuses an input beyond 16-bit positions and answers `OutputFull` when the blob would not fit (a page-sized output: "keep the page as it is"); `decompress` checks every length and offset — truncated, zero offset, offset beyond the output, output over the page, a blob ending after a match — and has no length header: the caller compares the returned length with the page. Kernel: `selftest/pressure.rs::run_compress_selftest` samples the kernel image at one stride (1024 candidates, zero pages counted and skipped, up to 64 content pages), copies each page once (the live stack is in the range), compresses, inflates, compares, and reports ratio, `smaller=`, and the cost per page both ways on the hart's clock | host: 13 tests — round trips over zeros, text, noise, overlapping repeats, long runs, every length 0…300 and the 64 KiB maximum, determinism, `test_reject_input_too_long`, `test_reject_output_full_on_an_incompressible_page`, `test_reject_truncated_blob`, `test_reject_offset_beyond_output` (+ zero offset), `test_reject_output_over_the_page` (match and literal run), `test_reject_blob_ending_after_a_match`, `test_reject_literal_run_over_the_blob`; every lane + board: `KSELFTEST: mem compress ok (pages= zero= ratio=% smaller= us_per_page= inflate_us_per_page= sample=image)`; the numbers in `docs/board/measurements/2026-10-28-backing-stages/README.md` |
+| 6f-1 | **the squeeze** (planned): the kernel's compressed pool over the anonymous dirty pages of a frozen child, on the parent's order (memd → abilitymgr → execd → `task_squeeze`, at critical before any kill), the PTE unmapped, the user fault inflating into a fresh frame; `MmStats` fields; an RFC seed for the syscall, an ADR for the order | `KSELFTEST: task squeeze ok (`, `SELFTEST: mem squeeze ok (` |
+| 6f-2 | **the swap stage** (planned): the `swap` partition appended to the layout at a measured size; memd the pager — blobs moved into memd's object, written through blkd, a fault on a swapped page parks the thread and asks memd for the page-in on the pressure endpoint | `lowmem`: `SELFTEST: swap out ok (pages=)` |
+| 6f-3 | **memd's journal + the `lowmem` lane** (planned): memd's route to statefsd, the kill ledger per kill (pid, band, reason, level, free), the `lowmem` profile (`QEMU_MEM=128M`) with a real warn/critical and `reason=oom` | `lowmem`: `SELFTEST: memd journal ok` |
+
+**Status 2026-10-28:** 6f-0 ✅ — host green (13 codec tests), OS-cfg clean under `-D warnings`,
+check/dep-gate/diag/test-host green, the rung on both QEMU ladders and board-test's ladder,
+declared in the proof manifest; headless lane green (`headless--2026-10-28T09-19-50`); the
+usb-visible lane red at the keyboard rungs for the pre-existing input defect (below — reproduced
+on the unchanged HEAD); board cycle 74 (`board--2026-10-28T10-02-54`): `KSELFTEST: mem compress
+ok (pages=29 zero=227 ratio=47% smaller=29 us_per_page=49 inflate_us_per_page=16)`, H1–H5 ✅,
+90/96 rungs — rung 91 `inputd: live keyboard route on` missing (the board's keyboard dead whole
+this cycle, see the README). The numbers decide 6f-1: a frozen process is squeezed WHOLE on
+memd's order, a fault inflates synchronously (16 µs). Next: one commit, then 6f-1.
+
+**Found by the 6f-0 visible lanes (2026-10-28) — two things, one fixed, one filed:**
+
+1. *The pointer injector raced the OSK probes (fixed in the harness).* `SELFTEST: ime v2 cjk jp
+FAIL` in `usb-visible--2026-10-28T09-08-03`, `09-13-45` and on the unchanged HEAD
+(`09-35-54`, the control run) — green in every run of 2026-10-27. In every green run the
+injector's first pointer event (`windowd: input visible on`) came AFTER the OSK composition
+probes; in every red one before or during them (so too in `usb-visible--2026-10-27T16-32-13`,
+whose `cjk jp` miss 6e-3 attributed to the slot hole). The first pointer event makes windowd tell
+imed which WINDOW holds focus (`sync_surface_focus_to_imed`, `FIELD_KIND_NONE`), imed resets its
+composition on that focus transition (by design — a half-typed accent never leaks across fields),
+and the probe's half-typed `nn` is gone. The probes are guest-sequenced, the injector host-timed
+(`inputd: ready` + 100 ms): the order depended on the emulator's speed that day. Fix at the root:
+`tools/qmp_visible_input_inject.py` waits for the guest's last OSK probe line (`SELFTEST: ime
+insert `, ok or FAIL, bounded 20 s, logged when missed) before its first event — `cjk jp ok` in
+both runs since (`09-28-07`, `09-43-47`).
+
+2. *The board's lost letter chords reproduce on QEMU (filed for the keyboard package, after 6f —
+the operator's order of 2026-10-27).* With the probes ordered, the lane goes red one rung later,
+and so does the unchanged HEAD: the injector's Super+Ctrl+M after `SELFTEST: ui v7 tile ok`
+yields no `windowd: wm chord (zone=minimize` (`09-43-47` with 6f-0, `09-35-54` on HEAD) and in
+`08-56-08` the Super+Ctrl+W after the thaw no `zone=close` — the arrow chords of the same run
+(`left-half`, `return`) always arrive. The letter chord lands while windowd is re-creating the
+returned window's surface (`WINDOWD: surface destroyed/created`, `ux input FAIL
+(to_submit_us=155741)`); the one-shot fact survives a newer sample in windowd's input stage by
+design (`input_stage.rs`), so the loss is upstream of it — inputd's letter path (keys to imed)
+against its chord table, or hidrawd's report (`wire skip raw=1 norm=0` is the modifier-only
+report). It is the board's defect of cycle 73 (letters never reach the chord fact, arrows do),
+now with a lane that shows it. Once the chord did arrive (`09-28-07`) the hidden app was never
+frozen: `abilitymgr: bg` → `memd: band hidden` → `apphost: persist saved` and then no `execd:
+freeze` in 150 s, the grace clock (`NotifyTimer::arm_at`, kernel `timer_set` → `arm_wakeup`)
+never waking it — one occurrence, the same package. The lane's one-hart emulator ran slower
+today (`KINIT: milestone 11` 975–998 ms against 952–959 ms; the 6f-0 selftest is ≈ 6 ms of it),
+which is what turned these latent orders into misses. The 6f-0 rung itself is green in every
+run (six visible, four headless): `KSELFTEST: mem compress ok` with the same numbers each time.
+
+**Not in 6f-0:** any consumer of the codec (the pool, the pager), the `swap` partition, the
+`lowmem` profile, memd's journal; a sample of an app's heap (the image's machine code is the
+harder content — the ratio here is a ceiling for the pool's gain); a checksum per blob (the swap
+stage decides whether the partition's integrity is the blob's or the slot's).
+
 ## Definition of Done (per step)
 
 1. The measurement folder answers the step's question with archived numbers from both lanes.

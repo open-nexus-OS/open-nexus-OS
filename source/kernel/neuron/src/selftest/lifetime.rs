@@ -72,6 +72,8 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     // TASK-0333 6e-0 (ADR-0085): the memory pressure sink — bind, the level, the refusal.
     super::pressure::run_pressure_selftests(ctx);
     super::pressure::run_purge_selftest(ctx);
+    // TASK-0333 6f-0 (RFC-0100 §5): the page compressor's ratio and cost, measured here.
+    super::pressure::run_compress_selftest(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
 }
 

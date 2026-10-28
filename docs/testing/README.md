@@ -95,7 +95,12 @@ The full layer reference — including the end-to-end coverage table and the per
      (`[profile.usb-visible]`: launcher env `QEMU_INPUT_TRANSPORT=usb`), the
      `usb` lane's controller, hub, keyboard and mouse instead, and the
      injector's QMP input reaching them (`QEMU_INPUT_AUTOINJECT=1`; the mouse is
-     relative — the injector walks from inputd's start point). The ladder
+     relative — the injector walks from inputd's start point; its first event
+     waits for the guest's last OSK composition probe, `SELFTEST: ime insert `,
+     because the first pointer event makes windowd hand imed the window focus
+     and that transition resets a half-typed composition — the probes are
+     guest-sequenced, the injector host-timed, so without the wait the order
+     depends on the emulator's speed, 2026-10-28). The ladder
      (`USB_INPUT_MARKERS`) requires the chain end to end: hidrawd's USB source
      (`hidrawd: usb hid report seen`, I1, I2), inputd's live routes, the cursor
      moved on screen and `SELFTEST: ui v2 input ok`; then (TASK-0074/0066) the

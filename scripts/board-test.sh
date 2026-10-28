@@ -96,6 +96,9 @@ ladder_headless=(
   # clear — and the booted pool's watermarks in order (two banks on the board).
   "KSELFTEST: mem pressure notify ok ("
   "KSELFTEST: vmo purge ok ("
+  # TASK-0333 6f-0 (RFC-0100 §5): the page compressor's ratio and cost per page on the board's
+  # core — the numbers the pool and the swap stage are cut by.
+  "KSELFTEST: mem compress ok ("
   "KSELFTEST: mem watermarks ok ("
   # TASK-0333 6e-2 (ADR-0086): the one memory authority is up, heard the kernel's first pressure
   # frame at its bind (two banks on the board) and tells the harness the sink is its own.

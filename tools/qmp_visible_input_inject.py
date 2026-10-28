@@ -29,6 +29,15 @@ DEFAULT_WAIT_TIMEOUT_S = 60.0
 DEFAULT_HID_READY_MARKER = "hidrawd: ready"
 DEFAULT_INPUT_READY_MARKER = "inputd: ready"
 DEFAULT_READY_TIMEOUT_S = 30.0
+# The harness's OSK composition probes (bringup phase: `ime v2 osk`, `cjk jp`, `candidates`,
+# `insert`) type through imed's osk endpoint with NO field focused. The first pointer event
+# makes windowd tell imed which WINDOW holds focus (`sync_surface_focus_to_imed`), and that
+# focus transition resets imed's composition — a probe mid-word fails. The guest sequences
+# its probes; the injector is host-timed, so it waits for the LAST osk probe's line (ok or
+# FAIL — the prefix) before the first event. Without the wait the order depends on how fast
+# the emulator runs (2026-10-28: `ime v2 cjk jp FAIL` on a loaded host, green the day before).
+DEFAULT_COMPOSITION_DONE_MARKER = "SELFTEST: ime insert "
+DEFAULT_COMPOSITION_DONE_TIMEOUT_S = 20.0
 DEFAULT_POINTER_ROUTE_MARKER = "windowd: cursor move visible"
 DEFAULT_CLICK_READY_MARKER = "launcher: click visible ok"
 DEFAULT_KEYBOARD_ROUTE_MARKER = "inputd: live keyboard route on"
@@ -294,6 +303,29 @@ def main() -> int:
         wait_for_uart_marker(uart_log_path, wait_marker, wait_timeout_s)
         wait_for_uart_marker(uart_log_path, hid_ready_marker, ready_timeout_s)
         wait_for_uart_marker(uart_log_path, input_ready_marker, ready_timeout_s)
+        # The guest's OSK composition probes must be over before the pointer's first event
+        # (see DEFAULT_COMPOSITION_DONE_MARKER). Bounded: a profile without the probe goes on
+        # after the timeout and says so in the hypothesis log.
+        composition_done_marker = os.environ.get(
+            "QEMU_INPUT_INJECT_COMPOSITION_DONE_MARKER", DEFAULT_COMPOSITION_DONE_MARKER
+        )
+        composition_done_timeout_s = float(
+            os.environ.get(
+                "QEMU_INPUT_INJECT_COMPOSITION_DONE_TIMEOUT_S",
+                str(DEFAULT_COMPOSITION_DONE_TIMEOUT_S),
+            )
+        )
+        try:
+            wait_for_uart_marker(
+                uart_log_path, composition_done_marker, composition_done_timeout_s
+            )
+        except RuntimeError as exc:
+            append_debug_log(
+                "H4",
+                "tools/qmp_visible_input_inject.py:composition-done",
+                "osk composition probes not seen before the pointer's first event",
+                {"marker": composition_done_marker, "error": str(exc)},
+            )
         append_debug_log(
             "H4",
             "tools/qmp_visible_input_inject.py:122",
