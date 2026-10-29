@@ -81,7 +81,13 @@ pub fn handle_ecall(frame: &mut TrapFrame, table: &SyscallTable, ctx: &mut api::
         let _ = u.write_str("\n");
     });
     let mut maybe_ret = None;
-    match table.dispatch(number, ctx, &args) {
+    // ADR-0088: a syscall that touched a swapped page parks its caller until the pager brings
+    // the page back — the syscall re-executes then, the way `Reschedule` does.
+    let result = match table.dispatch(number, ctx, &args) {
+        Err(SysError::PageIn { token, slot }) => Err(api::swap::park_caller(ctx, token, slot)),
+        result => result,
+    };
+    match result {
         Ok(ret) => maybe_ret = Some(ret),
         Err(SysError::TaskExit) => {}
         // Reschedule means: do not advance SEPC and do not write a return value. Trap-exit will
@@ -716,7 +722,7 @@ extern "C" fn __trap_rust(frame: &mut TrapFrame) {
             let from_user = (frame.sstatus & SSTATUS_SPP) == 0;
 
             // ADR-0077: a lazy page is filled and the instruction resumed, not a kill.
-            if from_user && super::fault::fill_user_fault(exc, stval_now) {
+            if from_user && super::fault::fill_user_fault(frame, exc, stval_now) {
                 return;
             }
             if from_user {

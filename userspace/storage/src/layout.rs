@@ -24,7 +24,7 @@ use alloc::vec::Vec;
 
 use crate::gpt::{
     first_usable_lba, last_usable_lba, Partition, GUID_NEXUS_BOOT, GUID_NEXUS_BSB, GUID_NEXUS_DATA,
-    GUID_NEXUS_FW, GUID_NEXUS_STATE, GUID_NEXUS_SYS, GUID_NEXUS_TRACE,
+    GUID_NEXUS_FW, GUID_NEXUS_STATE, GUID_NEXUS_SWAP, GUID_NEXUS_SYS, GUID_NEXUS_TRACE,
 };
 
 const KIB: u64 = 1024;
@@ -53,8 +53,9 @@ pub struct PartitionSpec {
 /// slot), at the offsets the vendor's medium uses. Then RFC-0089 §2's volumes
 /// (normative order); `system-a/b` are RESERVED for the Phase-B bundle-set volumes — empty on
 /// purpose, so the disk never needs repartitioning when that phase lands. Then the boot trace
-/// (`trace`, RFC-0107: eight 1 MiB slots of console text). `swap` (M7) is appended last once M7
-/// has measured its size.
+/// (`trace`, RFC-0107: eight 1 MiB slots of console text), and last the pager's `swap`
+/// (RFC-0100 §5, ADR-0088, TASK-0333 6f-2): 16 384 slots of 4 KiB, one sealed record each —
+/// served by blkd to memd alone.
 pub const NEXUS_DISK_LAYOUT: &[PartitionSpec] = &[
     PartitionSpec {
         name: "opensbi",
@@ -111,10 +112,25 @@ pub const NEXUS_DISK_LAYOUT: &[PartitionSpec] = &[
         size_bytes: 8 * MIB,
         place: Place::Next,
     },
+    PartitionSpec {
+        name: "swap",
+        type_guid: GUID_NEXUS_SWAP,
+        size_bytes: 64 * MIB,
+        place: Place::Next,
+    },
 ];
 
-/// The smallest disk the layout is built for (QEMU's image); a board's disk is larger.
-pub const NEXUS_DISK_BYTES: u64 = 384 * MIB;
+/// The smallest disk the layout is built for (QEMU's image); a board's disk is larger. 448 MiB
+/// since the `swap` partition joined (6f-2; 384 MiB before).
+pub const NEXUS_DISK_BYTES: u64 = 448 * MIB;
+
+/// The smallest disk in MiB, for messages.
+pub const NEXUS_DISK_MIB: u64 = NEXUS_DISK_BYTES / MIB;
+
+/// Partitions whose bytes never outlive a boot — the pager's `swap` (ADR-0088): records sealed
+/// under a key that dies with the boot, none read before this boot wrote it. A flash plan leaves
+/// them out (nothing to carry, and a boot that wrote them would fail a read-back).
+pub const VOLATILE: &[&str] = &["swap"];
 
 /// Alignment of every volume start (1 MiB in 512-byte sectors).
 const ALIGN_LBA: u64 = 2048;
@@ -196,7 +212,9 @@ mod tests {
         assert_eq!(type_of("bsb"), Some(GUID_NEXUS_BSB));
         assert_eq!(type_of("uboot"), Some(GUID_NEXUS_FW));
         assert_eq!(type_of("trace"), Some(GUID_NEXUS_TRACE));
-        assert_eq!(type_of("swap"), None);
+        assert_eq!(type_of("swap"), Some(GUID_NEXUS_SWAP));
+        assert_eq!(type_of("zram"), None);
+        assert!(VOLATILE.iter().all(|name| type_of(name).is_some()), "volatile names are laid out");
         let mut names: Vec<&str> = NEXUS_DISK_LAYOUT.iter().map(|s| s.name).collect();
         names.sort_unstable();
         names.dedup();

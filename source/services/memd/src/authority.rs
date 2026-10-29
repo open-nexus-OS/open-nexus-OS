@@ -6,7 +6,10 @@
 //! frozen app is SQUEEZED before anyone is killed (6f-1): the squeeze candidate
 //! ([`crate::bands::Table::squeeze_candidate`]) is ordered through the carrier and answered
 //! with the parent's totals at once; one decision per level judged — the OS loop reads a
-//! kernel-sourced level again after a squeeze. With no candidate left, or at `emergency`, a
+//! kernel-sourced level again after a squeeze. With no squeeze candidate left and a pager that
+//! can swap (6f-2, ADR-0088), a squeezed frozen app is SWAPPED OUT next ([`crate::bands::Table::
+//! swap_candidate`]) — its records sealed to the pager's disk. With no candidate left, or at
+//! `emergency`, a
 //! level at or past `critical` picks ONE victim ([`crate::bands::Table::victim`]) and orders it;
 //! the kill is PROVEN only when the victim's `gone` band arrives (the parent reaped it, the
 //! lifecycle authority reported it) — the marker says so then, not at the order. A
@@ -23,7 +26,7 @@ use nexus_abi::syscall::memory::{
 };
 
 use crate::bands::{Applied, Table};
-use crate::order::{Orders, Squeezed};
+use crate::order::{Orders, Squeezed, SwappedOut};
 
 /// Where a level came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +71,9 @@ pub enum Decision {
     /// A frozen app was squeezed before any kill (ADR-0087): the parent's totals, `None` when
     /// the order was refused (the app is not asked again until its band changes).
     Squeeze { pid: u32, band: u8, squeezed: Option<Squeezed> },
+    /// A squeezed frozen app was swapped out before any kill (ADR-0088): what went, `None` when
+    /// nothing did (the app is not asked again until its band changes).
+    SwapOut { pid: u32, band: u8, out: Option<SwappedOut> },
 }
 
 /// What a band push did.
@@ -91,6 +97,7 @@ pub struct Authority {
     resumed: u16,
     kills: u16,
     squeezes: u16,
+    swap_outs: u16,
     pending: Option<Pending>,
 }
 
@@ -107,6 +114,7 @@ impl Authority {
             resumed: 0,
             kills: 0,
             squeezes: 0,
+            swap_outs: 0,
             pending: None,
         }
     }
@@ -147,6 +155,12 @@ impl Authority {
         self.squeezes
     }
 
+    /// Swap-outs that moved pages.
+    #[must_use]
+    pub fn swap_outs(&self) -> u16 {
+        self.swap_outs
+    }
+
     /// The kill in flight, if any.
     #[must_use]
     pub fn pending(&self) -> Option<Pending> {
@@ -185,8 +199,9 @@ impl Authority {
     }
 
     /// A level from `source`: at `critical` a frozen app not yet squeezed is squeezed first
-    /// (ADR-0087); otherwise, at or past `critical`, one victim is ordered killed unless a kill
-    /// is already in flight (the pool is re-read when that one is proven).
+    /// (ADR-0087), then a squeezed one is swapped out when the pager can (ADR-0088); otherwise,
+    /// at or past `critical`, one victim is ordered killed unless a kill is already in flight
+    /// (the pool is re-read when that one is proven).
     pub fn judge(&mut self, level: u8, source: Source, orders: &mut dyn Orders) -> Decision {
         if level > MEM_PRESSURE_EMERGENCY || crate::bands::kill_floor(level).is_none() {
             return Decision::None;
@@ -202,6 +217,16 @@ impl Authority {
                     self.squeezes = self.squeezes.saturating_add(1);
                 }
                 return Decision::Squeeze { pid: candidate.pid, band: candidate.band, squeezed };
+            }
+            if let Some(candidate) = self.table.swap_candidate() {
+                if orders.swap_ready() {
+                    self.table.mark_swapped(candidate.pid);
+                    let out = orders.swap_out(candidate.pid).filter(|o| o.pages > 0);
+                    if out.is_some() {
+                        self.swap_outs = self.swap_outs.saturating_add(1);
+                    }
+                    return Decision::SwapOut { pid: candidate.pid, band: candidate.band, out };
+                }
             }
         }
         let Some(victim) = self.table.victim(level) else {

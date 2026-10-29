@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! CONTEXT: the disk an image is built for (TASK-0260 P1/P2, RFC-0089 §2). QEMU's: the image
-//! file is the disk — the layout's 384 MiB, or the size a lane asks for. A board's, from its
+//! file is the disk — the layout's `NEXUS_DISK_BYTES`, or the size a lane asks for. A board's, from its
 //! profile (`config/board/<board>/image.toml`), as the vendor's flash source shows the eMMC
 //! boots (docs/board/measurements/2026-09-26-boot-medium): the user area — exactly the disk's
 //! sector count, so the GPT's backup sits at its last sector, with the head the SPL loads by
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::json;
 use storage::gpt::{crc32_ieee, Partition};
-use storage::layout::NEXUS_DISK_BYTES;
+use storage::layout::{NEXUS_DISK_BYTES, NEXUS_DISK_MIB};
 use storage::BlockDevice;
 
 use crate::cli::ImageBuildArgs;
@@ -120,7 +120,9 @@ pub(crate) fn disk_for(args: &ImageBuildArgs) -> Result<Disk, NxError> {
             None => NEXUS_DISK_BYTES,
             Some(text) => {
                 parse_bytes(text).filter(|b| *b >= NEXUS_DISK_BYTES).ok_or_else(|| {
-                    reject(format!("image: --disk-bytes {text}: sectors of at least 384 MiB"))
+                    reject(format!(
+                        "image: --disk-bytes {text}: sectors of at least {NEXUS_DISK_MIB} MiB"
+                    ))
                 })?
             }
         };
@@ -143,8 +145,9 @@ pub(crate) fn disk_for(args: &ImageBuildArgs) -> Result<Disk, NxError> {
     let profile: Profile = toml::from_str(&text)
         .map_err(|err| reject(format!("image: profile {}: {err}", path.display())))?;
     let bytes = profile.disk.sectors.checked_mul(SECTOR as u64).filter(|b| *b >= NEXUS_DISK_BYTES);
-    let bytes =
-        bytes.ok_or_else(|| reject("image: the board's disk is smaller than 384 MiB".into()))?;
+    let bytes = bytes.ok_or_else(|| {
+        reject(format!("image: the board's disk is smaller than {NEXUS_DISK_MIB} MiB"))
+    })?;
     let base = path.parent().unwrap_or(Path::new("."));
     let header = read(&base.join(&profile.boot0.header))?;
     let spl = read(&base.join(&profile.boot0.spl))?;

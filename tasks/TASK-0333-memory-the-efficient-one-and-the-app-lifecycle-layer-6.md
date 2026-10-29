@@ -1,6 +1,6 @@
 ---
 title: TASK-0333 Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap
-status: In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c ✅ 2026-10-26 (ADR-0081, 989b1474); 6d ✅ 2026-10-27 (35005c8b, board cycle 72b) — 6d-4 → 6g after 6f (RFC-0112); 6e ✅ 2026-10-27 (ADR-0085/0086, both QEMU lanes + board cycle 73; the board's close-and-reopen rung open with the keyboard defect — after 6f); planned 2026-10-19 with the operator)
+status: In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c ✅ 2026-10-26 (ADR-0081, 989b1474); 6d ✅ 2026-10-27 (35005c8b, board cycle 72b) — 6d-4 → 6g after 6f (RFC-0112); 6e ✅ 2026-10-27 (ADR-0085/0086, both QEMU lanes + board cycle 73; the board's close-and-reopen rung open with the keyboard defect — after 6f); 6f-0 ✅ 2026-10-28 (bb6557f9, board cycle 74); 6f-1 ✅ 2026-10-28 (7004801e, ADR-0087, board cycle 75); 6f-2 ✅ 2026-10-28 (ADR-0088, board cycle 76); planned 2026-10-19 with the operator)
 owner: @kernel-team @runtime @ui @gpu
 created: 2026-10-19
 depends-on: [TASK-0286 (M1: frames from the FDT, page-backed VMOs), TASK-0215 (layer 5: the desktop on the GPU)]
@@ -897,7 +897,7 @@ syscall and the page-in protocol seeded as RFC/ADR in 6f-1/6f-2.
 |---|---|---|
 | 6f-0 | **the page compressor, measured where it will run (RFC-0100 §5)**: `nexus-compress` — the LZ4 block format (token, literal run, 16-bit offset, match ≥ 4; last sequence literals only), 2048-head hash table owned by the caller (4 KiB, cleared per call: a page's blob never depends on history), LZ4's skip in incompressible stretches, 8-byte match extension, a doubling copy in the decoder for overlapping matches (a run of one byte included); `compress` refuses an input beyond 16-bit positions and answers `OutputFull` when the blob would not fit (a page-sized output: "keep the page as it is"); `decompress` checks every length and offset — truncated, zero offset, offset beyond the output, output over the page, a blob ending after a match — and has no length header: the caller compares the returned length with the page. Kernel: `selftest/pressure.rs::run_compress_selftest` samples the kernel image at one stride (1024 candidates, zero pages counted and skipped, up to 64 content pages), copies each page once (the live stack is in the range), compresses, inflates, compares, and reports ratio, `smaller=`, and the cost per page both ways on the hart's clock | host: 13 tests — round trips over zeros, text, noise, overlapping repeats, long runs, every length 0…300 and the 64 KiB maximum, determinism, `test_reject_input_too_long`, `test_reject_output_full_on_an_incompressible_page`, `test_reject_truncated_blob`, `test_reject_offset_beyond_output` (+ zero offset), `test_reject_output_over_the_page` (match and literal run), `test_reject_blob_ending_after_a_match`, `test_reject_literal_run_over_the_blob`; every lane + board: `KSELFTEST: mem compress ok (pages= zero= ratio=% smaller= us_per_page= inflate_us_per_page= sample=image)`; the numbers in `docs/board/measurements/2026-10-28-backing-stages/README.md` |
 | 6f-1 | **the squeeze — a frozen app's private memory recorded, every page back on touch (RFC-0100 §5, ADR-0087)**: syscall 69 `task_squeeze(pid, from_va, out, len)` — the parent alone (`ESRCH`), every task of the child parked (`EBUSY`), one bounded batch a call (≤ 16 committed pages examined, ≤ 4096 page words scanned), the next address answered (`0`: done) and a `SqueezeBatch` v1 record written through the caller's own page table; the objects of the child's alone (`vmo_lifetime::squeeze_allowed`: lazy, not sealed, never told to a device, not unlocked, mapped by one region of the child's space and nowhere else, named by no capability outside the process); per page zeroes dropped / a block ≤ 3 582 B recorded / the rest kept; a lazy page's word absent / frame / tagged record (`lazy_pages.rs`), the records in a store per object (`lazy_store.rs`: 64 B slots, one occupancy and one start word per store page, first-fit, an emptied store page back at once, the object's death or purge all of them); `vmo::commit` inflates (the fault, the checked range, `vmo_read`/`vmo_write`, a device's runs — the codec outside the table lock, a record that does not decode to one page fails the access); one shootdown per batch before any frame goes back; `mm_stats` v5 (`squeezed_pages`, `store_bytes`, `store_frames`, `inflated_pages`). The order: memd at `critical` squeezes the longest-suspended app not squeezed since its band changed before any kill (`emergency` kills at once) → abilitymgr `OP_MEM_SQUEEZE` (8, a suspended instance alone) → execd `OP_SQUEEZE` (7, `nexus_wire::execd`) → the batches → the totals back up; a kernel-sourced squeeze reads the level again (`settle`) | host: the store (9 tests incl. 4 `test_reject_*`), the page table (11 incl. 4), the rule (5 `test_reject_squeeze_*`), the ABI record (2), the wire frames (2), abilitymgr's relay (4), memd's policy (5 new, 2 re-cut); every lane + board: `KSELFTEST: task squeeze ok (pages=4 zero=1 kept=1 … reject=stranger,running,shared,device)`, `SELFTEST: exec child squeeze ok (`; usb-visible: `execd: squeeze (`, `abilitymgr: squeeze (`, `memd: squeeze (`, `SELFTEST: mem squeeze ok (` |
-| 6f-2 | **the swap stage** (planned): the `swap` partition appended to the layout at a measured size; memd the pager — blobs moved into memd's object, written through blkd, a fault on a swapped page parks the thread and asks memd for the page-in on the pressure endpoint | `lowmem`: `SELFTEST: swap out ok (pages=)` |
+| 6f-2 | **the swap stage — a frozen app's records sealed out to the pager's disk, a touch parks until the page is back (RFC-0100 §5, ADR-0088)**: the kernel seals every record that leaves it — ChaCha20-Poly1305 under the boot's key (`lazy_seal.rs`: the nonce the kernel-wide counter, the associated data the page's identity), the key seeded once by the RNG service (syscall 70, its kernel identity alone) when the pager first needs it (`OP_SEED_SWAP_KEY`, rngd op 2, memd's identity alone: rngd's entropy device is granted after it starts); a lazy page's fourth state SWAPPED (`lazy_pages.rs`) and the swap map (`lazy_swap.rs`: exported under a counter, committed to a slot; a touch cancels an export, a later export supersedes it); syscalls 71 `swap_export(pid, from_va, buf, len)` (the sink's holder alone, never itself; ≤ 16 records and 4096 page words a call; entries `token, ctr, len, sealed`), 72 `swap_commit(token, ctr, slot)` (`ESRCH` unless the page is still that export's record), 73 `swap_page_in(token, slot, sealed)` (opened under the page's counter and identity, inflated, the waiters woken; stale → `ESRCH`, the waiters woken to retry; forged → `EINVAL`, never entered, the waiters killed with cause `0xF2`; no frame → `ENOMEM`, the request stands); a fault on a swapped page parks its thread (`BlockReason::PageIn`, the instruction re-executes), a syscall parks its caller and re-executes, an IPC call already sent makes its reply buffer writable again before the reply leaves its queue; the requests and drops (`OP_PAGE_IN` 0x72 one per page, `OP_SWAP_DROP` 0x73 32 slots a frame) queued on the pressure sink until it takes them; `mm_stats` v6 (`swapped_pages`, `page_ins`, `parked_faults`, `swap_key`). The disk: `swap` 64 MiB after `trace` (16 384 slots; the smallest disk 448 MiB), block selector 7 served to memd alone (blkd's gate), never flashed (`layout::VOLATILE`). memd the pager (`swap.rs` the books, `pager.rs`): at `critical` after the squeeze the longest-suspended squeezed app's records out — export → write the slot → commit, the partition opened once — a request served at once, a thaw pages the app back before it asks, a drop frees the slots; without a key the policy goes from the squeeze to the kill. The plan's "blobs into memd's object" became the kernel's seal: memd holds ciphertext alone | host: the seal (4 tests incl. 3 `test_reject_*`), the swap map and its buffer (7 incl. 4), the page table's swap steps (4 incl. 2), the notices (2 incl. 1), the ABI's buffer and notices (3), the layout, the selector and blkd's gate (memd on `swap` alone, nothing else), memd's books and policy (8 incl. 4); every lane + board: `KSELFTEST: swap ok (pages=3 sealed=312 parked=1 back=1 killed=1 dropped=2 us= reject=key,sink,nokey,stale,tampered,replayed)`; usb-visible: `rngd: swap key seeded`, `memd: swap on (slots=16384)`, `memd: swap out (`, `SELFTEST: swap out ok (`, `memd: swap in (`, `SELFTEST: swap in ok (`, `memd: swap drop (` |
 | 6f-3 | **memd's journal + the `lowmem` lane** (planned): memd's route to statefsd, the kill ledger per kill (pid, band, reason, level, free), the `lowmem` profile (`QEMU_MEM=128M`) with a real warn/critical and `reason=oom` | `lowmem`: `SELFTEST: memd journal ok` |
 
 **Status 2026-10-28:** 6f-0 ✅ — host green (13 codec tests), OS-cfg clean under `-D warnings`,
@@ -996,6 +996,59 @@ returns on EOF, without the kill.
 4. *The kernel's clippy gate (`just lint-kernel`, run by CI) was red on the unchanged HEAD* — five
 findings in 6d/6e selftest lines (`nonminimal_bool`, `needless_borrow`); fixed in passing (no line
 counts changed), the gate green again.
+
+**Status 2026-10-28 (6f-2, lanes):** built and lane-proven — host green (the kernel's 208 tests,
+the workspace's), `check`/`diag`/`dep-gate`/`lint-kernel` green, the kernel's crypto (the
+workspace's audited AEAD crate, default features off) without a forbidden crate in its graph;
+headless (`headless--2026-10-28T18-09-05`) and usb-visible (`usb-visible--2026-10-28T18-12-21`)
+green end to end. The kernel selftest on both: `KSELFTEST: swap ok (pages=3 sealed=312 parked=1
+back=1 killed=1 dropped=2 us=1602 …)` — the forged answer's one kill named as `MM: page-in refused
+(vmo= page= killed=1)`. The chain on the settings app at its first freeze: squeezed (450 pages →
+468 KB), then at the next drill `rngd: swap key seeded`, `memd: swap on (slots=16384)`, `memd: swap
+out (pid=117 … pages=450 slots=450 reason=drill)` → `SELFTEST: swap out ok (pages=450 slots=450
+reason=drill)`; the thaw: the app touched one page before memd heard its band (served by request)
+and memd paged the other 449 back (`SELFTEST: swap in ok (pages=449)`); `ability lifecycle ok`,
+the restore and the clipboard and capture phases ran on the swapped-and-returned process. The
+second freeze: squeezed (448), swapped out (448), killed — its objects' death told the pager all
+448 slots. The squeeze selftest's share of the boot, measured as cycle 75 asked: `us=2946` on TCG
+(the swap selftest 1602 µs). **6f-2 ✅ 2026-10-28 (board cycle 76, `board--2026-10-28T21-38-30`,
+dev-c71683c0, two boots):** the ladder 99/99 with `KSELFTEST: swap ok (pages=3 sealed=312
+parked=1 back=1 killed=1 dropped=2 us=15013 …)` and `blkd: gpt ok (parts=8)` on the board's harts
+(the forged answer's one kill named once), `init: rng plane none` — the board has no entropy
+device, so no key and nothing swapped, as designed; the FAIL kinds identical to cycle 75; the
+whole test-all chain green (the usb-visible lane once more after a pointer miss of the injector in
+the clipboard phase, a phase 6f-2 does not touch). The selftests' share of the boot: squeeze 9.1
+ms, swap 15.0 ms on the board — the first boot's selftest window 660 ms against cycle 75's 726
+(milestone 11 1861 against 2042 ms; the second boot of the same cycle 754 ms): the window moves
+by ±50 ms between boots of one image, the two selftests are not what grew it. Seven acks with
+their act lines (desktop, typed, pointer, tile, screenshot, gpu-desktop, lifecycle); modal,
+clipboard and restore have none in this boot's trace (no text field focused, no close of
+settings) and stay open.
+
+**Found by board cycle 76 (2026-10-28): execd forgets a live app.** execd's child table holds 16
+entries and evicted the OLDEST, alive or not (`track_child`): the operator opened four apps before
+the harness's 15 probe children ran, settings (pid 92) was pushed out while it ran, and every
+lifecycle order for it was refused by name — `execd: order denied (sender or not a live child;
+pid=92)` → `abilitymgr: FAIL freeze (inst=5)` / `FAIL thaw` (the same refusal would meet a
+squeeze, a swap-out's prerequisite freeze and memd's kill). Latent since 6d; cycle 75's settings
+started after the probes. Next: eviction only of reaped children — never a live one — with a
+host test, before 6f-3.
+
+**Found by the 6f-2 work (2026-10-28):**
+
+1. *rngd gets its entropy device after it starts* (`policyd: mmio rng allow priv` follows `rngd:
+ready`): a seed at its start always missed. The key is seeded on demand — the pager asks rngd
+when a swap is first due (a memd → rngd route, rngd op 2, memd's identity alone); nobody else's
+traffic decides whether swap works.
+2. *A frozen task blocked in an IPC call would have had its reply written into a page a squeeze
+took* (latent since 6f-1): the queued-reply tier copied to the user buffer `ensure_user_range`
+had proven at the commit point, through the caller's address — a squeezed page has no PTE, a
+fault in S-mode panics. The re-executed call now makes the buffer writable again first (a
+squeezed page comes back, a swapped one parks the call, which stays committed).
+3. *blkd serves eight volumes* — the `blkd: gpt ok (parts=8)` rung on both lists.
+4. *The board's flash plan grew a chunk* (the user area ended where `swap` ends): `swap` is
+volatile and is left out (`storage::layout::VOLATILE`) — the flash is as long as before, and a
+boot that wrote slots never fails `--verify`.
 
 **Not in 6f-0:** any consumer of the codec (the pool, the pager), the `swap` partition, the
 `lowmem` profile, memd's journal; a sample of an app's heap (the image's machine code is the

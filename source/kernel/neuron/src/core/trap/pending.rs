@@ -144,9 +144,10 @@ pub(crate) fn run_pending_for_current(
 
 /// Picks the next runnable task for this hart and stages its frame (its space activated); a
 /// task whose space cannot be activated is killed and skipped. With nothing runnable the hart
-/// re-enters its own scheduler loop.
+/// re-enters its own scheduler loop. Shared with the fault path's park on a swapped page
+/// (`fault::fill_user_fault`, ADR-0088).
 #[allow(clippy::too_many_arguments)]
-fn switch_to_next(
+pub(super) fn switch_to_next(
     frame: &mut TrapFrame,
     tasks: &mut task::TaskTable,
     router: &mut ipc::Router,

@@ -169,8 +169,32 @@ fn handle_frame(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
 
     match op {
         OP_GET_ENTROPY => handle_get_entropy(sender_service_id, frame),
+        OP_SEED_SWAP_KEY => handle_seed_swap_key(sender_service_id, frame),
         _ => rsp(op, STATUS_MALFORMED, &[]),
     }
+}
+
+/// The kernel's swap key is seeded (this boot).
+static SWAP_KEY_SEEDED: AtomicBool = AtomicBool::new(false);
+
+/// TASK-0333 6f-2 (ADR-0088): the pager asks for the kernel's swap key when it first needs to
+/// swap — by then the entropy device is granted (it is not yet when this service starts). The
+/// pager's kernel identity alone (deny-by-default); a seeded key answers OK again.
+fn handle_seed_swap_key(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
+    if frame.len() != SEED_SWAP_KEY_REQ_LEN {
+        return rsp(OP_SEED_SWAP_KEY, STATUS_MALFORMED, &[]);
+    }
+    let nonce = u32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
+    if sender_service_id != nexus_abi::service_id_from_name(b"memd") {
+        emit_line("rngd: swap key denied (sender)");
+        return rsp_with_nonce(OP_SEED_SWAP_KEY, STATUS_DENIED, nonce, &[]);
+    }
+    let status = if SWAP_KEY_SEEDED.load(Ordering::Relaxed) || seed_swap_key() {
+        STATUS_OK
+    } else {
+        STATUS_UNAVAILABLE
+    };
+    rsp_with_nonce(OP_SEED_SWAP_KEY, status, nonce, &[])
 }
 
 fn handle_get_entropy(sender_service_id: u64, frame: &[u8]) -> Vec<u8> {
@@ -226,6 +250,46 @@ fn read_entropy_from_device(n: usize) -> Result<Vec<u8>, rng_virtio::RngError> {
     }
 
     result
+}
+
+/// Seeds the kernel's swap key (syscall 70, ADR-0088) from the entropy device, once per boot:
+/// the kernel seals every record that leaves for the pager's disk under it. Without entropy
+/// there is no key and no swap (the kernel refuses every export). The key goes into the kernel
+/// and nowhere else — both copies here are wiped, nothing of it is logged. `true` when the
+/// kernel holds a key now.
+fn seed_swap_key() -> bool {
+    let (seeded, line) = match read_entropy_from_device(nexus_abi::SWAP_KEY_LEN) {
+        Ok(mut bytes) => {
+            let mut key = [0u8; nexus_abi::SWAP_KEY_LEN];
+            let whole = bytes.len() == key.len();
+            if whole {
+                key.copy_from_slice(&bytes);
+            }
+            wipe(&mut bytes);
+            let installed = if whole {
+                nexus_abi::swap_key(&key)
+            } else {
+                Err(nexus_abi::AbiError::InvalidArgument)
+            };
+            wipe(&mut key);
+            match installed {
+                Ok(()) => (true, "rngd: swap key seeded"),
+                // The kernel holds one already (a restarted rngd): the boot's key stands.
+                Err(nexus_abi::AbiError::Busy) => (true, "rngd: swap key held"),
+                Err(_) => (false, "rngd: swap key refused"),
+            }
+        }
+        Err(_) => (false, "rngd: swap key unavailable"),
+    };
+    SWAP_KEY_SEEDED.store(seeded, Ordering::Relaxed);
+    emit_line(line);
+    seeded
+}
+
+/// Overwrite a secret; `black_box` keeps the stores (the buffer is read "afterwards").
+fn wipe(bytes: &mut [u8]) {
+    bytes.fill(0);
+    core::hint::black_box(bytes);
 }
 
 /// Check if the caller has the required capability via policyd.

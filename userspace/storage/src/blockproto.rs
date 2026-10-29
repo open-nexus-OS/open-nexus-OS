@@ -44,7 +44,8 @@ pub const OP_RELEASE_VMO: u8 = 7;
 pub const MAX_VMO_READ_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Partition selectors (stable across the boot; GPT-derived). 0/1 are the
-/// TASK-0293-era selectors; 2..6 joined with the RFC-0089 §2 layout.
+/// TASK-0293-era selectors; 2..6 joined with the RFC-0089 §2 layout; 7 is the
+/// pager's swap slots (RFC-0100 §5, ADR-0088).
 pub const PART_STATE: u8 = 0;
 pub const PART_DATA: u8 = 1;
 pub const PART_BSB: u8 = 2;
@@ -52,8 +53,9 @@ pub const PART_BOOT_A: u8 = 3;
 pub const PART_BOOT_B: u8 = 4;
 pub const PART_SYSTEM_A: u8 = 5;
 pub const PART_SYSTEM_B: u8 = 6;
+pub const PART_SWAP: u8 = 7;
 /// Number of addressable partitions.
-pub const PART_COUNT: u8 = 7;
+pub const PART_COUNT: u8 = 8;
 
 /// FIXED client wiring slots (init pins these at spawn-time distribution — BEFORE any
 /// request can flow, so the statefsd pristine upgrade window can never be beaten by an early
@@ -76,6 +78,7 @@ pub fn part_layout_name(part: u8) -> Option<&'static str> {
         PART_BOOT_B => Some("boot-b"),
         PART_SYSTEM_A => Some("system-a"),
         PART_SYSTEM_B => Some("system-b"),
+        PART_SWAP => Some("swap"),
         _ => None,
     }
 }

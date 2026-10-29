@@ -39,6 +39,11 @@ pub(super) fn sys_mm_stats(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     stats.store_bytes = store_bytes;
     stats.store_frames = store_frames;
     stats.inflated_pages = crate::mm::vmo::squeeze::inflated();
+    // RFC-0100 §5 (ADR-0088): what the pager holds now, what came back, who waited for it.
+    stats.swapped_pages = crate::mm::vmo::swap::swapped();
+    stats.page_ins = crate::mm::vmo::swap::page_ins();
+    stats.parked_faults = crate::mm::swap::parked();
+    stats.swap_key = u64::from(crate::mm::swap::has_key());
     let mut record = [0u8; MM_STATS_BYTES];
     let written = stats.encode(&mut record).map_err(|_| AddressSpaceError::InvalidArgs)?;
     // SAFETY: `out_ptr..out_ptr + MM_STATS_BYTES` was checked to be a user slice.

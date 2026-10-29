@@ -673,7 +673,17 @@ USB_INPUT_MARKERS=(
   "abilitymgr: squeeze (inst="
   "memd: squeeze (pid="
   "SELFTEST: mem squeeze ok ("
+  # TASK-0333 6f-2 / ADR-0088: still frozen, the next drill at `critical` — memd, the pager,
+  # asks the RNG service to seed the kernel's swap key, opens the `swap` partition and seals the
+  # squeezed app's records out (written, then committed); the thaw pages them back before the
+  # app asks.
+  "rngd: swap key seeded"
+  "memd: swap on (slots="
+  "memd: swap out (pid="
+  "SELFTEST: swap out ok ("
   "execd: thaw (pid="
+  "memd: swap in (pid="
+  "SELFTEST: swap in ok ("
   "SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)"
   # TASK-0333 6e-1 / ADR-0086: the hidden window wrote its `@persist` record (the grace); then
   # Super+Ctrl+W closes it (the record again, on the way out), the launcher opens settings once
@@ -698,6 +708,9 @@ USB_INPUT_MARKERS=(
   "memd: kill (pid="
   "abilitymgr: kill (inst="
   "execd: kill (pid="
+  # TASK-0333 6f-2 / ADR-0088: the victim was swapped out first (the drill's second freeze:
+  # squeeze, swap-out, kill); its objects' death tells the pager their slots.
+  "memd: swap drop (slots="
   "SELFTEST: mem pressure kill ok ("
   # TASK-0067B: then it opens the top-bar search, picks Clipboard, types a word no prefill
   # item contains, selects it (Ctrl+A), copies it (Ctrl+C), pastes it back (Ctrl+V) and
@@ -766,6 +779,9 @@ expected_sequence=(
   # ADR-0087 (TASK-0333 6f-1): the squeeze — the parent's order alone, a parked child alone, its
   # private pages recorded and every one back byte-exact through the fault's fill.
   "KSELFTEST: task squeeze ok ("
+  # ADR-0088 (TASK-0333 6f-2): the swap stage — sealed out under the boot's key, a touch parked
+  # until the pager's answer, a forged answer refused (its waiter killed), the drop at death.
+  "KSELFTEST: swap ok ("
   # ADR-0080 (TASK-0333 6c-1b): a process runs from a sealed image — text and rodata shared,
   # data copied; the refusal matrix of the loader and the seal.
   "KSELFTEST: exec image shared ok ("
@@ -959,7 +975,8 @@ expected_sequence=(
   # the backend of the disk the loader recorded (the record read back). P4c:
   # socd answered the owner's bring-up of that node before the disk opened.
   "${BLK_BACKEND_MARKERS[@]}"
-  "blkd: gpt ok (parts=7)"
+  # Eight served volumes since the pager's `swap` joined the layout (TASK-0333 6f-2, ADR-0088).
+  "blkd: gpt ok (parts=8)"
   "blkd: irq endpoint bound"
   # RFC-0107 Phase 2: the owner kept the kernel console ring in this boot's trace slot.
   "blkd: trace os ok (slot="
@@ -1391,6 +1408,7 @@ case "${PROFILE:-full}" in
       "KSELFTEST: vmo purge ok ("
       "KSELFTEST: mem compress ok ("
       "KSELFTEST: task squeeze ok ("
+      "KSELFTEST: swap ok ("
       "KSELFTEST: exec image shared ok ("
       "KSELFTEST: exec image reject ok ("
       "KSELFTEST: fence transfer ok"
@@ -1510,7 +1528,7 @@ case "${PROFILE:-full}" in
       "SELFTEST: app grants ok (app="
       "SELFTEST: app grants put deny ok"
       "${BLK_BACKEND_MARKERS[@]}"
-      "blkd: gpt ok (parts=7)"
+      "blkd: gpt ok (parts=8)"
       "blkd: irq endpoint bound"
       "blkd: trace os ok (slot="
       "statefsd: virtio upgrade ok"

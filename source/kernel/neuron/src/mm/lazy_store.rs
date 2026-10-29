@@ -41,8 +41,9 @@ pub const HEADER: usize = 2;
 pub const MAX_RECORD: usize = PAGE / 8 * 7;
 /// The largest block a record carries.
 pub const MAX_BLOCK: usize = MAX_RECORD - HEADER;
-/// Slot indices a lazy page's word can carry (31 bits, ADR-0087).
-pub const MAX_SLOTS: usize = 0x7FFF_FFFE;
+/// Slot indices a lazy page's word can carry (30 bits: the word's top two bits say record or
+/// swapped, ADR-0087/0088).
+pub const MAX_SLOTS: usize = 0x3FFF_FFFF;
 
 const _: () = assert!(SLOTS_PER_PAGE == 64, "one occupancy word per store page");
 const _: () = assert!(MAX_RECORD.div_ceil(SLOT) <= SLOTS_PER_PAGE, "a record spans <= 2 pages");

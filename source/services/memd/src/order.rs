@@ -10,7 +10,8 @@
 //! abilitymgr refuses an instance that is not suspended and orders the parent (execd
 //! `OP_SQUEEZE`). Both are taken from THIS service's kernel sender id alone. The carrier is a
 //! trait so the host tests drive the same policy with a recording fake and the OS loop with the
-//! declared route.
+//! declared route — and with this service's own pager, which carries the swap-out (6f-2,
+//! ADR-0088).
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal (string-identical to abilitymgr's `protocol.rs` / `mem_squeeze.rs`)
@@ -124,13 +125,58 @@ pub fn mem_squeeze_reply(frame: &[u8], pid: u32) -> Option<Squeezed> {
     })
 }
 
-/// Who carries the authority's orders to the lifecycle authority: the declared route on the OS,
-/// a recording fake in the tests.
+/// The RNG service's envelope (`rngd::protocol`, string-identical) — the pager's one request to
+/// it (TASK-0333 6f-2, ADR-0088): seed the kernel's swap key, now that a swap is due.
+pub const RNGD_MAGIC: [u8; 2] = [b'R', b'G'];
+/// rngd's wire version.
+pub const RNGD_VERSION: u8 = 1;
+/// rngd's `OP_SEED_SWAP_KEY`.
+pub const OP_SEED_SWAP_KEY: u8 = 2;
+/// rngd's `STATUS_OK` (the kernel holds a key now).
+pub const RNGD_STATUS_OK: u8 = 0;
+/// The seed reply's length: the header, the status, the nonce.
+pub const SEED_REPLY_LEN: usize = 9;
+
+/// `[R,G,1,OP_SEED_SWAP_KEY, nonce:u32le]`.
+#[must_use]
+pub fn encode_seed_swap_key(nonce: u32) -> [u8; 8] {
+    let n = nonce.to_le_bytes();
+    [RNGD_MAGIC[0], RNGD_MAGIC[1], RNGD_VERSION, OP_SEED_SWAP_KEY, n[0], n[1], n[2], n[3]]
+}
+
+/// The status of rngd's answer to the seed request `nonce`; `None` for anything else (another
+/// request's reply on the shared inbox, a malformed frame).
+#[must_use]
+pub fn seed_swap_key_status(frame: &[u8], nonce: u32) -> Option<u8> {
+    (frame.len() == SEED_REPLY_LEN
+        && frame[..2] == RNGD_MAGIC
+        && frame[2] == RNGD_VERSION
+        && frame[3] == OP_SEED_SWAP_KEY | 0x80
+        && frame[5..9] == nonce.to_le_bytes())
+    .then_some(frame[4])
+}
+
+/// What a swap-out moved to the pager's disk (ADR-0088).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SwappedOut {
+    /// Pages swapped by this order.
+    pub pages: u32,
+    /// Slots the process holds now, all its swap-outs together.
+    pub slots: u32,
+}
+
+/// Who carries the authority's orders out: the kill and the squeeze to the lifecycle authority
+/// on its declared route, the swap-out by this service's own pager (ADR-0088) — on the OS; a
+/// recording fake in the tests.
 pub trait Orders {
     /// Orders the kill of `pid`; `true` when the authority reports the kill ordered.
     fn kill(&mut self, pid: u32) -> bool;
     /// Orders the squeeze of `pid` (ADR-0087); the parent's totals, `None` when refused.
     fn squeeze(&mut self, pid: u32) -> Option<Squeezed>;
+    /// Whether the pager can swap now (the boot has its key, the partition is there).
+    fn swap_ready(&mut self) -> bool;
+    /// Swaps `pid`'s records out to the pager's disk (ADR-0088); `None` when nothing went.
+    fn swap_out(&mut self, pid: u32) -> Option<SwappedOut>;
 }
 
 /// A carrier that records every order and answers a fixed verdict (tests, the host build).
@@ -148,6 +194,12 @@ pub struct Recording {
     pub verdict: bool,
     /// The answer every squeeze order gets.
     pub squeezed: Option<Squeezed>,
+    /// The pids swapped out, in order.
+    pub swaps: [u32; 8],
+    /// How many were swapped out.
+    pub nw: usize,
+    /// Whether the pager is ready; the answer every swap-out gets.
+    pub swap: Option<SwappedOut>,
 }
 
 impl Recording {
@@ -161,13 +213,34 @@ impl Recording {
             ns: 0,
             verdict: true,
             squeezed: Some(Squeezed { pages: 100, zero: 20, kept: 5, taken: 10, stored: 40_000 }),
+            swaps: [0; 8],
+            nw: 0,
+            swap: None,
         }
+    }
+
+    /// A carrier that reports every order carried out and a ready pager (a swap-out: 90 pages).
+    #[must_use]
+    pub const fn paging() -> Self {
+        let mut carrier = Self::accepting();
+        carrier.swap = Some(SwappedOut { pages: 90, slots: 90 });
+        carrier
     }
 
     /// A carrier that reports every order refused.
     #[must_use]
     pub const fn refusing() -> Self {
-        Self { ordered: [0; 8], n: 0, squeezes: [0; 8], ns: 0, verdict: false, squeezed: None }
+        Self {
+            ordered: [0; 8],
+            n: 0,
+            squeezes: [0; 8],
+            ns: 0,
+            verdict: false,
+            squeezed: None,
+            swaps: [0; 8],
+            nw: 0,
+            swap: None,
+        }
     }
 
     /// The kill orders recorded so far.
@@ -180,6 +253,12 @@ impl Recording {
     #[must_use]
     pub fn squeeze_orders(&self) -> &[u32] {
         &self.squeezes[..self.ns.min(self.squeezes.len())]
+    }
+
+    /// The swap-outs recorded so far.
+    #[must_use]
+    pub fn swap_orders(&self) -> &[u32] {
+        &self.swaps[..self.nw.min(self.swaps.len())]
     }
 }
 
@@ -198,5 +277,17 @@ impl Orders for Recording {
         }
         self.ns += 1;
         self.squeezed
+    }
+
+    fn swap_ready(&mut self) -> bool {
+        self.swap.is_some()
+    }
+
+    fn swap_out(&mut self, pid: u32) -> Option<SwappedOut> {
+        if self.nw < self.swaps.len() {
+            self.swaps[self.nw] = pid;
+        }
+        self.nw += 1;
+        self.swap
     }
 }

@@ -84,7 +84,9 @@ impl TaskQosArgsTyped {
     }
 }
 
-pub(super) fn service_id_from_name(name: &[u8]) -> u64 {
+/// The kernel identity of the service named `name` (FNV-1a 64 of the name init spawned it as) —
+/// what `sender_service_id` carries; crate-wide for the boot proofs that act as a named service.
+pub(crate) fn service_id_from_name(name: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325u64;
     for &b in name {
         h ^= b as u64;

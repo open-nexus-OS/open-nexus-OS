@@ -48,6 +48,11 @@ pub mod protocol {
 
     // Operations
     pub const OP_GET_ENTROPY: u8 = 1;
+    /// TASK-0333 6f-2 (ADR-0088): seed the kernel's swap key — from the pager (memd's kernel
+    /// identity) alone, when it first needs to swap. The key goes from this service straight
+    /// into the kernel (syscall 70); the reply carries a status, never a byte of it.
+    /// Request: MAGIC0 + MAGIC1 + VERSION + OP + nonce:u32le; reply: header + status + nonce.
+    pub const OP_SEED_SWAP_KEY: u8 = 2;
 
     // Response flag
     pub const OP_RESPONSE: u8 = 0x80;
@@ -65,6 +70,9 @@ pub mod protocol {
     /// Request header length for GET_ENTROPY:
     /// MAGIC0 + MAGIC1 + VERSION + OP + nonce:u32le + n:u16le
     pub const GET_ENTROPY_REQ_LEN: usize = 10;
+
+    /// Request length for SEED_SWAP_KEY: MAGIC0 + MAGIC1 + VERSION + OP + nonce:u32le.
+    pub const SEED_SWAP_KEY_REQ_LEN: usize = 8;
 
     /// Capability required for entropy requests.
     pub const CAP_RNG_ENTROPY: &[u8] = b"rng.entropy";

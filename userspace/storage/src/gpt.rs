@@ -41,6 +41,9 @@ pub const GUID_NEXUS_SYS: [u8; 16] = *b"NEXUS-SYS-v1\0\0\0\0";
 pub const GUID_NEXUS_FW: [u8; 16] = *b"NEXUS-FW-v1\0\0\0\0\0";
 /// GPT partition-type GUID for the boot trace (RFC-0107): each boot's console text.
 pub const GUID_NEXUS_TRACE: [u8; 16] = *b"NEXUS-TRACE-v1\0\0";
+/// GPT partition-type GUID for the pager's swap slots (RFC-0100 §5, ADR-0088): sealed records,
+/// one per 4 KiB slot — ciphertext under a key that dies with the boot.
+pub const GUID_NEXUS_SWAP: [u8; 16] = *b"NEXUS-SWAP-v1\0\0\0";
 /// The disk GUID every image carries (deterministic builds); the partitions' unique GUIDs
 /// derive from it and their position.
 pub const NEXUS_DISK_GUID: [u8; 16] = *b"NEXUS-DISK-v1\0\0\0";

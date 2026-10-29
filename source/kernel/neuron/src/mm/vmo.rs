@@ -44,8 +44,13 @@ mod creating;
 pub use creating::{is_creating, set_creating};
 /// Purgeable objects (RFC-0100 §4): the unlock, the lock, the purge at `warn`.
 pub mod purge;
+/// Sealed objects (ADR-0080): the seal, the device-named mark that forbids it.
+mod sealing;
+pub use sealing::{is_sealed, mark_device_named, seal, SealError};
 /// Squeezed pages (RFC-0100 §5, ADR-0087): a page recorded, a page brought back.
 pub mod squeeze;
+/// Swapped pages (RFC-0100 §5, ADR-0088): a record exported, committed, brought back.
+pub mod swap;
 
 /// Objects the table holds at most (a slot is 40 bytes plus its block list).
 pub const MAX_OBJECTS: usize = 4096;
@@ -79,6 +84,9 @@ pub enum VmoError {
     /// A squeezed page's record did not decode to one page (ADR-0087): the access fails, the
     /// record stays.
     Damaged,
+    /// The page is swapped (ADR-0088): it comes back through the pager — a fault or a syscall
+    /// parks on `token` until it does; any other access fails.
+    Swapped { token: u64, slot: u32 },
 }
 
 /// The CPU ranges a lazy object made for a device takes its frames from (ADR-0078): its
@@ -345,44 +353,6 @@ pub fn adopt_sealed(base: usize, len: usize) -> Result<VmoId, VmoError> {
     TABLE.lock().insert(object)
 }
 
-/// Why a seal was refused (ADR-0080).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SealError {
-    /// No live object has this id.
-    NoSuchObject,
-    /// A lazy or fixed object: its pages are not all the object's own, committed frames.
-    Kind,
-    /// A device was told its runs and may write them at any time.
-    DeviceNamed,
-}
-
-/// Seal `id` (ADR-0080): the object has no writer for the rest of its life. Idempotent. The
-/// caller has proven no address space maps it writably (`vm_ops::any_space_maps_vmo_writable`).
-pub fn seal(id: VmoId) -> Result<(), SealError> {
-    let mut table = TABLE.lock();
-    let object = table.get_mut(id).ok_or(SealError::NoSuchObject)?;
-    if object.lazy.is_some() || object.kind == VmoKind::Fixed {
-        return Err(SealError::Kind);
-    }
-    if object.device_named {
-        return Err(SealError::DeviceNamed);
-    }
-    object.sealed = true;
-    Ok(())
-}
-
-/// Whether the live object `id` is sealed (ADR-0080).
-pub fn is_sealed(id: VmoId) -> bool {
-    with(id, |o| o.sealed).unwrap_or(false)
-}
-
-/// Record that a device was told `id`'s runs (`vmo_runs`): never sealable from now on.
-pub fn mark_device_named(id: VmoId) {
-    if let Some(object) = TABLE.lock().get_mut(id) {
-        object.device_named = true;
-    }
-}
-
 /// Destroy: the frames go back to the pool (a `Fixed` object frees nothing)
 /// and the id becomes free. The caller has proven nobody maps or names it.
 pub fn destroy(id: VmoId) -> Result<(), VmoError> {
@@ -397,6 +367,9 @@ pub fn destroy(id: VmoId) -> Result<(), VmoError> {
         for pa in pages.frames().chain(pages.store_frames()) {
             frame_pool::free(Block { base: pa, order: 0 });
         }
+        // The pager's slots of its swapped pages are told free (ADR-0088).
+        let slots: Vec<u32> = pages.swapped_slots().collect();
+        crate::mm::swap::dropped(id, &slots);
     }
     Ok(())
 }
@@ -419,7 +392,8 @@ pub fn is_lazy(id: VmoId) -> bool {
 
 /// Page `index` of `id`, committed now if it was not: a frame from the pool, zeroed before it
 /// is entered — outside the table lock, which is a leaf and never held across a memset. A
-/// squeezed page is brought back instead (ADR-0087, `squeeze::inflate`). A page whose word moved
+/// squeezed page is brought back instead (ADR-0087, `squeeze::inflate`); a swapped one answers
+/// `Swapped` — only the pager brings it back (ADR-0088). A page whose word moved
 /// on between the look and the act is looked at once more (under the kernel lock nothing moves
 /// it). Answers the page's physical address; an eager object answers its translation.
 pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
@@ -436,6 +410,7 @@ pub fn commit(id: VmoId, index: usize) -> Result<usize, VmoError> {
             PageState::Frame(pa) => Some(pa as usize),
             PageState::Record(_) => squeeze::inflate(id, index, within)?,
             PageState::Absent => commit_zeroed(id, index, within)?,
+            PageState::Swapped => return Err(swap::parked_on(id, index)),
         };
         if let Some(pa) = done {
             return Ok(pa);
@@ -470,23 +445,23 @@ fn commit_zeroed(
     match entered {
         Ok(()) => Ok(Some(block.base as usize)),
         Err(Some(CommitError::Committed(pa))) => Ok(Some(pa as usize)),
-        // Squeezed between the look and the commit: the caller looks again and inflates it.
-        Err(Some(CommitError::Squeezed)) => Ok(None),
+        // Squeezed (or swapped) between the look and the commit: the caller looks again.
+        Err(Some(CommitError::Squeezed | CommitError::Swapped)) => Ok(None),
         Err(Some(CommitError::OutOfRange)) => Err(VmoError::BadLength),
         // The object died between the look and the commit.
         Err(None) => Err(VmoError::NoSuchObject),
     }
 }
 
-/// Lazy page `index` of `id` for a read: its frame, `None` when absent (zero) — a squeezed page
-/// is content, never zero: it is brought back first (ADR-0087).
+/// Lazy page `index` of `id` for a read: its frame, `None` when absent (zero) — a squeezed or
+/// swapped page is content, never zero: it is brought back first (ADR-0087, ADR-0088).
 fn resident(id: VmoId, index: usize) -> Result<Option<usize>, VmoError> {
     match with(id, |o| o.lazy.as_ref().and_then(|p| p.state(index)))
         .ok_or(VmoError::NoSuchObject)?
     {
         Some(PageState::Frame(pa)) => Ok(Some(pa as usize)),
         Some(PageState::Absent) => Ok(None),
-        Some(PageState::Record(_)) => commit(id, index).map(Some),
+        Some(PageState::Record(_) | PageState::Swapped) => commit(id, index).map(Some),
         None => Err(VmoError::BadLength),
     }
 }

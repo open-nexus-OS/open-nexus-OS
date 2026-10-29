@@ -135,6 +135,7 @@ pub const REQUIRED_ROUTES: &[(ServiceId, ServiceId)] = &[
     (ServiceId::Memd, ServiceId::Gpud), // 6e-3: the level told to the GPU driver's caches
     (ServiceId::Memd, ServiceId::Windowd), // 6e-3: the level told to every app window
     (ServiceId::Gpud, ServiceId::Memd), // 6e-4: GPU memory charged to its client, told to memd
+    (ServiceId::Memd, ServiceId::Rngd), // 6f-2: the pager asks for the kernel's swap key seed
     // RFC-0092 (TASK-0052 P3): the ingress gateway asks policyd for the
     // declared subject's `net.expose` and drives netstackd (listen/accept/
     // connect/relay); the selftest registers its exposure intents.

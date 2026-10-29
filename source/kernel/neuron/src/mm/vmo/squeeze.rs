@@ -31,8 +31,9 @@ static INFLATED: AtomicU64 = AtomicU64::new(0);
 /// Records that did not decode — named on the console once each, up to a few.
 static DAMAGED: AtomicU64 = AtomicU64::new(0);
 
-/// The direct map as the store's memory: every frame is reachable at its kernel address.
-struct DirectMap;
+/// The direct map as the store's memory: every frame is reachable at its kernel address (the
+/// swap stage releases records through it too, `vmo::swap`).
+pub(super) struct DirectMap;
 
 impl PageMemory for DirectMap {
     fn read(&self, pa: u64, at: usize, out: &mut [u8]) {

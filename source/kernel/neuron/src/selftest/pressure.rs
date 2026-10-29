@@ -31,6 +31,10 @@ use crate::task::Pid;
 #[path = "squeeze.rs"]
 mod squeeze;
 pub(super) use squeeze::run_squeeze_selftest;
+// TASK-0333 6f-2 (ADR-0088): the swap stage — the records sealed out to the pager and back.
+#[path = "swap.rs"]
+mod swap;
+pub(super) use swap::run_swap_selftest;
 
 /// Bootstrap cap slot above the process-ctl selftest's (55).
 const SINK_SLOT: usize = 56;

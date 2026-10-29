@@ -244,3 +244,104 @@ heap's bump arena, 8 MiB reserved) and its stack — exactly what the squeeze ta
   (pid=112)`). **restore not acked:** settings was frozen and thawed but not closed and reopened
   this boot (no `apphost: persist saved (… reason=close)`, no `SELFTEST: app restore ok`) — the act
   stays open for the next cycle.
+
+## 6f-2 — the swap stage (the pager, ADR-0088)
+
+### Question
+
+Can a squeezed frozen app's records leave RAM entirely — to the new `swap` partition, through memd
+and blkd — without either ever holding plaintext, and come back intact when the app is shown again
+or touches a page first? And what do the two kernel selftests of the backing stages cost of the
+boot (cycle 75 could not attribute its selftest window: +115 ms, the squeeze selftest's share
+unmeasured)?
+
+### Instrument
+
+- kernel: `KSELFTEST: swap ok (pages= sealed= parked= back= killed= dropped= us= reject=)` — a
+  synthetic app, RNG service, pager, stranger, waiter and victim against the real syscall table,
+  the fault's own fill and the pressure sink: the refusals (a key from a stranger, a second key,
+  an export by a stranger and without a key, a stranger's commit, the superseded export's, a
+  stale slot, a tampered and a replayed record), two exports, the commits, the fault's and a
+  syscall's verdict on a swapped page, one `OP_PAGE_IN` for two waiters, the page back byte-exact
+  and the waiter woken, a victim killed by a record that does not open, the drop at the object's
+  death; `us=` the whole selftest on the hart's clock. `KSELFTEST: task squeeze ok (… us=)` now
+  carries its duration too.
+- the chain (usb-visible lane): `rngd: swap key seeded`, `memd: swap on (slots=)`, `memd: swap out
+  (pid= band= pages= slots= reason=)`, `SELFTEST: swap out ok (pages= slots= reason=drill)` at the
+  drill's second `critical` of the first freeze; after the thaw `memd: swap in (pid= pages= slots=)`
+  and `SELFTEST: swap in ok (pages=)`; at the second freeze the swap-out, the kill and `memd: swap
+  drop (slots= freed=)`.
+- as before: `KINIT: milestone 11`, the selftest window, the FAIL kinds, the ladders.
+
+### Hypotheses (decided before the lanes and the board cycle)
+
+- **H11 — the mechanism holds on every hart it runs on.** `KSELFTEST: swap ok (pages=3 … parked=1
+  back=1 killed=1 dropped=2 …)` on headless, usb-visible and the board, with the one `MM: page-in
+  refused (… killed=1)` line of its forged answer and no other. Any FAIL: the stage is wrong.
+- **H12 — an app goes out whole and comes back whole.** On the usb-visible lane `swap out ok`
+  names every page the squeeze recorded (`pages=` of `swap out` = `pages=` of `mem squeeze ok`),
+  the thaw brings every slot back (`swap in`'s pages + the pages served on request = the slots
+  out), the app runs on (`ability lifecycle ok`, the restore phase), and the second freeze's kill
+  frees every slot (`swap drop`'s `freed=` = the slots out).
+- **H13 — the backing stages' selftests are cheap.** On the board `task squeeze ok`'s and `swap
+  ok`'s `us=` each stay ≤ 10 ms; above it they are what cycle 75's selftest window grew by.
+- **H14 — the board never swaps.** Its tree names no entropy device (`init: rng plane none`):
+  memd never gets a key, no `memd: swap on` on the board.
+
+### Results
+
+#### QEMU headless (`headless--2026-10-28T18-09-05`) and usb-visible (`usb-visible--2026-10-28T18-12-21`)
+
+| | headless | usb-visible |
+|---|---|---|
+| `KSELFTEST: swap ok` | pages=3 sealed=312 parked=1 back=1 killed=1 dropped=2 us=1602 | identical |
+| `KSELFTEST: task squeeze ok` | … us=2946 | identical |
+| first freeze (settings, pid 117) | — | squeezed 450 → `swap out (pages=450 slots=450)` |
+| the thaw | — | 1 page on request (the app touched it first), `swap in (pages=449 slots=449)` |
+| second freeze (pid 118) | — | squeezed 448 → swapped out 448 → killed → 448 slots dropped |
+
+- **H11 ✅ (QEMU):** the line with the designed counts on both lanes; the forged answer's one
+  kill named once (`MM: page-in refused (vmo=27 page=1 killed=1) record did not open`).
+- **H12 ✅:** 450 out, 449 + 1 back, the thawed app ran the rest of the lane (`ability lifecycle
+  ok`, the warn fan-out heard by its window, the restore, the clipboard and the capture phases);
+  the second freeze's 448 slots all freed by the kernel's drops.
+- **H13 (QEMU part):** 2.9 ms and 1.6 ms on the TCG hart; the board decides.
+
+#### Board cycle 76 (`board--2026-10-28T21-38-30`, dev-c71683c0, two boots; vs cycle 75 `board--2026-10-28T13-00-46`)
+
+| | cycle 76 | cycle 75 |
+|---|---|---|
+| `KSELFTEST: swap ok` | pages=3 sealed=312 parked=1 back=1 killed=1 dropped=2 us=15013 (first boot 15014) | — |
+| `KSELFTEST: task squeeze ok` | … us=9099 (first boot 9103) | (no `us=` yet) |
+| `KSELFTEST: mem compress ok` | ratio=45% us_per_page=46 inflate_us_per_page=14 | ratio=46% 48 / 14 |
+| `SELFTEST: exec child squeeze ok` | pages=11 zero=1 kept=2 taken=2 stored=1060 batches=1 us=723 | … us=632 |
+| `KSELFTEST: bkl budget ok` | max_wait=2883us max_hold=1ms (first boot 3377us / 0ms) | max_wait=2603us max_hold=0ms |
+| `blkd: gpt ok` | parts=8 | parts=7 |
+| the entropy device | `init: rng plane none (no device in the tree)` — no key, nothing swapped | — |
+| ladder (board-visible) | 99/99 | 98/98 |
+| first boot: milestone 1 / window 6→7 / milestone 11 | 961 / 660 / 1861 ms | 1077 / 726 / 2042 ms |
+| second boot (the operator's): milestone 1 / window / milestone 11 | 943 / 754 / 1936 ms | — |
+
+- **H11 ✅:** the designed counts on the board's harts in both boots; the forged answer's one kill
+  named once (`MM: page-in refused (vmo=27 page=1 killed=1)`); the FAIL kinds identical to cycle 75.
+- **H12:** QEMU only — the drill never runs on a board (see the lanes above).
+- **H13 — half:** the squeeze selftest 9.1 ms (≤ 10 ✅), the swap selftest 15.0 ms (over the 10 ms
+  line). What the criterion was for is answered either way: the two together are 24 ms, while the
+  same image's selftest window was 660 ms in one boot and 754 ms in the next — cycle 75's 726 ms
+  was that spread, not the squeeze selftest. The swap selftest's 15 ms is not split by the trace
+  (on TCG it is 1.6 ms, so the board's eight harts — the shootdowns of three spaces' worth of
+  mappings — are the first suspect); a one-page export buffer in the selftest would drop fourteen
+  page commits. Filed, not built.
+- **H14 ✅:** no `memd: swap on` and no `rngd: swap key` line on the board — the tree names no
+  entropy device, so the pager is never even asked.
+- **Acks:** desktop, typed, pointer, tile, screenshot, gpu-desktop, lifecycle — each with its act
+  lines in the second boot (lifecycle: stash `windowd: minimize id=app3` … `execd: freeze
+  (pid=93)` → `abilitymgr: suspend (inst=6)` → `windowd: restore id=app3` → `execd: thaw
+  (pid=93)`; the screenshot `screencapd: saved (kind=screen …)`; the tile `windowd: wm chord
+  (zone=left-half …)`). **modal, clipboard and restore not acked:** the trace has no shutdown
+  alert closed by ESC/Cancel, no text field focused at all (no copy, no paste) and no close of
+  settings.
+- **Found:** execd's child table (16 entries) evicted settings (pid 92) while it ran — the
+  operator opened four apps before the harness's 15 probe children — and every lifecycle order
+  for it was refused (`execd: order denied (sender or not a live child; pid=92)`, `abilitymgr:
+  FAIL freeze (inst=5)`). Latent since 6d; the ledger names the fix for the next step.

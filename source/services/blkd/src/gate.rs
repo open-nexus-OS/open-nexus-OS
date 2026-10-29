@@ -19,6 +19,8 @@ pub struct Gates {
     updated: u64,
     /// TASK-0321 (RFC-0089 §12.5): the system-volume verifier/reader.
     bundlemgrd: u64,
+    /// TASK-0333 6f-2 (ADR-0088): the pager — the swap slots are its alone.
+    memd: u64,
 }
 
 impl Gates {
@@ -31,6 +33,7 @@ impl Gates {
             bootctld: id(b"bootctld"),
             updated: id(b"updated"),
             bundlemgrd: id(b"bundlemgrd"),
+            memd: id(b"memd"),
         }
     }
 
@@ -62,6 +65,10 @@ impl Gates {
             blockproto::PART_SYSTEM_A | blockproto::PART_SYSTEM_B => {
                 sender == self.updated || (read_only && sender == self.bundlemgrd)
             }
+            // TASK-0333 6f-2 (ADR-0088): the swap slots — memd, the pager, reads and writes
+            // them; they hold sealed records only (the kernel keeps the key), and nobody else
+            // may read even those.
+            blockproto::PART_SWAP => sender == self.memd,
             // Anything else: deny-by-default.
             _ => false,
         }

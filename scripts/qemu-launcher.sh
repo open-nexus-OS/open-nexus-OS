@@ -133,7 +133,7 @@ NEXUS_KEEP_BLK=${NEXUS_KEEP_BLK:-0}
 # TASK-0246 P5: a disk larger than the layout (sparse): QEMU's `emmc` model
 # addresses bytes at or below 2 GiB, and the SDHCI core drives sector-addressed
 # cards only. TASK-0260 P1: `nx image build --disk-bytes` builds the image for
-# that disk — its GPT's backup at the disk's end. Empty = the layout's 384 MiB.
+# that disk — its GPT's backup at the disk's end. Empty = the layout's 448 MiB.
 QEMU_BLK_IMG_BYTES=${QEMU_BLK_IMG_BYTES:-}
 # TASK-0328 U1 (RFC-0099): a USB host controller and the devices behind it — the `usb` lane
 # attaches `qemu-xhci` with a hub and HID devices on it; empty (the default) attaches none.

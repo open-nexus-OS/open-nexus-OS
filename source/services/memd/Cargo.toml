@@ -6,15 +6,17 @@ name = "memd"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "The one memory authority (RFC-0100 §3, ADR-0086, TASK-0333 6e): hears the kernel's pressure sink, learns the bands from the lifecycle authority, orders a kill through it"
+description = "The one memory authority (RFC-0100 §3, ADR-0086, TASK-0333 6e): hears the kernel's pressure sink, learns the bands from the lifecycle authority, orders a kill through it; the swap stage's pager (ADR-0088)"
 
 [features]
 default = []
 os-lite = [
     "dep:nexus-ipc",
     "dep:nexus-service-entry",
+    "dep:storage",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
+    "storage/os-lite",
 ]
 
 [package.metadata.nexus-service]
@@ -26,9 +28,13 @@ features = ["os-lite"]
 # The pressure levels and the frame decoder are the ABI's (host and OS alike).
 nexus-abi = { path = "../../libs/nexus-abi" }
 nexus-ipc = { path = "../../../userspace/nexus-ipc", optional = true, default-features = false }
-nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true }
+# 512 KiB: the pager's export buffer (32 KiB) and its slot books join the authority's tables.
+nexus-service-entry = { path = "../../libs/nexus-service-entry", optional = true, features = ["heap-512k"] }
 nexus-service-topology = { path = "../../libs/nexus-service-topology" }
 nexus-wire = { path = "../../libs/nexus-wire" }
+# TASK-0333 6f-2 (ADR-0088): the pager's slots on the `swap` partition, through blkd's block
+# plane (the one client of the protocol: `storage::remote_blk`).
+storage = { path = "../../../userspace/storage", optional = true, default-features = false }
 
 [[bin]]
 name = "memd"

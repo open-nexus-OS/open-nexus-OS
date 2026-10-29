@@ -1956,6 +1956,7 @@ dependencies = [
  "nexus-service-entry",
  "nexus-service-topology",
  "nexus-wire",
+ "storage",
 ]
 
 [[package]]
@@ -2067,6 +2068,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.11.0",
  "cc",
+ "chacha20poly1305",
  "linked_list_allocator",
  "nexus-bootfs",
  "nexus-compress",

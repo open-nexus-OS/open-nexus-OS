@@ -242,6 +242,23 @@ pub const SYSCALL_VMO_PURGEABLE: usize = 68;
 /// lazy pages — zeroes dropped, the rest recorded compressed, a touch brings them back. Args:
 /// (pid, from_va, out_ptr, out_len) → the next va (`0`: done); the batch record at `out_ptr`.
 pub const SYSCALL_TASK_SQUEEZE: usize = 69;
+/// ADR-0088 (RFC-0100 §5, TASK-0333 6f-2): seeds the boot's swap key — once, from the RNG
+/// service's kernel identity alone (`EPERM` otherwise, `EBUSY` for a second key). Without a key
+/// every export is refused. Args: (key_ptr, 32).
+pub const SYSCALL_SWAP_KEY: usize = 70;
+/// ADR-0088: seals one bounded batch of a process's records into the pager's buffer (header,
+/// entries `token, ctr, len, sealed bytes`); the pages stay records until committed. The
+/// pressure sink's holder only. Args: (pid, from_va, buf_ptr, buf_len) → the next va (`0`: done).
+pub const SYSCALL_SWAP_EXPORT: usize = 71;
+/// ADR-0088: the pager wrote the record of `token` sealed under `ctr` to `slot` — the page is
+/// swapped, its record released (`ESRCH`: a touch or a later export superseded it). Args:
+/// (token, ctr, slot).
+pub const SYSCALL_SWAP_COMMIT: usize = 72;
+/// ADR-0088: the pager's answer to `OP_PAGE_IN` (or its prefetch): the sealed record of `token`
+/// from `slot`, opened, inflated into a fresh frame, every thread parked on it woken (`ESRCH`:
+/// stale; `EINVAL`: it did not open — the parked threads are killed). Args: (token, slot,
+/// sealed_ptr, len).
+pub const SYSCALL_SWAP_PAGE_IN: usize = 73;
 /// Transfers a capability into a specific slot in the child task.
 pub const SYSCALL_CAP_TRANSFER_TO: usize = 31;
 /// Returns the last spawn failure reason for the current task (RFC-0013).
@@ -286,6 +303,10 @@ pub enum Error {
     /// RFC-0085: the resource still has live `vm_map` regions (EBUSY) —
     /// e.g. `vmo_destroy` while an address space maps the range.
     ResourceBusy,
+    /// ADR-0088: the syscall touched a swapped page. Never reaches user mode: the syscall entry
+    /// parks the caller on `token` (the pager is asked for `slot`) and the syscall re-executes
+    /// once the page is back, like `Reschedule`.
+    PageIn { token: u64, slot: u32 },
 }
 
 impl From<mm::vm_ops::VmOpError> for Error {

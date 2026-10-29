@@ -44,6 +44,7 @@ mod page_table_verify;
 pub mod populate;
 pub mod pressure_endpoint;
 pub mod squeeze;
+pub mod swap;
 mod tests;
 pub mod usage;
 pub mod vmo;

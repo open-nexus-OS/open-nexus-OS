@@ -66,6 +66,8 @@ pub(super) fn encode_error(err: SysError) -> usize {
         SysError::Wait(wait) => wait_errno(&wait),
         SysError::TaskExit => errno(EINVAL),
         SysError::Reschedule => errno(EAGAIN),
+        // The syscall entry parks on it and re-executes; a stray one is a retry.
+        SysError::PageIn { .. } => errno(EAGAIN),
         SysError::InvalidTarget => errno(ESRCH),
         SysError::RunQueueFull => errno(ENOSPC),
         SysError::Va(va) => va_errno(&va),

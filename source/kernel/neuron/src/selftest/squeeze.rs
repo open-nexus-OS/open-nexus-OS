@@ -54,8 +54,8 @@ fn pattern(page: usize, at: usize) -> u8 {
     }
 }
 
-/// The bytes of committed page `page` of `id`, through the direct map.
-fn page_bytes(id: u32, page: usize) -> Option<&'static mut [u8]> {
+/// The bytes of committed page `page` of `id`, through the direct map (the swap proof's too).
+pub(super) fn page_bytes(id: u32, page: usize) -> Option<&'static mut [u8]> {
     let pa = vmo::translate(id, page * PAGE_SIZE)?;
     // SAFETY: a committed frame of an object this selftest made and alone uses; the slice is
     // dropped before the frame can go back to the pool.
@@ -64,7 +64,8 @@ fn page_bytes(id: u32, page: usize) -> Option<&'static mut [u8]> {
     })
 }
 
-fn record(
+/// `[va, va + len)` of `handle`'s space recorded as a read-write lazy region over `id`.
+pub(super) fn record(
     spaces: &mut AddressSpaceManager,
     handle: AsHandle,
     va: usize,
@@ -98,6 +99,11 @@ fn batch(out: u32) -> Option<[u64; 5]> {
 }
 
 pub(in crate::selftest) fn run_squeeze_selftest(ctx: &mut Context<'_>) {
+    use crate::hal::Timer;
+    // The whole selftest on the hart's clock (`us=`): its share of the boot, measured where it
+    // runs (6f-2's first question — cycle 75's selftest window was not attributable).
+    let clock = ctx.hal.timer();
+    let started = clock.now();
     let fail =
         |step: &str| log_error!(target: "selftest", "KSELFTEST: task squeeze FAIL ({})", step);
     ctx.tasks.set_current(Pid::KERNEL);
@@ -246,6 +252,7 @@ pub(in crate::selftest) fn run_squeeze_selftest(ctx: &mut Context<'_>) {
     let (end_pages, _, end_frames) = vmo::squeeze::stats();
     let died = end_pages == base_pages && end_frames == base_frames;
     sys.tasks.set_current(Pid::KERNEL);
+    let us = clock.now().saturating_sub(started) / 1000;
 
     if stranger_refused
         && running_refused
@@ -264,13 +271,14 @@ pub(in crate::selftest) fn run_squeeze_selftest(ctx: &mut Context<'_>) {
     {
         log_info!(
             target: "selftest",
-            "KSELFTEST: task squeeze ok (pages={} zero={} kept={} store={} stored={} inflated={} reject=stranger,running,shared,device)",
+            "KSELFTEST: task squeeze ok (pages={} zero={} kept={} store={} stored={} inflated={} us={} reject=stranger,running,shared,device)",
             squeezed,
             zero,
             kept,
             taken,
             stored,
-            inflated
+            inflated,
+            us
         );
     } else {
         log_error!(

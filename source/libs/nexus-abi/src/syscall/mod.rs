@@ -13,6 +13,7 @@ pub mod ipc;
 pub mod memory;
 pub mod pressure;
 pub mod squeeze;
+pub mod swap;
 pub mod task;
 pub mod time;
 pub mod types;
@@ -25,6 +26,7 @@ pub use ipc::*;
 #[cfg(nexus_env = "os")]
 pub use memory::*;
 pub use squeeze::*;
+pub use swap::*;
 #[cfg(nexus_env = "os")]
 pub use task::*;
 #[cfg(nexus_env = "os")]

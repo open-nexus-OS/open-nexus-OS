@@ -147,7 +147,7 @@ pub(crate) struct ImageBuildArgs {
     #[arg(long, default_value = "qemu")]
     pub(crate) target: String,
     /// The disk's size for `--target qemu` (bytes, or with a K/M/G suffix), e.g. the SDHCI
-    /// lane's 4G; at least the layout's 384 MiB (the default).
+    /// lane's 4G; at least the layout's `NEXUS_DISK_BYTES` (448 MiB, the default).
     #[arg(long)]
     pub(crate) disk_bytes: Option<String>,
     /// A board's image profile (default: `config/board/<target>/image.toml`).

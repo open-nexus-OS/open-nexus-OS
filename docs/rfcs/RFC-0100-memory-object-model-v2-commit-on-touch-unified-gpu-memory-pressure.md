@@ -17,7 +17,7 @@
 - **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ✅ 2026-10-23 — 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2a ✅ 2026-10-23 (board cycle 65: the app arena reserved, the splash given back, the atlas counted); 6b-2b ✅ 2026-10-23 (board cycle 66, ADR-0078: one pool with the GPU — the ring contiguous, the surfaces lazy and entered as sampled, the GPU's ceiling two thirds of RAM); 6b-3 ✅ 2026-10-23 (board cycle 67: every service's heap frees, a double free refused, an object freed while mapped dies at its unmap)
 - **Phase 2 (6c: sealed images, shared code)**: ⏳ 6c-0 ✅ 2026-10-23 (the OS build's own flags), 6c-1a ✅ 2026-10-25 (board cycle 69, ADR-0079: cache maintenance a non-coherent device's right), 6c-1b ✅ 2026-10-26 (board cycle 70, ADR-0080: `vmo_seal` + `exec_vmo` the one loader, text and rodata mapped from the sealed image's frames, the volume's images sealed before they are verified), 6c-2 ✅ 2026-10-26 (board cycle 71, ADR-0081: the boot image one container — kernel + bootfs under one digest, every core program a sealed object the kernel adopts, no program embeds another; the loader in every chain). **Phase 2 complete**
 - **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals, the restorable contract)**: ✅ 2026-10-27 (both QEMU lanes + board cycle 73; ADR-0085/0086 Accepted) — 6e-0 built 2026-10-27 (ADR-0085: `mm_stats` v4 with shared bytes, the level and its watermarks; the watermarks from each bank's boot-time free; `mem_pressure_bind` (67) — one sink, one frame per level change, the level at the bind; headless proof `KSELFTEST: mem pressure notify ok`, `mem watermarks ok`); 6e-1 built 2026-10-27 (ADR-0086, §6: `restorable = true` → `nexus.permission.STATE` → `svc.state`; the record `/state/app/@self/persist` by kernel identity; written on the compositor's `hidden` sighting and at close, restored before the initial effects; settings' navigation the first; board proof pending in the 6e cycle); 6e-2 built 2026-10-27 (ADR-0086, §3: memd the one authority — the bands from the lifecycle authority, the kill through it, proven by the death; both lanes); 6e-3 lane-proven 2026-10-27 (§4: purgeable VMOs — syscall 68 unlock/lock, the purge at warn before the frame leaves; the level told onward memd → gpud, memd → windowd → every app window → the host event `MemoryPressure`; `KSELFTEST: vmo purge ok` on both lanes, the whole fan-out chain at warn and critical on the visible lane); 6e-4 lane-proven 2026-10-27 (§3: GPU memory charged to its client, gpud → memd `OP_GPU_CHARGE`; the lent framebuffer object charged on both lanes, the context part is the board's — cycle 73 pending)
-- **Phase 4 (6f: the backing stages — compressor, swap)**: ⏳ 6f-0 ✅ 2026-10-28 (board cycle 74; §5: the one codec `nexus-compress` — LZ4 block, bounded decoder, allocation-free; measured in the kernel on every lane and on the board: 47 % on the image's machine code, 49 µs to compress and 16 µs to inflate a page on the board's core — R11 answered: a frozen process is squeezed whole, a fault inflates synchronously); 6f-1 ✅ 2026-10-28 (board cycle 75; §5 "The pool", ADR-0087 Accepted: `task_squeeze` (69), the store per object, every commit path inflates, memd squeezes before it kills — an app-host's heap and stack 1.8 MB → 468 KB on the usb-visible lane, the probe child's squeeze 45 µs a page on the board's core); 6f-2 the swap stage, 6f-3 memd's journal + the `lowmem` lane ⬜
+- **Phase 4 (6f: the backing stages — compressor, swap)**: ⏳ 6f-0 ✅ 2026-10-28 (board cycle 74; §5: the one codec `nexus-compress` — LZ4 block, bounded decoder, allocation-free; measured in the kernel on every lane and on the board: 47 % on the image's machine code, 49 µs to compress and 16 µs to inflate a page on the board's core — R11 answered: a frozen process is squeezed whole, a fault inflates synchronously); 6f-1 ✅ 2026-10-28 (board cycle 75; §5 "The pool", ADR-0087 Accepted: `task_squeeze` (69), the store per object, every commit path inflates, memd squeezes before it kills — an app-host's heap and stack 1.8 MB → 468 KB on the usb-visible lane, the probe child's squeeze 45 µs a page on the board's core); 6f-2 ✅ 2026-10-28 (board cycle 76; §5 "The swap stage", ADR-0088 Accepted: the records sealed under the boot's key (ChaCha20-Poly1305, the RNG service seeds it on the pager's request), `swap_export`/`_commit`/`_page_in` (71–73), a touch parks until the pager's answer, the `swap` partition memd's alone — on the usb-visible lane a frozen app-host's 450 squeezed pages out to the pager's disk and back at the thaw; on the board's harts `KSELFTEST: swap ok`, no key there — no entropy device); 6f-3 memd's journal + the `lowmem` lane ⬜
 
 "Complete" means the contract below is defined and every phase's proof gates are green (the
 `KSELFTEST`/`SELFTEST` lines named in TASK-0333 on `headless`, `visible` and `board-visible`).
@@ -331,9 +331,68 @@ the private 0.3–2.2 MB is its lazy `.bss` (the heap's bump arena) and its stac
 - *Not in 6f-1:* compacting a store, the shared image's clean pages, a record kept after its page
   came back, squeezing a service.
 
-**The swap stage (6f-2), memd's journal and the `lowmem` lane (6f-3):** filled as built — the
-swap stage moves records to the `swap` partition through blkd with memd as the pager and a
-page-in protocol on the pressure endpoint; the journal is memd's kill ledger in statefs.
+**The swap stage (6f-2, ADR-0088).** The records of the pool leave RAM sealed, through memd and
+blkd, and come back on touch. The contract:
+
+- *The key.* `SYSCALL_SWAP_KEY` (70): `(key_ptr, 32)`, once per boot, from the RNG service's kernel
+  service id alone (`EPERM` for anyone else, `EBUSY` for a second key). Without a key every export
+  is refused (`EINVAL`): no entropy, no swap. The RNG service's entropy device is granted after
+  it starts, so the key is seeded on demand: the pager asks the RNG service (`OP_SEED_SWAP_KEY`,
+  rngd op 2, memd's kernel identity alone — `rngd: swap key seeded`, or `unavailable` without a
+  device) when it first needs to swap; the key goes from rngd into the kernel, never through memd.
+  `mm_stats` says whether the boot has its key.
+- *The seal.* ChaCha20-Poly1305: the nonce a kernel-wide 64-bit counter (never reused within the
+  boot), the associated data the page's identity — the object id and the page index; a sealed
+  record is the record's bytes plus a 16-byte tag (3 600 bytes at most).
+- *Export.* `SYSCALL_SWAP_EXPORT` (71): `(pid, from_va, buf_ptr, buf_len)` → the next address
+  (`0`: done). Only the pressure sink's holder (`EPERM`); the target is any live process but the
+  pager itself (`ESRCH`), its lazy regions walked like a squeeze (the same eligibility); at most 16
+  records and 4 096 page words a call, while the buffer holds the largest entry. The buffer:
+  `version: u32, count: u32`, then per record `token: u64` (object id << 32 | page index), `ctr:
+  u64` (the counter it was sealed under), `len: u16`, `pad: u16`, the sealed bytes padded to 4.
+  The page stays a record; the kernel remembers it as exported under its counter — a second
+  export of a page not yet committed supersedes the first.
+- *Commit.* `SYSCALL_SWAP_COMMIT` (72): `(token, ctr, slot)` — the page is still the record of
+  that very export (`ESRCH` otherwise: a touch inflated it, a later export superseded it, the
+  object is gone): it becomes swapped at `slot`, its record is released (the store page back when
+  it empties).
+- *Page-in.* A user fault on a swapped page parks the thread (`BlockReason::PageIn {token}`; the
+  instruction re-executes); a syscall touching one parks its caller and re-executes (as
+  `Reschedule`) — an IPC call already sent makes its reply buffer writable again before the reply
+  leaves its queue. The first parked thread queues `OP_PAGE_IN (0x72) {token: u64, slot: u32}` on
+  the pressure sink (one request per page, however many threads wait; queued until the sink takes
+  it); `SYSCALL_SWAP_PAGE_IN` (73): `(token, slot, sealed_ptr, len)` from the sink's holder — the
+  kernel opens it with the page's counter and identity, inflates it into a fresh frame, wakes
+  every thread parked on the token. `ESRCH`: the page is not swapped in that slot (stale — its
+  waiters are woken to retry); `EINVAL`: the record did not open or decode — refused, never
+  entered, the threads parked on it killed (`ExitReason::Fault`, cause `0xF2`; `MM: page-in
+  refused (vmo= page= killed=)`); `ENOMEM`: no frame now, the request stands (the pager tries
+  again). No sink holder at the fault: the page cannot come back — the fault kills, a syscall is
+  `EFAULT`; waiters of a pager that died are woken to meet that.
+- *Drops.* An object destroyed or purged with swapped pages queues its slots on the sink as
+  `OP_SWAP_DROP (0x73) {count: u8, slot: u32 × count}` (32 a frame): the pager frees them.
+- *The record.* `mm_stats` v6 appends `swapped_pages`, `page_ins`, `parked_faults`, `swap_key`.
+- *The disk.* `swap` appended to the layout (64 MiB, after `trace`; the smallest disk 448 MiB, was
+  384); block selector 7 (`blkd: gpt ok (parts=8)`); blkd's gate grants it to memd alone, read and
+  write; one 4 KiB slot per sealed record — its length (`u16`), then the bytes.
+- *The pager.* memd, at `critical` after the squeeze: the longest-suspended squeezed app's records
+  out (export → write → commit, `memd: swap out (pid= band= pages= slots=)`; the partition opened
+  once, `memd: swap on (slots=)`); an `OP_PAGE_IN` served at once; a band leaving `suspended`
+  pages the app's slots back before it asks (`memd: swap in (pid= pages= slots=)`); a drop frees
+  the slots. Then the kill, as before. Without a key: `memd: swap off (no key)`, once, and the
+  policy goes from the squeeze to the kill.
+- *Proof.* `KSELFTEST: swap ok (…)` on every lane and the board (the boot proof's own key
+  installed and removed around it: the refusals — a key from anyone but the RNG service, a second
+  key, an export by a stranger and without a key, a stranger's commit, the superseded export's, a
+  stale slot, a tampered and a replayed record — export, commit, the fault's and a syscall's
+  verdict, one request for two waiters, the page-in byte-exact and the wake, a waiter killed by a
+  record that does not open, the drop at the object's death); `SELFTEST: swap out ok (` and
+  `SELFTEST: swap in ok (` on the usb-visible lane (the drill's second `critical` at the first
+  freeze, then the thaw). The board has no entropy device: memd's first `critical` would say
+  `memd: swap off (no key)`.
+
+**memd's journal and the `lowmem` lane (6f-3):** filled as built — the journal is memd's kill
+ledger in statefs.
 
 ## §6 The restorable contract (6e-1 filled 2026-10-27, ADR-0086)
 

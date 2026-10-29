@@ -76,6 +76,8 @@ pub(super) fn run_lifetime_selftests(ctx: &mut Context<'_>) {
     super::pressure::run_compress_selftest(ctx);
     // TASK-0333 6f-1 (ADR-0087): the squeeze — the parent's order, a parked child, the way back.
     super::pressure::run_squeeze_selftest(ctx);
+    // TASK-0333 6f-2 (ADR-0088): the swap stage — sealed out, parked, paged back, dropped.
+    super::pressure::run_swap_selftest(ctx);
     ctx.tasks.set_current(Pid::KERNEL);
 }
 

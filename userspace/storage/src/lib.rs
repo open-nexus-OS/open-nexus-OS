@@ -78,7 +78,7 @@ pub trait BlockDevice {
 /// In-memory block device. SPARSE by construction: only blocks that were
 /// actually written occupy memory, and unwritten blocks read as zero —
 /// exactly like a freshly provisioned device. Dense preallocation made a
-/// full-layout fixture (384 MiB) cost its whole size per test instance,
+/// full-layout fixture (448 MiB) cost its whole size per test instance,
 /// and eight parallel tests were OOM-killed by it.
 pub struct MemBlockDevice {
     block_size: usize,

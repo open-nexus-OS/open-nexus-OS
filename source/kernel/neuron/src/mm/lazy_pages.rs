@@ -8,18 +8,22 @@
 //! committed once; a squeeze turns a frame into a record and hands the frame back to the caller
 //! (who returns it to the pool once no TLB can reach it); an inflate turns the record back into
 //! a frame in two steps — the record copied out, decoded by the caller outside the table lock,
-//! then entered — so the decode never runs under the lock. Split out of `lazy.rs` (the rules)
-//! with the store beside it (`lazy_store.rs`).
+//! then entered — so the decode never runs under the lock. A fourth state came with the swap
+//! stage (6f-2, ADR-0088): SWAPPED — the record left for the pager's disk in two phases (an export
+//! keeps the page a record, the pager's commit makes it swapped; a touch between cancels the
+//! export), the slot and the seal's counter in the swap map (`lazy_swap.rs`). Split out of
+//! `lazy.rs` (the rules) with the store beside it (`lazy_store.rs`).
 //!
 //! NOT target-gated (a child of `lazy`).
 //!
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional (TASK-0333 6b-1; the record state 6f-1)
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: unit tests below — a page committed once, counts, bounds, the purge; a page
-//!   squeezed and brought back byte-exact, a zero page dropped, the store gone with its last
-//!   record (`test_reject_*`: a commit over a record, a squeeze of a page that holds no frame, an
-//!   inflate of a page whose word moved on)
+//! TEST_COVERAGE: `lazy_pages_tests.rs` — a page committed once, counts, bounds, the purge; a
+//!   page squeezed and brought back byte-exact, a zero page dropped, the store gone with its last
+//!   record; a page exported, swapped and back (`test_reject_*`: a commit over a record, a
+//!   squeeze of a page that holds no frame, an inflate of a page whose word moved on, a swap
+//!   commit after a touch or naming another export, a swap step out of order)
 //! INVARIANTS: a page has at most one frame or one record, never both; a frame number fits 31
 //!   bits; `committed` counts the frames, `squeezed` the records.
 
@@ -27,12 +31,16 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use super::store::{PageMemory, Released, Spare, Store, StoreError};
+use super::swap::{SwapEntry, SwapError, SwapPages};
 use super::PAGE;
 
 /// A page's word: never touched (or purged, or dropped as zeroes).
 const NONE: u32 = u32::MAX;
-/// The tag of a word that names a record: the rest is the record's first slot (ADR-0087).
+/// The tag of a word that names a record: the rest is the record's first slot (ADR-0087; a slot
+/// fits 30 bits, `store::MAX_SLOTS`).
 const RECORD: u32 = 1 << 31;
+/// The word of a swapped page (ADR-0088): its slot and counter are in the object's swap map.
+const SWAPPED: u32 = 0xC000_0000;
 
 /// What one page of a lazy object holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +51,9 @@ pub enum PageState {
     Frame(u64),
     /// The page lives as the record starting at this slot of the object's store.
     Record(u32),
+    /// The page's sealed record is in the pager's slot (`swap_entry`): a touch parks until it
+    /// is back (ADR-0088).
+    Swapped,
 }
 
 /// Why a commit was refused.
@@ -52,8 +63,25 @@ pub enum CommitError {
     Committed(u64),
     /// The page lives as a record: it is inflated, not committed afresh.
     Squeezed,
+    /// The page is swapped: it comes back through the pager, not committed afresh.
+    Swapped,
     /// The page lies past the object's end, or the frame does not fit the table's word.
     OutOfRange,
+}
+
+/// Why a swap step was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwapStateError {
+    /// The page lies past the object's end, or the frame does not fit the table's word.
+    OutOfRange,
+    /// An export or a commit needs a record; this page holds none.
+    NotARecord,
+    /// A swap-in needs a swapped page; this one is not.
+    NotSwapped,
+    /// The swap map refused (exported already, not exported, swapped already).
+    Swap(SwapError),
+    /// The store refused to release the record.
+    Store(StoreError),
 }
 
 /// Why a squeeze or an inflate step was refused.
@@ -79,11 +107,15 @@ pub struct LazyPages {
     squeezed: usize,
     /// The records of the squeezed pages, made at the first squeeze, gone with the last record.
     store: Option<Box<Store>>,
+    /// The exported and swapped pages (ADR-0088): their counters and the pager's slots.
+    swap: SwapPages,
 }
 
 fn decode(word: u32) -> PageState {
     if word == NONE {
         PageState::Absent
+    } else if word == SWAPPED {
+        PageState::Swapped
     } else if word & RECORD != 0 {
         PageState::Record(word & !RECORD)
     } else {
@@ -101,7 +133,13 @@ impl LazyPages {
     /// `pages` pages, none committed.
     #[must_use]
     pub fn new(pages: usize) -> Self {
-        Self { words: alloc::vec![NONE; pages], committed: 0, squeezed: 0, store: None }
+        Self {
+            words: alloc::vec![NONE; pages],
+            committed: 0,
+            squeezed: 0,
+            store: None,
+            swap: SwapPages::new(),
+        }
     }
 
     /// Pages the object spans.
@@ -146,6 +184,7 @@ impl LazyPages {
             PageState::Absent => {}
             PageState::Frame(existing) => return Err(CommitError::Committed(existing)),
             PageState::Record(_) => return Err(CommitError::Squeezed),
+            PageState::Swapped => return Err(CommitError::Swapped),
         }
         *entry = word;
         self.committed += 1;
@@ -181,7 +220,8 @@ impl LazyPages {
     }
 
     /// A purge (RFC-0100 §4): every committed frame in page order, then every store frame, for
-    /// the caller to return to the pool; every page is absent again — zero on its next touch.
+    /// the caller to return to the pool; every page is absent again — zero on its next touch. The
+    /// swapped pages' slots are the caller's to tell the pager first (`swapped_slots`).
     pub fn purge(&mut self) -> Vec<u64> {
         let mut frames: Vec<u64> = self.frames().collect();
         frames.extend(self.store_frames());
@@ -191,7 +231,86 @@ impl LazyPages {
         self.committed = 0;
         self.squeezed = 0;
         self.store = None;
+        self.swap.clear();
         frames
+    }
+
+    /// Pages swapped (their sealed records in the pager's slots).
+    #[must_use]
+    pub fn swapped(&self) -> usize {
+        self.swap.swapped()
+    }
+
+    /// The pager's slots of the swapped pages (an object's death or purge tells them).
+    pub fn swapped_slots(&self) -> impl Iterator<Item = u32> + '_ {
+        self.swap.slots()
+    }
+
+    /// Page `index`'s swap entry (exported or swapped).
+    #[must_use]
+    pub fn swap_entry(&self, index: usize) -> Option<SwapEntry> {
+        self.swap.get(u32::try_from(index).ok()?)
+    }
+
+    /// Export page `index`'s record under `ctr` (ADR-0088): the page stays a record — and is
+    /// inflated as one on a touch — until the pager commits it.
+    pub fn export(&mut self, index: usize, ctr: u64) -> Result<(), SwapStateError> {
+        let page = u32::try_from(index).map_err(|_| SwapStateError::OutOfRange)?;
+        match self.state(index).ok_or(SwapStateError::OutOfRange)? {
+            PageState::Record(_) => self.swap.export(page, ctr).map_err(SwapStateError::Swap),
+            _ => Err(SwapStateError::NotARecord),
+        }
+    }
+
+    /// The pager wrote page `index`'s record, sealed under `ctr`, to `slot`: the page is swapped
+    /// and its record released. Refused unless the page is still the record of that very export
+    /// (a touch cancels an export; a later export records another counter). Answers the store
+    /// frames that emptied.
+    pub fn swap_commit(
+        &mut self,
+        index: usize,
+        ctr: u64,
+        slot: u32,
+        mem: &impl PageMemory,
+    ) -> Result<Released, SwapStateError> {
+        let page = u32::try_from(index).map_err(|_| SwapStateError::OutOfRange)?;
+        let record = match self.state(index).ok_or(SwapStateError::OutOfRange)? {
+            PageState::Record(record) => record,
+            _ => return Err(SwapStateError::NotARecord),
+        };
+        if self.swap.get(page).is_none_or(|e| e.ctr != ctr || e.slot.is_some()) {
+            return Err(SwapStateError::Swap(SwapError::NotExported));
+        }
+        let store = self.store.as_mut().ok_or(SwapStateError::Store(StoreError::NotARecord))?;
+        let released = store.release(record, mem).map_err(SwapStateError::Store)?;
+        if store.records() == 0 {
+            self.store = None;
+        }
+        self.swap.commit(page, ctr, slot).map_err(SwapStateError::Swap)?;
+        self.words[index] = SWAPPED;
+        self.squeezed -= 1;
+        Ok(released)
+    }
+
+    /// Page `index` came back (ADR-0088): the caller opened the sealed record `entry` names and
+    /// decoded it into the frame `pa`; the page holds it and its swap entry is gone. Refused
+    /// (`NotSwapped`) when the page is no longer swapped as `entry` says.
+    pub fn swap_in(
+        &mut self,
+        index: usize,
+        entry: SwapEntry,
+        pa: u64,
+    ) -> Result<(), SwapStateError> {
+        let word = frame_word(pa).ok_or(SwapStateError::OutOfRange)?;
+        if self.state(index).ok_or(SwapStateError::OutOfRange)? != PageState::Swapped
+            || self.swap_entry(index) != Some(entry)
+        {
+            return Err(SwapStateError::NotSwapped);
+        }
+        self.swap.remove(entry.index);
+        self.words[index] = word;
+        self.committed += 1;
+        Ok(())
     }
 
     /// Squeeze page `index` (ADR-0087): its content is now `block`, a record in the object's
@@ -270,167 +389,12 @@ impl LazyPages {
         self.words[index] = word;
         self.squeezed -= 1;
         self.committed += 1;
+        // A touch cancels an export the pager has not committed yet (ADR-0088).
+        self.swap.remove(index as u32);
         Ok(released)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::store::tests::Frames;
-    use super::super::store::MAX_BLOCK;
-    use super::*;
-
-    #[test]
-    fn a_page_is_committed_once_and_keeps_its_frame() {
-        let mut pages = LazyPages::new(8);
-        assert_eq!(pages.committed(), 0);
-        assert_eq!(pages.frame(2), None);
-        pages.commit(2, 0x8000_3000).unwrap();
-        assert_eq!(pages.frame(2), Some(0x8000_3000));
-        assert_eq!(pages.commit(2, 0x8000_9000), Err(CommitError::Committed(0x8000_3000)));
-        assert_eq!(pages.committed(), 1, "a refused commit counts nothing");
-        pages.commit(7, 0x1_2000_0000).unwrap();
-        assert_eq!(pages.committed_in(0, 8), 2);
-        assert_eq!(pages.committed_in(3, 4), 0);
-        assert_eq!(pages.committed_in(6, 100), 1, "a count past the end is clipped");
-        assert_eq!(pages.frames().collect::<Vec<_>>(), [0x8000_3000, 0x1_2000_0000]);
-    }
-
-    #[test]
-    fn test_reject_a_commit_past_the_end_or_of_a_frame_the_table_cannot_hold() {
-        let mut pages = LazyPages::new(4);
-        assert_eq!(pages.commit(4, 0x8000_0000), Err(CommitError::OutOfRange));
-        assert_eq!(pages.commit(0, 0x8000_0010), Err(CommitError::OutOfRange), "unaligned");
-        assert_eq!(pages.commit(0, 1 << 46), Err(CommitError::OutOfRange), "beyond 64 TiB");
-        assert_eq!(pages.commit(0, 1 << 43), Err(CommitError::OutOfRange), "the record tag's bit");
-        assert_eq!(pages.committed(), 0);
-        pages.commit(0, (1 << 43) - PAGE as u64).unwrap();
-        assert_eq!(pages.frame(0), Some((1 << 43) - PAGE as u64), "the last frame below 8 TiB");
-    }
-
-    /// A purge hands back exactly the committed frames and leaves every page uncommitted; a
-    /// second purge hands back nothing; a page committed again counts again.
-    #[test]
-    fn a_purge_returns_the_committed_frames_and_uncommits_every_page() {
-        let mut pages = LazyPages::new(4);
-        pages.commit(1, 0x8000_1000).unwrap();
-        pages.commit(3, 0x8000_3000).unwrap();
-        assert_eq!(pages.purge(), [0x8000_1000, 0x8000_3000]);
-        assert_eq!(pages.committed(), 0);
-        assert_eq!(pages.frame(1), None);
-        assert!(pages.purge().is_empty());
-        pages.commit(1, 0x8000_5000).unwrap();
-        assert_eq!(pages.committed(), 1);
-        assert_eq!(pages.frame(1), Some(0x8000_5000));
-    }
-
-    /// The whole way: a page squeezed (its frame handed back, the word a record), read back,
-    /// entered into a fresh frame (the record released, the store gone with its last record).
-    #[test]
-    fn a_squeezed_page_comes_back_into_a_fresh_frame() {
-        let mut mem = Frames::default();
-        let mut pages = LazyPages::new(4);
-        pages.commit(1, 0x9000_1000).unwrap();
-        let block: Vec<u8> = (0..900u32).map(|i| (i % 251) as u8).collect();
-        let mut spare = mem.spare();
-        assert_eq!(pages.squeeze(1, &block, &mut spare, &mut mem), Ok(0x9000_1000));
-        assert!(matches!(pages.state(1), Some(PageState::Record(_))));
-        assert_eq!((pages.committed(), pages.squeezed()), (0, 1));
-        assert_eq!(pages.frame(1), None, "a record is no frame");
-        assert_eq!(pages.committed_in(0, 4), 0, "and counts as none");
-        assert_eq!(pages.store_stats().2, 1);
-        let mut out = vec![0u8; MAX_BLOCK];
-        let (slot, len) = pages.record(1, &mut out, &mem).unwrap();
-        assert_eq!(&out[..len], &block[..]);
-        let released = pages.inflated(1, slot, 0x9000_7000, &mem).unwrap();
-        assert_eq!(released.frames().count(), 1, "the store's one page came back");
-        assert_eq!(pages.frame(1), Some(0x9000_7000));
-        assert_eq!((pages.committed(), pages.squeezed(), pages.store_stats()), (1, 0, (0, 0, 0)));
-        assert_eq!(pages.store_frames().count(), 0);
-    }
-
-    /// A page of zeroes is dropped, not recorded: absent again, its frame handed back.
-    #[test]
-    fn a_zero_page_is_dropped() {
-        let mut pages = LazyPages::new(2);
-        pages.commit(0, 0x9000_0000).unwrap();
-        assert_eq!(pages.uncommit(0), Ok(0x9000_0000));
-        assert_eq!(pages.state(0), Some(PageState::Absent));
-        assert_eq!(pages.committed(), 0);
-        assert_eq!(pages.uncommit(0), Err(SqueezeError::NotCommitted));
-    }
-
-    /// The store frames go with a purge; the frames of the committed pages first.
-    #[test]
-    fn a_purge_takes_the_records_and_their_store() {
-        let mut mem = Frames::default();
-        let mut pages = LazyPages::new(3);
-        pages.commit(0, 0x9000_0000).unwrap();
-        pages.commit(2, 0x9000_2000).unwrap();
-        let mut spare = mem.spare();
-        pages.squeeze(2, &[7u8; 300], &mut spare, &mut mem).unwrap();
-        let store_frame = pages.store_frames().next().unwrap();
-        assert_eq!(pages.purge(), [0x9000_0000, store_frame]);
-        assert_eq!((pages.committed(), pages.squeezed(), pages.store_stats()), (0, 0, (0, 0, 0)));
-        assert_eq!(pages.state(2), Some(PageState::Absent));
-    }
-
-    /// A commit never overwrites a record — the content would be lost and the record leaked.
-    #[test]
-    fn test_reject_a_commit_over_a_record() {
-        let mut mem = Frames::default();
-        let mut pages = LazyPages::new(1);
-        pages.commit(0, 0x9000_0000).unwrap();
-        let mut spare = mem.spare();
-        pages.squeeze(0, &[1u8; 64], &mut spare, &mut mem).unwrap();
-        assert_eq!(pages.commit(0, 0x9000_5000), Err(CommitError::Squeezed));
-        assert_eq!(pages.squeezed(), 1);
-    }
-
-    /// Only a committed page is squeezed; a squeeze the store refuses changes nothing.
-    #[test]
-    fn test_reject_a_squeeze_of_a_page_without_a_frame() {
-        let mut mem = Frames::default();
-        let mut pages = LazyPages::new(2);
-        let mut spare = mem.spare();
-        assert_eq!(
-            pages.squeeze(0, &[1u8; 64], &mut spare, &mut mem),
-            Err(SqueezeError::NotCommitted)
-        );
-        assert_eq!(
-            pages.squeeze(9, &[1u8; 64], &mut spare, &mut mem),
-            Err(SqueezeError::OutOfRange)
-        );
-        pages.commit(1, 0x9000_1000).unwrap();
-        let mut none = Spare::new();
-        assert_eq!(
-            pages.squeeze(1, &[1u8; 64], &mut none, &mut mem),
-            Err(SqueezeError::Store(StoreError::NoFrame))
-        );
-        assert_eq!(pages.frame(1), Some(0x9000_1000), "still the frame");
-        assert_eq!((pages.squeezed(), pages.store_stats()), (0, (0, 0, 0)), "no empty store kept");
-    }
-
-    /// An inflate whose page moved on between its two steps, or names another record, is
-    /// refused and leaves the page as it is.
-    #[test]
-    fn test_reject_an_inflate_of_a_page_whose_word_moved_on() {
-        let mut mem = Frames::default();
-        let mut pages = LazyPages::new(2);
-        pages.commit(0, 0x9000_0000).unwrap();
-        pages.commit(1, 0x9000_1000).unwrap();
-        let mut spare = mem.spare();
-        pages.squeeze(0, &[3u8; 100], &mut spare, &mut mem).unwrap();
-        pages.squeeze(1, &[4u8; 100], &mut spare, &mut mem).unwrap();
-        let mut out = vec![0u8; MAX_BLOCK];
-        let (slot0, _) = pages.record(0, &mut out, &mem).unwrap();
-        let (slot1, _) = pages.record(1, &mut out, &mem).unwrap();
-        assert_eq!(pages.inflated(0, slot1, 0x9000_5000, &mem), Err(SqueezeError::Changed));
-        pages.inflated(0, slot0, 0x9000_5000, &mem).unwrap();
-        assert_eq!(pages.inflated(0, slot0, 0x9000_6000, &mem), Err(SqueezeError::Changed));
-        assert_eq!(pages.record(0, &mut out, &mem), Err(SqueezeError::NotSqueezed));
-        assert_eq!(pages.frame(0), Some(0x9000_5000));
-        assert_eq!(pages.squeezed(), 1, "page 1 is still a record");
-        assert_eq!(pages.record(1, &mut out, &mem).map(|r| r.1), Ok(100));
-    }
-}
+#[path = "lazy_pages_tests.rs"]
+mod tests;

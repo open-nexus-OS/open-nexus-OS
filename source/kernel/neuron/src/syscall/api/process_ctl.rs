@@ -67,41 +67,18 @@ pub(super) fn sys_task_squeeze(ctx: &mut Context<'_>, args: &Args) -> SysResult<
     let mut batch = Batch::default();
     let space = ctx.address_spaces.get_mut(handle)?;
     let next = crate::mm::squeeze::run(space, from_va, &allowed, &mut batch);
-    write_record(ctx, out_ptr, &batch.encode())?;
+    // Through the caller's page table: the boot proof drives this from the kernel's own space.
+    super::user_copy::write_user(ctx, out_ptr, &batch.encode())?;
     Ok(next)
 }
 
-/// `record` into the caller's memory at `out_ptr`, through the caller's own page table and the
-/// direct map: the range was checked mapped and writable (`ensure_user_range`), and the write
-/// does not depend on which address space is active (the boot selftest drives this syscall
-/// from the kernel's own, `KSELFTEST: task squeeze ok`).
-fn write_record(ctx: &Context<'_>, out_ptr: usize, record: &[u8]) -> SysResult<()> {
-    let handle =
-        ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
-    let table = ctx.address_spaces.get(handle)?.page_table();
-    let mut done = 0;
-    while done < record.len() {
-        let va = out_ptr + done;
-        let n = (PAGE_SIZE - va % PAGE_SIZE).min(record.len() - done);
-        let pa = table.translate(va).ok_or(AddressSpaceError::BadUserMemory)?;
-        // SAFETY: `pa` backs the caller's page at `va`, mapped writable (checked above); the
-        // direct map reaches every frame; the `n` bytes stay inside that page.
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                record[done..].as_ptr(),
-                crate::phys::phys_to_virt(pa) as *mut u8,
-                n,
-            );
-        }
-        done += n;
-    }
-    Ok(())
-}
-
-/// The child's objects a squeeze may take (`vmo_lifetime::squeeze_allowed`): the objects of its
-/// lazy regions, each mapped by one region of its space and by no other space, named by no
-/// capability outside its process.
-fn squeezable(ctx: &Context<'_>, handle: crate::mm::AsHandle) -> SysResult<alloc::vec::Vec<u32>> {
+/// The objects of `handle`'s space a squeeze (and the swap stage's export, ADR-0088) may take
+/// (`vmo_lifetime::squeeze_allowed`): the objects of its lazy regions, each mapped by one region
+/// of its space and by no other space, named by no capability outside its process.
+pub(super) fn squeezable(
+    ctx: &Context<'_>,
+    handle: crate::mm::AsHandle,
+) -> SysResult<alloc::vec::Vec<u32>> {
     let regions = ctx.address_spaces.get(handle)?.va_space().regions();
     let mut allowed = alloc::vec::Vec::new();
     for region in regions.iter().filter(|r| r.lazy) {

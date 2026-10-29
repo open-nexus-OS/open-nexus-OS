@@ -102,6 +102,9 @@ ladder_headless=(
   # TASK-0333 6f-1 (ADR-0087): the squeeze on the board's harts — the refusals, the three page
   # outcomes, the shootdown before the frames go back, every page back byte-exact.
   "KSELFTEST: task squeeze ok ("
+  # TASK-0333 6f-2 (ADR-0088): the swap stage on the board's harts under the boot proof's own
+  # key — the refusals, the seal, the park, the page-in byte-exact, the kill, the drop.
+  "KSELFTEST: swap ok ("
   "KSELFTEST: mem watermarks ok ("
   # TASK-0333 6e-2 (ADR-0086): the one memory authority is up, heard the kernel's first pressure
   # frame at its bind (two banks on the board) and tells the harness the sink is its own.

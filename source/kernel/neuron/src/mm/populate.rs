@@ -6,7 +6,8 @@
 //! it touches user memory. The decisions are `crate::lazy`'s (host-proven); this module reads the
 //! facts — the space's region record and its page table — and carries out the verdict: the
 //! object commits the frame (`vmo::commit`, zeroed before it is entered), a 4 KiB PTE is written,
-//! this hart's TLB is fenced for the page.
+//! this hart's TLB is fenced for the page. A swapped page (ADR-0088) is not filled here: the
+//! verdict is `PageIn`, and the caller parks the thread until the pager brings the page back.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -30,6 +31,9 @@ pub enum FillError {
     /// The page was squeezed and its record did not decode (ADR-0087): never mapped — the fault
     /// kills, the range is `EFAULT`.
     Damaged,
+    /// The page is swapped (ADR-0088): the fault or the syscall parks on `token` until the pager
+    /// brings it back from `slot`, then re-executes.
+    PageIn { token: u64, slot: u32 },
 }
 
 /// Pages filled since boot (a fault or a kernel range that committed and mapped a page).
@@ -74,6 +78,7 @@ pub fn fill(space: &mut AddressSpace, va: usize, access: Access) -> Result<(), F
             let pa = super::vmo::commit(region.vmo, index).map_err(|e| match e {
                 super::vmo::VmoError::Exhausted => FillError::Exhausted,
                 super::vmo::VmoError::Damaged => FillError::Damaged,
+                super::vmo::VmoError::Swapped { token, slot } => FillError::PageIn { token, slot },
                 _ => FillError::Violation(Violation::NoRegion),
             })?;
             let flags = PageFlags::from_bits_truncate(region.flags) | user;

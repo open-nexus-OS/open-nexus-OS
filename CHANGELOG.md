@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-28 (a frozen app's memory can leave RAM and come back — TASK-0333 6f-2, ADR-0088, RFC-0100 §5)
+
+- **Swap after the squeeze, before the kill.** At `critical` the memory authority, after squeezing
+  a frozen app, moves its compressed pages to a new `swap` partition (64 MiB, appended after
+  `trace`; the smallest disk is now 448 MiB) before it ends anyone. memd is the pager: it takes
+  the records from the kernel in bounded batches, writes each to a 4 KiB slot through blkd (which
+  grants the partition to memd alone) and only then lets the kernel release it. When the app is
+  shown again memd pages it back before it asks; a page touched first is served on request.
+- **The pager and the disk only ever see ciphertext.** Every record leaves the kernel sealed with
+  ChaCha20-Poly1305 under a key that exists for one boot — seeded by the RNG service when the
+  pager first needs it — with the page's identity bound in: a record opens only as the page and
+  the export it was sealed for, a replayed or changed one is refused and never mapped. No entropy,
+  no key, no swap (the board, today).
+- **A touch waits instead of failing.** A thread that touches a swapped page is parked and its
+  instruction or syscall re-runs once the page is back; the kernel asks the pager once per page
+  however many threads wait. A page whose record does not open kills only the threads waiting for
+  it. `mm_stats` v6 counts the swapped pages, the page-ins, the parked threads and whether the
+  boot has its key.
+- **Fixed on the way:** a frozen task blocked in an IPC call could have had its reply written into
+  a page the squeeze took (a kernel fault); the reply buffer is made writable again first. The
+  board's flash plan leaves the volatile `swap` partition out.
+
 ### Changed - 2026-10-28 (a frozen app is squeezed before it is killed — TASK-0333 6f-1, ADR-0087, RFC-0100 §5)
 
 - **A step between dropping caches and ending an app.** At `critical` the memory authority now

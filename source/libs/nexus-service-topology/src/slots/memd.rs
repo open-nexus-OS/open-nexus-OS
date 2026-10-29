@@ -25,3 +25,6 @@ pub const PRESSURE: SlotPair = SlotPair::new(9, 8);
 pub const GPUD: SlotPair = SlotPair::new(10, REPLY.recv);
 /// The level told to windowd (6e-3), which tells every app window: a one-way push.
 pub const WINDOWD: SlotPair = SlotPair::new(11, REPLY.recv);
+/// The RNG service (TASK-0333 6f-2, ADR-0088): the pager asks it to seed the kernel's swap key
+/// when it first needs to swap (the key goes from rngd to the kernel, never through memd).
+pub const RNGD: SlotPair = SlotPair::new(12, REPLY.recv);

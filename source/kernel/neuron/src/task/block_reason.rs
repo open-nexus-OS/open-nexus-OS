@@ -53,4 +53,12 @@ pub enum BlockReason {
         target: u64,
         deadline_ns: u64,
     },
+    /// Parked on a swapped page (TASK-0333 6f-2, ADR-0088): a user fault or a syscall touched
+    /// page `token` (object id << 32 | page index) while its sealed record was on the pager's
+    /// disk. The pager's page-in (syscall 73) wakes every thread parked on the token; the
+    /// faulting instruction or the syscall re-executes. No deadline: the kernel never times a
+    /// page-in out (`mm::swap`).
+    PageIn {
+        token: u64,
+    },
 }

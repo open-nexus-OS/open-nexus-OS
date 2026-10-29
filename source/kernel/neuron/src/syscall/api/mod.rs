@@ -48,8 +48,11 @@ mod process_ctl;
 mod process_kill;
 mod sched_task;
 mod sched_telemetry;
+/// ADR-0088: the swap stage's syscalls (70–73) and the park of a syscall on a swapped page.
+pub(crate) mod swap;
 mod sync_objects;
 mod task_image;
+mod user_copy;
 mod vm_map;
 mod vmo;
 mod vmo_runs;
@@ -85,7 +88,7 @@ pub(crate) use vmo::{
 };
 use vmo_seal::*;
 
-pub(crate) use sched_task::selftest_sched_op;
+pub(crate) use sched_task::{selftest_sched_op, service_id_from_name};
 
 use super::{
     Args, Error, SysResult, SyscallTable, SYSCALL_AS_CREATE, SYSCALL_AS_MAP, SYSCALL_AS_SELF,
@@ -395,6 +398,10 @@ pub fn install_handlers(table: &mut SyscallTable) {
     table.register(crate::syscall::SYSCALL_TASK_SUSPEND, process_ctl::sys_task_suspend);
     table.register(crate::syscall::SYSCALL_TASK_KILL, process_ctl::sys_task_kill);
     table.register(crate::syscall::SYSCALL_TASK_SQUEEZE, process_ctl::sys_task_squeeze);
+    table.register(crate::syscall::SYSCALL_SWAP_KEY, swap::sys_swap_key);
+    table.register(crate::syscall::SYSCALL_SWAP_EXPORT, swap::sys_swap_export);
+    table.register(crate::syscall::SYSCALL_SWAP_COMMIT, swap::sys_swap_commit);
+    table.register(crate::syscall::SYSCALL_SWAP_PAGE_IN, swap::sys_swap_page_in);
     table.register(SYSCALL_TIMER_CREATE, sys_timer_create);
     table.register(SYSCALL_TIMER_SET, sys_timer_set);
     table.register(SYSCALL_TIMER_CANCEL, sys_timer_cancel);

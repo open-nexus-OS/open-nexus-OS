@@ -21,10 +21,15 @@
 //!   (`OP_SURFACE_PRESSURE`; app-host raises the host event `MemoryPressure`). The kernel's own
 //!   answer to `warn` — the purge of the objects their owners unlocked (RFC-0100 §4) — needs no
 //!   word from this service.
+//! - PAGER (6f-2, ADR-0088): this service holds the kernel's sink, so it is the swap stage's
+//!   pager too — it moves a squeezed frozen app's sealed records to the `swap` partition (blkd
+//!   grants it to memd alone) at `critical` before any kill, answers the kernel's page-in
+//!   requests at once, pages an app's slots back when it thaws, frees the slots of a dead
+//!   object. It only ever holds ciphertext: the kernel keeps the key.
 //!
 //! [`bands`] is the table and the victim rule, [`authority`] the state machine over levels and
-//! bands, [`answer`] one request → one reply, [`order`] the kill order's bytes; the host tests
-//! drive exactly the code the service loop runs.
+//! bands, [`answer`] one request → one reply, [`order`] the kill order's bytes, [`swap`] the
+//! pager's books; the host tests drive exactly the code the service loop runs.
 //! OWNERS: @runtime
 //! STATUS: Experimental (6e-2: bands, the sink, the kill; 6e-3: the fan-out)
 //! API_STABILITY: Internal (the wire is `nexus_wire::memd`)
@@ -35,11 +40,16 @@
 #![cfg_attr(not(any(test, nexus_env = "host")), no_std)]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
+
 pub mod answer;
 pub mod authority;
 pub mod bands;
 pub mod gpu;
 pub mod order;
+pub mod swap;
 
 #[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
 pub mod os_lite;
+#[cfg(all(nexus_env = "os", target_arch = "riscv64", target_os = "none"))]
+mod pager;

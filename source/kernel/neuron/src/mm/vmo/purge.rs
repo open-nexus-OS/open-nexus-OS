@@ -71,24 +71,34 @@ pub fn is_unlocked(id: VmoId) -> bool {
 }
 
 /// Drop every unlocked object's committed pages; the frames go back to the pool with the table
-/// lock dropped. Returns the pages dropped. Run where a level change is delivered (ADR-0085).
+/// lock dropped, the pager's slots of its swapped pages are told free (ADR-0088). Returns the
+/// pages dropped. Run where a level change is delivered (ADR-0085).
 pub fn purge_unlocked() -> usize {
+    let mut slots_of: Vec<(VmoId, Vec<u32>)> = Vec::new();
     let frames: Vec<u64> = {
         let mut table = TABLE.lock();
         let mut frames = Vec::new();
-        for object in table.objects.iter_mut().flatten().filter(|o| o.purgeable) {
+        for (i, entry) in table.objects.iter_mut().enumerate() {
+            let Some(object) = entry.as_mut().filter(|o| o.purgeable) else { continue };
             if let Some(pages) = object.lazy.as_mut() {
+                let slots: Vec<u32> = pages.swapped_slots().collect();
                 let dropped = pages.purge();
-                if !dropped.is_empty() {
+                if !dropped.is_empty() || !slots.is_empty() {
                     object.purged = true;
                 }
                 frames.extend(dropped);
+                if !slots.is_empty() {
+                    slots_of.push((i as VmoId + 1, slots));
+                }
             }
         }
         frames
     };
     for &pa in &frames {
         frame_pool::free(Block { base: pa, order: 0 });
+    }
+    for (id, slots) in &slots_of {
+        crate::mm::swap::dropped(*id, slots);
     }
     PURGED_PAGES.fetch_add(frames.len() as u64, Ordering::Relaxed);
     frames.len()

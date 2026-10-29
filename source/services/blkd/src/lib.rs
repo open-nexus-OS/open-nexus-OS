@@ -14,7 +14,7 @@
 //! TEST_COVERAGE: `tests/backend.rs` (every kind from its record, the window check, the
 //!   direct-kernel stand-in, the refusals), `tests/parts.rs` (the served windows on the real
 //!   layout, the head never served, a wrong type refused), `tests/gate.rs` (the whole sender ×
-//!   partition × op matrix); QEMU: `blkd: backend=… ready`, `blkd: gpt ok (parts=7)`, the block-plane
+//!   partition × op matrix); QEMU: `blkd: backend=… ready`, `blkd: gpt ok (parts=8)`, the block-plane
 //!   selftests, the cross-partition deny probes
 //! ADR: docs/adr/0067-one-block-owner-backend-selected-by-fdt.md
 

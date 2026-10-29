@@ -72,7 +72,7 @@ pub(crate) fn resolve_runs(
             crate::mm::vmo::VmoError::Exhausted => {
                 Error::AddressSpace(AddressSpaceError::OutOfFrames)
             }
-            _ => AddressSpaceError::InvalidArgs.into(),
+            e => super::vmo::span_error(e, AddressSpaceError::InvalidArgs.into()),
         })?;
         dma_runs::device_runs(runs, len, 0, len, &reach, out).map_err(runs_error)?
     } else {

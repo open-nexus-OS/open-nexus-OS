@@ -60,6 +60,18 @@ phase = "end"
 phase = "end"
 proves = "a parked child's private lazy pages are squeezed on its parent's order alone and every one comes back byte-exact on touch; shared and device-bound memory is never taken (ADR-0087)"
 
+# TASK-0333 6f-2 (ADR-0088, RFC-0100 §5): the swap stage against the real syscall table, the
+# fault's own fill and the pressure sink — a key from anyone but the RNG service, a stranger's
+# export, an export without a key and a second key refused; two exports (the first superseded),
+# the commits (a stranger's and the superseded export's refused), the fault and a syscall over a
+# swapped page naming its token and slot, one page-in request however many threads wait, a
+# stale, a tampered and a replayed record refused, the answer waking the waiter with the page
+# byte-exact, a thread parked on a record that does not open killed, the slots of a dead object
+# told to the pager. The boot proof's key and sink are gone after it.
+[marker."KSELFTEST: swap ok ("]
+phase = "end"
+proves = "a record leaves the kernel sealed under the boot's key and comes back only as the page and the export it was sealed for; a touch parks until the pager answers, a forged answer kills the waiter, a dead object frees its slots (ADR-0088)"
+
 # TASK-0333 6e-2 (ADR-0086, RFC-0100 §3): the one memory authority answers the harness that the
 # kernel's pressure endpoint is bound to it (the sink of ADR-0085 has its listener) and names
 # the level of the moment and the app processes it knows. On every lane, at the end phase.

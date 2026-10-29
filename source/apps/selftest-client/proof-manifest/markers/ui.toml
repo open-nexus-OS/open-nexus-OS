@@ -420,6 +420,30 @@ phase = "end"
 phase = "end"
 proves = "the memory authority squeezed a frozen app through the lifecycle authority and its parent: pages recorded and frames given back net (pages= net= ratio=% reason= drill or oom)"
 
+# TASK-0333 6f-2 (ADR-0088): the pager — memd asks the RNG service to seed the kernel's swap key
+# when it first needs to swap (the key goes from rngd into the kernel, never through memd), opens
+# the `swap` partition once (blkd grants it to memd alone), seals a squeezed frozen app's records
+# out at the next `critical`, and pages them back when the app thaws.
+[marker."rngd: swap key seeded"]
+phase = "end"
+
+[marker."memd: swap on (slots="]
+phase = "end"
+
+[marker."memd: swap out (pid="]
+phase = "end"
+
+[marker."SELFTEST: swap out ok ("]
+phase = "end"
+proves = "the pager moved a squeezed frozen app's records to the swap partition — written, then committed, the pages released (pages= slots= reason=)"
+
+[marker."memd: swap in (pid="]
+phase = "end"
+
+[marker."SELFTEST: swap in ok ("]
+phase = "end"
+proves = "a thawed app's swapped pages all came back from the pager's slots before it asked, opened in the kernel under the boot's key (pages=)"
+
 [marker."memd: kill (pid="]
 phase = "end"
 
@@ -432,6 +456,11 @@ phase = "end"
 [marker."SELFTEST: mem pressure kill ok ("]
 phase = "end"
 proves = "the victim memd chose is dead: its band came back `gone` after the ordered kill (band= names the band it was in, reason= drill or oom)"
+
+# TASK-0333 6f-2 (ADR-0088): a swapped-out victim's objects die with it; the kernel tells the
+# pager their slots (`OP_SWAP_DROP`, 32 a frame) and the pager frees them.
+[marker."memd: swap drop (slots="]
+phase = "end"
 
 # --- TASK-0067 / 0067B (RFC-0094, ADR-0070): the clipboard authority and its two surfaces.
 # `clipboardd: ready` and the harness's writes fire on every boot; the focus truth once windowd

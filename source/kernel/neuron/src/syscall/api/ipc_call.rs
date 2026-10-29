@@ -146,13 +146,29 @@ fn collect_queued_reply(
     out_ptr: usize,
     out_max: usize,
 ) -> SysResult<usize> {
+    // The caller may have been frozen while it waited and its pages squeezed or swapped since
+    // the commit point (ADR-0087/0088): `out` is made writable again before the reply leaves its
+    // queue — a squeezed page comes back here, a swapped one parks this re-execution (the call
+    // stays committed); any other refusal ends the call.
+    if out_max != 0 {
+        match ensure_user_range(ctx, out_ptr, out_max, UserAccess::Write) {
+            Ok(()) => {}
+            Err(err @ Error::PageIn { .. }) => return Err(err),
+            Err(err) => {
+                if let Some(task) = ctx.tasks.task_mut(pid) {
+                    let _ = task.take_call_state();
+                }
+                return Err(err);
+            }
+        }
+    }
     match ctx.router.recv(state.wait_ep) {
         Ok(msg) => {
             let total = msg.payload.len();
             let n = core::cmp::min(total, out_max);
             if n != 0 {
-                // SAFETY: `ensure_user_range` proved `out_ptr`/`out_max` writable — committed
-                // and mapped — at the commit point, and this task owns that address space.
+                // SAFETY: `ensure_user_range` above proved `out_ptr`/`out_max` writable —
+                // committed and mapped — and this task owns that address space.
                 unsafe {
                     core::ptr::copy_nonoverlapping(msg.payload.as_ptr(), out_ptr as *mut u8, n);
                 }

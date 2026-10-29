@@ -54,6 +54,10 @@ nexus-bootfs = { path = "../../libs/nexus-bootfs" }
 # RFC-0100 §5: the page compressor of the backing stages (the compressed pool, memd's swap
 # pager), one block format on both sides; no_std, zero deps, allocation-free.
 nexus-compress = { path = "../../libs/nexus-compress" }
+# RFC-0100 §5 (ADR-0088): the seal of a record that leaves the kernel for the swap partition —
+# ChaCha20-Poly1305, pure Rust, in place, no `getrandom` (default features off); the same audited
+# crate the Noise channel uses.
+chacha20poly1305 = { version = "0.10", default-features = false }
 
 [target.'cfg(all(target_arch = "riscv64", target_os = "none"))'.dependencies]
 sbi-rt = { version = "0.0.2", default-features = false }

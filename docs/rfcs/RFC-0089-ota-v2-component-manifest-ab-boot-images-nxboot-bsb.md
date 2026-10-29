@@ -203,7 +203,8 @@ GPT-only, with no protective MBR — withdrawn by the amendment below.)
   header at 0, the SPL at the offset the header names), beside the user area; `nx image` builds
   boot0 next to the disk.
 - The GPT's backup lies at the last sector of the device the image is built for.
-- `swap` (M7) is appended last once M7 has measured its size; nothing is reserved for it.
+- `swap` (M7) is appended last once M7 has measured its size; nothing is reserved for it
+  (sized 2026-10-28, below).
 
 Implemented 2026-09-26 (TASK-0260 P1/P2): `storage::gpt::write_gpt` writes the protective MBR and
 both GPT copies for the disk it writes; `storage::layout` carries the head; `nx image build
@@ -217,6 +218,14 @@ read both back exactly from the stock system.
 8 MiB) follows `data`: the boot trace's eight slots, one per boot, each the console text of that
 boot (RFC-0107 owns the format). Images are built with it zeroed (no boot kept); the flash plan
 writes it with the rest of the user area, so a freshly flashed disk counts its boots from 1.
+
+**Amendment 2026-10-28 (RFC-0100 §5, ADR-0088, TASK-0333 6f-2):** the `swap` partition
+(`NEXUS-SWAP-v1`, 64 MiB) follows `trace` — the M7 placeholder above, sized now: 16 384 slots of
+4 KiB, one sealed record each (memory pages the kernel sealed under a key that dies with the
+boot). The smallest disk grows from 384 to 448 MiB. The block owner serves it as selector 7 to
+memd alone, read and write. Nothing on it outlives the boot, so nothing is carried: QEMU's image
+holds it zeroed, and a board's flash plan leaves it out (`storage::layout::VOLATILE` — the user
+area's chunks end where `trace` ends, and a boot that wrote slots never fails a read-back).
 
 Rules:
 

@@ -13,7 +13,11 @@
 //! as its `gone` band. At `critical` a frozen app is squeezed before any kill (TASK-0333 6f-1,
 //! ADR-0087): `memd: squeeze (pid= band= pages= …)` with the parent's totals and
 //! `SELFTEST: mem squeeze ok (pages= net= ratio=% reason=)` when pages were recorded and frames
-//! came back net; a kernel-sourced level is read again after it (`settle`).
+//! came back net; a kernel-sourced level is read again after it (`settle`). Next, before any kill
+//! (TASK-0333 6f-2, ADR-0088), a squeezed frozen app is swapped out by this service's pager
+//! (`pager.rs`): `memd: swap out (pid= band= pages= slots=)` and `SELFTEST: swap out ok (…)`; the
+//! sink carries the kernel's page-in requests and drops to the pager, and a thaw pages the app
+//! back: `memd: swap in (pid= pages=)`, `SELFTEST: swap in ok (pages=)` when every slot came back.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal
@@ -33,7 +37,9 @@ use crate::authority::{Authority, BandEvent, Decision, Pending};
 use crate::bands::Applied;
 use crate::order::{
     encode_mem_kill, encode_mem_squeeze, mem_kill_carried_out, mem_squeeze_reply, Orders, Squeezed,
+    SwappedOut,
 };
+use crate::pager::{PageIn, Pager};
 
 pub type Result<T> = core::result::Result<T, &'static str>;
 
@@ -48,10 +54,13 @@ fn emit(line: &str) {
 
 /// The orders on the declared leg: `OP_MEM_KILL` and `OP_MEM_SQUEEZE` to abilitymgr, answered on
 /// the inbox (a waited exchange: the answer or the authority's death — no clock). A squeeze's
-/// answer comes once the parent's batches ended (one app: the measured squeeze time).
-struct AbilitymgrOrders;
+/// answer comes once the parent's batches ended (one app: the measured squeeze time). The
+/// swap-out is this service's own pager (ADR-0088).
+struct Carrier {
+    pager: Pager,
+}
 
-impl Orders for AbilitymgrOrders {
+impl Orders for Carrier {
     fn kill(&mut self, pid: u32) -> bool {
         let mut rsp = [0u8; 16];
         let req = encode_mem_kill(pid);
@@ -67,6 +76,14 @@ impl Orders for AbilitymgrOrders {
         let n = nexus_ipc::exchange::call_into(topo::ABILITYMGR.send, topo::REPLY, &req, &mut rsp)
             .ok()?;
         mem_squeeze_reply(&rsp[..n.min(rsp.len())], pid)
+    }
+
+    fn swap_ready(&mut self) -> bool {
+        self.pager.ready()
+    }
+
+    fn swap_out(&mut self, pid: u32) -> Option<SwappedOut> {
+        self.pager.swap_out(pid)
     }
 }
 
@@ -93,13 +110,28 @@ impl Sink {
         self.frames.is_some()
     }
 
-    /// Drains every pending frame; each is judged at once and told onward.
-    fn drain(&self, authority: &mut Authority, orders: &mut dyn Orders, fanout: &Fanout) {
+    /// Drains every pending frame: a level is judged at once and told onward; a page-in request
+    /// is answered at once and a drop frees its slots (ADR-0088: the pager's notices ride the
+    /// same sink).
+    fn drain(&self, authority: &mut Authority, carrier: &mut Carrier, fanout: &Fanout) {
         let Some(frames) = self.frames.as_ref() else { return };
-        let mut buf = [0u8; 32];
+        let mut buf = [0u8; 160];
+        // A dead object's slots arrive 32 a frame: counted over the pass, said once.
+        let (mut dropped, mut freed) = (0usize, 0usize);
         while let Ok(n) = frames.recv_into(Wait::NonBlocking, &mut buf) {
+            let frame = &buf[..n.min(buf.len())];
+            if let Some((token, slot)) = nexus_abi::decode_page_in(frame) {
+                say_page_in(carrier.pager.page_in(token, slot));
+                continue;
+            }
+            let mut slots = [0u32; nexus_abi::SWAP_DROP_BATCH];
+            if let Some(count) = nexus_abi::decode_swap_drops(frame, &mut slots) {
+                dropped += count;
+                freed += carrier.pager.dropped(&slots[..count]);
+                continue;
+            }
             let Some((level, free, total)) =
-                nexus_abi::syscall::memory::decode_memory_pressure(&buf[..n])
+                nexus_abi::syscall::memory::decode_memory_pressure(frame)
             else {
                 continue;
             };
@@ -107,11 +139,14 @@ impl Sink {
                 "memd: pressure (level={} free={free} total={total})",
                 nexus_abi::syscall::memory::mem_pressure_name(level)
             ));
-            let decision = authority.on_pressure(level, free, total, orders);
+            let decision = authority.on_pressure(level, free, total, carrier);
             say_decision(level, "oom", decision);
-            settle(authority, orders, decision);
+            settle(authority, carrier, decision);
             let told = fanout.tell(level, SOURCE_KERNEL, free, total);
             say_told(level, SOURCE_KERNEL, told);
+        }
+        if dropped > 0 {
+            emit(&alloc::format!("memd: swap drop (slots={dropped} freed={freed})"));
         }
     }
 }
@@ -191,15 +226,57 @@ fn say_decision(level: u8, reason: &str, decision: Decision) {
             "memd: squeeze FAIL (pid={pid} band={} reason={reason}; the authority refused)",
             band_name(band)
         )),
+        Decision::SwapOut { pid, band, out: Some(o) } => {
+            emit(&alloc::format!(
+                "memd: swap out (pid={pid} band={} pages={} slots={} reason={reason})",
+                band_name(band),
+                o.pages,
+                o.slots
+            ));
+            // The proof: sealed records on the pager's disk, their pages released (ADR-0088).
+            emit(&alloc::format!(
+                "SELFTEST: swap out ok (pages={} slots={} reason={reason})",
+                o.pages,
+                o.slots
+            ));
+        }
+        Decision::SwapOut { pid, band, out: None } => emit(&alloc::format!(
+            "memd: swap out FAIL (pid={pid} band={} reason={reason}; nothing went)",
+            band_name(band)
+        )),
     }
 }
 
-/// After a kernel-sourced squeeze the pool is read again at once (ADR-0087): a level still at
-/// `critical` takes the next step — the next frozen app, then the first kill — without waiting
-/// for a frame the kernel sends only on a level CHANGE. Bounded: each squeeze marks a process.
+/// A page-in that did not bring the page back, named (a served one is counted by the kernel:
+/// `mm_stats` `page_ins`).
+fn say_page_in(outcome: PageIn) {
+    match outcome {
+        PageIn::Back | PageIn::Unknown => {}
+        PageIn::Stale => emit("memd: page-in stale (slot freed)"),
+        PageIn::Dead => emit("memd: page-in refused (the record did not open; its waiters died)"),
+        PageIn::Later => emit("memd: page-in later (no frame or no disk now)"),
+    }
+}
+
+/// A thaw (ADR-0088): the app's slots paged back before it asks for them.
+fn swap_in(carrier: &mut Carrier, pid: u32) {
+    let (back, held) = carrier.pager.swap_in(pid);
+    if held == 0 {
+        return;
+    }
+    emit(&alloc::format!("memd: swap in (pid={pid} pages={back} slots={held})"));
+    if back == held {
+        emit(&alloc::format!("SELFTEST: swap in ok (pages={back})"));
+    }
+}
+
+/// After a kernel-sourced squeeze or swap-out the pool is read again at once (ADR-0087/0088): a
+/// level still at `critical` takes the next step — the next frozen app, the swap-out, then the
+/// first kill — without waiting for a frame the kernel sends only on a level CHANGE. Bounded:
+/// each step marks a process.
 fn settle(authority: &mut Authority, orders: &mut dyn Orders, mut decision: Decision) {
-    for _ in 0..crate::bands::MAX_PROCESSES {
-        if !matches!(decision, Decision::Squeeze { .. }) {
+    for _ in 0..2 * crate::bands::MAX_PROCESSES {
+        if !matches!(decision, Decision::Squeeze { .. } | Decision::SwapOut { .. }) {
             return;
         }
         let Ok(stats) = nexus_abi::mm_stats() else { return };
@@ -211,9 +288,13 @@ fn settle(authority: &mut Authority, orders: &mut dyn Orders, mut decision: Deci
 
 /// The band's marker, and the kill proof when the pending victim is gone. `true` asks the
 /// caller to read the pool's level again (a kernel-sourced kill may need a successor).
-fn say_band(event: BandEvent) -> bool {
+fn say_band(event: BandEvent, carrier: &mut Carrier) -> bool {
     match event {
         BandEvent::Applied { pid, band, applied } => {
+            // A thaw: the app runs again — its swapped pages come back before it asks.
+            if applied == (Applied::Moved { from: nexus_wire::memd::BAND_SUSPENDED }) {
+                swap_in(carrier, pid);
+            }
             match applied {
                 Applied::Entered | Applied::Moved { .. } | Applied::Gone { .. } => {
                     emit(&alloc::format!("memd: band (pid={pid} band={})", band_name(band)))
@@ -260,7 +341,7 @@ pub fn service_main_loop() -> Result<()> {
         gpud: nexus_abi::service_id_from_name(b"gpud"),
     };
     let mut memd = Memd::new(peers, sink.bound());
-    let mut orders = AbilitymgrOrders;
+    let mut orders = Carrier { pager: Pager::new() };
     let fanout = Fanout::bind();
     let _ = nexus_service_entry::ready("memd: ready");
     nexus_abi::service_verdict_flush("memd");
@@ -295,7 +376,7 @@ pub fn service_main_loop() -> Result<()> {
                     } else {
                         match outcome {
                             Outcome::Band(event) => {
-                                if say_band(event) {
+                                if say_band(event, &mut orders) {
                                     judge_again(memd.authority(), &mut orders);
                                 }
                             }
@@ -376,6 +457,8 @@ pub fn service_main_loop() -> Result<()> {
                 }
             }
         }
+        // A page-in that found no frame tries again on every pass (the kernel asks once).
+        orders.pager.retry();
         // WAIT — no clock: a request or a pressure frame ends it.
         if let Some(ws) = waitset.as_ref() {
             let _ = ws.wait();

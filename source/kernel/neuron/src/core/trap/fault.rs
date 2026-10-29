@@ -373,8 +373,9 @@ pub fn user_fault_report() -> (u32, u64, u64) {
 /// error (ADR-0077): commit and map it under the kernel lock and resume the instruction. `true`
 /// = filled (or spurious) — the trap returns to the same `sepc`; `false` = a real fault, the
 /// caller reports and kills as before. No frame for the page is named here, then killed.
-pub(super) fn fill_user_fault(exc: usize, stval: usize) -> bool {
+pub(super) fn fill_user_fault(frame: &mut TrapFrame, exc: usize, stval: usize) -> bool {
     use crate::lazy::Access;
+    use crate::mm::populate::FillError;
     let access = match exc {
         12 => Access::Execute,
         13 => Access::Read,
@@ -383,24 +384,49 @@ pub(super) fn fill_user_fault(exc: usize, stval: usize) -> bool {
     };
     // U-mode fault → this hart holds no BKL; safe to acquire.
     let Ok(mut kernel) = KernelGuard::acquire() else { return false };
-    let (scheduler, tasks, router, spaces, ..) = kernel.parts();
+    let (scheduler, tasks, router, spaces, _timer, hart_timers, waitsets, fences) = kernel.parts();
     let pid = tasks.current_pid();
     let Some(handle) = tasks.current_task().address_space() else { return false };
     let Ok(space) = spaces.get_mut(handle) else { return false };
+    let mut parked = false;
     let filled = match crate::mm::populate::fill(space, stval, access) {
         Ok(()) => true,
-        Err(crate::mm::populate::FillError::Exhausted) => {
+        Err(FillError::Exhausted) => {
             log_error!(target: "mm", "KINIT: vm commit exhausted (pid={} va=0x{:x})", pid.as_raw(), stval);
             false
         }
-        Err(crate::mm::populate::FillError::Violation(_)) => false,
+        Err(FillError::Violation(_)) => false,
         // ADR-0087: `MM: FAIL inflate (…)` named it; the page is never mapped with wrong bytes.
-        Err(crate::mm::populate::FillError::Damaged) => false,
+        Err(FillError::Damaged) => false,
+        // ADR-0088: the page is on the pager's disk — the thread parks until it is back (its
+        // instruction re-executes then); without a pager it can never come back: a real fault.
+        Err(FillError::PageIn { token, slot }) => {
+            parked = crate::mm::swap::ask(token, slot);
+            if parked {
+                if let Some(task) = tasks.task_mut(pid) {
+                    *task.frame_mut() = *frame;
+                }
+                tasks.block_current(crate::task::BlockReason::PageIn { token }, scheduler);
+            }
+            parked
+        }
     };
     // ADR-0085: the page this fill committed may have crossed a watermark — the sink hears it
-    // on this trap, with the trap's exclusive borrows.
+    // on this trap, with the trap's exclusive borrows (and the pager its page-in request).
     if crate::mm::pressure_endpoint::pending() {
         crate::mm::pressure_endpoint::dispatch(router, tasks, scheduler);
+    }
+    if parked {
+        super::pending::switch_to_next(
+            frame,
+            tasks,
+            router,
+            scheduler,
+            spaces,
+            hart_timers,
+            waitsets,
+            fences,
+        );
     }
     filled
 }

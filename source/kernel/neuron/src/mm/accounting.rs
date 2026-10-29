@@ -21,10 +21,12 @@
 /// committed and reserved bytes — a lazy object spans more than it holds. v4 (TASK-0333 6e,
 /// ADR-0085): the caller's shared and purgeable bytes, the pressure level and its watermarks,
 /// the pages purged since boot. v5 (TASK-0333 6f-1, ADR-0087): the pages held compressed, the
-/// bytes and frames their stores hold, the pages brought back since boot.
-pub const MM_STATS_VERSION: u32 = 5;
+/// bytes and frames their stores hold, the pages brought back since boot. v6 (TASK-0333 6f-2,
+/// ADR-0088): the pages on the pager's disk, the pages paged back in and the threads parked on
+/// one since boot, whether the boot has its swap key.
+pub const MM_STATS_VERSION: u32 = 6;
 /// 64-bit fields after the 8-byte header.
-pub const MM_STATS_FIELDS: usize = 31;
+pub const MM_STATS_FIELDS: usize = 35;
 /// Bytes of the record: `version: u32`, `fields: u32`, then the fields.
 pub const MM_STATS_BYTES: usize = 8 + MM_STATS_FIELDS * 8;
 
@@ -98,6 +100,14 @@ pub struct MmStats {
     pub store_frames: u64,
     /// Squeezed pages brought back since boot (v5).
     pub inflated_pages: u64,
+    /// Pages swapped now: their sealed records on the pager's disk (v6, ADR-0088).
+    pub swapped_pages: u64,
+    /// Swapped pages brought back since boot (v6).
+    pub page_ins: u64,
+    /// Threads parked on a swapped page since boot — a fault or a syscall (v6).
+    pub parked_faults: u64,
+    /// 1 when the boot has its swap key (the RNG service seeded it), 0 when swap is off (v6).
+    pub swap_key: u64,
 }
 
 /// A buffer shorter than the record.
@@ -139,6 +149,10 @@ impl MmStats {
             self.store_bytes,
             self.store_frames,
             self.inflated_pages,
+            self.swapped_pages,
+            self.page_ins,
+            self.parked_faults,
+            self.swap_key,
         ]
     }
 
@@ -184,6 +198,7 @@ mod tests {
             own_reserved_bytes: 0x1234,
             purged_pages: 0x4321,
             inflated_pages: 0x5678,
+            swap_key: 1,
             ..Default::default()
         };
         let mut out = [0xffu8; MM_STATS_BYTES + 3];
@@ -194,7 +209,8 @@ mod tests {
         assert_eq!((field(0), field(1), field(2)), (2, 77280, 1));
         assert_eq!(field(19), 0x1234, "v3's last field keeps its place");
         assert_eq!(field(26), 0x4321, "v4's last field keeps its place");
-        assert_eq!(field(MM_STATS_FIELDS - 1), 0x5678);
+        assert_eq!(field(30), 0x5678, "v5's last field keeps its place");
+        assert_eq!(field(MM_STATS_FIELDS - 1), 1, "v6 ends with the key's presence");
         assert_eq!(out[MM_STATS_BYTES..], [0xff; 3], "nothing past the record");
     }
 

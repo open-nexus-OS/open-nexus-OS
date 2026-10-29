@@ -14,6 +14,10 @@
 //! The level is the pool's, not a bank's: the buddies fill the banks in tree order, so a
 //! per-bank alarm would fire on the first bank with the second still free.
 //!
+//! The same sink carries the swap stage's two notices to the pager (6f-2, ADR-0088): a page-in
+//! request `OP_PAGE_IN {token, slot}` and the slots a dead object frees `OP_SWAP_DROP {slots}` —
+//! their wire forms are here too.
+//!
 //! NOT target-gated (pure, like `lazy`, `growth` and `accounting`).
 //!
 //! OWNERS: @kernel-mm-team
@@ -21,7 +25,8 @@
 //! API_STABILITY: Internal (the wire frame is `nexus-abi`'s `OP_MEMORY_PRESSURE`)
 //! TEST_COVERAGE: unit tests below — the fractions and floors, the ordering on a tiny pool,
 //!   the level per free count, worsening without delay, recovery only past the hysteresis,
-//!   the frame round trip and the rejects of a short or foreign frame
+//!   the frame round trip and the rejects of a short or foreign frame; the swap notices' round
+//!   trip, the drops in batches, a malformed notice rejected
 
 /// IPC op byte of a pressure notification (the kernel-originated events' range, next to
 /// `OP_IRQ_FIRED` = 0x70). Payload: `[op, level, free: u64 LE, total: u64 LE]`.
@@ -211,6 +216,67 @@ pub fn decode(frame: &[u8]) -> Option<(Level, u64, u64)> {
     Some((level, word(2)?, word(10)?))
 }
 
+/// IPC op byte of a page-in request (TASK-0333 6f-2, ADR-0088): a thread touched a swapped page
+/// and is parked until the pager hands the page's sealed record back (`swap_page_in`, 73) — one
+/// request per page, however many threads wait. Payload: `[op, token: u64 LE, slot: u32 LE]`.
+pub const OP_PAGE_IN: u8 = 0x72;
+/// IPC op byte of the pager's slots an object no longer needs — it died or was purged with
+/// swapped pages (ADR-0088). Payload: `[op, count: u8, slot: u32 LE × count]`.
+pub const OP_SWAP_DROP: u8 = 0x73;
+/// Bytes of a page-in request.
+pub const PAGE_IN_LEN: usize = 1 + 8 + 4;
+/// Slots one drop frame carries at most.
+pub const DROP_BATCH: usize = 32;
+/// Bytes of the largest drop frame.
+pub const DROP_MAX_LEN: usize = 2 + DROP_BATCH * 4;
+
+/// One page-in request.
+#[must_use]
+pub fn encode_page_in(token: u64, slot: u32) -> [u8; PAGE_IN_LEN] {
+    let mut frame = [0u8; PAGE_IN_LEN];
+    frame[0] = OP_PAGE_IN;
+    frame[1..9].copy_from_slice(&token.to_le_bytes());
+    frame[9..13].copy_from_slice(&slot.to_le_bytes());
+    frame
+}
+
+/// `(token, slot)` of a page-in request; `None` for anything else.
+#[must_use]
+pub fn decode_page_in(frame: &[u8]) -> Option<(u64, u32)> {
+    if frame.len() != PAGE_IN_LEN || frame[0] != OP_PAGE_IN {
+        return None;
+    }
+    let token = u64::from_le_bytes(frame[1..9].try_into().ok()?);
+    Some((token, u32::from_le_bytes(frame[9..13].try_into().ok()?)))
+}
+
+/// The first [`DROP_BATCH`] of `slots` as one drop frame in `out`; answers the frame's length
+/// (the caller sends `out[..len]` and keeps the slots past the batch for the next frame).
+pub fn encode_drops(slots: &[u32], out: &mut [u8; DROP_MAX_LEN]) -> usize {
+    let n = slots.len().min(DROP_BATCH);
+    out[0] = OP_SWAP_DROP;
+    out[1] = n as u8;
+    for (i, slot) in slots[..n].iter().enumerate() {
+        out[2 + i * 4..6 + i * 4].copy_from_slice(&slot.to_le_bytes());
+    }
+    2 + n * 4
+}
+
+/// The slots of a drop frame into `out`; answers how many. `None` for anything else, or a frame
+/// whose count disagrees with its length.
+pub fn decode_drops(frame: &[u8], out: &mut [u32; DROP_BATCH]) -> Option<usize> {
+    let (&op, rest) = frame.split_first()?;
+    let (&count, slots) = rest.split_first()?;
+    let n = usize::from(count);
+    if op != OP_SWAP_DROP || n > DROP_BATCH || slots.len() != n * 4 {
+        return None;
+    }
+    for (i, bytes) in slots.chunks_exact(4).enumerate() {
+        out[i] = u32::from_le_bytes(bytes.try_into().ok()?);
+    }
+    Some(n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +354,42 @@ mod tests {
         unknown[1] = 9;
         assert_eq!(decode(&unknown), None, "a level this kernel does not speak");
         assert_eq!(Level::from_raw(4), None);
+    }
+
+    /// The pager's two notices (ADR-0088): a request round trips; drops leave in batches.
+    #[test]
+    fn the_swap_notices_round_trip_and_drops_leave_in_batches() {
+        let token = (7u64 << 32) | 12;
+        let frame = encode_page_in(token, 4_099);
+        assert_eq!(decode_page_in(&frame), Some((token, 4_099)));
+        let slots: [u32; 40] = core::array::from_fn(|i| 100 + i as u32);
+        let mut out = [0u8; DROP_MAX_LEN];
+        let len = encode_drops(&slots, &mut out);
+        assert_eq!(len, DROP_MAX_LEN, "the first frame is full");
+        let mut back = [0u32; DROP_BATCH];
+        assert_eq!(decode_drops(&out[..len], &mut back), Some(DROP_BATCH));
+        assert_eq!(back, slots[..DROP_BATCH]);
+        let len = encode_drops(&slots[DROP_BATCH..], &mut out);
+        assert_eq!(decode_drops(&out[..len], &mut back), Some(8), "the rest in the next");
+        assert_eq!(back[..8], slots[DROP_BATCH..]);
+        assert_eq!(encode_drops(&[], &mut out), 2, "an empty batch is a header");
+    }
+
+    #[test]
+    fn test_reject_a_malformed_swap_notice() {
+        let frame = encode_page_in(1, 2);
+        assert_eq!(decode_page_in(&frame[..PAGE_IN_LEN - 1]), None, "short");
+        assert_eq!(decode_page_in(&encode(Level::Warn, 1, 2)), None, "another op");
+        let mut out = [0u8; DROP_MAX_LEN];
+        let len = encode_drops(&[5, 6, 7], &mut out);
+        let mut back = [0u32; DROP_BATCH];
+        assert_eq!(decode_drops(&out[..len - 1], &mut back), None, "a slot cut short");
+        out[1] = 4;
+        assert_eq!(decode_drops(&out[..len], &mut back), None, "a count past the bytes");
+        let mut over = [0u8; 2 + 33 * 4];
+        over[0] = OP_SWAP_DROP;
+        over[1] = 33;
+        assert_eq!(decode_drops(&over, &mut back), None, "more than a batch");
+        assert_eq!(decode_drops(&frame, &mut back), None, "a request is no drop");
     }
 }

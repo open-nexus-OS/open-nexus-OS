@@ -3,8 +3,9 @@
 
 //! CONTEXT: TASK-0315 block-plane wiring (split from `wiring.rs` under the
 //! structure ratchet): fixed-slot client wiring (0xF0..0xF2, blockproto
-//! SSOT) for statefsd/vfsd and the selftest deny-probe route (a SEPARATE
-//! post-wiring pass — see the slot-shift finding in the TASK-0315 ledger).
+//! SSOT) for the storage services and memd's swap slots (TASK-0333 6f-2), and
+//! the selftest deny-probe route (a SEPARATE post-wiring pass — see the
+//! slot-shift finding in the TASK-0315 ledger).
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -38,11 +39,14 @@ pub(crate) fn wire_blk_plane_for_with(chan: &CtrlChannel, blk_req: u32) {
         // TASK-0321 (RFC-0089 §12.3/§12.5): bundlemgrd READS the system
         // volume (NXSV + index + bundle windows) over the same fixed-slot
         // plane; the op-aware gate in blkd denies it every write.
+        // TASK-0333 6f-2 (ADR-0088): memd, the pager, reads and writes the
+        // `swap` slots (sealed records) — blkd's gate grants it nothing else.
         ServiceId::Statefsd
         | ServiceId::Vfsd
         | ServiceId::Bootctld
         | ServiceId::Updated
-        | ServiceId::Bundlemgrd => {
+        | ServiceId::Bundlemgrd
+        | ServiceId::Memd => {
             wire_blk_plane_client(chan.pid, chan.svc_name, blk_req);
         }
         // blkd's interrupt notify endpoint is a declaration (`pin_declared_waits`).

@@ -157,6 +157,10 @@ impl Memd {
                     Decision::Squeeze { pid, band, squeezed: None } => {
                         (wire::STATUS_FAILED, pid, band)
                     }
+                    Decision::SwapOut { pid, band, out: Some(_) } => {
+                        (wire::STATUS_SWAPPED, pid, band)
+                    }
+                    Decision::SwapOut { pid, band, out: None } => (wire::STATUS_FAILED, pid, band),
                     Decision::NoVictim | Decision::None => (wire::STATUS_NO_VICTIM, 0, 0),
                 };
                 let reply = wire::encode_drill_reply(wire::OP_DRILL, status, pid, band);

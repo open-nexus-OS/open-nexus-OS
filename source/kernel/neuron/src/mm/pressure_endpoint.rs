@@ -12,7 +12,10 @@
 //!
 //! One binder: the first service to bind holds the sink until its endpoint dies; another
 //! service's bind is refused (`PermissionDenied`), the holder may re-bind or clear. The
-//! lifecycle authority of memory is `memd` (ADR-0086); init starts it before any app runs.
+//! lifecycle authority of memory is `memd` (ADR-0086); init starts it before any app runs. The
+//! holder is the swap stage's pager too (6f-2, ADR-0088): the same sink carries its page-in
+//! requests and dropped slots (`mm::swap`, delivered after the level by the same dispatch), and
+//! the swap syscalls answer only the holder.
 //! OWNERS: @kernel-mm-team
 //! STATUS: Functional (TASK-0333 6e-0)
 //! API_STABILITY: Internal
@@ -110,9 +113,14 @@ pub fn binding() -> Option<EndpointId> {
     }
 }
 
-/// Whether a level waits for a sink.
+/// The process holding the sink — the pager of the swap stage (ADR-0088), if any.
+pub fn holder() -> Option<task::Pid> {
+    BINDER.load(Ordering::Acquire).checked_sub(1).map(task::Pid::from_raw)
+}
+
+/// Whether a level or a swap notice waits for a sink.
 pub fn pending() -> bool {
-    PENDING.load(Ordering::Acquire) != 0
+    PENDING.load(Ordering::Acquire) != 0 || super::swap::pending()
 }
 
 /// The boot proof's injector: leave `level` pending as a change would.
@@ -120,12 +128,41 @@ pub fn selftest_inject(level: Level) {
     PENDING.store(level as u8 + 1, Ordering::Release);
 }
 
-/// Delivers the pending level to the sink and wakes its waiter. Caller contract: exclusive
-/// borrows (a syscall, a user trap, the idle loop under the kernel lock), no pool lock held.
-pub fn dispatch(router: &mut ipc::Router, tasks: &mut task::TaskTable, scheduler: &mut Scheduler) {
-    if PENDING.load(Ordering::Acquire) == 0 {
-        return;
+/// One frame (its first byte the op) into the sink `endpoint`, its waiter woken. `false`: the
+/// sink is full (or gone) — the caller keeps what it could not send.
+pub(super) fn send_frame(
+    router: &mut ipc::Router,
+    tasks: &mut task::TaskTable,
+    scheduler: &mut Scheduler,
+    endpoint: EndpointId,
+    payload: &[u8],
+) -> bool {
+    let op = payload.first().copied().unwrap_or(0);
+    let header =
+        ipc::header::MessageHeader::new(0, endpoint, u16::from(op), 0, payload.len() as u32);
+    let msg = ipc::Message::new(header, ipc::Payload::from_slice(payload), None);
+    if router.send(endpoint, msg).is_err() {
+        return false;
     }
+    if let Ok(Some(waiter)) = router.pop_recv_waiter(endpoint) {
+        let _ = tasks.wake(task::Pid::from_raw(waiter), scheduler);
+    }
+    true
+}
+
+/// Delivers the pending level and the swap stage's notices (ADR-0088) to the sink and wakes its
+/// waiter. Caller contract: exclusive borrows (a syscall, a user trap, the idle loop under the
+/// kernel lock), no pool lock held.
+pub fn dispatch(router: &mut ipc::Router, tasks: &mut task::TaskTable, scheduler: &mut Scheduler) {
+    if PENDING.load(Ordering::Acquire) != 0 {
+        deliver_level(router, tasks, scheduler);
+    }
+    // After the level: a purge the level ran may have dropped swapped pages.
+    super::swap::deliver(router, tasks, scheduler);
+}
+
+/// The pending level, delivered.
+fn deliver_level(router: &mut ipc::Router, tasks: &mut task::TaskTable, scheduler: &mut Scheduler) {
     let raw = PENDING.swap(0, Ordering::AcqRel);
     let Some(level) = raw.checked_sub(1).and_then(Level::from_raw) else { return };
     // RFC-0100 §4: at `warn` and above the objects their owners unlocked go first — here, where
@@ -142,19 +179,7 @@ pub fn dispatch(router: &mut ipc::Router, tasks: &mut task::TaskTable, scheduler
     let (free, total) =
         super::frame_pool::stats().map_or((0, 0), |s| (s.free as u64, s.total as u64));
     let payload = pressure::encode(level, free, total);
-    let header = ipc::header::MessageHeader::new(
-        0,
-        endpoint,
-        pressure::OP_MEMORY_PRESSURE as u16,
-        0,
-        payload.len() as u32,
-    );
-    let msg = ipc::Message::new(header, ipc::Payload::from_slice(&payload), None);
-    if router.send(endpoint, msg).is_ok() {
-        if let Ok(Some(waiter)) = router.pop_recv_waiter(endpoint) {
-            let _ = tasks.wake(task::Pid::from_raw(waiter), scheduler);
-        }
-    } else {
+    if !send_frame(router, tasks, scheduler, endpoint, &payload) {
         // The sink is full: the level is not lost, the next change carries the truth of its
         // moment, and `mm_stats` answers the level at any time.
         log_debug!(target: "mm", "MM: pressure notify dropped level={}", level.name());

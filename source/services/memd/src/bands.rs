@@ -8,7 +8,9 @@
 //! among those the oldest — never below the floor, so the foreground is never a victim and at
 //! `critical` nothing on screen is. Before any kill at `critical` (TASK-0333 6f-1, ADR-0087) the
 //! squeeze candidate: the process longest in the suspended band that was not squeezed since it
-//! entered its band — a band change makes it a candidate again.
+//! entered its band — a band change makes it a candidate again. After the squeeze (6f-2,
+//! ADR-0088) the swap candidate: the process longest in the suspended band that was squeezed and
+//! not swapped out since it entered its band.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal
@@ -32,6 +34,9 @@ pub struct Entry {
     /// Squeezed since it entered this band (ADR-0087): not a squeeze candidate again until its
     /// band changes.
     pub squeezed: bool,
+    /// Swapped out since it entered this band (ADR-0088): not a swap candidate again until its
+    /// band changes.
+    pub swapped: bool,
 }
 
 /// What applying one band push did.
@@ -111,11 +116,13 @@ impl Table {
                 e.band = band;
                 e.since = self.seq;
                 e.squeezed = false;
+                e.swapped = false;
                 Applied::Moved { from }
             }
             None => match self.entries.iter().position(Option::is_none) {
                 Some(i) => {
-                    self.entries[i] = Some(Entry { pid, band, since: self.seq, squeezed: false });
+                    self.entries[i] =
+                        Some(Entry { pid, band, since: self.seq, squeezed: false, swapped: false });
                     Applied::Entered
                 }
                 None => Applied::Full,
@@ -169,6 +176,26 @@ impl Table {
     pub fn mark_squeezed(&mut self, pid: u32) {
         if let Some(e) = self.entries.iter_mut().flatten().find(|e| e.pid == pid) {
             e.squeezed = true;
+        }
+    }
+
+    /// The process the pager takes after the squeeze and before any kill at `critical`
+    /// (ADR-0088): the one longest in the suspended band that was squeezed and not swapped out
+    /// since it entered it. `None` when there is none.
+    #[must_use]
+    pub fn swap_candidate(&self) -> Option<Entry> {
+        self.entries
+            .iter()
+            .flatten()
+            .filter(|e| e.band == BAND_SUSPENDED && e.squeezed && !e.swapped)
+            .copied()
+            .min_by_key(|e| e.since)
+    }
+
+    /// Mark `pid` swapped out (asked once per stay in its band, whatever the answer).
+    pub fn mark_swapped(&mut self, pid: u32) {
+        if let Some(e) = self.entries.iter_mut().flatten().find(|e| e.pid == pid) {
+            e.swapped = true;
         }
     }
 

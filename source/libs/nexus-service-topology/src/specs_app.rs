@@ -223,6 +223,8 @@ pub(crate) const MEMD: ServiceSpec = ServiceSpec {
         // 6e-3: the level told onward — gpud drops what it can, windowd tells every app window.
         Route { to: ServiceId::Gpud, kind: RouteKind::ReplyInbox, slots: slots::memd::GPUD },
         Route { to: ServiceId::Windowd, kind: RouteKind::ReplyInbox, slots: slots::memd::WINDOWD },
+        // 6f-2 (ADR-0088): the pager asks the RNG service to seed the kernel's swap key.
+        Route { to: ServiceId::Rngd, kind: RouteKind::ReplyInbox, slots: slots::memd::RNGD },
     ],
     announce: false,
     server_slots: slots::memd::SERVER,

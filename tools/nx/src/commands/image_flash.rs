@@ -6,7 +6,8 @@
 //! regions compute byte offsets in 32 bits. So the plan hands it none of that: every byte goes
 //! as a raw region the vehicle is told about through `fastboot_raw_partition_<name>` — 64-bit
 //! block addresses, the eMMC's hardware partition included. The regions: the user area from
-//! sector 0 to the end of its last partition, in chunks no larger than one download; the
+//! sector 0 to the end of its last partition that outlives a boot (the pager's `swap` does not,
+//! `storage::layout::VOLATILE`: it is never flashed), in chunks no larger than one download; the
 //! backup GPT in the disk's last sectors; boot0 (hardware partition 1), where the boot ROM reads
 //! the header and the SPL. Each region carries its file and SHA-256; `scripts/board-flash.sh`
 //! declares and writes them, and `--verify` reads each back from the stock system and compares.
@@ -91,7 +92,14 @@ pub(crate) fn handle_flash_plan(args: ImageFlashPlanArgs) -> ExecResult {
     {
         return Err(reject("image: the backup GPT is not at the disk's end".into()));
     }
-    let span = parts.iter().map(|p| p.last_lba + 1).max().unwrap_or(0);
+    // The volatile partitions (the pager's `swap`, ADR-0088) are not carried: nothing on them
+    // outlives a boot.
+    let span = parts
+        .iter()
+        .filter(|p| !storage::layout::VOLATILE.contains(&p.name.as_str()))
+        .map(|p| p.last_lba + 1)
+        .max()
+        .unwrap_or(0);
     let boot0 = std::fs::read(boot0_path(&args.image)).map_err(|err| {
         NxError::new(ExitClass::MissingDependency, format!("image: the board image's boot0: {err}"))
     })?;

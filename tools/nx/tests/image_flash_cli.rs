@@ -134,9 +134,13 @@ fn the_regions_rebuild_the_disk_exactly() {
     assert!(plan["trace"]["start_lba"].as_u64().unwrap() > 0);
     let regions = plan["regions"].as_array().expect("regions");
     let field = |r: &serde_json::Value, k: &str| r[k].as_u64().expect(k);
-    // The user area: chunks from sector 0, back to back, to the end of the last partition.
-    let span =
-        storage::layout::plan().expect("layout").iter().map(|p| p.last_lba + 1).max().unwrap();
+    // The user area: chunks from sector 0, back to back, to the end of the last partition that
+    // outlives a boot — the pager's `swap` (ADR-0088) is never flashed.
+    let layout = storage::layout::plan().expect("layout");
+    let kept = |p: &&storage::gpt::Partition| !storage::layout::VOLATILE.contains(&p.name.as_str());
+    let span = layout.iter().filter(kept).map(|p| p.last_lba + 1).max().unwrap();
+    let swap = layout.iter().find(|p| p.name == "swap").expect("the swap partition");
+    assert!(swap.first_lba >= span, "swap lies past every flashed chunk");
     let disk: Vec<&serde_json::Value> =
         regions.iter().filter(|r| r["name"] != "nxgpt" && r["name"] != "nxboot0").collect();
     let mut next = 0;
@@ -256,9 +260,14 @@ fn no_region_starts_where_the_vehicle_sniffs_gzip() {
         assert!(field(r, "sectors") <= CHUNK_SECTORS);
         next += field(r, "sectors");
     }
-    let span =
-        storage::layout::plan().expect("layout").iter().map(|p| p.last_lba + 1).max().unwrap();
-    assert_eq!(next, span, "chunks up to the end of the last partition");
+    let span = storage::layout::plan()
+        .expect("layout")
+        .iter()
+        .filter(|p| !storage::layout::VOLATILE.contains(&p.name.as_str()))
+        .map(|p| p.last_lba + 1)
+        .max()
+        .unwrap();
+    assert_eq!(next, span, "chunks up to the end of the last partition that outlives a boot");
     let files: Vec<std::path::PathBuf> =
         disk.iter().map(|r| dir.path().join("flash").join(r["file"].as_str().unwrap())).collect();
     let chunks: Vec<(&Path, u64, u64)> =

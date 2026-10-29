@@ -346,7 +346,7 @@ pub(super) fn sys_vmo_read(ctx: &mut Context<'_>, args: &Args) -> SysResult<usiz
     // Object bytes are runs (a lazy object's: pages, `None` where never touched — those read as
     // zeros and stay uncommitted); the user buffer is one range: copy piece by piece.
     let pieces = crate::mm::vmo::span(id, typed.offset, typed.len, false)
-        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+        .map_err(|e| span_error(e, Error::Capability(CapError::PermissionDenied)))?;
     let mut dst = typed.user_ptr;
     for (pa, len) in pieces {
         // SAFETY: `dst..dst+len` lies in the range `ensure_user_range` proved writable; `pa` is
@@ -422,7 +422,7 @@ pub(super) fn sys_vmo_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usi
     }
     // A lazy object's pages are committed as they are written (ADR-0077).
     let pieces = crate::mm::vmo::span(id, typed.offset, typed.len, true)
-        .map_err(|_| Error::Capability(CapError::PermissionDenied))?;
+        .map_err(|e| span_error(e, Error::Capability(CapError::PermissionDenied)))?;
     let mut src = typed.user_ptr;
     for (pa, len) in pieces {
         let Some(pa) = pa else { return Err(Error::Capability(CapError::PermissionDenied)) };
@@ -509,12 +509,22 @@ pub(super) fn ensure_user_range(
         ctx.tasks.current_task().address_space().ok_or(AddressSpaceError::InvalidHandle)?;
     let space = ctx.address_spaces.get_mut(handle)?;
     crate::mm::populate::fill_range(space, ptr, len, access).map_err(|e| match e {
-        crate::mm::populate::FillError::Exhausted => AddressSpaceError::OutOfFrames,
+        crate::mm::populate::FillError::Exhausted => AddressSpaceError::OutOfFrames.into(),
         crate::mm::populate::FillError::Violation(_) | crate::mm::populate::FillError::Damaged => {
-            AddressSpaceError::BadUserMemory
+            AddressSpaceError::BadUserMemory.into()
         }
-    })?;
-    Ok(())
+        // ADR-0088: the syscall entry parks the caller; the syscall re-executes once it is back.
+        crate::mm::populate::FillError::PageIn { token, slot } => Error::PageIn { token, slot },
+    })
+}
+
+/// A lazy object's span refused: a swapped page parks the caller (ADR-0088), anything else is
+/// the caller's to name (`other`).
+pub(super) fn span_error(err: crate::mm::vmo::VmoError, other: Error) -> Error {
+    match err {
+        crate::mm::vmo::VmoError::Swapped { token, slot } => Error::PageIn { token, slot },
+        _ => other,
+    }
 }
 
 pub(super) fn sys_as_create(ctx: &mut Context<'_>, _args: &Args) -> SysResult<usize> {
