@@ -383,6 +383,7 @@ phase = "end"
 
 [marker."SELFTEST: mem pressure drill ("]
 phase = "end"
+forbidden_when = { profile = ["lowmem"] }
 proves = "the harness ran the drill — level=warn once a thawed app is on screen (the fan-out reaches a running window), level=critical once an app is frozen again (the kill) — and names memd's answer (status 0 = a victim was ordered killed, 3 = no victim at that level)"
 
 # TASK-0333 6e-3 (RFC-0100 §3, ADR-0086): the drill's `warn` is told onward — memd to gpud and
@@ -456,6 +457,30 @@ phase = "end"
 [marker."SELFTEST: mem pressure kill ok ("]
 phase = "end"
 proves = "the victim memd chose is dead: its band came back `gone` after the ordered kill (band= names the band it was in, reason= drill or oom)"
+
+# TASK-0333 6f-3: every kill memd ordered and saw carried out is recorded in the state store
+# (`/state/memd/journal`, a ring of the newest sixteen) and read back.
+[marker."SELFTEST: memd journal ok ("]
+phase = "end"
+proves = "the proven kill is recorded in the state store and the journal read back unchanged (reason= drill or oom, seq= numbers the kill across boots, records= the ring holds)"
+
+# TASK-0333 6f-3: the lowmem lane's real pressure — once an app is frozen, the harness takes memory
+# (eager objects, the pages committed) until the kernel's own level is `critical`, halfway between
+# the critical and the emergency watermark, and lets it go once memd ordered a kill. Only there.
+[marker."SELFTEST: mem pressure held ("]
+phase = "end"
+proves = "the kernel's own level reached critical under memory the harness took (level=critical free= frames left taken= frames held); every step after it is the kernel's level, not a drill"
+emit_when = { profile = ["lowmem"] }
+
+[marker."SELFTEST: mem pressure released ("]
+phase = "end"
+proves = "the harness gave its memory back after memd's kill and the kernel's level recovered to normal (level= free=)"
+emit_when = { profile = ["lowmem"] }
+
+[marker."SELFTEST: mem pressure hold FAIL ("]
+phase = "end"
+proves = "the lowmem pressure did not run its course (step=take: the level never reached critical; step=kill: no kill within the bound; step=release: the level did not recover)"
+emit_when = { profile = ["lowmem"] }
 
 # TASK-0333 6f-2 (ADR-0088): a swapped-out victim's objects die with it; the kernel tells the
 # pager their slots (`OP_SWAP_DROP`, 32 a frame) and the pager frees them.
@@ -594,3 +619,42 @@ proves = "the input chain's hop in an app over 16 inputs: an input that asked fo
 [marker."windowd: frame pace ("]
 phase = "end"
 proves = "RFC-0110 (TASK-0343): the presents of a 1 s window shown when windowd predicted — the time the clients' frame pulses named and its transitions stepped to — or more than half a period late or early, with the cadence and the period gpud named (a measurement)"
+
+# TASK-0333 6f-3 (ADR-0089): lines the visible lanes' scenarios wait for — declared so every step
+# names a contract marker (`nexus-proof-manifest scenario --scenario=all`, host): a renamed line
+# fails the scenario check on the host instead of a lane's choreography at minute nine.
+[marker."windowd: transition open"]
+phase = "end"
+proves = "an app window's open transition began (the launch reached the compositor)"
+
+[marker."windowd: minimize id=app"]
+phase = "end"
+proves = "the minimize chord hid the focused app window (windowd states `hidden` to the lifecycle authority)"
+
+[marker."windowd: focus id=app"]
+phase = "end"
+proves = "an app window holds the focus (after a re-created surface: it is up again)"
+
+[marker."WINDOWD: app window closed"]
+phase = "end"
+proves = "an app window's surface is gone (its close, or its process's death)"
+
+[marker."abilitymgr: suspend (inst="]
+phase = "end"
+proves = "the lifecycle authority froze a hidden app's process through its parent after the grace"
+
+[marker."abilitymgr: launch (app=settings"]
+phase = "end"
+proves = "the lifecycle authority launched the settings app (a fresh instance)"
+
+[marker."apphost: text focus set"]
+phase = "end"
+proves = "a text field took the keyboard (the search's autofocus)"
+
+[marker."apphost: resized"]
+phase = "end"
+proves = "an app re-created its surface at a new size (a tile, a return): its next frame is laid out for it"
+
+[marker."WINDOWD: surface presented id="]
+phase = "end"
+proves = "a surface's first frame reached the compositor (a re-created window is up again)"

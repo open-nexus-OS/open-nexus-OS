@@ -1,0 +1,243 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The usb-visible lane's choreography (TASK-0333 6f-3, ADR-0089) — the desktop driven over
+# USB alone, as data: log in; the shell's modal twice (TASK-0074); a window tiled and returned
+# (TASK-0066); hidden, frozen, squeezed and swapped out, shown again (TASK-0333 6d/6f); closed and
+# restored (6e-1); hidden once more and killed by the drill (6e-2), the kill journaled (6f-3); the
+# clipboard round (TASK-0067B); a screenshot (TASK-0068). Every step waits for what it caused —
+# no pause stands in for an event; the declared `settle_s` pauses are the frames that have none.
+# OWNERS: @runtime @ui
+# STATUS: Functional
+# API_STABILITY: Unstable
+
+[scenario]
+profile = "usb-visible"
+start_after = "SELFTEST: input window open"
+
+# The keyboard's first input after boot, acknowledged on its own: a chord as the first input got
+# one empty report from QEMU's USB keyboard and nothing after it (lowmem, 2026-10-29); the old
+# choreography pressed a letter first without saying why. A letter at the greeter (its field
+# takes it, the dev session signs in regardless), pressed again until inputd routes it.
+[[step]]
+name = "the keyboard reaches the greeter"
+do = { key = "a" }
+expect = ["inputd: live keyboard route on"]
+timeout_s = 10
+retry = 2
+
+[[step]]
+name = "log in"
+do = { login = true }
+expect = ["windowd: session shell visible"]
+timeout_s = 60
+
+# -- the shell's modal (TASK-0074 / ADR-0068): power → Confirm → toast → its timeout ---------------
+[[step]]
+name = "open the control center"
+do = { click = "cc_pill" }
+
+[[step]]
+name = "press power"
+do = { click = "power_button" }
+expect = ["apphost: modal open (depth=1)", "windowd: win modal on (id="]
+timeout_s = 30
+
+# The alert's first close proves the modal round trip once per boot (`dialog ok`, `live modal ok`).
+[[step]]
+name = "confirm; the toast runs out"
+do = { click = "confirm_button" }
+expect = [
+    "windowd: win modal off (id=",
+    "SELFTEST: ui v10 dialog ok",
+    "SELFTEST: ui v10 live modal ok",
+    "apphost: modal dismiss (reason=timeout)",
+]
+timeout_s = 40
+
+# Round B: the alert once more; a background press is absorbed; ESC closes it (no text field).
+[[step]]
+name = "press power again"
+do = { click = "power_button" }
+expect = ["apphost: modal open (depth=1)"]
+timeout_s = 30
+
+[[step]]
+name = "press the background"
+do = { click = "modal_background" }
+
+[[step]]
+name = "escape closes the alert"
+do = { key = "esc" }
+expect = ["apphost: modal dismiss (reason=escape)", "windowd: win modal off (id="]
+timeout_s = 30
+
+# -- tiling (TASK-0066 / ADR-0069) ------------------------------------------------------------------
+[[step]]
+name = "open the launcher"
+do = { click = "launcher_button" }
+
+# The window's first surface presents its first frame (app-host's launch line), then the window
+# is re-created at its intended size: the step ends on that second surface's first frame — `then`,
+# after its resize (the first surface's frame came before it).
+[[step]]
+name = "launch settings"
+do = { click = "launch_settings" }
+expect = ["windowd: transition open", "apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+# A tile and its return each re-create the window's surface (destroyed → created → the app resized
+# → its first frame presented): the step ends on the new surface's first frame (`then`, after the
+# resize) — a minimize sent before it was up lost to the re-created surface taking the focus back
+# (2026-10-29).
+[[step]]
+name = "tile left"
+settle_s = 1.5
+do = { chord = ["ctrl", "meta_l", "left"] }
+expect = ["windowd: wm tile (zone=left-half", "windowd: focus id=app", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 60
+
+[[step]]
+name = "return the tile"
+settle_s = 1.5
+do = { chord = ["ctrl", "meta_l", "down"] }
+expect = ["SELFTEST: ui v7 tile ok", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 60
+
+# -- lifecycle (TASK-0333 6d, 6f-1, 6f-2): hidden → frozen → squeezed → swapped out → shown -----
+[[step]]
+name = "hide settings"
+settle_s = 1.5
+do = { chord = ["ctrl", "meta_l", "m"] }
+expect = [
+    "windowd: minimize id=app",
+    "abilitymgr: suspend (inst=",
+    "SELFTEST: mem squeeze ok (",
+    "SELFTEST: swap out ok (",
+]
+timeout_s = 90
+
+# The thaw pages it back; once it runs on screen the harness's warn drill reaches its window.
+[[step]]
+name = "show settings again"
+settle_s = 1.0
+do = { chord = ["ctrl", "meta_l", "m"] }
+expect = [
+    "SELFTEST: ability lifecycle ok (fg->hidden->frozen->fg)",
+    "SELFTEST: swap in ok (",
+    "SELFTEST: mem pressure fanout ok (",
+    "apphost: mem pressure (level=warn",
+]
+timeout_s = 60
+
+# -- restore (TASK-0333 6e-1): closed with its record, launched again, the record restored -------
+# windowd closes the window and the app saves its record as it exits: two services, no order
+# between their lines — `expect` is a set.
+[[step]]
+name = "close settings"
+settle_s = 1.5
+do = { chord = ["ctrl", "meta_l", "w"] }
+expect = ["windowd: wm chord (zone=close", "WINDOWD: app window closed", "apphost: persist saved ("]
+timeout_s = 45
+
+# The launcher sheet stayed open under the window, so the tile is pressable at once; if no launch
+# follows (the sheet closed), open the sheet and press the tile again.
+[[step]]
+name = "launch settings again"
+settle_s = 1.5
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 15
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+# Restored before its first frame; then the same re-creation as any launch — the hide below waits
+# for the second surface.
+[[step]]
+name = "the record comes back"
+do = { wait = true }
+expect = ["SELFTEST: app restore ok (", "apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+# -- the kill (TASK-0333 6e-2, 6f-3): hidden once more, the drill squeezes, swaps out and kills it;
+# the kill's last step is memd's journal (a state-store round trip) ---------------------------------
+[[step]]
+name = "hide settings once more"
+settle_s = 1.5
+do = { chord = ["ctrl", "meta_l", "m"] }
+expect = [
+    "windowd: minimize id=app",
+    "abilitymgr: suspend (inst=",
+    "SELFTEST: mem pressure kill ok (band=suspended reason=drill)",
+    "SELFTEST: memd journal ok (reason=drill",
+]
+timeout_s = 90
+
+# -- clipboard (TASK-0067B / RFC-0094) ----------------------------------------------------------------
+[[step]]
+name = "open the search"
+settle_s = 1.5
+do = { click = "search_pill" }
+expect = ["apphost: modal open (depth=1)", "apphost: text focus set"]
+timeout_s = 40
+
+[[step]]
+name = "pick Clipboard"
+do = { click = "search_clipboard" }
+
+# Typing writes no line (the keystroke privacy rule): the copy acknowledges the word and the select.
+[[step]]
+name = "type the word"
+do = { type = "copy_word" }
+acked_by = "copy it"
+
+[[step]]
+name = "select it"
+do = { chord = ["ctrl", "a"] }
+acked_by = "copy it"
+
+[[step]]
+name = "copy it"
+do = { chord = ["ctrl", "c"] }
+expect = ["apphost: text copy ok"]
+timeout_s = 55
+
+[[step]]
+name = "paste it back"
+settle_s = 1.5
+do = { chord = ["ctrl", "v"] }
+expect = ["apphost: text paste ok"]
+timeout_s = 45
+
+[[step]]
+name = "press the copied card"
+do = { click = "clip_card" }
+expect = ["SELFTEST: ui v7 clipboard ok"]
+timeout_s = 45
+
+[[step]]
+name = "close the search"
+do = { key = "esc" }
+expect = ["apphost: modal dismiss (reason=escape)"]
+timeout_s = 30
+
+# -- capture (TASK-0068 / RFC-0095) -------------------------------------------------------------------
+[[step]]
+name = "press Print"
+do = { key = "print" }
+expect = ["screencapd: freeze ok", "apphost: modal open (depth=1)"]
+timeout_s = 55
+
+[[step]]
+name = "drag a selection"
+do = { drag = ["capture_from", "capture_to"] }
+
+[[step]]
+name = "press the shutter"
+do = { click = "capture_shutter" }
+expect = ["screencapd: saved (kind=area", "SELFTEST: ui v7 screenshot ok"]
+timeout_s = 75

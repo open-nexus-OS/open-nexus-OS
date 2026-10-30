@@ -8,7 +8,7 @@
 //! the panel draws nothing; the window mode outlines the windows and a click picks one; the
 //! shutter sends exactly the mode's arguments and the toast names the saved file; ESC thaws;
 //! Shift+Print saves the screen without the overlay. Also the SSOT for the live lane's
-//! injector targets (`tools/qmp_inject_modal.py`, capture phase).
+//! injector targets (`proof-manifest/scenarios/targets.toml`, the usb-visible scenario's capture steps).
 
 // reason: test harness — a failed compile/mount step must panic loudly.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -20,10 +20,9 @@ use nexus_dsl_runtime::{DismissReason, FixtureEnv, IdentityLocale, Value, View};
 use nexus_layout_types::FxPx;
 use nexus_theme_tokens::BaseTokens;
 
-/// Display-space points at 1280×800 the live lane's injector drives: the drag that draws the
-/// selection (press, release) and the shutter's centre.
-pub const INJECT_CAPTURE_DRAG: ((i32, i32), (i32, i32)) = ((120, 140), (520, 420));
-pub const INJECT_CAPTURE_SHUTTER: (i32, i32) = (640, 728);
+// The display-space points at 1280×800 the live lane's injector drives — the drag that draws the
+// selection (press, release) and the shutter's centre — read from `scenarios/targets.toml`
+// (`common::inject_point`, TASK-0333 6f-3).
 
 /// The frozen frame the fake service answers: 1280×800, a back window and a front window.
 const BACK: (i64, i64, i64, i64, i64) = (9, 700, 60, 500, 500);
@@ -213,7 +212,8 @@ fn print_opens_the_overlay_over_the_frozen_frame_and_a_drag_draws_the_selection(
     );
     assert_eq!(rig.hole(), (320, 200, 640, 400), "a centred selection of half the screen");
 
-    let (press, release) = INJECT_CAPTURE_DRAG;
+    let (press, release) =
+        (common::inject_point("capture_from"), common::inject_point("capture_to"));
     rig.drag(press, release);
     assert_eq!(rig.hole(), (120, 140, 400, 280), "drawn from the press to the release");
     // A drag inside the selection moves it; the size stays.
@@ -224,7 +224,11 @@ fn print_opens_the_overlay_over_the_frozen_frame_and_a_drag_draws_the_selection(
     assert_eq!(rig.hole(), (150, 160, 450, 340));
 
     let shutter = rig.handler_center("CapShoot", None).expect("shutter");
-    assert_eq!(shutter, INJECT_CAPTURE_SHUTTER, "the injector's shutter target moved");
+    assert_eq!(
+        shutter,
+        common::inject_point("capture_shutter"),
+        "the injector's shutter target moved"
+    );
     rig.tap(shutter);
     assert_eq!(
         rig.host.calls.last().unwrap(),

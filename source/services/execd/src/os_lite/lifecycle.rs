@@ -17,10 +17,9 @@
 //!   (pid=`), the service launcher's probe (`SELFTEST: task kill ok`, `SELFTEST: exec child
 //!   squeeze ok`); the gate is `crate::orders::order_allowed` (host-tested, `test_reject_*`)
 
-use super::emit::{emit_line_no_nl, emit_u64};
 use super::{rsp, State, STATUS_DENIED, STATUS_FAILED, STATUS_MALFORMED, STATUS_OK};
 use alloc::vec::Vec;
-use nexus_abi::{debug_putc, SqueezeBatch};
+use nexus_abi::{DebugLine, SqueezeBatch};
 use nexus_wire::execd::{encode_squeeze_rsp, OP_SQUEEZE};
 
 /// `[E,X,ver,OP_FREEZE, pid:u32le]` → `task_suspend(pid)`.
@@ -136,12 +135,10 @@ fn reply(op: u8, status: u8, pid: u32, total: SqueezeBatch) -> Vec<u8> {
     .to_vec()
 }
 
-/// `execd: squeeze (pid= pages= zero= kept= taken= stored= batches= us=)` on one line,
-/// alloc-free.
+/// `execd: squeeze (pid= pages= zero= kept= taken= stored= batches= us=)` — one line, one write.
 fn emit_squeeze_line(pid: u32, squeeze: &Squeeze) {
     let total = &squeeze.total;
-    emit_line_no_nl("execd: squeeze (pid=");
-    emit_u64(u64::from(pid));
+    let mut line = DebugLine::new().put(b"execd: squeeze (pid=").u64(u64::from(pid));
     for (label, value) in [
         (" pages=", total.squeezed),
         (" zero=", total.zero),
@@ -151,17 +148,12 @@ fn emit_squeeze_line(pid: u32, squeeze: &Squeeze) {
         (" batches=", squeeze.batches),
         (" us=", squeeze.us),
     ] {
-        emit_line_no_nl(label);
-        emit_u64(value);
+        line = line.str(label).u64(value);
     }
-    let _ = debug_putc(b')');
-    let _ = debug_putc(b'\n');
+    line.put(b")").emit();
 }
 
-/// `<prefix><pid>)` on one line, alloc-free.
+/// `<prefix><pid>)` — one line, one write.
 fn emit_pid_line(prefix: &str, pid: u32) {
-    emit_line_no_nl(prefix);
-    emit_u64(u64::from(pid));
-    let _ = debug_putc(b')');
-    let _ = debug_putc(b'\n');
+    DebugLine::new().str(prefix).u64(u64::from(pid)).put(b")").emit();
 }

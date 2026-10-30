@@ -58,11 +58,11 @@ impl crate::wire::GrantSource for PolicydGrants {
             Ok((wire::STATUS_ALLOW, grants)) => Some(grants),
             Ok(_) => None,
             Err(_) => {
-                nexus_abi::debug_ts_prefix();
-                super::emit_prefix(b"abilitymgr: FAIL grants ask (app=");
-                super::emit_str(app_id);
-                super::emit_prefix(b")");
-                super::emit_newline();
+                nexus_abi::DebugLine::new()
+                    .put(b"abilitymgr: FAIL grants ask (app=")
+                    .str(app_id)
+                    .put(b")")
+                    .emit();
                 None
             }
         }

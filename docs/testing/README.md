@@ -100,7 +100,9 @@ The full layer reference — including the end-to-end coverage table and the per
      because the first pointer event makes windowd hand imed the window focus
      and that transition resets a half-typed composition — the probes are
      guest-sequenced, the injector host-timed, so without the wait the order
-     depends on the emulator's speed, 2026-10-28). The ladder
+     depends on the emulator's speed, 2026-10-28; and for the IPC benchmarks'
+     budget line, `KSELFTEST: ipc call budget ` — a pointer burst during them
+     on the one hart failed the budget once, 2026-10-29). The ladder
      (`USB_INPUT_MARKERS`) requires the chain end to end: hidrawd's USB source
      (`hidrawd: usb hid report seen`, I1, I2), inputd's live routes, the cursor
      moved on screen and `SELFTEST: ui v2 input ok`; then (TASK-0074/0066) the
@@ -132,6 +134,25 @@ The full layer reference — including the end-to-end coverage table and the per
      `docs/standards/SECURITY_STANDARDS.md`). Every visible lane also reads the
      shown frame back through the whole capture path once (`SELFTEST: ui v7
      screencap ok`).
+   - `just ci-os-lowmem` — REAL memory pressure (TASK-0333 6f-3, RFC-0100 §5;
+     `[profile.lowmem]` extends usb-visible, the guest reads `lowmem` from
+     `/chosen`). The usb-visible desktop and input chain, then the lane's own
+     choreography instead of the modal, tiling, clipboard and capture phases
+     (the scenario `lowmem.toml`, see "Lane scenarios" below): the injector
+     launches settings and hides
+     it (the grace freezes it); the harness takes memory until free frames are
+     halfway between the critical and the emergency watermark — the kernel's
+     own level (`SELFTEST: mem pressure held (level=critical …)`); memd's
+     chain runs from the kernel's frame — squeeze, swap-out, kill, journal, all
+     `reason=oom` (`SELFTEST: mem pressure kill ok (band=suspended
+     reason=oom)`, `SELFTEST: memd journal ok (reason=oom …)`); the harness
+     gives the memory back at the kill (`SELFTEST: mem pressure released
+     (level=normal …)`); the injector launches settings again and the new
+     process restores what the hidden one saved (`SELFTEST: app restore ok`,
+     the early stop's marker, inside a 480 s budget). The drill's line is
+     forbidden on the profile (verify-uart): no step is simulated. The ladder
+     is `LOWMEM_INPUT_MARKERS`; the chain-marker contract checks `input-route`,
+     `input-live`, `gpu-core` and `display`.
    - `just ci-os-smp` — real parallelism: `-smp 2`, MTTCG, secondary-hart
      proofs required, bounded retry (`[profile.smp]`).
 
@@ -168,6 +189,50 @@ The complete just-target catalog (incl. per-TASK proof floors) lives in [os-mark
 - **Headless lanes need no display stack; `just start` does.** The interactive path defaults to `GPU_MODE=virgl` in a `-display gtk,gl=on` window, and the virgl proof lane uses `egl-headless`. Both come from host GTK + EGL/virglrenderer, which on Debian/Ubuntu live in packages separate from the emulator (`qemu-system-gui`, `qemu-system-modules-opengl`). CI is deliberately headless and never exercises this path — `make doctor` is what catches a QEMU that boots fine but cannot open a window.
 - Do not rely on host-only tools — update `scripts/install-deps.sh` **and** `podman/Containerfile` together when new packages are needed.
 - Full detail: [e2e.md](e2e.md) § "Environment parity & prerequisites".
+
+## Lane scenarios — the injector's choreography as data (ADR-0089, TASK-0333 6f-3)
+
+The visible lanes that inject input (`usb-visible`, `lowmem`, and `input-flood`'s warm-up) do not
+script it in Python: the profile names a scenario (`QEMU_INPUT_SCENARIO`), a TOML file in
+`source/apps/selftest-client/proof-manifest/scenarios/`, and ONE runner (`tools/qmp_scenario.py`
+over the primitives in `tools/qmp_input.py`) executes it.
+
+- **When.** Nothing is injected before the guest prints `SELFTEST: input window open` — after its
+  timing gates (IPC budget, console and BKL budgets) and its end-phase probes. The guest decides;
+  the host never guesses which incidental line comes last.
+- **A step** is one action — `login`, `click`, `move`, `chord`, `key`, `type`, `drag`, `wait` —
+  and `expect`: markers that must appear as NEW lines after the action, in any order (services
+  write concurrently; only causality orders their lines), then `then`: markers each after the
+  LAST `expect` line (a re-created window's first frame counts only after its resize), all within
+  `timeout_s`; a `wait` step, having no action, counts from the action of the step before it. A
+  `click` is also acknowledged by app-host's readback — a HIT on the point (`apphost: tap (x,y)
+  hit=Some(…)`); a miss there (`input tap miss at`) means the surface under it is not laid out
+  yet, so the runner waits 1.5 s and presses again — and a `drag` by its drag trace; an action
+  that writes no line (typing: the keystroke privacy rule) names the later step that covers it
+  (`acked_by`); a pause with no event to wait for is declared (`settle_s`, ≤ 10 s).
+- **Failure is loud and first.** A step whose acknowledgement does not come is retried as declared
+  (`retry`, `retry_with`) and otherwise ENDS the run: `[scenario] FAIL step=… missing=…` and the
+  same in `hypothesis.json`. No step runs blind on a screen a failed step left behind. A click
+  whose press never surfaced homes the pointer before it retries (the travel before it was
+  merged away too). Every step's duration is logged (`scenario step ok`, `s=`).
+- **The contract is checked on the host.** `nexus-proof-manifest scenario --scenario=all` (and
+  `cargo test -p nexus-proof-manifest --test scenarios`): every literal is a declared marker or a
+  specialisation of one, every point and word exists in `scenarios/targets.toml`, every action is
+  acknowledged, names are unique, bounds are bounded. The points and the typed word are the same
+  file the shell's conformance tests read (`tests/dsl_apps_conformance/tests/shell_*.rs` via
+  `common::inject_point`): a moved widget fails a host test, not a lane.
+- **The disk does not wait for the host.** A proof session attaches its per-run image with
+  `cache=unsafe` (`scripts/qemu-launcher.sh`): a guest flush is not a host `fdatasync`, which on a
+  busy host disk stalled the guest's block requests for seconds. Interactive sessions keep QEMU's
+  default.
+- **A device's answer is an event.** virtio-blk waits for its device's interrupt and nothing else
+  (no watchdog, no poll; the line bound before the warm-up read — rung `blk: irq bound`): a
+  stalled device only delays a request. A device that failed says so (`DEVICE_NEEDS_RESET` →
+  `virtio-blk: device failed (needs reset)`). Before 6f-3 a 2 s watchdog gave requests up and
+  leaked their slots: `virtio-blk: timeout` ×4 → `slots exhausted` for the rest of the boot.
+- **The first key after boot is a step of its own** (`… reaches the greeter`: a letter, retried
+  until `inputd: live keyboard route on`) — a chord as the first input got one empty report from
+  QEMU's USB keyboard and nothing after it (open for the keyboard package).
 
 ## Gates beyond the ladder
 

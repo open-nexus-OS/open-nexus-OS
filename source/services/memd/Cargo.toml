@@ -14,9 +14,12 @@ os-lite = [
     "dep:nexus-ipc",
     "dep:nexus-service-entry",
     "dep:storage",
+    "dep:statefs",
     "nexus-ipc/os-lite",
     "nexus-ipc/kernel-ipc",
     "storage/os-lite",
+    "statefs/ipc-client",
+    "statefs/os-lite",
 ]
 
 [package.metadata.nexus-service]
@@ -35,6 +38,13 @@ nexus-wire = { path = "../../libs/nexus-wire" }
 # TASK-0333 6f-2 (ADR-0088): the pager's slots on the `swap` partition, through blkd's block
 # plane (the one client of the protocol: `storage::remote_blk`).
 storage = { path = "../../../userspace/storage", optional = true, default-features = false }
+# TASK-0333 6f-3: the kill journal in the state store, through statefsd's client.
+statefs = { path = "../../../userspace/statefs", optional = true, default-features = false }
+
+[dev-dependencies]
+# TASK-0333 6f-3: the kill chain proven over the REAL lifecycle authority (its broker, band feed
+# and kill policy) in every event order — `tests/kill_chain.rs`. Host only.
+abilitymgr = { path = "../abilitymgr" }
 
 [[bin]]
 name = "memd"

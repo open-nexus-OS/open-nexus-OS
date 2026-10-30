@@ -21,6 +21,8 @@
 //!   list-phases    --profile=<name>                  [--format=lines|json]
 //!   verify         --manifest=<path>
 //!   verify-uart    --profile=<name> --uart=<path>    [--format=lines|json]
+//!   scenario       --scenario=<name>|all             (TASK-0333 6f-3: the validated scenario
+//!                  as JSON for the injector's runner; `all` checks every shipped scenario)
 //!
 //! `verify-uart` is the deny-by-default analyzer (P4-09): any UART line
 //! containing a manifest-declared marker that the active profile does NOT
@@ -70,6 +72,7 @@ subcommands:
   list-phases    --profile=<name>                  [--format=lines|json]
   verify         [--manifest=<path>]
   verify-uart    --profile=<name> --uart=<path>    [--format=lines|json]
+  scenario       --scenario=<name>|all             (JSON for the injector; `all` = check)
 
 options shared by all subcommands:
   --manifest=<path>   path to proof-manifest root (v1 single-file or v2
@@ -100,6 +103,7 @@ fn run(argv: &[String]) -> Result<(), CliError> {
         "list-phases" => cmd_list_phases(&manifest, &opts),
         "verify" => Ok(()),
         "verify-uart" => cmd_verify_uart(&manifest, &opts),
+        "scenario" => cmd_scenario(&manifest, &opts),
         other => Err(CliError::Usage(format!("unknown subcommand `{other}`"))),
     }
 }
@@ -111,6 +115,39 @@ struct Opts {
     phase: Option<String>,
     format: Option<String>,
     uart: Option<PathBuf>,
+    scenario: Option<String>,
+}
+
+/// TASK-0333 6f-3: one scenario validated and printed as JSON (the runner's input), or every
+/// shipped scenario checked (`--scenario=all`, one name per line). The scenarios live beside
+/// the root manifest (`<dir>/scenarios/`).
+fn cmd_scenario(m: &Manifest, opts: &Opts) -> Result<(), CliError> {
+    use nexus_proof_manifest::scenario;
+    let name = opts
+        .scenario
+        .as_deref()
+        .ok_or_else(|| CliError::Usage("--scenario=<name> required".into()))?;
+    let root = opts.manifest.clone().unwrap_or_else(default_manifest_path);
+    let dir =
+        root.parent().map(|p| p.join("scenarios")).unwrap_or_else(|| PathBuf::from("scenarios"));
+    if name != "all" {
+        let s = scenario::read(&dir, name, m).map_err(|e| CliError::Manifest(e.to_string()))?;
+        println!("{}", s.to_json());
+        return Ok(());
+    }
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .map_err(|e| CliError::Io(format!("{}: {e}", dir.display())))?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(str::to_string))
+        .filter(|stem| stem != "targets")
+        .collect();
+    names.sort();
+    for n in &names {
+        scenario::read(&dir, n, m).map_err(|e| CliError::Manifest(format!("{n}: {e}")))?;
+        println!("{n}");
+    }
+    Ok(())
 }
 
 fn parse_opts(args: &[String]) -> Result<Opts, CliError> {
@@ -125,6 +162,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, CliError> {
             "--phase" => o.phase = Some(v.to_string()),
             "--format" => o.format = Some(v.to_string()),
             "--uart" => o.uart = Some(PathBuf::from(v)),
+            "--scenario" => o.scenario = Some(v.to_string()),
             other => return Err(CliError::Usage(format!("unknown option `{other}`"))),
         }
     }

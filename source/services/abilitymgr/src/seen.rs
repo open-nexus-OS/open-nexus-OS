@@ -5,8 +5,10 @@
 //! host-tested: the compositor states what it sees of an app's window (`OP_SEEN`: focused,
 //! visible, hidden, gone); this module turns that into the instance's lifecycle state and into
 //! the ORDERS the launcher carries out — a hidden app is frozen once its grace has run out, a
-//! frozen app that is seen again (or whose window is gone and must run to exit) is thawed. The
-//! OS loop owns the clock and the IPC; nothing here waits or sends.
+//! frozen app that is seen again (or whose window is gone and must run to exit) is thawed. An
+//! instance whose kill was carried (6f-3: `dying`) is moved by its death report alone — its
+//! window closing first must not thaw a process the parent already reaped. The OS loop owns
+//! the clock and the IPC; nothing here waits or sends.
 //! OWNERS: @ui @runtime
 //! STATUS: Functional
 //! API_STABILITY: Unstable
@@ -130,6 +132,10 @@ impl Broker {
     ) -> Result<(AbilityState, Option<Order>), LifecycleError> {
         use AbilityState::*;
         let inst = self.instances.get(&id).ok_or(LifecycleError::UnknownInstance)?;
+        if inst.dying {
+            // The kill was carried: the window closes before the death report arrives.
+            return Ok((inst.state, None));
+        }
         let pid = inst.pid;
         if inst.state == Created {
             // Its window is on screen: the ability started.
@@ -170,6 +176,7 @@ impl Broker {
             .values()
             .filter(|i| {
                 i.state == AbilityState::Background
+                    && !i.dying
                     && Self::freezes_when_hidden(i)
                     && i.hidden_since.is_some_and(|t| now_ns.saturating_sub(t) >= FREEZE_GRACE_NS)
             })
@@ -195,7 +202,9 @@ impl Broker {
     pub fn next_freeze_deadline(&self) -> Option<u64> {
         self.instances
             .values()
-            .filter(|i| i.state == AbilityState::Background && Self::freezes_when_hidden(i))
+            .filter(|i| {
+                i.state == AbilityState::Background && !i.dying && Self::freezes_when_hidden(i)
+            })
             .filter_map(|i| i.hidden_since)
             .map(|t| t.saturating_add(FREEZE_GRACE_NS))
             .min()
@@ -325,6 +334,35 @@ mod tests {
         );
         // A running instance whose window is gone needs no order: its exit is the report.
         assert_eq!(broker.seen(id, Seen::Gone, 9_001).unwrap(), (AbilityState::Background, None));
+    }
+
+    #[test]
+    fn test_reject_thaw_of_a_dying_instance_whose_window_closes_first() {
+        // TASK-0333 6f-3 (lowmem lane): memd's kill was carried; windowd reports the window gone
+        // before execd's death report — no thaw for a process the parent already reaped.
+        let mut broker = Broker::new();
+        let id = launched(&mut broker, "notes", 70);
+        broker.seen(id, Seen::Focused, 1).unwrap();
+        broker.seen(id, Seen::Hidden, 100).unwrap();
+        broker.due_freezes(100 + FREEZE_GRACE_NS);
+        broker.mark_dying(id).unwrap();
+        assert_eq!(broker.seen(id, Seen::Gone, 9_000).unwrap(), (AbilityState::Suspended, None));
+        assert_eq!(broker.seen(id, Seen::Focused, 9_001).unwrap(), (AbilityState::Suspended, None));
+        // The death report ends it.
+        assert_eq!(broker.exited(70).map(|i| i.instance_id), Ok(id));
+        assert_eq!(broker.state(id), None);
+    }
+
+    #[test]
+    fn test_reject_freeze_of_an_instance_killed_in_its_grace() {
+        let mut broker = Broker::new();
+        let id = launched(&mut broker, "notes", 70);
+        broker.seen(id, Seen::Focused, 1).unwrap();
+        broker.seen(id, Seen::Hidden, 100).unwrap();
+        broker.mark_dying(id).unwrap();
+        assert_eq!(broker.next_freeze_deadline(), None, "no clock for a dying instance");
+        assert!(broker.due_freezes(u64::MAX).is_empty(), "never frozen after its kill");
+        assert_eq!(broker.state(id), Some(AbilityState::Background));
     }
 
     #[test]

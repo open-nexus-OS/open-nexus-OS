@@ -82,6 +82,15 @@ phase = "end"
 phase = "end"
 proves = "memd did not answer, or answered that the kernel refused its bind — the pressure sink has no listener"
 
+# TASK-0333 6f-3: the harness's timing gates are behind it — the IPC budget in its phase, the
+# console and BKL budgets at the end phase's start — and its end-phase probes ran: host input is
+# welcome from here. The visible lanes' scenario runner sends nothing before this line (a pointer
+# burst during the IPC benchmarks failed the budget once, test-all 2026-10-29); the guest decides
+# when, the host no longer guesses.
+[marker."SELFTEST: input window open"]
+phase = "end"
+proves = "the guest's timing-sensitive steps are over; the injector's first event may come"
+
 # TASK-0333 6a (RFC-0100 §1): the objects freed because nobody named or mapped them any more —
 # at a reap (what the zombie named at its exit, what its space mapped) and at the last
 # `cap_close` of a VMO — and their bytes. A measurement at the same fence; the verdict is the

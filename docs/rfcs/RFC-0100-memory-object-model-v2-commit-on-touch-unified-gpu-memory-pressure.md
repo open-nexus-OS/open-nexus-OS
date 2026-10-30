@@ -1,6 +1,6 @@
 # RFC-0100: The memory object model v2 — a VMO dies with its last capability, pages committed on touch, one pool shared with the GPU, pressure as an event, compression before swap
 
-- Status: Draft (seeded 2026-10-19 at layer 6's start; filled in 6b)
+- Status: Complete (2026-10-30 — phases 0–4 green: TASK-0333 6a, 6b, 6c, 6e, 6f; board cycles 48–77; seeded 2026-10-19 at layer 6's start, filled in 6b)
 - Owners: @kernel-team @runtime @gpu
 - Created: 2026-10-19
 - Last Updated: 2026-10-28
@@ -17,7 +17,7 @@
 - **Phase 1 (6b: commit on touch, the layout block split, unified GPU memory; CoW moved to 6c)**: ✅ 2026-10-23 — 6b-1 ✅ 2026-10-23 (board cycle 64, ADR-0077: lazy objects, the fault fills, the checked user range, lazy `.bss` and stacks, the contiguous tail returned); 6b-2a ✅ 2026-10-23 (board cycle 65: the app arena reserved, the splash given back, the atlas counted); 6b-2b ✅ 2026-10-23 (board cycle 66, ADR-0078: one pool with the GPU — the ring contiguous, the surfaces lazy and entered as sampled, the GPU's ceiling two thirds of RAM); 6b-3 ✅ 2026-10-23 (board cycle 67: every service's heap frees, a double free refused, an object freed while mapped dies at its unmap)
 - **Phase 2 (6c: sealed images, shared code)**: ⏳ 6c-0 ✅ 2026-10-23 (the OS build's own flags), 6c-1a ✅ 2026-10-25 (board cycle 69, ADR-0079: cache maintenance a non-coherent device's right), 6c-1b ✅ 2026-10-26 (board cycle 70, ADR-0080: `vmo_seal` + `exec_vmo` the one loader, text and rodata mapped from the sealed image's frames, the volume's images sealed before they are verified), 6c-2 ✅ 2026-10-26 (board cycle 71, ADR-0081: the boot image one container — kernel + bootfs under one digest, every core program a sealed object the kernel adopts, no program embeds another; the loader in every chain). **Phase 2 complete**
 - **Phase 3 (6e: accounting, pressure levels, purgeable VMOs and seals, the restorable contract)**: ✅ 2026-10-27 (both QEMU lanes + board cycle 73; ADR-0085/0086 Accepted) — 6e-0 built 2026-10-27 (ADR-0085: `mm_stats` v4 with shared bytes, the level and its watermarks; the watermarks from each bank's boot-time free; `mem_pressure_bind` (67) — one sink, one frame per level change, the level at the bind; headless proof `KSELFTEST: mem pressure notify ok`, `mem watermarks ok`); 6e-1 built 2026-10-27 (ADR-0086, §6: `restorable = true` → `nexus.permission.STATE` → `svc.state`; the record `/state/app/@self/persist` by kernel identity; written on the compositor's `hidden` sighting and at close, restored before the initial effects; settings' navigation the first; board proof pending in the 6e cycle); 6e-2 built 2026-10-27 (ADR-0086, §3: memd the one authority — the bands from the lifecycle authority, the kill through it, proven by the death; both lanes); 6e-3 lane-proven 2026-10-27 (§4: purgeable VMOs — syscall 68 unlock/lock, the purge at warn before the frame leaves; the level told onward memd → gpud, memd → windowd → every app window → the host event `MemoryPressure`; `KSELFTEST: vmo purge ok` on both lanes, the whole fan-out chain at warn and critical on the visible lane); 6e-4 lane-proven 2026-10-27 (§3: GPU memory charged to its client, gpud → memd `OP_GPU_CHARGE`; the lent framebuffer object charged on both lanes, the context part is the board's — cycle 73 pending)
-- **Phase 4 (6f: the backing stages — compressor, swap)**: ⏳ 6f-0 ✅ 2026-10-28 (board cycle 74; §5: the one codec `nexus-compress` — LZ4 block, bounded decoder, allocation-free; measured in the kernel on every lane and on the board: 47 % on the image's machine code, 49 µs to compress and 16 µs to inflate a page on the board's core — R11 answered: a frozen process is squeezed whole, a fault inflates synchronously); 6f-1 ✅ 2026-10-28 (board cycle 75; §5 "The pool", ADR-0087 Accepted: `task_squeeze` (69), the store per object, every commit path inflates, memd squeezes before it kills — an app-host's heap and stack 1.8 MB → 468 KB on the usb-visible lane, the probe child's squeeze 45 µs a page on the board's core); 6f-2 ✅ 2026-10-28 (board cycle 76; §5 "The swap stage", ADR-0088 Accepted: the records sealed under the boot's key (ChaCha20-Poly1305, the RNG service seeds it on the pager's request), `swap_export`/`_commit`/`_page_in` (71–73), a touch parks until the pager's answer, the `swap` partition memd's alone — on the usb-visible lane a frozen app-host's 450 squeezed pages out to the pager's disk and back at the thaw; on the board's harts `KSELFTEST: swap ok`, no key there — no entropy device); 6f-3 memd's journal + the `lowmem` lane ⬜
+- **Phase 4 (6f: the backing stages — compressor, swap)**: ✅ 2026-10-30 — 6f-0 ✅ 2026-10-28 (board cycle 74; §5: the one codec `nexus-compress` — LZ4 block, bounded decoder, allocation-free; measured in the kernel on every lane and on the board: 47 % on the image's machine code, 49 µs to compress and 16 µs to inflate a page on the board's core — R11 answered: a frozen process is squeezed whole, a fault inflates synchronously); 6f-1 ✅ 2026-10-28 (board cycle 75; §5 "The pool", ADR-0087 Accepted: `task_squeeze` (69), the store per object, every commit path inflates, memd squeezes before it kills — an app-host's heap and stack 1.8 MB → 468 KB on the usb-visible lane, the probe child's squeeze 45 µs a page on the board's core); 6f-2 ✅ 2026-10-28 (board cycle 76; §5 "The swap stage", ADR-0088 Accepted: the records sealed under the boot's key (ChaCha20-Poly1305, the RNG service seeds it on the pager's request), `swap_export`/`_commit`/`_page_in` (71–73), a touch parks until the pager's answer, the `swap` partition memd's alone — on the usb-visible lane a frozen app-host's 450 squeezed pages out to the pager's disk and back at the thaw; on the board's harts `KSELFTEST: swap ok`, no key there — no entropy device); 6f-3 ✅ 2026-10-30 (test-all + board cycle 77; §5 "memd's journal and the `lowmem` lane": every kill memd ordered and saw carried out is journaled in the state store; on the `lowmem` lane the kernel's own `critical` squeezes, swaps out and kills a frozen app (`reason=oom`), the kill journaled, and the app relaunched comes back where it was; the lanes declared and deterministic, ADR-0089). **Phase 4 complete**
 
 "Complete" means the contract below is defined and every phase's proof gates are green (the
 `KSELFTEST`/`SELFTEST` lines named in TASK-0333 on `headless`, `visible` and `board-visible`).
@@ -189,7 +189,8 @@ pool observes with its lock dropped; delivery is at the syscall epilogue, the fa
 timer tick and the idle loop. Proof: `KSELFTEST: mem pressure notify ok (level= then=warn
 reject=denied …)`. `memd` (ADR-0086) binds it and fans out `OP_MEMORY_PRESSURE` to gpud, windowd
 and, through app-host, to apps as a DSL event (6e-3). The pressure a real pool run low produces is
-the `lowmem` lane's (6f); the path it takes is proven here.
+the `lowmem` lane's (6f-3, §5: the harness takes the pool to the kernel's own `critical`); the
+path it takes is proven here.
 
 **The authority (6e-2 filled 2026-10-27, ADR-0086).** `memd` is the one listener: it binds the
 sink to its declared endpoint pair at start (the kernel's first frame, `memd: pressure (level=
@@ -251,7 +252,7 @@ object writably, for a lazy or fixed object, and for one a device was ever told 
 (`vmo_runs`). Sealed, the object refuses `vmo_write`, a writable `vm_map` and `vmo_runs` for
 the rest of its life — deterministically, by the object, whoever holds a capability.
 
-## §5 Backing stages (6f-0 filled 2026-10-28: the codec and its cost; 6f-1 filled 2026-10-28: the pool, ADR-0087; the swap stage filled as 6f-2 is built)
+## §5 Backing stages (6f-0 filled 2026-10-28: the codec and its cost; 6f-1 filled 2026-10-28: the pool, ADR-0087; 6f-2 filled 2026-10-28: the swap stage, ADR-0088; 6f-3 filled 2026-10-29: memd's journal and the `lowmem` lane)
 
 Under pressure, in this order: purgeable pages dropped → clean file pages dropped → anonymous
 dirty pages compressed into the kernel's pool → compressed pages written to the `swap` partition
@@ -391,8 +392,42 @@ blkd, and come back on touch. The contract:
   freeze, then the thaw). The board has no entropy device: memd's first `critical` would say
   `memd: swap off (no key)`.
 
-**memd's journal and the `lowmem` lane (6f-3):** filled as built — the journal is memd's kill
-ledger in statefs.
+**memd's journal and the `lowmem` lane (6f-3, filled 2026-10-29).** Every kill memd ordered and
+saw carried out (the victim's band came back `gone`) is recorded in the state store under memd's
+own key `/state/memd/journal` (the declared route memd → statefsd, `REQUIRED_ROUTES`; policy
+`statefs.read` + `statefs.write`). The record `NXMJ` v1: a 12-byte header — magic, version, a
+count ≤ 16, two reserved bytes, the next sequence number — and 24-byte records: the sequence
+number (it runs on across boots, so a reader sees which kills it has not seen), the victim's pid
+in the boot that killed it, its band, the reason (`oom` — the kernel's level, `drill` — the
+harness's), the level judged, the free and total frames of the last kernel frame, milliseconds
+since boot; a ring of the newest sixteen. Counts and process identities only, never anything an
+app held. The journal is read once, at a boot's first kill; every kill since is appended, the
+ring written back and read back — the read-back is the proof: `SELFTEST: memd journal ok
+(reason= seq= records=)`. A kill proven while the store cannot be read waits in memory and takes
+its number when it can; a refused write is written with the next kill; a stored record that is
+not exactly this layout (magic, version, count, length) is replaced by a fresh journal, said once
+(`memd: journal reset`). The exchange is waited (statefsd's answer or its death, no clock) on
+memd's CAP_MOVE inbox, which no other exchange holds at that moment. A kill the lifecycle
+authority carried makes the instance *dying*: its window closing before the death report no
+longer thaws a process the parent already reaped, and the freeze grace no longer runs for it.
+
+The `lowmem` lane (`just ci-os-lowmem`, `[profile.lowmem]` extends usb-visible) is the real
+pressure the drill stood in for. The injector launches settings and hides it; the grace freezes
+it. The harness then takes memory as eager objects until free frames are halfway between the
+critical and the emergency watermark — the kernel's own level is `critical`, with room both
+ways: the squeeze and the swap-out give frames back without the level recovering past its
+hysteresis, and a burst elsewhere does not reach `emergency`, where memd kills at once
+(`SELFTEST: mem pressure held (level=critical free= taken=)`). memd's chain runs from the
+kernel's frame: the squeeze, the swap-out (the RNG service seeds the key first), the kill
+(`SELFTEST: mem pressure kill ok (band=suspended reason=oom)`), the journal (`reason=oom`), the
+level told to gpud and windowd (`source=oom`). The harness gives its memory back once memd
+ordered the kill and the level recovers to normal (`SELFTEST: mem pressure released
+(level=normal free= taken=)`); the injector launches settings again and the new process
+restores the record the hidden one saved (`SELFTEST: app restore ok`). The drill's line is
+forbidden on the profile (`forbidden_when`, judged by verify-uart): every step is the kernel's
+level. First green run (`lowmem--2026-10-29T10-20-12`): 31 978 frames taken to 5 791 free; 448
+pages squeezed (net 331 frames, 25 %), 448 slots out, killed, 448 slots dropped; free 39 830
+after the release (the harness's frames and the victim's back); the restore 21 ms warm.
 
 ## §6 The restorable contract (6e-1 filled 2026-10-27, ADR-0086)
 
@@ -430,7 +465,9 @@ warm_us=)`; the keyboard's close is Super+Ctrl+W (`windowd: wm chord (zone=close
 ## Open questions (decided by measurement)
 
 - QEMU's virtio backing-entry bound for a per-band attach of the atlas (moved to 6f, `lowmem`:
-  6b-2b keeps the virtio display's one eager object).
+  6b-2b keeps the virtio display's one eager object). Not answered by 6f-3: the `lowmem` lane
+  takes the pool low through the kill chain and never re-attaches the atlas — still open, with
+  the GPU items of layer 8.
 - The PTE A/D bits on the board's core (clean/dirty per page in hardware or software) — 6b P0.
 - ~~The compressor's ratio and cost per page on RV64 (R11, 6f P0).~~ Answered 2026-10-28 (board
   cycle 74): 47 % on the kernel image's machine code (the ceiling for the pool's gain), 49 µs to

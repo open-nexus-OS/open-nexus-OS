@@ -125,20 +125,20 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> core::result::Result<(), ()> {
 
     // TASK-0054C P6 (RFC-0096 §Budgets): the number is asserted now, not just
     // printed. A regression that puts a kernel entry back into an exchange fails
-    // the boot instead of waiting for someone to read a log.
-    match probes::ipc_kernel::ipc_call_bench_probe() {
-        Ok(probes::ipc_kernel::BenchResult { rt_us, .. })
-            if rt_us <= probes::ipc_kernel::IPC_CALL_RT_BUDGET_US =>
-        {
-            emit_bytes(crate::markers::M_KSELFTEST_IPC_CALL_BUDGET_OK_RT.as_bytes());
-            emit_u64(rt_us);
-            emit_bytes(b"us budget=");
-            emit_u64(probes::ipc_kernel::IPC_CALL_RT_BUDGET_US);
-            emit_line(")");
-        }
-        Ok(probes::ipc_kernel::BenchResult { rt_us, .. }) => {
-            emit_bytes(crate::markers::M_KSELFTEST_IPC_CALL_BUDGET_FAIL_RT.as_bytes());
-            emit_u64(rt_us);
+    // the boot instead of waiting for someone to read a log. TASK-0333 6f-3: the
+    // FASTEST timed call is judged (`rt=`) — a regression raises every round, the
+    // rest of the hart's work only some; the mean is printed beside it.
+    match probes::ipc_kernel::ipc_call_budget_probe() {
+        Ok(probes::ipc_kernel::CallBudget { fastest_us, mean_us }) => {
+            let marker = if fastest_us <= probes::ipc_kernel::IPC_CALL_RT_BUDGET_US {
+                crate::markers::M_KSELFTEST_IPC_CALL_BUDGET_OK_RT
+            } else {
+                crate::markers::M_KSELFTEST_IPC_CALL_BUDGET_FAIL_RT
+            };
+            emit_bytes(marker.as_bytes());
+            emit_u64(fastest_us);
+            emit_bytes(b"us mean=");
+            emit_u64(mean_us);
             emit_bytes(b"us budget=");
             emit_u64(probes::ipc_kernel::IPC_CALL_RT_BUDGET_US);
             emit_line(")");

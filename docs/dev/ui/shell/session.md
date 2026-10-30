@@ -81,9 +81,10 @@ route->sessiond ok`, `init: abilitymgr route->sessiond ok`. Degradations:
 ## Proof lanes
 
 The interactive proof injector (`tools/qmp_visible_input_inject.py`) logs in
-exactly like a user: it waits (bounded) for `windowd: greeter visible`, clicks
-the display center, waits for `windowd: session shell visible`, then runs the
-normal choreography. Lanes that need an unattended shell set `auto_login` in
+exactly like a user: its lane scenario's `login` step (ADR-0089,
+`proof-manifest/scenarios/*.toml`) reads the greeter's Submit circle from
+app-host's handler dump, clicks it closed-loop and waits for `windowd: session
+shell visible` before the next step. Lanes that need an unattended shell set `auto_login` in
 the users manifest instead. The required marker ladder includes
 `sessiond: ready` + `windowd: greeter visible`.
 

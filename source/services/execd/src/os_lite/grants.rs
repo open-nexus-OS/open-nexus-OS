@@ -59,10 +59,11 @@ pub(super) fn fetch(app: &str) -> Option<Vec<String>> {
 }
 
 fn fail(app: &str, why: &str) {
-    super::emit_line_no_nl("execd: FAIL app grants (app=");
-    super::emit_line_no_nl(app);
-    super::emit_line_no_nl(" ");
-    super::emit_line_no_nl(why);
-    let _ = nexus_abi::debug_putc(b')');
-    let _ = nexus_abi::debug_putc(b'\n');
+    nexus_abi::DebugLine::new()
+        .put(b"execd: FAIL app grants (app=")
+        .str(app)
+        .put(b" ")
+        .str(why)
+        .put(b")")
+        .emit();
 }

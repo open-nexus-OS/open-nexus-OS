@@ -15,7 +15,7 @@
 //! [`wire::dispatch`], and emits deterministic `abilitymgr: …` markers. The lifecycle
 //! clock and the orders to execd (TASK-0333 6d) live in `orders.rs`.
 
-use nexus_abi::{debug_putc, yield_};
+use nexus_abi::yield_;
 use nexus_ipc::{Client as _, KernelClient, KernelServer, Server as _, Wait};
 use nexus_service_topology::slots::abilitymgr as topo;
 
@@ -24,6 +24,8 @@ use crate::wire::{dispatch, Event};
 
 mod grants;
 mod orders;
+
+use nexus_abi::DebugLine;
 
 /// Result type for abilitymgr OS operations.
 pub type AbilitymgrResult<T> = Result<T, AbilitymgrError>;
@@ -122,7 +124,7 @@ pub fn service_main_loop(notifier: ReadyNotifier) -> AbilitymgrResult<()> {
                     if frame.get(3) == Some(&crate::protocol::OP_MEM_KILL) {
                         // The memory authority's order (ADR-0086): judged against the lifecycle
                         // truth (never the foreground), carried to the parent, answered.
-                        let rsp = lifecycle.on_mem_kill(&broker, frame, sender_service_id);
+                        let rsp = lifecycle.on_mem_kill(&mut broker, frame, sender_service_id);
                         if let Some(reply) = reply {
                             let _ = reply.reply_and_close(&rsp);
                         } else {
@@ -247,11 +249,7 @@ fn probe_registry() {
         nexus_abi::bundlemgrd::decode_list_apps_header(rsp)
     }) {
         Ok((status, count)) if status == nexus_abi::bundlemgrd::STATUS_OK => {
-            nexus_abi::debug_ts_prefix();
-            emit_prefix(b"abilitymgr: registry ok (n=");
-            emit_u32(count as u32);
-            emit_prefix(b")");
-            emit_newline();
+            DebugLine::new().put(b"abilitymgr: registry ok (n=").u64(count as u64).put(b")").emit();
         }
         Ok(_) => emit_line("abilitymgr: registry recv err"),
         Err(_) => emit_line("abilitymgr: registry send fail"),
@@ -405,22 +403,22 @@ fn emit_event(event: &Event) {
     match event {
         Event::Launched { app_id, instance_id } => {
             // `abilitymgr: launch (app=<app>, inst=<id>)`
-            nexus_abi::debug_ts_prefix();
-            emit_prefix(b"abilitymgr: launch (app=");
-            emit_str(app_id);
-            emit_prefix(b", inst=");
-            emit_u32(*instance_id);
-            emit_prefix(b")");
-            emit_newline();
+            DebugLine::new()
+                .put(b"abilitymgr: launch (app=")
+                .str(app_id)
+                .put(b", inst=")
+                .u64(u64::from(*instance_id))
+                .put(b")")
+                .emit();
         }
         // RFC-0111 §6: the authority holds nothing for the app — never published, rejected at
         // publish (`policyd: app grants reject`), or unreachable (`abilitymgr: FAIL grants ask`).
         Event::LaunchDenied { app_id } => {
-            nexus_abi::debug_ts_prefix();
-            emit_prefix(b"abilitymgr: launch denied (grants app=");
-            emit_str(app_id);
-            emit_prefix(b")");
-            emit_newline();
+            DebugLine::new()
+                .put(b"abilitymgr: launch denied (grants app=")
+                .str(app_id)
+                .put(b")")
+                .emit();
         }
         Event::Transitioned { instance_id, to } => match to {
             AbilityState::Foreground => emit_inst_line(b"abilitymgr: fg (inst=", *instance_id),
@@ -433,74 +431,31 @@ fn emit_event(event: &Event) {
         // TASK-0333 6a: `abilitymgr: stop (inst=<id> app=<app> pid=<pid> code=<code> live=<n>)`
         // — the reaper reported the death; the instance is gone, `live` instances remain.
         Event::Exited { instance_id, app_id, pid, code, live } => {
-            nexus_abi::debug_ts_prefix();
-            emit_prefix(b"abilitymgr: stop (inst=");
-            emit_u32(*instance_id);
-            emit_prefix(b" app=");
-            emit_str(app_id);
-            emit_prefix(b" pid=");
-            emit_u32(*pid);
-            emit_prefix(b" code=");
-            if *code < 0 {
-                emit_prefix(b"-");
-            }
-            emit_u32(code.unsigned_abs());
-            emit_prefix(b" live=");
-            emit_u32(*live as u32);
-            emit_prefix(b")");
-            emit_newline();
+            DebugLine::new()
+                .put(b"abilitymgr: stop (inst=")
+                .u64(u64::from(*instance_id))
+                .put(b" app=")
+                .str(app_id)
+                .put(b" pid=")
+                .u64(u64::from(*pid))
+                .put(b" code=")
+                .i64(i64::from(*code))
+                .put(b" live=")
+                .u64(*live as u64)
+                .put(b")")
+                .emit();
         }
         Event::ExitedUnknown { pid } => emit_inst_line(b"abilitymgr: exited unknown (pid=", *pid),
     }
 }
 
 fn emit_inst_line(prefix: &[u8], id: u32) {
-    nexus_abi::debug_ts_prefix();
-    emit_prefix(prefix);
-    emit_u32(id);
-    emit_prefix(b")");
-    emit_newline();
+    DebugLine::new().put(prefix).u64(u64::from(id)).put(b")").emit();
 }
 
 fn emit_line(message: &str) {
     if nexus_abi::service_line(message.as_bytes()) {
         return;
     }
-    nexus_abi::debug_ts_prefix();
-    emit_str(message);
-    emit_newline();
-}
-
-fn emit_str(s: &str) {
-    for byte in s.as_bytes().iter().copied() {
-        let _ = debug_putc(byte);
-    }
-}
-
-fn emit_prefix(bytes: &[u8]) {
-    for byte in bytes.iter().copied() {
-        let _ = debug_putc(byte);
-    }
-}
-
-fn emit_newline() {
-    let _ = debug_putc(b'\n');
-}
-
-/// Emits `id` as decimal ASCII (no allocation).
-fn emit_u32(mut id: u32) {
-    if id == 0 {
-        let _ = debug_putc(b'0');
-        return;
-    }
-    let mut buf = [0u8; 10];
-    let mut i = buf.len();
-    while id > 0 {
-        i -= 1;
-        buf[i] = b'0' + (id % 10) as u8;
-        id /= 10;
-    }
-    for byte in buf[i..].iter().copied() {
-        let _ = debug_putc(byte);
-    }
+    DebugLine::new().str(message).emit();
 }

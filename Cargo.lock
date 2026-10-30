@@ -892,6 +892,7 @@ dependencies = [
  "nexus-dsl-runtime",
  "nexus-layout",
  "nexus-layout-types",
+ "nexus-proof-manifest",
  "nexus-query",
  "nexus-scene-raster",
  "nexus-service-entry",
@@ -1951,11 +1952,13 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 name = "memd"
 version = "0.1.0"
 dependencies = [
+ "abilitymgr",
  "nexus-abi",
  "nexus-ipc",
  "nexus-service-entry",
  "nexus-service-topology",
  "nexus-wire",
+ "statefs",
  "storage",
 ]
 
@@ -4591,8 +4594,6 @@ dependencies = [
  "nexus-abi",
  "nexus-driverkit",
  "nexus-hal",
- "nexus-ipc",
- "nexus-service-topology",
 ]
 
 [[package]]

@@ -76,7 +76,10 @@ phase = "ipc_kernel"
 # TASK-0054C P6 (RFC-0096 §Budgets): the round trip is ASSERTED, not just
 # printed. Measured 41-43 us across every profile; the budget is 64, which CI
 # jitter cannot trip and which the two-trap path it replaced (192 us) fails
-# three times over.
+# three times over. TASK-0333 6f-3: `rt=` is the FASTEST of 64 calls timed one
+# by one (the clock's own cost taken off) — a regression raises every round, the
+# rest of the one hart's work only some; `mean=` beside it is printed, never
+# judged (the mean-only gate read 90 us under a pointer burst, 2026-10-29).
 [marker."KSELFTEST: ipc call budget FAIL (rt="]
 phase = "ipc_kernel"
 

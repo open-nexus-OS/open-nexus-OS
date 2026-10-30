@@ -18,7 +18,8 @@
 //!
 //! ADR: docs/adr/0027-selftest-client-two-axis-architecture.md
 
-use nexus_abi::{exit, nsec, yield_};
+use nexus_abi::{exit, nsec};
+use nexus_ipc::timer::NotifyTimer;
 
 use input_live_protocol::VisibleState;
 
@@ -157,13 +158,25 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
         }
     }
 
+    // TASK-0333 6f-3: the harness's own work is behind it — the timing gates (the IPC budget in
+    // its phase, the console and BKL budgets above) and its last probe, the UI smoke — so host
+    // input is welcome from here: the visible lanes' scenario runner sends nothing before this
+    // line, and from here on the harness only OBSERVES (and fires the declared memory drill).
+    emit_line(crate::markers::M_SELFTEST_INPUT_WINDOW_OPEN);
+
     if proof_completed {
         if auto_exit_after_proof {
             exit(0);
         }
     }
 
-    // Stay alive (cooperative).
+    // Stay alive as an OBSERVER (TASK-0333 6f-3): asleep on the harness's own timer until its
+    // next due look — the memory drill's (once a second while it is armed; never on a board) and
+    // the visible state's (every 16 ms while that proof is open) — and on nothing once neither is
+    // due. The `yield_` spin this replaces kept the one hart busy for the whole lane: every task
+    // ran beside a harness that never slept, and under `-icount` the guest's clock ran on the
+    // spin's instructions instead of idling with the host's.
+    let mut pace = NotifyTimer::bind(nexus_service_topology::slots::selftest_client::TIMER).ok();
     let mut idle_ticks: u32 = 0;
     let mut last_interactive_poll_ns = nsec().unwrap_or(0);
     let mut last_interactive_poll_tick = 0u32;
@@ -242,7 +255,34 @@ pub(crate) fn run(_ctx: &mut PhaseCtx) -> ! {
                 }
             }
         }
-        let _ = yield_();
+        let visible_due = should_poll_visible_state.then(|| {
+            last_interactive_poll_ns.saturating_add(INTERACTIVE_VISIBLE_STATE_POLL_INTERVAL_NS)
+        });
+        let due = match (mem_drill.next_due_ns(), visible_due) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        sleep_until(&mut pace, due);
+    }
+}
+
+/// Sleeps on the harness's timer until `due` (absolute ns), or for good when nothing is due —
+/// never a spin. A timer that cannot be bound or waited on ends the observer (`exit`) with one
+/// line rather than spin: its marks are missing then, loudly.
+fn sleep_until(pace: &mut Option<NotifyTimer>, due: Option<u64>) {
+    let Some(timer) = pace.as_mut() else {
+        emit_line("selftest: observer stops (no timer)");
+        exit(0);
+    };
+    timer.arm_at(due.map_or(0, |d| d.max(1)));
+    if timer.wait_fired().is_ok() {
+        return;
+    }
+    // The kernel's last-sender latch ends one receive without a frame (the receive clears it):
+    // wait once more; a second refusal is the endpoint gone.
+    if timer.wait_fired().is_err() {
+        emit_line("selftest: observer stops (timer lost)");
+        exit(0);
     }
 }
 

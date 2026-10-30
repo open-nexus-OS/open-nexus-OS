@@ -12,7 +12,10 @@
 //! (the single-hart early boot) and a re-entered hart (a trap mid-push on the same hart) write
 //! through byte by byte, as before. The panic path flushes its own hart's line first, so a
 //! trapped death still ends at its last byte; a silent death costs at most one partial line
-//! per hart in the ring (RFC-0107 note).
+//! per hart in the ring (RFC-0107 note). Userspace's bytes (`debug_putc`, `debug_write`) pass a
+//! stage before (TASK-0333 6f-3, `TaskLines`): gathered per TASK and pushed into this hart's
+//! line only whole — a hart runs many tasks, and a task switched out mid-line had the next
+//! task's line appended to its half (`abilitymgr: execd: exit pid=117 …` on the lowmem lane).
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -21,11 +24,44 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::console_line::{LineBuf, LineOwner};
+use crate::console_line::{LineBuf, LineOwner, TaskLines};
 use crate::smp::MAX_CPUS;
+use crate::sync::spin_irq::SpinIrqLock;
 
 /// The gate a unit goes out through — one hart's whole line at a time.
 static GATE: LineOwner = LineOwner::new();
+
+/// Userspace's half lines, per task (TASK-0333 6f-3): a task's bytes enter its hart's line only
+/// as a whole line, so a task switched out mid-line can no longer have another task's line
+/// appended to its first half. The lock is held while bytes are copied, never while they go out.
+static TASK_LINES: SpinIrqLock<TaskLines> = SpinIrqLock::new(TaskLines::new());
+
+/// A userspace task's console bytes (`debug_putc`, `debug_write`): gathered per task, sent at
+/// its `\n` as one line through this hart's funnel (`\r\n` on the wire, as every console line).
+pub fn task_write(task: u32, mut bytes: &[u8]) {
+    let mut unit = [0u8; LineBuf::CAP];
+    while !bytes.is_empty() {
+        let (used, n) = TASK_LINES.lock().feed(task, bytes, &mut unit);
+        send_task_unit(&unit[..n]);
+        bytes = &bytes[used.max(1).min(bytes.len())..];
+    }
+}
+
+/// A task died: its half line, if it left one, ended now.
+pub fn task_exited(task: u32) {
+    let mut unit = [0u8; LineBuf::CAP];
+    let n = TASK_LINES.lock().exited(task, &mut unit);
+    send_task_unit(&unit[..n]);
+}
+
+fn send_task_unit(unit: &[u8]) {
+    for &b in unit {
+        if b == b'\n' {
+            super::platform::console_write_byte(b'\r');
+        }
+        super::platform::console_write_byte(b);
+    }
+}
 
 /// How long a hart waits at the gate, and the age at which a held gate counts as abandoned
 /// (a hart that died mid-unit): a full 256-byte unit at the slowest console rate is ~22 ms

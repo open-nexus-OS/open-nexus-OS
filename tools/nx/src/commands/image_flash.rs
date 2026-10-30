@@ -10,7 +10,10 @@
 //! `storage::layout::VOLATILE`: it is never flashed), in chunks no larger than one download; the
 //! backup GPT in the disk's last sectors; boot0 (hardware partition 1), where the boot ROM reads
 //! the header and the SPL. Each region carries its file and SHA-256; `scripts/board-flash.sh`
-//! declares and writes them, and `--verify` reads each back from the stock system and compares.
+//! declares and writes them, and `--verify` reads each back from the stock system and compares
+//! it against the region's `verify_sha256` — its bytes with every span a running system writes
+//! (`storage::layout::LIVE`: the boot selector, the state store, the data volume, the boot
+//! trace) zeroed; the plan lists those spans (`live`), the read-back zeroes them the same way.
 //! The vehicle sniffs every download for gzip and inflates what it takes for one; its sniff
 //! reads only a gzip header's method byte (offset 2, 8 = deflate), never the magic, so a raw
 //! region whose first sector carries an 8 there is "inflated" and refused (`unzip gzip data
@@ -100,6 +103,12 @@ pub(crate) fn handle_flash_plan(args: ImageFlashPlanArgs) -> ExecResult {
         .map(|p| p.last_lba + 1)
         .max()
         .unwrap_or(0);
+    // The partitions a running system writes: flashed with their first bytes, read back as zero.
+    let live: Vec<(String, u64, u64)> = parts
+        .iter()
+        .filter(|p| storage::layout::LIVE.contains(&p.name.as_str()))
+        .map(|p| (p.name.clone(), p.first_lba, p.last_lba + 1 - p.first_lba))
+        .collect();
     let boot0 = std::fs::read(boot0_path(&args.image)).map_err(|err| {
         NxError::new(ExitClass::MissingDependency, format!("image: the board image's boot0: {err}"))
     })?;
@@ -143,24 +152,25 @@ pub(crate) fn handle_flash_plan(args: ImageFlashPlanArgs) -> ExecResult {
     let mut listed = Vec::new();
     for r in &regions {
         let file = args.out_dir.join(format!("{}.img", r.name));
-        let digest = if r.hwpart == BOOT0 {
-            write_region_from(&mut boot0.as_slice(), r.sectors, &file)?
+        let (digest, verify) = if r.hwpart == BOOT0 {
+            write_region_from(&mut boot0.as_slice(), r.sectors, &file, 0, &[])?
         } else {
             let mut src =
                 File::open(&args.image).map_err(|err| internal(format!("image: {err}")))?;
             src.seek(SeekFrom::Start(r.start * SECTOR as u64))
                 .map_err(|err| internal(format!("image: {err}")))?;
-            write_region_from(&mut src, r.sectors, &file)?
+            write_region_from(&mut src, r.sectors, &file, r.start, &live)?
         };
         listed.push(json!({ "name": r.name, "hwpart": r.hwpart, "start_lba": r.start,
-            "sectors": r.sectors, "file": format!("{}.img", r.name), "sha256": hex(&digest) }));
+            "sectors": r.sectors, "file": format!("{}.img", r.name), "sha256": hex(&digest),
+            "verify_sha256": hex(&verify) }));
     }
-    // RFC-0107: the trace partition is written by every boot — `board-flash.sh --verify` reads
-    // it as zero, as the plan's regions carry it.
-    let trace = storage::trace::partition(&parts)
-        .map(|p| json!({ "start_lba": p.first_lba, "sectors": p.last_lba + 1 - p.first_lba }));
+    let live: Vec<_> = live
+        .iter()
+        .map(|(name, start, sectors)| json!({ "name": name, "start_lba": start, "sectors": sectors }))
+        .collect();
     let plan =
-        json!({ "disk_sectors": disk, "chunk_bytes": chunk, "regions": listed, "trace": trace });
+        json!({ "disk_sectors": disk, "chunk_bytes": chunk, "regions": listed, "live": live });
     let text = serde_json::to_string_pretty(&plan).map_err(|e| internal(format!("image: {e}")))?;
     let plan_path = args.out_dir.join("plan.json");
     std::fs::write(&plan_path, format!("{text}\n"))
@@ -210,14 +220,24 @@ fn u64_at(buf: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(buf[at..at + 8].try_into().unwrap_or([0; 8]))
 }
 
-/// Copies `sectors` sectors from `src` into `file` — all-zero pieces left as holes — and
-/// returns the SHA-256 of the region's bytes.
-fn write_region_from(src: &mut dyn Read, sectors: u64, file: &Path) -> Result<[u8; 32], NxError> {
+/// Copies `sectors` sectors from `src` — the region at `start_lba` — into `file` (all-zero pieces
+/// left as holes) and returns two SHA-256s: of the region's bytes, and of the same bytes with
+/// every `live` span (name, first LBA, sectors) zeroed — the one a read-back compares.
+fn write_region_from(
+    src: &mut dyn Read,
+    sectors: u64,
+    file: &Path,
+    start_lba: u64,
+    live: &[(String, u64, u64)],
+) -> Result<([u8; 32], [u8; 32]), NxError> {
     let io = |err: std::io::Error| internal(format!("image: region {}: {err}", file.display()));
     let mut out = File::create(file).map_err(io)?;
     let mut hasher = Sha256::new();
+    let mut verify = Sha256::new();
     let mut left = sectors * SECTOR as u64;
+    let mut at = start_lba * SECTOR as u64;
     let mut buf = vec![0u8; PIECE];
+    let mut masked = vec![0u8; PIECE];
     while left > 0 {
         let n = PIECE.min(left as usize);
         src.read_exact(&mut buf[..n]).map_err(io)?;
@@ -227,8 +247,39 @@ fn write_region_from(src: &mut dyn Read, sectors: u64, file: &Path) -> Result<[u
         } else {
             out.write_all(&buf[..n]).map_err(io)?;
         }
+        verify.update(mask_live(&buf[..n], &mut masked[..n], at, live));
+        at += n as u64;
         left -= n as u64;
     }
     out.set_len(sectors * SECTOR as u64).map_err(io)?;
-    Ok(hasher.finalize().into())
+    Ok((hasher.finalize().into(), verify.finalize().into()))
+}
+
+/// `piece` (at byte offset `at` of the disk) as a read-back sees it: every `live` span zeroed —
+/// `piece` itself when none overlaps, else `scratch` holding the masked copy.
+fn mask_live<'a>(
+    piece: &'a [u8],
+    scratch: &'a mut [u8],
+    at: u64,
+    live: &[(String, u64, u64)],
+) -> &'a [u8] {
+    let end = at + piece.len() as u64;
+    let mut copied = false;
+    for (_, first, count) in live {
+        let (lo, hi) = (first * SECTOR as u64, (first + count) * SECTOR as u64);
+        let (from, to) = (lo.max(at), hi.min(end));
+        if from >= to {
+            continue;
+        }
+        if !copied {
+            scratch.copy_from_slice(piece);
+            copied = true;
+        }
+        scratch[(from - at) as usize..(to - at) as usize].fill(0);
+    }
+    if copied {
+        scratch
+    } else {
+        piece
+    }
 }

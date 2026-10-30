@@ -59,9 +59,12 @@ SELFTEST: walltime rtc FAIL
 # compressed, samgrd answers the fleet's registrations at bench time, and the hart placement
 # shifted (`ipc sends by hart` [2511, 3649, 153, 1631] → [1781, 678, 4627, 33]): a cross-hart
 # wake costs the IPI. The number is the scheduler's and the bench's calibration, not the
-# console's. Tracked: tasks/TASK-0330 S3 (placement, IPI cost) — the board's own budget, or a
-# same-hart bench, before this line goes.
-KSELFTEST: ipc call budget FAIL
+# console's. Since TASK-0333 6f-3 (ADR-0089 decision 3) the gate judges the FASTEST of 64
+# calls, each timed alone (the clock's cost taken off) — the path, not the cross-hart wakes
+# averaged in; the mean is printed beside it, never judged. Board cycle 77
+# (board--2026-10-30T08-29-17): `ipc call budget ok (rt=26us mean=67us budget=64)` — the mean
+# where cycle 76's red one was (68 µs), the path at 26 µs. Entry removed; the gate reads the
+# verdict.
 #
 # TASK-0215 5c-4 + 5d: the gate scene — windowd's executor draws the stock stack's
 # `glass-quarter` picture at windowd's first frame against the stock's 23.3 ms, and a hover

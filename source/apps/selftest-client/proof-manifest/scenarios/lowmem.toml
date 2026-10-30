@@ -1,0 +1,79 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The lowmem lane's choreography (TASK-0333 6f-3, RFC-0100 §5, ADR-0089): log in, launch
+# settings, hide it — the grace freezes it and the GUEST does the rest: the harness takes memory
+# until the kernel's own level is critical, memd squeezes, swaps out and kills the frozen app
+# (`reason=oom`), journals the kill, and the harness gives the memory back. Then launch settings
+# again: the new process restores what the hidden one saved — the lane's last marker.
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Unstable
+
+[scenario]
+profile = "lowmem"
+start_after = "SELFTEST: input window open"
+
+# The keyboard's first input after boot, acknowledged on its own: a chord as the first input got
+# one empty report from QEMU's USB keyboard and nothing after it (lowmem, 2026-10-29); the old
+# choreography pressed a letter first without saying why. A letter at the greeter (its field
+# takes it, the dev session signs in regardless), pressed again until inputd routes it.
+[[step]]
+name = "the keyboard reaches the greeter"
+do = { key = "a" }
+expect = ["inputd: live keyboard route on"]
+timeout_s = 10
+retry = 2
+
+[[step]]
+name = "log in"
+do = { login = true }
+expect = ["windowd: session shell visible"]
+timeout_s = 60
+
+[[step]]
+name = "open the launcher"
+do = { click = "launcher_button" }
+
+# An app launch is the lane's heaviest step on the one-hart TCG guest; its first frame is the
+# acknowledgement (app-host's launch line carries the first frame's timing).
+[[step]]
+name = "launch settings"
+do = { click = "launch_settings" }
+expect = ["windowd: transition open", "apphost: ux launch ", "apphost: resized"]
+then = ["WINDOWD: surface presented id="]
+timeout_s = 120
+
+# Hidden: the window saves its record, the grace (5 s) freezes the process; the guest's own
+# chain follows — every rung here is the kernel's level, none a drill.
+[[step]]
+name = "hide settings"
+settle_s = 1.5
+do = { chord = ["ctrl", "meta_l", "m"] }
+expect = [
+    "windowd: minimize id=app",
+    "apphost: persist saved (",
+    "abilitymgr: suspend (inst=",
+    "SELFTEST: mem pressure held (level=critical",
+    "SELFTEST: mem pressure kill ok (band=suspended reason=oom)",
+    "SELFTEST: memd journal ok (reason=oom",
+    "SELFTEST: mem pressure released (level=normal",
+]
+timeout_s = 180
+
+# The killed app's window is gone and the launcher sheet is on screen again; if the tile press
+# does not launch (the sheet closed), open the sheet and press it again.
+[[step]]
+name = "launch settings again"
+settle_s = 1.5
+do = { click = "launch_settings" }
+expect = ["abilitymgr: launch (app=settings"]
+timeout_s = 15
+retry = 1
+retry_with = [{ click = "launcher_button" }, { click = "launch_settings" }]
+
+[[step]]
+name = "the record comes back"
+do = { wait = true }
+expect = ["SELFTEST: app restore ok ("]
+timeout_s = 120

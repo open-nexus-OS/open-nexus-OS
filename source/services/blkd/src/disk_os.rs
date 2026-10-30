@@ -45,11 +45,12 @@ pub(crate) enum Disk {
 }
 
 impl Disk {
-    /// Completions wake the owner through its notify endpoint: virtio binds the line now; the
-    /// SDHCI core bound it before the card came up (its initialisation waits on it).
+    /// Completions wake the owner through its notify endpoint: both backends bound the line
+    /// before their first request (virtio-blk refuses to open without it; the SDHCI core's
+    /// initialisation waits on it).
     pub(crate) fn bind_irq(&mut self) -> bool {
         match self {
-            Disk::Virtio(dev) => dev.bind_irq_endpoint(IRQ_NOTIFY),
+            Disk::Virtio(_) => true,
             Disk::Sdhci { irq_bound, .. } => *irq_bound,
         }
     }
@@ -138,7 +139,7 @@ pub(crate) fn open() -> Option<Disk> {
     };
     let facts = Facts { kind: selected.kind, soc, record };
     match selected.backend {
-        Backend::VirtioBlk => match VirtioBlkDevice::new(MMIO_CAP_SLOT, WATCHDOG) {
+        Backend::VirtioBlk => match VirtioBlkDevice::new(MMIO_CAP_SLOT, IRQ_NOTIFY) {
             Ok(dev) => {
                 report(&facts, dev.block_count(), None);
                 Some(Disk::Virtio(Box::new(dev)))

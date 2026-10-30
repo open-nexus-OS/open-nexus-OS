@@ -494,14 +494,10 @@ pub(crate) fn lockfree_syscall(nr: usize, _args: &Args) -> Option<SysResult<usiz
     }
 }
 
-fn sys_debug_putc(_ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
+fn sys_debug_putc(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     let byte = (args.get(0) & 0xff) as u8;
-    // Use the raw writer to avoid taking locks under scheduler paths.
-    let mut u = crate::uart::raw_writer();
-    use core::fmt::Write as _;
-    let ch = [byte];
-    let s = core::str::from_utf8(&ch).unwrap_or("");
-    let _ = u.write_str(s);
+    // TASK-0333 6f-3: gathered per task, sent as a whole line at its `\n` (no UART lock).
+    crate::hal::console_line::task_write(ctx.tasks.current_pid().as_raw(), &[byte]);
     Ok(byte as usize)
 }
 
@@ -575,9 +571,7 @@ fn sys_debug_write(ctx: &mut Context<'_>, args: &Args) -> SysResult<usize> {
     ensure_user_range(ctx, ptr, len, UserAccess::Read)?;
     // SAFETY: `ensure_user_range` proved [ptr, ptr+len) mapped readable in the caller's space.
     let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
-    let text = core::str::from_utf8(bytes).unwrap_or("");
-    let mut uart = crate::uart::KernelUart::lock();
-    use core::fmt::Write as _;
-    let _ = (*uart).write_str(text);
+    // TASK-0333 6f-3: whole lines per task, like `debug_putc` (the hart funnel orders the harts).
+    crate::hal::console_line::task_write(ctx.tasks.current_pid().as_raw(), bytes);
     Ok(len)
 }

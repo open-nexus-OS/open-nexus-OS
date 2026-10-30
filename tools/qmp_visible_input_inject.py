@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
 # Copyright 2026 Open Nexus OS Contributors
 # SPDX-License-Identifier: Apache-2.0
+"""
+CONTEXT: The visible-input injector's ENTRY (TASK-0333 6f-3, ADR-0089): QEMU's launcher starts it
+on the lanes whose profile enables injection (`QEMU_INPUT_AUTOINJECT=1`); it opens the QMP socket
+and runs the lane's SCENARIO (`QEMU_INPUT_SCENARIO`, declared by the profile in
+`proof-manifest/profiles/harness.toml` or by `scripts/input-flood-lane.sh`). What it presses and
+what the guest must answer is data (`proof-manifest/scenarios/*.toml`), run by `qmp_scenario.py`
+over the primitives in `qmp_input.py`. A lane without a scenario gets no input at all. The
+imperative choreography this file held — a dead-reckoned pointer walk, tablet-only sidebar and
+click steps that failed silently on every USB lane, waits on incidental markers — is gone.
 
-"""Inject a deterministic visible-input proof sequence via QMP."""
+Exit status: 0 when the scenario ran to its end (or there was none), 1 when a step's
+acknowledgement never came (the step and the missing marker are in the hypothesis log).
 
+OWNERS: @runtime @ui  ·  STATUS: Functional  ·  API_STABILITY: Internal
+"""
 from __future__ import annotations
 
 import json
@@ -17,56 +29,17 @@ from pathlib import Path
 # cargo workspace glob — never write bytecode from the harness.
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import qmp_inject_modal  # noqa: E402
+import qmp_scenario  # noqa: E402
+from qmp_input import InputEnv  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOG_DIR = Path(os.environ.get("LOG_DIR", str(REPO_ROOT / "build/logs/manual-inject")))
 HYPOTHESIS_LOG = LOG_DIR / "hypothesis.json"
 RUN_ID = os.environ.get("RUN_ID", "visible-bootstrap-qmp")
 DEFAULT_UART_LOG_PATH = Path(os.environ.get("UART_LOG", str(LOG_DIR / "uart.log")))
-DEFAULT_WAIT_MARKER = "windowd: present visible ok"
-DEFAULT_WAIT_TIMEOUT_S = 60.0
-DEFAULT_HID_READY_MARKER = "hidrawd: ready"
-DEFAULT_INPUT_READY_MARKER = "inputd: ready"
-DEFAULT_READY_TIMEOUT_S = 30.0
-# The harness's OSK composition probes (bringup phase: `ime v2 osk`, `cjk jp`, `candidates`,
-# `insert`) type through imed's osk endpoint with NO field focused. The first pointer event
-# makes windowd tell imed which WINDOW holds focus (`sync_surface_focus_to_imed`), and that
-# focus transition resets imed's composition — a probe mid-word fails. The guest sequences
-# its probes; the injector is host-timed, so it waits for the LAST osk probe's line (ok or
-# FAIL — the prefix) before the first event. Without the wait the order depends on how fast
-# the emulator runs (2026-10-28: `ime v2 cjk jp FAIL` on a loaded host, green the day before).
-DEFAULT_COMPOSITION_DONE_MARKER = "SELFTEST: ime insert "
-DEFAULT_COMPOSITION_DONE_TIMEOUT_S = 20.0
-DEFAULT_POINTER_ROUTE_MARKER = "windowd: cursor move visible"
-DEFAULT_CLICK_READY_MARKER = "launcher: click visible ok"
-DEFAULT_KEYBOARD_ROUTE_MARKER = "inputd: live keyboard route on"
-DEFAULT_SIDEBAR_OPEN_MARKER = "windowd: sidebar open"
-DEFAULT_SIDEBAR_CLOSE_MARKER = "windowd: sidebar close"
-DEFAULT_POST_MOVE_TIMEOUT_S = 10.0
-DEFAULT_POST_CLICK_TIMEOUT_S = 10.0
-DEFAULT_KEYBOARD_TIMEOUT_S = 4.0
-DEFAULT_SIDEBAR_TIMEOUT_S = 10.0
 QEMU_ABS_MAX = 32767
-VISIBLE_ROUTE_WIDTH = 64
-VISIBLE_ROUTE_HEIGHT = 48
 VISIBLE_DISPLAY_WIDTH = 1280
 VISIBLE_DISPLAY_HEIGHT = 800
-# Keep these coordinates aligned with `inputd::visible_contract`.
-# The hover proof target lives inside the left square near the lower-left area.
-HOVER_TARGET_ROUTE_X = 7
-HOVER_TARGET_ROUTE_Y = 38
-CLOSE_TARGET_ROUTE_X = 56
-CLOSE_TARGET_ROUTE_Y = 22
-CURSOR_START_ROUTE_X = 24
-CURSOR_START_ROUTE_Y = 12
-REL_STEP_LIMIT = 256
-POST_PRESENT_SETTLE_S = 0.10
-POINTER_DOWN_HOLD_S = 0.25
-KEY_DOWN_HOLD_S = 0.25
-POINTER_RELEASE_SETTLE_S = 0.05
-WHEEL_PULSE_SETTLE_S = 0.20
-SIDEBAR_SETTLE_S = 0.35
 
 
 def recv_json(sock: socket.socket) -> dict:
@@ -180,30 +153,10 @@ def wait_for_uart_marker(path: Path, marker: str, timeout_s: float) -> None:
     raise RuntimeError(f"timed out waiting for uart marker {marker!r} in {path}")
 
 
-def route_cell_midpoint(route_coord: int, route_extent: int, display_extent: int) -> int:
-    start = (route_coord * display_extent) // route_extent
-    end = ((route_coord + 1) * display_extent + route_extent - 1) // route_extent
-    end = max(end, start + 1)
-    return (start + end - 1) // 2
-
-
 def qemu_abs_value(display_coord: int, display_extent: int) -> int:
     if display_extent <= 1:
         return 0
     return (display_coord * QEMU_ABS_MAX) // (display_extent - 1)
-
-
-def bounded_rel_steps(delta: int) -> list[int]:
-    steps: list[int] = []
-    remaining = delta
-    while remaining != 0:
-        if remaining > 0:
-            step = min(remaining, REL_STEP_LIMIT)
-        else:
-            step = max(remaining, -REL_STEP_LIMIT)
-        steps.append(step)
-        remaining -= step
-    return steps
 
 
 def env_flag(name: str) -> bool:
@@ -214,69 +167,23 @@ def main() -> int:
     if len(sys.argv) != 2:
         print("usage: qmp_visible_input_inject.py <qmp-socket>", file=sys.stderr)
         return 2
-
     socket_path = Path(sys.argv[1])
-    # region agent log
+    scenario = os.environ.get("QEMU_INPUT_SCENARIO", "")
     append_debug_log(
         "H4",
-        "tools/qmp_visible_input_inject.py:104",
+        "tools/qmp_visible_input_inject.py",
         "injector process started",
-        {"socket": str(socket_path)},
+        {"socket": str(socket_path), "scenario": scenario or None},
     )
-    # endregion agent log
+    if not scenario:
+        return 0
     wait_for_socket(socket_path)
-
     touch_enabled = env_flag("NEXUS_PROFILE_INPUT_TOUCH")
     mouse_enabled = env_flag("NEXUS_PROFILE_INPUT_MOUSE")
-    keyboard_enabled = env_flag("NEXUS_PROFILE_INPUT_KBD")
+    # A proof boot drives ONE pointer source: the mouse when the profile names both.
     session_mode = os.environ.get("QEMU_SESSION_MODE", "proof")
+    touch_enabled = touch_enabled and not (session_mode == "proof" and mouse_enabled)
     uart_log_path = Path(os.environ.get("QEMU_UART_LOG_PATH", str(DEFAULT_UART_LOG_PATH)))
-    wait_marker = os.environ.get("QEMU_INPUT_INJECT_WAIT_MARKER", DEFAULT_WAIT_MARKER)
-    wait_timeout_s = float(
-        os.environ.get("QEMU_INPUT_INJECT_WAIT_TIMEOUT_S", str(DEFAULT_WAIT_TIMEOUT_S))
-    )
-    hid_ready_marker = os.environ.get(
-        "QEMU_INPUT_INJECT_HID_READY_MARKER", DEFAULT_HID_READY_MARKER
-    )
-    input_ready_marker = os.environ.get(
-        "QEMU_INPUT_INJECT_INPUT_READY_MARKER", DEFAULT_INPUT_READY_MARKER
-    )
-    ready_timeout_s = float(
-        os.environ.get("QEMU_INPUT_INJECT_READY_TIMEOUT_S", str(DEFAULT_READY_TIMEOUT_S))
-    )
-    pointer_route_marker = os.environ.get(
-        "QEMU_INPUT_INJECT_POINTER_ROUTE_MARKER", DEFAULT_POINTER_ROUTE_MARKER
-    )
-    click_ready_marker = os.environ.get(
-        "QEMU_INPUT_INJECT_CLICK_READY_MARKER", DEFAULT_CLICK_READY_MARKER
-    )
-    keyboard_route_marker = os.environ.get(
-        "QEMU_INPUT_INJECT_KEYBOARD_ROUTE_MARKER", DEFAULT_KEYBOARD_ROUTE_MARKER
-    )
-    keyboard_timeout_s = float(
-        os.environ.get("QEMU_INPUT_INJECT_KEYBOARD_TIMEOUT_S", str(DEFAULT_KEYBOARD_TIMEOUT_S))
-    )
-    sidebar_open_marker = os.environ.get(
-        "QEMU_INPUT_INJECT_SIDEBAR_OPEN_MARKER", DEFAULT_SIDEBAR_OPEN_MARKER
-    )
-    sidebar_close_marker = os.environ.get(
-        "QEMU_INPUT_INJECT_SIDEBAR_CLOSE_MARKER", DEFAULT_SIDEBAR_CLOSE_MARKER
-    )
-    sidebar_timeout_s = float(
-        os.environ.get("QEMU_INPUT_INJECT_SIDEBAR_TIMEOUT_S", str(DEFAULT_SIDEBAR_TIMEOUT_S))
-    )
-    post_move_timeout_s = float(
-        os.environ.get("QEMU_INPUT_INJECT_POST_MOVE_TIMEOUT_S", str(DEFAULT_POST_MOVE_TIMEOUT_S))
-    )
-    post_click_timeout_s = float(
-        os.environ.get("QEMU_INPUT_INJECT_POST_CLICK_TIMEOUT_S", str(DEFAULT_POST_CLICK_TIMEOUT_S))
-    )
-    proof_prefers_single_pointer_source = (
-        session_mode == "proof" and touch_enabled and mouse_enabled
-    )
-    effective_touch_enabled = touch_enabled and not proof_prefers_single_pointer_source
-    effective_mouse_enabled = mouse_enabled
-
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.connect(str(socket_path))
         greeting = recv_json(sock)
@@ -285,506 +192,29 @@ def main() -> int:
         reply = send_qmp(sock, {"execute": "qmp_capabilities"})
         if "error" in reply:
             raise RuntimeError(f"qmp_capabilities failed: {reply['error']}")
-        # region agent log
-        append_debug_log(
-            "H4",
-            "tools/qmp_visible_input_inject.py:108",
-            "qmp capabilities ready",
-            {
-                "socket": str(socket_path),
-                "profile": "visible-bootstrap",
-                "uart_log_path": str(uart_log_path),
-                "wait_marker": wait_marker,
-                "wait_timeout_s": wait_timeout_s,
-            },
+        env = InputEnv(
+            sock=sock,
+            uart_log_path=uart_log_path,
+            display=(VISIBLE_DISPLAY_WIDTH, VISIBLE_DISPLAY_HEIGHT),
+            mouse=mouse_enabled,
+            touch=touch_enabled,
+            send_input_events=send_input_events,
+            append_debug_log=append_debug_log,
+            qemu_abs_value=qemu_abs_value,
         )
-        # endregion agent log
-
-        wait_for_uart_marker(uart_log_path, wait_marker, wait_timeout_s)
-        wait_for_uart_marker(uart_log_path, hid_ready_marker, ready_timeout_s)
-        wait_for_uart_marker(uart_log_path, input_ready_marker, ready_timeout_s)
-        # The guest's OSK composition probes must be over before the pointer's first event
-        # (see DEFAULT_COMPOSITION_DONE_MARKER). Bounded: a profile without the probe goes on
-        # after the timeout and says so in the hypothesis log.
-        composition_done_marker = os.environ.get(
-            "QEMU_INPUT_INJECT_COMPOSITION_DONE_MARKER", DEFAULT_COMPOSITION_DONE_MARKER
-        )
-        composition_done_timeout_s = float(
-            os.environ.get(
-                "QEMU_INPUT_INJECT_COMPOSITION_DONE_TIMEOUT_S",
-                str(DEFAULT_COMPOSITION_DONE_TIMEOUT_S),
-            )
-        )
-        try:
-            wait_for_uart_marker(
-                uart_log_path, composition_done_marker, composition_done_timeout_s
-            )
-        except RuntimeError as exc:
-            append_debug_log(
-                "H4",
-                "tools/qmp_visible_input_inject.py:composition-done",
-                "osk composition probes not seen before the pointer's first event",
-                {"marker": composition_done_marker, "error": str(exc)},
-            )
-        append_debug_log(
-            "H4",
-            "tools/qmp_visible_input_inject.py:122",
-            "guest visible-present marker reached",
-            {
-                "uart_log_path": str(uart_log_path),
-                "wait_marker": wait_marker,
-                "hid_ready_marker": hid_ready_marker,
-                "input_ready_marker": input_ready_marker,
-            },
-        )
-        time.sleep(POST_PRESENT_SETTLE_S)
-
-        # TASK-0065B login greeter: when the login window owns the display the
-        # proof lane logs in exactly like a user — click the centered avatar —
-        # then waits for the session shell before the choreography below.
-        # Bounded + optional: lanes with a manifest auto_login (or the
-        # no-sessiond fallback shell) never show the greeter; a miss here just
-        # continues into the normal flow.
-        greeter_marker = os.environ.get(
-            "QEMU_INPUT_INJECT_GREETER_MARKER", "windowd: greeter visible"
-        )
-        session_shell_marker = os.environ.get(
-            "QEMU_INPUT_INJECT_SESSION_SHELL_MARKER", "windowd: session shell visible"
-        )
-        greeter_wait_s = float(os.environ.get("QEMU_INPUT_INJECT_GREETER_WAIT_S", "10"))
-        greeter_present = True
-        try:
-            wait_for_uart_marker(uart_log_path, greeter_marker, greeter_wait_s)
-        except RuntimeError:
-            greeter_present = False
-        if greeter_present:
-            center_x = VISIBLE_DISPLAY_WIDTH // 2
-            center_y = VISIBLE_DISPLAY_HEIGHT // 2
-            login_start_x = route_cell_midpoint(
-                CURSOR_START_ROUTE_X, VISIBLE_ROUTE_WIDTH, VISIBLE_DISPLAY_WIDTH
-            )
-            login_start_y = route_cell_midpoint(
-                CURSOR_START_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, VISIBLE_DISPLAY_HEIGHT
-            )
-            if effective_touch_enabled:
-                send_input_events(
-                    sock,
-                    [
-                        {
-                            "type": "abs",
-                            "data": {
-                                "axis": "x",
-                                "value": qemu_abs_value(center_x, VISIBLE_DISPLAY_WIDTH),
-                            },
-                        },
-                        {
-                            "type": "abs",
-                            "data": {
-                                "axis": "y",
-                                "value": qemu_abs_value(center_y, VISIBLE_DISPLAY_HEIGHT),
-                            },
-                        },
-                    ],
-                    console=None,
-                )
-            elif effective_mouse_enabled:
-                # Relative pointer: walk from the assumed start to the avatar…
-                for step in bounded_rel_steps(center_x - login_start_x):
-                    send_input_events(
-                        sock, [{"type": "rel", "data": {"axis": "x", "value": step}}]
-                    )
-                for step in bounded_rel_steps(center_y - login_start_y):
-                    send_input_events(
-                        sock, [{"type": "rel", "data": {"axis": "y", "value": step}}]
-                    )
-            time.sleep(0.2)
-            send_input_events(sock, [{"type": "btn", "data": {"down": True, "button": "left"}}])
-            time.sleep(0.05)
-            send_input_events(sock, [{"type": "btn", "data": {"down": False, "button": "left"}}])
-            if effective_mouse_enabled and not effective_touch_enabled:
-                # …and back, so the choreography below keeps its start assumption.
-                for step in bounded_rel_steps(login_start_x - center_x):
-                    send_input_events(
-                        sock, [{"type": "rel", "data": {"axis": "x", "value": step}}]
-                    )
-                for step in bounded_rel_steps(login_start_y - center_y):
-                    send_input_events(
-                        sock, [{"type": "rel", "data": {"axis": "y", "value": step}}]
-                    )
-            session_shell_ok = True
-            try:
-                wait_for_uart_marker(uart_log_path, session_shell_marker, 15.0)
-            except RuntimeError:
-                session_shell_ok = False
-            append_debug_log(
-                "H4",
-                "tools/qmp_visible_input_inject.py:greeter",
-                "greeter login step",
-                {
-                    "clicked": [center_x, center_y],
-                    "session_shell_ok": session_shell_ok,
-                },
-            )
-            time.sleep(POST_PRESENT_SETTLE_S)
-
-        # Drive the proof through the canonical display-space pipeline: compute
-        # the physical midpoint of the hover target cell and inject whichever
-        # pointer mode the proof lane exposed for this run.
-        target_display_x = route_cell_midpoint(
-            HOVER_TARGET_ROUTE_X, VISIBLE_ROUTE_WIDTH, VISIBLE_DISPLAY_WIDTH
-        )
-        target_display_y = route_cell_midpoint(
-            HOVER_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, VISIBLE_DISPLAY_HEIGHT
-        )
-        close_display_x = route_cell_midpoint(
-            CLOSE_TARGET_ROUTE_X, VISIBLE_ROUTE_WIDTH, VISIBLE_DISPLAY_WIDTH
-        )
-        close_display_y = route_cell_midpoint(
-            CLOSE_TARGET_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, VISIBLE_DISPLAY_HEIGHT
-        )
-        start_display_x = route_cell_midpoint(
-            CURSOR_START_ROUTE_X, VISIBLE_ROUTE_WIDTH, VISIBLE_DISPLAY_WIDTH
-        )
-        start_display_y = route_cell_midpoint(
-            CURSOR_START_ROUTE_Y, VISIBLE_ROUTE_HEIGHT, VISIBLE_DISPLAY_HEIGHT
-        )
-        rel_x_steps = (
-            bounded_rel_steps(target_display_x - start_display_x)
-            if effective_mouse_enabled
-            else []
-        )
-        rel_y_steps = (
-            bounded_rel_steps(target_display_y - start_display_y)
-            if effective_mouse_enabled
-            else []
-        )
-        if effective_mouse_enabled:
-            for idx in range(max(len(rel_x_steps), len(rel_y_steps))):
-                rel_x = rel_x_steps[idx] if idx < len(rel_x_steps) else 0
-                rel_y = rel_y_steps[idx] if idx < len(rel_y_steps) else 0
-                if rel_x == 0 and rel_y == 0:
-                    continue
-                send_input_events(
-                    sock,
-                    [
-                        {"type": "rel", "data": {"axis": "x", "value": rel_x}},
-                        {"type": "rel", "data": {"axis": "y", "value": rel_y}},
-                    ],
-                    console=None,
-                )
-                time.sleep(0.05)
-        if effective_touch_enabled:
-            send_input_events(
-                sock,
-                [
-                    {
-                        "type": "abs",
-                        "data": {"axis": "x", "value": qemu_abs_value(target_display_x, VISIBLE_DISPLAY_WIDTH)},
-                    },
-                    {
-                        "type": "abs",
-                        "data": {"axis": "y", "value": qemu_abs_value(target_display_y, VISIBLE_DISPLAY_HEIGHT)},
-                    },
-                ],
-                console=None,
-            )
-        # region agent log
-        append_debug_log(
-            "H4",
-            "tools/qmp_visible_input_inject.py:126",
-            "pointer injection sent",
-            {
-                "device": "auto",
-                "touch_enabled": touch_enabled,
-                "mouse_enabled": mouse_enabled,
-                "effective_touch_enabled": effective_touch_enabled,
-                "effective_mouse_enabled": effective_mouse_enabled,
-                "keyboard_enabled": keyboard_enabled,
-                "session_mode": session_mode,
-                "proof_prefers_single_pointer_source": proof_prefers_single_pointer_source,
-                "route_target": [HOVER_TARGET_ROUTE_X, HOVER_TARGET_ROUTE_Y],
-                "route_close_target": [CLOSE_TARGET_ROUTE_X, CLOSE_TARGET_ROUTE_Y],
-                "display_start": [start_display_x, start_display_y],
-                "display_target": [target_display_x, target_display_y],
-                "display_close_target": [close_display_x, close_display_y],
-                "rel_steps": list(zip(rel_x_steps, rel_y_steps, strict=False)),
-                "qemu_abs_target": [
-                    qemu_abs_value(target_display_x, VISIBLE_DISPLAY_WIDTH),
-                    qemu_abs_value(target_display_y, VISIBLE_DISPLAY_HEIGHT),
-                ],
-                "button": "left",
-            },
-        )
-        # endregion agent log
-        time.sleep(POST_PRESENT_SETTLE_S)
-        if effective_mouse_enabled or effective_touch_enabled:
-            wait_for_uart_marker(uart_log_path, pointer_route_marker, post_move_timeout_s)
-            append_debug_log(
-                "H4",
-                "tools/qmp_visible_input_inject.py:150",
-                "pointer route marker reached",
-                {
-                    "uart_log_path": str(uart_log_path),
-                    "pointer_route_marker": pointer_route_marker,
-                    "post_move_timeout_s": post_move_timeout_s,
-                },
-            )
-            try:
-                wait_for_uart_marker(uart_log_path, sidebar_open_marker, sidebar_timeout_s)
-            except RuntimeError as exc:
-                append_debug_log(
-                    "H4",
-                    "tools/qmp_visible_input_inject.py:155",
-                    "sidebar open marker missing; continuing injection",
-                    {"marker": sidebar_open_marker, "error": str(exc)},
-                )
-            time.sleep(SIDEBAR_SETTLE_S)
-        if effective_mouse_enabled or effective_touch_enabled:
-            send_input_events(
-                sock,
-                [{"type": "btn", "data": {"down": True, "button": "left"}}],
-                console=None,
-            )
-            time.sleep(POINTER_DOWN_HOLD_S)
-            try:
-                wait_for_uart_marker(uart_log_path, click_ready_marker, post_click_timeout_s)
-                append_debug_log(
-                    "H4",
-                    "tools/qmp_visible_input_inject.py:168",
-                    "click ready marker reached",
-                    {
-                        "uart_log_path": str(uart_log_path),
-                        "click_ready_marker": click_ready_marker,
-                        "post_click_timeout_s": post_click_timeout_s,
-                    },
-                )
-            except RuntimeError as exc:
-                append_debug_log(
-                    "H4",
-                    "tools/qmp_visible_input_inject.py:173",
-                    "click marker missing; continuing injection",
-                    {"marker": click_ready_marker, "error": str(exc)},
-                )
-            time.sleep(POINTER_RELEASE_SETTLE_S)
-            send_input_events(
-                sock,
-                [{"type": "btn", "data": {"down": False, "button": "left"}}],
-                console=None,
-            )
-            time.sleep(SIDEBAR_SETTLE_S)
-            # Deterministic close path: route to explicit close target and click.
-            if effective_mouse_enabled:
-                close_rel_x_steps = bounded_rel_steps(close_display_x - target_display_x)
-                close_rel_y_steps = bounded_rel_steps(close_display_y - target_display_y)
-                for idx in range(max(len(close_rel_x_steps), len(close_rel_y_steps))):
-                    rel_x = close_rel_x_steps[idx] if idx < len(close_rel_x_steps) else 0
-                    rel_y = close_rel_y_steps[idx] if idx < len(close_rel_y_steps) else 0
-                    if rel_x == 0 and rel_y == 0:
-                        continue
-                    send_input_events(
-                        sock,
-                        [
-                            {"type": "rel", "data": {"axis": "x", "value": rel_x}},
-                            {"type": "rel", "data": {"axis": "y", "value": rel_y}},
-                        ],
-                        console=None,
-                    )
-                    time.sleep(0.05)
-            if effective_touch_enabled:
-                send_input_events(
-                    sock,
-                    [
-                        {
-                            "type": "abs",
-                            "data": {"axis": "x", "value": qemu_abs_value(close_display_x, VISIBLE_DISPLAY_WIDTH)},
-                        },
-                        {
-                            "type": "abs",
-                            "data": {"axis": "y", "value": qemu_abs_value(close_display_y, VISIBLE_DISPLAY_HEIGHT)},
-                        },
-                    ],
-                    console=None,
-                )
-            # Give inputd a couple of ticks to apply the close-target move.
-            time.sleep(max(POST_PRESENT_SETTLE_S, 0.20))
-            sidebar_closed = False
-            close_attempts = (
-                (close_display_x, close_display_y),
-                (max(0, close_display_x - 8), close_display_y),
-                (min(VISIBLE_DISPLAY_WIDTH - 1, close_display_x + 8), close_display_y),
-            )
-            for attempt_idx, (attempt_x, attempt_y) in enumerate(close_attempts):
-                if effective_touch_enabled:
-                    send_input_events(
-                        sock,
-                        [
-                            {
-                                "type": "abs",
-                                "data": {
-                                    "axis": "x",
-                                    "value": qemu_abs_value(
-                                        attempt_x, VISIBLE_DISPLAY_WIDTH
-                                    ),
-                                },
-                            },
-                            {
-                                "type": "abs",
-                                "data": {
-                                    "axis": "y",
-                                    "value": qemu_abs_value(
-                                        attempt_y, VISIBLE_DISPLAY_HEIGHT
-                                    ),
-                                },
-                            },
-                        ],
-                        console=None,
-                    )
-                    time.sleep(POST_PRESENT_SETTLE_S)
-                send_input_events(
-                    sock,
-                    [{"type": "btn", "data": {"down": True, "button": "left"}}],
-                    console=None,
-                )
-                time.sleep(POINTER_DOWN_HOLD_S)
-                send_input_events(
-                    sock,
-                    [{"type": "btn", "data": {"down": False, "button": "left"}}],
-                    console=None,
-                )
-                try:
-                    wait_for_uart_marker(uart_log_path, sidebar_close_marker, 1.5)
-                    sidebar_closed = True
-                    append_debug_log(
-                        "H4",
-                        "tools/qmp_visible_input_inject.py:194",
-                        "sidebar close marker reached",
-                        {
-                            "marker": sidebar_close_marker,
-                            "attempt": attempt_idx + 1,
-                            "display_target": [attempt_x, attempt_y],
-                        },
-                    )
-                    break
-                except RuntimeError:
-                    continue
-            if not sidebar_closed:
-                try:
-                    wait_for_uart_marker(uart_log_path, sidebar_close_marker, sidebar_timeout_s)
-                except RuntimeError as exc:
-                    append_debug_log(
-                        "H4",
-                        "tools/qmp_visible_input_inject.py:194",
-                        "sidebar close marker missing; continuing injection",
-                        {"marker": sidebar_close_marker, "error": str(exc)},
-                    )
-            time.sleep(SIDEBAR_SETTLE_S)
-        if keyboard_enabled:
-            keyboard_route_seen = False
-            for key_name in ("a", "ret"):
-                send_input_events(
-                    sock,
-                    [
-                        {
-                            "type": "key",
-                            "data": {"down": True, "key": {"type": "qcode", "data": key_name}},
-                        },
-                    ],
-                )
-                time.sleep(KEY_DOWN_HOLD_S)
-                send_input_events(
-                    sock,
-                    [
-                        {
-                            "type": "key",
-                            "data": {"down": False, "key": {"type": "qcode", "data": key_name}},
-                        },
-                    ],
-                )
-                try:
-                    wait_for_uart_marker(
-                        uart_log_path, keyboard_route_marker, keyboard_timeout_s
-                    )
-                    keyboard_route_seen = True
-                    break
-                except RuntimeError:
-                    continue
-            if not keyboard_route_seen:
-                append_debug_log(
-                    "H4",
-                    "tools/qmp_visible_input_inject.py:187",
-                    "keyboard route marker missing after key injections",
-                    {
-                        "marker": keyboard_route_marker,
-                        "keyboard_timeout_s": keyboard_timeout_s,
-                    },
-                )
-        if effective_mouse_enabled:
-            send_input_events(
-                sock,
-                [{"type": "btn", "data": {"down": True, "button": "wheel-up"}}],
-                console=None,
-            )
-            send_input_events(
-                sock,
-                [{"type": "btn", "data": {"down": False, "button": "wheel-up"}}],
-                console=None,
-            )
-            append_debug_log(
-                "H4",
-                "tools/qmp_visible_input_inject.py:176",
-                "wheel injection sent",
-                {"enabled": True, "button": "wheel-up", "sequence": ["down", "up"]},
-            )
-            time.sleep(WHEEL_PULSE_SETTLE_S)
-
-        # TASK-0074 / ADR-0068: the shell's first modal, driven LIVE — its own
-        # module (`qmp_inject_modal.py`): login from the greeter's handler
-        # dump, closed-loop relative positioning on app-host's tap trace, the
-        # board's sequence (Confirm → toast → timeout → alert → background
-        # press → ESC). Targets = tests/dsl_apps_conformance/tests/shell_power_alert.rs.
-        if (
-            (effective_mouse_enabled or effective_touch_enabled)
-            and keyboard_enabled
-            and os.environ.get("QEMU_INPUT_INJECT_MODAL", "1") == "1"
-        ):
-            qmp_inject_modal.run_modal_phase(
-                qmp_inject_modal.ModalEnv(
-                    sock=sock,
-                    uart_log_path=uart_log_path,
-                    display=(VISIBLE_DISPLAY_WIDTH, VISIBLE_DISPLAY_HEIGHT),
-                    mouse=effective_mouse_enabled,
-                    touch=effective_touch_enabled,
-                    rel_step_limit=REL_STEP_LIMIT,
-                    send_input_events=send_input_events,
-                    wait_for_uart_marker=wait_for_uart_marker,
-                    append_debug_log=append_debug_log,
-                    qemu_abs_value=qemu_abs_value,
-                )
-            )
-        # region agent log
-        append_debug_log(
-            "H4",
-            "tools/qmp_visible_input_inject.py:156",
-            "keyboard injection sent",
-            {"enabled": keyboard_enabled, "key": "a", "sequence": ["down", "up"]},
-        )
-        # endregion agent log
-        time.sleep(0.10)
-
-    return 0
+        ok = qmp_scenario.run_named(env, scenario)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:  # pragma: no cover - script-side diagnostics only
-        # region agent log
         append_debug_log(
             "H4",
-            "tools/qmp_visible_input_inject.py:196",
+            "tools/qmp_visible_input_inject.py",
             "injector failed",
             {"error": str(exc)},
         )
-        # endregion agent log
         print(f"[error] qmp visible-input inject failed: {exc}", file=sys.stderr)
         raise SystemExit(1)

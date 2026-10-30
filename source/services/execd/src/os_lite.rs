@@ -25,7 +25,7 @@ use crate::crash_fields::{
     append_field, append_field_i32, append_field_u32, append_field_u64, push_i32_dec, push_u32_dec,
 };
 use nexus_abi::{
-    debug_putc, nsec, service_id_from_name, wait_nohang_with_reason, wait_with_reason, yield_,
+    nsec, service_id_from_name, wait_nohang_with_reason, wait_with_reason, yield_, DebugLine,
     ExitReason, Pid,
 };
 use nexus_ipc::{KernelServer, Server as _, Wait};
@@ -200,8 +200,8 @@ fn wait_ok_response(pid: u32, code: i32, reason: ExitReason) -> Vec<u8> {
 /// `format!` are acceptable (same discipline as the spawn markers).
 fn reap_ready_children(state: &mut State) -> Vec<Death> {
     let mut apps = Vec::new();
-    // Children are bounded to 16; 32 iterations covers any transient burst.
-    for _ in 0..32 {
+    // Twice the table's bound of exited rows covers any burst of deaths between two sweeps.
+    for _ in 0..2 * crate::children::MAX_TRACKED {
         match wait_nohang_with_reason() {
             Ok(Some((pid, code, reason))) => {
                 let is_app = state.image_of(pid) == Some(IMG_APPHOST);
@@ -323,10 +323,10 @@ impl State {
     }
 
     fn track_child(&mut self, pid: u32, image_id: u8) {
-        // Keep bounded to avoid unbounded memory; drop oldest.
-        const MAX: usize = 16;
-        if self.children.len() >= MAX {
-            self.children.remove(0);
+        // The bound drops the oldest EXITED row, never a live child (`children::evict_index`).
+        let exited = self.children.iter().map(|c| c.exit.is_some());
+        if let Some(i) = crate::children::evict_index(exited) {
+            self.children.remove(i);
         }
         self.children.push(TrackedChild { pid, image_id, exit: None, reported: false });
     }
@@ -528,16 +528,17 @@ fn append_crash_to_logd(
     nexus_ipc::budget::raw::send_blocking(LOGD_SEND_SLOT, &hdr, &frame).map_err(|e| match e {
         nexus_ipc::IpcError::Timeout => emit_line("execd: crash logd send timeout"),
         nexus_ipc::IpcError::Kernel(inner) => {
-            emit_line_no_nl("execd: crash logd send kernel=");
-            emit_line(ipc_error_label(inner));
+            DebugLine::new()
+                .put(b"execd: crash logd send kernel=")
+                .str(ipc_error_label(inner))
+                .emit();
             if inner == nexus_abi::IpcError::NoSuchEndpoint {
                 let mut info = nexus_abi::CapQuery::default();
                 match nexus_abi::cap_query(LOGD_SEND_SLOT, &mut info) {
-                    Ok(()) => {
-                        emit_line_no_nl("execd: crash logd slot kind=");
-                        emit_u64(info.kind_tag as u64);
-                        emit_line("");
-                    }
+                    Ok(()) => DebugLine::new()
+                        .put(b"execd: crash logd slot kind=")
+                        .u64(info.kind_tag as u64)
+                        .emit(),
                     Err(_) => emit_line("execd: crash logd slot query err"),
                 }
             }
@@ -587,11 +588,7 @@ fn write_minidump_artifact(
 }
 
 fn emit_minidump_written(path: &str) {
-    emit_line_no_nl("execd: minidump written ");
-    for b in path.as_bytes().iter().copied() {
-        let _ = debug_putc(b);
-    }
-    let _ = debug_putc(b'\n');
+    DebugLine::new().put(b"execd: minidump written ").str(path).emit();
 }
 
 #[must_use]
@@ -839,15 +836,14 @@ fn handle_frame(state: &mut State, sender_service_id: u64, frame: &[u8]) -> Vec<
         || (requester == b"selftest-client" && sender_service_id == SID_SELFTEST_CLIENT_ALT);
     if !sender_matches {
         metrics_counter_inc_best_effort("execd.spawn.deny");
-        emit_line_no_nl("execd: spawn id mismatch sender=");
-        emit_u64(sender_service_id);
-        emit_line_no_nl(" expected=");
-        emit_u64(expected_sender_id);
-        emit_line_no_nl(" requester=");
-        for b in requester.iter().copied().take(48) {
-            let _ = debug_putc(b);
-        }
-        let _ = debug_putc(b'\n');
+        DebugLine::new()
+            .put(b"execd: spawn id mismatch sender=")
+            .u64(sender_service_id)
+            .put(b" expected=")
+            .u64(expected_sender_id)
+            .put(b" requester=")
+            .put(&requester[..requester.len().min(48)])
+            .emit();
         emit_line("execd: spawn denied (id mismatch)");
         return rsp(op, STATUS_DENIED, 0).to_vec();
     }
@@ -1197,18 +1193,15 @@ fn provision_app_service_routes(child_pid: u32, app_grants: Option<&[String]>) {
                 // numbers. Closing them poisoned the table: launch 2+ cloned
                 // empty (or worse, REUSED) slots. Resolving mints nothing, so
                 // there is nothing to free.
-                emit_line_no_nl(if ok {
-                    "execd: app route granted svc="
+                let head: &[u8] = if ok {
+                    b"execd: app route granted svc="
                 } else {
-                    "execd: FAIL app route grant svc="
-                });
-                emit_line_no_nl(route.svc);
-                let _ = debug_putc(b'\n');
+                    b"execd: FAIL app route grant svc="
+                };
+                DebugLine::new().put(head).str(route.svc).emit();
             }
             None => {
-                emit_line_no_nl("execd: FAIL app route resolve svc=");
-                emit_line_no_nl(route.svc);
-                let _ = debug_putc(b'\n');
+                DebugLine::new().put(b"execd: FAIL app route resolve svc=").str(route.svc).emit();
             }
         }
     }
@@ -1228,6 +1221,6 @@ pub fn exec_elf(
 mod emit;
 pub(crate) use emit::emit_line;
 use emit::{
-    emit_crash_marker, emit_exit_reason_marker, emit_line_no_nl, emit_u64, ipc_error_label,
-    metrics_counter_inc_best_effort, metrics_span_end_best_effort, metrics_span_start_best_effort,
+    emit_crash_marker, emit_exit_reason_marker, ipc_error_label, metrics_counter_inc_best_effort,
+    metrics_span_end_best_effort, metrics_span_start_best_effort,
 };

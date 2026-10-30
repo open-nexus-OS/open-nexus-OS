@@ -1018,6 +1018,8 @@ impl TaskTable {
         task.pending = None;
         task.clear_blocked();
         task.exit_code = Some((status, reason));
+        // TASK-0333 6f-3: a half console line the task left is ended at its death.
+        crate::hal::console_line::task_exited(pid.as_raw());
         // What the table named is remembered for the reap (RFC-0100 §1): the caps go now, the
         // objects nobody else names or maps go with the address space.
         task.orphan_vmos.clear();

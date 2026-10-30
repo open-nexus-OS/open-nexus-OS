@@ -36,7 +36,7 @@
 #![deny(missing_docs)]
 
 mod error;
-
+pub mod scenario;
 pub use error::ParseError;
 
 use std::collections::BTreeMap;

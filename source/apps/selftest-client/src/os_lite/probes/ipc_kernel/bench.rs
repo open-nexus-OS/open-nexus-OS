@@ -23,7 +23,8 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use super::super::super::ipc::clients::cached_samgrd_client;
 
 /// The asserted round-trip budget for the fastpath, in microseconds
-/// (TASK-0054C P6, RFC-0096 §Budgets).
+/// (TASK-0054C P6, RFC-0096 §Budgets) — judged against the FASTEST of the timed calls since
+/// TASK-0333 6f-3 ([`ipc_call_budget_probe`]).
 ///
 /// Measured 41–43 µs across every profile that runs this phase — smp1, visible,
 /// reset, ota-downgrade, ota-tamper — a 5 % band. The budget is 64: enough
@@ -88,39 +89,84 @@ pub(crate) fn ipc_bench_probe() -> core::result::Result<BenchResult, ()> {
 /// measurements wearing the same word. samgrd answers with an ordinary send,
 /// which is precisely what completes a call in the caller's registers, so this
 /// times the fastpath as a service actually drives it.
-///
-/// Printed, never asserted: `core/trap/budgets.rs` gets its values from this
-/// pair of numbers before P4c-2 asserts anything (the P1 rule).
 pub(crate) fn ipc_call_bench_probe() -> core::result::Result<BenchResult, ()> {
     let reply = nexus_service_topology::slots::selftest_client::REPLY;
     let sam = cached_samgrd_client().map_err(|_| ())?;
     let (sam_send, _) = sam.slots();
-    static NONCE: AtomicU64 = AtomicU64::new(0x5C00);
     let mut out = [0u8; 16];
     let t0 = nexus_abi::nsec().map_err(|_| ())?;
     for _ in 0..BENCH_ROUNDS {
-        let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
-        let mut frame = [0u8; 12];
-        frame[0] = b'S';
-        frame[1] = b'M';
-        frame[2] = 1; // samgrd os-lite version
-        frame[3] = 3; // OP_PING_CAP_MOVE
-        frame[4..12].copy_from_slice(&nonce.to_le_bytes());
-        let cap = nexus_abi::cap_clone(reply.send).map_err(|_| ())?;
-        let hdr = nexus_abi::MsgHeader::new(cap, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, 12);
-        let n = match nexus_abi::ipc_call(sam_send, &hdr, &frame, &mut out) {
-            Ok(n) => n,
-            Err(_) => {
-                let _ = nexus_abi::cap_close(cap);
-                return Err(());
-            }
-        };
-        // Time a real answer, never a lie: the nonce must come back.
-        if n != 12 || out[0..4] != *b"PONG" || out[4..12] != nonce.to_le_bytes() {
-            return Err(());
-        }
+        ping_call(sam_send, reply.send, &mut out)?;
     }
     let t1 = nexus_abi::nsec().map_err(|_| ())?;
     let rt_us = t1.saturating_sub(t0) / 1_000 / u64::from(BENCH_ROUNDS);
     Ok(BenchResult { rt_us, rounds: BENCH_ROUNDS })
+}
+
+/// What the budget judges (TASK-0333 6f-3): every one of `BENCH_ROUNDS` calls timed alone, the
+/// clock's own cost taken off. `fastest_us` is a call that nothing else interrupted — the cost
+/// of the path, which is what a regression (a kernel entry back in the exchange) raises in EVERY
+/// round; `mean_us` is the same rounds averaged, which the rest of the hart's work raises too
+/// (a pointer burst on the one hart took the old mean-only gate from 47 to 90 µs, test-all
+/// 2026-10-29) — printed, never judged.
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct CallBudget {
+    pub fastest_us: u64,
+    pub mean_us: u64,
+}
+
+/// Clock reads timed back to back, to learn what a timed round pays for its own clock (each
+/// read is a syscall).
+const CLOCK_ROUNDS: u32 = 16;
+
+pub(crate) fn ipc_call_budget_probe() -> core::result::Result<CallBudget, ()> {
+    let reply = nexus_service_topology::slots::selftest_client::REPLY;
+    let sam = cached_samgrd_client().map_err(|_| ())?;
+    let (sam_send, _) = sam.slots();
+    let mut clock_ns = u64::MAX;
+    for _ in 0..CLOCK_ROUNDS {
+        let a = nexus_abi::nsec().map_err(|_| ())?;
+        let b = nexus_abi::nsec().map_err(|_| ())?;
+        clock_ns = clock_ns.min(b.saturating_sub(a));
+    }
+    let mut out = [0u8; 16];
+    let (mut fastest_ns, mut sum_ns) = (u64::MAX, 0u64);
+    for _ in 0..BENCH_ROUNDS {
+        let a = nexus_abi::nsec().map_err(|_| ())?;
+        ping_call(sam_send, reply.send, &mut out)?;
+        let b = nexus_abi::nsec().map_err(|_| ())?;
+        let round_ns = b.saturating_sub(a).saturating_sub(clock_ns);
+        fastest_ns = fastest_ns.min(round_ns);
+        sum_ns = sum_ns.saturating_add(round_ns);
+    }
+    Ok(CallBudget {
+        fastest_us: fastest_ns / 1_000,
+        mean_us: sum_ns / 1_000 / u64::from(BENCH_ROUNDS),
+    })
+}
+
+/// One `OP_PING_CAP_MOVE` over `ipc_call` — the reply cap moved, the `PONG` and OUR nonce
+/// checked, so a wrong or stale frame fails the probe instead of timing a lie.
+fn ping_call(sam_send: u32, reply_send: u32, out: &mut [u8; 16]) -> core::result::Result<(), ()> {
+    static NONCE: AtomicU64 = AtomicU64::new(0x5C00);
+    let nonce = NONCE.fetch_add(1, Ordering::Relaxed);
+    let mut frame = [0u8; 12];
+    frame[0] = b'S';
+    frame[1] = b'M';
+    frame[2] = 1; // samgrd os-lite version
+    frame[3] = 3; // OP_PING_CAP_MOVE
+    frame[4..12].copy_from_slice(&nonce.to_le_bytes());
+    let cap = nexus_abi::cap_clone(reply_send).map_err(|_| ())?;
+    let hdr = nexus_abi::MsgHeader::new(cap, 0, 0, nexus_abi::ipc_hdr::CAP_MOVE, 12);
+    let n = match nexus_abi::ipc_call(sam_send, &hdr, &frame, out) {
+        Ok(n) => n,
+        Err(_) => {
+            let _ = nexus_abi::cap_close(cap);
+            return Err(());
+        }
+    };
+    if n != 12 || out[0..4] != *b"PONG" || out[4..12] != nonce.to_le_bytes() {
+        return Err(());
+    }
+    Ok(())
 }

@@ -31,3 +31,6 @@ nexus-query = { path = "../../source/libs/nexus-query" }
 # The frame arena's half (ADR-0065): the recorded frame costs are held against the OS arena's
 # real size, not a copy of it (`tests/frame_arena_budget.rs`).
 nexus-service-entry = { path = "../../source/libs/nexus-service-entry" }
+# TASK-0333 6f-3 (ADR-0089): the injector's display points and words, read from the ONE source the
+# visible lanes' scenarios press (`proof-manifest/scenarios/targets.toml`).
+nexus-proof-manifest = { path = "../../source/libs/nexus-proof-manifest" }

@@ -325,8 +325,9 @@ pub fn debug_println(s: &str) -> SysResult<()> {
 }
 
 /// Write the grid TIMESTAMP PREFIX `[    S.uuuuuu]  ` to the console (RFC-0068), for emitters that
-/// build a marker line from `debug_putc` fragments (e.g. `abilitymgr`) rather than one `debug_println`.
-/// Call it once at the START of the marker line. No-op in proof boots (keeps the evidence line bare).
+/// build a marker line from `debug_putc` fragments rather than one `debug_println` — a new emitter
+/// builds a [`DebugLine`] instead (one write, the prefix included). Call it once at the START of
+/// the marker line. No-op in proof boots (keeps the evidence line bare).
 #[cfg(nexus_env = "os")]
 pub fn debug_ts_prefix() {
     if !boot_should_fold_verdicts() {
@@ -336,6 +337,95 @@ pub fn debug_ts_prefix() {
     let mut buf = [0u8; 24];
     let n = nexus_event::render_ts_prefix(&mut buf, now);
     let _ = debug_write(&buf[..n]);
+}
+
+/// The longest [`DebugLine`]: a longer one is cut short, never split.
+pub const DEBUG_LINE_CAP: usize = 256;
+
+/// One console line built in place and written in ONE [`debug_write`] (TASK-0333 6f-3) — one
+/// syscall where `debug_putc` fragments cost one per byte. (The kernel keeps every task's line
+/// whole either way since 6f-3 — its per-task line stage; before it, a fragment emitter switched
+/// out mid-line had another task's line appended to its half: `abilitymgr: kill (inst=` on the
+/// lowmem lane.) Raw like those fragments: no verdict folding (that stays [`debug_println`]'s,
+/// and a board's act lines must never fold); in an interactive boot the grid timestamp goes out
+/// in the same write. Alloc-free: `DebugLine::new().put(b"execd: kill (pid=").u64(7).put(b")")`.
+pub struct DebugLine {
+    buf: [u8; DEBUG_LINE_CAP],
+    len: usize,
+}
+
+impl Default for DebugLine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DebugLine {
+    /// An empty line.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { buf: [0; DEBUG_LINE_CAP], len: 0 }
+    }
+
+    /// `bytes` appended (cut at the cap; one byte stays free for the newline).
+    #[must_use]
+    pub fn put(mut self, bytes: &[u8]) -> Self {
+        let n = bytes.len().min(DEBUG_LINE_CAP - 1 - self.len);
+        self.buf[self.len..self.len + n].copy_from_slice(&bytes[..n]);
+        self.len += n;
+        self
+    }
+
+    /// `s` appended.
+    #[must_use]
+    pub fn str(self, s: &str) -> Self {
+        self.put(s.as_bytes())
+    }
+
+    /// `v` appended as decimal ASCII.
+    #[must_use]
+    pub fn u64(self, mut v: u64) -> Self {
+        let mut digits = [0u8; 20];
+        let mut i = digits.len();
+        loop {
+            i -= 1;
+            digits[i] = b'0' + (v % 10) as u8;
+            v /= 10;
+            if v == 0 {
+                break;
+            }
+        }
+        self.put(&digits[i..])
+    }
+
+    /// `v` appended as signed decimal ASCII.
+    #[must_use]
+    pub fn i64(self, v: i64) -> Self {
+        let line = if v < 0 { self.put(b"-") } else { self };
+        line.u64(v.unsigned_abs())
+    }
+
+    /// The line so far (no newline).
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+
+    /// The line and its newline in ONE write (an interactive boot's grid timestamp in front of it,
+    /// in the same write).
+    #[cfg(nexus_env = "os")]
+    pub fn emit(mut self) {
+        self.buf[self.len] = b'\n';
+        let line = &self.buf[..self.len + 1];
+        if boot_should_fold_verdicts() {
+            let mut out = [0u8; 24 + DEBUG_LINE_CAP];
+            let n = nexus_event::render_ts_prefix(&mut out[..24], nsec().unwrap_or(0));
+            out[n..n + line.len()].copy_from_slice(line);
+            let _ = debug_write(&out[..n + line.len()]);
+            return;
+        }
+        let _ = debug_write(line);
+    }
 }
 
 /// Emit a routine bring-up/runtime trace line that FOLDS in the interactive grid view (recall with

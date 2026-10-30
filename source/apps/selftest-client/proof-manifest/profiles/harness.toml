@@ -165,7 +165,23 @@ extends = "visible"
 # TASK-0074: the injector keeps driving the guest after the ladder (login, the shell's modal:
 # pill → power → background press → ESC) — the launcher's early stop waits for the live-modal
 # rung too, inside a wider grace window (one-hart TCG; the recipe's RUN_TIMEOUT bounds the run).
-env = { QEMU_USB_DEVICE = "-device qemu-xhci,id=xhci -device usb-hub,bus=xhci.0,port=1 -device usb-kbd,bus=xhci.0,port=1.1 -device usb-mouse,bus=xhci.0,port=1.2", QEMU_INPUT_TRANSPORT = "usb", QEMU_PROOF_POINTER_SOURCE = "mouse", QEMU_INPUT_AUTOINJECT = "1", QEMU_LADDER_ALSO_WAIT = "SELFTEST: ui v7 screenshot ok", QEMU_READY_GRACE_SECS = "840" }
+# TASK-0333 6f-3 (ADR-0089): what it drives is the declared scenario `QEMU_INPUT_SCENARIO`
+# (`proof-manifest/scenarios/usb-visible.toml`), validated against this manifest.
+env = { QEMU_USB_DEVICE = "-device qemu-xhci,id=xhci -device usb-hub,bus=xhci.0,port=1 -device usb-kbd,bus=xhci.0,port=1.1 -device usb-mouse,bus=xhci.0,port=1.2", QEMU_INPUT_TRANSPORT = "usb", QEMU_PROOF_POINTER_SOURCE = "mouse", QEMU_INPUT_AUTOINJECT = "1", QEMU_INPUT_SCENARIO = "usb-visible", QEMU_LADDER_ALSO_WAIT = "SELFTEST: ui v7 screenshot ok", QEMU_READY_GRACE_SECS = "840" }
+
+# TASK-0333 6f-3 (RFC-0100 §5): REAL memory pressure — the usb-visible desktop and input chain,
+# then the kernel's own level instead of the drill. The injector logs in, launches settings and
+# hides it (the grace freezes it); the harness takes memory until the kernel says `critical`
+# (`SELFTEST: mem pressure held`); memd squeezes the frozen app, swaps it out and kills it
+# (`reason=oom`), records the kill in the state store and reads it back; the harness lets the
+# memory go once the kill was ordered (`SELFTEST: mem pressure released`). The injector launches
+# settings again: the app comes back with the state it saved when it was hidden. The drill is
+# forbidden here (`forbidden_when`): every step is the kernel's level. The guest reads the
+# profile from `/chosen` (`RuntimeProfile::Lowmem`, the full phase scope).
+[profile.lowmem]
+runner = "scripts/qemu-test.sh"
+extends = "usb-visible"
+env = { NEXUS_SELFTEST_PROFILE = "lowmem", QEMU_INPUT_SCENARIO = "lowmem", QEMU_LADDER_ALSO_WAIT = "SELFTEST: app restore ok", QEMU_READY_GRACE_SECS = "450" }
 
 # TASK-0050 PR-3: real system-reset lane. The guest requests an SBI cold
 # reboot EARLY in bringup (sentinel discipline over statefs); QEMU restarts

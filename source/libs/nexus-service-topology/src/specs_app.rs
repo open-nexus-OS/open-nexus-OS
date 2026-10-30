@@ -225,6 +225,12 @@ pub(crate) const MEMD: ServiceSpec = ServiceSpec {
         Route { to: ServiceId::Windowd, kind: RouteKind::ReplyInbox, slots: slots::memd::WINDOWD },
         // 6f-2 (ADR-0088): the pager asks the RNG service to seed the kernel's swap key.
         Route { to: ServiceId::Rngd, kind: RouteKind::ReplyInbox, slots: slots::memd::RNGD },
+        // 6f-3: the kill journal, kept in the state store.
+        Route {
+            to: ServiceId::Statefsd,
+            kind: RouteKind::ReplyInbox,
+            slots: slots::memd::STATEFSD,
+        },
     ],
     announce: false,
     server_slots: slots::memd::SERVER,

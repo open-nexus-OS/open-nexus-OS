@@ -21,6 +21,8 @@
 //! mid-unit) and the waiter takes it over; a waiter whose total wait passes the bound writes
 //! through, torn rather than silent. A write-through can never release a gate it does not hold.
 //! The word packs the holder's start time with its tag, so "abandoned" is one atomic read.
+//! A hart's line is not yet a TASK's line: `TaskLines` (TASK-0333 6f-3) keeps userspace's half
+//! lines per task until their `\n`, so a task switched out mid-line keeps its line whole.
 //! OWNERS: @kernel-team
 //! STATUS: Functional
 //! API_STABILITY: Internal
@@ -180,6 +182,237 @@ impl LineBuf {
 impl Default for LineBuf {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Partial lines of userspace tasks kept apart at one moment (TASK-0333 6f-3): the tasks that
+/// are mid-line now, not the tasks that exist.
+pub const TASK_LINES: usize = 16;
+
+/// Userspace's console bytes, gathered per TASK before they reach a hart's [`LineBuf`]
+/// (TASK-0333 6f-3). A hart gathers whatever runs on it, and a hart runs many tasks: a task that
+/// wrote its line in pieces (byte by byte, or several writes) and was switched out mid-line had
+/// the next task's whole line appended to its first half — on the lowmem lane `abilitymgr: `
+/// then `execd: exit pid=117 …` as one line, `kill (inst=3 …)` as the next, and a marker the
+/// ladder never found. So a task's bytes wait here until its `\n` and enter the hart funnel as
+/// ONE line, written in one go from one syscall. A line that outgrows [`LineBuf::CAP`] leaves
+/// in whole pieces; a task that finds no free slot writes through — torn rather than silent,
+/// never a wait; a task that dies mid-line has its piece ended at the death ([`Self::exited`]).
+/// Pure and host-tested; `hal::console_line` holds the one table behind an IRQ-safe lock and
+/// sends each unit with the lock released.
+pub struct TaskLines {
+    slots: [TaskLine; TASK_LINES],
+}
+
+#[derive(Clone, Copy)]
+struct TaskLine {
+    /// The task's id plus one; `0` = free.
+    owner: u64,
+    len: usize,
+    buf: [u8; LineBuf::CAP],
+}
+
+impl TaskLine {
+    const FREE: Self = Self { owner: 0, len: 0, buf: [0; LineBuf::CAP] };
+}
+
+impl TaskLines {
+    pub const fn new() -> Self {
+        Self { slots: [TaskLine::FREE; TASK_LINES] }
+    }
+
+    /// Feeds `bytes` that `task` wrote. Answers `(consumed, unit)`: how many of `bytes` were
+    /// taken, and how many bytes of `out` to send NOW — a whole line ending in `\n`, a full
+    /// piece of a longer one, or (no slot free) the bytes themselves; `0` = nothing complete
+    /// yet. The caller loops until `bytes` is consumed, sending each unit outside its lock.
+    /// Every call with bytes consumes at least one.
+    pub fn feed(
+        &mut self,
+        task: u32,
+        bytes: &[u8],
+        out: &mut [u8; LineBuf::CAP],
+    ) -> (usize, usize) {
+        if bytes.is_empty() {
+            return (0, 0);
+        }
+        let key = u64::from(task) + 1;
+        let slot = match self.slots.iter().position(|s| s.owner == key) {
+            Some(i) => i,
+            None => {
+                // Nothing pending: a line that ends within the buffer goes out at once.
+                if let Some(nl) = bytes.iter().take(LineBuf::CAP).position(|b| *b == b'\n') {
+                    out[..=nl].copy_from_slice(&bytes[..=nl]);
+                    return (nl + 1, nl + 1);
+                }
+                match self.slots.iter().position(|s| s.owner == 0) {
+                    Some(free) => {
+                        self.slots[free].owner = key;
+                        self.slots[free].len = 0;
+                        free
+                    }
+                    None => {
+                        // Every slot is some task's half line: through, never a wait.
+                        let n = bytes.len().min(LineBuf::CAP);
+                        out[..n].copy_from_slice(&bytes[..n]);
+                        return (n, n);
+                    }
+                }
+            }
+        };
+        let line = &mut self.slots[slot];
+        for (i, &b) in bytes.iter().enumerate() {
+            line.buf[line.len] = b;
+            line.len += 1;
+            if b == b'\n' || line.len == LineBuf::CAP {
+                let n = line.len;
+                out[..n].copy_from_slice(&line.buf[..n]);
+                line.len = 0;
+                if b == b'\n' {
+                    line.owner = 0;
+                }
+                return (i + 1, n);
+            }
+        }
+        (bytes.len(), 0)
+    }
+
+    /// `task` is gone: its half line (if any), ended with `\n`, as the unit to send; the slot
+    /// is free again.
+    pub fn exited(&mut self, task: u32, out: &mut [u8; LineBuf::CAP]) -> usize {
+        let key = u64::from(task) + 1;
+        let Some(line) = self.slots.iter_mut().find(|s| s.owner == key) else {
+            return 0;
+        };
+        // A piece leaves at `CAP`, so a half line holds at most `CAP - 1`: its `\n` fits.
+        let n = line.len;
+        out[..n].copy_from_slice(&line.buf[..n]);
+        line.owner = 0;
+        line.len = 0;
+        if n == 0 {
+            return 0;
+        }
+        out[n] = b'\n';
+        n + 1
+    }
+
+    /// Tasks mid-line now.
+    pub fn pending(&self) -> usize {
+        self.slots.iter().filter(|s| s.owner != 0).count()
+    }
+}
+
+impl Default for TaskLines {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod task_line_tests {
+    use super::*;
+
+    /// Feeds `bytes` as `task` until consumed; the units sent, in order.
+    fn feed_all(lines: &mut TaskLines, task: u32, mut bytes: &[u8], sent: &mut Vec<Vec<u8>>) {
+        let mut out = [0u8; LineBuf::CAP];
+        while !bytes.is_empty() {
+            let (used, n) = lines.feed(task, bytes, &mut out);
+            assert!(used > 0, "every call takes a byte");
+            if n > 0 {
+                sent.push(out[..n].to_vec());
+            }
+            bytes = &bytes[used..];
+        }
+    }
+
+    /// The lowmem lane's tear, replayed: abilitymgr writes its line byte by byte and is
+    /// switched out after `abilitymgr: `; execd writes its whole line; abilitymgr resumes.
+    /// Each line leaves whole, in the order its `\n` came.
+    #[test]
+    fn a_task_switched_out_mid_line_keeps_its_line() {
+        let mut lines = TaskLines::new();
+        let mut sent = Vec::new();
+        for &b in b"abilitymgr: " {
+            feed_all(&mut lines, 7, &[b], &mut sent);
+        }
+        assert!(sent.is_empty(), "half a line waits");
+        feed_all(&mut lines, 5, b"execd: exit pid=117 reason=killed code=-9\n", &mut sent);
+        for &b in b"kill (inst=3 reason=memory)\n" {
+            feed_all(&mut lines, 7, &[b], &mut sent);
+        }
+        assert_eq!(
+            sent,
+            [
+                b"execd: exit pid=117 reason=killed code=-9\n".to_vec(),
+                b"abilitymgr: kill (inst=3 reason=memory)\n".to_vec(),
+            ]
+        );
+        assert_eq!(lines.pending(), 0, "both slots free again");
+    }
+
+    /// One write holding several lines leaves as several units; the tail waits for its `\n`.
+    #[test]
+    fn several_lines_in_one_write_leave_one_by_one() {
+        let mut lines = TaskLines::new();
+        let mut sent = Vec::new();
+        feed_all(&mut lines, 1, b"a: one\nb: two\nc: thr", &mut sent);
+        assert_eq!(sent, [b"a: one\n".to_vec(), b"b: two\n".to_vec()]);
+        feed_all(&mut lines, 1, b"ee\n", &mut sent);
+        assert_eq!(sent.last().map(Vec::as_slice), Some(&b"c: three\n"[..]));
+    }
+
+    /// A line longer than the buffer leaves in whole pieces — never a byte lost — and the
+    /// task keeps its slot until the `\n`.
+    #[test]
+    fn test_reject_overflowing_a_task_line() {
+        let mut lines = TaskLines::new();
+        let mut sent = Vec::new();
+        let long: Vec<u8> = (0..(LineBuf::CAP * 2 + 9)).map(|i| b'a' + (i % 26) as u8).collect();
+        feed_all(&mut lines, 3, &long, &mut sent);
+        assert_eq!(sent.len(), 2, "two full pieces out");
+        assert!(sent.iter().all(|u| u.len() == LineBuf::CAP));
+        assert_eq!(lines.pending(), 1);
+        feed_all(&mut lines, 3, b"\n", &mut sent);
+        let all: Vec<u8> = sent.concat();
+        assert_eq!(&all[..long.len()], &long[..]);
+        assert_eq!(all.last(), Some(&b'\n'));
+        assert_eq!(lines.pending(), 0);
+    }
+
+    /// With every slot holding some task's half line, one more task writes through — torn
+    /// rather than silent, and never a wait.
+    #[test]
+    fn test_reject_waiting_when_every_slot_is_taken() {
+        let mut lines = TaskLines::new();
+        let mut sent = Vec::new();
+        for task in 0..TASK_LINES as u32 {
+            feed_all(&mut lines, task, b"half", &mut sent);
+        }
+        assert_eq!(lines.pending(), TASK_LINES);
+        assert!(sent.is_empty());
+        feed_all(&mut lines, 99, b"late", &mut sent);
+        assert_eq!(sent, [b"late".to_vec()]);
+        // A whole line needs no slot at all.
+        feed_all(&mut lines, 100, b"whole\n", &mut sent);
+        assert_eq!(sent.last().map(Vec::as_slice), Some(&b"whole\n"[..]));
+    }
+
+    /// A task that dies mid-line has its piece ended at the death; a task with nothing
+    /// pending sends nothing; the slot serves the next task.
+    #[test]
+    fn a_task_that_dies_mid_line_has_its_piece_ended() {
+        let mut lines = TaskLines::new();
+        let mut sent = Vec::new();
+        feed_all(&mut lines, 4, b"memd: half", &mut sent);
+        let mut out = [0u8; LineBuf::CAP];
+        let n = lines.exited(4, &mut out);
+        assert_eq!(&out[..n], b"memd: half\n");
+        assert_eq!(lines.exited(4, &mut out), 0, "nothing twice");
+        assert_eq!(lines.exited(9, &mut out), 0, "nothing for a task that wrote nothing");
+        assert_eq!(lines.pending(), 0);
+        // The longest half line still fits its `\n`.
+        feed_all(&mut lines, 4, &[b'x'; LineBuf::CAP - 1], &mut sent);
+        assert_eq!(lines.exited(4, &mut out), LineBuf::CAP);
+        assert_eq!(out[LineBuf::CAP - 1], b'\n');
     }
 }
 

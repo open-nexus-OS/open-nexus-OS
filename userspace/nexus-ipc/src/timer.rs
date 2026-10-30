@@ -22,7 +22,8 @@
 //! OWNERS: @runtime
 //! STATUS: Functional
 //! API_STABILITY: Internal
-//! TEST_COVERAGE: QEMU — every paced service and both device watchdogs run through here;
+//! TEST_COVERAGE: QEMU — every paced service and the device watchdogs (gpud, the SD host core)
+//!   run through here (virtio-blk waits on its device's interrupt alone since TASK-0333 6f-3);
 //!   `check-wait-not-poll.sh` rule 4 proves no raw deadline remains beside it.
 
 #![cfg(all(nexus_env = "os", feature = "os-lite"))]

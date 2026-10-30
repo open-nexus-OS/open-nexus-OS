@@ -24,7 +24,9 @@
 #          size read back (`getvar partition-size:<name>`) before anything is
 #          written, then flashed. --verify reads every region back from the
 #          stock system (it boots from the microSD first: DIP 1+2 default)
-#          over adb and compares the plan's digests.
+#          over adb and compares the plan's read-back digests — the partitions
+#          a running system writes (the plan's `live` spans) read as zero, so
+#          a boot between the flash and the read-back does not fail it.
 # OWNERS:  @tools-team
 # STATUS:  Functional
 # API_STABILITY: Stable (flags)
@@ -80,6 +82,34 @@ PY
 
 plan_field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1/plan.json" "$2"; }
 
+# One line per region for --verify, tab-separated: name, device, first LBA, sectors, the digest
+# to compare (`verify_sha256`) and the stock system's command that reads the region with every
+# live span replaced by zeros — its reads and zero runs piped into one digest.
+verify_reads() {
+  python3 - "$1/plan.json" "$2" <<'PY'
+import json, sys
+plan, emmc = json.load(open(sys.argv[1])), sys.argv[2]
+live = sorted((l["start_lba"], l["start_lba"] + l["sectors"]) for l in plan["live"])
+for r in plan["regions"]:
+    dev = emmc + ("boot0" if r["hwpart"] == 1 else "")
+    start, end = r["start_lba"], r["start_lba"] + r["sectors"]
+    rd = f"dd if={dev} bs=1M iflag=skip_bytes,count_bytes"
+    parts, cur = [], start
+    for lo, hi in (live if r["hwpart"] == 0 else []):
+        lo, hi = max(lo, start), min(hi, end)
+        if lo >= hi:
+            continue
+        if lo > cur:
+            parts.append(f"{rd} skip={cur * 512} count={(lo - cur) * 512}")
+        parts.append(f"dd if=/dev/zero bs=512 count={hi - lo}")
+        cur = hi
+    if cur < end:
+        parts.append(f"{rd} skip={cur * 512} count={(end - cur) * 512}")
+    cmd = parts[0] if len(parts) == 1 else "{ " + "; ".join(parts) + "; }"
+    print("\t".join([r["name"], dev, str(start), str(r["sectors"]), r["verify_sha256"], cmd]))
+PY
+}
+
 # --- verify: read the plan back from the stock system ----------------------------------
 if [ -n "$VERIFY" ]; then
   [ -f "$VERIFY/plan.json" ] || { err "no plan.json in $VERIFY"; exit 1; }
@@ -89,31 +119,23 @@ if [ -n "$VERIFY" ]; then
   sectors="$(timeout 10 adb shell cat /sys/block/mmcblk2/size | tr -d '\r')"
   want="$(plan_field "$VERIFY" disk_sectors)"
   [ "$sectors" = "$want" ] || { err "the eMMC has $sectors sectors, the plan was built for $want"; exit 2; }
-  # RFC-0107: the trace partition is written by every boot, so it is read as zero — the plan's
-  # regions carry it zero (an older plan without the field: nothing is skipped).
-  trace_start="$(python3 -c 'import json,sys; t=json.load(open(sys.argv[1])).get("trace"); print(t["start_lba"] if t else "")' "$VERIFY/plan.json")"
-  trace_count="$(python3 -c 'import json,sys; t=json.load(open(sys.argv[1])).get("trace"); print(t["sectors"] if t else "")' "$VERIFY/plan.json")"
+  # TASK-0333 6f-3: the partitions a running system writes (`storage::layout::LIVE` — the boot
+  # selector, the state store, the data volume, the boot trace) are read as ZERO: from the first
+  # boot on their bytes are the system's, not the image's (before, the first boot after a flash
+  # failed this on `bsb`, `state` and `data` — board cycle 77). The plan lists them (`live`) and
+  # gives every region the digest of its bytes with them zeroed (`verify_sha256`).
+  python3 -c 'import json,sys; sys.exit(0 if "live" in json.load(open(sys.argv[1])) else 1)' \
+    "$VERIFY/plan.json" || { err "the plan predates its live spans — rebuild it (just board-image)"; exit 2; }
   bad=0
-  while read -r name hwpart start count _file sha; do
-    dev="$STOCK_EMMC"; [ "$hwpart" = 1 ] && dev="${STOCK_EMMC}boot0"
-    # The region's bytes, with the trace partition's span (if it lies in this region of the
-    # user area) replaced by zeros — three reads piped into one digest.
-    rd="dd if=$dev bs=1M iflag=skip_bytes,count_bytes"
-    cmd="$rd skip=$((start * 512)) count=$((count * 512))"
-    if [ "$hwpart" = 0 ] && [ -n "$trace_start" ]; then
-      o0=$(( start > trace_start ? start : trace_start )); o1=$(( start + count < trace_start + trace_count ? start + count : trace_start + trace_count ))
-      if [ "$o1" -gt "$o0" ]; then
-        cmd="{ $rd skip=$((start * 512)) count=$(((o0 - start) * 512)); dd if=/dev/zero bs=512 count=$((o1 - o0)); $rd skip=$((o1 * 512)) count=$(((start + count - o1) * 512)); }"
-      fi
-    fi
+  while IFS=$'\t' read -r name dev start count sha cmd; do
     # stdin from /dev/null: `adb shell` reads it, and would swallow the rest of the regions.
     got="$(timeout 300 adb shell "$cmd 2>/dev/null | sha256sum" </dev/null | cut -c1-64)"
     if [ "$got" = "$sha" ]; then
-      log "read back $name ($dev @ $start, $count sectors): sha256 matches"
+      log "read back $name ($dev @ $start, $count sectors, live spans as zero): sha256 matches"
     else
       err "read back $name ($dev @ $start, $count sectors): sha256 $got, the plan says $sha"; bad=1
     fi
-  done < <(regions "$VERIFY")
+  done < <(verify_reads "$VERIFY" "$STOCK_EMMC")
   [ "$bad" = 0 ] || exit 2
   log "every region reads back as planned"
   exit 0

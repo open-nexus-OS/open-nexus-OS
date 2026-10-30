@@ -111,3 +111,32 @@ pub fn program_i18n_keys(nxir: &[u8]) -> Vec<u32> {
         .map(|k| k.get_key())
         .collect()
 }
+
+/// The injector's display point `name` (TASK-0333 6f-3, ADR-0089) — ONE source,
+/// `proof-manifest/scenarios/targets.toml`: the visible lanes' scenarios press these points and
+/// the shell tests assert that the layout puts each widget under its point.
+pub fn inject_point(name: &str) -> (i32, i32) {
+    *inject_targets()
+        .points
+        .get(name)
+        .unwrap_or_else(|| panic!("targets.toml names no point `{name}`"))
+}
+
+/// The word `name` the injector types (the same file).
+pub fn inject_word(name: &str) -> String {
+    inject_targets()
+        .words
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| panic!("targets.toml names no word `{name}`"))
+}
+
+fn inject_targets() -> &'static nexus_proof_manifest::scenario::Targets {
+    static TARGETS: std::sync::OnceLock<nexus_proof_manifest::scenario::Targets> =
+        std::sync::OnceLock::new();
+    TARGETS.get_or_init(|| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../source/apps/selftest-client/proof-manifest/scenarios/targets.toml");
+        nexus_proof_manifest::scenario::read_targets(&path).unwrap_or_else(|e| panic!("{e}"))
+    })
+}

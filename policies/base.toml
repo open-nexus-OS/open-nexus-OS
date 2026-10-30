@@ -90,7 +90,9 @@ screencapd = ["ipc.core"]
 # TASK-0333 6e-2 (RFC-0100 §3, ADR-0086): the one memory authority hears the kernel's pressure
 # sink and the lifecycle authority's band pushes (taken from its kernel sid alone); its only
 # call is the kill order to abilitymgr, which orders the parent. It spawns and kills nothing.
-memd = ["ipc.core"]
+# TASK-0333 6f-3: its kill journal lives in the state store (`/state/memd/journal`) — read at
+# the first kill of a boot, rewritten after each one.
+memd = ["ipc.core", "statefs.read", "statefs.write"]
 # TASK-0072 Phase 8: settingsd persists the typed prefs registry via statefsd
 # (state:/prefs) — needs ipc.core to route + statefs read/write to load at boot
 # and store on change.

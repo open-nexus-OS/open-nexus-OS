@@ -93,6 +93,11 @@ pub struct AbilityInstance {
     /// When the compositor last reported the window hidden while the instance was live in the
     /// background (TASK-0333 6d): the freeze grace counts from here. `None` while seen.
     pub hidden_since: Option<u64>,
+    /// The memory authority's kill was carried to the parent (TASK-0333 6f-3): the process is
+    /// dying. Its window's last sightings and the freeze grace no longer move the instance — a
+    /// thaw or a freeze of a dead process is refused by the parent — and the death report
+    /// ends it.
+    pub dying: bool,
 }
 
 /// Maximum concurrently-tracked instances (bounded resource).
@@ -170,6 +175,7 @@ impl Broker {
                 granted_caps: granted_caps.iter().map(|c| String::from(*c)).collect(),
                 pid: None,
                 hidden_since: None,
+                dying: false,
             },
         );
         self.touch_recent(id);
@@ -180,6 +186,15 @@ impl Broker {
     pub fn bind_pid(&mut self, id: u32, pid: u32) -> Result<(), LifecycleError> {
         let inst = self.instances.get_mut(&id).ok_or(LifecycleError::UnknownInstance)?;
         inst.pid = Some(pid);
+        Ok(())
+    }
+
+    /// The memory authority's kill of `id` was carried to the parent (TASK-0333 6f-3): from now
+    /// on only the death report moves it.
+    pub fn mark_dying(&mut self, id: u32) -> Result<(), LifecycleError> {
+        let inst = self.instances.get_mut(&id).ok_or(LifecycleError::UnknownInstance)?;
+        inst.dying = true;
+        inst.hidden_since = None;
         Ok(())
     }
 

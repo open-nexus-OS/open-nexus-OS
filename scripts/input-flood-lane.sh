@@ -38,9 +38,10 @@ rm -f "$SOCKET"
 before=$(date +%s)
 # The injector's UI choreography (login, modal, tiling, clipboard — TASK-0074/0066/0067B) is the
 # `usb-visible` lane's proof; here it only ate the budget the flood needs (the clipboard phase
-# pushed QEMU's timeout into the flood: BrokenPipe, 2026-10-07). The flood starts right after
-# the plain pointer/keyboard proof.
-RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-320s} QEMU_INPUT_AUTOINJECT=1 QEMU_INPUT_INJECT_MODAL=0 just test-os visible &
+# pushed QEMU's timeout into the flood: BrokenPipe, 2026-10-07). This lane's own scenario
+# (TASK-0333 6f-3, `proof-manifest/scenarios/input-flood.toml`) waits for the guest's input
+# window, moves the pointer once and presses one key — the input chain live — and exits.
+RUN_UNTIL_MARKER=0 RUN_TIMEOUT=${RUN_TIMEOUT:-320s} QEMU_INPUT_AUTOINJECT=1 QEMU_INPUT_SCENARIO=input-flood just test-os visible &
 lane=$!
 
 # Wait for the SOCKET, never for a marker in `build/logs/latest` — that symlink

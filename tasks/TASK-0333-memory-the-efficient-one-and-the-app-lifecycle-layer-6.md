@@ -1,6 +1,6 @@
 ---
 title: TASK-0333 Memory, the efficient one + the app lifecycle — Block 4 layer 6 (RFC-0100): what dies is freed, unified memory with the GPU committed on touch, shared code, freeze/kill like a phone, restore, pressure, compression before swap
-status: In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c ✅ 2026-10-26 (ADR-0081, 989b1474); 6d ✅ 2026-10-27 (35005c8b, board cycle 72b) — 6d-4 → 6g after 6f (RFC-0112); 6e ✅ 2026-10-27 (ADR-0085/0086, both QEMU lanes + board cycle 73; the board's close-and-reopen rung open with the keyboard defect — after 6f); 6f-0 ✅ 2026-10-28 (bb6557f9, board cycle 74); 6f-1 ✅ 2026-10-28 (7004801e, ADR-0087, board cycle 75); 6f-2 ✅ 2026-10-28 (ADR-0088, board cycle 76); planned 2026-10-19 with the operator)
+status: In Progress (6a ✅ 2026-10-20, 6b ✅ 2026-10-23 — 6b-1, 6b-2a, 6b-2b, 6b-3 (board cycle 67); 6c ✅ 2026-10-26 (ADR-0081, 989b1474); 6d ✅ 2026-10-27 (35005c8b, board cycle 72b) — 6d-4 → 6g after 6f (RFC-0112); 6e ✅ 2026-10-27 (ADR-0085/0086, both QEMU lanes + board cycle 73; the board's close-and-reopen rung open with the keyboard defect — after 6f); 6f-0 ✅ 2026-10-28 (bb6557f9, board cycle 74); 6f-1 ✅ 2026-10-28 (7004801e, ADR-0087, board cycle 75); 6f-2 ✅ 2026-10-28 (ADR-0088, board cycle 76); 6f-3 ✅ 2026-10-30 (ADR-0086 amended, ADR-0089 — the determinism package; test-all + board cycle 77) — 6f complete; next: the keyboard package, then 6g (RFC-0112); planned 2026-10-19 with the operator)
 owner: @kernel-team @runtime @ui @gpu
 created: 2026-10-19
 depends-on: [TASK-0286 (M1: frames from the FDT, page-backed VMOs), TASK-0215 (layer 5: the desktop on the GPU)]
@@ -898,7 +898,7 @@ syscall and the page-in protocol seeded as RFC/ADR in 6f-1/6f-2.
 | 6f-0 | **the page compressor, measured where it will run (RFC-0100 §5)**: `nexus-compress` — the LZ4 block format (token, literal run, 16-bit offset, match ≥ 4; last sequence literals only), 2048-head hash table owned by the caller (4 KiB, cleared per call: a page's blob never depends on history), LZ4's skip in incompressible stretches, 8-byte match extension, a doubling copy in the decoder for overlapping matches (a run of one byte included); `compress` refuses an input beyond 16-bit positions and answers `OutputFull` when the blob would not fit (a page-sized output: "keep the page as it is"); `decompress` checks every length and offset — truncated, zero offset, offset beyond the output, output over the page, a blob ending after a match — and has no length header: the caller compares the returned length with the page. Kernel: `selftest/pressure.rs::run_compress_selftest` samples the kernel image at one stride (1024 candidates, zero pages counted and skipped, up to 64 content pages), copies each page once (the live stack is in the range), compresses, inflates, compares, and reports ratio, `smaller=`, and the cost per page both ways on the hart's clock | host: 13 tests — round trips over zeros, text, noise, overlapping repeats, long runs, every length 0…300 and the 64 KiB maximum, determinism, `test_reject_input_too_long`, `test_reject_output_full_on_an_incompressible_page`, `test_reject_truncated_blob`, `test_reject_offset_beyond_output` (+ zero offset), `test_reject_output_over_the_page` (match and literal run), `test_reject_blob_ending_after_a_match`, `test_reject_literal_run_over_the_blob`; every lane + board: `KSELFTEST: mem compress ok (pages= zero= ratio=% smaller= us_per_page= inflate_us_per_page= sample=image)`; the numbers in `docs/board/measurements/2026-10-28-backing-stages/README.md` |
 | 6f-1 | **the squeeze — a frozen app's private memory recorded, every page back on touch (RFC-0100 §5, ADR-0087)**: syscall 69 `task_squeeze(pid, from_va, out, len)` — the parent alone (`ESRCH`), every task of the child parked (`EBUSY`), one bounded batch a call (≤ 16 committed pages examined, ≤ 4096 page words scanned), the next address answered (`0`: done) and a `SqueezeBatch` v1 record written through the caller's own page table; the objects of the child's alone (`vmo_lifetime::squeeze_allowed`: lazy, not sealed, never told to a device, not unlocked, mapped by one region of the child's space and nowhere else, named by no capability outside the process); per page zeroes dropped / a block ≤ 3 582 B recorded / the rest kept; a lazy page's word absent / frame / tagged record (`lazy_pages.rs`), the records in a store per object (`lazy_store.rs`: 64 B slots, one occupancy and one start word per store page, first-fit, an emptied store page back at once, the object's death or purge all of them); `vmo::commit` inflates (the fault, the checked range, `vmo_read`/`vmo_write`, a device's runs — the codec outside the table lock, a record that does not decode to one page fails the access); one shootdown per batch before any frame goes back; `mm_stats` v5 (`squeezed_pages`, `store_bytes`, `store_frames`, `inflated_pages`). The order: memd at `critical` squeezes the longest-suspended app not squeezed since its band changed before any kill (`emergency` kills at once) → abilitymgr `OP_MEM_SQUEEZE` (8, a suspended instance alone) → execd `OP_SQUEEZE` (7, `nexus_wire::execd`) → the batches → the totals back up; a kernel-sourced squeeze reads the level again (`settle`) | host: the store (9 tests incl. 4 `test_reject_*`), the page table (11 incl. 4), the rule (5 `test_reject_squeeze_*`), the ABI record (2), the wire frames (2), abilitymgr's relay (4), memd's policy (5 new, 2 re-cut); every lane + board: `KSELFTEST: task squeeze ok (pages=4 zero=1 kept=1 … reject=stranger,running,shared,device)`, `SELFTEST: exec child squeeze ok (`; usb-visible: `execd: squeeze (`, `abilitymgr: squeeze (`, `memd: squeeze (`, `SELFTEST: mem squeeze ok (` |
 | 6f-2 | **the swap stage — a frozen app's records sealed out to the pager's disk, a touch parks until the page is back (RFC-0100 §5, ADR-0088)**: the kernel seals every record that leaves it — ChaCha20-Poly1305 under the boot's key (`lazy_seal.rs`: the nonce the kernel-wide counter, the associated data the page's identity), the key seeded once by the RNG service (syscall 70, its kernel identity alone) when the pager first needs it (`OP_SEED_SWAP_KEY`, rngd op 2, memd's identity alone: rngd's entropy device is granted after it starts); a lazy page's fourth state SWAPPED (`lazy_pages.rs`) and the swap map (`lazy_swap.rs`: exported under a counter, committed to a slot; a touch cancels an export, a later export supersedes it); syscalls 71 `swap_export(pid, from_va, buf, len)` (the sink's holder alone, never itself; ≤ 16 records and 4096 page words a call; entries `token, ctr, len, sealed`), 72 `swap_commit(token, ctr, slot)` (`ESRCH` unless the page is still that export's record), 73 `swap_page_in(token, slot, sealed)` (opened under the page's counter and identity, inflated, the waiters woken; stale → `ESRCH`, the waiters woken to retry; forged → `EINVAL`, never entered, the waiters killed with cause `0xF2`; no frame → `ENOMEM`, the request stands); a fault on a swapped page parks its thread (`BlockReason::PageIn`, the instruction re-executes), a syscall parks its caller and re-executes, an IPC call already sent makes its reply buffer writable again before the reply leaves its queue; the requests and drops (`OP_PAGE_IN` 0x72 one per page, `OP_SWAP_DROP` 0x73 32 slots a frame) queued on the pressure sink until it takes them; `mm_stats` v6 (`swapped_pages`, `page_ins`, `parked_faults`, `swap_key`). The disk: `swap` 64 MiB after `trace` (16 384 slots; the smallest disk 448 MiB), block selector 7 served to memd alone (blkd's gate), never flashed (`layout::VOLATILE`). memd the pager (`swap.rs` the books, `pager.rs`): at `critical` after the squeeze the longest-suspended squeezed app's records out — export → write the slot → commit, the partition opened once — a request served at once, a thaw pages the app back before it asks, a drop frees the slots; without a key the policy goes from the squeeze to the kill. The plan's "blobs into memd's object" became the kernel's seal: memd holds ciphertext alone | host: the seal (4 tests incl. 3 `test_reject_*`), the swap map and its buffer (7 incl. 4), the page table's swap steps (4 incl. 2), the notices (2 incl. 1), the ABI's buffer and notices (3), the layout, the selector and blkd's gate (memd on `swap` alone, nothing else), memd's books and policy (8 incl. 4); every lane + board: `KSELFTEST: swap ok (pages=3 sealed=312 parked=1 back=1 killed=1 dropped=2 us= reject=key,sink,nokey,stale,tampered,replayed)`; usb-visible: `rngd: swap key seeded`, `memd: swap on (slots=16384)`, `memd: swap out (`, `SELFTEST: swap out ok (`, `memd: swap in (`, `SELFTEST: swap in ok (`, `memd: swap drop (` |
-| 6f-3 | **memd's journal + the `lowmem` lane** (planned): memd's route to statefsd, the kill ledger per kill (pid, band, reason, level, free), the `lowmem` profile (`QEMU_MEM=128M`) with a real warn/critical and `reason=oom` | `lowmem`: `SELFTEST: memd journal ok` |
+| 6f-3 | **memd's journal + the `lowmem` lane — a real level kills, the kill is recorded, the app comes back (RFC-0100 §5, ADR-0086 amended)**: memd's route to statefsd (`REQUIRED_ROUTES`, slot 13 on the CAP_MOVE inbox; policy `statefs.read` + `statefs.write`); the kill ledger `journal.rs` — `/state/memd/journal`, `NXMJ` v1 (12-byte header: magic, version, count ≤ 16, next sequence; 24-byte records: sequence across boots, pid, band, reason `oom`/`drill`, level, free/total frames, uptime ms), a ring of the newest sixteen, decoded only when it is exactly this layout; the boot's `Ledger` over a `Store` (read at the first kill, every kill appended, the ring written and read back; a kill proven while the store cannot be read waits in memory, a refused write goes with the next kill, a foreign record replaced and said once); written at `KillProven` through statefsd's client (`StateStore` in the OS loop). The `lowmem` lane (`[profile.lowmem]` extends usb-visible, `just ci-os-lowmem`, in test-all; the guest reads `RuntimeProfile::Lowmem`, the full phase scope): the lane's declared scenario (`proof-manifest/scenarios/lowmem.toml`, run by `tools/qmp_scenario.py`) logs in, launches settings, hides it; the harness (`os_lite/lowmem.rs`) takes eager objects once an app is frozen until free frames are halfway between the critical and the emergency watermark (`mm_stats` names both), takes back what the squeeze and the swap-out give, and lets everything go at memd's next kill; the scenario relaunches settings. The plan's `QEMU_MEM=128M` became the default machine with the harness as the memory-hungry workload: the level is the kernel's own, and the desktop still boots. The drill's line is forbidden on the profile (verify-uart). Found on the way: abilitymgr thawed a killed app whose window closed before the death report — an instance whose kill was carried is now `dying` (only the death report moves it, no freeze grace); abilitymgr's and execd's byte-at-a-time console lines could be torn by another process — one builder writes them whole (`nexus_abi::DebugLine`) | host: the journal (10 tests incl. 3 `test_reject_*`: a foreign, a truncated or overfull record, a read-back that differs, a foreign record replaced), abilitymgr (2 `test_reject_*`: the thaw of a dying instance, the freeze of one killed in its grace), `DebugLine` (2 incl. `test_reject_a_line_past_the_cap`), execd's table (3 incl. `test_reject_evicting_a_live_child`), the runtime profile token; `lowmem`: `SELFTEST: mem pressure held (level=critical`, `memd: squeeze (… reason=oom)`, `SELFTEST: mem squeeze ok (`, `SELFTEST: swap out ok (`, `SELFTEST: mem pressure kill ok (band=suspended reason=oom)`, `SELFTEST: memd journal ok (reason=oom`, `gpud`/`windowd: mem pressure (level=critical source=oom`, `SELFTEST: mem pressure released (level=normal`, `SELFTEST: app restore ok (`; usb-visible: `SELFTEST: memd journal ok (reason=drill` |
 
 **Status 2026-10-28:** 6f-0 ✅ — host green (13 codec tests), OS-cfg clean under `-D warnings`,
 check/dep-gate/diag/test-host green, the rung on both QEMU ladders and board-test's ladder,
@@ -1031,8 +1031,95 @@ the harness's 15 probe children ran, settings (pid 92) was pushed out while it r
 lifecycle order for it was refused by name — `execd: order denied (sender or not a live child;
 pid=92)` → `abilitymgr: FAIL freeze (inst=5)` / `FAIL thaw` (the same refusal would meet a
 squeeze, a swap-out's prerequisite freeze and memd's kill). Latent since 6d; cycle 75's settings
-started after the probes. Next: eviction only of reaped children — never a live one — with a
-host test, before 6f-3.
+started after the probes. **Fixed 2026-10-29 (6f-3's run):** the table holds 32 rows and the
+bound drops the oldest EXITED row alone, never a live child (`execd/src/children.rs::evict_index`;
+host: `test_reject_evicting_a_live_child` and two more); the reap pass is bounded by twice the
+table.
+
+**Found by the 6f-3 work (2026-10-29): abilitymgr thawed a killed app.** On the `lowmem` lane the
+killed app's window closed before execd's death report reached abilitymgr; the sighting `gone`
+of a frozen instance means "thaw it so it can exit" (6d-2), so abilitymgr ordered a thaw of a
+process the parent had already reaped (`execd: order denied (… not a live child; pid=117)` →
+`abilitymgr: FAIL thaw (inst=3)`) and pushed a `visible` band for the dead pid to memd. The drill's
+kill on the usb-visible lane never showed it (the death report came first there). An instance
+whose kill abilitymgr carried is now `dying`: sightings and the freeze grace no longer move it,
+the death report ends it (`seen.rs`, two `test_reject_*`); the rerun has neither line.
+
+**6f-3's determinism package (2026-10-29, ADR-0089 — the operator's decision: "alles jetzt in
+6f-3").** The first test-all runs were red for three reasons, none of them 6f-3's change, and the
+operator asked for the class, not another patch:
+
+1. *A marker torn by another process* (`abilitymgr: ` + execd's exit line, then `kill (inst=3 …)`):
+   the kernel gathered console bytes per HART, and a task switched out mid-line had the next
+   task's line appended to its half. → **Whole lines per TASK** in the kernel (`TaskLines` before
+   the hart funnel: 16 half lines, pieces at 256 bytes, write-through when full, the half line
+   ended at the task's death; host: 5 tests incl. 2 `test_reject_*`, the lowmem tear replayed);
+   `nexus_abi::DebugLine` writes a line in one syscall (abilitymgr and execd use it).
+2. *The injector raced the guest*: a pointer burst inside the IPC benchmarks (`ipc call budget
+   FAIL (rt=90us)`), a press lost in the busy second after a kill (its retry pressed the clock),
+   three early-phase steps that failed in EVERY USB run and were skipped, idle waits that hid
+   orderings. → **The guest opens the input window** (`SELFTEST: input window open`, after its
+   timing gates and end-phase probes) and **the choreography is data**: `proof-manifest/scenarios/`
+   (`usb-visible`, `lowmem`, `input-flood`; the points and the typed word in `targets.toml`, read by
+   the shell's conformance tests too), validated by `nexus-proof-manifest scenario` (every literal a
+   declared marker — seven sync lines newly declared —, every target named, every action
+   acknowledged or `acked_by` a later step, a `then` only after an `expect`; 10 tests incl. 8
+   `test_reject_*`), run by ONE runner (`tools/qmp_scenario.py` over `tools/qmp_input.py`) that
+   ends at the first unacknowledged step with its name, homes before retrying a lost press and
+   logs each step's duration. A step's `expect` is a SET of new lines after the action (services
+   write concurrently — an ordered list failed a green close: windowd's `app window closed` before
+   app-host's `persist saved`), its `then` each after the last of them (a re-created surface's
+   first frame after its resize); a `wait` step counts from the action of the step before it (it
+   has none of its own); a click counts only on a HIT read back on its point (a miss there — the
+   shell not yet hit-ready after login — waits and presses again). The imperative
+   phases (`qmp_inject_modal.py`'s, `qmp_inject_lowmem.py`) and the dead-reckoned early phase are
+   deleted. Found by the first run of the declared lowmem scenario: a chord as the keyboard's FIRST
+   input got one empty report from QEMU's USB keyboard and nothing after it — the old early phase
+   had masked that by pressing `a` first; the first key is now a step of its own (a letter, retried
+   until `inputd: live keyboard route on`), the cause open for the keyboard package.
+3. *A gate measured the hart's load*: the IPC budget judged the MEAN of 64 calls. → It judges the
+   **fastest call** (each timed alone, the clock's cost taken off), the mean printed beside it.
+4. *The host's disk stalled the guest*: a `usb-visible` run of the new scenario lost the settings
+   launch to `virtio-blk: timeout` ×4 → `blkd: trace os FAIL (write)` → `bundlemgrd: FAIL
+   get_payload` — the 2026-10-27 signature, this time without any host build running: under
+   QEMU's default cache every guest flush was a host `fdatasync` of the whole image on a disk at
+   97 %. → A proof session attaches its per-run image with **`cache=unsafe`** (the flush a no-op on
+   the host, writes still ordered in its page cache; interactive sessions unchanged).
+5. *The product race* (the window's `gone` before the death report thawed a reaped app) → the
+   `dying` state above, **proven over every order**: `memd/tests/kill_chain.rs` drives memd's
+   authority, abilitymgr's broker, band feed and kill policy through all 128 interleavings of the
+   window's `gone`, the death report and up to two stray sightings — the kill proven exactly once,
+   memd hearing nothing but `gone`, no order for the dying process; the test fails without the fix.
+6. *A bound made a slow device a dead one*: a `usb-visible` run lost the second hide's swap-out
+   and memd's journal write to `virtio-blk: timeout` ×4 → `slots exhausted` — the guest had
+   stalled for ~2 s (a frame unacknowledged for 2.0 s just before), the driver's 2 s watchdog gave
+   four requests up and their slots stayed busy for the rest of the boot. → **virtio-blk is
+   reactive** (ADR-0089 decision 7): a request waits for the device's interrupt alone — no
+   watchdog, no poll, no `yield_` (the line bound when the device opens, before the warm-up read;
+   rung `blk: irq bound`) —, a failed device says so itself (`DEVICE_NEEDS_RESET` →
+   `virtio-blk: device failed (needs reset)`), and slot ownership is a host-tested table
+   (`inflight.rs`, 8 tests incl. 4 `test_reject_*`): a slot comes back only with its chain.
+   Outside the package (noted): the SD host core's and gpud's device watchdogs — the SD
+   controller's own error interrupts can replace the former (board storage, its own task).
+7. *The harness was no observer* (operator, 2026-10-29: "the selftest client must be a pure
+   observer"): after its ladder, selftest-client's end phase spun on `yield_()` for the whole
+   lane — the one hart never idle, and under `-icount` the guest's clock running on the spin's
+   instructions — and the input window opened before its last probe (the UI smoke) had run.
+   → The input window opens after the harness's own last work; the end phase **sleeps on its
+   declared timer** until the drill's next due look and for good once none is due (a board:
+   at once); memd's server loop lost its two `yield_` calls (the waitset, or the blocking
+   receive, is the wait). What the harness still does there is declared and profile-gated —
+   the memory drill (QEMU visible lane) and the `lowmem` hold; an event channel from memd so the
+   drill needs no `STATUS` look once a second is a follow-up (ADR-0089 decision 8).
+8. *A boot failed the flash read-back* (board cycle 77; operator: "if the disk is a problem, it
+   should be dynamic anyway"): one boot between the flash and `board-flash.sh --verify` failed
+   `nxdisk0`/`nxdisk1` — per partition every image-owned one matched and exactly the three a
+   running system writes differed (`bsb`, `state`, `data`). → The layout declares them
+   (`storage::layout::LIVE`, with `trace` — the old special case); `nx image flash-plan` lists
+   the `live` spans and gives every region a `verify_sha256` with them zeroed; the read-back
+   reads them as zero (host: 2 new tests — a boot's writes to `bsb`/`state`/`data` leave every
+   read-back digest unmoved, `test_reject_a_changed_static_partition_on_read_back`); the plan
+   rebuilt from cycle 77's image read back clean from the board that boot had written.
 
 **Found by the 6f-2 work (2026-10-28):**
 

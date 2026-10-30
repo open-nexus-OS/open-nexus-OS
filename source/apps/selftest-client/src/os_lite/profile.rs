@@ -205,6 +205,9 @@ impl Profile {
                 RuntimeProfile::None => Profile::None,
                 // Reset lane: the trigger is separate; the phase scope is full.
                 RuntimeProfile::Reset => Profile::Full,
+                // TASK-0333 6f-3: the lowmem lane's pressure is the end phase's idle loop
+                // (`lowmem.rs`); the phase scope is full.
+                RuntimeProfile::Lowmem => Profile::Full,
             };
         }
         // …otherwise the interactive mode is the single source of truth for the phase scope:

@@ -5,7 +5,7 @@
 //! `WinAlert`; cancel/ESC close it; confirm answers with the kit's `WinToast` (honest text —
 //! there is no power service yet) that times out. Against the REAL compiled shell at the
 //! desktop layout, and the SSOT for the live-lane injector's click targets: the constants
-//! below are what `tools/qmp_visible_input_inject.py` presses — this test is the gate that
+//! below are what the usb-visible scenario presses (`proof-manifest/scenarios/targets.toml`) — this test is the gate that
 //! they still land on the pill and the button.
 
 // reason: test harness — a failed compile/mount step must panic loudly.
@@ -18,15 +18,11 @@ use nexus_dsl_runtime::{DismissReason, FixtureEnv, IdentityLocale, Value, View};
 use nexus_layout_types::FxPx;
 use nexus_theme_tokens::BaseTokens;
 
-/// Display-space centers at 1280×800 in the DESKTOP layout — the session shell the QEMU proof
-/// lanes log into (`windowd: session shell visible (product=default)`): the Control-Center
-/// pill in the top bar, the power button in the open panel's header, and a background spot
-/// (the workspace) a press must NOT reach while the alert is open.
-pub const INJECT_CC_PILL: (i32, i32) = (1253, 18);
-pub const INJECT_POWER_BUTTON: (i32, i32) = (1169, 71);
-pub const INJECT_BACKGROUND: (i32, i32) = (400, 400);
-/// The alert's Confirm button ("Shut down") while the alert is open.
-pub const INJECT_CONFIRM_BUTTON: (i32, i32) = (714, 428);
+// The injector's points — the Control-Center pill in the top bar, the power button in the open
+// panel's header, a background spot (the workspace) a press must NOT reach while the alert is
+// open, and the alert's Confirm button ("Shut down") — are display-space centres at 1280×800 in
+// the DESKTOP layout the QEMU lanes log into, read from `scenarios/targets.toml`
+// (`common::inject_point`, TASK-0333 6f-3): the scenario presses exactly what this test asserts.
 
 struct NullHost;
 impl nexus_dsl_runtime::EffectHost for NullHost {
@@ -102,17 +98,25 @@ fn power_button_opens_the_alert_and_cancel_escape_confirm_close_it() {
     // The pill, then the power button — the injector's two presses.
     let boxes = common::layout_boxes(&view);
     let pill = center_of(&view, &boxes, &symbols, "PanelEvent", "SetPanel", Some("control"));
-    assert_eq!(pill, INJECT_CC_PILL, "the injector's Control-Center pill target moved");
+    assert_eq!(
+        pill,
+        common::inject_point("cc_pill"),
+        "the injector's Control-Center pill target moved"
+    );
     tap(&mut view, &device, &symbols, pill);
     let boxes = common::layout_boxes(&view);
     let button = center_of(&view, &boxes, &symbols, "PowerEvent", "PowerAsk", None);
-    assert_eq!(button, INJECT_POWER_BUTTON, "the injector's power-button target moved");
+    assert_eq!(
+        button,
+        common::inject_point("power_button"),
+        "the injector's power-button target moved"
+    );
     tap(&mut view, &device, &symbols, button);
     assert_eq!(power(&view, "powerPrompt"), Value::Bool(true));
     assert_eq!(view.overlays().modal_depth(), 1, "the alert is the shell's modal");
 
     // Background press while open: the alert absorbs — nothing opens, nothing closes.
-    tap(&mut view, &device, &symbols, INJECT_BACKGROUND);
+    tap(&mut view, &device, &symbols, common::inject_point("modal_background"));
     tap(&mut view, &device, &symbols, pill);
     assert_eq!(power(&view, "powerPrompt"), Value::Bool(true));
     assert_eq!(view.take_dismissed(), None);
@@ -135,7 +139,11 @@ fn power_button_opens_the_alert_and_cancel_escape_confirm_close_it() {
     tap(&mut view, &device, &symbols, button);
     let boxes = common::layout_boxes(&view);
     let confirm = center_of(&view, &boxes, &symbols, "PowerEvent", "AlertConfirm", Some("power"));
-    assert_eq!(confirm, INJECT_CONFIRM_BUTTON, "the injector's Confirm target moved");
+    assert_eq!(
+        confirm,
+        common::inject_point("confirm_button"),
+        "the injector's Confirm target moved"
+    );
     tap(&mut view, &device, &symbols, confirm);
     assert_eq!(power(&view, "powerPrompt"), Value::Bool(false));
     assert_eq!(power(&view, "toast"), Value::Str("power".to_string()));

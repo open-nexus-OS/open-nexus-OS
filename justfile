@@ -125,6 +125,7 @@ help:
     @echo "  just ci-os-sdhci         # the SDHCI lane: boot + every store over QEMU's sdhci-pci + emmc, no virtio disk"
     @echo "  just ci-os-usb           # the USB lane: QEMU's xHCI, a hub, a boot keyboard + mouse — xhcid enumerates them"
     @echo "  just ci-os-usb-visible   # the desktop driven over USB alone: injected input via xhcid + hidrawd's USB source"
+    @echo "  just ci-os-lowmem        # real memory pressure: the kernel's own critical level squeezes, swaps out and kills a frozen app"
     @echo "  just ci-os-smp           # SMP=2 real-parallelism lane (MTTCG, bounded retry; CI coverage)"
     @echo "  just test-mmio           # run QEMU until MMIO phase is complete"
     @echo "  just ci-os-dhcp           # QEMU smoke with DHCP requested (deterministic fallback allowed)"
@@ -372,6 +373,16 @@ ci-os-usb:
 # cut by the profile's shorter default budget two seconds after the app goes hidden.
 ci-os-usb-visible:
     RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-900s} just test-os usb-visible
+# TASK-0333 6f-3 (RFC-0100 §5): REAL memory pressure (`[profile.lowmem]`) — the usb-visible
+# desktop and input chain, then the kernel's own `critical` level in place of the drill: the
+# injector launches settings and hides it, the harness takes memory once the app is frozen, memd
+# squeezes, swaps out and kills it (`reason=oom`) and journals the kill; the injector launches
+# settings again and the app restores its state. No modal, tiling, clipboard or capture phase.
+# Run THIS recipe for the lane: the profile's default budget is the headless one (a green run's
+# QEMU part takes ~160 s, the lowmem phase ~90 s of it — 480 s keeps a 3x margin).
+# Real memory pressure: the kernel's own critical level squeezes, swaps out and kills a frozen app.
+ci-os-lowmem:
+    RUN_UNTIL_MARKER=1 RUN_TIMEOUT=${RUN_TIMEOUT:-480s} just test-os lowmem
 # TASK-0324 P0: display truth — the real GL compositor (virgl, egl-headless +
 # VNC) with a HOST-side pixel proof: the desktop snapshot must be non-black and
 # must differ from the boot splash. Markers alone shipped a black screen.
@@ -832,6 +843,7 @@ test-all:
     just ci-os-usb
     just ci-os-visible
     just ci-os-usb-visible
+    just ci-os-lowmem
     just ci-os-visible-fhd
     just ci-os-visible-2d
     just input-flood

@@ -1,0 +1,36 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The display points and words the visible lanes' scenarios name (TASK-0333 6f-3,
+# ADR-0089) — display space of the desktop session shell at 1280x800. ONE source: the injector
+# reads them through `nexus-proof-manifest scenario`, and the shell's conformance tests
+# (`tests/dsl_apps_conformance/tests/shell_*.rs`) assert that the shell's layout puts each widget
+# under its point — a moved widget fails a host test before it fails a lane.
+# OWNERS: @runtime @ui
+# STATUS: Functional
+# API_STABILITY: Unstable (additive with the lanes)
+
+[targets]
+# TASK-0074 / ADR-0068: the shell's shutdown alert (shell_power_alert.rs).
+cc_pill = [1253, 18]
+power_button = [1169, 71]
+confirm_button = [714, 428]
+modal_background = [400, 400]
+# TASK-0066: the launcher sheet and its settings tile (shell_tiling_lane.rs).
+launcher_button = [30, 772]
+launch_settings = [914, 662]
+# TASK-0067B: the top bar's search, its Clipboard category, the first card (shell_search_clipboard.rs).
+search_pill = [1220, 18]
+search_clipboard = [958, 142]
+clip_card = [419, 240]
+# TASK-0068: the screenshot tool's selection drag and its shutter (shell_capture.rs).
+capture_from = [120, 140]
+capture_to = [520, 420]
+capture_shutter = [640, 728]
+# The bare desktop (no widget asserted): where a first pointer move lands.
+desktop_center = [640, 400]
+
+[words]
+# TASK-0067B: no prefill item contains it, so no card exists until the copy re-reads the history;
+# letters on the same keys in every lane layout (shell_search_clipboard.rs).
+copy_word = "kiwi"

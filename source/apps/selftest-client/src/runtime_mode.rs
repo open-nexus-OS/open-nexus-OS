@@ -44,6 +44,11 @@ pub(crate) enum RuntimeProfile {
     /// exhaustion flip back to slot a, rollback observation). Reduced
     /// phase scope like `OtaFlip`.
     OtaFallback,
+    /// TASK-0333 6f-3 lowmem lane: the full ladder, then real memory
+    /// pressure — the harness takes memory until the kernel's own level is
+    /// `critical` while an app is frozen (`os_lite::lowmem`); the pressure
+    /// drill never runs. Phase scope stays full.
+    Lowmem,
 }
 
 #[must_use]
@@ -71,6 +76,7 @@ pub(crate) fn parse_runtime_profile(bytes: &[u8]) -> Option<RuntimeProfile> {
         b"net" => Some(RuntimeProfile::Net),
         b"none" => Some(RuntimeProfile::None),
         b"reset" => Some(RuntimeProfile::Reset),
+        b"lowmem" => Some(RuntimeProfile::Lowmem),
         _ => None,
     }
 }
@@ -118,6 +124,7 @@ mod tests {
         assert_eq!(parse_runtime_profile(b"ota-fallback"), Some(RuntimeProfile::OtaFallback));
         assert_eq!(parse_runtime_profile(b"net"), Some(RuntimeProfile::Net));
         assert_eq!(parse_runtime_profile(b"none"), Some(RuntimeProfile::None));
+        assert_eq!(parse_runtime_profile(b"lowmem\n"), Some(RuntimeProfile::Lowmem));
         assert_eq!(parse_runtime_profile(b"bogus"), None);
     }
 }

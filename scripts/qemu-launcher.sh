@@ -123,7 +123,17 @@ QEMU_DISPLAY_BACKEND=${QEMU_DISPLAY_BACKEND:-gtk}
 # state|data), built/patched host-side by `nx image` — blkd owns the
 # device and serves partition-scoped block IO to statefsd/nxfsd.
 QEMU_BLK_IMG=${QEMU_BLK_IMG:-$ROOT/build/nexus.img}
-QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk}
+# TASK-0333 6f-3 (ADR-0089): a proof session's disk is rebuilt per run, so the guest's FLUSH need
+# not reach the host's platter: `cache=unsafe` keeps every write in the host page cache (a reset
+# lane stays in one QEMU process, the trace contract reads the image through the same cache) and
+# turns the flush into a no-op. Under the default cache each guest sync was a host fdatasync of
+# the whole image — on a busy, nearly full host disk it outlasted the block driver's 2 s watchdog
+# (`virtio-blk: timeout`, `blkd: trace os FAIL (write)`, a failed app launch: 2026-10-27, 10-29).
+# An interactive session (`just start`) keeps QEMU's default.
+if [[ "$QEMU_SESSION_MODE" == "proof" ]]; then
+  QEMU_BLK_CACHE=${QEMU_BLK_CACHE:-,cache=unsafe}
+fi
+QEMU_BLK_DRIVE=${QEMU_BLK_DRIVE:--drive if=none,file=$QEMU_BLK_IMG,format=raw,id=drvblk${QEMU_BLK_CACHE:-}}
 QEMU_BLK_DEVICE=${QEMU_BLK_DEVICE:--device virtio-blk-device,drive=drvblk}
 QEMU_BLK_LOCK_FILE=${QEMU_BLK_LOCK_FILE:-"$ROOT/build/.qemu-blk.lock"}
 QEMU_BLK_LOCK_WAIT=${QEMU_BLK_LOCK_WAIT:-180}

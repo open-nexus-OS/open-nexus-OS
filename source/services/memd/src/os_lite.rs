@@ -18,12 +18,15 @@
 //! (`pager.rs`): `memd: swap out (pid= band= pages= slots=)` and `SELFTEST: swap out ok (…)`; the
 //! sink carries the kernel's page-in requests and drops to the pager, and a thaw pages the app
 //! back: `memd: swap in (pid= pages=)`, `SELFTEST: swap in ok (pages=)` when every slot came back.
+//! Every proven kill is recorded in the state store (TASK-0333 6f-3, `crate::journal`) and read
+//! back: `SELFTEST: memd journal ok (reason= seq= records=)`.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal
 //! TEST_COVERAGE: QEMU-proven (`memd: ready`, `memd: pressure (` on every lane; the drill's
-//!   squeeze and kill chains on the usb-visible lane); the policy is host-tested in
-//!   tests/contract.rs
+//!   squeeze and kill chains on the usb-visible lane; the kernel-sourced squeeze, swap-out, kill
+//!   and journal — `reason=oom` — on the lowmem lane); the policy is host-tested in
+//!   tests/contract.rs, the journal in tests/journal.rs
 
 extern crate alloc;
 
@@ -35,6 +38,7 @@ use nexus_wire::memd::{band_name, source_name, SOURCE_DRILL, SOURCE_KERNEL};
 use crate::answer::{Memd, Outcome, Peers};
 use crate::authority::{Authority, BandEvent, Decision, Pending};
 use crate::bands::Applied;
+use crate::journal::{reason_name, KillRecord, Ledger, Store, StoreRefused, Written};
 use crate::order::{
     encode_mem_kill, encode_mem_squeeze, mem_kill_carried_out, mem_squeeze_reply, Orders, Squeezed,
     SwappedOut,
@@ -286,9 +290,63 @@ fn settle(authority: &mut Authority, orders: &mut dyn Orders, mut decision: Deci
     }
 }
 
+/// The state store on the declared statefsd leg, answered on the CAP_MOVE inbox (a waited
+/// exchange: statefsd's answer or its death; no other exchange is open on the inbox then).
+struct StateStore(statefs::client::StatefsClient);
+
+impl StateStore {
+    fn open() -> Option<Self> {
+        let client = KernelClient::new_with_slots(topo::STATEFSD.send, topo::STATEFSD.recv).ok()?;
+        let reply = KernelClient::new_with_slots(topo::REPLY.send, topo::REPLY.recv).ok()?;
+        Some(Self(statefs::client::StatefsClient::from_clients(client, reply)))
+    }
+}
+
+impl Store for StateStore {
+    fn get(
+        &mut self,
+        key: &str,
+    ) -> core::result::Result<Option<alloc::vec::Vec<u8>>, StoreRefused> {
+        match self.0.get(key) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(statefs::StatefsError::NotFound) => Ok(None),
+            Err(_) => Err(StoreRefused),
+        }
+    }
+
+    fn put(&mut self, key: &str, value: &[u8]) -> core::result::Result<(), StoreRefused> {
+        self.0.put(key, value).map_err(|_| StoreRefused)
+    }
+}
+
+/// The proven kill, recorded (6f-3): the journal written to the state store and read back.
+fn journal_kill(ledger: &mut Ledger, pending: &Pending) {
+    let uptime_ms = nexus_abi::nsec().map(|ns| ns / 1_000_000).unwrap_or(0);
+    let kill = KillRecord::of(pending, uptime_ms);
+    let Some(mut store) = StateStore::open() else {
+        emit("memd: journal FAIL (no statefsd leg)");
+        return;
+    };
+    match ledger.record(kill, &mut store) {
+        Written::Proven { kept, records, reset } => {
+            if reset {
+                emit("memd: journal reset (the stored record was not this layout)");
+            }
+            emit(&alloc::format!(
+                "SELFTEST: memd journal ok (reason={} seq={} records={records})",
+                reason_name(kept.reason),
+                kept.seq
+            ));
+        }
+        Written::ReadRefused => emit("memd: journal FAIL (read refused; the kill waits)"),
+        Written::WriteRefused => emit("memd: journal FAIL (write refused; written with the next)"),
+        Written::ReadBackDiffers => emit("memd: journal FAIL (read-back differs)"),
+    }
+}
+
 /// The band's marker, and the kill proof when the pending victim is gone. `true` asks the
 /// caller to read the pool's level again (a kernel-sourced kill may need a successor).
-fn say_band(event: BandEvent, carrier: &mut Carrier) -> bool {
+fn say_band(event: BandEvent, carrier: &mut Carrier, ledger: &mut Ledger) -> bool {
     match event {
         BandEvent::Applied { pid, band, applied } => {
             // A thaw: the app runs again — its swapped pages come back before it asks.
@@ -307,12 +365,13 @@ fn say_band(event: BandEvent, carrier: &mut Carrier) -> bool {
             }
             false
         }
-        BandEvent::KillProven { pending: Pending { band, source, .. }, again } => {
+        BandEvent::KillProven { pending, again } => {
             emit(&alloc::format!(
                 "SELFTEST: mem pressure kill ok (band={} reason={})",
-                band_name(band),
-                source.reason()
+                band_name(pending.band),
+                pending.source.reason()
             ));
+            journal_kill(ledger, &pending);
             again
         }
     }
@@ -342,6 +401,7 @@ pub fn service_main_loop() -> Result<()> {
     };
     let mut memd = Memd::new(peers, sink.bound());
     let mut orders = Carrier { pager: Pager::new() };
+    let mut ledger = Ledger::new();
     let fanout = Fanout::bind();
     let _ = nexus_service_entry::ready("memd: ready");
     nexus_abi::service_verdict_flush("memd");
@@ -376,7 +436,7 @@ pub fn service_main_loop() -> Result<()> {
                     } else {
                         match outcome {
                             Outcome::Band(event) => {
-                                if say_band(event, &mut orders) {
+                                if say_band(event, &mut orders, &mut ledger) {
                                     judge_again(memd.authority(), &mut orders);
                                 }
                             }
@@ -433,25 +493,19 @@ pub fn service_main_loop() -> Result<()> {
                         _ => {}
                     }
                 }
-                Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => {
-                    if waitset.is_none() {
-                        let _ = nexus_abi::yield_();
-                    }
-                    break;
-                }
+                // Drained: the wait below (or, without a waitset, the next blocking receive)
+                // sleeps until the next frame — no yield.
+                Err(nexus_ipc::IpcError::WouldBlock) | Err(nexus_ipc::IpcError::Timeout) => break,
                 Err(nexus_ipc::IpcError::Disconnected) => return Err("disconnected"),
                 Err(_) => {
                     let (should_log, verdict) = breaker.on_error();
                     if should_log {
                         emit("memd: recv error (transient)");
                     }
-                    match verdict {
-                        nexus_ipc::resilience::BreakerVerdict::Continue => {
-                            let _ = nexus_abi::yield_();
-                        }
-                        nexus_ipc::resilience::BreakerVerdict::EndpointDefect => {
-                            return Err("endpoint defect");
-                        }
+                    // A transient error waits like a drained queue (the breaker bounds a run of
+                    // them); a defect ends the loop.
+                    if verdict == nexus_ipc::resilience::BreakerVerdict::EndpointDefect {
+                        return Err("endpoint defect");
                     }
                     break;
                 }

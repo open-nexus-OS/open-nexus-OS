@@ -345,3 +345,233 @@ unmeasured)?
   operator opened four apps before the harness's 15 probe children — and every lifecycle order
   for it was refused (`execd: order denied (sender or not a live child; pid=92)`, `abilitymgr:
   FAIL freeze (inst=5)`). Latent since 6d; the ledger names the fix for the next step.
+
+## 6f-3 — memd's journal and the real level (the `lowmem` lane)
+
+### Question
+
+Does a pool the kernel itself judges `critical` — not a drill — run the authority's whole chain on
+a frozen app (squeeze → swap-out → kill, `reason=oom`)? Is the kill recorded in the state store and
+read back, does the app come back with its state when it is launched again, and does the system
+recover once the memory is given back?
+
+### Instrument
+
+- the harness on the new `lowmem` lane (`selftest-client/src/os_lite/lowmem.rs`): once an app is
+  frozen it takes eager objects until free frames are halfway between the critical and the
+  emergency watermark — `SELFTEST: mem pressure held (level= free= taken=)` — and gives them back at
+  memd's next kill — `SELFTEST: mem pressure released (level= free= taken=)`;
+- memd: the kernel's frames (`memd: pressure (level= free= total=)`), `memd: squeeze / swap out /
+  kill (… reason=oom)`, the new `SELFTEST: memd journal ok (reason= seq= records=)`; execd's squeeze
+  line (`us=` the walk); the fan-out `memd: level told (level= source=oom …)`;
+- the restore: `apphost: persist saved (… reason=hidden)` → `SELFTEST: app restore ok (fields=
+  bytes= warm_us=)` after the injector's relaunch;
+- verify-uart's deny list: `SELFTEST: mem pressure drill (` is forbidden on `lowmem`.
+
+### Hypotheses (decided before the lanes)
+
+- **H15 — the kernel's own level drives the chain.** On `lowmem` the held line says
+  `level=critical`, memd's frame is `memd: pressure (level=critical`, and the squeeze, the
+  swap-out and the kill follow, each `reason=oom`, with no drill line. A kill without the squeeze
+  (the level overshot to `emergency`) or no kill at all (it recovered first): the target is wrong.
+- **H16 — the kill is recorded.** `SELFTEST: memd journal ok (reason=oom …)` on `lowmem`,
+  `(reason=drill …)` on usb-visible: the journal read back equals the one written.
+- **H17 — the killed app comes back.** The relaunched settings restores what its hidden
+  predecessor saved: `fields=`/`bytes=` of `app restore ok` equal those of `persist saved (…
+  reason=hidden)`.
+- **H18 — everything comes back.** After the release the level is `normal` and free frames ≥ the
+  free frames at the hold plus the frames taken (the harness's memory and the victim's both back).
+- **H19 (board) — regression only.** No kill on the 4 GiB board: no journal line, the ladder as in
+  cycle 76, no new FAIL kinds.
+
+### Results
+
+#### QEMU lowmem (`lowmem--2026-10-29T10-20-12`)
+
+The first run (`lowmem--2026-10-29T10-06-12`) ran the same chain end to end and was red on a
+ladder literal alone (`source=kernel`; the wire names the kernel's level `source=oom`). It also
+showed abilitymgr thawing the killed app (below); the rerun carries both fixes.
+
+| | |
+|---|---|
+| the take | the kernel's frames warn (free 17 289) → critical (free 7 049) while the harness took |
+| held | `level=critical free=5791 taken=31978` — 5 791 = (7 722 + 3 861) / 2, the midpoint exactly |
+| squeeze | settings (pid 117): 448 pages, net 331 frames, 25 %; execd's walk 79 ms (29 batches, TCG) |
+| swap-out | `rngd: swap key seeded`, 448 pages → 448 slots |
+| kill | `memd: kill (pid=117 band=suspended reason=oom)` → `abilitymgr: kill` → `execd: kill`; 448 slots dropped |
+| journal | `SELFTEST: memd journal ok (reason=oom seq=1 records=1)` |
+| fan-out | `memd: level told (level=critical source=oom gpud=1 windowd=1)`, gpud and windowd heard it |
+| after the kill | `memd: no victim (level=critical reason=oom)` — the shell and the greeter are on screen |
+| release | the kernel's frames critical → warn (free 9 900) → normal (free 22 188); `released (level=normal free=39830 taken=31978)` |
+| restore | `persist saved (fields=3 bytes=87 reason=hidden)` → `app restore ok (fields=3 bytes=87 warm_us=20630)` |
+| the run | QEMU 162 s, of which the lowmem phase (launch → hide → pressure → kill → relaunch → restore) 91 s |
+
+- **H15 ✅:** the held line at the midpoint, the kernel's `critical` frame, then squeeze → swap-out
+  → kill, all `reason=oom`; verify-uart clean with the drill line on the deny list.
+- **H16 ✅ (lowmem):** written and read back, `seq=1` — every lane boots a fresh disk image, so the
+  sequence across boots is host-proven (`the_ledger_writes_reads_back_and_the_next_boot_goes_on`).
+- **H17 ✅:** 3 fields / 87 bytes saved at `hidden`, the same 3 / 87 restored after the kill.
+- **H18 ✅:** 5 791 + 31 978 = 37 769 free when the hold began; 39 830 after the release — every
+  frame back, plus 2 061 of the victim's.
+- **Found:** the killed app's window closed before execd's death report reached abilitymgr, and
+  the sighting `gone` of a frozen instance thawed it (`execd: order denied (… pid=117)` →
+  `abilitymgr: FAIL thaw (inst=3)`, a `visible` band pushed for the dead pid). An instance whose
+  kill was carried is now `dying` — only the death report moves it; the rerun has neither line.
+
+#### QEMU usb-visible (`usb-visible--2026-10-29T10-40-34`)
+
+| | |
+|---|---|
+| first freeze | squeezed 450 (net 333) → swapped out 450 → the thaw: `swap in ok (pages=449)` (+1 on request) |
+| second freeze | squeezed 448 (net 330) → swapped out 448 → killed (`reason=drill`) |
+| journal | `SELFTEST: memd journal ok (reason=drill seq=1 records=1)` |
+| the rest of the lane | clipboard (`text copy ok`, `ui v7 clipboard ok`) and capture (`ui v7 screenshot ok`) green |
+
+- **H16 ✅ (usb-visible).** The run before (`usb-visible--2026-10-29T10-26-17`) was red in the
+  clipboard phase: its first press — sent the moment the kill was proven, while the closed window
+  recomposited and the journal went to the store — never surfaced, and the travel after it
+  landed on the clock (the same injector failure 6f-2's test-all met once). The injector now waits
+  for the journal line, the kill's last step, before the next phase.
+
+#### test-all
+
+The first test-all (`lowmem--2026-10-29T11-22-22`) was green up to the `lowmem` lane, which ran
+the whole chain again (the same numbers as above) and was red on one rung: `abilitymgr: kill
+(inst=` was torn — abilitymgr wrote its lines a byte at a time and execd's exit line landed after
+`abilitymgr: `. Both services now write every line whole (`nexus_abi::DebugLine`, one write).
+The second test-all (`usb-visible--2026-10-29T12-30-56`) passed every rung of `usb-visible` and
+failed its FAIL gate: `KSELFTEST: ipc call budget FAIL (rt=90us budget=64)` — 46–48 µs in every
+other run of the week. The injector's first pointer event had landed between `ipc soak ok` and the
+budget line (green runs start ~70 UART lines after it, by the emulator's speed alone). The injector
+now waits for the budget line before its first event, the window `input-flood` already keeps.
+
+## 6f-3 — the determinism package (ADR-0089)
+
+### Question
+
+The 6f-3 test-all runs went red for reasons that were not the change under test. Which classes are
+they, does each structural fix remove its class, and do the visible lanes then pass repeatedly
+without a rerun?
+
+### Before (the old choreography, kernel and gates; runs of 2026-10-27 … 2026-10-29)
+
+| run | lane | red because | class |
+|---|---|---|---|
+| 2026-10-27 (6e) | visible | `virtio-blk: timeout` ×4 → settings launch failed (host cargo running) | host I/O |
+| 2026-10-28 (6f-2 test-all) | usb-visible | clipboard press lost, retry off target | injector race |
+| `usb-visible--2026-10-29T10-26-17` | usb-visible | first press of the clipboard phase lost after the kill; the retry pressed the clock | injector race |
+| `lowmem--2026-10-29T11-22-22` | lowmem | `abilitymgr: kill (inst=` torn by execd's exit line | console tear |
+| `usb-visible--2026-10-29T12-30-56` | usb-visible | `ipc call budget FAIL (rt=90us)` — the injector's first press inside the benchmark | injector race + load-sensitive gate |
+
+Green the same days: `usb-visible--2026-10-29T10-40-34`, `…T11-13-49`, `lowmem--2026-10-29T10-20-12`
+— 2 of 4 usb-visible and 1 of 2 lowmem runs of 2026-10-29 red, none of them for the change under
+test. The old log itself shows the tear in a GREEN run (`abilitymgr: bg (inswindowd: windows push
+(n=1)` in `usb-visible--2026-10-29T10-40-34`): only luck kept it off a laddered marker.
+
+### Found while building it (the declared scenarios, first runs)
+
+- `lowmem--2026-10-29T15-35-40`: a chord as the keyboard's first input got ONE empty report from
+  QEMU's USB keyboard and nothing after it (`hidrawd: wire skip raw=1 norm=0`, `kbd_batches=1`, no
+  `inputd: live keyboard route on`); the old early phase had masked it by pressing `a` first. →
+  the first key is a step of its own (a letter, retried until the live keyboard route).
+- `usb-visible--2026-10-29T16-14-57`: `ui v10 live modal ok` is a once-per-boot proof of the FIRST
+  close — expected after the wrong step (a porting error, named by the runner at once).
+- `usb-visible--2026-10-29T16-31-54`: the minimize came 1.5 s after the tile's return, before the
+  window's re-created surface was up; the new surface took the focus back (`abilitymgr: fg`). The
+  old choreography's accidental 20 s idle waits had covered it. → every re-creation (after a
+  launch, a tile, a return, a relaunch) is awaited: `WINDOWD: surface presented id=` only after
+  `apphost: resized` (first as one ordered list; since `17-36-39` the `then` phase, below).
+- `usb-visible--2026-10-29T16-50-33`: `virtio-blk: timeout` ×4 → `blkd: trace os FAIL (write)` →
+  `bundlemgrd: FAIL get_payload` with no host build running — every guest flush was a host
+  `fdatasync` of the image on a disk at 97 %. → proof sessions attach the image `cache=unsafe`.
+  The same run showed the re-home: the control center's first press never surfaced (45 s), the
+  runner homed and the second press landed on the pill.
+- `usb-visible--2026-10-29T17-11-05`: the control center's press MISSED (`apphost: input tap miss
+  at (1253,18)` — the session shell was not hit-ready 5 s after its login), and the runner, like
+  the old injector, counted a press read back ON the point as a click; the power press missed the
+  same way and no alert opened. In every green run every choreographed press is a hit
+  (`hit=Some(n)`, the background press included — the scrim takes it). → only a HIT on the point
+  acknowledges a click; a miss there waits 1.5 s and presses again (bounded).
+- `usb-visible--2026-10-29T17-36-39`: every step through the thaw passed at its first attempt; the
+  close was red with every line it waited for PRESENT — windowd's `app window closed` came before
+  app-host's `persist saved`, and the ordered list demanded the opposite. Two services write
+  concurrently; only causality orders their lines, and a list order is a claim about causality.
+  → `expect` is a SET (new lines after the action, any order); what follows causally from it — a
+  re-created surface's first frame after its resize — is a `then` phase, each line after the
+  last `expect` line. Replayed offline over this run's UART, the new rules accept every step up
+  to where the run stopped, and the whole of `lowmem--2026-10-29T16-03-39`.
+- `usb-visible--2026-10-29T18-00-03`: every step through the relaunch at its first attempt, the
+  close included; red at `the record comes back` with `SELFTEST: app restore ok` IN the log — it
+  came while the relaunch step was still being acknowledged, and the `wait` step counted from its
+  own start. (The offline replay counted from the previous step's last line and could not see
+  it.) → a `wait` step, having no action, counts from the action of the step before it.
+- `usb-visible--2026-10-29T18-35-20`: every step through the restore at its first attempt; red at
+  the second hide: `virtio-blk: timeout` ×4 → `virtio-blk: slots exhausted` ×445 → `memd: swap
+  out (pages=2)` → `memd: journal FAIL (write refused …)`. Just before the first timeout a frame
+  went unacknowledged for 2.0 s (`sent>acked=…/2007267`): the whole guest stalled, not the disk
+  alone (host load 1.3, the lane's cgroup `high 0`; `16-50-33` showed the same four timeouts →
+  `slots exhausted`). The driver made the stall a dead device: a request its 2 s watchdog gave up
+  kept its slot for the rest of the boot (four slots), and a watchdog wake never looked at the
+  used ring. → ADR-0089 decision 7: virtio-blk waits for its device's interrupt alone (no
+  watchdog, no poll — the line bound before the warm-up read), a failed device says so itself
+  (`DEVICE_NEEDS_RESET`), and a slot comes back only with its chain (`inflight.rs`, host-tested).
+- Audit (operator, 2026-10-29: "the selftest client must be a pure observer"): after its ladder
+  the harness spun on `yield_()` for the whole lane (the one hart never idle; under `-icount` the
+  guest's clock ran on the spin), and the input window opened before its last probe (the UI
+  smoke). → ADR-0089 decision 8: the window opens after the harness's own work; the end phase
+  sleeps on its declared timer until the drill's next due look, and for good once none is due.
+
+### After (every rule in place: declared scenarios, ordered phases, reactive block driver, observer harness)
+
+| run | lane | result | steps at the first attempt | notes |
+|---|---|---|---|---|
+| `usb-visible--2026-10-29T19-18-28` | usb-visible | green (EXIT=0, chain markers 35/35) | 28/28 logged, the 29th's lines in the UART (the lane stops at its last marker) | `blk: irq bound` → `blk: irq completion on` before the warm-up's end; no `virtio-blk: timeout`/`slow`; IPC `rt=47us mean=47us`; squeeze 450 → swap out 450 → swap in 449 → restore → squeeze 448 → swap out 448 → kill → journal `seq=1` |
+| `lowmem--2026-10-30T00-02-49` | lowmem | green | 7/7 | IPC `rt=47us mean=47us`; kill `reason=oom` → journal `seq=1` → restore 3 fields / 87 bytes |
+| `usb-visible--2026-10-30T00-07-09` | usb-visible | green (35/35) | 28/28 logged | IPC `rt=47us mean=51us`; chain as above; no block-driver line |
+| `lowmem--2026-10-30T00-14-14` | lowmem | green | 7/7 | IPC `rt=47us mean=55us`; as above |
+| `visible--2026-10-30T00-18-15` | input-flood | green (45 s at ~900/s, forwarding intact) | 2/2 | IPC `rt=47us mean=51us` |
+| `usb-visible--2026-10-30T00-25-24` | usb-visible | green (35/35) | 28/28 logged | IPC `rt=47us mean=55us`; as above |
+| `lowmem--2026-10-30T00-33-18` | lowmem | green | 7/7 | IPC `rt=47us mean=55us`; as above |
+
+**Verdict.** Before: 2 of 4 `usb-visible` and 1 of 2 `lowmem` runs of 2026-10-29 red, none for
+the change under test. After: 3/3 `usb-visible`, 3/3 `lowmem` and 1/1 `input-flood` green in a
+row, no rerun; every scenario step acknowledged at its first attempt (not one retry fired); not
+one block-driver stall line; the IPC budget's fastest round 47 µs in all seven runs while the mean
+moved 47–55 µs with the hart's load — the gate now holds still where the old one did not.
+
+### Board cycle 77 (`board--2026-10-30T08-29-17`, dev-b2eb30f6, one boot; vs cycle 76 `board--2026-10-28T21-38-30`)
+
+| | cycle 77 | cycle 76 |
+|---|---|---|
+| ladder (`board-visible`) | 99/99 rungs | 99/99 |
+| IPC call budget | **ok** `rt=26us mean=67us budget=64` (the fastest of 64) | FAIL `rt=68us` (the mean; tolerated red) |
+| `KSELFTEST: task squeeze ok` / `swap ok` | `us=9117` / `us=15015` | `us=9099` / `us=15013` |
+| `KSELFTEST: mem compress ok` | ratio 45 %, 46 µs / 14 µs per page | — |
+| milestone 11 | 2092 ms (the boot after the flash) | 1936 ms (second boot; first 1861; cycle 75 2042) |
+| storage backend | `k1-sdhci` hs400es (virtio-blk is QEMU's) | same |
+
+- **Acks (8):** desktop, gpu-desktop, pointer, typed, lifecycle, tile, screenshot, modal — each
+  confirmed by the operator for this boot, with its act lines (lifecycle: `windowd: minimize` ×5,
+  `execd: freeze` ×2 → `abilitymgr: suspend` → `execd: thaw` ×2; screenshot `screencapd: freeze
+  ok` + `saved (`; modal `apphost: modal open` ×4 / `modal dismiss` ×4 — new against cycle 76;
+  tile: four quarters by the menu, `windowd: wm tile (zone=top-left …)` … — the chords in the
+  trace are close and minimize, no tile chord: acked on the operator's confirmation).
+  **Not acked:** clipboard — the operator tried it, the trace has no copy and no paste (typing on
+  the board is still lost — the keyboard package); restore — settings closed with its record
+  (`apphost: persist saved (fields=3 bytes=87 reason=close)`) but was not opened again.
+  `board-test` names exactly these two operator markers as missing.
+- **The execd fix holds on the board:** the operator's four apps (calculator, chat, settings,
+  stash) ran before the harness's probe children again, and every lifecycle order went through —
+  no `order denied` (cycle 76: refused for settings, pid 92).
+- **The IPC gate holds still:** the mean sits where cycle 76's red one did (67 vs 68 µs: cross-hart
+  wakes); the path is 26 µs. `KSELFTEST: ipc call budget FAIL` left the board's tolerated reds
+  (`config/fail-marker-allow-board.txt`).
+- **milestone 11 at 2092 ms** — the top of the spread so far (1861–2042 ms over cycles 75–76),
+  not isolated here (one boot); the next cycle compares a second boot.
+- **The flash read-back and a boot between:** the read-back after this boot failed `nxdisk0` and
+  `nxdisk1`; per partition, every image-owned one matched (opensbi, uboot, boot-a/b, system-a/b)
+  and exactly the three a running system writes differed (`bsb`, `state`, `data`). → The layout
+  declares them (`storage::layout::LIVE`, with `trace`); the plan gives each region a read-back
+  digest with them zeroed; `board-flash.sh --verify` reads them as zero. The plan rebuilt from
+  the same image (its region bytes identical) then read back clean from this board: "every region
+  reads back as planned".

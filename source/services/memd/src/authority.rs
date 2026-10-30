@@ -57,6 +57,12 @@ pub struct Pending {
     pub band: u8,
     /// Why.
     pub source: Source,
+    /// The level judged (6f-3: the journal records how tight memory was).
+    pub level: u8,
+    /// Free frames of the last kernel frame when the level was judged.
+    pub free: u64,
+    /// Total frames of the pool, likewise.
+    pub total: u64,
 }
 
 /// What a level did.
@@ -235,7 +241,14 @@ impl Authority {
         let ordered = orders.kill(victim.pid);
         if ordered {
             self.kills = self.kills.saturating_add(1);
-            self.pending = Some(Pending { pid: victim.pid, band: victim.band, source });
+            self.pending = Some(Pending {
+                pid: victim.pid,
+                band: victim.band,
+                source,
+                level,
+                free: self.free,
+                total: self.total,
+            });
         }
         Decision::Kill { pid: victim.pid, band: victim.band, ordered }
     }

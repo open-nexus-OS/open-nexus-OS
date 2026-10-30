@@ -1,7 +1,7 @@
 // Copyright 2026 Open Nexus OS Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! TASK-0066 lane targets (SSOT for `tools/qmp_inject_modal.py`'s tiling phase): on the
+//! TASK-0066 lane targets (`proof-manifest/scenarios/targets.toml`, the usb-visible scenario's tiling steps): on the
 //! desktop session shell at 1280×800 the injector opens the launcher from the taskbar and
 //! launches the settings app from the launcher's footer, then tiles that window with
 //! Super+Ctrl chords. This test is the gate that the two presses still land.
@@ -15,9 +15,8 @@ use nexus_dsl_runtime::interact::HandlerAction;
 use nexus_dsl_runtime::{FixtureEnv, IdentityLocale, Value, View};
 use nexus_theme_tokens::BaseTokens;
 
-/// The taskbar's launcher button and, with the launcher open, its footer's settings button.
-pub const INJECT_LAUNCHER_BUTTON: (i32, i32) = (30, 772);
-pub const INJECT_LAUNCH_SETTINGS: (i32, i32) = (914, 662);
+// The taskbar's launcher button and, with the launcher open, its footer's settings button: the
+// injector's points, read from `scenarios/targets.toml` (`common::inject_point`, TASK-0333 6f-3).
 
 struct NullHost;
 impl nexus_dsl_runtime::EffectHost for NullHost {
@@ -59,7 +58,11 @@ fn launcher_and_settings_launch_targets_are_where_the_injector_presses() {
     let mut view = View::mount(&nxir, &BaseTokens, &device, &locale).expect("mounts");
     let boxes = common::layout_boxes(&view);
     let launcher = center_of(&view, &boxes, &symbols, "PanelEvent", "SetPanel", "launcher");
-    assert_eq!(launcher, INJECT_LAUNCHER_BUTTON, "the taskbar launcher target moved");
+    assert_eq!(
+        launcher,
+        common::inject_point("launcher_button"),
+        "the taskbar launcher target moved"
+    );
     let mut host = NullHost;
     common::dispatch(
         &mut view,
@@ -72,5 +75,9 @@ fn launcher_and_settings_launch_targets_are_where_the_injector_presses() {
     );
     let boxes = common::layout_boxes(&view);
     let settings = center_of(&view, &boxes, &symbols, "LauncherEvent", "Launch", "settings");
-    assert_eq!(settings, INJECT_LAUNCH_SETTINGS, "the launcher's settings target moved");
+    assert_eq!(
+        settings,
+        common::inject_point("launch_settings"),
+        "the launcher's settings target moved"
+    );
 }

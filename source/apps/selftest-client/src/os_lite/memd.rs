@@ -23,11 +23,13 @@
 //!     authority,
 //!     which orders the parent; the reap comes back as the band `gone` and memd says
 //!     `SELFTEST: mem pressure kill ok (band=suspended reason=drill)`. The real level's kill
-//!     (`reason=oom`) is the `lowmem` lane's (6f-3).
+//!     (`reason=oom`) is the `lowmem` lane's (6f-3): there the drill never runs — `lowmem.rs`
+//!     takes memory until the kernel's own level is critical and memd's chain runs from it.
 //! The drill never runs on a board: it ends an app the operator may be using. It cannot run
 //! on a lane without apps either — its arming conditions (a frozen app ran again; an app is
-//! frozen now) are the visible lane's choreography, which no headless lane produces. Polled
-//! once a second in the end phase's idle loop — the harness has no event channel from memd.
+//! frozen now) are the visible lane's choreography, which no headless lane produces. Looked at
+//! once a second from the end phase, which sleeps on the harness's timer in between (the harness
+//! has no event channel from memd); once the drill is done the harness looks no more.
 //! OWNERS: @runtime
 //! STATUS: Experimental
 //! API_STABILITY: Internal (binary crate)
@@ -43,6 +45,8 @@ use crate::markers::{
     M_SELFTEST_MEM_PRESSURE_DRILL,
 };
 use crate::os_lite::boot_cfg::{self, Machine};
+use crate::os_lite::lowmem::Hold;
+use crate::runtime_mode::RuntimeProfile;
 
 /// The authority's state as `STATUS` answers it.
 #[derive(Clone, Copy, Debug)]
@@ -50,8 +54,11 @@ pub(crate) struct Status {
     level: u8,
     sink: bool,
     bands: u8,
-    suspended: u8,
+    /// App processes in the suspended band now.
+    pub(super) suspended: u8,
     resumed: u16,
+    /// Kills memd ordered since boot.
+    pub(super) kills: u16,
 }
 
 /// One request on the declared route; the reply rides the harness's CAP_MOVE inbox (a waited
@@ -65,7 +72,7 @@ fn call(req: &[u8], rsp: &mut [u8]) -> Option<usize> {
 fn status() -> Option<Status> {
     let mut rsp = [0u8; wire::REPLY_MAX_BYTES];
     let n = call(&wire::encode_status(), &mut rsp)?;
-    let (status, level, sink, bands, suspended, resumed, _kills, _free, _total) =
+    let (status, level, sink, bands, suspended, resumed, kills, _free, _total) =
         wire::decode_status_reply(wire::OP_STATUS, &rsp[..n])?;
     (status == wire::STATUS_OK).then_some(Status {
         level,
@@ -73,6 +80,7 @@ fn status() -> Option<Status> {
         bands,
         suspended,
         resumed,
+        kills,
     })
 }
 
@@ -122,12 +130,29 @@ pub(crate) struct Drill {
     next_poll_ns: u64,
     step: Step,
     critical_tries: u8,
+    /// The lowmem lane (6f-3): real pressure in place of the drill.
+    hold: Option<Hold>,
 }
 
 impl Drill {
     pub(crate) fn new() -> Self {
         let lane = boot_cfg::machine() == Machine::QemuVirt;
-        Self { lane, next_poll_ns: 0, step: Step::Squeeze, critical_tries: 0 }
+        let lowmem = boot_cfg::runtime_profile() == Some(RuntimeProfile::Lowmem);
+        let hold = (lane && lowmem).then(Hold::new);
+        Self { lane, next_poll_ns: 0, step: Step::Squeeze, critical_tries: 0, hold }
+    }
+
+    /// When the drill (or the lowmem hold) wants its next look, `None` once it never will — no
+    /// QEMU lane, the hold released, the drill done. The end phase sleeps until then.
+    pub(crate) fn next_due_ns(&self) -> Option<u64> {
+        if !self.lane {
+            return None;
+        }
+        let active = match self.hold.as_ref() {
+            Some(hold) => !hold.done(),
+            None => self.step != Step::Done,
+        };
+        active.then_some(self.next_poll_ns.max(1))
     }
 
     /// Once a second: `warn` when a frozen app has run again at least once (it is on screen
@@ -137,7 +162,19 @@ impl Drill {
     /// legs took the level and app-host's when the window heard it; the kill's is memd's own
     /// line when the victim's death came back.
     pub(crate) fn tick(&mut self, now_ns: u64) {
-        if !self.lane || self.step == Step::Done || now_ns < self.next_poll_ns {
+        if !self.lane || now_ns < self.next_poll_ns {
+            return;
+        }
+        if let Some(hold) = self.hold.as_mut() {
+            if !hold.done() {
+                self.next_poll_ns = now_ns.saturating_add(POLL_INTERVAL_NS);
+                if let Some(s) = status() {
+                    hold.tick(&s);
+                }
+            }
+            return;
+        }
+        if self.step == Step::Done {
             return;
         }
         self.next_poll_ns = now_ns.saturating_add(POLL_INTERVAL_NS);
@@ -194,24 +231,24 @@ impl Drill {
 }
 
 /// One console line, written whole: the drill's answer arrives after memd's own lines.
-struct Line {
+pub(super) struct Line {
     buf: [u8; 96],
     len: usize,
 }
 
 impl Line {
-    const fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self { buf: [0; 96], len: 0 }
     }
 
-    fn put(&mut self, bytes: &[u8]) {
+    pub(super) fn put(&mut self, bytes: &[u8]) {
         let room = self.buf.len() - self.len;
         let n = bytes.len().min(room);
         self.buf[self.len..self.len + n].copy_from_slice(&bytes[..n]);
         self.len += n;
     }
 
-    fn put_u64(&mut self, mut v: u64) {
+    pub(super) fn put_u64(&mut self, mut v: u64) {
         let mut digits = [0u8; 20];
         let mut i = digits.len();
         loop {
@@ -225,7 +262,7 @@ impl Line {
         self.put(&digits[i..]);
     }
 
-    fn emit(&self) {
+    pub(super) fn emit(&self) {
         emit_bytes(&self.buf[..self.len]);
     }
 }

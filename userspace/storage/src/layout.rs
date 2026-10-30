@@ -132,6 +132,14 @@ pub const NEXUS_DISK_MIB: u64 = NEXUS_DISK_BYTES / MIB;
 /// them out (nothing to carry, and a boot that wrote them would fail a read-back).
 pub const VOLATILE: &[&str] = &["swap"];
 
+/// Partitions a RUNNING system writes (TASK-0333 6f-3): the boot selector (`bsb` — the loader's
+/// tries and slot), the state store (`state`), the data volume (`data`) and the boot trace
+/// (`trace`, RFC-0107 — every boot). A flash plan carries their first bytes, but from the first
+/// boot on they are the system's, not the image's: a read-back reads them as zero instead of
+/// comparing them (until 6f-3 the first boot after a flash failed `--verify` on all three of
+/// `bsb`, `state`, `data` — board cycle 77).
+pub const LIVE: &[&str] = &["bsb", "state", "data", "trace"];
+
 /// Alignment of every volume start (1 MiB in 512-byte sectors).
 const ALIGN_LBA: u64 = 2048;
 
@@ -215,6 +223,8 @@ mod tests {
         assert_eq!(type_of("swap"), Some(GUID_NEXUS_SWAP));
         assert_eq!(type_of("zram"), None);
         assert!(VOLATILE.iter().all(|name| type_of(name).is_some()), "volatile names are laid out");
+        assert!(LIVE.iter().all(|name| type_of(name).is_some()), "live names are laid out");
+        assert!(LIVE.iter().all(|name| !VOLATILE.contains(name)), "a live partition is flashed");
         let mut names: Vec<&str> = NEXUS_DISK_LAYOUT.iter().map(|s| s.name).collect();
         names.sort_unstable();
         names.dedup();

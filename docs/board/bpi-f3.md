@@ -144,7 +144,11 @@ build (`config/board/bpi-f3/image.toml`):
 the vehicle as a raw partition and its size read back before it is written, and the board then
 boots its microSD. `just board-flash --verify build/board/bpi-f3/flash` reads every region back
 over adb. Done on the desk board on 2026-09-26: every region was exact, and the stock kernel reads
-our nine partitions without a warning.
+our nine partitions without a warning. The partitions a running system writes — the boot
+selector `bsb`, `state`, `data` and the boot `trace` (`storage::layout::LIVE`) — read back as
+zero: the plan carries their first bytes, but from our OS's first boot on they are the system's,
+so a boot between the flash and the read-back passes too (board cycle 77, 2026-10-30: before,
+`bsb`, `state` and `data` failed it after one boot; the boot and system volumes matched).
 
 ## Booting our OS from the eMMC, read without a serial adapter (TASK-0260B, RFC-0107)
 

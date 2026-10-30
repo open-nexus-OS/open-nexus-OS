@@ -12,7 +12,9 @@
   pressure (level=warn …)`; the GPU charge built in 6e-4, `gpud: gpu memory charged (client=windowd
   …)` → `memd: gpu charge (…)` on both lanes and on the board — cycle 73: the lent framebuffer and
   the compositor's context buffers charged, the bands of the operator's apps, `persist saved
-  (reason=hidden)`; the board's close-and-reopen rung is open with the board's keyboard defect)
+  (reason=hidden)`; the board's close-and-reopen rung is open with the board's keyboard defect;
+  amended 2026-10-29 by TASK-0333 6f-3 — the kill journal in statefs and the real level's kill,
+  `reason=oom`, on the `lowmem` lane)
 - Date: 2026-10-27
 - Links:
   - Tasks: `tasks/TASK-0333-memory-the-efficient-one-and-the-app-lifecycle-layer-6.md` (6e-1 … 6e-3)
@@ -119,8 +121,21 @@ and never granted), or a manifest word the publisher derives the grant from — 
   Proof: the drill has two arming conditions — `warn` once a thawed app is on screen (a frozen
   window cannot hear the level; `SELFTEST: mem pressure fanout ok (level=warn sent=2)`, `apphost:
   mem pressure (level=warn handled=)`), `critical` once an app is frozen again (the kill).
+- **The kill journal and the real level (6f-3, built and lane-proven 2026-10-29).** Every kill memd
+  ordered and saw proven is recorded in the state store — `/state/memd/journal`, memd's own key
+  over the declared route memd → statefsd (`statefs.read` + `statefs.write`), a ring of the
+  newest sixteen (`NXMJ` v1: a sequence number that runs on across boots, the pid, the band, the
+  reason, the level, free and total frames, the uptime) — written and read back at once
+  (`SELFTEST: memd journal ok (reason= seq= records=)`); a kill proven while the store cannot be
+  read waits in memory, a refused write goes with the next kill. The lifecycle authority marks an
+  instance whose kill it carried *dying*: from then on only the death report moves it — its
+  window closing first used to thaw a process the parent had already reaped (`abilitymgr: FAIL
+  thaw`, and a `visible` band pushed for a dead pid; found on the `lowmem` lane). `reason=oom` is
+  that lane's: the harness takes the pool to the kernel's own `critical`, and the squeeze, the
+  swap-out, the kill, the journal and — after a relaunch — the restore run from the kernel's
+  frame (RFC-0100 §5).
 - **Out of scope here**: the record's size class beyond "durable small" (RFC-0100 §6: documents
-  are the query service's), a journal of memd's kills (6f), the compositor's ghost for a killed
+  are the query service's), a journal of memd's kills (6f — built in 6f-3), the compositor's ghost for a killed
   window (6g), a snapshot on every transition the authority knows (the compositor's sighting is
   the one app-host can hear).
 
@@ -151,8 +166,9 @@ and never granted), or a manifest word the publisher derives the grant from — 
 - **Follow-ups**: what gpud drops at `warn` (the board's glass cache is a GPU-private buffer of
   the one pool — purgeable now that the ledger says what it costs whom; QEMU's textures are the
   host GPU's); the first purgeable owners (atlas bands, blur cache);
-  6f (memd's journal, the `lowmem` lane where a real level change drives a real kill —
-  `reason=oom` — and the restore closes the loop); every shipped app with navigation or draft
+  ~~6f (memd's journal, the `lowmem` lane where a real level change drives a real kill —
+  `reason=oom` — and the restore closes the loop)~~ done in 6f-3 (2026-10-29); every shipped app
+  with navigation or draft
   state marks it `@persist` and says `restorable = true`.
 
 ## Alternatives considered

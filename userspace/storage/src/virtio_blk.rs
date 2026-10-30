@@ -20,12 +20,10 @@ pub struct VirtioBlkDevice {
 }
 
 impl VirtioBlkDevice {
-    /// The disk behind `mmio_cap_slot`, its waits bounded by the owner's device-watchdog pair.
-    pub fn new(
-        mmio_cap_slot: u32,
-        watchdog: nexus_service_topology::SlotPair,
-    ) -> Result<Self, BlockError> {
-        let inner = VirtioBlkMmio::new(mmio_cap_slot, watchdog).map_err(|_| BlockError::IoError)?;
+    /// The disk behind `mmio_cap_slot`, its line bound to the owner's notify endpoint `irq_ep`
+    /// before its first request: completions and failures are the device's interrupts.
+    pub fn new(mmio_cap_slot: u32, irq_ep: u32) -> Result<Self, BlockError> {
+        let inner = VirtioBlkMmio::new(mmio_cap_slot, irq_ep).map_err(|_| BlockError::IoError)?;
         Ok(Self { inner })
     }
 
@@ -35,12 +33,6 @@ impl VirtioBlkDevice {
 
     pub fn sector_size(&self) -> u32 {
         self.inner.sector_size()
-    }
-
-    /// Binds the device's derived PLIC line to an owner-provisioned notify
-    /// endpoint (TASK-0314 machinery; TASK-0315 provisioning).
-    pub fn bind_irq_endpoint(&mut self, ep_slot: u32) -> bool {
-        self.inner.bind_irq_endpoint(ep_slot)
     }
 }
 

@@ -26,6 +26,10 @@ use nexus_hal::{Bus, DmaBuffer};
 /// Pure request-ring logic (free-list + used-ring reclaim) — host-tested.
 pub mod ring;
 
+/// Pure in-flight table + the wait's bound (a stall costs a request, not the device) —
+/// host-tested.
+pub mod inflight;
+
 /// VirtIO MMIO magic ("virt" LE).
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x7472_6976;
 /// VirtIO MMIO legacy version.

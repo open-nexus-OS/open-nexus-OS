@@ -5,7 +5,8 @@
 //! top-bar magnifier opens the search (a modal layer), Clipboard lists the history from
 //! `svc.clipboard.list`, a card's press copies it back (`svc.clipboard.restore`), ESC closes;
 //! Files is inert. Also the SSOT for the live lane's injector targets
-//! (`tools/qmp_inject_modal.py`, clipboard phase): this test is the gate that they still land.
+//! (`proof-manifest/scenarios/targets.toml`, the usb-visible scenario's clipboard steps): this test
+//! is the gate that they still land.
 
 // reason: test harness — a failed compile/mount step must panic loudly.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -19,14 +20,11 @@ use nexus_dsl_runtime::{
 use nexus_layout_types::FxPx;
 use nexus_theme_tokens::BaseTokens;
 
-/// Display-space centres at 1280×800 in the DESKTOP layout: the magnifier in the top bar,
-/// the search's Clipboard button, and the first (newest) clipboard card.
-pub const INJECT_SEARCH_PILL: (i32, i32) = (1220, 18);
-pub const INJECT_SEARCH_CLIPBOARD: (i32, i32) = (958, 142);
-pub const INJECT_CLIP_CARD: (i32, i32) = (419, 240);
-/// The word the lane types into the search field before Ctrl+A, Ctrl+C: no prefill item
-/// contains it, so no card exists until the copy re-reads the history.
-pub const INJECT_COPY_WORD: &str = "kiwi";
+// The injector's display-space centres at 1280×800 in the DESKTOP layout — the magnifier in the
+// top bar, the search's Clipboard button, the first (newest) clipboard card — and the word it
+// types before Ctrl+A, Ctrl+C (no prefill item contains it, so no card exists until the copy
+// re-reads the history) come from `scenarios/targets.toml` (`common::inject_point`,
+// `common::inject_word`, TASK-0333 6f-3).
 
 /// The history the fake authority holds, newest first: `(seq, preview)`.
 const HISTORY: [(i64, &str); 3] = [
@@ -143,7 +141,7 @@ fn the_magnifier_opens_the_search_and_a_card_is_copied_back() {
 
     let pill =
         handler_center(&view, &symbols, "SearchEvent", "SearchOpen", None).expect("magnifier");
-    assert_eq!(pill, INJECT_SEARCH_PILL, "the injector's magnifier target moved");
+    assert_eq!(pill, common::inject_point("search_pill"), "the injector's magnifier target moved");
     tap(&mut view, &device, &symbols, &mut host, pill);
     assert_eq!(search(&view, "searchOpen"), Value::Bool(true));
     assert_eq!(view.overlays().modal_depth(), 1, "the search is the shell's modal");
@@ -153,7 +151,11 @@ fn the_magnifier_opens_the_search_and_a_card_is_copied_back() {
     let clip = Value::Str("clipboard".to_string());
     let button = handler_center(&view, &symbols, "SearchEvent", "SearchMode", Some(&clip))
         .expect("clipboard button");
-    assert_eq!(button, INJECT_SEARCH_CLIPBOARD, "the injector's Clipboard target moved");
+    assert_eq!(
+        button,
+        common::inject_point("search_clipboard"),
+        "the injector's Clipboard target moved"
+    );
     tap(&mut view, &device, &symbols, &mut host, button);
     assert_eq!(search(&view, "searchMode"), clip);
     assert!(host.calls.iter().any(|c| c == "clipboard.list(\"\")"), "{:?}", host.calls);
@@ -163,7 +165,7 @@ fn the_magnifier_opens_the_search_and_a_card_is_copied_back() {
     let newest = Value::Int(HISTORY[0].0);
     let card = handler_center(&view, &symbols, "SearchEvent", "ClipRestore", Some(&newest))
         .expect("newest card");
-    assert_eq!(card, INJECT_CLIP_CARD, "the injector's card target moved");
+    assert_eq!(card, common::inject_point("clip_card"), "the injector's card target moved");
     tap(&mut view, &device, &symbols, &mut host, card);
     assert!(host.calls.iter().any(|c| c == "clipboard.restore(6)"), "{:?}", host.calls);
     assert_eq!(search(&view, "clipCopied"), Value::Bool(true));
@@ -219,7 +221,7 @@ fn test_reject_no_magnifier_in_the_touch_profiles() {
 /// typed word matches nothing: no card lies under the injector's card target. Ctrl+A selects
 /// the word, Ctrl+C copies it (app-host's `edit_action`: `selected_text` → `svc.clipboard.write`
 /// → the `ClipboardChanged` trigger) and the open search re-reads the history AT ONCE: the
-/// copied word is the first card, exactly under `INJECT_CLIP_CARD`. The lane presses that
+/// copied word is the first card, exactly under the injector's `clip_card` point. The lane presses that
 /// target after the copy, so its press finds a card only if the refresh ran.
 #[test]
 fn a_copy_in_the_open_search_refreshes_the_history_at_once() {
@@ -230,8 +232,8 @@ fn a_copy_in_the_open_search_refreshes_the_history_at_once() {
     let locale = IdentityLocale { symbols: &symbols, keys: &keys };
     let mut view = View::mount(&nxir, &BaseTokens, &device, &locale).expect("mounts");
     let mut host = ClipHost::new(&symbols);
-    tap(&mut view, &device, &symbols, &mut host, INJECT_SEARCH_PILL);
-    tap(&mut view, &device, &symbols, &mut host, INJECT_SEARCH_CLIPBOARD);
+    tap(&mut view, &device, &symbols, &mut host, common::inject_point("search_pill"));
+    tap(&mut view, &device, &symbols, &mut host, common::inject_point("search_clipboard"));
     assert_eq!(search(&view, "searchMode"), Value::Str("clipboard".to_string()));
 
     // `.autofocus(true)` focuses the field through the tap path after a present.
@@ -241,8 +243,9 @@ fn a_copy_in_the_open_search_refreshes_the_history_at_once() {
     let (x, y) = (b.rect.x.0 + b.rect.width.0 / 2, b.rect.y.0 + b.rect.height.0 / 2);
     view.focus_text_at(&boxes, FxPx::new(x), FxPx::new(y), &[]).expect("focused");
     host.history.clear(); // the authority holds nothing that matches the word
-    view.insert_text(&BaseTokens, &device, &locale, &mut host, INJECT_COPY_WORD).expect("types");
-    let asked = format!("clipboard.list({INJECT_COPY_WORD:?})");
+    let word = common::inject_word("copy_word");
+    view.insert_text(&BaseTokens, &device, &locale, &mut host, &word).expect("types");
+    let asked = format!("clipboard.list({word:?})");
     assert!(host.calls.contains(&asked), "typing re-asks the history: {:?}", host.calls);
     let texts = common::scene_texts(&view);
     assert!(!texts.iter().any(|t| HISTORY.iter().any(|(_, h)| t == h)), "no card yet: {texts:?}");
@@ -256,7 +259,7 @@ fn a_copy_in_the_open_search_refreshes_the_history_at_once() {
     view.edit_text(&BaseTokens, &device, &locale, &mut host, EditCommand::SelectAll)
         .expect("selects");
     let copied = view.selected_text().expect("a selection to copy");
-    assert_eq!(copied, INJECT_COPY_WORD);
+    assert_eq!(copied, word);
     host.history.insert(0, (7, copied)); // `svc.clipboard.write` stored it as the newest
     let lists = host.calls.iter().filter(|c| c.starts_with("clipboard.list")).count();
     let damage = view
@@ -267,8 +270,12 @@ fn a_copy_in_the_open_search_refreshes_the_history_at_once() {
     // The panel read the list only through `len(...)` while it was empty: the change must
     // still re-emit (the runtime's dependency walk covers list operations).
     assert!(matches!(damage, Some(d) if d != Damage::None), "the panel re-emits: {damage:?}");
-    assert_eq!(card(&view), Some(INJECT_CLIP_CARD), "the lane's press lands on the copied card");
-    tap(&mut view, &device, &symbols, &mut host, INJECT_CLIP_CARD);
+    assert_eq!(
+        card(&view),
+        Some(common::inject_point("clip_card")),
+        "the lane's press lands on the copied card"
+    );
+    tap(&mut view, &device, &symbols, &mut host, common::inject_point("clip_card"));
     assert!(host.calls.iter().any(|c| c == "clipboard.restore(7)"), "{:?}", host.calls);
 
     // Closed search: nothing listens, nothing is asked.

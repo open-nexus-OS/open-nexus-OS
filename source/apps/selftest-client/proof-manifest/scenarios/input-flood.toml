@@ -1,0 +1,29 @@
+# Copyright 2026 Open Nexus OS Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# CONTEXT: The input-flood lane's warm-up (TASK-0333 6f-3, ADR-0089): once the guest's timing
+# gates are behind it, one pointer move and one key prove the input chain live before
+# `scripts/input-flood-lane.sh` takes the QMP socket for its flood. Nothing else: the flood lane
+# judges the heap and hidrawd's forwarding, not the UI.
+# OWNERS: @runtime
+# STATUS: Functional
+# API_STABILITY: Unstable
+
+[scenario]
+profile = "visible"
+start_after = "SELFTEST: input window open"
+
+[[step]]
+name = "the pointer reaches the desktop"
+do = { move = "desktop_center" }
+expect = ["inputd: live pointer route on"]
+timeout_s = 30
+
+# A letter at the greeter, pressed again until inputd routes it (the first input after boot is
+# acknowledged on its own — see usb-visible.toml).
+[[step]]
+name = "a key reaches the greeter"
+do = { key = "a" }
+expect = ["inputd: live keyboard route on"]
+timeout_s = 10
+retry = 2

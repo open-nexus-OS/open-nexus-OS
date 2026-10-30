@@ -27,14 +27,23 @@
 //!   requests at once, pages an app's slots back when it thaws, frees the slots of a dead
 //!   object. It only ever holds ciphertext: the kernel keeps the key.
 //!
+//! - JOURNAL (6f-3): every kill this authority ordered and saw carried out is recorded in the
+//!   state store (`/state/memd/journal`, a ring of the newest sixteen) — victim, band, reason,
+//!   level, free frames, when.
+//!
 //! [`bands`] is the table and the victim rule, [`authority`] the state machine over levels and
 //! bands, [`answer`] one request → one reply, [`order`] the kill order's bytes, [`swap`] the
-//! pager's books; the host tests drive exactly the code the service loop runs.
+//! pager's books, [`journal`] the kill ledger's record; the host tests drive exactly the code
+//! the service loop runs.
 //! OWNERS: @runtime
-//! STATUS: Experimental (6e-2: bands, the sink, the kill; 6e-3: the fan-out)
+//! STATUS: Experimental (6e-2: bands, the sink, the kill; 6e-3: the fan-out; 6f-2: the pager;
+//!   6f-3: the journal)
 //! API_STABILITY: Internal (the wire is `nexus_wire::memd`)
 //! TEST_COVERAGE: tests/contract.rs — the victim rule (`test_reject_kill_of_foreground_or_visible`),
-//!   the sender gates (`test_reject_*`), the status and drill replies, the kill proof
+//!   the sender gates (`test_reject_*`), the status and drill replies, the kill proof;
+//!   tests/swap.rs — the pager's books; tests/journal.rs — the kill ledger's record and the boot's
+//!   ledger over a store that refuses (`test_reject_*`); QEMU — the kernel-sourced chain on the
+//!   `lowmem` lane
 //! RFC: docs/rfcs/RFC-0100-memory-object-model-v2-commit-on-touch-unified-gpu-memory-pressure.md
 
 #![cfg_attr(not(any(test, nexus_env = "host")), no_std)]
@@ -46,6 +55,7 @@ pub mod answer;
 pub mod authority;
 pub mod bands;
 pub mod gpu;
+pub mod journal;
 pub mod order;
 pub mod swap;
 

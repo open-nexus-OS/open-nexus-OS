@@ -10,7 +10,7 @@
 //! OWNERS: @reliability @tools-team
 //! STATUS: Functional
 //! API_STABILITY: Unstable
-//! TEST_COVERAGE: 5 integration tests
+//! TEST_COVERAGE: 7 integration tests
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -127,13 +127,14 @@ fn the_regions_rebuild_the_disk_exactly() {
     let text = std::fs::read_to_string(dir.path().join("flash/plan.json")).expect("plan.json");
     let plan: serde_json::Value = serde_json::from_str(&text).expect("json");
     assert_eq!(plan["disk_sectors"], BOARD_SECTORS);
-    assert_eq!(
-        plan["trace"]["sectors"], 16384,
-        "the trace partition, for --verify to read as zero"
-    );
-    assert!(plan["trace"]["start_lba"].as_u64().unwrap() > 0);
     let regions = plan["regions"].as_array().expect("regions");
     let field = |r: &serde_json::Value, k: &str| r[k].as_u64().expect(k);
+    // The spans a running system writes (`storage::layout::LIVE`), for --verify to read as zero.
+    let live = plan["live"].as_array().expect("live");
+    let names: Vec<&str> = live.iter().map(|l| l["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["bsb", "state", "data", "trace"]);
+    let trace = live.iter().find(|l| l["name"] == "trace").expect("trace");
+    assert_eq!(field(trace, "sectors"), 16384);
     // The user area: chunks from sector 0, back to back, to the end of the last partition that
     // outlives a boot — the pager's `swap` (ADR-0088) is never flashed.
     let layout = storage::layout::plan().expect("layout");
@@ -192,6 +193,83 @@ fn the_regions_rebuild_the_disk_exactly() {
     }
     let backup = digest_of(&[(image.as_path(), (BOARD_SECTORS - 33) * 512, 33 * 512)]);
     assert_eq!(gpt["sha256"].as_str().unwrap(), backup);
+    // Every region's read-back digest is its bytes with the live spans zeroed.
+    for r in disk.iter().copied().chain([gpt]) {
+        let masked = masked_digest(&image, field(r, "start_lba"), field(r, "sectors"), live);
+        assert_eq!(r["verify_sha256"].as_str().unwrap(), masked, "{}", r["name"]);
+    }
+    assert_eq!(boot0["verify_sha256"], boot0["sha256"], "boot0 has no live span");
+}
+
+/// The digest a read-back computes over `sectors` sectors at `start_lba` of `disk`: every live
+/// span (the plan's `live`) read as zero.
+fn masked_digest(disk: &Path, start_lba: u64, sectors: u64, live: &[serde_json::Value]) -> String {
+    let mut bytes = vec![0u8; (sectors * 512) as usize];
+    let mut f = std::fs::File::open(disk).expect("open");
+    f.seek(SeekFrom::Start(start_lba * 512)).expect("seek");
+    f.read_exact(&mut bytes).expect("read");
+    for l in live {
+        let first = l["start_lba"].as_u64().unwrap();
+        let end = first + l["sectors"].as_u64().unwrap();
+        let (from, to) = (first.max(start_lba), end.min(start_lba + sectors));
+        if from < to {
+            bytes[((from - start_lba) * 512) as usize..((to - start_lba) * 512) as usize].fill(0);
+        }
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[test]
+fn a_boot_writes_live_partitions_and_the_read_back_still_holds() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (image, plan) = planned(dir.path());
+    // A boot writes the boot selector, the state store and the data volume: every region's
+    // read-back digest is unmoved.
+    let layout = storage::layout::plan().expect("layout");
+    let at = |name: &str| layout.iter().find(|p| p.name == name).expect(name).first_lba;
+    poke(&image, at("bsb"), b"tries");
+    poke(&image, at("state") + 5, b"written by a boot");
+    poke(&image, at("data") + 9, b"a file");
+    assert_eq!(read_back_mismatches(&image, &plan), Vec::<String>::new());
+}
+
+#[test]
+fn test_reject_a_changed_static_partition_on_read_back() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (image, plan) = planned(dir.path());
+    // The boot volume is the image's, not the system's: a changed byte there must show.
+    let layout = storage::layout::plan().expect("layout");
+    let boot_a = layout.iter().find(|p| p.name == "boot-a").expect("boot-a").first_lba;
+    poke(&image, boot_a + 7, b"not what was flashed");
+    assert_eq!(read_back_mismatches(&image, &plan), ["nxdisk0"]);
+}
+
+/// A board image and its plan in `dir`.
+fn planned(dir: &Path) -> (std::path::PathBuf, serde_json::Value) {
+    setup(dir);
+    assert!(build(dir, "b.img", true).status.success(), "board image");
+    assert!(plan(dir, "b.img", "flash", "128M").status.success(), "plan");
+    let text = std::fs::read_to_string(dir.join("flash/plan.json")).expect("plan.json");
+    (dir.join("b.img"), serde_json::from_str(&text).expect("json"))
+}
+
+/// The user-area regions whose read-back (live spans zeroed) differs from the plan.
+fn read_back_mismatches(image: &Path, plan: &serde_json::Value) -> Vec<String> {
+    let live = plan["live"].as_array().expect("live");
+    plan["regions"]
+        .as_array()
+        .expect("regions")
+        .iter()
+        .filter(|r| r["hwpart"] == 0)
+        .filter(|r| {
+            let (start, sectors) =
+                (r["start_lba"].as_u64().unwrap(), r["sectors"].as_u64().unwrap());
+            masked_digest(image, start, sectors, live) != r["verify_sha256"].as_str().unwrap()
+        })
+        .map(|r| r["name"].as_str().unwrap().to_string())
+        .collect()
 }
 
 #[test]

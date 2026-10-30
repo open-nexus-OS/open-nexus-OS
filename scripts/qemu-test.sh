@@ -584,7 +584,7 @@ case "${PROFILE:-full}" in
   *)
     BLK_BACKEND_MARKERS=(
       "blkd: backend ok (kind=virtio-blk soc=not-needed record=/soc/virtio_mmio@"
-      "blk: watchdog on"
+      "blk: irq bound"
       "blk: irq completion on"
     )
     ;;
@@ -603,7 +603,7 @@ USB_CLASS_MARKERS=(
   "hidrawd: usb hid subscribed"
 )
 case "${PROFILE:-full}" in
-  usb|usb-visible)
+  usb|usb-visible|lowmem)
     USB_MARKERS=(
       "init: usb host from pci (00:01.0 bar=0x400000000 irq=33)"
       "xhcid: controller ok (version=1.00 ports=8 slots=64 csz=32 scratch=0 irq=33)"
@@ -631,7 +631,7 @@ esac
 # injector's QMP input reaches the USB keyboard and mouse; the input chain must run through
 # xhcid and hidrawd's USB source end to end — raw report in (I1), wire batch out (I2), inputd's
 # live routes, the cursor moved on screen, the launcher click routed (`SELFTEST: ui v2 input ok`).
-USB_INPUT_MARKERS=(
+USB_INPUT_CHAIN_MARKERS=(
   "hidrawd: ready"
   "hidrawd: usb hid report seen"
   "hidrawd: chain I1 device event (raw HID polled)"
@@ -641,6 +641,9 @@ USB_INPUT_MARKERS=(
   "inputd: live keyboard route on"
   "windowd: cursor move visible"
   "SELFTEST: ui v2 input ok"
+)
+USB_INPUT_MARKERS=(
+  "${USB_INPUT_CHAIN_MARKERS[@]}"
   # TASK-0074 / ADR-0068: the injector opens the shell's shutdown alert with the pointer
   # (Control-Center pill → power button) and closes it with ESC over the USB keyboard — the
   # runtime's modal stack mirrored to windowd's ONE verb and back off, ESC delivered to a
@@ -712,6 +715,9 @@ USB_INPUT_MARKERS=(
   # squeeze, swap-out, kill); its objects' death tells the pager their slots.
   "memd: swap drop (slots="
   "SELFTEST: mem pressure kill ok ("
+  # TASK-0333 6f-3: the proven kill is recorded in the state store and read back (memd's
+  # journal; the drill's kill says reason=drill).
+  "SELFTEST: memd journal ok (reason=drill"
   # TASK-0067B: then it opens the top-bar search, picks Clipboard, types a word no prefill
   # item contains, selects it (Ctrl+A), copies it (Ctrl+C), pastes it back (Ctrl+V) and
   # presses the first card — which exists only because the copy re-read the history at once.
@@ -731,6 +737,44 @@ USB_INPUT_MARKERS=(
   "screencapd: saved (kind=area"
   "windowd: capture freeze off"
   "SELFTEST: ui v7 screenshot ok"
+)
+# TASK-0333 6f-3 (RFC-0100 §5): the `lowmem` lane — the USB input chain, then REAL memory
+# pressure in place of the modal, tiling, lifecycle, clipboard and capture phases. The injector
+# launches settings and hides it: the window saves its `@persist` record, the grace freezes the
+# app. The harness takes memory until the kernel's own level is `critical`; memd's chain runs
+# from the kernel's frame — the squeeze, the swap-out (the RNG service seeds the swap key
+# first), the kill (`reason=oom`), the journal written and read back — and the level is told
+# onward; the harness gives the memory back once the kill was ordered and the level recovers.
+# The injector launches settings again: the new process restores the record the hidden one
+# saved. No drill runs here (the manifest forbids its line on this profile).
+LOWMEM_INPUT_MARKERS=(
+  "${USB_INPUT_CHAIN_MARKERS[@]}"
+  "windowd: minimize id=app"
+  "apphost: persist saved ("
+  "execd: freeze (pid="
+  "abilitymgr: suspend (inst="
+  "memd: band (pid="
+  "SELFTEST: mem pressure held (level=critical"
+  "memd: pressure (level=critical"
+  "execd: squeeze (pid="
+  "abilitymgr: squeeze (inst="
+  "memd: squeeze (pid="
+  "SELFTEST: mem squeeze ok ("
+  "rngd: swap key seeded"
+  "memd: swap on (slots="
+  "memd: swap out (pid="
+  "SELFTEST: swap out ok ("
+  "memd: kill (pid="
+  "abilitymgr: kill (inst="
+  "execd: kill (pid="
+  "memd: swap drop (slots="
+  "SELFTEST: mem pressure kill ok (band=suspended reason=oom)"
+  "SELFTEST: memd journal ok (reason=oom"
+  "memd: level told (level=critical source=oom gpud=1 windowd=1)"
+  "gpud: mem pressure (level=critical source=oom)"
+  "windowd: mem pressure (level=critical source=oom"
+  "SELFTEST: mem pressure released (level=normal"
+  "SELFTEST: app restore ok ("
 )
 
 expected_sequence=(
@@ -852,6 +896,8 @@ expected_sequence=(
   "memd: ready"
   "memd: pressure (level="
   "SELFTEST: memd bound ok ("
+  # TASK-0333 6f-3: the harness's timing gates are behind it — host input is welcome.
+  "SELFTEST: input window open"
   "socd: ready ("
   "SELFTEST: soc glue not needed ok"
   "policyd: ready"
@@ -1376,7 +1422,7 @@ case "${PROFILE:-full}" in
   # gpud build provenance) on top of this ladder; the `full` display ladder
   # (input-startup incl. touchd) has had no lane since 2026-07 and its touchd
   # marker is a scheduler-determinism defect tracked in TASK-0324 P5.
-  headless|smp1|sdhci|usb|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d|usb-visible)
+  headless|smp1|sdhci|usb|reset|display-gpu|dhcp|dhcp-strict|quic-required|os2vm|supply-chain|ota-tamper|ota-downgrade|visible|visible-fhd|visible-2d|usb-visible|lowmem)
     # Use a reduced expected sequence for headless — omits display-gated
     # metrics, VFS, sandbox, and windowd markers. (The exec child-lifecycle/
     # minidump chain is NOT display-gated: it is appended for headless/smp1
@@ -1478,6 +1524,8 @@ case "${PROFILE:-full}" in
       "memd: ready"
       "memd: pressure (level="
       "SELFTEST: memd bound ok ("
+      # TASK-0333 6f-3: the harness's timing gates are behind it — host input is welcome.
+      "SELFTEST: input window open"
       "socd: ready ("
       "SELFTEST: soc glue not needed ok"
       "policyd: ready"
@@ -1640,6 +1688,10 @@ case "${PROFILE:-full}" in
     ;;
   usb-visible)
     expected_sequence+=("${USB_MARKERS[@]}" "${USB_INPUT_MARKERS[@]}")
+    ;;
+  # TASK-0333 6f-3: the same USB plane and input chain, then the real pressure's chain.
+  lowmem)
+    expected_sequence+=("${USB_MARKERS[@]}" "${LOWMEM_INPUT_MARKERS[@]}")
     ;;
 esac
 
@@ -3367,6 +3419,11 @@ if [[ "${MARKER_CONTRACT:-1}" == "1" ]]; then
     # injector drives the USB devices; the simulated chain and the real one must agree.
     usb-visible)
       bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,ui-modal,wm-tile,clipboard,capture,gpu-core,display || exit 1
+      ;;
+    # TASK-0333 6f-3: the same injected USB input, without the modal/tiling/clipboard/capture
+    # phases (the lane's own choreography is the real pressure's).
+    lowmem)
+      bash "$ROOT/scripts/check-chain-markers.sh" --log "$UART_LOG" --groups input-route,input-live,gpu-core,display || exit 1
       ;;
   esac
 fi

@@ -107,7 +107,7 @@ impl Lifecycle {
     /// carried to execd at once. Returns the reply frame.
     pub(super) fn on_mem_kill(
         &mut self,
-        broker: &Broker,
+        broker: &mut Broker,
         frame: &[u8],
         sender_service_id: u64,
     ) -> [u8; 9] {
@@ -133,11 +133,13 @@ impl Lifecycle {
             }
             MemKillOutcome::Victim { instance_id, pid, .. } => {
                 if order_execd(OP_KILL, pid) {
-                    nexus_abi::debug_ts_prefix();
-                    super::emit_prefix(b"abilitymgr: kill (inst=");
-                    super::emit_u32(instance_id);
-                    super::emit_prefix(b" reason=memory)");
-                    super::emit_newline();
+                    // 6f-3: only the death report moves it now (its window may close first).
+                    let _ = broker.mark_dying(instance_id);
+                    nexus_abi::DebugLine::new()
+                        .put(b"abilitymgr: kill (inst=")
+                        .u64(u64::from(instance_id))
+                        .put(b" reason=memory)")
+                        .emit();
                     encode_mem_kill_reply(STATUS_OK, pid)
                 } else {
                     emit_inst_line(b"abilitymgr: FAIL kill (inst=", instance_id);
@@ -180,13 +182,13 @@ impl Lifecycle {
             }
             MemSqueezeOutcome::Frozen { instance_id, pid } => match order_execd_squeeze(pid) {
                 Some(squeezed) => {
-                    nexus_abi::debug_ts_prefix();
-                    super::emit_prefix(b"abilitymgr: squeeze (inst=");
-                    super::emit_u32(instance_id);
-                    super::emit_prefix(b" pages=");
-                    super::emit_u32(squeezed.pages);
-                    super::emit_prefix(b" reason=memory)");
-                    super::emit_newline();
+                    nexus_abi::DebugLine::new()
+                        .put(b"abilitymgr: squeeze (inst=")
+                        .u64(u64::from(instance_id))
+                        .put(b" pages=")
+                        .u64(u64::from(squeezed.pages))
+                        .put(b" reason=memory)")
+                        .emit();
                     encode_mem_squeeze_reply(STATUS_OK, pid, squeezed)
                 }
                 None => {

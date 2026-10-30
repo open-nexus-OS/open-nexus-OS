@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed - 2026-10-29 (real memory pressure kills a frozen app, the kill is recorded, the app comes back — TASK-0333 6f-3, RFC-0100 §5)
+
+- **A real level, end to end.** A new QEMU lane, `lowmem` (`just ci-os-lowmem`, part of
+  `test-all`), replaces the pressure drill with the kernel's own level: the desktop launches
+  settings and hides it, the harness takes memory until the pool is genuinely `critical`, and the
+  memory authority squeezes the frozen app, swaps it out and kills it (`reason=oom`). The harness
+  gives its memory back, the level recovers, and settings launched again restores the state it
+  saved when it was hidden. The drill is forbidden on this lane, so every step is the kernel's.
+- **memd keeps a kill journal.** Every kill the authority ordered and saw carried out is
+  recorded in the state store (`/state/memd/journal`, the newest sixteen): the victim, its band,
+  why (`oom` or `drill`), how tight memory was and when — counts and process identities only. It
+  is written and read back at each kill and survives the boot; a kill the store could not take
+  at that moment is written with the next.
+- **The visible lanes are deterministic by construction (ADR-0089).** The injector's choreography
+  is now data — `proof-manifest/scenarios/*.toml`, checked on the host (every marker it waits for
+  is declared, every action is acknowledged) and run by one runner that stops at the first step
+  whose acknowledgement does not come, naming it. The guest says when input may start (`SELFTEST:
+  input window open`, after its timing gates), so the injector can no longer disturb a benchmark;
+  the click targets and the typed word live in one file the shell's layout tests read too.
+- **Console lines are whole.** The kernel gathers each task's console bytes until its newline, so
+  a service switched out mid-line can no longer have another service's line appended to its half
+  (a torn marker failed a lane); `nexus_abi::DebugLine` writes a line in one syscall.
+- **The IPC budget judges the path, not the load.** It now checks the fastest of 64 timed calls
+  (a regression slows every call; other work on the hart only some) and prints the mean beside it.
+  On the board the old check had been a tolerated failure (the mean includes waking another
+  core); it now passes and is no longer tolerated.
+- **A boot no longer fails the flash read-back.** The disk layout names the partitions a running
+  system writes (the boot selector, the state store, the data volume, the boot trace); the flash
+  plan carries their first contents but its read-back treats them as the system's, so checking a
+  board after it booted passes — while any change to the boot or system volumes still fails it.
+- **A proof lane no longer waits for the host's disk.** Proof sessions attach their per-run disk
+  image with `cache=unsafe`: a guest flush used to become a host sync of the whole image, which on
+  a busy disk stalled block requests for seconds and failed an app launch.
+- **The block driver waits for its device, not for a clock.** virtio-blk binds its interrupt
+  before its first request and then waits for the device's interrupt alone — no watchdog, no
+  polling. A stalled device only delays a request; before, a 2 s timeout gave requests up and kept
+  their slots, so four stalls left a disk that refused everything for the rest of the boot. A
+  device that fails says so itself (`DEVICE_NEEDS_RESET`) and its requests end in an error.
+- **The test harness only watches once its checks are done.** After its last check the selftest
+  client used to spin on the processor for the rest of the run; it now sleeps until its next
+  scheduled look and not at all once none is due, and host input starts only after its own work
+  is finished — so the system under test runs without the harness competing with it.
+- **Fixed on the way:** execd's child table could forget a running app once more than sixteen
+  children had started, so every freeze, thaw or kill for it was refused — it now holds 32 and
+  only ever drops a child that has exited. abilitymgr no longer thaws an app it just had killed
+  when the app's window closes before the death report — proven over every order the events can
+  arrive in.
+
 ### Changed - 2026-10-28 (a frozen app's memory can leave RAM and come back — TASK-0333 6f-2, ADR-0088, RFC-0100 §5)
 
 - **Swap after the squeeze, before the kill.** At `critical` the memory authority, after squeezing

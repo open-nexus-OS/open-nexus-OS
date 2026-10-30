@@ -19,18 +19,17 @@ use core::cell::{Cell, RefCell};
 use core::mem::size_of;
 use core::sync::atomic::{fence, Ordering};
 
+use crate::inflight::{interrupt, Completion, DeviceSays, InFlight, ISR_CONFIG};
 use crate::ring::{Desc, Ring, RingMem, DESC_F_WRITE};
 use crate::{
-    QueueSetup, VirtioBlk, VirtioError, REG_QUEUE_NUM_MAX, REG_QUEUE_SEL, VIRTIO_DEVICE_ID_BLK,
-    VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_LEGACY, VIRTIO_MMIO_VERSION_MODERN,
+    QueueSetup, VirtioBlk, VirtioError, REG_QUEUE_NUM_MAX, REG_QUEUE_SEL, REG_STATUS,
+    VIRTIO_DEVICE_ID_BLK, VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_VERSION_LEGACY,
+    VIRTIO_MMIO_VERSION_MODERN,
 };
 use nexus_abi::{cap_query, vmo_create_contiguous, vmo_dma_base, CapQuery, MmioWindow};
 use nexus_driverkit::Mmio;
 use nexus_hal::Bus;
-use nexus_ipc::timer::{NotifyTimer, Waitset};
-use nexus_service_topology::SlotPair;
-
-mod watchdog;
+mod completion;
 
 const REG_INTERRUPT_STATUS: usize = 0x060;
 const REG_INTERRUPT_ACK: usize = 0x064;
@@ -152,23 +151,17 @@ impl RingMem for QueueMem {
     }
 }
 
-/// One bounded request slot: fixed header/status/data regions.
-#[derive(Clone, Copy)]
-struct SlotState {
-    busy: bool,
-    head: u16,
-    done: bool,
-}
-
 struct DrvState {
     ring: Ring<QUEUE_LEN>,
     mem: QueueMem,
-    slots: [SlotState; IN_FLIGHT_MAX],
+    /// The request slots (fixed header/status/data regions each) and who owns them: a slot
+    /// whose request was given up stays the device's until its late completion.
+    inflight: InFlight<IN_FLIGHT_MAX>,
 }
 
 /// Virtio-blk MMIO backend v2: multi-sector runs, real queue depth via
-/// the host-proven request ring, IRQ completion with honest poll
-/// fallback (TASK-0314).
+/// the host-proven request ring, completions and failures as the
+/// device's interrupts (TASK-0314, TASK-0333 6f-3).
 pub struct VirtioBlkMmio {
     dev: VirtioBlk<Mmio>,
     state: RefCell<DrvState>,
@@ -177,23 +170,19 @@ pub struct VirtioBlkMmio {
     capacity_sectors: u64,
     sector_size: u32,
     irq_num: u32,
-    /// Dedicated notify endpoint (0 = none → poll fallback).
+    /// The owner's notify endpoint the device's line is bound to, before the first request.
     irq_ep: u32,
-    /// The completion wait's bound (TASK-0054C P2-b): a kernel one-shot on the declared
-    /// device-watchdog pair, bound in `new` (the warm-up read is bounded too); `None` = no bound.
-    watchdog: RefCell<Option<NotifyTimer>>,
-    /// `[irq_ep, watchdog]` when an IRQ line is bound — the wait is one waitset wait.
-    wait_ws: RefCell<Option<Waitset>>,
     irq_logged: Cell<bool>,
-    poll_logged: Cell<bool>,
+    /// The device said it failed (`DEVICE_NEEDS_RESET`): every request ends in an error.
+    failed: Cell<bool>,
     requests: Cell<u64>,
 }
 
 impl VirtioBlkMmio {
-    /// The device behind the capability in `mmio_cap_slot`; its completion waits are bounded
-    /// by a one-shot on `watchdog`, the device-watchdog pair its OWNER declares and pins (a
-    /// driver names no service's slots).
-    pub fn new(mmio_cap_slot: u32, watchdog: SlotPair) -> Result<Self, VirtioError> {
+    /// The device behind the capability in `mmio_cap_slot`, its line bound to `irq_ep` — the
+    /// notify endpoint its OWNER provisioned (a driver names no service's slots) — before its
+    /// first request: every wait, the warm-up read's included, is the device's interrupt.
+    pub fn new(mmio_cap_slot: u32, irq_ep: u32) -> Result<Self, VirtioError> {
         // The window is reached through the kernel-chosen map only; its physical
         // base is nobody's business here (RFC-0098 C3: the line comes with the cap).
         let _ = cap_query_base_len(mmio_cap_slot)?;
@@ -288,14 +277,19 @@ impl VirtioBlkMmio {
 
         let capacity_sectors = dev.capacity_sectors();
 
-        // IRQ completion (TASK-0314): the PLIC line travels inside the granted
-        // capability (RFC-0098 C3 — init read it from the node's `interrupts`).
-        // The notify ENDPOINT is the owner's to provision: endpoint creation is
-        // init-factory-gated (RFC-0005 hardening), so embedded owners run
-        // the honest poll fallback until the TASK-0315 block server binds a
-        // properly wired endpoint via `bind_irq_endpoint`.
+        // IRQ completion (TASK-0314): the PLIC line travels inside the granted capability
+        // (RFC-0098 C3 — init read it from the node's `interrupts`); the notify endpoint is the
+        // owner's (endpoint creation is init-factory-gated, RFC-0005). Bound before the first
+        // request: there is no poll fallback — a device whose line cannot be bound is refused.
         let irq_num = nexus_abi::device_irq(mmio_cap_slot);
-        let irq_ep = 0u32;
+        if irq_num == 0 {
+            emit_line("virtio-blk: no irq line");
+            return Err(VirtioError::Unsupported);
+        }
+        if nexus_abi::irq_bind(irq_num, irq_ep).is_err() {
+            emit_line("virtio-blk: irq bind refused");
+            return Err(VirtioError::Unsupported);
+        }
 
         let blk = Self {
             dev,
@@ -306,7 +300,7 @@ impl VirtioBlkMmio {
                     avail: avail_va as *mut VqAvail<QUEUE_LEN>,
                     used: used_va as *const VqUsed<QUEUE_LEN>,
                 },
-                slots: [SlotState { busy: false, head: 0, done: false }; IN_FLIGHT_MAX],
+                inflight: InFlight::new(),
             }),
             buf_va,
             buf_pa,
@@ -314,19 +308,12 @@ impl VirtioBlkMmio {
             sector_size: 512,
             irq_num,
             irq_ep,
-            // TASK-0054C P2-b: the completion wait's bound, from the warm-up read on.
-            watchdog: RefCell::new(NotifyTimer::bind(watchdog).ok()),
-            wait_ws: RefCell::new(None),
             irq_logged: Cell::new(false),
-            poll_logged: Cell::new(false),
+            failed: Cell::new(false),
             requests: Cell::new(0),
         };
 
-        emit_line(if blk.watchdog.borrow().is_some() {
-            "blk: watchdog on"
-        } else {
-            "blk: no watchdog (completion waits unbounded)"
-        });
+        emit_line("blk: irq bound");
         // Warm-up read: catches a dead device before callers rely on it.
         let mut warmup = [0u8; 512];
         if let Err(e) = blk.read_run(0, &mut warmup) {
@@ -349,27 +336,6 @@ impl VirtioBlkMmio {
     /// for the TASK-0314 before/after measurement).
     pub fn requests_submitted(&self) -> u64 {
         self.requests.get()
-    }
-
-    /// Binds this device's derived PLIC line to `ep_slot` (an endpoint the
-    /// OWNER provisioned — the TASK-0315 block server's notify slot).
-    /// Completion waits then BLOCK on the interrupt instead of
-    /// yield-polling. Returns false (poll stays in force) when no line
-    /// could be derived or the bind is refused — a wrong IRQ never hangs a
-    /// request, it only forgoes the reactive wake.
-    pub fn bind_irq_endpoint(&mut self, ep_slot: u32) -> bool {
-        if self.irq_num == 0 {
-            return false;
-        }
-        if nexus_abi::irq_bind(self.irq_num, ep_slot).is_err() {
-            return false;
-        }
-        self.irq_ep = ep_slot;
-        // From here a completion wait is one waitset wait over `[irq_ep, watchdog]`.
-        if let Some(t) = self.watchdog.borrow().as_ref() {
-            *self.wait_ws.borrow_mut() = Waitset::over(&[ep_slot, t.recv_slot()]).ok();
-        }
-        true
     }
 
     /// Reads a bounded multi-sector run (len multiple of 512, ≤ 16 KiB)
@@ -411,6 +377,10 @@ impl VirtioBlkMmio {
         data_in: Option<&[u8]>,
         data_out: Option<&mut [u8]>,
     ) -> Result<(), VirtioError> {
+        if self.failed.get() {
+            // The device said it failed: nothing it is given comes back.
+            return Err(VirtioError::Unsupported);
+        }
         let is_flush = req_type == VIRTIO_BLK_T_FLUSH;
         let data_len = match (&data_in, &data_out) {
             (Some(buf), None) => buf.len(),
@@ -433,10 +403,12 @@ impl VirtioBlkMmio {
             return Err(VirtioError::Unsupported);
         }
 
+        // Late completions first: a slot the device gave back is free again.
+        self.drain()?;
         // Slot + chain setup (borrow scoped: released before waiting).
         let slot_idx = {
             let mut st = self.state.borrow_mut();
-            let Some(slot_idx) = st.slots.iter().position(|s| !s.busy) else {
+            let Some(slot_idx) = st.inflight.claim() else {
                 emit_line("virtio-blk: slots exhausted");
                 return Err(VirtioError::Unsupported);
             };
@@ -483,7 +455,7 @@ impl VirtioBlkMmio {
                     return Err(VirtioError::Unsupported);
                 }
             };
-            st.slots[slot_idx] = SlotState { busy: true, head, done: false };
+            let _ = st.inflight.submitted(slot_idx, head);
             slot_idx
         };
         self.requests.set(self.requests.get().wrapping_add(1));
@@ -491,7 +463,13 @@ impl VirtioBlkMmio {
         fence(Ordering::SeqCst);
         self.dev.notify_queue(0);
 
-        self.wait_done(slot_idx)?;
+        if let Err(e) = self.wait_done(slot_idx) {
+            // The wait failed: the device keeps the chain, and a late completion frees the
+            // slot; no interrupt is left claimed for the next request to miss.
+            self.state.borrow_mut().inflight.abandon(slot_idx);
+            let _ = self.ack_irq();
+            return Err(e);
+        }
 
         if let Some(out) = data_out {
             let data_va = self.buf_va + 4096 + slot_idx * MAX_RUN_BYTES;
@@ -501,7 +479,7 @@ impl VirtioBlkMmio {
         }
         let status_va = self.buf_va + STATUS_OFF + slot_idx;
         let status = unsafe { core::ptr::read_volatile(status_va as *const u8) };
-        self.state.borrow_mut().slots[slot_idx].busy = false;
+        let _ = self.state.borrow_mut().inflight.release(slot_idx);
         if status != VIRTIO_BLK_S_OK {
             emit_line("virtio-blk: status err");
             return Err(VirtioError::Unsupported);
@@ -509,16 +487,17 @@ impl VirtioBlkMmio {
         Ok(())
     }
 
-    /// Drains completed chains from the used ring into slot `done`
-    /// flags. Device-provided ids are validated by the ring.
+    /// Drains completed chains from the used ring into the in-flight table: a waiter's request
+    /// is done, a request given up on frees its slot. Device-provided ids are validated by the
+    /// ring.
     fn drain(&self) -> Result<(), VirtioError> {
         let mut st = self.state.borrow_mut();
         loop {
-            let DrvState { ring, mem, slots } = &mut *st;
+            let DrvState { ring, mem, inflight } = &mut *st;
             match ring.complete(mem) {
                 Ok(Some(head)) => {
-                    if let Some(slot) = slots.iter_mut().find(|s| s.busy && s.head == head) {
-                        slot.done = true;
+                    if let Completion::Reclaimed(_) = inflight.completed(head) {
+                        emit_line("virtio-blk: late completion (slot back)");
                     }
                 }
                 Ok(None) => return Ok(()),
@@ -532,8 +511,9 @@ impl VirtioBlkMmio {
 
     /// Drain queued notifications, clear InterruptStatus, THEN
     /// `irq_complete` — the virtio-input/gpud ordering lesson: any other
-    /// order lets the source storm or lose the edge.
-    fn ack_irq(&self) {
+    /// order lets the source storm or lose the edge. Answers what the
+    /// interrupt said (the device status read on a configuration change).
+    fn ack_irq(&self) -> DeviceSays {
         let mut hdr = nexus_abi::MsgHeader::new(0, 0, 0, 0, 0);
         let mut buf = [0u8; 16];
         for _ in 0..8 {
@@ -541,10 +521,12 @@ impl VirtioBlkMmio {
                 break;
             }
         }
-        let status = self.dev.bus.read(REG_INTERRUPT_STATUS);
-        if status != 0 {
-            self.dev.bus.write(REG_INTERRUPT_ACK, status);
+        let isr = self.dev.bus.read(REG_INTERRUPT_STATUS);
+        let status = if isr & ISR_CONFIG != 0 { self.dev.bus.read(REG_STATUS) } else { 0 };
+        if isr != 0 {
+            self.dev.bus.write(REG_INTERRUPT_ACK, isr);
         }
         let _ = nexus_abi::irq_complete(self.irq_num);
+        interrupt(isr, status)
     }
 }

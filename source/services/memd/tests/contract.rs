@@ -107,7 +107,14 @@ fn the_lowest_band_goes_first_and_the_longest_in_it() {
     assert_eq!(
         push(&mut m, 14, wire::BAND_GONE),
         Outcome::Band(BandEvent::KillProven {
-            pending: Pending { pid: 14, band: 4, source: Source::Drill },
+            pending: Pending {
+                pid: 14,
+                band: 4,
+                source: Source::Drill,
+                level: MEM_PRESSURE_CRITICAL,
+                free: 0,
+                total: 0,
+            },
             again: false,
         })
     );
@@ -156,7 +163,14 @@ fn a_kernel_level_judges_at_once_and_asks_again_when_proven() {
     assert_eq!(
         a.on_band(14, wire::BAND_GONE),
         BandEvent::KillProven {
-            pending: Pending { pid: 14, band: 4, source: Source::Kernel },
+            pending: Pending {
+                pid: 14,
+                band: 4,
+                source: Source::Kernel,
+                level: MEM_PRESSURE_CRITICAL,
+                free: 4_450,
+                total: 77_261,
+            },
             again: true
         }
     );
